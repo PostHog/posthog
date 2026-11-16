@@ -39,6 +39,7 @@ FROZEN_KIND_DEFAULTS: dict[str, str] = {
     "customerio-webhook": "token",
     "databricks": "credentials",
     "email": "credentials",
+    "email_sandbox": "credentials",
     "firebase": "credentials",
     "github": "oauth",
     "gitlab": "token",

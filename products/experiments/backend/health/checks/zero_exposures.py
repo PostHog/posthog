@@ -1,3 +1,5 @@
+from datetime import UTC
+
 from products.experiments.backend.facade.contracts import (
     ExperimentHealthFinding,
     ExperimentHealthFindingActionKind,
@@ -15,6 +17,7 @@ EXPERIMENT_PAUSED = "experiment_paused"
 FLAG_NOT_CALLED = "flag_not_called"
 CALLS_NOT_COUNTED = "calls_not_counted"
 CUSTOM_EXPOSURE_NOT_MATCHED = "custom_exposure_not_matched"
+BILLING_LIMIT = "billing_limit"
 # pinned: the finding's `reason`.
 TEST_ACCOUNT_FILTER = "test_account_filter"
 
@@ -32,10 +35,15 @@ def zero_exposures_values(ctx: HealthContext) -> CheckValues:
     if exposures is None:
         return {}
     hours = exposures.hours_since_launch
-    return {
+    values = {
         ExperimentHealthValueKey.EXPOSED_COUNT: exposures.total,
         ExperimentHealthValueKey.SINCE_LAUNCH_HOURS: None if hours is None else round(hours, 1),
     }
+    last_called_at = ctx.flag_last_called_at
+    # The flag's calls tell why nobody is exposed only when the exposures count them.
+    if ctx.exposure_events is None or ctx.exposure_events.required_flag_key is None or last_called_at is None:
+        return values
+    return {**values, ExperimentHealthValueKey.FLAG_LAST_CALLED_AT: last_called_at.astimezone(UTC).isoformat()}
 
 
 def zero_exposures(ctx: HealthContext) -> CheckOutcome:
@@ -71,6 +79,22 @@ def zero_exposures(ctx: HealthContext) -> CheckOutcome:
             detail=(
                 "The experiment is paused, so its feature flag serves no variants and nobody is counted as exposed. "
                 f"Resume the experiment to expose {unit}s."
+            ),
+            evidence=evidence,
+            actions=(),
+        )
+    # A flag call recorded during the run means that capture took events after launch, so the limit began later and
+    # doesn't explain why none of those calls counted.
+    if ctx.events_billing_limited and ctx.flag_called_during_run is not True:
+        return _finding(
+            subcode=BILLING_LIMIT,
+            severity=ExperimentHealthFindingSeverity.WARNING,
+            title=f"No {unit}s exposed: the product analytics limit is reached",
+            detail=(
+                "Your organization reached its billing limit or free tier limit for product analytics, so PostHog "
+                f"drops the events this project sends, including the events that count {unit}s as exposed. Nobody is "
+                "counted until you raise the limit or subscribe on the billing page, or until the next billing period "
+                "starts. PostHog doesn't keep the events it drops, so they can't be counted later."
             ),
             evidence=evidence,
             actions=(),

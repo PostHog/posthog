@@ -5,7 +5,7 @@ import { TZLabel } from 'lib/components/TZLabel'
 
 import { ReleaseLifecycleStep } from './releaseUtils'
 
-export function ReleaseLifecycle({ steps }: { steps: ReleaseLifecycleStep[] }): JSX.Element {
+export function ReleaseLifecycle({ steps, color }: { steps: ReleaseLifecycleStep[]; color: string }): JSX.Element {
     return (
         <ol className="m-0 flex list-none p-0" aria-label="Release progress">
             {steps.map((step, index) => (
@@ -19,9 +19,12 @@ export function ReleaseLifecycle({ steps }: { steps: ReleaseLifecycleStep[] }): 
                             className={cn(
                                 'flex size-5 shrink-0 items-center justify-center rounded-full border',
                                 step.state === 'done' && 'border-border text-success-foreground',
-                                step.state === 'current' && 'border-primary bg-primary text-primary-foreground',
+                                step.state === 'current' && 'text-primary-foreground',
                                 step.state === 'upcoming' && 'border-dashed border-border'
                             )}
+                            style={
+                                step.state === 'current' ? { backgroundColor: color, borderColor: color } : undefined
+                            }
                         >
                             {step.state === 'done' ? (
                                 <IconCheck className="size-3" />

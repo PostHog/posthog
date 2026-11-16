@@ -142,18 +142,12 @@ impl PersonCache {
     }
 
     pub fn get(&self, key: &PersonCacheKey) -> Option<CachedPerson> {
-        let person = self.lookup(key);
-        match person {
-            Some(_) => counter!("personhog_leader_cache_hits_total").increment(1),
-            None => counter!("personhog_leader_cache_misses_total").increment(1),
-        }
-        person
+        self.lookup(key)
     }
 
     /// A read for bookkeeping passes such as the death-document settle.
-    /// It skips the hit/miss counters and does not copy or decompress the
-    /// properties. It still promotes the entry's recency, which is
-    /// harmless for those passes.
+    /// It does not copy or decompress the properties. It still promotes
+    /// the entry's recency, which is harmless for those passes.
     pub fn peek(&self, key: &PersonCacheKey) -> Option<CachedVersion> {
         self.inner
             .get(key)

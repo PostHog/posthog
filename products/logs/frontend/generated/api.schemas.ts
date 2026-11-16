@@ -626,6 +626,11 @@ export interface UserBasicApi {
  */
 export type LogsAlertConfigurationApiLabels = { [key: string]: string }
 
+/**
+ * Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://. Notifications show annotations. Only an alert the alerts platform evaluates can have annotations. Any other alert reads as empty and rejects a value. Omit it on update to keep the current annotations. A value replaces all of them.
+ */
+export type LogsAlertConfigurationApiAnnotations = { [key: string]: string }
+
 export interface LogsAlertConfigurationApi {
     /** Unique identifier for this alert. */
     readonly id: string
@@ -715,7 +720,9 @@ export interface LogsAlertConfigurationApi {
     grouping?: LogsAlertGroupingApi
     /** Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates. Alert routes match on labels to send the alert to shared receivers. Only an alert the alerts platform evaluates can have labels. Any other alert reads as empty and rejects a value. Omit it on update to keep the current labels. A value replaces all of them. */
     labels?: LogsAlertConfigurationApiLabels
-    /** Whether the alerts platform evaluates this alert and sends its notifications. Only such an alert can set labels, or a grouping other than single. */
+    /** Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://. Notifications show annotations. Only an alert the alerts platform evaluates can have annotations. Any other alert reads as empty and rejects a value. Omit it on update to keep the current annotations. A value replaces all of them. */
+    annotations?: LogsAlertConfigurationApiAnnotations
+    /** Whether the alerts platform evaluates this alert and sends its notifications. Only such an alert can set labels, annotations, or a grouping other than single. */
     readonly platform_owned: boolean
     /**
      * When the alert was first enabled. Null means the alert is still in draft state.
@@ -747,6 +754,11 @@ export interface PaginatedLogsAlertConfigurationListApi {
 export type LogsAlertConfigurationDetailApiLabels = { [key: string]: string }
 
 /**
+ * Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://. Notifications show annotations. Only an alert the alerts platform evaluates can have annotations. Any other alert reads as empty and rejects a value. Omit it on update to keep the current annotations. A value replaces all of them.
+ */
+export type LogsAlertConfigurationDetailApiAnnotations = { [key: string]: string }
+
+/**
  * * `critical` - critical
  * * `error` - error
  * * `warning` - warning
@@ -774,6 +786,11 @@ export const PagerDutyRegionEnumApi = {
 
 export interface LogsAlertDestinationConfigApi {
     hog_function_ids: string[]
+    /**
+     * The destination's ID on the alerts platform. Null for a destination added before the platform kept one, which `hog_function_ids` identifies instead. A destination whose HogFunctions are gone has an empty `hog_function_ids`, and is deleted by this ID.
+     * @nullable
+     */
+    id: string | null
     /** Notification destination type.
      *
      * * `slack` - slack
@@ -787,6 +804,8 @@ export interface LogsAlertDestinationConfigApi {
     message_customized: boolean
     slack_workspace_id?: number
     slack_channel_id?: string
+    /** The Slack channel's name when the destination was added. Absent for older destinations. */
+    slack_channel_name?: string
     /** Webhook endpoint reduced to scheme and host. The path, query and userinfo carry the secret. */
     webhook_url?: string
     /** PagerDuty integration key reduced to its last four characters. */
@@ -898,7 +917,9 @@ export interface LogsAlertConfigurationDetailApi {
     grouping?: LogsAlertGroupingApi
     /** Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates. Alert routes match on labels to send the alert to shared receivers. Only an alert the alerts platform evaluates can have labels. Any other alert reads as empty and rejects a value. Omit it on update to keep the current labels. A value replaces all of them. */
     labels?: LogsAlertConfigurationDetailApiLabels
-    /** Whether the alerts platform evaluates this alert and sends its notifications. Only such an alert can set labels, or a grouping other than single. */
+    /** Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://. Notifications show annotations. Only an alert the alerts platform evaluates can have annotations. Any other alert reads as empty and rejects a value. Omit it on update to keep the current annotations. A value replaces all of them. */
+    annotations?: LogsAlertConfigurationDetailApiAnnotations
+    /** Whether the alerts platform evaluates this alert and sends its notifications. Only such an alert can set labels, annotations, or a grouping other than single. */
     readonly platform_owned: boolean
     /**
      * When the alert was first enabled. Null means the alert is still in draft state.
@@ -921,6 +942,11 @@ export interface LogsAlertConfigurationDetailApi {
  * Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates. Alert routes match on labels to send the alert to shared receivers. Only an alert the alerts platform evaluates can have labels. Any other alert reads as empty and rejects a value. Omit it on update to keep the current labels. A value replaces all of them.
  */
 export type PatchedLogsAlertConfigurationApiLabels = { [key: string]: string }
+
+/**
+ * Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://. Notifications show annotations. Only an alert the alerts platform evaluates can have annotations. Any other alert reads as empty and rejects a value. Omit it on update to keep the current annotations. A value replaces all of them.
+ */
+export type PatchedLogsAlertConfigurationApiAnnotations = { [key: string]: string }
 
 export interface PatchedLogsAlertConfigurationApi {
     /** Unique identifier for this alert. */
@@ -1011,7 +1037,9 @@ export interface PatchedLogsAlertConfigurationApi {
     grouping?: LogsAlertGroupingApi
     /** Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates. Alert routes match on labels to send the alert to shared receivers. Only an alert the alerts platform evaluates can have labels. Any other alert reads as empty and rejects a value. Omit it on update to keep the current labels. A value replaces all of them. */
     labels?: PatchedLogsAlertConfigurationApiLabels
-    /** Whether the alerts platform evaluates this alert and sends its notifications. Only such an alert can set labels, or a grouping other than single. */
+    /** Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://. Notifications show annotations. Only an alert the alerts platform evaluates can have annotations. Any other alert reads as empty and rejects a value. Omit it on update to keep the current annotations. A value replaces all of them. */
+    annotations?: PatchedLogsAlertConfigurationApiAnnotations
+    /** Whether the alerts platform evaluates this alert and sends its notifications. Only such an alert can set labels, annotations, or a grouping other than single. */
     readonly platform_owned?: boolean
     /**
      * When the alert was first enabled. Null means the alert is still in draft state.
@@ -1065,11 +1093,13 @@ export interface LogsAlertDestinationResponseApi {
 }
 
 export interface LogsAlertDeleteDestinationApi {
+    /** HogFunction IDs to delete as one atomic destination group. */
+    hog_function_ids?: string[]
     /**
-     * HogFunction IDs to delete as one atomic destination group.
-     * @minItems 1
+     * Destination IDs, from `destinations[].id`, to delete with their HogFunctions.
+     * @maxItems 100
      */
-    hog_function_ids: string[]
+    destination_ids?: string[]
 }
 
 /**
@@ -1733,6 +1763,26 @@ export interface _LogsAttributesResponseApi {
     count: number
 }
 
+export interface _LogsContextAttributeAnchorApi {
+    /** Log attribute key, e.g. "workflow_run_id". */
+    key: string
+    /** Exact attribute value to follow. */
+    value: string
+}
+
+export interface _LogsContextAnchorApi {
+    /** uuid of one log line. Needs `timestamp`. */
+    logUuid?: string
+    /** ISO 8601 timestamp of the `logUuid` log line. */
+    timestamp?: string
+    /** Trace id, 32 hex characters or base64. */
+    traceId?: string
+    /** Follow every log with this attribute value. */
+    attribute?: _LogsContextAttributeAnchorApi
+    /** ISO 8601 time hint. Required with `attribute`, used with `traceId` only when the trace has no spans. */
+    around?: string
+}
+
 /**
  * * `trace` - trace
  * * `debug` - debug
@@ -1741,9 +1791,9 @@ export interface _LogsAttributesResponseApi {
  * * `error` - error
  * * `fatal` - fatal
  */
-export type SeverityLevelsEnumApi = (typeof SeverityLevelsEnumApi)[keyof typeof SeverityLevelsEnumApi]
+export type LogsSeverityLevelEnumApi = (typeof LogsSeverityLevelEnumApi)[keyof typeof LogsSeverityLevelEnumApi]
 
-export const SeverityLevelsEnumApi = {
+export const LogsSeverityLevelEnumApi = {
     Trace: 'trace',
     Debug: 'debug',
     Info: 'info',
@@ -1752,11 +1802,205 @@ export const SeverityLevelsEnumApi = {
     Fatal: 'fatal',
 } as const
 
+/**
+ * * `spans` - Spans
+ */
+export type LogsContextIncludeEnumApi = (typeof LogsContextIncludeEnumApi)[keyof typeof LogsContextIncludeEnumApi]
+
+export const LogsContextIncludeEnumApi = {
+    Spans: 'spans',
+} as const
+
+export interface _LogsContextBodyApi {
+    /** Exactly one anchor: a log line, a trace, or an attribute value. */
+    anchor: _LogsContextAnchorApi
+    /** Time on each side of the anchor: "30s", "5m", "1h" (max 6h). Default 30s for a trace, 5m otherwise. */
+    padding?: string
+    /** Keep only these severities in the timeline. */
+    severityLevels?: LogsSeverityLevelEnumApi[]
+    /** Restrict the timeline to these services. Default: the trace's services, the log's service, or all. */
+    serviceNames?: string[]
+    /** "spans" adds spans_summary for a trace anchor. */
+    include?: LogsContextIncludeEnumApi[]
+    /**
+     * Maximum timeline rows.
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number
+    /** `next_cursor` of a previous call with the same anchor. */
+    after?: string
+}
+
+export interface LogsContextRequestApi {
+    /** The context query. */
+    query: _LogsContextBodyApi
+}
+
+export interface LogsAgentWindowBoundsApi {
+    /** Window start, ISO 8601 UTC with a Z suffix (inclusive). */
+    from: string
+    /** Window end, ISO 8601 UTC with a Z suffix (exclusive). */
+    to: string
+}
+
+export interface LogsAgentWindowApi {
+    /** Absolute bounds the server used for the current window. */
+    current: LogsAgentWindowBoundsApi
+    /** Absolute bounds the server used for the baseline window, when there is one. */
+    baseline?: LogsAgentWindowBoundsApi
+    /** Always "UTC". */
+    timezone: string
+}
+
+/**
+ * * `trace` - Trace
+ * * `log` - Log
+ * * `attribute` - Attribute
+ */
+export type LogsContextAnchorTypeEnumApi =
+    (typeof LogsContextAnchorTypeEnumApi)[keyof typeof LogsContextAnchorTypeEnumApi]
+
+export const LogsContextAnchorTypeEnumApi = {
+    Trace: 'trace',
+    Log: 'log',
+    Attribute: 'attribute',
+} as const
+
+export interface _LogsContextAnchorSummaryApi {
+    /** The anchor kind.
+     *
+     * * `trace` - Trace
+     * * `log` - Log
+     * * `attribute` - Attribute */
+    type: LogsContextAnchorTypeEnumApi
+    /**
+     * Trace id (hex) of the anchor, when there is one.
+     * @nullable
+     */
+    trace_id: string | null
+    /** Reference time (UTC) that `t_offset_ms` counts from. */
+    timestamp: string
+    /**
+     * Trace start or first matching log (UTC).
+     * @nullable
+     */
+    start: string | null
+    /**
+     * Trace end or last matching log (UTC).
+     * @nullable
+     */
+    end: string | null
+    /**
+     * end - start in milliseconds.
+     * @nullable
+     */
+    duration_ms: number | null
+    /** Services of the anchor. */
+    services: string[]
+}
+
+export interface _LogsContextCorrelationKeyApi {
+    /** Id-like attribute of the anchor log. */
+    key: string
+    /** Its value on the anchor log. */
+    value: string
+    /** Logs in the window, any service, with this value. */
+    log_count: number
+}
+
+export interface _LogsContextTimelineRowApi {
+    /** Milliseconds from the anchor reference time. */
+    t_offset_ms: number
+    /** Log timestamp (UTC). */
+    timestamp: string
+    /** Service that emitted the line. */
+    service: string
+    /** Severity of the line. */
+    severity: string
+    /** Log body, cut to 300 characters. */
+    body: string
+    /** k=v attributes that differ from the anchor log, without noise keys. */
+    attrs: string
+    /** Log uuid, usable with `timestamp` as a log anchor. */
+    uuid: string
+}
+
+export interface _LogsContextSpanApi {
+    /** Span id (hex). */
+    span_id: string
+    /** Span name. */
+    name: string
+    /** Service of the span. */
+    service: string
+    /** Milliseconds from the trace start. */
+    start_offset_ms: number
+    /** Span duration in milliseconds. */
+    duration_ms: number
+    /** Duration not covered by child spans. */
+    self_time_ms: number
+    /** "error" or "ok". */
+    status: string
+}
+
+export interface _LogsContextSpansSummaryApi {
+    /** Spans read. */
+    span_count: number
+    /** True when the trace has more spans than were read. */
+    truncated: boolean
+    /** Services with spans in the trace. */
+    services: string[]
+    /** The root span, null when it never arrived. */
+    root: _LogsContextSpanApi | null
+    /** Up to 10 spans with an error status. */
+    error_spans: _LogsContextSpanApi[]
+    /** The 5 longest spans. */
+    slowest: _LogsContextSpanApi[]
+}
+
+/**
+ * Prefilled `query` object for that tool. Pass it as is or adjust it.
+ */
+export type LogsAgentNextCallApiQuery = { [key: string]: unknown }
+
+export interface LogsAgentNextCallApi {
+    /** MCP tool to call next, e.g. query-logs or logs-context. */
+    tool: string
+    /** One line on what the follow-up call answers. */
+    why: string
+    /** Prefilled `query` object for that tool. Pass it as is or adjust it. */
+    query: LogsAgentNextCallApiQuery
+}
+
+export interface LogsContextResponseApi {
+    /** Absolute UTC bounds the logs were read from. */
+    window: LogsAgentWindowApi
+    /** The resolved anchor. */
+    anchor: _LogsContextAnchorSummaryApi
+    /** Id-like attributes of the anchor log, with counts. */
+    correlation_keys: _LogsContextCorrelationKeyApi[]
+    /** Log lines, earliest first. */
+    timeline: _LogsContextTimelineRowApi[]
+    /** Set for a trace anchor with include ["spans"]. */
+    spans_summary: _LogsContextSpansSummaryApi | null
+    /** True when more rows exist past `limit`. */
+    truncated: boolean
+    /**
+     * Pass as `after` for the next page.
+     * @nullable
+     */
+    next_cursor: string | null
+    /** Prefilled follow-up calls. */
+    next: LogsAgentNextCallApi[]
+    /** Caveats about the window. */
+    notes: string[]
+}
+
 export interface _LogsCountBodyApi {
     /** Date range for the count. Defaults to last hour. */
     dateRange?: _DateRangeApi
     /** Filter by log severity levels. */
-    severityLevels?: SeverityLevelsEnumApi[]
+    severityLevels?: LogsSeverityLevelEnumApi[]
     /** Filter by service names. */
     serviceNames?: string[]
     /** Full-text search term to filter log bodies. */
@@ -1785,7 +2029,7 @@ export interface _LogsCountRangesBodyApi {
      */
     targetBuckets?: number
     /** Filter by log severity levels. Applied before bucketing. */
-    severityLevels?: SeverityLevelsEnumApi[]
+    severityLevels?: LogsSeverityLevelEnumApi[]
     /** Filter by service names. Applied before bucketing. */
     serviceNames?: string[]
     /** Full-text search across log bodies. Applied before bucketing. */
@@ -1854,7 +2098,7 @@ export interface _LogsFacetValuesBodyApi {
     /** Date range. Defaults to last hour. */
     dateRange?: _DateRangeApi
     /** Filter by log severity levels (ignored when faceting on severity_text). */
-    severityLevels?: SeverityLevelsEnumApi[]
+    severityLevels?: LogsSeverityLevelEnumApi[]
     /** Filter by service names (ignored when faceting on service_name). */
     serviceNames?: string[]
     /** Full-text search term to filter log bodies. */
@@ -1930,7 +2174,7 @@ export interface _LogsGroupByBodyApi {
     /** Date range to aggregate over. Defaults to last hour. */
     dateRange?: _DateRangeApi
     /** Filter by log severity levels before grouping. */
-    severityLevels?: SeverityLevelsEnumApi[]
+    severityLevels?: LogsSeverityLevelEnumApi[]
     /** Restrict grouping to these service names. */
     serviceNames?: string[]
     /** Full-text search term to filter log bodies before grouping. */
@@ -2205,7 +2449,7 @@ export interface _LogsNaturalLanguageCandidateQueryApi {
     /** Date range of this reading. */
     dateRange: _LogsNaturalLanguageDateRangeApi
     /** Severity levels to keep. Empty means all levels. */
-    severityLevels: SeverityLevelsEnumApi[]
+    severityLevels: LogsSeverityLevelEnumApi[]
     /** Services to keep. Empty means all services. */
     serviceNames: string[]
     /** Attribute and message filters, combined with AND. */
@@ -2262,7 +2506,7 @@ export interface _LogsPatternsBodyApi {
     /** Date range to mine patterns from. Defaults to last hour. */
     dateRange?: _DateRangeApi
     /** Filter by log severity levels before mining. */
-    severityLevels?: SeverityLevelsEnumApi[]
+    severityLevels?: LogsSeverityLevelEnumApi[]
     /** Restrict mining to these service names. */
     serviceNames?: string[]
     /** Full-text search term to filter log bodies before mining. */
@@ -2424,7 +2668,7 @@ export interface _LogsPatternsDiffBodyApi {
     /** Date range to mine patterns from. Defaults to last hour. */
     dateRange?: _DateRangeApi
     /** Filter by log severity levels before mining. */
-    severityLevels?: SeverityLevelsEnumApi[]
+    severityLevels?: LogsSeverityLevelEnumApi[]
     /** Restrict mining to these service names. */
     serviceNames?: string[]
     /** Full-text search term to filter log bodies before mining. */
@@ -2451,22 +2695,6 @@ export interface _LogsPatternsDiffRequestApi {
     baselineDateRange?: _DateRangeApi
 }
 
-export interface LogsAgentWindowBoundsApi {
-    /** Window start, ISO 8601 UTC with a Z suffix (inclusive). */
-    from: string
-    /** Window end, ISO 8601 UTC with a Z suffix (exclusive). */
-    to: string
-}
-
-export interface LogsAgentWindowApi {
-    /** Absolute bounds the server used for the current window. */
-    current: LogsAgentWindowBoundsApi
-    /** Absolute bounds the server used for the baseline window, when there is one. */
-    baseline?: LogsAgentWindowBoundsApi
-    /** Always "UTC". */
-    timezone: string
-}
-
 /**
  * * `stored_patterns` - Stored Patterns
  * * `body_mining` - Body Mining
@@ -2477,20 +2705,6 @@ export const PatternsDiffSourceEnumApi = {
     StoredPatterns: 'stored_patterns',
     BodyMining: 'body_mining',
 } as const
-
-/**
- * Prefilled `query` object for that tool. Pass it as is or adjust it.
- */
-export type LogsAgentNextCallApiQuery = { [key: string]: unknown }
-
-export interface LogsAgentNextCallApi {
-    /** MCP tool to call next, e.g. query-logs or logs-context. */
-    tool: string
-    /** One line on what the follow-up call answers. */
-    why: string
-    /** Prefilled `query` object for that tool. Pass it as is or adjust it. */
-    query: LogsAgentNextCallApiQuery
-}
 
 /**
  * * `new` - new
@@ -2665,7 +2879,7 @@ export interface _LogsQueryBodyApi {
     /** Date range for the query. Defaults to last hour. */
     dateRange?: _DateRangeApi
     /** Filter by log severity levels. */
-    severityLevels?: SeverityLevelsEnumApi[]
+    severityLevels?: LogsSeverityLevelEnumApi[]
     /** Filter by service names. */
     serviceNames?: string[]
     /** Order results by timestamp.
@@ -2694,9 +2908,40 @@ export interface _LogsQueryBodyApi {
     sessionId?: string
 }
 
+/**
+ * * `initial_load` - initial_load
+ * * `filter_change` - filter_change
+ * * `filters_restored` - filters_restored
+ * * `sort_change` - sort_change
+ * * `column_change` - column_change
+ * * `scope_change` - scope_change
+ * * `refresh` - refresh
+ */
+export type LogsQueryTriggerEnumApi = (typeof LogsQueryTriggerEnumApi)[keyof typeof LogsQueryTriggerEnumApi]
+
+export const LogsQueryTriggerEnumApi = {
+    InitialLoad: 'initial_load',
+    FilterChange: 'filter_change',
+    FiltersRestored: 'filters_restored',
+    SortChange: 'sort_change',
+    ColumnChange: 'column_change',
+    ScopeChange: 'scope_change',
+    Refresh: 'refresh',
+} as const
+
 export interface _LogsQueryRequestApi {
     /** The logs query to execute. */
     query: _LogsQueryBodyApi
+    /** What caused the PostHog app to run this query. Used for usage analytics only, with no effect on results. API clients omit it.
+     *
+     * * `initial_load` - initial_load
+     * * `filter_change` - filter_change
+     * * `filters_restored` - filters_restored
+     * * `sort_change` - sort_change
+     * * `column_change` - column_change
+     * * `scope_change` - scope_change
+     * * `refresh` - refresh */
+    trigger?: LogsQueryTriggerEnumApi
 }
 
 /**
@@ -3007,7 +3252,7 @@ export interface _LogsServicesBodyApi {
     /** Date range for the services aggregation. Defaults to last hour. */
     dateRange?: _DateRangeApi
     /** Filter by log severity levels. */
-    severityLevels?: SeverityLevelsEnumApi[]
+    severityLevels?: LogsSeverityLevelEnumApi[]
     /** Restrict the aggregation to these service names. */
     serviceNames?: string[]
     /** Full-text search term to filter log bodies. */
@@ -3248,7 +3493,7 @@ export interface _LogsSparklineBodyApi {
     /** Date range for the sparkline. Defaults to last hour. */
     dateRange?: _DateRangeApi
     /** Filter by log severity levels. */
-    severityLevels?: SeverityLevelsEnumApi[]
+    severityLevels?: LogsSeverityLevelEnumApi[]
     /** Filter by service names. */
     serviceNames?: string[]
     /** Full-text search term to filter log bodies. */
@@ -3285,7 +3530,7 @@ export interface _LogsSparklineBucketApi {
     service?: string
     /** Number of log entries in the bucket. */
     count: number
-    /** Sum of uncompressed bytes for the bucket. */
+    /** Sum of uncompressed bytes for the bucket. Present only when sparklineRankBy is "bytes". */
     bytes_uncompressed?: number
 }
 

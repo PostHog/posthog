@@ -18,17 +18,19 @@ from products.signals.backend.models import (
     SignalScoutConfig,
     SignalScoutRun,
 )
-from products.signals.backend.report_actions import suppress_report_from_slack
+from products.signals.backend.report_actions import resolve_report_from_slack, suppress_report_from_slack
 
 
 class TestSignalReportSlackActions(BaseTest):
     def test_slack_dismissal_records_its_verdict_once(self) -> None:
         report = SignalReport.objects.create(team=self.team, status=SignalReport.Status.READY, title="A report")
 
-        for _ in range(2):
-            assert suppress_report_from_slack(
-                self.team.id, str(report.id), slack_user_id="slack-user-1", user_id=self.user.id
-            )
+        outcomes = [
+            suppress_report_from_slack(self.team.id, str(report.id), slack_user_id="slack-user-1", user_id=self.user.id)
+            for _ in range(2)
+        ]
+
+        assert outcomes == ["changed", "unchanged"]
 
         report.refresh_from_db()
         assert report.status == SignalReport.Status.SUPPRESSED
@@ -37,6 +39,45 @@ class TestSignalReportSlackActions(BaseTest):
         assert feedback.state == "suppressed"
         assert feedback.reason == "slack_dismiss"
         assert feedback.slack_user_id == "slack-user-1"
+
+    def test_slack_resolve_records_its_verdict_once(self) -> None:
+        report = SignalReport.objects.create(team=self.team, status=SignalReport.Status.READY, title="A report")
+
+        outcomes = [
+            resolve_report_from_slack(self.team.id, str(report.id), slack_user_id="slack-user-1", user_id=self.user.id)
+            for _ in range(2)
+        ]
+
+        assert outcomes == ["changed", "unchanged"]
+
+        report.refresh_from_db()
+        assert report.status == SignalReport.Status.RESOLVED
+        dismissal = SignalReportArtefact.objects.get(report=report, type=SignalReportArtefact.ArtefactType.DISMISSAL)
+        feedback = Dismissal.model_validate_json(dismissal.content)
+        assert feedback.state == "resolved"
+        assert feedback.reason == "slack_resolve"
+        assert feedback.slack_user_id == "slack-user-1"
+
+    @parameterized.expand(
+        [
+            ("potential", SignalReport.Status.POTENTIAL, None),
+            # Monitoring has open checks that only the inbox resolve cancels.
+            ("monitoring", SignalReport.Status.MONITORING, None),
+            # A candidate archived and then resolved would skip research.
+            ("archived_candidate", SignalReport.Status.SUPPRESSED, SignalReport.Status.CANDIDATE),
+        ]
+    )
+    def test_slack_resolve_refuses_a_report_that_cannot_resolve_from_slack(
+        self, _name: str, status: str, status_before_suppression: str | None
+    ) -> None:
+        report = SignalReport.objects.create(
+            team=self.team, status=status, status_before_suppression=status_before_suppression, title="A report"
+        )
+
+        assert resolve_report_from_slack(self.team.id, str(report.id), user_id=self.user.id) == "refused"
+
+        report.refresh_from_db()
+        assert report.status == status
 
 
 class TestSignalReportViewedEndpoint(APIBaseTest):

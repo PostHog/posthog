@@ -76,10 +76,14 @@ _TRUNCATED: Final = "…"
 
 def _bounded_label(value: str) -> str:
     # A label is display only, so a character the database cannot store shows as a replacement.
-    value = UNSTORABLE.sub("\ufffd", value)
-    if encoded_length(value) <= MAX_LABEL_BYTES:
+    return clipped_to(UNSTORABLE.sub("\ufffd", value), MAX_LABEL_BYTES)
+
+
+def clipped_to(value: str, max_bytes: int) -> str:
+    """`value` cut to at most `max_bytes` of encoded JSON, with a marker where it was cut."""
+    if encoded_length(value) <= max_bytes:
         return value
-    budget = MAX_LABEL_BYTES - encoded_length(_TRUNCATED)
+    budget = max_bytes - encoded_length(_TRUNCATED)
     kept: list[str] = []
     for char in value:
         budget -= encoded_length(char)

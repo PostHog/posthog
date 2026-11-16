@@ -89,6 +89,36 @@ describe('searchListsLogic', () => {
         expect(logic.values.starredItems.map((item) => item.href)).toEqual(expectedHrefs)
     })
 
+    it.each<[string, string, string[], string[]]>([
+        [
+            'models',
+            'both',
+            [FEATURE_FLAGS.TODAY_RAIL_NAV, FEATURE_FLAGS.DATA_CATALOG_RESTRUCTURE],
+            [urls.dataCatalog('tables')],
+        ],
+        [
+            'views',
+            'both',
+            [FEATURE_FLAGS.TODAY_RAIL_NAV, FEATURE_FLAGS.DATA_CATALOG_RESTRUCTURE],
+            [urls.dataCatalog('tables')],
+        ],
+        [
+            'data quality',
+            'both',
+            [FEATURE_FLAGS.TODAY_RAIL_NAV, FEATURE_FLAGS.DATA_CATALOG_RESTRUCTURE],
+            [urls.dataCatalog('data-quality')],
+        ],
+        ['data quality', 'one', [FEATURE_FLAGS.DATA_CATALOG_RESTRUCTURE], []],
+    ])('finds Data catalog sections for "%s" with %s catalog flags on', (query, _case, enabledFlags, expectedHrefs) => {
+        featureFlagLogic.actions.setFeatureFlags([], Object.fromEntries(enabledFlags.map((flag) => [flag, true])))
+
+        const catalogSectionHrefs = filterSearchItems(logic.values.productsItems, query)
+            .filter((item) => item.parentName === 'Data catalog')
+            .map((item) => item.href)
+
+        expect(catalogSectionHrefs).toEqual(expectedHrefs)
+    })
+
     it('lists each product destination once', () => {
         const hrefs = logic.values.productsItems.filter((item) => item.category === 'tools').map((item) => item.href)
 

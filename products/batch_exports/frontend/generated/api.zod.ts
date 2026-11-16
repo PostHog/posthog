@@ -615,7 +615,7 @@ export const BatchExportsCreateBody = /* @__PURE__ */ zod
                         .union([zod.boolean(), zod.null()])
                         .optional()
                         .describe(
-                            "Push an `id IN (SELECT person_id FROM <left table> WHERE …)` predicate into the joined persons subquery, so the latest-version lookup only reads persons that the outer query's left-table filters can reach. Applies only to a persons join from the query's own FROM table."
+                            "Push an `id IN (SELECT person_id FROM <left table> WHERE …)` predicate into the joined persons subquery, so the latest-version lookup only reads persons that the outer query's left-table filters can reach. Applies only to a persons join from the query's own FROM table. Unset, it applies to a persons join from `posthog.flag_evaluations` or from the union of events and flag_evaluations, and to no other join."
                         ),
                     personsArgMaxVersion: zod.union([zod.enum(['auto', 'v1', 'v2']), zod.null()]).optional(),
                     personsJoinMode: zod.union([zod.enum(['inner', 'left']), zod.null()]).optional(),
@@ -1589,7 +1589,7 @@ export const BatchExportsUpdateBody = /* @__PURE__ */ zod
                         .union([zod.boolean(), zod.null()])
                         .optional()
                         .describe(
-                            "Push an `id IN (SELECT person_id FROM <left table> WHERE …)` predicate into the joined persons subquery, so the latest-version lookup only reads persons that the outer query's left-table filters can reach. Applies only to a persons join from the query's own FROM table."
+                            "Push an `id IN (SELECT person_id FROM <left table> WHERE …)` predicate into the joined persons subquery, so the latest-version lookup only reads persons that the outer query's left-table filters can reach. Applies only to a persons join from the query's own FROM table. Unset, it applies to a persons join from `posthog.flag_evaluations` or from the union of events and flag_evaluations, and to no other join."
                         ),
                     personsArgMaxVersion: zod.union([zod.enum(['auto', 'v1', 'v2']), zod.null()]).optional(),
                     personsJoinMode: zod.union([zod.enum(['inner', 'left']), zod.null()]).optional(),
@@ -2322,7 +2322,7 @@ export const BatchExportsPartialUpdateBody = /* @__PURE__ */ zod
                         .union([zod.boolean(), zod.null()])
                         .optional()
                         .describe(
-                            "Push an `id IN (SELECT person_id FROM <left table> WHERE …)` predicate into the joined persons subquery, so the latest-version lookup only reads persons that the outer query's left-table filters can reach. Applies only to a persons join from the query's own FROM table."
+                            "Push an `id IN (SELECT person_id FROM <left table> WHERE …)` predicate into the joined persons subquery, so the latest-version lookup only reads persons that the outer query's left-table filters can reach. Applies only to a persons join from the query's own FROM table. Unset, it applies to a persons join from `posthog.flag_evaluations` or from the union of events and flag_evaluations, and to no other join."
                         ),
                     personsArgMaxVersion: zod.union([zod.enum(['auto', 'v1', 'v2']), zod.null()]).optional(),
                     personsJoinMode: zod.union([zod.enum(['inner', 'left']), zod.null()]).optional(),
@@ -3040,7 +3040,7 @@ export const BatchExportsRunTestStepCreateBody = /* @__PURE__ */ zod
                         .union([zod.boolean(), zod.null()])
                         .optional()
                         .describe(
-                            "Push an `id IN (SELECT person_id FROM <left table> WHERE …)` predicate into the joined persons subquery, so the latest-version lookup only reads persons that the outer query's left-table filters can reach. Applies only to a persons join from the query's own FROM table."
+                            "Push an `id IN (SELECT person_id FROM <left table> WHERE …)` predicate into the joined persons subquery, so the latest-version lookup only reads persons that the outer query's left-table filters can reach. Applies only to a persons join from the query's own FROM table. Unset, it applies to a persons join from `posthog.flag_evaluations` or from the union of events and flag_evaluations, and to no other join."
                         ),
                     personsArgMaxVersion: zod.union([zod.enum(['auto', 'v1', 'v2']), zod.null()]).optional(),
                     personsJoinMode: zod.union([zod.enum(['inner', 'left']), zod.null()]).optional(),
@@ -3777,7 +3777,7 @@ export const BatchExportsRunTestStepNewCreateBody = /* @__PURE__ */ zod
                         .union([zod.boolean(), zod.null()])
                         .optional()
                         .describe(
-                            "Push an `id IN (SELECT person_id FROM <left table> WHERE …)` predicate into the joined persons subquery, so the latest-version lookup only reads persons that the outer query's left-table filters can reach. Applies only to a persons join from the query's own FROM table."
+                            "Push an `id IN (SELECT person_id FROM <left table> WHERE …)` predicate into the joined persons subquery, so the latest-version lookup only reads persons that the outer query's left-table filters can reach. Applies only to a persons join from the query's own FROM table. Unset, it applies to a persons join from `posthog.flag_evaluations` or from the union of events and flag_evaluations, and to no other join."
                         ),
                     personsArgMaxVersion: zod.union([zod.enum(['auto', 'v1', 'v2']), zod.null()]).optional(),
                     personsJoinMode: zod.union([zod.enum(['inner', 'left']), zod.null()]).optional(),
@@ -4243,7 +4243,7 @@ export const FileDownloadBatchExportsCreateBody = /* @__PURE__ */ zod.union([
                         .union([zod.boolean(), zod.null()])
                         .optional()
                         .describe(
-                            "Push an `id IN (SELECT person_id FROM <left table> WHERE …)` predicate into the joined persons subquery, so the latest-version lookup only reads persons that the outer query's left-table filters can reach. Applies only to a persons join from the query's own FROM table."
+                            "Push an `id IN (SELECT person_id FROM <left table> WHERE …)` predicate into the joined persons subquery, so the latest-version lookup only reads persons that the outer query's left-table filters can reach. Applies only to a persons join from the query's own FROM table. Unset, it applies to a persons join from `posthog.flag_evaluations` or from the union of events and flag_evaluations, and to no other join."
                         ),
                     personsArgMaxVersion: zod.union([zod.enum(['auto', 'v1', 'v2']), zod.null()]).optional(),
                     personsJoinMode: zod.union([zod.enum(['inner', 'left']), zod.null()]).optional(),
@@ -4515,7 +4515,7 @@ export const FileDownloadBatchExportsCountRowsCreateBody = /* @__PURE__ */ zod
                     .union([zod.boolean(), zod.null()])
                     .optional()
                     .describe(
-                        "Push an `id IN (SELECT person_id FROM <left table> WHERE …)` predicate into the joined persons subquery, so the latest-version lookup only reads persons that the outer query's left-table filters can reach. Applies only to a persons join from the query's own FROM table."
+                        "Push an `id IN (SELECT person_id FROM <left table> WHERE …)` predicate into the joined persons subquery, so the latest-version lookup only reads persons that the outer query's left-table filters can reach. Applies only to a persons join from the query's own FROM table. Unset, it applies to a persons join from `posthog.flag_evaluations` or from the union of events and flag_evaluations, and to no other join."
                     ),
                 personsArgMaxVersion: zod.union([zod.enum(['auto', 'v1', 'v2']), zod.null()]).optional(),
                 personsJoinMode: zod.union([zod.enum(['inner', 'left']), zod.null()]).optional(),

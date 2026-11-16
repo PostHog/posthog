@@ -44,6 +44,7 @@ import type {
     RestoreFlowState,
     SidePanelTicketFilter,
     SidePanelViewState,
+    TicketsLoadState,
 } from '../../types'
 import { clearSharedTickets, loadTicketsAcrossTabs } from './ticketsAcrossTabs'
 
@@ -129,6 +130,7 @@ export interface sidepanelTicketsLogicValues {
     statusFilter: SidePanelTicketFilter | null
     ticketFilterCounts: Record<SidePanelTicketFilter, number>
     tickets: ConversationTicket[]
+    ticketsLoadState: TicketsLoadState
     ticketsLoading: boolean
     ticketsRequestsInFlight: number
     totalUnreadCount: number
@@ -234,6 +236,9 @@ export interface sidepanelTicketsLogicActions {
     setTickets: (tickets: ConversationTicket[]) => {
         tickets: ConversationTicket[]
     }
+    setTicketsLoadFailed: () => {
+        value: true
+    }
     setTicketsLoading: (loading: boolean) => {
         loading: boolean
     }
@@ -315,6 +320,7 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
         setMessages: (messages: ChatMessage[]) => ({ messages }),
         setHasMoreMessages: (hasMore: boolean) => ({ hasMore }),
         setTicketsLoading: (loading: boolean) => ({ loading }),
+        setTicketsLoadFailed: true,
         startTicketsFetch: true,
         finishTicketsFetch: true,
         setMessagesLoading: (loading: boolean) => ({ loading }),
@@ -371,6 +377,15 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
             false,
             {
                 setTicketsLoading: (_, { loading }) => loading,
+            },
+        ],
+        // Unlike ticketsLoading, this also covers the wait for the widget, so a surface can show a placeholder until
+        // the first answer instead of "no tickets". Tickets from an earlier load stay valid when a later load fails.
+        ticketsLoadState: [
+            'unknown' as TicketsLoadState,
+            {
+                setTickets: () => 'loaded',
+                setTicketsLoadFailed: (state) => (state === 'loaded' ? state : 'failed'),
             },
         ],
         currentTicket: [
@@ -606,6 +621,7 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
                         can_create_ticket: values.canCreateTicket,
                     })
                 }
+                actions.setTicketsLoadFailed()
                 // A forced load can run on any page, so an unavailable widget (an ad blocker is enough)
                 // would otherwise raise a persistent error toast on surfaces that have nothing to do with
                 // support and block clicks on whatever sits under the toast container. Only warn while the
@@ -654,6 +670,9 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
                     error: e,
                     can_create_ticket: values.canCreateTicket,
                 })
+                if (!requestDisposables.isDisposed) {
+                    actions.setTicketsLoadFailed()
+                }
                 // A forced load can run on any page, so a transient failure there would toast on
                 // surfaces that have nothing to do with support
                 if (!requestDisposables.isDisposed && liveTicketsLogic.isMounted()) {

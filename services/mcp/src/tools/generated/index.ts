@@ -6,6 +6,7 @@ import { GENERATED_TOOLS as actions } from './actions'
 import { GENERATED_TOOLS as aeo } from './aeo'
 import { GENERATED_TOOLS as ai_observability } from './ai_observability'
 import { GENERATED_TOOLS as alerts } from './alerts'
+import { GENERATED_TOOLS as alerts_platform } from './alerts_platform'
 import { GENERATED_TOOLS as annotations } from './annotations'
 import { GENERATED_TOOLS as autoresearch } from './autoresearch'
 import { GENERATED_TOOLS as batch_exports } from './batch_exports'
@@ -65,6 +66,7 @@ import { GENERATED_TOOLS as tracing } from './tracing'
 import { GENERATED_TOOLS as transactional_email_log } from './transactional_email_log'
 import { GENERATED_TOOLS as ui_customization } from './ui_customization'
 import { GENERATED_TOOLS as visual_review } from './visual_review'
+import { GENERATED_TOOLS as warehouse_alerts } from './warehouse_alerts'
 import { GENERATED_TOOLS as warehouse_destinations } from './warehouse_destinations'
 import { GENERATED_TOOLS as warehouse_sources } from './warehouse_sources'
 import { GENERATED_TOOLS as warehouse_suggestions } from './warehouse_suggestions'
@@ -78,6 +80,7 @@ export const GENERATED_TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = 
     ...aeo,
     ...ai_observability,
     ...alerts,
+    ...alerts_platform,
     ...annotations,
     ...autoresearch,
     ...batch_exports,
@@ -137,6 +140,7 @@ export const GENERATED_TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = 
     ...transactional_email_log,
     ...ui_customization,
     ...visual_review,
+    ...warehouse_alerts,
     ...warehouse_destinations,
     ...warehouse_sources,
     ...warehouse_suggestions,

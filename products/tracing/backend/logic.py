@@ -863,11 +863,10 @@ class TraceSpansQueryRunner(TraceSpansQueryRunnerMixin, AnalyticsQueryRunner[Tra
                 # The attribute maps dominate payload size (db.statement holds multi-KB SQL;
                 # process.command_args etc. bulk up the resource map). When excluded we still
                 # SELECT a column so the positional result mapping stays stable — an empty map
-                # instead of the real one.
-                "attributes": parse_expr("map() AS attributes" if self.query.excludeAttributes else "attributes"),
-                "resource_attributes": parse_expr(
-                    "map() AS resource_attributes" if self.query.excludeAttributes else "resource_attributes"
-                ),
+                # instead of the real one. Unaliased: an `AS attributes` alias would shadow the
+                # table field and break span/resource attribute filters in the same query.
+                "attributes": parse_expr("map()" if self.query.excludeAttributes else "attributes"),
+                "resource_attributes": parse_expr("map()" if self.query.excludeAttributes else "resource_attributes"),
                 "events": self._events_column(),
             },
         )
@@ -1094,10 +1093,8 @@ class TraceSpansQueryRunner(TraceSpansQueryRunnerMixin, AnalyticsQueryRunner[Tra
         """,
             placeholders={
                 "where": where,
-                "attributes": parse_expr("map() AS attributes" if self.query.excludeAttributes else "attributes"),
-                "resource_attributes": parse_expr(
-                    "map() AS resource_attributes" if self.query.excludeAttributes else "resource_attributes"
-                ),
+                "attributes": parse_expr("map()" if self.query.excludeAttributes else "attributes"),
+                "resource_attributes": parse_expr("map()" if self.query.excludeAttributes else "resource_attributes"),
                 "events": self._events_column(),
             },
         )
@@ -1125,6 +1122,10 @@ def run_service_names_query(
         interval=IntervalType.MINUTE,
         interval_count=2,
         now=dt.datetime.now(),
+        # {date_from}/{date_to} print as naive wall-clock strings in this range's timezone, and
+        # TIME_BUCKET_DATE_RANGE_WHERE reads them as UTC. A team-timezone range west of UTC lands
+        # the bounds on the previous UTC day and drops the current day's spans.
+        timezone_info=ZoneInfo("UTC"),
     )
 
     exprs: list[ast.Expr] = [

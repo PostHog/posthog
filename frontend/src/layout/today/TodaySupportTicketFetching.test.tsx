@@ -2,13 +2,19 @@ import { render } from '@testing-library/react'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
+import { DropdownMenu, DropdownMenuContent } from '@posthog/quill'
+
 import { preflightLogic } from 'lib/logic/preflightLogic'
 
 import { SidePanelSupport } from '~/layout/navigation-3000/sidepanel/panels/support/SidePanelSupport'
 import { initKeaTests } from '~/test/init'
 
-import { sidepanelTicketsLogic } from 'products/conversations/frontend/components/SidePanel/sidepanelTicketsLogic'
+import {
+    liveTicketsLogic,
+    sidepanelTicketsLogic,
+} from 'products/conversations/frontend/components/SidePanel/sidepanelTicketsLogic'
 
+import { TodayMoreMenuSupportItem } from './TodayMoreMenuSupportItem'
 import { TodaySupportPanel } from './TodaySupportPanel'
 import { TodayTopBarPanelTabs } from './TodayTopBarPanelTabs'
 
@@ -35,6 +41,28 @@ describe('support ticket fetching', () => {
         await expectLogic(sidepanelTicketsLogic).toFinishAllListeners()
 
         expect(getTickets).not.toHaveBeenCalled()
+        unmount()
+    })
+
+    it('shows the open ticket count in the More menu once loaded, without polling', async () => {
+        getTickets.mockResolvedValue({
+            results: [
+                { id: 't1', status: 'open', message_count: 1, created_at: '2026-07-13T00:00:00Z' },
+                { id: 't2', status: 'resolved', message_count: 1, created_at: '2026-07-12T00:00:00Z' },
+            ],
+        })
+        const { findByText, queryByText, unmount } = render(
+            <DropdownMenu open>
+                <DropdownMenuContent>
+                    <TodayMoreMenuSupportItem />
+                </DropdownMenuContent>
+            </DropdownMenu>
+        )
+
+        expect(queryByText('No open tickets')).toBeNull()
+        expect(await findByText('1 open ticket')).toBeTruthy()
+        expect(getTickets).toHaveBeenCalledTimes(1)
+        expect(liveTicketsLogic.isMounted()).toBe(false)
         unmount()
     })
 

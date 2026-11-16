@@ -14,7 +14,7 @@
             "type": "number"
         },
         "search": {
-            "description": "A search term.",
+            "description": "Find metrics for a measure instead of reading the whole catalog. Send the user's words, the likely metric name, and the spelled-out form of an acronym, separated by commas, such as 'mrr, monthly recurring revenue'. Results come best match first, 10 by default, and match_reason says why each one matched. Words match by stem in the name, display name, description, and definition. Synonyms do not match unless the metric's text contains them.",
             "type": "string"
         },
         "status": {
