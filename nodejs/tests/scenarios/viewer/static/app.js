@@ -43,10 +43,15 @@ const s = (tag, attrs = {}, ...children) => {
     return el
 }
 
-const render = (...children) =>
+let navigation = 0
+let renderedFor = 0
+
+const render = (...children) => {
+    renderedFor = navigation
     app.replaceChildren(
         ...children.flat(Infinity).filter((child) => child !== null && child !== undefined && child !== false)
     )
+}
 
 const getJson = async (url) => {
     // oxlint-disable-next-line no-restricted-globals
@@ -1667,8 +1672,6 @@ async function livePage(stale) {
     await poll()
 }
 
-let navigation = 0
-
 async function route() {
     const token = ++navigation
     const stale = () => token !== navigation
@@ -1685,7 +1688,10 @@ async function route() {
                 a.dataset.nav === (page || 'cards') || (page === 'cards' && a.dataset.nav === 'cards')
             )
         )
-    const loading = setTimeout(() => stale() || render(h('p', { class: 'muted' }, 'Loading…')), 300)
+    const loading = setTimeout(
+        () => stale() || renderedFor === token || render(h('p', { class: 'muted' }, 'Loading…')),
+        300
+    )
     try {
         if (page === 'live') {
             await livePage(stale)
