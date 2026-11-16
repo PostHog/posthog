@@ -123,11 +123,6 @@ export class StateManager {
         return isProjectSecretKey(this._api.config?.apiToken)
     }
 
-    /**
-     * A project secret API key cannot read itself or a user, so one read of the route it is for
-     * stands in for introspection. That read answers 401 for an unknown key and 403 for a key of
-     * another project or a key without the scope.
-     */
     private async _fetchProjectSecretKey(): Promise<NonNullable<State['apiKey']>> {
         const projectId = this._pinned?.pin.projectId
         if (!projectId) {
@@ -158,7 +153,6 @@ export class StateManager {
             is_impersonated: false,
             suppress_analytics: false,
             mcp_allowed_tools: [...PROJECT_SECRET_KEY_TOOLS],
-            // The cache scope is a one-way hash of the key, so it separates keys without exposing one.
             user_distinct_id: `psak-${projectId}-${this._cache.scope.slice(0, 16)}`,
             current_organization_id: null,
             current_team_id: Number(projectId),

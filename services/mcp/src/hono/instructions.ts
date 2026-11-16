@@ -63,8 +63,6 @@ function projectSkillsScopeReason(oauthClientId: string | undefined): string {
     return 'This connection is missing the llm_skill:read scope. Reconnect with that scope to read project skills.'
 }
 
-// A project secret API key reaches the knowledge read tools only, so the product-wide prompt would
-// describe data and tools this connection does not have.
 const PROJECT_SECRET_KEY_INSTRUCTIONS = [
     "This connection reads one company's business knowledge: the documents and code repositories its team selected in PostHog. It cannot read or change anything else in PostHog.",
     "Use business-knowledge-documents-search for questions about the company's product, policies, internal terms, and decisions. Use business-knowledge-document-window-retrieve to read the text around a result.",

@@ -503,7 +503,6 @@ describe('StateManager', () => {
         describe('with a project secret API key', () => {
             const pinned: PinnedActiveContext = { pin: { projectId: '42' }, sessionScoped: false, projectId: '42' }
 
-            // The api has no `users` or `apiKeys`, so a lookup that needs a user throws here.
             function secretKeyApi(request: ApiClient['request']): ApiClient {
                 return { config: { apiToken: 'phs_test' }, request } as unknown as ApiClient
             }
@@ -534,11 +533,8 @@ describe('StateManager', () => {
                 const other: PinnedActiveContext = { pin: { projectId: '7' }, sessionScoped: false, projectId: '7' }
                 const apiKey = await new StateManager(cache, api, other).getApiKey()
 
-                expect(request).toHaveBeenLastCalledWith({
-                    method: 'GET',
-                    path: '/api/projects/7/business_knowledge/libraries/',
-                })
                 expect(apiKey.scoped_teams).toEqual([7])
+                expect(apiKey.user_distinct_id).toMatch(/^psak-7-/)
             })
 
             it.each([

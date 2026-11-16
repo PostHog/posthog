@@ -6,7 +6,7 @@ import {
     signedClientIpHeaders,
 } from '@/lib/client-ip-signature'
 import { env } from '@/lib/env'
-import { findPostHogPermissionError } from '@/lib/errors'
+import { findPostHogPermissionError, PostHogApiError } from '@/lib/errors'
 import { isProjectSecretKey, projectSecretKeyProbePath } from '@/lib/project-secret-key'
 import type { CloudRegion } from '@/tools/types'
 
@@ -73,7 +73,6 @@ type ProbeResult = { success: true } | { success: false; error: Error }
 
 async function probeRegion(token: string, baseUrl: string, projectId: string | undefined): Promise<ProbeResult> {
     const api = new ApiClient({ apiToken: token, baseUrl })
-    // A project secret API key has no user, so `/api/users/@me/` answers 401 for it in both regions.
     if (!isProjectSecretKey(token) || !projectId) {
         return api.users().me()
     }
@@ -81,6 +80,11 @@ async function probeRegion(token: string, baseUrl: string, projectId: string | u
         await api.request({ method: 'GET', path: projectSecretKeyProbePath(projectId) })
         return { success: true }
     } catch (error) {
+        // Only the home region knows the key. Every refusal there is a 403, also one for a blocked
+        // IP address, and the other region answers 401.
+        if (error instanceof PostHogApiError && error.status === 403) {
+            return { success: true }
+        }
         return { success: false, error: error instanceof Error ? error : new Error(String(error)) }
     }
 }

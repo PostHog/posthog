@@ -26,7 +26,6 @@ export function projectSecretKeyProbePath(projectId: string): string {
     return `/api/projects/${encodeURIComponent(projectId)}/business_knowledge/libraries/`
 }
 
-// A project secret API key has no user, so the server cannot look up a default project for it.
 export function validateProjectSecretKeyProject(
     token: string | undefined,
     projectId: string | undefined

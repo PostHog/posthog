@@ -226,7 +226,6 @@ export class RequestStateResolver {
 
         const usesProjectSecretKey = classifyAuthMethod(props.apiToken) === 'project_secret_key'
         const [{ flags: allFlags, payloads }, _apiKey, distinctId] = await Promise.all([
-            // A project secret API key has no person or group to evaluate a flag for.
             usesProjectSecretKey
                 ? Promise.resolve<FlagEvaluation>({ flags: {}, payloads: {} })
                 : this.resolveAllFlags(reqCtx, allFlagKeys, flagGroups),
