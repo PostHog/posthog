@@ -19,6 +19,7 @@ from rest_framework.exceptions import PermissionDenied
 from two_factor.utils import default_device
 
 from posthog.cloud_utils import is_cloud, is_dev_mode
+from posthog.dataclasses import frozen
 from posthog.email import EmailRecipientUndeliverableError, is_email_available, is_http_email_service_available
 from posthog.models.organization import Organization
 from posthog.models.user import User
@@ -53,7 +54,8 @@ mfa_logger = structlog.get_logger("posthog.auth.mfa")
 LOGIN_CODE_VERIFICATION_COUNTER = Counter(
     "login_code_verification_total",
     "Transitions in the code-based login-verification flow.",
-    labelnames=["result"],  # sent | resent | send_failed | undeliverable | success | invalid | locked_out
+    # sent | resent | send_limited | send_failed | undeliverable | success | invalid | locked_out
+    labelnames=["result"],
 )
 
 
@@ -265,6 +267,25 @@ def is_backup_code_attempt(token: object) -> bool:
 # (INCR) rather than via a raceable session read-modify-write, which parallel guesses could sidestep.
 CODE_ATTEMPTS_REDIS_KEY_PREFIX = "code_based_verification_attempts"
 
+# A correct password is all it takes to send a login code, and the failed-login lockout never counts a
+# correct password. So someone else who knows the password could flood the owner's inbox with codes.
+# Cap the emails per account. The window starts at the first email, and refused attempts do not extend it.
+CODE_MAX_SENDS = 5
+CODE_SENDS_WINDOW_SECONDS = 3600
+CODE_SENDS_REDIS_KEY_PREFIX = "code_based_verification_sends"
+
+
+@frozen
+class _LoginEmailBudget:
+    sends: int
+    retry_after_seconds: int
+
+
+class CodeBasedVerificationSendLimitReached(Exception):
+    def __init__(self, retry_after_seconds: int):
+        super().__init__(f"Login code send limit reached, retry after {retry_after_seconds} seconds")
+        self.retry_after_seconds = retry_after_seconds
+
 
 class CodeBasedVerificationTokenGenerator(PasswordResetTokenGenerator):
     """Derive a short numeric login-verification code from the same secret-keyed,
@@ -367,11 +388,14 @@ class CodeBasedVerifier:
     def create_and_send_code_based_verification(
         self, request: HttpRequest, user: User, *, is_resend: bool = False
     ) -> bool:
-        """Raises EmailRecipientUndeliverableError when the address cannot receive the code."""
+        """Raises EmailRecipientUndeliverableError when the address cannot receive the code, and
+        CodeBasedVerificationSendLimitReached when the account has had too many codes recently."""
         from posthog.tasks import email
 
         if not self.should_send_code_based_verification(user):
             return False
+
+        self.reserve_login_email(user)
 
         try:
             issued_at = int(time.time())
@@ -405,6 +429,61 @@ class CodeBasedVerifier:
             )
             capture_exception(Exception(f"Code-based verification email failed: {e}"))
             return False
+
+    @staticmethod
+    def _sends_redis_key(user: User) -> str:
+        # The key includes a digest of the password hash, so a password change starts a new budget. The owner
+        # can then log in again at once, and the old password cannot send more codes.
+        password_digest = salted_hmac(CODE_SENDS_REDIS_KEY_PREFIX, user.password).hexdigest()[:16]
+        return f"{CODE_SENDS_REDIS_KEY_PREFIX}:{user.pk}:{password_digest}"
+
+    def reserve_login_email(self, user: User) -> None:
+        """Count one login email against the account's budget. Call it before each email that a login waits on.
+
+        Raises CodeBasedVerificationSendLimitReached when the account is over CODE_MAX_SENDS in the window.
+        """
+        budget = self._reserve_send(user)
+        if budget.sends > CODE_MAX_SENDS:
+            LOGIN_CODE_VERIFICATION_COUNTER.labels(result="send_limited").inc()
+            mfa_logger.info("Login email not sent: send limit reached", user_id=user.pk)
+            self._capture_send_limit_reached_event(user)
+            raise CodeBasedVerificationSendLimitReached(budget.retry_after_seconds)
+
+    def _reserve_send(self, user: User) -> _LoginEmailBudget:
+        """Count this email against the account's send budget.
+
+        Returns the running total and the seconds until the window ends. Fails open when Redis is unavailable
+        (returns a total of 0). Failing closed would block every password login without TOTP or passkey 2FA,
+        and the code check itself does not need Redis.
+        """
+        key = self._sends_redis_key(user)
+        try:
+            # One MULTI/EXEC block, so the key cannot expire between the SET and the INCR and stay without a TTL.
+            pipeline = get_client().pipeline(transaction=True)
+            pipeline.set(key, 0, ex=CODE_SENDS_WINDOW_SECONDS, nx=True)
+            pipeline.incr(key)
+            pipeline.ttl(key)
+            _, count, ttl = pipeline.execute()
+            return _LoginEmailBudget(
+                sends=int(count), retry_after_seconds=int(ttl) if int(ttl) > 0 else CODE_SENDS_WINDOW_SECONDS
+            )
+        except Exception:
+            mfa_logger.exception("Failed to reserve code-based verification send; allowing", user_id=user.pk)
+            return _LoginEmailBudget(sends=0, retry_after_seconds=0)
+
+    def _capture_send_limit_reached_event(self, user: User) -> None:
+        try:
+            posthoganalytics.capture(
+                distinct_id=str(user.distinct_id),
+                event="login verification code limit reached",
+                properties={"$update_person_last_seen_at": False},
+            )
+        except Exception as e:
+            mfa_logger.warning(
+                "Failed to capture code-based verification send limit event",
+                user_id=user.pk,
+                error=str(e),
+            )
 
     def has_pending_code_based_verification(self, request: HttpRequest) -> bool:
         return request.session.get("code_based_verification_pending_user_id") is not None

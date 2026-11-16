@@ -227,32 +227,37 @@ describe('loginLogic', () => {
             expect(logic.values.codeResendAttempted).toBe(false)
         })
 
-        it('shows an undeliverable address on resend as a login error, and clears it once a resend goes out', async () => {
-            const detail = "We can't send email to this address."
-            useMocks({
-                post: {
-                    '/api/login/code-based-verification/resend': () => [
-                        400,
-                        { type: 'server_error', code: 'login_code_email_undeliverable', detail },
-                    ],
-                },
-            })
+        it.each([
+            [400, 'login_code_email_undeliverable', "We can't send email to this address."],
+            [429, 'login_code_send_limit_reached', "We've sent too many login codes to this account."],
+        ])(
+            'shows a %s %s on resend as a login error, and clears it once a resend goes out',
+            async (status, code, detail) => {
+                useMocks({
+                    post: {
+                        '/api/login/code-based-verification/resend': () => [
+                            status,
+                            { type: 'server_error', code, detail },
+                        ],
+                    },
+                })
 
-            logic.actions.resendCodeBasedVerification(null)
-            await expectLogic(logic).toDispatchActions(['resendCodeBasedVerificationSuccess'])
+                logic.actions.resendCodeBasedVerification(null)
+                await expectLogic(logic).toDispatchActions(['resendCodeBasedVerificationSuccess'])
 
-            expect(logic.values.resendResponse).toBe(null)
-            expect(logic.values.generalError).toEqual({ code: 'login_code_email_undeliverable', detail })
+                expect(logic.values.resendResponse).toBe(null)
+                expect(logic.values.generalError).toEqual({ code, detail })
 
-            const sent = { success: true, message: 'sent' }
-            useMocks({ post: { '/api/login/code-based-verification/resend': () => [200, sent] } })
+                const sent = { success: true, message: 'sent' }
+                useMocks({ post: { '/api/login/code-based-verification/resend': () => [200, sent] } })
 
-            logic.actions.resendCodeBasedVerification(null)
-            await expectLogic(logic).toDispatchActions(['resendCodeBasedVerificationSuccess'])
+                logic.actions.resendCodeBasedVerification(null)
+                await expectLogic(logic).toDispatchActions(['resendCodeBasedVerificationSuccess'])
 
-            expect(logic.values.resendResponse).toEqual(sent)
-            expect(logic.values.generalError).toBe(null)
-        })
+                expect(logic.values.resendResponse).toEqual(sent)
+                expect(logic.values.generalError).toBe(null)
+            }
+        )
     })
 
     describe('opaque login failure', () => {
