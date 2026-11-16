@@ -589,7 +589,7 @@ describe('CdpCyclotronWorkerHogFlow', () => {
             })
         })
 
-        it('runs a flow the replica does not have yet, and fails one missing from both', async () => {
+        it('runs a flow the replica does not have yet, and fails one missing from both or with no readable state', async () => {
             const [lateFlow, missingFlow] = ['Flow only the primary has', 'Flow neither database has'].map((name) =>
                 new FixtureHogFlowBuilder()
                     .withName(name)
@@ -606,14 +606,22 @@ describe('CdpCyclotronWorkerHogFlow', () => {
                 })
             )
 
-            const results = await processor.processInvocations([lateInvocation, missingInvocation])
+            const unreadableInvocation = { ...lateInvocation, id: new UUIDT().toString(), state: null }
+
+            const results = await processor.processInvocations([
+                lateInvocation,
+                missingInvocation,
+                unreadableInvocation,
+            ])
 
             expect(results).toHaveLength(1)
             expect(results[0]).toMatchObject({
                 finished: true,
                 invocation: { hogFlow: { id: lateFlow.id } },
             })
-            expect(jobQueue.dequeueInvocations).toHaveBeenLastCalledWith([missingInvocation])
+            expect(jobQueue.dequeueInvocations).toHaveBeenLastCalledWith(
+                expect.arrayContaining([missingInvocation, unreadableInvocation])
+            )
         })
 
         it.each([

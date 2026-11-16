@@ -17,7 +17,7 @@ import {
 import { convertToHogFunctionFilterGlobal } from '../../utils/hog-function-filtering'
 import { createCanceledInvocationResult } from '../../utils/invocation-utils'
 import type { CyclotronV2JobProducer } from '../cyclotron-v2'
-import { v2JobToInvocation } from '../cyclotron-v2/job-codec'
+import { StateOpener, v2JobToInvocation } from '../cyclotron-v2/job-codec'
 import { isLockTimeout } from '../cyclotron-v2/manager'
 import type { InvocationResultsService } from '../invocation-results.service'
 import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
@@ -598,6 +598,7 @@ export type ScheduledTransactionalSendsDeps = {
     hogFlows: Pick<HogFlowManagerService, 'getHogFlowCheckingPrimaryOnMiss'>
     invocationResults: Pick<InvocationResultsService, 'monitoringService' | 'invocationResultsRowsService'>
     emailStatus: EmailStatusService
+    stateOpener: StateOpener
 }
 
 export type ScheduledSendCancelResult = { outcome: 'canceled' } | { outcome: 'claimed' | 'not_found' }
@@ -616,11 +617,15 @@ export class ScheduledTransactionalSends {
         const result = await this.deps.jobs.cancelUnclaimed(teamId, messageId)
         switch (result.outcome) {
             case 'canceled':
-                await this.recordCanceledRun(v2JobToInvocation(result.job), { countMetrics: true })
+                await this.recordCanceledRun(v2JobToInvocation(result.job, this.deps.stateOpener), {
+                    countMetrics: true,
+                })
                 return { outcome: 'canceled' }
             case 'already_canceled':
                 if (result.job) {
-                    await this.recordCanceledRun(v2JobToInvocation(result.job), { countMetrics: false })
+                    await this.recordCanceledRun(v2JobToInvocation(result.job, this.deps.stateOpener), {
+                        countMetrics: false,
+                    })
                 }
                 return { outcome: 'canceled' }
             default:
@@ -651,7 +656,7 @@ export class ScheduledTransactionalSends {
         if (result.outcome !== 'rescheduled') {
             return { outcome: result.outcome }
         }
-        const job = v2JobToInvocation(result.job)
+        const job = v2JobToInvocation(result.job, this.deps.stateOpener)
         const idempotencyKey = (job.state as CyclotronJobInvocationHogFlow['state'] | null)?.idempotencyKey
         const keyKept =
             !idempotencyKey ||
