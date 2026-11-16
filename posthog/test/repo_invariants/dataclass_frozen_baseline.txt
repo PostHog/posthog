@@ -374,7 +374,6 @@
 1 products/warehouse_sources/sources/yousign/yousign.py
 1 products/warehouse_sources/sources/zapsign/zapsign.py
 1 products/warehouse_sources/sources/zendesk/settings.py
-1 products/warehouse_sources/sources/zendesk_sell/zendesk_sell.py
 1 products/warehouse_sources/sources/zendesk_sunshine/zendesk_sunshine.py
 1 products/warehouse_sources/sources/zenduty/settings.py
 1 products/warehouse_sources/sources/zenloop/settings.py
