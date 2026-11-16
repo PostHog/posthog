@@ -10,6 +10,7 @@ from posthog.models.cohortmembership.query_rewrite import (
     rewrite_saved_rows,
 )
 
+from .markdown_collab import publish_notebook_update
 from .models import Notebook
 from .util import QUERY_NODE_TYPE, _coerce_query_attr, iter_prosemirror_nodes
 
@@ -36,7 +37,7 @@ def _rewrite_content(content: Any) -> tuple[Any, list[SqlRewrite]]:
 
 
 def rewrite_cohort_membership_queries(team_id: int, apply: bool) -> list[SavedQueryRewrite]:
-    return rewrite_saved_rows(
+    results = rewrite_saved_rows(
         Notebook._base_manager.filter(team_id=team_id),
         "content",
         "notebook",
@@ -45,3 +46,9 @@ def rewrite_cohort_membership_queries(team_id: int, apply: bool) -> list[SavedQu
         # An editor holding the old version then gets a conflict instead of saving over the rewrite.
         extra_updates=lambda: {"version": F("version") + 1},
     )
+    # Collaborative editors check their version against the stream, not Postgres, so they need the new version
+    # there too, the same as after a save through the API.
+    written = [row.pk for row in results if row.written]
+    for short_id, version in Notebook._base_manager.filter(pk__in=written).values_list("short_id", "version"):
+        publish_notebook_update(team_id, short_id, version)
+    return results

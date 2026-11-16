@@ -56,11 +56,17 @@ class _TableReferences(TraversingVisitor):
         self.defines_legacy_cte = False
         self.all_chains: list[list[str | int]] = []
         self.legacy_scope_chains: list[list[str | int]] = []
+        self.names_replacement = False
+        self.legacy_column_aliases = False
+        self.selects_by_pattern = False
         self._select_reads_legacy: list[bool] = []
+        self._count_stars: set[int] = set()
 
     def visit_select_query(self, node: ast.SelectQuery) -> None:
         if LEGACY_TABLE in (node.ctes or {}):
             self.defines_legacy_cte = True
+        if REPLACEMENT_TABLE in (node.ctes or {}):
+            self.names_replacement = True
         reads_legacy = False
         join = node.select_from
         while join is not None:
@@ -75,14 +81,26 @@ class _TableReferences(TraversingVisitor):
         table = _legacy_table(node)
         if table is not None:
             self.legacy_tables.append((table, node.alias))
+            self.legacy_column_aliases |= bool(node.column_aliases)
+        if node.alias == REPLACEMENT_TABLE or (
+            isinstance(node.table, ast.Field) and node.table.chain[-1] == REPLACEMENT_TABLE
+        ):
+            self.names_replacement = True
         super().visit_join_expr(node)
 
     def visit_call(self, node: ast.Call) -> None:
         if node.name == "count" and len(node.args) == 1 and _is_star(node.args[0]):
-            return
+            self._count_stars.add(id(node.args[0]))
         super().visit_call(node)
 
+    def visit_columns_expr(self, node: ast.ColumnsExpr) -> None:
+        if self._select_reads_legacy and self._select_reads_legacy[-1]:
+            self.selects_by_pattern = True
+        super().visit_columns_expr(node)
+
     def visit_field(self, node: ast.Field) -> None:
+        if id(node) in self._count_stars:
+            return
         self.all_chains.append(node.chain)
         if self._select_reads_legacy and self._select_reads_legacy[-1]:
             self.legacy_scope_chains.append(node.chain)
@@ -126,6 +144,10 @@ def rewrite_hogql(sql: str) -> Optional[SqlRewrite]:
     # A CTE of the same name shadows the table in scopes this rewrite does not model, such as later UNION branches.
     if references.defines_legacy_cte or _reads_unmapped_column(references):
         return manual_fix
+    # Each of these changes what the replaced table reads: a CTE or a second table named `cohort_people`,
+    # positional column aliases (the two tables order their columns differently), and `COLUMNS(...)` patterns.
+    if references.names_replacement or references.legacy_column_aliases or references.selects_by_pattern:
+        return manual_fix
     if any(len(chain) > 2 and chain[:2] == ["posthog", LEGACY_TABLE] for chain in references.all_chains):
         return manual_fix
 
@@ -148,6 +170,11 @@ def rewrite_hogql(sql: str) -> Optional[SqlRewrite]:
     return SqlRewrite(before=sql, after=rewritten)
 
 
+def runs_on_posthog(query: dict[str, Any]) -> bool:
+    """False for a query that a direct connection or hosted Trino runs, where `cohort_membership` is another table."""
+    return not query.get("connectionId") and query.get("executionTarget") in (None, "clickhouse")
+
+
 def rewrite_query_nodes(value: Any) -> tuple[Any, list[SqlRewrite]]:
     """Rewrites every HogQLQuery node nested anywhere in a query or a notebook document."""
     if isinstance(value, list):
@@ -161,7 +188,7 @@ def rewrite_query_nodes(value: Any) -> tuple[Any, list[SqlRewrite]]:
     for key, item in value.items():
         rewritten[key], item_rewrites = rewrite_query_nodes(item)
         rewrites.extend(item_rewrites)
-    if rewritten.get("kind") == "HogQLQuery" and isinstance(rewritten.get("query"), str):
+    if rewritten.get("kind") == "HogQLQuery" and isinstance(rewritten.get("query"), str) and runs_on_posthog(rewritten):
         rewrite = rewrite_hogql(rewritten["query"])
         if rewrite is not None:
             rewrites.append(rewrite)

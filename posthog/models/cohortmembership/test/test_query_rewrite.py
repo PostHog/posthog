@@ -4,7 +4,7 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
-from posthog.models.cohortmembership.query_rewrite import mentions_legacy_table, rewrite_hogql
+from posthog.models.cohortmembership.query_rewrite import mentions_legacy_table, rewrite_hogql, rewrite_query_nodes
 
 MEMBERSHIP_FILTER = (
     "SELECT count() FROM events e WHERE e.person_id IN (SELECT person_id FROM cohort_membership WHERE cohort_id = 7)"
@@ -83,6 +83,26 @@ class TestRewriteHogQL(SimpleTestCase):
                 None,
             ),
             (
+                "cte_named_like_the_replacement",
+                "WITH cohort_people AS (SELECT 1 AS person_id) SELECT person_id FROM cohort_membership",
+                True,
+                None,
+            ),
+            (
+                "joined_with_the_replacement",
+                "SELECT count() FROM cohort_membership JOIN cohort_people USING (person_id)",
+                True,
+                None,
+            ),
+            (
+                "count_star_filter_reads_status",
+                "SELECT count(*) FILTER (WHERE status = 'entered') FROM cohort_membership",
+                True,
+                None,
+            ),
+            ("columns_pattern", "SELECT COLUMNS('status') FROM cohort_membership", True, None),
+            ("positional_column_aliases", "SELECT c FROM cohort_membership AS cm(c, p)", True, None),
+            (
                 "column_or_text_only",
                 "SELECT 'cohort_membership' AS name, cohort_membership_changed FROM events",
                 False,
@@ -109,3 +129,17 @@ class TestRewriteHogQL(SimpleTestCase):
     )
     def test_mentions_legacy_table(self, _name: str, value: Any, expected: bool) -> None:
         assert mentions_legacy_table(value) is expected
+
+    @parameterized.expand(
+        [
+            ("posthog", {}, True),
+            ("direct_connection", {"connectionId": "source"}, False),
+            ("hosted_trino", {"executionTarget": "managed_trino"}, False),
+        ]
+    )
+    def test_rewrite_query_nodes_only_rewrites_queries_posthog_runs(
+        self, _name: str, engine: dict[str, Any], rewritten: bool
+    ) -> None:
+        query = {"kind": "HogQLQuery", "query": MEMBERSHIP_FILTER, **engine}
+        result, _ = rewrite_query_nodes(query)
+        assert ("cohort_people" in result["query"]) is rewritten

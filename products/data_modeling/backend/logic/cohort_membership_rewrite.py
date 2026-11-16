@@ -8,6 +8,7 @@ from posthog.models.cohortmembership.query_rewrite import (
     SqlRewrite,
     rewrite_hogql,
     rewrite_saved_rows,
+    runs_on_posthog,
 )
 
 from products.data_modeling.backend.models import DataWarehouseSavedQuery
@@ -15,7 +16,7 @@ from products.data_modeling.backend.models import DataWarehouseSavedQuery
 
 def _rewrite_query(value: Any) -> tuple[Any, list[SqlRewrite]]:
     # A view stores its HogQL at the top level, often without a `kind`.
-    if not isinstance(value, dict) or not isinstance(value.get("query"), str):
+    if not isinstance(value, dict) or not isinstance(value.get("query"), str) or not runs_on_posthog(value):
         return value, []
     rewrite = rewrite_hogql(value["query"])
     if rewrite is None:
