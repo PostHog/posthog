@@ -135,6 +135,19 @@ const hashOf = (wiring: Pick<Wiring, 'processes' | 'consumers' | 'databases'>): 
 const lagOf = (partitions: readonly Partition[]): number | null =>
     partitions.some(({ lag }) => lag !== null) ? partitions.reduce((sum, { lag }) => sum + (lag ?? 0), 0) : null
 
+function databasesOf(adapter: string, clients: readonly PostgresClient[]): Wiring['databases'] {
+    const rows = new Map<string, Wiring['databases'][number]>()
+    for (const { application, database, connections } of clients) {
+        const role = roleOfClient(application)
+        if (role) {
+            const key = `${role} ${database}`
+            const seen = rows.get(key)?.connections ?? 0
+            rows.set(key, { adapter, role, database, connections: Math.max(seen, connections) })
+        }
+    }
+    return [...rows.values()].sort((a, b) => `${a.role} ${a.database}`.localeCompare(`${b.role} ${b.database}`))
+}
+
 export function wiringOf(input: {
     adapter: string
     specs: readonly RoleId[]
@@ -160,12 +173,7 @@ export function wiringOf(input: {
             }))
         )
         .sort((a, b) => `${a.role} ${a.group}`.localeCompare(`${b.role} ${b.group}`))
-    const databases = input.clients
-        .flatMap(({ application, database, connections }) => {
-            const role = roleOfClient(application)
-            return role ? [{ adapter, role, database, connections }] : []
-        })
-        .sort((a, b) => `${a.role} ${a.database}`.localeCompare(`${b.role} ${b.database}`))
+    const databases = databasesOf(adapter, input.clients)
     const wiring = { processes, consumers, databases }
     return { recordedAt: input.recordedAt.toISOString(), hash: hashOf(wiring), ...wiring }
 }

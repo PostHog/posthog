@@ -112,7 +112,7 @@ describe('topology', () => {
         })
     })
 
-    it('keeps its hash across lag and connection counts and changes it with the wiring or the adapter', async () => {
+    it('keeps its hash across lag, connection counts and a server read twice, and changes it with the wiring or the adapter', async () => {
         const groups = await groupsWithLag('5')
         const hash = wiringFrom(groups).hash
 
@@ -122,6 +122,7 @@ describe('topology', () => {
                 CLIENTS.map((client) => ({ ...client, connections: 9 }))
             ).hash
         ).toEqual(hash)
+        expect(wiringFrom(groups, [...CLIENTS, CLIENTS[0]]).hash).toEqual(hash)
         expect(wiringFrom(groups, CLIENTS.slice(1)).hash).not.toEqual(hash)
         expect(wiringFrom(groups, CLIENTS, 'another-adapter').hash).not.toEqual(hash)
     })
