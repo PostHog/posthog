@@ -2580,6 +2580,36 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json(), plaintext if should_decrypt else REDACTED_PAYLOAD_VALUE)
 
+    @parameterized.expand([("plaintext", False), ("encrypted", True)])
+    def test_remote_config_returns_no_payload_for_disabled_flag(self, _name: str, encrypted: bool):
+        plaintext = '{"cap": 200}'
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="disabled-remote-config-flag",
+            active=False,
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": 100}],
+                "payloads": {
+                    "true": flag_payload_codec().encrypt(plaintext.encode("utf-8")).decode("utf-8")
+                    if encrypted
+                    else plaintext
+                },
+            },
+            is_remote_configuration=True,
+            has_encrypted_payloads=encrypted,
+        )
+        auth_token = generate_random_token_personal()
+        PersonalAPIKey.objects.create(label="X", user=self.user, scopes=["*"], secure_value=hash_key_value(auth_token))
+        self.client.logout()
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/feature_flags/disabled-remote-config-flag/remote_config",
+            headers={"authorization": f"Bearer {auth_token}"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.content, b"")
+
     @parameterized.expand(
         [
             ("project_secret_key", False, "198.51.100.7", status.HTTP_200_OK),

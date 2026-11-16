@@ -6680,8 +6680,9 @@ class FeatureFlagViewSet(
         # usage numbers.
         should_count = is_service_auth(request)
 
-        if not feature_flag.has_encrypted_payloads:
-            payloads = feature_flag.filters.get("payloads", {})
+        if not feature_flag.active or not feature_flag.has_encrypted_payloads:
+            # A disabled flag evaluates as off in local evaluation and /flags, so it serves no payload here either.
+            payloads = feature_flag.filters.get("payloads", {}) if feature_flag.active else {}
             if should_count:
                 increment_request_count(self.team.pk, 1, FlagRequestType.REMOTE_CONFIG)
             return Response(payloads.get("true") or None)
