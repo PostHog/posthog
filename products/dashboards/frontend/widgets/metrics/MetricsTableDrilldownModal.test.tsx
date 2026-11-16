@@ -3,15 +3,17 @@ jest.unmock('lib/utils/concurrencyController')
 import { cleanup, render, waitFor } from '@testing-library/react'
 
 import { useMocks } from '~/mocks/jest'
+import { MetricsQueryRenderer } from '~/queries/Query/queryNodeRenderers'
 import { initKeaTests } from '~/test/init'
 
 import { MetricsTableDrilldownModal } from './MetricsTableDrilldownModal'
 
 describe('MetricsTableDrilldownModal', () => {
+    beforeAll(() => MetricsQueryRenderer.preload())
     beforeEach(() => initKeaTests())
     afterEach(() => cleanup())
 
-    it('loads all six charts with up to three requests in flight', async () => {
+    it('loads six charts with bounded concurrency and retains them when reopened', async () => {
         const pending: (() => void)[] = []
         let blockResponses = true
         let queryCalls = 0
@@ -30,7 +32,7 @@ describe('MetricsTableDrilldownModal', () => {
                 },
             },
         })
-        render(
+        const modal = (
             <MetricsTableDrilldownModal
                 config={{
                     groupBy: 'service.name',
@@ -49,6 +51,7 @@ describe('MetricsTableDrilldownModal', () => {
                 onClose={() => {}}
             />
         )
+        const { rerender, getAllByText } = render(modal)
         try {
             await waitFor(() => expect(queryCalls).toBe(3))
             for (let expectedCalls = 4; expectedCalls <= 6; expectedCalls++) {
@@ -61,6 +64,11 @@ describe('MetricsTableDrilldownModal', () => {
         }
         await waitFor(() => expect(document.querySelector('.Spinner')).toBeNull())
         expect(maxInFlight).toBe(3)
+        expect(queryCalls).toBe(6)
+
+        rerender(<MetricsTableDrilldownModal {...modal.props} names={[]} labelValues={[]} />)
+        rerender(modal)
+        await waitFor(() => expect(getAllByText('No data for this metric in the selected range.')).toHaveLength(6))
         expect(queryCalls).toBe(6)
     })
 })
