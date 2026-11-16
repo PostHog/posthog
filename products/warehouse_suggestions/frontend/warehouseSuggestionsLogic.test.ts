@@ -290,6 +290,25 @@ describe('warehouseSuggestionsLogic', () => {
         finish({ ...MATERIALIZE, status: 'dismissed' })
     })
 
+    it('dismisses from the dialog with the chosen reason and the trimmed note', async () => {
+        mockDismiss.mockResolvedValue({ ...MATERIALIZE, status: 'dismissed' })
+        await mountLogic()
+
+        logic.actions.openDismissDialog(MATERIALIZE.id)
+        logic.actions.setDismissReason('wrong_estimate')
+        logic.actions.setDismissNote('  The refresh cost is lower  ')
+        logic.actions.confirmDismiss()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(mockDismiss).toHaveBeenCalledWith(
+            expect.any(String),
+            MATERIALIZE.id,
+            { reason: 'wrong_estimate', note: 'The refresh cost is lower' },
+            MODELS_SURFACE
+        )
+        expect(logic.values.dismissDialogSuggestion).toBeNull()
+    })
+
     it('shows the new assignee on the row and keeps the row listed', async () => {
         const assignee = { id: 7, first_name: 'Ana', email: 'ana@example.com' }
         mockAssign.mockResolvedValue({ ...MATERIALIZE, assignee })
