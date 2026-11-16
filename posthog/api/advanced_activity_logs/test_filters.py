@@ -1,4 +1,5 @@
 import json
+from datetime import UTC, datetime
 from typing import Any
 
 from posthog.test.base import BaseTest
@@ -336,6 +337,42 @@ class TestIpAddressFilter(BaseTest):
         queryset = ActivityLog.objects.filter(team_id=self.team.id)
         filtered = self.filter_manager.apply_filters(queryset, {"ip_addresses": ["198.51.100.7", "203.0.*"]})
         self.assertEqual(set(filtered.values_list("id", flat=True)), {exact_match.id, wildcard_match.id})
+
+
+class TestDateFilters(BaseTest):
+    def setUp(self):
+        super().setUp()
+        self.filter_manager = AdvancedActivityLogFilterManager()
+
+    def _create_log(self, created_at: datetime) -> ActivityLog:
+        return ActivityLog.objects.create(
+            organization_id=self.organization.id,
+            team_id=self.team.id,
+            user=self.user,
+            scope="TestScope",
+            activity="updated",
+            item_id="test-item",
+            detail={},
+            created_at=created_at,
+        )
+
+    @parameterized.expand(
+        [
+            ("utc_offset", "2026-01-15T10:05:00Z", "2026-01-15T10:35:00Z"),
+            ("no_offset_read_as_utc", "2026-01-15T10:05:00", "2026-01-15T10:35:00"),
+        ]
+    )
+    def test_time_window_narrows_within_a_day(self, _name: str, start_date: str, end_date: str) -> None:
+        self._create_log(datetime(2026, 1, 15, 9, 0, tzinfo=UTC))
+        match = self._create_log(datetime(2026, 1, 15, 10, 20, tzinfo=UTC))
+        self._create_log(datetime(2026, 1, 15, 11, 0, tzinfo=UTC))
+
+        serializer = AdvancedActivityLogFiltersSerializer(data={"start_date": start_date, "end_date": end_date})
+        serializer.is_valid(raise_exception=True)
+
+        queryset = ActivityLog.objects.filter(team_id=self.team.id)
+        filtered = self.filter_manager.apply_filters(queryset, serializer.validated_data)
+        self.assertEqual(list(filtered.values_list("id", flat=True)), [match.id])
 
 
 class TestAdvancedActivityLogFiltersSerializerValidation(SimpleTestCase):
