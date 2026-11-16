@@ -3891,6 +3891,12 @@ describe('CDP API', () => {
                     'List-Unsubscribe needs one <https://...> URL',
                 ],
                 [
+                    'an unsubscribe link with a port',
+                    () => ({ ...codeSend, headers: { 'List-Unsubscribe': '<https://example.com:999999/u>' } }),
+                    () => ({ ...codeSend, headers: unsubscribe }),
+                    'List-Unsubscribe needs one <https://...> URL',
+                ],
+                [
                     'an unsubscribe link without a host',
                     () => ({ ...codeSend, headers: { 'List-Unsubscribe': '<https://?>' } }),
                     () => ({ ...codeSend, headers: unsubscribe }),
