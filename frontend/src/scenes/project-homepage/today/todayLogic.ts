@@ -16,7 +16,6 @@ import { featureFlagLogic, getFeatureFlagPayload } from 'lib/logic/featureFlagLo
 import { preflightLogic } from 'lib/logic/preflightLogic'
 import { getProductAccessDisabledReason } from 'lib/utils/accessControlUtils'
 import { withTimeout } from 'lib/utils/async'
-import { isObject } from 'lib/utils/guards'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { objectsEqual } from 'lib/utils/objects'
 import { teamLogic } from 'scenes/teamLogic'
@@ -56,7 +55,7 @@ import {
 } from './todayForYouRows'
 import { greetingFor } from './todayGreeting'
 import { todayHighlightsLogic } from './todayHighlightsLogic'
-import { JumpBackObject, JumpBackReason, jumpBackObjectsForHome } from './todayRecentObjects'
+import { JumpBackObject, JumpBackReason, fileSystemEntryFromApi, jumpBackObjectsForHome } from './todayRecentObjects'
 import { type TodayReportPreview, reportPreview } from './todayReportPreviews'
 import type { TodayReportState } from './todayReportState'
 import { isSampleReportId, parseSampleParam, sampleTopReports } from './todaySampleReports'
@@ -537,15 +536,7 @@ export const todayLogic = kea<todayLogicType>([
                         if (values.currentProjectId !== projectId) {
                             return []
                         }
-                        return entries.map((entry) => ({
-                            id: entry.id,
-                            path: entry.path,
-                            type: entry.type,
-                            ref: entry.ref ?? undefined,
-                            href: entry.href ?? undefined,
-                            meta: isObject(entry.meta) ? entry.meta : undefined,
-                            last_viewed_at: entry.last_viewed_at,
-                        }))
+                        return entries.map(fileSystemEntryFromApi)
                     } catch (error) {
                         if (!(error instanceof ApiError && error.status === 403)) {
                             posthog.captureException(error)
@@ -579,15 +570,7 @@ export const todayLogic = kea<todayLogicType>([
                         if (values.currentProjectId !== projectId || !entry) {
                             return null
                         }
-                        return {
-                            id: entry.id,
-                            path: entry.path,
-                            type: entry.type,
-                            ref: entry.ref ?? undefined,
-                            href: entry.href ?? undefined,
-                            meta: isObject(entry.meta) ? entry.meta : undefined,
-                            last_viewed_at: entry.last_viewed_at,
-                        }
+                        return fileSystemEntryFromApi(entry)
                     } catch (error) {
                         if (!(error instanceof ApiError && error.status === 403)) {
                             posthog.captureException(error)

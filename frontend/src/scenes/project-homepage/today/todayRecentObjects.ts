@@ -1,7 +1,21 @@
+import { isObject } from 'lib/utils/guards'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { baseObjectType, libraryObjectHref } from 'scenes/library/libraryUtils'
 
+import type { FileSystemApi } from '~/generated/core/api.schemas'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
+
+export function fileSystemEntryFromApi(entry: FileSystemApi): FileSystemEntry {
+    return {
+        id: entry.id,
+        path: entry.path,
+        type: entry.type,
+        ref: entry.ref ?? undefined,
+        href: entry.href ?? undefined,
+        meta: isObject(entry.meta) ? entry.meta : undefined,
+        last_viewed_at: entry.last_viewed_at,
+    }
+}
 
 function objectKey(entry: FileSystemEntry): string {
     const href = libraryObjectHref({ type: baseObjectType(entry.type), ref: entry.ref }) ?? libraryObjectHref(entry)
