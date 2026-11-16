@@ -1,4 +1,7 @@
+from contextlib import AbstractContextManager
 from typing import Any
+
+from unittest.mock import MagicMock, patch
 
 from asgiref.sync import sync_to_async
 
@@ -8,6 +11,7 @@ from posthog.models.team import Team
 from products.workflows.backend.facade.contracts import WorkflowSummary
 from products.workflows.backend.models import HogFlow, SandboxSenderOrganizationBlock
 from products.workflows.backend.services.account_audience import get_account_audience_count, get_account_audience_page
+from products.workflows.backend.services.sandbox_email.provisioning import SANDBOX_SENDER_ADOPTION_FLAG
 
 
 def create_workflow_for_test(
@@ -47,3 +51,12 @@ def list_account_audience_page_for_test(*, team_id: int, filters: dict[str, Any]
 
 def block_sandbox_sender_for_test(*, organization_id: Any) -> None:
     SandboxSenderOrganizationBlock.objects.create(organization_id=organization_id, reason="test")
+
+
+def sandbox_sender_flag_for_test(value: str | bool | None) -> AbstractContextManager[MagicMock]:
+    """Evaluate the sandbox sender flag as `value`: True for the boolean rollout, a variant name
+    for the experiment, None for off."""
+    return patch(
+        "posthoganalytics.get_feature_flag",
+        side_effect=lambda key, *_args, **_kwargs: value if key == SANDBOX_SENDER_ADOPTION_FLAG else None,
+    )

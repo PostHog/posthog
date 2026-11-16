@@ -45,13 +45,12 @@ from products.messaging.backend.tests.fake_cdp_api import FakeAnalytics, FakeCdp
 from products.workflows.backend.facade.api import set_default_email_sender_if_unset
 from products.workflows.backend.facade.models import HogFlow
 from products.workflows.backend.facade.team_extension import TeamWorkflowsConfig
-from products.workflows.backend.facade.testing import block_sandbox_sender_for_test
+from products.workflows.backend.facade.testing import block_sandbox_sender_for_test, sandbox_sender_flag_for_test
 
 CSV, NOTES = "c" * 64, "d" * 64
 TWO_FILES = [{"sha256": CSV, "filename": "a.csv"}, {"sha256": NOTES, "filename": "notes.txt"}]
 CDP_ACCEPTS = {"return_value": MagicMock(status_code=202, json=lambda: {"invocation_id": "invocation-1"})}
 CDP_REPLAYS = MagicMock(status_code=202, json=lambda: {"invocation_id": "first-send", "replayed": True})
-SANDBOX_SENDER_FLAG = "workflows-sandbox-sender"
 
 
 @frozen
@@ -104,6 +103,7 @@ class CapturedEvents:
 class TestTransactionalEmail(APIBaseTest):
     def setUp(self):
         super().setUp()
+        self.enterContext(sandbox_sender_flag_for_test(True))
         self.sender = Integration.objects.create(
             team=self.team, kind="email", integration_id="hello@example.com", config={"verified": True}
         )
@@ -1376,13 +1376,13 @@ class TestTransactionalEmail(APIBaseTest):
         ]
     )
     def test_a_code_send_without_a_verified_sender_keeps_the_sender_error_when_the_sandbox_sender_is_off_limits(
-        self, mock_post, flag, _capture, _name, reason, fields, attr
+        self, mock_post, _flag, _capture, _name, reason, fields, attr
     ):
         self._without_a_verified_sender(unverified_sender=True)
         pipeline = FakeCdpApi()
         mock_post.side_effect = pipeline.post
         if reason == "flag_off":
-            flag.side_effect = lambda key, *args, **kwargs: key != SANDBOX_SENDER_FLAG
+            self.enterContext(sandbox_sender_flag_for_test(None))
         else:
             block_sandbox_sender_for_test(organization_id=self.organization.id)
 

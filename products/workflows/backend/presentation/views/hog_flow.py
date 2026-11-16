@@ -1098,7 +1098,7 @@ def _with_new_email_steps_on_the_sandbox_sender(data: Any, instance: Any, contex
     if has_verified_own_sender(team.id) or not _can_set_up_sandbox_sender(team, user):
         return data
     try:
-        check_sandbox_sender_available(team, user)
+        check_sandbox_sender_available(team, user, offer=True)
     except SandboxSenderUnavailable:
         return data
     converted = list(actions)

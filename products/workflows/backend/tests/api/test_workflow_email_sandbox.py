@@ -2,8 +2,8 @@ from collections.abc import Callable
 from typing import Any
 
 import pytest
+import time_machine
 from posthog.test.base import APIBaseTest
-from unittest.mock import patch
 
 from django.db import connection
 from django.test import Client, override_settings
@@ -14,11 +14,13 @@ from rest_framework import status
 from posthog.constants import AvailableFeature
 from posthog.models.integration import Integration
 from posthog.models.organization import OrganizationMembership
+from posthog.models.team import Team
 from posthog.models.user import User
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.cdp.backend.templates.hog_function_template import sync_template_to_db
-from products.workflows.backend.facade.sandbox_email import SANDBOX_SENDER_ADOPTION_FLAG, provision_sandbox_sender
+from products.workflows.backend.facade.sandbox_email import provision_sandbox_sender
+from products.workflows.backend.facade.testing import sandbox_sender_flag_for_test
 from products.workflows.backend.models import SandboxSenderOrganizationBlock
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 from products.workflows.backend.tests.api.test_sandbox_email_steps import _email_function_template
@@ -26,10 +28,7 @@ from products.workflows.backend.tests.fakes.ses_endpoint import FakeSesEndpoint
 
 
 def _flag(enabled: bool):
-    return patch(
-        "posthoganalytics.feature_enabled",
-        side_effect=lambda key, *_args, **_kwargs: enabled and key == SANDBOX_SENDER_ADOPTION_FLAG,
-    )
+    return sandbox_sender_flag_for_test(True if enabled else None)
 
 
 def _sandbox_rows(team_id: int) -> list[Integration]:
@@ -134,6 +133,54 @@ class TestWorkflowEmailSandbox(APIBaseTest):
             "organization_blocked": False,
             "adoption_enabled": True,
         }
+
+    @parameterized.expand(
+        [
+            ("boolean_rollout", True, True),
+            ("experiment_test_arm", "test", True),
+            ("experiment_control_arm", "control", False),
+            ("flag_off", False, False),
+            ("not_enrolled", None, False),
+        ]
+    )
+    def test_status_offers_the_sender_only_to_the_test_arm(self, _name: str, value: Any, offered: bool) -> None:
+        with sandbox_sender_flag_for_test(value):
+            response = self.client.get(self._url("status"))
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["adoption_enabled"] is offered
+
+    @parameterized.expand([("without_a_verified_sender", False, True), ("with_a_verified_sender", True, False)])
+    def test_status_records_the_exposure_only_where_the_sender_is_offered(
+        self, _name: str, verified: bool, exposed: bool
+    ) -> None:
+        if verified:
+            Integration.objects.create(
+                team=self.team, kind="email", integration_id="mail.example.com", config={"verified": True}
+            )
+
+        with _flag(True) as flag:
+            self.client.get(self._url("status"))
+
+        assert flag.call_args.kwargs["send_feature_flag_events"] is exposed
+
+    @time_machine.travel("2026-11-20T10:00:00Z", tick=False)
+    def test_the_flag_reads_when_the_organization_created_its_first_workflow(self) -> None:
+        with _flag(True) as flag:
+            self.client.get(self._url("status"))
+        assert flag.call_args.kwargs["group_properties"]["organization"]["workflows_first_created_at"] == (
+            "2026-11-20T10:00:00+00:00"
+        )
+
+        other_team = Team.objects.create(organization=self.organization, name="Other project")
+        with time_machine.travel("2026-10-01T08:00:00Z", tick=False):
+            HogFlow.objects.create(team=other_team, name="First")
+        HogFlow.objects.create(team=self.team, name="Later")
+        with _flag(True) as flag:
+            self.client.get(self._url("status"))
+        assert flag.call_args.kwargs["group_properties"]["organization"]["workflows_first_created_at"] == (
+            "2026-10-01T08:00:00+00:00"
+        )
 
     def test_generic_integration_endpoints_refuse_the_sandbox_kind(self) -> None:
         self.organization_membership.level = OrganizationMembership.Level.ADMIN

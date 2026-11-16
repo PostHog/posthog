@@ -1,28 +1,51 @@
+from datetime import datetime
+
 from django.conf import settings
+from django.db.models import Min
+from django.utils import timezone
 
 from posthog.integrations import IntegrationConflict, IntegrationManager
 from posthog.integrations.contracts import IntegrationRecord
 from posthog.models.team import Team
 from posthog.models.user import User
-from posthog.ph_client import feature_enabled_or_false
+from posthog.ph_client import get_feature_flag_or_none
 
 from products.workflows.backend.facade.contracts import SandboxSenderStatus, SandboxSenderUnavailable
-from products.workflows.backend.models import SandboxSenderOrganizationBlock
+from products.workflows.backend.models import HogFlow, SandboxSenderOrganizationBlock
 from products.workflows.backend.services.sandbox_email.validation import ADOPTION_UNAVAILABLE
 
 SANDBOX_SENDER_ADOPTION_FLAG = "workflows-sandbox-sender"
 SANDBOX_SENDER_INTEGRATION_ID = "posthog-managed-sandbox"
+SANDBOX_SENDER_TEST_VARIANT = "test"
 
 
-def sandbox_adoption_enabled(team: Team, user: User | None = None) -> bool:
+def sandbox_adoption_enabled(team: Team, user: User | None = None, *, offer: bool = False) -> bool:
+    """`offer` marks the points where the sender is offered to someone without a verified sender of
+    their own; only those record the experiment's exposure."""
     organization_id = str(team.organization_id)
-    return feature_enabled_or_false(
+    value = get_feature_flag_or_none(
         SANDBOX_SENDER_ADOPTION_FLAG,
         user.distinct_id if user is not None and user.distinct_id else str(team.uuid),
         groups={"organization": organization_id},
-        group_properties={"organization": {"id": organization_id}},
-        send_feature_flag_events=False,
+        group_properties={
+            "organization": {
+                "id": organization_id,
+                "workflows_first_created_at": _workflows_first_created_at(team).isoformat(),
+            }
+        },
+        send_feature_flag_events=offer
+        and user is not None
+        and bool(user.distinct_id)
+        and not has_verified_own_sender(team.id),
     )
+    # The experiment's control arm gets a variant too, so only the test arm, or the boolean flag
+    # of an internal rollout, turns the sandbox sender on.
+    return value is True or value == SANDBOX_SENDER_TEST_VARIANT
+
+
+def _workflows_first_created_at(team: Team) -> datetime:
+    first = HogFlow.objects.filter(team__organization_id=team.organization_id).aggregate(first=Min("created_at"))
+    return first["first"] or timezone.now()
 
 
 def organization_blocked(team: Team) -> bool:
@@ -48,14 +71,14 @@ def provision_sandbox_sender(team: Team, user: User | None) -> IntegrationRecord
         return winner
 
 
-def sandbox_sender_status(team: Team, user: User | None = None) -> SandboxSenderStatus:
+def sandbox_sender_status(team: Team, user: User | None = None, *, offer: bool = False) -> SandboxSenderStatus:
     row = IntegrationManager.email_sandbox.credentials.find(team.id, external_id=SANDBOX_SENDER_INTEGRATION_ID)
     return SandboxSenderStatus(
         integration_id=row.id if row is not None else None,
         from_address=settings.SES_SANDBOX_FROM_ADDRESS,
         display_name=f"{team.organization.name} via PostHog",
         organization_blocked=organization_blocked(team),
-        adoption_enabled=sandbox_adoption_enabled(team, user),
+        adoption_enabled=sandbox_adoption_enabled(team, user, offer=offer),
     )
 
 
@@ -67,8 +90,8 @@ def set_up_sandbox_sender(team: Team, user: User) -> IntegrationRecord:
     return provision_sandbox_sender(team, user)
 
 
-def check_sandbox_sender_available(team: Team, user: User) -> None:
-    status = sandbox_sender_status(team, user)
+def check_sandbox_sender_available(team: Team, user: User, *, offer: bool = False) -> None:
+    status = sandbox_sender_status(team, user, offer=offer)
     if not status.adoption_enabled:
         raise SandboxSenderUnavailable(ADOPTION_UNAVAILABLE)
     if status.organization_blocked:

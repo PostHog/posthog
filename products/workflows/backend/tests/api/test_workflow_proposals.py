@@ -28,7 +28,7 @@ from products.cdp.backend.templates.hog_function_template import sync_template_t
 from products.notifications.backend.facade.testing import stored_notification_for_resource
 from products.signals.backend.models import SignalScoutConfig
 from products.skills.backend.models.skills import LLMSkill
-from products.workflows.backend.facade.sandbox_email import SANDBOX_SENDER_ADOPTION_FLAG
+from products.workflows.backend.facade.testing import sandbox_sender_flag_for_test
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 from products.workflows.backend.models.hog_flow_optimization import HogFlowOptimization
 from products.workflows.backend.models.workflow_proposal import WorkflowProposal
@@ -1725,10 +1725,7 @@ class TestWorkflowProposals(APIBaseTest):
             },
         }
 
-        with patch(
-            "posthoganalytics.feature_enabled",
-            side_effect=lambda key, *_args, **_kwargs: key == SANDBOX_SENDER_ADOPTION_FLAG,
-        ):
+        with sandbox_sender_flag_for_test(True):
             proposal = self._propose(
                 flow_id, user_agent="posthog-cli", content={"actions": [_trigger_action(), new_step]}
             )

@@ -4,7 +4,6 @@ from datetime import timedelta
 from typing import Any
 
 from posthog.test.base import APIBaseTest
-from unittest.mock import patch
 
 from django.conf import settings
 from django.test import override_settings
@@ -17,7 +16,7 @@ from posthog.models.integration import Integration
 from products.cdp.backend.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
 from products.cdp.backend.templates.hog_function_template import sync_template_to_db
 from products.messaging.backend.facade.testing import create_message_template_for_test
-from products.workflows.backend.facade.sandbox_email import SANDBOX_SENDER_ADOPTION_FLAG
+from products.workflows.backend.facade.testing import sandbox_sender_flag_for_test
 from products.workflows.backend.models import SandboxSenderOrganizationBlock
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 
@@ -32,10 +31,7 @@ def _runtime(enabled: bool):
 
 
 def _flag(enabled: bool):
-    return patch(
-        "posthoganalytics.feature_enabled",
-        side_effect=lambda key, *_args, **_kwargs: enabled and key == SANDBOX_SENDER_ADOPTION_FLAG,
-    )
+    return sandbox_sender_flag_for_test(True if enabled else None)
 
 
 def _trigger() -> dict[str, Any]:
@@ -149,10 +145,12 @@ class TestSandboxEmailSteps(APIBaseTest):
     def test_a_new_sandbox_step_needs_the_adoption_flag(
         self, _name: str, enabled: bool, runtime: bool, status: str, expected: int
     ) -> None:
-        with _flag(enabled), _runtime(runtime):
+        with _flag(enabled) as flag, _runtime(runtime):
             response = self.client.post(self._url(), _flow(_sandbox_step(), status=status), format="json")
 
         assert response.status_code == expected, response.json()
+        assert flag.call_args_list, "validation evaluates the flag"
+        assert not any(call.kwargs["send_feature_flag_events"] for call in flag.call_args_list)
         if enabled:
             flow = HogFlow.objects.get(id=response.json()["id"])
             assert flow.status == status
@@ -506,12 +504,14 @@ class TestSandboxEmailStepsOverTheApi(APIBaseTest):
         if verified:
             self._verified_sender()
 
-        with _flag(enabled):
+        with _flag(enabled) as flag:
             response = self.client.post(
                 f"/api/projects/{self.team.id}/hog_flows", _flow(_own_email_step(None)), format="json", **headers
             )
 
         assert response.status_code == 201, response.json()
+        offered = bool(headers) and not verified
+        assert any(call.kwargs["send_feature_flag_events"] for call in flag.call_args_list) == offered
         assert HogFlow.objects.get(id=response.json()["id"]).actions[1]["type"] == expected_type
         assert self._sandbox_sender_is_set_up() == (expected_type == "email_sandbox")
 
