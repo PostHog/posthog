@@ -1,6 +1,8 @@
 import re
 import json
 import time
+from dataclasses import replace
+from operator import attrgetter
 from typing import Any
 
 import pytest
@@ -10,10 +12,13 @@ import httpx
 import openai
 import anthropic
 from anthropic.types import ToolUseBlock, Usage
+from google import genai
+from google.genai import errors as genai_errors
 from parameterized import parameterized
 
 from products.ai_observability.backend.llm import DEFAULT_MODEL_BY_PROVIDER
 from products.ai_observability.backend.logic.eval_suggestions import call_review, judge_calibration
+from products.ai_observability.backend.logic.eval_suggestions.call_review import Verdict
 from products.ai_observability.backend.logic.eval_suggestions.call_review_queries import CallTypeRow, ReviewCallRow
 from products.ai_observability.backend.logic.eval_suggestions.judge_calibration import Calibration
 from products.ai_observability.backend.logic.eval_suggestions.prices import MODEL_PRICES
@@ -59,21 +64,45 @@ def test_a_card_is_kept_only_when_its_judge_agrees_with_the_review(
 
 @parameterized.expand(
     [
-        ("fails_and_passes_share_the_slots", 40, 30, 20, 20),
-        ("few_fails_leave_their_slots_to_passes", 5, 45, 5, 35),
-        ("few_passes_leave_their_slots_to_fails", 45, 3, 37, 3),
+        ("fails_and_passes_share_the_slots", 40, 30, 0, (20, 20, 0)),
+        ("few_fails_leave_their_slots_to_passes", 5, 45, 0, (5, 35, 0)),
+        ("few_passes_leave_their_slots_to_fails", 45, 3, 0, (37, 3, 0)),
+        ("passes_and_skipped_calls_share_the_pass_slots", 10, 5, 40, (10, 3, 27)),
     ]
 )
 def test_calibration_keeps_room_for_the_review_passes(
-    _name: str, fails: int, passes: int, picked_fails: int, picked_passes: int
+    _name: str, fails: int, passes: int, na: int, picked: tuple[int, int, int]
 ) -> None:
-    labels = dict.fromkeys(range(1, fails + 1), "fail") | dict.fromkeys(range(fails + 1, fails + passes + 1), "pass")
+    # The skipped calls come before the passes, so an order-based pick would test no pass at all.
+    verdicts = ["fail"] * fails + ["na"] * na + ["pass"] * passes
+    labels = dict(enumerate(verdicts, start=1))
     card = MagicMock(labels=labels)
 
     numbers = judge_calibration.calibration_calls(card)
 
-    assert sum(1 for n in numbers if labels[n] == "fail") == picked_fails
-    assert sum(1 for n in numbers if labels[n] == "pass") == picked_passes
+    assert tuple(sum(1 for n in numbers if labels[n] == kind) for kind in ("fail", "pass", "na")) == picked
+
+
+@parameterized.expand(
+    [
+        ("answers_na_where_it_does_not_apply", "pass", "na", True, (5, 15)),
+        ("fails_calls_it_does_not_apply_to", "pass", "fail", False, (35, 45)),
+        ("fails_every_call_it_applies_to", "fail", "na", False, (15, 15)),
+    ]
+)
+def test_a_judge_is_tested_on_passes_and_on_calls_the_question_skips(
+    _name: str, on_pass: Verdict, on_na: Verdict, kept: bool, counts: tuple[int, int]
+) -> None:
+    labels: dict[int, Verdict] = {n: "fail" if n <= 5 else "na" if n <= 35 else "pass" for n in range(1, 46)}
+    card = replace(_card_and_rendering()[0], labels=labels, failed=5, of=15)
+    numbers = judge_calibration.calibration_calls(card)
+    verdicts: dict[Verdict, Verdict] = {"fail": "fail", "pass": on_pass, "na": on_na}
+
+    calibration = judge_calibration.calibrate(card, numbers, [verdicts[labels[n]] for n in numbers])
+
+    assert judge_calibration.keeps(card, calibration) is kept
+    measured = judge_calibration.measured(card, calibration)
+    assert (measured.failed, measured.of) == counts
 
 
 def _card_and_rendering() -> tuple[call_review.ReviewCard, call_review.Rendering]:
@@ -127,14 +156,28 @@ def _openai_reply(verdict: str) -> MagicMock:
     )
 
 
+def _gemini_reply(verdict: str) -> MagicMock:
+    return MagicMock(
+        text=json.dumps({"reasoning": "r", "verdict": verdict}),
+        usage_metadata=MagicMock(prompt_token_count=1000, candidates_token_count=30, thoughts_token_count=20),
+    )
+
+
 @parameterized.expand(
     [
-        ("anthropic", anthropic.Anthropic, _anthropic_reply, anthropic.APIConnectionError(request=REQUEST)),
-        ("openai", openai.OpenAI, _openai_reply, openai.APIConnectionError(request=REQUEST)),
+        (
+            "anthropic",
+            anthropic.Anthropic,
+            "messages.create",
+            _anthropic_reply,
+            anthropic.APIConnectionError(request=REQUEST),
+        ),
+        ("openai", openai.OpenAI, "chat.completions.create", _openai_reply, openai.APIConnectionError(request=REQUEST)),
+        ("gemini", genai.Client, "models.generate_content", _gemini_reply, httpx.ConnectError("Connection reset")),
     ]
 )
 def test_the_judge_grades_the_review_calls_on_the_team_model(
-    provider: str, sdk: type, reply: Any, connection_reset: Exception
+    provider: str, sdk: type, method: str, reply: Any, connection_reset: Exception
 ) -> None:
     card, rendering = _card_and_rendering()
     model = DEFAULT_MODEL_BY_PROVIDER[provider]
@@ -143,7 +186,7 @@ def test_the_judge_grades_the_review_calls_on_the_team_model(
     prompts: list[str] = []
 
     def answer(**kwargs: Any) -> MagicMock:
-        prompt = kwargs["messages"][-1]["content"]
+        prompt = kwargs["contents"] if provider == "gemini" else kwargs["messages"][-1]["content"]
         prompts.append(prompt)
         match = re.search(r'<call number="(\d+)"', prompt)
         assert match is not None
@@ -153,8 +196,7 @@ def test_the_judge_grades_the_review_calls_on_the_team_model(
         return reply("fail" if number in (1, 2, 4, 6) else "na" if number == 40 else "pass")
 
     client = MagicMock(spec=sdk)
-    create = client.messages.create if provider == "anthropic" else client.chat.completions.create
-    create.side_effect = answer
+    attrgetter(method)(client).side_effect = answer
 
     with patch.object(call_review, "RETRY_BACKOFF_SECONDS", 0):
         calls = judge_calibration.judge_all(client, requests, deadline=None)
@@ -186,6 +228,44 @@ def test_the_judge_grades_the_review_calls_on_the_team_model(
     assert sum(call.cost_usd for call in calls if call) == pytest.approx(
         39 * served + judge_calibration.max_cost_usd([requests[2]])
     )
+
+
+@parameterized.expand(
+    [
+        ("gemini_server_error", "gemini", genai_errors.ServerError(503, {}), True, True),
+        ("gemini_rate_limited", "gemini", genai_errors.ClientError(429, {}), True, False),
+        ("gemini_cancelled", "gemini", genai_errors.ClientError(499, {}), True, True),
+        ("gemini_bad_request", "gemini", genai_errors.ClientError(400, {}), False, True),
+        (
+            "anthropic_overloaded",
+            "anthropic",
+            anthropic.APIStatusError("busy", response=httpx.Response(529, request=REQUEST), body=None),
+            True,
+            True,
+        ),
+    ]
+)
+def test_a_judge_call_retries_only_errors_a_retry_can_get_past(
+    _name: str, provider: str, error: Exception, retried: bool, billed: bool
+) -> None:
+    card, rendering = _card_and_rendering()
+    model = DEFAULT_MODEL_BY_PROVIDER[provider]
+    request = judge_calibration.judge_request(card, rendering, 1, model)
+    if provider == "gemini":
+        client = MagicMock(spec=genai.Client)
+        client.models.generate_content.side_effect = [error, _gemini_reply("fail")]
+    else:
+        client = MagicMock(spec=anthropic.Anthropic)
+        client.messages.create.side_effect = [error, _anthropic_reply("fail")]
+
+    with patch.object(call_review, "RETRY_BACKOFF_SECONDS", 0):
+        call = judge_calibration.judge(client, request)
+
+    price = MODEL_PRICES[model]
+    served = 1000 * price.input_per_token + 50 * price.output_per_token
+    unsettled = judge_calibration.max_cost_usd([request]) / call_review.ATTEMPTS if billed else 0.0
+    assert call.verdict == ("fail" if retried else None)
+    assert call.cost_usd == pytest.approx((served if retried else 0.0) + unsettled)
 
 
 def test_a_request_that_could_end_past_the_deadline_never_starts() -> None:

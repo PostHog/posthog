@@ -7191,6 +7191,59 @@ export namespace Schemas {
       snippet: string | null;
     }
 
+    /**
+     * * `owned` - Owned
+     * * `watched` - Watched
+     */
+    export type SummaryObjectRelationEnum = typeof SummaryObjectRelationEnum[keyof typeof SummaryObjectRelationEnum];
+
+
+    export const SummaryObjectRelationEnum = {
+      Owned: 'owned',
+      Watched: 'watched',
+    } as const;
+
+    export interface ActivitySummarySearchObject {
+      /** `owned` when the member changed the object, `watched` when they opened it on many days.
+       *
+       * * `owned` - Owned
+       * * `watched` - Watched */
+      relation: SummaryObjectRelationEnum;
+      /** The object type, such as `insight` or `dashboard`. */
+      type: string;
+      /** The short id for an insight, a notebook or a replay playlist, else the primary key. */
+      id: string;
+      /** The object name. */
+      name: string;
+      /**
+         * Days the member changed the object. Set on an owned object only.
+         * @nullable
+         */
+      edit_days: number | null;
+      /**
+         * Days the member opened the object. Set on a watched object only.
+         * @nullable
+         */
+      open_days: number | null;
+      /**
+         * The last day of the change or the view, as YYYY-MM-DD.
+         * @nullable
+         */
+      last_at: string | null;
+      /**
+         * True when someone else created the watched object. Null on an owned object.
+         * @nullable
+         */
+      not_theirs: boolean | null;
+    }
+
+    export interface ActivitySummarySearchProducts {
+      /** Products the member changed something in, the most active first. */
+      works_in: ActivitySummaryProductEnum[];
+      /** Products the member only opened, the most opened first. */
+      visits: ActivitySummaryProductEnum[];
+    }
+
     export interface ActivitySummarySearchHit {
       /** The member. Use it in `suggested_reviewers`. */
       user_uuid: string;
@@ -7210,6 +7263,8 @@ export namespace Schemas {
       score: number | null;
       /** Why this member matched. */
       matched_on: ActivitySummarySearchMatch[];
+      /** The member's owned and watched objects that matched the object filter, or whose name matched a query term. */
+      objects: ActivitySummarySearchObject[];
       /**
          * One or two sentences about what the member works on in this project.
          * @nullable
@@ -7219,6 +7274,8 @@ export namespace Schemas {
       themes: ActivitySummaryTheme[];
       /** How the member works in this project overall, the main mode first. */
       modes: ActivitySummaryModeEnum[];
+      /** The products the member works in or visits. */
+      products: ActivitySummarySearchProducts;
       /**
          * When this summary was written.
          * @nullable
@@ -7236,6 +7293,8 @@ export namespace Schemas {
     export interface ActivitySummarySearchResult {
       /** The matching members, best match first. */
       results: ActivitySummarySearchHit[];
+      /** All the members that matched, before `offset` and `limit`. */
+      total: number;
       /** False when the search used keywords only: a `keyword` search, a request with no query, or a `hybrid` search whose vector search failed. */
       semantic_used: boolean;
       /** Members with access to the project and no summary yet. The search cannot find them. */
@@ -22524,6 +22583,41 @@ export namespace Schemas {
       products: ProductSpend[];
     }
 
+    /**
+     * * `type` - type
+     * * `team` - team
+     * * `multiple` - multiple
+     */
+    export type BreakdownTypeEnum = typeof BreakdownTypeEnum[keyof typeof BreakdownTypeEnum];
+
+
+    export const BreakdownTypeEnum = {
+      Type: 'type',
+      Team: 'team',
+      Multiple: 'multiple',
+    } as const;
+
+    export interface BillingTimeSeriesPoint {
+      id?: number;
+      label?: string;
+      data?: number[];
+      dates?: string[];
+      breakdown_type?: BreakdownTypeEnum | null;
+      breakdown_value?: unknown;
+    }
+
+    export interface BillingSpendTimeSeriesResponse {
+      status?: string;
+      type?: string;
+      customer_id?: number;
+      results: BillingTimeSeriesPoint[];
+      team_id_options?: number[];
+      next?: string;
+      total_count?: number;
+      /** Usage dates (YYYY-MM-DD) in the requested range where the organization's known reported billing-period assignment changes. These dates can differ from subscription renewal dates. Organization-wide, even on filtered or project-scoped responses, and independent of interval and pagination. An empty or omitted list does not establish whether a renewal occurred. */
+      pricing_reset_dates?: string[];
+    }
+
     export interface Trial {
       type: string;
       status: string;
@@ -22570,29 +22664,6 @@ export namespace Schemas {
     export interface BillingTeamOptionsResponse {
       /** Project ids that appear in the organization's usage reports. */
       team_id_options: number[];
-    }
-
-    /**
-     * * `type` - type
-     * * `team` - team
-     * * `multiple` - multiple
-     */
-    export type BreakdownTypeEnum = typeof BreakdownTypeEnum[keyof typeof BreakdownTypeEnum];
-
-
-    export const BreakdownTypeEnum = {
-      Type: 'type',
-      Team: 'team',
-      Multiple: 'multiple',
-    } as const;
-
-    export interface BillingTimeSeriesPoint {
-      id?: number;
-      label?: string;
-      data?: number[];
-      dates?: string[];
-      breakdown_type?: BreakdownTypeEnum | null;
-      breakdown_value?: unknown;
     }
 
     export interface BillingTimeSeriesResponse {
@@ -44474,12 +44545,12 @@ export namespace Schemas {
       /** Percentage (0-100) of matching units the evaluation runs on. */
       readonly rollout_percentage: number;
       /**
-         * Share (0-1) of sampled traces that fail the check. Only Hog checks are measured; null otherwise.
+         * Share (0-1) of sampled traces or generations, per the draft's target, that fail the check. Null when nothing measured it.
          * @nullable
          */
       readonly measured_failure_rate: number | null;
       /**
-         * Traces the failure rate was measured on. Null when there is no rate.
+         * Traces or generations, per the draft's target, that the failure rate was measured on. Null when there is no rate.
          * @nullable
          */
       readonly sample_size: number | null;
@@ -69628,6 +69699,24 @@ export namespace Schemas {
       Raw: 'raw',
     } as const;
 
+    export interface LogsSigningSecret {
+      /**
+         * Raw secret that a server uses to sign log requests (HMAC). Null until one exists.
+         * @nullable
+         */
+      readonly secret: string | null;
+      /**
+         * When the secret last changed, or null when no secret exists yet.
+         * @nullable
+         */
+      readonly updated_at: string | null;
+      /**
+         * Until when the previous secret stays valid after a rotation, or null when no grace period is active.
+         * @nullable
+         */
+      readonly previous_secret_valid_until: string | null;
+    }
+
     /**
      * Filter criteria — subset of LogsViewerFilters. May contain severityLevels, serviceNames, searchTerm, filterGroup, dateRange, and other keys.
      */
@@ -72046,6 +72135,20 @@ export namespace Schemas {
     export interface MemberProjectAccessResponse {
       /** One entry per visible organization member. */
       results: MemberProjectAccess[];
+    }
+
+    export interface MergeReleases {
+      /**
+         * IDs of the releases to merge into this one. Their flags, broadcasts, surveys and insights move to this release, then they are deleted.
+         * @minItems 1
+         * @maxItems 100
+         */
+      release_ids: string[];
+      /**
+         * New name for the merged release. Keeps the current name when left out.
+         * @maxLength 255
+         */
+      name?: string;
     }
 
     export type MessageContextualTools = { [key: string]: unknown };
@@ -77321,6 +77424,17 @@ export namespace Schemas {
       results: BillingAlertEvent[];
     }
 
+    export interface PaginatedBillingSpendTimeSeriesList {
+      count: number;
+      /** @nullable */
+      next: string | null;
+      /** @nullable */
+      previous: string | null;
+      results: BillingTimeSeriesPoint[];
+      /** Usage dates (YYYY-MM-DD) in the requested range where the organization's known reported billing-period assignment changes. These dates can differ from subscription renewal dates. Organization-wide, even on filtered or project-scoped responses, and independent of interval and pagination. An empty or omitted list does not establish whether a renewal occurred. */
+      pricing_reset_dates?: string[];
+    }
+
     export interface PaginatedBillingTimeSeriesPointList {
       count: number;
       /** @nullable */
@@ -79774,6 +79888,7 @@ export namespace Schemas {
 
     /**
      * * `self_driving` - Self-driving
+     * * `bot_admission` - Bot author
      * * `manual` - Manual
      * * `reviewhog_clean` - Clean PostHog Review
      * * `label` - Label
@@ -79784,6 +79899,7 @@ export namespace Schemas {
 
     export const ReviewTriggerEnum = {
       SelfDriving: 'self_driving',
+      BotAdmission: 'bot_admission',
       Manual: 'manual',
       ReviewhogClean: 'reviewhog_clean',
       Label: 'label',
@@ -79911,6 +80027,7 @@ export namespace Schemas {
       /** What caused this run to exist: self-driving inbox provenance, a manual request through the API, a clean PostHog Review run (a silent review that posts only an approval), the repo's trigger label, or the repo reviewing every PR event.
        *
        * * `self_driving` - Self-driving
+       * * `bot_admission` - Bot author
        * * `manual` - Manual
        * * `reviewhog_clean` - Clean PostHog Review
        * * `label` - Label
@@ -144349,6 +144466,12 @@ export namespace Schemas {
 
     export type SignalsActivitySummaryMembersSearchParams = {
     /**
+     * Only members with a theme or an object seen in this many days.
+     * @minimum 1
+     * @maximum 365
+     */
+    active_since_days?: number;
+    /**
      * Members to leave out, such as people you already checked.
      */
     exclude_user_uuids?: string[];
@@ -144362,6 +144485,45 @@ export namespace Schemas {
      * @maximum 25
      */
     limit?: number;
+    /**
+     * Only members who work in this mode, overall or on one of their themes.
+     *
+     * * `building` - Building
+     * * `analyzing` - Analyzing
+     * * `monitoring` - Monitoring
+     * * `investigating` - Investigating
+     * * `operating` - Operating
+     * * `experimenting` - Experimenting
+     * @minLength 1
+     */
+    mode?: SignalsActivitySummaryMembersSearchMode;
+    /**
+     * Only members who changed or often open this object. Requires `object_type`. Use the short id for an insight, a notebook or a replay playlist (the id in its URL, such as `aBc123Xy`), and the numeric or UUID primary key for every other type.
+     * @minLength 1
+     * @maxLength 64
+     */
+    object_id?: string;
+    /**
+     * With `object_type` or `object_id`: `owned` matches members who changed the object, `watched` members who opened it on many days, and `any` both.
+     *
+     * * `any` - Any
+     * * `owned` - Owned
+     * * `watched` - Watched
+     * @minLength 1
+     */
+    object_relation?: SignalsActivitySummaryMembersSearchObjectRelation;
+    /**
+     * Only members who changed or often open an object of this type, such as `insight`, `dashboard`, `feature_flag`, `experiment`, `notebook` or `hog_function`. Combine with `object_id` for one object.
+     * @minLength 1
+     * @maxLength 64
+     */
+    object_type?: string;
+    /**
+     * The number of results to skip, for the next page. Compare with `total`.
+     * @minimum 0
+     * @maximum 500
+     */
+    offset?: number;
     /**
      * Only members who work in or visit this product.
      *
@@ -144410,7 +144572,33 @@ export namespace Schemas {
      * @minLength 1
      */
     search_mode?: SignalsActivitySummaryMembersSearchSearchMode;
+    /**
+     * Only these members. With no query, this reads their summaries directly.
+     * @maxItems 25
+     */
+    user_uuids?: string[];
     };
+
+    export type SignalsActivitySummaryMembersSearchMode = typeof SignalsActivitySummaryMembersSearchMode[keyof typeof SignalsActivitySummaryMembersSearchMode];
+
+
+    export const SignalsActivitySummaryMembersSearchMode = {
+      Building: 'building',
+      Analyzing: 'analyzing',
+      Monitoring: 'monitoring',
+      Investigating: 'investigating',
+      Operating: 'operating',
+      Experimenting: 'experimenting',
+    } as const;
+
+    export type SignalsActivitySummaryMembersSearchObjectRelation = typeof SignalsActivitySummaryMembersSearchObjectRelation[keyof typeof SignalsActivitySummaryMembersSearchObjectRelation];
+
+
+    export const SignalsActivitySummaryMembersSearchObjectRelation = {
+      Any: 'any',
+      Owned: 'owned',
+      Watched: 'watched',
+    } as const;
 
     export type SignalsActivitySummaryMembersSearchProduct = typeof SignalsActivitySummaryMembersSearchProduct[keyof typeof SignalsActivitySummaryMembersSearchProduct];
 
@@ -145432,7 +145620,7 @@ export namespace Schemas {
      */
     status?: string;
     /**
-     * Filter by what caused the run. Leave it unset to include runs from every trigger. 'all' is not a wildcard: it matches only runs in repos that review every pull request event. The other values: 'label' (the repo's trigger label opted the PR in), 'manual' (someone requested the review through the API or MCP), 'reviewhog_clean' (a clean PostHog Review run started a silent review, which posts only an approval), and 'self_driving' (stamphog reviewed a bot-authored PR from the inbox).
+     * Filter by what caused the run. Leave it unset to include runs from every trigger. 'all' is not a wildcard: it matches only runs in repos that review every pull request event. The other values: 'label' (the repo's trigger label opted the PR in), 'manual' (someone requested the review through the API or MCP), 'reviewhog_clean' (a clean PostHog Review run started a silent review, which posts only an approval), 'self_driving' (stamphog reviewed a bot-authored PR from the inbox), and 'bot_admission' (the repo policy names the bot that authored the PR).
      */
     trigger?: StamphogReviewRunsListTrigger;
     };
@@ -145442,6 +145630,7 @@ export namespace Schemas {
 
     export const StamphogReviewRunsListTrigger = {
       All: 'all',
+      BotAdmission: 'bot_admission',
       Label: 'label',
       Manual: 'manual',
       ReviewhogClean: 'reviewhog_clean',
