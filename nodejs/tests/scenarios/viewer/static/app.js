@@ -1221,9 +1221,7 @@ function timelineTable(windows, from) {
                         'td',
                         {},
                         w.valve,
-                        doseText(w.dose)
-                            ? h('span', { class: 'muted' }, ` (${doseText(w.dose)})`)
-                            : ''
+                        doseText(w.dose) ? h('span', { class: 'muted' }, ` (${doseText(w.dose)})`) : ''
                     ),
                     h('td', {}, plainOf(w.target), h('div', { class: 'muted mono' }, w.target)),
                     h('td', {}, rel(w.requestedAt)),
