@@ -5,7 +5,7 @@ import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { newEventsTableLogic } from './newEventsTableLogic'
 
 export function NewEventsTableBar(): JSX.Element | null {
-    const { newEventsTableActive, newEventsTableBarDismissed } = useValues(newEventsTableLogic)
+    const { newEventsTableActive, newEventsTableBarDismissed, tabNewEventsTable } = useValues(newEventsTableLogic)
     const { setNewEventsTable, dismissNewEventsTableBar } = useActions(newEventsTableLogic)
 
     if (!newEventsTableActive || newEventsTableBarDismissed) {
@@ -23,7 +23,9 @@ export function NewEventsTableBar(): JSX.Element | null {
                 }}
                 onClose={dismissNewEventsTableBar}
             >
-                This browser is reading the new events table.
+                {tabNewEventsTable === null
+                    ? 'This browser is reading the new events table.'
+                    : 'This browser tab is reading the new events table.'}
             </LemonBanner>
         </div>
     )

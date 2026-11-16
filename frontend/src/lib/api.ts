@@ -23,6 +23,7 @@ import { SURVEY_PAGE_SIZE } from 'lib/constants'
 import { apiStatusLogic, awaitReauthentication, isUserActionInProgress } from 'lib/logic/apiStatusLogic'
 import { retryWithBackoff } from 'lib/utils/async'
 import { HogQLQueryString } from 'lib/utils/hogql'
+import { getTabNewEventsTable } from 'lib/utils/newEventsTableTab'
 import { getBackendHost, getStoredSession, isOAuthMode, refreshAccessToken } from 'lib/utils/oauthClient'
 import { objectClean } from 'lib/utils/objects'
 import { toParams } from 'lib/utils/url'
@@ -2056,6 +2057,19 @@ function clientBuildHeader(url: string): Record<string, string> {
     return { 'X-PostHog-Client-Build': clientBuild }
 }
 
+/**
+ * The events table this tab chose, so a staff person can compare the two tables in two tabs of one
+ * browser, which share one cookie. Same-origin only, for the same CORS reason as the build header.
+ */
+function newEventsTableHeader(url: string): Record<string, string> {
+    const enabled = getTabNewEventsTable()
+    if (enabled === null || new URL(url, window.location.origin).origin !== window.location.origin) {
+        return {}
+    }
+    // pinned: NewEventsSchemaCookieMiddleware reads this header name and the values "1" and "0"
+    return { 'X-PostHog-New-Events-Schema': enabled ? '1' : '0' }
+}
+
 const PROJECT_ID_REGEX = /\/api\/(project|environment)s\/(\w+)(?:$|[/?#])/
 
 const ensureProjectIdNotInvalid = (url: string): void => {
@@ -3458,6 +3472,7 @@ const api = {
             fetchEventSource(url, {
                 signal: abortController.signal,
                 credentials: 'include',
+                headers: newEventsTableHeader(url),
                 openWhenHidden: true,
                 onopen: async (response) => {
                     apiStatusLogic.findMounted()?.actions.onApiResponse(response.clone())
@@ -6859,6 +6874,7 @@ const api = {
                     ...objectClean(options?.headers ?? {}),
                     ...tracingHeaders({ includeDistinctId: true }),
                     ...clientBuildHeader(url),
+                    ...newEventsTableHeader(url),
                     ...oauthAuthHeaders(url),
                     ...authHeaders,
                 },
@@ -6887,6 +6903,7 @@ const api = {
                     'X-CSRFToken': getCookie(CSRF_COOKIE_NAME) || '',
                     ...tracingHeaders(),
                     ...clientBuildHeader(url),
+                    ...newEventsTableHeader(url),
                     ...oauthAuthHeaders(url),
                 },
                 body: isFormData ? data : JSON.stringify(data),
@@ -6932,6 +6949,7 @@ const api = {
                     'X-CSRFToken': getCookie(CSRF_COOKIE_NAME) || '',
                     ...tracingHeaders(),
                     ...clientBuildHeader(url),
+                    ...newEventsTableHeader(url),
                     ...oauthAuthHeaders(url),
                 },
                 body: data ? (isFormData ? data : JSON.stringify(data)) : undefined,
@@ -6968,6 +6986,7 @@ const api = {
                     'X-CSRFToken': getCookie(CSRF_COOKIE_NAME) || '',
                     ...tracingHeaders(),
                     ...clientBuildHeader(url),
+                    ...newEventsTableHeader(url),
                     ...oauthAuthHeaders(url),
                 },
             })
@@ -7025,6 +7044,7 @@ const api = {
                 'X-CSRFToken': getCookie('posthog_csrftoken') || '',
                 ...tracingHeaders(),
                 ...clientBuildHeader(url),
+                ...newEventsTableHeader(url),
                 ...objectClean(headers ?? {}),
             },
             body: data !== undefined ? JSON.stringify(data) : undefined,
@@ -7302,6 +7322,7 @@ function xhrPost(url: string, data: FormData, options?: ApiUploadOptions): Promi
             'X-CSRFToken': getCookie(CSRF_COOKIE_NAME) || '',
             ...tracingHeaders(),
             ...clientBuildHeader(url),
+            ...newEventsTableHeader(url),
             ...oauthAuthHeaders(url),
         }
         for (const [name, value] of Object.entries(headers)) {

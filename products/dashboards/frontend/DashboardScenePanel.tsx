@@ -21,6 +21,7 @@ import { interProjectCopyLogic } from 'scenes/resource-transfer/interProjectCopy
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
+import { NewEventsTableScenePanelActions } from '~/layout/navigation/NewEventsTableScenePanelActions'
 import {
     ScenePanel,
     ScenePanelActionsSection,
@@ -174,6 +175,7 @@ export function DashboardScenePanel(): JSX.Element | null {
 
                 {dashboard && <SceneMetalyticsSummaryButton dataAttrKey={RESOURCE_TYPE} />}
             </ScenePanelActionsSection>
+            <NewEventsTableScenePanelActions dataAttrKey={RESOURCE_TYPE} />
             {dashboard && canEditDashboard && (
                 <>
                     <ScenePanelDivider />

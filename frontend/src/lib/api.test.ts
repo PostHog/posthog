@@ -605,6 +605,40 @@ describe('API helper', () => {
         })
     })
 
+    describe('events table header', () => {
+        afterEach(() => {
+            window.sessionStorage.clear()
+        })
+
+        it.each([
+            {
+                request: 'a query',
+                send: async (): Promise<Record<string, string>> => {
+                    await api.create('/api/environments/2/query/', { query: {} })
+                    return fakeFetch.mock.calls[0][1].headers
+                },
+            },
+            {
+                request: 'the dashboard tile stream',
+                send: async (): Promise<Record<string, string>> => {
+                    const fetchEventSourceSpy = jest
+                        .spyOn(fetchEventSourceModule, 'fetchEventSource')
+                        .mockReturnValueOnce(new Promise<void>(() => {}))
+                    await api.dashboards.streamTiles(5, {}, jest.fn(), jest.fn(), jest.fn())
+                    const headers = fetchEventSourceSpy.mock.calls[0][1].headers as Record<string, string>
+                    fetchEventSourceSpy.mockRestore()
+                    return headers
+                },
+            },
+        ])("sends the tab's events table with $request", async ({ send }) => {
+            window.sessionStorage.setItem('ph_new_events_schema', '0')
+
+            const headers = await send()
+
+            expect(headers['X-PostHog-New-Events-Schema']).toEqual('0')
+        })
+    })
+
     describe('successful response body parsing', () => {
         const fakeResponse = ({ status = 200, text }: { status?: number; text: () => Promise<string> }): any => ({
             ok: true,
