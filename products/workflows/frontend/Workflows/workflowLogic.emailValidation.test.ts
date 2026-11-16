@@ -1,4 +1,8 @@
+import { cleanup, render, screen } from '@testing-library/react'
 import { expectLogic } from 'kea-test-utils'
+import { createElement } from 'react'
+
+import { lemonToast } from '@posthog/lemon-ui'
 
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 
@@ -155,6 +159,8 @@ describe('workflowLogic email step "from" validation', () => {
         logic = workflowLogic({ id: WORKFLOW_ID })
         logic.mount()
         await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess'])
+        lemonToast.dismiss()
+        render(createElement(jest.requireActual('react-toastify').ToastContainer))
 
         // The Enable button stays clickable on an invalid draft: the dispatch is what records the
         // attempt and reveals the messages, while the listener guard aborts the actual enable.
@@ -165,6 +171,9 @@ describe('workflowLogic email step "from" validation', () => {
         const result = logic.values.actionValidationErrorsById[EMAIL_NODE_ID]
         expect(result?.valid).toBe(false)
         expect(result?.emailErrors?.from).toBe(SENDER_ERROR)
+        const toast = await screen.findByText('Fix these steps before enabling: Trigger, Send email')
+        expect(toast.closest('[data-attr$="-toast"]')?.getAttribute('data-attr')).toBe('error-toast')
+        cleanup()
     })
 
     it('keeps an email step added after a save attempt quiet until the next attempt', async () => {
