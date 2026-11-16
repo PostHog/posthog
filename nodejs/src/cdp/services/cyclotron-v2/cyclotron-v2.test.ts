@@ -5085,17 +5085,29 @@ describe('Cyclotron V2', () => {
         })
 
         describe('a release write whose connection drops', () => {
+            const jobRow = (id: string): [string, unknown[]] => [
+                'SELECT id FROM cyclotron_jobs WHERE id = $1 FOR UPDATE',
+                [id],
+            ]
+
             async function interruptReleaseWrite(
-                id: string,
                 release: () => Promise<void>,
-                interrupt: 'pg_terminate_backend' | 'pg_cancel_backend',
-                interrupts = 1,
-                beforeRetry: (holder: PoolClient) => Promise<unknown> = (holder) => holder.query('ROLLBACK')
+                {
+                    lock,
+                    interrupt = 'pg_terminate_backend',
+                    interrupts = 1,
+                    beforeRetry = (holder) => holder.query('ROLLBACK'),
+                }: {
+                    lock: [string, unknown[]]
+                    interrupt?: 'pg_terminate_backend' | 'pg_cancel_backend'
+                    interrupts?: number
+                    beforeRetry?: (holder: PoolClient) => Promise<unknown>
+                }
             ): Promise<'released' | 'rejected'> {
                 const holder = await assertPool.connect()
                 try {
                     await holder.query('BEGIN')
-                    await holder.query('SELECT id FROM cyclotron_jobs WHERE id = $1 FOR UPDATE', [id])
+                    await holder.query(...lock)
                     const write = release().then(
                         () => 'released' as const,
                         () => 'rejected' as const
@@ -5149,7 +5161,7 @@ describe('Cyclotron V2', () => {
                     const id = await manager.createJob({ teamId: 1, queueName: QUEUE })
                     const job = await dequeueOnDropTestPool({ releaseWriteRetry: true })
 
-                    expect(await interruptReleaseWrite(id, () => release(job), 'pg_terminate_backend')).toBe('released')
+                    expect(await interruptReleaseWrite(() => release(job), { lock: jobRow(id) })).toBe('released')
 
                     const row = await queryJob(id)
                     expect({ status: row.status, lock_id: row.lock_id }).toEqual({ status, lock_id: null })
@@ -5180,7 +5192,7 @@ describe('Cyclotron V2', () => {
                         )
                     const counterBefore = await teamEmailCounter()
 
-                    expect(await interruptReleaseWrite(id, () => release(job), 'pg_terminate_backend')).toBe('released')
+                    expect(await interruptReleaseWrite(() => release(job), { lock: jobRow(id) })).toBe('released')
 
                     expect((await teamEmailCounter()) - counterBefore).toBe(1n)
                     const emailWorker = createWorker('email', { batchMaxSize: 1 })
@@ -5189,6 +5201,20 @@ describe('Cyclotron V2', () => {
                     expect(next.id).toBe(enqueuedWhileRunning)
                 }
             )
+
+            it('retries an email defer whose dequeue slot reservation lost its connection', async () => {
+                const [id] = await manager.bulkCreateJobs([{ teamId: 1, queueName: 'email' }])
+                const job = await dequeueOnDropTestPool({ releaseWriteRetry: true }, 'email')
+
+                expect(
+                    await interruptReleaseWrite(() => job.defer({ scheduledAt: new Date() }), {
+                        lock: ['SELECT counter FROM cyclotron_email_team_seq WHERE team_id = $1 FOR UPDATE', [1]],
+                    })
+                ).toBe('released')
+
+                const row = await queryJob(id)
+                expect({ status: row.status, lock_id: row.lock_id }).toEqual({ status: 'available', lock_id: null })
+            })
 
             const OTHER_WORKER_LOCK = '01a1e3aa-0000-7000-8000-000000000001'
 
@@ -5207,16 +5233,13 @@ describe('Cyclotron V2', () => {
                 const id = await manager.createJob({ teamId: 1, queueName: QUEUE })
                 const job = await dequeueOnDropTestPool({ releaseWriteRetry: true })
 
-                const outcome = await interruptReleaseWrite(
-                    id,
-                    () => job.fail(),
-                    'pg_terminate_backend',
-                    1,
-                    async (holder) => {
+                const outcome = await interruptReleaseWrite(() => job.fail(), {
+                    lock: jobRow(id),
+                    beforeRetry: async (holder) => {
                         await holder.query(landedFirst, [id])
                         await holder.query('COMMIT')
-                    }
-                )
+                    },
+                })
 
                 expect(outcome).toBe('released')
                 const row = await queryJob(id)
@@ -5242,7 +5265,9 @@ describe('Cyclotron V2', () => {
                 const id = await manager.createJob({ teamId: 1, queueName: QUEUE })
                 const job = await dequeueOnDropTestPool(overrides)
 
-                expect(await interruptReleaseWrite(id, () => job.ack(), interrupt, interrupts)).toBe('rejected')
+                expect(await interruptReleaseWrite(() => job.ack(), { lock: jobRow(id), interrupt, interrupts })).toBe(
+                    'rejected'
+                )
 
                 expect((await queryJob(id)).status).toBe('running')
                 expect(await janitorResets(id)).toBe(1)
