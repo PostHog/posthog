@@ -587,7 +587,6 @@ export const dataQualityChecksLogic = kea<dataQualityChecksLogicType>([
                 const toastId = suiteRunToastId(suiteRun)
                 lemonToast.warning(message, {
                     toastId,
-                    autoClose: false,
                     button: {
                         label: 'View results',
                         action: () => actions.showSuiteRunResults(suiteRun.id),

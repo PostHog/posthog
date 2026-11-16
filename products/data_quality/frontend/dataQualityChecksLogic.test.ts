@@ -299,7 +299,7 @@ describe('dataQualityChecksLogic', () => {
 
         expect(lemonToast.warning).toHaveBeenCalledWith(
             '2\u00a0data quality checks failed',
-            expect.objectContaining({ autoClose: false, toastId: 'data-quality-suite-run-suite-9' })
+            expect.objectContaining({ toastId: 'data-quality-suite-run-suite-9' })
         )
         expect(lastWarningButton().label).toBe('View results')
         lastWarningButton().action()

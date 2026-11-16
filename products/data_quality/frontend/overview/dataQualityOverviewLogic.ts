@@ -769,7 +769,6 @@ export const dataQualityOverviewLogic = kea<dataQualityOverviewLogicType>([
                 const toastId = suiteRunToastId(suiteRun)
                 lemonToast.warning(message, {
                     toastId,
-                    autoClose: false,
                     button: {
                         label: 'Show failing',
                         action: () => actions.setFilters({ status: 'failing' }),
