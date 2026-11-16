@@ -2969,11 +2969,6 @@ export interface TeamRealtimeCohortsApi {
      * @nullable
      */
     max_cohorts: number | null
-    /**
-     * How many days back the criteria of a realtime cohort can look on the plan. Null when `access` is `off`.
-     * @nullable
-     */
-    max_history_days: number | null
 }
 
 export type FlagEvaluationsModeEnumApi = (typeof FlagEvaluationsModeEnumApi)[keyof typeof FlagEvaluationsModeEnumApi]

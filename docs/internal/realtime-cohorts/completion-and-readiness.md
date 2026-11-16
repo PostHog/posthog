@@ -231,7 +231,7 @@ The realtime cohorts gate (`is_realtime_cohort_flag_targeting_enabled`) is open 
 That list also holds load-test teams, which is why the flag still decides there.
 The flag API accepts a cohort with event-based criteria, or one that depends on such a cohort, only when the gate is open and every such cohort is flag-compatible.
 The same gate lets the flag editor's cohort picker list these cohorts, and the team's `realtime_cohorts` field tells the frontend about it.
-For a team inside the gate, that field also carries how many of the project's cohorts hold a slot and the plan's two limits, and it carries nulls for every other team.
+For a team inside the gate, that field also carries how many of the project's cohorts hold a slot and the plan's slot limit, and it carries nulls for every other team.
 
 Behind the same gate, for teams at the `serving` level, the cohort API's `realtime` field reports one state per cohort that has event or person criteria: `static`, `person_properties`, `daily`, `off`, `building`, `rebuilding`, `ready`, or `needs_attention`.
 `off` is a cohort with event criteria that could be realtime and that nobody turned realtime on for.

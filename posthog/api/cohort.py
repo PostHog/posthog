@@ -2357,7 +2357,7 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
         # The plan's limits judge new criteria, and an edit that brings back a cohort that is on. Such a cohort keeps its
         # switch while it is daily, static or deleted, and holds no slot then, so the edit takes a slot without a
         # turn-on. A user who doesn't see realtime cohorts is not judged, because they can't see or turn off the
-        # cohorts that hold the slots.
+        # cohorts that hold the slots. The turn-on after the save still checks the plan for the cohorts it turns on.
         holds_a_realtime_slot = (
             cohort.realtime_enabled
             and cohort.cohort_type == CohortType.REALTIME

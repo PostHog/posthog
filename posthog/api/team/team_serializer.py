@@ -46,11 +46,7 @@ from posthog.user_permissions import UserPermissionsSerializerMixin
 from posthog.utils import get_instance_region, get_ip_address, get_week_start_for_country_code
 
 from products.access_control.backend.presentation.access_control import UserAccessControlSerializerMixin
-from products.cohorts.backend.realtime_limits import (
-    max_realtime_cohorts,
-    max_realtime_history_days,
-    realtime_cohorts_used,
-)
+from products.cohorts.backend.realtime_limits import max_realtime_cohorts, realtime_cohorts_used
 from products.dashboards.backend.models import Dashboard
 from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
 from products.feature_flags.backend.facade.flags import get_flag_evaluations_read_mode
@@ -110,26 +106,15 @@ class TeamRealtimeCohortsSerializer(serializers.Serializer):
         help_text="How many cohorts in this project the plan allows to have realtime on. Null when `access` is `off`, "
         "or when the plan sets no limit.",
     )
-    max_history_days = serializers.IntegerField(
-        allow_null=True,
-        help_text="How many days back the criteria of a realtime cohort can look on the plan. Null when `access` is "
-        "`off`.",
-    )
 
 
 def realtime_cohorts_for_request(request: Request | None, team: Team) -> dict[str, str | int | None]:
     if not is_realtime_cohort_flag_targeting_enabled(request, team=team, only_evaluate_locally=True):
-        return {
-            "access": RealtimeCohortsAccess.OFF,
-            "cohorts_used": None,
-            "max_cohorts": None,
-            "max_history_days": None,
-        }
+        return {"access": RealtimeCohortsAccess.OFF, "cohorts_used": None, "max_cohorts": None}
     return {
         "access": RealtimeCohortsAccess.SERVING,
         "cohorts_used": realtime_cohorts_used(team.parent_team_id or team.id),
         "max_cohorts": max_realtime_cohorts(team.organization),
-        "max_history_days": max_realtime_history_days(team.organization),
     }
 
 

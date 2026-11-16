@@ -26,7 +26,7 @@ const meta: Meta = {
             // A plan with no limit on realtime cohorts, so the usage line shows only in the stories about limits.
             teamLogic.actions.loadCurrentTeamSuccess({
                 ...MOCK_DEFAULT_TEAM,
-                realtime_cohorts: { access: 'serving', cohorts_used: 3, max_cohorts: null, max_history_days: 400 },
+                realtime_cohorts: { access: 'serving', cohorts_used: 3, max_cohorts: null },
             })
             return <Story />
         },
@@ -228,7 +228,7 @@ const withRealtimeCohorts =
 export const CohortEditRealtimeOffAtPlanLimit: Story = {
     parameters: { pageUrl: urls.cohort(9), testOptions: { snapshotBrowsers: [] } },
     decorators: [
-        withRealtimeCohorts({ access: 'serving', cohorts_used: 10, max_cohorts: 10, max_history_days: 30 }),
+        withRealtimeCohorts({ access: 'serving', cohorts_used: 10, max_cohorts: 10 }),
         mswDecorator({ get: { '/api/projects/:team_id/cohorts/9/': realtimeCohorts[5], ...cohortApiMocks } }),
     ],
 }
@@ -236,7 +236,7 @@ export const CohortEditRealtimeOffAtPlanLimit: Story = {
 export const CohortEditRealtimeOffPastPlanHistory: Story = {
     parameters: { pageUrl: urls.cohort(9), testOptions: { snapshotBrowsers: [] } },
     decorators: [
-        withRealtimeCohorts({ access: 'serving', cohorts_used: 3, max_cohorts: 10, max_history_days: 30 }),
+        withRealtimeCohorts({ access: 'serving', cohorts_used: 3, max_cohorts: 10 }),
         mswDecorator({
             get: {
                 '/api/projects/:team_id/cohorts/9/': withRealtime(realtimeCohorts[5], {

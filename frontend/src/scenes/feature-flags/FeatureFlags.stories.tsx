@@ -95,7 +95,7 @@ const meta: Meta = {
             teamLogic.mount()
             teamLogic.actions.loadCurrentTeamSuccess({
                 ...MOCK_DEFAULT_TEAM,
-                realtime_cohorts: { access: 'serving', cohorts_used: 3, max_cohorts: null, max_history_days: 400 },
+                realtime_cohorts: { access: 'serving', cohorts_used: 3, max_cohorts: null },
             })
             return <Story />
         },

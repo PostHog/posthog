@@ -1085,6 +1085,11 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                                 cohortFormData as Partial<CohortType>
                             )
                             cohortsModel.actions.updateCohort(savedCohort)
+                            // Saving the criteria of a cohort that is on can turn on the cohorts they include, and the
+                            // usage line reads `cohorts_used` from the current team, so reload it.
+                            if (savedCohort.realtime_enabled) {
+                                actions.refreshCurrentTeam()
+                            }
 
                             if (
                                 !csvOnlyFormData &&
@@ -1109,7 +1114,7 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                             cohortsModel.actions.cohortCreated(cohort)
                             globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.SetUpCohorts)
                             if (cohortFormData.get('realtime_enabled')) {
-                                // The project's usage of its plan's realtime cohorts is on the team.
+                                // The usage line reads `cohorts_used` from the current team, so reload it.
                                 actions.refreshCurrentTeam()
                                 if (!cohort.realtime_enabled) {
                                     lemonToast.warning(
@@ -1498,7 +1503,8 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
             }
             cache.realtimeReadinessGeneration = (cache.realtimeReadinessGeneration ?? 0) + 1
             actions.armRealtimeReadinessPoll()
-            // Turning one cohort on can turn on the cohorts it includes, and the project's usage is on the team.
+            // Turning one cohort on can turn on the cohorts it includes, and the usage line reads `cohorts_used` from the
+            // current team, so reload it.
             actions.refreshCurrentTeam()
         },
         // A refusal at the plan's limit can come from usage that changed since the team loaded.

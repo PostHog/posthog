@@ -31,6 +31,7 @@ import {
     BehavioralEventType,
     BehavioralLifecycleType,
     CohortCriteriaGroupFilter,
+    CohortType,
     FilterLogicalOperator,
     PropertyFilterType,
     PropertyOperator,
@@ -55,6 +56,7 @@ jest.mock('lib/lemon-ui/LemonToast/LemonToast', () => ({
     lemonToast: {
         error: jest.fn(),
         success: jest.fn(),
+        warning: jest.fn(),
     },
 }))
 
@@ -337,6 +339,64 @@ describe('cohortEditLogic', () => {
                 }).toMatchValues({ realtimeSwitchAction: expected })
             }
         )
+
+        it('reloads the team after a refused turn-on', async () => {
+            useMocks({
+                post: {
+                    '/api/projects/:team_id/cohorts/:id/realtime/': () => [
+                        400,
+                        { type: 'validation_error', code: 'realtime_limit_reached', detail: 'No slot is left.' },
+                    ],
+                },
+            })
+            await initCohortLogic({ id: 1 })
+
+            await expectLogic(logic, () => {
+                logic.actions.switchRealtime(true)
+            }).toDispatchActions(['switchRealtimeFailure', teamLogic.actionTypes.refreshCurrentTeam])
+        })
+
+        it.each([
+            { saved: 'new criteria of a cohort that is on', id: 1, realtimeEnabled: true, warned: 0 },
+            { saved: 'a new cohort that realtime was refused for', id: 'new', realtimeEnabled: false, warned: 1 },
+        ] as const)('reloads the team after saving $saved', async ({ id, realtimeEnabled, warned }) => {
+            const saved: CohortType = {
+                ...mockCohort,
+                realtime_enabled: realtimeEnabled,
+                filters: {
+                    properties: {
+                        ...mockCohort.filters.properties,
+                        values: [
+                            {
+                                id: '70427',
+                                type: FilterLogicalOperator.Or,
+                                values: [
+                                    {
+                                        type: BehavioralFilterKey.Behavioral,
+                                        value: BehavioralEventType.PerformEvent,
+                                        event_type: TaxonomicFilterGroupType.Events,
+                                        time_value: 30,
+                                        time_interval: TimeUnitType.Day,
+                                        key: '$pageview',
+                                    },
+                                ],
+                            },
+                        ],
+                    },
+                },
+            }
+            useMocks({
+                post: { '/api/projects/:team_id/cohorts/': { ...saved, id: 2 } },
+                patch: { '/api/projects/:team_id/cohorts/:id/': saved },
+            })
+            await initCohortLogic({ id })
+
+            await expectLogic(logic, () => {
+                logic.actions.setCohort({ ...saved, id, realtime_enabled: true })
+                logic.actions.submitCohort()
+            }).toDispatchActions(['submitCohortSuccess', teamLogic.actionTypes.refreshCurrentTeam])
+            expect(lemonToast.warning).toHaveBeenCalledTimes(warned)
+        })
 
         it('drops a readiness the save it crossed has already replaced', async () => {
             // A poll in flight answers for the definition before the save, so letting it land would

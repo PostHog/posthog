@@ -113,7 +113,8 @@ def _turn_on(team_id: int, cohort_id: int, *, can_edit: Callable[[Cohort], bool]
             each.realtime_enabled_at = now
             _refuse_unless_it_can_be_ready(each)
 
-        # The team's lock makes this count and the saves below one step, so two turn-ons can't both take the last slot.
+        # The team's lock is held from this count through the saves below, so two turn-ons can't both take
+        # the last slot.
         _refuse_over_plan_limits(cohort.team, taking_slots=turned_on, history_of=turned_on)
 
         for each in turned_on:

@@ -1,7 +1,7 @@
 import json
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 from uuid import uuid4
 
 import time_machine
@@ -9285,50 +9285,74 @@ class TestCohortRealtimeSwitch(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("window_past_the_plan", {"limit": "history_days", "allowed": 14, "used": None, "source": "edit"}),
-            # The editor resends unchanged criteria with every save, and a date is not judged again as it ages.
-            ("rename_of_a_cohort_whose_start_date_aged_past_the_plan", None),
-            (
-                "includes_a_cohort_that_is_off_with_no_slot_left",
-                {"limit": "cohorts", "allowed": 3, "used": 3, "source": "edit"},
+            param(
+                "window_past_the_plan",
+                window_days=15,
+                limit_event={"limit": "history_days", "allowed": 14, "used": None, "source": "edit"},
             ),
+            # The editor resends unchanged criteria with every save, and a date is not judged again as it ages.
+            param("rename_of_a_cohort_whose_start_date_aged_past_the_plan", start_days_ago=60),
+            param(
+                "includes_a_cohort_that_is_off_with_no_slot_left",
+                others_on=2,
+                includes="off",
+                limit_event={"limit": "cohorts", "allowed": 3, "used": 3, "source": "edit"},
+            ),
+            param(
+                "includes_a_cohort_that_is_off_past_the_plan",
+                includes="off",
+                included_days=15,
+                limit_event={"limit": "history_days", "allowed": 14, "used": None, "source": "edit"},
+            ),
+            param("includes_a_cohort_that_is_on_with_no_slot_left", others_on=1, includes="on"),
             # The turn-on after the save refuses a cohort the editor can't edit, and a refusal here would name it.
-            ("includes_a_cohort_past_the_plan_that_the_editor_cannot_view", None),
-            ("window_past_the_plan_of_a_cohort_that_is_off", None),
+            param(
+                "includes_a_cohort_past_the_plan_that_the_editor_cannot_view",
+                includes="off",
+                included_days=15,
+                included_access="none",
+            ),
+            param("window_past_the_plan_of_a_cohort_that_is_off", enabled=False, window_days=15),
             # Migration 0023 turned on the cohorts of teams whose users don't see realtime cohorts.
-            ("window_past_the_plan_outside_the_realtime_gate", None),
+            param("window_past_the_plan_outside_the_realtime_gate", inside_gate=False, window_days=15),
         ]
     )
     @patch("posthog.api.cohort.report_user_action")
     def test_an_edit_of_a_cohort_that_is_on_has_to_fit_the_plan(
-        self, name: str, limit_event: dict | None, report_user_action: MagicMock
+        self,
+        _name: str,
+        report_user_action: MagicMock,
+        *,
+        enabled: bool = True,
+        inside_gate: bool = True,
+        start_days_ago: int | None = None,
+        window_days: int = 7,
+        others_on: int = 0,
+        includes: Literal["off", "on"] | None = None,
+        included_days: int = 7,
+        included_access: str | None = None,
+        limit_event: dict | None = None,
     ) -> None:
-        def criteria(*leaves: dict) -> dict:
-            return {"properties": {"type": "AND", "values": list(leaves)}}
-
         leaf = {
             key: value for key, value in _REALTIME_PAGEVIEW_LEAF.items() if key not in ("bytecode", "conditionHash")
         }
-        aged = {**leaf, "explicit_datetime": (timezone.now() - timedelta(days=60)).date().isoformat()}
-        cohort = self._cohort(aged if name.startswith("rename") else leaf, enabled=not name.endswith("is_off"))
-        if name.endswith("outside_the_realtime_gate"):
+        if start_days_ago is not None:
+            leaf["explicit_datetime"] = (timezone.now() - timedelta(days=start_days_ago)).date().isoformat()
+        cohort = self._cohort(leaf, enabled=enabled)
+        if not inside_gate:
             RealtimeCohortTeamAccess.objects.filter(team=self.team).update(level=RealtimeCohortLevel.PROCESSING)
-        if name.startswith("window_past_the_plan"):
-            edited = criteria({**leaf, "time_value": 15})
-        elif name.startswith("rename"):
-            edited = criteria(aged)
-        else:
-            for _ in range(2):
-                self._cohort(_REALTIME_PAGEVIEW_LEAF, enabled=True)
-            hidden = name.endswith("cannot_view")
-            off = self._cohort({**_REALTIME_PAGEVIEW_LEAF, "time_value": 15} if hidden else _REALTIME_PAGEVIEW_LEAF)
-            if hidden:
-                self._restrict(off, "none")
-            edited = criteria(leaf, {"type": "cohort", "key": "id", "value": off.id})
+        for _ in range(others_on):
+            self._cohort(_REALTIME_PAGEVIEW_LEAF, enabled=True)
+        edited = [{**leaf, "time_value": window_days}]
+        if includes is not None:
+            included = self._cohort({**leaf, "time_value": included_days}, enabled=includes == "on")
+            if included_access is not None:
+                self._restrict(included, included_access)
+            edited.append({"type": "cohort", "key": "id", "value": included.id})
 
         response = self.client.patch(
             f"/api/projects/{self.team.id}/cohorts/{cohort.id}/",
-            {"name": "Renamed", "filters": edited},
+            {"name": "Renamed", "filters": {"properties": {"type": "AND", "values": edited}}},
             format="json",
         )
 
@@ -9340,7 +9364,23 @@ class TestCohortRealtimeSwitch(APIBaseTest):
         assert self._limit_events(report_user_action) == ([limit_event] if limit_event else [])
 
     @parameterized.expand(
-        [("made_realtime_again", {"cohort_type": None}, {}), ("restored", {"deleted": True}, {"deleted": False})]
+        [
+            (
+                "made_realtime_again",
+                {
+                    "cohort_type": None,
+                    "filters": {
+                        "properties": {
+                            "type": "AND",
+                            "values": [{**_REALTIME_PAGEVIEW_LEAF, "value": "performed_event_first_time"}],
+                        }
+                    },
+                },
+                {"filters": {"properties": {"type": "AND", "values": [_REALTIME_PAGEVIEW_LEAF]}}},
+            ),
+            ("made_dynamic_again", {"is_static": True}, {"is_static": False}),
+            ("restored", {"deleted": True}, {"deleted": False}),
+        ]
     )
     @patch("posthog.api.cohort.report_user_action")
     def test_an_edit_that_brings_back_a_cohort_that_is_on_needs_a_slot(
@@ -9351,9 +9391,7 @@ class TestCohortRealtimeSwitch(APIBaseTest):
         for _ in range(3):
             self._cohort(_REALTIME_PAGEVIEW_LEAF, enabled=True)
 
-        response = self.client.patch(
-            f"/api/projects/{self.team.id}/cohorts/{cohort.id}/", {"filters": cohort.filters, **edit}, format="json"
-        )
+        response = self.client.patch(f"/api/projects/{self.team.id}/cohorts/{cohort.id}/", edit, format="json")
 
         assert (response.status_code, response.json().get("code")) == (400, "realtime_limit_reached"), response.json()
         assert self._limit_events(report_user_action) == [
@@ -9374,7 +9412,7 @@ class TestCohortRealtimeSwitch(APIBaseTest):
         assert "2 cohort(s) that include this cohort as criteria: Realtime and 1 more." in response.json()["detail"]
         assert "Hidden parent" not in response.json()["detail"]
 
-    def test_the_project_says_whether_realtime_cohorts_are_served_and_the_plan_limits(self) -> None:
+    def test_the_project_says_whether_realtime_cohorts_are_served_and_the_slot_limit(self) -> None:
         self._cohort(_REALTIME_PAGEVIEW_LEAF, enabled=True)
         self._cohort(_REALTIME_PAGEVIEW_LEAF)
         served = self.client.get(f"/api/projects/{self.team.id}/").json()["realtime_cohorts"]
@@ -9382,6 +9420,6 @@ class TestCohortRealtimeSwitch(APIBaseTest):
         not_served = self.client.get(f"/api/projects/{self.team.id}/").json()["realtime_cohorts"]
 
         assert (served, not_served) == (
-            {"access": "serving", "cohorts_used": 1, "max_cohorts": 3, "max_history_days": 14},
-            {"access": "off", "cohorts_used": None, "max_cohorts": None, "max_history_days": None},
+            {"access": "serving", "cohorts_used": 1, "max_cohorts": 3},
+            {"access": "off", "cohorts_used": None, "max_cohorts": None},
         )

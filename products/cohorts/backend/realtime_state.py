@@ -157,7 +157,7 @@ def _settled_state(cohort: Cohort) -> str | None:
     return None
 
 
-def _history_limit_exceeded(
+def _history_limit_to_report(
     cohort: Cohort, state: str, *, plan_history_days: Callable[[], int], today: date
 ) -> int | None:
     """The plan's history limit, when criteria that look back past a limit keep this cohort ``off`` or ``daily``.
@@ -366,7 +366,7 @@ def _resolve_for_team(team_id: int, cohorts: Sequence[Cohort]) -> dict[int, Coho
         if settled is None:
             pending.append(cohort)
         else:
-            history_limit_days = _history_limit_exceeded(
+            history_limit_days = _history_limit_to_report(
                 cohort, settled, plan_history_days=plan_history_days, today=today
             )
             readiness[cohort.id] = CohortRealtimeReadiness(

@@ -421,6 +421,16 @@ class TestRealtimeReadiness(BaseTest):
                 },
                 (CohortRealtimeState.DAILY, CohortRealtimeUnavailableReason.HISTORY_OVER_LIMIT, 14),
             ),
+            # Past the plan but within the pipeline's cap, so the history is not what keeps it daily.
+            (
+                "daily_past_the_plan_within_the_cap",
+                {
+                    "cohort_type": CohortType.BEHAVIORAL,
+                    "realtime_enabled_at": None,
+                    "filters": filters({**BEHAVIORAL_LEAF, "time_value": 30}),
+                },
+                (CohortRealtimeState.DAILY, None, None),
+            ),
             (
                 "realtime_off_past_the_plan",
                 {"realtime_enabled_at": None, "filters": filters({**BEHAVIORAL_LEAF, "time_value": 15})},
