@@ -1,3 +1,4 @@
+import { AddressInfo } from 'net'
 import { parseArgs } from 'util'
 
 import { defaultStateDir } from '../environment/environment'
@@ -34,7 +35,9 @@ export function main(argv: string[], env: NodeJS.ProcessEnv = process.env): void
         process.exitCode = 1
     })
     server.listen(port, values.host, () => {
-        process.stdout.write(`Scenario viewer on http://${values.host}:${values.port}, reading runs from ${stateDir}\n`)
+        const { address, port: bound } = server.address() as AddressInfo
+        const host = address.includes(':') ? `[${address}]` : address
+        process.stdout.write(`Scenario viewer on http://${host}:${bound}, reading runs from ${stateDir}\n`)
     })
 }
 
