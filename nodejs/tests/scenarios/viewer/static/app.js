@@ -749,7 +749,10 @@ function findingOf(detail) {
     }
     const failing = Math.max(0, ...detail.series.flow.map((p) => (p.emailFaulted + p.webhookFaulted) * perSecond))
     if (failing >= 1) {
-        lines.push(`Up to ${fmtNumber(failing, 0)} failed send attempts a second while the fault was on.`)
+        const attempts = fmtNumber(failing, 0)
+        lines.push(
+            `Up to ${attempts} failed send ${attempts === '1' ? 'attempt' : 'attempts'} a second while the fault was on.`
+        )
     }
     for (const role of detail.series.roles.filter((r) => r.restarts.length)) {
         lines.push(`The ${plainOf(role.role)} came back after a restart.`)
