@@ -46,6 +46,20 @@ Do not run cards on a box whose dev stack holds work you want to keep.
 
 Each role also appends to one log across runs, `posthog-scenarios/<role>.log`.
 
+### Watch runs in the viewer
+
+The viewer is a local web page over the cards and the runs on the box:
+
+```bash
+pnpm --dir nodejs exec tsx tests/scenarios/viewer/main.ts --port 8787
+```
+
+- It reads the cards from `tests/scenarios/cards`, and the runs from the evidence directory or from `--state-dir <dir>`.
+- A card page shows what the card breaks, its load, and the invariants and bars that judge it.
+- A run page replays the run on the delivery path, with its valve timeline, invariants, measurements and charts.
+- It lists a run once the run has written its scorecard.
+- It listens on `127.0.0.1` unless `--host` names another address. It serves the evidence of every run on the box, so keep it off public addresses.
+
 ### Run a card in the cloud
 
 `cyclotron-failover-under-load` and `cyclotron-scale` run only on a run host: a per-run cloud stack with its own Aurora cluster, a pooler, and one host that runs the card.
@@ -164,6 +178,7 @@ nodejs/tests/scenarios/
   judge/           journal, convergence, invariants, measurements
   probe/           the Cyclotron probe
   scorecard/       properties, provenance, capture and read back
+  viewer/          the local viewer: cards and runs API, and the static page
 ```
 
 The CLI runs with `tsx`, as `pnpm --dir nodejs exec tsx tests/scenarios/main.ts`; there is no package script.
@@ -478,7 +493,7 @@ The card hash is the SHA-256 of the card without `gates` and the profile hash, s
 Gates stay outside the card hash; anything else that changes what runs changes it.
 `runner_version` leaves out the YAML files in `cards/` and `profiles/`, so a committed gate edit keeps the fingerprint and the card hash, and runs on either side of it compare.
 An edit to a shipped profile keeps the fingerprint too, and changes the profile hash, which the card hash carries.
-Every other committed edit under `nodejs/tests/scenarios/` outside `generator/` and `valves/` still changes `runner_version`, a test file or the loader included.
+Every other committed edit under `nodejs/tests/scenarios/` outside `generator/`, `valves/` and `viewer/` still changes `runner_version`, a test file or the loader included. The viewer only reads runs, so editing it keeps every card's baseline.
 
 **Profiles.**
 A profile has a `name`, per-traffic-kind rates under `traffic`, and role environment under `settings`.
@@ -798,7 +813,7 @@ A property is added without a version change; a rename, a removal or a change of
 | `fingerprint`       | string or null  | SHA-256 of `target`, `host_cpu`, `host_memory_gb`, the three versions and `seed`. Runs compare only within one fingerprint and card hash. `null` when a version is unknown |
 | `host_cpu`          | string          | CPU model and count, as `<model> x <count>`                                                                                                                                |
 | `host_memory_gb`    | number          | Total memory, rounded to whole gigabytes                                                                                                                                   |
-| `runner_version`    | string or null  | Git tree hash of `nodejs/tests/scenarios/` without `generator/`, `valves/`, and the YAML files in `cards/` and `profiles/`; test files count                               |
+| `runner_version`    | string or null  | Git tree hash of `nodejs/tests/scenarios/` without `generator/`, `valves/`, `viewer/`, and the YAML files in `cards/` and `profiles/`; test files count                    |
 | `generator_version` | string or null  | Git tree hash of `generator/`                                                                                                                                              |
 | `valves_version`    | string or null  | Git tree hash of `valves/`, or of the empty tree when it does not exist                                                                                                    |
 | `seed`              | number          | The card's `seed`                                                                                                                                                          |

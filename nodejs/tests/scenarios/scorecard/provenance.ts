@@ -5,6 +5,8 @@ import path from 'path'
 export const SCENARIOS_DIR = path.join(__dirname, '..')
 const GENERATOR_DIR = 'generator'
 const VALVES_DIR = 'valves'
+// The viewer reads runs and never shapes one, so editing it keeps every card's baseline.
+const VIEWER_DIR = 'viewer'
 const DATA_DIRS = ['cards', 'profiles']
 const DATA_FILE = /\.yaml$/
 const EMPTY_TREE = '4b825dc642cb6eb9a060e54bf8d69288fbee4904'
@@ -57,7 +59,7 @@ function runnerTreeOf(scenariosDir: string, entries: TreeEntry[]): string {
     return mktree(
         scenariosDir,
         entries
-            .filter(({ name }) => name !== GENERATOR_DIR && name !== VALVES_DIR)
+            .filter(({ name }) => ![GENERATOR_DIR, VALVES_DIR, VIEWER_DIR].includes(name))
             .map((entry) => (DATA_DIRS.includes(entry.name) ? codeEntry(entry) : entry))
     )
 }

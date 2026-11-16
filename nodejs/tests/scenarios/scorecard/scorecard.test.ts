@@ -383,6 +383,7 @@ describe('scorecard', () => {
             ['a gate in a card file', true, 'nodejs/tests/scenarios/cards/smoke.yaml'],
             ['a shipped profile', true, 'nodejs/tests/scenarios/profiles/synthetic.yaml'],
             ['the card loader', false, 'nodejs/tests/scenarios/cards/load.ts'],
+            ['the viewer', true, 'nodejs/tests/scenarios/viewer/server.ts'],
         ])('a committed change to %s keeps the runner version: %s', (_story, same, file) => {
             const commitEdit = (content: string): string | null => {
                 mkdirSync(path.dirname(path.join(repo, file)), { recursive: true })
