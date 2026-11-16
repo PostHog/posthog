@@ -10614,14 +10614,14 @@ snapshots:
         hash: v1.k794b7964.651aae7146d31971a314f627499eafdaa3d35933cde8dd0ad47abc6eab722148.H9u02T71vFBWS4vd-5sVVqacwrqXc9xeeOHs7b4qnL4
     scenes-app-annotations--annotations--light:
         hash: v1.k794b7964.3a5efa1132f5645476b02c317d2722c755c8140bd22d7ebef1c3604da56b9a55.gRBLehN4iFhe4hjAdQ-s-Zg7RQ2IRkLELQbilD82l1M
-    scenes-app-annotations--new-annotation-modal-lemon-ui-date-picker--dark:
-        hash: v1.k794b7964.836ed57b5116ea3e1d1c0923300e519670dbb31441d8321bec780c008ae61ae2.8xyGCATTfXtnncf1B0NYPs1eEusfJ3Ok5yQGE3orjUQ
-    scenes-app-annotations--new-annotation-modal-lemon-ui-date-picker--light:
-        hash: v1.k794b7964.8b698dcaeb714e79114d305797220cba14a23c9945c3f53638294613d5630d3e.V426gKG2RQf3uR7Jt_9BpRewHHeFa0D3V7OP52NqOvQ
-    scenes-app-annotations--new-annotation-modal-quill-date-picker--dark:
-        hash: v1.k794b7964.d0203fea61aee15ac584fa0386834615751bbcd6f50aaaaed4dc111bfc2ef8bd.g6BEMBzNGgJVhCuR9doqE1sIWiy7hlLu09s9XtmFwnw
-    scenes-app-annotations--new-annotation-modal-quill-date-picker--light:
-        hash: v1.k794b7964.80e951d6a80390a8f78649dd20bd3a267d638faa180f57fd4250f2af89a02d1b.JtotgGUtEhBga78Cwphlhyy7Pxp5GHq752kJAPiyRnQ
+    scenes-app-annotations--new-annotation-panel-lemon-ui-date-picker--dark:
+        hash: v1.k794b7964.328a04cd1671ca7af26b7c08942efe6f3ee2563cd6f164db96394472068a1c69.0u4oyuylJUQpN5gXxDGCX2CXiCKvDo8_x7cBcQtAROw
+    scenes-app-annotations--new-annotation-panel-lemon-ui-date-picker--light:
+        hash: v1.k794b7964.34a7163bf185b1c90ea241099a834561eef8e1860cf64c7e074854c3d628beb2.pz6A70-PodWKNAhSy39-6-b6Zyh5bZqCBi9PDZIW3E0
+    scenes-app-annotations--new-annotation-panel-quill-date-picker--dark:
+        hash: v1.k794b7964.2aa07e150ff99ded4844b7e524f01d85c62435b8a5c69dbb53a3573e43a534d7.ElDm798uidMSkEUZOzaZORH9Vo9bM2sS52UKQCvRGCE
+    scenes-app-annotations--new-annotation-panel-quill-date-picker--light:
+        hash: v1.k794b7964.c9a5e2db02ae0cda32b20ce61b1e889e9d4016ee4a9d508c6618da8ea8e32de5.TAs3S7icx9OeoxaOjd3wRDpcajaytc2cVnwHiqrmE9w
     scenes-app-batchexports--backfills-empty--dark:
         hash: v1.k794b7964.8addbab5dc9322002703f43982a0f950666fd19066808134206cf88a4d3fca23.rQn27PGaf9lf989r2DJBj1BYEWNECVUB8h3wcMgQo5c
     scenes-app-batchexports--backfills-empty--light:
