@@ -210,7 +210,8 @@ def evaluate_auth_attempt(
     if mode == RadarMode.OFF:
         return None
 
-    # A deployment that does not trust its proxy chain gets the connecting address, not a forwarded one
+    # A direct deployment gets the connecting address. A proxy chain that fails the trust check keeps
+    # the forwarded address, because the connecting address there is the proxy for every login.
     ip_address = get_trusted_client_ip(request) or get_ip_address(request)
     short_user_agent = get_short_user_agent(request)
     signals_id = _clean_signals_id(signals_id)

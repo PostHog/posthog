@@ -100,7 +100,8 @@ def is_embeddable_document(path: str) -> bool:
 # The hosted survey view sets its own policy, so the app policy reaches `/external_surveys/` only on
 # a response that the view did not build. No report shows how such a response behaves under an
 # enforced policy.
-LOGIN_DOCUMENT_PATHS = frozenset({"/login", "/login/"})
+# The auth page serves password login on both paths without a reload
+RADAR_SIGNALS_DOCUMENT_PATHS = frozenset({"/login", "/login/", "/signup", "/signup/"})
 
 REPORT_ONLY_ROUTES = re.compile(r"/exporter|/external_surveys/[^/]+/?")
 
@@ -318,11 +319,11 @@ class CSPMiddleware:
             # can carry page code to the report endpoint, so no other document asks for one, and that
             # includes the shared page at /exporter/<token>.
             report_sample = " 'report-sample'" if request.path == "/exporter" else ""
-            # Only the login document runs the WorkOS Radar signals script, which posts to the WorkOS
+            # Only the auth documents run the WorkOS Radar signals script, which posts to the WorkOS
             # API from our page. WorkOS serves the script itself, so no other document trusts it.
-            is_login_document = request.path in LOGIN_DOCUMENT_PATHS
-            radar_script_src = " https://js.workos.com/radar/" if is_login_document else ""
-            radar_connect_src = " https://api.workos.com" if is_login_document else ""
+            is_radar_document = request.path in RADAR_SIGNALS_DOCUMENT_PATHS
+            radar_script_src = " https://js.workos.com/radar/" if is_radar_document else ""
+            radar_connect_src = " https://api.workos.com" if is_radar_document else ""
             csp_parts = [
                 # Firefox checks <link rel="modulepreload"> against default-src instead of script-src,
                 # so without the bundle host it refuses the preloads index.html emits for the boot
