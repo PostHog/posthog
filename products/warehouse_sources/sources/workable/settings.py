@@ -24,6 +24,9 @@ class WorkableEndpointConfig:
     # Key the result array is nested under in the JSON response (e.g. `{"jobs": [...]}`). `None`
     # when the response body is the array itself.
     data_key: Optional[str]
+    # The docs don't say whether the rows come wrapped under `data_key` or as a bare array, so
+    # accept both shapes.
+    data_key_optional: bool = False
     primary_keys: list[str] = field(default_factory=lambda: ["id"])
     incremental_fields: list[IncrementalField] = field(default_factory=list)
     # Stable creation timestamp used for datetime partitioning. Never `updated_at` — partitions
@@ -35,6 +38,10 @@ class WorkableEndpointConfig:
     # `none` is a single unpaginated request.
     pagination: Literal["next_url", "offset", "none"] = "next_url"
     page_size: int = PAGE_SIZE
+    # Body key holding the row total for `offset` pagination.
+    total_key: str = "totalCount"
+    # `limit` sent by the credential probe. Some endpoints accept only an enum of page sizes.
+    probe_limit: int = 1
     default_incremental_field: Optional[str] = None
     fanout: Optional[DependentEndpointConfig] = None
 
@@ -99,6 +106,35 @@ WORKABLE_ENDPOINTS: dict[str, WorkableEndpointConfig] = {
         data_key="employees",
         primary_keys=["id"],
         pagination="offset",
+    ),
+    # Requires the `r_requisitions` scope and the Hiring Plan feature. The endpoint accepts
+    # `updated_after`, but a requisition row carries no timestamp to keep a cursor on, so this is
+    # full refresh only.
+    "requisitions": WorkableEndpointConfig(
+        name="requisitions",
+        path="/requisitions",
+        data_key="requisitions",
+        primary_keys=["id"],
+    ),
+    "disqualification_reasons": WorkableEndpointConfig(
+        name="disqualification_reasons",
+        path="/disqualification_reasons",
+        data_key="disqualification_reasons",
+        data_key_optional=True,
+        primary_keys=["id"],
+        pagination="none",
+    ),
+    # Requires the `r_time_tracking` scope. The only time filter is a clock-in date window, and an
+    # entry changes after creation (clock-out, edits), so this is full refresh only. `limit` must
+    # be one of 10, 20, 50 or 100.
+    "time_entries": WorkableEndpointConfig(
+        name="time_entries",
+        path="/time-tracking/time-entries",
+        data_key="time_entries",
+        primary_keys=["uuid"],
+        pagination="offset",
+        total_key="total_count",
+        probe_limit=10,
     ),
     # Activities have no list endpoint of their own, so they fan out over every candidate. The docs
     # list no activity id, so the key is the parent candidate plus the activity's creation time and
