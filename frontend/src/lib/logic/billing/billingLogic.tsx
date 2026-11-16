@@ -1928,6 +1928,29 @@ export const billingLogic = kea<billingLogicType>([
                     return true
                 }) || []
 
+            if (productsApproachingLimit.length === 0) {
+                actions.resetUsageLimitApproachingKey()
+            }
+
+            // An unpaid invoice outranks a usage warning. Reading the lazy value starts its only load, whose
+            // success runs this listener again.
+            const unpaidInvoices =
+                values.canAccessBilling && !values.billing.has_active_subscription && !values.isExternallyBilled
+                    ? values.uncollectibleInvoices
+                    : null
+            if (unpaidInvoices?.count) {
+                const alert = buildUnpaidInvoiceAlert(unpaidInvoices, values.billing.stripe_portal_url)
+                actions.setBillingAlert({
+                    ...alert,
+                    action: alert.action && {
+                        ...alert.action,
+                        onClick: () => actions.reportBillingAlertActionClicked(alert),
+                    },
+                    onClose: () => actions.setBillingAlert(null),
+                })
+                return
+            }
+
             if (productsApproachingLimit.length > 0) {
                 const { title, message } = buildUsageLimitApproachingMessage(
                     productsApproachingLimit,
@@ -1959,26 +1982,6 @@ export const billingLogic = kea<billingLogicType>([
                         }
                         actions.setBillingAlert(null)
                     },
-                })
-                return
-            }
-
-            actions.resetUsageLimitApproachingKey()
-
-            // Reading the lazy value starts its only load, whose success runs this listener again.
-            const unpaidInvoices =
-                values.canAccessBilling && !values.billing.has_active_subscription && !values.isExternallyBilled
-                    ? values.uncollectibleInvoices
-                    : null
-            if (unpaidInvoices?.count) {
-                const alert = buildUnpaidInvoiceAlert(unpaidInvoices, values.billing.stripe_portal_url)
-                actions.setBillingAlert({
-                    ...alert,
-                    action: alert.action && {
-                        ...alert.action,
-                        onClick: () => actions.reportBillingAlertActionClicked(alert),
-                    },
-                    onClose: () => actions.setBillingAlert(null),
                 })
                 return
             }

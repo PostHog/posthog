@@ -1003,6 +1003,17 @@ describe('billingLogic', () => {
             expect(billingLogic.values.billingAlert?.title).toBe('Usage limit reached')
         })
 
+        it('puts an unpaid invoice ahead of a usage limit warning', async () => {
+            await loadAlert([200, { count: 1, link: HOSTED_INVOICE_URL }], {
+                products: [productWithUsage(0.9)],
+            })
+
+            expect(billingLogic.values.billingAlert).toMatchObject({
+                kind: 'unpaid_invoice',
+                title: 'You have an unpaid invoice',
+            })
+        })
+
         it.each([
             { name: 'there are no unpaid invoices', answer: [200, { count: 0, link: null }], requests: 1 },
             { name: 'the invoices request fails', answer: [500, { detail: 'Server error' }], requests: 1 },
