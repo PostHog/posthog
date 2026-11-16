@@ -1,6 +1,7 @@
 import re
 import json
 import time
+from dataclasses import replace
 from operator import attrgetter
 from typing import Any
 
@@ -17,6 +18,7 @@ from parameterized import parameterized
 
 from products.ai_observability.backend.llm import DEFAULT_MODEL_BY_PROVIDER
 from products.ai_observability.backend.logic.eval_suggestions import call_review, judge_calibration
+from products.ai_observability.backend.logic.eval_suggestions.call_review import Verdict
 from products.ai_observability.backend.logic.eval_suggestions.call_review_queries import CallTypeRow, ReviewCallRow
 from products.ai_observability.backend.logic.eval_suggestions.judge_calibration import Calibration
 from products.ai_observability.backend.logic.eval_suggestions.prices import MODEL_PRICES
@@ -62,21 +64,39 @@ def test_a_card_is_kept_only_when_its_judge_agrees_with_the_review(
 
 @parameterized.expand(
     [
-        ("fails_and_passes_share_the_slots", 40, 30, 20, 20),
-        ("few_fails_leave_their_slots_to_passes", 5, 45, 5, 35),
-        ("few_passes_leave_their_slots_to_fails", 45, 3, 37, 3),
+        ("fails_and_passes_share_the_slots", 40, 30, 0, 20, 20),
+        ("few_fails_leave_their_slots_to_passes", 5, 45, 0, 5, 35),
+        ("few_passes_leave_their_slots_to_fails", 45, 3, 0, 37, 3),
+        ("calls_the_question_skips_take_pass_slots", 10, 5, 40, 10, 30),
     ]
 )
 def test_calibration_keeps_room_for_the_review_passes(
-    _name: str, fails: int, passes: int, picked_fails: int, picked_passes: int
+    _name: str, fails: int, passes: int, na: int, picked_fails: int, picked_passes: int
 ) -> None:
-    labels = dict.fromkeys(range(1, fails + 1), "fail") | dict.fromkeys(range(fails + 1, fails + passes + 1), "pass")
+    verdicts = ["fail"] * fails + ["pass"] * passes + ["na"] * na
+    labels = dict(enumerate(verdicts, start=1))
     card = MagicMock(labels=labels)
 
     numbers = judge_calibration.calibration_calls(card)
 
     assert sum(1 for n in numbers if labels[n] == "fail") == picked_fails
-    assert sum(1 for n in numbers if labels[n] == "pass") == picked_passes
+    assert sum(1 for n in numbers if labels[n] != "fail") == picked_passes
+
+
+@parameterized.expand([("answers_na", "na", True), ("fails_them", "fail", False)])
+def test_a_judge_must_not_fail_calls_the_question_does_not_apply_to(_name: str, on_na: Verdict, kept: bool) -> None:
+    labels: dict[int, Verdict] = {n: "fail" if n <= 5 else "pass" if n <= 15 else "na" for n in range(1, 46)}
+    card = replace(_card_and_rendering()[0], labels=labels, failed=5, of=15)
+    numbers = judge_calibration.calibration_calls(card)
+
+    calibration = judge_calibration.calibrate(
+        card, numbers, [on_na if labels[n] == "na" else labels[n] for n in numbers]
+    )
+
+    assert judge_calibration.keeps(card, calibration) is kept
+    # The judge saw 35 of the review's 40 other calls, so each verdict on one of them stands for 40 / 35 calls.
+    measured = judge_calibration.measured(card, calibration)
+    assert (measured.failed, measured.of) == ((5, 16) if kept else (34, 45))
 
 
 def _card_and_rendering() -> tuple[call_review.ReviewCard, call_review.Rendering]:
@@ -206,20 +226,31 @@ def test_the_judge_grades_the_review_calls_on_the_team_model(
 
 @parameterized.expand(
     [
-        ("server_error", genai_errors.ServerError(503, {}), True, True),
-        ("rate_limited", genai_errors.ClientError(429, {}), True, False),
-        ("cancelled", genai_errors.ClientError(499, {}), True, True),
-        ("bad_request", genai_errors.ClientError(400, {}), False, True),
+        ("gemini_server_error", "gemini", genai_errors.ServerError(503, {}), True, True),
+        ("gemini_rate_limited", "gemini", genai_errors.ClientError(429, {}), True, False),
+        ("gemini_cancelled", "gemini", genai_errors.ClientError(499, {}), True, True),
+        ("gemini_bad_request", "gemini", genai_errors.ClientError(400, {}), False, True),
+        (
+            "anthropic_overloaded",
+            "anthropic",
+            anthropic.APIStatusError("busy", response=httpx.Response(529, request=REQUEST), body=None),
+            True,
+            True,
+        ),
     ]
 )
-def test_a_gemini_call_retries_only_errors_a_retry_can_get_past(
-    _name: str, error: Exception, retried: bool, billed: bool
+def test_a_judge_call_retries_only_errors_a_retry_can_get_past(
+    _name: str, provider: str, error: Exception, retried: bool, billed: bool
 ) -> None:
     card, rendering = _card_and_rendering()
-    model = DEFAULT_MODEL_BY_PROVIDER["gemini"]
+    model = DEFAULT_MODEL_BY_PROVIDER[provider]
     request = judge_calibration.judge_request(card, rendering, 1, model)
-    client = MagicMock(spec=genai.Client)
-    client.models.generate_content.side_effect = [error, _gemini_reply("fail")]
+    if provider == "gemini":
+        client = MagicMock(spec=genai.Client)
+        client.models.generate_content.side_effect = [error, _gemini_reply("fail")]
+    else:
+        client = MagicMock(spec=anthropic.Anthropic)
+        client.messages.create.side_effect = [error, _anthropic_reply("fail")]
 
     with patch.object(call_review, "RETRY_BACKOFF_SECONDS", 0):
         call = judge_calibration.judge(client, request)

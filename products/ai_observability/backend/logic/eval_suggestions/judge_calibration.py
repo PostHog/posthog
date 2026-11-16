@@ -114,6 +114,8 @@ class JudgeCall:
 class Calibration:
     review_fails: int
     caught: int
+    # A call the review found the question does not apply to counts as a pass: the evaluation runs on it too, and a
+    # fail there is a false alarm.
     review_passes: int
     # Review passes the judge returned a verdict on. Only these can show a false alarm.
     judged_passes: int
@@ -127,7 +129,7 @@ class Calibration:
 
 @frozen
 class _Projection:
-    """The judge's verdicts on the calibration calls, scaled to every applicable call the review labelled."""
+    """The judge's verdicts on the calibration calls, scaled to every call the review labelled."""
 
     review_fails: int
     caught: float
@@ -172,11 +174,10 @@ def build_client(team_id: int, run_id: str, model: str) -> JudgeClient:
 
 def calibration_calls(card: ReviewCard) -> list[int]:
     """The review's fails and passes, CALIBRATION_CALLS at most, half for each when both have that many: a judge
-    tested on fails alone would pass by failing everything. Calls the question does not apply to stay out, since a
-    fail rate counts only the calls it applies to."""
+    tested on fails alone would pass by failing everything."""
     labels = sorted(card.labels.items())
     fails = [number for number, verdict in labels if verdict == "fail"]
-    passes = [number for number, verdict in labels if verdict == "pass"]
+    passes = [number for number, verdict in labels if verdict != "fail"]
     fail_slots = max(CALIBRATION_CALLS // 2, CALIBRATION_CALLS - len(passes))
     picked_fails = fails[:fail_slots]
     return picked_fails + passes[: CALIBRATION_CALLS - len(picked_fails)]
@@ -282,7 +283,8 @@ def _retryable(error: Exception) -> bool:
     if isinstance(error, genai_errors.APIError):
         # Google ends a call it cancelled with a 499 CANCELLED error, and a retry usually gets past it.
         return error.code == 499
-    return isinstance(error, anthropic.APIStatusError | openai.APIStatusError) and error.status_code == 408
+    # The Anthropic SDK raises an overloaded 529 as its own class, which is not an InternalServerError.
+    return isinstance(error, anthropic.APIStatusError | openai.APIStatusError) and error.status_code in (408, 529)
 
 
 def judge(client: JudgeClient, request: JudgeRequest) -> JudgeCall:
@@ -324,21 +326,21 @@ def calibrate(card: ReviewCard, numbers: Sequence[int], verdicts: Sequence[Verdi
     return Calibration(
         review_fails=sum(1 for label, _ in pairs if label == "fail"),
         caught=sum(1 for label, verdict in pairs if label == "fail" and verdict == "fail"),
-        review_passes=sum(1 for label, _ in pairs if label == "pass"),
-        judged_passes=sum(1 for label, verdict in pairs if label == "pass" and verdict is not None),
-        false_alarms=sum(1 for label, verdict in pairs if label == "pass" and verdict == "fail"),
+        review_passes=sum(1 for label, _ in pairs if label != "fail"),
+        judged_passes=sum(1 for label, verdict in pairs if label != "fail" and verdict is not None),
+        false_alarms=sum(1 for label, verdict in pairs if label != "fail" and verdict == "fail"),
         unjudged=sum(1 for _, verdict in pairs if verdict is None),
         na_on_fails=sum(1 for label, verdict in pairs if label == "fail" and verdict == "na"),
-        na_on_passes=sum(1 for label, verdict in pairs if label == "pass" and verdict == "na"),
+        na_on_passes=sum(1 for label, verdict in pairs if label != "fail" and verdict == "na"),
     )
 
 
 def _project(card: ReviewCard, calibration: Calibration) -> _Projection:
-    """The judge's verdicts scaled to the card's applicable calls. When the review passed more calls than the judge
-    returned verdicts on, its verdicts on those stand for the rest too."""
+    """The judge's verdicts scaled to every call the review labelled. When the review passed more calls than the
+    judge returned verdicts on, its verdicts on those stand for the rest too."""
     fails = sum(1 for verdict in card.labels.values() if verdict == "fail")
     fail_scale = fails / calibration.review_fails if calibration.review_fails else 0.0
-    pass_scale = (card.of - fails) / calibration.judged_passes if calibration.judged_passes else 0.0
+    pass_scale = (len(card.labels) - fails) / calibration.judged_passes if calibration.judged_passes else 0.0
     return _Projection(
         review_fails=fails,
         caught=calibration.caught * fail_scale,
@@ -359,8 +361,8 @@ def keeps(card: ReviewCard, calibration: Calibration) -> bool:
 
 
 def measured(card: ReviewCard, calibration: Calibration) -> ReviewCard:
-    """The card with the judge's own counts over the review's applicable calls: its fails, out of the calls it did
+    """The card with the judge's own counts over every call the review labelled: its fails, out of the calls it did
     not answer na on, as the evaluation's runtime rate counts them."""
     projected = _project(card, calibration)
     failed = round(projected.caught + projected.false_alarms)
-    return replace(card, failed=failed, of=max(failed, round(card.of - projected.na)))
+    return replace(card, failed=failed, of=max(failed, round(len(card.labels) - projected.na)))
