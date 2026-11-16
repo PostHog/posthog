@@ -71,11 +71,11 @@ run_check() {
 
 # The writer lists every up migration of the declared databases and skips .down.sql twins.
 "$BIN_DIR/write-sqlx-requirements" "persons behavioral-cohorts" "$WORK/req.json" "$WORK/migrations"
-assert_eq "writer writes the Node manifest shape with sqlx requirements" \
+assert_eq "writer writes a deploy requirements manifest with sqlx requirements" \
     '{"schema_version":1,"requirements":[{"kind":"sqlx","database":"persons","versions":[20250101000001,20250201000001]},{"kind":"sqlx","database":"behavioral-cohorts","versions":[20250301000001]}]}' \
     "$(jq -c '{schema_version, requirements}' "$WORK/req.json")"
 
-# The Node writer computes the digest as sha256(JSON.stringify(requirements)), first 12 hex.
+# The contract defines the digest as sha256 of the compact requirements JSON, first 12 hex.
 expected_digest=$(jq -c '.requirements' "$WORK/req.json" | tr -d '\n' | { sha256sum 2>/dev/null || shasum -a 256; } | cut -c1-12)
 assert_eq "writer digest matches the Node formula" "$expected_digest" "$(jq -r '.digest' "$WORK/req.json")"
 

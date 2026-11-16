@@ -111,8 +111,8 @@ RUN --mount=type=secret,id=posthog_upload_symbols_cli_api_key \
 
 FROM debian:bookworm-slim AS sqlx-requirements
 
-# The schema requirements manifest of this image (the Node manifest format, sqlx entries only),
-# for the deploy-time check in bin/sqlx-schema-check.
+# The deploy requirements manifest of this image (tools/deploy-requirements), for the
+# deploy-time check in bin/sqlx-schema-check.
 # SQLX_DATABASES comes from the image's sqlx_databases entry in .github/rust-images.yml.
 ARG SQLX_DATABASES=""
 WORKDIR /src

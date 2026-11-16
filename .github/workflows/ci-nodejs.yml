@@ -135,6 +135,8 @@ jobs:
                         # admits ingestion-consumer, which does not depend on the fixture's crate, so
                         # a capture-side envelope change would skip the test that pins the consumer.
                         - 'rust/common/ingestion_warnings/*.json'
+                        # The schema-check manifest test reads the shared deploy requirements examples.
+                        - 'tools/deploy-requirements/examples/**'
                         - 'posthog/clickhouse/**'
                         - 'ee/migrations/**'
                         - 'posthog/management/commands/setup_test_environment.py'
@@ -183,6 +185,7 @@ jobs:
                       node_full:
                         # readFileSync, so jest cannot reach the parity test through --findRelatedTests.
                         - 'products/cdp/backend/filter_globals.json'
+                        - 'tools/deploy-requirements/examples/**'
                         - 'common/hogvm/typescript/src/**'
                         - '**/crosslang/**'
                         - '.github/scripts/jest-retries.cjs'

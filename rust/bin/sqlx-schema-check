@@ -3,9 +3,9 @@
 # applied, so new Rust code does not roll out against an older schema.
 #
 # Runs in the sqlx-migrate image (it has psql and jq) as an Argo CD Sync hook before the app pods
-# roll. The manifest comes from the app image (see write-sqlx-requirements). It has the format of
-# the Node manifest (schema_version 1), with only "sqlx" requirements. A rollback to an older
-# image needs only the versions that the older image needs.
+# roll. It reads the deploy requirements manifest (tools/deploy-requirements, version 1) from the
+# app image and checks its "sqlx" requirements. A rollback to an older image needs only the
+# versions that the older image needs.
 #
 # Exit codes, the same as the Node schema check:
 #   0  every required version is applied (or shadow mode, or no manifest)
