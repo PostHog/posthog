@@ -210,24 +210,32 @@ export function surveyStatus(survey: RelatedSurvey): 'Archived' | 'Complete' | '
     return survey.archived ? 'Archived' : survey.endDate ? 'Complete' : survey.startDate ? 'Running' : 'Draft'
 }
 
+function groupEvents<K>(events: ReleaseEvent[], keyOf: (event: ReleaseEvent) => K | undefined): Map<K, ReleaseEvent[]> {
+    const groups = new Map<K, ReleaseEvent[]>()
+    for (const event of events) {
+        const key = keyOf(event)
+        if (key === undefined) {
+            continue
+        }
+        const group = groups.get(key)
+        if (group) {
+            group.push(event)
+        } else {
+            groups.set(key, [event])
+        }
+    }
+    return groups
+}
+
 export function buildTrack(
     row: ReleaseRow,
     stepsByFlag: Map<number, RolloutStep[]>,
     related: TrackRelated = NO_RELATED
 ): Track {
-    const scheduledByFlag = new Map<number, ReleaseEvent[]>()
-    const sendsByHref = new Map<string, ReleaseEvent[]>()
-    for (const event of row.events) {
-        if (event.kind === 'schedule' && event.upcoming && event.flagId !== undefined) {
-            const events = scheduledByFlag.get(event.flagId) ?? []
-            events.push(event)
-            scheduledByFlag.set(event.flagId, events)
-        } else if (event.kind === 'broadcast' && event.href) {
-            const events = sendsByHref.get(event.href) ?? []
-            events.push(event)
-            sendsByHref.set(event.href, events)
-        }
-    }
+    const scheduledByFlag = groupEvents(row.events, (event) =>
+        event.kind === 'schedule' && event.upcoming ? event.flagId : undefined
+    )
+    const sendsByHref = groupEvents(row.events, (event) => (event.kind === 'broadcast' ? event.href : undefined))
     const lanes: Lane[] = []
     for (const flag of row.flags) {
         lanes.push({
