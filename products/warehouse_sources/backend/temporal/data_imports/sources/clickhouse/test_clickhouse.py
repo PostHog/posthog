@@ -1140,6 +1140,24 @@ class TestGetRowsBatching:
             "location": ["(1.5, 2.5)", "(0.0, 0.0)", "(3.0, 4.0)"],
         }
 
+    def test_treats_empty_arrow_response_as_zero_rows(self):
+        stream_client = MagicMock()
+        stream_client.query_arrow_stream.side_effect = pa.ArrowInvalid(
+            "Tried reading schema message, was null or length 0"
+        )
+
+        yielded = self._run_get_rows([], stream_client=stream_client)
+
+        assert yielded == []
+        stream_client.query_column_block_stream.assert_not_called()
+
+    def test_other_arrow_invalid_errors_are_not_treated_as_zero_rows(self):
+        stream_client = MagicMock()
+        stream_client.query_arrow_stream.side_effect = pa.ArrowInvalid("Invalid IPC stream: unsupported feature")
+
+        with pytest.raises(pa.ArrowInvalid, match="unsupported feature"):
+            self._run_get_rows([], stream_client=stream_client)
+
     def test_other_query_errors_do_not_fall_back_to_native(self):
         stream_client = MagicMock()
         stream_client.query_arrow_stream.side_effect = ClickHouseError(
