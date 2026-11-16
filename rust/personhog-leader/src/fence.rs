@@ -53,6 +53,7 @@ use tonic::Status;
 use uuid::Uuid;
 
 use personhog_common::partitioning::partition_for_person;
+use personhog_common::query_tag;
 use personhog_proto::personhog::types::v1::LifecycleOpType;
 
 use crate::cache::PersonCacheKey;
@@ -141,16 +142,19 @@ pub async fn rebuild_partition_fences(
 ) -> Result<usize, sqlx::Error> {
     let start = std::time::Instant::now();
     let tables = &fallback.lifecycle;
-    let sql = format!(
-        r#"
-        SELECT lop.team_id, lop.person_id, lop.op_id, o.op_type
-        FROM {op_person} lop
-        JOIN {op} o ON o.op_id = lop.op_id
-        WHERE lop.mark_active
-          AND lop.role <> 'target'
-        "#,
-        op_person = tables.op_person,
-        op = tables.op,
+    let sql = query_tag!(
+        "rebuild_partition_fences",
+        format!(
+            r#"
+            SELECT lop.team_id, lop.person_id, lop.op_id, o.op_type
+            FROM {op_person} lop
+            JOIN {op} o ON o.op_id = lop.op_id
+            WHERE lop.mark_active
+              AND lop.role <> 'target'
+            "#,
+            op_person = tables.op_person,
+            op = tables.op,
+        )
     );
     let query = sqlx::query(&sql).fetch_all(&fallback.pool);
 
@@ -337,10 +341,13 @@ pub async fn mark_status(
     person_id: i64,
 ) -> Result<Option<String>, sqlx::Error> {
     let mut conn = crate::pg::acquire_timed(&fallback.pool, "mark_status").await?;
-    let sql = format!(
-        "SELECT status FROM {} \
-         WHERE op_id = $1 AND team_id = $2 AND person_id = $3 AND role <> 'target'",
-        fallback.lifecycle.op_person
+    let sql = query_tag!(
+        "mark_status",
+        format!(
+            "SELECT status FROM {} \
+             WHERE op_id = $1 AND team_id = $2 AND person_id = $3 AND role <> 'target'",
+            fallback.lifecycle.op_person
+        )
     );
     sqlx::query_scalar(&sql)
         .bind(op_id)
@@ -366,10 +373,13 @@ pub async fn target_mark_status(
     person_id: i64,
 ) -> Result<Option<String>, sqlx::Error> {
     let mut conn = crate::pg::acquire_timed(&fallback.pool, "target_mark_status").await?;
-    let sql = format!(
-        "SELECT status FROM {} \
-         WHERE op_id = $1 AND team_id = $2 AND person_id = $3 AND role = 'target'",
-        fallback.lifecycle.op_person
+    let sql = query_tag!(
+        "target_mark_status",
+        format!(
+            "SELECT status FROM {} \
+             WHERE op_id = $1 AND team_id = $2 AND person_id = $3 AND role = 'target'",
+            fallback.lifecycle.op_person
+        )
     );
     sqlx::query_scalar(&sql)
         .bind(op_id)
@@ -412,10 +422,13 @@ pub struct PgMarkSource {
 impl MarkSource for PgMarkSource {
     async fn load_op(&self, op_id: Uuid) -> Result<Vec<MarkRow>, sqlx::Error> {
         let mut conn = crate::pg::acquire_timed(&self.pool, "mark_snapshot").await?;
-        let sql = format!(
-            "SELECT team_id, person_id, status FROM {} \
-             WHERE op_id = $1 AND role <> 'target'",
-            self.op_person_table
+        let sql = query_tag!(
+            "mark_snapshot",
+            format!(
+                "SELECT team_id, person_id, status FROM {} \
+                 WHERE op_id = $1 AND role <> 'target'",
+                self.op_person_table
+            )
         );
         let rows = sqlx::query(&sql).bind(op_id).fetch_all(&mut *conn).await?;
         Ok(rows

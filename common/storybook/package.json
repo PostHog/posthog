@@ -29,7 +29,7 @@
         "history": "^5.0.1",
         "jest-image-snapshot": "^6.5.2",
         "mockdate": "^3.0.5",
-        "posthog-js-lite": "4.13.3",
+        "posthog-js-lite": "4.14.0",
         "sass": "^1.107.1",
         "storybook": "catalog:",
         "vite": "catalog:"
