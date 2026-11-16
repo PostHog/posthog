@@ -700,6 +700,8 @@ class KnowledgeDocumentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         # an attacker can't probe doc existence. `.unscoped()` + explicit
         # team_id filter mirrors the source viewset (the manager needs an
         # explicit team scope otherwise).
+        # Before the document lookup, so a key whose library is gone gets one answer for every document id.
+        library_id = key_library_id(request)
         source_ids = list(
             KnowledgeDocument.objects.unscoped()
             .filter(id=document_id, team_id=self.team_id)
@@ -707,7 +709,6 @@ class KnowledgeDocumentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         )
         if not source_ids:
             raise exceptions.NotFound()
-        library_id = key_library_id(request)
         if library_id is not None and not libraries.library_has_source(self.team_id, library_id, source_ids[0]):
             raise exceptions.NotFound()
 

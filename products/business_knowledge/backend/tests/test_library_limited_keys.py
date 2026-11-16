@@ -24,6 +24,7 @@ from products.business_knowledge.backend.models import (
 READ_ROUTES = [
     ("search", "/documents/search/?query=lorem"),
     ("window", "/documents/{document}/window/?around_ordinal=0"),
+    ("window_unknown_document", "/documents/{unknown}/window/?around_ordinal=0"),
     ("library_list", "/libraries/"),
     ("library_retrieve", "/libraries/{library}/"),
     ("repository_search", "/repositories/search/?query=billing"),
@@ -110,7 +111,7 @@ class TestLibraryLimitedKeys(APIBaseTest):
         self._use_key(self.public)
         libraries.delete_library(self.team.id, self.public.id)
         response = self.client.get(
-            self.base + path.format(library=self.internal.id, document=self.internal_document.id)
+            self.base + path.format(library=self.internal.id, document=self.internal_document.id, unknown=uuid4())
         )
         assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
 

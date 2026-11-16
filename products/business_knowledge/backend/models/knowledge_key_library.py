@@ -14,7 +14,6 @@ class KnowledgeKeyLibrary(TeamScopedRootMixin, UUIDModel):
         on_delete=models.CASCADE,
         # Creating a real FK takes SHARE ROW EXCLUSIVE on posthog_team.
         db_constraint=False,
-        db_index=False,
         related_name="+",
     )
     key = models.OneToOneField(
