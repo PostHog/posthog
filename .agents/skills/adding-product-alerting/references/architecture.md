@@ -19,6 +19,8 @@ Use this reference to decide where code belongs before editing it.
 
 `products/logs` is the reference adopter for fixed-cadence scheduling, HogFunction destinations, delivery rollback, product-owned Temporal orchestration, and the shared product alert editor components.
 
+The alerts platform's Temporal queues, source bindings, pools and worker capacity are in `docs/internal/alerts-platform-temporal.md`. Read its capacity section before adding a source or raising a pool.
+
 Logs and insight alerts both adapt their product state to the shared lifecycle engine. Insight alerts are the reference adopter for calendar anchors, weekend skipping, and email delivery. Both products use shared schedule restrictions for quiet hours. Each product keeps its model, due query, and scheduling persistence. The evaluation package is shared across insight query kinds, but it is not a generic evaluator for unrelated products.
 
 ## Boundary
