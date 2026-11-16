@@ -113,6 +113,7 @@ const appliedWithin = (
     const time = Date.parse(at)
     return (
         from !== undefined &&
+        appliedAt !== undefined &&
         Date.parse(from) <= time &&
         (releasedAt === undefined || time <= Date.parse(releasedAt) + graceMs)
     )

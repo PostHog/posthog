@@ -285,6 +285,23 @@ describe('statusOf', () => {
             `${HOGFLOW_WORKER} exited (code 1) without a valve causing it`,
         ],
         [
+            'a role exited with an error after the connection drop failed to apply',
+            {
+                timeline: [
+                    {
+                        valve: 'pg.drop_connections',
+                        target: 'postgres',
+                        requestedAt: at(0),
+                        intentAt: at(10),
+                        error: 'the first sweep failed',
+                    },
+                ],
+                exits: [exitedWithError(HOGFLOW_WORKER, 25)],
+            },
+            'failed',
+            `${HOGFLOW_WORKER} exited (code 1) without a valve causing it; pg.drop_connections on postgres was not observed: the first sweep failed`,
+        ],
+        [
             'a role exited with an error during a valve that sets no exit grace',
             { timeline: [failedOver], exits: [exitedWithError(HOGFLOW_WORKER, 15)] },
             'failed',
