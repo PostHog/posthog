@@ -29,6 +29,8 @@ const MIGRATIONS = [
     '1794323815130_initial-schema',
     '1794323815131_runtime-role-grants',
     '1794323815132_idempotency-deployment',
+    '1794400000000_integrations-changes-index',
+    '1794400000001_audit-exported-at',
 ]
 const TABLES = ['audit_log', 'audit_log_default', 'auth_jti', 'idempotency_keys', 'integration_secrets', 'integrations']
 const TEAM: IntegrationOwner = { type: 'team', id: 1 }
@@ -180,6 +182,23 @@ describe('postgres replay store', () => {
 
 describe('integrations queries', () => {
     let db: Pool
+
+    it('serves the change feed page from the (updated_at, id) index', async () => {
+        await db.query(
+            `INSERT INTO integrations (owner_type, owner_id, kind, external_id, auth_type)
+             SELECT 'team', n % 50, 'hubspot', 'feed-' || n, 'oauth' FROM generate_series(1, 2000) AS n`
+        )
+        await db.query('ANALYZE integrations')
+        const plan = await db.query(
+            `EXPLAIN SELECT id FROM integrations
+             WHERE owner_type = 'team' AND updated_at <= statement_timestamp() - interval '30 seconds'
+               AND (updated_at, id) > (now() - interval '1 hour', gen_random_uuid())
+             ORDER BY updated_at, id LIMIT 100`
+        )
+        const text = plan.rows.map((row) => row['QUERY PLAN']).join('\n')
+        expect(text).toContain('integrations_updated_at_id')
+        expect(text).not.toContain('Sort')
+    })
 
     beforeAll(async () => {
         const url = await createDatabase('integrations_queries')

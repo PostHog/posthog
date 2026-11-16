@@ -31,8 +31,8 @@ export async function finishStepUp(ctx: Context, approved: OAuthLogin, expected:
         await Promise.all([approved.logout(ctx.runtime), clearPending(ctx.runtime, ADD_COMMAND)])
         throw new HogError(
             'step_up_other_project',
-            `PostHog approved the scopes for project ${approved.projectId}, and hog asked for them for project ${expected.projectId}, so hog didn't save them.`,
-            `Run the same \`hog auth add\` command again, and pick project ${expected.projectId} on the approval page.`
+            `You approved the scopes for project ${approved.projectId}, but hog asked for them for project ${expected.projectId}, so hog didn't save them.`,
+            `Run the same \`hog auth add\` command again and pick project ${expected.projectId} on the approval page.`
         )
     }
 
@@ -52,8 +52,8 @@ export async function finishStepUp(ctx: Context, approved: OAuthLogin, expected:
 function personalKeyCantGainScopes(scopes: readonly string[]): HogError {
     return new HogError(
         'step_up_unavailable',
-        "You're using a personal API key, and hog can't add scopes to it. You choose a key's scopes in PostHog.",
-        `${addToKeyHint(scopes)} Or run \`hog auth login\` to log in with the browser, and hog can then add scopes for you.`
+        "hog can't add scopes to a personal API key. You set a key's scopes in PostHog.",
+        `${addToKeyHint(scopes)} Or run \`hog auth login\` to log in through the browser, so hog can add scopes.`
     )
 }
 
@@ -70,7 +70,7 @@ export async function promptStepUp(ctx: Context, scopes: readonly string[]): Pro
     if (missing.length === 0) {
         return true
     }
-    const question = `This needs ${missing.join(', ')}, which your login doesn't have. Add these scopes now?`
+    const question = `This command needs ${missing.join(', ')}, which your login doesn't have. Add them now?`
     if (!(await prompts.confirm(question, { initialValue: true })) || (await stepUp(ctx, missing)).status !== 'added') {
         return false
     }

@@ -3,6 +3,7 @@ import { type ReactElement, useState } from 'react'
 import { RefreshControl, ScrollView, Text, View } from 'react-native'
 
 import { changeNavPin } from '@/features/tabs/navPinActions'
+import { NAV_PINS_ENABLED } from '@/features/tabs/navPinSlot'
 import { type NavChrome, useIsNavPinned } from '@/features/tabs/navPinStore'
 import { TabHeaderPublisher } from '@/features/tabs/TabHeaderPublisher'
 import { TABS_HEADER_BOTTOM } from '@/features/tabs/TabsHeader'
@@ -105,10 +106,14 @@ export function WebAnalyticsScreen({ from, chrome }: { from: ViewEntry; chrome: 
                     onClose={() => setMoreOpen(false)}
                     webUrl={viewWebUrl(scope, '/web')}
                     viewType="web_analytics"
-                    navPin={{
-                        pinned,
-                        onToggle: () => changeNavPin('web_analytics', !pinned, 'list_menu', toasts.show),
-                    }}
+                    navPin={
+                        NAV_PINS_ENABLED
+                            ? {
+                                  pinned,
+                                  onToggle: () => changeNavPin('web_analytics', !pinned, 'list_menu', toasts.show),
+                              }
+                            : undefined
+                    }
                 />
             )}
             <ViewsToast toast={toasts.toast} onHide={toasts.hide} bottom={tab ? undefined : TOAST_BOTTOM} />

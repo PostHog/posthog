@@ -522,6 +522,10 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "Error tracking issue split",
             "description": "Fires when fingerprints are split out of an error tracking issue into new issues.",
         },
+        "$signals_report_ready": {
+            "label": "Inbox report ready",
+            "description": "Fires when a self-driving Inbox report becomes ready. Destinations use it to act on a new report.",
+        },
         "$conversation_message_sent": {
             "label": "Conversation message sent",
             "description": "Fires when a message is sent in a support conversation.",
@@ -2968,18 +2972,18 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "$mcp_error_status": {
             "label": "MCP error status",
-            "description": "Upstream HTTP status code when an MCP tool call failed against a PostHog API (e.g. 429, 500). Only set for API-originated failures.",
+            "description": "HTTP status code behind a failed MCP tool call (e.g. 429, 503). PostHog's own MCP server sets the status of the PostHog API request that failed. Servers using the MCP Analytics SDKs get the first status found on the thrown error or its cause chain. Only set when a status was found.",
             "type": "Numeric",
             "examples": [429, 500, 403],
         },
         "$mcp_error_code": {
             "label": "MCP error code",
-            "description": "Machine-readable code for the leaf failure mode of an errored MCP tool call: the API's validation error code, or the exec dispatcher's rejection reason. Carries error codes only, never caller-supplied values. Only set when $mcp_is_error is true.",
+            "description": "Machine-readable code for the leaf failure mode of an errored MCP tool call: the API's error code (validation errors and other 4xx responses), or the exec dispatcher's rejection reason. Carries error codes only, never caller-supplied values. Only set when $mcp_is_error is true.",
             "examples": ["invalid", "required", "unknown_tool", "invalid_json"],
         },
         "$mcp_error_field": {
             "label": "MCP error field",
-            "description": "Field path the PostHog API's validation error pointed at, with array indexes normalized to N so one failure mode groups to one value. Only set for validation failures.",
+            "description": "Field path the PostHog API's error pointed at, with array indexes normalized to N so one failure mode groups to one value. Only set when the API error body names a field, such as validation failures.",
             "examples": ["actions__N__inputs__email", "query"],
         },
         "$mcp_validation_fields": {

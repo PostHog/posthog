@@ -1402,9 +1402,7 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert isinstance(response, CachedEventsQueryResponse)
         assert f"in(flag_key, tuple('{FLAG_EVALUATIONS_FLAG_KEY}'))" in response.hogql
         expect_pushdown = person_id_pushdown is not False
-        assert ("SELECT DISTINCT" in " ".join(page_queries[0].split())) is expect_pushdown
-        assert response.modifiers is not None
-        assert response.modifiers.personIdPushdown is expect_pushdown
+        assert ("globalIn(person.id, (SELECT DISTINCT" in " ".join(page_queries[0].split())) is expect_pushdown
         assert "properties.$feature_flag," not in response.hogql
         assert len(response.results) == 1
         star, *columns = response.results[0]
@@ -1469,11 +1467,13 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 {},
                 EVENTS_FLAG_KEY,
             ),
+            # A filter that mixes flag calls with other events reads the union, which takes new flag calls from
+            # flag_evaluations.
             (
                 "flag_evaluations_only_with_a_second_event_in_the_filter",
                 FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
                 {"event": "$feature_flag_called", "events": ["$pageview"]},
-                EVENTS_FLAG_KEY,
+                FLAG_EVALUATIONS_FLAG_KEY,
             ),
             (
                 "flag_evaluations_only_with_action_steps",

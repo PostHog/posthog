@@ -104,7 +104,7 @@ export interface WarehouseSuggestionMaterializePayloadApi {
     refresh_interval_seconds: number
     /** Query time materializing saves in a month, in seconds. */
     saves_seconds_per_month: number
-    /** Bytes materializing saves from scanning in a month. */
+    /** Bytes materializing saves from scanning in a month. Negative when its refreshes scan more than its reads would. */
     saves_bytes_per_month: number
     /**
      * How old the view's data can be today, in seconds. Null when its sources are live.
@@ -139,6 +139,8 @@ export interface WarehouseSuggestionMaterializePayloadApi {
      * @nullable
      */
     read_seconds?: number | null
+    /** True when measuring the view's cost hit the time limit. The cost and every saving are then lower bounds. */
+    measurement_capped?: boolean
 }
 
 export interface WarehouseSuggestionUnmaterializePayloadApi {
@@ -242,6 +244,9 @@ export const WarehouseSuggestionStatusEnumApi = {
 /**
  * * `not_useful` - Not useful
  * * `not_now` - Not now
+ * * `wrong_estimate` - Wrong estimate
+ * * `already_handled` - Already handled
+ * * `not_owner` - Someone else decides
  * * `other` - Other
  */
 export type WarehouseSuggestionDismissalReasonEnumApi =
@@ -250,6 +255,9 @@ export type WarehouseSuggestionDismissalReasonEnumApi =
 export const WarehouseSuggestionDismissalReasonEnumApi = {
     NotUseful: 'not_useful',
     NotNow: 'not_now',
+    WrongEstimate: 'wrong_estimate',
+    AlreadyHandled: 'already_handled',
+    NotOwner: 'not_owner',
     Other: 'other',
 } as const
 
@@ -311,6 +319,9 @@ export interface WarehouseSuggestionApi {
      *
      * * `not_useful` - Not useful
      * * `not_now` - Not now
+     * * `wrong_estimate` - Wrong estimate
+     * * `already_handled` - Already handled
+     * * `not_owner` - Someone else decides
      * * `other` - Other */
     dismissal_reason: WarehouseSuggestionDismissalReasonEnumApi | null
     /** What happened to the asset an accepted suggestion created.
@@ -420,6 +431,9 @@ export interface DismissWarehouseSuggestionApi {
      *
      * * `not_useful` - Not useful
      * * `not_now` - Not now
+     * * `wrong_estimate` - Wrong estimate
+     * * `already_handled` - Already handled
+     * * `not_owner` - Someone else decides
      * * `other` - Other */
     reason: WarehouseSuggestionDismissalReasonEnumApi
     /**
@@ -467,11 +481,11 @@ export const WarehouseSuggestionSurfaceEnumApi = {
 } as const
 
 export interface SurfaceMoreWarehouseSuggestionsApi {
-    /** Page to show more suggestions on. Only the kinds that page shows are picked.
+    /** Page to show more suggestions on. Only the kinds that page shows are picked. Without it, any kind can be picked.
      *
      * * `models` - Models
      * * `catalog` - Data catalog */
-    surface: WarehouseSuggestionSurfaceEnumApi
+    surface?: WarehouseSuggestionSurfaceEnumApi
 }
 
 export interface WarehouseSuggestionSurfaceMoreResultApi {
@@ -559,6 +573,10 @@ export const WarehouseSuggestionsListSurface = {
 
 export type WarehouseSuggestionsAcceptCreateParams = {
     /**
+     * Whether the decision was part of one action on several selected suggestions. Only recorded on the analytics event.
+     */
+    bulk?: boolean
+    /**
      * Page the decision was made on. Only recorded on the analytics event.
      *
      * * `models` - Models
@@ -577,6 +595,10 @@ export const WarehouseSuggestionsAcceptCreateSurface = {
 } as const
 
 export type WarehouseSuggestionsDismissCreateParams = {
+    /**
+     * Whether the decision was part of one action on several selected suggestions. Only recorded on the analytics event.
+     */
+    bulk?: boolean
     /**
      * Page the decision was made on. Only recorded on the analytics event.
      *
@@ -597,7 +619,7 @@ export const WarehouseSuggestionsDismissCreateSurface = {
 
 export type WarehouseSuggestionsStatusRetrieveParams = {
     /**
-     * Page to count waiting suggestions for. Without it, waiting is 0 and can_show_more is false.
+     * Page to count waiting suggestions for. Without it, counts waiting suggestions of every kind.
      *
      * * `models` - Models
      * * `catalog` - Data catalog

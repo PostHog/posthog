@@ -256,3 +256,146 @@ function parseJson(text: string): unknown {
         return undefined
     }
 }
+
+export const MAX_CHANGES_PAGE_SIZE = 500
+export const DEFAULT_CHANGES_PAGE_SIZE = 100
+
+/** Reads query parameters, and collects every problem into one `validation` error. */
+class QueryReader {
+    readonly issues: { path: string; message: string }[] = []
+
+    constructor(
+        private readonly params: Record<string, string[]>,
+        private readonly known: readonly string[]
+    ) {}
+
+    issue(path: string, message: string): void {
+        this.issues.push({ path, message })
+    }
+
+    single(name: string): string | null {
+        const values = this.params[name]
+        if (!values || values.length === 0) {
+            return null
+        }
+        if (values.length > 1) {
+            this.issue(name, 'must appear at most once')
+        }
+        return values[0] ?? null
+    }
+
+    list(name: string): string[] | null {
+        return this.params[name] ?? null
+    }
+
+    int(name: string, fallback: number, min: number, max: number): number {
+        const text = this.single(name)
+        const value = text === null ? fallback : Number(text)
+        if (!Number.isSafeInteger(value) || value < min || value > max) {
+            this.issue(name, `must be an integer from ${min} to ${max}`)
+        }
+        return value
+    }
+
+    finish(): void {
+        for (const name of Object.keys(this.params)) {
+            if (!this.known.includes(name)) {
+                this.issue(name, 'is not a known parameter')
+            }
+        }
+        if (this.issues.length > 0) {
+            throw new IntegrationApiError('validation', 'the request is not valid', { issues: this.issues })
+        }
+    }
+}
+
+function readSourceRows(reader: QueryReader): SourceRows {
+    const parsed = sourceRows.safeParse(reader.single('source_rows') ?? 'exclude')
+    if (!parsed.success) {
+        reader.issue('source_rows', 'must be exclude, only or include')
+    }
+    return parsed.data ?? 'exclude'
+}
+
+export interface ExternalIdTarget {
+    kind: string
+    externalId: string
+}
+
+/** The `:kind` and `:external_id` path segments of the cross-team routes. */
+export function parseExternalIdTarget(kindText: string, externalIdText: string): ExternalIdTarget {
+    const parsed = parse(z.strictObject({ kind, external_id: externalId }), {
+        kind: kindText,
+        external_id: externalIdText,
+    })
+    return { kind: parsed.kind, externalId: parsed.external_id }
+}
+
+export interface ExternalIdListQuery {
+    teamIds: number[] | null
+    sourceRows: SourceRows
+    limit: number
+    after: string | null
+}
+
+/** `GET /by-external-id/:kind/:external_id`: `team_id` (repeats), `source_rows`, `limit` and `after`. */
+export function parseExternalIdListQuery(params: Record<string, string[]>): ExternalIdListQuery {
+    const reader = new QueryReader(params, ['team_id', 'source_rows', 'limit', 'after'])
+    const teamIdTexts = reader.list('team_id')
+    const teamIds = teamIdTexts === null ? null : teamIdTexts.map(Number)
+    if (teamIds?.some((id) => !Number.isSafeInteger(id) || id < 1)) {
+        reader.issue('team_id', 'must be a positive integer')
+    }
+    const result = {
+        teamIds,
+        sourceRows: readSourceRows(reader),
+        limit: reader.int('limit', MAX_PAGE_SIZE, 1, MAX_PAGE_SIZE),
+        after: reader.single('after'),
+    }
+    reader.finish()
+    return result
+}
+
+/** `PATCH` and `DELETE /by-external-id/:kind/:external_id`: only `source_rows`. */
+export function parseExternalIdWriteQuery(params: Record<string, string[]>): { sourceRows: SourceRows } {
+    const reader = new QueryReader(params, ['source_rows'])
+    const result = { sourceRows: readSourceRows(reader) }
+    reader.finish()
+    return result
+}
+
+export interface ChangesQuery {
+    kinds: string[] | null
+    since: string | null
+    limit: number
+}
+
+/** `GET /changes`: `kind` (repeats), `since` (the `next` of the last page) and `limit`. */
+export function parseChangesQuery(params: Record<string, string[]>): ChangesQuery {
+    const reader = new QueryReader(params, ['kind', 'since', 'limit'])
+    const kinds = reader.list('kind')
+    for (const value of kinds ?? []) {
+        if (!KIND.test(value)) {
+            reader.issue('kind', 'must be a lowercase kind name')
+        }
+    }
+    const result = {
+        kinds,
+        since: reader.single('since'),
+        limit: reader.int('limit', DEFAULT_CHANGES_PAGE_SIZE, 1, MAX_CHANGES_PAGE_SIZE),
+    }
+    reader.finish()
+    return result
+}
+
+/** `DELETE /?owner=<team id>`. */
+export function parseOwnerQuery(params: Record<string, string[]>): { ownerId: number } {
+    const reader = new QueryReader(params, ['owner'])
+    const text = reader.single('owner')
+    const ownerId = text === null ? Number.NaN : Number(text)
+    if (!Number.isSafeInteger(ownerId) || ownerId < 1) {
+        reader.issue('owner', 'must be a positive team id')
+    }
+    reader.finish()
+    return { ownerId }
+}

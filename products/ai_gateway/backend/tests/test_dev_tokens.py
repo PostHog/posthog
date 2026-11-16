@@ -45,6 +45,14 @@ def _minted(token: str = "phe_new") -> MagicMock:
     return _response(201, {"token": token, "expires_at": "2099-01-01T00:00:00Z", "cap_usd": "25"})
 
 
+def _revoked(token: str, remaining_usd: str) -> MagicMock:
+    token_hash = hashlib.sha256(token.encode()).hexdigest()
+    return _response(
+        200,
+        {"revoked": True, "revoked_count": 1, "tokens": [{"token_hash": token_hash, "remaining_usd": remaining_usd}]},
+    )
+
+
 class _DevGatewaySettings(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
@@ -326,6 +334,110 @@ class TestDevTokens(_DevGatewaySettings):
         )
         assert self.client.get(f"{URL}usage/").json()["tokens"][0]["status"] == "revoked"
 
+    @parameterized.expand(
+        [
+            ("spent_part_of_the_cap", _revoked("phe_mine", "23"), "2", "2"),
+            ("spent_nothing", _revoked("phe_mine", "25"), "0", "0"),
+            ("charged_past_the_cap", _revoked("phe_mine", "-1.5"), "26.5", "26.5"),
+            ("used_rounds_up_to_match_the_mint_check", _revoked("phe_mine", "23.996"), "1.004", "1.01"),
+            ("gateway_omits_the_balance", _response(200, {"revoked": True, "revoked_count": 1}), None, "25"),
+            ("gateway_sends_an_unreadable_balance", _revoked("phe_mine", "unreadable"), None, "25"),
+            ("gateway_sends_a_balance_that_is_not_finite", _revoked("phe_mine", "NaN"), None, "25"),
+        ]
+    )
+    def test_revoke_counts_only_what_the_token_spent(self, _name, revoked, spent, used):
+        with patch(_POST, return_value=_minted("phe_mine")):
+            self.client.post(URL)
+
+        with patch(_POST, return_value=revoked):
+            assert self.client.post(f"{URL}revoke/", {}).status_code == 200
+
+        row = self._rows(user=self.user).get()
+        assert row.spent_usd == (Decimal(spent) if spent is not None else None)
+        usage = self.client.get(f"{URL}usage/").json()
+        assert Decimal(usage["used_usd"]) == Decimal(used)
+        assert usage["tokens"][0]["status"] == "revoked"
+
+    def test_refused_revoke_keeps_counting_the_full_cap(self):
+        with patch(_POST, return_value=_minted("phe_mine")):
+            self.client.post(URL)
+
+        with patch(_POST, return_value=_response(500)):
+            assert self.client.post(f"{URL}revoke/", {}).status_code == 503
+
+        row = self._rows(user=self.user).get()
+        assert (row.revoked_at, row.spent_usd) == (None, None)
+
+    def test_overlapping_revoke_keeps_the_recorded_spend(self):
+        with patch(_POST, return_value=_minted("phe_mine")):
+            self.client.post(URL)
+        row = self._rows(user=self.user).get()
+
+        def other_revoke_wins(*_args, **_kwargs) -> MagicMock:
+            self._rows(pk=row.pk).update(revoked_at=timezone.now(), spent_usd=Decimal("2"))
+            return _response(200, {"revoked": False, "revoked_count": 0})
+
+        with patch(_POST, side_effect=other_revoke_wins):
+            assert self.client.post(f"{URL}revoke/", {}).status_code == 200
+
+        assert self._rows(pk=row.pk).get().spent_usd == Decimal("2")
+
+    def _spent_token(self, spent_usd: str, hours_ago: int) -> DevGatewayToken:
+        row = self._rows().create(
+            team=self.team,
+            user=self.user,
+            client="web",
+            cap_usd=Decimal("25"),
+            spent_usd=Decimal(spent_usd),
+            revoked_at=timezone.now(),
+        )
+        self._rows(pk=row.pk).update(created_at=timezone.now() - timedelta(hours=hours_ago))
+        return self._rows(pk=row.pk).get()
+
+    @parameterized.expand(
+        [
+            ("full_cap_fits", "2", "25"),
+            ("only_part_of_the_cap_fits", "30.505", "19.49"),
+            ("exactly_the_minimum_fits", "45", "5.00"),
+        ]
+    )
+    def test_new_token_is_capped_to_the_budget_left(self, _name, spent_usd, cap_usd):
+        self._spent_token(spent_usd, hours_ago=1)
+
+        with patch(_POST, return_value=_minted()) as post:
+            assert self.client.post(URL).status_code == 201
+
+        assert post.call_args.kwargs["json"]["cap_usd"] == cap_usd
+
+    def test_refusal_names_the_time_enough_budget_frees_up(self):
+        self._spent_token("0.25", hours_ago=20)
+        freeing = self._spent_token("49.50", hours_ago=10)
+
+        with patch(_POST) as post:
+            response = self.client.post(URL)
+
+        assert response.status_code == 429
+        post.assert_not_called()
+        detail = response.json()["detail"]
+        assert f"{freeing.created_at + timedelta(days=1):%Y-%m-%d %H:%M} UTC" in detail
+        assert "Revoke a live token" not in detail
+
+    def test_refusal_suggests_revoking_only_when_a_token_is_live(self):
+        self._spent_token("25", hours_ago=2)
+        self._rows().create(
+            team=self.team,
+            user=self.user,
+            client="web",
+            cap_usd=Decimal("25"),
+            token_hash="c" * 64,
+            expires_at=timezone.now() + timedelta(hours=1),
+        )
+
+        response = self.client.post(URL)
+
+        assert response.status_code == 429
+        assert "Revoke a live token" in response.json()["detail"]
+
     def test_cli_code_exchanges_once_for_the_authorizing_user(self):
         code = self.client.post(f"{URL}cli_authorize/", {"code_challenge": CHALLENGE}).json()["code"]
         self.client.logout()
@@ -404,6 +516,16 @@ class TestDevTeamUsage(ClickhouseTestMixin, _DevGatewaySettings):
             token_hash="a" * 64,
             expires_at=timezone.now() + timedelta(hours=1),
         )
+        DevGatewayToken.objects.unscoped().create(
+            team=self.team,
+            user=self.user,
+            client="web",
+            cap_usd=Decimal("25"),
+            token_hash="b" * 64,
+            expires_at=timezone.now() + timedelta(hours=1),
+            revoked_at=timezone.now(),
+            spent_usd=Decimal("2"),
+        )
         self._generation(self.user.distinct_id, "1.5", days_ago=0.1)
         self._generation(self.user.distinct_id, "2", days_ago=3)
         self._generation(self.user.distinct_id, "4", days_ago=10)
@@ -426,9 +548,9 @@ class TestDevTeamUsage(ClickhouseTestMixin, _DevGatewaySettings):
             Decimal("7.5"),
         ]
         assert (mine["tokens_minted_24h"], mine["live_tokens"], Decimal(mine["reserved_usd_24h"])) == (
+            2,
             1,
-            1,
-            Decimal("25"),
+            Decimal("27"),
         )
         assert rows[other.distinct_id]["email"] == "other@posthog.com"
         assert rows[other.distinct_id]["tokens_minted_30d"] == 0

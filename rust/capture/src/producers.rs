@@ -7,6 +7,8 @@
 //! publishes through a slot shares its one producer.
 
 use std::collections::HashMap;
+use std::convert::Infallible;
+use std::fmt;
 use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
@@ -55,10 +57,82 @@ impl FromStr for ProducerName {
     }
 }
 
+/// Env credential: `Debug` prints `***`, no `Display` or `Serialize`; read it only via `expose`.
+#[derive(Clone)]
+pub struct Secret(String);
+
+impl Secret {
+    pub fn expose(&self) -> &str {
+        &self.0
+    }
+}
+
+impl FromStr for Secret {
+    type Err = Infallible;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(Self(s.to_string()))
+    }
+}
+
+impl fmt::Debug for Secret {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let shown = if self.0.is_empty() { "" } else { "***" };
+        write!(f, "{shown:?}")
+    }
+}
+
+/// librdkafka's `_RK_SENSITIVE` keys; keep in sync with nodejs/src/common/kafka/sensitive-keys.ts.
+const SENSITIVE_KEYS: [&str; 13] = [
+    "sasl.username",
+    "sasl.password",
+    "sasl.oauthbearer.config",
+    "sasl.oauthbearer.client.secret",
+    "sasl.oauthbearer.assertion.private.key.file",
+    "sasl.oauthbearer.assertion.private.key.passphrase",
+    "sasl.oauthbearer.assertion.private.key.pem",
+    "ssl.key.location",
+    "ssl.key.password",
+    "ssl.key.pem",
+    "ssl.ca.pem",
+    "ssl.keystore.password",
+    "ssl.certificate.pem",
+];
+
+// Catches sensitive keys a newer librdkafka adds before the list above does.
+fn is_sensitive_key(key: &str) -> bool {
+    SENSITIVE_KEYS.contains(&key)
+        || ["password", "passphrase", "secret"]
+            .iter()
+            .any(|word| key.contains(word))
+        || key.ends_with(".pem")
+}
+
+fn redacted_config_map(client_config: &ClientConfig) -> HashMap<&str, &str> {
+    client_config
+        .config_map()
+        .iter()
+        .map(|(key, value)| {
+            let shown = if is_sensitive_key(key) {
+                "***"
+            } else {
+                value.as_str()
+            };
+            (key.as_str(), shown)
+        })
+        .collect()
+}
+
 /// One producer's connection and tuning. Each field maps to the rdkafka key of
 /// the same name.
 #[derive(Envconfig, Clone, Debug)]
 pub struct ProducerConfig {
+    #[envconfig(default = "")]
+    pub sasl_mechanisms: String,
+    #[envconfig(default = "")]
+    pub sasl_username: Secret,
+    #[envconfig(default = "")]
+    pub sasl_password: Secret,
     // `kafka:9092` is the broker in local dev and hobby. A deployment that
     // forgets to wire the slot fails its liveness check instead of producing
     // somewhere unexpected.
@@ -186,12 +260,14 @@ impl ProducerConfig {
             );
 
         for (key, value) in [
-            ("broker.address.family", &self.broker_address_family),
-            ("client.id", &self.client_id),
-            ("security.protocol", &self.security_protocol),
+            ("broker.address.family", self.broker_address_family.as_str()),
+            ("client.id", self.client_id.as_str()),
+            ("security.protocol", self.security_protocol.as_str()),
+            ("sasl.username", self.sasl_username.expose()),
+            ("sasl.password", self.sasl_password.expose()),
             (
                 "enable.ssl.certificate.verification",
-                &self.enable_ssl_certificate_verification,
+                self.enable_ssl_certificate_verification.as_str(),
             ),
         ] {
             if !value.is_empty() {
@@ -199,6 +275,9 @@ impl ProducerConfig {
             }
         }
 
+        if !self.sasl_mechanisms.is_empty() {
+            client_config.set("sasl.mechanisms", self.sasl_mechanisms.to_ascii_uppercase());
+        }
         client_config
     }
 }
@@ -260,7 +339,10 @@ fn create_producer(
     );
 
     let client_config = config.client_config();
-    debug!("rdkafka configuration: {client_config:?}");
+    debug!(
+        "rdkafka configuration: {:?}",
+        redacted_config_map(&client_config)
+    );
 
     let producer: FutureProducer<KafkaContext> =
         client_config.create_with_context(KafkaContext::new(liveness.clone()))?;
@@ -292,6 +374,35 @@ mod tests {
             .iter()
             .map(|(k, v)| (k.to_string(), v.to_string()))
             .collect()
+    }
+
+    #[test]
+    fn named_producer_forwards_authentication() {
+        let config = ProducerConfig::load(
+            ProducerName::Ingestion,
+            &env(&[
+                ("KAFKA_INGESTION_PRODUCER_SECURITY_PROTOCOL", "sasl_ssl"),
+                ("KAFKA_INGESTION_PRODUCER_SASL_MECHANISMS", "scram-sha-512"),
+                ("KAFKA_INGESTION_PRODUCER_SASL_USERNAME", "00123"),
+                ("KAFKA_INGESTION_PRODUCER_SASL_PASSWORD", "false"),
+            ]),
+        )
+        .unwrap();
+        let client = config.client_config();
+        assert_eq!(client.get("security.protocol"), Some("sasl_ssl"));
+        assert_eq!(client.get("sasl.mechanisms"), Some("SCRAM-SHA-512"));
+        assert_eq!(client.get("sasl.username"), Some("00123"));
+        assert_eq!(client.get("sasl.password"), Some("false"));
+
+        let debug = format!("{config:?}");
+        assert!(debug.contains(r#"sasl_username: "***""#), "{debug}");
+        assert!(debug.contains(r#"sasl_password: "***""#), "{debug}");
+
+        let logged = redacted_config_map(&client);
+        assert_eq!(logged["sasl.username"], "***");
+        assert_eq!(logged["sasl.password"], "***");
+        assert_eq!(logged["sasl.mechanisms"], "SCRAM-SHA-512");
+        assert_eq!(logged["security.protocol"], "sasl_ssl");
     }
 
     #[test]

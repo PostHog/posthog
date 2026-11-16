@@ -17,7 +17,7 @@ from posthog.hogql.database.schema.flag_evaluations import FlagEvaluationsPerson
 from posthog.hogql.database.schema.groups import GroupsTable
 from posthog.hogql.database.schema.persons import PersonsTable, RawPersonsTable
 from posthog.hogql.escape_sql import escape_hogql_identifier
-from posthog.hogql.functions.clickhouse.json import JSON_KEY_PATH_FUNCTIONS, JSON_TYPED_PATH_FUNCTIONS
+from posthog.hogql.functions.clickhouse.json import JSON_FUNCTIONS, JSON_KEY_PATH_FUNCTIONS, JSON_TYPED_PATH_FUNCTIONS
 from posthog.hogql.helpers.timestamp_visitor import parse_zoned_datetime_string
 from posthog.hogql.property_metadata import load_property_metadata
 from posthog.hogql.property_planner import PropertySourceKind, plan_property_access
@@ -147,6 +147,11 @@ _PERSON_PROPERTIES_TABLES = (*EVENTS_TABLE_TYPES, EventsWithFlagCallsTable)
 # to Float, the raw String value has to flow through for the parser to work.
 STRING_INPUT_CONVERSIONS = frozenset({"toFloatOrZero", "toIntOrZero", "toFloatOrDefault", "toIntOrDefault"})
 
+# These functions return one of their arguments unchanged, so the call around them receives the property itself.
+# A property that the outer call needs as its stored string must stay unconverted through them, as in
+# `JSONExtractArrayRaw(properties.items ?? '[]')`.
+NULL_DEFAULT_FUNCTIONS = frozenset({"ifNull", "coalesce"})
+
 
 class PropertySwapper(CloningVisitor):
     _RANGE_OPS: set[str] = {
@@ -264,6 +269,17 @@ class PropertySwapper(CloningVisitor):
             view_name=node.view_name,
         )
 
+    def _visit_json_function_call(self, node: ast.Call) -> ast.Call:
+        # ClickHouse reads the first argument of a JSON function as JSON text and raises ILLEGAL_TYPE_OF_ARGUMENT on
+        # any other type, so a typed property in that position keeps its stored string. The other arguments are keys
+        # and type names, which convert as in any other call.
+        self._suppress_numeric_conversion = True
+        document = self.visit(node.args[0])
+        self._suppress_numeric_conversion = False
+        call = super().visit_call(dataclasses.replace(node, args=node.args[1:]))
+        call.args.insert(0, document)
+        return call
+
     def visit_call(self, node: ast.Call):
         rewritten = self._rewrite_json_property_call(node)
         if rewritten is not None:
@@ -271,13 +287,19 @@ class PropertySwapper(CloningVisitor):
 
         # Track whether the immediate enclosing call parses its argument as a
         # string. Re-evaluated per call, so nested non-parsing calls (e.g.
-        # toFloatOrZero(toString(prop))) correctly reset the flag.
+        # toFloatOrZero(toString(prop))) correctly reset the flag. A null default
+        # passes the property through, so it keeps the flag of the call around it.
         saved_suppress = self._suppress_numeric_conversion
-        self._suppress_numeric_conversion = node.name in STRING_INPUT_CONVERSIONS
+        self._suppress_numeric_conversion = node.name in STRING_INPUT_CONVERSIONS or (
+            saved_suppress and node.name in NULL_DEFAULT_FUNCTIONS
+        )
 
         self._inside_call_depth += 1
         try:
-            result = super().visit_call(node)
+            if node.name in JSON_FUNCTIONS and node.args:
+                result = self._visit_json_function_call(node)
+            else:
+                result = super().visit_call(node)
         finally:
             self._inside_call_depth -= 1
             self._suppress_numeric_conversion = saved_suppress
