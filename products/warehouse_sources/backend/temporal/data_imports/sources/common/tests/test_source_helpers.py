@@ -63,7 +63,7 @@ def _suppressed(context: BaseException) -> ValueError:
         (_wrapped(requests.ConnectionError("refused")), True),
         (_implicitly_wrapped(requests.ConnectionError("refused")), True),
         (
-            botocore.exceptions.SSLError(endpoint_url="https://example.com", error="handshake failure"),
+            botocore.exceptions.SSLError(endpoint_url="https://example.com", error=Exception("handshake failure")),
             True,
         ),
         (botocore.exceptions.EndpointConnectionError(endpoint_url="https://example.com"), True),
