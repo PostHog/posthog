@@ -626,6 +626,32 @@ async fn uses_client_fingerprint_override(db: PgPool) {
 }
 
 #[sqlx::test(migrations = "./tests/test_migrations")]
+async fn replaces_null_bytes_in_client_issue_fields(db: PgPool) {
+    let harness = TestHarness::new(db);
+    let mut input = make_event_with_options(
+        vec![make_exception("TypeError", "cannot read property")],
+        Some("custom\u{0000}fingerprint"),
+        None,
+    );
+    input.properties["$issue_name"] = json!("Custom\u{0000}name");
+    input.properties["$issue_description"] = json!("Custom\u{0000}description");
+
+    let (status, body): (_, SuccessResponse) = harness.post_event(&input).await;
+
+    assert!(status.is_success());
+    let event = body.take_properties();
+    assert_eq!(event.fingerprint(), "custom\u{FFFD}fingerprint");
+    let (name, description): (Option<String>, Option<String>) =
+        sqlx::query_as("SELECT name, description FROM posthog_errortrackingissue WHERE id = $1")
+            .bind(event.issue_id())
+            .fetch_one(&harness.db)
+            .await
+            .unwrap();
+    assert_eq!(name.as_deref(), Some("Custom\u{FFFD}name"));
+    assert_eq!(description.as_deref(), Some("Custom\u{FFFD}description"));
+}
+
+#[sqlx::test(migrations = "./tests/test_migrations")]
 async fn same_fingerprint_returns_same_issue(db: PgPool) {
     let harness = TestHarness::new(db);
     let input = make_event(vec![make_exception_with_stack(
