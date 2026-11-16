@@ -86,7 +86,6 @@ export function trainingScheduleStatus(
     return `Next research run on ${next.format('MMM D')}.`
 }
 
-/** A plain sentence for why the best model failed the check before going live. */
 export function notPromotedReasonSentence(reason: string): string {
     if (/model\.pkl\b.*\bbytes\b/i.test(reason)) {
         return 'The model file was too large to run every day.'

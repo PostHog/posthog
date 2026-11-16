@@ -5,7 +5,6 @@ import { AutoresearchPipelineApi } from './generated/api.schemas'
 
 export type ModelCardState = 'draft' | 'training' | 'not_live' | 'waiting_to_train' | 'awaiting_check' | 'confirmed'
 
-/** Whether the model has a live version that scores people. */
 export function hasLiveModel({
     champion_holdout_auc,
     champion_realized_auc,

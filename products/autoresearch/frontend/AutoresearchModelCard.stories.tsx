@@ -102,7 +102,6 @@ export const Training: Story = {
     },
 }
 
-// The first run's best model failed the check before going live, so the model has no live version.
 export const NotLiveYet: Story = {
     args: {
         pipeline: {
