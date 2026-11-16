@@ -18,7 +18,6 @@ const LOGICS = [
     emailDomainLogic,
 ]
 
-/** Binds every logic of the sending domain page to one integration id and origin, so the steps below can use them without props. */
 export function BindEmailDomainLogics({
     id,
     origin,

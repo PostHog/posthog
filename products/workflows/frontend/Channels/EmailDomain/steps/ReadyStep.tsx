@@ -15,7 +15,6 @@ import { EmailDomainSetupOrigin } from '../emailDomainSetupOrigin'
 import { emailDomainStatusLogic } from '../emailDomainStatusLogic'
 import { HedgehogRocket } from '../hoggies'
 
-/** What a verified domain leads to, by where the setup started. */
 const NEXT_STEP: Record<EmailDomainSetupOrigin, () => JSX.Element> = {
     workflows: NextWorkflowCard,
     transactional: SendFromCodeNextCard,

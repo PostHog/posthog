@@ -3,7 +3,6 @@ import { urls } from 'scenes/urls'
 
 import { Breadcrumb } from '~/types'
 
-/** The part of the product that sent a person to the sending domain setup, and where the setup returns them. */
 export type EmailDomainSetupOrigin = 'workflows' | 'transactional'
 
 export interface EmailDomainSetupOriginConfig {
@@ -11,7 +10,6 @@ export interface EmailDomainSetupOriginConfig {
     backUrl: string
     // pinned: data-attr, autocapture and Playwright select the back link by it
     backDataAttr: string
-    /** The breadcrumbs above the sending domain's own. */
     breadcrumbs: Breadcrumb[]
 }
 
@@ -43,7 +41,6 @@ export const EMAIL_DOMAIN_SETUP_ORIGINS: Record<EmailDomainSetupOrigin, EmailDom
 const isOrigin = (value: unknown): value is EmailDomainSetupOrigin =>
     typeof value === 'string' && Object.hasOwn(EMAIL_DOMAIN_SETUP_ORIGINS, value)
 
-/** A missing, stale or mistyped origin falls back to the default, so an old link still opens the setup. */
 export const originFromSearchParams = (searchParams: Record<string, unknown>): EmailDomainSetupOrigin => {
     const value = searchParams[EMAIL_DOMAIN_SETUP_ORIGIN_PARAM]
     return isOrigin(value) ? value : DEFAULT_EMAIL_DOMAIN_SETUP_ORIGIN
