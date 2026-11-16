@@ -159,6 +159,10 @@ export function suiteRunSummary(suiteRun: DataQualitySuiteRunApi): string {
         .join(', ')
 }
 
+export function suiteRunToastId(suiteRun: DataQualitySuiteRunApi): string {
+    return `data-quality-suite-run-${suiteRun.id}`
+}
+
 export function suiteRunToastMessage(suiteRun: DataQualitySuiteRunApi): string {
     const problemCount = suiteRun.checks_failed + suiteRun.checks_errored
     if (problemCount > 0) {

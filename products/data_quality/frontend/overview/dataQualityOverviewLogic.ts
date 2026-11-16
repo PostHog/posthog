@@ -25,6 +25,7 @@ import {
     isTerminalSuiteRun,
     suiteRunOutcome,
     suiteRunPollListeners,
+    suiteRunToastId,
     suiteRunToastMessage,
 } from 'products/data_quality/frontend/suiteRuns'
 
@@ -766,6 +767,7 @@ export const dataQualityOverviewLogic = kea<dataQualityOverviewLogicType>([
                     return
                 }
                 lemonToast.warning(message, {
+                    toastId: suiteRunToastId(suiteRun),
                     autoClose: false,
                     button: {
                         label: 'Show failing',

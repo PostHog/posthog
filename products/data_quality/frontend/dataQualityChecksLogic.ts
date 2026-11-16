@@ -1,4 +1,4 @@
-import { MakeLogicType, actions, afterMount, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
@@ -15,7 +15,14 @@ import type {
 } from './generated/api.schemas'
 import type { DataQualityOverviewCheckApi } from './generated/api.schemas'
 import { openFailingRowsInSqlEditor } from './openFailingRows'
-import { isTerminalSuiteRun, suiteRunOutcome, suiteRunPollListeners, suiteRunToastMessage } from './suiteRuns'
+import { suiteRunResultsLogic } from './suiteRunResultsLogic'
+import {
+    isTerminalSuiteRun,
+    suiteRunOutcome,
+    suiteRunPollListeners,
+    suiteRunToastId,
+    suiteRunToastMessage,
+} from './suiteRuns'
 
 const CHECKS_LIMIT = 100
 const SUITE_RUNS_LIMIT = 20
@@ -242,6 +249,9 @@ export const dataQualityChecksLogic = kea<dataQualityChecksLogicType>([
     props({} as DataQualityChecksLogicProps),
     key((props: DataQualityChecksLogicProps) => `${props.subjectType}:${props.subjectId}`),
     path((key) => ['products', 'data_quality', 'frontend', 'dataQualityChecksLogic', key]),
+    connect(() => ({
+        logic: [suiteRunResultsLogic],
+    })),
     actions({
         upsertCheck: (check: DataQualityCheckApi) => ({ check }),
         removeCheck: (checkId: string) => ({ checkId }),
@@ -575,6 +585,7 @@ export const dataQualityChecksLogic = kea<dataQualityChecksLogicType>([
                     return
                 }
                 lemonToast.warning(message, {
+                    toastId: suiteRunToastId(suiteRun),
                     autoClose: false,
                     button: {
                         label: 'View results',
@@ -584,6 +595,7 @@ export const dataQualityChecksLogic = kea<dataQualityChecksLogicType>([
                 })
             },
             showSuiteRunResults: ({ suiteRunId }) => {
+                suiteRunResultsLogic.actions.revealSubjectResults(subjectRef(props))
                 if (!values.suiteRunCheckRunsBySuiteRunId[suiteRunId]) {
                     actions.loadSuiteRunCheckRuns(suiteRunId)
                 }
