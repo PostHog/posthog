@@ -1,6 +1,7 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 
-import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
+import { LemonButton } from '@posthog/lemon-ui'
+
 import { AuthCardTitle } from 'scenes/authentication/shared/authScene/AuthCardTitle'
 import { AUTH_NOTES } from 'scenes/authentication/shared/authScene/authNotes'
 import { AuthScene, AuthSceneCard } from 'scenes/authentication/shared/authScene/AuthScene'
@@ -15,19 +16,36 @@ export const scene: SceneExport = {
 
 export function Unsubscribe(): JSX.Element {
     const { unsubscriptionLoading, unsubscription } = useValues(unsubscribeLogic)
+    const { attemptUnsubscribe } = useActions(unsubscribeLogic)
     const notes = unsubscriptionLoading
         ? AUTH_NOTES.unsubscribe.loading
-        : unsubscription
-          ? AUTH_NOTES.unsubscribe.done
-          : AUTH_NOTES.unsubscribe.failed
+        : unsubscription === null
+          ? AUTH_NOTES.unsubscribe.confirm
+          : unsubscription
+            ? AUTH_NOTES.unsubscribe.done
+            : AUTH_NOTES.unsubscribe.failed
 
     return (
         <AuthScene notes={notes}>
             <AuthSceneCard>
-                {unsubscriptionLoading ? (
-                    <div className="flex justify-center">
-                        <Spinner className="text-2xl" />
-                    </div>
+                {unsubscription === null ? (
+                    <>
+                        <AuthCardTitle
+                            title="Unsubscribe from this report?"
+                            sub="You will stop receiving this subscription by email."
+                        />
+                        <LemonButton
+                            type="primary"
+                            data-attr="unsubscribe-confirm"
+                            fullWidth
+                            center
+                            size="large"
+                            onClick={attemptUnsubscribe}
+                            loading={unsubscriptionLoading}
+                        >
+                            Unsubscribe
+                        </LemonButton>
+                    </>
                 ) : unsubscription ? (
                     <AuthCardTitle
                         className="mb-0"

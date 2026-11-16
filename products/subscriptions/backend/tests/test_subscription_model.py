@@ -9,6 +9,7 @@ from unittest.mock import patch
 
 from django.conf import settings
 from django.db import IntegrityError, transaction
+from django.test import Client
 from django.utils import timezone
 
 import jwt
@@ -389,6 +390,20 @@ class TestSubscription(BaseTest):
         token = get_unsubscribe_token(subscription, "test2@posthog.com")
         subscription = unsubscribe_using_token(token)
         assert subscription.deleted
+
+    def test_unsubscribe_endpoint_only_unsubscribes_on_post_without_csrf(self):
+        subscription = self._create_insight_subscription(target_value="test1@posthog.com,test2@posthog.com")
+        token = get_unsubscribe_token(subscription, "test2@posthog.com")
+        client = Client(enforce_csrf_checks=True)
+
+        assert client.get(f"/api/unsubscribe?token={token}").status_code == 405
+        subscription.refresh_from_db()
+        assert subscription.target_value == "test1@posthog.com,test2@posthog.com"
+
+        response = client.post(f"/api/unsubscribe?token={token}", {"List-Unsubscribe": "One-Click"})
+        assert response.json() == {"success": True}
+        subscription.refresh_from_db()
+        assert subscription.target_value == "test1@posthog.com"
 
     def test_complex_rrule_configuration(self):
         # Equivalent to last monday and wednesday of every other month

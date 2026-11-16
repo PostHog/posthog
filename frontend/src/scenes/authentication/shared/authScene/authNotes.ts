@@ -85,6 +85,7 @@ export const AUTH_NOTES = {
         default: ['almost there', 'name your organization'],
     },
     unsubscribe: {
+        confirm: ['unsubscribe', 'one click to confirm'],
         loading: ['one moment', 'tidying your inbox'],
         done: ['inbox zero', 'one email lighter'],
         failed: ['hmm', "that link didn't work"],
