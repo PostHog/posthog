@@ -43,7 +43,7 @@ const jobLatenessHistogram = new Histogram({
     buckets: [0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30, 60, 120, 180, 300, 900],
 })
 
-type PickupOutcome = 'processed' | 'rate_limited'
+type PickupOutcome = 'processed' | 'parked'
 
 type Pickup = { queue: string; wait: 'deferred' | 'scheduled'; priority: string; latenessSeconds: number }
 
@@ -221,7 +221,7 @@ export class CyclotronJobQueuePostgresV2 implements IdempotentJobQueue {
         return !invocation.queueLockId || job?.lockId === invocation.queueLockId ? job : undefined
     }
 
-    private forgetPendingJob(job: CyclotronV2DequeuedJob, outcome: PickupOutcome = 'processed'): void {
+    private forgetPendingJob(job: CyclotronV2DequeuedJob, outcome: PickupOutcome): void {
         if (this.pendingJobs.get(job.id) === job) {
             this.pendingJobs.delete(job.id)
         }
@@ -355,7 +355,7 @@ export class CyclotronJobQueuePostgresV2 implements IdempotentJobQueue {
                 try {
                     await this.resultWrites.schedule(this.writeResult(job, result))
                 } finally {
-                    this.forgetPendingJob(job, result.parkedByRateLimit ? 'rate_limited' : 'processed')
+                    this.forgetPendingJob(job, result.parked ? 'parked' : 'processed')
                 }
             })
         )
@@ -383,7 +383,7 @@ export class CyclotronJobQueuePostgresV2 implements IdempotentJobQueue {
                     try {
                         await this.resultWrites.schedule(job.fail())
                     } finally {
-                        this.forgetPendingJob(job)
+                        this.forgetPendingJob(job, 'processed')
                     }
                 }
             })
@@ -398,7 +398,7 @@ export class CyclotronJobQueuePostgresV2 implements IdempotentJobQueue {
                     try {
                         await this.resultWrites.schedule(job.ack())
                     } finally {
-                        this.forgetPendingJob(job)
+                        this.forgetPendingJob(job, 'processed')
                     }
                 }
             })
@@ -417,7 +417,7 @@ export class CyclotronJobQueuePostgresV2 implements IdempotentJobQueue {
                             job.defer({ scheduledAt, state: encodeStateColumns(invocation).state })
                         )
                     } finally {
-                        this.forgetPendingJob(job)
+                        this.forgetPendingJob(job, 'parked')
                     }
                 }
             })
