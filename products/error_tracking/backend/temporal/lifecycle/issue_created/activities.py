@@ -91,6 +91,11 @@ ERROR_TRACKING_ISSUE_TAGGER_OUTCOMES = Counter(
     "Issue-created tagger runs by tagger and outcome. Runs skipped before any tagger starts have tagger none",
     labelnames=("tagger", "outcome"),
 )
+ERROR_TRACKING_MERGE_TARGET_TAGGER_OUTCOMES = Counter(
+    "error_tracking_issue_created_merge_target_tagger_total",
+    "Rule runs on the issue that a new exception merged into at creation, by outcome",
+    labelnames=("outcome",),
+)
 ERROR_TRACKING_EMBEDDING_UNAVAILABLE = Counter(
     "error_tracking_issue_created_embedding_unavailable_total",
     "Issue-created embedding attempts that failed because the embedding service was unavailable",
@@ -368,6 +373,34 @@ def _tag_issue_created(inputs: IssueCreatedWorkflowInputs) -> None:
             raise run.error
 
 
+@activity.defn
+@posthoganalytics.scoped(capture_exceptions=False)
+@close_db_connections
+def tag_issue_created_merge_target_activity(inputs: IssueCreatedWorkflowInputs) -> None:
+    # A rule run makes no model call, so this activity takes no tag worker slot.
+    # The runner imports the lifecycle rendering module, whose package imports this module.
+    from products.error_tracking.backend.logic.issue_tags.runner import (  # noqa: PLC0415
+        IssueTaggingSkipReason,
+        run_rule_tagger_on_merge_target,
+    )
+
+    try:
+        result = run_rule_tagger_on_merge_target(
+            inputs.team_id, inputs.fingerprint, lambda team: fetch_event_properties(team, inputs)
+        )
+    except IssueCreatedEventNotFoundError:
+        ERROR_TRACKING_MERGE_TARGET_TAGGER_OUTCOMES.labels(outcome=IssueTaggerOutcome.EVENT_MISSING).inc()
+        return
+    if isinstance(result, IssueTaggingSkipReason):
+        ERROR_TRACKING_MERGE_TARGET_TAGGER_OUTCOMES.labels(outcome=result).inc()
+        return
+    for run in result:
+        if run.error is not None:
+            ERROR_TRACKING_MERGE_TARGET_TAGGER_OUTCOMES.labels(outcome=IssueTaggerOutcome.FAILED).inc()
+            raise run.error
+        ERROR_TRACKING_MERGE_TARGET_TAGGER_OUTCOMES.labels(outcome=IssueTaggerOutcome.ANSWERED).inc()
+
+
 def _generate_issue_created_summary(inputs: IssueCreatedWorkflowInputs) -> "IssueSummaryOutcome":
     # issue_summaries imports the lifecycle rendering module, whose package imports this module.
     from products.error_tracking.backend.logic.issue_summaries import (  # noqa: PLC0415
@@ -490,6 +523,7 @@ ACTIVITIES = [
     merge_issue_created_fingerprint_activity,
     infer_issue_created_severity_activity,
     tag_issue_created_activity,
+    tag_issue_created_merge_target_activity,
     emit_issue_created_internal_event_activity,
     emit_issue_created_signal_activity,
     generate_issue_created_summary_activity,
