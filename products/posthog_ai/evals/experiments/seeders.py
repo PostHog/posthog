@@ -615,7 +615,7 @@ def seed_newcomer_project(context: CustomPromptSandboxContext) -> dict[str, Any]
     Persons go to the persons database as well as ClickHouse, because personhog serves exact person lookups
     from it.
     """
-    from posthog.models import Team
+    from posthog.models import Team, User
     from posthog.models.event.util import bulk_create_events
     from posthog.models.person.util import create_person, create_person_distinct_id
     from posthog.persons_db import persons_db_connection
@@ -623,6 +623,7 @@ def seed_newcomer_project(context: CustomPromptSandboxContext) -> dict[str, Any]
 
     from products.demo.backend.facade.api import infer_taxonomy_for_team
     from products.experiments.backend.models.experiment import Experiment
+    from products.feature_flags.backend.facade.api import create_flag
     from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
     team_id = context.team_id
@@ -682,23 +683,25 @@ def seed_newcomer_project(context: CustomPromptSandboxContext) -> dict[str, Any]
     infer_taxonomy_for_team(team_id)
 
     aa_started_at = now - timedelta(days=NEWCOMER_AA_TEST_AGE_DAYS)
-    flag = FeatureFlag.objects.create(
-        team_id=team_id,
-        created_by_id=user_id,
-        key=AA_TEST_FLAG_KEY,
-        name=f"{AA_TEST_EXPERIMENT_NAME} flag",
-        filters={
-            "groups": [{"properties": [], "rollout_percentage": 100}],
-            "multivariate": {
-                "variants": [
-                    {"key": "control", "name": "Control", "rollout_percentage": 50},
-                    {"key": "test", "name": "Test", "rollout_percentage": 50},
-                ]
+    flag = create_flag(
+        {
+            "key": AA_TEST_FLAG_KEY,
+            "name": f"{AA_TEST_EXPERIMENT_NAME} flag",
+            "filters": {
+                "groups": [{"properties": [], "rollout_percentage": 100}],
+                "multivariate": {
+                    "variants": [
+                        {"key": "control", "name": "Control", "rollout_percentage": 50},
+                        {"key": "test", "name": "Test", "rollout_percentage": 50},
+                    ]
+                },
             },
+            "active": True,
         },
-        active=True,
-        created_at=aa_started_at - timedelta(days=1),
+        team=team,
+        user=User.objects.get(id=user_id),
     )
+    FeatureFlag.objects.filter(id=flag.id).update(created_at=aa_started_at - timedelta(days=1))
     metric_uuid = str(uuid.uuid4())
     experiment = Experiment.objects.create(
         team_id=team_id,
