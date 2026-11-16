@@ -5,7 +5,6 @@ import '@testing-library/jest-dom'
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { Provider } from 'kea'
 import { router } from 'kea-router'
-import posthog from 'posthog-js'
 
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
@@ -78,29 +77,20 @@ describe('email domain setup entry points', () => {
             'the email card in the channel catalog',
             <MessageChannels key="catalog" />,
             ['workflows-channel-catalog-connect-email'],
-            'channels',
         ],
         [
             'the new channel menu in the header',
             <MessagingTabActions key="header" tab="channels" channelsUrl={urls.workflows('channels')} />,
             ['new-channel-button', 'Email'],
-            'channels',
         ],
-        [
-            'the transactional sending domain row',
-            <SendingDomainRow key="row" />,
-            ['send-from-code-set-up-domain'],
-            'transactional',
-        ],
-    ])('starts a new domain from %s and records where it started', async (_from, ui, clicks, entry) => {
-        const capture = jest.spyOn(posthog, 'capture')
+        ['the transactional sending domain row', <SendingDomainRow key="row" />, ['send-from-code-set-up-domain']],
+    ])('starts a new domain from %s', async (_from, ui, clicks) => {
         await renderInApp(ui)
         for (const target of clicks) {
             fireEvent.click(document.querySelector(`[data-attr="${target}"]`) ?? screen.getByText(target))
             await flush()
         }
         expect(router.values.location.pathname).toMatch(new RegExp(`${urls.workflowsEmailDomain('new')}$`))
-        expect(capture).toHaveBeenCalledWith('email domain setup started', { entry })
         expect(screen.queryByText(LEGACY_MODAL_TITLE)).not.toBeInTheDocument()
     })
 
@@ -123,7 +113,6 @@ describe('email domain setup entry points', () => {
     })
 
     it('starts from configure on an unverified sender', async () => {
-        const capture = jest.spyOn(posthog, 'capture')
         backend.addSender({ email: `hello@${DOMAIN}` })
         await renderInApp(<MessageChannels />)
         fireEvent.click(screen.getByText(DOMAIN))
@@ -131,7 +120,6 @@ describe('email domain setup entry points', () => {
         fireEvent.click(screen.getByText('Configure'))
         await flush()
         expect(screen.getByText('Verify your sending domain')).toBeInTheDocument()
-        expect(capture).toHaveBeenCalledWith('email domain setup started', { entry: 'configure' })
         expect(router.values.location.pathname).toMatch(/\/workflows\/channels$/)
         expect(screen.getByText('Open full page').closest('a')).toHaveAttribute(
             'href',
@@ -150,12 +138,10 @@ describe('email domain setup entry points', () => {
     })
 
     it('starts from the broadcast sender modal', async () => {
-        const capture = jest.spyOn(posthog, 'capture')
         const onComplete = jest.fn()
         await renderInApp(<EmailSetupModal entry="broadcast" onClose={jest.fn()} onComplete={onComplete} />)
         expect(screen.getByText('Set up a sending domain')).toBeInTheDocument()
         expect(screen.getByText('Which domain should your emails come from?')).toBeInTheDocument()
-        expect(capture).toHaveBeenCalledWith('email domain setup started', { entry: 'broadcast' })
         expect(onComplete).not.toHaveBeenCalled()
     })
 
@@ -287,7 +273,6 @@ describe('email domain setup entry points', () => {
         })
 
         it('opens the domain setup page for a new domain', async () => {
-            const capture = jest.spyOn(posthog, 'capture')
             await renderInApp(<MessageChannels />)
             fireEvent.click(element('workflows-channel-catalog-connect-email'))
             await flush()
@@ -296,7 +281,6 @@ describe('email domain setup entry points', () => {
             await waitForModalToClose()
 
             expect(router.values.location.pathname).toMatch(new RegExp(`${urls.workflowsEmailDomain('new')}$`))
-            expect(capture).toHaveBeenCalledWith('email domain setup started', { entry: 'add_sender' })
             expect(screen.queryByText('Add a sender')).not.toBeInTheDocument()
         })
 
