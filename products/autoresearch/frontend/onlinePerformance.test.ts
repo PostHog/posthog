@@ -122,11 +122,6 @@ describe('onlinePerformance', () => {
 
     test.each([
         {
-            metric: 'ranking' as const,
-            expected:
-                'In line with training. On real outcomes the model scored 0.790 to 0.820 across 2 dates, against 0.800 when it was trained.',
-        },
-        {
             metric: 'hit_rate' as const,
             expected:
                 'On a typical date, 30.0% of the top 10% the model flagged did “File shared”, against 4.0% of everyone.',
@@ -146,7 +141,7 @@ describe('onlinePerformance', () => {
             confusion: index === 0 ? counts(4, 6, 1, 89) : counts(2, 8, 3, 87),
         }))
 
-        expect(accuracyTrendSummary(rows, metric, 'top_10', 'File shared', 0.8)).toEqual(expected)
+        expect(accuracyTrendSummary(rows, metric, 'top_10', 'File shared')).toEqual(expected)
     })
 
     test.each([

@@ -136,6 +136,13 @@ const runs = [
             },
         },
     },
+    ...['2026-02-11', '2026-02-12', '2026-02-13', '2026-02-14'].map((prediction_date, index) => ({
+        id: `validate-${index + 2}`,
+        run_type: 'validation',
+        status: 'completed',
+        created_at: '2026-02-21T03:00:00Z',
+        metrics: { prediction_date, per_model: { [champion.id]: { emitted_role: 'champion' } } },
+    })),
 ] as unknown as AutoresearchRunApi[]
 
 const challenger = {
