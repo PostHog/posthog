@@ -373,6 +373,7 @@ def _review_card(call_types: list[CallTypeRow]) -> ReviewCard:
                 }
             ],
             1400,
+            71.43,
         ),
         (
             "span_name",
@@ -382,14 +383,21 @@ def _review_card(call_types: list[CallTypeRow]) -> ReviewCard:
                 {"key": "$ai_prompt_name", "value": ["is_not_set"], "operator": "is_not_set", "type": "event"},
             ],
             700,
+            100.0,
         ),
         # No one property names both, so the judge runs on every generation and the prompt's N/A covers the rest.
-        ("mixed_properties", [_call_type("prompt_name", "support-reply"), _call_type("span_name", "answer")], [], 5000),
-        ("named_by_input", [_call_type("input", "1234567")], [], 5000),
+        (
+            "mixed_properties",
+            [_call_type("prompt_name", "support-reply"), _call_type("span_name", "answer")],
+            [],
+            5000,
+            20.0,
+        ),
+        ("named_by_input", [_call_type("input", "1234567")], [], 5000, 20.0),
     ]
 )
 def test_a_reviewed_judge_runs_on_the_generations_of_its_call_types(
-    _name: str, call_types: list[CallTypeRow], filters: list[dict], weekly_units: int
+    _name: str, call_types: list[CallTypeRow], filters: list[dict], weekly_units: int, rollout: float
 ) -> None:
     card = _review_card(call_types)
 
@@ -409,6 +417,11 @@ def test_a_reviewed_judge_runs_on_the_generations_of_its_call_types(
     assert proposal.filters == filters
     assert not any(isinstance(property_to_expr(f, team=MagicMock()), ast.Constant) for f in proposal.filters)
     assert proposal.estimated_weekly_runs == min(weekly_units, ranking.WEEKLY_JUDGE_RUNS)
+    assert proposal.rollout_percentage == rollout
+    busier = replace(PROFILE, generations=100 * PROFILE.generations)
+    assert ranking.review_proposal(card, busier, judge_model="gpt-5-mini", calibration=calibration).score == (
+        proposal.score
+    )
     assert proposal.draft["evaluation_config"] == {"prompt": card.judge_prompt}
     assert (proposal.draft["target"], proposal.draft["output_config"]) == ("generation", {"allows_na": True})
     assert (proposal.template_key, proposal.measured_failure_rate, proposal.sample_size) == ("review", 0.2, 20)

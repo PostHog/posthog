@@ -63,6 +63,9 @@ MEDIA_TYPES = frozenset(
 )
 REASONING_TYPES = frozenset({"thinking", "redacted_thinking", "reasoning"})
 TEXT_TYPES = frozenset({"text", "input_text", "output_text"})
+# Keys that carry a message's text. A dict without a role that holds any other key is an application's structured
+# output, such as {"status": "failed", "content": "..."}, and reads as JSON so none of its fields drop.
+MESSAGE_KEYS = frozenset({"content", "text", "parts", "tool_calls", "refusal", "audio"})
 # A `<` that starts one of the rendering's own tags. Sampled text gets each one escaped, so a call cannot close its
 # tag and pose as the reviewer's instructions or as another call.
 _TAG_START = re.compile(r"<(?=\s*/?\s*(?:call|system_prompt))", re.IGNORECASE)
@@ -298,8 +301,9 @@ def _compact(value: Any) -> str:
 def _content_text(value: Any, *, with_tools: bool = True) -> str:
     """Readable text of a message, a list of them or one content block, with tool calls as short markers.
 
-    Reads OpenAI chat messages and tool calls, Anthropic content blocks, and AI SDK and OTel `parts`, whose text
-    parts carry `text` or `content`. A dict in none of these shapes is a structured output and reads as JSON.
+    Reads OpenAI chat messages with their tool calls, refusals and audio transcripts, Anthropic content blocks, and
+    AI SDK and OTel `parts`, whose text parts carry `text` or `content`. A dict in none of these shapes is a
+    structured output and reads as JSON.
     """
     if value is None:
         return ""
@@ -331,9 +335,12 @@ def _content_text(value: Any, *, with_tools: bool = True) -> str:
         return _content_text(value["choices"], with_tools=with_tools)
     if kind in TEXT_TYPES:
         return _compact(value.get("text") or value.get("content") or "")
-    if not any(key in value for key in ("content", "parts", "tool_calls", "role", "text")):
+    if "role" not in value and not (value.keys() & MESSAGE_KEYS and value.keys() <= MESSAGE_KEYS):
         return json.dumps(value, default=str)
-    body = [_content_text(value.get(key), with_tools=with_tools) for key in ("content", "text", "parts", "tool_calls")]
+    audio = value.get("audio")
+    transcript = audio.get("transcript") if isinstance(audio, dict) else None
+    parts = (value.get(key) for key in ("content", "text", "parts", "refusal"))
+    body = [_content_text(part, with_tools=with_tools) for part in (*parts, transcript, value.get("tool_calls"))]
     text = "\n".join(part for part in body if part)
     role = value.get("role")
     return f"{role}: {text}" if isinstance(role, str) and role and text else text
@@ -624,7 +631,8 @@ def build_client(team_id: int, run_id: str) -> Anthropic:
 def _retryable(error: APIError) -> bool:
     if isinstance(error, APIConnectionError | RateLimitError | InternalServerError):
         return True
-    return isinstance(error, APIStatusError) and error.status_code == 408
+    # The SDK raises an overloaded 529 as its own class, which is not an InternalServerError.
+    return isinstance(error, APIStatusError) and error.status_code in (408, 529)
 
 
 def call(client: Anthropic, request: ModelRequest) -> ModelCall:
