@@ -12,19 +12,27 @@ import {
     toolbarEntitlementsLogic,
     toolbarFeatureGateStatus,
 } from '~/toolbar/shared/toolbarEntitlementsLogic'
-import { toolbarLogger } from '~/toolbar/shared/toolbarLogger'
 import { toolbarPosthogJS } from '~/toolbar/shared/toolbarPosthogJS'
 import { AvailableFeature } from '~/types'
+
+// The team and project ids differ so that a request built from the wrong one misses the mock.
+const TEAM_ID = 2
+const PROJECT_ID = 1
+const ENTITLEMENTS_URL = `/api/projects/${TEAM_ID}/toolbar/entitlements/`
 
 describe('toolbarEntitlementsLogic', () => {
     let logic: ReturnType<typeof toolbarEntitlementsLogic.build>
 
-    beforeEach(() => {
+    beforeEach(async () => {
         initKeaTests()
         toolbarPosthogJS.stopSessionRecording = jest.fn()
-        toolbarConfigLogic.build({ apiURL: 'http://localhost' }).mount()
+        useMocks({ get: { [ENTITLEMENTS_URL]: () => ({ entitlements: {} }) } })
+        toolbarConfigLogic
+            .build({ apiURL: 'http://localhost', accessToken: 'test-token', teamId: TEAM_ID, projectId: PROJECT_ID })
+            .mount()
         logic = toolbarEntitlementsLogic()
         logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadEntitlementsSuccess'])
     })
 
     it.each([
@@ -55,10 +63,14 @@ describe('toolbarEntitlementsLogic', () => {
         ).toBe(expected)
     })
 
-    it('loads the entitlement map from the endpoint', async () => {
+    it("loads the entitlement map for the session's team with the session's token", async () => {
+        const requests: { teamId: unknown; authorization: string | null }[] = []
         useMocks({
             get: {
-                '/api/user/toolbar_entitlements': () => ({ entitlements: { toolbar_heatmaps: false } }),
+                '/api/projects/:team_id/toolbar/entitlements/': ({ request, params }) => {
+                    requests.push({ teamId: params.team_id, authorization: request.headers.get('Authorization') })
+                    return { entitlements: { toolbar_heatmaps: true } }
+                },
             },
         })
 
@@ -66,19 +78,14 @@ describe('toolbarEntitlementsLogic', () => {
             logic.actions.loadEntitlements()
         })
             .toDispatchActions(['loadEntitlementsSuccess'])
-            .toMatchValues({ entitlements: { toolbar_heatmaps: false } })
+            .toMatchValues({ entitlements: { toolbar_heatmaps: true } })
 
-        expect(logic.values.isEntitled(AvailableFeature.TOOLBAR_HEATMAPS)).toBe(false)
+        expect(requests).toEqual([{ teamId: String(TEAM_ID), authorization: 'Bearer test-token' }])
     })
 
     it.each([403, 500])('denies access and reports the failure when the endpoint returns %s', async (status) => {
         const capture = jest.spyOn(toolbarPosthogJS, 'capture')
-        const warn = jest.spyOn(toolbarLogger, 'warn')
-        useMocks({
-            get: {
-                '/api/user/toolbar_entitlements': () => [status, {}],
-            },
-        })
+        useMocks({ get: { [ENTITLEMENTS_URL]: () => [status, {}] } })
 
         await expectLogic(logic, () => {
             logic.actions.loadEntitlements()
@@ -89,15 +96,15 @@ describe('toolbarEntitlementsLogic', () => {
         expect(logic.values.isEntitled(AvailableFeature.TOOLBAR_HEATMAPS)).toBe(false)
         expect(capture).toHaveBeenCalledWith(
             'toolbar api request',
-            expect.objectContaining({ pathname: '/api/user/toolbar_entitlements', status })
+            expect.objectContaining({ pathname: ENTITLEMENTS_URL, status })
         )
-        expect(warn).toHaveBeenCalledWith('entitlements', expect.any(String), expect.objectContaining({ status }))
         jest.restoreAllMocks()
     })
 
     it('gives up on a stalled request so the retry becomes reachable', async () => {
+        const capture = jest.spyOn(toolbarPosthogJS, 'capture')
         jest.useFakeTimers()
-        useMocks({ get: { '/api/user/toolbar_entitlements': () => new Promise(() => {}) } })
+        useMocks({ get: { [ENTITLEMENTS_URL]: () => new Promise(() => {}) } })
 
         logic.actions.loadEntitlements()
         expect(logic.values.entitlementsLoading).toBe(true)
@@ -110,6 +117,11 @@ describe('toolbarEntitlementsLogic', () => {
 
         expect(logic.values.entitlementsLoading).toBe(false)
         expect(logic.values.entitlements).toBe(null)
+        expect(capture).toHaveBeenCalledWith(
+            'toolbar api request',
+            expect.objectContaining({ pathname: ENTITLEMENTS_URL, status: 0 })
+        )
+        jest.restoreAllMocks()
     })
 
     it('keeps an open heatmap disabled until access is confirmed and disables it after access is lost', async () => {
@@ -121,7 +133,7 @@ describe('toolbarEntitlementsLogic', () => {
         const response = new Promise((resolve) => {
             finishRequest = resolve
         })
-        useMocks({ get: { '/api/user/toolbar_entitlements': () => response } })
+        useMocks({ get: { [ENTITLEMENTS_URL]: () => response } })
 
         logic.actions.loadEntitlements()
         toolbar.actions.setVisibleMenu('heatmap')

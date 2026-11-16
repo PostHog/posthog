@@ -4,6 +4,7 @@ import type { PaginatedResponse } from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import type { ToolbarRouteScope } from 'lib/toolbar/toolbarProject'
 
+import type { ToolbarEntitlementsApi } from '~/generated/core/api.schemas'
 import { toolbarConfigLogic } from '~/toolbar/shared/toolbarConfigLogic'
 import { toolbarApiPath, toolbarFetch } from '~/toolbar/shared/toolbarFetch'
 import { toolbarLogger } from '~/toolbar/shared/toolbarLogger'
@@ -89,6 +90,8 @@ export interface ToolbarApiOptions {
      * to `'full'`.
      */
     urlConstruction?: 'full' | 'use-as-provided'
+    /** Abort the request after this many milliseconds and return it as a network failure. Defaults to no limit. */
+    timeoutMs?: number
 }
 
 /** Pull a human-readable message out of a (possibly DRF) error body. */
@@ -151,7 +154,13 @@ async function request<T>(
     payload: Record<string, any> | FormData | undefined,
     options: ToolbarApiOptions
 ): Promise<ToolbarApiResult<T>> {
-    const { context, toastOnError = false, reauthenticateOnForbidden = false, urlConstruction = 'full' } = options
+    const {
+        context,
+        toastOnError = false,
+        reauthenticateOnForbidden = false,
+        urlConstruction = 'full',
+        timeoutMs,
+    } = options
     const url = typeof route === 'string' ? route : toolbarApiPath(route.scope, route.path)
     if (url === null) {
         // No session, so no project to build the path from. Answer as toolbarFetch does without an access token.
@@ -168,7 +177,8 @@ async function request<T>(
 
     let response: Response
     try {
-        response = await toolbarFetch(url, method, payload, urlConstruction)
+        const signal = timeoutMs === undefined ? undefined : AbortSignal.timeout(timeoutMs)
+        response = await toolbarFetch(url, method, payload, urlConstruction, signal)
     } catch {
         const error: ToolbarApiErrorInfo = {
             status: 0,
@@ -335,6 +345,11 @@ export const toolbarApi = {
                 projectRoute(`feature_flags/evaluation_reasons${encodeParams({ distinct_id: distinctId }, '?')}`),
                 options
             ),
+    },
+
+    toolbar: {
+        entitlements: (options: ToolbarApiOptions): Promise<ToolbarApiResult<ToolbarEntitlementsApi>> =>
+            apiGet(teamRoute('toolbar/entitlements/'), options),
     },
 
     webVitals: {

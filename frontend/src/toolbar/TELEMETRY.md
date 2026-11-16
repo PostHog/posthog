@@ -117,7 +117,7 @@ Fired when the UI host configuration modal is shown (auth error state).
 
 ### `toolbar api request`
 
-Fired after every `toolbarFetch` call, and after the entitlements request, which carries the session cookie instead of a bearer token.
+Fired after every `toolbarFetch` call, also when the request gets no response, such as a timeout.
 Covers all toolbar API endpoints.
 
 | Property          | Type      | Description                                     |

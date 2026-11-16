@@ -1,12 +1,20 @@
 # Toolbar plan entitlements
 
-`GET /api/user/toolbar_entitlements/` requires a logged-in session and access to the toolbar for the current project. It returns an `entitlements` map of feature names to booleans, based on the current organization’s available features. `ToolbarEntitlementsSerializer` defines its OpenAPI response schema.
+The toolbar reads its entitlements from `GET /api/projects/{team_id}/toolbar/entitlements/`, where `team_id` is the project that the toolbar's OAuth token is scoped to.
+The request sends that token, which needs the `user:read` scope, and requires access to the toolbar for that project.
+It returns an `entitlements` map of feature names to booleans, based on the available features of the organization that owns the project.
+The IP allowlist, verified-domain enforcement and access control of that organization apply, as on every project route.
+A 403 ends the toolbar session, as it does for every other toolbar request.
+`ToolbarEntitlementsSerializer` defines its OpenAPI response schema.
+
+`GET /api/user/toolbar_entitlements/` returns the same map for the current project of a logged-in session.
+The browser extension panel uses it to check toolbar access, because the panel has no project token.
 
 Gated toolbar tools are a Cloud plan entitlement.
-On a self-hosted deployment the endpoint reports every gated feature as entitled, so a rollout can never take a toolbar tool away from a self-hosted user, licensed or not.
+On a self-hosted deployment both endpoints report every gated feature as entitled, so a rollout can never take a toolbar tool away from a self-hosted user, licensed or not.
 Legacy self-hosted license tiers therefore do not list these features.
 
-When the `toolbar-paid-heatmaps` rollout flag is enabled, toolbar heatmaps require `toolbar_heatmaps: true`. Loading, failed requests, and missing entitlements do not grant access. The menu shows a loading state while checking access and offers a retry when access cannot be determined. A failed request is logged under the `entitlements` context and reported in the `toolbar api request` telemetry, so the rollout can be watched without waiting for a user report. The request gives up after five seconds, so a stalled one reaches that retry rather than spinning for the rest of the page session. Only an explicit `false` shows the plan upgrade prompt.
+When the `toolbar-paid-heatmaps` rollout flag is enabled, toolbar heatmaps require `toolbar_heatmaps: true`. Loading, failed requests, and missing entitlements do not grant access. The menu shows a loading state while checking access and offers a retry when access cannot be determined. A failed request is logged with the `load_entitlements` context and reported in the `toolbar api request` telemetry, so the rollout can be watched without waiting for a user report. The request gives up after five seconds, so a stalled one reaches that retry rather than spinning for the rest of the page session. Only an explicit `false` shows the plan upgrade prompt.
 The toolbar button follows the same rule: it carries the lock badge only for an explicit `false`, and while the check is pending or failed its tooltip says that instead of asking for a subscription.
 That prompt also offers a recheck, so a user who upgrades in the billing tab unlocks the tool without reloading the page they are working on.
 

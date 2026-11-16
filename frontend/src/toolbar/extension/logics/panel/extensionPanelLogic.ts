@@ -9,7 +9,6 @@ import type {
     UserApi,
 } from '~/generated/core/api.schemas'
 import { canonicalizeUiHost } from '~/toolbar/shared/toolbarConfigLogic'
-import { fetchToolbarEntitlements } from '~/toolbar/shared/toolbarEntitlementsLogic'
 import { toolbarPosthogJS } from '~/toolbar/shared/toolbarPosthogJS'
 import { joinWithUiHost, safeFetch } from '~/toolbar/shared/utils'
 
@@ -39,6 +38,9 @@ const DEFAULT_DATA_ATTRIBUTES = ['data-attr']
 // Matches the toolbar's entitlements request timeout.
 const REQUEST_TIMEOUT_MS = 5000
 
+// The panel has no project token, so it asks about the session's current project, the one switchProject sets.
+const SESSION_TOOLBAR_ENTITLEMENTS_PATH = '/api/user/toolbar_entitlements'
+
 const REFRESH_ON_TAB_CHANGE_MS = 30 * 1000
 
 const RECHECK_ON_TAB_CHANGE: ExtensionPanelState['kind'][] = [
@@ -57,7 +59,7 @@ const OPEN_SETTINGS_IN: ExtensionPanelState['kind'][] = [
     'error',
 ]
 
-/** Sends the PostHog session cookie, like the toolbar's own entitlements request. */
+/** Sends the PostHog session cookie. */
 async function fetchWithSession(uiHost: string, path: string): Promise<{ status: number; data: unknown }> {
     return await readResponse(
         safeFetch(`${uiHost}${path}`, { credentials: 'include', signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) })
@@ -287,7 +289,7 @@ export const extensionPanelLogic = kea<extensionPanelLogicType>([
             {
                 loadToolbarAccess: async (): Promise<ToolbarAccessResult | null> => {
                     const uiHost = values.uiHost
-                    const { status, data } = await readResponse(fetchToolbarEntitlements(uiHost))
+                    const { status, data } = await fetchWithSession(uiHost, SESSION_TOOLBAR_ENTITLEMENTS_PATH)
                     if (values.uiHost !== uiHost) {
                         return null
                     }

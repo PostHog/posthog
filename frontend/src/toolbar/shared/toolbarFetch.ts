@@ -40,7 +40,8 @@ export async function toolbarFetch(
      if "use-as-provided" then the URL is used as-is, and the payload is not used
      this is because the heatmapLogic needs more control over how the query parameters are constructed
     */
-    urlConstruction: 'full' | 'use-as-provided' = 'full'
+    urlConstruction: 'full' | 'use-as-provided' = 'full',
+    signal?: AbortSignal
 ): Promise<Response> {
     const logic = toolbarConfigLogic.findMounted()
     const accessToken = logic?.values.accessToken
@@ -107,29 +108,39 @@ export async function toolbarFetch(
 
     const startTime = performance.now()
     let didRetry = false
-
-    let response = await safeFetch(fullUrl, {
-        method,
-        headers: buildHeaders(accessToken),
-        ...(body !== undefined ? { body } : {}),
-    })
-
-    response = await withTokenRefresh(response, async (newAccessToken) => {
-        didRetry = true
-        return await safeFetch(fullUrl, {
+    const report = (status: number): void =>
+        captureToolbarApiRequest({
+            url,
             method,
-            headers: buildHeaders(newAccessToken),
-            ...(body !== undefined ? { body } : {}),
+            status,
+            durationMs: Math.round(performance.now() - startTime),
+            didTokenRetry: didRetry,
         })
-    })
 
-    captureToolbarApiRequest({
-        url,
-        method,
-        status: response.status,
-        durationMs: Math.round(performance.now() - startTime),
-        didTokenRetry: didRetry,
-    })
+    let response: Response
+    try {
+        response = await safeFetch(fullUrl, {
+            method,
+            headers: buildHeaders(accessToken),
+            ...(body !== undefined ? { body } : {}),
+            ...(signal ? { signal } : {}),
+        })
+
+        response = await withTokenRefresh(response, async (newAccessToken) => {
+            didRetry = true
+            return await safeFetch(fullUrl, {
+                method,
+                headers: buildHeaders(newAccessToken),
+                ...(body !== undefined ? { body } : {}),
+                ...(signal ? { signal } : {}),
+            })
+        })
+    } catch (error) {
+        report(0)
+        throw error
+    }
+
+    report(response.status)
 
     if (response.status === 403) {
         // The toolbar can't distinguish "token lost access" from "user switched projects" —
@@ -141,13 +152,8 @@ export async function toolbarFetch(
     return response
 }
 
-/**
- * The one place that emits `toolbar api request`, so every toolbar request reports the same
- * shape. Exported for the requests that cannot go through `toolbarFetch` — the entitlements
- * load carries the session cookie rather than a bearer token, and still belongs in this
- * telemetry.
- */
-export function captureToolbarApiRequest({
+/** The one place that emits `toolbar api request`, so every toolbar request reports the same shape. */
+function captureToolbarApiRequest({
     url,
     method,
     status,
