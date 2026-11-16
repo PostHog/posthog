@@ -25,7 +25,7 @@ interface DashboardFilterBarProps {
 }
 
 export function DashboardFilterBar({ backTo }: DashboardFilterBarProps): JSX.Element {
-    const { placement, dashboard, hasVariables, effectiveEditBarFilters, layoutEditMode } = useValues(dashboardLogic)
+    const { placement, dashboard, hasVariables, effectiveEditBarFilters } = useValues(dashboardLogic)
     const controlsEnabled = useFeatureFlag('METRICS_DASHBOARD_CONTROLS')
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     return (
@@ -57,7 +57,7 @@ export function DashboardFilterBar({ backTo }: DashboardFilterBarProps): JSX.Ele
                                 {dashboard && !isSharedView() && (
                                     <>
                                         <BIDashboardFilterBar dashboardId={dashboard.id} />
-                                        {!layoutEditMode && <DashboardResultFilterBar dashboardId={dashboard.id} />}
+                                        <DashboardResultFilterBar dashboardId={dashboard.id} />
                                     </>
                                 )}
                             </div>
