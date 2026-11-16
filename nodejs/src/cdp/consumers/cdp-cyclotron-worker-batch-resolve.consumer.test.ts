@@ -715,6 +715,44 @@ describe('CdpCyclotronWorkerBatchResolve', () => {
             )
         })
 
+        it('refuses a run over the workflows billing limit with a reason the customer can act on', async () => {
+            const getBlastRadiusPersons = jest.fn()
+            const queueLogs = jest.fn()
+            const consumer = buildConsumer(getBlastRadiusPersons, queueLogs)
+            Object.assign(consumer, {
+                deps: {
+                    teamManager: { getTeam: jest.fn().mockResolvedValue(team) },
+                    quotaLimiting: { isTeamQuotaLimited: jest.fn().mockResolvedValue(true) },
+                },
+                hogFlowManager: {
+                    getHogFlow: jest.fn().mockResolvedValue({ ...hogFlow, billable_action_types: ['function_email'] }),
+                },
+                hogFunctionMonitoringService: {
+                    queueAppMetric: jest.fn(),
+                    queueAppMetrics: jest.fn(),
+                    queueLogs,
+                    flush: jest.fn().mockResolvedValue(undefined),
+                },
+                workflowsActivationReporter: { report: jest.fn() },
+            })
+            const job = buildJob({ ...lastAttemptState(), attempts: 0 })
+
+            await consumer.processResolverJob(job)
+
+            expect(getBlastRadiusPersons).not.toHaveBeenCalled()
+            expect(queueLogs).toHaveBeenCalledWith(
+                [
+                    expect.objectContaining({
+                        message:
+                            'Batch resolver failed: this project is over its workflows billing limit, so nobody was enrolled in this run. Raise the limit in billing, then start the run again.',
+                    }),
+                ],
+                'hog_flow'
+            )
+            const { state } = job.reschedule.mock.calls[0][0]
+            expect(deserializeResolverState(state).terminalReason).toEqual('quota_limited')
+        })
+
         it('keeps the generic reason for a failure that is not a timeout', async () => {
             const queueLogs = jest.fn()
             const consumer = buildConsumer(jest.fn().mockRejectedValue(new Error('network down')), queueLogs)
