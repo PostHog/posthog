@@ -1,11 +1,12 @@
 import { combineUrl, encodeParams } from 'kea-router'
 
+import { ToolbarRouteScope, toolbarScopedPath } from 'lib/toolbar/toolbarProject'
+
 import { toolbarLogger } from '~/toolbar/shared/toolbarLogger'
 import { toolbarPosthogJS } from '~/toolbar/shared/toolbarPosthogJS'
 
 import { withTokenRefresh } from './toolbarAuth'
 import { toolbarConfigLogic } from './toolbarConfigLogic'
-import { ToolbarRouteScope, toolbarScopedPath } from './toolbarProject'
 import { ToolbarRequestError } from './toolbarRequestError'
 import { safeFetch } from './utils'
 
