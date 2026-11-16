@@ -2542,6 +2542,7 @@ class TestCustomSourceLiteralQueryBraces(SimpleTestCase):
             ),
             ("already_escaped", "/page/posts?fields=a{{b}}", None, "fields", "a{b}"),
             ("unbalanced_brace", "/page/posts?q=a}", None, "q", "a}"),
+            ("empty_braces", "/page/posts?filter={}", None, "filter", "{}"),
             ("declared_param_still_binds", "/page/posts?since={since}&fields=a{b}", {"since": "2024"}, "since", "2024"),
         ]
     )
@@ -2586,11 +2587,12 @@ class TestCustomSourceLiteralQueryBraces(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("path_segment", "/accounts/{account_id}/users"),
-            ("path_segment_with_query_braces", "/accounts/{account_id}/users?fields=a{b}"),
+            ("path_segment", "/accounts/{account_id}/users", "{account_id}"),
+            ("path_segment_with_query_braces", "/accounts/{account_id}/users?fields=a{b}", "{account_id}"),
+            ("empty_placeholder", "/accounts/{}/users", "{}"),
         ]
     )
-    def test_unbound_path_placeholder_names_table_not_path(self, _name, path):
+    def test_unbound_path_placeholder_names_table_not_path(self, _name, path, placeholder):
         manifest = _minimal_manifest()
         manifest["resources"][0]["endpoint"]["path"] = path
         config = CustomSourceConfig(manifest_json=json.dumps(manifest), auth_token="abc")
@@ -2599,7 +2601,7 @@ class TestCustomSourceLiteralQueryBraces(SimpleTestCase):
 
         assert ok is False
         assert err is not None
-        assert "'users'" in err and "{account_id}" in err
+        assert "'users'" in err and placeholder in err
         assert "/accounts/" not in err
 
 

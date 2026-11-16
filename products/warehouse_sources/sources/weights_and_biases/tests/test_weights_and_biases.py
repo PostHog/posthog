@@ -24,6 +24,7 @@ from products.warehouse_sources.sources.weights_and_biases.weights_and_biases im
     WeightsAndBiasesResumeConfig,
     _format_timestamp,
     _graphql_url,
+    _history_row,
     get_rows,
     validate_credentials,
     validate_host,
@@ -135,18 +136,21 @@ def _variables(requests_log: list[RecordedRequest]) -> list[dict[str, Any]]:
 
 class TestRunsEndpoint:
     @pytest.mark.parametrize(
-        "incremental_field, expected_filter_key, expected_order",
+        "endpoint, incremental_field, expected_filter_key, expected_order",
         [
-            ("createdAt", "createdAt", "+created_at"),
-            ("heartbeatAt", "heartbeatAt", "+heartbeat_at"),
+            ("runs", "createdAt", "createdAt", "+created_at"),
+            ("runs", "heartbeatAt", "heartbeatAt", "+heartbeat_at"),
             # An unknown/legacy field falls back to the stable default rather than sending a
             # filter the server would reject.
-            ("nonsense", "createdAt", "+created_at"),
+            ("runs", "nonsense", "createdAt", "+created_at"),
+            # Run-child tables carry the run's heartbeatAt and filter the runs connection on it.
+            ("run_artifacts", "runHeartbeatAt", "heartbeatAt", "+heartbeat_at"),
+            ("run_history", "runHeartbeatAt", "heartbeatAt", "+heartbeat_at"),
         ],
     )
-    def test_incremental_filter_and_order(self, incremental_field, expected_filter_key, expected_order):
+    def test_incremental_filter_and_order(self, endpoint, incremental_field, expected_filter_key, expected_order):
         result = _driver().run(
-            "runs",
+            endpoint,
             [_projects_response(["proj-a"]), _connection_response(("project", "runs"), [])],
             incremental_field=incremental_field,
             db_incremental_field_last_value=datetime(2024, 1, 2, tzinfo=UTC),
@@ -226,6 +230,269 @@ class TestArtifactsEndpoint:
 
         assert result.raised is None
         assert result.items == []
+
+
+class TestArtifactLookupEndpoints:
+    def test_artifact_collection_rows_are_flattened(self):
+        node = {
+            "__typename": "ArtifactSequence",
+            "id": "coll-id",
+            "name": "my-model",
+            "createdAt": "2024-01-01T00:00:00Z",
+            "defaultArtifactType": {"name": "model"},
+            "tags": {"edges": [{"node": {"name": "prod"}}, {"node": None}]},
+        }
+        result = _driver().run(
+            "artifact_collections",
+            [
+                _projects_response(["proj-a"]),
+                _connection_response(("project", "artifactCollections"), [{"node": node}]),
+            ],
+        )
+
+        assert result.rows == [
+            {
+                "id": "coll-id",
+                "name": "my-model",
+                "collectionType": "ArtifactSequence",
+                "description": None,
+                "createdAt": "2024-01-01T00:00:00Z",
+                "updatedAt": None,
+                "artifactTypeName": "model",
+                "tags": ["prod"],
+                "projectName": "proj-a",
+            }
+        ]
+
+    def test_members_without_an_id_are_skipped(self):
+        members = [
+            {"id": "user-1", "username": "ada", "name": "Ada", "pending": False},
+            {"id": None, "username": None, "name": "invitee", "pending": True},
+        ]
+        result = _driver().run("members", [_ok_response({"data": {"entity": {"members": members}}})])
+
+        assert [row["username"] for row in result.rows] == ["ada"]
+        assert len(result.requests) == 1
+        assert "apiKey" not in result.requests[0].json()["query"]
+
+
+def _lineage_run(name: str, inputs: list[str], outputs: list[str], outputs_next: str | None = None) -> dict[str, Any]:
+    def connection(ids: list[str], next_cursor: str | None = None) -> dict[str, Any]:
+        return {
+            "edges": [
+                {
+                    "node": {
+                        "id": i,
+                        "versionIndex": 0,
+                        "artifactType": {"name": "model"},
+                        "artifactSequence": {"name": "m"},
+                    }
+                }
+                for i in ids
+            ],
+            "pageInfo": {"endCursor": next_cursor, "hasNextPage": next_cursor is not None},
+        }
+
+    return {
+        "node": {
+            "id": f"id-{name}",
+            "name": name,
+            "createdAt": "2024-01-01T00:00:00Z",
+            "heartbeatAt": "2024-01-02T00:00:00Z",
+            "inputArtifacts": connection(inputs),
+            "outputArtifacts": connection(outputs, outputs_next),
+        }
+    }
+
+
+class TestRunArtifactsEndpoint:
+    def test_nested_lineage_pages_are_followed_per_run(self):
+        result = _driver().run(
+            "run_artifacts",
+            [
+                _projects_response(["proj-a"]),
+                _connection_response(
+                    ("project", "runs"),
+                    [_lineage_run("r1", ["in-1"], ["out-1"], outputs_next="out-cur"), _lineage_run("r2", [], [])],
+                    has_next=True,
+                    end_cursor="runs-cur",
+                ),
+                _connection_response(("project", "run", "outputArtifacts"), [{"node": {"id": "out-2"}}]),
+                _connection_response(("project", "runs"), [_lineage_run("r3", [], ["out-3"])]),
+            ],
+        )
+
+        assert [(r["runId"], r["direction"], r["artifactId"]) for r in result.rows] == [
+            ("id-r1", "input", "in-1"),
+            ("id-r1", "output", "out-1"),
+            ("id-r1", "output", "out-2"),
+            ("id-r3", "output", "out-3"),
+        ]
+        follow_up = _variables(result.requests)[2]
+        assert (follow_up["run"], follow_up["after"]) == ("r1", "out-cur")
+        # Each artifact page is its own batch, so a run with many artifact pages is never buffered.
+        assert len(result.items) == 4
+        # The bookmark past a run is committed with its last batch, and the next page after the first.
+        assert result.committed_states == [
+            WeightsAndBiasesResumeConfig(project="proj-a", cursor=None, run="r1"),
+            WeightsAndBiasesResumeConfig(project="proj-a", cursor=None, run="r2"),
+            WeightsAndBiasesResumeConfig(project="proj-a", cursor="runs-cur"),
+            WeightsAndBiasesResumeConfig(project="proj-a", cursor="runs-cur", run="r3"),
+        ]
+
+
+def _history_run(name: str, last_step: int, line_count: int) -> dict[str, Any]:
+    return {
+        "node": {
+            "id": f"id-{name}",
+            "name": name,
+            "createdAt": "2024-01-01T00:00:00Z",
+            "heartbeatAt": "2024-01-02T00:00:00Z",
+            "historyLineCount": line_count,
+            "historyKeys": json.dumps({"lastStep": last_step}),
+        }
+    }
+
+
+def _history_response(steps: list[int]) -> ScriptedResponse:
+    lines = [json.dumps({"_step": step, "loss": step / 10}) for step in steps]
+    return _ok_response({"data": {"project": {"run": {"history": lines}}}})
+
+
+class TestRunHistoryEndpoint:
+    @mock.patch(f"{_MODULE}.RUN_HISTORY_PAGE_SIZE", 2)
+    def test_window_that_was_sampled_is_split_and_read_again(self):
+        # 4 lines over 8 steps -> the first window spans 4 steps. A window returning more than
+        # the page size may have been sampled, so it is halved and re-read; nothing is dropped.
+        result = _driver().run(
+            "run_history",
+            [
+                _projects_response(["proj-a"]),
+                _connection_response(("project", "runs"), [_history_run("r1", last_step=7, line_count=4)]),
+                _history_response([0, 1, 2]),  # [0, 4) sampled -> rejected
+                _history_response([0, 1]),  # [0, 2)
+                _history_response([2, 3]),  # [2, 4)
+                _history_response([]),  # [4, 6)
+                _history_response([7]),  # [6, 10) after an empty window doubles it
+            ],
+        )
+
+        history_calls = [v for v in _variables(result.requests) if "minStep" in v]
+        assert [(v["minStep"], v["maxStep"]) for v in history_calls] == [(0, 4), (0, 2), (2, 4), (4, 6), (6, 10)]
+        assert [(row["runId"], row["step"]) for row in result.rows] == [
+            ("id-r1", 0),
+            ("id-r1", 1),
+            ("id-r1", 2),
+            ("id-r1", 3),
+            ("id-r1", 7),
+        ]
+        assert result.raised is None
+
+    @mock.patch(f"{_MODULE}.RUN_HISTORY_PAGE_SIZE", 2)
+    def test_resumes_at_the_saved_run_and_step(self):
+        result = _driver().run(
+            "run_history",
+            [
+                _projects_response(["proj-a"]),
+                _connection_response(
+                    ("project", "runs"),
+                    [_history_run("r1", last_step=3, line_count=4), _history_run("r2", last_step=3, line_count=4)],
+                ),
+                _history_response([2, 3]),
+                _history_response([0, 1]),
+                _history_response([2, 3]),
+            ],
+            resume_state=WeightsAndBiasesResumeConfig(project="proj-a", cursor="runs-cur", run="r2", step=2),
+        )
+
+        variables = _variables(result.requests)
+        assert variables[1]["after"] == "runs-cur"
+        # r1 precedes the bookmark and is skipped; r2 starts at the saved step, the run after it at 0.
+        assert [(row["runName"], row["step"]) for row in result.rows][:2] == [("r2", 2), ("r2", 3)]
+        assert next((v["run"], v["minStep"]) for v in variables if "minStep" in v) == ("r2", 2)
+
+    @mock.patch(f"{_MODULE}.RUN_HISTORY_PAGE_SIZE", 2)
+    def test_state_is_staged_with_the_next_window_before_rows_are_yielded(self):
+        result = _driver().run(
+            "run_history",
+            [
+                _projects_response(["proj-a"]),
+                _connection_response(
+                    ("project", "runs"),
+                    [_history_run("r1", last_step=3, line_count=4), _history_run("r2", last_step=3, line_count=4)],
+                ),
+                _history_response([0, 1]),
+                _history_response([2, 3]),
+                _history_response([0, 1]),
+                _history_response([2, 3]),
+            ],
+        )
+
+        # The last window of r1 commits the bookmark past r1, so a resume does not read r1 again.
+        assert result.committed_states == [
+            WeightsAndBiasesResumeConfig(project="proj-a", run="r1", step=2),
+            WeightsAndBiasesResumeConfig(project="proj-a", run="r2"),
+            WeightsAndBiasesResumeConfig(project="proj-a", run="r2", step=2),
+        ]
+
+    def test_pages_of_runs_without_history_reach_a_safe_point(self):
+        result = _driver().run(
+            "run_history",
+            [
+                _projects_response(["proj-a"]),
+                _connection_response(
+                    ("project", "runs"),
+                    [_history_run("r1", last_step=-1, line_count=0)],
+                    has_next=True,
+                    end_cursor="c1",
+                ),
+                _connection_response(("project", "runs"), [_history_run("r2", last_step=-1, line_count=0)]),
+            ],
+        )
+
+        assert result.rows == []
+        assert result.committed_states == [WeightsAndBiasesResumeConfig(project="proj-a", cursor="c1")]
+
+    @pytest.mark.parametrize(
+        "line, expected",
+        [
+            (
+                json.dumps({"_step": 5, "_runtime": 12, "_timestamp": 1704067200.5, "loss": 0.1, "acc": None}),
+                {
+                    "step": 5,
+                    "runtime": 12.0,
+                    "timestamp": "2024-01-01T00:00:00.500000+00:00",
+                    "metrics": {"loss": 0.1, "acc": None},
+                },
+            ),
+            # Some hosts return already-decoded rows instead of JSON strings.
+            ({"_step": 0, "loss": 1}, {"step": 0, "runtime": None, "timestamp": None, "metrics": {"loss": 1}}),
+            (
+                '{"_step": 1, "loss": NaN, "_timestamp": "bad"}',
+                {"step": 1, "runtime": None, "timestamp": None, "metrics": {"loss": float("nan")}},
+            ),
+            (json.dumps({"loss": 1}), None),
+            (json.dumps({"_step": "3"}), None),
+            (json.dumps({"_step": True}), None),
+            (json.dumps([1, 2]), None),
+        ],
+    )
+    def test_history_row_shaping(self, line, expected):
+        row = _history_row({"runId": "id-r1"}, line)
+
+        if expected is None:
+            assert row is None
+            return
+        assert row is not None
+        assert row["runId"] == "id-r1"
+        for key in ("step", "runtime", "timestamp"):
+            assert row[key] == expected[key]
+        metrics = json.loads(row["metrics"])
+        assert metrics.keys() == expected["metrics"].keys()
+        assert all(
+            (v != v and expected["metrics"][k] != expected["metrics"][k]) or v == expected["metrics"][k]
+            for k, v in metrics.items()
+        )
 
 
 class TestErrors:
@@ -321,5 +588,10 @@ class TestSourceResponse:
         # Fan-out over projects means rows only ascend within one project — the watermark
         # commits at run end.
         assert response.sort_mode == "desc"
-        assert response.partition_mode == "datetime"
-        assert response.partition_keys == ["createdAt"]
+        partition_key = WANDB_ENDPOINTS[endpoint].partition_key
+        if partition_key is None:
+            assert response.partition_mode is None
+            assert response.partition_keys is None
+        else:
+            assert response.partition_mode == "datetime"
+            assert response.partition_keys == [partition_key]

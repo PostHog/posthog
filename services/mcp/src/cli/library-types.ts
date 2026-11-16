@@ -64,8 +64,28 @@ export interface ApiSearchResult {
     truncated: boolean
 }
 
+export interface ApiCatalogDroppedTool {
+    name: string
+    reason: string
+    /** hog has a built-in version of the tool, which serves instead. Otherwise the tool is unavailable. */
+    builtIn: boolean
+}
+
+export interface ApiCatalogStatus {
+    source: 'downloaded' | 'bundled'
+    build: string | null
+    tools: number
+    dropped: ApiCatalogDroppedTool[]
+    rejected: string | null
+}
+
+export interface ApiToolLibraryOptions {
+    catalog?: unknown
+}
+
 export interface ApiToolLibrary {
     tools(): ApiToolSummary[]
+    catalog(): ApiCatalogStatus
     search(query: string): Promise<ApiSearchResult>
     /** A summary of the tool's input schema, or of one field when `fieldPath` names it. */
     schema(tool: string, fieldPath?: string): Promise<unknown>

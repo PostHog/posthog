@@ -87,6 +87,7 @@ import {
     keepOnlyRealtimeCohort,
 } from '../Workflows/hogflows/steps/realtimeCohortStatus'
 import { recipientEmailProperty } from '../Workflows/hogflows/steps/recipientEmail'
+import { isRejectedAudience } from '../Workflows/hogflows/steps/rejectedAudience'
 import { getTemplatingError } from '../Workflows/hogflows/steps/templatingError'
 import { ResourceSaveQueue } from '../Workflows/resourceSaveQueue'
 import {
@@ -377,6 +378,17 @@ function changedElsewhere<T>(latest: HogFlowApi, base: HogFlowApi | null, read: 
 
 export type BroadcastSummaryTab = 'overview' | 'content' | 'runs'
 
+/** About how long `remaining` emails take at `limit`. Empty when nothing is left or no limit applies. */
+export function remainingSendDuration(remaining: number | null, limit: HogFlowEmailSendingRateLimitApi | null): string {
+    if (!limit || !remaining) {
+        return ''
+    }
+    // An estimate: the worker holds sends under the limit by rescheduling them, and it
+    // retries on a jittered delay, so the real send runs a little longer than this.
+    const perSecond = limit.count / (limit.period === 'hour' ? 3600 : 60)
+    return humanFriendlyDuration(Math.ceil(remaining / perSecond), { maxUnits: 2 })
+}
+
 export interface BroadcastWizardLogicProps {
     id: string // 'new' for new broadcasts, or a UUID for editing/viewing
 }
@@ -397,6 +409,7 @@ export interface broadcastWizardLogicValues {
     batchJobs: HogFlowBatchJobApi[]
     batchJobsLoading: boolean
     blastRadius: BlastRadiusApi | null
+    blastRadiusError: string | null
     blastRadiusLoading: boolean
     breadcrumbs: Breadcrumb[]
     broadcast: HogFlowApi | null
@@ -565,7 +578,9 @@ export interface broadcastWizardLogicActions {
         batchJobs: HogFlowBatchJobApi[]
         payload?: any
     }
-    loadBlastRadius: () => any
+    loadBlastRadius: () => {
+        value: true
+    }
     loadBlastRadiusFailure: (
         error: string,
         errorObject?: any
@@ -575,10 +590,14 @@ export interface broadcastWizardLogicActions {
     }
     loadBlastRadiusSuccess: (
         blastRadius: BlastRadiusApi | null,
-        payload?: any
+        payload?: {
+            value: true
+        }
     ) => {
         blastRadius: BlastRadiusApi | null
-        payload?: any
+        payload?: {
+            value: true
+        }
     }
     loadBroadcast: () => any
     loadBroadcastFailure: (
@@ -706,6 +725,9 @@ export interface broadcastWizardLogicActions {
     }
     setAudienceProperties: (properties: AnyPropertyFilter[]) => {
         properties: AnyPropertyFilter[]
+    }
+    setBlastRadiusError: (error: string | null) => {
+        error: string | null
     }
     setChannel: (channel: BroadcastChannel) => {
         channel: BroadcastChannel
@@ -944,6 +966,8 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
         saveName: true,
         setAudienceProperties: (properties: AnyPropertyFilter[]) => ({ properties }),
         setAudienceCohortLaunchErrors: (errors: AudienceCohortLaunchError[]) => ({ errors }),
+        loadBlastRadius: true,
+        setBlastRadiusError: (error: string | null) => ({ error }),
         rejectLinkAudience: true,
         sendToEveryoneAfterRejectedLink: true,
         setGoalEnabled: (enabled: boolean) => ({ enabled }),
@@ -1000,7 +1024,7 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
         duplicateBroadcastFinished: true,
     }),
 
-    loaders(({ props, values, cache }) => ({
+    loaders(({ actions, props, values, cache }) => ({
         broadcast: [
             null as HogFlowApi | null,
             {
@@ -1015,14 +1039,23 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
         blastRadius: [
             null as BlastRadiusApi | null,
             {
-                loadBlastRadius: async () => {
+                loadBlastRadius: async (_, breakpoint) => {
                     if (!values.currentProjectId) {
                         return null
                     }
-                    return await hogFlowsUserBlastRadiusCreate(
-                        String(values.currentProjectId),
-                        audiencePreviewRequest(values.audienceProperties, values.channel)
-                    )
+                    try {
+                        return await hogFlowsUserBlastRadiusCreate(
+                            String(values.currentProjectId),
+                            audiencePreviewRequest(values.audienceProperties, values.channel)
+                        )
+                    } catch (error) {
+                        if (!isRejectedAudience(error)) {
+                            throw error
+                        }
+                        breakpoint()
+                        actions.setBlastRadiusError(error.detail)
+                        return null
+                    }
                 },
             },
         ],
@@ -1141,6 +1174,13 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
             // A stale result would keep a realtime cohort's restrictions on an audience that no longer has one.
             loadBlastRadiusFailure: () => null,
         },
+        blastRadiusError: [
+            null as string | null,
+            {
+                loadBlastRadius: () => null,
+                setBlastRadiusError: (_, { error }) => error,
+            },
+        ],
         broadcast: {
             saveBroadcastFinished: (state: HogFlowApi | null, { broadcast }: { broadcast: HogFlowApi | null }) =>
                 broadcast ?? state,
@@ -1817,14 +1857,7 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                 blastRadius: BlastRadiusApi | null,
                 channel: BroadcastChannel
             ): string => {
-                const recipients = blastRadius?.affected
-                if (!emailRateLimit || !recipients || channel !== 'email') {
-                    return ''
-                }
-                // An estimate: the worker holds sends under the limit by rescheduling them, and it
-                // retries on a jittered delay, so the real send runs a little longer than this.
-                const perSecond = emailRateLimit.count / (emailRateLimit.period === 'hour' ? 3600 : 60)
-                return humanFriendlyDuration(Math.ceil(recipients / perSecond), { maxUnits: 2 })
+                return channel === 'email' ? remainingSendDuration(blastRadius?.affected ?? null, emailRateLimit) : ''
             },
         ],
         breadcrumbs: [

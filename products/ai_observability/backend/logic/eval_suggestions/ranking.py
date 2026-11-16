@@ -5,10 +5,12 @@ rest, a rare severe failure can win and a common harmless one can lose, because 
 weekly failures by severity, uncovered scope and running cost.
 """
 
+import re
 import math
 import hashlib
 from collections import Counter
 from collections.abc import Sequence
+from dataclasses import asdict
 from typing import Any
 
 from posthog.dataclasses import frozen
@@ -23,8 +25,12 @@ from products.ai_observability.backend.models.evaluations import Evaluation
 
 from . import cards, catalog
 from .adapters import AdaptedCheck
+from .call_review import ReviewCard
+from .call_review_queries import CallTypeRow
 from .coverage import EvalFix, fix_dedupe_key
+from .judge_calibration import Calibration
 from .measure import Measurement, Outcome, SampledTrace, TraceSample
+from .prices import MODEL_PRICES
 from .profile import StructuredGap, TeamProfile, normalize_segment_value
 from .stats import wilson_interval
 
@@ -43,6 +49,8 @@ EVIDENCE_LIMIT = 5
 # Judges run on a rollout that keeps them near this many runs a week, so a large team does not pay
 # for every trace while it decides whether the check is useful.
 WEEKLY_JUDGE_RUNS = 1000
+# Every matching trace starts a workflow even when the check is free, so the largest teams get a sample.
+WEEKLY_HOG_RUNS = 100_000
 JUDGE_COST_FACTOR = 0.8
 SIMILAR_FACTOR = 0.5
 # Decision-model screening flags many traces that a person would not; only part of them count.
@@ -57,22 +65,17 @@ SEVERITY: dict[str, float] = {
     "structured_output_gap": 0.8,
 }
 FIX_SEVERITY = 1.0
+# A reviewed card names a failure the review model saw several times against a rule in the team's own prompt, which
+# makes it worth more than a judge picked from the catalog.
+REVIEW_SEVERITY = 1.0
+REVIEW_TEMPLATE_KEY = "review"
+# The property that names each kind of call type on a live generation. A call type named by its input has none.
+CALL_TYPE_PROPERTIES = {"prompt_name": "$ai_prompt_name", "span_name": "$ai_span_name"}
+# Words that two phrasings of the same check swap freely, left out of a reviewed card's dedupe key.
+FILLER_WORDS = frozenset(
+    "a an the and or of to in on for is are it its that this whether if check checks does do".split()
+)
 
-
-@frozen
-class ModelPrice:
-    input_per_token: float
-    output_per_token: float
-
-
-# ponytail: list prices of each provider's default model, read for estimates only. Model prices live in the
-# Node ingestion package, which the Python image does not ship; move this to a shared file when a caller
-# outside eval suggestions needs prices. A test keeps every provider default priced here.
-MODEL_PRICES: dict[str, ModelPrice] = {
-    "gpt-5-mini": ModelPrice(input_per_token=0.25e-6, output_per_token=2e-6),
-    "claude-haiku-4-5": ModelPrice(input_per_token=1e-6, output_per_token=5e-6),
-    "gemini-2.5-flash": ModelPrice(input_per_token=0.3e-6, output_per_token=2.5e-6),
-}
 # What a judge runs on when the team has no provider key yet: the evaluator's OpenAI default.
 DEFAULT_JUDGE_MODEL = DEFAULT_MODEL_BY_PROVIDER["openai"]
 
@@ -119,11 +122,13 @@ def judge_input_price(model: str) -> float | None:
     return price.input_per_token if price else None
 
 
+def capped_rollout(weekly_units: float, weekly_runs: int) -> float:
+    # The scheduler samples in 0.01% steps, so the largest teams still land near the cap.
+    return 100.0 if weekly_units <= weekly_runs else max(0.01, round(100 * weekly_runs / weekly_units, 2))
+
+
 def judge_cost(weekly_units: float, mean_input_tokens: float | None, model: str) -> JudgeCost:
-    # The scheduler samples in 0.01% steps, so the largest teams still land near WEEKLY_JUDGE_RUNS.
-    rollout = (
-        100.0 if weekly_units <= WEEKLY_JUDGE_RUNS else max(0.01, round(100 * WEEKLY_JUDGE_RUNS / weekly_units, 2))
-    )
+    rollout = capped_rollout(weekly_units, WEEKLY_JUDGE_RUNS)
     weekly_runs = round(weekly_units * rollout / 100)
     price = judge_input_price(model)
     cost = weekly_runs * mean_input_tokens * price if mean_input_tokens and price else None
@@ -294,7 +299,9 @@ def code_check_proposal(
     failing = [outcome for outcome in main if outcome.failed]
     weekly_units = profile.traces * applicable / max(len(sample.main), 1)
     segment = normalize_segment_value(filters[0]["value"][0]) if filters else None
-    text = cards.code_check_text(check, failed / applicable, segment)
+    scope_units = profile.traces * _scope_share(filters, sample.main)
+    rollout = capped_rollout(scope_units, WEEKLY_HOG_RUNS)
+    text = cards.code_check_text(check, failed / applicable, segment, rollout)
     return Proposal(
         kind=EvalSuggestionKind.NEW_HOG,
         template_key=check.key,
@@ -312,7 +319,7 @@ def code_check_proposal(
             "target": "trace",
         },
         filters=filters,
-        rollout_percentage=100.0,
+        rollout_percentage=rollout,
         measured_failure_rate=failed / applicable,
         sample_size=applicable,
         evidence=[Evidence(trace_id=o.trace_id, reason=o.reasoning[:160]) for o in failing[:EVIDENCE_LIMIT]],
@@ -322,7 +329,7 @@ def code_check_proposal(
             judge=False,
             similar=similar_evaluation_id is not None,
         ),
-        estimated_weekly_runs=round(profile.traces * _scope_share(filters, sample.main)),
+        estimated_weekly_runs=round(scope_units * rollout / 100),
         similar_evaluation_id=similar_evaluation_id,
     )
 
@@ -480,6 +487,81 @@ def screened_proposal(
         mean_input_tokens=round(unit_tokens) if unit_tokens else None,
         judge_model=judge_model if is_judge else "",
         similar_evaluation_id=similar_evaluation_id,
+    )
+
+
+def call_type_filters(call_types: Sequence[CallTypeRow]) -> list[dict[str, Any]]:
+    """An exact filter on the property that names the call types, or [] for every generation when one property
+    does not name them all. A generation with a prompt name belongs to that prompt's call type even when it has a
+    span name too, so a span-name filter leaves out generations with a prompt name."""
+    sources = {call_type.source for call_type in call_types}
+    source = next(iter(sources)) if len(sources) == 1 else ""
+    key = CALL_TYPE_PROPERTIES.get(source)
+    if key is None:
+        return []
+    names = {"key": key, "value": sorted(c.name for c in call_types), "operator": "exact", "type": "event"}
+    if source != "span_name":
+        return [names]
+    # The value repeats the operator, as the property filter UI stores it. An empty list would compile to a filter
+    # that matches every generation.
+    unset = {
+        "key": CALL_TYPE_PROPERTIES["prompt_name"],
+        "value": ["is_not_set"],
+        "operator": "is_not_set",
+        "type": "event",
+    }
+    return [names, unset]
+
+
+def review_dedupe_key(card: ReviewCard) -> str:
+    """The card's call types and the words of what its judge checks. A later review of the same failure writes a
+    new title and judge prompt, so neither is in the key, and the check's case, punctuation, word order and filler
+    words are left out too. A check reworded beyond that gets a new key."""
+    keys = ",".join(sorted(c.key for c in card.call_types))
+    words = sorted(set(re.findall(r"\w+", card.checks.lower())) - FILLER_WORDS)
+    return bounded_key(f"review:{keys}:{' '.join(words)}")
+
+
+def review_proposal(card: ReviewCard, profile: TeamProfile, *, judge_model: str, calibration: Calibration) -> Proposal:
+    """A judge on the generations of the card's call types, with the judge's counts and the review's examples."""
+    filters = call_type_filters(card.call_types)
+    # Call types are counted over the last day. Without a filter the judge runs on every generation of the week.
+    weekly_units = 7 * sum(c.calls for c in card.call_types) if filters else profile.generations
+    cost = judge_cost(weekly_units, profile.mean_input_tokens, judge_model)
+    text = cards.review_text(card, cards.cost_clause(cost.weekly_cost_usd, free=False))
+    return Proposal(
+        kind=EvalSuggestionKind.NEW_LLM_JUDGE,
+        template_key=REVIEW_TEMPLATE_KEY,
+        dedupe_key=review_dedupe_key(card),
+        headline=text.headline,
+        outcome=text.outcome,
+        reason=text.reason,
+        draft={
+            "name": card.title[: Evaluation._meta.get_field("name").max_length],
+            "description": card.checks,
+            "evaluation_type": "llm_judge",
+            "evaluation_config": {"prompt": card.judge_prompt},
+            "output_type": "boolean",
+            "output_config": {"allows_na": True},
+            "target": "generation",
+            # How the judge matched the review's labels. Accepting the card leaves this out of the evaluation.
+            "calibration": asdict(calibration),
+        },
+        filters=filters,
+        rollout_percentage=cost.rollout_percentage,
+        measured_failure_rate=card.failed / card.of,
+        sample_size=card.of,
+        evidence=[Evidence(trace_id=e.trace_id, reason=e.reason[:160]) for e in card.examples],
+        score=_score(
+            REVIEW_SEVERITY,
+            wilson_interval(card.failed, card.of).low * weekly_units,
+            judge=True,
+            similar=False,
+        ),
+        estimated_weekly_runs=cost.weekly_runs,
+        estimated_weekly_cost_usd=cost.weekly_cost_usd,
+        mean_input_tokens=round(profile.mean_input_tokens) if profile.mean_input_tokens else None,
+        judge_model=judge_model,
     )
 
 
