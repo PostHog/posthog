@@ -50,7 +50,6 @@ TIER_SETTINGS = {
     "WORKFLOWS_EMAIL_TIER_INACTIVITY_DECAY_DAYS": 30,
     "WORKFLOWS_EMAIL_TIER_AUTO_PAUSE_METRIC_NAMES": [],
     "WORKFLOWS_EMAIL_TIER_TRUSTED_FLOOR_TIER": 3,
-    "WORKFLOWS_EMAIL_TIER_TRUSTED_MIN_ORG_AGE_DAYS": 90,
     "WORKFLOWS_EMAIL_TIER_TRUSTED_MIN_SCORE": 7,
 }
 
@@ -370,27 +369,25 @@ class TestEmailSendingTierDecision(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("paying, established and trusted by billing", True, 120, 7, 5, False, 1, 3, "trusted_account"),
-            ("free trial or default paid trust score", True, 120, 3, 5, False, 0, 0, "tier_not_used_enough"),
-            ("no billing trust score", True, 120, None, 5, False, 0, 0, "tier_not_used_enough"),
-            ("never synced by billing", None, 120, 7, 5, False, 0, 0, "tier_not_used_enough"),
-            ("not paying", False, 120, 7, 5, False, 0, 0, "tier_not_used_enough"),
-            ("organization too new", True, 30, 7, 5, False, 0, 0, "tier_not_used_enough"),
-            ("before its first send", True, 120, 7, 0, False, 0, 3, "trusted_account"),
-            ("dormant at the floor", True, 120, 7, 0, False, 3, 3, "tier_not_used_enough"),
-            ("dormant above the floor", True, 120, 7, 0, False, 4, 3, "inactive"),
-            ("demoted for its rates before", True, 120, 7, 5, True, 0, 0, "tier_not_used_enough"),
-            ("already at the floor", True, 120, 7, 5, False, 3, 3, "tier_not_used_enough"),
-            ("bounces on a sample too small to demote", True, 120, 7, 100, False, 0, 0, "tier_not_used_enough", 100),
-            ("tenant never synced by AWS", True, 120, 7, 5, False, 0, 0, "tier_not_used_enough", 0, ""),
-            ("tenant with no reputation record yet", True, 120, 7, 0, False, 0, 3, "trusted_account", 0, "ENABLED", ""),
+            ("paid an invoice", True, 7, 5, False, 1, 3, "trusted_account"),
+            ("free trial or never paid", True, 3, 5, False, 0, 0, "tier_not_used_enough"),
+            ("no billing trust score", True, None, 5, False, 0, 0, "tier_not_used_enough"),
+            ("never synced by billing", None, 7, 5, False, 0, 0, "tier_not_used_enough"),
+            ("not paying", False, 7, 5, False, 0, 0, "tier_not_used_enough"),
+            ("before its first send", True, 7, 0, False, 0, 3, "trusted_account"),
+            ("dormant at the floor", True, 7, 0, False, 3, 3, "tier_not_used_enough"),
+            ("dormant above the floor", True, 7, 0, False, 4, 3, "inactive"),
+            ("demoted for its rates before", True, 7, 5, True, 0, 0, "tier_not_used_enough"),
+            ("already at the floor", True, 7, 5, False, 3, 3, "tier_not_used_enough"),
+            ("bounces on a sample too small to demote", True, 7, 100, False, 0, 0, "tier_not_used_enough", 100),
+            ("tenant never synced by AWS", True, 7, 5, False, 0, 0, "tier_not_used_enough", 0, ""),
+            ("tenant with no reputation record yet", True, 7, 0, False, 0, 3, "trusted_account", 0, "ENABLED", ""),
         ]
     )
     def test_trusted_account_floor(
         self,
         _name: str,
         paying: bool | None,
-        org_age_days: int,
         trust_score: int | None,
         sent: int,
         demoted_before: bool,
@@ -415,8 +412,7 @@ class TestEmailSendingTierDecision(SimpleTestCase):
             ),
             account_trust=AccountTrust(
                 has_active_subscription=paying,
-                organization_created_at=now - timedelta(days=org_age_days),
-                workflow_emails_trust_score=trust_score,
+                highest_trust_score=trust_score,
             ),
             now=now,
         )
@@ -487,11 +483,18 @@ class TestRecomputeEmailSendingTiers(BaseTest):
         assert (detail["trigger"] or {}).get("job_type") == expected_job_type
         assert [(c["field"], c["before"], c["after"]) for c in detail["changes"]] == [("email_sending_tier", 0, 1)]
 
-    @parameterized.expand([("sending", 5), ("before its first send", 0)])
-    def test_sweep_lifts_an_established_paying_account_to_the_trusted_floor(self, _name: str, sent: int) -> None:
+    @parameterized.expand(
+        [
+            ("sending", 5, {"workflow_emails": 7}),
+            ("before its first send", 0, {"workflow_emails": 7}),
+            ("paid only for another product", 5, {"workflow_emails": 0, "product_analytics": 7}),
+        ]
+    )
+    def test_sweep_lifts_an_established_paying_account_to_the_trusted_floor(
+        self, _name: str, sent: int, trust_scores: dict[str, int]
+    ) -> None:
         self.organization.has_active_subscription = True
-        self.organization.created_at = timezone.now() - timedelta(days=120)
-        self.organization.customer_trust_scores = {"workflow_emails": 7}
+        self.organization.customer_trust_scores = trust_scores
         self.organization.save()
         self._config(
             email_sending_tier=0,
@@ -520,7 +523,6 @@ class TestRecomputeEmailSendingTiers(BaseTest):
         self, _name: str, trust_score: int, tier: int, dirty: bool, impact: str | None, expected_tier: int
     ) -> None:
         self.organization.has_active_subscription = True
-        self.organization.created_at = timezone.now() - timedelta(days=120)
         self.organization.customer_trust_scores = {"workflow_emails": trust_score}
         self.organization.save()
         self._config(email_sending_tier=tier)
@@ -546,7 +548,6 @@ class TestRecomputeEmailSendingTiers(BaseTest):
     @parameterized.expand([("staff_suspension",), ("ses_tenant_pause",)])
     def test_reinstated_team_does_not_regain_the_trusted_floor(self, suspension: str) -> None:
         self.organization.has_active_subscription = True
-        self.organization.created_at = timezone.now() - timedelta(days=120)
         self.organization.customer_trust_scores = {"workflow_emails": 7}
         self.organization.save()
         self._config(

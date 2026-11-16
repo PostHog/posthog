@@ -34,7 +34,6 @@ HARD_BOUNCE_METRIC = "email_bounced_hard"
 # worker), so a complaint rate reads `email_blocked`, not a metric called "complaint".
 COMPLAINT_METRIC = "email_blocked"
 
-WORKFLOW_EMAILS_TRUST_SCORE_KEY = "workflow_emails"
 
 # Decision reasons that count as a rate-driven demotion and therefore arm the demotion cooldown.
 RATE_DEMOTION_REASONS = frozenset({"rates_above_threshold", "workflow_auto_paused", "ses_reputation_high"})
@@ -129,30 +128,26 @@ class SesTenantState:
 class AccountTrust:
     # None means Billing never synced the organization.
     has_active_subscription: Optional[bool]
-    organization_created_at: Optional[datetime]
-    workflow_emails_trust_score: Optional[int] = None
+    highest_trust_score: Optional[int] = None
 
     @classmethod
     def from_organization(cls, organization: Organization) -> "AccountTrust":
-        scores = organization.customer_trust_scores or {}
-        score = scores.get(WORKFLOW_EMAILS_TRUST_SCORE_KEY)
+        # Billing scores each product separately, and a team on tier 0 cannot send enough to be billed
+        # for workflow email, so a payment for any product counts.
+        scores = [score for score in (organization.customer_trust_scores or {}).values() if isinstance(score, int)]
         return cls(
             has_active_subscription=organization.has_active_subscription,
-            organization_created_at=organization.created_at,
-            workflow_emails_trust_score=score if isinstance(score, int) else None,
+            highest_trust_score=max(scores, default=None),
         )
 
 
-def trusted_floor_tier(trust: Optional[AccountTrust], *, now: datetime) -> int:
+def trusted_floor_tier(trust: Optional[AccountTrust]) -> int:
     floor = settings.WORKFLOWS_EMAIL_TIER_TRUSTED_FLOOR_TIER
     # An unknown subscription or score earns nothing: the floor grants allowance, so it must fail closed.
     if floor <= MIN_EMAIL_SENDING_TIER or trust is None or trust.has_active_subscription is not True:
         return MIN_EMAIL_SENDING_TIER
-    score = trust.workflow_emails_trust_score
+    score = trust.highest_trust_score
     if score is None or score < settings.WORKFLOWS_EMAIL_TIER_TRUSTED_MIN_SCORE:
-        return MIN_EMAIL_SENDING_TIER
-    min_age = timedelta(days=settings.WORKFLOWS_EMAIL_TIER_TRUSTED_MIN_ORG_AGE_DAYS)
-    if trust.organization_created_at is None or now - trust.organization_created_at < min_age:
         return MIN_EMAIL_SENDING_TIER
     return min(floor, max_email_sending_tier())
 
@@ -273,7 +268,7 @@ def decide_tier(
     # before its first send and keeps it through a quiet month. A team that was ever demoted,
     # suspended or paused climbs on its own sending only.
     trusted_floor = (
-        trusted_floor_tier(account_trust, now=now)
+        trusted_floor_tier(account_trust)
         if last_rate_demotion_at is None and history.observed_rates_are_clean and tenant.is_verified_clean
         else MIN_EMAIL_SENDING_TIER
     )
@@ -637,8 +632,7 @@ def raise_trusted_floor_for_team(team_id: int) -> Optional[TierDecision]:
         or config.email_sending_tier_pinned
         or config.email_sending_tier_demoted_at is not None
         or config.email_sending_suspended_at is not None
-        or trusted_floor_tier(AccountTrust.from_organization(config.team.organization), now=timezone.now())
-        <= config.email_sending_tier
+        or trusted_floor_tier(AccountTrust.from_organization(config.team.organization)) <= config.email_sending_tier
     ):
         return None
 
