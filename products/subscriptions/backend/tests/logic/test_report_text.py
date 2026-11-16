@@ -100,11 +100,20 @@ def test_custom_layout_keeps_the_template_formatting() -> None:
                         {"kind": "change", "text": "3", "direction": "increase"},
                     ]
                 },
+                {
+                    "items": [
+                        {"kind": "text", "text": "*"},
+                        {"kind": "name", "text": "Signups"},
+                        {"kind": "text", "text": "*"},
+                        {"kind": "text", "text": "rose to"},
+                        {"kind": "value", "text": "~158"},
+                    ]
+                },
             ],
         }
     )
 
-    assert document.render() == "**Daily jobs: 7**\nErrors: 2\nChange since Monday: ▲ 3"
+    assert document.render() == "**Daily jobs: 7**\nErrors: 2\nChange since Monday: ▲ 3\n*Signups* rose to ~158"
 
 
 @pytest.mark.parametrize(
@@ -148,14 +157,9 @@ def test_styled_items_keep_their_spaces_outside_the_markers() -> None:
                 {"kind": "time", "text": " Nov 4 "},
                 {"kind": "text", "text": "after"},
                 {"kind": "change", "text": " 3s ", "direction": "increase"},
-                {"kind": "text", "text": "in a day, about"},
-                {"kind": "value", "text": "~20%"},
-                {"kind": "text", "text": "."},
+                {"kind": "text", "text": "in a day."},
             ]
         }
     )
 
-    assert (
-        ReportSummary(findings=[finding]).render()
-        == "- `Load time` rose to `18s` on _Nov 4_ after `▲ 3s` in a day, about `~20%`."
-    )
+    assert ReportSummary(findings=[finding]).render() == "- `Load time` rose to `18s` on _Nov 4_ after `▲ 3s` in a day."

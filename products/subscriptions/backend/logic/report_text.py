@@ -32,6 +32,10 @@ class ReportChangeItem(BaseModel):
 # Templates mark an empty line with a literal "\n", and the model sometimes copies it as text.
 _LITERAL_NEWLINE_LINE = re.compile(r"^[ \t]*(?:\\n[ \t]*)+$", re.MULTILINE)
 
+# Item joining puts a space between a template's marker item and the next item, as in "** Total **",
+# and a space just inside a pair of markers stops it rendering as bold, italic, or struck through.
+_PADDED_EMPHASIS = re.compile(r"(?<![*_~\w])(\*\*|__|~~|\*|_)[ \t]*([^\s*_~](?:[^\n]*?[^\s*_~])?)[ \t]*\1(?![*_~\w])")
+
 _TABLE_SEPARATOR_ROW = re.compile(r"^\|?\s*:?-+:?\s*(?:\|\s*:?-+:?\s*)*\|?$")
 
 
@@ -73,7 +77,6 @@ class ReportText(BaseModel):
     def render(self, *, styled: bool = True) -> str:
         parts: list[str] = []
         previous_text = ""
-        previous_kind = ""
         for item in self.items:
             if (
                 previous_text
@@ -82,10 +85,6 @@ class ReportText(BaseModel):
                 and not item.text[0].isspace()
                 and item.text[0] not in ".,;:!?)]}"
                 and previous_text[-1] not in "([{"
-                # A space inside an emphasis marker, as in "** Total **", stops it rendering as bold.
-                # Only text items carry markers, so a value such as "~30%" still gets its space.
-                and not (item.kind == "text" and item.text[0] in "*_~")
-                and not (previous_kind == "text" and previous_text[-1] in "*_~")
             ):
                 parts.append(" ")
             if item.kind == "link" and item.url:
@@ -108,7 +107,6 @@ class ReportText(BaseModel):
             else:
                 parts.append(item.text)
             previous_text = item.text
-            previous_kind = item.kind
         return "".join(parts)
 
     def render_bullet(self) -> str:
@@ -202,7 +200,8 @@ class ReportDocument(BaseModel):
                     parts.append("\n")
                 # The user's template decides the formatting, so item kinds add no code or italic styles here.
                 parts.append(part.render(styled=False))
-            return _join_table_rows(_LITERAL_NEWLINE_LINE.sub("", "".join(parts)))
+            markdown = _LITERAL_NEWLINE_LINE.sub("", "".join(parts))
+            return _join_table_rows(_PADDED_EMPHASIS.sub(r"\1\2\1", markdown))
         parts = [f"# {self.topic}"] if self.topic else []
         parts.extend(section.render() for section in self.sections)
         return _join_table_rows("\n\n".join(parts))
