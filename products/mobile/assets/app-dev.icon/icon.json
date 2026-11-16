@@ -14,6 +14,49 @@
     ],
     "groups": [
         {
+            "blur-material": null,
+            "specular-specializations": [
+                {
+                    "appearance": "light",
+                    "value": false
+                },
+                {
+                    "appearance": "dark",
+                    "value": false
+                }
+            ],
+            "shadow-specializations": [
+                {
+                    "appearance": "light",
+                    "value": {
+                        "kind": "neutral",
+                        "opacity": 0
+                    }
+                },
+                {
+                    "appearance": "dark",
+                    "value": {
+                        "kind": "neutral",
+                        "opacity": 0
+                    }
+                }
+            ],
+            "translucency-specializations": [
+                {
+                    "appearance": "light",
+                    "value": {
+                        "enabled": false,
+                        "value": 0
+                    }
+                },
+                {
+                    "appearance": "dark",
+                    "value": {
+                        "enabled": false,
+                        "value": 0
+                    }
+                }
+            ],
             "layers": [
                 {
                     "glass": false,
@@ -32,11 +75,7 @@
                             "value": 0
                         }
                     ]
-                }
-            ]
-        },
-        {
-            "layers": [
+                },
                 {
                     "glass-specializations": [
                         {
@@ -62,11 +101,7 @@
                             "value": 1
                         }
                     ]
-                }
-            ]
-        },
-        {
-            "layers": [
+                },
                 {
                     "glass": false,
                     "image-name": "logo-dark.png",

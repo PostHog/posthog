@@ -9,7 +9,8 @@ On iOS, the Icon Composer bundles in `assets/` keep the background and hedgehog 
 Default uses the color mark on white. Dark uses the white square logomark on a dark fill.
 Clear and Tinted use the monochrome mark with the system's glass and tint effects. Dev and Preview add
 their labels on a separate layer.
-Keep the color, white, and monochrome marks in separate groups: a hidden monochrome layer can apply its glass effects to other layers in the same group, washing out the Default icon.
+Explicitly disable group translucency, specular highlights, and shadows in Light and Dark appearances so the marks stay solid.
+Omitting these settings restores Icon Composer defaults even when a layer has `glass: false`.
 Preview Default, Dark, Clear Light, Clear Dark, Tinted Light, and Tinted Dark on the iOS Home Screen when changing the icon.
 [Apple's Icon Composer guide](https://developer.apple.com/documentation/xcode/creating-your-app-icon-using-icon-composer)
 
