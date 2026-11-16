@@ -31,9 +31,11 @@ from products.managed_warehouse.backend.models import ManagedWarehouseSourceJob,
 from products.managed_warehouse.backend.temporal import (
     ducklake_register_data_imports_trino as trino_module,
     ducklake_register_data_imports_workflow as registration_module,
+    hoglake_register_data_imports as hoglake_module,
 )
 from products.managed_warehouse.backend.temporal.ducklake_register_data_imports_workflow import (
     ENGINE_DUCKGRES,
+    ENGINE_HOGLAKE,
     ENGINE_TRINO,
     S3_COPY_BATCH_SIZE,
     DuckLakeRegisterDataImportsActivityInputs,
@@ -81,6 +83,7 @@ def _cp_no_rows():
 def _trino_engine_off(monkeypatch):
     monkeypatch.setattr(registration_module, "data_imports_through_trino", lambda organization_id: False)
     monkeypatch.setattr(registration_module, "data_imports_trino_flag", lambda organization_id: False)
+    monkeypatch.setattr(registration_module, "data_imports_through_hoglake", lambda organization_id: False)
 
 
 @pytest.mark.asyncio
@@ -165,7 +168,10 @@ async def test_registration_gate_requires_provisioned_duckgres_server_and_retrie
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
-async def test_prepare_registration_pins_the_import_jobs_prepared_generation(ateam):
+@pytest.mark.parametrize("in_hoglake", [False, True])
+async def test_prepare_registration_pins_the_import_jobs_prepared_generation(ateam, monkeypatch, in_hoglake):
+    monkeypatch.setattr(registration_module, "_registers_in_hoglake", lambda organization_id: in_hoglake)
+    monkeypatch.setattr(registration_module, "get_control_plane_data_path", lambda organization_id: "s3://mw/org-1/")
     credential = await database_sync_to_async(DataWarehouseCredential.objects.create)(
         team=ateam,
         access_key="test_key",
@@ -181,7 +187,7 @@ async def test_prepare_registration_pins_the_import_jobs_prepared_generation(ate
     prepared_queryable_folder = "customers__query_1234567890_abcdef12"
     table = await database_sync_to_async(DataWarehouseTable.objects.create)(
         team=ateam,
-        name="customers",
+        name="dev_postgres_customers",
         format="Delta",
         url_pattern="s3://bucket/path",
         credential=credential,
@@ -208,6 +214,17 @@ async def test_prepare_registration_pins_the_import_jobs_prepared_generation(ate
     assert metadata is not None
     folder_path = await database_sync_to_async(schema.folder_path)()
     assert metadata.prepared_source_uri.endswith(f"/{folder_path}/{prepared_queryable_folder}")
+    if in_hoglake:
+        assert (metadata.engine, metadata.ducklake_schema_name, metadata.ducklake_table_name) == (
+            ENGINE_HOGLAKE,
+            f"team_{ateam.id}",
+            "dev_postgres_customers",
+        )
+        assert metadata.landing_uri == (
+            f"s3://mw/org-1/data/team_{ateam.id}/_ph_imports/dev_postgres_customers/"
+            f"{schema.id}/job-123/1234567890_abcdef12"
+        )
+        return
     assert metadata.landing_uri == (
         f"s3://ducklake-dev/posthog_data_imports_team_{ateam.id}/postgres_customers/"
         f"_imports/{schema.id}/job-123/1234567890_abcdef12"
@@ -1504,8 +1521,12 @@ class _FakeTrino:
         tables_after_failed_publish: list[str] | None = None,
         staging_tables: list[str] | None = None,
         on_statement: Callable[[str], None] | None = None,
+        namespace_present: bool = True,
+        existing_columns: list[list[str]] | None = None,
     ) -> None:
         self.statements: list[str] = []
+        self.namespace_present = namespace_present
+        self.existing_columns = existing_columns or []
         self.row_count = row_count
         self.publish_error = publish_error
         self.tables_after_failed_publish = tables_after_failed_publish or []
@@ -1529,6 +1550,10 @@ class _FakeTrino:
             raise self.publish_error
         if statement.startswith("SELECT count(*)"):
             return [[self.row_count]]
+        if 'information_schema".schemata' in statement:
+            return [[1]] if self.namespace_present else []
+        if 'information_schema".columns' in statement:
+            return self.existing_columns
         if "starts_with(table_name" in statement:
             return [[name] for name in self.staging_tables]
         if "information_schema.tables" in statement:
@@ -2057,17 +2082,19 @@ def test_trino_cleanup_activity_dispatches_on_the_engine(trino_canary: bool, mon
 @pytest.mark.asyncio
 @pytest.mark.parametrize("readiness_state", ["ready", "not_ready", "lookup_failed"])
 @pytest.mark.parametrize(
-    "server_provisioned, flag_enabled, override, probe",
+    "server_provisioned, flag_enabled, override, probe, in_hoglake",
     [
-        (True, True, None, DuckgresOrganizationStatus.UNKNOWN),
-        (False, True, None, DuckgresOrganizationStatus.UNKNOWN),
-        (True, False, True, DuckgresOrganizationStatus.UNKNOWN),
-        (False, False, True, DuckgresOrganizationStatus.UNKNOWN),
-        (True, False, None, DuckgresOrganizationStatus.REFUSED),
+        (True, True, None, DuckgresOrganizationStatus.UNKNOWN, False),
+        (False, True, None, DuckgresOrganizationStatus.UNKNOWN, False),
+        (True, False, True, DuckgresOrganizationStatus.UNKNOWN, False),
+        (False, False, True, DuckgresOrganizationStatus.UNKNOWN, False),
+        (True, False, None, DuckgresOrganizationStatus.REFUSED, False),
+        # A hoglake organization skips the Trino flag and duckgres, even with a duckgres override.
+        (False, False, False, DuckgresOrganizationStatus.UNKNOWN, True),
     ],
 )
 async def test_registration_gate_requires_a_ready_trino_target_and_ignores_the_duckgres_server(
-    monkeypatch, server_provisioned, readiness_state, flag_enabled, override, probe
+    monkeypatch, server_provisioned, readiness_state, flag_enabled, override, probe, in_hoglake
 ) -> None:
     team = MagicMock(organization_id=uuid.UUID(int=9))
     monkeypatch.setattr(registration_module.Team.objects, "only", lambda *fields: MagicMock(get=lambda id: team))
@@ -2076,6 +2103,7 @@ async def test_registration_gate_requires_a_ready_trino_target_and_ignores_the_d
         "products.managed_warehouse.backend.facade.access.background_loading_configured", lambda organization_id: False
     )
     monkeypatch.setattr(registration_module, "data_imports_trino_flag", lambda organization_id: flag_enabled)
+    monkeypatch.setattr(registration_module, "_registers_in_hoglake", lambda organization_id: in_hoglake)
     monkeypatch.setattr(registration_module, "is_dev_mode", lambda: False)
     monkeypatch.setattr(
         registration_module,
@@ -2508,3 +2536,212 @@ def test_parse_inputs_reads_the_engine_override_and_keeps_old_json_valid(
 
     assert inputs.register_through_trino is expected_override
     assert inputs.use_trino_canary is expected_canary
+
+
+HOGLAKE_LANDING = "s3://mw/org-1/data/team_7/_ph_imports/stripe_invoices/schema/job/1234567890_abcdef12/attempt/exec"
+
+
+def _register_in_hoglake(
+    monkeypatch: pytest.MonkeyPatch,
+    fake: _FakeTrino,
+    directory: Path,
+    tables: dict[str, pa.Table],
+    *,
+    landing_uri: str = HOGLAKE_LANDING,
+    hive_partition_columns: tuple[str, ...] = (),
+    should_publish: bool = True,
+) -> trino_module.TrinoRegistrationResult:
+    monkeypatch.setattr(
+        trino_module, "connect_managed_warehouse_trino", MagicMock(return_value=contextlib.nullcontext(fake))
+    )
+    return hoglake_module.register_prepared_files_in_hoglake(
+        organization_id="org",
+        team_id=7,
+        schema_id=uuid.UUID(int=5),
+        table_name="stripe_invoices",
+        attempt_token=ATTEMPT_TOKEN,
+        landing_uri=landing_uri,
+        landing_paths=_write_parquet_files(directory, tables),
+        hive_partition_columns=hive_partition_columns,
+        filesystem=_LocalFilesystem(),
+        should_publish=lambda: should_publish,
+    )
+
+
+@pytest.mark.parametrize(
+    "_name, existing_columns, expected_create",
+    [
+        ("new_table", [], 'CREATE TABLE IF NOT EXISTS "lake"."team_7"."stripe_invoices"'),
+        ("same_columns", [["id", "bigint"], ["amount", "decimal(10,2)"]], None),
+        ("changed_columns", [["id", "varchar"]], 'CREATE OR REPLACE TABLE "lake"."team_7"."stripe_invoices"'),
+    ],
+)
+def test_hoglake_registration_replaces_the_team_table_in_one_add_files(
+    _name: str, existing_columns: list[list[str]], expected_create: str | None, monkeypatch, tmp_path
+) -> None:
+    table = pa.table(
+        {
+            "id": pa.array([1, 2], pa.int64()),
+            "amount": pa.array([decimal.Decimal("1.50")] * 2, pa.decimal128(10, 2)),
+        }
+    )
+    fake = _FakeTrino(existing_columns=existing_columns)
+
+    result = _register_in_hoglake(
+        monkeypatch,
+        fake,
+        tmp_path,
+        {"_ph_partition_key=2026-07/a.parquet": table, "_ph_partition_key=2026-08/b.parquet": table},
+        hive_partition_columns=("_ph_partition_key",),
+    )
+
+    assert result == trino_module.TrinoRegistrationResult(published=True, row_count=4)
+    creates = fake.statements_matching("CREATE ")
+    if expected_create is None:
+        assert creates == []
+    else:
+        # The Delta bucket column exists only in the paths, and add_files takes no Hive partitions.
+        assert creates == [f'{expected_create} ("id" BIGINT, "amount" DECIMAL(10, 2))']
+    assert fake.statements_matching("EXECUTE add_files") == [
+        'ALTER TABLE "lake"."team_7"."stripe_invoices" EXECUTE add_files('
+        f"location => '{HOGLAKE_LANDING}/', import_id => '{ATTEMPT_TOKEN}', allow_missing => true, "
+        "delete_on_failure => true, expected_rows => 4, replace => true)"
+    ]
+    assert fake.statements_matching("publish_as") == []
+
+
+@pytest.mark.parametrize(
+    "_name, landing_uri, hive_partition_columns, namespace_present, should_publish, error, retryable",
+    [
+        ("stale_generation", HOGLAKE_LANDING, (), True, False, None, None),
+        (
+            "landing_outside_the_team_folder",
+            HOGLAKE_LANDING.replace("team_7", "team_8"),
+            (),
+            True,
+            True,
+            "not under",
+            False,
+        ),
+        ("data_only_in_partition_paths", HOGLAKE_LANDING, ("region",), True, True, "Hive partition", False),
+        ("namespace_missing", HOGLAKE_LANDING, (), False, True, "does not exist", True),
+    ],
+)
+def test_hoglake_registration_adds_no_files_when_it_cannot_replace_the_table(
+    _name: str,
+    landing_uri: str,
+    hive_partition_columns: tuple[str, ...],
+    namespace_present: bool,
+    should_publish: bool,
+    error: str | None,
+    retryable: bool | None,
+    monkeypatch,
+    tmp_path,
+) -> None:
+    fake = _FakeTrino(namespace_present=namespace_present)
+    register = partial(
+        _register_in_hoglake,
+        monkeypatch,
+        fake,
+        tmp_path,
+        {"a.parquet": _rows(2)},
+        landing_uri=landing_uri,
+        hive_partition_columns=hive_partition_columns,
+        should_publish=should_publish,
+    )
+
+    if error is None:
+        assert register().published is False
+    else:
+        with pytest.raises(ApplicationError, match=error) as raised:
+            register()
+        assert raised.value.non_retryable is not retryable
+    assert fake.statements_matching("EXECUTE add_files") == []
+
+
+@pytest.mark.parametrize(
+    "name, expected",
+    [
+        ("dev_Stripe_invoices", "dev_stripe_invoices"),
+        ("postgres_public__users", "postgres_public__users"),
+        ("events", None),
+        ("google_sheets_my sheet", None),
+        ("x" * 129, None),
+    ],
+)
+def test_hoglake_import_table_name_keeps_hogql_names_out_of_posthog_tables(name: str, expected: str | None) -> None:
+    if expected is None:
+        with pytest.raises(ApplicationError):
+            hoglake_module.hoglake_import_table_name(name)
+    else:
+        assert hoglake_module.hoglake_import_table_name(name) == expected
+
+
+@pytest.mark.parametrize(
+    "flag_on, backend, expected",
+    [
+        (False, AssertionError("the control plane must not be asked"), False),
+        (True, "hoglake", True),
+        (True, "ducklake", False),
+        (True, registration_module.CPUnavailableError("control plane down"), "retry"),
+    ],
+)
+def test_registers_in_hoglake_asks_for_the_backend_only_with_the_flag(
+    flag_on: bool, backend: Any, expected: bool | str, monkeypatch
+) -> None:
+    monkeypatch.setattr(registration_module, "data_imports_through_hoglake", lambda organization_id: flag_on)
+    lookup = MagicMock(side_effect=backend) if isinstance(backend, Exception) else MagicMock(return_value=backend)
+    monkeypatch.setattr(registration_module, "trino_backend_for", lookup)
+
+    if expected == "retry":
+        with pytest.raises(ApplicationError) as raised:
+            registration_module._registers_in_hoglake("org")
+        assert raised.value.non_retryable is False
+    else:
+        assert registration_module._registers_in_hoglake("org") is expected
+    if not flag_on:
+        lookup.assert_not_called()
+
+
+@pytest.mark.parametrize("published", [True, False])
+def test_hoglake_copy_activity_lands_under_the_attempt_and_deletes_unpublished_files(monkeypatch, published) -> None:
+    base = _activity_inputs()
+    source_prefix = base.metadata.prepared_source_uri.removeprefix("s3://").rstrip("/")
+    source_keys = {f"{source_prefix}/a.parquet"}
+    fake_s3 = _FakeS3(source_keys)
+    register = MagicMock(return_value=trino_module.TrinoRegistrationResult(published=published, row_count=3))
+    monkeypatch.setattr(registration_module, "get_s3_client", lambda: fake_s3)
+    monkeypatch.setattr(registration_module, "register_prepared_files_in_hoglake", register)
+    monkeypatch.setattr(
+        registration_module, "register_prepared_files_through_trino", MagicMock(side_effect=AssertionError)
+    )
+    monkeypatch.setattr(registration_module, "_duckgres_cancel_delay", lambda started: 99.0)
+    monkeypatch.setattr(registration_module, "_get_org_id_for_team", lambda team_id: "org")
+    monkeypatch.setattr(registration_module, "HeartbeaterSync", lambda **kwargs: contextlib.nullcontext())
+    _mock_activity_workload_metrics(monkeypatch)
+    names = registration_module.registration_table_names_from_token("0123456789abcdef0123456789abcdef")
+    inputs = dataclasses.replace(
+        base,
+        metadata=dataclasses.replace(
+            base.metadata,
+            engine=ENGINE_HOGLAKE,
+            source_schema_id=str(uuid.UUID(int=5)),
+            landing_uri="s3://mw/org-1/data/team_1/_ph_imports/stripe_invoices/schema/job",
+            ducklake_schema_name="team_1",
+            ducklake_table_name="stripe_invoices",
+        ),
+        registration_table_names=names,
+    )
+
+    assert copy_and_register_ducklake_data_imports_activity(inputs) is published
+
+    kwargs = register.call_args.kwargs
+    assert kwargs["attempt_token"] == "0123456789abcdef0123456789abcdef"
+    assert re.fullmatch(
+        r"s3://mw/org-1/data/team_1/_ph_imports/stripe_invoices/schema/job/1234567890_abcdef12/"
+        r"0123456789abcdef0123456789abcdef/[0-9a-f]{16}",
+        kwargs["landing_uri"],
+    )
+    assert kwargs["table_name"] == "stripe_invoices"
+    # An unpublished generation's files are referenced by no table, so they are deleted.
+    assert (fake_s3.keys == source_keys) is not published

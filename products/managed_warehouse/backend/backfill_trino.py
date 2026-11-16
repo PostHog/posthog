@@ -38,6 +38,7 @@ from products.managed_warehouse.backend.facade.feature_flags import (
     DATA_IMPORTS_TRINO_REGISTRATION_FLAG,
     DUCKLAKE_TRINO_REGISTRATION_FLAG,
     HOGLAKE_BACKFILL_REGISTRATION_FLAG,
+    HOGLAKE_DATA_IMPORTS_REGISTRATION_FLAG,
 )
 from products.managed_warehouse.backend.trino_connection import connect_managed_warehouse_trino
 from products.managed_warehouse.backend.trino_execution import is_transient_trino_error
@@ -105,6 +106,10 @@ def backfills_through_trino(organization_id: str) -> bool:
 
 def backfills_through_hoglake(organization_id: str) -> bool:
     return _organization_flag_enabled(HOGLAKE_BACKFILL_REGISTRATION_FLAG, organization_id)
+
+
+def data_imports_through_hoglake(organization_id: str) -> bool:
+    return _organization_flag_enabled(HOGLAKE_DATA_IMPORTS_REGISTRATION_FLAG, organization_id)
 
 
 def data_imports_through_trino(organization_id: str) -> bool:
