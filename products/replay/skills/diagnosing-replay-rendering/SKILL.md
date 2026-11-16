@@ -3,6 +3,8 @@ name: diagnosing-replay-rendering
 description: >
   Explains why a session recording plays back wrong by reading the recording's
   exported rrweb JSON (`*-ph-recording.json`) and its config events.
+  Applies when that export, or the `session_recording_data` context item that
+  PostHog AI adds, is attached. With neither, use investigating-replay.
   Use when a user debugs one replay and reports a black, white, or grey screen,
   a blank area, missing styles or unstyled pages, a blank canvas, map, WebGL, or
   WebGPU view, an iframe or embedded widget that does not show, a video that is
@@ -46,6 +48,8 @@ That is the most useful sentence in your answer.
 Never print the export whole.
 If no export file is attached (it is over 30 MB, or the chat cannot take files), say that DOM-level checks are not possible.
 Then work from the timeline and SQL, and the console logs tool if you have it.
+If the `session_recording_data` item is missing too, use the `investigating-replay` skill.
+An agent cannot create the export with MCP tools, so ask the user to export the recording from the replay player and attach it.
 
 ## Workflow
 
@@ -125,4 +129,4 @@ The recording can hold personal data in text, URLs and inputs.
 
 - **`diagnosing-replay-capture-gaps`**: parts of the session were never recorded, or the recording starts late or stops
 - **`diagnosing-missing-recordings`**: the session has no recording at all
-- **`investigating-replay`**: what the user did in the session, errors, and linked issues
+- **`investigating-replay`**: what the user did in the session, errors, and linked issues. Also the fallback when no export is attached

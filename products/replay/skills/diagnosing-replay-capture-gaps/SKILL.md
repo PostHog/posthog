@@ -4,6 +4,8 @@ description: >
   Explains why part of one session recording was not captured, by reading the
   exported rrweb JSON (`*-ph-recording.json`) and the SDK lifecycle and config
   events inside it.
+  Applies when that export, or the `session_recording_data` context item that
+  PostHog AI adds, is attached. With neither, use investigating-replay.
   Use when a user debugs one replay and asks why it starts late, stops early,
   only shows the first or landing page, stops after cookie consent or a page
   navigation, has blank stretches or gaps, is shorter than the real visit, is
@@ -34,6 +36,10 @@ Name which one it is, and back it with timestamps from this recording.
 | `session_recording_data` context item        | A compact timeline: page loads, console, network, custom events. Use it when no file is attached.          |
 | `posthog:execute-sql`                        | The session's events and SDK diagnostic properties. Shows pages the user visited that the recording lacks. |
 | `posthog:session-recording-get`              | Metadata: start and end time, duration, active seconds, `snapshot_source`.                                 |
+
+The recipes need the export, or at least the `session_recording_data` item.
+An agent cannot create either with MCP tools. The user exports the file from the replay player and attaches it.
+With neither, use the `investigating-replay` skill, and tell the user that attaching the export makes this diagnosis possible.
 
 ## Workflow
 
@@ -144,4 +150,4 @@ Do not quote personal data from the recording (URLs with tokens, emails, input v
 
 - **`diagnosing-missing-recordings`**: a session has no recording, or recordings are missing project-wide
 - **`diagnosing-replay-rendering`**: the recording was captured but plays back wrong
-- **`investigating-replay`**: what the user did in the session
+- **`investigating-replay`**: what the user did in the session, and the fallback when no export is attached
