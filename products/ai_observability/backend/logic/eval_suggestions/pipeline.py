@@ -58,7 +58,6 @@ logger = structlog.get_logger(__name__)
 WINDOW = timedelta(days=7)
 # Traces younger than this may still be receiving events, so the window stops short of now.
 SETTLE = timedelta(minutes=30)
-# Below this share of sampled traces with a model answer, the team has not captured enough to suggest anything.
 MIN_CONTENT_SHARE = 0.25
 # Dedupe asks the model about each hand-written evaluation, so a team with many pays for this many at most.
 MAX_DEDUPED_EVALS = 50
