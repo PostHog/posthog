@@ -86,6 +86,10 @@ class TransactionalEmailLogEntrySerializer(serializers.Serializer):
         allow_null=True, help_text="The transactional email template. Null when it no longer exists."
     )
     template_name = serializers.CharField(help_text="The template's name. Empty when it was deleted.")
+    code_email_id = serializers.CharField(
+        allow_null=True,
+        help_text="The email sent from code under a `template_key`, for a send that has no template. Null otherwise.",
+    )
     sending_domain = serializers.CharField(help_text="The domain the email was sent from. Empty before it was sent.")
     opened = serializers.BooleanField(help_text="Whether the recipient opened the email.")
     clicked = serializers.BooleanField(help_text="Whether the recipient clicked a link in the email.")
@@ -130,6 +134,16 @@ class TransactionalEmailStatsRowSerializer(serializers.Serializer):
     key = serializers.CharField(help_text="The template ID or the sending domain.")
     label = serializers.CharField(  # type: ignore[assignment]
         help_text="The template name or the sending domain. Empty for a deleted template."
+    )
+    template_id = serializers.CharField(
+        allow_null=True,
+        help_text="The template that sent this row's emails. Null for a deleted template, emails sent from code, "
+        "and a sending domain.",
+    )
+    code_email_id = serializers.CharField(
+        allow_null=True,
+        help_text="The email sent from code under a `template_key`, for a row of sends that have no template. "
+        "Null otherwise.",
     )
     sent = serializers.IntegerField(help_text="Emails that reached the email provider.")
     delivered = serializers.IntegerField(help_text="Emails the recipient's mail server accepted.")
@@ -205,6 +219,7 @@ def _entry_data(entry: TransactionalEmailLogEntry) -> dict[str, Any]:
         "workflow_id": entry.workflow_id,
         "template_id": entry.template_id,
         "template_name": entry.template_name,
+        "code_email_id": entry.code_email_id,
         "sending_domain": entry.sending_domain,
         "opened": entry.opened,
         "clicked": entry.clicked,

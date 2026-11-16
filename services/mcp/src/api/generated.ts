@@ -123829,6 +123829,11 @@ export namespace Schemas {
       template_id: string | null;
       /** The template's name. Empty when it was deleted. */
       template_name: string;
+      /**
+         * The email sent from code under a `template_key`, for a send that has no template. Null otherwise.
+         * @nullable
+         */
+      code_email_id: string | null;
       /** The domain the email was sent from. Empty before it was sent. */
       sending_domain: string;
       /** Whether the recipient opened the email. */
@@ -123879,6 +123884,11 @@ export namespace Schemas {
       template_id: string | null;
       /** The template's name. Empty when it was deleted. */
       template_name: string;
+      /**
+         * The email sent from code under a `template_key`, for a send that has no template. Null otherwise.
+         * @nullable
+         */
+      code_email_id: string | null;
       /** The domain the email was sent from. Empty before it was sent. */
       sending_domain: string;
       /** Whether the recipient opened the email. */
@@ -123913,6 +123923,16 @@ export namespace Schemas {
       key: string;
       /** The template name or the sending domain. Empty for a deleted template. */
       label: string;
+      /**
+         * The template that sent this row's emails. Null for a deleted template, emails sent from code, and a sending domain.
+         * @nullable
+         */
+      template_id: string | null;
+      /**
+         * The email sent from code under a `template_key`, for a row of sends that have no template. Null otherwise.
+         * @nullable
+         */
+      code_email_id: string | null;
       /** Emails that reached the email provider. */
       sent: number;
       /** Emails the recipient's mail server accepted. */
