@@ -2539,6 +2539,9 @@ def test_parse_inputs_reads_the_engine_override_and_keeps_old_json_valid(
 
 
 HOGLAKE_LANDING = "s3://mw/org-1/data/team_7/_ph_imports/stripe_invoices/schema/job/1234567890_abcdef12/attempt/exec"
+HOGLAKE_TABLE = '"lake"."team_7"."stripe_invoices"'
+HOGLAKE_STAGING = '"lake"."team_7"."__ph_register_abc"'
+HOGLAKE_PREVIOUS = '"lake"."team_7"."__ph_previous_abc"'
 
 
 def _register_in_hoglake(
@@ -2559,6 +2562,8 @@ def _register_in_hoglake(
         team_id=7,
         schema_id=uuid.UUID(int=5),
         table_name="stripe_invoices",
+        staging_name="__ph_register_abc",
+        previous_name="__ph_previous_abc",
         attempt_token=ATTEMPT_TOKEN,
         landing_uri=landing_uri,
         landing_paths=_write_parquet_files(directory, tables),
@@ -2568,16 +2573,46 @@ def _register_in_hoglake(
     )
 
 
+def _hoglake_add_files(table: str, *, replace: bool) -> str:
+    return (
+        f"ALTER TABLE {table} EXECUTE add_files("
+        f"location => '{HOGLAKE_LANDING}/', import_id => '{ATTEMPT_TOKEN}', allow_missing => true, "
+        "delete_on_failure => true, expected_rows => 4" + (", replace => true)" if replace else ")")
+    )
+
+
 @pytest.mark.parametrize(
-    "_name, existing_columns, expected_create",
+    "_name, existing_columns, expected_statements",
     [
-        ("new_table", [], 'CREATE TABLE IF NOT EXISTS "lake"."team_7"."stripe_invoices"'),
-        ("same_columns", [["id", "bigint"], ["amount", "decimal(10,2)"]], None),
-        ("changed_columns", [["id", "varchar"]], 'CREATE OR REPLACE TABLE "lake"."team_7"."stripe_invoices"'),
+        (
+            "new_table",
+            [],
+            [
+                f'CREATE TABLE IF NOT EXISTS {HOGLAKE_TABLE} ("id" BIGINT, "amount" DECIMAL(10, 2))',
+                _hoglake_add_files(HOGLAKE_TABLE, replace=True),
+            ],
+        ),
+        (
+            "same_columns",
+            [["id", "bigint"], ["amount", "decimal(10,2)"]],
+            [_hoglake_add_files(HOGLAKE_TABLE, replace=True)],
+        ),
+        (
+            # The live table keeps its rows until the staging table, already loaded, is renamed into its place.
+            "changed_columns",
+            [["id", "varchar"]],
+            [
+                f'CREATE TABLE IF NOT EXISTS {HOGLAKE_STAGING} ("id" BIGINT, "amount" DECIMAL(10, 2))',
+                _hoglake_add_files(HOGLAKE_STAGING, replace=False),
+                f"ALTER TABLE {HOGLAKE_TABLE} RENAME TO {HOGLAKE_PREVIOUS}",
+                f"ALTER TABLE {HOGLAKE_STAGING} RENAME TO {HOGLAKE_TABLE}",
+                f"DROP TABLE IF EXISTS {HOGLAKE_PREVIOUS}",
+            ],
+        ),
     ],
 )
-def test_hoglake_registration_replaces_the_team_table_in_one_add_files(
-    _name: str, existing_columns: list[list[str]], expected_create: str | None, monkeypatch, tmp_path
+def test_hoglake_registration_replaces_the_team_table_without_emptying_it(
+    _name: str, existing_columns: list[list[str]], expected_statements: list[str], monkeypatch, tmp_path
 ) -> None:
     table = pa.table(
         {
@@ -2596,18 +2631,59 @@ def test_hoglake_registration_replaces_the_team_table_in_one_add_files(
     )
 
     assert result == trino_module.TrinoRegistrationResult(published=True, row_count=4)
-    creates = fake.statements_matching("CREATE ")
-    if expected_create is None:
-        assert creates == []
-    else:
-        # The Delta bucket column exists only in the paths, and add_files takes no Hive partitions.
-        assert creates == [f'{expected_create} ("id" BIGINT, "amount" DECIMAL(10, 2))']
-    assert fake.statements_matching("EXECUTE add_files") == [
-        'ALTER TABLE "lake"."team_7"."stripe_invoices" EXECUTE add_files('
-        f"location => '{HOGLAKE_LANDING}/', import_id => '{ATTEMPT_TOKEN}', allow_missing => true, "
-        "delete_on_failure => true, expected_rows => 4, replace => true)"
-    ]
-    assert fake.statements_matching("publish_as") == []
+    # The Delta bucket column exists only in the paths, and add_files takes no Hive partitions.
+    assert [
+        statement for statement in fake.statements if statement.startswith(("CREATE", "ALTER", "DROP"))
+    ] == expected_statements
+
+
+@pytest.mark.parametrize(
+    "_name, present, expected_statements",
+    [
+        (
+            "failed_before_the_swap",
+            ["stripe_invoices"],
+            [f"DROP TABLE IF EXISTS {HOGLAKE_STAGING}", f"DROP TABLE IF EXISTS {HOGLAKE_PREVIOUS}"],
+        ),
+        (
+            "stopped_between_the_renames",
+            ["__ph_previous_abc"],
+            [
+                f"ALTER TABLE {HOGLAKE_PREVIOUS} RENAME TO {HOGLAKE_TABLE}",
+                f"DROP TABLE IF EXISTS {HOGLAKE_STAGING}",
+                f"DROP TABLE IF EXISTS {HOGLAKE_PREVIOUS}",
+            ],
+        ),
+        (
+            "stopped_before_dropping_the_previous_table",
+            ["stripe_invoices", "__ph_previous_abc"],
+            [f"DROP TABLE IF EXISTS {HOGLAKE_STAGING}", f"DROP TABLE IF EXISTS {HOGLAKE_PREVIOUS}"],
+        ),
+    ],
+)
+def test_hoglake_cleanup_restores_the_live_table_and_drops_the_rest(
+    _name: str, present: list[str], expected_statements: list[str], monkeypatch
+) -> None:
+    fake = _FakeTrino(tables_after_failed_publish=present)
+    monkeypatch.setattr(
+        trino_module, "connect_managed_warehouse_trino", MagicMock(return_value=contextlib.nullcontext(fake))
+    )
+    monkeypatch.setattr(registration_module, "_get_org_id_for_team", lambda team_id: "org")
+    monkeypatch.setattr(registration_module, "_connect_to_duckgres_for_team", MagicMock(side_effect=AssertionError))
+
+    registration_module.cleanup_ducklake_registration_tables_activity(
+        registration_module.DuckLakeRegisterCleanupInputs(
+            team_id=7,
+            schema_name="team_7",
+            table_names=["__ph_register_abc", "__ph_previous_abc"],
+            engine=ENGINE_HOGLAKE,
+            table_name="stripe_invoices",
+        )
+    )
+
+    assert [
+        statement for statement in fake.statements if statement.startswith(("ALTER", "DROP"))
+    ] == expected_statements
 
 
 @pytest.mark.parametrize(
@@ -2661,8 +2737,7 @@ def test_hoglake_registration_leaves_the_table_alone_when_it_cannot_replace_it(
         with pytest.raises(ApplicationError, match=error) as raised:
             register()
         assert raised.value.non_retryable is not retryable
-    assert fake.statements_matching("CREATE ") == []
-    assert fake.statements_matching("EXECUTE add_files") == []
+    assert [statement for statement in fake.statements if statement.startswith(("CREATE", "ALTER", "DROP"))] == []
 
 
 @pytest.mark.parametrize(
@@ -2748,6 +2823,10 @@ def test_hoglake_copy_activity_lands_under_the_attempt_and_deletes_unpublished_f
         r"0123456789abcdef0123456789abcdef/[0-9a-f]{16}",
         kwargs["landing_uri"],
     )
-    assert kwargs["table_name"] == "stripe_invoices"
+    assert (kwargs["table_name"], kwargs["staging_name"], kwargs["previous_name"]) == (
+        "stripe_invoices",
+        names.shadow_name,
+        names.previous_name,
+    )
     # An unpublished generation's files are referenced by no table, so they are deleted.
     assert (fake_s3.keys == source_keys) is not published

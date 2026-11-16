@@ -1,8 +1,11 @@
 """Register a prepared data import generation in a hoglake catalog through the organization's Trino catalog.
 
-The table lives in the team's namespace, `team_<id>`, under the name PostHog gives the import in HogQL. One `add_files`
-call with `replace => true` ends the table's files and adds the generation's files in one hoglake commit, so readers see
-the old rows or the new rows, never a mix. There is no shadow table, no `publish_as` and nothing to sweep.
+The table lives in the team's namespace, `team_<id>`, under the name PostHog gives the import in HogQL. When the
+generation has the table's columns, one `add_files` call with `replace => true` ends the table's files and adds the
+generation's files in one hoglake commit, so readers see the old rows or the new rows, never a mix.
+
+When the columns differ, the generation loads into a staging table first, and two renames swap it in. The live table
+keeps its rows until the swap, and the workflow's cleanup puts it back if a failure lands between the two renames.
 
 This module must not import the workflow module: the workflow imports it.
 """
@@ -118,6 +121,8 @@ def register_prepared_files_in_hoglake(
     team_id: int,
     schema_id: UUID,
     table_name: str,
+    staging_name: str,
+    previous_name: str,
     attempt_token: str,
     landing_uri: str,
     landing_paths: Sequence[str],
@@ -131,8 +136,8 @@ def register_prepared_files_in_hoglake(
     """Replace `team_<id>.<table_name>` with the files under `landing_uri` in one hoglake commit.
 
     The columns and the expected row count come from the Parquet footers. A table whose columns differ from the
-    generation is recreated first, which leaves it empty until the add_files commit. `attempt_token` is the import id,
-    so a repeat of a commit whose response was lost adds nothing.
+    generation is swapped for `staging_name`, through `previous_name`. `attempt_token` is the import id, so a repeat of
+    a commit whose response was lost adds nothing.
     """
     schema_name = hoglake_schema(team_id)
     marker = f"/data/{schema_name}/_ph_imports/"
@@ -166,20 +171,22 @@ def register_prepared_files_in_hoglake(
         canary=canary,
     ) as statements:
         _require_namespace(statements, schema_name)
-        # CREATE OR REPLACE empties the live table, so a stale generation must stop before it.
         if not should_publish():
             return TrinoRegistrationResult(published=False, row_count=0)
-        qualified = statements.qualified(schema_name, table_name)
         existing = _existing_columns(statements, schema_name, table_name)
-        if not existing:
-            statements.run(f"CREATE TABLE IF NOT EXISTS {qualified} ({_column_definitions(table_schema)})")
-        elif not _columns_match(existing, table_schema):
+        swap = bool(existing) and not _columns_match(existing, table_schema)
+        target = staging_name if swap else table_name
+        if swap:
             LOGGER.warning(
-                "Recreating the hoglake import table, because the generation's columns differ",
+                "Loading the hoglake import into a staging table, because the generation's columns differ",
                 table=table_name,
                 existing=existing,
             )
-            statements.run(f"CREATE OR REPLACE TABLE {qualified} ({_column_definitions(table_schema)})")
+        if swap or not existing:
+            statements.run(
+                f"CREATE TABLE IF NOT EXISTS {statements.qualified(schema_name, target)} "
+                f"({_column_definitions(table_schema)})"
+            )
 
         if before_add_files is not None:
             before_add_files()
@@ -189,14 +196,63 @@ def register_prepared_files_in_hoglake(
             "allow_missing => true",
             "delete_on_failure => true",
             f"expected_rows => {int(expected_rows)}",
-            "replace => true",
         ]
-        rows = statements.run(f"ALTER TABLE {qualified} EXECUTE add_files({', '.join(options)})")
+        if not swap:
+            options.append("replace => true")
+        rows = statements.run(
+            f"ALTER TABLE {statements.qualified(schema_name, target)} EXECUTE add_files({', '.join(options)})"
+        )
         added = sum(int(row[1]) for row in rows if len(row) > 1 and row[0] == "added_data_files")
+        if swap:
+            _rename(statements, schema_name, table_name, previous_name)
+            _rename(statements, schema_name, staging_name, table_name)
+            statements.run(f"DROP TABLE IF EXISTS {statements.qualified(schema_name, previous_name)}")
         LOGGER.info(
             "Replaced the hoglake import table",
             table=f"{schema_name}.{table_name}",
+            swapped=swap,
             added_data_files=added,
             expected_rows=expected_rows,
         )
         return TrinoRegistrationResult(published=True, row_count=expected_rows)
+
+
+def _rename(statements: _TrinoStatements, schema_name: str, source: str, target: str) -> None:
+    statement = (
+        f"ALTER TABLE {statements.qualified(schema_name, source)} RENAME TO {statements.qualified(schema_name, target)}"
+    )
+    try:
+        statements.execute(statement)
+    except Exception:
+        # A rename is not idempotent, so a lost response is resolved from the tables that exist afterwards. The check
+        # is not cancellable, because a deadline cancel can be what interrupted the rename.
+        present = statements.tables_present(schema_name, [source, target], cancellable=False)
+        if source not in present and target in present:
+            return
+        raise
+
+
+def cleanup_hoglake_registration_tables(
+    *,
+    organization_id: str,
+    team_id: int,
+    schema_name: str,
+    table_name: str,
+    staging_name: str,
+    previous_name: str,
+    cancel_after_seconds: float | None,
+    canary: bool = False,
+) -> None:
+    """Put the live table back when a swap stopped between its renames, then drop the staging and previous tables."""
+    with _registration_statements(
+        organization_id,
+        principal=_principal(team_id, "cleanup"),
+        cancel_after_seconds=cancel_after_seconds,
+        canary=canary,
+    ) as statements:
+        present = statements.tables_present(schema_name, [table_name, previous_name])
+        if table_name not in present and previous_name in present:
+            LOGGER.warning("Restoring the hoglake import table that a failed swap renamed away", table=table_name)
+            _rename(statements, schema_name, previous_name, table_name)
+        for name in (staging_name, previous_name):
+            statements.run(f"DROP TABLE IF EXISTS {statements.qualified(schema_name, name)}")

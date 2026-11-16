@@ -72,6 +72,7 @@ from products.managed_warehouse.backend.temporal.ducklake_register_data_imports_
     staging_table_name,
 )
 from products.managed_warehouse.backend.temporal.hoglake_register_data_imports import (
+    cleanup_hoglake_registration_tables,
     hoglake_import_table_name,
     register_prepared_files_in_hoglake,
 )
@@ -279,6 +280,8 @@ class DuckLakeRegisterCleanupInputs:
     table_names: list[str]
     engine: str = ENGINE_DUCKGRES
     trino_canary: bool = False
+    # The live table, which a hoglake cleanup restores when a swap stopped between its renames.
+    table_name: str | None = None
 
 
 class _StalePreparedGenerationError(Exception):
@@ -700,6 +703,8 @@ def _copy_and_register_in_hoglake(
                     team_id=inputs.team_id,
                     schema_id=uuid.UUID(schema_id),
                     table_name=metadata.ducklake_table_name,
+                    staging_name=registration_names.shadow_name,
+                    previous_name=registration_names.previous_name,
                     attempt_token=attempt_token,
                     landing_uri=landing_uri,
                     landing_paths=landing_paths,
@@ -1401,7 +1406,21 @@ def cleanup_ducklake_registration_tables_activity(inputs: DuckLakeRegisterCleanu
         close_old_connections()
 
     if inputs.engine == ENGINE_HOGLAKE:
-        # A hoglake registration replaces the table in one commit and creates no staging tables.
+        if inputs.table_name is None or len(inputs.table_names) != 2:
+            raise ApplicationError(
+                "A hoglake cleanup needs the live, staging and previous table names", non_retryable=True
+            )
+        staging_name, previous_name = inputs.table_names
+        cleanup_hoglake_registration_tables(
+            organization_id=str(_get_org_id_for_team(inputs.team_id)),
+            team_id=inputs.team_id,
+            schema_name=inputs.schema_name,
+            table_name=inputs.table_name,
+            staging_name=staging_name,
+            previous_name=previous_name,
+            cancel_after_seconds=_duckgres_cancel_delay(activity_started_monotonic),
+            canary=inputs.trino_canary,
+        )
         return
 
     if inputs.engine == ENGINE_TRINO:
@@ -1554,6 +1573,7 @@ class DuckLakeRegisterDataImportsWorkflow(PostHogWorkflow):
                                 ],
                                 engine=metadata.engine,
                                 trino_canary=metadata.trino_canary,
+                                table_name=metadata.ducklake_table_name,
                             ),
                             start_to_close_timeout=dt.timedelta(minutes=2),
                             # Patient on purpose: the drops are idempotent and a leaked
