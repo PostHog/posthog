@@ -5314,6 +5314,55 @@ describe('Cyclotron V2', () => {
                 expect(await janitorResets(id)).toBe(1)
             }, 10_000)
 
+            it('gives up a retry at the heartbeat limit even when an earlier statement of the retry used up part of it', async () => {
+                const [id] = await manager.bulkCreateJobs([{ teamId: 1, queueName: 'email' }])
+                const job = await dequeueOnDropTestPool(
+                    { releaseWriteRetry: true, releaseWriteHeartbeatLimitMs: 1000 },
+                    'email'
+                )
+                const jobHolder = await assertPool.connect()
+                await jobHolder.query('BEGIN')
+                await jobHolder.query(...jobRow(id))
+                let startedAt = 0
+                let settledAt = 0
+
+                try {
+                    const outcome = await interruptReleaseWrite(
+                        async () => {
+                            startedAt = Date.now()
+                            try {
+                                await job.defer({ scheduledAt: new Date() })
+                            } finally {
+                                settledAt = Date.now()
+                            }
+                        },
+                        {
+                            lock: ['SELECT counter FROM cyclotron_email_team_seq WHERE team_id = $1 FOR UPDATE', [1]],
+                            beforeRetry: async (holder) => {
+                                await waitForExpect(
+                                    async () => expect(await backendsWaitingOnLocks()).toBe(1),
+                                    2000,
+                                    10
+                                )
+                                // The retry's slot reservation spends most of the budget waiting, so its
+                                // write starts with little left and must not get a fresh one.
+                                await new Promise((resolve) => setTimeout(resolve, 600))
+                                await holder.query('ROLLBACK')
+                            },
+                        }
+                    )
+
+                    expect({ outcome, withinLimit: settledAt - startedAt < 1300 }).toEqual({
+                        outcome: 'rejected',
+                        withinLimit: true,
+                    })
+                } finally {
+                    await jobHolder.query('ROLLBACK')
+                    jobHolder.release()
+                }
+                expect(await janitorResets(id)).toBe(1)
+            }, 10_000)
+
             it.each([
                 ['the retry switch is off', 'pg_terminate_backend' as const, { releaseWriteRetry: false }, 1],
                 [

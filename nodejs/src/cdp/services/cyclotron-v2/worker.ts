@@ -1,5 +1,5 @@
 import { DateTime } from 'luxon'
-import { Client, Pool, PoolClient } from 'pg'
+import { Client, Pool, PoolClient, QueryResult, QueryResultRow } from 'pg'
 import { Counter } from 'prom-client'
 import { v7 as uuidv7 } from 'uuid'
 
@@ -13,7 +13,7 @@ import {
     LEGACY_DEQUEUE_JOBS_SQL,
     LEGACY_FAIR_DEQUEUE_JOBS_SQL,
 } from './due-rows-sql'
-import { allocateEmailDequeueSeqs, batchEmailDequeueSeqs, timeEnqueuePhase } from './manager'
+import { SqlRunner, allocateEmailDequeueSeqs, batchEmailDequeueSeqs, timeEnqueuePhase } from './manager'
 import { createCyclotronPool } from './pg-pool'
 import {
     CYCLOTRON_COUNTER_MAX,
@@ -85,7 +85,7 @@ const CONNECTION_LOST_SQLSTATES = new Set(['57P01', '57P02', '57P03'])
 const CONNECTION_LOST_ERRNOS = new Set(['ECONNRESET', 'ECONNREFUSED', 'EPIPE'])
 const NODE_PG_CONNECTION_LOST_MESSAGE = /^Connection terminated|is not queryable$/
 
-type ReleaseDb = Pool | Client
+type ReleaseDb = SqlRunner
 type ReleaseAttempt = (db: ReleaseDb) => Promise<{ rowCount: number | null }>
 
 class ReleaseRetrySlots {
@@ -582,21 +582,28 @@ export class CyclotronV2Worker {
                     `Release write retry for job ${row.id} found no free connection before the heartbeat limit`
                 )
             }
-            const remainingMs = Math.max(1, Math.ceil(deadline - Date.now()))
-            const client = new Client({
-                connectionString: dbUrl,
-                connectionTimeoutMillis: remainingMs,
-                query_timeout: remainingMs,
-            })
+            const msLeft = (): number => Math.max(1, Math.ceil(deadline - Date.now()))
+            const client = new Client({ connectionString: dbUrl, connectionTimeoutMillis: msLeft() })
             client.on('error', () => undefined)
+            const run = <R extends QueryResultRow>(text: string, values?: unknown[]): Promise<QueryResult<R>> => {
+                const query = { text, values, query_timeout: msLeft() }
+                return client.query<R>(query)
+            }
+            // Every statement gets only what is left of the heartbeat limit, so the
+            // retry as a whole ends by then. PgBouncer rejects statement_timeout as a
+            // startup parameter, and a session SET would leak to the next client of
+            // its server connection, so it is set per transaction.
+            const bounded: SqlRunner = {
+                query: async <R extends QueryResultRow>(text: string, values?: unknown[]) => {
+                    await run(`SET LOCAL statement_timeout = ${msLeft()}`)
+                    return run<R>(text, values)
+                },
+            }
             try {
                 await client.connect()
-                // PgBouncer rejects statement_timeout as a startup parameter, and a
-                // session SET would leak to the next client of its server connection.
-                await client.query('BEGIN')
-                await client.query(`SET LOCAL statement_timeout = ${remainingMs}`)
-                const result = await attempt(client)
-                await client.query('COMMIT')
+                await run('BEGIN')
+                const result = await attempt(bounded)
+                await bounded.query('COMMIT')
                 return result
             } finally {
                 void client.end().catch(() => undefined)
