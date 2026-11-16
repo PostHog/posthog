@@ -79,7 +79,7 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv = process.env)
 function runDirsOf(runs: string[], env: NodeJS.ProcessEnv): string[] {
     const stateDir = defaultStateDir(env)
     if (runs.length > 0) {
-        return runs.map((run) => (run.includes(path.sep) ? path.resolve(run) : path.join(stateDir, run)))
+        return runs.map((run) => (RunId.safeParse(run).success ? path.join(stateDir, run) : path.resolve(run)))
     }
     if (!existsSync(stateDir)) {
         return []

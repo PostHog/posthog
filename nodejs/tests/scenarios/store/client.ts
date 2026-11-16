@@ -52,6 +52,7 @@ async function post(report: StoreReport, { url, token }: StoreTarget): Promise<S
         timeoutMs: REQUEST_TIMEOUT_MS,
     })
     if (response.status === 200 || response.status === 201) {
+        await response.dump()
         return { stored: true }
     }
     const body = (await response.text()).slice(0, PROBLEM_BODY_CHARS)

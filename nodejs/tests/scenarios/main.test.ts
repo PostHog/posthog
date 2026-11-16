@@ -280,20 +280,28 @@ describe('publish', () => {
         rmSync(cacheHome, { recursive: true, force: true })
     })
 
-    it('stores a run saved before runs named their adapters as a Workflows run, by id or by path', async () => {
-        const [byId, byPath] = [randomUUID(), randomUUID()]
+    it('stores a run saved before runs named their adapters as a Workflows run, by id, by path or by a relative path', async () => {
+        const [byId, byPath, byRelativePath] = [randomUUID(), randomUUID(), randomUUID()]
         saveRun(byId, { host: 'box-that-ran-it', event: eventOf(byId) })
         saveRun(byPath, { event: eventOf(byPath) })
+        mkdirSync(path.join(cacheHome, 'copied-run'))
+        writeFileSync(
+            path.join(cacheHome, 'copied-run', 'scorecard.json'),
+            JSON.stringify({ event: eventOf(byRelativePath) })
+        )
+        const cwd = process.cwd()
+        process.chdir(cacheHome)
 
-        const exitCode = await main(['publish', byId, runDirOf(byPath)], {
+        const exitCode = await main(['publish', byId, runDirOf(byPath), 'copied-run'], {
             XDG_CACHE_HOME: cacheHome,
             ...store.envOf(cacheHome),
-        })
+        }).finally(() => process.chdir(cwd))
 
         expect(exitCode).toBe(EXIT_CODE.passed)
         expect(await store.read(byId)).toMatchObject({ adapters: ['workflows'], owners: [], host: 'box-that-ran-it' })
         expect(await store.read(byPath)).toMatchObject({ scorecard: { ...eventOf(byPath), adapters: ['workflows'] } })
-        expect(printed(stdout)).toBe(`${byId}: stored\n${byPath}: stored\n`)
+        expect(await store.read(byRelativePath)).toMatchObject({ runId: byRelativePath })
+        expect(printed(stdout)).toBe(`${byId}: stored\n${byPath}: stored\ncopied-run: stored\n`)
     })
 
     it('skips run directories without a scorecard under --all, and fails on one named outright', async () => {
