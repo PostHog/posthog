@@ -153,16 +153,13 @@ class TestBuildRasterizationInput:
         assert decoded["op"] == "read"
 
     @override_settings(RECORDING_API_JWT_SECRET="")
-    def test_no_token_when_jwt_disabled(self):
-        # Before the JWT scheme is rolled out, the token is empty and the rasterizer relays the
-        # legacy shared secret instead.
+    def test_fails_without_signing_secret(self):
         asset = _make_asset(pk=42, team_id=7, export_context={"session_recording_id": "abc123"})
         patches, _ = _patches(asset)
         with patches[0], patches[1], patches[2], patches[3], patches[4]:
-            result = build_rasterization_input(42)
-
-        assert result.activity_input is not None
-        assert result.activity_input.recording_api_token == ""
+            with pytest.raises(ApplicationError, match="RECORDING_API_JWT_SECRET") as excinfo:
+                build_rasterization_input(42)
+        assert excinfo.value.non_retryable
 
     def test_defaults(self):
         asset = _make_asset(pk=10, team_id=3, export_context={"session_recording_id": "sess-1"})

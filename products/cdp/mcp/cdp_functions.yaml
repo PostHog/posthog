@@ -26,6 +26,14 @@ tools:
             cdp-functions-invocations-create, then enable with cdp-functions-partial-update once the config looks right.
             (Other types, like internal_destination below, create as sent.)
 
+            Email tools: before you create a destination with template_id template-customerio, template-braze,
+            template-klaviyo-user, template-klaviyo-event, template-brevo, template-loops, template-loops-event,
+            template-sendgrid, template-mailgun-send-email, template-mailjet-create-contact,
+            template-mailjet-update-contact-list, template-activecampaign, template-engage-so, template-userlist,
+            template-beehiiv, template-intercom, template-intercom-event, template-onesignal or template-knock, check
+            whether the workflows-email-drafts-create tool is available. If it is, follow its description first. If it
+            is not, create the destination as asked.
+
             Recipe — deliver an insight alert to Slack, a webhook, or Discord (canonical reference; alert-create /
             alert-update point here):
 

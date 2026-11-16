@@ -20,6 +20,65 @@ class PostHogSlackInboxOnboardingInputs:
     integration_id: int
 
 
+@dataclass(frozen=True)
+class SlackAppOnboardingInputs:
+    integration_id: int
+    slack_team_id: str
+    slack_user_id: str
+    # Spreads a burst of new members over time. Only a fresh run waits; continue_as_new resets it to 0.
+    start_delay_seconds: int = 0
+
+
+@frozen
+class SlackAppOnboardingMessage:
+    """One message of a person's onboarding thread. For an edit, ``ts`` names the message. ``planned``,
+    ``root_status`` and ``summarizes_step`` say what to store after it."""
+
+    kind: Literal["root", "step", "ready"]
+    text: str
+    blocks: list[dict[str, Any]]
+    step: str | None = None
+    ts: str | None = None
+    root_status: str | None = None
+    planned: list[str] | None = None
+    summarizes_step: bool = False
+
+    @property
+    def summary(self) -> str:
+        """The label of the activity that sends this message, shown in the Temporal UI."""
+        if self.kind == "step" and self.summarizes_step:
+            return f"{self.step}: shrink to one line"
+        if self.kind == "step":
+            return f"{self.step}: show step"
+        if self.kind == "root":
+            progress, _, _ = (self.root_status or "").partition("\n")
+            return f"top message: {progress}"
+        return "ready message"
+
+
+@frozen
+class SlackAppOnboardingPlan:
+    edits: list[SlackAppOnboardingMessage]
+    post: SlackAppOnboardingMessage | None
+    finished: bool
+    # Shown as the workflow's current details in the Temporal UI.
+    status: str = ""
+
+    @property
+    def plan_again(self) -> bool:
+        # The first step reply goes under the top message, so it needs one more plan after the top post.
+        return self.post is not None and self.post.kind == "root"
+
+
+ONBOARDING_DONE_PLAN = SlackAppOnboardingPlan(edits=[], post=None, finished=True, status="Done")
+
+
+@frozen
+class SlackAppOnboardingMessageInputs:
+    setup: SlackAppOnboardingInputs
+    message: SlackAppOnboardingMessage
+
+
 def insight_render_key(insight_id: int) -> str:
     return f"insight:{insight_id}"
 

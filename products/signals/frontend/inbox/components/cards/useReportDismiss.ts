@@ -2,11 +2,11 @@ import { useState } from 'react'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import api from 'lib/api'
-
 import { captureInboxReportAction, InboxReportActionSurface } from '../../inboxAnalytics'
+import { inboxBulkActionsLogic } from '../../logics/inboxBulkActionsLogic'
 import { SignalReport } from '../../types'
 import { DismissalFeedback, suppressDismissalPayload } from '../../utils/dismissalReasons'
+import { setReportState } from '../../utils/writeTimeout'
 import { openDismissReportDialog } from '../shell/DismissReportDialog'
 
 /**
@@ -63,7 +63,7 @@ export function useReportDismiss({
                 // Fallback for standalone usage (e.g. stories) without a bound list logic.
                 setIsDismissing(true)
                 try {
-                    await api.signalReports.setState(reportId, {
+                    await setReportState(reportId, {
                         state: 'suppressed',
                         ...suppressDismissalPayload(dismissal),
                     })
@@ -73,6 +73,7 @@ export function useReportDismiss({
                     // shows the user nothing, so a refused dismiss needs this toast. Reject after it
                     // so the reason and note survive for a retry. Matches useReportResolve.
                     lemonToast.error(error?.detail || error?.message || 'Failed to dismiss report')
+                    inboxBulkActionsLogic.findMounted()?.actions.reportWriteFailed([reportId])
                     throw error
                 } finally {
                     setIsDismissing(false)

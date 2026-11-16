@@ -1,9 +1,8 @@
 import { redactSecretHogFunctionInputs } from 'scenes/hog-functions/hog-function-utils'
 import type { AiFirstSuggestion } from 'scenes/max/aiFirstCreate/AiFirstCreateScene'
 
+import { AttachedContextItem } from '~/layout/ai/attachedContext'
 import { CyclotronJobInputSchemaType, CyclotronJobInputType, HogFunctionTemplateType } from '~/types'
-
-import { AttachedContextItem } from 'products/posthog_ai/frontend/api/types'
 
 import { isEmailAction, isFunctionAction, isTriggerFunction } from './hogflows/steps/types'
 import type { HogFlow } from './hogflows/types'

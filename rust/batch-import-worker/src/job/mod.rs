@@ -30,6 +30,8 @@ use crate::{
 pub mod backoff;
 pub mod config;
 pub mod model;
+#[cfg(test)]
+pub(crate) mod test_db;
 
 #[derive(Debug, PartialEq)]
 enum ErrorHandlingDecision {
@@ -607,6 +609,14 @@ struct Checkpoint {
     data: Parsed<Vec<InternallyCapturedEvent>>,
 }
 
+/// Whether the job keeps going after a commit.
+#[derive(Debug, PartialEq, Eq)]
+enum CommitOutcome {
+    Continue,
+    /// The row is no longer running because an operator or a customer changed its status.
+    Stopped,
+}
+
 impl Job {
     pub async fn new(
         mut model: JobModel,
@@ -673,6 +683,19 @@ impl Job {
         let next_commit_fut = self.do_commit();
 
         let (next_chunk, next_commit) = tokio::join!(next_chunk_fut, next_commit_fut);
+
+        if let Ok(CommitOutcome::Stopped) = next_commit {
+            // Keep staged data for the resume, like a shutdown does. The chunk fetched in
+            // parallel is dropped: its offsets live only in memory.
+            info!(job_id = %self.job_id, "Job is no longer running, stopping");
+            if let Err(cleanup_err) = self.source.release_job_resources().await {
+                warn!(
+                    "Failed to release job resources after stop: {:?}",
+                    cleanup_err
+                );
+            }
+            return Ok(None);
+        }
 
         if let Err(e) = next_commit {
             // If we fail to commit, we just log and bail out - the job will be paused if it needs to be,
@@ -749,13 +772,13 @@ impl Job {
         Ok(Some((key, parsed)))
     }
 
-    async fn do_commit(&self) -> Result<(), Error> {
+    async fn do_commit(&self) -> Result<CommitOutcome, Error> {
         self.shutdown_guard()?;
         let mut checkpoint_lock = self.checkpoint.lock().await;
 
         let Some(checkpoint) = checkpoint_lock.take() else {
             info!(job_id = %self.job_id, "No checkpointed data to commit, returning");
-            return Ok(());
+            return Ok(CommitOutcome::Continue);
         };
 
         let (key, parsed) = (checkpoint.key, checkpoint.data);
@@ -769,14 +792,22 @@ impl Job {
         info!(job_id = %self.job_id, "Writing {} events", parsed.data.len());
         self.shutdown_guard()?;
         txn.emit(&parsed.data).await?;
-        // Two-stage commit: advance the offset and pause the job in PG *before* committing to
-        // the sink. If we crash between the two, the job is left paused at the advanced offset
-        // and requires manual intervention rather than silently skipping a chunk — the operator
-        // confirms whether the sink commit landed via the last event written or the logs.
+        // Save the advanced offset and a pending-commit marker before the sink commit. After a crash
+        // between the two, the next claim finds the marker and sends the chunk again, or pauses the
+        // job for review after `MAX_INTERRUPTED_SENDS` interruptions or an offset mismatch.
         self.shutdown_guard()?;
         info!(job_id = %self.job_id, "Beginning PG part commit");
-        self.begin_part_commit(&key, parsed.consumed, parsed.data.len())
-            .await?;
+        if self
+            .begin_part_commit(&key, parsed.consumed, parsed.data.len())
+            .await?
+            == CommitOutcome::Stopped
+        {
+            if let Err(e) = txn.abort().await {
+                warn!(job_id = %self.job_id, "Failed to abort the sink transaction: {e:#}");
+            }
+            metric_emit::operator_stop("before_send");
+            return Ok(CommitOutcome::Stopped);
+        }
         info!(job_id = %self.job_id, "Beginning emitter part commit");
 
         // A *returned* error (as opposed to a crash) means the sink definitively rejected the
@@ -791,8 +822,11 @@ impl Job {
             }
         };
         info!(job_id = %self.job_id, "Finishing PG part commit");
-        self.complete_commit().await?;
+        let committed = self.complete_commit().await?;
         info!(job_id = %self.job_id, "Committed part {} consumed {} bytes", key, parsed.consumed);
+        if let Some(send_rate) = committed.send_rate {
+            sink.set_send_rate(send_rate);
+        }
 
         // The committed part may now be fully consumed: free its staging eagerly and only
         // after its offsets are durable. Safe against concurrent reads: the in-memory state
@@ -807,13 +841,23 @@ impl Job {
         // preserving the staged data for the byte-identical re-read on resume.
         cleanup_committed_part_if_done(self.source.as_ref(), &self.model, &key).await;
 
+        if committed.status != model::JobStatus::Running {
+            metric_emit::operator_stop("after_send");
+            self.model
+                .lock()
+                .await
+                .release_lease(&self.context.db)
+                .await?;
+            return Ok(CommitOutcome::Stopped);
+        }
+
         info!(job_id = %self.job_id, "Sleeping for {:?}", to_sleep);
         tokio::select! {
             _ = tokio::time::sleep(to_sleep) => {},
             _ = self.handle.shutdown_recv() => {},
         }
 
-        Ok(())
+        Ok(CommitOutcome::Continue)
     }
 
     async fn successfully_complete(self) -> Result<(), Error> {
@@ -836,30 +880,32 @@ impl Job {
                 .await;
         }
 
-        let result = model.complete(&self.context.db).await;
-        if result.is_ok() {
-            let parts = stored.parts.len();
-            let events = stored.events_emitted;
-            metric_emit::completed_job_size(parts, events);
-            if events == 0 {
-                metric_emit::job_completion("completed_empty");
-                warn!(job_id = %self.job_id, parts, "Batch import job complete, but it emitted no events");
-            } else {
-                metric_emit::job_completion("completed");
-                info!(job_id = %self.job_id, parts, events, "Batch import job complete");
-            }
+        let status = model.complete(&self.context.db).await?;
+        if status != model::JobStatus::Completed {
+            info!(job_id = %self.job_id, %status, "Job reached its end, but an operator status was kept");
+            return Ok(());
         }
-        result
+        let parts = stored.parts.len();
+        let events = stored.events_emitted;
+        metric_emit::completed_job_size(parts, events);
+        if events == 0 {
+            metric_emit::job_completion("completed_empty");
+            warn!(job_id = %self.job_id, parts, "Batch import job complete, but it emitted no events");
+        } else {
+            metric_emit::job_completion("completed");
+            info!(job_id = %self.job_id, parts, events, "Batch import job complete");
+        }
+        Ok(())
     }
 
-    // Writes the new partstate to the DB, and sets the job status to paused, such that if there's an issue with the sink commit, the job
-    // will be paused, and manual intervention will be required to resume it
+    // Saves the advanced offset and a pending-commit marker. Writes nothing and returns `Stopped`
+    // when the row is no longer running.
     async fn begin_part_commit(
         &self,
         key: &str,
         consumed: usize,
         events: usize,
-    ) -> Result<(), Error> {
+    ) -> Result<CommitOutcome, Error> {
         let mut model = self.model.lock().await;
         let Some(model_state) = &mut model.state else {
             return Err(Error::msg("No model state found"));
@@ -870,17 +916,33 @@ impl Job {
         };
         model_state.events_emitted = model_state.events_emitted.saturating_add(events as u64);
 
-        let status_message = format!(
-            "Starting commit of part {key} to offset {new_offset}, consumed {consumed} additional bytes"
-        );
+        let from_offset = new_offset.saturating_sub(consumed as u64);
+        let interrupted = model
+            .recovered_commit
+            .take()
+            .filter(|recovered| recovered.key == key && recovered.from_offset == from_offset)
+            .map_or(0, |recovered| recovered.interrupted);
+        model.pending_commit = Some(model::PendingCommit {
+            key: key.to_string(),
+            from_offset,
+            to_offset: new_offset,
+            interrupted,
+            events: events as u64,
+        });
 
-        model
-            .pause(
-                self.context.clone(),
-                status_message,
-                Some("Job paused while committing events".to_string()),
-            )
-            .await
+        let written = model.save_progress(&self.context.db, true, true).await?;
+        if written.applied {
+            return Ok(CommitOutcome::Continue);
+        }
+
+        // Keep the in-memory model equal to the row, which the refused write left unchanged.
+        model.pending_commit = None;
+        if let Some(model_state) = &mut model.state {
+            model_state.revert_part_offset(key, consumed as u64);
+            model_state.events_emitted = model_state.events_emitted.saturating_sub(events as u64);
+        }
+        model.release_lease(&self.context.db).await?;
+        Ok(CommitOutcome::Stopped)
     }
 
     // Reverts the speculative offset advance from begin_part_commit after a definitive sink
@@ -902,6 +964,7 @@ impl Job {
             return Err(Error::msg(format!("No part found with key {key}")));
         };
         model_state.events_emitted = model_state.events_emitted.saturating_sub(events as u64);
+        model.pending_commit = None;
 
         let status_message =
             format!("Commit of part {key} failed, rolled back to offset {new_offset}: {err:#}");
@@ -912,13 +975,15 @@ impl Job {
                 status_message,
                 Some("Job paused after a failed commit. Resolve the error and resume.".to_string()),
             )
-            .await
+            .await?;
+        model.release_lease(&self.context.db).await
     }
 
-    // Unpauses the job
-    async fn complete_commit(&self) -> Result<(), Error> {
+    // Clears the pending-commit marker, and reports the row's current status and send rate
+    async fn complete_commit(&self) -> Result<model::RowWrite, Error> {
         let mut model = self.model.lock().await;
-        model.unpause(self.context.clone()).await
+        model.pending_commit = None;
+        model.save_committed(&self.context.db).await
     }
 
     fn shutdown_guard(&self) -> Result<(), Error> {
@@ -1263,8 +1328,10 @@ mod tests {
                 secrets: std::collections::HashMap::new(),
             },
             was_leased: false,
+            recovered_commit: None,
             backoff_attempt: 5,
             backoff_until: None,
+            pending_commit: None,
         };
 
         // Only verifies local field change; DB write path covered elsewhere
@@ -1500,6 +1567,455 @@ mod tests {
         }
     }
 
+    mod operator_control_tests {
+        use std::future::Future;
+        use std::pin::Pin;
+
+        use std::time::Duration;
+
+        use super::*;
+        use crate::emit::Transaction;
+        use crate::job::model::{JobStatus, PartState};
+        use crate::job::test_db;
+        use sqlx::PgPool;
+        use tokio_util::sync::CancellationToken;
+
+        const PART_BYTES: usize = 64;
+        const SEND_RATE: u64 = 1000;
+
+        type SendHook =
+            Arc<dyn Fn(usize) -> Pin<Box<dyn Future<Output = ()> + Send>> + Send + Sync>;
+
+        /// Parts held in memory, one chunk each.
+        struct MemorySource {
+            parts: Vec<String>,
+        }
+
+        #[async_trait]
+        impl DataSource for MemorySource {
+            async fn keys(&self) -> Result<Vec<String>, Error> {
+                Ok(self.parts.clone())
+            }
+
+            async fn size(&self, _key: &str) -> Result<Option<u64>, Error> {
+                Ok(Some(PART_BYTES as u64))
+            }
+
+            async fn get_chunk(
+                &self,
+                _key: &str,
+                offset: u64,
+                size: u64,
+            ) -> Result<Vec<u8>, Error> {
+                let end = (offset + size).min(PART_BYTES as u64);
+                Ok(vec![b'x'; (end - offset) as usize])
+            }
+        }
+
+        /// Delivers in `commit_write` like the capture sink, recording each send rate and abort.
+        /// `on_send` runs during a delivery, which is where an operator change races the worker.
+        struct RecordingEmitter {
+            send_rate: u64,
+            sends: Arc<std::sync::Mutex<Vec<u64>>>,
+            aborts: Arc<std::sync::atomic::AtomicUsize>,
+            on_send: Option<SendHook>,
+            fail_sends: bool,
+        }
+
+        struct RecordingTransaction<'a> {
+            emitter: &'a RecordingEmitter,
+        }
+
+        #[async_trait]
+        impl Emitter for RecordingEmitter {
+            async fn begin_write<'a>(&'a mut self) -> Result<Box<dyn Transaction<'a> + 'a>, Error> {
+                Ok(Box::new(RecordingTransaction { emitter: self }))
+            }
+
+            fn set_send_rate(&mut self, send_rate: u64) {
+                self.send_rate = send_rate;
+            }
+        }
+
+        #[async_trait]
+        impl<'a> Transaction<'a> for RecordingTransaction<'a> {
+            async fn emit(&self, _data: &[InternallyCapturedEvent]) -> Result<(), Error> {
+                Ok(())
+            }
+
+            async fn commit_write(self: Box<Self>) -> Result<Duration, Error> {
+                let index = {
+                    let mut sends = self.emitter.sends.lock().unwrap();
+                    sends.push(self.emitter.send_rate);
+                    sends.len() - 1
+                };
+                if let Some(hook) = &self.emitter.on_send {
+                    hook(index).await;
+                }
+                if self.emitter.fail_sends {
+                    return Err(Error::msg("sink rejected the chunk"));
+                }
+                Ok(Duration::ZERO)
+            }
+
+            async fn abort(self: Box<Self>) -> Result<(), Error> {
+                self.emitter
+                    .aborts
+                    .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                Ok(())
+            }
+        }
+
+        fn consume_all() -> Arc<ParserFn> {
+            Arc::new(Box::new(|bytes: Vec<u8>| {
+                Ok(Parsed {
+                    consumed: bytes.len(),
+                    data: Vec::new(),
+                })
+            }))
+        }
+
+        fn one_event_per_chunk() -> Arc<ParserFn> {
+            Arc::new(Box::new(|bytes: Vec<u8>| {
+                let inner = common_types::CapturedEvent {
+                    uuid: Uuid::now_v7(),
+                    distinct_id: "user".to_string(),
+                    session_id: None,
+                    ip: "127.0.0.1".to_string(),
+                    data: "{}".to_string(),
+                    now: chrono::Utc::now().to_rfc3339(),
+                    sent_at: None,
+                    token: "token".to_string(),
+                    event: "event".to_string(),
+                    timestamp: chrono::Utc::now(),
+                    is_cookieless_mode: false,
+                    historical_migration: true,
+                };
+                Ok(Parsed {
+                    consumed: bytes.len(),
+                    data: vec![InternallyCapturedEvent { team_id: 1, inner }],
+                })
+            }))
+        }
+
+        fn make_handle() -> lifecycle::Handle {
+            let mut manager = lifecycle::Manager::builder("test")
+                .with_trap_signals(false)
+                .with_prestop_check(false)
+                .with_shutdown_token(CancellationToken::new())
+                .build();
+            manager.register("test-component", lifecycle::ComponentOptions::new())
+        }
+
+        struct Run {
+            id: Uuid,
+            context: Arc<AppContext>,
+            sends: Arc<std::sync::Mutex<Vec<u64>>>,
+            aborts: Arc<std::sync::atomic::AtomicUsize>,
+            result: Result<(), Error>,
+        }
+
+        /// Run a three-part job on a fresh row, calling `before_process` between commits and the
+        /// `on_send` hook during deliveries.
+        async fn run_job<H, B, BF>(on_send: H, before_process: B, fail_sends: bool) -> Run
+        where
+            H: FnOnce(Uuid, PgPool) -> Option<SendHook>,
+            B: Fn(usize, Uuid, Arc<AppContext>) -> BF,
+            BF: Future<Output = ()>,
+        {
+            run_job_after_claim(None, consume_all(), on_send, before_process, fail_sends).await
+        }
+
+        async fn run_job_after_claim<H, B, BF>(
+            recovered: Option<serde_json::Value>,
+            transform: Arc<ParserFn>,
+            on_send: H,
+            before_process: B,
+            fail_sends: bool,
+        ) -> Run
+        where
+            H: FnOnce(Uuid, PgPool) -> Option<SendHook>,
+            B: Fn(usize, Uuid, Arc<AppContext>) -> BF,
+            BF: Future<Output = ()>,
+        {
+            let context = test_db::context().await;
+            let parts: Vec<String> = (1..=3).map(|n| format!("part-{n}")).collect();
+            let state = JobState {
+                parts: parts
+                    .iter()
+                    .map(|key| PartState {
+                        key: key.clone(),
+                        current_offset: 0,
+                        total_size: Some(PART_BYTES as u64),
+                    })
+                    .collect(),
+                trial: None,
+                events_emitted: 0,
+            };
+            let mut row = test_db::JobRowFixture {
+                status: JobStatus::Running,
+                lease_id: "lease-from-claim",
+                state: state.clone(),
+                sink: serde_json::json!({"type": "capture", "send_rate": SEND_RATE}),
+                pending_commit: None,
+            };
+            if recovered.is_some() {
+                row.state.parts[0].current_offset = PART_BYTES as u64;
+                row.state.events_emitted = 1;
+                row.pending_commit = recovered;
+            }
+            let id = test_db::insert_job(&context.db, &row).await;
+            let mut model = test_db::claimed_model(id, &row);
+            assert!(!model
+                .recover_interrupted_commit(context.clone())
+                .await
+                .unwrap());
+            let sends = Arc::new(std::sync::Mutex::new(Vec::new()));
+            let aborts = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+            let mut next = Some(Job {
+                context: context.clone(),
+                handle: make_handle(),
+                job_id: id,
+                chunk_size: PART_BYTES,
+                state: Mutex::new(state),
+                model: Mutex::new(model),
+                source: Box::new(MemorySource { parts }),
+                transform,
+                sink: Mutex::new(Box::new(RecordingEmitter {
+                    send_rate: SEND_RATE,
+                    sends: sends.clone(),
+                    aborts: aborts.clone(),
+                    on_send: on_send(id, context.db.clone()),
+                    fail_sends,
+                })),
+                checkpoint: Mutex::new(None),
+            });
+
+            let mut step = 0;
+            let result = loop {
+                let Some(job) = next else { break Ok(()) };
+                before_process(step, id, context.clone()).await;
+                step += 1;
+                match job.process().await {
+                    Ok(job) => next = job,
+                    Err(e) => break Err(e),
+                }
+            };
+            Run {
+                id,
+                context,
+                sends,
+                aborts,
+                result,
+            }
+        }
+
+        /// A delivery hook that runs `action` on the job row during the first send.
+        fn during_first_send<F, Fut>(action: F) -> impl FnOnce(Uuid, PgPool) -> Option<SendHook>
+        where
+            F: Fn(PgPool, Uuid) -> Fut + Send + Sync + 'static,
+            Fut: Future<Output = ()> + Send + 'static,
+        {
+            move |id, pool| {
+                let action = Arc::new(action);
+                let hook: SendHook = Arc::new(move |index| {
+                    let (action, pool) = (action.clone(), pool.clone());
+                    Box::pin(async move {
+                        if index == 0 {
+                            action(pool, id).await;
+                        }
+                    })
+                });
+                Some(hook)
+            }
+        }
+
+        fn no_hook(_id: Uuid, _pool: PgPool) -> Option<SendHook> {
+            None
+        }
+
+        fn offsets(stored: &test_db::StoredJob) -> Vec<u64> {
+            stored
+                .state
+                .parts
+                .iter()
+                .map(|p| p.current_offset)
+                .collect()
+        }
+
+        async fn no_op(_step: usize, _id: Uuid, _context: Arc<AppContext>) {}
+
+        #[tokio::test]
+        async fn test_resent_chunk_keeps_its_interruption_count() {
+            let markers = Arc::new(std::sync::Mutex::new(Vec::new()));
+            let recorded = markers.clone();
+            let run = run_job_after_claim(
+                Some(serde_json::json!(
+                    {"key": "part-1", "from_offset": 0, "to_offset": PART_BYTES, "interrupted": 1, "events": 1}
+                )),
+                one_event_per_chunk(),
+                move |id, pool| {
+                    let hook: SendHook = Arc::new(move |_index| {
+                        let (pool, recorded) = (pool.clone(), recorded.clone());
+                        Box::pin(async move {
+                            let marker = test_db::read_job(&pool, id).await.pending_commit.unwrap();
+                            recorded
+                                .lock()
+                                .unwrap()
+                                .push((marker["interrupted"].clone(), marker["events"].clone()));
+                        })
+                    });
+                    Some(hook)
+                },
+                no_op,
+                false,
+            )
+            .await;
+
+            run.result.unwrap();
+            assert_eq!(
+                *markers.lock().unwrap(),
+                vec![
+                    (serde_json::json!(2), serde_json::json!(1)),
+                    (serde_json::json!(0), serde_json::json!(1)),
+                    (serde_json::json!(0), serde_json::json!(1))
+                ],
+                "only the re-sent chunk carries the count, so a crash loop on it reaches the cap"
+            );
+            let stored = test_db::read_job(&run.context.db, run.id).await;
+            assert_eq!(stored.status, "completed");
+            assert_eq!(
+                stored.state.events_emitted, 3,
+                "the re-sent chunk's events count once"
+            );
+            assert_eq!(stored.pending_commit, None);
+            test_db::delete_job(&run.context.db, run.id).await;
+        }
+
+        #[tokio::test]
+        async fn test_send_rate_change_applies_from_the_next_chunk() {
+            let run = run_job(
+                during_first_send(|pool, id| async move {
+                    test_db::set_send_rate(&pool, id, 250).await;
+                }),
+                no_op,
+                false,
+            )
+            .await;
+
+            run.result.unwrap();
+            assert_eq!(*run.sends.lock().unwrap(), vec![SEND_RATE, 250, 250]);
+            let stored = test_db::read_job(&run.context.db, run.id).await;
+            assert_eq!(stored.status, "completed");
+            assert_eq!(offsets(&stored), vec![PART_BYTES as u64; 3]);
+            assert_eq!(stored.pending_commit, None);
+            test_db::delete_job(&run.context.db, run.id).await;
+        }
+
+        #[tokio::test]
+        async fn test_operator_change_between_chunks_sends_nothing_more() {
+            for operator_status in [JobStatus::Paused, JobStatus::Completed, JobStatus::Failed] {
+                // Step 0 fetches part 1 and step 1 commits it, so this lands before any send.
+                let run = run_job(
+                    no_hook,
+                    |step, id, context| async move {
+                        if step == 1 {
+                            test_db::operator_sets(&context.db, id, operator_status).await;
+                        }
+                    },
+                    false,
+                )
+                .await;
+
+                run.result.unwrap();
+                assert!(run.sends.lock().unwrap().is_empty(), "{operator_status}");
+                assert_eq!(
+                    run.aborts.load(std::sync::atomic::Ordering::SeqCst),
+                    1,
+                    "the emitted chunk's transaction is aborted, not left open"
+                );
+                let stored = test_db::read_job(&run.context.db, run.id).await;
+                assert_eq!(stored.status, operator_status.to_string());
+                assert_eq!(offsets(&stored), vec![0, 0, 0], "{operator_status}");
+                assert_eq!(stored.pending_commit, None);
+                assert_eq!(stored.lease_id, None, "{operator_status}");
+                test_db::delete_job(&run.context.db, run.id).await;
+            }
+        }
+
+        #[tokio::test]
+        async fn test_operator_change_during_send_records_the_chunk_and_stops() {
+            for operator_status in [JobStatus::Paused, JobStatus::Completed, JobStatus::Failed] {
+                let run = run_job(
+                    during_first_send(move |pool, id| async move {
+                        test_db::operator_sets(&pool, id, operator_status).await;
+                    }),
+                    no_op,
+                    false,
+                )
+                .await;
+
+                run.result.unwrap();
+                assert_eq!(run.sends.lock().unwrap().len(), 1, "{operator_status}");
+                let stored = test_db::read_job(&run.context.db, run.id).await;
+                assert_eq!(stored.status, operator_status.to_string());
+                assert_eq!(
+                    offsets(&stored),
+                    vec![PART_BYTES as u64, 0, 0],
+                    "the sent chunk is recorded, so a resume does not send it again"
+                );
+                assert_eq!(stored.pending_commit, None);
+                assert_eq!(stored.lease_id, None, "{operator_status}");
+                test_db::delete_job(&run.context.db, run.id).await;
+            }
+        }
+
+        #[tokio::test]
+        async fn test_lost_lease_drops_the_job_without_sending() {
+            let run = run_job(
+                no_hook,
+                |step, id, context| async move {
+                    if step == 1 {
+                        test_db::resume_elsewhere(&context.db, id).await;
+                    }
+                },
+                false,
+            )
+            .await;
+
+            assert!(run.result.is_err());
+            assert!(run.sends.lock().unwrap().is_empty());
+            let stored = test_db::read_job(&run.context.db, run.id).await;
+            assert_eq!(stored.status, "running");
+            assert_eq!(offsets(&stored), vec![0, 0, 0]);
+            test_db::delete_job(&run.context.db, run.id).await;
+        }
+
+        #[tokio::test]
+        async fn test_failed_send_on_an_operator_paused_row_rolls_back_and_releases_the_lease() {
+            let run = run_job(
+                during_first_send(|pool, id| async move {
+                    test_db::operator_sets(&pool, id, JobStatus::Paused).await;
+                }),
+                no_op,
+                true,
+            )
+            .await;
+
+            assert!(run.result.is_err());
+            let stored = test_db::read_job(&run.context.db, run.id).await;
+            assert_eq!(stored.status, "paused");
+            assert_eq!(
+                offsets(&stored),
+                vec![0, 0, 0],
+                "a resume re-sends the chunk"
+            );
+            assert_eq!(stored.pending_commit, None);
+            assert_eq!(stored.lease_id, None);
+            test_db::delete_job(&run.context.db, run.id).await;
+        }
+    }
+
     mod shutdown_guard_tests {
         use tokio_util::sync::CancellationToken;
 
@@ -1706,7 +2222,9 @@ mod tests {
                 },
                 backoff_attempt: 0,
                 backoff_until: None,
+                pending_commit: None,
                 was_leased: false,
+                recovered_commit: None,
             }
         }
 

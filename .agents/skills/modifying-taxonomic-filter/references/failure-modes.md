@@ -34,27 +34,22 @@ Most empty searches are real words that exist somewhere else.
 ## 3. Poor recovery after an empty result
 
 - **Signal:** the health dashboard's recovery tile fell from ~46% to ~39% over three months, while the empty-result rate stayed flat.
-- **Caution:** that tile pools both surfaces, and they record different empty states.
-  A change in the rebuild share can move it on its own.
-  Check each surface with query 12 in [refreshing-product-reality](refreshing-product-reality.md) before you call it a worse empty state.
-  Today legacy recovers ~26% and the rebuild ~16%.
-- **Fix direction:** same as above, and measure recovery directly.
+- **Fix direction:** measure recovery directly.
   See [measuring-changes](measuring-changes.md).
 
 ## 4. Failed requests
 
-- **Signal:** `taxonomic filter fetch failed` ~0.2 times per 100 legacy search queries (query 10).
+- **Signal:** `taxonomic filter fetch failed` ~0.2 times per 100 search queries (query 10).
   One search can send several events, so this is not a share of failed searches.
   The health dashboard shows ~2%, but it divides every failure, first loads included, by timed searches, so it overstates the rate.
   Events, cohorts, person properties and flags fail most.
   Some pseudo-category groups fail more often than they are picked.
   First-load failures have only been captured since 2026-09-13, so compare from then on.
 - **Why it matters:** a failure that looks like loading or like "no results" sends users away, and a 403 must not look like a slow request.
-- **Current state:** both surfaces end loading and show "Couldn't load results" with a retry, except for a 403.
-  Legacy does it in `InfiniteList.tsx` (`InfiniteListErrorState`), the rebuild in `menu/Combobox.tsx` from `showErrorState` in `hooks/useGroupList.ts`.
-  Legacy's `remoteFetchForbidden` (`infiniteListLogic.ts`) shows an access-denied message with no retry for a `permission_denied` 403.
-  The rebuild has no equivalent, so a 403 there shows the generic retry instead.
-  Keep the two in parity, and reduce the failures themselves.
+- **Current state:** the picker ends loading and shows "Couldn't load results" with a retry, except for a 403.
+  `InfiniteList.tsx` (`InfiniteListErrorState`) handles this, fed by `infiniteListLogic.ts`.
+  `remoteFetchForbidden` (`infiniteListLogic.ts`) shows an access-denied message with no retry for a `permission_denied` 403.
+  Reduce the failures themselves.
   See [performance](performance.md).
 
 ## 5. Slow tails on a few groups
@@ -75,7 +70,7 @@ Most empty searches are real words that exist somewhere else.
 
 - **Signal:** the largest ticket theme.
   Popover placement, options that can't be clicked or scrolled, crashes in `infiniteListLogic`, and crashes in data-warehouse flows.
-- **Fix direction:** reproduce on the reporter's surface first (see [surfaces-and-mirroring](surfaces-and-mirroring.md)).
+- **Fix direction:** reproduce at the reporter's call site first (see [call-sites](call-sites-and-blast-radius.md)).
   Add an RTL regression test at that call site.
 
 ## 8. The weakest big tab: person properties

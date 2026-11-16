@@ -1,6 +1,6 @@
 """Distributed ownership: owners.yaml matcher, schema, resolver, and CLI."""
 
-from .census import TeamTestCensus, census, first_team_owner, runner_for_path
+from .census import TeamTestCensus, census, first_team_owner, runner_for_path, unowned_test_directories
 from .codeowners import CodeownersProjection, owner_handle, package_dirs_from, project, spellings
 from .github import GitHubLookupError, GitHubOrg
 from .matcher import compile_pattern, normalize_path, path_matches_pattern
@@ -8,6 +8,7 @@ from .resolver import (
     Addition,
     BatchOwnershipSource,
     DiskSource,
+    GitRefSource,
     OwnershipSource,
     OwnersResolver,
     PathKind,
@@ -27,6 +28,7 @@ __all__ = [
     "CodeownersProjection",
     "DiskSource",
     "GitHubLookupError",
+    "GitRefSource",
     "GitHubOrg",
     "OwnersResolver",
     "PathKind",
@@ -52,4 +54,5 @@ __all__ = [
     "spellings",
     "team_channel",
     "teams_registry",
+    "unowned_test_directories",
 ]

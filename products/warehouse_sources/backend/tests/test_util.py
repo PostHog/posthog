@@ -1,5 +1,3 @@
-import ipaddress
-
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
@@ -7,6 +5,8 @@ from django.conf import settings
 from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
+
+from posthog.test.anti_ssrf import mock_anti_ssrf_dns_lookup
 
 from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
@@ -20,8 +20,6 @@ from products.warehouse_sources.backend.models.util import (
     validate_warehouse_table_url_pattern,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
-
-PUBLIC_IP = {ipaddress.ip_address("93.184.216.34")}
 
 
 class TestReconstructOrderedColumns(SimpleTestCase):
@@ -158,7 +156,7 @@ class TestValidateWarehouseTableUrlPattern(SimpleTestCase):
     def test_allows_a_customers_own_bucket(self, _name: str, url_pattern: str) -> None:
         with (
             patch("posthog.security.url_validation.is_dev_mode", return_value=False),
-            patch("posthog.security.url_validation.resolve_host_ips", return_value=PUBLIC_IP),
+            mock_anti_ssrf_dns_lookup(),
         ):
             is_valid, error_message = validate_warehouse_table_url_pattern(url_pattern)
 
@@ -209,7 +207,7 @@ class TestValidateWarehouseTableUrlPattern(SimpleTestCase):
         # dot must not be caught by the same check.
         with (
             patch("posthog.security.url_validation.is_dev_mode", return_value=False),
-            patch("posthog.security.url_validation.resolve_host_ips", return_value=PUBLIC_IP),
+            mock_anti_ssrf_dns_lookup(),
         ):
             is_valid, error_message = validate_warehouse_table_url_pattern(
                 "https://s3.us-east-1.amazonaws.com/acme-exports/reports/q1.2026/data.csv"
@@ -252,10 +250,7 @@ class TestValidateWarehouseTableUrlPattern(SimpleTestCase):
         # than one supplied as a literal.
         with (
             patch("posthog.security.url_validation.is_dev_mode", return_value=False),
-            patch(
-                "posthog.security.url_validation.resolve_host_ips",
-                return_value={ipaddress.ip_address("10.0.0.5")},
-            ),
+            mock_anti_ssrf_dns_lookup(resolves_to=["10.0.0.5"]),
         ):
             is_valid, error_message = validate_warehouse_table_url_pattern("https://internal-alias.example/x.csv")
 

@@ -1,3 +1,6 @@
+// `Date.parse` reads a timezone-free string as local time. A test file cannot pin TZ, because Jest gives it a copy of `process.env`.
+process.env.TZ = 'UTC'
+
 module.exports = {
     transform: {
         '^.+\\.(t|j)s$': [

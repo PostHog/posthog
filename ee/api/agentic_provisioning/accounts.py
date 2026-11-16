@@ -9,6 +9,7 @@ from urllib.parse import urlencode
 
 from django.core.cache import cache
 from django.db import IntegrityError, transaction
+from django.http import HttpRequest
 from django.utils import timezone
 
 from posthog.api.authentication import password_reset_token_generator
@@ -24,6 +25,7 @@ from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
 from posthog.models.user import OnboardingSkippedReason, User
 from posthog.scopes import scopes_within_ceiling
 from posthog.tasks.email import send_provisioning_welcome
+from posthog.workos_radar import RadarAction, RadarAuthMethod, SuspiciousAttemptBlocked, evaluate_auth_attempt
 
 from products.security.backend.facade.api import REFUSAL_CODE as SECURITY_REFUSAL_CODE
 
@@ -324,6 +326,7 @@ def apply_provisioned_onboarding_flags(user: User, team: Team) -> None:
 
 
 def handle_new_user(
+    request: HttpRequest,
     request_id: str,
     data: dict,
     email: str,
@@ -347,6 +350,21 @@ def handle_new_user(
     if signup_refused(email, call_site="agentic_provisioning"):
         capture_provisioning_event("account_request", "access_blocked", partner=partner, region=region)
         raise ProvisioningError(SECURITY_REFUSAL_CODE, SIGNUP_BLOCKED_DETAIL, request_id=request_id, status=403)
+
+    try:
+        evaluate_auth_attempt(
+            request,
+            email,
+            RadarAction.SIGNUP,
+            RadarAuthMethod.OTHER,
+            challenge_allowed=False,
+            call_site="agentic_provisioning",
+        )
+    except SuspiciousAttemptBlocked as blocked:
+        capture_provisioning_event("account_request", "radar_blocked", partner=partner, region=region)
+        raise ProvisioningError(
+            SuspiciousAttemptBlocked.default_code, str(blocked.detail), request_id=request_id, status=403
+        )
 
     try:
         with transaction.atomic():

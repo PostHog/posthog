@@ -7,7 +7,14 @@ by both frequentist and Bayesian methods.
 
 import numpy as np
 
-from .statistics import AnyStatistic, ProportionStatistic, RatioStatistic, SampleMeanStatistic, StatisticError
+from .statistics import (
+    AnyStatistic,
+    ProportionStatistic,
+    QuantileStatistic,
+    RatioStatistic,
+    SampleMeanStatistic,
+    StatisticError,
+)
 
 
 def get_mean(statistic: AnyStatistic) -> float:
@@ -18,6 +25,8 @@ def get_mean(statistic: AnyStatistic) -> float:
         return statistic.proportion
     elif isinstance(statistic, RatioStatistic):
         return statistic.ratio
+    elif isinstance(statistic, QuantileStatistic):
+        return statistic.mean
     else:
         raise StatisticError(f"Unknown statistic type: {type(statistic)}")
 
@@ -64,6 +73,8 @@ def validate_statistic_inputs(statistic: AnyStatistic) -> list[str]:
             errors.extend(_validate_sample_mean(statistic))
         elif isinstance(statistic, ProportionStatistic):
             errors.extend(_validate_proportion(statistic))
+        elif isinstance(statistic, QuantileStatistic):
+            errors.extend(_validate_quantile(statistic))
 
     except Exception as e:
         errors.append(f"Failed to validate statistic: {str(e)}")
@@ -106,6 +117,16 @@ def _validate_proportion(stat: ProportionStatistic) -> list[str]:
     p = stat.proportion
     if p < 1e-10 or p > 1 - 1e-10:
         errors.append("Proportion extremely close to 0 or 1 - statistical tests may be unreliable")
+
+    return errors
+
+
+def _validate_quantile(stat: QuantileStatistic) -> list[str]:
+    """Validate QuantileStatistic."""
+    errors = []
+
+    if stat.has_zero_variance:
+        errors.append("Quantile has zero variance - not enough events or too many tied values")
 
     return errors
 

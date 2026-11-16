@@ -7,11 +7,11 @@ import { ErrorTrackingException } from 'lib/components/Errors/types'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { componentsToDayJs, dateStringToComponents, dateStringToDayJs, isStringDateRegex } from 'lib/utils/dateFilters'
+import { escapeHogQLString } from 'lib/utils/hogql'
 import { Params } from 'scenes/sceneTypes'
 import { convertUniversalFiltersToRecordingsQuery } from 'scenes/session-recordings/filters/recordingsQueryConversions'
 
 import { DateRange, ErrorTrackingIssue } from '~/queries/schema/schema-general'
-import { escapeHogQLString } from '~/queries/utils'
 import {
     AccessControlLevel,
     AccessControlResourceType,

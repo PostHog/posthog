@@ -2,6 +2,7 @@ from django.db.models import F, QuerySet
 from django.db.models.functions import Coalesce, Now
 from django.utils import timezone
 
+from products.messaging.backend.models.email_hard_bounce import EmailHardBounce
 from products.messaging.backend.models.message_suppression import MessageSuppression, SuppressionSource
 
 
@@ -44,8 +45,10 @@ def add_manual_suppression(team_id: int, identifier: str, created_by_id: int | N
 
 
 def remove_suppression(team_id: int, identifier: str) -> bool:
-    # Soft-delete and un-suppress. Reset the bounce counter so a previously-dead address that
-    # a user deliberately re-enables starts from a clean slate. `source` is reset to BOUNCE so
+    # Soft-delete and un-suppress. Reset the bounce counter and the hard-bounce mark so a
+    # previously-dead address that a user deliberately re-enables starts from a clean slate. The reason is cleared too,
+    # because the node writes treat a BOUNCE row with a legacy hard-bounce reason as hard-bounced, and the next soft
+    # bounce or complaint would set the mark again. `source` is reset to BOUNCE so
     # a future auto-suppression can re-suppress this row — the node upserts skip rows with
     # source='MANUAL' (to protect user-managed entries), so a removed MANUAL row would otherwise
     # be permanently invisible to the bounce-driven write path.
@@ -56,8 +59,21 @@ def remove_suppression(team_id: int, identifier: str) -> bool:
             suppressed=False,
             deleted=True,
             transient_bounce_count=0,
+            hard_bounced_at=None,
+            reason=None,
             source=SuppressionSource.BOUNCE,
             updated_at=timezone.now(),
         )
     )
     return bool(updated)
+
+
+def add_global_hard_bounces(emails: list[str]) -> None:
+    """Add addresses to the global hard-bounce list that every team's sends skip. Keeps existing entries as they are."""
+    identifiers = sorted({email.strip().lower() for email in emails if email.strip()})
+    now = timezone.now()
+    # An existing row came from a real bounce and carries better times, so it wins.
+    EmailHardBounce.objects.bulk_create(
+        [EmailHardBounce(email=email, first_bounced_at=now, last_bounced_at=now) for email in identifiers],
+        ignore_conflicts=True,
+    )

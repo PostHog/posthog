@@ -122,6 +122,11 @@ class LearningRunStatus(models.TextChoices):
     FAILED = "failed", "Failed"
 
 
+class LearningBackfillStatus(models.TextChoices):
+    RUNNING = "running", "Reading past tickets"
+    COMPLETED = "completed", "Read every past ticket"
+
+
 class LearningRunResult(models.TextChoices):
     KNOWLEDGE_CREATED = "knowledge_created", "Knowledge created"
     NO_KNOWLEDGE = "no_knowledge", "No knowledge"

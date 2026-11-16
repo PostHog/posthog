@@ -53,7 +53,7 @@ def _make_refund(
     )
 
 
-@patch("posthoganalytics.feature_enabled", return_value=True)
+@patch("posthoganalytics.feature_enabled", side_effect=lambda key, *args, **kwargs: key != "self-driving-ubp")
 class TestSignalReportRefundAPI(APIBaseTest):
     def setUp(self):
         super().setUp()
@@ -532,6 +532,43 @@ class TestSignalReportRefundAPI(APIBaseTest):
 
 
 class TestSignalReportRefundFlagGate(APIBaseTest):
+    @parameterized.expand(
+        [
+            ("usage_based", True, status.HTTP_403_FORBIDDEN),
+            ("legacy", False, status.HTTP_200_OK),
+            ("unknown", None, status.HTTP_503_SERVICE_UNAVAILABLE),
+        ]
+    )
+    @time_machine.travel(_NOW, tick=False)
+    @patch("posthoganalytics.feature_enabled")
+    def test_refund_requires_legacy_pricing(self, _name, usage_based_pricing, expected_status, flag_mock):
+        flag_mock.side_effect = lambda key, *args, **kwargs: usage_based_pricing if key == "self-driving-ubp" else True
+        self.organization.usage = {"period": _PERIOD}
+        self.organization.save()
+        report = _make_report(self.team)
+        _make_pr_run(self.team, report, created_at=datetime(2026, 6, 15, 8, tzinfo=UTC))
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/signals/reports/{report.id}/refund/", {"reason": "other"}, format="json"
+        )
+
+        assert response.status_code == expected_status, response.json()
+        assert SignalReportRefund.objects.filter(report=report).exists() is (usage_based_pricing is False)
+        if usage_based_pricing is True:
+            assert response.json()["detail"] == "PR refunds are not available with usage-based pricing."
+        if usage_based_pricing is None:
+            assert response.json()["detail"] == "Unable to determine pricing. Please try again."
+        if usage_based_pricing is not False:
+            report.refresh_from_db()
+            assert report.status == SignalReport.Status.READY
+        org_id = str(self.organization.id)
+        flag_mock.assert_any_call(
+            "self-driving-ubp",
+            org_id,
+            groups={"organization": org_id},
+            group_properties={"organization": {"id": org_id}},
+        )
+
     @patch("posthoganalytics.feature_enabled")
     def test_refund_summary_available_with_only_enforcement_flag(self, flag_mock):
         # The two flags roll out independently; an enforcement-only org still needs quota_limited

@@ -3,6 +3,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use common_kafka::kafka_consumer::{Offset, RecvErr, SingleTopicConsumer};
+use futures::FutureExt;
+use rayon::prelude::*;
 use tracing::{error, info, warn};
 
 use crate::aggregator::Aggregator;
@@ -11,6 +13,9 @@ use crate::metrics_consts::*;
 use crate::producer::Producer;
 use crate::seen_cache::{utc_day, SeenCache};
 use crate::types::{IngestableEvent, PropertyType, TupleKey};
+
+const MAX_BATCH_MESSAGES: usize = 256;
+const MAX_BATCH_BYTES: usize = 32 * 1024 * 1024;
 
 #[derive(Clone, Copy, Default)]
 pub struct ReductionConfig {
@@ -36,7 +41,7 @@ pub async fn worker_loop<E, P, F>(
 ) where
     E: IngestableEvent,
     P: Producer,
-    F: Fn(&E) -> Vec<(TupleKey, u64)>,
+    F: Fn(&E) -> Vec<(TupleKey, u64)> + Sync,
 {
     let _guard = handle.process_scope();
 
@@ -66,47 +71,118 @@ pub async fn worker_loop<E, P, F>(
                 handle.report_healthy();
                 flush(&mut aggregator, &mut pending_offsets, &producer, FLUSH_REASON_TIMER, worker, reduction.max_values_per_key, seen_cache.as_ref()).await;
             }
-            recv = consumer.recv_with(E::decode) => {
+            recv = consumer.recv_with(copy_payload) => {
                 handle.report_healthy();
-                match recv {
-                    Ok((event, offset)) => {
-                        metrics::counter!(EVENTS_RECEIVED, "worker" => worker).increment(1);
+                let (payloads, offsets): (Vec<Vec<u8>>, Vec<Offset>) =
+                    recv_ready_batch(&consumer, recv, worker).into_iter().unzip();
+                aggregator.merge(aggregate_batch(
+                    &payloads,
+                    |team_id| config.should_process(team_id),
+                    &fan_out_fn,
+                    worker,
+                ));
+                for offset in offsets {
+                    pending_offsets.insert(offset.partition(), offset);
+                }
 
-                        if config.should_process(event.team_id()) {
-                            let tuples = fan_out_fn(&event);
-                            metrics::counter!(TUPLES_AGGREGATED, "worker" => worker).increment(tuples.len() as u64);
-                            for (t, count) in tuples {
-                                aggregator.add(t, count);
-                            }
-                        } else {
-                            metrics::counter!(EVENTS_FILTERED, "worker" => worker).increment(1);
-                        }
-
-                        pending_offsets.insert(offset.partition(), offset);
-
-                        if aggregator.len() >= config.max_buffered_tuples {
-                            flush(
-                                &mut aggregator,
-                                &mut pending_offsets,
-                                &producer,
-                                FLUSH_REASON_BACKPRESSURE,
-                                worker,
-                                reduction.max_values_per_key,
-                                seen_cache.as_ref(),
-                            ).await;
-                        }
-                    }
-                    Err(RecvErr::Empty) | Err(RecvErr::Serde(_)) => {
-                        // SingleTopicConsumer auto-stores poison-pill offsets.
-                    }
-                    Err(RecvErr::Kafka(e)) => {
-                        metrics::counter!(KAFKA_RECV_ERRORS, "worker" => worker).increment(1);
-                        warn!(error = %e, "kafka recv error");
-                    }
+                if aggregator.len() >= config.max_buffered_tuples {
+                    flush(
+                        &mut aggregator,
+                        &mut pending_offsets,
+                        &producer,
+                        FLUSH_REASON_BACKPRESSURE,
+                        worker,
+                        reduction.max_values_per_key,
+                        seen_cache.as_ref(),
+                    ).await;
                 }
             }
         }
     }
+}
+
+fn copy_payload(payload: &[u8]) -> Result<Vec<u8>, serde_json::Error> {
+    Ok(payload.to_vec())
+}
+
+fn recv_ready_batch(
+    consumer: &SingleTopicConsumer,
+    first: Result<(Vec<u8>, Offset), RecvErr>,
+    worker: &'static str,
+) -> Vec<(Vec<u8>, Offset)> {
+    drain_ready(
+        first,
+        || consumer.recv_with(copy_payload).now_or_never(),
+        worker,
+    )
+}
+
+fn drain_ready<T>(
+    first: Result<(Vec<u8>, T), RecvErr>,
+    mut next_ready: impl FnMut() -> Option<Result<(Vec<u8>, T), RecvErr>>,
+    worker: &'static str,
+) -> Vec<(Vec<u8>, T)> {
+    let mut batch = Vec::new();
+    let mut received = 0;
+    let mut batch_bytes = 0;
+    let mut next = Some(first);
+    while let Some(recv) = next {
+        received += 1;
+        match recv {
+            Ok((payload, offset)) => {
+                batch_bytes += payload.len();
+                batch.push((payload, offset));
+            }
+            Err(RecvErr::Empty) | Err(RecvErr::Serde(_)) => {
+                // SingleTopicConsumer auto-stores poison-pill offsets.
+            }
+            Err(RecvErr::Kafka(e)) => {
+                metrics::counter!(KAFKA_RECV_ERRORS, "worker" => worker).increment(1);
+                warn!(error = %e, "kafka recv error");
+                break;
+            }
+        }
+        next = if received < MAX_BATCH_MESSAGES && batch_bytes < MAX_BATCH_BYTES {
+            next_ready()
+        } else {
+            None
+        };
+    }
+    batch
+}
+
+fn aggregate_batch<E, F>(
+    payloads: &[Vec<u8>],
+    should_process: impl Fn(i64) -> bool + Sync,
+    fan_out_fn: &F,
+    worker: &'static str,
+) -> Aggregator
+where
+    E: IngestableEvent,
+    F: Fn(&E) -> Vec<(TupleKey, u64)> + Sync,
+{
+    payloads
+        .par_iter()
+        .fold(Aggregator::new, |mut aggregator, payload| {
+            let Ok(event) = E::decode(payload) else {
+                return aggregator;
+            };
+            metrics::counter!(EVENTS_RECEIVED, "worker" => worker).increment(1);
+            if !should_process(event.team_id()) {
+                metrics::counter!(EVENTS_FILTERED, "worker" => worker).increment(1);
+                return aggregator;
+            }
+            let tuples = fan_out_fn(&event);
+            metrics::counter!(TUPLES_AGGREGATED, "worker" => worker).increment(tuples.len() as u64);
+            for (tuple, count) in tuples {
+                aggregator.add(tuple, count);
+            }
+            aggregator
+        })
+        .reduce(Aggregator::new, |mut left, right| {
+            left.merge(right);
+            left
+        })
 }
 
 /// Produce the aggregated counts to the output topic, then advance the
@@ -214,8 +290,10 @@ fn cap_top_k(
 mod tests {
     use super::*;
     use crate::aggregator::Aggregator;
+    use crate::config::{ExcludedPropertyKeys, LengthCaps};
+    use crate::fan_out::fan_out;
     use crate::producer::ProduceError;
-    use crate::types::{PropertyType, TupleKey};
+    use crate::types::{Event, PropertyType, TupleKey};
     use proptest::prelude::*;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Mutex;
@@ -292,6 +370,60 @@ mod tests {
         for i in 0..count {
             agg.add(tuple(2, "k", &format!("v{i}")), 1);
         }
+    }
+
+    #[test]
+    fn aggregate_batch_counts_every_kept_event_once() {
+        let payloads: Vec<Vec<u8>> = (0..2_000)
+            .map(|i| {
+                serde_json::to_vec(&serde_json::json!({
+                    "team_id": if i % 10 == 0 { 1 } else { 2 },
+                    "properties": r#"{"$feature/a": true, "$browser": "Chrome"}"#,
+                }))
+                .unwrap()
+            })
+            .chain([b"not json".to_vec()])
+            .collect();
+        let excluded = ExcludedPropertyKeys::default();
+        let caps = LengthCaps {
+            max_property_key_len: 400,
+            max_property_value_len: 10_000,
+        };
+
+        let mut batch = aggregate_batch(
+            &payloads,
+            |team_id| team_id == 2,
+            &|event: &Event| fan_out(event, &excluded, caps),
+            "test",
+        );
+
+        let expected = HashMap::from([
+            (tuple(2, "$feature/a", "true"), 1_800),
+            (tuple(2, "$browser", "Chrome"), 1_800),
+        ]);
+        assert_eq!(batch.drain(), expected);
+    }
+
+    #[test]
+    fn drain_ready_counts_empty_messages_toward_the_batch_limit() {
+        let mut ready = std::iter::repeat_with(|| Err(RecvErr::Empty))
+            .take(2 * MAX_BATCH_MESSAGES)
+            .chain((0..MAX_BATCH_MESSAGES).map(|offset| Ok((b"{}".to_vec(), offset))));
+
+        let batch = drain_ready(Ok((b"{}".to_vec(), 0)), || ready.next(), "test");
+
+        assert_eq!(batch.len(), 1);
+        assert_eq!(ready.count(), 2 * MAX_BATCH_MESSAGES + 1);
+    }
+
+    #[test]
+    fn drain_ready_stops_once_payloads_reach_the_byte_budget() {
+        let payload = || vec![0; MAX_BATCH_BYTES / 4];
+        let mut ready = (1..10).map(|offset| Ok((payload(), offset)));
+
+        let batch = drain_ready(Ok((payload(), 0)), || ready.next(), "test");
+
+        assert_eq!(batch.len(), 4);
     }
 
     #[test]

@@ -47,7 +47,8 @@ from posthog.hogql_queries.utils.query_previous_period_date_range import QueryPr
 from posthog.models import User
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.api import get_action
+from products.actions.backend.facade.contracts import ActionNotFound
 from products.web_analytics.backend.hogql_queries.first_pageview_attribution import first_pageview_session_filter_expr
 from products.web_analytics.backend.hogql_queries.first_pageview_flag import (
     evaluate_team_rollout_flag,
@@ -559,10 +560,8 @@ WHERE and(
     def conversion_goal_expr(self) -> Optional[ast.Expr]:
         if isinstance(self.query.conversionGoal, ActionConversionGoal):
             try:
-                action = Action.objects.get(
-                    pk=self.query.conversionGoal.actionId, team__project_id=self.team.project_id
-                )
-            except Action.DoesNotExist:
+                action = get_action(action_id=int(self.query.conversionGoal.actionId), project_id=self.team.project_id)
+            except ActionNotFound:
                 raise QueryError(
                     f"Conversion goal action with id={self.query.conversionGoal.actionId} not found in this project."
                 )

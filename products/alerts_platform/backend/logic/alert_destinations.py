@@ -22,7 +22,11 @@ from products.alerts_platform.backend.facade.contracts import (
     NewAlertDestination,
     StoredAlertDestination,
 )
+from products.alerts_platform.backend.facade.enums import PlatformAlertOwner
 from products.alerts_platform.backend.models import AlertDestination, PlatformAlertConfiguration
+
+# The destination types that open and close incidents rather than post messages.
+INCIDENT_DESTINATION_TYPES: Final = frozenset({DestinationType.PAGERDUTY})
 
 _REQUIRED_FIELDS: Final[dict[DestinationType, tuple[str, ...]]] = {
     DestinationType.SLACK: ("slack_workspace_id", "slack_channel_id"),
@@ -72,6 +76,9 @@ def create_alert_destinations(
         configuration = (
             PlatformAlertConfiguration.objects.for_team(team_id).select_for_update().get(id=configuration_id)
         )
+        # Delivery reads these rows only for such an alert. On any other, they would never send.
+        if configuration.destinations_owner != PlatformAlertOwner.PLATFORM:
+            raise AlertDestinationValidationError("This alert's destinations are managed by its product.")
         _refuse_duplicates(team_id, configuration_id, destinations)
         rows = [
             AlertDestination.objects.for_team(team_id).create(
@@ -108,6 +115,25 @@ def delete_alert_destinations(*, team_id: int, configuration_id: UUID, destinati
         .delete()
     )
     return deleted
+
+
+def enabled_alert_destinations(*, team_id: int, configuration_id: UUID) -> tuple[StoredAlertDestination, ...]:
+    """The destinations delivery sends to. A disabled one is left out before its address is decrypted."""
+    return tuple(
+        _stored(row)
+        for row in AlertDestination.objects.for_team(team_id)
+        .filter(configuration_id=configuration_id, enabled=True)
+        .order_by("created_at", "id")
+    )
+
+
+def has_incident_destination(*, team_id: int, configuration_id: UUID) -> bool:
+    """Whether the alert has an enabled incident manager, so that a firing that opens or closes needs a delivery."""
+    return (
+        AlertDestination.objects.for_team(team_id)
+        .filter(configuration_id=configuration_id, type__in=INCIDENT_DESTINATION_TYPES, enabled=True)
+        .exists()
+    )
 
 
 def _refuse_duplicates(team_id: int, configuration_id: UUID, destinations: Sequence[NewAlertDestination]) -> None:

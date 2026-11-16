@@ -98,7 +98,7 @@ describe('emit-event-step', () => {
                 expect(mockOutputs.produce).toHaveBeenCalledWith(EVENTS_OUTPUT, {
                     key: 'test-uuid',
                     value: Buffer.from(JSON.stringify(serializeEvent(mockProcessedEvent))),
-                    headers: { productTrack: 'general' },
+                    headers: { productTrack: 'general', team_id: '1' },
                     teamId: mockProcessedEvent.team_id,
                 })
 
@@ -172,7 +172,7 @@ describe('emit-event-step', () => {
                 expect(mockOutputs.produce).toHaveBeenCalledWith(EVENTS_OUTPUT, {
                     key: 'test-uuid',
                     value: Buffer.from(JSON.stringify(serializeEvent(mockProcessedEvent))),
-                    headers: { productTrack: 'general' },
+                    headers: { productTrack: 'general', team_id: '1' },
                     teamId: mockProcessedEvent.team_id,
                 })
             } finally {
@@ -278,7 +278,20 @@ describe('emit-event-step', () => {
             expect(mockOutputs.produce).toHaveBeenCalledWith(
                 EVENTS_OUTPUT,
                 expect.objectContaining({
-                    headers: { productTrack: 'llma' },
+                    headers: { productTrack: 'llma', team_id: '1' },
+                })
+            )
+        })
+
+        it('carries the team of the emitted event in the team_id header', async () => {
+            const step = createEmitEventStep(config)
+
+            await step(createInput({ ...mockProcessedEvent, team_id: 42 }))
+
+            expect(mockOutputs.produce).toHaveBeenCalledWith(
+                EVENTS_OUTPUT,
+                expect.objectContaining({
+                    headers: { productTrack: 'general', team_id: '42' },
                 })
             )
         })

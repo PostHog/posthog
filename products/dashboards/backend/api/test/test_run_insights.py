@@ -25,7 +25,7 @@ from posthog.caching.insight_result import InsightResult
 from posthog.models.organization import Organization
 from posthog.models.team import Team
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.testing import create_action
 from products.dashboards.backend.access import DashboardAccessMethod
 from products.dashboards.backend.api.dashboard import DashboardsViewSet
 from products.dashboards.backend.constants import RUN_INSIGHTS_MIN_TILE_CHARS
@@ -128,9 +128,9 @@ class TestDashboardRunInsights(APIBaseTest):
 
     @override_settings(IN_UNIT_TESTING=True)
     def test_optimized_format_labels_compared_totals_with_their_ranges_and_saved_series_names(self) -> None:
-        action = Action.objects.create(team=self.team, name="Purchase made", steps_json=[{"event": "purchase"}])
+        action = create_action(team=self.team, name="Purchase made", steps_json=[{"event": "purchase"}])
         query = _trends_query_dict(
-            series=[ActionsNode(id=action.pk, name="Old purchase name")],
+            series=[ActionsNode(id=action.id, name="Old purchase name")],
             display=ChartDisplayType.BOLD_NUMBER,
             compare_filter=CompareFilter(compare=True),
         )

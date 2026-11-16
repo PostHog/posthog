@@ -17,6 +17,7 @@ from posthog.credentials_service.errors import CredentialsServiceFailure
 from posthog.credentials_service.settings_fallback import get_or_settings
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
+from posthog.integrations.contracts import IntegrationRecord
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthRefreshToken, lock_oauth_connection
 from posthog.models.user import User
 from posthog.models.utils import generate_random_oauth_access_token, generate_random_oauth_refresh_token
@@ -129,10 +130,10 @@ class StripeIntegration:
         ]
     )
 
-    def __init__(self, integration: model.Integration) -> None:
+    def __init__(self, integration: IntegrationRecord) -> None:
         if integration.kind != "stripe":
             raise ValueError(f"Expected stripe integration, got {integration.kind}")
-        self.integration = integration
+        self.integration = model.integration_model(integration)
 
     def _stripe_client(self) -> "StripeClient | None":
         # Returns None when the required env vars are missing so callers can skip Stripe

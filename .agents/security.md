@@ -10,8 +10,8 @@ Most security fixes do not justify that cost.
 Before you create a branch or PR, choose the route:
 
 - **The weakness exists only in an open, unmerged public PR:** fix it in that same PR before merge, including its tests. Do not open a private PR for it.
-- **Severe vulnerability that needs an embargo:** use `PostHog/posthog-private` on a `security/` branch only when team-security agrees an embargo is necessary. Severe means an attacker can exploit live code today, without special access, to do serious harm. Examples are cross-tenant data access, authentication bypass, remote code execution, or exposure of credentials or secrets. Keep the finding, reproduction, and vulnerable paths in private channels until disclosure is approved.
-- **Every other security fix:** open a normal PR in `PostHog/posthog`. This includes hardening, defense in depth, input validation, consistency fixes between code paths, access checks with low impact, issues that need privileged or same-team access, and missing rate limits.
+- **Severe vulnerability that needs an embargo:** use `PostHog/posthog-private` on a `security/` branch only when team-security agrees an embargo is necessary. Severe means an attacker can exploit PostHog Cloud remotely today, without special access, to do serious harm. Examples are cross-tenant data access, authentication bypass, remote code execution on our infrastructure, or exposure of credentials or secrets. The severity label does not necessarily decide the route: a high finding that does not meet this bar can go public. Keep the finding, reproduction, and vulnerable paths in private channels until disclosure is approved.
+- **Every other security fix:** open a normal PR in `PostHog/posthog`. This includes hardening, defense in depth, input validation, consistency fixes between code paths, access checks with low impact, issues that need privileged or same-team access, issues in local tools such as a CLI or SDK that need a non-default setup like a custom host, and missing rate limits.
 
 A public security fix is a normal fix with a neutral description.
 Describe what the change does, not how to exploit the old behavior.

@@ -32,6 +32,13 @@ export const StamphogRepoConfigsCreateBody = /* @__PURE__ */ zod
             .string()
             .optional()
             .describe("Pull request label that triggers a review when review_mode is 'label'. Defaults to 'stamphog'."),
+        routing_mode: zod
+            .enum(['off', 'always', 'fallback'])
+            .describe('\* `off` - Off\n\* `always` - Always\n\* `fallback` - When stamphog does not approve')
+            .optional()
+            .describe(
+                "When stamphog requests reviews from the code owners in the repository's owners.yaml: 'off' (the default) never; 'always' when a pull request opens ready for review or is marked ready; 'fallback' only when stamphog does not approve, where an approval requests only the owners of sensitive and new paths.\n\n\* `off` - Off\n\* `always` - Always\n\* `fallback` - When stamphog does not approve"
+            ),
     })
     .describe(
         "Input shape for creating\/updating a repo config.\n\nSeparate from the read serializer because the contract is an output shape: it carries a\nrequired id, which a create request has no way to supply. Same split as visual_review's\ninput serializers.\n\ninstallation_id is deliberately absent: it may only ever be set by the verified\nsync_installation flow, which proves the caller owns the installation before binding it. A\nclient-supplied value on this path is ignored, so a manually created config carries no\ninstallation and simply won't resolve webhooks until synced."
@@ -60,6 +67,13 @@ export const StamphogRepoConfigsUpdateBody = /* @__PURE__ */ zod
             .string()
             .optional()
             .describe("Pull request label that triggers a review when review_mode is 'label'. Defaults to 'stamphog'."),
+        routing_mode: zod
+            .enum(['off', 'always', 'fallback'])
+            .describe('\* `off` - Off\n\* `always` - Always\n\* `fallback` - When stamphog does not approve')
+            .optional()
+            .describe(
+                "When stamphog requests reviews from the code owners in the repository's owners.yaml: 'off' (the default) never; 'always' when a pull request opens ready for review or is marked ready; 'fallback' only when stamphog does not approve, where an approval requests only the owners of sensitive and new paths.\n\n\* `off` - Off\n\* `always` - Always\n\* `fallback` - When stamphog does not approve"
+            ),
     })
     .describe(
         "Input shape for creating\/updating a repo config.\n\nSeparate from the read serializer because the contract is an output shape: it carries a\nrequired id, which a create request has no way to supply. Same split as visual_review's\ninput serializers.\n\ninstallation_id is deliberately absent: it may only ever be set by the verified\nsync_installation flow, which proves the caller owns the installation before binding it. A\nclient-supplied value on this path is ignored, so a manually created config carries no\ninstallation and simply won't resolve webhooks until synced."
@@ -88,6 +102,13 @@ export const StamphogRepoConfigsPartialUpdateBody = /* @__PURE__ */ zod
             .string()
             .optional()
             .describe("Pull request label that triggers a review when review_mode is 'label'. Defaults to 'stamphog'."),
+        routing_mode: zod
+            .enum(['off', 'always', 'fallback'])
+            .describe('\* `off` - Off\n\* `always` - Always\n\* `fallback` - When stamphog does not approve')
+            .optional()
+            .describe(
+                "When stamphog requests reviews from the code owners in the repository's owners.yaml: 'off' (the default) never; 'always' when a pull request opens ready for review or is marked ready; 'fallback' only when stamphog does not approve, where an approval requests only the owners of sensitive and new paths.\n\n\* `off` - Off\n\* `always` - Always\n\* `fallback` - When stamphog does not approve"
+            ),
     })
     .describe(
         "Input shape for creating\/updating a repo config.\n\nSeparate from the read serializer because the contract is an output shape: it carries a\nrequired id, which a create request has no way to supply. Same split as visual_review's\ninput serializers.\n\ninstallation_id is deliberately absent: it may only ever be set by the verified\nsync_installation flow, which proves the caller owns the installation before binding it. A\nclient-supplied value on this path is ignored, so a manually created config carries no\ninstallation and simply won't resolve webhooks until synced."

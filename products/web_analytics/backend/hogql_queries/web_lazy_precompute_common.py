@@ -607,6 +607,16 @@ def handle_stale_served(*, runner: Any, family: str) -> None:
     enqueue_stale_revalidation(team=runner.team, query=runner.query, family=family, debounce_extra=debounce_extra)
 
 
+# "InCohort" also matches NotInCohort. A cohort's criteria are expanded after this check and can
+# classify traffic, so any cohort filter counts, such as a cohort in the test-account filters.
+_TRAFFIC_CLASSIFICATION_NAMES = ("$virt_", "isLikelyBot", "getBot", "getTraffic", "__preview_", "InCohort")
+
+
+def _classifies_traffic(insert_query: Any, placeholders: Optional[dict[str, Any]]) -> bool:
+    text = repr(insert_query) + repr(placeholders)
+    return any(name in text for name in _TRAFFIC_CLASSIFICATION_NAMES)
+
+
 def web_ensure_precomputed(
     *, team: Team, shape_key_extra: Optional[str] = None, **kwargs: Any
 ) -> LazyComputationResult:
@@ -630,10 +640,17 @@ def web_ensure_precomputed(
         # Use the runner's value, which can carry a per-query override, so the INSERT and the job hash match the read.
         modifiers.cookielessTrafficIsRegular = runner.modifiers.cookielessTrafficIsRegular
     kwargs["modifiers"] = modifiers
+    # The job hash covers the HogQL text, not what `$virt_*` expands to, so a classification change
+    # needs a new marker. Only queries that classify traffic get it, so other jobs keep their hash.
+    markers = []
     if modifiers.cookielessTrafficIsRegular:
+        markers.append("cookieless-missing-ua-v1")
+    if _classifies_traffic(kwargs.get("insert_query"), kwargs.get("placeholders")):
+        markers.append("sdk-missing-ua-v1")
+    if markers:
         kwargs["cache_key_context"] = {
             **(kwargs.get("cache_key_context") or {}),
-            "traffic_classification": "cookieless-missing-ua-v1",
+            "traffic_classification": "+".join(markers),
         }
     background = is_background_warming_request()
     forced = is_forced_refresh_request()

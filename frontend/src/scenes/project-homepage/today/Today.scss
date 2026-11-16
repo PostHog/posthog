@@ -223,15 +223,6 @@ html[data-today-transition]::view-transition-new(root) {
     }
 }
 
-.TodayPulse__unavailable {
-    overflow: hidden;
-    font-size: 13px;
-    line-height: calc(19px * 1.2);
-    color: var(--today-muted);
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-
 .TodayPulse__metric {
     display: flex;
     flex-direction: column;
@@ -273,11 +264,30 @@ html[data-today-transition]::view-transition-new(root) {
     flex-direction: column;
     gap: 2px;
     min-width: 0;
+    padding: 6px 10px;
+    margin: -6px -10px;
     color: inherit;
+    border-radius: 8px;
 
-    &:hover .TodayPulse__name {
-        color: var(--today-ink);
-        text-decoration: underline;
+    &:hover,
+    &:focus-visible {
+        background: var(--fill-hover);
+    }
+
+    @container main-content (max-width: 600px) {
+        padding: 0;
+        margin: 0;
+
+        &:hover,
+        &:focus-visible {
+            background: none;
+        }
+    }
+}
+
+.TodayPulse__metric:has(.TodayPulse__link:hover, .TodayPulse__link:focus-visible) {
+    @container main-content (max-width: 600px) {
+        background: var(--fill-hover);
     }
 }
 
@@ -314,6 +324,11 @@ html[data-today-transition]::view-transition-new(root) {
     font-size: 13px;
     font-variant-numeric: tabular-nums;
     color: var(--today-muted);
+}
+
+.TodayPulseCard .TodayChange {
+    font-size: inherit;
+    color: inherit;
 }
 
 .TodayPulse__spark {

@@ -71,7 +71,7 @@ from github import (
     provenance_evidence,
     write_pr_diff,
 )
-from manifest_risk import manifest_script_changes
+from manifest_risk import manifest_script_changes, manifest_script_changes_from_contents
 from migration_risk import migration_check_pending, safe_migration_files
 from policy import EffectivePolicy, ScopeBudget, _sanitize_untrusted, repo_root, resolve
 from verdict_rule import facts_summary
@@ -244,6 +244,9 @@ class Pipeline:
         # git tree. The manifest scripts scan reads file text from git, so it is skipped there. That
         # can only miss a deny, never add one, and the sandbox review runs the scan again.
         self.checkout = checkout
+        # Manifest texts at the merge base and the head, keyed by path, which the server's gate check
+        # reads from GitHub so that it can run the scripts scan without a checkout.
+        self.manifest_contents: dict[str, dict[str, str]] | None = None
         # Every GitHub team the author is on, set by the hosted runtime because the sandbox holds no
         # token. None means a local run, which asks GitHub per team instead.
         self.author_team_slugs: set[str] | None = None
@@ -446,11 +449,16 @@ class Pipeline:
         # Deterministic first line for the manifest scripts risk: an edit to
         # scripts/lifecycle/build keys hard-denies rather than resting solely
         # on the reviewer prompt's REFUSE instruction.
-        risky_manifests = (
-            manifest_script_changes(dep_manifests, pr.base_sha, pr.head_sha, REPO_ROOT, pr.merge_base_sha)
-            if dep_manifests and self.checkout
-            else []
-        )
+        if not dep_manifests:
+            risky_manifests = []
+        elif self.checkout:
+            risky_manifests = manifest_script_changes(
+                dep_manifests, pr.base_sha, pr.head_sha, REPO_ROOT, pr.merge_base_sha
+            )
+        elif self.manifest_contents is not None:
+            risky_manifests = manifest_script_changes_from_contents(dep_manifests, self.manifest_contents)
+        else:
+            risky_manifests = []
         if risky_manifests and "deps_toolchain" not in deny:
             deny = sorted([*deny, "deps_toolchain"])
         denied_before_exemptions = len(deny)

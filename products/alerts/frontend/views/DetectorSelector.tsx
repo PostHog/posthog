@@ -49,7 +49,7 @@ const DETECTOR_OPTIONS: Array<{ value: string; label: string; tooltip: string }>
         value: DetectorType.LLM,
         label: 'AI judgment',
         tooltip:
-            'Shows the recent series to an AI model and asks whether anything looks wrong. Pick this when you want to watch a metric without choosing a statistical method, or when what counts as odd is easier to describe than to measure.',
+            "Shows the recent series to an AI model and asks whether anything looks wrong. Pick this when you want to watch a metric without choosing a statistical method, or when what counts as odd is easier to describe than to measure. Each check uses your organization's AI credits.",
     },
     {
         value: DetectorType.COPOD,
@@ -553,7 +553,8 @@ function LLMConfig({
             </div>
             <p className="text-xs text-muted">
                 Each check asks an AI model whether the latest value is unusual, given its recent history and the points
-                this alert flagged before. This is slower and costs more than the statistical detectors.
+                this alert flagged before. Each check and each simulation uses your organization's AI credits, and
+                checks are slower than with the statistical detectors.
             </p>
         </div>
     )
@@ -572,7 +573,9 @@ function AnomalyThresholdInput({ value, onChange }: { value: number; onChange: (
                 max={0.99}
                 step={0.05}
                 value={value}
-                onChange={(val) => onChange(val ? parseFloat(String(val)) : DEFAULT_ANOMALY_DETECTION_THRESHOLD)}
+                onChange={(val) =>
+                    onChange(val === undefined || Number.isNaN(val) ? DEFAULT_ANOMALY_DETECTION_THRESHOLD : val)
+                }
             />
         </div>
     )

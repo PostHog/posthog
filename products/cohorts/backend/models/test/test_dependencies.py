@@ -24,6 +24,11 @@ from products.cohorts.backend.models.dependencies import (
     get_flag_excluded_behavioral_cohort_ids,
     warm_team_cohort_dependency_cache,
 )
+from products.cohorts.backend.models.team_access import (
+    RealtimeCohortAccessPurpose,
+    RealtimeCohortLevel,
+    RealtimeCohortTeamAccess,
+)
 
 
 class TestCohortDependencies(BaseTest):
@@ -720,6 +725,15 @@ class TestFlagExcludedBehavioralCohortIds(BaseTest):
 
         self.assertIn(realtime_behavioral.id, excluded_without)
         self.assertNotIn(realtime_behavioral.id, excluded_with)
+
+        # A grant writes no cohort, so nothing invalidates the cached answer from before it.
+        RealtimeCohortTeamAccess.objects.create(
+            team=self.team, level=RealtimeCohortLevel.PROCESSING, purpose=RealtimeCohortAccessPurpose.LOAD_TEST
+        )
+        self.assertIn(
+            realtime_behavioral.id,
+            get_flag_excluded_behavioral_cohort_ids(self.team.id, allow_realtime_backfilled=True),
+        )
 
     def test_detects_behavioral_nested_in_group_and_two_hop_referrers(self) -> None:
         # Behavioral node nested inside an inner AND group exercises the check_property_values recursion.

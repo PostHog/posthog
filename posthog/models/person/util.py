@@ -4,13 +4,13 @@ import json
 import time
 import datetime
 import contextvars
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from enum import StrEnum
 from functools import partial
 from typing import TYPE_CHECKING, Any, Optional, TypeVar, Union
-from uuid import UUID
+from uuid import UUID, uuid5
 from zoneinfo import ZoneInfo
 
 from django.conf import settings
@@ -36,12 +36,16 @@ from posthog.models.person.sql import (
 from posthog.models.utils import UUIDT
 from posthog.personhog_client.client import personhog_call, require_personhog_client
 from posthog.personhog_client.converters import proto_person_to_model
-from posthog.personhog_client.interceptor import is_transient_rpc_error
+from posthog.personhog_client.interceptor import is_transient_rpc_error, semantic_refusal_reason
 from posthog.personhog_client.metrics import PERSONHOG_TEAM_MISMATCH_TOTAL, get_client_name
 from posthog.personhog_client.proto import (
     CONSISTENCY_LEVEL_STRONG,
+    DELETE_PERSON_OUTCOME_DELETED,
+    DELETE_PERSON_OUTCOME_NOT_FOUND,
+    DELETE_PERSON_OUTCOME_SKIPPED_CONFLICT,
     AckedPersonTombstone,
     AckPersonTombstonesRequest,
+    DeletePersonOutcome,
     DeletePersonsMode,
     DeletePersonsRequest,
     DistinctIdRow,
@@ -55,10 +59,14 @@ from posthog.personhog_client.proto import (
     GetPersonsByDistinctIdsInTeamRequest,
     GetPersonsByUuidsRequest,
     GetPersonTombstonesRequest,
+    LifecycleDeletePersonResult,
+    LifecycleDeletePersonsRequest,
     ListPersonsForTeamRequest,
     ListPersonTombstoneQueueRequest,
     PersonListEntry,
     PersonVersionFloor as PersonVersionFloorProto,
+    RaisePersonVersionFloorsRequest,
+    RaisePersonVersionRequest,
     ReadOptions,
     SetPersonDistinctIdVersionFloorRequest,
     VersionFloorOutcome as VersionFloorOutcomeProto,
@@ -757,6 +765,87 @@ def tombstone_persons_in_postgres(team_id: int, person_uuids: list[UUID]) -> lis
     return personhog_call("tombstone_persons", personhog_fn)
 
 
+# The identity server's cap on person ids per lifecycle DeletePersons request.
+LIFECYCLE_DELETE_PERSONS_PER_RPC = 250
+
+# Namespace for the saga op_id. Changing it makes a retry of an in-flight deletion start a second op.
+_LIFECYCLE_DELETE_OP_NAMESPACE = UUID("4b4d2d2e-5a3e-4c1f-9d4a-7c0b2f4e8a61")
+
+PERSON_DELETION_LIFECYCLE_OUTCOMES_COUNTER = Counter(
+    "posthog_person_deletion_lifecycle_outcomes_total",
+    "Per-person outcomes the lifecycle delete saga reported to a Django deletion.",
+    labelnames=["outcome"],
+)
+
+
+class PersonDeletionConflict(Exception):
+    """Another live lifecycle op holds the person, so the saga skipped it; it is still live and a retry can delete it."""
+
+
+@frozen
+class LifecycleDeleteOutcome:
+    """What one saga call left behind: the version each deleted person's tombstone committed at, and the persons it could not claim.
+
+    A deleted person has no version when the op was recorded by a build that did not store one.
+    ``not_found`` holds the persons that had no live row when the saga claimed them.
+    """
+
+    deleted: dict[UUID, int | None]
+    conflicts: list[UUID]
+    not_found: list[UUID]
+
+
+def lifecycle_delete_op_id(run_id: str, team_id: int, person_ids: Sequence[int]) -> UUID:
+    """The saga op_id for one chunk of a deletion run.
+
+    The engine attaches a repeated op_id to its op, and a completed op answers from its record without
+    touching the persons. ``run_id`` keeps that attach to retries of the same request: the same ids
+    deleted again later, after a revival, carry another run_id and so start a new op.
+    """
+    return uuid5(_LIFECYCLE_DELETE_OP_NAMESPACE, f"{run_id}|{team_id}|{','.join(str(i) for i in sorted(person_ids))}")
+
+
+def tombstone_persons_via_lifecycle(
+    team_id: int, person_uuids_by_id: Mapping[int, UUID], *, run_id: str, timeout: float | None = None
+) -> LifecycleDeleteOutcome:
+    """Delete up to LIFECYCLE_DELETE_PERSONS_PER_RPC persons through the identity server's fenced saga.
+
+    The saga answers with an outcome per id and, for a deleted person, the version its tombstone
+    committed at. Nothing is produced to ClickHouse from here: the saga's publish outbox carries the
+    distinct-id tombstones and the person changelog carries the person row. NOT_FOUND means no live
+    row existed when the saga claimed the id; the caller decides whether a tombstone explains it.
+    """
+    person_ids = sorted(person_uuids_by_id)
+    request = LifecycleDeletePersonsRequest(
+        team_id=team_id, person_ids=person_ids, op_id=str(lifecycle_delete_op_id(run_id, team_id, person_ids))
+    )
+
+    def personhog_fn() -> dict[int, LifecycleDeletePersonResult]:
+        response = _get_client().lifecycle.delete_persons(request, timeout=timeout)
+        return {result.person_id: result for result in response.results}
+
+    results = personhog_call("lifecycle_delete_persons", personhog_fn, caller_tag="persons/deletion-lifecycle")
+
+    conflicts: list[UUID] = []
+    not_found: list[UUID] = []
+    deleted: dict[UUID, int | None] = {}
+    for person_id in person_ids:
+        uuid = person_uuids_by_id[person_id]
+        result = results.get(person_id)
+        # An id the response left out never had a live row to claim.
+        outcome = result.outcome if result is not None else DELETE_PERSON_OUTCOME_NOT_FOUND
+        PERSON_DELETION_LIFECYCLE_OUTCOMES_COUNTER.labels(
+            outcome=DeletePersonOutcome.Name(outcome).removeprefix("DELETE_PERSON_OUTCOME_").lower()
+        ).inc()
+        if outcome == DELETE_PERSON_OUTCOME_SKIPPED_CONFLICT:
+            conflicts.append(uuid)
+        elif outcome == DELETE_PERSON_OUTCOME_DELETED and result is not None:
+            deleted[uuid] = int(result.person_version) if result.HasField("person_version") else None
+        elif outcome == DELETE_PERSON_OUTCOME_NOT_FOUND:
+            not_found.append(uuid)
+    return LifecycleDeleteOutcome(deleted=deleted, conflicts=conflicts, not_found=not_found)
+
+
 @frozen
 class QueuedPersonTombstone:
     team_id: int
@@ -1059,6 +1148,41 @@ def ensure_person_version_floors(team_id: int, floors: Sequence[PersonVersionFlo
         return results
 
     return personhog_call("ensure_person_version_floors", personhog_fn)
+
+
+class PersonRaiseRefused(Exception):
+    """The leader refused the raise because the person's protected properties alone exceed the size limit."""
+
+
+def raise_person_version(team_id: int, person: Person, min_version: int) -> Person | None:
+    """Raise a live person's version to at least ``min_version`` on the active write path.
+
+    Returns the person as written when the path reports it. Otherwise returns None, and the caller reads the person.
+    """
+    if settings.PERSONHOG_WRITE_PATH == "leader":
+        return personhog_call(
+            "raise_person_version", partial(_raise_person_version_on_leader, team_id, person, min_version)
+        )
+    # Claims the person's lifecycle mark, so the raise waits out an in-flight merge or delete of the person.
+    request = RaisePersonVersionFloorsRequest(
+        team_id=team_id, floors=[PersonVersionFloorProto(person_uuid=str(person.uuid), min_version=min_version)]
+    )
+    personhog_call("raise_person_version_floors", lambda: _get_client().raise_person_version_floors(request))
+    return None
+
+
+def _raise_person_version_on_leader(team_id: int, person: Person, min_version: int) -> Person | None:
+    request = RaisePersonVersionRequest(team_id=team_id, person_id=person.pk, min_version=min_version)
+    try:
+        response = _get_client().raise_person_version(request)
+    except grpc.RpcError as exc:
+        # The leader holds the person as deleted.
+        if callable(getattr(exc, "code", None)) and exc.code() == grpc.StatusCode.NOT_FOUND:
+            return None
+        if semantic_refusal_reason(exc) == "person-too-large":
+            raise PersonRaiseRefused(f"person {person.uuid} is too large to raise") from exc
+        raise
+    return proto_person_to_model(response.person)
 
 
 def set_distinct_id_version_floor(team_id: int, distinct_id: str, min_version: int) -> None:

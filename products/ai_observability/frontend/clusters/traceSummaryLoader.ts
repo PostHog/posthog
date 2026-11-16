@@ -1,6 +1,5 @@
 import api from 'lib/api'
-
-import { hogql } from '~/queries/utils'
+import { hogql } from 'lib/utils/hogql'
 
 import { ClusteringLevel, TraceSummary } from './types'
 
@@ -228,16 +227,20 @@ export function formatEvalTitle(summary: TraceSummary | undefined, maxReasoningC
     return `${name} — ${preview}`
 }
 
+// HogQL returns these properties as text or as booleans, depending on how the column is typed.
+function toVerdictText(value: string | boolean | null): string {
+    return String(value ?? '').toLowerCase()
+}
+
 export function deriveVerdict(
-    result: string | null,
-    applicable: string | null,
+    result: string | boolean | null,
+    applicable: string | boolean | null,
     trueIsFailure: boolean
 ): 'pass' | 'fail' | 'n/a' | 'unknown' {
-    const a = (applicable || '').toLowerCase()
-    if (a === 'false') {
+    if (toVerdictText(applicable) === 'false') {
         return 'n/a'
     }
-    const v = (result || '').toLowerCase()
+    const v = toVerdictText(result)
     if (v !== 'true' && v !== 'false') {
         return 'unknown'
     }

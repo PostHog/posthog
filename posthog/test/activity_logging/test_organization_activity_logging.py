@@ -1,13 +1,57 @@
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
+
+from parameterized import parameterized
+
 from posthog.constants import AvailableFeature
 from posthog.models import Organization, User
-from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.models.activity_logging.activity_log import ActivityLog, Change, changes_between
 from posthog.models.organization import OrganizationMembership
 from posthog.models.organization_invite import OrganizationInvite
 from posthog.models.uploaded_media import UploadedMedia
 from posthog.test.activity_log_utils import ActivityLogTestHelper
 
+from products.access_control.backend.models.role import Role
+
 
 class TestOrganizationActivityLogging(ActivityLogTestHelper):
+    @parameterized.expand(
+        [
+            ("deferred_fields", ("id", "members_can_invite"), "posthog_organization"),
+            ("unchanged_foreign_key", None, "ee_role"),
+        ]
+    )
+    def test_diff_does_not_reload_rows_for_unchanged_fields(
+        self, _name: str, loaded_fields: tuple[str, ...] | None, table: str
+    ) -> None:
+        role = Role.objects.create(name="Default role", organization=self.organization)
+        Organization.objects.filter(id=self.organization.id).update(default_role=role, members_can_invite=True)
+        row_id = {"posthog_organization": self.organization.id, "ee_role": role.id}[table]
+
+        previous = Organization.objects.get(id=self.organization.id)
+        queryset = Organization.objects.all() if loaded_fields is None else Organization.objects.only(*loaded_fields)
+        current = queryset.get(id=self.organization.id)
+        current.members_can_invite = False
+
+        with CaptureQueriesContext(connection) as queries:
+            changes = changes_between("Organization", previous=previous, current=current)
+
+        row_reads = [
+            query["sql"]
+            for query in queries.captured_queries
+            if f'FROM "{table}"' in query["sql"] and str(row_id) in query["sql"]
+        ]
+        assert row_reads == []
+        assert changes == [
+            Change(
+                type="Organization",
+                field="member invitation permissions",
+                action="changed",
+                before=True,
+                after=False,
+            )
+        ]
+
     def test_organization_creation_activity_logging(self):
         organization = self.create_organization("Test Organization")
 

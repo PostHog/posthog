@@ -385,6 +385,8 @@ pub struct Config {
     /// the event, and the producer refuses it anyway. A deployment that has not
     /// raised its producer cap wants a lower value than this default; the boot
     /// warning says so when the two are out of order.
+    ///
+    /// Must equal `AI_MAX_EVENT_BYTES_DEFAULT`, or `tests/ai_event_limits_parity.rs` fails.
     #[envconfig(default = "8388608")] // 8MiB
     pub ai_max_event_bytes: u64,
 

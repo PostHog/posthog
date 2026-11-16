@@ -223,6 +223,7 @@ class SubjectAccessControl(UserAccessControl):
         pool = rows if rows is not None else self.team_access_controls
         role_ids = frozenset(str(role_id) for role_id in self._user_role_ids)
         self.__dict__["_cached_access_controls"] = [ac for ac in pool if self._applies_to_subject(ac, role_ids)]
+        self.__dict__.pop("_cached_access_controls_by_object", None)
 
     def _is_creator_id(self, created_by_id: Optional[int]) -> bool:
         """The subject created the object, not the requesting user. A role and the default subject

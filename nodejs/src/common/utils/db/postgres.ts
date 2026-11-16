@@ -2,6 +2,7 @@
 import { DateTime } from 'luxon'
 import { Client, Pool, PoolClient, QueryConfig, QueryResult, QueryResultRow, types as pgTypes } from 'pg'
 
+import { MISSING_DATABASE_URL_MESSAGE } from '~/common/config/database-url'
 import { withSpan } from '~/common/tracing/tracing-utils'
 
 import { logger } from '../logger'
@@ -103,6 +104,10 @@ export class PostgresRouter {
 
     constructor(serverConfig: PostgresRouterConfig, appName?: string) {
         installPostgresTypeParsers()
+
+        if (!serverConfig.DATABASE_URL) {
+            throw Error(MISSING_DATABASE_URL_MESSAGE)
+        }
 
         const app_name = appName ?? 'unknown'
         logger.info('🤔', `Connecting to common Postgresql...`)

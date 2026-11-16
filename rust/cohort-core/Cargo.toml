@@ -9,6 +9,7 @@ workspace = true
 [dependencies]
 chrono = { workspace = true }
 chrono-tz = { workspace = true }
+common-types = { path = "../common/types" }
 dashmap = { workspace = true }
 hogvm = { path = "../common/hogvm" }
 metrics = { workspace = true }

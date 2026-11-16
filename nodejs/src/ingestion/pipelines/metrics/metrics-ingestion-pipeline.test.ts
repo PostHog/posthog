@@ -4,6 +4,7 @@ import { KafkaProducerWrapper } from '~/common/kafka/producer'
 import { APP_METRICS_OUTPUT, DLQ_OUTPUT } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { SingleIngestionOutput } from '~/common/outputs/single-ingestion-output'
+import { UsageRecordBatch } from '~/common/usage-ingestion/usage-record-batch'
 import { MessageSizeTooLarge } from '~/common/utils/db/error'
 import { parseJSON } from '~/common/utils/json-parse'
 import { PromiseScheduler } from '~/common/utils/promise-scheduler'
@@ -42,6 +43,7 @@ describe('MetricsIngestionPipeline', () => {
     const createMessage = (token: string | null, recordCount: number): Message => {
         const headers: Record<string, string> = {
             bytes_uncompressed: String(recordCount * 100),
+            bytes_uncompressed_records: String(recordCount * 250),
             record_count: String(recordCount),
             created_at: new Date().toISOString(),
         }
@@ -64,7 +66,11 @@ describe('MetricsIngestionPipeline', () => {
         const pipeline = createMetricsIngestionPipeline(config)
         const usage = await runMetricsIngestionPipeline(pipeline, messages)
         await promiseScheduler.waitForAll()
-        await emitMetricsUsage(config.outputs, usage)
+        await emitMetricsUsage(
+            config.outputs,
+            new UsageRecordBatch(null, { unit: 'bytes', isTeamEnabled: () => false }),
+            usage
+        )
     }
 
     const producedTo = (topic: string): ProducedMessage[] =>
@@ -167,10 +173,12 @@ describe('MetricsIngestionPipeline', () => {
                 [1, 'bytes_received', 300],
                 [1, 'records_received', 3],
                 [1, 'bytes_ingested', 300],
+                [1, 'bytes_ingested_records', 750],
                 [1, 'records_ingested', 3],
                 [2, 'bytes_received', 100],
                 [2, 'records_received', 1],
                 [2, 'bytes_ingested', 100],
+                [2, 'bytes_ingested_records', 250],
                 [2, 'records_ingested', 1],
                 [3, 'bytes_received', 400],
                 [3, 'records_received', 4],

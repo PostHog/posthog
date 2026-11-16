@@ -4,7 +4,8 @@ import type { Dayjs } from 'lib/dayjs'
 import { now } from 'lib/dayjs'
 import { DashboardEventSource, filtersForAnalytics, sanitizeInsight } from 'lib/utils/eventUsageLogic'
 
-import { isNodeWithSource, queryUsesDataWarehouse } from '~/queries/utils'
+import { queryUsesDataWarehouse } from '~/queries/schema/node-accessors'
+import { isNodeWithSource } from '~/queries/schema/node-guards'
 import { DashboardMode, DashboardTile, DashboardTileSpacing, DashboardType, TileGroupDisplay } from '~/types'
 
 export type DashboardFilterChangeType =
@@ -178,12 +179,14 @@ export function reportDashboardInsightDeleteAfterRemovalClicked(otherDashboardCo
 export function reportDashboardTileRepositioned(
     dashboardId: number,
     action: 'moved' | 'resized',
-    layoutZoom: number
+    layoutZoom: number,
+    input: 'drag' | 'click' = 'drag'
 ): void {
     posthog.capture('dashboard tile repositioned', {
         dashboard_id: dashboardId,
         action,
         layout_zoom: layoutZoom,
+        input,
     })
 }
 
