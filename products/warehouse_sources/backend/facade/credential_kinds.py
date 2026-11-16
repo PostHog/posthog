@@ -164,6 +164,7 @@ CREDENTIAL_KINDS: Mapping[str, str] = {
     "Beacons": "beacons",
     "Beamer": "beamer",
     "Beehiiv": "beehiiv",
+    "BetterAuth": "better-auth",
     "BetterStack": "better-stack",
     "Bettermode": "bettermode",
     "Bexio": "bexio",

@@ -484,6 +484,26 @@ describe('scenario environment', () => {
             expect(consumerGroupsOf(replicated)).toEqual(consumerGroupsOf(specs))
         })
 
+        it('splits the role processes evenly across the poolers the host names, spreading a role over them', () => {
+            const poolers = ['postgres://a@127.0.0.1:6432/cyclotron_node', 'postgres://a@127.0.0.1:6433/cyclotron_node']
+            const split = roleSpecs(
+                { ...base, SCENARIO_POOLER_URLS: poolers.join(',') },
+                EDGE,
+                secretsOf({}),
+                STATE_DIR,
+                { CYCLOTRON_NODE_DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/cyclotron_node' },
+                undefined,
+                { 'cdp-cyclotron-worker-hogflow': 2 }
+            )
+            const shares = poolers.map((url) => split.filter(({ env }) => env.CYCLOTRON_NODE_DATABASE_URL === url))
+
+            expect(shares.map((share) => share.length)).toEqual([4, 3])
+            expect(
+                shares.map((share) => share.filter(({ role }) => role === 'cdp-cyclotron-worker-hogflow').length)
+            ).toEqual([1, 1])
+            expect(split.filter(({ env }) => 'SCENARIO_POOLER_URLS' in env)).toEqual([])
+        })
+
         it.each(CdpRole.options)(
             'runs %s as itself in dev, marked, against the edge and its proxy for every team, without AWS_PROFILE',
             (role) => {

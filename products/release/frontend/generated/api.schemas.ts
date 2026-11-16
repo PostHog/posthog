@@ -7,6 +7,19 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
+export interface LinkedSurveyDTOApi {
+    id: string
+    name: string
+    created_at: string
+    /** @nullable */
+    start_date: string | null
+    /** @nullable */
+    end_date: string | null
+    /** @nullable */
+    linked_flag_id: number | null
+    archived: boolean
+}
+
 export interface LinkedInsightDTOApi {
     /** True when the insight was deleted after it was linked. */
     readonly deleted: boolean
@@ -39,6 +52,8 @@ export interface ReleaseOwnerDTOApi {
 }
 
 export interface ReleaseDTOApi {
+    /** ID, name, dates, targeting flag and archived state of each linked survey the caller can see. */
+    readonly surveys: readonly LinkedSurveyDTOApi[]
     /** ID, short ID, name and dates of each linked insight the caller can see, including deleted ones. */
     readonly insights: readonly LinkedInsightDTOApi[]
     /** ID, name and status of each linked broadcast the caller can see. Deleted broadcasts are left out. */
@@ -141,6 +156,20 @@ export interface PatchedUpdateReleaseApi {
      * @items.maximum 2147483647
      */
     insight_ids?: number[]
+}
+
+export interface MergeReleasesApi {
+    /**
+     * IDs of the releases to merge into this one. Their flags, broadcasts, surveys and insights move to this release, then they are deleted.
+     * @minItems 1
+     * @maxItems 100
+     */
+    release_ids: string[]
+    /**
+     * New name for the merged release. Keeps the current name when left out.
+     * @maxLength 255
+     */
+    name?: string
 }
 
 export interface BroadcastOptionApi {

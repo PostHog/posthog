@@ -86,7 +86,8 @@ class BulkAddedSuppressions:
 def bulk_add_suppressions(
     team_id: int, requests: Sequence[BulkSuppressionRequest], created_by_id: int | None
 ) -> BulkAddedSuppressions:
-    """Suppress every identifier in one insert. An identifier that already has a row keeps it unchanged.
+    """Suppress every identifier in one insert. An identifier that already has a row keeps it, and a bounce also
+    makes that row block transactional email unless someone removed it.
 
     A repeated identifier counts once, with the source of its first entry.
     """
