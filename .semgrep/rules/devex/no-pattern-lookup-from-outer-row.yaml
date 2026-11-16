@@ -9,10 +9,10 @@ rules:
           outer row. It stays fast on small test data and times out on large projects.
 
           A JSON or array `__contains` compares values (`@>`) instead of matching a pattern, so a
-          `JSONArray`, `JSONObject`, or a list or tuple written in the lookup does not count. The
-          rule can't see the column type, so it also flags a bare `OuterRef` compared to a JSON or
-          array column, a list or tuple held in a variable, and a pattern served by a trigram
-          index. Suppress those with the reason.
+          `JSONArray`, `JSONObject`, list or tuple written in the lookup does not count. The rule
+          can't see the column type, so it also flags a bare `OuterRef` compared to a JSON or array
+          column, one of those values held in a variable, and a pattern served by a trigram index.
+          Suppress those with the reason.
 
           Match against constant values instead: loop over the known prefixes and build one
           uncorrelated `Exists` per prefix, as `_visible_files` in
@@ -25,16 +25,13 @@ rules:
       pattern-sources:
           - pattern: OuterRef(...)
           - pattern: django.db.models.OuterRef(...)
-      pattern-sanitizers:
-          - pattern: JSONArray(...)
-          - pattern: JSONObject(...)
-          - pattern: django.db.models.functions.JSONArray(...)
-          - pattern: django.db.models.functions.JSONObject(...)
       pattern-sinks:
           - patterns:
                 - pattern: $CALL(..., $LOOKUP=$VALUE, ...)
                 - pattern-not: $CALL(..., $LOOKUP=[...], ...)
                 - pattern-not: $CALL(..., $LOOKUP=($ITEM, ...), ...)
+                - pattern-not: $CALL(..., $LOOKUP=django.db.models.functions.JSONArray(...), ...)
+                - pattern-not: $CALL(..., $LOOKUP=django.db.models.functions.JSONObject(...), ...)
                 - metavariable-regex:
                       metavariable: $LOOKUP
                       regex: ^\w+__i?(contains|startswith|endswith|regex)$
@@ -43,6 +40,8 @@ rules:
                 - pattern: '{..., $KEY: $VALUE, ...}'
                 - pattern-not: '{..., $KEY: [...], ...}'
                 - pattern-not: '{..., $KEY: ($ITEM, ...), ...}'
+                - pattern-not: '{..., $KEY: django.db.models.functions.JSONArray(...), ...}'
+                - pattern-not: '{..., $KEY: django.db.models.functions.JSONObject(...), ...}'
                 - metavariable-regex:
                       metavariable: $KEY
                       regex: ^f?["'][\w{}.]+__i?(contains|startswith|endswith|regex)["']$
@@ -55,6 +54,8 @@ rules:
                 - pattern-not: $LOOKUPCLASS($LHS, ($ITEM, ...))
                 - pattern-not: $LOOKUPCLASS(..., rhs=[...], ...)
                 - pattern-not: $LOOKUPCLASS(..., rhs=($ITEM, ...), ...)
+                - pattern-not: $LOOKUPCLASS($LHS, django.db.models.functions.JSONArray(...))
+                - pattern-not: $LOOKUPCLASS($LHS, django.db.models.functions.JSONObject(...))
                 - metavariable-regex:
                       metavariable: $LOOKUPCLASS
                       regex: ^(lookups\.)?I?(Contains|StartsWith|EndsWith|Regex)$

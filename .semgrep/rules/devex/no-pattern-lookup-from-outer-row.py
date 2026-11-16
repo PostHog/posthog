@@ -2,8 +2,8 @@
 # ruff: noqa
 
 from django.db import models
-from django.db.models import Exists, F, OuterRef, Q, Value, functions as db_functions
-from django.db.models.functions import Concat, JSONArray, JSONArray as JsonArray, JSONObject
+from django.db.models import Exists, F, OuterRef, Q, TextField, Value, functions as db_functions
+from django.db.models.functions import Cast, Concat, JSONArray, JSONArray as JsonArray, JSONObject
 from django.db.models.lookups import Contains, StartsWith
 
 # ruleid: no-pattern-lookup-from-outer-row
@@ -70,7 +70,7 @@ Task.objects.filter(labels__contains=[OuterRef("label")])
 
 def containment_value_held_in_a_variable(queryset):
     urls = JSONArray(OuterRef("url"))
-    # ok: no-pattern-lookup-from-outer-row
+    # todook: no-pattern-lookup-from-outer-row
     return queryset.filter(state__verified_urls__contains=urls)
 
 
@@ -216,3 +216,12 @@ Task.objects.filter(state__contains=db_functions.JSONObject(url=OuterRef("url"))
 
 # ok: no-pattern-lookup-from-outer-row
 Task.objects.filter(state__verified_urls__contains=JsonArray(OuterRef("url")))
+
+# ok: no-pattern-lookup-from-outer-row
+Task.objects.filter(Contains(F("state"), JSONArray(OuterRef("url"))))
+
+# ruleid: no-pattern-lookup-from-outer-row
+FileSystem.objects.annotate(info=JSONObject(has_child=Exists(Task.objects.filter(path__startswith=OuterRef("path")))))
+
+# ruleid: no-pattern-lookup-from-outer-row
+Task.objects.filter(path__startswith=Cast(JSONArray(OuterRef("path")), TextField()))
