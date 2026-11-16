@@ -17,12 +17,14 @@ from products.data_catalog.backend.facade.enums import CertificationStatus
 from products.data_modeling.backend.facade.models import DAG, DataModelingJob, DataWarehouseSavedQuery, Node, NodeType
 from products.warehouse_suggestions.backend.facade.contracts import (
     CertifyPayload,
+    DeprecatePayload,
     MaterializePayload,
     UnmaterializePayload,
 )
 from products.warehouse_suggestions.backend.facade.enums import (
     WarehouseSuggestionAssetOutcome,
     WarehouseSuggestionKind,
+    WarehouseSuggestionMainSaving,
     WarehouseSuggestionRefreshIntervalBasis,
     WarehouseSuggestionRefreshMode,
 )
@@ -218,6 +220,33 @@ class TestMaterializeRules(SimpleTestCase):
 
     @parameterized.expand(
         [
+            ("time_earns_it", 1, WarehouseSuggestionMainSaving.WAITING),
+            ("bytes_earn_it", 2 * 1024**4, WarehouseSuggestionMainSaving.SCANNED),
+        ]
+    )
+    def test_reads_save_waiting_time_and_refreshes_cost_background_time(
+        self, _name: str, bytes_per_read: int, main_saving: WarehouseSuggestionMainSaving
+    ) -> None:
+        reads = busy_reads(
+            human_reads=90,
+            human_duration_ms=90 * 10_000,
+            alone_duration_ms_median=10_000.0,
+            human_read_bytes=90 * bytes_per_read,
+            alone_read_bytes_median=float(bytes_per_read),
+        )
+        ctx = context(team_reads({}, refreshes={VIEW_ID: SubjectRefreshes(runs=3, duration_ms=30_000, read_bytes=3)}))
+
+        estimate = estimate_savings(ctx, reads, DAY, refresh_cost(ctx, VIEW_ID, reads))
+
+        assert (
+            estimate.waiting_seconds_saved,
+            estimate.background_seconds_saved,
+            estimate.seconds_saved,
+            estimate.main_saving,
+        ) == (900, -300, 600, main_saving)
+
+    @parameterized.expand(
+        [
             (
                 "sources_allow_nothing_finer",
                 HOUR,
@@ -317,16 +346,82 @@ class TestMaterializeRefreshMode(BaseTest):
         ) == (refresh_mode, incremental_key, unique_key, expected_lookback)
 
 
-class TestDeprecateCandidate(SimpleTestCase):
-    def test_waits_for_a_full_window_of_read_data(self) -> None:
-        materialized = view(VIEW_ID, materializes=True)
+class TestDeprecateCandidate(BaseTest):
+    @parameterized.expand(
+        [
+            ("every_day", 30, [VIEW_ID], None),
+            ("one_missing_day", 29, [], "needs 30 days of read data, has 29"),
+        ]
+    )
+    def test_waits_for_every_day_of_read_data(
+        self, _name: str, days_with_data: int, expected_subjects: list, expected_skip: str | None
+    ) -> None:
+        candidate_context = context(
+            team_reads({}, days_with_data=days_with_data),
+            views=[view(VIEW_ID, materializes=True)],
+            team_id=self.team.pk,
+        )
 
-        result = DeprecateCandidate().evaluate(context(team_reads({}, days_with_data=29), views=[materialized]))
+        result = DeprecateCandidate().evaluate(candidate_context)
 
-        assert (result.drafts, result.skipped_reason) == ((), "needs 30 days of read data, has 29")
+        assert ([draft.subject_id for draft in result.drafts], result.skipped_reason) == (
+            expected_subjects,
+            expected_skip,
+        )
 
+    @parameterized.expand(
+        [
+            ("unread", None, None, [(0.0, False)], False),
+            (
+                "unmaterialized_during_the_window",
+                None,
+                SubjectRefreshes(runs=20, duration_ms=20 * 60_000, read_bytes=20 * 10**12),
+                [(0.0, False)],
+                False,
+            ),
+            ("already_deprecated", CertificationStatus.DEPRECATED, None, [], True),
+        ]
+    )
+    def test_an_unread_plain_view(
+        self,
+        _name: str,
+        certification: CertificationStatus | None,
+        past_refreshes: SubjectRefreshes | None,
+        expected_drafts: list,
+        expected_resolved: bool,
+    ) -> None:
+        subject = view_subject(VIEW_ID)
+        candidate_context = context(
+            team_reads({}, refreshes={VIEW_ID: past_refreshes} if past_refreshes else None),
+            views=[view(VIEW_ID)],
+            certifications={subject: certification} if certification else None,
+            team_id=self.team.pk,
+        )
 
-class TestDeprecateBackgroundReads(BaseTest):
+        result = DeprecateCandidate().evaluate(candidate_context)
+
+        assert [
+            (draft.score, draft.payload.materialized)
+            for draft in result.drafts
+            if isinstance(draft.payload, DeprecatePayload)
+        ] == expected_drafts
+        assert DeprecateCandidate().is_resolved(candidate_context, subject) == expected_resolved
+
+    @parameterized.expand(
+        [
+            ("view_deleted", [], WarehouseSuggestionAssetOutcome.LIVE),
+            ("deprecation_removed", [view(VIEW_ID)], WarehouseSuggestionAssetOutcome.DELETED),
+        ]
+    )
+    def test_records_what_became_of_an_accepted_deprecation(
+        self, _name: str, views: list, expected: WarehouseSuggestionAssetOutcome
+    ) -> None:
+        candidate_context = context(team_reads({}), views=views)
+
+        assert (
+            DeprecateCandidate().asset_outcome(candidate_context, view_subject(VIEW_ID), accepted_at=None) == expected
+        )
+
     @parameterized.expand([("background_reads_count", True, []), ("only_people_count", False, [VIEW_ID])])
     def test_a_view_read_only_by_background_traffic(
         self, _name: str, counts_background_reads: bool, expected_subjects: list
@@ -678,7 +773,9 @@ class TestMaterializeRecomputedUpstream(SimpleTestCase):
         ):
             result = MaterializeCandidate().evaluate(candidate_context)
 
-        assert result.measurement_requests == ((view_subject(VIEW_ID),) if expect_measurement_request else ())
+        assert tuple(request.subject for request in result.measurement_requests) == (
+            (view_subject(VIEW_ID),) if expect_measurement_request else ()
+        )
         if not expect_draft:
             assert result.drafts == ()
             return
@@ -688,4 +785,14 @@ class TestMaterializeRecomputedUpstream(SimpleTestCase):
             draft.payload.refresh_interval_seconds,
             draft.payload.recomputed_by_views,
             draft.payload.refresh_interval_basis,
-        ) == (HOUR.total_seconds(), 2, WarehouseSuggestionRefreshIntervalBasis.CONSUMER_REFRESH)
+            draft.payload.waiting_seconds_saved_per_month,
+            draft.payload.background_seconds_saved_per_month,
+            draft.payload.main_saving,
+        ) == (
+            HOUR.total_seconds(),
+            2,
+            WarehouseSuggestionRefreshIntervalBasis.CONSUMER_REFRESH,
+            0,
+            draft.payload.saves_seconds_per_month,
+            WarehouseSuggestionMainSaving.BACKGROUND,
+        )

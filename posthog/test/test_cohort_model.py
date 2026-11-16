@@ -19,6 +19,11 @@ from posthog.test.persons import add_cohort_members, create_person
 
 from products.cohorts.backend.models.cohort import Cohort, CohortConditionFlags, CohortType, ImportResolution
 from products.cohorts.backend.models.sql import GET_COHORTPEOPLE_BY_COHORT_ID
+from products.cohorts.backend.models.team_access import (
+    RealtimeCohortAccessPurpose,
+    RealtimeCohortLevel,
+    RealtimeCohortTeamAccess,
+)
 from products.cohorts.backend.models.util import count_cohort_members, list_cohort_member_ids
 from products.event_definitions.backend.models.property_definition import PropertyDefinition, PropertyType
 
@@ -944,6 +949,31 @@ class TestCohortIsFlagCompatible(BaseTest):
             cohort_type=cohort_type,
             last_backfill_person_properties_at=person_ts,
             last_backfill_events_at=events_ts,
+        )
+        self.assertEqual(cohort.is_flag_compatible, expected)
+
+    @parameterized.expand(
+        [
+            # A load-test team's runs stamp its cohorts too, but its flags never read membership.
+            ("processing", RealtimeCohortLevel.PROCESSING, False),
+            # After a revoke no edit clears the stamps, so they must not open flags and workflows.
+            ("revoked", RealtimeCohortLevel.OFF, False),
+            ("serving", RealtimeCohortLevel.SERVING, True),
+            # The legacy realtime workflow stamped cohorts on teams that have no access at all.
+            ("no_access", None, True),
+        ]
+    )
+    @override_settings(REALTIME_COHORT_TEAM_ALLOWLIST="none")
+    def test_stamps_do_not_count_on_a_row_below_serving(self, _label, level, expected):
+        if level is not None:
+            RealtimeCohortTeamAccess.objects.create(
+                team=self.team, level=level, purpose=RealtimeCohortAccessPurpose.LOAD_TEST
+            )
+        cohort = Cohort.objects.create(
+            team=self.team,
+            filters=_BEHAVIORAL_FILTERS,
+            cohort_type=CohortType.REALTIME,
+            last_backfill_events_at=_FIXED_TS,
         )
         self.assertEqual(cohort.is_flag_compatible, expected)
 

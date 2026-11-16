@@ -23,6 +23,7 @@ from products.tasks.backend.facade import (
     api as tasks_facade,
     warm as warm_facade,
 )
+from products.tasks.backend.facade.access import PostHogAIAccessDecision
 from products.tasks.backend.models import Task, TaskRun
 
 ROUTING = "products.posthog_ai.backend.message_routing"
@@ -478,6 +479,12 @@ class TestSandboxWarmViaOpen(APIBaseTest):
             team=self.team,
             agent_runtime=Conversation.AgentRuntime.SANDBOX,
         )
+        access_patcher = patch(
+            "products.tasks.backend.logic.services.warm.get_posthog_ai_access_decision",
+            return_value=PostHogAIAccessDecision.GRANDFATHERED,
+        )
+        access_patcher.start()
+        self.addCleanup(access_patcher.stop)
 
     def _service(self) -> SandboxSession:
         return SandboxSession(self.conversation, self.user)

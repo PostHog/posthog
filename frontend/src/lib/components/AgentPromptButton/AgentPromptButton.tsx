@@ -29,8 +29,9 @@ import {
 } from 'lib/ui/quill'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { cn } from 'lib/utils/css-classes'
-import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
+import { newInternalTab } from 'lib/utils/newInternalTab'
 import { projectLogic } from 'scenes/projectLogic'
+import { urls } from 'scenes/urls'
 
 import { todayShellLogic } from '~/layout/today/todayShellLogic'
 
@@ -111,7 +112,6 @@ interface AgentDef {
 }
 
 interface AgentOpenContext {
-    askSidePanelMax: (prompt: string) => void
     actionLabel: string
     repository?: string
 }
@@ -209,7 +209,7 @@ const AGENTS: AgentDef[] = [
         name: 'PostHog AI',
         logo: <IconSparkles className="size-4 shrink-0 text-ai" />,
         verb: 'Open',
-        open: (prompt, { askSidePanelMax }) => askSidePanelMax(prompt),
+        open: (prompt) => newInternalTab(urls.ai(undefined, prompt)),
     },
     {
         key: 'posthog-code',
@@ -313,7 +313,6 @@ export function AgentPromptButton({
     const { rememberedAgentKey, rememberedActionKeys } = useValues(agentPromptButtonLogic)
     const { rememberAgent, rememberAction } = useActions(agentPromptButtonLogic)
     const [open, setOpen] = useState(defaultOpen)
-    const { askSidePanelMax } = useActions(maxGlobalLogic)
     const { todayRailEnabled } = useValues(todayShellLogic)
     const { currentProjectId } = useValues(projectLogic)
     const { isCloudOrDev } = useValues(preflightLogic)
@@ -349,7 +348,7 @@ export function AgentPromptButton({
         if (!agent) {
             return
         }
-        agent.open(prompt, { askSidePanelMax, actionLabel: action.label, repository })
+        agent.open(prompt, { actionLabel: action.label, repository })
     }
 
     const selectAgent = (agentKey: AgentPromptDestination): void => {

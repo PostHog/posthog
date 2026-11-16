@@ -2,16 +2,16 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { Fragment, useMemo } from 'react'
 
-import { IconBell, IconBox, IconList, IconNotification, IconPerson, IconPinFilled } from '@posthog/icons'
-import { Button, Tooltip, TooltipContent, TooltipTrigger } from '@posthog/quill'
+import { IconBell, IconBox, IconList, IconNotification, IconPerson } from '@posthog/icons'
 
 import { Logomark } from 'lib/brand'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { analyticsListFiltersFromUrl } from 'scenes/analytics/analyticsListLogic'
+import { AnalyticsPinButton } from 'scenes/analytics/AnalyticsPinButton'
+import { analyticsPinnedLogic } from 'scenes/analytics/analyticsPinnedLogic'
 import { AnalyticsSpaceGlyph } from 'scenes/analytics/AnalyticsSpaceGlyph'
-import { analyticsSpacesLogic } from 'scenes/analytics/analyticsSpacesLogic'
 import { AnalyticsTypeIcon } from 'scenes/analytics/AnalyticsTypeIcon'
-import { ANALYTICS_TYPE_INFO } from 'scenes/analytics/analyticsUtils'
+import { ANALYTICS_TYPE_INFO, AnalyticsType } from 'scenes/analytics/analyticsUtils'
 import { urls } from 'scenes/urls'
 
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
@@ -67,12 +67,20 @@ const EXPLAINERS = {
     },
 } satisfies Record<string, TodayExplainerPreview>
 
-/** The Analytics sub-nav: the ways to browse, pinned collections, recently viewed items, PostHog's own analytics, and what to keep an eye on. */
+function AnalyticsItemIcon({ type }: { type: AnalyticsType }): JSX.Element {
+    return (
+        // eslint-disable-next-line react/forbid-dom-props
+        <span style={{ color: ANALYTICS_TYPE_INFO[type].color }}>
+            <AnalyticsTypeIcon type={type} />
+        </span>
+    )
+}
+
+/** The Analytics sub-nav: the ways to browse, pinned items and collections, recently viewed items, PostHog's own analytics, and what to keep an eye on. */
 export function TodayAnalyticsSidebar(): JSX.Element {
     const { collapsedSections, fromPostHog, recentAnalytics } = useValues(todayAnalyticsLogic)
     const { toggleSection } = useActions(todayAnalyticsLogic)
-    const { pinnedSpaces, pinning } = useValues(analyticsSpacesLogic)
-    const { togglePin } = useActions(analyticsSpacesLogic)
+    const { pinnedAnalytics } = useValues(analyticsPinnedLogic)
     const { location, searchParams } = useValues(router)
     const path = removeProjectIdIfPresent(location.pathname)
     const isOpen = (section: TodayAnalyticsSection): boolean => !collapsedSections.includes(section)
@@ -96,14 +104,7 @@ export function TodayAnalyticsSidebar(): JSX.Element {
                 dataAttr="analytics-sidebar-search"
                 className="[&>div:first-child]:hidden"
             >
-                <TodayPaneSection
-                    label="Browse"
-                    open={isOpen('browse')}
-                    count={3 + pinnedSpaces.length}
-                    showCount={false}
-                    onToggle={() => toggleSection('browse')}
-                    dataAttr="analytics-section-browse"
-                >
+                <div className="flex flex-col gap-px pb-2">
                     <TodayPreviewTrigger payload={EXPLAINERS.all}>
                         <TodayPaneRow
                             value="browse:all"
@@ -134,37 +135,60 @@ export function TodayAnalyticsSidebar(): JSX.Element {
                             dataAttr="analytics-sidebar-browse"
                         />
                     </TodayPreviewTrigger>
-                    {pinnedSpaces.map((space) => (
-                        <TodayPaneRow
-                            key={space.path}
-                            value={`space:${space.path}`}
-                            label={space.name}
-                            icon={<AnalyticsSpaceGlyph name={space.name} />}
-                            to={urls.analyticsList({ folder: space.path })}
-                            active={openFolder === space.path}
-                            action={
-                                <Tooltip>
-                                    <TooltipTrigger
-                                        render={
-                                            <Button
-                                                variant="default"
-                                                size="icon-sm"
-                                                aria-label={`Unpin ${space.name}`}
-                                                loading={pinning === space.path}
-                                                onClick={() => togglePin(space)}
-                                                data-attr="analytics-sidebar-unpin-space"
-                                            />
-                                        }
-                                    >
-                                        <IconPinFilled />
-                                    </TooltipTrigger>
-                                    <TooltipContent>Unpin</TooltipContent>
-                                </Tooltip>
-                            }
-                            dataAttr="analytics-sidebar-starred-space"
-                        />
-                    ))}
-                </TodayPaneSection>
+                </div>
+                {pinnedAnalytics.length > 0 && (
+                    <TodayPaneSection
+                        label="Pinned"
+                        open={isOpen('pinned')}
+                        count={pinnedAnalytics.length}
+                        showCount={false}
+                        onToggle={() => toggleSection('pinned')}
+                        dataAttr="analytics-section-pinned"
+                    >
+                        {pinnedAnalytics.map((pinned) =>
+                            pinned.kind === 'collection' ? (
+                                <TodayPaneRow
+                                    key={pinned.key}
+                                    value={`pinned:${pinned.key}`}
+                                    label={pinned.name}
+                                    icon={<AnalyticsSpaceGlyph name={pinned.name} />}
+                                    to={urls.analyticsList({ folder: pinned.path })}
+                                    active={openFolder === pinned.path}
+                                    action={
+                                        <AnalyticsPinButton
+                                            target={{ type: 'folder', ref: pinned.path, name: pinned.name }}
+                                            // pinned: tracking API, do not rename.
+                                            dataAttr="analytics-sidebar-unpin-space"
+                                        />
+                                    }
+                                    // pinned: tracking API, do not rename.
+                                    dataAttr="analytics-sidebar-starred-space"
+                                />
+                            ) : (
+                                <TodayPaneRow
+                                    key={pinned.key}
+                                    value={`pinned:${pinned.key}`}
+                                    label={pinned.item.name}
+                                    icon={<AnalyticsItemIcon type={pinned.item.type} />}
+                                    to={pinned.item.href}
+                                    active={path === removeProjectIdIfPresent(pinned.item.href)}
+                                    action={
+                                        <AnalyticsPinButton
+                                            target={{
+                                                type: pinned.item.type,
+                                                ref: pinned.item.id,
+                                                name: pinned.item.name,
+                                                href: pinned.item.href,
+                                            }}
+                                            dataAttr="analytics-sidebar-unpin"
+                                        />
+                                    }
+                                    dataAttr="analytics-sidebar-pinned"
+                                />
+                            )
+                        )}
+                    </TodayPaneSection>
+                )}
                 {recentAnalytics.length > 0 && (
                     <TodayPaneSection
                         label="Recents"
@@ -180,14 +204,15 @@ export function TodayAnalyticsSidebar(): JSX.Element {
                                 key={`${item.type}:${item.id}`}
                                 value={`recent:${item.type}:${item.id}`}
                                 label={item.name}
-                                icon={
-                                    // eslint-disable-next-line react/forbid-dom-props
-                                    <span style={{ color: ANALYTICS_TYPE_INFO[item.type].color }}>
-                                        <AnalyticsTypeIcon type={item.type} />
-                                    </span>
-                                }
+                                icon={<AnalyticsItemIcon type={item.type} />}
                                 to={item.href}
                                 active={path === removeProjectIdIfPresent(item.href)}
+                                action={
+                                    <AnalyticsPinButton
+                                        target={{ type: item.type, ref: item.id, name: item.name, href: item.href }}
+                                        dataAttr="analytics-sidebar-recent-pin"
+                                    />
+                                }
                                 dataAttr="analytics-sidebar-recent"
                             />
                         ))}

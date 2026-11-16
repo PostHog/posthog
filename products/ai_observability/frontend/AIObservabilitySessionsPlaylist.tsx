@@ -3,11 +3,11 @@ import { useEffect, useRef } from 'react'
 
 import { LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
 
-import { Resizer } from 'lib/components/Resizer/Resizer'
-import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
 import { TZLabel } from 'lib/components/TZLabel'
 import { useWindowSize } from 'lib/hooks/useWindowSize'
 import { LemonTableLoader } from 'lib/lemon-ui/LemonTable/LemonTableLoader'
+import { Resizer } from 'lib/lemon-ui/Resizer/Resizer'
+import { ResizerLogicProps, resizerLogic } from 'lib/lemon-ui/Resizer/resizerLogic'
 import { cn } from 'lib/utils/css-classes'
 
 import { SessionDetailPanel } from './AIObservabilitySessionScene'

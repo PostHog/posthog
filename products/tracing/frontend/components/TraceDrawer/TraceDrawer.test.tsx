@@ -8,6 +8,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { initKeaTests } from '~/test/init'
+import { AccessControlLevel, AccessControlResourceType, AppContext } from '~/types'
 
 import { tracingSpansTraceAiEventsRetrieve } from 'products/tracing/frontend/generated/api'
 
@@ -21,6 +22,10 @@ import { TraceDrawer, type TraceDrawerProps } from './TraceDrawer'
 
 jest.mock('products/tracing/frontend/generated/api', () => ({
     tracingSpansTraceAiEventsRetrieve: jest.fn(),
+}))
+
+jest.mock('products/metrics/frontend/components/TraceMetricSamples', () => ({
+    TraceMetricSamples: () => null,
 }))
 
 const mockAiEventsRetrieve = tracingSpansTraceAiEventsRetrieve as jest.MockedFunction<
@@ -185,6 +190,33 @@ describe('TraceDrawer', () => {
         expect(screen.queryByText('2 operations · 2 spans') !== null).toBe(shows)
         expect(traceViewLogic({ id: 'trace-drawer-test' }).values.operationSpans).toHaveLength(2)
     })
+
+    // Fails when the Metrics tab needs a gate other than the metrics product flag and metrics view access,
+    // or when the tab shows without one of them.
+    it.each([
+        { metricsFlag: true, access: AccessControlLevel.Viewer, shows: true },
+        { metricsFlag: false, access: AccessControlLevel.Viewer, shows: false },
+        { metricsFlag: true, access: AccessControlLevel.None, shows: false },
+    ])(
+        'with the metrics flag on: $metricsFlag and metrics access: $access, shows the Metrics tab: $shows',
+        ({ metricsFlag, access, shows }) => {
+            featureFlagLogic.mount()
+            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.METRICS]: metricsFlag })
+            window.POSTHOG_APP_CONTEXT = {
+                ...window.POSTHOG_APP_CONTEXT,
+                resource_access_control: {
+                    ...window.POSTHOG_APP_CONTEXT?.resource_access_control,
+                    [AccessControlResourceType.Metrics]: access,
+                },
+            } as AppContext
+            renderDrawer({ spans: [makeSpan({ trace_id: 'abc123', span_id: 'span-1', is_root_span: true })] })
+
+            const tabBar = within(
+                document.querySelector('[data-attr="tracing-inspector-tabs"] [role="tablist"]') as HTMLElement
+            )
+            expect(tabBar.queryByText('Metrics') !== null).toBe(shows)
+        }
+    )
 
     // Fails when a click on the tab already on screen sends the tab event. The span has no query, so the chosen
     // Query tab falls back to Attributes, and a click on Attributes changes nothing the person sees. The click on

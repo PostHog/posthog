@@ -1,11 +1,14 @@
 from collections.abc import Sequence
 
+from django.contrib.postgres.fields import ArrayField
 from django.db import transaction
+from django.db.models import CharField, F, Func, IntegerField, JSONField, OuterRef, Subquery, Value
+from django.db.models.functions import Cast, Coalesce
 
 from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.artefact_schemas import PriorityAdjustment, PriorityAssessment, priority_from_judgment
 from products.signals.backend.enums import ReportPriority
-from products.signals.backend.models import SignalReport, SignalReportArtefact
+from products.signals.backend.models import AutonomyPriority, SignalReport, SignalReportArtefact
 
 
 def update_report_priority(*, report: SignalReport, priority: ReportPriority, attribution: ArtefactAttribution) -> None:
@@ -65,3 +68,37 @@ def latest_report_priorities(team_id: int, report_ids: Sequence[str]) -> dict[st
         if priority is not None:
             latest[report_id] = priority
     return latest
+
+
+def latest_priority_rank() -> Coalesce:
+    """A `SignalReport` annotation: the index in `AutonomyPriority.values` of the priority in the report's latest
+    priority_judgment artefact. Reports without a priority rank after "P4"."""
+    # The startswith guard skips non-object content.
+    # The rank is one `array_position` inside the subquery, not a CASE: Django repeats the CASE
+    # operand in each WHEN branch, so a CASE runs the subquery or the JSON parse once per priority.
+    unranked = Value(len(AutonomyPriority.values))
+    priority_value = Func(
+        Cast(F("content"), output_field=JSONField()),
+        Value("priority"),
+        function="jsonb_extract_path_text",
+        output_field=CharField(),
+    )
+    priority_position = Func(
+        Value(list(AutonomyPriority.values), output_field=ArrayField(CharField())),
+        priority_value,
+        function="array_position",
+        output_field=IntegerField(),
+    )
+    latest_rank = Subquery(
+        SignalReportArtefact.objects.filter(
+            report_id=OuterRef("id"),
+            type=SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT,
+            content__startswith="{",
+        )
+        .order_by("-created_at")
+        # `array_position` counts from 1 and returns NULL for a value outside the list.
+        .annotate(_priority_rank=priority_position - 1)
+        .values("_priority_rank")[:1],
+        output_field=IntegerField(),
+    )
+    return Coalesce(latest_rank, unranked, output_field=IntegerField())

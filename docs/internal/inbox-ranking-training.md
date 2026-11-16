@@ -200,7 +200,7 @@ A missing object is a skip in the asset metadata, not a failure.
 Caveats:
 
 - A manual promotion can change the served model part of the way through D, so one day's cohort can split across two versions, and one report can hold a row for each. Grades stay per `(model_name, model_version, model_role)`. Never pool them across versions.
-- The sweep scores a candidate only after a manifest names it, so a candidate's online cohort starts the day after it was trained. `pool_coverage_by_model` shows how much of the pool each key covered.
+- The sweep scores a candidate only after a manifest names it, so a candidate's online cohort starts the day after it was trained. A new manifest does not rescore reports that already have a score. Only a change of the served key does that. So a candidate scores only the reports that are new or have a new vector after its manifest is published. `pool_coverage_by_model` shows how much of the pool each key covered.
 - A report first scored after D ends, for example when its vector arrived late, is not in D's rows. `served_pool_coverage` shows this for the served model. A later score never fills it in.
 - The sweep scores with the vector current at scoring time, so two keys that scored one report at different times did not always read the same vector.
 - A deployment where the sweep is off writes an empty object with coverage 0 and grades nothing.

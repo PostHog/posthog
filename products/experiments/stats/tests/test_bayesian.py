@@ -11,6 +11,7 @@ import pytest
 from unittest import TestCase
 
 import numpy as np
+from parameterized import parameterized
 
 from products.experiments.stats.bayesian.method import BayesianConfig, BayesianMethod
 from products.experiments.stats.bayesian.priors import GaussianPrior
@@ -27,6 +28,11 @@ from products.experiments.stats.shared.statistics import (
     RatioStatistic,
     SampleMeanStatistic,
     StatisticError,
+)
+from products.experiments.stats.tests.test_statistics import (
+    DEGENERATE_QUANTILE_CASES,
+    QUANTILE_CONTROL,
+    QUANTILE_TREATMENT,
 )
 
 
@@ -312,6 +318,40 @@ class TestBayesianMethod(TestCase):
         credible_interval_result = result.credible_interval
         self.assertAlmostEqual(credible_interval_result[0], expected_dict["credible_interval"][0], places=4)
         self.assertAlmostEqual(credible_interval_result[1], expected_dict["credible_interval"][1], places=4)
+
+    @parameterized.expand(
+        [
+            (
+                "absolute",
+                DifferenceType.ABSOLUTE,
+                1.415000000000001,
+                (0.08583772923349264, 2.744162270766509),
+                0.9815350910332983,
+            ),
+            (
+                "relative",
+                DifferenceType.RELATIVE,
+                0.12982842462611258,
+                (0.0031120207966113256, 0.2565448284556138),
+                0.9776835938774414,
+            ),
+        ]
+    )
+    def test_gaussian_test_with_quantile_statistic(self, _name, difference_type, effect, interval, chance_to_win):
+        method = BayesianMethod(BayesianConfig(ci_level=0.95, difference_type=difference_type))
+        result = method.run_test(QUANTILE_TREATMENT, QUANTILE_CONTROL)
+
+        self.assertAlmostEqual(result.effect_size, effect, places=12)
+        self.assertAlmostEqual(result.credible_interval[0], interval[0], places=10)
+        self.assertAlmostEqual(result.credible_interval[1], interval[1], places=10)
+        self.assertAlmostEqual(result.chance_to_win, chance_to_win, places=10)
+
+    @parameterized.expand(DEGENERATE_QUANTILE_CASES)
+    def test_rejects_quantile_with_zero_variance(self, _name, treatment, control):
+        with self.assertRaisesRegex(
+            StatisticError, "Treatment statistic validation failed: Quantile has zero variance"
+        ):
+            BayesianMethod().run_test(treatment, control)
 
 
 class TestConvenienceFunctions:

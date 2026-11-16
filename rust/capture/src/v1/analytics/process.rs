@@ -745,11 +745,11 @@ fn normalize_timestamp(
     disable_skew_correction: bool,
     raw_event_ts: DateTime<Utc>,
 ) -> DateTime<Utc> {
-    if disable_skew_correction {
-        return raw_event_ts;
-    }
-
-    let adjusted = raw_event_ts - context.clock_skew();
+    let adjusted = if disable_skew_correction {
+        raw_event_ts
+    } else {
+        raw_event_ts - context.clock_skew()
+    };
     let now = context.server_received_at;
     if adjusted.signed_duration_since(now).num_milliseconds() > FUTURE_EVENT_HOURS_CUTOFF_MS {
         metrics::counter!(CAPTURE_V1_EVENT_ADJUSTMENTS_APPLIED, "reason" => "future_timestamp_clamp")
@@ -2003,31 +2003,61 @@ mod tests {
         assert_eq!(result, dt("2026-03-19T11:00:10Z"));
     }
 
-    #[test]
-    fn normalize_clamps_far_future() {
+    #[rstest]
+    #[case::clamps_far_future(false, Duration::zero(), Duration::days(2), Duration::zero())]
+    #[case::allows_near_future(false, Duration::zero(), Duration::hours(22), Duration::hours(22))]
+    #[case::clamps_skew_adjusted_value(
+        false,
+        Duration::hours(-1),
+        Duration::minutes(22 * 60 + 30),
+        Duration::zero()
+    )]
+    #[case::disabled_skips_skew_for_past(
+        true,
+        Duration::seconds(10),
+        Duration::hours(-1),
+        Duration::hours(-1)
+    )]
+    #[case::disabled_skips_skew_for_near_future(
+        true,
+        Duration::seconds(10),
+        Duration::hours(22),
+        Duration::hours(22)
+    )]
+    #[case::disabled_compares_raw_value_to_cutoff(
+        true,
+        Duration::hours(-1),
+        Duration::minutes(22 * 60 + 30),
+        Duration::minutes(22 * 60 + 30)
+    )]
+    #[case::disabled_clamps_far_future(
+        true,
+        Duration::zero(),
+        Duration::days(30),
+        Duration::zero()
+    )]
+    #[case::disabled_allows_exact_cutoff(
+        true,
+        Duration::zero(),
+        Duration::hours(23),
+        Duration::hours(23)
+    )]
+    #[case::disabled_clamps_just_past_cutoff(
+        true,
+        Duration::zero(),
+        Duration::hours(23) + Duration::milliseconds(1),
+        Duration::zero()
+    )]
+    fn normalize_future_clamp(
+        #[case] disable_skew_correction: bool,
+        #[case] skew: Duration,
+        #[case] event_offset: Duration,
+        #[case] expected_offset: Duration,
+    ) {
         let now = dt("2026-03-19T12:00:00Z");
-        let ctx = ctx_with_skew(now, Duration::zero());
-        let event_ts = dt("2026-03-21T12:00:00Z");
-        let result = normalize_timestamp(&ctx, false, event_ts);
-        assert_eq!(result, now);
-    }
-
-    #[test]
-    fn normalize_allows_near_future() {
-        let now = dt("2026-03-19T12:00:00Z");
-        let ctx = ctx_with_skew(now, Duration::zero());
-        let event_ts = dt("2026-03-20T10:00:00Z");
-        let result = normalize_timestamp(&ctx, false, event_ts);
-        assert_eq!(result, event_ts);
-    }
-
-    #[test]
-    fn normalize_disable_skew_correction_skips_adjustment() {
-        let now = dt("2026-03-19T12:00:00Z");
-        let ctx = ctx_with_skew(now, Duration::seconds(10));
-        let event_ts = dt("2026-03-19T11:00:00Z");
-        let result = normalize_timestamp(&ctx, true, event_ts);
-        assert_eq!(result, event_ts);
+        let ctx = ctx_with_skew(now, skew);
+        let result = normalize_timestamp(&ctx, disable_skew_correction, now + event_offset);
+        assert_eq!(result, now + expected_offset);
     }
 
     #[test]

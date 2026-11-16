@@ -1,35 +1,32 @@
-import { useValues } from 'kea'
 import React, { useState } from 'react'
 
 import { IconInfo } from '@posthog/icons'
 
 import { HEATMAP_COLOR_PALETTE_OPTIONS, HEATMAP_TYPE_OPTIONS } from 'lib/components/heatmaps/heatmapDataLogic'
-import { HeatmapFilters, HeatmapFixedPositionMode } from 'lib/components/heatmaps/types'
+import { HeatmapFilters, HeatmapFixedPositionMode, ScrollDepthPosthogJsError } from 'lib/components/heatmaps/types'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { LemonSlider } from 'lib/lemon-ui/LemonSlider'
 
-import { heatmapToolbarMenuLogic } from '~/toolbar/elements/heatmapToolbarMenuLogic'
-
-const ScrollDepthJSWarning = (): JSX.Element | null => {
-    const { scrollDepthPosthogJsError } = useValues(heatmapToolbarMenuLogic)
-
-    if (!scrollDepthPosthogJsError) {
+const ScrollDepthJSWarning = ({ error }: { error: ScrollDepthPosthogJsError }): JSX.Element | null => {
+    if (!error) {
         return null
     }
 
     return (
         <p className="my-2 bg-danger-highlight border border-danger rounded p-2">
-            {scrollDepthPosthogJsError === 'version' ? (
+            {error === 'version' ? (
                 <>This feature requires a newer version of posthog-js</>
-            ) : scrollDepthPosthogJsError === 'disabled' ? (
+            ) : error === 'disabled' ? (
                 <>
                     Your posthog-js config has <i>disable_scroll_properties</i> set - these properties are required for
                     scroll depth calculations to work.
                 </>
-            ) : null}
+            ) : (
+                <>Scroll depth needs posthog-js on this page.</>
+            )}
         </p>
     )
 }
@@ -76,6 +73,7 @@ interface HeatmapsSettingsProps {
     setHeatmapColorPalette?: (palette: string | null) => void
     heatmapFixedPositionMode?: HeatmapFixedPositionMode
     setHeatmapFixedPositionMode?: (mode: HeatmapFixedPositionMode) => void
+    scrollDepthPosthogJsError?: ScrollDepthPosthogJsError
 }
 
 export const HeatmapsSettings = ({
@@ -86,6 +84,7 @@ export const HeatmapsSettings = ({
     setHeatmapColorPalette,
     heatmapFixedPositionMode,
     setHeatmapFixedPositionMode,
+    scrollDepthPosthogJsError = null,
 }: HeatmapsSettingsProps): JSX.Element => {
     return (
         <>
@@ -110,7 +109,9 @@ export const HeatmapsSettings = ({
                         size="small"
                     />
 
-                    {heatmapFilters?.type === 'scrolldepth' && <ScrollDepthJSWarning />}
+                    {heatmapFilters?.type === 'scrolldepth' && (
+                        <ScrollDepthJSWarning error={scrollDepthPosthogJsError} />
+                    )}
                 </div>
             </SectionSetting>
 

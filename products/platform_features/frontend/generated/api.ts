@@ -24,9 +24,8 @@ import type {
     CommentSlackThreadApi,
     CommentsListParams,
     DiagnosticReportApi,
-    InternalFeedbackCreateBody,
-    InternalFeedbackResponseApi,
     ListParams,
+    MemberOffboardingResourceApi,
     MembersListParams,
     OrganizationAIAccessRequestResponseApi,
     OrganizationApi,
@@ -82,38 +81,6 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
           [P in keyof Writable<T>]: T[P] extends object ? NonReadonly<NonNullable<T[P]>> : T[P]
       }
     : DistributeReadOnlyOverUnions<T>
-
-export const getInternalFeedbackCreateUrl = () => {
-    return `/api/internal_feedback/`
-}
-
-/**
- * Send feedback about an element or page of the PostHog web app to the team's Slack channel.
- */
-export const internalFeedbackCreate = async (
-    internalFeedbackCreateBody?: InternalFeedbackCreateBody,
-    options?: RequestInit
-): Promise<InternalFeedbackResponseApi> => {
-    const formData = new FormData()
-    if (internalFeedbackCreateBody?.comment !== undefined) {
-        formData.append(`comment`, internalFeedbackCreateBody.comment)
-    }
-    if (internalFeedbackCreateBody?.page_url !== undefined) {
-        formData.append(`page_url`, internalFeedbackCreateBody.page_url)
-    }
-    if (internalFeedbackCreateBody?.element_identifier !== undefined) {
-        formData.append(`element_identifier`, internalFeedbackCreateBody.element_identifier)
-    }
-    if (internalFeedbackCreateBody?.screenshot !== undefined) {
-        formData.append(`screenshot`, internalFeedbackCreateBody.screenshot)
-    }
-
-    return apiMutator<InternalFeedbackResponseApi>(getInternalFeedbackCreateUrl(), {
-        ...options,
-        method: 'POST',
-        body: formData,
-    })
-}
 
 export const getListUrl = (params?: ListParams) => {
     const normalizedParams = new URLSearchParams()
@@ -358,6 +325,24 @@ export const membersGithubLoginRetrieve = async (
         ...options,
         method: 'GET',
     })
+}
+
+export const getMembersOffboardingPreviewRetrieveUrl = (organizationId: string, userUuid: string) => {
+    return `/api/organizations/${organizationId}/members/${userUuid}/offboarding_preview/`
+}
+
+export const membersOffboardingPreviewRetrieve = async (
+    organizationId: string,
+    userUuid: string,
+    options?: RequestInit
+): Promise<MemberOffboardingResourceApi[]> => {
+    return apiMutator<MemberOffboardingResourceApi[]>(
+        getMembersOffboardingPreviewRetrieveUrl(organizationId, userUuid),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
 }
 
 export const getMembersScopedApiKeysRetrieveUrl = (organizationId: string, userUuid: string) => {

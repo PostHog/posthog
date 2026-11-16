@@ -15,7 +15,9 @@ from slack_sdk.errors import SlackApiError
 from slack_sdk.web import SlackResponse, WebClient
 
 from posthog.dataclasses import frozen
-from posthog.models.integration import Integration, SlackIntegration
+from posthog.integrations import IntegrationManager, IntegrationNotFound, IntegrationRecord
+from posthog.models.integration import SlackIntegration
+from posthog.models.team.team import Team
 from posthog.redis import get_client
 from posthog.slack.formatting import channel_id_from_target, escape_slack_mrkdwn
 from posthog.slack.markdown import SLACK_MARKDOWN_TEXT_MAX_LEN, slack_markdown_block
@@ -170,7 +172,7 @@ def _slack_retry_after_seconds(exc: Exception) -> int | None:
     return min(retry_after, 3600) if retry_after is not None and retry_after > 0 else None
 
 
-def _scout_invite_footer(integration: Integration, *, scout_team_id: int, channel_id: str) -> list[dict]:
+def _scout_invite_footer(integration: IntegrationRecord, *, scout_team_id: int, channel_id: str) -> list[dict]:
     """The follow-up invite footer, when the Slack connection uses the scout's environment.
 
     A mention is answered from the connected project, so a connection pointing somewhere else would
@@ -198,13 +200,18 @@ def _prettify_scout_name(skill_name: str) -> str:
     return cleaned[:1].upper() + cleaned[1:] if cleaned else "Scout"
 
 
-def _slack_integration_for_project(*, integration_id: int, project_id: int) -> Integration:
-    # nosemgrep: environment-model-scoped-by-project -- scout configs are project-level, so a Slack integration from any environment of the project is valid
-    integration = Integration.objects.filter(
-        id=integration_id,
-        team__project_id=project_id,
-        kind=Integration.IntegrationKind.SLACK,
-    ).first()
+def find_project_slack_integration(*, integration_id: int, project_id: int) -> IntegrationRecord | None:
+    # Scout configs are project-level, so a Slack integration from any environment of the project is valid.
+    for team_id in Team.objects.filter(project_id=project_id).values_list("id", flat=True):
+        try:
+            return IntegrationManager.slack.oauth.get(team_id, integration_id)
+        except IntegrationNotFound:
+            continue
+    return None
+
+
+def _slack_integration_for_project(*, integration_id: int, project_id: int) -> IntegrationRecord:
+    integration = find_project_slack_integration(integration_id=integration_id, project_id=project_id)
     if integration is None:
         raise ScoutSlackPermanentDeliveryError(
             "The configured Slack integration no longer exists on this project",
@@ -841,7 +848,7 @@ def post_scout_report_to_slack(
         scout_report_slack_message(
             team_id=report.team_id,
             report_id=str(report.id),
-            slack_workspace_id=integration.integration_id,
+            slack_workspace_id=integration.integration_id or "",
             target=channel_id,
         )
         if edit_note is None
@@ -905,7 +912,7 @@ def post_scout_report_to_slack(
         reply_ts = []
         if thread_ts:
             record_report_slack_thread(
-                slack_workspace_id=integration.integration_id,
+                slack_workspace_id=integration.integration_id or "",
                 team_id=report.team_id,
                 report_id=str(report.id),
                 integration_id=integration.id,
@@ -922,7 +929,7 @@ def post_scout_report_to_slack(
     def _record_reply_ts(posted: list[str]) -> None:
         record_scout_report_slack_replies(
             team_id=report.team_id,
-            slack_workspace_id=integration.integration_id,
+            slack_workspace_id=integration.integration_id or "",
             channel=conversation,
             thread_ts=str(thread_ts),
             reply_ts=posted,

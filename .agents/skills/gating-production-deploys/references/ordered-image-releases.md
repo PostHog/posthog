@@ -4,7 +4,7 @@ Use this reference when reusing the common ordered alias helper or the shared-im
 
 ## Current capability
 
-The common alias uses `.github/scripts/ordered-image-release.sh`. `.github/actions/paths-filter` owns canonical manifest schema loading in `src/shared-image-policy.ts` and legacy projection. `.github/actions/shared-image-releases` owns `inspect`, `publish`, source publication bindings, the interval adapter and fingerprint APIs. It imports the loader and vendored matcher from paths-filter. The new action has no Depot mirror. Channels stay empty until separately reviewed activation; manifest entries name provisioned origin repositories.
+The common alias uses `.github/scripts/ordered-image-release.sh`. `.github/actions/paths-filter` owns canonical manifest schema loading in `src/shared-image-policy.ts` and legacy projection. `.github/actions/shared-image-releases` owns `inspect`, `publish`, source publication bindings, the interval adapter and fingerprint APIs. It imports the loader and vendored matcher from paths-filter. The new action has no Depot mirror. Channels are added only through separately reviewed activation; manifest entries name provisioned origin repositories.
 
 ## Common ordered alias
 
@@ -33,7 +33,7 @@ Image annotations and consumer `source.repo` keep canonical `PostHog/posthog` id
 
 Move each reused filter into `.github/shared-image-releases.yaml` once. The legacy action's `shared-image-policy` input calls `loadPolicy(text)` and `projectLegacyFilters(policy, inlineYaml)`. Preserve legacy endpoint comparisons, output names, ordering and compound dispatch conditions, including Python dependency analysis and coverage-added checks.
 
-Keep a `dataWarehouse: null` reference at that rule's original inline position. The projection fills it from the manifest while preserving every non-null inline rule. Unresolved references fail; nonempty duplicate definitions are rejected. Metadata's ten-pattern historical fixture remains distinct from the broader active `dataWarehouse` rule and is not an active channel.
+Keep a `dataWarehouse: null` reference at that rule's original inline position. The projection fills it from the manifest while preserving every non-null inline rule. Unresolved references fail; nonempty duplicate definitions are rejected. `dataWarehouseMetadata` is an active channel filter, distinct from the broader `dataWarehouse` rule that still gates two legacy workers, with its `bootstrapPolicyDigest` pinned at adoption.
 
 Version 1 has `version`, `filters` and `images`; images contain `channels`. Each channel has `repository`, `filter` and optional `bootstrapPolicyDigest`. `loadPolicy` validates the closed shape, references, positive patterns and nonempty channel status qualifiers limited to `added`, `modified` and `deleted`. The vendored matcher owns extglob/negation semantics; legacy-only veto and status rules retain prior behavior. Structural validation does not authorize publication.
 

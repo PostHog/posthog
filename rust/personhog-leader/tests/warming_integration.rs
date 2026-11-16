@@ -99,7 +99,7 @@ async fn warm_live(
     dirty_index: &DirtyIndex,
     partition: u32,
 ) -> personhog_coordination::error::Result<()> {
-    let sources = [WarmSource::live(CHANGELOG_TOPIC, partition)];
+    let sources = [WarmSource::live(CHANGELOG_TOPIC, None, partition)];
     warm_from_sources(cfg, pools, cache, dirty_index, partition, &sources).await
 }
 
@@ -171,13 +171,13 @@ async fn warming_handles_empty_partition() {
 
     // The empty path must return its consumer to the pool, not drop it —
     // a second empty warm reuses the same client instead of creating one.
-    let created_after_first = pools.warming.created_count();
+    let created_after_first = pools.on(None).warming.created_count();
     cache.drop_partition(0);
     warm_live(&cfg, &pools, &cache, &DirtyIndex::new(1_000_000), 0)
         .await
         .expect("second empty warm should succeed");
     assert_eq!(
-        pools.warming.created_count(),
+        pools.on(None).warming.created_count(),
         created_after_first,
         "an empty warm must give its pooled consumer back"
     );
@@ -591,6 +591,7 @@ async fn warming_seeds_dirty_index_when_writer_has_no_commits() {
     );
     // Marks carry the record offsets: 3 records at offsets 0..=2.
     let stream = personhog_leader::cache::Stream {
+        cluster: None,
         topic: std::sync::Arc::from(CHANGELOG_TOPIC),
         partition: 0,
     };
@@ -623,12 +624,12 @@ async fn sequential_warms_reuse_pooled_clients() {
     }
 
     assert_eq!(
-        pools.warming.created_count(),
+        pools.on(None).warming.created_count(),
         1,
         "four sequential warms must reuse one pooled warming consumer"
     );
     assert_eq!(
-        pools.offsets.created_count(),
+        pools.on(None).offsets.created_count(),
         1,
         "four offset queries must reuse one pooled offsets client"
     );
@@ -643,10 +644,10 @@ async fn warm_up_fills_every_slot() {
     let (cluster, _producer) = create_mock_kafka().await;
     let (_cfg, pools) = warming_config_for("warmer-prewarm", &cluster);
 
-    pools.warming.warm_up(3).await;
+    pools.on(None).warming.warm_up(3).await;
 
     assert_eq!(
-        pools.warming.created_count(),
+        pools.on(None).warming.created_count(),
         3,
         "prewarming three slots must create three distinct clients"
     );
@@ -815,6 +816,7 @@ async fn the_prune_tick_settles_published_partitions_only() {
         offset: 0,
         partition,
         stream: personhog_leader::cache::Stream {
+            cluster: None,
             topic: std::sync::Arc::from("personhog_updates"),
             partition,
         },
@@ -844,7 +846,7 @@ async fn the_prune_tick_settles_published_partitions_only() {
         &dirty_index,
         &cache,
         &locks,
-        &pools.offsets,
+        &pools,
         Duration::from_secs(5),
         |_| false,
     )
@@ -866,7 +868,7 @@ async fn the_prune_tick_settles_published_partitions_only() {
         &dirty_index,
         &cache,
         &locks,
-        &pools.offsets,
+        &pools,
         Duration::from_secs(5),
         |_| false,
     )
@@ -899,6 +901,7 @@ async fn the_prune_tick_settles_a_retired_streams_marks_without_offsets() {
         offset: 0,
         partition: 0,
         stream: personhog_leader::cache::Stream {
+            cluster: None,
             topic: std::sync::Arc::from(topic),
             partition,
         },
@@ -931,7 +934,7 @@ async fn the_prune_tick_settles_a_retired_streams_marks_without_offsets() {
             &dirty_index,
             &cache,
             &locks,
-            &pools.offsets,
+            &pools,
             Duration::from_secs(5),
             |topic| topic == RETIRED_TOPIC,
         ),
@@ -990,6 +993,7 @@ async fn the_prune_tick_drains_a_multi_chunk_death_backlog() {
                 offset,
                 partition: 0,
                 stream: personhog_leader::cache::Stream {
+                    cluster: None,
                     topic: std::sync::Arc::from("personhog_updates"),
                     partition: 0,
                 },
@@ -1003,7 +1007,7 @@ async fn the_prune_tick_drains_a_multi_chunk_death_backlog() {
         &dirty_index,
         &cache,
         &locks,
-        &pools.offsets,
+        &pools,
         Duration::from_secs(5),
         |_| false,
     )
@@ -1062,12 +1066,20 @@ fn commit_group_offset(bootstrap: &str, group: &str, topic: &str, partition: i32
 async fn a_restart_warms_the_old_generations_congruent_tail_for_its_keys() {
     use personhog_common::partitioning::partition_for_person;
     use personhog_coordination::changelog::KeyFilter;
+    use personhog_coordination::types::ClusterEndpoint;
     use personhog_leader::cache::Stream;
 
+    let secondary = common::secondary_kafka_bootstrap();
+    let old_cluster = secondary.as_ref().map(|hosts| ClusterEndpoint {
+        name: "old-cluster".to_string(),
+        hosts: hosts.clone(),
+        tls: false,
+    });
     let new_topic = common::create_test_kafka_with_partitions(4).await;
-    let producer = common::create_local_kafka_producer().await;
-    let old_topic = common::owned_broker_topic(2).await;
     let bootstrap = new_topic.bootstrap_servers();
+    let old_bootstrap = secondary.clone().unwrap_or_else(|| bootstrap.clone());
+    let producer = common::create_kafka_producer_on(&old_bootstrap).await;
+    let old_topic = common::owned_broker_topic_on(&old_bootstrap, 2).await;
 
     // Keys whose home under 4 partitions is 1 or 3 all live in old partition 1.
     let mut inherited = Vec::new();
@@ -1089,7 +1101,7 @@ async fn a_restart_warms_the_old_generations_congruent_tail_for_its_keys() {
     // A group of this test's own: the shared broker may host live writers.
     let writer_group = format!("restart-writer-{}", uuid::Uuid::now_v7());
     // One record already applied by the writer: below its commit, no mark.
-    commit_group_offset(&bootstrap, &writer_group, &old_topic.topic, 1, 1);
+    commit_group_offset(&old_bootstrap, &writer_group, &old_topic.topic, 1, 1);
 
     let mut cfg = common::test_warming_config("restarter", &bootstrap);
     cfg.writer_consumer_group = writer_group.clone();
@@ -1098,6 +1110,7 @@ async fn a_restart_warms_the_old_generations_congruent_tail_for_its_keys() {
     let dirty_index = DirtyIndex::new(1_000_000);
     let sources = [
         WarmSource {
+            cluster: old_cluster.clone(),
             topic: Arc::from(old_topic.topic.as_str()),
             partition: 1,
             keep: Some(KeyFilter {
@@ -1105,13 +1118,14 @@ async fn a_restart_warms_the_old_generations_congruent_tail_for_its_keys() {
                 target: 1,
             }),
         },
-        WarmSource::live(&new_topic.topic, 1),
+        WarmSource::live(&new_topic.topic, None, 1),
     ];
     warm_from_sources(&cfg, &pools, &cache, &dirty_index, 1, &sources)
         .await
         .expect("warm from the old tail");
 
     let old_stream = Stream {
+        cluster: old_cluster.clone().map(Arc::new),
         topic: Arc::from(old_topic.topic.as_str()),
         partition: 1,
     };
@@ -1164,13 +1178,13 @@ async fn a_restart_warms_the_old_generations_congruent_tail_for_its_keys() {
     );
 
     // The writer finishes the old partition: its marks settle.
-    commit_group_offset(&bootstrap, &writer_group, &old_topic.topic, 1, 1_000);
+    commit_group_offset(&old_bootstrap, &writer_group, &old_topic.topic, 1, 1_000);
     let locks = dashmap::DashMap::new();
     personhog_leader::settle::prune_and_settle_tick(
         &dirty_index,
         &cache,
         &locks,
-        &pools.offsets,
+        &pools,
         Duration::from_secs(5),
         |_| false,
     )
@@ -1213,6 +1227,7 @@ async fn an_applied_old_record_never_shadows_a_newer_applied_live_one() {
     let dirty_index = DirtyIndex::new(1_000_000);
     let sources = [
         WarmSource {
+            cluster: None,
             topic: Arc::from(old_topic.topic.as_str()),
             partition: 0,
             keep: Some(KeyFilter {
@@ -1220,7 +1235,7 @@ async fn an_applied_old_record_never_shadows_a_newer_applied_live_one() {
                 target: 0,
             }),
         },
-        WarmSource::live(&new_topic.topic, 0),
+        WarmSource::live(&new_topic.topic, None, 0),
     ];
     warm_from_sources(&cfg, &pools, &cache, &dirty_index, 0, &sources)
         .await

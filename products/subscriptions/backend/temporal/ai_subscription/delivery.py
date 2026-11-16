@@ -15,17 +15,19 @@ from slack_sdk.errors import SlackApiError
 
 from posthog.email import EmailMessage, raise_if_delivery_rejected
 from posthog.exceptions_capture import capture_exception
+from posthog.helpers.email_formatting import render_ai_email_html
 from posthog.helpers.markdown_safety import is_allowed_link_url, strip_external_links_markdown
+from posthog.integrations import IntegrationRecord
 from posthog.models import Team, User
-from posthog.models.integration import Integration
+from posthog.query_creator_access import CreatorLeftOrganizationError, assert_creator_can_run
 from posthog.slack.formatting import channel_id_from_target
 from posthog.sync import database_sync_to_async
 from posthog.utils import absolute_uri
 
+from products.access_control.backend.facade.user_access_control import UserAccessControlError
 from products.exports.backend.facade.api import get_delivery_image_url
 from products.slack_app.backend.facade.api import slack_followup_invite
 from products.subscriptions.backend.facade.contracts import PromptRejectedError, SubscriptionTriggerType
-from products.subscriptions.backend.logic.email_formatting import render_ai_email_html
 from products.subscriptions.backend.logic.slack_subscriptions import (
     UTM_TAGS_BASE,
     SlackDeliveryResult,
@@ -439,9 +441,15 @@ async def build_ai_subscription_report(subscription: Subscription) -> AiReportRe
     team, user, window, ai_query_plan = await database_sync_to_async(
         _resolve_subscription_context, thread_sensitive=False
     )(subscription)
-    # created_by is FK SET_NULL; the pipeline requires a non-None user
-    if user is None:
-        raise PromptRejectedError("AI subscription has no creator (created_by deleted); cannot deliver.")
+    # The report's queries run as the creator, so a creator who was deleted, left the organization or
+    # lost access to the project ends the subscription the same way a bad prompt does.
+    try:
+        await database_sync_to_async(assert_creator_can_run, thread_sensitive=False)(user, team)
+    except CreatorLeftOrganizationError as error:
+        raise PromptRejectedError("The owner of this subscription is no longer in the organization.") from error
+    except UserAccessControlError as error:
+        raise PromptRejectedError("The owner of this subscription no longer has access.") from error
+    assert user is not None
 
     include_images = subscription.includes_delivery_part("include_images")
     result = await generate_ai_report(
@@ -584,12 +592,16 @@ def send_email_ai_subscription_credit_limited(
     message.send(send_async=False)
 
 
+def _slack_charts_in_main_message(subscription: Subscription) -> bool:
+    return bool(subscription.delivery_config.get("post_all_insights_in_main_message", False))
+
+
 def _build_ai_slack_message(
     subscription: Subscription,
     markdown: str,
     *,
     delivery_id: uuid.UUID,
-    integration: Integration | None = None,
+    integration: IntegrationRecord | None = None,
     charts: list[dict] | None = None,
 ) -> SlackMessage:
     utm_tags = f"{UTM_TAGS_BASE}&utm_medium=slack"
@@ -609,6 +621,7 @@ def _build_ai_slack_message(
         {"type": "header", "text": {"type": "plain_text", "text": heading[:150]}},
         *_slack_report_blocks(first_section, env),
     ]
+    chart_blocks: list[dict] = []
     for chart in (charts or []) if subscription.includes_delivery_part("include_images") else []:
         caption = chart.get("title") or "Chart"
         image_block: dict = {
@@ -618,8 +631,11 @@ def _build_ai_slack_message(
         }
         if chart.get("title"):
             image_block["title"] = {"type": "plain_text", "text": caption[:SLACK_IMAGE_TITLE_LIMIT]}
-        blocks.append(image_block)
-    if len(sections) > 1:
+        chart_blocks.append(image_block)
+    charts_in_thread = bool(chart_blocks) and not _slack_charts_in_main_message(subscription)
+    if not charts_in_thread:
+        blocks.extend(chart_blocks)
+    if len(sections) > 1 or charts_in_thread:
         blocks.append(
             {"type": "section", "text": {"type": "mrkdwn", "text": "_See thread for the rest of the report._"}}
         )
@@ -677,6 +693,11 @@ def _build_ai_slack_message(
             {"blocks": overflow[start : start + SLACK_MESSAGE_BLOCK_LIMIT]}
             for start in range(0, len(overflow), SLACK_MESSAGE_BLOCK_LIMIT)
         )
+    if charts_in_thread:
+        thread_messages.extend(
+            {"blocks": chart_blocks[start : start + SLACK_MESSAGE_BLOCK_LIMIT]}
+            for start in range(0, len(chart_blocks), SLACK_MESSAGE_BLOCK_LIMIT)
+        )
     for section in sections[1:]:
         section_blocks = _slack_report_blocks(section, env)
         thread_messages.extend(
@@ -691,7 +712,7 @@ async def send_slack_ai_subscription_report(
     *,
     subscription: Subscription,
     markdown: str,
-    integration: Integration,
+    integration: IntegrationRecord,
     delivery_id: uuid.UUID,
     charts: list[dict] | None = None,
 ) -> SlackDeliveryResult:
@@ -708,7 +729,12 @@ async def send_slack_ai_subscription_report(
     try:
         return await deliver_slack_message_data(integration, subscription, build(effective_charts))
     except SlackApiError as exc:
-        if not effective_charts or exc.response.get("error") != "invalid_blocks":
+        # Threaded charts are not in the main message, so dropping them cannot fix a rejected main message.
+        if (
+            not effective_charts
+            or not _slack_charts_in_main_message(subscription)
+            or exc.response.get("error") != "invalid_blocks"
+        ):
             raise
         logger.warning(
             "ai_report.slack_charts_rejected_resending_without_them",

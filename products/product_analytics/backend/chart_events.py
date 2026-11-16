@@ -4,6 +4,7 @@ from datetime import datetime
 from typing import Any, cast
 
 from pydantic import ValidationError
+from rest_framework.exceptions import ValidationError as DRFValidationError
 
 from posthog.schema import ActionsNode, EventsNode, GroupNode, HogQLQueryModifiers
 
@@ -88,7 +89,11 @@ def chart_events(query: Mapping[str, Any], team: Team, user: User) -> ChartEvent
     # A data warehouse series reads no events.
     if not runner.query.series or not all(_reads_events(series) for series in runner.query.series):
         return None
-    runner.validate()
+    try:
+        runner.validate()
+    except DRFValidationError:
+        # The chart cannot run the query either, such as a funnel with one step.
+        return None
     database = runner.shared_database
     filters: list[tuple[str | None, ast.Expr, QueryDateRange]] = []
     for chart_query, date_range in _chart_queries(runner):

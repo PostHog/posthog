@@ -14,6 +14,7 @@ from parameterized import parameterized
 
 from posthog.models import Team
 
+from products.access_control.backend.facade.testing import create_access_control
 from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import (
@@ -23,6 +24,12 @@ from products.warehouse_sources.backend.models.external_data_schema import (
 )
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.table import HISTORY_TABLE_OPTION, DataWarehouseTable
+from products.warehouse_sources.backend.self_managed_access import MIGRATION_MARKER_KEY, AdoptionAccessError
+from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import HISTORY_NAMING, LEGACY_HISTORY_NAMING
+from products.warehouse_sources.backend.temporal.data_imports.cdc.history_table import (
+    HistoryTableNameTakenError,
+    history_naming,
+)
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import (
     build_table_name,
@@ -375,6 +382,71 @@ class TestRegisterCdcCompanionTableStamp:
         assert history.active == "orders_cdc__query_a"
         assert history.active_job_id == str(job.id)
 
+    @pytest.mark.parametrize(
+        ("resource_name", "validity", "expected"),
+        [
+            pytest.param("orders_history", HISTORY_NAMING, HISTORY_NAMING, id="new_table"),
+            pytest.param("orders_cdc", LEGACY_HISTORY_NAMING, LEGACY_HISTORY_NAMING, id="legacy_table"),
+        ],
+    )
+    def test_the_next_run_reads_the_naming_the_table_was_created_with(self, team, resource_name, validity, expected):
+        # Without the stamp, the next run would take its own `_history` table for another table's.
+        source = ExternalDataSource.objects.create(
+            source_id=str(uuid.uuid4()), connection_id=str(uuid.uuid4()), team=team, source_type="Postgres"
+        )
+        schema = ExternalDataSchema.objects.create(name="orders", team=team, source=source)
+        job = ExternalDataJob.objects.create(
+            team=team, pipeline=source, schema=schema, status=ExternalDataJobStatus.RUNNING, rows_synced=10
+        )
+
+        with (
+            patch.object(DataWarehouseTable, "get_columns", return_value={}),
+            patch.object(DataWarehouseTable, "get_count", return_value=100),
+        ):
+            async_to_sync(register_cdc_companion_table)(
+                run_id=str(job.id),
+                team_id=team.pk,
+                schema_id=schema.id,
+                resource_name=resource_name,
+                row_count=100,
+                table_format=DataWarehouseTableFormat.DeltaS3Wrapper,
+                queryable_folder=f"{resource_name}__query_a",
+                table_schema_dict={"id": "Int64", validity.valid_from: "DateTime", validity.valid_to: "DateTime"},
+            )
+
+        assert history_naming(ExternalDataSchema.objects.get(id=schema.id)) == expected
+
+    def test_does_not_take_the_record_of_a_source_table_with_the_history_name(self, team):
+        source = ExternalDataSource.objects.create(
+            source_id=str(uuid.uuid4()), connection_id=str(uuid.uuid4()), team=team, source_type="Postgres"
+        )
+        schema = ExternalDataSchema.objects.create(name="orders", team=team, source=source)
+        sibling_table = DataWarehouseTable.objects.create(
+            team=team,
+            name=build_table_name(source, "orders_cdc"),
+            format=DataWarehouseTableFormat.DeltaS3Wrapper,
+            url_pattern="s3://bucket/orders_cdc__query_a",
+            external_data_source=source,
+        )
+        ExternalDataSchema.objects.create(name="orders_cdc", team=team, source=source, table=sibling_table)
+        job = ExternalDataJob.objects.create(
+            team=team, pipeline=source, schema=schema, status=ExternalDataJobStatus.RUNNING, rows_synced=10
+        )
+
+        with pytest.raises(HistoryTableNameTakenError):
+            async_to_sync(register_cdc_companion_table)(
+                run_id=str(job.id),
+                team_id=team.pk,
+                schema_id=schema.id,
+                resource_name="orders_cdc",
+                row_count=100,
+                table_format=DataWarehouseTableFormat.DeltaS3Wrapper,
+                queryable_folder="orders_cdc__query_b",
+            )
+
+        sibling_table.refresh_from_db()
+        assert (sibling_table.url_pattern, sibling_table.is_history_table) == ("s3://bucket/orders_cdc__query_a", False)
+
     def test_records_the_companion_size_on_the_companion_table(self, team):
         # In `both` mode the schema's table is the snapshot table. The companion size must land on
         # the companion's own record, for a new record and for an existing one.
@@ -669,6 +741,40 @@ class TestValidateSchemaAndUpdateTable:
         assert credential_seen_by_introspection == [None]
         job.refresh_from_db()
         assert job.storage_delta_mib == 3.0
+
+    @pytest.mark.parametrize("rule_added", [False, True])
+    def test_a_migration_source_adopts_the_table_only_while_its_access_rules_still_fit(
+        self, team: Team, rule_added: bool
+    ) -> None:
+        schema, job = self._schema_and_job(team)
+        ExternalDataSource.objects.filter(pk=job.pipeline_id).update(
+            connection_metadata={MIGRATION_MARKER_KEY: {"group_key": "s3/us-east-1/exports"}}
+        )
+        job.refresh_from_db()
+        table = self._self_managed_table(team, schema)
+        if rule_added:
+            # Added after the migration linked the table, so the source has no rule that matches it.
+            create_access_control(
+                team_id=team.pk, resource="warehouse_table", resource_id=str(table.id), access_level="none"
+            )
+
+        with (
+            patch.object(DataWarehouseTable, "get_columns", return_value={}),
+            patch.object(DataWarehouseTable, "get_count", return_value=150),
+        ):
+            if rule_added:
+                with pytest.raises(AdoptionAccessError, match="The table still reads its own files"):
+                    self._publish(team, schema, job)
+            else:
+                self._publish(team, schema, job)
+
+        table.refresh_from_db()
+        schema.refresh_from_db()
+        if rule_added:
+            assert (table.external_data_source_id, schema.table_id) == (None, None)
+            assert table.credential_id is not None
+        else:
+            assert (table.external_data_source_id, schema.table_id) == (job.pipeline_id, table.id)
 
     @pytest.mark.parametrize(
         "change",

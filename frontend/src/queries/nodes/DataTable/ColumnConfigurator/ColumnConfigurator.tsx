@@ -23,9 +23,9 @@ import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 import { dataTableLogic } from '~/queries/nodes/DataTable/dataTableLogic'
+import { isActorsQuery } from '~/queries/schema/node-guards'
 import { DataTableNode } from '~/queries/schema/schema-general'
 import {
-    isActorsQuery,
     isEventsQuery,
     isGroupsQuery,
     isSessionsQuery,

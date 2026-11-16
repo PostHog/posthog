@@ -22,6 +22,7 @@ import type {
     GapActionApi,
     GapTopicActionApi,
     GapTopicActionResultApi,
+    KnowledgeAvailabilityApi,
     KnowledgeDocumentWindowApi,
     KnowledgeGapSuggestionApi,
     KnowledgeLibraryApi,
@@ -262,6 +263,24 @@ export const businessKnowledgeGapSuggestionsDismissTopicCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(gapTopicActionApi),
+    })
+}
+
+export const getBusinessKnowledgeLearningBackfillCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/business_knowledge/learning_backfill/`
+}
+
+/**
+ * Start learning from resolved support tickets of the last 90 days. Tickets that were already analyzed are skipped. The work runs in the background in small batches and can take a few hours.
+ * @summary Learn from past support tickets
+ */
+export const businessKnowledgeLearningBackfillCreate = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<BusinessKnowledgeSettingsApi> => {
+    return apiMutator<BusinessKnowledgeSettingsApi>(getBusinessKnowledgeLearningBackfillCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
     })
 }
 
@@ -844,4 +863,22 @@ export const businessKnowledgeSourcesTextRetrieve = async (
             method: 'GET',
         }
     )
+}
+
+export const getBusinessKnowledgeSourcesAvailabilityRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/business_knowledge/sources/availability/`
+}
+
+/**
+ * Whether the project has any source and whether this environment has any selected GitHub repository.
+ * @summary Check whether business knowledge has content
+ */
+export const businessKnowledgeSourcesAvailabilityRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<KnowledgeAvailabilityApi> => {
+    return apiMutator<KnowledgeAvailabilityApi>(getBusinessKnowledgeSourcesAvailabilityRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
 }

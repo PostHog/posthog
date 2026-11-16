@@ -1908,7 +1908,6 @@ SELECT
   anyLast(histogram_bounds) AS histogram_bounds,
   any(_topic) AS _topic,
   groupArray(10000)(timestamp) AS timestamp_arr,
-  groupArray(10000)(observed_timestamp) AS observed_timestamp_arr,
   groupArray(10000)(value) AS value_arr,
   groupArray(10000)(count) AS count_arr,
   groupArray(10000)(histogram_counts) AS histogram_counts_arr,
@@ -1966,9 +1965,6 @@ SQL
       type = "String"
     }
     column "timestamp_arr" {
-      type = "Array(DateTime64(6))"
-    }
-    column "observed_timestamp_arr" {
       type = "Array(DateTime64(6))"
     }
     column "value_arr" {

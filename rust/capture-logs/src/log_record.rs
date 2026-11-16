@@ -121,20 +121,20 @@ impl KafkaLogRow {
             None => "".to_string(),
         };
 
-        let mut severity_text = normalize_severity_text(record.severity_text);
-        let mut severity_number = record.severity_number;
-
-        if let Some(parsed_severity) = try_extract_severity(&body) {
-            severity_text = parsed_severity.to_string();
-            severity_number = convert_severity_text_to_number(&severity_text);
-        }
-
-        // severity_number takes priority if both provided
-        if record.severity_number > 0 {
-            severity_text = convert_severity_number_to_text(record.severity_number);
+        // severity_number takes priority over the severity text and the body
+        let (severity_text, severity_number) = if record.severity_number > 0 {
+            (
+                convert_severity_number_to_text(record.severity_number),
+                record.severity_number,
+            )
         } else {
-            severity_number = convert_severity_text_to_number(&severity_text);
-        }
+            let severity_text = match try_extract_severity(&body) {
+                Some(parsed_severity) => parsed_severity.to_string(),
+                None => normalize_severity_text(record.severity_text),
+            };
+            let severity_number = convert_severity_text_to_number(&severity_text);
+            (severity_text, severity_number)
+        };
 
         let resource_attributes = extract_resource_attributes(resource);
 
@@ -377,7 +377,13 @@ pub fn extract_resource_attributes(resource: Option<Resource>) -> HashMap<String
 }
 
 // TODO - pull this from PG
-const SEVERITY_KEYS: [&str; 4] = ["level", "severity", "log.level", "config.log_level"];
+const SEVERITY_KEYS: &[&str] = &[
+    "level",
+    "severity",
+    "log.level",
+    "config.log_level",
+    "levelname",
+];
 
 pub(crate) fn try_extract_severity(body: &str) -> Option<&'static str> {
     if !body.trim_start().starts_with('{') {
@@ -624,6 +630,31 @@ mod tests {
             row.bytes_uncompressed.unwrap(),
             compute_kafka_log_row_bytes(&row),
         );
+    }
+
+    #[test]
+    fn new_resolves_severity_from_number_text_and_body() {
+        for (severity_text, severity_number, body, expected) in [
+            ("", 17, r#"{"levelname":"WARNING"}"#, ("error", 17)),
+            ("ERROR", 0, r#"{"levelname":"WARNING"}"#, ("warn", 13)),
+            ("ERROR", 0, "plain text", ("error", 17)),
+        ] {
+            let log_record = LogRecord {
+                severity_text: severity_text.to_string(),
+                severity_number,
+                body: Some(AnyValue {
+                    value: Some(Value::StringValue(body.to_string())),
+                }),
+                ..Default::default()
+            };
+            let (row, _) =
+                KafkaLogRow::new(log_record, None, None, default_max_past()).expect("ok");
+            assert_eq!(
+                (row.severity_text.as_str(), row.severity_number),
+                expected,
+                "{severity_text} {severity_number} {body}"
+            );
+        }
     }
 
     #[test]

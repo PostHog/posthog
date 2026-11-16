@@ -61,7 +61,7 @@ import {
 
 import {
     FLAG_CALLS_SERIES_DESCRIPTION,
-    FLAG_CALLS_SERIES_NAME,
+    flagCallsSeriesName,
     FLAG_CALLS_UNSUPPORTED_MATH_TYPES,
     FLAG_EVALUATIONS_SERIES_FIELDS,
     flagCallsFiltersFromEventFilters,
@@ -84,8 +84,7 @@ import { SaveAsActionBanner } from './SaveAsActionBanner'
 import type { ActionFilterRowProps } from './types'
 import { MathAvailability } from './types'
 
-// Re-export for backward compatibility — these are imported from this file by 28+ consumers
-export { taxonomicFilterGroupTypeToEntityType } from './actionFilterRowUtils'
+// Re-export for backward compatibility
 export { MathSelector } from './MathSelector'
 
 interface DragHandleProps {
@@ -264,12 +263,9 @@ export function ActionFilterRow({
     )
 
     /**
-     * Shared selection handler for both the legacy `TaxonomicPopover` and the
-     * new `TaxonomicFilterMenu` / `TaxonomicAutocomplete`. The pseudo-event
-     * groups (Pageview / Screen / Autocapture events) and quick filters don't
-     * map to a plain `EntityType` — they expand into a base event plus a
-     * property filter. Keeping one handler guarantees the new picker behaves
-     * identically to the legacy one.
+     * The pseudo-event groups (Pageview / Screen / Autocapture events) and
+     * quick filters don't map to a plain `EntityType` — they expand into a
+     * base event plus a property filter.
      */
     const applyTaxonomicSelection = useCallback(
         (
@@ -312,7 +308,7 @@ export function ActionFilterRow({
                 updateSeriesEntity(index, {
                     kind: dataWarehouseNodeKind ?? NodeKind.DataWarehouseNode,
                     key: FLAG_EVALUATIONS_TABLE,
-                    name: FLAG_CALLS_SERIES_NAME,
+                    name: flagCallsSeriesName(),
                     ...FLAG_EVALUATIONS_SERIES_FIELDS,
                 })
                 if (isEventsSeriesNode(node) && node.event === FEATURE_FLAG_CALLED_EVENT) {
@@ -321,7 +317,7 @@ export function ActionFilterRow({
                     const removedCount = (node.properties?.length ?? 0) - flagCallsFilters.length
                     if (removedCount > 0) {
                         lemonToast.info(
-                            `${FLAG_CALLS_SERIES_NAME} supports only flag key, response and SQL filters, so ${removedCount} other ${removedCount === 1 ? 'filter was' : 'filters were'} removed.`
+                            `${flagCallsSeriesName()} supports only flag key, response and SQL filters, so ${removedCount} other ${removedCount === 1 ? 'filter was' : 'filters were'} removed.`
                         )
                     }
                 }
@@ -833,7 +829,6 @@ export function ActionFilterRow({
                         excludedProperties={excludedProperties}
                         hogQLGlobals={hogQLGlobals}
                         operatorAllowlist={operatorAllowlist}
-                        triggerVariant="input"
                         framedRows={behavioralFiltersEnabled}
                         addText={behavioralFiltersEnabled ? 'Filter' : undefined}
                         addFilterSuffix={

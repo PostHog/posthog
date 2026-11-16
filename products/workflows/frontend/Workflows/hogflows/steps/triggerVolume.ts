@@ -1,7 +1,7 @@
 import { matchingFiltersToPropertyGroup } from 'scenes/hog-functions/filters/matchingFilters'
 
+import { setLatestVersionsOnQuery } from '~/queries/schema/query-versions'
 import { EventsNode, NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
-import { setLatestVersionsOnQuery } from '~/queries/utils'
 import { BaseMathType, ChartDisplayType } from '~/types'
 
 import { HogFlowAction } from '../types'

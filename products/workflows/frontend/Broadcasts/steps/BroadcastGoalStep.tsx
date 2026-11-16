@@ -11,7 +11,7 @@ import { ConversionGoalEditor } from '../../Workflows/hogflows/steps/components/
 import { DEFAULT_BROADCAST_CONVERSION, broadcastWizardLogic } from '../broadcastWizardLogic'
 
 export function BroadcastGoalStep(): JSX.Element {
-    const { goalEnabled, conversion, stepValidationErrors, tags } = useValues(broadcastWizardLogic)
+    const { goalEnabled, conversion, stepValidationErrors, tags, channel } = useValues(broadcastWizardLogic)
     const { setGoalEnabled, setConversion, setTags } = useActions(broadcastWizardLogic)
     const { tags: allTags } = useValues(tagsModel)
     const { loadTagsIfNeeded } = useActions(tagsModel)
@@ -21,8 +21,8 @@ export function BroadcastGoalStep(): JSX.Element {
             <div>
                 <h2 className="m-0 text-xl font-semibold">Do you want to measure a conversion goal?</h2>
                 <p className="m-0 text-secondary">
-                    A goal counts recipients who do something after receiving the email, like signing up or making a
-                    purchase.
+                    A goal counts recipients who do something after receiving the{' '}
+                    {channel === 'push' ? 'notification' : 'email'}, like signing up or making a purchase.
                 </p>
             </div>
 

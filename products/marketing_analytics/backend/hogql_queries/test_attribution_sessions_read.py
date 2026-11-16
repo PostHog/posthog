@@ -211,6 +211,7 @@ class TestAttributionSessionsRead(SimpleTestCase):
             ("America/Santiago", "2025-04-04", "2025-04-06", False, False),
         ]
     )
+    @time_machine.travel("2025-11-10T12:00:00Z", tick=False)
     def test_ambiguous_date_boundaries_fall_back(
         self, timezone: str, date_from: str, date_to: str, explicit: bool, ambiguous: bool
     ) -> None:

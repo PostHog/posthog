@@ -3,8 +3,8 @@ import { useMountedLogic, useValues } from 'kea'
 import { useEffect } from 'react'
 import { Slide, ToastContainer } from 'react-toastify'
 
-import { STATUS_PAGE_BASE } from 'lib/components/HelpMenu/incidentStatusLogic'
 import { incidentStatusLogic } from 'lib/components/HelpMenu/incidentStatusLogic'
+import { STATUS_PAGE_BASE } from 'lib/lemon-ui/LemonToast/incidentStatus'
 
 import { useStorybookMocks } from '~/mocks/browser'
 import * as statusPageCritical from '~/mocks/fixtures/_status_page_critical.json'

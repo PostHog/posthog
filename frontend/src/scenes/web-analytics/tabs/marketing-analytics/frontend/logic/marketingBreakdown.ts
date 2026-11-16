@@ -18,19 +18,6 @@ export const BREAKDOWN_LABELS: Record<MarketingAnalyticsAttributionBreakdown, st
     [MarketingAnalyticsAttributionBreakdown.LandingPage]: 'Landing page',
 }
 
-/** The dimensions the dashboard offers. Content and term are left out because a marketer rarely
- * breaks a whole dashboard down by them, and every extra option costs a row in the picker. */
-export const DASHBOARD_BREAKDOWNS: readonly MarketingAnalyticsAttributionBreakdown[] = [
-    MarketingAnalyticsAttributionBreakdown.Channel,
-    MarketingAnalyticsAttributionBreakdown.Source,
-    MarketingAnalyticsAttributionBreakdown.Campaign,
-    MarketingAnalyticsAttributionBreakdown.Medium,
-    MarketingAnalyticsAttributionBreakdown.ReferringDomain,
-    MarketingAnalyticsAttributionBreakdown.LandingPage,
-]
-
-export const DEFAULT_DASHBOARD_BREAKDOWN = MarketingAnalyticsAttributionBreakdown.Channel
-
 /** One page-level breakdown drives both the retention query, which takes this enum, and the web
  * stats tables, which take their own. Declared total so a new member fails to compile here rather
  * than silently dropping a table. */

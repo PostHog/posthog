@@ -4,7 +4,6 @@ import { Form } from 'kea-forms'
 import { LemonButton, LemonInputSelect, LemonModal, LemonSelect } from '@posthog/lemon-ui'
 
 import { LemonField } from 'lib/lemon-ui/LemonField'
-import { LemonFileInput } from 'lib/lemon-ui/LemonFileInput'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea'
@@ -14,6 +13,7 @@ import { CreateTab, businessKnowledgeLogic } from '../../scenes/sources/business
 import { AlwaysIncludeField } from '../AlwaysIncludeField/AlwaysIncludeField'
 import { CrawlConfigFields } from '../CrawlConfigFields/CrawlConfigFields'
 import { CrawlModeHelp } from './CrawlModeHelp'
+import { FileSourceDropzone } from './FileSourceDropzone'
 
 export function CreateKnowledgeSourceModal({
     refreshIntervalOptions,
@@ -36,7 +36,7 @@ export function CreateKnowledgeSourceModal({
         submitTextSource,
         submitUrlSource,
         submitFileSource,
-        setFileSourceValue,
+        setSourceFile,
         setCreateLibraryIds,
     } = useActions(businessKnowledgeLogic)
 
@@ -143,27 +143,14 @@ export function CreateKnowledgeSourceModal({
                         content: (
                             <Form logic={businessKnowledgeLogic} formKey="fileSource" className="flex flex-col gap-2">
                                 <LemonField name="file" label="File">
-                                    <LemonFileInput
-                                        accept=".pdf,.docx,.md,.markdown,.txt,.csv"
-                                        multiple={false}
-                                        callToAction="Drop a file here or click to browse"
-                                        showUploadedFiles
-                                        onChange={(files) => {
-                                            const file = files[0] ?? null
-                                            setFileSourceValue('file', file)
-                                            if (file) {
-                                                const nameWithoutExt = file.name.replace(/\.[^.]+$/, '')
-                                                setFileSourceValue('name', nameWithoutExt)
-                                            }
-                                        }}
-                                    />
+                                    <FileSourceDropzone onChange={setSourceFile} />
                                 </LemonField>
                                 <LemonField name="name" label="Name">
                                     <LemonInput placeholder="Auto-filled from filename" />
                                 </LemonField>
                                 <p className="text-xs text-muted">
                                     PDF, DOCX, Markdown, CSV, or plain text. Max 50 MB. The file is parsed into text and
-                                    chunked — the original file is not stored.
+                                    split into sections. The original file is not stored.
                                 </p>
                                 <AlwaysIncludeField />
                             </Form>

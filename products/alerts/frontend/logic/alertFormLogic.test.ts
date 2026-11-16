@@ -5,6 +5,7 @@ import posthog from 'posthog-js'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api, { ApiError } from 'lib/api'
+import * as takeOwnership from 'lib/components/openTakeOwnershipDialog'
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
@@ -387,6 +388,38 @@ describe('alertFormLogic', () => {
             action: 'updated',
             alert_type: 'insight',
         })
+    })
+
+    it('saves the edits disabled before offering to take ownership when the owner left', async () => {
+        const existingAlert = makeSavedAlert({ id: 'alert-existing-id' })
+        updateSpy.mockRejectedValueOnce(new ApiError('refused', 400, undefined, { code: 'owner_left_organization' }))
+        const dialogSpy = jest.spyOn(takeOwnership, 'openTakeOwnershipDialog').mockResolvedValue(false)
+        const logic = alertFormLogic({
+            alert: existingAlert,
+            insightId: 42,
+            onEditSuccess: jest.fn(),
+            insightVizDataLogicProps: insightLogicProps,
+            insightInterval: 'day',
+        })
+        logic.mount()
+        logic.actions.setAlertFormValues({
+            ...makeFormDefaults({ id: existingAlert.id }),
+            enabled: true,
+            checks: undefined,
+        })
+
+        await expectLogic(logic, () => {
+            logic.actions.submitAlertForm()
+        }).toFinishAllListeners()
+
+        // The refused save is retried with the alert still disabled, so the takeover's enable sees the saved edits.
+        expect(updateSpy).toHaveBeenCalledTimes(2)
+        expect(updateSpy.mock.calls[1][1].enabled).toBe(false)
+        expect(dialogSpy).toHaveBeenCalledWith(
+            expect.objectContaining({ resourceLabel: 'alert', resourceId: existingAlert.id, cause: 'left' })
+        )
+        expect(dialogSpy.mock.invocationCallOrder[0]).toBeGreaterThan(updateSpy.mock.invocationCallOrder[1])
+        expect(errorToastSpy).not.toHaveBeenCalled()
     })
 
     it('blocks save when threshold alert has no lower or upper bound', async () => {

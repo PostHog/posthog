@@ -131,6 +131,7 @@ class Command(BaseCommand):
             user_id=user_id,
             repository=repository,
             create_pr=False,
+            ai_stage="implementation",
             start_workflow=False,
             signal_report_id=str(report.id),
             internal=False,
@@ -162,7 +163,7 @@ class Command(BaseCommand):
         if run_created_at is not None:
             tasks_facade.set_task_run_created_at_for_seeding(run_id, task_id, team.id, created_at=run_created_at)
 
-        billable = first_billable_pr_run(report.id)
+        billable = first_billable_pr_run(report.id, team_id=report.team_id)
         if billable is None:
             raise CommandError(f"Report {report.id} is not billable after seeding — bridge/run wiring broke")
         self.stdout.write(f"  · billable at {billable.created_at.isoformat()} ({billable.pr_url})")

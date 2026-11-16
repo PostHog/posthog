@@ -68,6 +68,8 @@ function renderEditor(): void {
             </BindLogic>
         </Provider>
     )
+    // The authoring tips sit in a fold that starts closed.
+    fireEvent.click(screen.getByText('Hog reference'))
 }
 
 describe('EvaluationCodeEditor', () => {
@@ -140,9 +142,11 @@ describe('EvaluationCodeEditor', () => {
         ['Latency', 'return target.total_latency_seconds;'],
         ['Cost', 'return target.total_cost_usd;'],
     ])('enables N/A for the numeric %s example', (label, source) => {
-        logic.actions.loadEvaluationSuccess({ ...baseEvaluation, output_type: 'numeric' })
+        // Traces have no numeric templates, so the menu lists these starters.
+        logic.actions.loadEvaluationSuccess({ ...baseEvaluation, output_type: 'numeric', target: 'trace' })
         renderEditor()
 
+        fireEvent.click(screen.getByText('Insert an example'))
         fireEvent.click(screen.getByText(label))
 
         expect(logic.values.evaluation?.evaluation_config).toEqual({ source })

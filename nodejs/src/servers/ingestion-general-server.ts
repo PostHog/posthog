@@ -271,6 +271,7 @@ export class IngestionGeneralServer implements NodeServer {
             encryptedFields,
             integrationManager,
             monitoringOutputs: ingestionOutputs,
+            teamManager,
         }
 
         const ingestionDeps: IngestionConsumerDeps = {

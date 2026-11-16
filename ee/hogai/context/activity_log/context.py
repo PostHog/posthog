@@ -30,6 +30,8 @@ MAX_VALUE_LENGTH = 200
 SCOPE_DISPLAY_NAMES: dict[str, str] = {
     "AlertConfiguration": "Alert",
     "BatchExport": "Destination",
+    "WorkloadTrustPolicy": "Workload trust policy",
+    "WorkloadTrustPolicyRequest": "Workload trust policy request",
     "ExternalDataSource": "Source",
     "HogFunction": "Data pipeline",
     "PersonalAPIKey": "Personal API key",

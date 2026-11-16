@@ -34,6 +34,7 @@ import { AccessControlLevel, AccessControlResourceType, ExperimentsTabs } from '
 
 import { QuillSharedMetricActions } from 'products/experiments/frontend/components/QuillSharedMetricActions'
 import type { ExperimentSavedMetricLinkedExperimentApi } from 'products/experiments/frontend/generated/api.schemas'
+import { getWarehouseNativeMetricError } from 'products/experiments/frontend/warehouseNative/warehouseNativeSources'
 
 import { ExperimentMetricForm } from '../ExperimentMetricForm'
 import { isLegacyExperimentQuery } from '../utils'
@@ -104,9 +105,9 @@ export function SharedMetric(): JSX.Element {
     const isLegacy = isLegacyExperimentQuery(sharedMetric?.query)
     const saveDisabledReason = isLegacy
         ? 'Legacy shared metrics can no longer be edited'
-        : sharedMetric?.name
-          ? undefined
-          : 'You must give your metric a name'
+        : !sharedMetric?.name
+          ? 'You must give your metric a name'
+          : (getWarehouseNativeMetricError(sharedMetric.query as ExperimentMetric) ?? undefined)
 
     const handleDelete = async (): Promise<void> => {
         if (!sharedMetric.id || deleteCheckLoading) {
