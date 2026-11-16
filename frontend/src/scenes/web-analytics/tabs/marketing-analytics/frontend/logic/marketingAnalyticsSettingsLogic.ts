@@ -66,6 +66,7 @@ const createEmptyConfig = (): MarketingAnalyticsConfig => ({
     campaign_name_mappings: {},
     custom_source_mappings: {},
     campaign_field_preferences: {},
+    recommendation_conversion_actions: [],
 })
 
 const isNativeMarketingSource = (value: string): value is NativeMarketingSource =>
@@ -214,6 +215,9 @@ export interface marketingAnalyticsSettingsLogicActions {
     updateFilterTestAccounts: (filterTestAccounts: boolean) => {
         filterTestAccounts: boolean
     }
+    updateRecommendationConversionActions: (conversionActions: string[]) => {
+        conversionActions: string[]
+    }
     updateSourceMapping: (
         tableId: string,
         fieldName: MarketingAnalyticsColumnsSchemaNames,
@@ -289,6 +293,9 @@ export const marketingAnalyticsSettingsLogic = kea<marketingAnalyticsSettingsLog
         }),
         updateFilterTestAccounts: (filterTestAccounts: boolean) => ({
             filterTestAccounts,
+        }),
+        updateRecommendationConversionActions: (conversionActions: string[]) => ({
+            conversionActions,
         }),
         updateCampaignNameMappings: (campaignNameMappings: Record<string, Record<string, string[]>>) => ({
             campaignNameMappings,
@@ -415,6 +422,10 @@ export const marketingAnalyticsSettingsLogic = kea<marketingAnalyticsSettingsLog
                     }
                     return { ...state, filter_test_accounts: filterTestAccounts }
                 },
+                updateRecommendationConversionActions: (
+                    state: MarketingAnalyticsConfig | null,
+                    { conversionActions }
+                ) => ({ ...(state ?? createEmptyConfig()), recommendation_conversion_actions: conversionActions }),
                 updateCampaignNameMappings: (state: MarketingAnalyticsConfig | null, { campaignNameMappings }) => {
                     if (!state) {
                         return { ...createEmptyConfig(), campaign_name_mappings: campaignNameMappings }
@@ -653,6 +664,7 @@ export const marketingAnalyticsSettingsLogic = kea<marketingAnalyticsSettingsLog
             updateCampaignNameMappings: () => trackSettingsUpdated('campaign_name_mappings'),
             updateCustomSourceMappings: () => trackSettingsUpdated('custom_source_mappings'),
             updateCampaignFieldPreferences: () => trackSettingsUpdated('campaign_field_preferences'),
+            updateRecommendationConversionActions: () => trackSettingsUpdated('recommendation_conversion_actions'),
             testMapping: async ({ tableId, sourceMap }) => {
                 try {
                     // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. marketingAnalyticsTestMappingCreate() from 'products/marketing_analytics/frontend/generated/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.

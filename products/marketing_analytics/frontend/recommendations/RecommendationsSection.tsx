@@ -8,6 +8,7 @@ import { RecommendationsShownState } from 'scenes/web-analytics/tabs/marketing-a
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 
 import { MarketingQueryError } from '../dashboard/MarketingQueryError'
+import { ConversionActionsModal } from './ConversionActionsModal'
 import { RecommendationsIdle } from './RecommendationsIdle'
 import { recommendationsLogic } from './recommendationsLogic'
 import { RecommendationsModal } from './RecommendationsModal'
@@ -28,6 +29,7 @@ export function RecommendationsSection(): JSX.Element {
         resolvedCount,
         firstRule,
         shownState,
+        hasAdsSource,
     } = useValues(recommendationsLogic)
     const { openRecommendations, dismissIntro, reportRecommendationsShown, loadData } = useActions(recommendationsLogic)
     // Hands the current query to the node, which runs it again when the sources or dates change.
@@ -116,6 +118,7 @@ export function RecommendationsSection(): JSX.Element {
                 />
             ) : null}
             <RecommendationsModal />
+            {hasAdsSource && <ConversionActionsModal />}
         </div>
     )
 }

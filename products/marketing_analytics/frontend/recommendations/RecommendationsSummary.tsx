@@ -5,6 +5,7 @@ import { LemonBadge, LemonButton, Tooltip } from '@posthog/lemon-ui'
 
 import { formatMarketingMoney } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/utils'
 
+import { RecommendationConversionActionsButton } from './RecommendationConversionActionsButton'
 import { RecommendationDataGapButton } from './RecommendationDataGapButton'
 import { IMPACT_DIRECTION_DESCRIPTIONS, IMPACT_DIRECTION_LABELS, RecommendationTotal } from './recommendations'
 import { RecommendationsConnectGoogleAdsButton } from './RecommendationsConnectGoogleAdsButton'
@@ -58,6 +59,7 @@ export function RecommendationsSummary({ onOpen }: { onOpen: () => void }): JSX.
                     location="section_data_gaps"
                 />
             )}
+            {hasAdsSource && <RecommendationConversionActionsButton />}
             {!hasAdsSource && (
                 <span className="text-secondary">
                     Connect Google Ads and sync its campaign tables to also get campaign recommendations.
