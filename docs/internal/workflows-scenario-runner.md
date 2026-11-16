@@ -43,6 +43,7 @@ Do not run cards on a box whose dev stack holds work you want to keep.
 | `truth.json`      | Every request the provider edge received and how it answered                      |
 | `logs/<role>.log` | Each role's log lines from this run                                               |
 | `scorecard.json`  | The run's verdict and its scorecard event, written before the runner publishes it |
+| `live.jsonl`      | The run's phases, probe samples and valve timeline, appended every second         |
 
 Each role also appends to one log across runs, `posthog-scenarios/<role>.log`.
 
@@ -58,6 +59,7 @@ pnpm --dir nodejs exec tsx tests/scenarios/viewer/main.ts --port 8787
 - A card page shows what the card breaks, its load, and the invariants and bars that judge it.
 - A run page replays the run on the delivery path, with its valve timeline, invariants, measurements and charts.
 - It lists a run once the run has written its scorecard.
+- The Live page follows the run in progress. The runner appends its phases, probes and valves to `live.jsonl` in the run's evidence directory every second, and a run counts as live only while that file keeps changing.
 - It listens on `127.0.0.1` unless `--host` names another address. It serves the evidence of every run on the box, so keep it off public addresses.
 
 ### Run a card in the cloud

@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs'
+import { mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from 'fs'
 import { Server, createServer } from 'http'
 import { AddressInfo } from 'net'
 import os from 'os'
@@ -7,7 +7,7 @@ import path from 'path'
 import { parseJSON } from '~/common/utils/json-parse'
 import { internalFetch } from '~/common/utils/request'
 
-import { openLiveLog } from '../runner/live'
+import { LIVE_FILE, openLiveLog } from '../runner/live'
 import { createViewerServer } from './server'
 
 const RUN_ID = '0b5e7f3a-1c2d-4e5f-8a9b-0c1d2e3f4a5b'
@@ -39,6 +39,7 @@ function writeRun(stateDir: string): void {
         cardId: 'email-worker-killed',
         status: 'passed',
         statusReason: 'every invariant held',
+        origin: 'local-agent',
         startedAt: iso(-30),
         endedAt: iso(60),
         units: { targetUnits: 4, offeredUnits: 4 },
@@ -160,6 +161,7 @@ describe('scenario viewer', () => {
                 converged: true,
                 headSha: 'c0ffee00c0ffee00c0ffee00c0ffee00c0ffee00',
                 valves: [{ valve: 'role.kill', target: 'cdp-cyclotron-worker-email' }],
+                where: 'local',
             }),
         ])
     })
@@ -304,6 +306,7 @@ describe('scenario viewer', () => {
             phase: 'end',
             drive: { startedAt: at(0), endedAt: at(30), forMs: 30_000 },
             ended: { status: 'passed', statusReason: 'every invariant held' },
+            inProgress: false,
             hasScorecard: false,
             timeline,
         })
@@ -312,5 +315,26 @@ describe('scenario viewer', () => {
         expect(body.series.flow).toEqual([
             expect.objectContaining({ at: at(0), offeredEvents: 1, emailOk: 1, latencyP50Ms: 3000 }),
         ])
+    })
+
+    it('shows a run as in progress only while the runner still writes its live log', async () => {
+        const ownStateDir = mkdtempSync(path.join(os.tmpdir(), 'scenario-viewer-live-'))
+        const ownServer = createViewerServer({ stateDir: ownStateDir })
+        await new Promise<void>((resolve) => ownServer.listen(0, '127.0.0.1', resolve))
+        const own = `http://127.0.0.1:${(ownServer.address() as AddressInfo).port}`
+        const live = async (): Promise<any> => parseJSON(await (await internalFetch(`${own}/api/live`)).text())
+        const log = openLiveLog(path.join(ownStateDir, LIVE_RUN_ID))
+        log.write({ type: 'start', at: Date.now(), runId: LIVE_RUN_ID, cardId: 'smoke' })
+        log.write({ type: 'phase', at: Date.now(), phase: 'drive', driveForMs: 30_000 })
+
+        const writing = await live()
+        const minuteAgo = new Date(Date.now() - 60_000)
+        utimesSync(path.join(ownStateDir, LIVE_RUN_ID, LIVE_FILE), minuteAgo, minuteAgo)
+        const quiet = await live()
+        await new Promise((resolve) => ownServer.close(resolve))
+        rmSync(ownStateDir, { recursive: true, force: true })
+
+        expect(writing).toMatchObject({ runId: LIVE_RUN_ID, inProgress: true, ended: null })
+        expect(quiet).toMatchObject({ runId: LIVE_RUN_ID, inProgress: false, ended: null })
     })
 })

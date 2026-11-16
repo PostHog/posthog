@@ -794,7 +794,7 @@ async function cardsPage() {
     )
     const showLive = async () => {
         const live = await getJson('/api/live').catch(() => null)
-        const now = live && !live.ended ? live : null
+        const now = live?.inProgress ? live : null
         document.querySelectorAll('.live-badge').forEach((badge) => (badge.hidden = badge.dataset.card !== now?.cardId))
         running.replaceChildren(
             ...(now
@@ -1444,12 +1444,29 @@ async function livePage() {
     const phases = h('div', { class: 'phases' })
     const events = h('div', { class: 'events' })
     const chartsEl = h('div', { class: 'charts' })
-    const empty = h(
-        'div',
-        { class: 'panel empty' },
-        'No run yet. Start one on the box, and it shows here within a second: ',
-        h('code', {}, 'pnpm --dir nodejs exec tsx tests/scenarios/main.ts run <card>')
-    )
+    const empty = h('div', { class: 'panel empty' })
+    const showIdle = (last) =>
+        empty.replaceChildren(
+            h('h3', {}, 'No run in progress'),
+            h(
+                'p',
+                {},
+                'Start one on the box, and it shows here within a second: ',
+                h('code', {}, 'pnpm --dir nodejs exec tsx tests/scenarios/main.ts run <card>')
+            ),
+            last?.hasScorecard
+                ? h(
+                      'p',
+                      {},
+                      h(
+                          'a',
+                          { href: `#/runs/${last.runId}` },
+                          `Replay the last run: ${last.cardId}, ${last.ended?.status ?? 'stopped'}, ${ago(new Date(last.updatedAt).toISOString())} →`
+                      )
+                  )
+                : null
+        )
+    showIdle(null)
     const body = h(
         'div',
         {},
@@ -1467,6 +1484,7 @@ async function livePage() {
     render(header, empty, body)
     body.hidden = true
     let shownRun
+    let watched
     let busy = false
     const poll = async () => {
         if (busy) {
@@ -1475,7 +1493,16 @@ async function livePage() {
         busy = true
         try {
             const live = await getJson('/api/live')
-            if (!live) {
+            if (live?.inProgress) {
+                watched = live.runId
+            }
+            // A run that ended while this page watched it stays on screen with its verdict. Anything
+            // else is not live, so the page says so instead of passing an old run off as live.
+            if (!live || (!live.inProgress && watched !== live.runId)) {
+                showIdle(live)
+                empty.hidden = false
+                body.hidden = true
+                header.replaceChildren(h('h1', {}, 'Live'))
                 return
             }
             empty.hidden = true
@@ -1502,7 +1529,7 @@ async function livePage() {
                         h(
                             'h1',
                             {},
-                            live.ended ? 'Last run: ' : 'Live: ',
+                            live.ended ? 'Just ended: ' : 'Live: ',
                             h('a', { href: `#/cards/${live.cardId}` }, live.cardId),
                             ' ',
                             statusPill(live.ended ? live.ended.status : 'running')

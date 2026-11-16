@@ -8,6 +8,10 @@ import type { ValveTimelineEntry } from '../valves/valves'
 import { isRunId } from './runs'
 import { Evidence, Series, seriesOf } from './series'
 
+// The runner appends to the log every second, so a log quiet for longer belongs to a run that
+// stopped without writing its end, such as one whose process was killed.
+const STALE_AFTER_MS = 15_000
+
 export type LiveView = {
     runId: string
     cardId: string
@@ -16,6 +20,8 @@ export type LiveView = {
     phases: { phase: LivePhase; at: number }[]
     drive: { startedAt: number; endedAt: number | null; forMs: number } | null
     ended: { status: string; statusReason: string } | null
+    inProgress: boolean
+    updatedAt: number
     hasScorecard: boolean
     now: number
     timeline: ValveTimelineEntry[]
@@ -38,7 +44,7 @@ function recordsOf(file: string): LiveRecord[] {
         })
 }
 
-function newestLiveDir(stateDir: string): string | undefined {
+function newestLiveDir(stateDir: string): { dir: string; mtimeMs: number } | undefined {
     if (!existsSync(stateDir)) {
         return undefined
     }
@@ -53,15 +59,16 @@ function newestLiveDir(stateDir: string): string | undefined {
             newest = { dir: path.join(stateDir, name), mtimeMs }
         }
     }
-    return newest?.dir
+    return newest
 }
 
-// The run whose live log changed last: the one in progress, or the last one that ran.
+// The run whose live log changed last. It is in progress only while the runner still writes to it.
 export function liveOf(stateDir: string, now = Date.now()): LiveView | undefined {
-    const dir = newestLiveDir(stateDir)
-    if (!dir) {
+    const newest = newestLiveDir(stateDir)
+    if (!newest) {
         return undefined
     }
+    const { dir, mtimeMs } = newest
     const records = recordsOf(path.join(dir, LIVE_FILE))
     const start = records.find((record) => record.type === 'start')
     if (!start) {
@@ -109,6 +116,8 @@ export function liveOf(stateDir: string, now = Date.now()): LiveView | undefined
         phases,
         drive,
         ended,
+        inProgress: ended === null && now - mtimeMs < STALE_AFTER_MS,
+        updatedAt: mtimeMs,
         hasScorecard: existsSync(path.join(dir, 'scorecard.json')),
         now,
         timeline,

@@ -24,6 +24,7 @@ export type RunSummary = Pick<
     headSha: string | null
     headDirty: boolean | null
     profileName: string | null
+    where: 'local' | 'cloud'
 }
 
 export type RunDetail = RunSummary & {
@@ -65,6 +66,7 @@ function summaryOf(scorecard: Scorecard): RunSummary {
         headSha: typeof event?.head_sha === 'string' ? event.head_sha : null,
         headDirty: typeof event?.head_dirty === 'boolean' ? event.head_dirty : null,
         profileName: typeof event?.profile_name === 'string' ? event.profile_name : null,
+        where: String(scorecard.origin ?? event?.origin ?? '').startsWith('cloud') ? 'cloud' : 'local',
     }
 }
 
