@@ -2547,6 +2547,71 @@ class TestHogFlowAPI(APIBaseTest):
         assert response.status_code == 400, response.json()
         assert "is a static cohort" in response.json()["detail"]
 
+    @patch("products.workflows.backend.presentation.views.hog_flow.feature_enabled_or_false", return_value=True)
+    def test_hog_flow_conditional_branch_saves_a_grouped_condition_with_a_nested_cohort(self, _mock_flag):
+        cohort = self._create_behavioral_cohort(CohortType.REALTIME, backfilled=True)
+        grouped_properties = {
+            "type": "OR",
+            "values": [
+                {
+                    "type": "AND",
+                    "values": [
+                        {"key": "plan", "value": "pro", "operator": "exact", "type": "person"},
+                        {"key": "country", "value": "US", "operator": "exact", "type": "person"},
+                    ],
+                },
+                {"type": "AND", "values": [{"key": "id", "type": "cohort", "value": cohort.id}]},
+            ],
+        }
+        hog_flow = self._hog_flow_with_condition_filters("conditional_branch", {"properties": grouped_properties})
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+
+        assert response.status_code == 201, response.json()
+        filters = response.json()["actions"][1]["config"]["conditions"][0]["filters"]
+        assert filters["properties"] == grouped_properties
+        bytecode = filters["bytecode"]
+        assert [2, "inCohort", 2] in [bytecode[index - 1 : index + 2] for index in range(1, len(bytecode) - 1)], (
+            bytecode
+        )
+        assert "plan" in bytecode and "country" in bytecode
+
+    @parameterized.expand(
+        [
+            ("static_cohort", "is a static cohort"),
+            ("behavioral_filter", "Behavioral (performed event) filters can't be evaluated"),
+        ]
+    )
+    @patch("products.workflows.backend.presentation.views.hog_flow.feature_enabled_or_false", return_value=True)
+    def test_hog_flow_conditional_branch_rejects_an_unsupported_filter_nested_in_a_group(
+        self, leaf_kind, expected_detail, _mock_flag
+    ):
+        nested_leaf: dict[str, Any] = (
+            {"key": "id", "type": "cohort", "value": Cohort.objects.create(team=self.team, is_static=True).id}
+            if leaf_kind == "static_cohort"
+            else {
+                "key": "$pageview",
+                "event_type": "events",
+                "time_value": 2,
+                "time_interval": "week",
+                "value": "performed_event",
+                "type": "behavioral",
+            }
+        )
+        grouped_properties = {
+            "type": "OR",
+            "values": [
+                {"type": "AND", "values": [{"key": "plan", "value": "pro", "operator": "exact", "type": "person"}]},
+                {"type": "AND", "values": [nested_leaf]},
+            ],
+        }
+        hog_flow = self._hog_flow_with_condition_filters("conditional_branch", {"properties": grouped_properties})
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+
+        assert response.status_code == 400, response.json()
+        assert expected_detail in response.json()["detail"]
+
     def test_hog_flow_conditional_branch_rejects_cohort_filters_without_flag(self):
         cohort = self._create_behavioral_cohort(CohortType.REALTIME, backfilled=True)
         hog_flow = self._hog_flow_with_condition_filters(
@@ -2808,6 +2873,9 @@ class TestHogFlowAPI(APIBaseTest):
             ("filters_is_a_string", "not-a-dict"),
             ("action_id_not_an_integer", {"actions": [{"id": "not-an-integer", "type": "actions"}]}),
             ("action_entry_not_a_dict", {"actions": ["bogus"]}),
+            ("group_with_unknown_logic", {"properties": {"type": "XOR", "values": []}}),
+            ("group_values_not_a_list", {"properties": {"type": "OR", "values": "bogus"}}),
+            ("group_leaf_not_a_dict", {"properties": {"type": "OR", "values": ["bogus"]}}),
         ]
     )
     @patch("products.workflows.backend.presentation.views.hog_flow.feature_enabled_or_false", return_value=True)

@@ -128,6 +128,7 @@ from products.cdp.backend.presentation.hog_invocations.results import (
     tag_invocation_results_query,
 )
 from products.cdp.backend.presentation.serializers import (
+    HogFlowConditionFiltersSerializer,
     HogFunctionFiltersSerializer,
     InputsSchemaSerializer,
     InputsSerializer,
@@ -2566,7 +2567,10 @@ class HogFlowActionSerializer(serializers.Serializer):
                             or self._cohort_conditions_enabled()
                         )
                     )
-                    serializer = HogFunctionFiltersSerializer(
+                    filters_serializer_class = (
+                        HogFlowConditionFiltersSerializer if is_conditional_branch else HogFunctionFiltersSerializer
+                    )
+                    serializer = filters_serializer_class(
                         data=filters,
                         context={**self.context, "cohort_membership_supported": True}
                         if cohorts_supported

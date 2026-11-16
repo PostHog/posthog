@@ -30,6 +30,7 @@ from products.actions.backend.facade.api import get_actions
 from products.cdp.backend.filters import (
     DATA_WAREHOUSE_SOURCES,
     FILTER_FUNCTIONS,
+    PROPERTY_GROUP_TYPES,
     RUNTIME_CONTRACT,
     TEMPLATE_CALLABLES,
     TEMPLATE_GLOBALS,
@@ -38,6 +39,8 @@ from products.cdp.backend.filters import (
     compile_filters_expr,
     filter_action_ids,
     filter_cohort_ids,
+    is_property_group,
+    iter_property_leaves,
 )
 from products.cdp.backend.models.hog_functions.hog_function import (
     TYPES_WITH_JAVASCRIPT_SOURCE,
@@ -1317,13 +1320,13 @@ def _contains_behavioral_property(filters: dict) -> bool:
     history, which realtime function filters (bytecode per-event, or JS transpiled into the browser)
     can never evaluate."""
     entities = (filters.get("events") or []) + (filters.get("actions") or []) + (filters.get("data_warehouse") or [])
-    property_lists = [filters.get("properties") or []] + [
+    property_trees = [filters.get("properties") or []] + [
         entity.get("properties") or [] for entity in entities if isinstance(entity, dict)
     ]
     return any(
         isinstance(prop, dict) and prop.get("type") == "behavioral"
-        for property_list in property_lists
-        for prop in property_list
+        for property_tree in property_trees
+        for prop in iter_property_leaves(property_tree)
     )
 
 
@@ -1522,6 +1525,58 @@ class HogFunctionFiltersSerializer(serializers.Serializer):
                     collected |= collect_property_cohort_ids(step.properties or [])
         validate_realtime_cohorts(collected, team, require_ready=require_ready)
         return collected
+
+
+MAX_PROPERTY_GROUP_DEPTH = 5
+
+
+@extend_schema_field(
+    {
+        "oneOf": [
+            {"type": "array", "items": {"type": "object", "additionalProperties": True}},
+            {
+                "type": "object",
+                "properties": {"type": {"type": "string", "enum": ["AND", "OR"]}, "values": {"type": "array"}},
+                "required": ["type", "values"],
+            },
+        ]
+    }
+)
+class PropertyFiltersOrGroupField(serializers.Field):
+    def to_internal_value(self, data: Any) -> Any:
+        if isinstance(data, list):
+            if not all(isinstance(prop, dict) for prop in data):
+                raise serializers.ValidationError("Each property filter must be an object.")
+            return data
+        self._validate_group(data, depth=1)
+        return data
+
+    def to_representation(self, value: Any) -> Any:
+        return value
+
+    def _validate_group(self, group: Any, depth: int) -> None:
+        if not isinstance(group, dict) or group.get("type") not in PROPERTY_GROUP_TYPES:
+            raise serializers.ValidationError("A filter group needs a type of AND or OR.")
+        if depth > MAX_PROPERTY_GROUP_DEPTH:
+            raise serializers.ValidationError(f"Filter groups can nest at most {MAX_PROPERTY_GROUP_DEPTH} levels deep.")
+        values = group.get("values")
+        if not isinstance(values, list):
+            raise serializers.ValidationError("A filter group needs a list of values.")
+        for value in values:
+            if not isinstance(value, dict):
+                raise serializers.ValidationError("Each value in a filter group must be an object.")
+            if is_property_group(value):
+                self._validate_group(value, depth + 1)
+
+
+class HogFlowConditionFiltersSerializer(HogFunctionFiltersSerializer):
+    properties = PropertyFiltersOrGroupField(
+        required=False,
+        help_text=(
+            "Property filters for a branch condition. Either a list of filters that must all match, "
+            "or a group {type: 'AND' | 'OR', values: [...]} whose values are filters or further groups."
+        ),
+    )
 
 
 COHORT_NOT_READY_CODE = "cohort_not_ready"

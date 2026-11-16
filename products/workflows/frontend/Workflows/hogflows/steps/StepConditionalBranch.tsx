@@ -8,7 +8,7 @@ import { Spinner, Tooltip } from '@posthog/lemon-ui'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 
-import { HogFlowPropertyFilters } from '../filters/HogFlowFilters'
+import { HogFlowConditionFilters } from '../filters/HogFlowConditionFilters'
 import { useHogFlowBranchSelection } from '../HogFlowBranchSelection'
 import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
 import { HogFlow, HogFlowAction } from '../types'
@@ -159,9 +159,8 @@ export function StepConditionalBranchConfiguration({
                             )
                         }
                     >
-                        <HogFlowPropertyFilters
+                        <HogFlowConditionFilters
                             filtersKey={`condition-branch-condition-${action.id}-${index}`}
-                            includeCohorts
                             filters={condition.filters ?? {}}
                             setFilters={(filters) =>
                                 setConditions(
@@ -170,7 +169,6 @@ export function StepConditionalBranchConfiguration({
                                     )
                                 )
                             }
-                            typeKey={`workflow-trigger-${index}`}
                         />
                     </HogFlowBranchCard>
                 )
