@@ -59,16 +59,29 @@ ORDER BY calls DESC, call_type
 LIMIT {{limit}}
 """
 
-# Candidates are chosen by a hash of their uuid, which spreads each call type's candidates over the day. The
-# subquery chooses them from ids and call types alone, so the sort never holds message bodies, and only the chosen
-# rows read their input and output. ai_events can store an event more than once, so both caps count each uuid once.
-_CALLS_SQL = f"""
+# Candidates are chosen by a hash of their uuid, which spreads each call type's candidates over the day. They are
+# picked from ids and call types alone, so the sort never holds message bodies. ai_events can store an event more
+# than once, so both caps count each uuid once.
+_CANDIDATES_SQL = f"""
+SELECT toString(uuid) AS event_uuid, trace_id, concat(source, ':', call_type) AS call_type_key
+FROM (
+    SELECT uuid, trace_id, {_CALL_TYPE_COLUMNS}
+    {_GENERATIONS}
+    LIMIT 1 BY uuid
+)
+WHERE call_type_key IN {{keys}}
+ORDER BY cityHash64(event_uuid)
+LIMIT {{per_type}} BY call_type_key
+LIMIT {{max_rows}}
+"""
+
+# Only the chosen calls read their input and output. They are looked up by trace id, which ai_events is sorted by,
+# and by a list of ids, since an `IN` subquery over the distributed table runs again on every shard.
+_CALLS_SQL = """
 SELECT
     toString(uuid) AS event_uuid,
-    trace_id,
-    {_CALL_TYPE_COLUMNS},
     if(
-        length(input) <= {{max_input}},
+        length(input) <= {max_input},
         input,
         if(
             startsWith(input, '['),
@@ -76,12 +89,12 @@ SELECT
                 '[',
                 arrayStringConcat(
                     arrayConcat(
-                        arrayFilter(m -> length(m) <= {{max_first}}, arraySlice(JSONExtractArrayRaw(input), 1, 1)),
+                        arrayFilter(m -> length(m) <= {max_first}, arraySlice(JSONExtractArrayRaw(input), 1, 1)),
                         arrayFilter(
-                            m -> length(m) <= {{max_last}},
+                            m -> length(m) <= {max_last},
                             arraySlice(
                                 JSONExtractArrayRaw(input),
-                                greatest(2, length(JSONExtractArrayRaw(input)) - {{last_messages}} + 1)
+                                greatest(2, length(JSONExtractArrayRaw(input)) - {last_messages} + 1)
                             )
                         )
                     ),
@@ -89,28 +102,21 @@ SELECT
                 ),
                 ']'
             ),
-            left(input, {{max_input}})
+            left(input, {max_input})
         )
     ) AS input_text,
     left(
         if(coalesce(output_choices, '') NOT IN ('', 'null', '[]'), output_choices, coalesce(output, '')),
-        {{max_output}}
+        {max_output}
     ) AS output_text
-{_GENERATIONS}
-  AND uuid IN (
-    SELECT uuid
-    FROM (
-        SELECT uuid, {_CALL_TYPE_COLUMNS}
-        {_GENERATIONS}
-        LIMIT 1 BY uuid
-    )
-    WHERE concat(source, ':', call_type) IN {{keys}}
-    ORDER BY cityHash64(toString(uuid))
-    LIMIT {{per_type}} BY source, call_type
-  )
-ORDER BY cityHash64(event_uuid)
+FROM posthog.ai_events AS ai_events
+WHERE event = '$ai_generation'
+  AND timestamp >= {start}
+  AND timestamp < {end}
+  AND trace_id IN {trace_ids}
+  AND toString(uuid) IN {uuids}
 LIMIT 1 BY event_uuid
-LIMIT {{max_rows}}
+LIMIT {max_rows}
 """
 
 
@@ -177,30 +183,49 @@ def load_call_types(team: Team, window: ProfileWindow, per_mille: int) -> list[C
 def load_review_calls(
     team: Team, window: ProfileWindow, per_mille: int, call_types: Sequence[CallTypeRow]
 ) -> list[ReviewCallRow]:
+    # Without a limit, HogQL returns its default 100 rows, fewer than the candidates of two call types.
+    max_rows = ast.Constant(value=CANDIDATES_PER_CALL_TYPE * len(call_types))
+    candidates = run_ai_events_query(
+        team,
+        _CANDIDATES_SQL,
+        {
+            **_placeholders(window, per_mille),
+            "keys": ast.Constant(value=[call_type.key for call_type in call_types]),
+            "per_type": ast.Constant(value=CANDIDATES_PER_CALL_TYPE),
+            "max_rows": max_rows,
+        },
+        "EvalSuggestionsReviewCandidates",
+    )
+    if not candidates:
+        return []
+    picked = {str(row[0]): (str(row[1]), str(row[2])) for row in candidates}
     rows = run_ai_events_query(
         team,
         _CALLS_SQL,
         {
-            **_placeholders(window, per_mille),
-            "keys": ast.Constant(value=[call_type.key for call_type in call_types]),
+            "start": ast.Constant(value=window.start),
+            "end": ast.Constant(value=window.end),
+            "trace_ids": ast.Constant(value=sorted({trace_id for trace_id, _ in picked.values()})),
+            "uuids": ast.Constant(value=sorted(picked)),
             "max_input": ast.Constant(value=MAX_INPUT_CHARS),
             "max_first": ast.Constant(value=MAX_FIRST_MESSAGE_CHARS),
             "max_last": ast.Constant(value=MAX_LAST_MESSAGE_CHARS),
             "last_messages": ast.Constant(value=LAST_MESSAGES),
             "max_output": ast.Constant(value=MAX_OUTPUT_CHARS),
-            "per_type": ast.Constant(value=CANDIDATES_PER_CALL_TYPE),
-            # Without a limit, HogQL returns its default 100 rows, fewer than the candidates of two call types.
-            "max_rows": ast.Constant(value=CANDIDATES_PER_CALL_TYPE * len(call_types)),
+            "max_rows": max_rows,
         },
         "EvalSuggestionsReviewCalls",
     )
+    bodies = {str(row[0]): (str(row[1] or ""), str(row[2] or "")) for row in rows}
+    # Rows keep the candidates' hash order, which spreads each call type's picks over the day.
     return [
         ReviewCallRow(
-            event_uuid=str(row[0]),
-            trace_id=str(row[1]),
-            call_type=f"{row[2]}:{row[3]}",
-            input=str(row[4] or ""),
-            output=str(row[5] or ""),
+            event_uuid=event_uuid,
+            trace_id=trace_id,
+            call_type=call_type,
+            input=bodies[event_uuid][0],
+            output=bodies[event_uuid][1],
         )
-        for row in rows
+        for event_uuid, (trace_id, call_type) in picked.items()
+        if event_uuid in bodies
     ]
