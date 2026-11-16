@@ -192,7 +192,7 @@ class UnsubscribeHeadersField(serializers.Field):
                 self.fail("duplicate_header")
             headers[header] = value
         link = headers.get(LIST_UNSUBSCRIBE)
-        if link is not None and not (
+        if LIST_UNSUBSCRIBE in headers and not (
             isinstance(link, str)
             and len(link) <= SES_HEADER_VALUE_MAX_LENGTH
             and LIST_UNSUBSCRIBE_PATTERN.fullmatch(link)
