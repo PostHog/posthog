@@ -72,10 +72,7 @@ describe('broadcastSendingLogic', () => {
     })
 
     afterEach(async () => {
-        mounted
-            .splice(0)
-            .filter((logic) => logic.isMounted())
-            .forEach((logic) => logic.unmount())
+        mounted.splice(0).forEach((logic) => logic.isMounted() && logic.unmount())
         screen.queryAllByText('Cancel').forEach((cancel) => fireEvent.click(cancel))
         await waitFor(() => expect(screen.queryByText('Cancel')).toBeNull())
         resumeKeaLoadersErrors()
