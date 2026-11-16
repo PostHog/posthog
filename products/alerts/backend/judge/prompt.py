@@ -32,7 +32,7 @@ MAX_SERIES_LABEL_CHARS = 120
 MAX_EARLIER_RATIONALE_CHARS = 200
 MAX_EARLIER_RATIONALES = 5
 
-PROMPT_REVISION = 6
+PROMPT_REVISION = 7
 
 # A small model works out the weekday from an ISO date badly, so dated labels at these
 # intervals name it, and the same-slot reference line is built in code.

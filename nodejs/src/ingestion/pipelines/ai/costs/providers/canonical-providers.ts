@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-11-12 20:06:00 UTC
+// Generated at: 2026-11-13 20:02:35 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -74,7 +74,6 @@ export type CanonicalProvider =
     | 'deepinfra-bf16'
     | 'deepinfra-bf16-flex'
     | 'deepinfra-bf16-priority'
-    | 'deepinfra-fp16'
     | 'deepinfra-fp32'
     | 'deepinfra-fp4'
     | 'deepinfra-fp4-flex'
@@ -112,9 +111,11 @@ export type CanonicalProvider =
     | 'google-vertex-us-central1'
     | 'google-vertex-us-east5'
     | 'groq'
+    | 'heygen'
     | 'inceptron-fp4'
     | 'inceptron-fp8'
     | 'inceptron-int4'
+    | 'inferact-vllm-nvfp4'
     | 'inference-net-bf16'
     | 'inference-net-fast'
     | 'inference-net-fp4'
@@ -133,7 +134,6 @@ export type CanonicalProvider =
     | 'ionstream-fp8'
     | 'kt'
     | 'liquid'
-    | 'liquid-bf16'
     | 'liquid-fp8'
     | 'makora'
     | 'makora-fp4'
@@ -151,6 +151,7 @@ export type CanonicalProvider =
     | 'modal'
     | 'modal-fp4'
     | 'modal-mxfp4'
+    | 'modal-nvfp4'
     | 'moonshotai'
     | 'moonshotai-highspeed'
     | 'moonshotai-mxfp4'
