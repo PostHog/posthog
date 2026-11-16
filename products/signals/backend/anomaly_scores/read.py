@@ -205,6 +205,8 @@ class SeriesImportance:
 class _RankKey:
     """Sorts smallest first, field by field, so each measure is negated to put the largest first."""
 
+    # 0 for every series unless the newest flag sorts first.
+    negative_recency: float
     negative_lift: float
     negative_flagged_buckets: int
     negative_last_flagged: float
@@ -480,21 +482,28 @@ def rate_lift(summary: SeriesSummary, prior: float) -> float:
 
 
 def rank_series(
-    series: Sequence[SeriesSummary], *, prior: float, importance: Mapping[int, SeriesImportance]
+    series: Sequence[SeriesSummary],
+    *,
+    prior: float,
+    importance: Mapping[int, SeriesImportance],
+    recent_first: bool = False,
 ) -> list[SeriesSummary]:
     """Most anomalous first, using only measures that compare across series and intervals.
 
     Rate lift first, then flagged buckets, then the newest flag, then the insight's importance.
+    With ``recent_first``, the newest flag sorts first, and a series without a flag sorts last.
     """
     unknown = SeriesImportance(on_dashboard=False, viewers=0)
 
     def key(summary: SeriesSummary) -> _RankKey:
         last_flagged = summary.last_flagged_bucket
+        negative_last_flagged = -last_flagged.timestamp() if last_flagged else math.inf
         insight_importance = importance.get(summary.insight_id, unknown)
         return _RankKey(
+            negative_recency=negative_last_flagged if recent_first else 0.0,
             negative_lift=-rate_lift(summary, prior),
             negative_flagged_buckets=-summary.flagged_buckets,
-            negative_last_flagged=-last_flagged.timestamp() if last_flagged else math.inf,
+            negative_last_flagged=negative_last_flagged,
             off_dashboard=not insight_importance.on_dashboard,
             negative_viewers=-insight_importance.viewers,
             insight_id=summary.insight_id,
