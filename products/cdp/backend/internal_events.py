@@ -37,7 +37,8 @@ def is_reserved_internal_event(event_name: object) -> bool:
 
 
 # Internal events that carry a product's data, keyed to the scope object that guards reading it. A destination
-# on one can send that data out of PostHog, so working with it needs the same read access.
+# on one can send that data out of PostHog, so working with it needs the same read access. The keys are mirrored
+# in nodejs/src/cdp/read-guarded-internal-events.ts, which keeps their log text out of shared stores.
 INTERNAL_EVENT_READ_SCOPES: dict[str, str] = {
     "$signals_report_ready": "inbox",
 }
