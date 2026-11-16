@@ -40,20 +40,20 @@ function sampleHealthCheckKind(filters?: CyclotronJobFiltersType | null): string
 
 type SampleCandidate = { issueId: string; fingerprint: string }
 
-// The fingerprints API lists the oldest fingerprints first, and those rarely have a recent exception.
-async function loadRecentlyActiveIssues(): Promise<SampleCandidate[]> {
+// The fingerprints API lists the oldest fingerprints first, so try recent issues.
+async function loadRecentlyActiveIssues(days: number): Promise<SampleCandidate[] | null> {
     try {
         const response = await api.queryHogQL<[string, string][]>(
             hogql`SELECT toString(issue_id), argMax(properties.$exception_fingerprint, timestamp) FROM events
-                WHERE event = '$exception' AND timestamp > now() - INTERVAL 1 DAY AND issue_id IS NOT NULL
+                WHERE event = '$exception' AND timestamp > now() - INTERVAL ${days} DAY AND issue_id IS NOT NULL
                 GROUP BY issue_id ORDER BY max(timestamp) DESC LIMIT 20`,
-            { productKey: ProductKey.ERROR_TRACKING, name: 'hog_function_error_tracking_sample_issues' }
+            { productKey: ProductKey.ERROR_TRACKING, name: `hog_function_error_tracking_sample_issues_${days}d` }
         )
         return response.results
             .filter(([, fingerprint]) => fingerprint)
             .map(([issueId, fingerprint]) => ({ issueId, fingerprint }))
     } catch {
-        return []
+        return null
     }
 }
 
@@ -88,8 +88,12 @@ async function loadLatestExceptionEvent(
 export const SAMPLE_GLOBALS_CONTEXTS: Partial<Record<HogFunctionConfigurationContextId, SampleGlobalsLoader>> = {
     'error-tracking': async (exampleGlobals) => {
         const projectId = String(ApiConfig.getCurrentProjectId())
-        let candidates = await loadRecentlyActiveIssues()
-        if (!candidates.length) {
+        let candidates = await loadRecentlyActiveIssues(1)
+        // Widen only after an empty day, never after a failed or timed-out query
+        if (candidates?.length === 0) {
+            candidates = await loadRecentlyActiveIssues(30)
+        }
+        if (!candidates?.length) {
             // The issues list API doesn't expose fingerprints, so start from fingerprint records.
             const response = await errorTrackingFingerprintsList(projectId, { limit: 20 })
             candidates = response.results.map((record) => ({

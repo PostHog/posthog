@@ -20,6 +20,7 @@ const EXCEPTION_PROPERTIES = {
 }
 
 const FOUND_RECENT_ISSUE: MockResponse = [200, { results: [[RECENT_ISSUE_ID, RECENT_FINGERPRINT]] }]
+const NO_RECENT_ISSUE: MockResponse = [200, { results: [] }]
 const FOUND_EXCEPTION = 'found'
 const LOOKUP_FAILED = 'failed'
 const QUERY_FAILED: MockResponse = [500, { detail: 'boom' }]
@@ -28,9 +29,11 @@ const exampleGlobals = { event: { properties: {} } } as unknown as CyclotronJobI
 
 function useErrorTrackingApiMocks({
     recentIssues,
+    monthIssues = QUERY_FAILED,
     exceptionByFingerprint,
 }: {
     recentIssues: MockResponse
+    monthIssues?: MockResponse
     exceptionByFingerprint: Record<string, typeof FOUND_EXCEPTION | typeof LOOKUP_FAILED>
 }): void {
     useMocks({
@@ -57,7 +60,7 @@ function useErrorTrackingApiMocks({
             '/api/environments/:team_id/query/:kind/': async ({ request }) => {
                 const { query } = (await request.json()) as { query: Record<string, any> }
                 if (query.kind === 'HogQLQuery') {
-                    return recentIssues
+                    return query.query.includes('INTERVAL 30 DAY') ? monthIssues : recentIssues
                 }
                 const filter = JSON.stringify(query.properties ?? query.where)
                 const fingerprint = Object.keys(exceptionByFingerprint).find((key) => filter.includes(key))
@@ -97,8 +100,22 @@ describe('SAMPLE_GLOBALS_CONTEXTS error-tracking', () => {
             },
         ],
         [
-            'a fingerprint record when the recently active issues query fails',
-            { recentIssues: QUERY_FAILED, exceptionByFingerprint: { [OLD_FINGERPRINT]: FOUND_EXCEPTION } },
+            'an issue active in the last 30 days when none was active in the last day',
+            {
+                recentIssues: NO_RECENT_ISSUE,
+                monthIssues: FOUND_RECENT_ISSUE,
+                exceptionByFingerprint: { [RECENT_FINGERPRINT]: FOUND_EXCEPTION },
+            },
+            RECENT_ISSUE_ID,
+            { ...EXCEPTION_PROPERTIES, ...issueFields(RECENT_FINGERPRINT), exception_timestamp: EXCEPTION_TIMESTAMP },
+        ],
+        [
+            'a fingerprint record, without a wider retry, when the recently active issues query fails',
+            {
+                recentIssues: QUERY_FAILED,
+                monthIssues: FOUND_RECENT_ISSUE,
+                exceptionByFingerprint: { [OLD_FINGERPRINT]: FOUND_EXCEPTION },
+            },
             OLD_ISSUE_ID,
             { ...EXCEPTION_PROPERTIES, ...issueFields(OLD_FINGERPRINT), exception_timestamp: EXCEPTION_TIMESTAMP },
         ],
