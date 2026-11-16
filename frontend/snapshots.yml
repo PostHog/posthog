@@ -3312,6 +3312,10 @@ snapshots:
         hash: v1.k794b7964.91975ae27dd69fb9465cb84bbff2ba084313541d380541f8d8ee8c4aedf45de4.S3TVRhODbqvLS-OcpZsq3HvfqFFeYIpcfHtEBVO_ghE
     data-warehouse-destinationmodal--databricks--light:
         hash: v1.k794b7964.7f84c65a10aea7bce2c47cf5c4984a2750601b689da8ea04c29c1ab985719435.FF-pk8-lulV2IqhCtv8DH91m0WZOqPUFWMmRMxfE_iE
+    data-warehouse-destinationmodal--mother-duck--dark:
+        hash: v1.k794b7964.3fa0ed9d3e2d73fa59199fa6302c562863821ae91789e3d86a19baf6bd7a9dfd.r1pOp9XL91hfxshDRa29vnZvvekPRTfcKNbuHkHnMJ0
+    data-warehouse-destinationmodal--mother-duck--light:
+        hash: v1.k794b7964.c4feacd60c56b7c214cb26a1489d55af6be76617ec862ed189947144742c3216.1EV6TYl97dpoM5f2Oa6OtPa9dEj0z9IpVWsMNZgzLq8
     data-warehouse-destinationmodal--postgres--dark:
         hash: v1.k794b7964.fe4729f4888a31a88d34234f5d0484ec38df2910cc050491fd2b11c6cf591333.xn76IebXOqhc9cHZNGglZUsZkecXZO4nnLhKSQWDXsg
     data-warehouse-destinationmodal--postgres--light:
