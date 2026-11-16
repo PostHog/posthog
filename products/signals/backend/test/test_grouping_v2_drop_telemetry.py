@@ -219,6 +219,7 @@ async def test_assigned_signal_ids_activity_returns_only_recorded_signals(ateam:
         else ateam
     )
     assigned = _signal("assigned", team_id=team.id)
+    assert assigned.signal_id is not None
     await SignalGroupingRecord.objects.for_team(ateam.id, canonical=True).acreate(
         team_id=ateam.id, signal_id=assigned.signal_id, report_id=uuid.uuid4(), emitted_at=timezone.now()
     )
