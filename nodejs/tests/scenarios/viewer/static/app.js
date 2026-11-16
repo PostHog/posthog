@@ -46,12 +46,18 @@ const s = (tag, attrs = {}, ...children) => {
 let navigation = 0
 let renderedFor = 0
 
-const render = (...children) => {
-    renderedFor = navigation
-    app.replaceChildren(
-        ...children.flat(Infinity).filter((child) => child !== null && child !== undefined && child !== false)
-    )
-}
+const renderFor =
+    (token) =>
+    (...children) => {
+        if (token !== navigation) {
+            return false
+        }
+        renderedFor = token
+        app.replaceChildren(
+            ...children.flat(Infinity).filter((child) => child !== null && child !== undefined && child !== false)
+        )
+        return true
+    }
 
 const getJson = async (url) => {
     // oxlint-disable-next-line no-restricted-globals
@@ -124,10 +130,7 @@ const valveText = (entry) => {
     return `${entry.valve} on ${entry.target}${dose ? ` (${dose})` : ''}, ${when}, for ${fmtDuration(entry.forMs)}`
 }
 
-const barText = ({ name, params, unit }) => {
-    const threshold = Object.values(params).find((value) => typeof value === 'number')
-    return threshold === undefined ? name : `${name} ${threshold}${unit}`
-}
+const barText = ({ name, limit, unit }) => `${name} ${limit}${unit}`
 
 const trafficText = ({ name, ratePerSecond }) =>
     ratePerSecond === null ? name : `${name} ${fmtNumber(ratePerSecond)}/s`
@@ -782,15 +785,12 @@ function findingOf(detail) {
     return lines.slice(0, 3)
 }
 
-async function cardsPage(stale) {
+async function cardsPage(render) {
     const [all, runs] = await Promise.all([cards(), getJson('/api/runs')])
-    if (stale()) {
-        return
-    }
     const running = h('div', { class: 'panel running-now' }, h('span', { class: 'muted' }, 'Checking for a run…'))
     const diagram = deliveryPath()
     diagram.paint({ nodes: {}, links: {} })
-    render(
+    const painted = render(
         h('h1', {}, 'Scenario dashboard'),
         h(
             'p',
@@ -845,6 +845,9 @@ async function cardsPage(stale) {
                           : null,
                   ].filter(Boolean))
         )
+    }
+    if (!painted) {
+        return
     }
     const timer = setInterval(() => void showLive(), 2000)
     stopReplay = () => clearInterval(timer)
@@ -933,11 +936,8 @@ function runsTable(runs) {
     )
 }
 
-async function runsPage(stale) {
+async function runsPage(render) {
     const runs = await getJson('/api/runs')
-    if (stale()) {
-        return
-    }
     render(h('h1', {}, 'Runs'), h('p', { class: 'sub' }, 'Every run on this box, newest first.'), runsTable(runs))
 }
 
@@ -947,11 +947,8 @@ const latencyOf = (run, key) =>
 const fmtWhen = (t) =>
     new Date(t).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
 
-async function cardPage(id, stale) {
+async function cardPage(id, render) {
     const [all, runs] = await Promise.all([cards(), getJson('/api/runs')])
-    if (stale()) {
-        return
-    }
     const card = all.find((c) => c.id === id)
     if (!card) {
         render(h('a', { href: '#/cards' }, '← Cards'), h('h1', {}, 'No such card'))
@@ -1350,12 +1347,9 @@ const happeningsOf = (windows, roles) =>
         .filter(Boolean)
         .sort((a, b) => a.at - b.at)
 
-async function runPage(runId, startAtSeconds, stale) {
+async function runPage(runId, startAtSeconds, render) {
     stopReplay()
     const [detail, all] = await Promise.all([getJson(`/api/runs/${runId}`), cards()])
-    if (stale()) {
-        return
-    }
     const cardView = all.find((c) => c.id === detail.cardId)
     const windows = valveWindows(detail, cardView)
     const from = detail.drive?.startedAt ?? Date.parse(detail.startedAt)
@@ -1497,12 +1491,9 @@ const liveDetail = (live) => ({
     scorecard: { timeline: live.timeline, cardHash: live.cardHash },
 })
 
-async function livePage(stale) {
+async function livePage(render) {
     stopReplay()
     const all = await cards()
-    if (stale()) {
-        return
-    }
     const diagram = deliveryPath()
     const header = h('div')
     const clock = h('span', { class: 'clock' })
@@ -1546,8 +1537,11 @@ async function livePage(stale) {
         h('h2', {}, 'So far'),
         chartsEl
     )
-    render(header, empty, body)
+    if (!render(header, empty, body)) {
+        return
+    }
     body.hidden = true
+    const stoppedLine = h('span')
     let shownRun
     let watched
     let busy = false
@@ -1609,11 +1603,7 @@ async function livePage(stale) {
                                       : null
                               )
                             : lost
-                              ? h(
-                                    'div',
-                                    { class: 'reason invalid' },
-                                    `The runner stopped writing ${ago(new Date(live.updatedAt).toISOString())} without a verdict, so this run has no scorecard. Its process most likely died.`
-                                )
+                              ? h('div', { class: 'reason invalid' }, stoppedLine)
                               : null,
                     ].filter(Boolean)
                 )
@@ -1631,6 +1621,9 @@ async function livePage(stale) {
                     )
                 )
             }
+            stoppedLine.textContent = lost
+                ? `The runner stopped writing ${ago(new Date(live.updatedAt).toISOString())} without a verdict, so this run has no scorecard. Its process most likely died.`
+                : ''
             diagram.paint(viewAt(detail, windows, t))
             clock.textContent = live.drive
                 ? `t+${fmtDuration(Math.max(0, (live.ended ? lastData : lastSeen) - from))}${live.drive.forMs ? ` of ${fmtDuration(live.drive.forMs)} drive` : ''}`
@@ -1674,7 +1667,7 @@ async function livePage(stale) {
 
 async function route() {
     const token = ++navigation
-    const stale = () => token !== navigation
+    const render = renderFor(token)
     stopReplay()
     hideTooltip()
     const [path, query] = location.hash.split('?')
@@ -1688,26 +1681,21 @@ async function route() {
                 a.dataset.nav === (page || 'cards') || (page === 'cards' && a.dataset.nav === 'cards')
             )
         )
-    const loading = setTimeout(
-        () => stale() || renderedFor === token || render(h('p', { class: 'muted' }, 'Loading…')),
-        300
-    )
+    const loading = setTimeout(() => renderedFor === token || render(h('p', { class: 'muted' }, 'Loading…')), 300)
     try {
         if (page === 'live') {
-            await livePage(stale)
+            await livePage(render)
         } else if (page === 'runs' && id) {
-            await runPage(id, startAt, stale)
+            await runPage(id, startAt, render)
         } else if (page === 'runs') {
-            await runsPage(stale)
+            await runsPage(render)
         } else if (page === 'cards' && id) {
-            await cardPage(id, stale)
+            await cardPage(id, render)
         } else {
-            await cardsPage(stale)
+            await cardsPage(render)
         }
     } catch (error) {
-        if (!stale()) {
-            render(h('h1', {}, 'Something went wrong'), h('div', { class: 'reason failed' }, error.message))
-        }
+        render(h('h1', {}, 'Something went wrong'), h('div', { class: 'reason failed' }, error.message))
     } finally {
         clearTimeout(loading)
     }
