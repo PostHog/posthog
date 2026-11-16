@@ -198,6 +198,8 @@ Node.js error-tracking consumer can keep using its existing DNS routing
 and HTTP body-size chunking because remote symbol resolution happens behind
 the same cymbal HTTP boundary.
 
+A caller that sends `X-PostHog-Ingestion-Response: 1` gets the shared ingestion response contract from `rust/common/ingestion-response` instead: one `ok`, `drop`, `retry` or `fail` result per event, so an event that cannot be processed fails only itself. A processed event with `$cymbal_errors` also carries an `error_tracking_exception_processing_errors` warning. A remote resolution item that times out after an endpoint accepted it becomes a `retry` with `deadline_exceeded`, a poison or invalid item becomes a `fail` with `invalid_input`, and a malformed event becomes a `fail` with `invalid_input`. An empty pool, exhausted retries, a resolution server error or a protocol violation still fail the whole request. Without the header, any event failure fails the whole request with a 500, and a malformed event fails it with a 422.
+
 Events are flattened into exception-level `ResolveItem`s, grouped by a
 symbol-set routing key when one is available, and submitted over a
 bidirectional `Resolve` stream. Items without a symbol-set reference fall back

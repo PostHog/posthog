@@ -3,7 +3,10 @@ use std::{
     time::Duration,
 };
 
-use axum::{body::Body, http::Request};
+use axum::{
+    body::Body,
+    http::{HeaderMap, Request},
+};
 
 use bytes::Bytes;
 use common_redis::MockRedisClient;
@@ -63,6 +66,20 @@ pub(crate) async fn get_response_with_config<T: for<'de> Deserialize<'de>>(
     s3_client: Arc<MockS3Client>,
     configure: impl FnOnce(&mut ProcessingConfig),
 ) -> (StatusCode, T) {
+    let (status, _headers, body) =
+        get_full_response_with_config(db, storage_bucket, request_factory, s3_client, configure)
+            .await;
+    (status, body)
+}
+
+#[allow(dead_code)]
+pub(crate) async fn get_full_response_with_config<T: for<'de> Deserialize<'de>>(
+    db: PgPool,
+    storage_bucket: String,
+    request_factory: impl Fn() -> Request<Body>,
+    s3_client: Arc<MockS3Client>,
+    configure: impl FnOnce(&mut ProcessingConfig),
+) -> (StatusCode, HeaderMap, T) {
     let mut config = ProcessingConfig::init_with_defaults().unwrap();
     config.resolver.object_storage_bucket = storage_bucket.clone();
     configure(&mut config);
@@ -80,6 +97,7 @@ pub(crate) async fn get_response_with_config<T: for<'de> Deserialize<'de>>(
     let res = get_router(ctx).oneshot(request_factory()).await.unwrap();
 
     let status = res.status();
+    let headers = res.headers().clone();
 
     let body_bytes = axum::body::to_bytes(res.into_body(), usize::MAX)
         .await
@@ -90,7 +108,7 @@ pub(crate) async fn get_response_with_config<T: for<'de> Deserialize<'de>>(
     // Deserialize the JSON into your struct
     let body: T = serde_json::from_slice(body_bytes.to_bytes())
         .unwrap_or_else(|e| panic!("Failed to deserialize response: {e} {body_string}"));
-    (status, body)
+    (status, headers, body)
 }
 
 async fn ensure_remote_resolution(

@@ -14,9 +14,10 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use common::{
-    build_event, build_event_with, make_ctx, process_one, remote_stage,
+    build_event, build_event_with, event_failures, make_ctx, process_one, remote_stage,
     spawn_recording_stub_server, spawn_stub_server, ServerBehavior,
 };
+use common_ingestion_response::codes;
 
 use cymbal::error::{ResolveError, UnhandledError};
 use cymbal::frames::{Frame, RawFrame};
@@ -447,21 +448,35 @@ async fn terminal_setup_status_closes_mux_without_processing_items() {
 }
 
 #[tokio::test]
-async fn caller_deadline_on_slow_item_surfaces_without_local_fallback() {
+async fn caller_deadline_on_slow_item_fails_its_event_as_retriable() {
     let (slow_addr, _) = spawn_stub_server(ServerBehavior::HappyDelayed {
         delay: Duration::from_millis(400),
     })
     .await;
     let ctx = make_ctx(&[slow_addr], 1, Duration::from_millis(100)).await;
-    let evt = build_event(1);
 
-    let err = process_one(remote_stage(ctx), evt)
+    let failures = event_failures(remote_stage(ctx), vec![build_event(1)])
         .await
-        .expect_err("shared item deadline must surface");
-    assert!(
-        format!("{err}").contains("deadline"),
-        "expected deadline error, got: {err}"
+        .expect("a slow item must not fail the batch");
+
+    let failure = failures[0].as_ref().expect("the slow event fails");
+    assert_eq!(
+        (failure.code, failure.retriable),
+        (codes::DEADLINE_EXCEEDED, true)
     );
+}
+
+#[tokio::test]
+async fn deadline_before_any_endpoint_accepts_the_item_fails_the_batch() {
+    let (slow_addr, _) = spawn_stub_server(ServerBehavior::SlowerThanDeadline {
+        sleep: Duration::from_millis(400),
+    })
+    .await;
+    let ctx = make_ctx(&[slow_addr], 1, Duration::from_millis(100)).await;
+
+    let result = event_failures(remote_stage(ctx), vec![build_event(1)]).await;
+
+    assert!(result.is_err(), "{result:?}");
 }
 
 #[tokio::test]

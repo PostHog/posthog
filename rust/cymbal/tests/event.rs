@@ -1,7 +1,11 @@
 use std::{collections::HashMap, fs, sync::Arc};
 
-use axum::{body::Body, http::Request};
+use axum::{
+    body::Body,
+    http::{HeaderMap, Request},
+};
 use chrono::{DateTime, Utc};
+use common_ingestion_response::{codes, ItemResult, ItemResults, Outcome, HEADER, VERSION};
 use common_types::error_tracking::FrameId;
 use cymbal::{
     core::code_variables::REDACTED,
@@ -15,6 +19,7 @@ use cymbal::{
         Stacktrace,
     },
 };
+use cymbal_proto::cymbal::resolution::v1::ErrorKind;
 use insta::assert_json_snapshot;
 use mockall::predicate;
 use posthog_symbol_data::{write_symbol_data, SourceAndMap};
@@ -208,23 +213,43 @@ impl TestHarness {
                     .unwrap()
             },
             Arc::new(MockS3Client::new()),
-            |config| {
-                config.remote_resolution_host = "127.0.0.1".to_string();
-                config.remote_resolution_port = addr.port();
-                config.resolver.internal_api_secret = "test-secret".to_string();
-                // Snapshot-required routing: give the pool a small retry
-                // budget with fast backoff so the first Subscribe tick can
-                // populate the load snapshot before we give up.
-                config.remote_resolution_max_retries = 3;
-                config.remote_resolution_retry_backoff_ms = 25;
-                config.remote_resolution_retry_max_backoff_ms = 100;
-                // Fast tick so the snapshot arrives within the first retry
-                // window even when the stub server runs at default cadence.
-                config.remote_resolution_subscribe_tick_hint_ms = 25;
-                config.remote_resolution_dns_refresh_secs = 3600;
-            },
+            |config| use_stub_resolution(config, addr),
         )
         .await
+    }
+
+    async fn post_with_item_results(
+        &self,
+        events: &JsonValue,
+        stub_resolution: Option<std::net::SocketAddr>,
+    ) -> (StatusCode, HeaderMap, Vec<ItemResult<AnyEvent>>) {
+        let body = serde_json::to_vec(events).unwrap();
+        let s3_client = match stub_resolution {
+            Some(_) => MockS3Client::new(),
+            None => Self::create_s3_mock(),
+        };
+        let (status, headers, body): (_, _, ItemResults<AnyEvent>) =
+            utils::get_full_response_with_config(
+                self.db.clone(),
+                STORAGE_BUCKET.to_string(),
+                || {
+                    Request::builder()
+                        .method("POST")
+                        .header("content-type", "application/json")
+                        .header(HEADER, VERSION)
+                        .uri("/process")
+                        .body(Body::from(body.clone()))
+                        .unwrap()
+                },
+                Arc::new(s3_client),
+                |config| {
+                    if let Some(addr) = stub_resolution {
+                        use_stub_resolution(config, addr);
+                    }
+                },
+            )
+            .await;
+        (status, headers, body.into_results())
     }
 
     async fn post_event<T: DeserializeOwned>(&self, event: &AnyEvent) -> (StatusCode, T) {
@@ -307,6 +332,22 @@ impl TestHarness {
         )
         .await
     }
+}
+
+fn use_stub_resolution(config: &mut ProcessingConfig, addr: std::net::SocketAddr) {
+    config.remote_resolution_host = "127.0.0.1".to_string();
+    config.remote_resolution_port = addr.port();
+    config.resolver.internal_api_secret = "test-secret".to_string();
+    // Snapshot-required routing: give the pool a small retry
+    // budget with fast backoff so the first Subscribe tick can
+    // populate the load snapshot before we give up.
+    config.remote_resolution_max_retries = 3;
+    config.remote_resolution_retry_backoff_ms = 25;
+    config.remote_resolution_retry_max_backoff_ms = 100;
+    // Fast tick so the snapshot arrives within the first retry
+    // window even when the stub server runs at default cadence.
+    config.remote_resolution_subscribe_tick_hint_ms = 25;
+    config.remote_resolution_dns_refresh_secs = 3600;
 }
 
 // Helper to load static event files
@@ -412,6 +453,23 @@ async fn empty_exception_list_returns_event_with_error(db: PgPool) {
     let errors: Vec<String> =
         serde_json::from_value(event.properties.get("$cymbal_errors").unwrap().clone()).unwrap();
     assert!(errors.iter().any(|e| e.contains("Empty exception list")));
+
+    let (_, _, results) = harness.post_with_item_results(&json!([input]), None).await;
+    let [result] = &results[..] else {
+        panic!("unexpected results {results:?}");
+    };
+    let [warning] = &result.warnings[..] else {
+        panic!("expected one warning, got {:?}", result.warnings);
+    };
+    assert_eq!(
+        warning.warning_type,
+        "error_tracking_exception_processing_errors"
+    );
+    assert_eq!(
+        warning.key.as_deref(),
+        Some(input.uuid.to_string().as_str())
+    );
+    assert_eq!(warning.details["errors"], json!(errors));
 }
 
 #[sqlx::test(migrations = "./tests/test_migrations")]
@@ -701,6 +759,98 @@ async fn suppressed_issue_returns_suppressed_response(db: PgPool) {
         body.first_event().is_none(),
         "Suppressed event should not be present"
     );
+
+    let (_, _, results) = harness.post_with_item_results(&json!([input]), None).await;
+    assert!(
+        matches!(&results[..], [ItemResult { outcome: Outcome::Drop { reason }, .. }] if reason == "suppressed"),
+        "{results:?}"
+    );
+}
+
+#[sqlx::test(migrations = "./tests/test_migrations")]
+async fn item_results_fail_only_the_event_whose_item_errors(db: PgPool) {
+    let harness = TestHarness::new(db);
+    let (addr, _items) = common::spawn_stub_server(common::ServerBehavior::ErrorAfterFirst {
+        kind: ErrorKind::Poison,
+    })
+    .await;
+    let events = [
+        load_static_event("javascript_chunk_id"),
+        load_static_event("javascript_chunk_id_2"),
+    ];
+
+    let (status, headers, results) = harness
+        .post_with_item_results(&json!(events), Some(addr))
+        .await;
+
+    assert!(status.is_success(), "{status:?}");
+    assert_eq!(headers[HEADER], VERSION);
+    assert_eq!(results.len(), events.len());
+    let mut failed = 0;
+    for (event, result) in events.iter().zip(&results) {
+        match &result.outcome {
+            Outcome::Ok { value } => assert_eq!(value.uuid, event.uuid),
+            Outcome::Fail { error } if error.code == codes::INVALID_INPUT => failed += 1,
+            other => panic!("unexpected result {other:?}"),
+        }
+    }
+    assert_eq!(failed, 1, "{results:?}");
+}
+
+#[sqlx::test(migrations = "./tests/test_migrations")]
+async fn item_error_without_item_results_fails_the_request_before_side_effects(db: PgPool) {
+    let harness = TestHarness::new(db);
+    let (addr, _items) = common::spawn_stub_server(common::ServerBehavior::ErrorAfterFirst {
+        kind: ErrorKind::Poison,
+    })
+    .await;
+    let events = vec![
+        load_static_event("javascript_chunk_id"),
+        load_static_event("javascript_chunk_id_2"),
+    ];
+
+    let (status, _): (_, JsonValue) = harness
+        .post_events_with_remote_resolution(events, addr)
+        .await;
+
+    assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
+    let issues: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM posthog_errortrackingissue")
+        .fetch_one(&harness.db)
+        .await
+        .unwrap();
+    assert_eq!(
+        issues, 0,
+        "the event that resolved must not create an issue"
+    );
+}
+
+#[sqlx::test(migrations = "./tests/test_migrations")]
+async fn malformed_event_fails_alone_with_item_results_and_rejects_the_body_without(db: PgPool) {
+    let harness = TestHarness::new(db);
+    let good = make_event(vec![make_exception("TypeError", "cannot read property")]);
+    let events = json!([{"event": "$exception"}, serde_json::to_value(&good).unwrap()]);
+
+    let (status, _, results) = harness.post_with_item_results(&events, None).await;
+
+    assert!(status.is_success(), "{status:?}");
+    match &results[..] {
+        [ItemResult {
+            outcome: Outcome::Fail { error },
+            ..
+        }, ItemResult {
+            outcome: Outcome::Ok { value },
+            ..
+        }] => {
+            assert_eq!(error.code, codes::INVALID_INPUT);
+            assert_eq!(value.uuid, good.uuid);
+        }
+        other => panic!("unexpected results {other:?}"),
+    }
+
+    let (status, _) = harness
+        .post_raw_string(&serde_json::to_vec(&events).unwrap())
+        .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
 }
 
 #[sqlx::test(migrations = "./tests/test_migrations")]

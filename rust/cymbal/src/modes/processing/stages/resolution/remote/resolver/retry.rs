@@ -16,7 +16,9 @@ use tracing::{debug, warn};
 use cymbal_proto::cymbal::resolution::v1::{resolve_outcome, ErrorKind, ResolveOutcome};
 use tonic::Status;
 
-use crate::error::UnhandledError;
+use common_ingestion_response::codes;
+
+use crate::error::{EventFailure, UnhandledError};
 use crate::metric_consts::{
     REMOTE_RESOLUTION_ERROR_KINDS, REMOTE_RESOLUTION_LATENCY,
     REMOTE_RESOLUTION_OVERLOAD_ESCALATIONS, REMOTE_RESOLUTION_REQUESTS,
@@ -29,23 +31,40 @@ use crate::stages::resolution::remote::{client::RemoteCallError, mux::ResolveIte
 
 use super::{RemoteResolutionContext, RemoteWorkItem, ResolvedRemoteItem};
 
+/// Why a work item failed. An `Item` failure belongs to the item's event alone. A `Batch`
+/// failure is not specific to the item, such as an empty pool or a protocol violation, so
+/// the whole request fails.
+#[derive(Debug)]
+pub(super) enum WorkItemError {
+    Item(EventFailure),
+    Batch(UnhandledError),
+}
+
+impl From<UnhandledError> for WorkItemError {
+    fn from(err: UnhandledError) -> Self {
+        Self::Batch(err)
+    }
+}
+
 pub(super) async fn resolve_work_item(
     ctx: &RemoteResolutionContext,
     work_item: RemoteWorkItem,
     deadline: Instant,
-) -> Result<ResolvedRemoteItem, UnhandledError> {
+) -> Result<ResolvedRemoteItem, WorkItemError> {
     let max_attempts = ctx.config.max_retries.saturating_add(1);
     let mut excluded_endpoints: Vec<SocketAddr> = Vec::new();
     let mut last_error: Option<String> = None;
     let mut attempts_used = 0u32;
     let mut routing_permit = None;
+    let mut started_on_endpoint = false;
 
     for attempt in 0..max_attempts {
         attempts_used = attempt + 1;
         if routing_permit.is_none() {
             routing_permit = Some(acquire_routing_permit(ctx).await?);
         }
-        let remaining = remaining_deadline(deadline)?;
+        let remaining =
+            remaining_deadline(deadline).map_err(|_| deadline_elapsed(started_on_endpoint))?;
         let handle = match ctx
             .pool
             .select_for_key(&work_item.routing_key, &excluded_endpoints)
@@ -68,7 +87,8 @@ pub(super) async fn resolve_work_item(
                 last_error = Some(format!("pool unavailable: {err}"));
                 if attempt + 1 < max_attempts {
                     sleep_with_deadline(generic_retry_backoff_for(ctx, attempt, None), deadline)
-                        .await?;
+                        .await
+                        .map_err(|_| deadline_elapsed(started_on_endpoint))?;
                 }
                 continue;
             }
@@ -90,6 +110,11 @@ pub(super) async fn resolve_work_item(
                 vec![outcome]
             }
             Err((err, permit)) if err.is_retryable() => {
+                // The routing permit is released when an endpoint accepts the item, so a
+                // timeout without the permit means an endpoint was already working on the item.
+                if matches!(err, RemoteCallError::Deadline(_)) && permit.is_none() {
+                    started_on_endpoint = true;
+                }
                 routing_permit = permit;
                 metrics::counter!(
                     REMOTE_RESOLUTION_REQUESTS,
@@ -109,7 +134,8 @@ pub(super) async fn resolve_work_item(
                 last_error = Some(err.to_string());
                 if attempt + 1 < max_attempts {
                     sleep_with_deadline(generic_retry_backoff_for(ctx, attempt, None), deadline)
-                        .await?;
+                        .await
+                        .map_err(|_| deadline_elapsed(started_on_endpoint))?;
                 }
                 continue;
             }
@@ -121,10 +147,13 @@ pub(super) async fn resolve_work_item(
                 )
                 .increment(1);
                 record_reroute_depth("terminal", attempts_used);
+                // A terminal transport status rejects the stream, not this item, so it is
+                // not attributed to the item's event.
                 return Err(UnhandledError::Other(format!(
                     "remote resolution failed terminally for item {}: {err}",
                     work_item.token
-                )));
+                ))
+                .into());
             }
         };
 
@@ -138,7 +167,8 @@ pub(super) async fn resolve_work_item(
             ));
             if attempt + 1 < max_attempts {
                 sleep_with_deadline(generic_retry_backoff_for(ctx, attempt, None), deadline)
-                    .await?;
+                    .await
+                    .map_err(|_| deadline_elapsed(started_on_endpoint))?;
             }
             continue;
         };
@@ -182,7 +212,9 @@ pub(super) async fn resolve_work_item(
                     "per-item Overloaded outcome from {endpoint}: {message}"
                 ));
                 if attempt + 1 < max_attempts {
-                    sleep_with_deadline(overload_backoff_for(ctx, attempt), deadline).await?;
+                    sleep_with_deadline(overload_backoff_for(ctx, attempt), deadline)
+                        .await
+                        .map_err(|_| deadline_elapsed(started_on_endpoint))?;
                 }
             }
             ItemDecision::Retry {
@@ -197,6 +229,7 @@ pub(super) async fn resolve_work_item(
                     attempt,
                     "remote resolution returned item retry; rerouting"
                 );
+                started_on_endpoint = true;
                 excluded_endpoints.push(endpoint);
                 last_error = Some(format!("per-item Retry outcome from {endpoint}: {message}"));
                 if attempt + 1 < max_attempts {
@@ -204,10 +237,17 @@ pub(super) async fn resolve_work_item(
                         generic_retry_backoff_for(ctx, attempt, retry_after),
                         deadline,
                     )
-                    .await?;
+                    .await
+                    .map_err(|_| deadline_elapsed(started_on_endpoint))?;
                 }
             }
         }
+    }
+
+    // A last attempt that timed out spends the whole remaining deadline, so it ends here
+    // rather than at the deadline check at the top of the loop.
+    if remaining_deadline(deadline).is_err() {
+        return Err(deadline_elapsed(started_on_endpoint));
     }
 
     metrics::counter!(REMOTE_RESOLUTION_REQUESTS, "outcome" => "exhausted").increment(1);
@@ -217,7 +257,8 @@ pub(super) async fn resolve_work_item(
         work_item.token,
         max_attempts,
         last_error.unwrap_or_else(|| "no recorded cause".to_string()),
-    )))
+    ))
+    .into())
 }
 
 async fn wait_for_terminal_or_acceptance(
@@ -295,9 +336,9 @@ enum ItemDecision {
 fn classify_outcome(
     work_item: &RemoteWorkItem,
     outcome: ResolveOutcome,
-) -> Result<ItemDecision, UnhandledError> {
+) -> Result<ItemDecision, WorkItemError> {
     let Some(result) = outcome.result else {
-        return Err(terminal_item_error(
+        return Err(protocol_error(
             work_item.token,
             "remote resolution outcome had no result".to_string(),
         ));
@@ -307,7 +348,7 @@ fn classify_outcome(
         resolve_outcome::Result::Done(done) => {
             let exception = serde_json::from_slice::<Box<Exception>>(&done.resolved_exception_json)
                 .map_err(|err| {
-                    terminal_item_error(
+                    protocol_error(
                         work_item.token,
                         format!("invalid_done_payload: failed to parse resolved exception: {err}"),
                     )
@@ -335,44 +376,48 @@ fn classify_outcome(
             let kind = ErrorKind::try_from(err.kind).unwrap_or(ErrorKind::Unspecified);
             metrics::counter!(REMOTE_RESOLUTION_ERROR_KINDS, "kind" => kind.metric_label())
                 .increment(1);
+            let message = format!(
+                "remote resolution returned item error {}: {}",
+                kind.as_str_name(),
+                err.message
+            );
             match kind {
                 ErrorKind::Overloaded => Ok(ItemDecision::Overloaded(err.message)),
-                ErrorKind::Poison => Err(terminal_item_error(
-                    work_item.token,
-                    format!(
-                        "remote resolution returned poison item; failing batch under all-or-nothing policy until DLQ plumbing is added: {}",
-                        err.message
-                    ),
+                ErrorKind::Poison | ErrorKind::InvalidPayload => Err(item_failure(
+                    EventFailure::fail(codes::INVALID_INPUT, message),
                 )),
-                ErrorKind::InvalidPayload | ErrorKind::Unhandled => Err(terminal_item_error(
-                    work_item.token,
-                    format!(
-                        "remote resolution returned terminal item error {}: {}",
-                        kind.as_str_name(),
-                        err.message
-                    ),
-                )),
-                ErrorKind::Unspecified => Err(terminal_item_error(
-                    work_item.token,
-                    format!(
-                        "remote resolution returned unspecified item error: {}",
-                        err.message
-                    ),
-                )),
+                // The server's own S3 or Postgres call failed. That outage hits every item
+                // that needs the same dependency, so it is not this item's failure.
+                ErrorKind::Unhandled => Err(server_error(work_item.token, message)),
+                ErrorKind::Unspecified => Err(protocol_error(work_item.token, message)),
             }
         }
-        resolve_outcome::Result::Accepted(_) => Err(terminal_item_error(
+        resolve_outcome::Result::Accepted(_) => Err(protocol_error(
             work_item.token,
             "remote resolution returned accepted without a terminal outcome".to_string(),
         )),
     }
 }
 
-fn terminal_item_error(token: u64, message: String) -> UnhandledError {
+fn item_failure(failure: EventFailure) -> WorkItemError {
     metrics::counter!(REMOTE_RESOLUTION_REQUESTS, "outcome" => "items_failed").increment(1);
-    UnhandledError::Other(format!(
+    WorkItemError::Item(failure)
+}
+
+fn protocol_error(token: u64, message: String) -> WorkItemError {
+    metrics::counter!(REMOTE_RESOLUTION_REQUESTS, "outcome" => "protocol_error").increment(1);
+    batch_failure(token, message)
+}
+
+fn server_error(token: u64, message: String) -> WorkItemError {
+    metrics::counter!(REMOTE_RESOLUTION_REQUESTS, "outcome" => "server_error").increment(1);
+    batch_failure(token, message)
+}
+
+fn batch_failure(token: u64, message: String) -> WorkItemError {
+    WorkItemError::Batch(UnhandledError::Other(format!(
         "remote resolution item {token} failed terminally; failing batch ({message})"
-    ))
+    )))
 }
 
 async fn acquire_routing_permit(
@@ -387,20 +432,31 @@ async fn acquire_routing_permit(
         })
 }
 
-fn remaining_deadline(deadline: Instant) -> Result<Duration, UnhandledError> {
+struct DeadlineElapsed;
+
+fn remaining_deadline(deadline: Instant) -> Result<Duration, DeadlineElapsed> {
     deadline
         .checked_duration_since(Instant::now())
-        .ok_or_else(|| {
-            UnhandledError::Other(
-                "remote resolution item deadline elapsed before completion".to_string(),
-            )
-        })
+        .ok_or(DeadlineElapsed)
 }
 
-async fn sleep_with_deadline(backoff: Duration, deadline: Instant) -> Result<(), UnhandledError> {
+async fn sleep_with_deadline(backoff: Duration, deadline: Instant) -> Result<(), DeadlineElapsed> {
     let remaining = remaining_deadline(deadline)?;
     tokio::time::sleep(backoff.min(remaining)).await;
     Ok(())
+}
+
+/// An item that an endpoint accepted and then timed out on, or asked to retry, ran out of
+/// time on its own. An item that every endpoint refused or never accepted was starved by the
+/// pool, which every other item shares too.
+fn deadline_elapsed(started_on_endpoint: bool) -> WorkItemError {
+    const MESSAGE: &str = "remote resolution item deadline elapsed before completion";
+    metrics::counter!(REMOTE_RESOLUTION_REQUESTS, "outcome" => "deadline_elapsed").increment(1);
+    if started_on_endpoint {
+        WorkItemError::Item(EventFailure::retry(codes::DEADLINE_EXCEEDED, MESSAGE))
+    } else {
+        WorkItemError::Batch(UnhandledError::Other(MESSAGE.to_string()))
+    }
 }
 
 /// Exponential backoff with jitter for the n-th retry (0-indexed). Each step
@@ -520,21 +576,31 @@ mod tests {
     }
 
     #[test]
-    fn classify_outcome_treats_poison_as_terminal_all_or_nothing() {
-        let work_item = work_item(7);
-        let err = classify_outcome(&work_item, error_outcome(ErrorKind::Poison, "bad symbols"))
-            .unwrap_err();
-        assert!(err.to_string().contains("DLQ plumbing"));
-        assert!(err.to_string().contains("all-or-nothing"));
-    }
+    fn classify_outcome_fails_only_the_item_for_item_errors() {
+        let cases = [
+            (ErrorKind::Poison, Some((codes::INVALID_INPUT, false))),
+            (
+                ErrorKind::InvalidPayload,
+                Some((codes::INVALID_INPUT, false)),
+            ),
+            (ErrorKind::Unhandled, None),
+            (ErrorKind::Unspecified, None),
+        ];
 
-    #[test]
-    fn classify_outcome_treats_invalid_payload_and_unhandled_as_terminal() {
-        let work_item = work_item(7);
-        for kind in [ErrorKind::InvalidPayload, ErrorKind::Unhandled] {
-            let err = classify_outcome(&work_item, error_outcome(kind, "boom")).unwrap_err();
-            assert!(err.to_string().contains(kind.as_str_name()));
-            assert!(err.to_string().contains("failing batch"));
+        for (kind, expected) in cases {
+            let err = classify_outcome(&work_item(7), error_outcome(kind, "boom")).unwrap_err();
+            match (err, expected) {
+                (WorkItemError::Item(failure), Some((code, retriable))) => {
+                    assert_eq!(
+                        (failure.code, failure.retriable),
+                        (code, retriable),
+                        "{kind:?}"
+                    );
+                    assert!(failure.message.contains("boom"), "{kind:?}");
+                }
+                (WorkItemError::Batch(_), None) => {}
+                (err, expected) => panic!("{kind:?}: expected {expected:?}, got {err:?}"),
+            }
         }
     }
 
