@@ -518,7 +518,7 @@ export const loginLogic = kea<loginLogicType>([
                         return response
                     } catch (e) {
                         const { code, detail } = e as Record<string, any>
-                        if (code === 'login_code_email_undeliverable') {
+                        if (code === 'login_code_email_undeliverable' || code === 'login_code_send_limit_reached') {
                             actions.setGeneralError(code, detail)
                         } else {
                             lemonToast.error(resendFailureMessage(code, detail))

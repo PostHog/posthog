@@ -53,7 +53,8 @@ mfa_logger = structlog.get_logger("posthog.auth.mfa")
 LOGIN_CODE_VERIFICATION_COUNTER = Counter(
     "login_code_verification_total",
     "Transitions in the code-based login-verification flow.",
-    labelnames=["result"],  # sent | resent | send_failed | undeliverable | success | invalid | locked_out
+    # sent | resent | send_limited | send_failed | undeliverable | success | invalid | locked_out
+    labelnames=["result"],
 )
 
 
@@ -265,6 +266,17 @@ def is_backup_code_attempt(token: object) -> bool:
 # (INCR) rather than via a raceable session read-modify-write, which parallel guesses could sidestep.
 CODE_ATTEMPTS_REDIS_KEY_PREFIX = "code_based_verification_attempts"
 
+# A correct password is all it takes to send a login code, and the failed-login lockout never counts a
+# correct password. So someone else who knows the password could flood the owner's inbox with codes.
+# Cap the emails per account. Each attempt restarts the window, so the cap lifts after an hour with no attempts.
+CODE_MAX_SENDS = 5
+CODE_SENDS_WINDOW_SECONDS = 3600
+CODE_SENDS_REDIS_KEY_PREFIX = "code_based_verification_sends"
+
+
+class CodeBasedVerificationSendLimitReached(Exception):
+    pass
+
 
 class CodeBasedVerificationTokenGenerator(PasswordResetTokenGenerator):
     """Derive a short numeric login-verification code from the same secret-keyed,
@@ -367,11 +379,18 @@ class CodeBasedVerifier:
     def create_and_send_code_based_verification(
         self, request: HttpRequest, user: User, *, is_resend: bool = False
     ) -> bool:
-        """Raises EmailRecipientUndeliverableError when the address cannot receive the code."""
+        """Raises EmailRecipientUndeliverableError when the address cannot receive the code, and
+        CodeBasedVerificationSendLimitReached when the account has had too many codes recently."""
         from posthog.tasks import email
 
         if not self.should_send_code_based_verification(user):
             return False
+
+        if self._reserve_send(user) > CODE_MAX_SENDS:
+            LOGIN_CODE_VERIFICATION_COUNTER.labels(result="send_limited").inc()
+            mfa_logger.info("Code-based verification email not sent: send limit reached", user_id=user.pk)
+            self._capture_send_limit_reached_event(user)
+            raise CodeBasedVerificationSendLimitReached()
 
         try:
             issued_at = int(time.time())
@@ -405,6 +424,42 @@ class CodeBasedVerifier:
             )
             capture_exception(Exception(f"Code-based verification email failed: {e}"))
             return False
+
+    @staticmethod
+    def _sends_redis_key(user: User) -> str:
+        # The key includes a digest of the password hash, so a password change starts a new budget. The owner
+        # can then log in again at once, and the old password cannot send more codes.
+        password_digest = salted_hmac(CODE_SENDS_REDIS_KEY_PREFIX, user.password).hexdigest()[:16]
+        return f"{CODE_SENDS_REDIS_KEY_PREFIX}:{user.pk}:{password_digest}"
+
+    def _reserve_send(self, user: User) -> int:
+        """Count this email against the account's send budget and return the running total.
+
+        Fails open on a Redis error (returns 0), so a Redis outage does not block every password login.
+        """
+        key = self._sends_redis_key(user)
+        try:
+            client = get_client()
+            count = int(client.incr(key))
+            client.expire(key, CODE_SENDS_WINDOW_SECONDS)
+            return count
+        except Exception:
+            mfa_logger.exception("Failed to reserve code-based verification send; allowing", user_id=user.pk)
+            return 0
+
+    def _capture_send_limit_reached_event(self, user: User) -> None:
+        try:
+            posthoganalytics.capture(
+                distinct_id=str(user.distinct_id),
+                event="login verification code limit reached",
+                properties={"$update_person_last_seen_at": False},
+            )
+        except Exception as e:
+            mfa_logger.warning(
+                "Failed to capture code-based verification send limit event",
+                user_id=user.pk,
+                error=str(e),
+            )
 
     def has_pending_code_based_verification(self, request: HttpRequest) -> bool:
         return request.session.get("code_based_verification_pending_user_id") is not None

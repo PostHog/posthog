@@ -6,6 +6,7 @@ import { Link } from 'lib/lemon-ui/Link'
 import { preflightLogic } from 'lib/logic/preflightLogic'
 import { AuthBanner } from 'scenes/authentication/shared/authScene/AuthBanner'
 import { ERROR_MESSAGES } from 'scenes/authentication/shared/loginErrorMessages'
+import { urls } from 'scenes/urls'
 
 import { LoginMethod, Region, SSOProvider } from '~/types'
 
@@ -86,6 +87,18 @@ export function LoginErrorBanner(): JSX.Element | null {
                     ERROR_MESSAGES[generalError.code] ||
                     'Could not complete your login. Please try again.'}
             </span>
+            {generalError.code === 'login_code_send_limit_reached' && (
+                <>
+                    {' '}
+                    <Link
+                        to={[urls.passwordReset(), { email: login.email }]}
+                        data-attr="login-code-send-limit-reset-password"
+                        className="font-semibold"
+                    >
+                        Reset your password
+                    </Link>
+                </>
+            )}
             {preflight?.cloud && (
                 <>
                     {' '}

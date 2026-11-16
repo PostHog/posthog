@@ -13,7 +13,7 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.api.authentication import CodeBasedVerificationSerializer
-from posthog.helpers.two_factor_session import CODE_MAX_ATTEMPTS
+from posthog.helpers.two_factor_session import CODE_MAX_ATTEMPTS, CODE_MAX_SENDS
 from posthog.models.instance_setting import override_instance_config
 
 VERIFY_URL = "/api/login/code-based-verification/"
@@ -93,6 +93,23 @@ class TestCodeBasedVerificationAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.json()["code"], "login_code_email_undeliverable")
         self.assertEqual(self.client.get("/api/users/@me/").status_code, status.HTTP_401_UNAUTHORIZED)
+
+    @pytest.mark.disable_mock_code_based_verifier
+    def test_stops_emailing_codes_past_the_send_limit_until_the_password_changes(self):
+        with enable_code_sending() as mock_send:
+            for _ in range(CODE_MAX_SENDS):
+                self._trigger(mock_send)
+
+            response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
+            self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+            self.assertEqual(response.json()["code"], "login_code_send_limit_reached")
+            self.assertEqual(mock_send.call_count, CODE_MAX_SENDS)
+
+            self.user.set_password("a-new-password-1234")
+            self.user.save()
+            response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": "a-new-password-1234"})
+            self.assertEqual(response.json()["code"], "code_based_verification_required")
+            self.assertEqual(mock_send.call_count, CODE_MAX_SENDS + 1)
 
     @pytest.mark.disable_mock_code_based_verifier
     def test_wrong_code_is_rejected_but_correct_code_still_works(self):

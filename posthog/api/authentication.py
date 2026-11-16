@@ -73,6 +73,7 @@ from posthog.helpers.sso import (
 from posthog.helpers.two_factor_session import (
     CODE_MAX_ATTEMPTS,
     LOGIN_CODE_VERIFICATION_COUNTER,
+    CodeBasedVerificationSendLimitReached,
     clear_two_factor_session_flags,
     code_based_verifier,
     has_passkeys,
@@ -270,11 +271,22 @@ class LoginCodeEmailUndeliverable(APIException):
     default_code = "login_code_email_undeliverable"
 
 
+class LoginCodeSendLimitReached(APIException):
+    status_code = 429
+    default_detail = (
+        "We've sent too many login codes to this account. Try again in an hour. "
+        "If you didn't ask for these codes, someone else may know your password."
+    )
+    default_code = "login_code_send_limit_reached"
+
+
 def _send_login_code(request: HttpRequest, user: User, *, is_resend: bool = False) -> bool:
     try:
         return code_based_verifier.create_and_send_code_based_verification(request, user, is_resend=is_resend)
     except EmailRecipientUndeliverableError:
         raise LoginCodeEmailUndeliverable()
+    except CodeBasedVerificationSendLimitReached:
+        raise LoginCodeSendLimitReached()
 
 
 class EmailVerificationPending(APIException):
