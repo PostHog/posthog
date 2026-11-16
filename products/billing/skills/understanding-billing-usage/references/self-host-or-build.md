@@ -65,6 +65,8 @@ break-even FTE = (monthly spend the alternative replaces - monthly infrastructur
   - **With person profiles:** count the events, identified events, and group analytics lines.
     The build must merge identities and keep profiles, so use the full build headcount.
     Say that infrastructure costs more, because this processing runs on every event that comes in.
+    The infrastructure defaults cover anonymous events only, so treat them as a minimum here.
+    List the extra infrastructure as a cost the comparison could not put a number on, unless the user gives their own estimate.
   - **Without person profiles:** count only the events line.
     Say what they give up: per-user funnels and retention, cohorts, and joining anonymous activity to logged-in users.
     Then compare against PostHog with person processing turned off for the events that don't need it, which often closes most of the gap without building anything.
@@ -82,7 +84,8 @@ How to read the result:
 - The user gave their own staffing estimate: compare it with the break-even headcount directly.
   If their estimate is below the break-even headcount, the alternative can win on cost.
   Do not apply the ownership floor or the staffing defaults to their estimate.
-- Otherwise, compare the break-even headcount with the staffing defaults:
+- Otherwise, compare the break-even headcount with the staffing defaults.
+  Compare the self-host break-even with the self-host column, and the build break-even with the build column:
   - Below the ownership floor in "Staffing": the alternative cannot win on cost in practice.
   - Above the staffing default for their volume: the alternative can win on cost.
   - In between: the answer depends on their team.
@@ -171,7 +174,7 @@ These are rough planning judgements for a senior infrastructure engineer, not sa
 | United States                 | $250,000              |
 | Canada, UK, Australia         | $150,000 - $200,000   |
 | Western and Northern Europe   | $130,000 - $180,000   |
-| Eastern Europe, Latin America | $70,000 - $110,000    |
+| Eastern Europe, Latin America | $85,000 - $130,000    |
 | India, Southeast Asia         | $40,000 - $80,000     |
 
 - Use the middle of the range, and show the result at both ends if that changes the verdict.
@@ -190,6 +193,8 @@ Check current rates on the provider's pricing page before quoting.
   The extra pays for a durable queue, separate compute for queries so dashboards can't slow ingest, a staging copy, and headroom for traffic spikes.
 - **Rough monthly figures for a production build on ClickHouse Cloud**, including a managed queue:
   about $600 at 10M events, $1,400 at 100M, $4,000 at 1B, and $15,000 at 10B.
+  These cover anonymous events only, with no person processing.
+  When the build must keep person profiles, treat them as a minimum; see "Person profiles are their own decision".
 - **Self-hosting PostHog** runs ClickHouse, Kafka, ZooKeeper, Postgres, Redis, object storage, and the app.
   The hobby deploy runs everything on one VM with no replication.
   At production volumes those components need separate, replicated machines, so expect costs in the same range as a production build.
