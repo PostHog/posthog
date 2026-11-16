@@ -11,17 +11,9 @@ on:
             - .github/scripts/dependency_scan.py.lock
             - .github/scripts/post-dependency-scan-section.mjs
             - .github/workflows/dependency-scan.yml
-    push:
-        branches:
-            - master
-        paths:
-            - '**/pnpm-lock.yaml'
-            - '**/uv.lock'
-            - '**/Cargo.lock'
-            - '**/go.mod'
 
 concurrency:
-    group: ${{ github.workflow }}-${{ github.event_name == 'push' && github.sha || github.head_ref || github.ref }}
+    group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
     cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions: {}
@@ -48,15 +40,8 @@ jobs:
               with:
                   enable-cache: false
 
-            - name: Fetch the commit before the push
-              if: github.event_name == 'push'
-              env:
-                  BEFORE: ${{ github.event.before }}
-              run: git fetch --no-tags --depth=1 --filter=blob:none origin "$BEFORE"
-
             - name: Scan added and changed packages
               env:
-                  BASE_REF: ${{ github.event_name == 'push' && github.event.before || 'HEAD^1' }}
                   SARIF_FILE: dependency-scan/guarddog.sarif
                   FINDINGS_FILE: dependency-scan/findings.json
               run: |
@@ -74,7 +59,7 @@ jobs:
     code-scanning:
         name: Upload the scan to code scanning
         needs: scan
-        if: github.event_name == 'push' || (github.event.pull_request.head.repo.full_name == github.repository && !startsWith(github.head_ref, 'trunk-merge/'))
+        if: github.event.pull_request.head.repo.full_name == github.repository && !startsWith(github.head_ref, 'trunk-merge/')
         runs-on: ubuntu-24.04
         timeout-minutes: 10
         permissions:
@@ -87,7 +72,7 @@ jobs:
             - uses: github/codeql-action/upload-sarif@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
               with:
                   sarif_file: guarddog.sarif
-                  category: ${{ github.event_name == 'push' && format('guarddog/{0}', github.sha) || 'guarddog' }}
+                  category: guarddog
 
     # hogli-lint: not-a-required-gate — reads the scan result only to pick the CI report message
     report:
