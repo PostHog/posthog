@@ -10,9 +10,10 @@ from rest_framework.viewsets import ViewSet
 
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.auth import ProjectSecretAPIKeyAuthentication
 from posthog.models.user import User
 from posthog.permissions import APIScopePermission, PostHogFeatureFlagPermission
-from posthog.rate_limit import BurstRateThrottle, SustainedRateThrottle
+from posthog.synthetic_user import SyntheticUser
 
 from products.business_knowledge.backend.github_repos import (
     GithubReposError,
@@ -36,6 +37,7 @@ from .repository_serializers import (
     RepositorySearchResponseSerializer,
     RepositorySelectionSerializer,
 )
+from .throttles import KNOWLEDGE_THROTTLES
 
 _READ_ACTIONS = frozenset({"status", "search", "read_file"})
 _WRITE_ACTIONS = frozenset({"connect", "disconnect", "select"})
@@ -45,9 +47,11 @@ class BusinessKnowledgeRepositoriesViewSet(TeamAndOrgViewSetMixin, ViewSet):
     scope_object = "business_knowledge"
     # Plain ViewSet: object permissions never run, so resource-level access is checked here.
     requires_resource_level_access = True
+    authentication_classes = [ProjectSecretAPIKeyAuthentication]
+    psak_allowed_actions = ["search", "read_file"]
     permission_classes = [IsAuthenticated, APIScopePermission, PostHogFeatureFlagPermission]
     posthog_feature_flag = "product-business-knowledge"
-    throttle_classes = [BurstRateThrottle, SustainedRateThrottle]
+    throttle_classes = KNOWLEDGE_THROTTLES
     pagination_class = None
 
     def dangerously_get_required_scopes(self, request: Request, view: Any) -> list[str] | None:
@@ -151,7 +155,7 @@ class BusinessKnowledgeRepositoriesViewSet(TeamAndOrgViewSetMixin, ViewSet):
         self._require_library(library_id)
         outcome = search_repositories(
             self.team,
-            cast(User, request.user),
+            cast(User | SyntheticUser, request.user),
             request.validated_query_data["query"],
             request.validated_query_data.get("repo") or None,
             library_id=library_id,
@@ -180,7 +184,7 @@ class BusinessKnowledgeRepositoriesViewSet(TeamAndOrgViewSetMixin, ViewSet):
         self._require_library(library_id)
         loaded = read_repository_file(
             self.team,
-            cast(User, request.user),
+            cast(User | SyntheticUser, request.user),
             request.validated_query_data["repo"],
             request.validated_query_data["path"],
             library_id=library_id,
