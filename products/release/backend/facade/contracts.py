@@ -16,6 +16,10 @@ class ReleaseNotFoundError(Exception):
     pass
 
 
+class InvalidMergeError(Exception):
+    pass
+
+
 class UnknownLinkedObjectsError(Exception):
     def __init__(self, field: str, noun: str, ids: list[Any]) -> None:
         super().__init__(field, ids)

@@ -1,5 +1,5 @@
 import type { ColumnDef, SortingState } from '@tanstack/react-table'
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useMemo, useState } from 'react'
 
@@ -22,7 +22,10 @@ import { releaseImportLogic } from './releaseImportLogic'
 import { ReleaseListSkeleton } from './ReleaseListSkeleton'
 import { ReleaseLoadError } from './ReleaseLoadError'
 import { releaseLogic } from './releaseLogic'
+import { ReleaseMergeDialog } from './ReleaseMergeDialog'
+import { releaseMergeLogic } from './releaseMergeLogic'
 import { ReleasePartialLoadWarning } from './ReleasePartialLoadWarning'
+import { ReleaseSelectionBar } from './ReleaseSelectionBar'
 import { ReleasesGate } from './ReleasesGate'
 import { ReleaseRow, STAGE_LABEL, STAGE_TONE } from './releaseUtils'
 import { useInfiniteRows } from './useInfiniteRows'
@@ -185,7 +188,9 @@ function narrowColumns(width: number): ColumnDef<ReleaseRow>[] {
 }
 
 function ReleaseListContent(): JSX.Element {
-    const { filteredRows, dataLoading, loadFailed, releases } = useValues(releaseLogic)
+    const { filteredRows, dataLoading, loadFailed, releases, canEditReleases } = useValues(releaseLogic)
+    const { selection, hiddenReleaseIds } = useValues(releaseMergeLogic)
+    const { setSelection } = useActions(releaseMergeLogic)
     const { showAutoImport } = useValues(releaseImportLogic)
     const [container, setContainer] = useState<HTMLDivElement | null>(null)
     const { width = 0 } = useResizeObserver<HTMLDivElement>({ ref: container })
@@ -210,6 +215,7 @@ function ReleaseListContent(): JSX.Element {
             />
             <div data-quill className="flex flex-col gap-3" ref={setContainer}>
                 {!showAutoImport && <ReleaseFilters />}
+                {canEditReleases && <ReleaseSelectionBar />}
                 <ReleasePartialLoadWarning />
                 <ReleaseImportFailedNotice />
                 {loadFailed ? (
@@ -228,6 +234,14 @@ function ReleaseListContent(): JSX.Element {
                             onSortingChange={setSorting}
                             fullWidth
                             size="sm"
+                            selectable={canEditReleases}
+                            rowSelection={selection}
+                            onRowSelectionChange={setSelection}
+                            getRowId={(row) => row.id}
+                            rowSelectionLabel={(row) => `Select ${row.name}`}
+                            rowSelectionDisabledReason={(row) =>
+                                hiddenReleaseIds.has(row.id) ? 'This release links flags you can’t see' : null
+                            }
                             onRowClick={(row) => router.actions.push(urls.release(row.id))}
                             empty={
                                 <Text size="xs" variant="muted">
@@ -241,6 +255,7 @@ function ReleaseListContent(): JSX.Element {
                     </Card>
                 )}
                 <NewReleaseDialog />
+                <ReleaseMergeDialog />
             </div>
         </SceneContent>
     )

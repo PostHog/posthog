@@ -41,6 +41,7 @@ from .serializers import (
     BroadcastOptionSerializer,
     BroadcastSearchQuerySerializer,
     ImportAllResponseSerializer,
+    MergeReleasesSerializer,
     ReleaseSerializer,
     UpdateReleaseSerializer,
     WriteReleaseSerializer,
@@ -248,6 +249,40 @@ class ReleaseViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             limit=BROADCAST_SEARCH_LIMIT,
         )
         return Response(BroadcastOptionSerializer(options, many=True).data)
+
+    @validated_request(
+        request_serializer=MergeReleasesSerializer,
+        responses={200: OpenApiResponse(response=ReleaseSerializer)},
+    )
+    @action(detail=True, methods=["post"])
+    def merge(self, request: TypedRequest[dict[str, Any]], pk: str, **kwargs) -> Response:
+        """Merge other releases into this one. This release keeps its name, gains their links, then they are deleted."""
+        try:
+            target_id = UUID(str(pk))
+        except ValueError:
+            raise NotFound("Release not found.")
+        source_ids = request.validated_data["release_ids"]
+        try:
+            dto = api.merge(
+                self.team_id,
+                target_id,
+                source_ids,
+                self._lookups,
+                request.validated_data.get("name", "").strip() or None,
+            )
+        except api.ReleaseNotFoundError as error:
+            if error.args and error.args[0] == target_id:
+                raise NotFound("Release not found.")
+            raise ValidationError({"release_ids": f"These releases do not exist in this project: {list(error.args)}"})
+        except api.InvalidMergeError as error:
+            raise ValidationError({"release_ids": str(error)})
+        report_user_action(
+            request.user,
+            "releases merged",
+            {"release_id": str(target_id), "merged_count": len(set(source_ids) - {target_id})},
+            request=request,
+        )
+        return Response(ReleaseSerializer(dto).data)
 
     @extend_schema(request=None, responses={201: ImportAllResponseSerializer})
     @action(detail=False, methods=["post"], pagination_class=None)

@@ -126,5 +126,22 @@ class UpdateReleaseSerializer(WriteReleaseSerializer):
     name = serializers.CharField(max_length=255, required=False, help_text="Name of the release.")
 
 
+class MergeReleasesSerializer(serializers.Serializer):
+    release_ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        min_length=1,
+        max_length=MAX_LINKED,
+        help_text=(
+            "IDs of the releases to merge into this one. Their flags, broadcasts, surveys and insights move to this "
+            "release, then they are deleted."
+        ),
+    )
+    name = serializers.CharField(
+        max_length=255,
+        required=False,
+        help_text="New name for the merged release. Keeps the current name when left out.",
+    )
+
+
 class ImportAllResponseSerializer(serializers.Serializer):
     created_count = serializers.IntegerField(help_text="How many releases the import created.")

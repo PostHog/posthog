@@ -128,6 +128,7 @@ class TestReleaseAPI(APIBaseTest):
             ("create", "post", ""),
             ("update", "patch", "00000000-0000-0000-0000-000000000000/"),
             ("import_all", "post", "import_all/"),
+            ("merge", "post", "00000000-0000-0000-0000-000000000000/merge/"),
         ]
     )
     def test_every_action_is_closed_without_the_flag(self, _name: str, method: str, suffix: str) -> None:
@@ -336,6 +337,65 @@ class TestReleaseAPI(APIBaseTest):
         self.client.force_login(self._create_user("member@example.com"))
 
         assert self.client.get(self._url()).json()["results"][0]["name"] == expected
+
+    def test_merge_moves_every_link_into_the_kept_release_and_deletes_the_others(self) -> None:
+        flags = [self._flag(key) for key in ("checkout-button", "checkout-copy", "checkout-form")]
+        survey_id, _ = self._linked_object("survey", "Checkout feedback")
+        kept = Release.objects.unscoped().create(team=self.team, name="Checkout", feature_flag_ids=[flags[0]])
+        copy = Release.objects.unscoped().create(
+            team=self.team,
+            name="Checkout copy",
+            description="Shorter labels.",
+            owner=self.user,
+            feature_flag_ids=[flags[1], flags[0]],
+            survey_ids=[survey_id],
+        )
+        form = Release.objects.unscoped().create(team=self.team, name="Checkout form", feature_flag_ids=[flags[2]])
+
+        response = self.client.post(
+            self._url(f"{kept.id}/merge/"),
+            {"release_ids": [str(copy.id), str(form.id)], "name": "Checkout v2"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        body = response.json()
+        assert (body["name"], body["description"], body["owner"]["id"]) == (
+            "Checkout v2",
+            "Shorter labels.",
+            self.user.id,
+        )
+        assert body["feature_flag_ids"] == flags
+        assert body["survey_ids"] == [survey_id]
+        assert list(Release.objects.unscoped().filter(team=self.team).values_list("id", flat=True)) == [kept.id]
+
+    @parameterized.expand(
+        [
+            ("only_itself", "self", status.HTTP_400_BAD_REQUEST),
+            ("unknown_release", "unknown", status.HTTP_400_BAD_REQUEST),
+            ("hidden_flag", "hidden", status.HTTP_400_BAD_REQUEST),
+            ("missing_target", "missing_target", status.HTTP_404_NOT_FOUND),
+        ]
+    )
+    def test_merge_rejects_what_it_cannot_combine(self, _name: str, case: str, expected: int) -> None:
+        flag_id = self._flag("checkout-copy")
+        kept = Release.objects.unscoped().create(team=self.team, name="Checkout")
+        other = Release.objects.unscoped().create(team=self.team, name="Checkout copy", feature_flag_ids=[flag_id])
+        target_id, source_id = str(kept.id), str(other.id)
+        if case == "self":
+            source_id = target_id
+        elif case == "unknown":
+            source_id = "00000000-0000-0000-0000-000000000001"
+        elif case == "missing_target":
+            target_id = "00000000-0000-0000-0000-000000000002"
+        elif case == "hidden":
+            self._restrict_as_admin(f"feature_flags/{flag_id}")
+            self.client.force_login(self._create_user("member@example.com"))
+
+        response = self.client.post(self._url(f"{target_id}/merge/"), {"release_ids": [source_id]}, format="json")
+
+        assert response.status_code == expected, response.json()
+        assert Release.objects.unscoped().filter(team=self.team).count() == 2
 
     def test_update_of_a_missing_release_returns_404(self) -> None:
         response = self.client.patch(

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from uuid import UUID
 
+from django.db import transaction
 from django.db.models import QuerySet
 
 from posthog.models.utils import strict_fetch
@@ -54,6 +55,48 @@ def update_release(team_id: int, release_id: UUID, changes: dict) -> Release:
         setattr(release, field, value)
     release.save(update_fields=[*changes.keys(), "updated_at"])
     return get_release(team_id, release_id)
+
+
+LINKED_FIELDS = ("feature_flag_ids", "broadcast_ids", "survey_ids", "insight_ids")
+
+
+def releases_by_id(team_id: int, release_ids: list[UUID]) -> dict[UUID, Release]:
+    return {release.id: release for release in Release.objects.filter(team_id=team_id, id__in=release_ids)}
+
+
+def merge_releases(team_id: int, target_id: UUID, source_ids: list[UUID], name: str | None = None) -> Release:
+    with transaction.atomic():
+        found = {
+            release.id: release
+            for release in Release.objects.select_for_update().filter(team_id=team_id, id__in=[target_id, *source_ids])
+        }
+        for release_id in [target_id, *source_ids]:
+            if release_id not in found:
+                raise ReleaseNotFoundError(release_id)
+        target = found[target_id]
+        sources = [found[release_id] for release_id in source_ids]
+        for field in LINKED_FIELDS:
+            merged = [*getattr(target, field), *(item for source in sources for item in getattr(source, field))]
+            setattr(target, field, list(dict.fromkeys(merged)))
+        target.owner_id = target.owner_id or next((source.owner_id for source in sources if source.owner_id), None)
+        target.description = target.description or next(
+            (source.description for source in sources if source.description), ""
+        )
+        renamed = name is not None and name != "" and name != target.name
+        if renamed and name is not None:
+            target.name = name
+            target.auto_named = False
+        target.save(
+            update_fields=[
+                *LINKED_FIELDS,
+                "owner",
+                "description",
+                *(["name", "auto_named"] if renamed else []),
+                "updated_at",
+            ]
+        )
+        Release.objects.filter(team_id=team_id, id__in=source_ids).delete()
+    return get_release(team_id, target_id)
 
 
 def delete_release(team_id: int, release_id: UUID) -> None:
