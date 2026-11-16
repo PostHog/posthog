@@ -59,11 +59,6 @@ function facadeKey(chunk, frontendDir) {
     return moduleKey(modulePath.split(path.sep).join('/'))
 }
 
-/**
- * - `graph`: the chunks that chunkGraphPlugin recorded, minus the chunks Vite deleted afterwards.
- * - `importMapUrls`: Vite's import map, placeholder URL -> file URL, both under `urlBase`.
- * - `signedInModules`: module keys that a logged-out page never loads.
- */
 export function planViteApp({ graph, importMapUrls, urlBase, frontendDir, signedInModules, readCode, fileSize }) {
     const byFileName = new Map(graph.map((chunk) => [chunk.fileName, chunk]))
     const toFileName = (url) => url.slice(urlBase.length)

@@ -26,12 +26,8 @@ async function flattenPlugins(plugins: PluginOption[] | undefined): Promise<Plug
     return flat
 }
 
-/**
- * The production build of the app entry with Vite. `pnpm build:vite-app` runs it, and then
- * bin/viteAppBuild.mjs, which prepares the output for the backend (posthog/vite_app.py).
- * It reuses the dev server config, so a module resolves the same way in both.
- */
 export default defineConfig(async (env): Promise<UserConfig> => {
+    // The build reuses the dev server config, so a module resolves the same way in both.
     const devServerConfig = await loadConfigFromFile(env, resolve(__dirname, 'vite.config.mts'))
     if (!devServerConfig) {
         throw new Error('vite app: cannot load vite.config.mts')
@@ -66,6 +62,8 @@ export default defineConfig(async (env): Promise<UserConfig> => {
             // for to the app's own origin. The boot script defines the function
             // (posthog/templates/vite_app_boot.html). A URL inside a stylesheet stays relative to
             // that stylesheet, which already comes from the asset host.
+            // Vite warns that it does not support this option together with `chunkImportMap`. Chunks
+            // still import each other by relative paths, so the import map never sees these URLs.
             renderBuiltUrl(filename, { hostType }) {
                 return hostType === 'js'
                     ? { runtime: `window.VITE_APP_ASSET_URL(${JSON.stringify(filename)})` }
