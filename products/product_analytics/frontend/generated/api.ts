@@ -25,6 +25,8 @@ import type {
     EventsRetentionApi,
     EventsRetentionDeletionCountParams,
     EventsRetentionUpdateApi,
+    EventsTableApi,
+    EventsTableUpdateApi,
     InsightApi,
     InsightBulkDeleteRequestApi,
     InsightBulkDeleteResponseApi,
@@ -533,6 +535,42 @@ export const eventsRetentionDeletionCount = async (
     return apiMutator<EventsDeletedApi>(getEventsRetentionDeletionCountUrl(projectId, params), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getEventsTableRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/events_table/`
+}
+
+/**
+ * Returns which events table this project's queries read, the choice the project made for itself, and whether the project can choose yet.
+ * @summary Get the events table a project reads
+ */
+export const eventsTableRetrieve = async (projectId: string, options?: RequestInit): Promise<EventsTableApi> => {
+    return apiMutator<EventsTableApi>(getEventsTableRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getEventsTableUpdateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/events_table/`
+}
+
+/**
+ * Switches this project's queries to the new events table or back to the old one. The switch deletes nothing and can be reversed. Batch exports are not affected. Organization admins only.
+ * @summary Choose the events table a project reads
+ */
+export const eventsTableUpdate = async (
+    projectId: string,
+    eventsTableUpdateApi: EventsTableUpdateApi,
+    options?: RequestInit
+): Promise<EventsTableApi> => {
+    return apiMutator<EventsTableApi>(getEventsTableUpdateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(eventsTableUpdateApi),
     })
 }
 
