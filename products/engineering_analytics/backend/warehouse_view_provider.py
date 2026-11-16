@@ -18,6 +18,13 @@ def get_provided_views(team: Team) -> list[ProvidedView]:
     schedule / managed DAG.
     """
     return [
-        ProvidedView(name=view.name, query=view.query, fields=view.fields, materialized=view.materialized)
+        ProvidedView(
+            name=view.name,
+            query=view.query,
+            fields=view.fields,
+            materialized=view.materialized,
+            sync_frequency=view.sync_frequency,
+            incremental_config=view.incremental_config,
+        )
         for view in get_expected_warehouse_views(team)
     ]

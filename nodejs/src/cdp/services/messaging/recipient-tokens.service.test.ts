@@ -1,5 +1,6 @@
 import { DateTime } from 'luxon'
 
+import { PosthogJwtAudience } from '../../utils/jwt-utils'
 import { RecipientTokensService } from './recipient-tokens.service'
 
 describe('RecipientTokensService', () => {
@@ -14,7 +15,7 @@ describe('RecipientTokensService', () => {
         const token = service.generatePreferencesToken({ team_id: 1, identifier: 'test@test.com' })
         expect(token).toBeDefined()
         expect(token).toMatchInlineSnapshot(
-            `"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0ZWFtX2lkIjoxLCJpZGVudGlmaWVyIjoidGVzdEB0ZXN0LmNvbSIsImlhdCI6MTczNTY4OTYwMCwiZXhwIjoxNzM2Mjk0NDAwLCJhdWQiOiJwb3N0aG9nOm1lc3NhZ2luZzpzdWJzY3JpcHRpb25fcHJlZmVyZW5jZXMifQ.qpYA4Yx5lYA2ABEd_lgjn-rSGPgl-gg4PIbH3QXIZ7g"`
+            `"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0ZWFtX2lkIjoxLCJpZGVudGlmaWVyIjoidGVzdEB0ZXN0LmNvbSIsImlhdCI6MTczNTY4OTYwMCwiZXhwIjoxNzQwODczNjAwLCJhdWQiOiJwb3N0aG9nOm1lc3NhZ2luZzpzdWJzY3JpcHRpb25fcHJlZmVyZW5jZXMifQ.GJOdyHjjiySuycHf3ux_rixHAmFyxwcW8JvYqW1pprw"`
         )
     })
     it.each([
@@ -37,13 +38,30 @@ describe('RecipientTokensService', () => {
         const result = service.validatePreferencesToken(token)
         expect(result).toEqual({ valid: false })
     })
-    it('should not accept an expired token', () => {
+    it.each([
+        { days: 8, valid: true },
+        { days: 30, valid: true },
+        { days: 59, valid: true },
+        { days: 61, valid: false },
+    ])('should treat a token as valid=$valid after $days days', ({ days, valid }) => {
         const token = service.generatePreferencesToken({ team_id: 1, identifier: 'test@test.com' })
-        jest.spyOn(Date, 'now').mockReturnValue(fixedTime.plus({ days: 6 }).toMillis())
+        jest.spyOn(Date, 'now').mockReturnValue(fixedTime.plus({ days }).toMillis())
         const result = service.validatePreferencesToken(token)
-        expect(result).toEqual({ valid: true, team_id: 1, identifier: 'test@test.com' })
-        jest.spyOn(Date, 'now').mockReturnValue(fixedTime.plus({ days: 8 }).toMillis())
-        const result2 = service.validatePreferencesToken(token)
-        expect(result2).toEqual({ valid: false })
+        expect(result).toEqual(valid ? { valid: true, team_id: 1, identifier: 'test@test.com' } : { valid: false })
+    })
+    it('should accept a token minted with the old 7 day expiry for up to 60 days', () => {
+        const token = service['jwt'].sign(
+            { team_id: 1, identifier: 'test@test.com' },
+            PosthogJwtAudience.SUBSCRIPTION_PREFERENCES,
+            { expiresIn: '7d' }
+        )
+        jest.spyOn(Date, 'now').mockReturnValue(fixedTime.plus({ days: 30 }).toMillis())
+        expect(service.validatePreferencesToken(token)).toEqual({
+            valid: true,
+            team_id: 1,
+            identifier: 'test@test.com',
+        })
+        jest.spyOn(Date, 'now').mockReturnValue(fixedTime.plus({ days: 61 }).toMillis())
+        expect(service.validatePreferencesToken(token)).toEqual({ valid: false })
     })
 })

@@ -5,6 +5,7 @@ import { HogFlow, HogFlowAction } from '~/cdp/schema/hogflow'
 import { QuotaLimiting } from '../../../common/services/quota-limiting.service'
 import { CyclotronJobInvocationHogFlow } from '../../types'
 import { HogFunctionMonitoringService } from '../monitoring/hog-function-monitoring.service'
+import { WorkflowsActivationReporter } from '../monitoring/workflows-activation-reporter'
 
 export const counterHogFlowQuotaLimited = new Counter({
     name: 'cdp_hog_flow_quota_limited',
@@ -73,6 +74,11 @@ export async function checkHogFlowQuotaLimits(
 export interface HogFlowQuotaLimitingContext {
     quotaLimiting: QuotaLimiting
     hogFunctionMonitoringService: HogFunctionMonitoringService
+    workflowsActivationReporter: Pick<WorkflowsActivationReporter, 'report'>
+}
+
+function sendsEmail(hogFlow: HogFlow): boolean {
+    return Array.isArray(hogFlow.billable_action_types) && hogFlow.billable_action_types.includes('function_email')
 }
 
 /**
@@ -99,6 +105,13 @@ export async function shouldBlockHogFlowDueToQuota(
             },
             'hog_flow'
         )
+        if (sendsEmail(item.hogFlow)) {
+            void context.workflowsActivationReporter.report(item.teamId, 'workflows send blocked', {
+                reason: 'quota_limited',
+                channel: 'email',
+                workflow_id: item.functionId,
+            })
+        }
         return true
     }
 

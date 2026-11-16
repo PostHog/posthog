@@ -1,0 +1,24 @@
+{% extends "admin/base_site.html" %}
+{% block content %}
+    <div id="content-main">
+        <p>Dataset cleanup is currently <strong>{{ enabled|yesno:"enabled,disabled" }}</strong> in this region.</p>
+        <p>
+            Cleanup permanently deletes unused active datasets after 90 days and archived datasets and historical
+            revisions after 30 days, with a 12-hour usage recording margin. Evaluation results and scores are preserved.
+        </p>
+        <p>
+            Disabling cleanup stops new expiry and deletion, including deletion already in progress. A running sweep
+            finishes its current dataset before stopping. Expired datasets remain unavailable, and deleted content is not restored.
+        </p>
+        <p>Enabling cleanup resumes the hourly schedule. Change this setting separately in each region.</p>
+        <form method="post">
+            {% csrf_token %}
+            <fieldset class="module aligned">
+                {{ form.as_div }}
+            </fieldset>
+            <div class="submit-row">
+                <input type="submit" value="Save dataset cleanup setting" class="default">
+            </div>
+        </form>
+    </div>
+{% endblock %}

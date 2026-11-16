@@ -7,6 +7,8 @@
                 "backend/presentation/**",
                 "backend/routes.py",
                 "backend/temporal/**",
+                "backend/apps.py",
+                "backend/signals.py",
                 "backend/models.py",
                 "backend/migrations/**"
             ],

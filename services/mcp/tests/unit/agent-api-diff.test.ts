@@ -1,3 +1,5 @@
+import { spawnSync } from 'node:child_process'
+import * as path from 'node:path'
 import { describe, expect, it } from 'vitest'
 
 import {
@@ -22,6 +24,17 @@ function surface(
 }
 
 describe('agent API diff', () => {
+    it('runs the CLI with native Node.js without a TypeScript loader', () => {
+        const root = path.resolve(import.meta.dirname, '../../../..')
+        const result = spawnSync(
+            process.execPath,
+            [path.join(root, 'services/mcp/scripts/agent-api-diff.ts'), '--base-dir', root],
+            { encoding: 'utf-8' }
+        )
+
+        expect({ status: result.status, stdout: result.stdout }).toEqual({ status: 0, stdout: '' })
+    })
+
     it('renders nothing when the tool surface is unchanged', () => {
         const same = surface({ 'a-list': { params: ['limit'] } })
         expect(renderAgentApiDiff(diffToolSurfaces(same, surface({ 'a-list': { params: ['limit'] } })))).toBe('')

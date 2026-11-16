@@ -279,6 +279,7 @@ class TestPersonalSpendQueries(ClickhouseTestMixin, APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         body = response.json()
         assert body["summary"]["total_cost_usd"] == 0
+        assert body["summary"]["billable_cost_usd"] == 0
         assert body["summary"]["event_count"] == 0
         assert body["summary"]["scoped_cost_usd"] == 0
         assert body["summary"]["scoped_event_count"] == 0
@@ -293,6 +294,9 @@ class TestPersonalSpendQueries(ClickhouseTestMixin, APIBaseTest):
         self._create_generation(ai_product="posthog_code", cost=2.0)
         self._create_generation(ai_product="background_agents", cost=1.0)
         self._create_generation(ai_product="posthog_code", cost=0.5, event_name="$ai_embedding")
+        self._create_generation(ai_product="posthog_ai", cost=4.0)
+        self._create_generation(ai_product="signals_scout", cost=8.0)
+        self._create_generation(cost=0.25, extra_props={"ai_product": None})
         flush_persons_and_events()
 
         response = self.client.get(ENDPOINT_OK)
@@ -300,8 +304,9 @@ class TestPersonalSpendQueries(ClickhouseTestMixin, APIBaseTest):
         summary = body["summary"]
         assert summary["product"] == "posthog_code"
         # `event_count` / `total_cost_usd` stay cross-product even with the product filter.
-        assert summary["event_count"] == 3
-        assert summary["total_cost_usd"] == 3.5
+        assert summary["event_count"] == 6
+        assert summary["total_cost_usd"] == 15.75
+        assert summary["billable_cost_usd"] == 6.5
         # `scoped_*` is filtered to posthog_code only.
         assert summary["scoped_event_count"] == 2
         assert summary["scoped_cost_usd"] == 2.5
@@ -312,6 +317,13 @@ class TestPersonalSpendQueries(ClickhouseTestMixin, APIBaseTest):
         bg_row = _by_product(body["by_product"]["items"], "background_agents")
         assert bg_row is not None
         assert bg_row["cost_usd"] == 1.0
+        assert {row["product"]: row["billable"] for row in body["by_product"]["items"]} == {
+            "posthog_code": True,
+            "posthog_ai": True,
+            "background_agents": False,
+            "signals_scout": False,
+            None: False,
+        }
         assert body["by_product"]["truncated"] is False
 
     def test_product_filter_scopes_summary_and_breakdowns(self) -> None:
@@ -446,13 +458,15 @@ class TestPersonalSpendQueries(ClickhouseTestMixin, APIBaseTest):
         # ai_products still show up.
         self._create_generation(ai_product="a", cost=3.0)
         self._create_generation(ai_product="b", cost=2.0)
-        self._create_generation(ai_product="c", cost=1.0)
+        self._create_generation(ai_product="posthog_code", cost=1.0)
         flush_persons_and_events()
 
         response = self.client.get(f"{ENDPOINT}?{PRODUCT_QS}&limit=2")
         by_product = response.json()["by_product"]
         assert len(by_product["items"]) == 2
         assert by_product["truncated"] is True
+        assert all(row["billable"] is False for row in by_product["items"])
+        assert response.json()["summary"]["billable_cost_usd"] == 1.0
 
     def test_by_tool_share_of_scoped(self) -> None:
         self._create_generation(tool="Bash", cost=2.0)

@@ -18,6 +18,9 @@ export type ValidatedPreferencesToken =
     | { valid: false }
     | { valid: true; team_id: number; identifier: string; app_source_id?: string; instance_id?: string }
 
+// CAN-SPAM requires an opt-out link to work for at least 30 days after the email is sent.
+const PREFERENCES_TOKEN_MAX_AGE = '60d'
+
 export function preferencesTokenSourceForInvocation(
     invocation: Pick<CyclotronJobInvocationHogFunction, 'functionId' | 'parentRunId' | 'state'>
 ): PreferencesTokenSource | undefined {
@@ -45,7 +48,9 @@ export class RecipientTokensService {
         try {
             const decoded = this.jwt.verify(token, PosthogJwtAudience.SUBSCRIPTION_PREFERENCES, {
                 ignoreVerificationErrors: true,
-                maxAge: '7d',
+                // Older tokens carry a 7 day `exp` claim, so the age check uses `iat` only.
+                ignoreExpiration: true,
+                maxAge: PREFERENCES_TOKEN_MAX_AGE,
             })
             if (!decoded) {
                 return { valid: false }
@@ -79,7 +84,7 @@ export class RecipientTokensService {
                 ...(source?.instanceId ? { instance_id: source.instanceId } : {}),
             },
             PosthogJwtAudience.SUBSCRIPTION_PREFERENCES,
-            { expiresIn: '7d' }
+            { expiresIn: PREFERENCES_TOKEN_MAX_AGE }
         )
     }
 

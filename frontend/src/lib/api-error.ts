@@ -34,6 +34,13 @@ export function isApprovalRequiredError(error: { status?: number; data?: any } |
     return error?.status === 409 && Boolean(error?.data?.change_request_id)
 }
 
+/** The flag API refuses an edit that lowers exposure when the request asks for a reason and sends none. */
+export function isRollbackReasonRequiredError(
+    error: { status?: number; code?: string | null } | null | undefined
+): boolean {
+    return error?.status === 409 && error?.code === 'rollback_reason_required'
+}
+
 /** Potentially transient failures; a gateway error does not prove that the backend did no work. */
 const TRANSIENT_GATEWAY_STATUSES: ReadonlySet<number> = new Set([502, 503, 504])
 
@@ -104,6 +111,9 @@ export function isScopeNotFoundError(error: unknown): boolean {
 export function isScopeNotFoundMessage(message: unknown): boolean {
     return typeof message === 'string' && SCOPE_NOT_FOUND_DETAILS.has(message)
 }
+
+/** DRF `detail` of the project membership 403s in posthog/permissions.py. Keep in sync with the backend. */
+export const PROJECT_ACCESS_DENIED_DETAIL = "You don't have access to the project."
 
 /** DRF code of a security access rule refusal (products/security). Keep in sync with the backend. */
 export const ACCESS_BLOCKED_ERROR_CODE = 'access_blocked'
@@ -232,6 +242,9 @@ export function shouldReportApiFailure(error: unknown): boolean {
         return false
     }
     if (status === 409 && failure.data?.current_version !== undefined) {
+        return false
+    }
+    if (isRollbackReasonRequiredError(failure)) {
         return false
     }
     return !isApprovalRequiredError(failure)

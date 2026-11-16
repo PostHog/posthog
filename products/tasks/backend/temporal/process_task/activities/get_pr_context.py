@@ -8,7 +8,7 @@ from temporalio import activity
 
 from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubRateLimitError
 from posthog.egress.limiter.policies import Priority
-from posthog.models import Integration
+from posthog.integrations import IntegrationManager, IntegrationNotFound
 from posthog.models.integration import GitHubIntegration
 from posthog.models.user_integration import UserGitHubIntegration, UserIntegration
 from posthog.temporal.common.utils import close_db_connections
@@ -94,8 +94,8 @@ def merge_queue_push_would_eject(github_integration: GitHubIntegration | UserGit
     return state is not None and state.push_would_eject
 
 
-def get_github_integration(github_integration_id: int) -> GitHubIntegration:
-    integration = Integration.objects.get(id=github_integration_id)
+def get_github_integration(team_id: int, github_integration_id: int) -> GitHubIntegration:
+    integration = IntegrationManager.github.oauth.get(team_id, github_integration_id)
     github_integration = GitHubIntegration(integration, source="tasks_sandbox", priority=Priority.CRITICAL)
 
     if github_integration.access_token_expired():
@@ -135,10 +135,10 @@ def get_pr_context(input: GetPrContextInput) -> GetPrContextOutput | None:
         try:
             github_integration: GitHubIntegration | UserGitHubIntegration
             if ctx.github_integration_id:
-                github_integration = get_github_integration(ctx.github_integration_id)
+                github_integration = get_github_integration(ctx.team_id, ctx.github_integration_id)
             else:
                 github_integration = get_user_github_integration(str(ctx.github_user_integration_id))
-        except ObjectDoesNotExist:
+        except (ObjectDoesNotExist, IntegrationNotFound):
             activity.logger.warning(
                 "get_pr_context_github_integration_not_found",
                 extra={

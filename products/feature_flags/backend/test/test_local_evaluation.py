@@ -16,12 +16,13 @@ from posthog.models.project import Project
 from posthog.models.tag import Tag
 from posthog.models.team.team import Team
 from posthog.personhog_client.fake_client import get_active_fake
+from posthog.storage import object_storage
 from posthog.test.persons import _seed_group_type_mapping_into_fake, create_group_type_mapping
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 from posthog.utils import safe_cache_delete
 
 from products.cohorts.backend.models.cohort import Cohort
-from products.experiments.backend.models.experiment import Experiment
+from products.experiments.backend.facade.testing import create_experiment, delete_experiment, update_experiment
 from products.feature_flags.backend.cache_keys import EU_CROSS_REGION_MIRROR_CACHE_KEY
 from products.feature_flags.backend.flags_cache import get_team_ids_with_recently_updated_flags
 from products.feature_flags.backend.local_evaluation import (
@@ -412,6 +413,24 @@ class TestUpdateFlagCachesGroupMappingGuards(BaseTest):
 
 
 class TestLocalEvaluationSignals(BaseTest):
+    def test_team_delete_clears_definitions_cache_in_redis_and_s3(self):
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="test-flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+        update_flag_definitions_cache(self.team)
+        cache_key = flag_definitions_hypercache.get_cache_key(self.team)
+        assert flag_definitions_hypercache.cache_client.get(cache_key) is not None
+        assert object_storage.read(cache_key, missing_ok=True) is not None
+
+        with self.captureOnCommitCallbacks(execute=True):
+            self.team.delete()
+
+        assert flag_definitions_hypercache.cache_client.get(cache_key) is None
+        assert object_storage.read(cache_key, missing_ok=True) is None
+
     @parameterized.expand(["create", "soft_delete", "delete"])
     @patch("products.feature_flags.backend.tasks.update_team_flags_cache")
     @patch("django.db.transaction.on_commit", lambda fn: fn())
@@ -424,15 +443,14 @@ class TestLocalEvaluationSignals(BaseTest):
         )
         if action == "create":
             mock_task.reset_mock()
-            Experiment.objects.create(team=self.team, name="My experiment", feature_flag=flag)
+            create_experiment(team_id=self.team.id, feature_flag_id=flag.id, name="My experiment")
         else:
-            experiment = Experiment.objects.create(team=self.team, name="My experiment", feature_flag=flag)
+            experiment_id = create_experiment(team_id=self.team.id, feature_flag_id=flag.id, name="My experiment")
             mock_task.reset_mock()
             if action == "soft_delete":
-                experiment.deleted = True
-                experiment.save()
+                update_experiment(team_id=self.team.id, experiment_id=experiment_id, deleted=True)
             else:
-                experiment.delete()
+                delete_experiment(team_id=self.team.id, experiment_id=experiment_id)
 
         mock_task.delay.assert_called_once_with(self.team.id)
 

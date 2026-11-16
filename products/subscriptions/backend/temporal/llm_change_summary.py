@@ -1,24 +1,21 @@
 from __future__ import annotations
 
-import os
 import re
 import base64
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
-
-from django.conf import settings
+from typing import TYPE_CHECKING, cast
 
 import structlog
-import posthoganalytics
+from openai import OpenAI
 from openai.lib._pydantic import to_strict_json_schema
-from posthoganalytics.ai.openai import OpenAI
+from openai.types.chat import ChatCompletionMessageParam
 from prometheus_client import Counter
 
 if TYPE_CHECKING:
     from posthog.models.team.team import Team
 
-from posthog.event_usage import groups
 from posthog.exceptions_capture import capture_exception
+from posthog.llm.gateway_client import GatewayNotConfiguredError, build_openai_client, resolve_ai_gateway_config
 from posthog.llm_prompt import normalize_prompt_to_string
 from posthog.security.llm_prompt_sanitization import (
     INSIGHT_DESCRIPTION_MAX_LEN,
@@ -391,10 +388,21 @@ def _attach_images_to_user_message(
     return AttachedImageSummary(len(ordered_ids), bytes_total, len(user_text))
 
 
-def _get_openai_client(*, max_retries: int = 1) -> OpenAI:
-    if not os.environ.get("OPENAI_API_KEY"):
-        raise ValueError("OPENAI_API_KEY environment variable not set")
-    return OpenAI(posthog_client=posthoganalytics.setup(), base_url=settings.OPENAI_BASE_URL, max_retries=max_retries)
+def _get_openai_client(*, team: Team | None, delivery_id: str | None, user_tag: str) -> OpenAI:
+    if resolve_ai_gateway_config() is None:
+        raise GatewayNotConfiguredError("AI_GATEWAY_URL and AI_GATEWAY_API_KEY must be configured")
+    properties: dict[str, str] = {}
+    if delivery_id:
+        properties["delivery_id"] = delivery_id
+    headers: dict[str, str] = {}
+    if team is not None:
+        properties["team_id"] = str(team.id)
+    else:
+        headers["X-PostHog-Billable"] = "false"
+    client = build_openai_client(
+        "subscriptions", ai_product="subscriptions", properties=properties, distinct_id=user_tag
+    )
+    return client.with_options(max_retries=1, default_headers=headers)
 
 
 def _previous_states_rendered_in_current_delivery(
@@ -463,49 +471,37 @@ def generate_change_summary(
         user_message_length=attached.user_text_length,
     )
 
-    client = _get_openai_client()
-
     instance_region = get_instance_region() or "HOBBY"
     user_tag = f"{instance_region}/subscription-summary-team-{team_id}"
     if delivery_id:
         user_tag = f"{user_tag}-delivery-{delivery_id}"
 
-    posthog_properties: dict[str, object] = {"ai_product": "subscriptions"}
-    if delivery_id:
-        posthog_properties["delivery_id"] = delivery_id
-
-    extra_capture_kwargs: dict[str, object] = {}
-    if team is not None:
-        posthog_properties["$ai_billable"] = True
-        posthog_properties["team_id"] = team.id
-        extra_capture_kwargs["posthog_groups"] = {"project": str(team.id), **groups()}
+    client = _get_openai_client(team=team, delivery_id=delivery_id, user_tag=user_tag)
 
     prompt_tokens, completion_tokens = 0, 0
-    for max_tokens in (1500, 4500):
-        result = client.chat.completions.create(
-            model="gpt-4.1-mini",
-            temperature=0.3,
-            max_tokens=max_tokens,
-            response_format={
-                "type": "json_schema",
-                "json_schema": {
-                    "name": "subscription_summary",
-                    "strict": True,
-                    "schema": to_strict_json_schema(ReportSummary),
+    with client:
+        for max_tokens in (1500, 4500):
+            result = client.chat.completions.create(
+                model="gpt-4.1-mini",
+                temperature=0.3,
+                max_tokens=max_tokens,
+                response_format={
+                    "type": "json_schema",
+                    "json_schema": {
+                        "name": "subscription_summary",
+                        "strict": True,
+                        "schema": to_strict_json_schema(ReportSummary),
+                    },
                 },
-            },
-            timeout=20,
-            messages=messages,
-            user=user_tag,
-            posthog_distinct_id=user_tag,
-            posthog_properties=posthog_properties,
-            **extra_capture_kwargs,
-        )
-        if result.usage:
-            prompt_tokens += result.usage.prompt_tokens
-            completion_tokens += result.usage.completion_tokens
-        if not result.choices or result.choices[0].finish_reason != "length":
-            break
+                timeout=20,
+                messages=cast(list[ChatCompletionMessageParam], messages),
+                user=user_tag,
+            )
+            if result.usage:
+                prompt_tokens += result.usage.prompt_tokens
+                completion_tokens += result.usage.completion_tokens
+            if not result.choices or result.choices[0].finish_reason != "length":
+                break
 
     content: str = ""
     if result.choices and result.choices[0].message.content:

@@ -6581,6 +6581,7 @@ export const LogsQueryCreateParams = () => zod.object({
 export const logsQueryCreateBodyQueryOneSeverityLevelsDefault = []
 export const logsQueryCreateBodyQueryOneServiceNamesDefault = []
 export const logsQueryCreateBodyQueryOneLimitDefault = 100
+
 export const logsQueryCreateBodyQueryOneExcludeAttributesDefault = false
 export const logsQueryCreateBodyQueryOneCustomColumnsDefault = []
 
@@ -6745,7 +6746,11 @@ export const LogsQueryCreateBody = () => zod.object({
                 .describe(
                     'Property filters for the query. Pass a list of filters, which are all combined with AND, or a filter group object with nested AND\/OR groups.'
                 ),
-            limit: zod.number().default(logsQueryCreateBodyQueryOneLimitDefault).describe('Max results (1-1000).'),
+            limit: zod
+                .number()
+                .min(1)
+                .default(logsQueryCreateBodyQueryOneLimitDefault)
+                .describe('Max results. Values above 2000 are capped at 2000.'),
             after: zod.string().optional().describe('Pagination cursor from previous response.'),
             excludeAttributes: zod
                 .boolean()

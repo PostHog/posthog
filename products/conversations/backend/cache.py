@@ -67,6 +67,36 @@ def set_cached_messages(team_id: int, ticket_id: str, response_data: dict, after
         logger.warning("conversations_cache_set_error", key=key)
 
 
+# Widget Session Has Tickets
+# Only a positive result is cached, because a session keeps its tickets once it has them.
+
+SESSION_HAS_TICKETS_CACHE_TTL = 24 * 3600
+
+
+def get_session_has_tickets_cache_key(team_id: int, widget_session_id: str) -> str:
+    session_digest = hashlib.sha256(widget_session_id.encode()).hexdigest()
+    return _make_cache_key("session_has_tickets", str(team_id), session_digest)
+
+
+def get_cached_session_has_tickets(team_id: int, widget_session_id: str) -> bool:
+    try:
+        return cache.get(get_session_has_tickets_cache_key(team_id, widget_session_id)) is True
+    except Exception:
+        logger.warning("conversations_cache_get_error", team_id=team_id, cache_type="session_has_tickets")
+        return False
+
+
+def set_cached_session_has_tickets(team_id: int, widget_session_id: str) -> None:
+    try:
+        cache.set(
+            get_session_has_tickets_cache_key(team_id, widget_session_id),
+            True,
+            timeout=SESSION_HAS_TICKETS_CACHE_TTL,
+        )
+    except Exception:
+        logger.warning("conversations_cache_set_error", team_id=team_id, cache_type="session_has_tickets")
+
+
 # Widget Tickets List Cache
 
 

@@ -84,6 +84,9 @@ export const KAFKA_LOG_ENTRIES = `${prefix}log_entries${suffix}`
 // per-invocation result rows for hog functions and hog flows
 export const KAFKA_HOG_INVOCATION_RESULTS = `${prefix}clickhouse_hog_invocation_results${suffix}`
 
+// one row per status change of a transactional email, for the email_status ClickHouse table
+export const KAFKA_EMAIL_STATUS = `${prefix}clickhouse_email_status${suffix}`
+
 // metadata rows for sent message assets (rendered emails stored in object storage)
 export const KAFKA_MESSAGE_ASSETS = `${prefix}clickhouse_message_assets${suffix}`
 

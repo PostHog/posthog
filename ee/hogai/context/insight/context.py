@@ -1,3 +1,6 @@
+import json
+from typing import Any
+
 from posthog.event_usage import EventSource
 from posthog.hogql_queries.apply_dashboard_filters import (
     apply_dashboard_filters_to_dict,
@@ -46,6 +49,7 @@ class InsightContext:
         variables_override: dict | None = None,
         event_source: EventSource = EventSource.POSTHOG_AI,
         max_sql_result_chars: int | None = None,
+        saved_query: dict[str, Any] | None = None,
     ) -> None:
         self.team = team
         self.user = user
@@ -60,6 +64,7 @@ class InsightContext:
         self.dashboard_filters = dashboard_filters
         self.filters_override = filters_override
         self.variables_override = variables_override
+        self.saved_query = saved_query
 
     @property
     def insight_url(self) -> str | None:
@@ -91,7 +96,8 @@ class InsightContext:
     ) -> str:
         """Execute query and format results."""
         effective_query = await self._get_effective_query()
-        query_schema = effective_query.model_dump_json(exclude_none=True)
+        query_schema = self._format_query_schema(effective_query)
+        effective_query_schema = self._format_effective_query_schema(effective_query)
 
         try:
             results = await execute_and_format_query(
@@ -121,22 +127,51 @@ class InsightContext:
             insight_id=self.insight_id,
             insight_description=self.description,
             query_schema=query_schema,
+            is_saved_query=self.saved_query is not None,
+            effective_query_schema=effective_query_schema,
             results=results,
             insight_url=self.insight_url,
         )
 
     async def format_schema(self, prompt_template: str = INSIGHT_RESULT_TEMPLATE) -> str:
         """Format insight as schema-only (no execution)."""
-        effective_query = await self._get_effective_query()
-        query_schema = effective_query.model_dump_json(exclude_none=True)
+        query_schema = self._format_query_schema(await self._get_effective_query())
         return format_prompt_string(
             prompt_template,
             insight_name=self.name,
             insight_id=self.insight_id,
             insight_description=self.description,
             query_schema=query_schema,
+            is_saved_query=self.saved_query is not None,
             insight_url=self.insight_url,
         )
+
+    def _format_query_schema(self, effective_query: AnyPydanticModelQuery | AnyAssistantGeneratedQuery) -> str:
+        if self.saved_query is not None:
+            # query_patch edits the stored query, so show it with its wrapper instead of the unwrapped query.
+            return json.dumps(self.saved_query, separators=(",", ":"))
+        return effective_query.model_dump_json(exclude_none=True)
+
+    def _format_effective_query_schema(
+        self, effective_query: AnyPydanticModelQuery | AnyAssistantGeneratedQuery
+    ) -> str | None:
+        """The query that produced the results, when dashboard filters or variables make it differ from the saved query."""
+        if self.saved_query is None:
+            return None
+        try:
+            saved_query = validate_assistant_query(self.saved_query.get("source") or self.saved_query)
+        except Exception:
+            saved_query = None
+        if saved_query is not None and self._comparable(saved_query) == self._comparable(effective_query):
+            return None
+        return effective_query.model_dump_json(exclude_none=True)
+
+    @staticmethod
+    def _comparable(query: AnyPydanticModelQuery | AnyAssistantGeneratedQuery) -> dict[str, Any]:
+        # The frontend fills in schema defaults and a version that saved queries often omit.
+        dumped = query.model_dump(mode="json", exclude_none=True, exclude_defaults=True)
+        dumped.pop("version", None)
+        return dumped
 
     async def _get_effective_query(self):
         """Apply dashboard filters/overrides if provided."""

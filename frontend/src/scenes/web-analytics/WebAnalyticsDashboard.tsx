@@ -1,3 +1,5 @@
+import '~/queries/nodes/InsightViz/InsightViz.scss'
+
 import clsx from 'clsx'
 import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
 import React, { Suspense, useEffect, useState } from 'react'

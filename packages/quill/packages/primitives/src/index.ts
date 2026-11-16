@@ -125,6 +125,7 @@ export {
     ComboboxTrigger,
     ComboboxValue,
     useComboboxAnchor,
+    useComboboxFilteredItems,
 } from './combobox'
 export {
     ContextMenu,
@@ -346,6 +347,7 @@ export {
     TableEmpty,
     TableCaption,
 } from './table'
+export { MIN_TABLE_COLUMN_WIDTH, TableColumnResizer } from './table-column-resizer'
 export { Tabs, TabsContent, TabsList, TabsTrigger } from './tabs'
 export { Text, textVariants } from './text'
 export { Textarea } from './textarea'

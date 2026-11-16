@@ -179,10 +179,27 @@ Two SDKs on one host are two sources, and they need separate baselines and repor
 | `pattern:general:new-traffic`                  | Date of the last check, the `<lib>` and `<origin>` expressions, and the top three sources by growth. Rewrite it at the end of every check, so the gate works |
 | `pattern:general:traffic-baseline:<source_id>` | `lib`, `origin`, onset date, pinned pre-surge baseline, last reported level or last seen level                                                               |
 | `report:general:new-traffic:<source_id>`       | The `report_id`, so a later run edits it instead of filing a duplicate                                                                                       |
-| `noise:general:traffic:<source_id>`            | Dev traffic only: `localhost`, staging or preview domains, the team's own CI                                                                                 |
+| `noise:general:traffic:<source_id>`            | Verified dev traffic only: staging or preview domains, the team's own CI, or a local dev server you confirmed (see below). Write the evidence into the entry |
 
 Do not record a source as `noise:` only because it is the team's own or is expected.
 Keep it as a `pattern:` with its level, so a later loop, bot flood or new step on that same source still surfaces.
+
+A `localhost` or IP host alone does not prove dev traffic.
+Mobile and desktop shells (Capacitor, Ionic, Cordova, Tauri, Electron and other webviews) often serve the production app from `localhost` or a custom scheme on real users' devices.
+Before you write a `noise:` entry for a `localhost` or IP origin, look for environment evidence with the same `source_id` filter as step 3:
+
+- **URL scheme** in `$current_url`: `capacitor://`, `ionic://`, `tauri://`, `app://` or `file://` is a packaged app. `http://localhost:<port>` on a common dev-server port leans dev. `http(s)://localhost` with no port is ambiguous, because Android webviews use it.
+- **Runtime context**: `$os` of iOS or Android, a mobile `$device_type`, a native or mobile SDK in `$lib`, or an app version property next to the host lean production.
+- **Population**: many distinct IDs, identified users and several countries lean production. A few IDs that belong to the team's own members lean dev.
+- **Application configuration**: when the run can read the team's repository or app config, the shell's configured hostname and scheme settle it.
+
+Confirm each property with `read-data-schema` before you query it, as in step 1.
+When the evidence is missing or mixed, the source is ambiguous: keep it in the normal analysis as a `pattern:` and write what is still unknown into the entry.
+
+Example: an origin of `localhost` whose events carry `$os` iOS and Android, thousands of distinct IDs across many countries, and an app version that follows the team's release sequence is a production webview app.
+It gets a `pattern:general:traffic-baseline:<source_id>` entry and normal analysis, not a `noise:` entry.
+
+Staging hosts, preview deploys and the team's own CI stay valid `noise:` entries when the host or the CI identity proves what they are.
 
 Edit the existing report when the source grows to about 2x the level you last reported, and again when it falls back near the pinned baseline for 3 days or more.
 Check the report's status with `inbox-reports-retrieve` first.

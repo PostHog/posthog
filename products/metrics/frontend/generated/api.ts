@@ -13,6 +13,9 @@ import type {
     AppMetricsTotalsResponseApi,
     DashboardImportApi,
     DashboardImportCreateApi,
+    MetricsAlertCreateDestinationApi,
+    MetricsAlertDeleteDestinationApi,
+    MetricsAlertDestinationApi,
     MetricsAttributeValuesRetrieveParams,
     MetricsAttributesRetrieveParams,
     MetricsCreatedDashboardApi,
@@ -21,6 +24,7 @@ import type {
     MetricsDashboardTemplatesPictureRetrieveParams,
     MetricsErrorSpikesRetrieveParams,
     MetricsNamesRetrieveParams,
+    MetricsQueryCountsRetrieveParams,
     MetricsSuggestedDashboardApi,
     MetricsValuesRetrieveParams,
     PanelQueryCheckRequestApi,
@@ -34,6 +38,7 @@ import type {
     _MetricErrorSpikesResponseApi,
     _MetricNamesResponseApi,
     _MetricPickerNamesResponseApi,
+    _MetricQueryCountsResponseApi,
     _MetricQueryRequestApi,
     _MetricQueryResponseApi,
     _MetricSamplesRequestApi,
@@ -535,6 +540,36 @@ export const metricsQueryCreate = async (
     })
 }
 
+export const getMetricsQueryCountsRetrieveUrl = (projectId: string, params?: MetricsQueryCountsRetrieveParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/metrics/query_counts/?${stringifiedParams}`
+        : `/api/projects/${projectId}/metrics/query_counts/`
+}
+
+/**
+ * How often queries read each metric of the team. A metric that no query reads is not in the list.
+ */
+export const metricsQueryCountsRetrieve = async (
+    projectId: string,
+    params?: MetricsQueryCountsRetrieveParams,
+    options?: RequestInit
+): Promise<_MetricQueryCountsResponseApi> => {
+    return apiMutator<_MetricQueryCountsResponseApi>(getMetricsQueryCountsRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getMetricsSamplesCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/metrics/samples/`
 }
@@ -659,5 +694,65 @@ export const metricsVariableOptionsCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(_metricVariableOptionsRequestApi),
+    })
+}
+
+export const getMetricsAlertsDestinationsListUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/metrics_alerts/${id}/destinations/`
+}
+
+/**
+ * List the notification destinations of a metrics alert.
+ */
+export const metricsAlertsDestinationsList = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<MetricsAlertDestinationApi[]> => {
+    return apiMutator<MetricsAlertDestinationApi[]>(getMetricsAlertsDestinationsListUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getMetricsAlertsDestinationsCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/metrics_alerts/${id}/destinations/`
+}
+
+/**
+ * Add a notification destination to a metrics alert. It hears the transitions in `event_kinds`. A PagerDuty destination opens an incident when the alert fires and resolves it when the alert resolves.
+ */
+export const metricsAlertsDestinationsCreate = async (
+    projectId: string,
+    id: string,
+    metricsAlertCreateDestinationApi: MetricsAlertCreateDestinationApi,
+    options?: RequestInit
+): Promise<MetricsAlertDestinationApi> => {
+    return apiMutator<MetricsAlertDestinationApi>(getMetricsAlertsDestinationsCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(metricsAlertCreateDestinationApi),
+    })
+}
+
+export const getMetricsAlertsDestinationsDeleteCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/metrics_alerts/${id}/destinations/delete/`
+}
+
+/**
+ * Delete notification destinations of a metrics alert.
+ */
+export const metricsAlertsDestinationsDeleteCreate = async (
+    projectId: string,
+    id: string,
+    metricsAlertDeleteDestinationApi: MetricsAlertDeleteDestinationApi,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getMetricsAlertsDestinationsDeleteCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(metricsAlertDeleteDestinationApi),
     })
 }

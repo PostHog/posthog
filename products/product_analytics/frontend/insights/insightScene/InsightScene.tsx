@@ -9,8 +9,8 @@ import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
+import { isBIVisualizationNode, isDataVisualizationNode } from '~/queries/schema/node-guards'
 import { ProductKey } from '~/queries/schema/schema-general'
-import { isBIVisualizationNode, isDataVisualizationNode } from '~/queries/utils'
 import { ItemMode } from '~/types'
 
 import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'

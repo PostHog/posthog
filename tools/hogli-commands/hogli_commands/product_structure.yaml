@@ -6,6 +6,7 @@
 #   required_lenient: bool - whether lint should warn if missing (in lenient mode)
 #   can_be_folder: bool - whether file.py can also be file/ directory
 #   template: str - content template with {product} and {Product} placeholders
+#   scaffold: bool - whether product:bootstrap creates the file (default true)
 #
 # Modes:
 #   strict: product has backend/facade/contracts.py (isolated architecture)
@@ -117,6 +118,13 @@ backend_files:
             class {Product}Config(AppConfig):
                 name = "products.{product}.backend"
                 label = "{product}"
+
+    # Django system checks for the product. Optional, and not scaffolded: add it when the product
+    # has a setting worth validating at startup. product:lint requires that apps.py ready()
+    # imports it and that its IDs start with posthog.{product}. (see posthog/checks.py).
+    checks.py:
+        required: false
+        scaffold: false
 
     models.py:
         required: true

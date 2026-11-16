@@ -89,6 +89,15 @@ describe('mcpDashboardOverviewLogic', () => {
             expect(Object.prototype.hasOwnProperty.call(HARNESS_BY_LABEL, label)).toBe(true)
         })
 
+        it('HARNESS_BY_LABEL has no key the backend does not reserve', () => {
+            // Mirrors MARKED_CLIENT_NAMES in mcp_harness.py. The backend rejects custom harness names
+            // in both lists, because a custom harness with one of these names would lose its icon.
+            const MARKED_CLIENT_NAMES = ['PostHog AI', 'Slack']
+            expect(Object.keys(HARNESS_BY_LABEL).sort()).toEqual(
+                [...EXPECTED_HARNESS_LABELS, ...MARKED_CLIENT_NAMES].sort()
+            )
+        })
+
         it.each([
             'Claude Code',
             'OpenAI',

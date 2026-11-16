@@ -3,6 +3,7 @@ import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
 import * as orvalSchemas from '@/generated/marketing_analytics/api'
+import { createQueryWrapper } from '@/tools/query-wrapper-factory'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const MarketingAnalyticsConversionGoalsSchema = () => z.object({})
@@ -352,6 +353,87 @@ const marketingAnalyticsUtmAudit = (): ToolBase<
     },
 })
 
+// --- Query wrapper schemas from schema.json ---
+
+const DateRange = z.object({
+    date_from: z
+        .string()
+        .nullable()
+        .describe(
+            'Start of the date range. Accepts ISO 8601 timestamps (e.g., 2024-01-15T00:00:00Z) or relative formats: -7d (7 days ago), -2w (2 weeks ago), -1m (1 month ago),\n-1h (1 hour ago), -1mStart (start of last month), -1yStart (start of last year).'
+        )
+        .optional(),
+    date_to: z
+        .string()
+        .nullable()
+        .describe(
+            'End of the date range. Same format as date_from. Omit or null for "now". A calendar day without a time (2024-01-15) is inclusive: it rounds to the last moment of that day in the project timezone, unless explicitDate is set.'
+        )
+        .optional(),
+    daysOfWeek: z
+        .union([
+            z.array(
+                z.union([
+                    z.literal(1),
+                    z.literal(2),
+                    z.literal(3),
+                    z.literal(4),
+                    z.literal(5),
+                    z.literal(6),
+                    z.literal(7),
+                ])
+            ),
+            z.null(),
+        ])
+        .describe(
+            'Restrict the query to events occurring on these ISO days of week (1=Monday to 7=Sunday), evaluated in the project timezone. Omit or empty for all days. Only applied by insight queries.'
+        )
+        .optional(),
+    excludeIncompletePeriods: z.coerce
+        .boolean()
+        .nullable()
+        .describe(
+            'Exclude the current, still-collecting period by clipping date_to to the end of the last complete interval (evaluated in the project timezone). No-op when the range contains no complete interval. Only applied by insight queries.'
+        )
+        .default(false)
+        .optional(),
+    explicitDate: z.coerce
+        .boolean()
+        .nullable()
+        .describe(
+            'Whether the date_from and date_to should be used verbatim. Disables rounding to the start and end of period.'
+        )
+        .default(false)
+        .optional(),
+})
+
+const QueryLogTags = z.object({
+    name: z.string().describe('Name of the query, preferably unique. For example web_analytics_vitals').optional(),
+    presetId: z
+        .string()
+        .describe('Short id of the saved Web analytics filter preset this query was run under, if any.')
+        .optional(),
+    productKey: z
+        .string()
+        .describe(
+            "Product responsible for this query. Use string, there's no need to churn the Schema when we add a new product *"
+        )
+        .optional(),
+    scene: z
+        .string()
+        .describe(
+            "Scene where this query is shown in the UI. Use string, there's no need to churn the Schema when we add a new Scene *"
+        )
+        .optional(),
+})
+
+const MarketingAnalyticsRecommendationsQuery = z.object({
+    dateRange: DateRange.optional(),
+    kind: z.literal('MarketingAnalyticsRecommendationsQuery').default('MarketingAnalyticsRecommendationsQuery'),
+    tags: QueryLogTags.optional(),
+    version: z.coerce.number().describe('version of the node, used for schema migrations').optional(),
+})
+
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'marketing-analytics-conversion-goals': marketingAnalyticsConversionGoals,
     'marketing-analytics-conversion-recommendations': marketingAnalyticsConversionRecommendations,
@@ -366,4 +448,11 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'marketing-analytics-suggest-utm-mappings': marketingAnalyticsSuggestUtmMappings,
     'marketing-analytics-update-conversion-goal': marketingAnalyticsUpdateConversionGoal,
     'marketing-analytics-utm-audit': marketingAnalyticsUtmAudit,
+    'query-marketing-recommendations': createQueryWrapper({
+        name: 'query-marketing-recommendations',
+        schema: MarketingAnalyticsRecommendationsQuery,
+        kind: 'MarketingAnalyticsRecommendationsQuery',
+        outputFormat: 'json',
+        urlPrefix: '/marketing',
+    }),
 }

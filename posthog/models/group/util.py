@@ -10,9 +10,9 @@ from django.utils.timezone import now
 import structlog
 from dateutil.parser import isoparse
 
+from posthog.constants import GroupTypeIndex
 from posthog.kafka_client.client import ClickhouseProducer
 from posthog.kafka_client.topics import KAFKA_GROUPS
-from posthog.models.filters.utils import GroupTypeIndex
 from posthog.models.group.group import Group
 from posthog.models.group.sql import INSERT_GROUP_SQL
 

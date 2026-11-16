@@ -218,11 +218,16 @@ def _reset_password(call: _Call) -> TranslatedResponse:
 
 
 def _check_name(call: _Call) -> TranslatedResponse:
-    """v1 GET /database-name/check?name= -> v2 GET /database-names/:name."""
+    """v1 GET /database-name/check?name= -> v2 GET /database-names/:name?org_id=.
+
+    hogtower reserves a name for the org whose warehouse carried it, and without org_id it
+    answers for a new org: the asking org's own earlier names would read as taken.
+    """
     name = (call.params or {}).get("name")
     if not name:
         return _bad_request("name query parameter is required")
-    resp = call.send("GET", f"/database-names/{quote(str(name), safe='')}")
+    params = {"org_id": call.org_id} if call.org_id else None
+    resp = call.send("GET", f"/database-names/{quote(str(name), safe='')}", params=params)
     if resp.ok and isinstance(resp.body, dict) and not resp.body.get("reason"):
         # v1 omits an empty reason.
         resp.body.pop("reason", None)

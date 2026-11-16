@@ -338,15 +338,23 @@ describe('PushNotificationService', () => {
                     status: 200,
                     tokens: { '$device_push_subscription_test-project': 'device-token-123' },
                     captured: 'sent',
+                    delivery: undefined as string | undefined,
                 },
                 { outcome: 'reached no device', status: 200, tokens: {}, captured: 'nothing' },
+                {
+                    outcome: 'was silent',
+                    status: 200,
+                    tokens: { '$device_push_subscription_test-project': 'device-token-123' },
+                    captured: 'nothing',
+                    delivery: 'silent',
+                },
                 {
                     outcome: 'failed terminally',
                     status: 400,
                     tokens: { '$device_push_subscription_test-project': 'device-token-123' },
                     captured: 'nothing',
                 },
-            ])('captures a push that $outcome as $captured', async ({ status, tokens, captured }) => {
+            ])('captures a push that $outcome as $captured', async ({ status, tokens, captured, delivery }) => {
                 respondWith(status)
                 const invocation = createSendPushNotificationInvocation(
                     Object.fromEntries(
@@ -354,6 +362,9 @@ describe('PushNotificationService', () => {
                     )
                 )
                 invocation.state.actionId = 'action_push_1'
+                if (delivery) {
+                    ;(invocation.queueParameters as any).payload = { delivery, data: { k: 'v' } }
+                }
 
                 const result = await serviceWithAssets.executeSendPushNotification(invocation)
 
@@ -450,29 +461,35 @@ describe('PushNotificationService', () => {
             expect(mockTrackedFetch).not.toHaveBeenCalled()
         })
 
-        it('fails terminally (no retry) on a non-retriable 4xx', async () => {
-            const invocation = createSendPushNotificationInvocation({
-                '$device_push_subscription_test-project': encryptedFields.encrypt('device-token-123'),
-            })
-            // A 400 is a client error that won't change on retry (bad payload), unlike a 429/5xx.
-            mockTrackedFetch.mockResolvedValue({
-                fetchError: null,
-                fetchResponse: {
-                    status: 400,
-                    headers: {},
-                    text: () => Promise.resolve('{}'),
-                    dump: () => Promise.resolve(),
-                },
-                fetchDuration: 10,
-            })
+        it.each([false, true])(
+            'fails terminally (no retry) on a non-retriable 4xx, protected: %s',
+            async (sensitive) => {
+                const invocation = createSendPushNotificationInvocation({
+                    '$device_push_subscription_test-project': encryptedFields.encrypt('device-token-123'),
+                })
+                invocation.hogFunction.metadata = { ...invocation.hogFunction.metadata, sensitive }
+                // A 400 is a client error that won't change on retry (bad payload), unlike a 429/5xx.
+                // FCM can quote the rejected message back in the error.
+                mockTrackedFetch.mockResolvedValue({
+                    fetchError: null,
+                    fetchResponse: {
+                        status: 400,
+                        headers: {},
+                        text: () => Promise.resolve('{"error":{"message":"Invalid value: Your code is 482913"}}'),
+                        dump: () => Promise.resolve(),
+                    },
+                    fetchDuration: 10,
+                })
 
-            const result = await service.executeSendPushNotification(invocation)
+                const result = await service.executeSendPushNotification(invocation)
 
-            expect(result.error).toBeTruthy()
-            expect(result.finished).toBe(true)
-            expect(result.invocation.queueScheduledAt).toBeUndefined()
-            expect(result.metrics).toContainEqual(expect.objectContaining({ metric_name: 'push_failed' }))
-        })
+                expect(result.error).toBeTruthy()
+                expect(result.finished).toBe(true)
+                expect(result.invocation.queueScheduledAt).toBeUndefined()
+                expect(result.metrics).toContainEqual(expect.objectContaining({ metric_name: 'push_failed' }))
+                expect(JSON.stringify(result.logs).includes('482913')).toBe(!sensitive)
+            }
+        )
 
         it('reschedules a transient failure and re-runs the send on the retry (round trip)', async () => {
             const invocation = createSendPushNotificationInvocation({
@@ -594,6 +611,59 @@ describe('PushNotificationService', () => {
             const body = parseJSON(mockTrackedFetch.mock.calls[0][0].fetchParams.body)
             expect(body.message.notification.subtitle).toBeUndefined()
             expect(body.message.apns.payload.aps.alert).toEqual({ title: 'T', body: 'B', subtitle: 'Sub' })
+        })
+
+        it.each([
+            {
+                delivery: 'android_data_only',
+                notification: undefined,
+                aps: { alert: { title: 'T', body: 'B' }, 'mutable-content': 1 },
+                apnsHeaders: undefined,
+            },
+            {
+                delivery: 'silent',
+                notification: undefined,
+                aps: { 'content-available': 1 },
+                apnsHeaders: { 'apns-push-type': 'background', 'apns-priority': '5' },
+            },
+            {
+                delivery: undefined,
+                notification: { title: 'T', body: 'B', image: 'https://example.com/i.png' },
+                aps: undefined,
+                apnsHeaders: undefined,
+            },
+        ])('builds the FCM message for delivery $delivery', async ({ delivery, notification, aps, apnsHeaders }) => {
+            const invocation = createSendPushNotificationInvocation({
+                '$device_push_subscription_test-project': encryptedFields.encrypt('fcm-token'),
+            })
+            invocation.queueParameters = {
+                ...invocation.queueParameters,
+                payload: {
+                    delivery,
+                    title: 'T',
+                    body: 'B',
+                    image: 'https://example.com/i.png',
+                    data: { chat_id: 'c1' },
+                    android: { priority: 'high', tag: 'chat-c1' },
+                },
+            } as any
+            mockTrackedFetch.mockResolvedValue({
+                fetchError: null,
+                fetchResponse: { status: 200, text: () => Promise.resolve(''), dump: () => Promise.resolve() },
+                fetchDuration: 10,
+            })
+
+            await service.executeSendPushNotification(invocation)
+
+            const { message } = parseJSON(mockTrackedFetch.mock.calls[0][0].fetchParams.body)
+            expect(message.notification).toEqual(notification)
+            // Android draws a notification from `android.notification` too, so data-only must drop it.
+            expect(message.android).toEqual(
+                delivery ? { priority: 'HIGH' } : { priority: 'HIGH', notification: { tag: 'chat-c1' } }
+            )
+            expect(message.data.chat_id).toBe('c1')
+            expect(message.apns?.payload.aps).toEqual(aps)
+            expect(message.apns?.headers).toEqual(apnsHeaders)
         })
 
         it('returns error when integration not found', async () => {
@@ -823,6 +893,34 @@ describe('PushNotificationService', () => {
                 templateId: 'unknown',
                 teamId: invocation.teamId,
             })
+        })
+
+        it('sends a silent push as a background push with no alert, sound or badge', async () => {
+            const invocation = createSendPushNotificationInvocation({
+                '$device_push_subscription_com.example.app': encryptedFields.encrypt('apns-device-token'),
+            })
+            invocation.queueParameters = {
+                ...invocation.queueParameters,
+                payload: {
+                    delivery: 'silent',
+                    data: { challenge_id: 'ch1' },
+                    apns: { sound: 'default', badge: 3, interruptionLevel: 'time-sensitive' },
+                },
+            } as any
+            mockTrackedFetch.mockResolvedValue({
+                fetchError: null,
+                fetchResponse: { status: 200, text: () => Promise.resolve(''), dump: () => Promise.resolve() },
+                fetchDuration: 10,
+            })
+
+            const result = await service.executeSendPushNotification(invocation)
+
+            expect(result.metrics).toContainEqual(expect.objectContaining({ metric_name: 'push_sent', count: 1 }))
+            const { headers, body } = mockTrackedFetch.mock.calls[0][0].fetchParams
+            expect(headers).toMatchObject({ 'apns-push-type': 'background', 'apns-priority': '5' })
+            const sent = parseJSON(body)
+            expect(sent.aps).toEqual({ 'content-available': 1 })
+            expect(sent.challenge_id).toBe('ch1')
         })
 
         it('reuses a cached APNS provider token across sends instead of minting one each time', async () => {

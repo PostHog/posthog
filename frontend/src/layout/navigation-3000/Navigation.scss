@@ -16,12 +16,12 @@
     --scene-padding: 1rem;
     --scene-padding-bottom: 4rem;
 
-    // Height of the MinimalNavigation top bar (orgless/zen modes). The settings
+    // Height of the MinimalNavigation top bar (orgless mode). The settings
     // scene's viewport-fixed nav clears it via --settings-nav-top below.
     --minimal-navigation-height: 3.5rem;
 
     // Top offset for the settings scene's viewport-fixed nav. Defaults to the
-    // scene padding (full app layout); the minimal/zen wrapper overrides it to
+    // scene padding (full app layout); the minimal wrapper overrides it to
     // also clear the MinimalNavigation bar so the nav doesn't overlap the logo.
     --settings-nav-top: var(--scene-padding);
 
@@ -722,11 +722,11 @@
 
     display: grid;
 
-    // Viewport-height navigation must not force the content row underneath the terminal dock.
+    // Viewport-height navigation must not force the content row underneath the terminal dock or the DEBUG bar.
     grid-template: 'left content' minmax(0, 1fr) / var(--left-nav-width) minmax(0, 1fr);
-    height: calc(100vh - var(--terminal-dock-height, 0px));
+    height: calc(100vh - var(--terminal-dock-height, 0px) - var(--bottom-notice-height, 0px));
     height: calc(
-        100dvh - var(--terminal-dock-height, 0px)
+        100dvh - var(--terminal-dock-height, 0px) - var(--bottom-notice-height, 0px)
     ); // see .Navigation3000 — keep bottom-anchored UI reachable on mobile
 
     overflow: hidden;

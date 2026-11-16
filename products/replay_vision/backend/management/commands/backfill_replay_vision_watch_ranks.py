@@ -12,7 +12,7 @@ from products.replay_vision.backend.watch_rank_backfill import (
 
 
 class Command(BaseCommand):
-    help = "Rank recent Replay Vision observations for What to watch from the embeddings search already stored"
+    help = "Rank recent Replay Vision observations for the highlight feed from the embeddings search already stored"
 
     def add_arguments(self, parser: CommandParser) -> None:
         parser.add_argument("--team-id", type=int, action="append", help="Only this team; repeat for more")

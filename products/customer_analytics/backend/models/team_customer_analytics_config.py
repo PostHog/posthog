@@ -33,6 +33,7 @@ class TeamCustomerAnalyticsConfig(models.Model):
         models.JSONField(default=default_account_track_rules), "project", "admin"
     )
     account_track_rules_enabled_at = models.DateTimeField(null=True, blank=True)
+    properties = models.JSONField(default=dict, db_default={})
 
     def to_cache_key_dict(self) -> dict:
         return {

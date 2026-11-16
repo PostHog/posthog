@@ -2,6 +2,7 @@ import { MakeLogicType, connect, kea, listeners, path, selectors } from 'kea'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { Scene } from 'scenes/sceneTypes'
 import type { Params } from 'scenes/sceneTypes'
@@ -289,7 +290,9 @@ export const settingsSceneLogic = kea<settingsSceneLogicType>([
             return [urls.settings(level), router.values.searchParams, router.values.hashParams, { replace: true }]
         },
         selectSection({ section }) {
-            return [urls.settings(section), router.values.searchParams, router.values.hashParams]
+            const sectionUrl = urls.settings(section)
+            const sameSection = removeProjectIdIfPresent(router.values.location.pathname) === sectionUrl
+            return [sectionUrl, router.values.searchParams, sameSection ? router.values.hashParams : {}]
         },
         selectSetting({ setting }) {
             return [

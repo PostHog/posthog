@@ -1,5 +1,6 @@
+import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client'
 import { setupServer } from 'msw/node'
-import { afterAll, beforeAll } from 'vitest'
+import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 
 import { createApp } from '@/hono/app'
 import type { RedisLike } from '@/hono/cache/RedisCache'
@@ -92,3 +93,48 @@ defineCatalogFilterTests('Hono', harness)
 defineExecModeTests('Hono', harness)
 defineSessionTrackingTests('Hono', harness)
 defineStatelessProtocolTests('Hono', harness)
+
+describe.each(['2025-11-25', '2026-07-28'] as const)('MCP UI capability negotiation on %s', (version) => {
+    it.each([
+        { name: 'example-client', mimeTypes: ['text/html;profile=mcp-app'], supported: true },
+        { name: 'openai-mcp', mimeTypes: undefined, supported: true },
+        { name: 'example-client', mimeTypes: undefined, supported: false },
+        { name: 'ChatGPT', mimeTypes: ['text/html'], supported: false },
+    ])('gates tool discovery and cached calls for %j', async ({ name, mimeTypes, supported }) => {
+        const client = new Client(
+            { name, version: '1.0' },
+            {
+                capabilities: { extensions: mimeTypes ? { 'io.modelcontextprotocol/ui': { mimeTypes } } : {} },
+                versionNegotiation: { mode: version === '2026-07-28' ? { pin: version } : 'legacy' },
+            }
+        )
+        const transport = new StreamableHTTPClientTransport(new URL('https://hono.test/mcp'), {
+            fetch: async (input, init) =>
+                app.fetch(
+                    new Request(input, {
+                        ...init,
+                        headers: {
+                            ...Object.fromEntries(new Headers(init?.headers)),
+                            Authorization: 'Bearer phx_integration_test_token',
+                        },
+                    })
+                ),
+        })
+        try {
+            await client.connect(transport)
+            const { tools } = await client.listTools()
+            expect(tools.some((tool) => tool.name === 'render-ui')).toBe(supported)
+
+            const result = await client.callTool({
+                name: 'render-ui',
+                arguments: { tool_name: 'survey-get', tool_input: { surveyId: 'synthetic-survey' } },
+            })
+            expect(result.isError === true).toBe(!supported)
+            if (supported) {
+                expect(result._meta).toMatchObject({ ui: { resourceUri: 'ui://posthog/render-ui.html' } })
+            }
+        } finally {
+            await client.close()
+        }
+    })
+})

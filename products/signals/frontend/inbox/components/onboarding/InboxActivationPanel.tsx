@@ -81,7 +81,7 @@ export function InboxActivationPanel({ hasReports = false }: InboxActivationPane
                     <LemonButton
                         type="secondary"
                         size="small"
-                        to={urls.inbox('settings')}
+                        to={urls.inbox('sources')}
                         data-attr="inbox-activation-sources"
                     >
                         Manage sources

@@ -14,6 +14,7 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonMenu } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { registerHogQLFormattingProvider } from 'lib/monaco/hogQLFormattingProvider'
 import { cn } from 'lib/utils/css-classes'
 import { SQLEditorMode } from 'scenes/data-warehouse/editor/sqlEditorModes'
 import { urls } from 'scenes/urls'
@@ -37,7 +38,7 @@ import { QueryPane } from './QueryPane'
 import { QueryPlaceholdersMenu } from './QueryPlaceholdersMenu'
 import { QueryVariablesMenu } from './QueryVariablesMenu'
 import { RunButton } from './RunButton'
-import { sqlEditorLogic, tabModelPath } from './sqlEditorLogic'
+import { isRawTrinoView, sqlEditorLogic, tabModelPath } from './sqlEditorLogic'
 
 const EMBEDDED_MAX_TOOL_CONTEXT_DEBOUNCE_MS = 150
 
@@ -325,6 +326,11 @@ export function QueryWindow({
                                     size="small"
                                     icon={<IconDatabase />}
                                     onClick={() => openMaterializationModal(editingView)}
+                                    disabledReason={
+                                        isRawTrinoView(editingView)
+                                            ? 'Views that run raw Trino SQL cannot be materialized yet.'
+                                            : undefined
+                                    }
                                     data-attr="sql-editor-materialization-button"
                                 >
                                     Materialization
@@ -396,6 +402,7 @@ export function QueryWindow({
                             setQueryInput(v ?? '')
                         },
                         onMount: (editor, monaco) => {
+                            registerHogQLFormattingProvider(monaco)
                             onSetMonacoAndEditor(monaco, editor)
                         },
                         onPressCmdEnter: (value, selectionType) => {

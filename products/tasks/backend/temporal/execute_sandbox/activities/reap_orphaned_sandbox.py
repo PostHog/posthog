@@ -15,6 +15,7 @@ a destroy failure does not block the clear — a stale id staying in state
 would just be re-reaped (and fail Modal-side again) on the next start.
 """
 
+import logging
 from dataclasses import dataclass
 from typing import Optional
 
@@ -22,6 +23,7 @@ from temporalio import activity
 
 from posthog.temporal.common.utils import asyncify
 
+from products.tasks.backend.logic.services.compute_settlement import settle_task_run_compute
 from products.tasks.backend.logic.services.sandbox import get_sandbox_class_for_sandbox_id
 from products.tasks.backend.logic.services.sandbox_usage import (
     close_sandbox_session,
@@ -31,6 +33,8 @@ from products.tasks.backend.logic.services.sandbox_usage import (
 from products.tasks.backend.models import SandboxSession, TaskRun
 from products.tasks.backend.temporal.execute_sandbox.activities.sandbox_state import SANDBOX_ID_STATE_KEY
 from products.tasks.backend.temporal.observability import log_activity_execution
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -57,7 +61,7 @@ class ReapOrphanedSandboxResult:
 def reap_orphaned_sandbox(input: ReapOrphanedSandboxInput) -> ReapOrphanedSandboxResult:
     with log_activity_execution("reap_orphaned_sandbox", run_id=input.run_id):
         try:
-            task_run = TaskRun.objects.only("state").get(id=input.run_id)
+            task_run = TaskRun.objects.only("state", "team_id").get(id=input.run_id)
         except TaskRun.DoesNotExist:
             return ReapOrphanedSandboxResult(reaped_sandbox_id=None, destroy_succeeded=True)
 
@@ -91,6 +95,12 @@ def reap_orphaned_sandbox(input: ReapOrphanedSandboxInput) -> ReapOrphanedSandbo
             billed_cpu_usage_usec=billed_cpu_usage_usec,
             cpu_usage_measured_at=cpu_usage_measured_at,
         )
+        try:
+            settle_task_run_compute(input.run_id, task_run.team_id)
+        except Exception:
+            logger.warning(
+                "reap_orphaned_sandbox_compute_settlement_failed", extra={"run_id": input.run_id}, exc_info=True
+            )
 
         TaskRun.clear_sandbox_connection_state_atomic(input.run_id, sandbox_id)
         return ReapOrphanedSandboxResult(reaped_sandbox_id=sandbox_id, destroy_succeeded=destroy_succeeded)

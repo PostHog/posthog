@@ -525,7 +525,7 @@ export const dashboardsModel = kea<dashboardsModelType>([
                     let hasNextPage = true
                     while (hasNextPage) {
                         const page = await dashboardsList(String(teamId), {
-                            limit: 2000,
+                            limit: 1000,
                             offset: results.length,
                             exclude_generated: true,
                         })
@@ -561,7 +561,7 @@ export const dashboardsModel = kea<dashboardsModelType>([
 
                     let apiUrl =
                         url ||
-                        `api/projects/${teamLogic.values.currentTeamId}/dashboards/?limit=2000&exclude_generated=true`
+                        `api/projects/${teamLogic.values.currentTeamId}/dashboards/?limit=1000&exclude_generated=true`
 
                     // nosemgrep: prefer-codegen-api -- Legacy raw API call with a URL built at runtime and an unchecked response type. Use a generated function if one covers this endpoint.
                     const dashboards: PaginatedResponse<DashboardType> = await api.get(apiUrl)

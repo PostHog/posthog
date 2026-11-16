@@ -115,6 +115,7 @@ describe('modelPickerLogic', () => {
                     isRecommended: true,
                     supportsDecisions: false,
                     supportsChat: true,
+                    supportsReasoning: false,
                     providerKeyId: 'key-1',
                 }))
             )
@@ -161,6 +162,8 @@ describe('modelPickerLogic', () => {
                 'typesafe/jev-router',
                 'example/dual-model',
             ])
+            // The playground asks decisions only through a System One connection, never through OpenRouter.
+            expect(logic.values.playgroundSystemOneModelGroups).toEqual([])
         })
 
         it('should map is_recommended correctly for both true and false values', async () => {
@@ -291,6 +294,7 @@ describe('modelPickerLogic', () => {
                     providerKeyId: 'key-2',
                     supportsDecisions: false,
                     supportsChat: true,
+                    supportsReasoning: false,
                 }))
             )
             expect(logic.values.providerModelGroups.find((g) => g.providerKeyId === 'key-1')).toEqual({
