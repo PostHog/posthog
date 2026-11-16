@@ -5,7 +5,7 @@ from rest_framework_dataclasses.serializers import DataclassSerializer
 
 from posthog.models import OrganizationMembership
 
-from ..facade.contracts import LinkedBroadcastDTO, LinkedInsightDTO, LinkedSendDTO, ReleaseDTO
+from ..facade.contracts import LinkedBroadcastDTO, LinkedInsightDTO, LinkedSendDTO, LinkedSurveyDTO, ReleaseDTO
 
 MAX_LINKED = 100
 
@@ -45,7 +45,18 @@ class LinkedInsightSerializer(DataclassSerializer):
         dataclass = LinkedInsightDTO
 
 
+class LinkedSurveySerializer(DataclassSerializer):
+    class Meta:
+        dataclass = LinkedSurveyDTO
+
+
 class ReleaseSerializer(DataclassSerializer):
+    surveys = LinkedSurveySerializer(
+        many=True,
+        read_only=True,
+        help_text="ID, name, dates, targeting flag and archived state of each linked survey the caller can see.",
+    )
+
     insights = LinkedInsightSerializer(
         many=True,
         read_only=True,

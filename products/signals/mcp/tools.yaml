@@ -1715,10 +1715,11 @@ tools:
         title: Remember a scratchpad entry
         description: >
             Upsert a scratchpad entry keyed on `(team, key)`: reusing a key updates the existing entry in place rather
-            than creating a second one. Each write carries the whole entry and replaces what was stored. Any agent on
-            this team can overwrite any key, so search the key first with `scout-scratchpad-search` and condense what is
-            already there rather than overwriting an entry you have not read. Use `scout-scratchpad-forget` to delete an
-            entry.
+            than creating a second one. The `key` is a short ID of at most 300 characters, such as
+            `noise:<fingerprint>`, and the note goes in `content`. Each write carries the whole entry and replaces what
+            was stored. Any agent on this team can overwrite any key, so search the key first with
+            `scout-scratchpad-search` and condense what is already there rather than overwriting an entry you have not
+            read. Use `scout-scratchpad-forget` to delete an entry.
     scout-scratchpad-search:
         operation: signals_scout_scratchpad_search
         enabled: true

@@ -15467,6 +15467,33 @@ export namespace Schemas {
 
     export type AlertSimulateResponseSubDetectorScoresItem = { [key: string]: unknown };
 
+    /**
+     * * `above` - Above the forecast
+     * * `below` - Below the forecast
+     */
+    export type ForecastSideEnum = typeof ForecastSideEnum[keyof typeof ForecastSideEnum];
+
+
+    export const ForecastSideEnum = {
+      Above: 'above',
+      Below: 'below',
+    } as const;
+
+    export interface ForecastSimulation {
+      /** Forecast quantile that `lower` holds, for example 0.05. */
+      lower_quantile: number;
+      /** Forecast quantile that `upper` holds, for example 0.95. */
+      upper_quantile: number;
+      /** Expected value (the 0.5 forecast quantile) for each point. Null for a point that was not scored: it has fewer than 30 points before it, or it is older than the points the preview scores. */
+      expected: (number | null)[];
+      /** Lower end of the forecast range for each point, at `lower_quantile`. Null for an unscored point. */
+      lower: (number | null)[];
+      /** Upper end of the forecast range for each point, at `upper_quantile`. Null for an unscored point. */
+      upper: (number | null)[];
+      /** Side of the forecast that fired for each point: 'above' or 'below'. Null when the point did not fire or was not scored. */
+      fired_side: (ForecastSideEnum | null)[];
+    }
+
     export type BreakdownSimulationResultSubDetectorScoresItem = { [key: string]: unknown };
 
     export interface BreakdownSimulationResult {
@@ -15488,6 +15515,8 @@ export namespace Schemas {
       anomaly_count: number;
       /** Per-sub-detector scores for ensemble detectors. */
       sub_detector_scores?: BreakdownSimulationResultSubDetectorScoresItem[];
+      /** Forecast detector only: the one-step forecast of each point, for drawing the expected range. */
+      forecast?: ForecastSimulation;
     }
 
     export interface AlertSimulateResponse {
@@ -15503,7 +15532,7 @@ export namespace Schemas {
       data: number[];
       /** Date labels for each point. */
       dates: string[];
-      /** Score for each point. Null can mean insufficient data or a valid unscored point. The AI detector has no score, so every point is null in an AI preview. */
+      /** Score for each point. Null can mean insufficient data or a valid unscored point. The AI and forecast detectors have no score, so every point is null in their previews. */
       scores: (number | null)[];
       /** Indices of points flagged as anomalies. */
       triggered_indices: number[];
@@ -15520,6 +15549,8 @@ export namespace Schemas {
       anomaly_count: number;
       /** Per-sub-detector scores for ensemble detectors. Each entry has 'type' and 'scores' fields. */
       sub_detector_scores?: AlertSimulateResponseSubDetectorScoresItem[];
+      /** Forecast detector only: the one-step forecast of each point, for drawing the expected range. */
+      forecast?: ForecastSimulation;
       /** AI detector only: the model's reason for its verdict on the latest point. */
       rationale?: string;
       /**
@@ -59823,6 +59854,8 @@ export namespace Schemas {
     } as const;
 
     export interface MarketingAnalyticsRecommendationsSource {
+      /** Google Ads ad table, used to read the ad copy of each ad group. */
+      adTable?: string | null;
       /** Google Ads daily campaign conversions split by conversion action. */
       campaignConversionActionTable?: string | null;
       /** Google Ads daily campaign impression share table. */
@@ -65746,6 +65779,18 @@ export namespace Schemas {
     }
 
     /**
+     * * `rolled` - Rolled
+     * * `deleted` - Deleted
+     */
+    export type KeyActionOutcomeEnum = typeof KeyActionOutcomeEnum[keyof typeof KeyActionOutcomeEnum];
+
+
+    export const KeyActionOutcomeEnum = {
+      Rolled: 'rolled',
+      Deleted: 'deleted',
+    } as const;
+
+    /**
      * * `problem` - Problem
      * * `cause` - Cause
      * * `fix` - Fix
@@ -67602,6 +67647,19 @@ export namespace Schemas {
       title: string | null;
       /** Current report status (e.g. `potential`, `ready`, `resolved`). */
       status: string;
+    }
+
+    export interface LinkedSurveyDTO {
+      id: string;
+      name: string;
+      created_at: string;
+      /** @nullable */
+      start_date: string | null;
+      /** @nullable */
+      end_date: string | null;
+      /** @nullable */
+      linked_flag_id: number | null;
+      archived: boolean;
     }
 
     /**
@@ -76545,6 +76603,8 @@ export namespace Schemas {
     }
 
     export interface OrganizationPersonalAPIKey {
+      /** Unique ID of the key. */
+      readonly id: string;
       /** The organization member who owns this key. */
       readonly owner: OrganizationPersonalAPIKeyOwner;
       /** Masked, display-safe hint of the key value (e.g. 'phx_***1234'). Not the secret. The owner sees the same masked value in their own settings, so it can be used to identify a key. */
@@ -76553,6 +76613,8 @@ export namespace Schemas {
       readonly scopes: readonly string[];
       /** Where the key's scopes apply within this organization. */
       readonly access_scope: OrganizationPersonalAPIKeyAccessScope;
+      /** Whether the key also works in at least one other organization its owner belongs to. */
+      readonly reaches_other_organizations: boolean;
       /**
          * When the key was last used to authenticate, if ever.
          * @nullable
@@ -76560,6 +76622,14 @@ export namespace Schemas {
       readonly last_used_at: string | null;
       /** When the key was created. */
       readonly created_at: string;
+    }
+
+    export interface OrganizationPersonalAPIKeyActionResult {
+      /** What happened to the key. 'rolled': the key has a new secret that nobody sees, and the old secret no longer works anywhere. 'deleted': the key no longer exists and cannot be used in any organization.
+       *
+       * * `rolled` - Rolled
+       * * `deleted` - Deleted */
+      outcome: KeyActionOutcomeEnum;
     }
 
     export interface OrganizationRemoveBlockedMembersResponse {
@@ -79145,6 +79215,8 @@ export namespace Schemas {
     }
 
     export interface ReleaseDTO {
+      /** ID, name, dates, targeting flag and archived state of each linked survey the caller can see. */
+      readonly surveys: readonly LinkedSurveyDTO[];
       /** ID, short ID, name and dates of each linked insight the caller can see, including deleted ones. */
       readonly insights: readonly LinkedInsightDTO[];
       /** ID, name and status of each linked broadcast the caller can see. Deleted broadcasts are left out. */

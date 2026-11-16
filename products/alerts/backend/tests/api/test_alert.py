@@ -14,6 +14,7 @@ from unittest import mock
 from django.core.cache import cache
 from django.test import SimpleTestCase
 
+import httpx
 from parameterized import parameterized
 from rest_framework import status
 
@@ -31,7 +32,11 @@ from posthog.models.scoping import team_scope
 from posthog.models.team import Team
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
-from products.alerts.backend.facade.api import LLMDetectorPausedError, LLMDetectorUnavailableError
+from products.alerts.backend.facade.api import (
+    ForecastDetectorUnavailableError,
+    LLMDetectorPausedError,
+    LLMDetectorUnavailableError,
+)
 from products.alerts.backend.facade.contracts import INSIGHT_ALERT_EVENT_IDS, INSIGHT_EVENT_IDS_BY_INCIDENT_ACTION
 from products.alerts.backend.facade.destinations import MAX_DESTINATIONS_PER_ALERT, count_active_alert_destinations
 from products.alerts.backend.judge.verdict import LLMDetectionVerdict
@@ -39,7 +44,7 @@ from products.alerts.backend.logic.insight_alert_destinations import SLACK_TEMPL
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, AlertSubscription, Threshold
 from products.alerts.backend.platform_native_cleanup import NativeCleanupInputs, delete_native_alert, native_alert_ids
 from products.alerts.backend.platform_source_config_schema import INSIGHT_SOURCE_CONFIG
-from products.alerts.backend.presentation.views.alert import AlertSerializer
+from products.alerts.backend.presentation.views.alert import FORECAST_PREVIEW_UNAVAILABLE_MESSAGE, AlertSerializer
 from products.alerts_platform.backend.facade import (
     api as platform_api,
     testing as platform_testing,
@@ -2782,15 +2787,16 @@ class TestAlertAPIKeyAccess(TrendsInsightAPITest):
 
     @parameterized.expand(
         [
-            (["alert:read", "insight:read"], status.HTTP_403_FORBIDDEN, "json"),
-            (["alert:read", "insight:read"], status.HTTP_403_FORBIDDEN, "multipart"),
-            (["alert:write", "insight:read"], status.HTTP_200_OK, "json"),
+            (["alert:read", "insight:read"], status.HTTP_403_FORBIDDEN, "json", "llm"),
+            (["alert:read", "insight:read"], status.HTTP_403_FORBIDDEN, "multipart", "llm"),
+            (["alert:write", "insight:read"], status.HTTP_200_OK, "json", "llm"),
+            (["alert:read", "insight:read"], status.HTTP_403_FORBIDDEN, "json", "forecast"),
         ]
     )
     @mock.patch("products.alerts.backend.presentation.views.alert.simulate_detector_on_insight")
     @mock.patch("posthoganalytics.feature_enabled", return_value=True)
     def test_an_ai_simulation_needs_a_write_scope(
-        self, scopes, expected_status, request_format, _flag, mock_simulate
+        self, scopes, expected_status, request_format, detector_type, _flag, mock_simulate
     ) -> None:
         # Every other mode of this endpoint only reads. The AI one spends the organization's
         # model budget, which a token scoped to read alerts and insights was never granted.
@@ -2811,7 +2817,7 @@ class TestAlertAPIKeyAccess(TrendsInsightAPITest):
 
         cache.clear()
         endpoint = f"/api/projects/{self.team.id}/alerts/simulate/"
-        detector_config = {"type": "llm"}
+        detector_config = {"type": detector_type}
         payload = {
             "insight": self.insight["id"],
             "detector_config": json.dumps(detector_config) if request_format == "multipart" else detector_config,
@@ -3705,48 +3711,63 @@ class TestLLMDetectorValidation(TrendsInsightAPITest):
         assert enabled.status_code == status.HTTP_400_BAD_REQUEST, enabled.content
         assert "alerts using the AI detector" in str(enabled.json())
 
+    @parameterized.expand([("llm",), ("forecast",)])
+    @mock.patch("products.alerts.backend.evaluation.detector.calculate_for_query_based_insight")
     @mock.patch("posthoganalytics.feature_enabled", return_value=False)
-    def test_simulate_is_gated_by_the_same_flag(self, _flag) -> None:
+    def test_simulate_is_gated_by_the_same_flag(self, detector_type: str, _flag, calculate) -> None:
         response = self.client.post(
             f"/api/projects/{self.team.id}/alerts/simulate",
-            {"insight": self.insight["id"], "detector_config": {"type": "llm"}},
+            {"insight": self.insight["id"], "detector_config": {"type": detector_type}},
         )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
         assert "not enabled for your account" in response.json()["detail"]
+        calculate.assert_not_called()
 
     @parameterized.expand(
         [
             (
                 "model_outage",
+                "llm",
                 LLMDetectorUnavailableError("The AI detector could not reach the model: timeout"),
                 status.HTTP_503_SERVICE_UNAVAILABLE,
                 "llm_detector_unavailable",
+                None,
             ),
             (
                 "out_of_ai_credits",
+                "llm",
                 LLMDetectorPausedError("No AI credits left."),
                 status.HTTP_400_BAD_REQUEST,
                 "invalid_input",
+                "No AI credits left.",
+            ),
+            (
+                "forecast_outage",
+                "forecast",
+                ForecastDetectorUnavailableError("The AI gateway was not reached: ConnectError"),
+                status.HTTP_503_SERVICE_UNAVAILABLE,
+                "llm_detector_unavailable",
+                FORECAST_PREVIEW_UNAVAILABLE_MESSAGE,
             ),
         ]
     )
     @mock.patch("posthoganalytics.feature_enabled", return_value=True)
     def test_simulate_reports_a_judge_that_cannot_answer_without_a_500(
-        self, _name, error, expected_status, expected_code, _flag
+        self, _name, detector_type, error, expected_status, expected_code, expected_detail, _flag
     ) -> None:
         with mock.patch(
             "products.alerts.backend.presentation.views.alert.simulate_detector_on_insight", side_effect=error
         ):
             response = self.client.post(
                 f"/api/projects/{self.team.id}/alerts/simulate",
-                {"insight": self.insight["id"], "detector_config": {"type": "llm"}},
+                {"insight": self.insight["id"], "detector_config": {"type": detector_type}},
             )
 
         assert response.status_code == expected_status, response.content
         assert response.json()["code"] == expected_code
-        if expected_status == status.HTTP_400_BAD_REQUEST:
-            assert response.json()["detail"] == str(error)
+        if expected_detail is not None:
+            assert response.json()["detail"] == expected_detail
 
     @parameterized.expand([("rolled_out", True), ("not_rolled_out", False)])
     def test_retrieve_reports_whether_the_creator_can_use_the_ai_detector(self, _name, rolled_out) -> None:
@@ -3813,21 +3834,65 @@ class TestLLMDetectorValidation(TrendsInsightAPITest):
         assert "2026-01-01 to 2026-01-06" in series.metric_description
         assert "-1d" not in series.metric_description
 
+    @mock.patch("products.alerts.backend.evaluation.detector.calculate_for_query_based_insight")
+    @mock.patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_forecast_preview_returns_the_forecast_of_every_point(self, _flag, calculate) -> None:
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save()
+        dates = [(datetime(2026, 1, 1) + timedelta(days=day)).strftime("%Y-%m-%d") for day in range(35)]
+        # The last point is the incomplete current day, which the preview drops.
+        values = [100.0] * 35
+        values[32] = 200.0
+        calculate.return_value = mock.MagicMock(
+            result=[{"data": values, "days": dates, "labels": dates, "label": "pageview", "actions": [], "count": 35}]
+        )
+
+        def answer(request: httpx.Request, **_kwargs: Any) -> httpx.Response:
+            body = json.loads(request.content)
+            quantiles = {"0.05": [80.0], "0.5": [100.0], "0.95": [120.0]}
+            return httpx.Response(
+                200, json={"predictions": [{"item_id": item["item_id"], **quantiles} for item in body["inputs"]]}
+            )
+
+        with (
+            self.settings(AI_GATEWAY_URL="https://ai-gateway.example.com/v1", AI_GATEWAY_API_KEY="phs_test"),
+            mock.patch.object(httpx.Client, "send", side_effect=answer),
+        ):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/alerts/simulate",
+                {"insight": self.insight["id"], "detector_config": {"type": "forecast"}},
+            )
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        body = response.json()
+        assert (body["triggered_indices"], body["triggered_dates"]) == ([32], [dates[32]])
+        assert body["scores"] == [None] * 34
+        unscored, scored = [None] * 30, [100.0] * 4
+        assert body["forecast"] == {
+            "lower_quantile": 0.05,
+            "upper_quantile": 0.95,
+            "expected": unscored + scored,
+            "lower": unscored + [80.0] * 4,
+            "upper": unscored + [120.0] * 4,
+            "fired_side": [*unscored, None, None, "above", None],
+        }
+
     @parameterized.expand(
         [
-            ("burst_json", "AlertLLMSimulationBurstThrottle", "2/minute", "json"),
-            ("daily_json", "AlertLLMSimulationDailyThrottle", "2/day", "json"),
-            ("burst_multipart", "AlertLLMSimulationBurstThrottle", "2/minute", "multipart"),
+            ("burst_json", "AlertLLMSimulationBurstThrottle", "2/minute", "json", "llm"),
+            ("daily_json", "AlertLLMSimulationDailyThrottle", "2/day", "json", "llm"),
+            ("burst_multipart", "AlertLLMSimulationBurstThrottle", "2/minute", "multipart", "llm"),
+            ("forecast_burst_json", "AlertLLMSimulationBurstThrottle", "2/minute", "json", "forecast"),
         ]
     )
     @mock.patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
     @mock.patch("posthoganalytics.feature_enabled", return_value=False)
     def test_llm_simulation_is_rate_limited_per_team(
-        self, _name, throttle_class, rate, request_format, _flag, _rate_limit_enabled
+        self, _name, throttle_class, rate, request_format, detector_type, _flag, _rate_limit_enabled
     ) -> None:
         cache.clear()
         endpoint = f"/api/projects/{self.team.id}/alerts/simulate"
-        detector_config = {"type": "llm"}
+        detector_config = {"type": detector_type}
         payload = {
             "insight": self.insight["id"],
             # A form-encoded body carries the config as a JSON string, which must throttle too.

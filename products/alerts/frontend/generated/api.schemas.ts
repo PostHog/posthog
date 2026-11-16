@@ -1116,6 +1116,32 @@ export interface AlertSimulateApi {
 
 export type AlertSimulateResponseApiSubDetectorScoresItem = { [key: string]: unknown }
 
+/**
+ * * `above` - Above the forecast
+ * * `below` - Below the forecast
+ */
+export type ForecastSideEnumApi = (typeof ForecastSideEnumApi)[keyof typeof ForecastSideEnumApi]
+
+export const ForecastSideEnumApi = {
+    Above: 'above',
+    Below: 'below',
+} as const
+
+export interface ForecastSimulationApi {
+    /** Forecast quantile that `lower` holds, for example 0.05. */
+    lower_quantile: number
+    /** Forecast quantile that `upper` holds, for example 0.95. */
+    upper_quantile: number
+    /** Expected value (the 0.5 forecast quantile) for each point. Null for a point that was not scored: it has fewer than 30 points before it, or it is older than the points the preview scores. */
+    expected: (number | null)[]
+    /** Lower end of the forecast range for each point, at `lower_quantile`. Null for an unscored point. */
+    lower: (number | null)[]
+    /** Upper end of the forecast range for each point, at `upper_quantile`. Null for an unscored point. */
+    upper: (number | null)[]
+    /** Side of the forecast that fired for each point: 'above' or 'below'. Null when the point did not fire or was not scored. */
+    fired_side: (ForecastSideEnumApi | null)[]
+}
+
 export type BreakdownSimulationResultApiSubDetectorScoresItem = { [key: string]: unknown }
 
 export interface BreakdownSimulationResultApi {
@@ -1137,6 +1163,8 @@ export interface BreakdownSimulationResultApi {
     anomaly_count: number
     /** Per-sub-detector scores for ensemble detectors. */
     sub_detector_scores?: BreakdownSimulationResultApiSubDetectorScoresItem[]
+    /** Forecast detector only: the one-step forecast of each point, for drawing the expected range. */
+    forecast?: ForecastSimulationApi
 }
 
 export interface AlertSimulateResponseApi {
@@ -1152,7 +1180,7 @@ export interface AlertSimulateResponseApi {
     data: number[]
     /** Date labels for each point. */
     dates: string[]
-    /** Score for each point. Null can mean insufficient data or a valid unscored point. The AI detector has no score, so every point is null in an AI preview. */
+    /** Score for each point. Null can mean insufficient data or a valid unscored point. The AI and forecast detectors have no score, so every point is null in their previews. */
     scores: (number | null)[]
     /** Indices of points flagged as anomalies. */
     triggered_indices: number[]
@@ -1169,6 +1197,8 @@ export interface AlertSimulateResponseApi {
     anomaly_count: number
     /** Per-sub-detector scores for ensemble detectors. Each entry has 'type' and 'scores' fields. */
     sub_detector_scores?: AlertSimulateResponseApiSubDetectorScoresItem[]
+    /** Forecast detector only: the one-step forecast of each point, for drawing the expected range. */
+    forecast?: ForecastSimulationApi
     /** AI detector only: the model's reason for its verdict on the latest point. */
     rationale?: string
     /**

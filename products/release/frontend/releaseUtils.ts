@@ -87,6 +87,7 @@ export interface ReleaseSpan {
     to: string
     label?: string
     href: string
+    count?: number
 }
 
 export interface ReleaseRow {
