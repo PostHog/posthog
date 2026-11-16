@@ -1,9 +1,10 @@
 """Register duckling backfill exports in DuckLake through the organization's Trino catalog.
 
-The Dagster backfills use this for organizations with the Trino registration flag. One `add_files` call registers the
-files of an export and removes the rows they replace in a single DuckLake snapshot, so readers never see a day without
-rows or with two copies of it. The call refuses any type conversion, so the export must write the exact Parquet types that
-DuckLake writes for each Trino column.
+The Dagster backfills use this for organizations with the Trino registration flag, and for organizations that duckgres
+refuses because it has no organization for them. One `add_files` call registers the files of an export and removes the
+rows they replace in a single DuckLake snapshot, so readers never see a day without rows or with two copies of it. The
+call refuses any type conversion, so the export must write the exact Parquet types that DuckLake writes for each Trino
+column.
 """
 
 from __future__ import annotations
@@ -20,14 +21,17 @@ from trino.exceptions import Http502Error, Http503Error, Http504Error, TrinoConn
 from posthog.hogql.escape_sql import escape_trino_identifier, escape_trino_string
 
 from posthog.exceptions_capture import capture_exception
-from posthog.ph_client import feature_enabled_or_false
+from posthog.ph_client import feature_enabled_or_false, get_feature_flag_or_none
 
 from products.managed_warehouse.backend.facade.contracts import (
     DuckLakeDayReplacement,
     DuckLakeTableLayoutError,
     DuckLakeTableReplacement,
 )
-from products.managed_warehouse.backend.facade.feature_flags import DUCKLAKE_TRINO_REGISTRATION_FLAG
+from products.managed_warehouse.backend.facade.feature_flags import (
+    DATA_IMPORTS_TRINO_REGISTRATION_FLAG,
+    DUCKLAKE_TRINO_REGISTRATION_FLAG,
+)
 from products.managed_warehouse.backend.trino_connection import connect_managed_warehouse_trino
 from products.managed_warehouse.backend.trino_execution import is_transient_trino_error
 
@@ -56,21 +60,41 @@ REBUILD_HINT = "Run duckling_trino_conversion_job for the team, or a full backfi
 Replacement = DuckLakeDayReplacement | DuckLakeTableReplacement
 
 
-def backfills_through_trino(organization_id: str) -> bool:
+def _organization_flag_enabled(flag: str, organization_id: str) -> bool:
     try:
         # Dagster runs without POSTHOG_PERSONAL_API_KEY, so the client cannot load flag definitions there. A
         # local-only evaluation would return off for every organization, so the client asks the flags service.
         return feature_enabled_or_false(
-            DUCKLAKE_TRINO_REGISTRATION_FLAG,
+            flag,
             organization_id,
             groups={"organization": organization_id},
             group_properties={"organization": {"id": organization_id}},
             send_feature_flag_events=False,
         )
     except Exception as error:
-        LOGGER.warning("Failed to evaluate the DuckLake Trino registration feature flag", error=str(error))
+        LOGGER.warning("Failed to evaluate the DuckLake Trino registration feature flag", flag=flag, error=str(error))
         capture_exception(error)
         return False
+
+
+def backfills_through_trino(organization_id: str) -> bool:
+    return _organization_flag_enabled(DUCKLAKE_TRINO_REGISTRATION_FLAG, organization_id)
+
+
+def data_imports_through_trino(organization_id: str) -> bool:
+    return _organization_flag_enabled(DATA_IMPORTS_TRINO_REGISTRATION_FLAG, organization_id)
+
+
+def data_imports_trino_flag(organization_id: str) -> bool | None:
+    """Return None when the flags client gives no answer: the lookup failed, or the flag is not defined."""
+    value = get_feature_flag_or_none(
+        DATA_IMPORTS_TRINO_REGISTRATION_FLAG,
+        organization_id,
+        groups={"organization": organization_id},
+        group_properties={"organization": {"id": organization_id}},
+        send_feature_flag_events=False,
+    )
+    return None if value is None else value is True
 
 
 def _timestamp_bound(day: date) -> str:

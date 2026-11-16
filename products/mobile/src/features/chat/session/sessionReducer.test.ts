@@ -82,6 +82,17 @@ function rows(state: SessionThreadState): string[] {
 }
 
 describe('session thread reducer', () => {
+    test('preserves the trace and source run of a completed turn across replay', () => {
+        const frame = notification('_posthog/turn_complete', { traceId: 'trace-1' })
+        for (const context of [LIVE, REPLAY]) {
+            expect(play([message('The answer'), frame], context).items.at(-1)).toMatchObject({
+                kind: 'turn_end',
+                traceId: 'trace-1',
+                runId: RUN,
+            })
+        }
+    })
+
     test('folds a stored run log into the thread the web shows', () => {
         const state = play(
             [

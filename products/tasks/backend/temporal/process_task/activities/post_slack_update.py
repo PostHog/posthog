@@ -93,7 +93,7 @@ _RECOVERY_PROMPTS = {
     SLACK_RECOVERY_STRATEGY_RECONNECT_GITHUB: _RECONNECT_GITHUB_PROMPT.format(connect=_RECONNECT_GITHUB_CONNECT_LABEL),
 }
 
-SLACK_DENIAL_STOP_MESSAGE = "Stopped after the denied action — reply here to continue with a different approach."
+SLACK_DENIAL_STOP_MESSAGE = "Stopped, because you said no. Reply here to try a different way."
 
 
 @dataclass(frozen=False)
@@ -197,11 +197,11 @@ def _get_stage_from_status(status: str, stage: str | None = None) -> str:
     from products.tasks.backend.models import TaskRun
 
     status_map: dict[str, str] = {
-        TaskRun.Status.NOT_STARTED: "Starting up...",
-        TaskRun.Status.QUEUED: "Queued...",
-        TaskRun.Status.IN_PROGRESS: "In progress...",
+        TaskRun.Status.NOT_STARTED: "Waking up the hedgehog",
+        TaskRun.Status.QUEUED: "Waiting in line for a sandbox",
+        TaskRun.Status.IN_PROGRESS: "Paws on the keyboard",
     }
-    return status_map.get(status, "In progress...")
+    return status_map.get(status, "Paws on the keyboard")
 
 
 def _post_pr_opened_notification_once(

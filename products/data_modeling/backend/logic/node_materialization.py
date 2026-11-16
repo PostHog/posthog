@@ -37,12 +37,14 @@ from products.data_modeling.backend.facade.contracts import (
     MaterializationForbiddenError,
     MaterializationRanRecentlyError,
     MaterializationRunDirection,
+    MissingDagNodeError,
+    SavedQueryNotFoundError,
+    SavedQueryNotOnV2ScheduleError,
 )
 from products.data_modeling.backend.graph import Graph
 from products.data_modeling.backend.logic.freshness import SCHEDULABLE_BUCKETS, humanize_cadence
 from products.data_modeling.backend.logic.incremental import TRINO_INCREMENTAL_SCOPE, clear_incremental_state
 from products.data_modeling.backend.logic.node_suspension import unsuspend_nodes
-from products.data_modeling.backend.logic.saved_query_dag_sync import MissingDagNodeError
 from products.data_modeling.backend.models import (
     DataModelingJob,
     DataModelingJobEngine,
@@ -69,6 +71,8 @@ RELATED_RUN_RAN_RECENTLY_REFUSAL = (
     f"Every view in this run ran less than {humanize_cadence(MANUAL_RUN_MIN_INTERVAL)} ago, so it can't run again yet. "
     "To retry a failed view now, run that view on its own."
 )
+RUN_IN_PROGRESS_REFUSAL = "This view is still running. Try again when the run finishes."
+RELATED_RUN_IN_PROGRESS_REFUSAL = "A view in this run is still running. Try again when that run finishes."
 # A DAG run treats plain views as ephemeral and records no job for them, so they cannot show a recent run.
 DAG_BUILT_NODE_TYPES = SAVED_QUERY_NODE_TYPES - {NodeType.VIEW}
 # Long enough for the state changes that follow the start to commit before the workflow first reads them.
@@ -147,8 +151,12 @@ def _seconds_until_limit_ends(started_at: datetime, now: datetime) -> int:
     return math.ceil((started_at + MANUAL_RUN_MIN_INTERVAL - now).total_seconds())
 
 
-def raise_if_ran_recently(team_id: int, saved_query_id: UUID | str) -> None:
+def raise_if_manual_run_is_refused(team_id: int, saved_query_id: UUID | str, *, from_browser_session: bool) -> None:
     """Refuse a manual run of one view inside the limit. A failed or cancelled latest run can retry at once."""
+    if from_browser_session:
+        if _any_view_is_running(team_id, {saved_query_id}):
+            raise MaterializationAlreadyRunningError(RUN_IN_PROGRESS_REFUSAL)
+        return
     now = timezone.now()
     for status, started_at in _latest_runs_inside_limit(
         team_id, {saved_query_id}, now=now, ignored_statuses=frozenset({DataModelingJobStatus.SKIPPED})
@@ -172,6 +180,17 @@ def _raise_if_every_view_ran_recently(team_id: int, saved_query_ids: AbstractSet
             RELATED_RUN_RAN_RECENTLY_REFUSAL,
             retry_after_seconds=min(_seconds_until_limit_ends(started_at, now) for _, started_at in latest_runs),
         )
+
+
+def _any_view_is_running(team_id: int, saved_query_ids: AbstractSet[UUID | str]) -> bool:
+    """Whether any job of these views, latest or not, is a ClickHouse run in progress inside MANUAL_RUN_MIN_INTERVAL."""
+    return DataModelingJob.objects.filter(
+        team_id=team_id,
+        saved_query_id__in=saved_query_ids,
+        engine=DataModelingJobEngine.CLICKHOUSE,
+        status=DataModelingJobStatus.RUNNING,
+        created_at__gt=timezone.now() - MANUAL_RUN_MIN_INTERVAL,
+    ).exists()
 
 
 def _get_node(team_id: int, node_id: UUID | str) -> Node:
@@ -230,6 +249,7 @@ def run_related_node_materializations(
     *,
     direction: MaterializationRunDirection | str,
     user: User,
+    from_browser_session: bool,
     hidden_types: frozenset[str] = frozenset(),
 ) -> list[str]:
     node = _get_node(team_id, node_id)
@@ -239,7 +259,11 @@ def run_related_node_materializations(
         .exclude(saved_query__deleted=True)
         .values_list("saved_query_id", flat=True)
     )
-    _raise_if_every_view_ran_recently(team_id, built_saved_query_ids)
+    if from_browser_session:
+        if _any_view_is_running(team_id, built_saved_query_ids):
+            raise MaterializationAlreadyRunningError(RELATED_RUN_IN_PROGRESS_REFUSAL)
+    else:
+        _raise_if_every_view_ran_recently(team_id, built_saved_query_ids)
 
     # The workflow skips suspended nodes, so an explicit run must resume every selected node first.
     unsuspend_nodes(Node.objects.filter(team_id=node.team_id, id__in=node_ids), by="manual_run")
@@ -379,15 +403,6 @@ def is_saved_query_on_v2_schedule(saved_query: DataWarehouseSavedQuery) -> bool:
     team can be schedule-migrated without being flagged.
     """
     return saved_query.id in get_v2_saved_query_ids([saved_query.id])
-
-
-class SavedQueryNotFoundError(Exception):
-    """Raised by ``run_saved_query_materialization`` when the saved query no longer resolves."""
-
-
-class SavedQueryNotOnV2ScheduleError(Exception):
-    """Raised by ``run_saved_query_materialization`` when the saved query still runs on the older
-    per-query schedule, whose frozen workflow lacks what the caller needs from a materialization."""
 
 
 def run_saved_query_materialization(team_id: int, saved_query_id: UUID | str) -> None:

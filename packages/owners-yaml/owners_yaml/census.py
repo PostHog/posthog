@@ -4,7 +4,7 @@ map. A static read of the tree, so it carries the denominator the signal-only CI
 import re
 from collections.abc import Iterable
 from dataclasses import dataclass
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 
 from .resolver import OwnersResolver, Resolution
 
@@ -32,16 +32,6 @@ def runner_for_path(path: str) -> str | None:
     if _JEST_FILE.search(path):
         return "jest"
     return None
-
-
-def unowned_test_directories(resolver: OwnersResolver, paths: Iterable[str]) -> set[str]:
-    """Directories, not files, so the baseline holds while files come and go. A file owned only by
-    ``@handles`` counts: a person is not a routing target."""
-    return {
-        str(PurePosixPath(path).parent)
-        for path in paths
-        if runner_for_path(path) and owning_team(resolver.resolve(path)) == UNOWNED_TEAM
-    }
 
 
 @dataclass(frozen=True, kw_only=True, slots=True)

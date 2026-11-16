@@ -87,6 +87,8 @@ import type {
     SendCalendarFlowApi,
     TeamEmailReputationResponseApi,
     WorkflowEmailPauseStatusApi,
+    WorkflowEmailSandboxProvisionApi,
+    WorkflowEmailSandboxStatusApi,
     WorkflowImportRecordApi,
     WorkflowImportRequestApi,
     WorkflowImportResponseApi,
@@ -1206,12 +1208,13 @@ export const getHogFlowsRunCreateUrl = (projectId: string, id: string) => {
 }
 
 /**
- * Fire a schedule-triggered workflow immediately, outside its regular schedule.
+ * Run a workflow with a `schedule` or `manual` trigger now, once.
  *
- * Restricted to the `schedule` trigger type: `batch`/`webhook`/etc. triggers have their own
- * dedicated entry points (`batch_jobs`, the public webhook URL) with trigger-specific
- * guardrails this endpoint doesn't replicate. Requires the workflow to be active, same gate
- * the scheduler itself applies in `internal_process_due_schedules`.
+ * A schedule-triggered workflow runs outside its regular schedule. A manually triggered
+ * workflow runs for the calling user, as the trigger button in the editor does. Other
+ * triggers have their own entry points (`batch_jobs`, the public webhook URL) with
+ * trigger-specific guardrails this endpoint doesn't replicate. Requires the workflow to be
+ * active, same gate the scheduler itself applies in `internal_process_due_schedules`.
  *
  * Send an `Idempotency-Key` header to dedupe retries (a double-click, or a client retry
  * after a timed-out request): a repeat with the same key returns the first call's result
@@ -1734,6 +1737,40 @@ export const workflowEmailDraftsCreate = async (
     })
 }
 
+export const getWorkflowEmailSandboxProvisionUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/workflow_email_sandbox/provision/`
+}
+
+/**
+ * The sandbox sender, which sends workflow email to organization members before a domain is verified.
+ */
+export const workflowEmailSandboxProvision = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<WorkflowEmailSandboxProvisionApi> => {
+    return apiMutator<WorkflowEmailSandboxProvisionApi>(getWorkflowEmailSandboxProvisionUrl(projectId), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+export const getWorkflowEmailSandboxStatusUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/workflow_email_sandbox/status/`
+}
+
+/**
+ * The sandbox sender, which sends workflow email to organization members before a domain is verified.
+ */
+export const workflowEmailSandboxStatus = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<WorkflowEmailSandboxStatusApi> => {
+    return apiMutator<WorkflowEmailSandboxStatusApi>(getWorkflowEmailSandboxStatusUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getWorkflowImportsCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/workflow_imports/`
 }
@@ -1872,6 +1909,46 @@ export const getInternalHogFlowsAccountAudienceCreateUrl = (teamId: string) => {
  */
 export const internalHogFlowsAccountAudienceCreate = async (teamId: string, options?: RequestInit): Promise<void> => {
     return apiMutator<void>(getInternalHogFlowsAccountAudienceCreateUrl(teamId), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+export const getInternalHogFlowsBatchJobsAudiencePageCreateUrl = (teamId: string, batchJobId: string) => {
+    return `/api/projects/${teamId}/internal/hog_flows/batch_jobs/${batchJobId}/audience_page`
+}
+
+/**
+ * Internal endpoint for the Node batch resolver: one page of a run's stored audience, cursor-paginated
+ * like internal_user_blast_radius_persons. Requires Bearer token authentication via INTERNAL_API_SECRET.
+ */
+export const internalHogFlowsBatchJobsAudiencePageCreate = async (
+    teamId: string,
+    batchJobId: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getInternalHogFlowsBatchJobsAudiencePageCreateUrl(teamId, batchJobId), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+export const getInternalHogFlowsBatchJobsAudienceSnapshotCreateUrl = (teamId: string, batchJobId: string) => {
+    return `/api/projects/${teamId}/internal/hog_flows/batch_jobs/${batchJobId}/audience_snapshot`
+}
+
+/**
+ * Internal endpoint for the Node batch resolver: resolve the run's whole audience once, in the
+ * background. The first call starts it; later calls report its status. The resolver pages the
+ * stored audience through internal_batch_job_audience_page once the status is ready.
+ * Requires Bearer token authentication via INTERNAL_API_SECRET.
+ */
+export const internalHogFlowsBatchJobsAudienceSnapshotCreate = async (
+    teamId: string,
+    batchJobId: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getInternalHogFlowsBatchJobsAudienceSnapshotCreateUrl(teamId, batchJobId), {
         ...options,
         method: 'POST',
     })

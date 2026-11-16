@@ -6,6 +6,7 @@ from hogli_commands.product.checks import CheckContext, SystemChecksCheck
 from hogli_commands.product.isolation import MODEL_SURFACE_PREFIXES, has_narrowed_turbo_inputs, unwatched_model_surface
 from hogli_commands.product.paths import load_structure
 from hogli_commands.product.scaffold import _render_template, flatten_structure
+from hogli_commands.product.watched_channels import app_setup_modules
 
 
 def _write_scaffold(product_dir: Path) -> None:
@@ -38,7 +39,13 @@ class TestScaffoldPassesIsolationGates:
     def test_scaffold_inputs_count_as_narrowed(self, tmp_path: Path) -> None:
         product_dir = tmp_path / "my_product"
         _write_scaffold(product_dir)
-        assert has_narrowed_turbo_inputs(product_dir, model_surface=MODEL_SURFACE_PREFIXES) is True
+        channel_modules = frozenset(c.path for c in app_setup_modules(product_dir))
+        assert (
+            has_narrowed_turbo_inputs(
+                product_dir, model_surface=MODEL_SURFACE_PREFIXES, channel_modules=channel_modules
+            )
+            is True
+        )
 
     def test_scaffold_passes_the_system_checks_lint(self, tmp_path: Path) -> None:
         product_dir = tmp_path / "my_product"

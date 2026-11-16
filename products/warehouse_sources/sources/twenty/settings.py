@@ -34,7 +34,9 @@ class TwentyEndpointConfig:
 # than a metadata-driven discovery of custom objects (whose REST list response shape varies by an
 # internal, unverifiable feature flag — see the module docstring in twenty.py). `activities` maps
 # to Twenty's `timelineActivities` object, the audit trail of record events shown on a record's
-# timeline.
+# timeline. `note_targets` / `task_targets` are the join objects that link a note or task to the
+# people, companies, and opportunities it's about; `workspace_members` resolves the member IDs
+# that tasks, companies, and timeline activities point at.
 TWENTY_ENDPOINTS: dict[str, TwentyEndpointConfig] = {
     "companies": TwentyEndpointConfig(name="companies", path="/companies"),
     "people": TwentyEndpointConfig(name="people", path="/people"),
@@ -42,6 +44,9 @@ TWENTY_ENDPOINTS: dict[str, TwentyEndpointConfig] = {
     "notes": TwentyEndpointConfig(name="notes", path="/notes"),
     "tasks": TwentyEndpointConfig(name="tasks", path="/tasks"),
     "activities": TwentyEndpointConfig(name="activities", path="/timelineActivities"),
+    "note_targets": TwentyEndpointConfig(name="note_targets", path="/noteTargets"),
+    "task_targets": TwentyEndpointConfig(name="task_targets", path="/taskTargets"),
+    "workspace_members": TwentyEndpointConfig(name="workspace_members", path="/workspaceMembers"),
 }
 
 ENDPOINTS = tuple(TWENTY_ENDPOINTS.keys())

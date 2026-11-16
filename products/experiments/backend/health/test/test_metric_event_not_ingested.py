@@ -5,8 +5,15 @@ from unittest import TestCase
 
 from parameterized import parameterized
 
-from products.experiments.backend.facade.contracts import ExperimentHealthFinding, ExperimentHealthFindingSeverity
-from products.experiments.backend.health.checks.metric_event_not_ingested import metric_event_not_ingested
+from products.experiments.backend.facade.contracts import (
+    ExperimentHealthFinding,
+    ExperimentHealthFindingSeverity,
+    ExperimentHealthValueKey,
+)
+from products.experiments.backend.health.checks.metric_event_not_ingested import (
+    metric_event_not_ingested,
+    metric_event_rows,
+)
 from products.experiments.backend.health.context import HealthContext, MetricEvents
 from products.experiments.backend.health.skips import (
     NOT_AFTER_END,
@@ -84,3 +91,32 @@ class TestMetricEventNotIngested(TestCase):
         self.assertIn('the primary metric "Checkout" uses "cart" and "view"', finding.detail)
         self.assertIn('the secondary metric "Signups" uses "signup"', finding.detail)
         self.assertNotIn('"pay"', finding.detail)
+
+    def test_lists_every_metric_event_with_whether_it_was_received(self) -> None:
+        funnel = MetricEvents(name="Checkout", role="primary", events=("cart", "pay"))
+        ctx = _context(funnel, SIGNUPS, received={"cart": False, "pay": True})
+
+        Value = ExperimentHealthValueKey
+        self.assertEqual(
+            [dict(row) for row in metric_event_rows(ctx)],
+            [
+                {
+                    Value.METRIC_NAME: "Checkout",
+                    Value.METRIC_ROLE: "primary",
+                    Value.EVENT: "cart",
+                    Value.EVENT_RECEIVED: False,
+                },
+                {
+                    Value.METRIC_NAME: "Checkout",
+                    Value.METRIC_ROLE: "primary",
+                    Value.EVENT: "pay",
+                    Value.EVENT_RECEIVED: True,
+                },
+                {
+                    Value.METRIC_NAME: "Signups",
+                    Value.METRIC_ROLE: "secondary",
+                    Value.EVENT: "signup",
+                    Value.EVENT_RECEIVED: None,
+                },
+            ],
+        )

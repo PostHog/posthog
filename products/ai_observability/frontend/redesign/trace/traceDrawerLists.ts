@@ -8,9 +8,11 @@ export type TraceDrawerListId =
     | 'reviews'
     | 'review-queue'
     | 'evaluation-runs'
+    | 'evaluation-preview'
     | 'dataset-items'
     | 'offline-experiment'
     | 'cluster-traces'
+    | 'eval-suggestions'
 
 export interface TraceDrawerListConfig {
     // Tested against the path without its project prefix. Other products use `trace` for their own ids, and on browser
@@ -22,6 +24,8 @@ export interface TraceDrawerListConfig {
     detailTab?: NodeDetailTab
     rowClick: boolean
     showNavigation?: boolean
+    /** For a list on a form: the full page opens in a new tab, so leaving does not drop unsaved edits. */
+    fullPageInNewTab?: boolean
 }
 
 export const TRACE_DRAWER_LISTS: Record<TraceDrawerListId, TraceDrawerListConfig> = {
@@ -50,7 +54,7 @@ export const TRACE_DRAWER_LISTS: Record<TraceDrawerListId, TraceDrawerListConfig
         rowClick: true,
     },
     // Shares its path with reviews: the two are tabs of one scene, and only the open tab mounts its list. It also
-    // shares the back target, because the legacy trace page only keeps queue context for `back_to=reviews`.
+    // shares the back target, because the trace page keeps queue context only for `back_to=reviews`.
     'review-queue': {
         pathMatcher: /^\/ai-observability\/reviews$/,
         backTo: 'reviews',
@@ -63,6 +67,14 @@ export const TRACE_DRAWER_LISTS: Record<TraceDrawerListId, TraceDrawerListConfig
         backLabel: 'Back to evaluation',
         detailTab: 'evals',
         rowClick: true,
+    },
+    // Shares its path with evaluation runs: the preview shows while setting the evaluation up, the runs list after.
+    'evaluation-preview': {
+        pathMatcher: /^\/ai-evals\/evaluations\/(?!(?:templates|offline|scorers)$)[^/]+$/,
+        backTo: 'evaluation',
+        backLabel: 'Back to evaluation',
+        rowClick: true,
+        fullPageInNewTab: true,
     },
     'dataset-items': {
         pathMatcher: /^\/ai-evals\/evaluations\/offline\/datasets\/[^/]+$/,
@@ -82,6 +94,12 @@ export const TRACE_DRAWER_LISTS: Record<TraceDrawerListId, TraceDrawerListConfig
         backTo: 'cluster',
         backLabel: 'Back to cluster',
         openingMode: 'summary',
+        rowClick: false,
+    },
+    'eval-suggestions': {
+        pathMatcher: /^\/ai-evals\/evaluations$/,
+        backTo: 'evaluations',
+        backLabel: 'Back to evaluations',
         rowClick: false,
     },
 }

@@ -7,6 +7,7 @@ Each rule is tagged with what catches a violation.
 ## Entrypoints and layering
 
 - **Keep entrypoints thin.** `[review]` The runtime calls the entrypoint first: a DRF view, a management command `handle()`, a Celery task body, an HTTP handler, a Rust `main()`, a React component. An entrypoint reads the input, connects the dependencies, and formats the output. All other logic goes in a function the entrypoint calls, so a test can call it directly. If the area already has a place for that logic, use it rather than making a new one.
+- **A decision with many branches is a pure function.** `[review]` Code that picks one outcome from several, such as dedupe, routing, eligibility, or a state transition, takes values and returns the decision. It does not read the database, call a client, or read the clock. Its caller in `logic` runs the queries, passes the values in, and carries out the decision. A test then covers each case as one row of a table, with no database. When the decision guards a write, the write still checks its condition atomically, with a conditional `UPDATE`, a unique constraint, or a row lock, because the state can change between the read and the write. A single guard clause, or a plain read or write, needs no such split.
 - **A product under `products/` is scaffolded, not hand-rolled.** `[lint: hogli product:lint --all]` Create one with `hogli product:bootstrap <name>`, because the scaffold emits a product that is isolated from its first commit. See "New products must be isolated" in [products/README.md](../products/README.md) for the isolation rules, and [products/architecture.md](../products/architecture.md) for facade and contract design.
 - **Code a single product owns belongs under `products/<product>/`** — backend, frontend, scripts, CLIs, services, packages, MCP tools, skills. `[review]` Reserve top-level `tools/`, `services/`, `packages/`, `cli/` and `hog/` for cross-product things. `product:lint` only scans `products/`, so a single-product feature parked in a top-level directory is invisible to it.
 
@@ -49,6 +50,11 @@ Each rule is tagged with what catches a violation.
 
 ## Django admin
 
+- **The Django admin shows and edits rows through Python, and has no pages, templates or scripts of its own.** `[lint: no-new-custom-admin-views, no-new-custom-admin-templates]`
+  Templates and scripts depend on admin markup that Django changes between releases, and team-devex does not carry them across upgrades.
+  A Python tweak of a field or a form stays in the admin when the alternative is a console page: a display method that returns `format_html` with no `<script>`, `<form>` or `<button>`, a documented hook such as `get_form` or `formfield_for_foreignkey`, or a small widget subclass.
+  These go into PostHog Admin: a staff page or custom view, a URL added in `get_urls`, a template override, admin JavaScript or CSS, and a save that starts a workflow.
+  Read [`posthog/admin/console/AGENTS.md`](../posthog/admin/console/AGENTS.md) when you move one of these into PostHog Admin.
 - **A new `ForeignKey`/`OneToOneField` on an admin-exposed model needs explicit widget config.** `[review]` List the field in `autocomplete_fields`, `raw_id_fields`, or `readonly_fields` on **every** admin class that renders the model, including inlines attached to a related admin. Otherwise the default `<select>` loads the entire target table per row on each change-page render. Declare it on a shared base inline so per-parent variants inherit it.
 
 ## LLM gateway

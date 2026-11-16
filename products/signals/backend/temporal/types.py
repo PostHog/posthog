@@ -170,13 +170,14 @@ class BufferSignalsInput:
     pending_signals: list["EmitSignalInputs"] = field(default_factory=list)
 
 
-@dataclass
+@dataclass(frozen=False)
 class TeamSignalGroupingV2Input:
     """Inputs for the v2 grouping workflow."""
 
     team_id: int
     pending_batch_keys: list[str] = field(default_factory=list)
     paused_until: Optional[datetime] = None
+    failed_rounds_by_batch_key: dict[str, int] = field(default_factory=dict)
 
 
 @dataclass
@@ -206,6 +207,7 @@ class SignalReportSummaryWorkflowInputs:
     requested_implementation_task_id: str | None = None
     requested_after_run_count: int | None = None
     signal_id: str | None = None
+    operator_rerun: bool = False
 
 
 @dataclass

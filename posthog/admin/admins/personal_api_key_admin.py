@@ -3,16 +3,12 @@ from django.urls import reverse
 from django.utils.html import format_html
 from django.utils.safestring import SafeString
 
-from posthog.admin.admins.api_key_roll_mixin import RollApiKeyAdminMixin
-from posthog.api.personal_api_key import PersonalAPIKeySerializer
+from posthog.admin.console.moved import MovedToConsole
 from posthog.models import PersonalAPIKey
-from posthog.tasks.email import send_personal_api_key_exposed
 
 
 @admin.register(PersonalAPIKey)
-class PersonalAPIKeyAdmin(RollApiKeyAdminMixin):
-    roll_success_message = "Personal API key rolled and user notified."
-
+class PersonalAPIKeyAdmin(admin.ModelAdmin):
     fields = (
         "id",
         "user",
@@ -48,8 +44,8 @@ class PersonalAPIKeyAdmin(RollApiKeyAdminMixin):
             key.user.email,
         )
 
-    def roll_and_notify(self, key: PersonalAPIKey, more_info: str) -> None:
-        old_mask_value = key.mask_value
-        serializer = PersonalAPIKeySerializer(instance=key)
-        serializer.roll(key)
-        send_personal_api_key_exposed(key.user_id, key.id, old_mask_value, more_info)
+    @admin.display(description="Roll key")
+    def roll_action(self, key: PersonalAPIKey) -> str | SafeString:
+        if not key.pk:
+            return ""
+        return MovedToConsole.action("user", key.user, "personal-api-keys", "Rolling an exposed key")

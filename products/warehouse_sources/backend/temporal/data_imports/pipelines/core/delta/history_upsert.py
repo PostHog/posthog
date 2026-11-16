@@ -346,7 +346,10 @@ def _footprint(batch: pa.RecordBatch, narrow_columns: list[str]) -> int:
 
 
 def _read_staged(dataset: ds.Dataset, columns: list[str]) -> pa.Table:
-    return _scanner(dataset, columns).to_table()
+    # The scanner's batches are slices that share their row group's decoded buffers, and deltalite's source guard
+    # counts the whole buffer once per slice. A large staged batch then counts many times its size and is refused.
+    # One contiguous copy is counted at its real size, and it stays under MAX_CALL_BYTES, so string offsets fit.
+    return _scanner(dataset, columns).to_table().combine_chunks()
 
 
 def _open_deltalite(uri: str, storage_options: dict[str, str]) -> Any:

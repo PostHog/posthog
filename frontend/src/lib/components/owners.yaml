@@ -59,6 +59,7 @@ rules:
           - '/UniversalFilters/*.test.*'
       owners: platform-ux
     - match:
+          - '/FacetRail/*.test.*'
           - '/ViewTraceButton/*.test.*'
       owners: team-apm
     - match:
@@ -98,7 +99,9 @@ rules:
           - '/Cards/InsightCard/*.test.*'
           - '/Cards/TextCard/*.test.*'
           - '/ChartLegendSeriesMenu/*.test.*'
+          - '/ChartOptions/*.test.*'
           - '/CompareFilter/*.test.*'
+          - '/DateDisplay/*.test.*'
           - '/InsightLabel/*.test.*'
           - '/Scenes/*.test.*'
           - '/Scenes/InsightOrDashboard/*.test.*'
@@ -118,6 +121,7 @@ rules:
       owners: team-web-analytics
     - match:
           - '/AppMetrics/*.test.*'
+          - '/CyclotronJob/*.test.*'
           - '/CyclotronJob/integrations/*.test.*'
           - '/EmailPreviewThumbnail/*.test.*'
       owners: team-workflows

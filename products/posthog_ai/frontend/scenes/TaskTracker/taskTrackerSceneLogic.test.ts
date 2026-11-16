@@ -5,14 +5,17 @@ import { expectLogic } from 'kea-test-utils'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { phaiAiComposerSeedLogic } from 'scenes/max/phaiAiComposerSeedLogic'
 import { urls } from 'scenes/urls'
 
 import { aiConsentLogic } from '~/layout/ai/aiConsentLogic'
 import { attachedContextLogic } from '~/layout/ai/attachedContextLogic'
+import { PENDING_AI_PROMPT_KEY } from '~/layout/ai/pendingAiPrompt'
 import { todaySpacesLogic } from '~/layout/today/todaySpacesLogic'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
+import { AppContext } from '~/types'
 
 import {
     ModelAccessEnumApi,
@@ -108,8 +111,11 @@ describe('taskTrackerSceneLogic', () => {
             },
         })
         initKeaTests()
-        // Without Tasks access the scene sends `/tasks` URLs to classic PostHog AI.
-        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.TASKS], { [FEATURE_FLAGS.TASKS]: true })
+        // Without PostHog AI 2.0 the scene sends `/tasks` URLs to classic PostHog AI.
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.TASKS, FEATURE_FLAGS.PHAI_SANDBOX_MODE], {
+            [FEATURE_FLAGS.TASKS]: true,
+            [FEATURE_FLAGS.PHAI_SANDBOX_MODE]: true,
+        })
         toolEvents = toolStreamEventsLogic()
         toolEvents.mount()
         toolEvents.actions.registerToolListener('editor', {
@@ -123,6 +129,29 @@ describe('taskTrackerSceneLogic', () => {
     afterEach(() => {
         logic?.unmount()
         toolEvents?.unmount()
+    })
+
+    it.each([true, false])('resets the warm budget only after a successful cold run (success: %s)', async (success) => {
+        let warmCalls = 0
+        useMocks({
+            post: {
+                '/api/projects/:team/tasks/warm/': () => {
+                    warmCalls++
+                    return [200, {}]
+                },
+                '/api/projects/:team/tasks/:id/run/': () =>
+                    success ? [200, { run: { id: 'cold-run' } }] : [500, { detail: 'Run failed' }],
+            },
+        })
+        logic.mount()
+        const warm = taskWarmLogic({ panelId: undefined })
+        logic.actions.setNewTaskData({ description: 'First draft' })
+        await expectLogic(logic).toFinishAllListeners()
+        await expectLogic(warm, () => warm.actions.prewarm({ branch: null })).toFinishAllListeners()
+        expect(warmCalls).toBe(1)
+        await expectLogic(logic, () => logic.actions.submitNewTask()).toFinishAllListeners()
+        await expectLogic(warm, () => warm.actions.prewarm({ branch: null })).toFinishAllListeners()
+        expect(warmCalls).toBe(success ? 2 : 1)
     })
 
     describe('file attachments', () => {
@@ -195,13 +224,15 @@ describe('taskTrackerSceneLogic', () => {
         expect(runBody).not.toHaveProperty('pending_user_artifact_ids')
     })
 
-    // An Inbox task link must still open its transcript without Tasks access.
+    // An Inbox task link must still open its transcript without 2.0. The Tasks flag alone does not grant the composer,
+    // because the server decides 2.0 from one flag.
     it.each([
-        ['/tasks', '/ai'],
-        ['/tasks/new', '/ai'],
-        ['/tasks/a1b2c3d4-0000-4000-8000-000000000001', '/tasks/a1b2c3d4-0000-4000-8000-000000000001'],
-    ])('without Tasks access, %s lands on %s', async (start, expected) => {
-        featureFlagLogic.actions.setFeatureFlags([], {})
+        ['/tasks', '/ai', {}],
+        ['/tasks/new', '/ai', {}],
+        ['/tasks/new', '/ai', { [FEATURE_FLAGS.TASKS]: true }],
+        ['/tasks/a1b2c3d4-0000-4000-8000-000000000001', '/tasks/a1b2c3d4-0000-4000-8000-000000000001', {}],
+    ])('without PostHog AI 2.0, %s lands on %s (flags %j)', async (start, expected, flags) => {
+        featureFlagLogic.actions.setFeatureFlags(Object.keys(flags), flags)
         logic.mount()
         router.actions.push(start)
         await expectLogic(logic).toFinishAllListeners()
@@ -405,6 +436,43 @@ describe('taskTrackerSceneLogic', () => {
             expect(toolEvents.values.applyBackTargetClaims[streamKey]).toBeUndefined()
         }
     )
+
+    // A page can still show 2.0 after the server stopped allowing it. The refused message must reach classic
+    // PostHog AI without passing through the URL, and the switch must also hold in an OAuth session, which
+    // has no server-rendered app context.
+    it.each([
+        ['with the server-rendered decision', true],
+        ['without an app context', false],
+    ])('hands a send the server refuses to classic PostHog AI %s', async (_, hasAppContext) => {
+        const originalAppContext = window.POSTHOG_APP_CONTEXT
+        window.POSTHOG_APP_CONTEXT = hasAppContext
+            ? ({ ...originalAppContext, posthog_ai_access: true } as AppContext)
+            : undefined
+        useMocks({
+            post: {
+                '/api/projects/:team/tasks/': () => [
+                    403,
+                    { type: 'permission_denied', code: 'task_unavailable', error: "This task isn't available to you." },
+                ],
+            },
+        })
+        try {
+            logic.mount()
+            router.actions.push('/tasks/new')
+            logic.actions.setNewTaskData({ description: 'Explain the example chart' })
+            await expectLogic(logic, () => logic.actions.submitNewTask()).toFinishAllListeners()
+
+            expect(featureFlagLogic.values.featureFlags[FEATURE_FLAGS.PHAI_SANDBOX_MODE]).toBe(false)
+            expect(removeProjectIdIfPresent(router.values.location.pathname)).toBe('/ai')
+            expect(router.values.searchParams).toEqual({})
+            expect(JSON.parse(sessionStorage.getItem(PENDING_AI_PROMPT_KEY) ?? '{}')).toMatchObject({
+                prompt: 'Explain the example chart',
+            })
+        } finally {
+            window.POSTHOG_APP_CONTEXT = originalAppContext
+            sessionStorage.clear()
+        }
+    })
 
     // PostHog AI can run without a repo: a description-only submit must still create and run the task with a
     // null repository, not bail. Guards against re-adding a "Repository is required" gate on the send path.
@@ -618,7 +686,7 @@ describe('taskTrackerSceneLogic', () => {
     // Issuing the usual run-create on top would strand that warm sandbox and cold-boot a second one —
     // exactly the ~16s the warm existed to avoid. The create must also carry the warm-reuse hints, since
     // the backend never even attempts a match unless `branch` is present as a key.
-    it('skips the run create when the backend activated a warm run', async () => {
+    it.each([false, true])('targets a capable warm and skips a second run (mutable: %s)', async (mutable) => {
         useMocks({
             post: {
                 '/api/projects/:team/tasks/': async ({ request }) => {
@@ -633,6 +701,13 @@ describe('taskTrackerSceneLogic', () => {
         })
         logic.mount()
         logic.actions.setNewTaskData({ description: 'do the thing' })
+        const warm = taskWarmLogic({ panelId: undefined })
+        warm.actions.setWarmLease({
+            key: 'k',
+            taskId: 'warm-task',
+            runId: 'warm-run-1',
+            permissionModeMutable: mutable,
+        })
         logic.actions.submitNewTask()
 
         await expectLogic(logic).toFinishAllListeners()
@@ -646,6 +721,8 @@ describe('taskTrackerSceneLogic', () => {
         // stored default for warm matching the same way the warm was provisioned.
         expect(createBody?.model).toBeUndefined()
         expect(createBody?.runtime_adapter).toBeUndefined()
+        expect(createBody?.warm_run_id).toBe(mutable ? 'warm-run-1' : undefined)
+        expect(createBody?.warm_submission_id).toEqual(mutable ? expect.any(String) : undefined)
         expect(runBody).toBeNull()
         expect(logic.values.activeCreation?.runId).toBe('warm-run-1')
     })
@@ -976,7 +1053,17 @@ describe('taskTrackerSceneLogic', () => {
     // A channel host starts on its own repo instead of the remembered one, files the task in its channel, and
     // keeps the shared last-used repo intact.
     it('creates the task in the host channel from the host repository default', async () => {
+        let finishCreation!: (response: [number, Record<string, unknown>]) => void
+        const creation = new Promise<[number, Record<string, unknown>]>((resolve) => {
+            finishCreation = resolve
+        })
         useMocks({
+            post: {
+                '/api/projects/:team/tasks/': async ({ request }) => {
+                    createBody = (await request.json()) as Record<string, any>
+                    return creation
+                },
+            },
             get: {
                 '/api/projects/:team/integrations/': {
                     results: [{ id: 7, kind: 'github', display_name: 'acme', config: {} }],
@@ -1000,7 +1087,11 @@ describe('taskTrackerSceneLogic', () => {
 
         logic.actions.setNewTaskData({ description: 'ship it' })
         logic.actions.submitNewTask()
-        await expectLogic(logic).toFinishAllListeners()
+        const nextOnTaskCreated = jest.fn()
+        taskTrackerSceneLogic({ ...logic.props, onTaskCreated: nextOnTaskCreated })
+        await expectLogic(logic, () =>
+            finishCreation([200, { id: 'new-task', latest_run: { id: 'run-1' } }])
+        ).toFinishAllListeners()
 
         expect(createBody).toMatchObject({
             channel: 'channel-1',
@@ -1008,6 +1099,7 @@ describe('taskTrackerSceneLogic', () => {
             github_integration: 7,
         })
         expect(onTaskCreated).toHaveBeenCalledWith('new-task')
+        expect(nextOnTaskCreated).not.toHaveBeenCalled()
         expect(logic.values.newTaskData.repositoryConfig.repository).toBe('acme/space-repo')
         expect(logic.values.persistedRepositoryConfig).toEqual({ integrationId: 7, repository: 'acme/remembered' })
     })

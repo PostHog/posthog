@@ -5,6 +5,7 @@ from typing import Any
 
 from unittest.mock import patch
 
+from django.contrib.auth.models import Group as AuthGroup
 from django.core.management import call_command
 from django.test import SimpleTestCase, TestCase
 
@@ -13,6 +14,7 @@ from parameterized import parameterized
 
 from posthog.schema import InsightVizNode
 
+from posthog.admin.console.registry import console
 from posthog.management.commands.ensure_migration_defaults import (
     _FEATURE_FLAG_TEMPLATE,
     _PRODUCT_ANALYTICS_TEMPLATE,
@@ -90,10 +92,14 @@ class TestEnsureMigrationDefaults(TestCase):
         OAuthApplication.objects.filter(client_id=_STREAMLIT_OAUTH_CLIENT_ID).delete()
         template_name = _PRODUCT_ANALYTICS_TEMPLATE["template_name"]
         DashboardTemplate.objects.filter(template_name=template_name, team__isnull=True).delete()
+        staff_groups = console.staff_groups()
+        AuthGroup.objects.filter(name__in=staff_groups).delete()
 
         with patch.object(oauth2_settings, "OIDC_RSA_PRIVATE_KEY", oidc_key):
             call_command("ensure_migration_defaults", stdout=StringIO())
 
+        assert staff_groups, "No console owner has a staff group, so the group seed checks nothing."
+        assert set(AuthGroup.objects.filter(name__in=staff_groups).values_list("name", flat=True)) == staff_groups
         assert OAuthApplication.objects.filter(client_id=_STREAMLIT_OAUTH_CLIENT_ID).exists() is expects_oauth_app
         # Seeded after the OAuth app, so its presence proves the command ran to the end.
         assert DashboardTemplate.objects.filter(template_name=template_name, team__isnull=True).exists()

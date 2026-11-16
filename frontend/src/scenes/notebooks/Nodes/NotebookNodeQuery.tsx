@@ -1,5 +1,6 @@
 import { BindLogic, useActions, useValues } from 'kea'
-import { useEffect, useMemo } from 'react'
+import posthog from 'posthog-js'
+import { useEffect, useMemo, useRef } from 'react'
 
 import { LemonButton, LemonTag } from '@posthog/lemon-ui'
 
@@ -15,6 +16,9 @@ import { notebookNodeLogic } from 'scenes/notebooks/Nodes/notebookNodeLogic'
 import { defineNotebookWidgetViews, getNotebookWidgetDefaultView } from 'scenes/notebooks/notebookWidgetCatalog'
 import { urls } from 'scenes/urls'
 
+import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
+import { ComputationTimeWithRefresh } from '~/queries/nodes/InsightViz/ComputationTimeWithRefresh'
+import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/insightVizKeys'
 import { Query } from '~/queries/Query/Query'
 import {
     containsHogQLQuery,
@@ -258,7 +262,14 @@ const Component = ({
         <div className="flex flex-1 flex-col h-full" data-attr="notebook-node-query">
             <BindLogic logic={insightLogic} props={insightLogicProps}>
                 {isInsightViz ? (
-                    <div className="flex flex-1 flex-col overflow-hidden">{queryComponent}</div>
+                    <div className="flex flex-1 flex-col overflow-hidden">
+                        <NotebookInsightRefresh
+                            insightProps={dataframeInsightProps}
+                            notebookShortId={notebookLogic.props.shortId}
+                            nodeId={nodeId}
+                        />
+                        <div className="flex min-h-0 flex-1 flex-col">{queryComponent}</div>
+                    </div>
                 ) : (
                     <ScrollableShadows direction="vertical" className="flex-1">
                         {queryComponent}
@@ -273,6 +284,54 @@ const Component = ({
                 ) : null}
             </BindLogic>
         </div>
+    )
+}
+
+function NotebookInsightRefresh({
+    insightProps,
+    notebookShortId,
+    nodeId,
+}: {
+    insightProps: InsightLogicProps
+    notebookShortId: string
+    nodeId: string
+}): JSX.Element | null {
+    const { insightQuery, insightDataLoading, insightDataError, insightDataRaw } = useValues(
+        insightDataLogic(insightProps)
+    )
+    const refreshRequested = useRef(false)
+
+    useEffect(() => {
+        if (refreshRequested.current && !insightDataLoading) {
+            refreshRequested.current = false
+            posthog.capture('notebook insight refresh completed', {
+                notebook_id: notebookShortId,
+                node_id: nodeId,
+                success: !insightDataError,
+            })
+        }
+    }, [insightDataLoading, insightDataError, insightDataRaw, notebookShortId, nodeId])
+
+    if (!insightQuery?.kind) {
+        return null
+    }
+
+    return (
+        <BindLogic logic={insightLogic} props={insightProps}>
+            <BindLogic logic={dataNodeLogic} props={{ key: insightVizDataNodeKey(insightProps), query: insightQuery }}>
+                <div className="px-3 py-2 border-b">
+                    <ComputationTimeWithRefresh
+                        onRefresh={() => {
+                            refreshRequested.current = true
+                            posthog.capture('notebook insight refresh started', {
+                                notebook_id: notebookShortId,
+                                node_id: nodeId,
+                            })
+                        }}
+                    />
+                </div>
+            </BindLogic>
+        </BindLogic>
     )
 }
 

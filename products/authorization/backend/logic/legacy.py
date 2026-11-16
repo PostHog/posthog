@@ -13,6 +13,7 @@ from products.access_control.backend.facade import api as access_control_api
 from products.access_control.backend.facade.contracts import FallbackParent, ObjectAccessRef
 from products.access_control.backend.facade.user_access_control import (
     RESOURCE_FALLBACK_MAP,
+    AccessControlLevelMember,
     AccessControlLevelResource,
     UserAccessControl,
 )
@@ -49,12 +50,28 @@ MEMBERSHIP_LEVELS: dict[ResourceType, dict[Action, OrganizationMembership.Level]
     ResourceType.ROLE: {**_ADMIN_ACTIONS, Action.VIEW: _Level.MEMBER},
 }
 
+# A project or organization check without an id asks about the type. The current rules answer it
+# from the type's default level, read with these levels.
+MEMBERSHIP_TYPE_LEVELS: dict[Action, AccessControlLevelMember] = {Action.VIEW: "member", Action.EDIT: "admin"}
+MEMBERSHIP_TYPES = frozenset({ResourceType.ORGANIZATION, ResourceType.PROJECT})
+
 
 def check(requests: Sequence[CheckRequest], context: Context | None) -> list[bool]:
     if context is not None and context != Context():
         raise NotImplementedError("The current access rules read no request context.")
     session = current() or Session()
+    _load_projects(session, requests)
     return [_check(session, request) for request in requests]
+
+
+def reuse(access: UserAccessControl, permissions: UserPermissions | None = None) -> None:
+    """Let the checks in the current session read rules and memberships that a view already loaded."""
+    session = current()
+    if session is None or access.team is None or not isinstance(access.user, User) or not session.can_cache():
+        return
+    session.access.setdefault(_principal_key(access.user), access)
+    if permissions is not None and permissions.user.pk == access.user.pk:
+        session.permissions.setdefault(access.user.pk, permissions)
 
 
 def permissions(resource: Resource, subject: Subject | None, context: Context | None) -> frozenset[Action]:
@@ -65,6 +82,8 @@ def permissions(resource: Resource, subject: Subject | None, context: Context | 
 
 def _check(session: Session, request: CheckRequest) -> bool:
     resource, action = request.resource, request.action
+    if resource.type in MEMBERSHIP_TYPES and resource.id is None:
+        return _check_membership_type(session, request)
     if resource.type in MEMBERSHIP_LEVELS:
         return _check_membership(session, request)
     level = RESOURCE_LEVELS.get(action)
@@ -93,7 +112,7 @@ def _check(session: Session, request: CheckRequest) -> bool:
     if resource.id is None:
         if action == Action.MANAGE_ACCESS:
             return access.check_can_modify_access_levels_for_object(cast(Team, access.team))
-        return access.check_access_level_for_resource(scope, level)
+        return access.check_access_level_for_resource(scope, required_level=level)
 
     ref = ObjectAccessRef(
         resource=scope,
@@ -108,7 +127,7 @@ def _check(session: Session, request: CheckRequest) -> bool:
     )
     if action == Action.MANAGE_ACCESS:
         return access.check_can_modify_access_levels_for_ref(ref)
-    return access.check_access_level_for_ref(ref, level)
+    return access.check_access_level_for_ref(ref, required_level=level)
 
 
 def _check_membership(session: Session, request: CheckRequest) -> bool:
@@ -138,6 +157,23 @@ def _check_membership(session: Session, request: CheckRequest) -> bool:
         organization_id = UUID(resource.id)
     membership = get_cached_organization_membership(organization_id, principal)
     return membership is not None and membership.level >= level
+
+
+def _check_membership_type(session: Session, request: CheckRequest) -> bool:
+    resource = request.resource
+    level = MEMBERSHIP_TYPE_LEVELS.get(request.action)
+    if level is None:
+        raise ValueError(f"{request.action} does not apply to every {resource.type}.")
+    if resource.project_id is None:
+        raise ValueError(f"A {resource.type} check needs `id`, or `project_id` for a check on the type.")
+    principal = _principal(session, request.subject)
+    # The rules give every principal the type's default level, so only a project member gets it.
+    if not isinstance(principal, User) or not _check_project(
+        session, principal, resource.project_id, Action.VIEW, _Level.MEMBER
+    ):
+        return False
+    access = _access(session, principal, resource.project_id)
+    return access is not None and access.check_access_level_for_resource(_scope(resource.type), required_level=level)
 
 
 def _check_project(
@@ -195,6 +231,42 @@ def _principal_key(principal: Any) -> PrincipalKey:
     if isinstance(principal, User):
         return ("user", principal.pk)
     return ("object", id(principal))
+
+
+def _project_id(resource: Resource) -> int | None:
+    """The team whose rules a check on `resource` reads, or None when it reads none."""
+    if resource.type in MEMBERSHIP_TYPES and resource.id is None:
+        return resource.project_id
+    if resource.type == ResourceType.PROJECT:
+        return int(resource.id) if resource.id is not None and resource.id.isdigit() else None
+    if resource.type in MEMBERSHIP_LEVELS:
+        return None
+    return resource.project_id
+
+
+def _load_projects(session: Session, requests: Sequence[CheckRequest]) -> None:
+    """Load every project of a batch with one query, instead of one query for each project."""
+    if len(requests) < 2 or not session.can_cache():
+        return
+    project_ids: dict[PrincipalKey, tuple[Any, set[int]]] = {}
+    for request in requests:
+        project_id = _project_id(request.resource)
+        if project_id is None:
+            continue
+        principal = _principal(session, request.subject)
+        if principal is not None:
+            project_ids.setdefault(_principal_key(principal), (principal, set()))[1].add(project_id)
+
+    for key, (principal, ids) in project_ids.items():
+        if len(ids) < 2:
+            continue
+        access = session.access.get(key)
+        if access is None:
+            first = Team.objects.filter(pk__in=ids).first()
+            if first is None:
+                continue
+            access = session.access[key] = UserAccessControl(user=cast(User, principal), team=first)
+        access.for_team_ids(ids)
 
 
 def _access(session: Session, principal: Any, team_id: int) -> UserAccessControl | None:

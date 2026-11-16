@@ -25,7 +25,7 @@ export function InboxSetupGithubStep(): JSX.Element {
         <>
             <GuidedWizardSection
                 title={hasGithubIntegration ? 'GitHub is connected' : 'Connect GitHub for code context'}
-                description="Self-Driving uses your code to explain what's happening in your product and suggest what to do next."
+                description="Self-driving uses your code to explain what's happening in your product and suggest what to do next."
             >
                 {!hasGithubIntegration && restrictionReason ? (
                     <IntegrationAccessRequest kind="github" name="GitHub" />

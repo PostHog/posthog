@@ -4,7 +4,7 @@ use common_types::error_tracking::FrameId;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha512};
 use symbolic::common::Name;
-use symbolic::demangle::{Demangle, DemangleOptions};
+use symbolic_demangle::{Demangle, DemangleOptions};
 
 use crate::{
     error::{FrameError, NativeError, ResolveError, UnhandledError},

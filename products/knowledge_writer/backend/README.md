@@ -1,6 +1,7 @@
 # Knowledge writer
 
-- `adapters/`: turn a source event (the docs command, …) into a docs request.
+- `adapters/`: one per input, holding its source and the writer's opening sentence; `repo_merge.py` builds every input's verdict from its merge check report, since the docs command runs the same check.
+- `facade/finished_check_hooks.py`: tells products that cannot be imported, such as commands, how a docs command's check ended.
 - `logic/intake.py`: caps, section routing, and the start-or-join decision.
 - `logic/launch.py`: creates the writer task.
 - `logic/pull_requests.py`: opens a draft docs pull request, or comments a joined request's source on the open one.
@@ -15,6 +16,8 @@ Set up the dev GitHub App with `python manage.py create_github_app`, following [
 - On a Coder workspace, forward the callback port before `create_github_app`: `coder port-forward <workspace> --tcp 8019:8019`.
 - A fresh database needs `hogli migrations:up`, then `python manage.py setup_dev --no-data`, before `setup_background_agents`.
 - Fork `posthog.com` into your own account and install the App on that fork only. The writer picks the GitHub integration whose account matches the repository owner.
+
+Publish runs as a Temporal workflow, so the scratch run also needs the Temporal server and worker listed under the full run below.
 
 Then:
 
@@ -38,7 +41,7 @@ flox activate -- python manage.py knowledge_writer_pr_smoke \
 
 On a Coder workspace `SITE_URL` is the public URL, which the sandbox and self-capture cannot reach, so every process also needs `SELF_CAPTURE_HOST=http://localhost:8010`, `SANDBOX_API_URL=http://localhost:8010` and `SANDBOX_LLM_GATEWAY_URL=http://host.docker.internal:3308`.
 
-Turn the `knowledge-writer-agent-launch` flag on at 100% for the team; otherwise intake runs in shadow mode and the command stops. Pick two merged pull requests whose change the section's docs lack, so the agent has something to write. Then:
+Turn the `knowledge-writer-agent-launch` and `knowledge-writer-open-prs` flags on at 100% for the team; otherwise intake runs in shadow mode and the command stops. Pick two merged pull requests whose change the section's docs lack, so the agent has something to write. Then:
 
 ```bash
 flox activate -- python manage.py knowledge_writer_pr_smoke \

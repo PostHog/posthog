@@ -26,6 +26,7 @@
             "description": "The scope: `project`, a tool name such as `dashboard` or `feature_flag`, or `property_definition`. The tool names are the keys of `resources` in access-control-members-list.",
             "enum": [
                 "account",
+                "account_note",
                 "action",
                 "activity_log",
                 "ai_observability_clusters",

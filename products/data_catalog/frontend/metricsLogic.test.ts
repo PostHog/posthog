@@ -1,3 +1,4 @@
+import { router } from 'kea-router'
 import posthog from 'posthog-js'
 
 import { ApiError } from 'lib/api'
@@ -18,7 +19,7 @@ import {
     dataCatalogMetricsList,
     dataCatalogMetricsPartialUpdate,
 } from './generated/api'
-import type { DataCatalogMetricApi } from './generated/api.schemas'
+import type { DataCatalogMetricApi, UserBasicApi } from './generated/api.schemas'
 import { metricsLogic } from './metricsLogic'
 import { openOverwriteMetricDialog } from './openOverwriteMetricDialog'
 
@@ -99,13 +100,28 @@ describe('metricsLogic', () => {
         await expectLogic(logic).toDispatchActions(['loadMetricsSuccess'])
     })
 
-    it('replaces the row with the response when approve succeeds', async () => {
-        ;(dataCatalogMetricsApproveCreate as jest.Mock).mockResolvedValue(buildMetric({ status: 'approved' }))
+    it('opens on proposed metrics when the To review card links to them', () => {
+        router.actions.push('/data-catalog', { tab: 'metrics', filter: 'proposed' })
+        expect(logic.values.filters.status).toBe('proposed')
+        expect(router.values.searchParams).toEqual({ tab: 'metrics' })
+    })
 
-        logic.actions.approveMetric('weekly_active_users')
-        await expectLogic(logic).toFinishAllListeners()
+    it('replaces the row with the response when approve succeeds and records where it was approved', async () => {
+        ;(dataCatalogMetricsApproveCreate as jest.Mock).mockResolvedValue(
+            buildMetric({ status: 'approved', display_name: 'Weekly active users' })
+        )
+        const capture = jest.spyOn(posthog, 'capture')
 
-        expect(logic.values.allMetrics[0].status).toEqual('approved')
+        try {
+            logic.actions.approveMetric('weekly_active_users', 'inline')
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.allMetrics[0].status).toEqual('approved')
+            expect(capture).toHaveBeenCalledWith('data catalog metric approved', { source: 'inline' })
+            expect(lemonToast.success).toHaveBeenCalledWith('Approved Weekly active users')
+        } finally {
+            capture.mockRestore()
+        }
     })
 
     it('saves the new owner and replaces the row with the response', async () => {
@@ -243,15 +259,21 @@ describe('metricsLogic', () => {
         }
     )
 
-    it('offers the owners of the metrics as owner filter options, so a former member stays listed', async () => {
+    it('offers the owners and creators of the metrics as filter options, so a former member stays listed', async () => {
+        const rose = { id: 1, uuid: 'user-rose', first_name: 'Rose', email: 'rose.dawson@posthog.com' } as UserBasicApi
+        const nameless = { id: 2, uuid: 'user-nameless', first_name: '', email: 'nameless@posthog.com' } as UserBasicApi
         logic.actions.loadMetricsSuccess([
-            buildMetric({ id: 'metric-1', name: 'a', owner: 'rose.dawson@posthog.com' }),
-            buildMetric({ id: 'metric-2', name: 'b', owner: 'former.member@posthog.com' }),
-            buildMetric({ id: 'metric-3', name: 'c', owner: null }),
-            buildMetric({ id: 'metric-4', name: 'd', owner: 'rose.dawson@posthog.com' }),
+            buildMetric({ id: 'metric-1', name: 'a', owner: 'rose.dawson@posthog.com', created_by: rose }),
+            buildMetric({ id: 'metric-2', name: 'b', owner: 'former.member@posthog.com', created_by: nameless }),
+            buildMetric({ id: 'metric-3', name: 'c', owner: null, created_by: null as unknown as UserBasicApi }),
+            buildMetric({ id: 'metric-4', name: 'd', owner: 'rose.dawson@posthog.com', created_by: rose }),
         ])
 
         expect(logic.values.ownerFilterOptions).toEqual(['former.member@posthog.com', 'rose.dawson@posthog.com'])
+        expect(logic.values.creatorFilterOptions).toEqual([
+            { uuid: 'user-nameless', label: 'nameless@posthog.com' },
+            { uuid: 'user-rose', label: 'Rose' },
+        ])
 
         logic.actions.setFilters({ owner: 'former.member@posthog.com' })
         expect(logic.values.metrics.map((metric) => metric.name)).toEqual(['b'])
@@ -288,7 +310,7 @@ describe('metricsLogic', () => {
         expect(logic.values.metrics).toEqual([proposed, approvedDrifted, approved])
     })
 
-    it('orders the review queue by drift, ownership, then AI confidence, and keeps clean approved metrics out', async () => {
+    it('orders the review queue by drift, ownership, then AI proposals newest first, and keeps clean approved metrics out', async () => {
         const me = userLogic.values.user as UserType
         const mine = { id: 1, uuid: me.uuid, email: me.email, hedgehog_config: null }
         const theirs = { id: 2, uuid: 'someone-else', email: 'them@example.com', hedgehog_config: null }
@@ -296,10 +318,10 @@ describe('metricsLogic', () => {
             buildMetric({ id: name, name, created_by: theirs, created_at: '2026-10-01T00:00:00Z', ...overrides })
         logic.actions.loadMetricsSuccess([
             metric('their_proposal', {}),
-            metric('ai_low', { created_source: 'ai_generated', confidence: 0.6 }),
+            metric('ai_older', { created_source: 'ai_generated' }),
             metric('approved_clean', { status: 'approved' }),
             metric('my_newer_proposal', { created_by: mine, created_at: '2026-10-02T00:00:00Z' }),
-            metric('ai_high', { created_source: 'ai_generated', confidence: 0.9 }),
+            metric('ai_newer', { created_source: 'ai_generated', created_at: '2026-10-02T00:00:00Z' }),
             metric('their_drifted_approved', { status: 'approved', is_drifted: true }),
             metric('my_older_proposal', { created_by: mine }),
             metric('owned_drifted', { is_drifted: true, owner: me.email }),
@@ -310,8 +332,8 @@ describe('metricsLogic', () => {
             'their_drifted_approved',
             'my_newer_proposal',
             'my_older_proposal',
-            'ai_high',
-            'ai_low',
+            'ai_newer',
+            'ai_older',
             'their_proposal',
         ])
         expect(logic.values.approvedMetrics.map((m) => m.name)).toEqual(['approved_clean'])

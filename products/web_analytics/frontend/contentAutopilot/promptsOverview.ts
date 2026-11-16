@@ -6,13 +6,14 @@ import type {
     AEOPromptSetOverviewApi,
 } from 'products/web_analytics/frontend/generated/api.schemas'
 
-import { type KpiCardContent, countDelta, pointsDelta } from './promptReport'
+import { type KpiCardContent, countDelta, pointsDelta, positionDelta, positionLabel } from './promptReport'
 
 export interface PromptsOverviewKpis {
     promptsTracked: KpiCardContent
     checks: KpiCardContent
     mentionRate: KpiCardContent
     citationRate: KpiCardContent
+    position: KpiCardContent
 }
 
 const answered = (counts: AEOPromptSetCountsApi): number => counts.checks - counts.failed
@@ -51,7 +52,23 @@ const citedPromptsNote = (counts: AEOPromptSetCountsApi, days: number): string =
     return `${counts.prompts} ran in the last ${days} days, ${cited} cited`
 }
 
-/** The four numbers at the top of the prompts tab, each against the window before. */
+const positionCard = ({ current, previous, days }: AEOPromptSetOverviewApi): KpiCardContent => {
+    const value = current.avg_position
+    const before = previous.avg_position
+    return {
+        value: value == null ? 'Not cited' : positionLabel(value),
+        note:
+            value == null
+                ? `No cited answers in the last ${days} days`
+                : `Over ${pluralize(current.cited, 'cited answer')}`,
+        delta:
+            value == null || before == null
+                ? null
+                : positionDelta(value - before, `Against the ${days} days before. Lower is better`),
+    }
+}
+
+/** The numbers at the top of the prompts tab, each against the window before. */
 export const promptsOverviewKpis = (overview: AEOPromptSetOverviewApi): PromptsOverviewKpis => {
     const { current, previous, days } = overview
     return {
@@ -70,6 +87,7 @@ export const promptsOverviewKpis = (overview: AEOPromptSetOverviewApi): PromptsO
         },
         mentionRate: rateCard(overview, 'mention_rate', 'mentioned'),
         citationRate: rateCard(overview, 'citation_rate', 'cited'),
+        position: positionCard(overview),
     }
 }
 

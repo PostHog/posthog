@@ -1,5 +1,6 @@
 import { useValues } from 'kea'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonTag, LemonTagType } from 'lib/lemon-ui/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
@@ -31,7 +32,8 @@ export function ReleaseStageTag({
     className?: string
 }): JSX.Element | null {
     const { user } = useValues(userLogic)
-    const stage = releaseStage(product)
+    const selfDrivingUsageDisplay = useFeatureFlag('SELF_DRIVING_USAGE_DISPLAY')
+    const stage = releaseStage(product, selfDrivingUsageDisplay)
     if (!stage) {
         return null
     }

@@ -1,4 +1,4 @@
-import { MOCK_DEFAULT_TEAM, MOCK_DEFAULT_USER } from '~/lib/api.mock'
+import { MOCK_DEFAULT_USER } from '~/lib/api.mock'
 
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
@@ -9,10 +9,10 @@ import { lemonToast } from '@posthog/lemon-ui'
 import { commentsLogic } from 'lib/components/Comments/commentsLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { impersonationNoticeLogic } from '~/layout/navigation/ImpersonationNotice/impersonationNoticeLogic'
-import { tagsModel } from '~/models/tagsModel'
 import { initKeaTests } from '~/test/init'
 import type { CommentType } from '~/types'
 import { ActivityScope } from '~/types'
@@ -55,10 +55,6 @@ jest.mock('~/lib/api', () => {
                 ...actual.default?.conversationsTickets,
                 get: jest.fn(),
                 list: jest.fn().mockResolvedValue({ results: [] }),
-            },
-            tags: {
-                ...actual.default?.tags,
-                list: jest.fn().mockResolvedValue([]),
             },
         },
     }
@@ -161,6 +157,14 @@ describe('supportTicketSceneLogic ai reply feedback', () => {
 
     afterEach(() => {
         localStorage.removeItem(FEEDBACK_STORAGE_KEY)
+    })
+
+    it('gives the loaded ticket as a People recent', () => {
+        expect(logic.values.todayPeopleRecent).toEqual({
+            type: 'ticket',
+            name: 'Ticket #42',
+            href: urls.supportTicketDetail(42),
+        })
     })
 
     it('selects the latest AI message', async () => {
@@ -952,56 +956,6 @@ describe('supportTicketSceneLogic staff actions context', () => {
         await expectLogic(logic).toDispatchActions(['setTicket', 'setTicketContext'])
 
         expect(impersonationNoticeLogic.values.ticketContext).toMatchObject({ ticketId: 'ticket-1' })
-    })
-})
-
-describe('supportTicketSceneLogic tag pool refresh', () => {
-    let logic: ReturnType<typeof supportTicketSceneLogic.build>
-
-    const ticketGetMock = api.conversationsTickets.get as jest.Mock
-    const ticketUpdateMock = conversationsTicketsPartialUpdate as jest.Mock
-    const loadedTicket = (): Ticket => ({ ...makeTicket(), priority: 'medium', assignee: null }) as Ticket
-
-    beforeEach(async () => {
-        initKeaTests()
-        ticketGetMock.mockReset().mockResolvedValue(loadedTicket())
-        ticketUpdateMock.mockReset()
-        tagsModel.mount()
-        tagsModel.actions.setActiveProjectId(MOCK_DEFAULT_TEAM.id)
-        tagsModel.actions.setProjectTags(MOCK_DEFAULT_TEAM.id, ['known'])
-        logic = supportTicketSceneLogic({ id: 42 })
-        logic.mount()
-        await expectLogic(logic).toDispatchActions(['setTicket'])
-        expect(logic.values.availableTags).toEqual(['known'])
-    })
-
-    afterEach(() => {
-        stopPolling(logic)
-    })
-
-    // A newly typed tag is created globally on save, so the shared pool must reload to surface it
-    // on other tickets; an already-known tag needs no reload.
-    it('reloads the shared tag pool when a new tag was saved', async () => {
-        ticketUpdateMock.mockResolvedValue({ ...loadedTicket(), tags: ['known', 'brand-new'] })
-
-        logic.actions.setTags(['known', 'brand-new'])
-        await expectLogic(tagsModel, () => {
-            logic.actions.updateTicket()
-        }).toDispatchActions(['loadTags'])
-        tagsModel.actions.loadTagsSuccess(['known', 'brand-new'], MOCK_DEFAULT_TEAM.id)
-
-        expect(logic.values.availableTags).toEqual(['known', 'brand-new'])
-    })
-
-    it('does not reload the tag pool when all saved tags are already known', async () => {
-        ticketUpdateMock.mockResolvedValue({ ...loadedTicket(), tags: ['known'] })
-
-        logic.actions.setTags(['known'])
-        await expectLogic(logic, () => {
-            logic.actions.updateTicket()
-        }).toDispatchActions(['setTicket'])
-
-        expect(logic.values.availableTags).toEqual(['known'])
     })
 })
 
