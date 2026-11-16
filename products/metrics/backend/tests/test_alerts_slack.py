@@ -126,3 +126,36 @@ def test_history_charts_the_series_that_fired(
     assert [point for _, point in history] == expected
     # Every group and destination of one evaluation shares one read.
     assert read.call_count == 1
+
+
+class _StreamedResponse:
+    def __init__(self, body: bytes, status_code: int = 200) -> None:
+        self.status_code = status_code
+        self.body = body
+        self.closed = False
+
+    def iter_content(self, chunk_size: int) -> Any:
+        for start in range(0, len(self.body), chunk_size):
+            yield self.body[start : start + chunk_size]
+
+    def close(self) -> None:
+        self.closed = True
+
+
+@pytest.mark.parametrize(
+    "body,status_code,expected",
+    [
+        (b'{"status":"success","data":{}}', 200, {"status": "success", "data": {}}),
+        (b'{"status":"error"}', 200, None),
+        (b'{"status":"success"}', 422, None),
+        # Dropped while it streams in, before any of it is decoded.
+        (b"x" * (slack.CHART_MAX_BYTES + 1), 200, None),
+    ],
+)
+def test_a_history_body_is_read_only_within_its_byte_cap(
+    body: bytes, status_code: int, expected: dict[str, Any] | None
+) -> None:
+    response = _StreamedResponse(body, status_code)
+
+    assert slack._bounded_json(response) == expected
+    assert response.closed

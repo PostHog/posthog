@@ -8,6 +8,7 @@ The trend is read here, as the message goes out, with a short timeout. A history
 costs the chart and nothing else, because the card is complete without it.
 """
 
+import json
 import math
 import time
 import threading
@@ -63,6 +64,9 @@ _RESULT_CACHE_SIZE: Final = 8
 # that fired, so a bigger history costs the chart rather than worker memory. With the window's 16
 # steps, this bounds the cache at 8 x 200 x 16 points.
 CHART_MAX_SERIES: Final = 200
+# A full CHART_MAX_SERIES result with long label sets fits in well under this. A bigger body is
+# dropped while it streams in, before any of it is decoded.
+CHART_MAX_BYTES: Final = 1024 * 1024
 _results: OrderedDict[tuple[int, str, datetime], list[dict[str, Any]] | None] = OrderedDict()
 
 
@@ -112,6 +116,22 @@ def _query_range(team_id: int, query: str, end: datetime) -> list[dict[str, Any]
     return result
 
 
+def _bounded_json(response: Any) -> dict[str, Any] | None:
+    """The success body, or None for a failed response or one over CHART_MAX_BYTES, read no further."""
+    try:
+        if response.status_code != 200:
+            return None
+        body = bytearray()
+        for chunk in response.iter_content(chunk_size=64 * 1024):
+            body.extend(chunk)
+            if len(body) > CHART_MAX_BYTES:
+                return None
+        payload = json.loads(body)
+    finally:
+        response.close()
+    return payload if isinstance(payload, dict) and payload.get("status") == "success" else None
+
+
 def _fleet_admits() -> bool:
     """Whether the fleet has started fewer than its per-second chart reads. False when Redis cannot say."""
     from posthog import redis  # noqa: PLC0415
@@ -131,10 +151,8 @@ def _fleet_admits() -> bool:
 
 def _read_range(team_id: int, query: str, end: datetime) -> list[dict[str, Any]] | None:
     # Imported here because registration runs from ready(), before models and the query layer load.
-    from posthog.clickhouse.client.connection import ClickHouseUser  # noqa: PLC0415
-    from posthog.models import Team  # noqa: PLC0415
-
-    from products.metrics.backend.promql import snuffle_payload  # noqa: PLC0415
+    from posthog.api.snuffle_proxy import snuffle_request  # noqa: PLC0415
+    from posthog.clickhouse.client.connection import ClickHouseUser, Workload  # noqa: PLC0415
 
     if not _chart_reads.acquire(blocking=False):
         logger.info("metrics_alert_history_skipped_pool_full", team_id=team_id)
@@ -144,9 +162,8 @@ def _read_range(team_id: int, query: str, end: datetime) -> list[dict[str, Any]]
         logger.info("metrics_alert_history_skipped_fleet_rate", team_id=team_id)
         return None
     try:
-        team = Team.objects.get(id=team_id)
-        payload = snuffle_payload(
-            team,
+        response = snuffle_request(
+            team_id,
             "POST",
             "/api/v1/query_range",
             data={
@@ -158,7 +175,13 @@ def _read_range(team_id: int, query: str, end: datetime) -> list[dict[str, Any]]
             },
             timeout=HISTORY_QUERY_SECONDS,
             ch_user=ClickHouseUser.ALERTS_PLATFORM_METRICS,
+            workload=Workload.METRICS,
+            stream=True,
         )
+        payload = _bounded_json(response)
+        if payload is None:
+            logger.info("metrics_alert_history_skipped_response", team_id=team_id, status=response.status_code)
+            return None
         data = payload.get("data") or {}
         if data.get("resultType") != "matrix":
             return None
