@@ -479,12 +479,17 @@ def _append_debug_column_to_pyarrows_table(table: pa.Table, load_id: int) -> pa.
     return table.append_column("_ph_debug", column)
 
 
+UNNAMED_COLUMN_NAME = "unnamed_column"
+
+
 def normalize_table_column_names(table: pa.Table) -> pa.Table:
     used_names = set()
 
     for column_name in table.column_names:
-        normalized_column_name = normalize_column_name(column_name)
-        temp_name = normalized_column_name
+        # A JSON key or Parquet field can be empty, which the naming convention rejects. A fixed
+        # name, rather than one from the column's position, stays the same when key order changes
+        # between batches.
+        temp_name = normalize_column_name(column_name) if column_name.strip() else UNNAMED_COLUMN_NAME
 
         if temp_name != column_name:
             while temp_name in used_names or temp_name in table.column_names:

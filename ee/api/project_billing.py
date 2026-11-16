@@ -29,6 +29,7 @@ from ee.api.organization_billing import (
     BETA_NOTICE,
     BillingPeriodSerializer,
     BillingReadViewSet,
+    PaginatedBillingSpendTimeSeriesListSerializer,
     PaginatedBillingTimeSeriesPointListSerializer,
     _billing_period,
 )
@@ -166,7 +167,7 @@ class ProjectBillingViewSet(BillingReadViewSet):
         summary="A project's share of spend over time",
         description=BETA_NOTICE,
         parameters=[ProjectTimeseriesRequestSerializer],
-        responses={200: OpenApiResponse(response=PaginatedBillingTimeSeriesPointListSerializer)},
+        responses={200: OpenApiResponse(response=PaginatedBillingSpendTimeSeriesListSerializer)},
     )
     @action(methods=["GET"], detail=False, url_path="spend/timeseries")
     def spend_timeseries(self, request: Request, *args: Any, **kwargs: Any) -> Response:

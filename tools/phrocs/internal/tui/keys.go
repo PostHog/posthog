@@ -562,7 +562,8 @@ func (m Model) handleNormalKey(msg tea.KeyPressMsg, cmds []tea.Cmd) (tea.Model, 
 	case key.Matches(msg, m.keys.Stop):
 		if p := m.activeProc(); p != nil && p.IsRunning() {
 			m.dbg("stop: proc=%s", p.Name)
-			p.Stop()
+			// Stop waits for the process to exit, so it must not run in Update.
+			go p.Stop()
 		}
 
 	case key.Matches(msg, m.keys.ClearLogs):
