@@ -1381,6 +1381,33 @@ class TestEmbedTextsAsyncCacheLogic:
         assert embeddings.shape == (0, 0)
         assert cached == {}
 
+    def test_failed_write_joins_other_embedding_tasks(self) -> None:
+        finished: list[str] = []
+
+        async def run() -> None:
+            sibling_started = asyncio.Event()
+
+            async def persist(_team, content_hash, model, vector):  # noqa: ARG001
+                if content_hash == _content_hash("a"):
+                    sibling_started.set()
+                    try:
+                        await asyncio.Future()
+                    finally:
+                        finished.append("a")
+                await sibling_started.wait()
+                raise RuntimeError("Embedding cache write failed")
+
+            with (
+                patch.object(intent_clustering, "_load_cached_embeddings", return_value={}),
+                patch.object(intent_clustering, "async_generate_embedding", return_value=_fake_embedding("a")),
+                patch.object(intent_clustering, "_persist_embedding", side_effect=persist),
+            ):
+                with pytest.raises(ExceptionGroup):
+                    await embed_texts_async(SimpleNamespace(id=0), ["a", "b"])  # type: ignore[arg-type]
+                assert finished == ["a"]
+
+        asyncio.run(run())
+
     def test_duplicate_texts_each_call_the_worker(self) -> None:
         # Documents intentional production behaviour: dedup happens upstream
         # (build_call_corpus aggregates by distinct intent_text), so
