@@ -14,6 +14,7 @@ from products.warehouse_sources.sources.sdk import (
     DataWarehouseSourceCategory,
     ExternalDataSourceType,
     FieldType,
+    ProductKey,
     ReleaseStatus,
     ResumableSource,
     ResumableSourceManager,
@@ -39,6 +40,7 @@ class BrevoSource(ResumableSource[BrevoSourceConfig, BrevoResumeConfig]):
         composer=("getbrevo/brevo-php", "sendinblue/api-v3-sdk"),
         go=("github.com/getbrevo/brevo-go",),
         rubygems=("brevo", "sib-api-v3-sdk", "brevo-ruby"),
+        alternative_to=(ProductKey.WORKFLOWS,),
     )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs

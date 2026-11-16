@@ -6,6 +6,7 @@ from products.warehouse_sources.sources.sdk import (
     ExternalDataSourceType,
     ExternalWebhookInfo,
     FieldType,
+    ProductKey,
     ReleaseStatus,
     ResumableSource,
     ResumableSourceManager,
@@ -60,6 +61,7 @@ class SparkPostSource(
         go=("github.com/SparkPost/gosparkpost",),
         maven=("com.sparkpost:sparkpost-lib", "com.sparkpost:sparkpost"),
         rubygems=("sparkpost",),
+        alternative_to=(ProductKey.WORKFLOWS,),
     )
 
     api_docs_url = "https://developers.sparkpost.com/api/"
