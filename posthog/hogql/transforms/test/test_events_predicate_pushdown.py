@@ -50,11 +50,12 @@ from posthog.hogql.transforms.logical_property_lowering import lower_property_ac
 from posthog.hogql.visitor import TraversingVisitor
 
 from posthog.clickhouse.client import sync_execute
-from posthog.models import MaterializedColumnSlot, MaterializedColumnSlotState, PropertyDefinition
+from posthog.models import MaterializedColumnSlot, MaterializedColumnSlotState
 from posthog.uuidt import uuid7
 
 from products.cohorts.backend.models.cohort import Cohort
 from products.cohorts.backend.models.util import recalculate_cohortpeople
+from products.event_definitions.backend.models import PropertyDefinition
 from products.event_definitions.backend.models.property_definition import PropertyType
 
 

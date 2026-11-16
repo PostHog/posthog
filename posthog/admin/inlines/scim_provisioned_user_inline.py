@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from ee.models.scim_provisioned_user import SCIMProvisionedUser
+from posthog.models.scim_provisioned_user import SCIMProvisionedUser
 
 
 class SCIMProvisionedUserInline(admin.TabularInline):

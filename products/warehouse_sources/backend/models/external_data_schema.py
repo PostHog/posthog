@@ -83,6 +83,10 @@ def resolve_sync_type(value: str | None) -> ExternalDataSchemaSyncType | None:
 # Recorded as the job's latest_error, which the syncs UI shows to the customer.
 SYNC_DISABLED_JOB_ERROR = "Sync stopped because syncing was turned off"
 SCHEMA_DELETED_JOB_ERROR = "Sync stopped because the table was deleted"
+WORKER_RESTART_ERROR_MESSAGE = (
+    "This sync run was interrupted too many times by restarts on PostHog's side, so it did not finish. "
+    "It will run again automatically. No action is needed."
+)
 AUTO_DISABLED_JOB_ERROR = "Sync stopped because of an error that retrying would not fix"
 
 # `Any_Source_Errors` rewrites the raised exception into this copy, so a blocked schema carries it
@@ -287,6 +291,11 @@ FAILURE_STREAK_RUNS_KEY = "runs"
 FAILURE_STREAK_LAST_FAILED_AT_KEY = "last_failed_at"
 
 
+# Set when a user chooses history for an incremental schema. `cdc_table_mode` alone is not enough,
+# because a schema that left CDC keeps the mode it had there.
+INCREMENTAL_HISTORY_KEY = "incremental_history"
+
+
 class ExternalDataSchema(  # nosemgrep: semgrep.rules.security.prefer-uuid7-django-pk -- grandfathered UUIDT primary key
     ModelActivityMixin, CreatedMetaFields, UpdatedMetaFields, UUIDTModel, DeletedMetaFields
 ):
@@ -301,6 +310,13 @@ class ExternalDataSchema(  # nosemgrep: semgrep.rules.security.prefer-uuid7-djan
     source = models.ForeignKey("warehouse_sources.ExternalDataSource", related_name="schemas", on_delete=models.CASCADE)
     table = models.ForeignKey("warehouse_sources.DataWarehouseTable", on_delete=models.SET_NULL, null=True, blank=True)
     should_sync = models.BooleanField(default=True)
+    # db_default because pods on the previous release insert rows without this column while a deploy runs.
+    live_query_enabled = models.BooleanField(
+        default=False,
+        db_default=False,
+        help_text="Whether this table is queryable live on a synced source with live queries on, without syncing it. "
+        "Synced tables are always queryable live.",
+    )
     auto_disabled_at = models.DateTimeField(
         null=True,
         blank=True,
@@ -371,6 +387,8 @@ class ExternalDataSchema(  # nosemgrep: semgrep.rules.security.prefer-uuid7-djan
     enabled_columns = models.JSONField(null=True, blank=True, default=None)
     # null (default) = sync all rows. List of {column, operator, value} predicates ANDed onto the WHERE clause.
     row_filters = models.JSONField(null=True, blank=True, default=None)
+    # null (default) = no masking. Source column names whose values the sync replaces with a one-way digest.
+    masked_columns = models.JSONField(null=True, blank=True, default=None)
 
     objects = ExternalDataSchemaQuerySet.as_manager()
 
@@ -378,6 +396,15 @@ class ExternalDataSchema(  # nosemgrep: semgrep.rules.security.prefer-uuid7-djan
 
     class Meta:
         db_table = "posthog_externaldataschema"
+        indexes = [
+            # Serves the staff list of schemas PostHog stopped itself, newest first. Only those rows carry
+            # a stamp, so the partial index stays small.
+            models.Index(
+                fields=["-auto_disabled_at"],
+                name="idx_extschema_auto_disabled",
+                condition=models.Q(auto_disabled_at__isnull=False),
+            ),
+        ]
 
     def _sync_teardown_kind(self, update_fields: Iterable[str] | None) -> str | None:
         """Which stop-syncing transition this save performs, read from the DB before writing.
@@ -582,6 +609,12 @@ class ExternalDataSchema(  # nosemgrep: semgrep.rules.security.prefer-uuid7-djan
         if self.sync_type_config:
             return self.sync_type_config.get("cdc_table_mode", "consolidated")
         return "consolidated"
+
+    @property
+    def keeps_history(self) -> bool:
+        if self.cdc_table_mode not in ("cdc_only", "both"):
+            return False
+        return self.is_cdc or (self.is_incremental and bool(self.sync_type_config.get(INCREMENTAL_HISTORY_KEY)))
 
     @property
     def should_use_incremental_field(self):
@@ -1224,11 +1257,18 @@ class ExternalDataSchema(  # nosemgrep: semgrep.rules.security.prefer-uuid7-djan
                 return
             found = True
             field_type = config.get("incremental_field_type")
+            # A stored watermark with no earliest value means the table already holds every older row.
+            # A run from that watermark read only newer rows, so its oldest row must not become the
+            # earliest value: the next run would read every row below it again.
+            watermark_without_earliest = (
+                config.get("incremental_field_last_value") is not None
+                and config.get("incremental_field_earliest_value") is None
+            )
             if "last_value" in staged:
                 _advance_promoted_cursor(
                     config, "incremental_field_last_value", staged["last_value"], "last", field_type
                 )
-            if "earliest_value" in staged:
+            if "earliest_value" in staged and not watermark_without_earliest:
                 _advance_promoted_cursor(
                     config, "incremental_field_earliest_value", staged["earliest_value"], "earliest", field_type
                 )
@@ -1486,6 +1526,8 @@ class ExternalDataSchema(  # nosemgrep: semgrep.rules.security.prefer-uuid7-djan
         )
 
     def soft_delete(self):
+        # Discovery revives a deleted row when the table comes back, which must not bring back live queries.
+        self.live_query_enabled = False
         self.deleted = True
         self.deleted_at = timezone.now()
         self.save()
@@ -1509,6 +1551,8 @@ class ExternalDataSchema(  # nosemgrep: semgrep.rules.security.prefer-uuid7-djan
                 self.table.soft_delete()
 
             self.table_id = None
+            # The table's access rules go with it, so its source's rules must not take over for a live query.
+            self.live_query_enabled = False
             self.last_synced_at = None
             self.status = None
             self.save()
@@ -1887,17 +1931,30 @@ def update_should_sync(
         sync_external_data_job_workflow,
         unpause_external_data_schedule,
     )
+    from products.warehouse_sources.backend.temporal.data_imports.cdc.broken import (  # noqa: PLC0415
+        restore_missing_extraction_schedule,
+    )
 
     schema = ExternalDataSchema.objects.select_related("source").get(id=schema_id, team_id=team_id)
+    if should_sync and schema.deleted:
+        raise ValueError(f"Schema {schema_id} is deleted, so its syncing cannot be turned on")
     schema.should_sync = should_sync
     # Turning syncing back on says the source is worth trying again, so the next run starts on
     # the full retry cap and the normal cadence.
     if should_sync:
         schema.clear_failure_streak()
+    elif not disable_error_message:
+        # Only a disable with an error message is PostHog stopping the schema. Any other disable is a
+        # decision to keep it off, so an earlier stop must not leave it eligible for a staff re-enable.
+        schema.auto_disabled_at = None
     with sync_disable_context(error_message=disable_error_message, exclude_workflow_id=disable_exclude_workflow_id):
         schema.save()
 
     if not schema.source.supports_scheduled_sync:
+        # A direct query source gets no import schedule, but some older ones still carry one. A disable
+        # must pause it, or the schedule keeps running imports for a schema that is turned off.
+        if should_sync is False and external_data_workflow_exists(schema_id):
+            pause_external_data_schedule(schema_id)
         return schema
 
     schedule_exists = external_data_workflow_exists(schema_id)
@@ -1910,6 +1967,14 @@ def update_should_sync(
     else:
         if should_sync is True:
             sync_external_data_job_workflow(schema, create=True)
+
+    # A capture run that found no syncing CDC table deleted the source's extraction schedule.
+    if should_sync is True and schema.sync_type == ExternalDataSchema.SyncType.CDC:
+        try:
+            restore_missing_extraction_schedule(schema.source)
+        except Exception:
+            # The table is already enabled, and the CDC sweeper recreates a missing schedule.
+            logger.exception("cdc_extraction_schedule_sync_failed", external_data_schema_id=str(schema.id))
 
     return schema
 
@@ -2347,6 +2412,56 @@ def get_schemas_for_direct_reconciliation(
 # offering the new name as a separate one.
 SCHEMA_RESOURCE_ID_METADATA_KEY = "source_resource_id"
 
+# Set to True in a schema's `schema_metadata` when the schema reads a definition PostHog stored on it,
+# not one that discovery reports (a self-managed table moved into an object storage source reads the
+# exact files of its old URL pattern). Discovery can't report such a schema, so it must not disable it.
+SCHEMA_PINNED_METADATA_KEY = "pinned"
+# Set in a schema's `schema_metadata` to the self-managed table that the schema's first sync replaces.
+# The schema does not link to that table before the sync, so the table stays as it is until then.
+SCHEMA_SELF_MANAGED_TABLE_METADATA_KEY = "self_managed_table"
+
+
+@frozen
+class SelfManagedTableRef:
+    """The self-managed table a schema replaces, and the files the schema was pinned to read."""
+
+    table_id: str
+    url_pattern: str
+    format: str
+    # Set when an operator abandoned the migration of the table.
+    abandon_reason: str | None = None
+
+    def to_metadata(self) -> dict[str, Any]:
+        metadata = {"table_id": self.table_id, "url_pattern": self.url_pattern, "format": self.format}
+        if self.abandon_reason is not None:
+            metadata["abandon_reason"] = self.abandon_reason
+        return metadata
+
+
+def _schema_metadata(schema: "ExternalDataSchema") -> dict[str, Any]:
+    metadata = (schema.sync_type_config or {}).get("schema_metadata")
+    return metadata if isinstance(metadata, dict) else {}
+
+
+def is_pinned_schema(schema: "ExternalDataSchema") -> bool:
+    return _schema_metadata(schema).get(SCHEMA_PINNED_METADATA_KEY) is True
+
+
+def self_managed_table_ref(schema: "ExternalDataSchema") -> SelfManagedTableRef | None:
+    ref = _schema_metadata(schema).get(SCHEMA_SELF_MANAGED_TABLE_METADATA_KEY)
+    if not isinstance(ref, dict):
+        return None
+    table_id, url_pattern, table_format = ref.get("table_id"), ref.get("url_pattern"), ref.get("format")
+    if not (isinstance(table_id, str) and isinstance(url_pattern, str) and isinstance(table_format, str)):
+        return None
+    reason = ref.get("abandon_reason")
+    return SelfManagedTableRef(
+        table_id=table_id,
+        url_pattern=url_pattern,
+        format=table_format,
+        abandon_reason=reason if isinstance(reason, str) else None,
+    )
+
 
 def _resource_id(metadata: object) -> str | None:
     if isinstance(metadata, dict) and metadata.get(SCHEMA_RESOURCE_ID_METADATA_KEY) is not None:
@@ -2540,10 +2655,16 @@ def sync_old_schemas_with_new_schemas(
 
     for schema in schemas_to_create:
         seeded_metadata = (schema_metadata_by_name or {}).get(schema)
-        deleted_obj = (
-            ExternalDataSchema.objects.filter(team_id=team_id, source_id=source_id, name=schema, deleted=True)
-            .order_by("-updated_at", "-created_at")
-            .first()
+        deleted_obj = next(
+            (
+                row
+                for row in ExternalDataSchema.objects.filter(
+                    team_id=team_id, source_id=source_id, name=schema, deleted=True
+                ).order_by("-updated_at", "-created_at")
+                # A deleted migration schema records that its table stays self-managed, so discovery must not revive it.
+                if SCHEMA_SELF_MANAGED_TABLE_METADATA_KEY not in _schema_metadata(row)
+            ),
+            None,
         )
         if deleted_obj is not None:
             deleted_obj.deleted = False
@@ -2582,6 +2703,12 @@ def sync_old_schemas_with_new_schemas(
             team_id=team_id, name=schema, source_id=source_id, deleted=False
         )
         for s in schemas_to_check:
+            if is_pinned_schema(s):
+                continue
+            if s.live_query_enabled:
+                # A table recreated upstream under the same name must not become queryable live without a new choice.
+                s.live_query_enabled = False
+                s.save(update_fields=["live_query_enabled", "updated_at"])
             # Only rows nobody enabled disappear entirely. A user-enabled row survives as visibly
             # disabled, because soft-deleting it would silently discard the user's selection (e.g.
             # a scope-gated table the source stopped offering before its first successful sync).

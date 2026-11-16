@@ -1,14 +1,17 @@
 from collections import Counter, defaultdict, deque
-from collections.abc import Collection, Iterable, Sequence
+from collections.abc import Collection, Iterable, Mapping, Sequence
 from datetime import datetime, time, timedelta
 from functools import partial
 from typing import TYPE_CHECKING
 from uuid import UUID
 
 from django.db import transaction
-from django.db.models import F
+from django.db.models import F, Q, QuerySet
 
 from posthog.dataclasses import frozen
+
+from products.data_modeling.backend.facade.api import saved_query_definitions
+from products.data_modeling.backend.facade.contracts import SavedQueryDefinition
 
 from ..facade.contracts import SuggestionAlreadyDecidedError, SuggestionDraft
 from ..facade.enums import (
@@ -19,11 +22,12 @@ from ..facade.enums import (
 )
 from ..models import WarehouseSuggestion
 from .analytics import SuggestionOutcome, report_outcomes
+from .assignment import assign_surfaced, notify_surfaced
 from .candidates.base import CandidateContext
 from .candidates.registry import CANDIDATES
 from .reads import Subject
 from .rules import LifecycleRules, kind_position
-from .suggestions import transition_to, upsert_suggestions
+from .suggestions import ALLOWED_TRANSITIONS, Transitions, transition_to, upsert_suggestions
 
 if TYPE_CHECKING:
     from posthog.models.team import Team
@@ -54,11 +58,12 @@ def apply_run(
 ) -> LifecycleResult:
     """Apply one run's drafts, show new suggestions when `surface` is set, and recheck accepted assets."""
     fingerprints = {draft.fingerprint for draft in drafts}
-    reopened = _reopen(context, drafts)
+    reopened = _reopen(context, drafts, now)
     created = _upsert(context.team_id, drafts)
     auto_resolved = _auto_resolve(context, fingerprints)
     expired = _expire(context, fingerprints, now)
     surfaced = _surface(context.team_id, context.rules.lifecycle, now) if surface else []
+    assigned = assign_surfaced(team, surfaced, context.inventory.saved_queries)
     assets_reconciled = _reconcile_assets(context)
     outcomes: OutcomeBatches = (
         (SuggestionOutcome.CREATED, created),
@@ -69,6 +74,7 @@ def apply_run(
         (SuggestionOutcome.SURFACED, surfaced),
     )
     transaction.on_commit(partial(_report_all, outcomes, team))
+    transaction.on_commit(partial(notify_surfaced, team, assigned, context.run_id))
     return LifecycleResult(
         created=len(created),
         reproposed=len(reopened.reproposed),
@@ -93,10 +99,13 @@ def _upsert(team_id: int, drafts: Sequence[SuggestionDraft]) -> list[WarehouseSu
     return list(suggestions.filter(fingerprint__in=fingerprints - existing))
 
 
+ALL_WAITING = Q()
 REVIVABLE_STATUSES = (WarehouseSuggestionStatus.EXPIRED, WarehouseSuggestionStatus.AUTO_RESOLVED)
+FLIP_KINDS = frozenset({WarehouseSuggestionKind.MATERIALIZE, WarehouseSuggestionKind.UNMATERIALIZE})
+REOPEN_ACCEPTED: Transitions = {WarehouseSuggestionStatus.ACCEPTED: frozenset({WarehouseSuggestionStatus.PROPOSED})}
 
 
-def _reopen(context: CandidateContext, drafts: Sequence[SuggestionDraft]) -> Reopened:
+def _reopen(context: CandidateContext, drafts: Sequence[SuggestionDraft], now: datetime) -> Reopened:
     """Move closed suggestions that match a draft back to proposed and unshown, dismissed ones only if they earn it."""
     drafts_by_fingerprint = {draft.fingerprint: draft for draft in drafts}
     suggestions = WarehouseSuggestion.objects.for_team(context.team_id)
@@ -111,6 +120,8 @@ def _reopen(context: CandidateContext, drafts: Sequence[SuggestionDraft]) -> Reo
             revived.extend(_moved(row, context.team_id, WarehouseSuggestionStatus.PROPOSED))
         elif _earns_reproposal(row, drafts_by_fingerprint[row.fingerprint], context.rules.lifecycle):
             reproposed.extend(_moved(row, context.team_id, WarehouseSuggestionStatus.PROPOSED))
+    for row in _accepted_then_flipped_back(context, drafts_by_fingerprint, now):
+        reproposed.extend(_moved(row, context.team_id, WarehouseSuggestionStatus.PROPOSED, REOPEN_ACCEPTED))
     reproposed_ids = [row.id for row in reproposed]
     revived_ids = [row.id for row in revived]
     suggestions.filter(id__in=reproposed_ids).update(reproposed_count=F("reproposed_count") + 1)
@@ -118,6 +129,21 @@ def _reopen(context: CandidateContext, drafts: Sequence[SuggestionDraft]) -> Reo
     return Reopened(
         reproposed=tuple(suggestions.filter(id__in=reproposed_ids)),
         revived=tuple(suggestions.filter(id__in=revived_ids)),
+    )
+
+
+def _accepted_then_flipped_back(
+    context: CandidateContext, drafts_by_fingerprint: Mapping[str, SuggestionDraft], now: datetime
+) -> list[WarehouseSuggestion]:
+    """Accepted materialize and unmaterialize suggestions drafted again, so their view flipped back, past the cooldown."""
+    cooled_down_before = now - timedelta(days=context.rules.lifecycle.flip_cooldown_days)
+    return list(
+        WarehouseSuggestion.objects.for_team(context.team_id).filter(
+            fingerprint__in=drafts_by_fingerprint,
+            status=WarehouseSuggestionStatus.ACCEPTED,
+            kind__in=FLIP_KINDS,
+            reviewed_at__lte=cooled_down_before,
+        )
     )
 
 
@@ -161,8 +187,37 @@ def _expire(
     return _move_all(stale, context.team_id, WarehouseSuggestionStatus.EXPIRED)
 
 
-def _surface(team_id: int, rules: LifecycleRules, now: datetime) -> list[WarehouseSuggestion]:
+def surface_on_demand(team: "Team", rules: LifecycleRules, now: datetime, waiting: Q) -> list[WarehouseSuggestion]:
+    """Show the next batch of `waiting` suggestions outside the daily limit, assigned but without notifications."""
+    surfaced = _surface(team.pk, rules, now, waiting=waiting, on_demand=True)
+    assign_surfaced(team, surfaced, _surfaced_saved_queries(team.pk, surfaced))
+    transaction.on_commit(partial(report_outcomes, SuggestionOutcome.SURFACED, surfaced, team=team))
+    return surfaced
+
+
+def _surfaced_saved_queries(team_id: int, surfaced: Sequence[WarehouseSuggestion]) -> dict[UUID, SavedQueryDefinition]:
+    view_ids = [row.subject_id for row in surfaced if row.subject_kind == WarehouseSuggestionSubjectKind.SAVED_QUERY]
+    if not view_ids:
+        return {}
+    return {definition.id: definition for definition in saved_query_definitions(team_id, ids=view_ids)}
+
+
+def waiting_count(team_id: int, waiting: Q) -> int:
+    return _waiting(team_id, waiting).count()
+
+
+def _surface(
+    team_id: int, rules: LifecycleRules, now: datetime, *, waiting: Q = ALL_WAITING, on_demand: bool = False
+) -> list[WarehouseSuggestion]:
     """Show waiting suggestions within the daily, open and per-kind limits, and return the ones shown."""
+    chosen = pick_waiting(team_id, rules, now, waiting=waiting, on_demand=on_demand)
+    suggestions = WarehouseSuggestion.objects.for_team(team_id)
+    suggestions.filter(id__in=chosen).update(surfaced_at=now, surfaced_on_demand=on_demand)
+    return list(suggestions.filter(id__in=chosen).select_related("assignee"))
+
+
+def pick_waiting(team_id: int, rules: LifecycleRules, now: datetime, *, waiting: Q, on_demand: bool) -> list[UUID]:
+    """The `waiting` suggestions the next surfacing would show, without showing them."""
     suggestions = WarehouseSuggestion.objects.for_team(team_id)
     start_of_day = datetime.combine(now.date(), time.min, tzinfo=now.tzinfo)
     open_kinds = Counter(
@@ -170,27 +225,30 @@ def _surface(team_id: int, rules: LifecycleRules, now: datetime) -> list[Warehou
             "kind", flat=True
         )
     )
-    slots = min(
-        rules.max_surfaced_per_day - suggestions.filter(surfaced_at__gte=start_of_day).count(),
-        rules.max_open - open_kinds.total(),
+    surfaced_today = (
+        0 if on_demand else suggestions.filter(surfaced_at__gte=start_of_day, surfaced_on_demand=False).count()
     )
+    slots = min(rules.max_surfaced_per_day - surfaced_today, rules.max_open - open_kinds.total())
     if slots <= 0:
         return []
     first_week = not suggestions.filter(
         surfaced_at__lt=start_of_day - timedelta(days=rules.first_week_runs - 1)
     ).exists()
-    waiting = suggestions.filter(status=WarehouseSuggestionStatus.PROPOSED, surfaced_at__isnull=True).only(
-        "id", "kind", "score"
-    )
-    chosen = _pick_in_turns(
-        list(waiting),
+    return _pick_in_turns(
+        list(_waiting(team_id, waiting).only("id", "kind", "score")),
         rules.first_week_kind_order if first_week else rules.kind_order,
         slots,
         open_kinds,
         rules.max_open_per_kind,
     )
-    suggestions.filter(id__in=chosen).update(surfaced_at=now)
-    return list(suggestions.filter(id__in=chosen))
+
+
+def _waiting(team_id: int, waiting: Q) -> QuerySet[WarehouseSuggestion]:
+    return (
+        WarehouseSuggestion.objects.for_team(team_id)
+        .filter(status=WarehouseSuggestionStatus.PROPOSED, surfaced_at__isnull=True)
+        .filter(waiting)
+    )
 
 
 def _pick_in_turns(
@@ -221,14 +279,39 @@ def _reconcile_assets(context: CandidateContext) -> int:
     suggestions = WarehouseSuggestion.objects.for_team(context.team_id)
     changed = 0
     for row in suggestions.filter(status=WarehouseSuggestionStatus.ACCEPTED).only(
-        "id", "kind", "subject_kind", "subject_id", "reviewed_at", "asset_outcome"
+        "id",
+        "kind",
+        "subject_kind",
+        "subject_id",
+        "reviewed_at",
+        "score_inputs",
+        "asset_outcome",
+        "realized_seconds_saved_per_month",
+        "realized_bytes_saved_per_month",
     ):
-        outcome = CANDIDATES[WarehouseSuggestionKind(row.kind)].asset_outcome(
-            context, _subject(row), accepted_at=row.reviewed_at
-        )
-        if outcome != row.asset_outcome:
-            changed += suggestions.filter(id=row.id).update(asset_outcome=outcome)
+        updates = _asset_updates(context, row)
+        if any(getattr(row, field) != value for field, value in updates.items()):
+            changed += suggestions.filter(id=row.id).update(**updates)
     return changed
+
+
+def _asset_updates(context: CandidateContext, row: WarehouseSuggestion) -> dict[str, object]:
+    candidate = CANDIDATES[WarehouseSuggestionKind(row.kind)]
+    subject = _subject(row)
+    savings = (
+        candidate.realized_savings(context, subject, row.score_inputs)
+        if _window_starts_after(context, row.reviewed_at)
+        else None
+    )
+    return {
+        "asset_outcome": candidate.asset_outcome(context, subject, accepted_at=row.reviewed_at),
+        "realized_seconds_saved_per_month": savings.seconds if savings else None,
+        "realized_bytes_saved_per_month": savings.read_bytes if savings else None,
+    }
+
+
+def _window_starts_after(context: CandidateContext, accepted_at: datetime | None) -> bool:
+    return accepted_at is not None and accepted_at < context.reads.window.starts_at
 
 
 def _move_all(
@@ -237,10 +320,15 @@ def _move_all(
     return [moved for row in rows for moved in _moved(row, team_id, status)]
 
 
-def _moved(row: WarehouseSuggestion, team_id: int, status: WarehouseSuggestionStatus) -> list[WarehouseSuggestion]:
+def _moved(
+    row: WarehouseSuggestion,
+    team_id: int,
+    status: WarehouseSuggestionStatus,
+    transitions: Transitions = ALLOWED_TRANSITIONS,
+) -> list[WarehouseSuggestion]:
     """The suggestion moved to `status` as the system, or nothing when a person already decided it."""
     try:
-        return [transition_to(row.id, team_id, status, user_id=None)]
+        return [transition_to(row.id, team_id, status, user_id=None, transitions=transitions)]
     except SuggestionAlreadyDecidedError:
         return []
 

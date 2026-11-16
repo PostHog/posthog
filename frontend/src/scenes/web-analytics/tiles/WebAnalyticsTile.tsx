@@ -4,7 +4,7 @@ import { useCallback, useMemo } from 'react'
 
 import * as starPng from '@posthog/brand/hoggies/png/star'
 import { IconChevronDown, IconTrending, IconUndo, IconWarning } from '@posthog/icons'
-import { LemonSegmentedButton, LemonSelect, Link, Tooltip } from '@posthog/lemon-ui'
+import { Link, Tooltip } from '@posthog/lemon-ui'
 
 import { pngHoggie } from 'lib/brand/hoggies'
 import { getColorVar } from 'lib/colors'
@@ -12,7 +12,9 @@ import { IntervalFilterStandalone } from 'lib/components/IntervalFilter'
 import { parseAliasToReadable } from 'lib/components/PathCleanFilters/PathCleanFilterItem'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { PropertyIcon } from 'lib/components/PropertyIcon/PropertyIcon'
+import { TZLabel } from 'lib/components/TZLabel'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconOpenInNew, IconTrendingDown, IconTrendingFlat } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
@@ -45,6 +47,7 @@ import {
     faviconUrl,
     webStatsBreakdownToPropertyName,
 } from 'scenes/web-analytics/common'
+import { MarketingCostBreakdownWarning } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/components/MarketingCostBreakdownWarning'
 import {
     buildDataTableTileDataNodeLogicProps,
     buildInsightVizTileDataNodeLogicProps,
@@ -86,9 +89,13 @@ import { HeatmapButton } from '../CrossSellButtons/HeatmapButton'
 import { ReplayButton } from '../CrossSellButtons/ReplayButton'
 import { pageReportsLogic } from '../pageReportsLogic'
 import { MarketingAnalyticsTable } from '../tabs/marketing-analytics/frontend/components/MarketingAnalyticsTable/MarketingAnalyticsTable'
-import { marketingAnalyticsLogic } from '../tabs/marketing-analytics/frontend/logic/marketingAnalyticsLogic'
+import {
+    MarketingChartBreakdown,
+    marketingAnalyticsLogic,
+} from '../tabs/marketing-analytics/frontend/logic/marketingAnalyticsLogic'
 import { validColumnsForTiles } from '../tabs/marketing-analytics/frontend/logic/utils'
-import { DISPLAY_MODE_OPTIONS } from '../tabs/marketing-analytics/frontend/shared'
+import { DISPLAY_MODE_OPTIONS, MARKETING_CHART_TYPE_LABELS } from '../tabs/marketing-analytics/frontend/shared'
+import { WebTileHeader } from '../WebTileHeader'
 
 export const toUtcOffsetFormat = (value: number): string => {
     if (value === 0) {
@@ -616,6 +623,9 @@ export const webAnalyticsDataTableQueryContext: QueryContext = {
         url: {
             render: UrlValueCell,
         },
+        'Last seen': {
+            render: ({ value }) => (typeof value === 'string' ? <TZLabel time={value} /> : <>{value}</>),
+        },
         action_name: {
             title: 'Action',
         },
@@ -852,8 +862,10 @@ export const MarketingAnalyticsTrendTile = ({
     attachTo,
     uniqueKey,
 }: QueryWithInsightProps<InsightVizNode> & { showIntervalTile?: boolean; uniqueKey: string }): JSX.Element => {
-    const { setDateInterval, setChartDisplayType, setTileColumnSelection } = useActions(marketingAnalyticsLogic)
-    const { dateFilter, chartDisplayType, tileColumnSelection } = useValues(marketingAnalyticsLogic)
+    const { setDateInterval, setChartDisplayType, setTileColumnSelection, setChartBreakdown } =
+        useActions(marketingAnalyticsLogic)
+    const { dateFilter, chartDisplayType, tileColumnSelection, chartBreakdown } = useValues(marketingAnalyticsLogic)
+    const canSplitByCampaign = !!useFeatureFlag('MARKETING_ANALYTICS_COSTS_PRECOMPUTATION')
 
     const MARKETING_COLUMN_OPTIONS: { value: validColumnsForTiles; label: string }[] = [
         { value: MarketingAnalyticsColumnsSchemaNames.Cost, label: 'Cost' },
@@ -872,29 +884,36 @@ export const MarketingAnalyticsTrendTile = ({
     return (
         <div className="border rounded bg-surface-primary flex-1 flex flex-col min-h-100">
             {showIntervalTile && (
-                <div className="flex flex-row items-center justify-between m-2 mr-4">
-                    <LemonSelect
-                        value={tileColumnSelection}
-                        onChange={setTileColumnSelection}
-                        options={MARKETING_COLUMN_OPTIONS}
-                        placeholder="Select column"
-                    />
-                    <div className="flex flex-row items-center">
-                        <div className="flex flex-row items-center mr-4">
-                            <span className="mr-2">Group by</span>
+                <WebTileHeader
+                    tileId={TileId.MARKETING}
+                    titleDropdown={{
+                        value: tileColumnSelection,
+                        options: MARKETING_COLUMN_OPTIONS,
+                        onChange: (value) => setTileColumnSelection(value as validColumnsForTiles),
+                    }}
+                    breakdownDropdown={{
+                        value: canSplitByCampaign ? chartBreakdown : 'platform',
+                        options: [
+                            { value: 'platform', label: 'Ad platform' },
+                            ...(canSplitByCampaign ? [{ value: 'campaign', label: 'Campaign' }] : []),
+                        ],
+                        onChange: (value) => setChartBreakdown(value as MarketingChartBreakdown),
+                    }}
+                    intervalSelector={{
+                        node: (
                             <IntervalFilterStandalone
                                 interval={dateFilter.interval}
                                 onIntervalChange={setDateInterval}
                             />
-                        </div>
-                        <LemonSegmentedButton
-                            value={chartDisplayType}
-                            onChange={setChartDisplayType}
-                            options={DISPLAY_MODE_OPTIONS}
-                            size="small"
-                        />
-                    </div>
-                </div>
+                        ),
+                    }}
+                    overflowMenuItems={DISPLAY_MODE_OPTIONS.map((option) => ({
+                        label: MARKETING_CHART_TYPE_LABELS[option.value] ?? option.value,
+                        icon: option.icon,
+                        active: chartDisplayType === option.value,
+                        onClick: () => setChartDisplayType(option.value),
+                    }))}
+                />
             )}
             <Query
                 uniqueKey={uniqueKey}
@@ -903,6 +922,9 @@ export const MarketingAnalyticsTrendTile = ({
                 readOnly={true}
                 context={{ insightProps: { ...insightProps, query } }}
             />
+            {canSplitByCampaign && chartBreakdown === 'campaign' && (
+                <MarketingCostBreakdownWarning insightProps={insightProps} />
+            )}
         </div>
     )
 }

@@ -9,6 +9,7 @@ import { CdpValkeyShadowPools } from '../cdp-services'
 import { counterHogFunctionStateOnEvent, counterRateLimited } from '../consumers/metrics'
 import { shouldBlockInvocationDueToQuota } from '../consumers/quota-limiting-helper'
 import {
+    CyclotronJobInvocation,
     CyclotronJobInvocationHogFunction,
     HogFunctionInvocationGlobals,
     HogFunctionType,
@@ -47,6 +48,11 @@ export interface HogFunctionInvocationPipelineDeps {
     deadLetterService?: InvocationFailureSink
 }
 
+// The one rule for billing and the destinations quota, so an unbilled invocation (an alert notification) is never quota-dropped.
+function isBilledHogFunction(hogFunction: HogFunctionType): boolean {
+    return hogFunction.type === 'destination'
+}
+
 export interface BuildHogFunctionInvocationsOptions {
     hogTypes: HogFunctionTypeType[]
     filterFn: (fn: HogFunctionType) => boolean
@@ -77,11 +83,25 @@ export class HogFunctionInvocationPipeline {
         this.hogRateLimiterMirror = new KeyedRateLimiterService(rateLimiterConfig, deps.valkeyShadow.writer)
     }
 
-    @instrumented('cdpConsumer.handleEachBatch.queueMatchingFunctions')
     public async buildInvocations(
         invocationGlobals: HogFunctionInvocationGlobals[],
         opts: BuildHogFunctionInvocationsOptions
     ): Promise<CyclotronJobInvocationHogFunction[]> {
+        return (await this.buildInvocationsWithRelease(invocationGlobals, opts)).invocations
+    }
+
+    /**
+     * Also returns the masker's `release`. Masking claims are written before the caller queues the invocations,
+     * so a caller that retries after a failed queue must release them, or the retry masks every invocation.
+     */
+    @instrumented('cdpConsumer.handleEachBatch.queueMatchingFunctions')
+    public async buildInvocationsWithRelease(
+        invocationGlobals: HogFunctionInvocationGlobals[],
+        opts: BuildHogFunctionInvocationsOptions
+    ): Promise<{
+        invocations: CyclotronJobInvocationHogFunction[]
+        release: (persisted?: CyclotronJobInvocation[]) => Promise<void>
+    }> {
         const teamsToLoad = [...new Set(invocationGlobals.map((x) => x.project.id))]
         const hogFunctionsByTeam = await this.deps.hogFunctionManager.getHogFunctionsForTeams(
             teamsToLoad,
@@ -100,7 +120,8 @@ export class HogFunctionInvocationPipeline {
                         const { invocations, metrics, logs, buildFailures } = await buildHogFunctionInvocations(
                             this.deps.hogInputsService,
                             teamHogFunctions,
-                            globals
+                            globals,
+                            { markInputsRebuildable: true }
                         )
 
                         this.deps.hogFunctionMonitoringService.queueAppMetrics(metrics, 'hog_function')
@@ -170,10 +191,12 @@ export class HogFunctionInvocationPipeline {
                     logger.error('🔴', 'Error checking rate limit for hog function', { err: e })
                 }
 
-                const isQuotaLimited = await shouldBlockInvocationDueToQuota(item, {
-                    quotaLimiting: this.deps.quotaLimiting,
-                    hogFunctionMonitoringService: this.deps.hogFunctionMonitoringService,
-                })
+                const isQuotaLimited =
+                    isBilledHogFunction(item.hogFunction) &&
+                    (await shouldBlockInvocationDueToQuota(item, {
+                        quotaLimiting: this.deps.quotaLimiting,
+                        hogFunctionMonitoringService: this.deps.hogFunctionMonitoringService,
+                    }))
 
                 if (isQuotaLimited) {
                     return
@@ -213,7 +236,11 @@ export class HogFunctionInvocationPipeline {
             })
         )
 
-        const { masked, notMasked: notMaskedInvocations } = await this.deps.hogMasker.filterByMasking(validInvocations)
+        const {
+            masked,
+            notMasked: notMaskedInvocations,
+            release,
+        } = await this.deps.hogMasker.filterByMasking(validInvocations)
 
         this.deps.hogFunctionMonitoringService.queueAppMetrics(
             masked.map((item) => ({
@@ -241,7 +268,7 @@ export class HogFunctionInvocationPipeline {
             })
 
             // Bill once per triggering event, not per destination
-            if (item.hogFunction.type === 'destination') {
+            if (isBilledHogFunction(item.hogFunction)) {
                 const eventUuid = item.state?.globals?.event?.uuid
                 if (eventUuid && !billedEventUuids.has(eventUuid)) {
                     billedEventUuids.add(eventUuid)
@@ -264,6 +291,6 @@ export class HogFunctionInvocationPipeline {
 
         this.deps.hogFunctionMonitoringService.queueAppMetrics(triggeredInvocationsMetrics, 'hog_function')
 
-        return notMaskedInvocations
+        return { invocations: notMaskedInvocations, release }
     }
 }

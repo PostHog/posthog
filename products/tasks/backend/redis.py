@@ -27,8 +27,17 @@ def get_tasks_stream_redis_async(use_dedicated: bool = False):
     return get_async_client(_tasks_stream_redis_url(use_dedicated))
 
 
-def get_tasks_stream_redis_sync(use_dedicated: bool = False):
-    return get_client(_tasks_stream_redis_url(use_dedicated))
+def get_tasks_stream_redis_sync(
+    use_dedicated: bool = False,
+    *,
+    socket_timeout: float | None = None,
+    socket_connect_timeout: float | None = None,
+):
+    return get_client(
+        _tasks_stream_redis_url(use_dedicated),
+        socket_timeout=socket_timeout,
+        socket_connect_timeout=socket_connect_timeout,
+    )
 
 
 def get_tasks_cache() -> BaseCache:

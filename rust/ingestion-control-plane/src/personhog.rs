@@ -131,7 +131,10 @@ pub fn parse_snapshot(kvs: &[RawKv], prefix: &str, revision: i64) -> RawSnapshot
             if let Some(changelog) = parse::<ChangelogConfig>(kv, errors) {
                 snapshot.changelog = Some(changelog);
             }
-        } else if suffix.starts_with("migrations/") || suffix.starts_with("seal_acks/") {
+        } else if suffix.starts_with("migrations/")
+            || suffix.starts_with("seal_acks/")
+            || suffix.starts_with("changelog/drained/")
+        {
             // The changelog panel reads these.
         } else {
             snapshot.unknown_keys.push(kv.key.clone());
@@ -743,6 +746,7 @@ mod tests {
             kv("migrations/current", serde_json::json!({}), 0),
             kv("migrations/history/m-1", serde_json::json!({}), 0),
             kv("seal_acks/pod-a", serde_json::json!({}), 0),
+            kv("changelog/drained/old/writer", serde_json::json!({}), 0),
         ];
         assert!(parse_snapshot(&kvs, PREFIX, 42).unknown_keys.is_empty());
     }

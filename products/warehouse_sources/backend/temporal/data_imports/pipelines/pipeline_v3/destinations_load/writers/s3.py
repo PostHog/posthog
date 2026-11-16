@@ -22,14 +22,14 @@ Credentials, the client and its config come from batch exports' S3 destination:
   roles, and `request_checksum_calculation="when_required"`. That last one is why R2, GCS and
   MinIO accept our uploads at all: they reject AWS's newer checksum headers.
 
-What is not taken from there is the upload itself. `ConcurrentS3Consumer` times every part
-through `ExecutionTimeRecorder`, which resolves a Temporal metric meter and raises outside an
-activity. Delivery runs in the Postgres-queue load worker, not in an activity, so the parts are
-uploaded here instead, keeping their `RequestTimeout` retry behavior.
+What is not taken from there is the upload itself. `ConcurrentS3Consumer` counts exported rows
+and bytes through Temporal activity metrics, which raise outside an activity. Delivery runs in the
+Postgres-queue load worker, not in an activity, so the parts are uploaded here instead, keeping
+their `RequestTimeout` retry behavior.
 
-Bytes are streamed a record batch at a time through `ParquetStreamTransformer`, whose
-`write_record_batch` and `finish_parquet_file` are pure. Collecting the whole staged batch
-first would hold ~200 MiB of Arrow plus two copies of its parquet, per destination.
+Bytes are streamed a row group at a time through `ParquetStreamTransformer.iter`, which holds
+at most one row group of record batches. Collecting the whole staged batch first would hold
+~200 MiB of Arrow plus two copies of its parquet, per destination.
 """
 
 from __future__ import annotations
@@ -151,29 +151,24 @@ class _WriteStats:
 async def _parquet_byte_stream(
     batches: AsyncIterator[pa.RecordBatch], compression: str | None, stats: _WriteStats
 ) -> AsyncIterator[bytes]:
-    """Yield the parquet encoding of `batches`, one record batch at a time.
+    """Yield the parquet encoding of `batches` as one file, one row group at a time.
 
-    `write_record_batch` returns only the bytes the writer produced for that batch and resets
-    its buffer, so nothing accumulates. The pyarrow write runs in a thread to keep the event
-    loop free for the upload it is feeding.
+    The transformer holds record batches until they fill a row group, so at most one row group
+    of Arrow data is in memory. A batch that later grows a column is projected back onto the
+    first schema, because one parquet file has one schema.
     """
-    transformer = ParquetStreamTransformer(compression=compression, include_inserted_at=True)
+    # Delivery runs outside a Temporal activity, where there is no metric meter to record to.
+    transformer = ParquetStreamTransformer(compression=compression, include_inserted_at=True, record_metrics=False)
 
+    async for chunk in transformer.iter(_count_rows(batches, stats)):
+        stats.parquet_bytes += len(chunk.data)
+        yield chunk.data
+
+
+async def _count_rows(batches: AsyncIterator[pa.RecordBatch], stats: _WriteStats) -> AsyncIterator[pa.RecordBatch]:
     async for record_batch in batches:
-        # No-op after the first batch. A batch that later grows a column is projected back onto
-        # the first schema, because one parquet file has one schema.
-        transformer.schema = record_batch.schema
-
-        chunk = await asyncio.to_thread(transformer.write_record_batch, record_batch)
         stats.rows += record_batch.num_rows
-        stats.parquet_bytes += len(chunk)
-        if chunk:
-            yield chunk
-
-    footer = await asyncio.to_thread(transformer.finish_parquet_file)
-    stats.parquet_bytes += len(footer)
-    if footer:
-        yield footer
+        yield record_batch
 
 
 async def _chain(head: pa.RecordBatch, rest: AsyncIterator[pa.RecordBatch]) -> AsyncIterator[pa.RecordBatch]:

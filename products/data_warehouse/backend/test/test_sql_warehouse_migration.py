@@ -78,7 +78,15 @@ class TestMultiSchemaCapability:
         ]
     )
     def test_source_namespace_is_blank(self, _name: str, job_inputs: dict[str, Any] | None, expected: bool) -> None:
-        assert source_namespace_is_blank(cast(ExternalDataSource, SimpleNamespace(job_inputs=job_inputs))) is expected
+        assert (
+            source_namespace_is_blank(
+                cast(
+                    ExternalDataSource,
+                    SimpleNamespace(source_type=ExternalDataSourceType.POSTGRES, job_inputs=job_inputs),
+                )
+            )
+            is expected
+        )
 
 
 class TestDetectSchemaClearTransition:

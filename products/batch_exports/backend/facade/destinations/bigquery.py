@@ -14,18 +14,22 @@ Importing this module loads the destination's vendor SDK, so keep it off the
 
 from products.batch_exports.backend.temporal.destinations.bigquery_batch_export import (
     BigQueryClient,
+    GoogleCloudCredentialsError,
     MissingRequiredPermissionsError,
     ServiceAccountNotFoundError,
     ServiceAccountOwnershipError,
+    ensure_our_google_cloud_credentials_are_valid,
     get_our_google_cloud_credentials,
     verify_impersonated_service_account_ownership,
 )
 
 __all__ = [
     "BigQueryClient",
+    "GoogleCloudCredentialsError",
     "MissingRequiredPermissionsError",
     "ServiceAccountNotFoundError",
     "ServiceAccountOwnershipError",
+    "ensure_our_google_cloud_credentials_are_valid",
     "get_our_google_cloud_credentials",
     "verify_impersonated_service_account_ownership",
 ]

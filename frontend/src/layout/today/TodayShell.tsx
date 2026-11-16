@@ -1,22 +1,23 @@
 import './TodayShell.scss'
 
-import { useActions, useMountedLogic, useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { Suspense, useEffect, useRef } from 'react'
 
 import { Skeleton, ToastProvider } from '@posthog/quill'
 
 import 'scenes/project-homepage/today/Today.scss'
-import { Resizer } from 'lib/components/Resizer/Resizer'
-import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
 import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import { useShortcut } from 'lib/components/Shortcuts/useShortcut'
+import { Resizer } from 'lib/lemon-ui/Resizer/Resizer'
+import { ResizerLogicProps, resizerLogic } from 'lib/lemon-ui/Resizer/resizerLogic'
 import { cn } from 'lib/utils/css-classes'
 import { lazyWithRetry } from 'lib/utils/retryImport'
 
 import { QuillSceneHeader } from '~/layout/scenes/components/QuillSceneHeader'
 
-import { todayPanelChatSessionLogic } from './todayPanelChatSessionLogic'
+import { TodayNavSwitchDialog } from './TodayNavSwitchDialog'
 import { TodayPhoneHeader } from './TodayPhoneHeader'
+import { TodayPreviewCardProvider } from './TodayPreviewCardProvider'
 import { TodayRail } from './TodayRail'
 import { TODAY_PANES } from './todayRailItems'
 import { TODAY_RAIL_WIDTH, TODAY_SIDEBAR_CLOSE_THRESHOLD, clampSidebarWidth, todayShellLogic } from './todayShellLogic'
@@ -24,13 +25,22 @@ import { TodaySidebarCollapseButton } from './TodaySidebarCollapseButton'
 import { TodaySidebarFooter } from './TodaySidebarFooter'
 import { TodaySidebarPinButton } from './TodaySidebarPinButton'
 import { TodayTabBar } from './TodayTabBar'
+import { TodayTour } from './TodayTour'
 
 const TodaySpacesPane = lazyWithRetry(() => import('./TodaySpacesPane').then((m) => ({ default: m.TodaySpacesPane })))
 const TodayAnalyticsSidebar = lazyWithRetry(() =>
-    import('./TodayAnalyticsSidebar').then((m) => ({ default: m.TodayAnalyticsSidebar }))
+    import('products/today/frontend/analytics/TodayAnalyticsSidebar').then((m) => ({
+        default: m.TodayAnalyticsSidebar,
+    }))
+)
+const TodayPeopleSidebar = lazyWithRetry(() =>
+    import('./TodayPeopleSidebar').then((m) => ({ default: m.TodayPeopleSidebar }))
 )
 const TodayProductsPane = lazyWithRetry(() =>
     import('./TodayProductsPane').then((m) => ({ default: m.TodayProductsPane }))
+)
+const ReleaseSidebar = lazyWithRetry(() =>
+    import('products/release/frontend/ReleaseSidebar').then((m) => ({ default: m.ReleaseSidebar }))
 )
 const TodaySettingsSidebar = lazyWithRetry(() =>
     import('./TodaySettingsSidebar').then((m) => ({ default: m.TodaySettingsSidebar }))
@@ -43,7 +53,6 @@ const NewSpaceDialog = lazyWithRetry(() =>
 export function TodayShell({ className }: { className?: string }): JSX.Element {
     const { activePane, mobileLayout, phoneLayout, sidebarVisible, sidebarWidth, phoneHeaderHidden } =
         useValues(todayShellLogic)
-    useMountedLogic(todayPanelChatSessionLogic)
     const { setMobileSidebarOpen, setSidebarOpen, setSidebarWidth, toggleSidebar } = useActions(todayShellLogic)
     useShortcut({
         name: 'ToggleLeftNav',
@@ -94,7 +103,15 @@ export function TodayShell({ className }: { className?: string }): JSX.Element {
             {activePane === 'home' ? null : activePane === 'spaces' ? (
                 <TodaySpacesPane />
             ) : activePane === 'analytics' ? (
-                <TodayAnalyticsSidebar />
+                <TodayPreviewCardProvider disabled={phoneLayout}>
+                    <TodayAnalyticsSidebar />
+                </TodayPreviewCardProvider>
+            ) : activePane === 'people' ? (
+                <TodayPreviewCardProvider disabled={phoneLayout}>
+                    <TodayPeopleSidebar />
+                </TodayPreviewCardProvider>
+            ) : activePane === 'release' ? (
+                <ReleaseSidebar />
             ) : activePane === 'settings' ? (
                 <TodaySettingsSidebar />
             ) : (
@@ -112,7 +129,8 @@ export function TodayShell({ className }: { className?: string }): JSX.Element {
                 className="group/header border-b-transparent"
                 back={<TodaySidebarCollapseButton />}
                 title={
-                    <div className="flex min-w-0 items-center gap-1">
+                    // The header gap puts the title 2px to the right of the pane row labels. Pull it back so they line up.
+                    <div className="-ms-0.5 flex min-w-0 items-center gap-1">
                         <h2 className="m-0 min-w-0 truncate text-base font-bold text-foreground">{paneTitle}</h2>
                         <TodaySidebarPinButton />
                     </div>
@@ -123,10 +141,17 @@ export function TodayShell({ className }: { className?: string }): JSX.Element {
         </div>
     )
 
-    const newSpaceDialog = activePane === 'spaces' && (
-        <Suspense fallback={null}>
-            <NewSpaceDialog />
-        </Suspense>
+    const overlays = (
+        <>
+            {/* Mounted here so the sidebar and the spaces page open the same dialog. */}
+            {activePane === 'spaces' && (
+                <Suspense fallback={null}>
+                    <NewSpaceDialog />
+                </Suspense>
+            )}
+            <TodayNavSwitchDialog />
+            <TodayTour />
+        </>
     )
 
     if (phoneLayout) {
@@ -147,7 +172,7 @@ export function TodayShell({ className }: { className?: string }): JSX.Element {
                         <TodaySidebarFooter />
                     </aside>
                     <TodayTabBar />
-                    {newSpaceDialog}
+                    {overlays}
                 </div>
             </ToastProvider>
         )
@@ -199,8 +224,7 @@ export function TodayShell({ className }: { className?: string }): JSX.Element {
                         </aside>
                     )
                 )}
-                {/* Mounted here so the sidebar and the spaces page open the same dialog. */}
-                {newSpaceDialog}
+                {overlays}
             </div>
         </ToastProvider>
     )

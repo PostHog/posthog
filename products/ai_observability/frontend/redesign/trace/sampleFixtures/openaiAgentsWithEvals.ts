@@ -1,6 +1,7 @@
-import type { TraceNodeApi } from '../../../generated/api.schemas'
-import { EvalResult, NodeProperties, ThreadMessage } from '../types'
-import { SampleNodeDetail, SampleTraceFixture, sampleStats } from './sampleTraceFixture'
+import type { TraceEvaluationResultApi, TraceNodeApi } from '../../../generated/api.schemas'
+import { ThreadMessage } from '../types'
+import { jsonContent, messagesContent, messagesSides } from './sampleContent'
+import { SampleNodeDetail, SampleTraceFixture, sampleDetail, sampleRaw, sampleStats } from './sampleTraceFixture'
 
 const TRACE_ID = 'trace_5gL08JNGqLvX2XcwWRWBmJgj6s6VwJcE'
 const AGENT_SPAN_ID = 'span_xCcAWaoMGK3OoppmlOJIXhhd'
@@ -69,7 +70,7 @@ const planOutput: ThreadMessage[] = [
     {
         id: `${PLAN_GENERATION_ID}-out-1`,
         role: 'assistant',
-        parts: [{ kind: 'toolCall', name: 'search_hotels', args: {} }],
+        parts: [{ kind: 'toolCall', name: 'search_hotels', args: {}, result: null }],
         isInternal: true,
         sourceNodeId: PLAN_GENERATION_ID,
     },
@@ -96,53 +97,47 @@ const answerOutput: ThreadMessage[] = [
     },
 ]
 
-const EVALUATION_HREF = `/evaluations/${EVALUATION_ID}`
-
-function evalRun(runId: string, timestamp: string, reasoning: string): EvalResult {
+function evalRun(runId: string, targetNodeId: string, timestamp: string, reasoning: string): TraceEvaluationResultApi {
     return {
         id: `${EVALUATION_ID}-${runId}`,
-        name: 'no_fabrication',
-        href: EVALUATION_HREF,
+        evaluationId: EVALUATION_ID,
+        evaluationName: 'no_fabrication',
+        targetNodeId,
         outcome: 'pass',
         label: 'True',
+        score: null,
         reasoning,
         timestamp,
         isBackfill: false,
-        target: null,
     }
 }
 
 const planEval = evalRun(
     '2864bb23-1838-757a-f65e-83f2826cbbc2',
+    PLAN_GENERATION_ID,
     '2026-09-24T10:18:41.508Z',
     'The tool call result matches the cited hotel data exactly.'
 )
 
 const answerEval = evalRun(
     '65ed9ea6-398b-7c59-32bc-a32577820244',
+    ANSWER_GENERATION_ID,
     '2026-09-24T10:18:44.917Z',
     'The final answer only cites facts present in the tool output.'
 )
 
-const answerHelpfulness: EvalResult = {
+const answerHelpfulness: TraceEvaluationResultApi = {
     id: 'b7d31f02-6a4e-4c19-9e58-0f2c7a91d3e6',
-    name: 'helpfulness',
-    href: '/evaluations/b7d31f02-6a4e-4c19-9e58-0f2c7a91d3e6',
+    evaluationId: 'b7d31f02-6a4e-4c19-9e58-0f2c7a91d3e6',
+    evaluationName: 'helpfulness',
+    targetNodeId: ANSWER_GENERATION_ID,
     outcome: 'unrated',
     label: '0.9',
+    score: null,
     reasoning: 'Covers both hotels and the visa question, with prices and cancellation terms.',
     timestamp: '2026-09-20T03:02:11.000Z',
     isBackfill: true,
-    target: null,
 }
-
-export const openaiAgentsEvals: EvalResult[] = [planEval, answerEval, answerHelpfulness]
-
-const traceEvals: EvalResult[] = [
-    { ...planEval, target: { label: GENERATION_NAME, nodeId: PLAN_GENERATION_ID } },
-    { ...answerEval, target: { label: GENERATION_NAME, nodeId: ANSWER_GENERATION_ID } },
-    { ...answerHelpfulness, target: { label: GENERATION_NAME, nodeId: ANSWER_GENERATION_ID } },
-]
 
 const planStats = sampleStats({ costUsd: 0.0016, inputTokens: 853, outputTokens: 49, latencyMs: 2376 })
 const answerStats = sampleStats({ costUsd: 0.0079, inputTokens: 1616, outputTokens: 586, latencyMs: 5995 })
@@ -153,6 +148,7 @@ const tree: TraceNodeApi[] = [
         id: TRACE_ID,
         kind: 'trace',
         name: 'Trip Planning',
+        label: 'Trip Planning',
         model: null,
         stats: sampleStats({ ...runTotals, latencyMs: 8377 }),
         hasError: false,
@@ -161,6 +157,7 @@ const tree: TraceNodeApi[] = [
                 id: AGENT_SPAN_ID,
                 kind: 'span',
                 name: 'trip-concierge-agent-run',
+                label: 'trip-concierge-agent-run',
                 model: null,
                 stats: sampleStats({ ...runTotals, latencyMs: 8374 }),
                 hasError: false,
@@ -169,6 +166,7 @@ const tree: TraceNodeApi[] = [
                         id: PLAN_GENERATION_ID,
                         kind: 'generation',
                         name: GENERATION_NAME,
+                        label: `${GENERATION_NAME} #1`,
                         model: MODEL,
                         stats: planStats,
                         hasError: false,
@@ -178,6 +176,7 @@ const tree: TraceNodeApi[] = [
                         id: TOOL_SPAN_ID,
                         kind: 'span',
                         name: 'search_hotels',
+                        label: 'search_hotels',
                         model: null,
                         stats: sampleStats({}),
                         hasError: false,
@@ -187,6 +186,7 @@ const tree: TraceNodeApi[] = [
                         id: ANSWER_GENERATION_ID,
                         kind: 'generation',
                         name: GENERATION_NAME,
+                        label: `${GENERATION_NAME} #2`,
                         model: MODEL,
                         stats: answerStats,
                         hasError: false,
@@ -197,16 +197,6 @@ const tree: TraceNodeApi[] = [
         ],
     },
 ]
-
-const traceProperties: NodeProperties = {
-    timestamp: TRACE_TIMESTAMP,
-    provider: null,
-    temperature: null,
-    sessionId: null,
-    promptName: null,
-    promptVersion: null,
-    person: 'user-1',
-}
 
 const sharedRawProperties: Record<string, unknown> = {
     $ai_trace_id: TRACE_ID,
@@ -223,62 +213,41 @@ function generationDetail(
     timestamp: string,
     input: ThreadMessage[],
     output: ThreadMessage[],
-    evalResults: EvalResult[],
     rawProperties: Record<string, unknown>
 ): SampleNodeDetail {
-    return {
-        content: { kind: 'messages', input, output },
-        error: null,
-        properties: { ...traceProperties, timestamp, provider: 'openai' },
-        evals: { status: 'ready', results: evalResults },
-        raw: {
-            event: '$ai_generation',
-            id,
-            createdAt: timestamp,
+    return sampleDetail({
+        content: messagesContent(input, output),
+        metadata: { provider: 'openai' },
+        raw: sampleRaw('generation', id, {
+            name: '$ai_generation',
+            timestamp: timestamp,
             properties: { ...sharedRawProperties, $ai_span_id: id, $ai_model: MODEL, ...rawProperties },
-        },
-    }
+        }),
+    })
 }
 
 export const openaiAgentsWithEvals: SampleTraceFixture = {
     header: {
         name: 'Trip Planning',
         hasError: false,
-        olderHref: '/older',
-        newerHref: '/newer',
         backLink: { label: 'Back to traces', href: '/traces' },
     },
-    summary: {
-        traceId: TRACE_ID,
-        timestamp: TRACE_TIMESTAMP,
-        person: { label: 'user-1', href: '/person/user-1' },
+    trace: {
+        id: TRACE_ID,
+        createdAt: TRACE_TIMESTAMP,
+        sessionId: null,
+        person: { distinctId: 'user-1', label: 'user-1' },
         totals: tree[0].stats,
     },
     tree,
     initialNodeId: ANSWER_GENERATION_ID,
     details: {
-        [TRACE_ID]: {
-            content: { kind: 'io', input: null, output: null },
-            error: null,
-            properties: traceProperties,
-            evals: { status: 'ready', results: traceEvals },
-            raw: {
-                id: TRACE_ID,
-                createdAt: TRACE_TIMESTAMP,
-                traceName: 'Trip Planning',
-                totalLatency: 8.377000093460083,
-                traceMetadata: { userId: '9432f4d0-1a38-7c4a-a840-a22446331b7d' },
-            },
-        },
-        [AGENT_SPAN_ID]: {
-            content: { kind: 'io', input: null, output: null },
-            error: null,
-            properties: { ...traceProperties, timestamp: AGENT_TIMESTAMP },
-            evals: { status: 'ready', results: [] },
-            raw: {
-                event: '$ai_span',
-                id: AGENT_SPAN_ID,
-                createdAt: AGENT_TIMESTAMP,
+        [TRACE_ID]: sampleDetail({ content: jsonContent(null, null), raw: sampleRaw('trace', TRACE_ID, null) }),
+        [AGENT_SPAN_ID]: sampleDetail({
+            content: jsonContent(null, null),
+            raw: sampleRaw('span', AGENT_SPAN_ID, {
+                name: '$ai_span',
+                timestamp: AGENT_TIMESTAMP,
                 properties: {
                     ...sharedRawProperties,
                     $ai_span_id: AGENT_SPAN_ID,
@@ -296,9 +265,9 @@ export const openaiAgentsWithEvals: SampleTraceFixture = {
                         'convert_currency',
                     ],
                 },
-            },
-        },
-        [PLAN_GENERATION_ID]: generationDetail(PLAN_GENERATION_ID, TRACE_TIMESTAMP, planInput, planOutput, [planEval], {
+            }),
+        }),
+        [PLAN_GENERATION_ID]: generationDetail(PLAN_GENERATION_ID, TRACE_TIMESTAMP, planInput, planOutput, {
             $ai_response_id: 'resp_t6UzdDRX3JALmEQgkpmbjNstpSizyPOtAY3iwM7txHDAbsznsI',
             $ai_input_tokens: 853,
             $ai_output_tokens: 49,
@@ -306,15 +275,11 @@ export const openaiAgentsWithEvals: SampleTraceFixture = {
             $ai_tools_called: 'search_hotels',
             $ai_tool_call_count: 1,
         }),
-        [TOOL_SPAN_ID]: {
-            content: { kind: 'io', input: '{}', output: SEARCH_RESULTS },
-            error: null,
-            properties: traceProperties,
-            evals: { status: 'ready', results: [] },
-            raw: {
-                event: '$ai_span',
-                id: TOOL_SPAN_ID,
-                createdAt: TRACE_TIMESTAMP,
+        [TOOL_SPAN_ID]: sampleDetail({
+            content: jsonContent('{}', SEARCH_RESULTS),
+            raw: sampleRaw('span', TOOL_SPAN_ID, {
+                name: '$ai_span',
+                timestamp: TRACE_TIMESTAMP,
                 properties: {
                     ...sharedRawProperties,
                     $ai_span_id: TOOL_SPAN_ID,
@@ -323,21 +288,14 @@ export const openaiAgentsWithEvals: SampleTraceFixture = {
                     $ai_latency: 0,
                     $ai_input_state: '{}',
                 },
-            },
-        },
-        [ANSWER_GENERATION_ID]: generationDetail(
-            ANSWER_GENERATION_ID,
-            ANSWER_TIMESTAMP,
-            answerInput,
-            answerOutput,
-            [answerEval, answerHelpfulness],
-            {
-                $ai_response_id: 'resp_klx2gvAQZnLtNaXUgbFxg2L7Az15GoJGFMNBt6s847mQpP4v54',
-                $ai_input_tokens: 1616,
-                $ai_output_tokens: 586,
-                $ai_latency: 5.995000123977661,
-            }
-        ),
+            }),
+        }),
+        [ANSWER_GENERATION_ID]: generationDetail(ANSWER_GENERATION_ID, ANSWER_TIMESTAMP, answerInput, answerOutput, {
+            $ai_response_id: 'resp_klx2gvAQZnLtNaXUgbFxg2L7Az15GoJGFMNBt6s847mQpP4v54',
+            $ai_input_tokens: 1616,
+            $ai_output_tokens: 586,
+            $ai_latency: 5.995000123977661,
+        }),
     },
     thread: {
         status: 'ready',
@@ -345,7 +303,7 @@ export const openaiAgentsWithEvals: SampleTraceFixture = {
             {
                 id: TRACE_ID,
                 timestamp: TRACE_TIMESTAMP,
-                messages: [...answerInput, ...answerOutput],
+                ...messagesSides(answerInput, answerOutput),
                 error: null,
             },
         ],
@@ -392,4 +350,5 @@ export const openaiAgentsWithEvals: SampleTraceFixture = {
         ],
         totalMs: 8374,
     },
+    evaluationResults: [planEval, answerEval, answerHelpfulness],
 }

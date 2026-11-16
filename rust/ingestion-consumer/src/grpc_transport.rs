@@ -23,19 +23,17 @@
 //! failure resolves every queued and un-acked item, in enqueue order, with a
 //! [`SendError`] carrying the messages back. The batcher then requeues them
 //! at the front of their keys' queues, and holds all newer work for those
-//! keys until the failed messages are retried (oldest first) and acked. Each
-//! fenced send also carries a [`FenceGuard`]; the worker stream keeps fencing
-//! every new arrival until all guards are dropped, which closes the gap
-//! between a send resolving and its caller requeuing, where a newer send for
-//! a fenced key could otherwise be enqueued and ride the next stream first.
-//! Nothing for a fenced key can leapfrog the failure, because everything for
-//! it was either in the ledger, the queue, or fenced on arrival.
+//! keys until the failed messages are retried (oldest first) and acked.
+//! Nothing for a fenced key can leapfrog the failure. The batcher keeps one
+//! request in flight per key and requeues a failed request before it releases
+//! the request's keys, so a newer send for a fenced key does not exist. A
+//! send split into chunks is one queue entry, so all of its chunks ride the
+//! same stream.
 //!
-//! Backpressure: the queue is unbounded (so enqueue stays synchronous and
-//! ordered) but the worker stream keeps at most `max_unacked` sub-batches un-acked on
-//! the stream; queue depth is bounded in practice by the consumer's
-//! `max_in_flight_batches`, whose batches cannot complete until their sends
-//! resolve.
+//! The queue is unbounded, so enqueue stays synchronous and ordered. The
+//! batcher bounds its depth: it keeps at most `INGESTION_WORKER_CONCURRENT_BATCHES`
+//! requests in flight per worker and sends nothing more until one settles,
+//! so every queued sub-batch goes on the wire at once.
 
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
@@ -56,7 +54,7 @@ use tracing::{error, info, warn};
 
 use crate::readiness;
 use crate::transport::{
-    split_by_size, FenceGuard, SendError, SendOutcome, TransportError, DEFAULT_MAX_BODY_BYTES,
+    split_by_size, SendError, SendOutcome, TransportError, DEFAULT_MAX_BODY_BYTES,
 };
 use crate::types::SerializedKafkaMessage;
 
@@ -100,7 +98,6 @@ impl PendingWorkerStreamSend {
                 Err(_) => Err(SendError {
                     error: TransportError::WorkerStreamClosed,
                     messages: Vec::new(),
-                    fence_guard: None,
                 }),
             };
             match reply {
@@ -115,16 +112,7 @@ impl PendingWorkerStreamSend {
                 }
                 Err(mut err) => {
                     messages.extend(std::mem::take(&mut err.messages));
-                    match &mut failure {
-                        // Keep the first failure's error; fold later guards
-                        // into it so the stream fences until all are requeued.
-                        Some(first) => match (&mut first.fence_guard, err.fence_guard.take()) {
-                            (Some(guard), Some(other)) => guard.merge(other),
-                            (slot @ None, other) => *slot = other,
-                            (Some(_), None) => {}
-                        },
-                        None => failure = Some(err),
-                    }
+                    failure.get_or_insert(err);
                 }
             }
         }
@@ -172,8 +160,13 @@ struct WorkerStreamItem {
     reply: oneshot::Sender<StreamReply>,
 }
 
+/// The chunks of one send. They are one queue entry so that they all ride the
+/// same stream: on the next stream, a later chunk would reach the worker
+/// ahead of the retry of an earlier one.
+type WorkerStreamSend = Vec<WorkerStreamItem>;
+
 struct WorkerStream {
-    tx: mpsc::UnboundedSender<WorkerStreamItem>,
+    tx: mpsc::UnboundedSender<WorkerStreamSend>,
 }
 
 /// How a worker's gRPC address is derived from its HTTP URL.
@@ -194,9 +187,6 @@ pub struct GrpcTransport {
     consumer_id: String,
     /// How each worker's stream address is derived from its HTTP URL.
     grpc_port: GrpcPort,
-    /// Max un-acked sub-batches per worker stream (aligned with the worker's
-    /// `concurrentBatches`).
-    max_unacked: usize,
     /// Fence the worker stream when un-acked work sees no ack for this long.
     ack_timeout: Duration,
     /// Bumped on Kafka partition assignment; stamped on every sub-batch so
@@ -208,18 +198,18 @@ pub struct GrpcTransport {
     /// consecutive chunks (see `begin_send`), so no frame crosses the worker's
     /// message limit.
     max_body_bytes: usize,
+    idle_close: Option<Duration>,
 }
 
 impl GrpcTransport {
-    pub fn new(grpc_port: GrpcPort, max_unacked: usize, ack_timeout: Duration) -> Self {
-        assert!(max_unacked > 0, "max_unacked must be > 0");
+    pub fn new(grpc_port: GrpcPort, ack_timeout: Duration) -> Self {
         Self {
             worker_streams: DashMap::new(),
             consumer_id: make_consumer_id(),
             grpc_port,
-            max_unacked,
             ack_timeout,
             max_body_bytes: DEFAULT_MAX_BODY_BYTES,
+            idle_close: None,
             // A fresh epoch for standalone construction; production wiring
             // injects the shared one via `set_assignment_epoch`.
             assignment_epoch: AssignmentEpoch::new(),
@@ -237,11 +227,6 @@ impl GrpcTransport {
         self.assignment_epoch = epoch;
     }
 
-    /// The most sub-batches one worker stream keeps un-acked.
-    pub fn max_unacked(&self) -> usize {
-        self.max_unacked
-    }
-
     /// The assignment epoch this transport stamps on sub-batches.
     pub fn assignment_epoch(&self) -> AssignmentEpoch {
         self.assignment_epoch.clone()
@@ -251,6 +236,10 @@ impl GrpcTransport {
     pub fn set_max_body_bytes(&mut self, bytes: usize) {
         assert!(bytes > 0, "max_body_bytes must be > 0");
         self.max_body_bytes = bytes;
+    }
+
+    pub fn set_idle_close(&mut self, after: Duration) {
+        self.idle_close = (!after.is_zero()).then_some(after);
     }
 
     /// Enqueue a sub-batch on the worker's stream. Synchronous on purpose: call
@@ -300,8 +289,7 @@ impl GrpcTransport {
             _ => 0,
         };
         let replay = options.replay;
-        let stream = self.worker_stream_for(worker_url);
-        let receivers = chunks
+        let (send, receivers): (WorkerStreamSend, Vec<_>) = chunks
             .into_iter()
             .map(|messages| {
                 let (reply, rx) = oneshot::channel();
@@ -312,20 +300,22 @@ impl GrpcTransport {
                     soft_budget_ms,
                     reply,
                 };
-                if let Err(send_err) = stream.tx.send(item) {
-                    // Worker stream task gone (removed worker): fail the send
-                    // immediately with its messages so the caller defers and
-                    // re-routes.
-                    let item = send_err.0;
-                    let _ = item.reply.send(Err(SendError {
-                        error: TransportError::WorkerStreamClosed,
-                        messages: item.messages,
-                        fence_guard: None,
-                    }));
-                }
-                rx
+                (item, rx)
             })
-            .collect();
+            .unzip();
+        if send.is_empty() {
+            return PendingWorkerStreamSend { chunks: receivers };
+        }
+        if let Err(send_err) = self.worker_stream_for(worker_url).tx.send(send) {
+            // The worker stream task is gone: fail the send with its messages
+            // so the caller requeues and re-routes them.
+            for item in send_err.0 {
+                let _ = item.reply.send(Err(SendError {
+                    error: TransportError::WorkerStreamClosed,
+                    messages: item.messages,
+                }));
+            }
+        }
         PendingWorkerStreamSend { chunks: receivers }
     }
 
@@ -345,8 +335,8 @@ impl GrpcTransport {
             worker_url: Arc::from(worker_url),
             grpc_url: grpc_url(worker_url, self.grpc_port),
             consumer_id: self.consumer_id.clone(),
-            max_unacked: self.max_unacked,
             ack_timeout: self.ack_timeout,
+            idle_close: self.idle_close,
             assignment_epoch: self.assignment_epoch.clone(),
         };
         tokio::spawn(async move { runner.run(rx).await });
@@ -354,10 +344,12 @@ impl GrpcTransport {
     }
 
     /// Tear down a departed worker's stream. Dropping it closes its queue
-    /// sender, so the runner fences whatever is still in flight **in order**,
-    /// with the messages intact, and exits on its own. Aborting the task would
-    /// instead drop the un-acked sends unresolved, which the caller can only
-    /// recover by crashing and replaying — so let the graceful path run.
+    /// sender: the runner takes no more work, lets the sub-batches already on
+    /// the wire settle by ack or by the ack watchdog, and exits on its own.
+    /// A reaped worker that is slow rather than dead so finishes its request
+    /// instead of a survivor repeating it while it still runs. Aborting the
+    /// task would instead drop the un-acked sends unresolved, which the caller
+    /// can only recover by crashing and replaying.
     pub fn remove_worker(&self, worker_url: &str) {
         self.worker_streams.remove(worker_url);
     }
@@ -410,8 +402,8 @@ struct WorkerStreamRunner {
     worker_url: Arc<str>,
     grpc_url: String,
     consumer_id: String,
-    max_unacked: usize,
     ack_timeout: Duration,
+    idle_close: Option<Duration>,
     assignment_epoch: AssignmentEpoch,
 }
 
@@ -419,7 +411,7 @@ impl WorkerStreamRunner {
     /// Worker stream lifecycle: connect, stream until something breaks, fence
     /// everything outstanding, reconnect. Ends when the transport drops the
     /// queue sender (worker removed or shutdown).
-    async fn run(self, mut queue: mpsc::UnboundedReceiver<WorkerStreamItem>) {
+    async fn run(self, mut queue: mpsc::UnboundedReceiver<WorkerStreamSend>) {
         let mut stream_epoch = 0u64;
         let mut backoff = Duration::from_millis(100);
         loop {
@@ -429,27 +421,16 @@ impl WorkerStreamRunner {
                     info!(worker = %self.worker_url, "Worker stream queue closed, exiting");
                     return;
                 }
-                StreamEnd::Failed(fence) => {
+                StreamEnd::Failed => {
                     counter!(
                         "ingestion_consumer_worker_stream_teardowns_total",
                         "worker" => self.worker_url.clone(),
                     )
                     .increment(1);
-                    let fenced = fence.settle(&mut queue).await;
-                    if fenced > 0 {
-                        counter!(
-                            "ingestion_consumer_worker_stream_fenced_sub_batches_total",
-                            "worker" => self.worker_url.clone(),
-                        )
-                        .increment(fenced as u64);
-                    }
                     tokio::time::sleep(jittered(backoff)).await;
                     backoff = (backoff * 2).min(Duration::from_secs(5));
                 }
                 StreamEnd::Idle => {
-                    // Stream ended cleanly with nothing outstanding (e.g. the
-                    // worker restarted gracefully) — reconnect without delay
-                    // escalation.
                     backoff = Duration::from_millis(100);
                 }
             }
@@ -460,46 +441,49 @@ impl WorkerStreamRunner {
     /// queued and un-acked item has been resolved as failed, in order.
     async fn run_stream(
         &self,
-        queue: &mut mpsc::UnboundedReceiver<WorkerStreamItem>,
+        queue: &mut mpsc::UnboundedReceiver<WorkerStreamSend>,
         stream_epoch: u64,
     ) -> StreamEnd {
         // Hold sends until there is work: connecting eagerly on an idle worker stream
         // would spin reconnects against a worker that never gets traffic.
         let first = match queue.recv().await {
-            Some(item) => item,
+            Some(send) => send,
             None => return StreamEnd::QueueClosed,
         };
 
         let mut ledger: VecDeque<LedgerEntry> = VecDeque::new();
-        let mut pending_first = Some(first);
+        let mut pending: VecDeque<WorkerStreamItem> = first.into();
 
         let (out_tx, mut acks) = match self.open_stream(stream_epoch).await {
             Ok(stream) => stream,
-            Err(reason) => return self.fence(pending_first.take(), &mut ledger, queue, reason),
+            Err(reason) => return self.fence(&mut pending, &mut ledger, queue, reason),
         };
 
         let mut next_seq = 1u64;
+        let mut retained_frames = RetainedFrameGauge::open();
         self.record_ledger_depth(0);
 
         loop {
             if let Err(end) = self.fill_ledger(
                 &out_tx,
                 queue,
-                &mut pending_first,
+                &mut pending,
                 &mut ledger,
                 &mut next_seq,
+                &mut retained_frames,
             ) {
                 return end;
             }
             let ack = match self
-                .await_next_ack(&mut acks, queue, &mut pending_first, &mut ledger)
+                .await_next_ack(&mut acks, queue, &mut pending, &mut ledger)
                 .await
             {
                 Ok(Some(ack)) => ack,
                 Ok(None) => continue,
+                Err(StreamEnd::Idle) => return self.close_idle(out_tx, acks, retained_frames),
                 Err(end) => return end,
             };
-            if let Err(end) = self.handle_ack(ack, queue, &mut pending_first, &mut ledger) {
+            if let Err(end) = self.handle_ack(ack, queue, &mut pending, &mut ledger) {
                 return end;
             }
         }
@@ -582,33 +566,33 @@ impl WorkerStreamRunner {
         }
     }
 
-    /// Send the held first item, then pull more only while the ledger has
-    /// room — the worker-aligned concurrency cap. `Err` ends the stream.
+    /// The batcher caps the requests in flight per worker, so nothing is held
+    /// back here. A closed queue stops the filling; the ledger still drains by
+    /// ack. `Err` ends the stream.
     fn fill_ledger(
         &self,
         out_tx: &mpsc::UnboundedSender<IngestStreamRequest>,
-        queue: &mut mpsc::UnboundedReceiver<WorkerStreamItem>,
-        pending_first: &mut Option<WorkerStreamItem>,
+        queue: &mut mpsc::UnboundedReceiver<WorkerStreamSend>,
+        pending: &mut VecDeque<WorkerStreamItem>,
         ledger: &mut VecDeque<LedgerEntry>,
         next_seq: &mut u64,
+        retained_frames: &mut RetainedFrameGauge,
     ) -> Result<(), StreamEnd> {
-        while ledger.len() < self.max_unacked {
-            let item = match pending_first.take() {
-                Some(item) => Some(item),
-                None => match queue.try_recv() {
-                    Ok(item) => Some(item),
-                    Err(mpsc::error::TryRecvError::Empty) => None,
+        loop {
+            if pending.is_empty() {
+                match queue.try_recv() {
+                    Ok(send) => pending.extend(send),
+                    Err(mpsc::error::TryRecvError::Empty) => {}
                     Err(mpsc::error::TryRecvError::Disconnected) => {
-                        return Err(if ledger.is_empty() {
-                            StreamEnd::QueueClosed
-                        } else {
-                            // Resolve the tail before exiting.
-                            self.fence(None, ledger, queue, "queue closed")
-                        });
+                        if ledger.is_empty() {
+                            return Err(StreamEnd::QueueClosed);
+                        }
                     }
-                },
+                }
+            }
+            let Some(item) = pending.pop_front() else {
+                break;
             };
-            let Some(item) = item else { break };
             let seq = *next_seq;
             *next_seq += 1;
             let request = IngestStreamRequest {
@@ -622,8 +606,10 @@ impl WorkerStreamRunner {
                 })),
             };
             // tonic gzips the frame after this point, so only the raw size is observable here.
+            let encoded_len = request.encoded_len() as u64;
             counter!("ingestion_consumer_transport_body_bytes_total", "encoding" => "protobuf")
-                .increment(request.encoded_len() as u64);
+                .increment(encoded_len);
+            retained_frames.record_frame(encoded_len);
             let deadline = tokio::time::Instant::now() + self.ack_timeout;
             let sent = out_tx.send(request).is_ok();
             ledger.push_back(LedgerEntry {
@@ -634,7 +620,7 @@ impl WorkerStreamRunner {
                 acked: None,
             });
             if !sent {
-                return Err(self.fence(None, ledger, queue, "stream closed mid-send"));
+                return Err(self.fence(pending, ledger, queue, "stream closed mid-send"));
             }
             self.record_ledger_depth(ledger.len());
         }
@@ -654,8 +640,9 @@ impl WorkerStreamRunner {
             .record(entry.sent_at.elapsed().as_secs_f64());
     }
 
-    /// Wait for an ack, or for new work when the ledger has room. `Ok(None)`
-    /// means new work was held in `pending_first`; `Err` ends the stream.
+    /// Wait for an ack, or for new work while the queue is open. `Ok(None)`
+    /// means new work was held in `pending`, or the queue closed under
+    /// the wait and the ledger still drains; `Err` ends the stream.
     ///
     /// The ack-progress watchdog bounds how long the oldest un-acked
     /// sub-batch may sit unacked. Each entry carries its own deadline, armed
@@ -667,14 +654,21 @@ impl WorkerStreamRunner {
     async fn await_next_ack(
         &self,
         acks: &mut tonic::Streaming<IngestStreamResponse>,
-        queue: &mut mpsc::UnboundedReceiver<WorkerStreamItem>,
-        pending_first: &mut Option<WorkerStreamItem>,
+        queue: &mut mpsc::UnboundedReceiver<WorkerStreamSend>,
+        pending: &mut VecDeque<WorkerStreamItem>,
         ledger: &mut VecDeque<LedgerEntry>,
     ) -> Result<Option<AckEvent>, StreamEnd> {
         let Some(front) = ledger.front() else {
-            return match queue.recv().await {
-                Some(item) => {
-                    *pending_first = Some(item);
+            let next = match self.idle_close {
+                Some(after) => match tokio::time::timeout(after, queue.recv()).await {
+                    Ok(next) => next,
+                    Err(_) => return Err(StreamEnd::Idle),
+                },
+                None => queue.recv().await,
+            };
+            return match next {
+                Some(send) => {
+                    pending.extend(send);
                     Ok(None)
                 }
                 None => Err(StreamEnd::QueueClosed),
@@ -690,14 +684,11 @@ impl WorkerStreamRunner {
                     timeout_ms = self.ack_timeout.as_millis() as u64,
                     "No ack progress within the watchdog window — fencing worker stream"
                 );
-                Err(self.fence(pending_first.take(), ledger, queue, "ack progress timeout"))
+                Err(self.fence(pending, ledger, queue, "ack progress timeout"))
             }
-            item = queue.recv(), if ledger.len() < self.max_unacked => match item {
-                Some(item) => {
-                    *pending_first = Some(item);
-                    Ok(None)
-                }
-                None => Err(self.fence(None, ledger, queue, "queue closed")),
+            send = queue.recv(), if !queue.is_closed() => {
+                pending.extend(send.into_iter().flatten());
+                Ok(None)
             }
         }
     }
@@ -706,22 +697,22 @@ impl WorkerStreamRunner {
     fn handle_ack(
         &self,
         ack: AckEvent,
-        queue: &mut mpsc::UnboundedReceiver<WorkerStreamItem>,
-        pending_first: &mut Option<WorkerStreamItem>,
+        queue: &mut mpsc::UnboundedReceiver<WorkerStreamSend>,
+        pending: &mut VecDeque<WorkerStreamItem>,
         ledger: &mut VecDeque<LedgerEntry>,
     ) -> Result<(), StreamEnd> {
         let frame = match ack {
             Ok(Some(frame)) => frame,
             Ok(None) => {
-                return Err(if ledger.is_empty() && pending_first.is_none() {
+                return Err(if ledger.is_empty() && pending.is_empty() {
                     StreamEnd::Idle
                 } else {
-                    self.fence(pending_first.take(), ledger, queue, "stream ended")
+                    self.fence(pending, ledger, queue, "stream ended")
                 });
             }
             Err(status) => {
                 warn!(worker = %self.worker_url, status = %status, "Worker stream stream failed");
-                return Err(self.fence(pending_first.take(), ledger, queue, "stream error"));
+                return Err(self.fence(pending, ledger, queue, "stream error"));
             }
         };
         // `ready` is the worker's greeting (and any future keepalive): it
@@ -738,7 +729,7 @@ impl WorkerStreamRunner {
                 error = %response.error,
                 "Worker nacked sub-batch — fencing worker stream"
             );
-            return Err(self.fence(None, ledger, queue, "sub-batch nacked"));
+            return Err(self.fence(pending, ledger, queue, "sub-batch nacked"));
         }
         let partial = response.status == SubBatchStatus::Partial as i32;
         if response.status != SubBatchStatus::Ok as i32 && !partial {
@@ -752,15 +743,14 @@ impl WorkerStreamRunner {
                 status = response.status,
                 "Worker signalled busy — fencing worker stream as retriable"
             );
-            return Err(self.fence_with(true, None, ledger, queue, "worker busy"));
+            return Err(self.fence_with(true, pending, ledger, queue, "worker busy"));
         }
-        let was_full = ledger.len() >= self.max_unacked;
         let Some(index) = ledger
             .iter()
             .position(|e| e.seq == response.seq && e.acked.is_none())
         else {
             warn!(worker = %self.worker_url, seq = response.seq, "Ack for unknown seq — fencing worker stream");
-            return Err(self.fence(None, ledger, queue, "unknown ack seq"));
+            return Err(self.fence(pending, ledger, queue, "unknown ack seq"));
         };
         if let Some(reason) = ack_shape_error(&ledger[index].item, &response) {
             warn!(
@@ -769,7 +759,7 @@ impl WorkerStreamRunner {
                 reason,
                 "Malformed ack — fencing worker stream"
             );
-            return Err(self.fence(None, ledger, queue, reason));
+            return Err(self.fence(pending, ledger, queue, reason));
         }
         let entry = &mut ledger[index];
         entry.acked = Some(Ack {
@@ -801,32 +791,41 @@ impl WorkerStreamRunner {
                 messages,
             }));
         }
-        if was_full && ledger.len() < self.max_unacked && !queue.is_empty() {
-            counter!(
-                "ingestion_consumer_transport_backpressure_waits_total",
-                "worker" => self.worker_url.clone()
-            )
-            .increment(1);
-        }
         self.record_ledger_depth(ledger.len());
         Ok(())
     }
 
-    /// Resolve everything outstanding as failed, **in enqueue order**: the
-    /// un-acked ledger first, then anything still queued (which was enqueued
-    /// after everything in the ledger). Order matters because the batcher
-    /// requeues each failed send at the front of its keys' queues, so
-    /// resolving in order keeps every fenced key's messages queued
-    /// oldest-first and the retry (oldest first) is the same request that
-    /// failed.
+    fn close_idle(
+        &self,
+        out_tx: mpsc::UnboundedSender<IngestStreamRequest>,
+        mut acks: tonic::Streaming<IngestStreamResponse>,
+        retained_frames: RetainedFrameGauge,
+    ) -> StreamEnd {
+        drop(out_tx);
+        let bound = self.ack_timeout;
+        // Off the runner, so work that arrives meanwhile is not held behind the drain.
+        tokio::spawn(async move {
+            // Dropping `acks` before the worker ends its side would reset the
+            // stream instead.
+            let worker_end = async { while let Ok(Some(_)) = acks.message().await {} };
+            let _ = tokio::time::timeout(bound, worker_end).await;
+            drop(retained_frames);
+        });
+        counter!("ingestion_consumer_worker_stream_idle_closes_total").increment(1);
+        StreamEnd::Idle
+    }
+
+    /// Resolve everything outstanding as failed, in enqueue order: the
+    /// ledger first, then the chunks not yet on the wire, then anything
+    /// still queued.
     fn fence(
         &self,
-        pending_first: Option<WorkerStreamItem>,
+        pending: &mut VecDeque<WorkerStreamItem>,
         ledger: &mut VecDeque<LedgerEntry>,
-        queue: &mut mpsc::UnboundedReceiver<WorkerStreamItem>,
+        queue: &mut mpsc::UnboundedReceiver<WorkerStreamSend>,
         reason: &'static str,
     ) -> StreamEnd {
-        self.fence_with(false, pending_first, ledger, queue, reason)
+        self.fence_with(false, pending, ledger, queue, reason)
     }
 
     /// `retriable` distinguishes transient backpressure (a busy worker) from a
@@ -836,23 +835,31 @@ impl WorkerStreamRunner {
     fn fence_with(
         &self,
         retriable: bool,
-        pending_first: Option<WorkerStreamItem>,
+        pending: &mut VecDeque<WorkerStreamItem>,
         ledger: &mut VecDeque<LedgerEntry>,
-        queue: &mut mpsc::UnboundedReceiver<WorkerStreamItem>,
+        queue: &mut mpsc::UnboundedReceiver<WorkerStreamSend>,
         reason: &'static str,
     ) -> StreamEnd {
-        let mut fence = Fence::new(retriable, reason);
+        let fail = |item: WorkerStreamItem| {
+            let error = if retriable {
+                TransportError::WorkerStreamBusy(reason)
+            } else {
+                TransportError::WorkerStreamFailed(reason)
+            };
+            let _ = item.reply.send(Err(SendError {
+                error,
+                messages: item.messages,
+            }));
+        };
         for entry in ledger.drain(..) {
             if entry.acked.is_none() {
                 self.record_send_duration(&entry);
             }
-            fence.fail(entry.item);
+            fail(entry.item);
         }
-        if let Some(item) = pending_first {
-            fence.fail(item);
-        }
-        while let Ok(item) = queue.try_recv() {
-            fence.fail(item);
+        pending.drain(..).for_each(fail);
+        while let Ok(send) = queue.try_recv() {
+            send.into_iter().for_each(fail);
         }
         counter!(
             "ingestion_consumer_transport_requests_total",
@@ -861,88 +868,45 @@ impl WorkerStreamRunner {
         )
         .increment(1);
         self.record_ledger_depth(0);
-        StreamEnd::Failed(fence)
-    }
-}
-
-/// A fence in progress. Every fenced send carries a [`FenceGuard`]; until all
-/// of them are dropped the worker stream fails each new arrival too, so a send
-/// enqueued before the fenced messages are requeued cannot ride the next
-/// stream ahead of them.
-struct Fence {
-    retriable: bool,
-    reason: &'static str,
-    released_tx: mpsc::UnboundedSender<()>,
-    released_rx: mpsc::UnboundedReceiver<()>,
-    /// Guards handed out and not yet dropped.
-    outstanding: usize,
-    fenced: usize,
-}
-
-impl Fence {
-    fn new(retriable: bool, reason: &'static str) -> Self {
-        let (released_tx, released_rx) = mpsc::unbounded_channel();
-        Self {
-            retriable,
-            reason,
-            released_tx,
-            released_rx,
-            outstanding: 0,
-            fenced: 0,
-        }
-    }
-
-    fn fail(&mut self, item: WorkerStreamItem) {
-        let error = if self.retriable {
-            TransportError::WorkerStreamBusy(self.reason)
-        } else {
-            TransportError::WorkerStreamFailed(self.reason)
-        };
-        self.outstanding += 1;
-        self.fenced += 1;
-        // A caller that already dropped its receiver drops the guard here,
-        // which releases it at once.
-        let _ = item.reply.send(Err(SendError {
-            error,
-            messages: item.messages,
-            fence_guard: Some(FenceGuard::new(self.released_tx.clone())),
-        }));
-    }
-
-    /// Fail arrivals until every fenced caller has dropped its guard. Returns
-    /// how many sends the fence failed in total.
-    async fn settle(mut self, queue: &mut mpsc::UnboundedReceiver<WorkerStreamItem>) -> usize {
-        while self.outstanding > 0 {
-            // Releases first: a caller drops its guard before it can enqueue
-            // again, so a release already waiting must not lose to the send
-            // that followed it and fence that send for nothing.
-            tokio::select! {
-                biased;
-                released = self.released_rx.recv() => {
-                    if released.is_some() {
-                        self.outstanding -= 1;
-                    }
-                }
-                item = queue.recv() => match item {
-                    Some(item) => self.fail(item),
-                    // Queue closed: nothing more can arrive, and the runner
-                    // exits on its next receive.
-                    None => break,
-                },
-            }
-        }
-        self.fenced
+        StreamEnd::Failed
     }
 }
 
 enum StreamEnd {
     /// The transport dropped the queue sender — worker removed or shutdown.
     QueueClosed,
-    /// The stream broke; the fence holds what was resolved as failed and
-    /// keeps fencing until those callers have requeued their messages.
-    Failed(Fence),
-    /// The stream ended cleanly with nothing outstanding.
+    /// The stream broke, and everything outstanding was resolved as failed.
+    Failed,
+    /// The stream ended cleanly with nothing outstanding: the worker ended
+    /// it, or the idle timer did.
     Idle,
+}
+
+struct RetainedFrameGauge {
+    largest_frame: u64,
+}
+
+impl RetainedFrameGauge {
+    fn open() -> Self {
+        gauge!("ingestion_consumer_worker_streams_open").increment(1.0);
+        Self { largest_frame: 0 }
+    }
+
+    fn record_frame(&mut self, encoded_len: u64) {
+        if encoded_len > self.largest_frame {
+            gauge!("ingestion_consumer_worker_stream_largest_frame_bytes")
+                .increment((encoded_len - self.largest_frame) as f64);
+            self.largest_frame = encoded_len;
+        }
+    }
+}
+
+impl Drop for RetainedFrameGauge {
+    fn drop(&mut self) {
+        gauge!("ingestion_consumer_worker_streams_open").decrement(1.0);
+        gauge!("ingestion_consumer_worker_stream_largest_frame_bytes")
+            .decrement(self.largest_frame as f64);
+    }
 }
 
 /// A worker bug that misreports what it processed would lose or double

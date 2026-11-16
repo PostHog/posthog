@@ -4,6 +4,8 @@ use std::sync::{Arc, Mutex, RwLock};
 
 use common_kafka::config::KafkaConfig;
 use metrics::counter;
+use personhog_coordination::follow::ChangelogSubscription;
+use personhog_coordination::types::ClusterEndpoint;
 use rdkafka::consumer::{
     BaseConsumer, CommitMode, Consumer, ConsumerContext, Rebalance, StreamConsumer,
 };
@@ -86,6 +88,7 @@ impl ConsumerContext for RebalanceContext {
 pub struct PersonConsumer {
     consumer: StreamConsumer<RebalanceContext>,
     topic: RwLock<String>,
+    cluster: Option<ClusterEndpoint>,
     /// Set while the subscribed topic is a sealed generation.
     draining: AtomicBool,
     revoked: Arc<Mutex<Vec<Source>>>,
@@ -152,10 +155,16 @@ impl PersonConsumer {
         Ok(Self {
             consumer,
             topic: RwLock::new(topic),
+            cluster: None,
             draining: AtomicBool::new(false),
             revoked,
             joined,
         })
+    }
+
+    pub fn on_cluster(mut self, cluster: Option<ClusterEndpoint>) -> Self {
+        self.cluster = cluster;
+        self
     }
 
     /// Only called once the group has drained the current topic.
@@ -260,5 +269,27 @@ impl PersonConsumer {
 
     pub fn topic(&self) -> String {
         self.topic.read().expect("topic lock poisoned").clone()
+    }
+}
+
+impl ChangelogSubscription for PersonConsumer {
+    fn topic(&self) -> String {
+        PersonConsumer::topic(self)
+    }
+
+    fn cluster(&self) -> Option<ClusterEndpoint> {
+        self.cluster.clone()
+    }
+
+    fn resubscribe(&self, topic: &str) -> Result<(), String> {
+        PersonConsumer::resubscribe(self, topic.to_string()).map_err(|e| e.to_string())
+    }
+
+    fn set_draining(&self, draining: bool) {
+        PersonConsumer::set_draining(self, draining)
+    }
+
+    fn is_draining(&self) -> bool {
+        PersonConsumer::is_draining(self)
     }
 }

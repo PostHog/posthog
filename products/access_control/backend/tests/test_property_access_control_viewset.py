@@ -8,12 +8,13 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.constants import AvailableFeature
-from posthog.models import OrganizationMembership, PropertyDefinition, Team, User
+from posthog.models import OrganizationMembership, Team, User
 
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
 from products.access_control.backend.models.role import Role
 from products.access_control.backend.presentation.serializers import PropertyAccessControlUpdateSerializer
 from products.access_control.backend.property_access_control import PropertyAccessLevel, get_restricted_property_names
+from products.event_definitions.backend.models import PropertyDefinition
 
 
 class TestPropertyAccessControlViewSet(APIBaseTest):

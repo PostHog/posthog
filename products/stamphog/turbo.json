@@ -10,7 +10,10 @@
                 "backend/tasks/**",
                 "backend/temporal/**",
                 "backend/models.py",
-                "backend/migrations/**"
+                "backend/migrations/**",
+                "backend/scopes.py",
+                "backend/activity_logging.py",
+                "backend/apps.py"
             ],
             "outputs": [],
             "cache": true

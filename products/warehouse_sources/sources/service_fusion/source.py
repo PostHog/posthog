@@ -1,0 +1,29 @@
+from typing import cast
+
+from products.warehouse_sources.sources.sdk import (
+    DataWarehouseSourceCategory,
+    ExternalDataSourceType,
+    FieldType,
+    SimpleSource,
+    SourceConfig,
+    SourceRegistry,
+)
+from products.warehouse_sources.sources.service_fusion._config import ServiceFusionSourceConfig
+
+
+@SourceRegistry.register
+class ServiceFusionSource(SimpleSource[ServiceFusionSourceConfig]):
+    @property
+    def source_type(self) -> ExternalDataSourceType:
+        return ExternalDataSourceType.SERVICEFUSION
+
+    @property
+    def get_source_config(self) -> SourceConfig:
+        return SourceConfig(
+            name=ExternalDataSourceType.SERVICEFUSION,
+            category=DataWarehouseSourceCategory.CRM,
+            label="Service Fusion",
+            iconPath="/static/services/service_fusion.png",
+            fields=cast(list[FieldType], []),
+            unreleasedSource=True,
+        )

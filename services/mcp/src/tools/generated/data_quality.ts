@@ -255,7 +255,12 @@ const dataQualityCheckUpdate = (): ToolBase<
     },
 })
 
-const DataQualitySubjectsSchema = () => z.object({})
+const DataQualitySubjectsSchema = () => {
+    const DataQualityChecksSubjectsListQueryParams = orvalSchemas.DataQualityChecksSubjectsListQueryParams()
+    return DataQualityChecksSubjectsListQueryParams.extend({
+        limit: DataQualityChecksSubjectsListQueryParams.shape['limit'].default(20).optional(),
+    })
+}
 
 const dataQualitySubjects = (): ToolBase<
     ReturnType<typeof DataQualitySubjectsSchema>,
@@ -263,11 +268,18 @@ const dataQualitySubjects = (): ToolBase<
 > => ({
     name: 'data-quality-subjects',
     schema: DataQualitySubjectsSchema(),
-    handler: async (context: Context, _params: z.infer<ReturnType<typeof DataQualitySubjectsSchema>>) => {
+    handler: async (context: Context, params: z.infer<ReturnType<typeof DataQualitySubjectsSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.DataQualitySubject[]>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/data_quality_checks/subjects/`,
+            query: {
+                include_columns: params.include_columns,
+                limit: params.limit,
+                offset: params.offset,
+                search: params.search,
+                subject_type: params.subject_type,
+            },
         })
         return result
     },

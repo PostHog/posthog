@@ -101,9 +101,13 @@ impl UserAgentInfo {
             // Server-side SDKs
             "python" => ("posthog-python", RuntimeType::Server),
             "python-mcp" => ("posthog-python-mcp", RuntimeType::Server),
+            "rs-mcp" => ("posthog-rs-mcp", RuntimeType::Server),
+            "go-mcp" => ("posthog-go-mcp", RuntimeType::Server),
+            "ruby-mcp" => ("posthog-ruby-mcp", RuntimeType::Server),
             "ruby" => ("posthog-ruby", RuntimeType::Server),
             "rails" => ("posthog-rails", RuntimeType::Server),
             "php" => ("posthog-php", RuntimeType::Server),
+            "laravel" => ("posthog-laravel", RuntimeType::Server),
             "java" => ("posthog-java", RuntimeType::Server),
             "go" => ("posthog-go", RuntimeType::Server),
             "node" => ("posthog-node", RuntimeType::Server),
@@ -124,6 +128,8 @@ impl UserAgentInfo {
             "flutter" => ("posthog-flutter", RuntimeType::Client),
             "kmp" => ("posthog-kmp", RuntimeType::Client),
             "unity" => ("posthog-unity", RuntimeType::Client),
+            "godot" => ("posthog-godot", RuntimeType::Client),
+            "unreal" => ("posthog-unreal", RuntimeType::Client),
             // Unknown SDK - don't set sdk_name for unrecognized SDKs
             _ => return Self::unknown(),
         };
@@ -281,6 +287,12 @@ mod tests {
         RuntimeType::Server
     )]
     #[case(
+        "posthog-laravel/0.1.0",
+        Some("posthog-laravel"),
+        Some("0.1.0"),
+        RuntimeType::Server
+    )]
+    #[case(
         "posthog-php/3.1.0",
         Some("posthog-php"),
         Some("3.1.0"),
@@ -365,6 +377,36 @@ mod tests {
         RuntimeType::Client
     )]
     #[case(
+        "posthog-rs-mcp/1.0.0",
+        Some("posthog-rs-mcp"),
+        Some("1.0.0"),
+        RuntimeType::Server
+    )]
+    #[case(
+        "posthog-go-mcp/1.0.0",
+        Some("posthog-go-mcp"),
+        Some("1.0.0"),
+        RuntimeType::Server
+    )]
+    #[case(
+        "posthog-ruby-mcp/1.0.0",
+        Some("posthog-ruby-mcp"),
+        Some("1.0.0"),
+        RuntimeType::Server
+    )]
+    #[case(
+        "posthog-godot/1.0.0",
+        Some("posthog-godot"),
+        Some("1.0.0"),
+        RuntimeType::Client
+    )]
+    #[case(
+        "posthog-unreal/1.0.0",
+        Some("posthog-unreal"),
+        Some("1.0.0"),
+        RuntimeType::Client
+    )]
+    #[case(
         "posthog-unity/4.5.0",
         Some("posthog-unity"),
         Some("4.5.0"),
@@ -445,6 +487,11 @@ mod tests {
     #[case(Some("posthog-react-native/2.5.0"), "posthog-react-native")]
     #[case(Some("posthog-flutter/4.0.0"), "posthog-flutter")]
     #[case(Some("posthog-kmp/0.6.0"), "posthog-kmp")]
+    #[case(Some("posthog-rs-mcp/1.0.0"), "posthog-rs-mcp")]
+    #[case(Some("posthog-go-mcp/1.0.0"), "posthog-go-mcp")]
+    #[case(Some("posthog-ruby-mcp/1.0.0"), "posthog-ruby-mcp")]
+    #[case(Some("posthog-godot/1.0.0"), "posthog-godot")]
+    #[case(Some("posthog-unreal/1.0.0"), "posthog-unreal")]
     #[case(Some("posthog-unity/4.5.0"), "posthog-unity")]
     #[case(Some("posthog-python/1.4.0"), "posthog-python")]
     #[case(Some("posthog-python-mcp/0.1.0"), "posthog-python-mcp")]
@@ -452,6 +499,7 @@ mod tests {
     #[case(Some("posthog-rails/3.18.0"), "posthog-rails")]
     #[case(Some("posthog-ruby2.0.0"), "posthog-ruby")]
     #[case(Some("posthog-php/3.0.0"), "posthog-php")]
+    #[case(Some("posthog-laravel/0.1.0"), "posthog-laravel")]
     #[case(Some("posthog-java/1.0.0"), "posthog-java")]
     #[case(Some("posthog-go/0.1.0"), "posthog-go")]
     #[case(Some("posthog-node/2.2.0"), "posthog-node")]
@@ -497,6 +545,11 @@ mod tests {
     #[case("posthog-rs/0.10.0", Some("posthog-rs"))]
     #[case("posthog-android/3.0.0", Some("posthog-android"))]
     #[case("posthog-kmp/0.6.0", Some("posthog-kmp"))]
+    #[case("posthog-rs-mcp/1.0.0", Some("posthog-rs-mcp"))]
+    #[case("posthog-go-mcp/1.0.0", Some("posthog-go-mcp"))]
+    #[case("posthog-ruby-mcp/1.0.0", Some("posthog-ruby-mcp"))]
+    #[case("posthog-godot/1.0.0", Some("posthog-godot"))]
+    #[case("posthog-unreal/1.0.0", Some("posthog-unreal"))]
     #[case("posthog-unity/4.5.0", Some("posthog-unity"))]
     #[case("posthog-server/1.0.0", Some("posthog-server"))]
     #[case("Mozilla/5.0 (Windows NT 10.0; Win64; x64)", Some("web"))]

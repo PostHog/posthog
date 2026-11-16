@@ -147,6 +147,17 @@ class TestExternalDataSourceAccessControl(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
+    @parameterized.expand([("viewer", True), ("none", False)])
+    def test_exists_respects_source_access(self, access_level: str, expected: bool) -> None:
+        self._create_access_control(self.viewer_user, access_level="viewer")
+        self._create_access_control(self.viewer_user, resource_id=str(self.source.id), access_level=access_level)
+        self.client.force_login(self.viewer_user)
+
+        response = self.client.get(f"/api/projects/{self.team.pk}/external_data_sources/exists/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"exists": expected})
+
     def test_viewer_can_retrieve_source(self):
         self._create_access_control(self.viewer_user, access_level="viewer")
 

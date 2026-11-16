@@ -1,20 +1,24 @@
 """Checks the events an insight reads for internal users, local development, bots and events sent twice."""
 
+import math
 from collections.abc import Mapping
 from datetime import date, datetime, time, timedelta
+from time import monotonic
 from typing import Any, cast
 from zoneinfo import ZoneInfo
 
-from posthog.schema import HogQLQueryModifiers, PersonsOnEventsMode
+from posthog.schema import HogQLQueryModifiers, InlineCohortCalculation, PersonsOnEventsMode
 
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
+from posthog.hogql.database.models import DatabaseField
+from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.errors import ExposedHogQLError, ResolutionError
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.property import property_to_expr
-from posthog.hogql.query import execute_hogql_query
+from posthog.hogql.query import HogQLQueryExecutor, execute_hogql_query
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor, clone_expr
 
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
@@ -43,6 +47,7 @@ from products.product_analytics.backend.facade.contracts import (
 )
 from products.product_analytics.backend.facade.enums import (
     InsightDataCheckKey,
+    InsightDataChecksDepth,
     InsightDataCheckSkipReason,
     InsightDataChecksStatus,
 )
@@ -76,10 +81,18 @@ SIZING_SAMPLE_ONE_IN = 1_000
 # A check that takes longer than this is skipped, so it never holds up the insight it sits next to.
 MAX_EXECUTION_SECONDS = 5
 # Backstops for a size estimate that is far too low, such as for an event sent under a few distinct IDs.
-# ClickHouse applies them to each shard separately.
-MAX_BYTES_READ_PER_SHARD = 1_000_000_000
+# ClickHouse applies them to the total across all shards, so this one sits above what a check reads at EVENT_BUDGET.
+MAX_BYTES_READ = 10_000_000_000
 # The sample reads wide columns and sorts them for the repeat window, so it gets a tighter limit.
-MAX_SAMPLE_BYTES_READ_PER_SHARD = 250_000_000
+MAX_SAMPLE_BYTES_READ = 1_000_000_000
+MAX_ESTIMATED_BYTES = 10_000_000_000
+# Larger than the JSON of almost any event. Below it, the checks skip the size read, which can read hundreds of MB.
+# An event above it only makes a check stop at MAX_BYTES_READ, which offers the person the same button.
+MAX_JSON_BYTES_PER_EVENT = 10_000
+# A full check has the same time limit as the insight's own query, and no read limit. Its queries share the limit,
+# so the whole run answers before the page and the MCP client stop waiting at 120 seconds.
+FULL_MAX_EXECUTION_SECONDS = 60
+JSON_SIZE_SAMPLE = 1_000
 
 # A person cannot repeat an action this fast, but an app that sends an event twice does.
 REPEAT_WINDOW_MILLISECONDS = 100
@@ -198,6 +211,38 @@ _SAMPLE_COUNTS_QUERY = """
     )
 """
 
+_JSON_SIZE_QUERY = """
+    SELECT avg(json_bytes)
+    FROM {sampled_events}
+"""
+
+_JSON_COLUMN_FIELDS = {"properties": ("properties",), "person_properties": ("person", "properties")}
+# A property group map holds part of a JSON column, so the size of that JSON column bounds what reading the map costs.
+_PROPERTY_MAP_PREFIXES = {"properties_group_": "properties", "person_properties_map_": "person_properties"}
+
+
+@frozen
+class _Limits:
+    max_execution_seconds: int
+    max_bytes_read: int | None
+    max_sample_bytes_read: int | None
+    deadline: float | None = None
+
+
+def _limits(depth: InsightDataChecksDepth) -> _Limits:
+    if depth == InsightDataChecksDepth.FULL:
+        return _Limits(
+            max_execution_seconds=FULL_MAX_EXECUTION_SECONDS,
+            max_bytes_read=None,
+            max_sample_bytes_read=None,
+            deadline=monotonic() + FULL_MAX_EXECUTION_SECONDS,
+        )
+    return _Limits(
+        max_execution_seconds=MAX_EXECUTION_SECONDS,
+        max_bytes_read=MAX_BYTES_READ,
+        max_sample_bytes_read=MAX_SAMPLE_BYTES_READ,
+    )
+
 
 @frozen
 class _EventReader:
@@ -206,10 +251,19 @@ class _EventReader:
     modifiers: HogQLQueryModifiers
     # The database the chart's events were read with, so the checks do not build another.
     database: Database
+    limits: _Limits
+
+    def context(self) -> HogQLContext:
+        return HogQLContext(team_id=self.team.pk, user=self.user, database=self.database)
 
     def rows_within_limits(
-        self, query: ast.SelectQuery, *, query_type: str, max_bytes_read_per_shard: int
+        self, query: ast.SelectQuery, *, query_type: str, max_bytes_read: int | None, max_threads: int | None = None
     ) -> list[list[Any]] | Skipped:
+        max_execution_seconds = self.limits.max_execution_seconds
+        if self.limits.deadline is not None:
+            max_execution_seconds = min(max_execution_seconds, math.floor(self.limits.deadline - monotonic()))
+            if max_execution_seconds < 1:
+                return Skipped(reason=InsightDataCheckSkipReason.TIME_LIMIT)
         try:
             response = execute_hogql_query(
                 query=query,
@@ -217,8 +271,8 @@ class _EventReader:
                 user=self.user,
                 query_type=query_type,
                 modifiers=self.modifiers,
-                context=HogQLContext(team_id=self.team.pk, user=self.user, database=self.database),
-                settings=_query_settings(max_bytes_read_per_shard),
+                context=self.context(),
+                settings=_query_settings(max_bytes_read, max_execution_seconds, max_threads),
             )
         except CHQueryErrorTooManyBytes:
             return Skipped(reason=InsightDataCheckSkipReason.READ_LIMIT)
@@ -229,13 +283,16 @@ class _EventReader:
         return [list(row) for row in response.results or []]
 
 
-def _query_settings(max_bytes_read_per_shard: int) -> HogQLGlobalSettings:
+def _query_settings(
+    max_bytes_read: int | None, max_execution_seconds: int, max_threads: int | None
+) -> HogQLGlobalSettings:
     # Without "throw", a query that reaches a limit can return the events it counted so far as the answer.
     return HogQLGlobalSettings(
-        max_execution_time=MAX_EXECUTION_SECONDS,
+        max_execution_time=max_execution_seconds,
         timeout_overflow_mode="throw",
-        max_bytes_to_read=max_bytes_read_per_shard,
-        read_overflow_mode="throw",
+        max_bytes_to_read=max_bytes_read,
+        read_overflow_mode="throw" if max_bytes_read is not None else None,
+        max_threads=max_threads,
     )
 
 
@@ -262,7 +319,12 @@ def _check_modifiers(chart_modifiers: HogQLQueryModifiers, *, keep_project_bot_r
     # With `debug` on, a failed query returns an error and no rows, which would read as no events.
     # Without the pushdown, a persons join reads the latest version of every person in the project, however few
     # events the check reads.
-    update: dict[str, Any] = {"debug": False, "personIdPushdown": True}
+    # An inlined cohort scans every person in the project, so a cohort in a filter reads its stored members instead.
+    update: dict[str, Any] = {
+        "debug": False,
+        "personIdPushdown": True,
+        "inlineCohortCalculation": InlineCohortCalculation.OFF,
+    }
     if not keep_project_bot_rules:
         # The bot check uses PostHog's definition of a bot, so a project's own bot rules do not apply.
         update["customBotDefinitions"] = []
@@ -327,7 +389,7 @@ def _count_events_per_day(
         sample=_sample_of(1, SIZING_SAMPLE_ONE_IN),
     )
     rows = reader.rows_within_limits(
-        query, query_type="insight_data_checks_sizing", max_bytes_read_per_shard=MAX_BYTES_READ_PER_SHARD
+        query, query_type="insight_data_checks_sizing", max_bytes_read=reader.limits.max_bytes_read
     )
     if isinstance(rows, Skipped):
         return rows
@@ -510,9 +572,9 @@ def _internal_users_match(
     )
 
 
-def _count_every_event(
-    events: ChartEvents, reader: _EventReader, where: ast.Expr, internal_users: _InternalUsersMatch | Skipped
-) -> CountedEvents | Skipped:
+def _counted_events_query(
+    events: ChartEvents, where: ast.Expr, internal_users: _InternalUsersMatch | Skipped
+) -> ast.SelectQuery:
     match = _NO_INTERNAL_USERS if isinstance(internal_users, Skipped) else internal_users
     query = events.select(
         _COUNTED_EVENTS_QUERY,
@@ -524,8 +586,15 @@ def _count_every_event(
     )
     if match.person_fields is not None:
         cast(ast.JoinExpr, query.select_from).next_join = _current_person_join(events, where, match.person_fields)
+    return query
+
+
+def _count_every_event(
+    events: ChartEvents, reader: _EventReader, where: ast.Expr, internal_users: _InternalUsersMatch | Skipped
+) -> CountedEvents | Skipped:
+    query = _counted_events_query(events, where, internal_users)
     rows = reader.rows_within_limits(
-        query, query_type="insight_data_checks_counted", max_bytes_read_per_shard=MAX_BYTES_READ_PER_SHARD
+        query, query_type="insight_data_checks_counted", max_bytes_read=reader.limits.max_bytes_read
     )
     if isinstance(rows, Skipped):
         return rows
@@ -565,7 +634,7 @@ def _count_local_events_the_filter_keeps(
         local_events = ast.And(exprs=[clone_expr(where), clone_expr(is_local_host)])
         cast(ast.JoinExpr, query.select_from).next_join = _current_person_join(events, local_events, person_fields)
     rows = reader.rows_within_limits(
-        query, query_type="insight_data_checks_local", max_bytes_read_per_shard=MAX_BYTES_READ_PER_SHARD
+        query, query_type="insight_data_checks_local", max_bytes_read=reader.limits.max_bytes_read
     )
     if isinstance(rows, Skipped):
         return rows
@@ -630,7 +699,7 @@ def _sample_events(
     rows = reader.rows_within_limits(
         cast(ast.SelectQuery, query),
         query_type="insight_data_checks_sample",
-        max_bytes_read_per_shard=MAX_SAMPLE_BYTES_READ_PER_SHARD,
+        max_bytes_read=reader.limits.max_sample_bytes_read,
     )
     if isinstance(rows, Skipped):
         return rows
@@ -650,6 +719,12 @@ def _sample_events(
     )
 
 
+def _checked_where(events: ChartEvents, window: CheckWindow, timezone: ZoneInfo) -> ast.Expr:
+    # The bounds apply to a whole range too, because a lifecycle chart also reads the interval before its range.
+    first, last = window.days_to_check[0], window.days_to_check[-1]
+    return ast.And(exprs=[events.where, _between_days(events, first, last, timezone)])
+
+
 def _read_checked_days(
     events: ChartEvents,
     reader: _EventReader,
@@ -660,9 +735,7 @@ def _read_checked_days(
     filters_traffic_type: bool,
     email_access: TeamEmailAccess,
 ) -> CheckedEvents:
-    # The bounds apply to a whole range too, because a lifecycle chart also reads the interval before its range.
-    first, last = window.days_to_check[0], window.days_to_check[-1]
-    where = ast.And(exprs=[events.where, _between_days(events, first, last, timezone)])
+    where = _checked_where(events, window, timezone)
 
     counted: CountedEvents | Skipped = Skipped(reason=InsightDataCheckSkipReason.TOO_MANY_EVENTS)
     if window.events_on_days_to_check <= MAX_COUNTED_EVENTS:
@@ -674,13 +747,130 @@ def _read_checked_days(
     return CheckedEvents(counted=counted, local=local, sample=sample, insight_filters_traffic_type=filters_traffic_type)
 
 
+def _reads_the_events_table(field_type: ast.FieldType) -> bool:
+    table_type: ast.Type | None = field_type.table_type
+    while isinstance(table_type, ast.TableAliasType | ast.ColumnAliasedTableType | ast.VirtualTableType):
+        table_type = table_type.table_type
+    return isinstance(table_type, ast.TableType) and isinstance(table_type.table, EventsTable)
+
+
+class _EventJsonReads(TraversingVisitor):
+    """The JSON columns of the events table that a printed query reads a property from."""
+
+    def __init__(self, context: HogQLContext) -> None:
+        super().__init__()
+        self.context = context
+        self.columns: set[str] = set()
+
+    # A property read and a key-existence test both reach the JSON column through a field, so the field is enough.
+    def visit_field(self, node: ast.Field) -> None:
+        name = str(node.chain[-1])
+        self.columns.update(column for prefix, column in _PROPERTY_MAP_PREFIXES.items() if name.startswith(prefix))
+        field_type = node.type
+        if (
+            isinstance(field_type, ast.FieldType)
+            and field_type.name in _JSON_COLUMN_FIELDS
+            and _reads_the_events_table(field_type)
+        ):
+            column = field_type.resolve_database_field(self.context)
+            if isinstance(column, DatabaseField) and column.name in _JSON_COLUMN_FIELDS:
+                self.columns.add(column.name)
+        super().visit_field(node)
+
+    # A native JSON column stores each path as a subcolumn, so this read is narrow, however wide the document.
+    def visit_json_subcolumn_access(self, node: ast.JsonSubcolumnAccess) -> None:
+        return
+
+
+def _json_columns_read(query: ast.SelectQuery, reader: _EventReader) -> frozenset[str]:
+    """The JSON columns `query` reads a property from, decided as the query is printed to run."""
+    executor = HogQLQueryExecutor(
+        query=clone_expr(query),
+        team=reader.team,
+        user=reader.user,
+        modifiers=reader.modifiers,
+        context=reader.context(),
+    )
+    executor.generate_clickhouse_sql()
+    if executor.clickhouse_prepared_ast is None or executor.clickhouse_context is None:
+        return frozenset()
+    reads = _EventJsonReads(executor.clickhouse_context)
+    reads.visit(executor.clickhouse_prepared_ast)
+    return frozenset(reads.columns)
+
+
+def _json_bytes_per_event(
+    events: ChartEvents, reader: _EventReader, where: ast.Expr, columns: frozenset[str]
+) -> float | Skipped:
+    """The average size of the JSON columns `columns` across a few of the events `where` keeps."""
+    json_bytes = parse_expr(
+        " + ".join(f"length({{{column}}})" for column in sorted(columns)),
+        placeholders={column: ast.Field(chain=list(_JSON_COLUMN_FIELDS[column])) for column in columns},
+    )
+    sampled_events = events.select("SELECT {json_bytes} AS json_bytes FROM events", where=where, json_bytes=json_bytes)
+    sampled_events.limit = ast.Constant(value=JSON_SIZE_SAMPLE)
+    query = parse_select(_JSON_SIZE_QUERY, placeholders={"sampled_events": sampled_events})
+    rows = reader.rows_within_limits(
+        cast(ast.SelectQuery, query),
+        query_type="insight_data_checks_json_size",
+        max_bytes_read=reader.limits.max_bytes_read,
+        # Each thread reads at least one block of the JSON column before the limit stops it, so one thread reads least.
+        max_threads=1,
+    )
+    if isinstance(rows, Skipped):
+        return rows
+    # The average of no events is NaN, and no events cost nothing to read.
+    average = float(rows[0][0] or 0) if rows else 0.0
+    return 0.0 if math.isnan(average) else average
+
+
+def _would_read_too_much(
+    events: ChartEvents,
+    reader: _EventReader,
+    window: CheckWindow,
+    timezone: ZoneInfo,
+    *,
+    email_access: TeamEmailAccess,
+    hidden_properties: RestrictedPropertyNames,
+) -> bool:
+    """Whether the count of every event, which is the most any check reads, would read more than MAX_ESTIMATED_BYTES.
+
+    Only a property without a column of its own makes a check heavy, because it is read from a JSON column of every
+    event the check reads.
+    """
+    if window.events_on_days_to_check * MAX_JSON_BYTES_PER_EVENT <= MAX_ESTIMATED_BYTES:
+        return False
+
+    where = _checked_where(events, window, timezone)
+    try:
+        internal_users = _internal_users_match(
+            events, reader, email_access=email_access, hidden_properties=hidden_properties
+        )
+        columns = _json_columns_read(_counted_events_query(events, where, internal_users), reader)
+    except (ExposedHogQLError, ResolutionError):
+        # The count leaves out a project filter that cannot run, so the estimate leaves it out too.
+        no_filter = Skipped(reason=InsightDataCheckSkipReason.INVALID_FILTER)
+        columns = _json_columns_read(_counted_events_query(events, where, no_filter), reader)
+    if not columns:
+        return False
+
+    first, last = window.days_to_check[0], window.days_to_check[-1]
+    # The count reads each event of the chart's event names and days before its filters drop any.
+    sort_key_where = ast.And(exprs=[events.sort_key_where, _between_days(events, first, last, timezone)])
+    bytes_per_event = _json_bytes_per_event(events, reader, sort_key_where, columns)
+    # A size read that stops at a limit means the full count would stop there too.
+    if isinstance(bytes_per_event, Skipped):
+        return True
+    return window.events_on_days_to_check * bytes_per_event > MAX_ESTIMATED_BYTES
+
+
 def _sample_summary(sample: SampledEvents | Skipped) -> InsightDataChecksSample | None:
     if isinstance(sample, Skipped):
         return None
     return InsightDataChecksSample(rate=sample.rate, events=sample.events, distinct_ids=sample.distinct_ids)
 
 
-def _coverage(events: ChartEvents, window: CheckWindow, checked: CheckedEvents) -> InsightDataChecksCoverage:
+def _coverage(events: ChartEvents, window: CheckWindow, checked: CheckedEvents | None) -> InsightDataChecksCoverage:
     return InsightDataChecksCoverage(
         date_from=window.days_in_range[0],
         date_to=window.days_in_range[-1],
@@ -689,8 +879,8 @@ def _coverage(events: ChartEvents, window: CheckWindow, checked: CheckedEvents) 
         checked_date_to=window.days_to_check[-1],
         days_checked=len(window.days_to_check),
         filters_test_accounts=events.filters_test_accounts,
-        events_checked=events_on_checked_days(checked),
-        sample=_sample_summary(checked.sample),
+        events_checked=events_on_checked_days(checked) if checked else None,
+        sample=_sample_summary(checked.sample) if checked else None,
     )
 
 
@@ -704,7 +894,12 @@ def _nothing_checked(
 
 
 def run_insight_data_checks(
-    query: Mapping[str, Any], team: Team, user: User, *, email_access: TeamEmailAccess
+    query: Mapping[str, Any],
+    team: Team,
+    user: User,
+    *,
+    email_access: TeamEmailAccess,
+    depth: InsightDataChecksDepth = InsightDataChecksDepth.QUICK,
 ) -> InsightDataChecks:
     with tags_context(product=Product.PRODUCT_ANALYTICS, feature=Feature.INSIGHT, name="insight_data_checks"):
         events = chart_events(query, team, user)
@@ -721,11 +916,20 @@ def run_insight_data_checks(
             user=user,
             modifiers=_check_modifiers(events.modifiers, keep_project_bot_rules=filters_traffic_type),
             database=events.database,
+            limits=_limits(depth),
         )
         timezone = ZoneInfo(team.timezone)
         window = _choose_window(events, reader, timezone)
         if isinstance(window, Skipped):
             return _nothing_checked(InsightDataChecksStatus.INCONCLUSIVE, reason=window.reason)
+        if depth == InsightDataChecksDepth.QUICK and _would_read_too_much(
+            events, reader, window, timezone, email_access=email_access, hidden_properties=hidden_properties
+        ):
+            return _nothing_checked(
+                InsightDataChecksStatus.ON_REQUEST,
+                _coverage(events, window, None),
+                InsightDataCheckSkipReason.ON_REQUEST,
+            )
         checked = _read_checked_days(
             events,
             reader,

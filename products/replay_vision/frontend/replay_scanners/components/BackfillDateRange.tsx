@@ -3,7 +3,7 @@ import { useActions, useValues } from 'kea'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
-import { CUSTOM_OPTION_KEY } from 'lib/components/DateFilter/types'
+import { CUSTOM_OPTION_KEY } from 'lib/utils/dateFilters'
 
 import { DateMappingOption } from '~/types'
 

@@ -51,6 +51,8 @@ const realtimeCohorts: CohortType[] = [
         state: 'ready',
         ready_at: '2023-07-03T09:40:00Z',
         build: null,
+        reason: null,
+        history_limit_days: null,
     }),
     // Just saved: the daily calculation and the realtime build run at the same time, and the page
     // has to keep the two apart.
@@ -58,6 +60,8 @@ const realtimeCohorts: CohortType[] = [
         state: 'building',
         ready_at: null,
         build: { phase: 'scanning', percent_complete: 45, updated_at: '2023-07-03T23:58:00Z' },
+        reason: null,
+        history_limit_days: null,
     }),
     withRealtime(
         { ...createCohort(6, 'Churn risk', 76, false), description: 'Logged in less than twice in the last month' },
@@ -65,6 +69,8 @@ const realtimeCohorts: CohortType[] = [
             state: 'needs_attention',
             ready_at: null,
             build: null,
+            reason: null,
+            history_limit_days: null,
         }
     ),
     // Event criteria the realtime path does not support, so flags cannot target it at all. A
@@ -73,6 +79,8 @@ const realtimeCohorts: CohortType[] = [
         state: 'daily',
         ready_at: null,
         build: null,
+        reason: null,
+        history_limit_days: null,
     }),
     // Person properties alone: flags read those as they evaluate, so this row carries no tag and
     // the page still answers the question. A bare row means one thing, and this is that one thing.
@@ -80,6 +88,8 @@ const realtimeCohorts: CohortType[] = [
         state: 'person_properties',
         ready_at: null,
         build: null,
+        reason: null,
+        history_limit_days: null,
     }),
 ]
 
@@ -164,6 +174,8 @@ export const CohortEditRealtimeRebuilding: Story = {
                         state: 'rebuilding',
                         ready_at: null,
                         build: { phase: 'checking', percent_complete: null, updated_at: '2023-07-03T23:58:00Z' },
+                        reason: null,
+                        history_limit_days: null,
                     }
                 ),
                 ...cohortApiMocks,

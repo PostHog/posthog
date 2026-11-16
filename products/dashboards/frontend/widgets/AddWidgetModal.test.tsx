@@ -6,6 +6,8 @@ import { cleanup, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { BindLogic } from 'kea'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 
 import { initKeaTests } from '~/test/init'
@@ -80,19 +82,20 @@ describe('AddWidgetModal', () => {
         expect(screen.queryByText('Notebook widget')).not.toBeInTheDocument()
     })
 
-    it('shows alphabetized badges for each widget product section', () => {
+    it.each([
+        [false, ['Activity', 'Error tracking', 'Experiments', 'Logs', 'Session replay', 'Support', 'Surveys']],
+        [
+            true,
+            ['Activity', 'Error tracking', 'Experiments', 'Logs', 'Metrics', 'Session replay', 'Support', 'Surveys'],
+        ],
+    ])('shows alphabetized product badges when the metrics flag is %s', (metricsEnabled, expectedBadges) => {
+        featureFlagLogic.mount()
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.METRICS]: metricsEnabled })
         renderAddWidgetModal()
 
         const badges = screen.getByTestId('dashboard-widget-product-badges')
-        expect(Array.from(badges.children).map((badge) => badge.textContent)).toEqual([
-            'Activity',
-            'Error tracking',
-            'Experiments',
-            'Logs',
-            'Session replay',
-            'Support',
-            'Surveys',
-        ])
+        expect(Array.from(badges.children).map((badge) => badge.textContent)).toEqual(expectedBadges)
+        expect(!!screen.queryByText('Metrics', { selector: 'h5' })).toEqual(metricsEnabled)
     })
 
     it('filters widget sections to the selected product badges', async () => {
@@ -111,7 +114,39 @@ describe('AddWidgetModal', () => {
 
         await userEvent.click(within(badges).getByText('Logs'))
         await userEvent.click(within(badges).getByText('Error tracking'))
-        expect(sectionHeadings()).toHaveLength(7)
+        expect(sectionHeadings()).toHaveLength(8)
+    })
+
+    it('hides the canvas app widget unless its creation flag is on', () => {
+        renderAddWidgetModal()
+        expect(screen.queryByText('Canvas app')).not.toBeInTheDocument()
+        cleanup()
+
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.SMALL_SOFTWARE_APPS], {
+            [FEATURE_FLAGS.SMALL_SOFTWARE_APPS]: true,
+        })
+        renderAddWidgetModal()
+        expect(screen.getByText('Canvas', { selector: 'h5' })).toBeInTheDocument()
+        expect(screen.getByLabelText('Canvas app')).toBeInTheDocument()
+    })
+
+    it('drops a stored canvas app selection once its creation flag turns off', async () => {
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.SMALL_SOFTWARE_APPS], {
+            [FEATURE_FLAGS.SMALL_SOFTWARE_APPS]: true,
+        })
+        renderAddWidgetModal()
+        await userEvent.click(screen.getByLabelText('Canvas app'))
+        await userEvent.click(screen.getByLabelText('Top issues'))
+        expect(screen.getByTestId('add-widget-submit')).toHaveTextContent('Add 2 widgets')
+        cleanup()
+
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.SMALL_SOFTWARE_APPS]: false })
+        const onAdd = jest.fn().mockResolvedValue(undefined)
+        renderAddWidgetModal({ onAdd })
+        expect(screen.getByTestId('add-widget-submit')).toHaveTextContent('Add widget')
+        await userEvent.click(screen.getByTestId('add-widget-submit'))
+
+        expect(onAdd).toHaveBeenCalledWith([expect.objectContaining({ widgetType: 'error_tracking_list' })])
     })
 
     it('allows multi-select checkbox behavior within grouped layout', async () => {

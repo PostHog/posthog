@@ -4,6 +4,7 @@ import {
     AstroInstallation,
     BubbleInstallation,
     DjangoInstallation,
+    DotNetInstallation,
     ExperimentImplementationSnippet,
     FlutterInstallation,
     FramerInstallation,
@@ -150,6 +151,10 @@ const ExperimentsGoInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: GoInstallation,
     snippets: SERVER_SDK_SNIPPETS,
 })
+const ExperimentsDotNetInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: DotNetInstallation,
+    snippets: SERVER_SDK_SNIPPETS,
+})
 
 // Mobile SDKs with AdvertiseMobileReplay
 const ExperimentsAndroidInstructionsWrapper = withMobileReplay({
@@ -263,6 +268,7 @@ export const ExperimentsSDKInstructions: SDKInstructionsMap = {
     [SDKKey.ASTRO]: ExperimentsAstroInstructionsWrapper,
     [SDKKey.BUBBLE]: ExperimentsBubbleInstructionsWrapper,
     [SDKKey.DJANGO]: ExperimentsDjangoInstructionsWrapper,
+    [SDKKey.DOTNET]: ExperimentsDotNetInstructionsWrapper,
     [SDKKey.FLUTTER]: ExperimentsFlutterInstructionsWrapper,
     [SDKKey.FRAMER]: ExperimentsFramerInstructionsWrapper,
     [SDKKey.GO]: ExperimentsGoInstructionsWrapper,

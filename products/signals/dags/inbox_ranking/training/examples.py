@@ -419,6 +419,35 @@ def _with_features(
     return pd.concat(frames, ignore_index=True)[columns]
 
 
+@frozen
+class ActivityVector:
+    embedding: list[float]
+    generated_at: datetime.datetime
+    age: datetime.timedelta
+
+
+def activity_vector_as_of(
+    vectors: pd.DataFrame, *, team_id: int, user_id: int, as_of: datetime.datetime, max_age: datetime.timedelta
+) -> ActivityVector | None:
+    """The activity summary vector user `user_id` of team `team_id` had at `as_of`, read from the union
+    of `inbox_activity_summary_vectors` partitions.
+
+    That is the newest vector generated strictly before `as_of`, so a summary built after the moment
+    never leaks into it. None when the user has no such vector, or when the newest one is older than
+    `max_age`: a summary that stale no longer describes what the user does."""
+    known = vectors.loc[
+        (vectors["team_id"] == team_id) & (vectors["user_id"] == user_id) & (vectors["generated_at"] < as_of)
+    ]
+    if known.empty:
+        return None
+    latest = known.loc[known["generated_at"].idxmax()]
+    generated_at = pd.Timestamp(latest["generated_at"]).to_pydatetime()
+    age = as_of - generated_at
+    if age > max_age:
+        return None
+    return ActivityVector(embedding=list(latest["embedding_small"]), generated_at=generated_at, age=age)
+
+
 def holdout_mask(examples: pd.DataFrame, holdout_days: int) -> pd.Series:
     """True for every row of the reports created in the last `holdout_days` of the example set.
     Cut by report so a report's snapshot rows never straddle train and holdout."""

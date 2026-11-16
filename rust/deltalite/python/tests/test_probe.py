@@ -464,3 +464,45 @@ def test_invalid_prune_strategy_is_rejected(tmp_path):
 
     with pytest.raises(deltalite.DeltaLiteError, match="unknown prune_strategy"):
         upsert_path(uri, rows(["a"], 2), ["id"], None, prune_strategy="bogus")
+
+
+# --------------------------------------------------------------------------------------
+# The probe cache: later upserts decide files from cached keys, never differently
+# --------------------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("use_probe_cache", [True, False])
+@pytest.mark.parametrize("partitioned", [False, True])
+def test_repeated_upserts_with_the_probe_cache_match_merge(tmp_path, use_probe_cache, partitioned):
+    """Each batch re-touches rows the previous batch wrote, plus old rows and new rows, so
+    later probes decide files from keys that both the probe and the writer cached."""
+    import deltalite
+
+    parts = ["p1", "p2"] if partitioned else ["p1"]
+    pkey = PARTITION_KEY if partitioned else None
+    base = tmp_path / "base"
+    per_file = build_multifile_table(str(base), partitioned=partitioned, n_files=4, partitions=parts)
+    old = [(i, p) for p in parts for f in per_file[p] for i in f]
+
+    uri_m, uri_u = str(tmp_path / "m"), str(tmp_path / "u")
+    for uri in (uri_m, uri_u):
+        shutil.copytree(base, uri)
+
+    rng = random.Random(99)
+    previous: list[tuple[str, str]] = []
+    cached = 0
+    for step in range(6):
+        picked = previous[:15] + rng.sample(old, 10) + [(i, rng.choice(parts)) for i in rand_ids(rng, 5)]
+        picked = list(dict(picked).items())
+        batch = rows([i for i, _ in picked], step + 2, part=[p for _, p in picked])
+        merge_path(uri_m, batch, ["id"], pkey)
+        stats = upsert_path(uri_u, batch, ["id"], pkey, use_probe_cache=use_probe_cache)
+        assert_parity(uri_m, uri_u, f"cache_{use_probe_cache}_step_{step}")
+        cached += stats.files_probe_cached
+        previous = picked
+
+    if use_probe_cache:
+        assert cached > 0
+        assert deltalite.probe_cache_stats()["entries"] > 0
+    else:
+        assert cached == 0

@@ -1,0 +1,244 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "description": "Request body for the scout `emit-report` action and the inbox report `create` action. A scout run is\ntaken from the URL path; a person is the authenticated caller.",
+    "properties": {
+        "actionability": {
+            "description": "The scout's actionability call: `immediately_actionable` -> the report surfaces READY; `requires_human_input` -> PENDING_INPUT; `not_actionable` -> suppressed. A safety-judge failure suppresses the report regardless. A root cause you have not found is not human input: a report that names the evidence, the code surface, or a reproducible failure path is `immediately_actionable`, because investigating it is the action. Reserve `requires_human_input` for a report blocked on a decision only a person can make.\n\n* `immediately_actionable` - immediately_actionable\n* `requires_human_input` - requires_human_input\n* `not_actionable` - not_actionable",
+            "enum": ["immediately_actionable", "requires_human_input", "not_actionable"],
+            "type": "string"
+        },
+        "actionability_explanation": {
+            "description": "2-3 sentence evidence-grounded justification for the actionability call below.",
+            "type": "string"
+        },
+        "already_addressed": {
+            "default": false,
+            "description": "Whether the issue is already being handled — fixed in recent changes, or with a fix in flight (an open PR, a recently active branch, an assigned / in-progress issue or agent task). Gates autostart of a scout report, so a wrong `false` opens a duplicate PR. Tracked separately.",
+            "type": "boolean"
+        },
+        "charts": {
+            "description": "Optional charts to attach to the report — the inbox renders them inline, so a metric move is something the reader sees rather than a number they take on trust. Attach one whenever the finding rests on a trend, a spike, or a comparison you already queried. Reference a chart from `summary` as `[label](chart:<chart_id>)` to place it in the body; an unreferenced chart renders below the summary.",
+            "items": {
+                "description": "One chart attached to a report — rendered in the inbox and referenceable from the summary.",
+                "properties": {
+                    "caption": {
+                        "anyOf": [
+                            {
+                                "maxLength": 500,
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "description": "Optional one-line note on what to look at in the chart."
+                    },
+                    "chart_id": {
+                        "description": "Stable slug for this chart within the report (lowercase letters, numbers, underscores, hyphens; must start with a letter or number). Reference it from `summary` as a markdown link with a `chart:` target — `[Daily signups](chart:signups-drop)` — to place the chart at that point in the body. A chart you don't reference still renders, below the summary.",
+                        "maxLength": 100,
+                        "type": "string"
+                    },
+                    "query": {
+                        "description": "The query node to render. `kind` must be `InsightVizNode` (an ad-hoc product analytics chart), `DataVisualizationNode` (a SQL series — a `HogQLQuery` source plus a `display`), or `SavedInsightNode` (an existing insight by `shortId`). Pin the window to absolute dates where the node supports it, so the reader sees the data you wrote about rather than whatever a relative range resolves to when they open the report."
+                    },
+                    "size": {
+                        "anyOf": [
+                            {
+                                "description": "* `small` - small\n* `medium` - medium\n* `large` - large",
+                                "enum": ["small", "medium", "large"],
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "description": "How much height the chart gets: `small` for a single number or a short series, `medium` for an ordinary graph, `large` when there are rows or a grid to read (retention, paths, a wide breakdown). Leave it out unless the default looks wrong — the inbox sizes a chart from its query, and two charts referenced from the same paragraph sit side by side.\n\n* `small` - small\n* `medium` - medium\n* `large` - large"
+                    },
+                    "title": {
+                        "description": "Short heading shown above the chart.",
+                        "maxLength": 200,
+                        "type": "string"
+                    }
+                },
+                "required": ["chart_id", "title", "query"],
+                "type": "object"
+            },
+            "maxItems": 20,
+            "type": "array"
+        },
+        "evidence": {
+            "description": "The observations backing the report — each becomes a bound signal. At least one.",
+            "items": {
+                "description": "One observation backing an authored report — becomes a bound signal row on the report.",
+                "properties": {
+                    "description": {
+                        "description": "Prose for this observation. Embedded and rendered to the safety/research surfaces.",
+                        "maxLength": 4000,
+                        "type": "string"
+                    },
+                    "source_id": {
+                        "description": "Stable id for this observation within the report (lets a later edit address it).",
+                        "type": "string"
+                    }
+                },
+                "required": ["description", "source_id"],
+                "type": "object"
+            },
+            "minItems": 1,
+            "type": "array"
+        },
+        "idempotency_key": {
+            "anyOf": [
+                {
+                    "maxLength": 200,
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Optional name for this emission, unique within a scout's run or within a person's own reports. Reuse it verbatim to retry a call whose outcome you don't know (a timeout, a dropped connection): the retry returns the report the first call authored, with `idempotent_replay` true, instead of a second report. Omit it and the report's own content is the key, which covers a retry of the identical call — pass one when a retry might reword the report."
+        },
+        "links": {
+            "description": "Typed, directed links from the new report to reports that already exist. Send them here, not in a later `edit-report` call, because autostart reads them when the report is created: a `duplicate_of` link to a report that already has a pull request, or a `depends_on` link to a report with no pull request yet, stops a second draft PR. Only the new report gets a row, so link from the side the sentence starts at. Links of the same kind must stay acyclic and every report must be in this project.",
+            "items": {
+                "description": "One typed, directed link to write on the report being emitted or edited.",
+                "properties": {
+                    "kind": {
+                        "description": "How this report relates to `report_id`. `depends_on` for work that cannot land until the other report's fix does, `part_of` for one piece of a larger report, `follow_up_of` for work the other report left behind, `duplicate_of` for the same problem filed twice, and `recurrence_of` for a problem a resolved report already covered.\n\n* `depends_on` - Depends on\n* `part_of` - Part of\n* `follow_up_of` - Follow-up of\n* `duplicate_of` - Duplicate of\n* `recurrence_of` - Recurrence of",
+                        "enum": ["depends_on", "part_of", "follow_up_of", "duplicate_of", "recurrence_of"],
+                        "type": "string"
+                    },
+                    "reason": {
+                        "description": "Optional one-line note on why the reports are linked this way.",
+                        "maxLength": 500,
+                        "type": "string"
+                    },
+                    "report_id": {
+                        "description": "Id of the report to link to. Must be another report in this project.",
+                        "type": "string"
+                    }
+                },
+                "required": ["kind", "report_id"],
+                "type": "object"
+            },
+            "maxItems": 10,
+            "type": "array"
+        },
+        "priority": {
+            "anyOf": [
+                {
+                    "description": "* `P0` - P0\n* `P1` - P1\n* `P2` - P2\n* `P3` - P3\n* `P4` - P4",
+                    "enum": ["P0", "P1", "P2", "P3", "P4"],
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Optional priority (`P0`-`P4`). Required for autostart; pair with `priority_explanation`.\n\n* `P0` - P0\n* `P1` - P1\n* `P2` - P2\n* `P3` - P3\n* `P4` - P4"
+        },
+        "priority_explanation": {
+            "anyOf": [
+                {
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "2-3 sentence justification for `priority`. Required when `priority` is set."
+        },
+        "repository": {
+            "anyOf": [
+                {
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Optional repo for opening a draft PR, by autostart of a scout report or by a person from the inbox. Pass `owner/repo` whenever you can say where a fix would land. Nothing selects a repository for you: omit the field when you can't tell, and the report records no repository unless its text links exactly one connected repo, so it cannot autostart a draft PR. Keep the `NO_REPO` sentinel for the rare report where nothing under version control could change, since a skill body, a config file, or a doc still lives in a repo."
+        },
+        "source_issues": {
+            "description": "The GitHub issues this report is about, when the finding came from an issue tracker. Pass the issue whenever the report is about one, so the report links back to it: a GitHub issue signal for the same issue then joins this report instead of opening a second one. When the project turned on GitHub issue comments, the issue gets one comment that links the report once its GitHub source ingests the issue. At most 5 per call.",
+            "items": {
+                "description": "One external issue the report is about.",
+                "properties": {
+                    "url": {
+                        "description": "The issue's URL, `https://github.com/<owner>/<repo>/issues/<number>`. Only GitHub issues are accepted today. Pull request URLs are rejected.",
+                        "maxLength": 500,
+                        "type": "string"
+                    }
+                },
+                "required": ["url"],
+                "type": "object"
+            },
+            "maxItems": 5,
+            "type": "array"
+        },
+        "suggested_prompts": {
+            "description": "Optional follow-up prompts to offer above the report's `Ask AI` box: questions to ask, or next-step actions to request (e.g. carrying out the report's recommendation). The reader clicks one to fill the box with it, then sends or edits it. Write the prompts your own research left open, phrased as the reader would send them.",
+            "items": {
+                "maxLength": 200,
+                "type": "string"
+            },
+            "maxItems": 3,
+            "type": "array"
+        },
+        "suggested_reviewers": {
+            "description": "Optional reviewers to route the report to (each a `github_login` and/or `user_uuid`). This is the primary way a report reaches a human — the inbox floats a reviewer's own reports to the top of their inbox even when no PR is involved — so set it whenever you can name a plausible owner. On a scout report it also gates autostart: a PR opens only if at least one reviewer clears their autonomy threshold. A report a person files never autostarts.",
+            "items": {
+                "description": "One suggested reviewer — identified by `github_login`, `user_uuid`, or both.\n\nA reviewer is a PostHog user, so a `user_uuid` only has to name an org member of this team: a\nmember with no linked GitHub account routes the report like anyone else. A `user_uuid` that\nisn't an org member of this team is rejected — so a reviewer is never silently dropped.",
+                "properties": {
+                    "github_login": {
+                        "description": "GitHub login (case-insensitive, stored lowercased) — e.g. `octocat`, no `@`, no display name. Resolve one via `scout-members-list` (each member row carries a resolved `github_login`) or git history when you only have a name.",
+                        "maxLength": 200,
+                        "type": "string"
+                    },
+                    "reason": {
+                        "anyOf": [
+                            {
+                                "maxLength": 500,
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "description": "One sentence of evidence for WHY this person: what ties them to the affected surface (e.g. 'authored 4 of the last 10 commits touching products/tracing/mcp/', 'human correction routed the prior tracing report to them'). Persisted on the report so the routing is auditable — always set it when you can name the evidence; 'precedent' alone is weak, prefer code-derived ownership."
+                    },
+                    "user_uuid": {
+                        "description": "PostHog user UUID (e.g. from `scout-members-list`, or an entity's `created_by`). Use this when you know the PostHog user, whether or not they have a GitHub handle — every member is routable this way. Must be a concrete UUID; the `@me` alias is not valid here.",
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "maxItems": 10,
+            "type": "array"
+        },
+        "summary": {
+            "description": "The report body the inbox shows. Markdown is supported (headings, lists, code, links; images are not rendered). Lead with one plain declarative sentence — the inbox card uses your first line verbatim as the headline (~140 chars, emphasis stripped), then renders the full markdown in the detail view. A heading, or a bold label on a line of its own with a blank line above it, marks a section that a threaded Slack delivery splits into its own reply.",
+            "type": "string"
+        },
+        "tags": {
+            "description": "Optional slug tags that group the report with related ones, at most 10. Write lowercase kebab-case slugs that name the category of the report (`cost-spike`, `tracking-gap`), not the specific entity. Reuse a slug the project already uses before you coin a new one. Near-miss formats are normalized to slugs, and a tag that is empty or longer than 50 characters after normalization is rejected.",
+            "items": {
+                "type": "string"
+            },
+            "maxItems": 10,
+            "type": "array"
+        },
+        "title": {
+            "description": "One-line report title the inbox shows. Conventional-commit style (`type(scope): description`, e.g. `fix(insights): missing series color`) renders with type/scope styling.",
+            "maxLength": 300,
+            "type": "string"
+        }
+    },
+    "required": ["title", "summary", "evidence", "actionability_explanation", "actionability"],
+    "type": "object",
+    "x-required-when-set": {
+        "priority": ["priority_explanation"]
+    }
+}

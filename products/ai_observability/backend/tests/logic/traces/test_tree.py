@@ -44,12 +44,10 @@ def test_promotes_orphans_to_roots_including_children_of_the_trace_event_span() 
     assert shape(tree) == [("orphan", [("grandchild", [])])]
 
 
-def test_excludes_feedback_metric_and_trace_events() -> None:
+def test_excludes_the_trace_event() -> None:
     tree = build_tree(
         events(
             {"uuid": "span"},
-            {"uuid": "feedback", "event": "$ai_feedback"},
-            {"uuid": "metric", "event": "$ai_metric"},
             {"uuid": "trace-event", "event": "$ai_trace", "parent_id": None},
         ),
         "trace-1",

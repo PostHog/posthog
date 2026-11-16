@@ -1,13 +1,13 @@
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { MCP_TOOL_CALL_EVENT } from 'lib/components/TaxonomicFilter/utils/mcpProperties'
+import { hogql } from 'lib/utils/hogql'
 
 import { pageCollectionId } from '~/queries/nodes/DataNode/pageCollections'
 import { DataTableNode, HogQLFilters, NodeKind } from '~/queries/schema/schema-general'
-import { hogql } from '~/queries/utils'
 import { AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { LAB_ORDER, labSqlExpression } from '../aiLabs'
-import { labMark } from '../brandMarks'
+import { labMark } from '../aiLabs'
 import { HARNESS_BY_LABEL, harnessMark } from '../dashboard/harnessRegistry'
 
 export const MCP_ACTIVITY_DATA_COLLECTION_ID = pageCollectionId('mcp-analytics-activity')

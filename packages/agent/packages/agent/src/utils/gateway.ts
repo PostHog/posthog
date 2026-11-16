@@ -23,6 +23,7 @@ export function resolveGatewayProduct({
   // application, and no other product authorizes it — an unmapped origin falls through to
   // posthog_code and the gateway rejects the token.
   const originProductToGatewayProductMap: Record<string, GatewayProduct> = {
+    feature_flags: "posthog_ai",
     loop: "posthog_code",
     metrics_import: "posthog_ai",
     onboarding: "onboarding",
@@ -171,13 +172,6 @@ export function resolveAiProduct({
   return product;
 }
 
-export function getGatewayUsageUrl(
-  posthogHost: string,
-  product: GatewayProduct = "posthog_code",
-): string {
-  return `${getGatewayBaseUrl(posthogHost)}/v1/usage/${legacyProduct(product)}`;
-}
-
 export interface GatewayTarget {
   /** Base URL: slugless for the Go gateway, product-slugged for the Python one. */
   baseUrl: string;
@@ -250,4 +244,11 @@ export function resolveGatewayTarget({
     aiProduct,
     aiStage: effectiveStage,
   };
+}
+
+export function modelIdForGatewayRoute<T extends string | undefined>(
+  model: T,
+  isAiGateway: boolean,
+): T {
+  return (isAiGateway ? model?.replace(/^@cf\//, "") : model) as T;
 }

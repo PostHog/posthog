@@ -19,6 +19,7 @@ import type {
   IAuthTokenCipher,
   PersistAuthSessionRecord,
 } from "./identifiers";
+import { AuthServiceEvent } from "./schemas";
 
 vi.mock("@posthog/shared", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@posthog/shared")>();
@@ -2455,6 +2456,188 @@ describe("AuthService", () => {
         status: "error",
         reason: null,
       });
+    });
+
+    const unavailable = (): Response =>
+      ({
+        ok: false,
+        status: 503,
+        json: vi.fn().mockResolvedValue({}),
+      }) as unknown as Response;
+
+    it("shows an error when the first check returns a server error", async () => {
+      vi.useFakeTimers();
+      try {
+        let checks = 0;
+        stubAuthFetch({
+          desktopAccessResponse: () => {
+            checks += 1;
+            return unavailable();
+          },
+        });
+
+        await service.initialize();
+        await vi.advanceTimersByTimeAsync(60_000);
+
+        expect(service.getState().desktopAccess.status).toBe("error");
+        expect(checks).toBe(1);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it.each([
+      {
+        name: "keeps access through a transient recheck failure and adopts the retried answer",
+        recheckResponses: [
+          unavailable,
+          () => okBody({ allowed: false, reason: "startup_plan" }),
+        ],
+        statusAfterRecheck: "allowed",
+        finalAccess: {
+          projectId: 42,
+          status: "blocked",
+          reason: "startup_plan",
+        },
+      },
+      {
+        name: "blocks when a recheck denies access",
+        recheckResponses: [
+          () => okBody({ allowed: false, reason: "startup_plan" }),
+        ],
+        statusAfterRecheck: "blocked",
+        finalAccess: {
+          projectId: 42,
+          status: "blocked",
+          reason: "startup_plan",
+        },
+      },
+      {
+        name: "shows an error without retrying when a recheck is forbidden",
+        recheckResponses: [
+          () =>
+            ({
+              ok: false,
+              status: 403,
+              json: vi.fn().mockResolvedValue({}),
+            }) as unknown as Response,
+        ],
+        statusAfterRecheck: "error",
+        finalAccess: { projectId: 42, status: "error", reason: null },
+      },
+    ])(
+      "$name",
+      async ({ recheckResponses, statusAfterRecheck, finalAccess }) => {
+        stubAuthFetch();
+        await service.initialize();
+        expect(service.getState().desktopAccess.status).toBe("allowed");
+
+        vi.useFakeTimers();
+        try {
+          let checks = 0;
+          stubAuthFetch({
+            desktopAccessResponse: () => {
+              checks += 1;
+              return recheckResponses[checks - 1]();
+            },
+          });
+
+          await service.refreshAccessToken();
+          expect(checks).toBe(1);
+          expect(service.getState().desktopAccess.status).toBe(
+            statusAfterRecheck,
+          );
+
+          await vi.advanceTimersByTimeAsync(60_000);
+          expect(checks).toBe(recheckResponses.length);
+          expect(service.getState().desktopAccess).toEqual(finalAccess);
+        } finally {
+          vi.useRealTimers();
+        }
+      },
+    );
+
+    it("does not carry access into a sign-in whose account lookup failed", async () => {
+      stubAuthFetch();
+      await service.initialize();
+      expect(service.getState().desktopAccess.status).toBe("allowed");
+
+      vi.useFakeTimers();
+      try {
+        let checks = 0;
+        stubAuthFetch({
+          accountKey: null,
+          desktopAccessResponse: () => {
+            checks += 1;
+            return unavailable();
+          },
+        });
+        oauthFlow.startFlow.mockResolvedValue(
+          mockTokenResponse({ accessToken: "other-account-token" }),
+        );
+
+        await service.login("us");
+        await vi.advanceTimersByTimeAsync(60_000);
+
+        expect(service.getState().desktopAccess).toEqual({
+          projectId: 42,
+          status: "error",
+          reason: null,
+        });
+        expect(checks).toBe(1);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("refreshes an expired token before retrying a failed recheck", async () => {
+      stubAuthFetch();
+      await service.initialize();
+      expect(service.getState().desktopAccess.status).toBe("allowed");
+
+      vi.useFakeTimers();
+      try {
+        oauthFlow.refreshToken.mockResolvedValueOnce(
+          mockTokenResponse({ accessToken: "old-token" }),
+        );
+        oauthFlow.refreshToken.mockResolvedValueOnce(
+          mockTokenResponse({ accessToken: "new-token" }),
+        );
+        const accessCheckTokens = (): string[] =>
+          vi
+            .mocked(globalThis.fetch)
+            .mock.calls.filter(([input]) =>
+              String(input).includes("/desktop/access/"),
+            )
+            .map(([, init]) => new Headers(init?.headers).get("authorization"))
+            .filter((value): value is string => value !== null);
+        stubAuthFetch({
+          desktopAccessResponse: () =>
+            accessCheckTokens().length === 1
+              ? unavailable()
+              : okBody({ allowed: true, reason: null }),
+        });
+        const statuses: string[] = [];
+        service.on(AuthServiceEvent.StateChanged, (state) => {
+          statuses.push(state.desktopAccess.status);
+        });
+
+        await service.refreshAccessToken();
+        expect(accessCheckTokens()).toEqual(["Bearer old-token"]);
+        expect(service.getState().desktopAccess.status).toBe("allowed");
+
+        vi.setSystemTime(Date.now() + 2 * 60 * 60 * 1000);
+        await vi.advanceTimersByTimeAsync(1_000);
+
+        expect(accessCheckTokens()).toEqual([
+          "Bearer old-token",
+          "Bearer new-token",
+        ]);
+        expect(service.getState().desktopAccess.status).toBe("allowed");
+        expect(statuses).not.toContain("error");
+      } finally {
+        vi.useRealTimers();
+      }
     });
 
     it("checks access through the injected fetch when the global fetch fails", async () => {

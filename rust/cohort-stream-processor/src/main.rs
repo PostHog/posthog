@@ -8,6 +8,7 @@ use envconfig::Envconfig;
 use lifecycle::{ComponentOptions, Handle, Manager};
 use rdkafka::consumer::{Consumer, ConsumerContext, StreamConsumer};
 use tokio::net::TcpListener;
+use tokio::signal::unix::{signal, SignalKind};
 use tracing::{info, warn};
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
@@ -18,11 +19,12 @@ use cohort_stream_processor::consumers::{
     BootReadiness, CascadeRoute, CohortStreamEventsConsumer, EventDispatcher, FollowerConsumer,
     FollowerRoute, MergeRoute, SeedFollowerConsumer, TransferRoute,
 };
-use cohort_stream_processor::filters::{run_refresh_loop, CatalogHandle};
+use cohort_stream_processor::filters::CatalogHandle;
 use cohort_stream_processor::merge::gc::MergeGcSweeper;
 use cohort_stream_processor::merge::redrive::RedriveSweeper;
 use cohort_stream_processor::observability;
 use cohort_stream_processor::observability::disk::SharedDiskUtilization;
+use cohort_stream_processor::observability::store_files::StoreFilesSweeper;
 use cohort_stream_processor::observability::store_stats::{DiskProbe, StoreStatsSweeper};
 use cohort_stream_processor::observability::tokio_monitor::TokioRuntimeMonitor;
 use cohort_stream_processor::partitions::{
@@ -48,10 +50,13 @@ use cohort_stream_processor::workers::{
     MergeWorkerDeps, PersonSeedDeps, ReconcileBacklog, ReconcileDeps,
 };
 
+// Under `hotpath-alloc`, `#[hotpath::main]` installs its counting allocator around jemalloc instead.
+#[cfg(not(feature = "hotpath-alloc"))]
 common_alloc::used!();
 
 const SERVICE_NAME: &str = "cohort-stream-processor";
 
+#[hotpath::main(allocator = common_alloc::DefaultAllocator)]
 fn main() -> Result<()> {
     let config = Config::init_from_env()
         .context("Failed to load configuration from environment variables")?;
@@ -64,6 +69,7 @@ fn main() -> Result<()> {
     let runtime = runtime_builder
         .build()
         .context("Failed to build tokio runtime")?;
+    hotpath::tokio_runtime!(runtime.handle());
 
     runtime.block_on(async_main(config))
 }
@@ -79,6 +85,13 @@ async fn async_main(config: Config) -> Result<()> {
         .checkpoint_enabled
         .then(|| config.checkpoint_lineage())
         .transpose()?;
+    // `kill -USR1 1` uploads a checkpoint ahead of a planned stop, such as a reshard, because the
+    // final checkpoint stays local. The handler goes in before the restore, so a request made
+    // during boot waits for the checkpoint loop: without a handler, PID 1 discards the signal.
+    let upload_requests = lineage
+        .map(|_| signal(SignalKind::user_defined1()))
+        .transpose()
+        .context("installing the SIGUSR1 handler")?;
 
     // Covers the 45 s follower windows, then the checkpoint component's 60 s. The pod's termination
     // grace period must exceed it plus the chart's 5 s preStop sleep, so above 115 s, or Kubernetes
@@ -151,10 +164,16 @@ async fn async_main(config: Config) -> Result<()> {
         None
     };
 
-    let catalog = Arc::new(CatalogHandle::with_allowlist(
+    let pool = get_pool_with_config(&config.database_url, config.pool_config())
+        .context("creating posthog_cohort database pool")?;
+
+    let (catalog, mut catalog_refresher) = CatalogHandle::with_refresher(
         config.team_allowlist.clone(),
+        pool,
+        config.filter_catalog_refresh_interval(),
+        config.filter_catalog_refresh_jitter(),
         config.cohort_cascade_enabled,
-    ));
+    );
     let boot_readiness = BootReadiness::new(catalog.clone());
 
     // Bound before the restore, which can outlast the startup probe. `/_health` answers throughout;
@@ -178,10 +197,7 @@ async fn async_main(config: Config) -> Result<()> {
             .await
     });
 
-    let pool = get_pool_with_config(&config.database_url, config.pool_config())
-        .context("creating posthog_cohort database pool")?;
-
-    match catalog.refresh(&pool).await {
+    match catalog_refresher.refresh().await {
         Ok(stats) => info!(
             teams = stats.teams,
             unique_conditions = stats.unique_conditions,
@@ -488,20 +504,7 @@ async fn async_main(config: Config) -> Result<()> {
 
     let guard = manager.monitor_background();
 
-    let refresh_catalog = catalog.clone();
-    let refresh_pool = pool.clone();
-    let refresh_interval = config.filter_catalog_refresh_interval();
-    let refresh_jitter = config.filter_catalog_refresh_jitter();
-    tokio::spawn(async move {
-        run_refresh_loop(
-            refresh_catalog,
-            refresh_pool,
-            refresh_interval,
-            refresh_jitter,
-            catalog_handle_lifecycle,
-        )
-        .await;
-    });
+    tokio::spawn(catalog_refresher.run(catalog_handle_lifecycle));
 
     // Hold the first eviction pass past the boot window so its read burst doesn't stack on backlog
     // catch-up; only the eviction sweep is delayed.
@@ -556,6 +559,17 @@ async fn async_main(config: Config) -> Result<()> {
         "store_stats",
         consumer_handle.shutdown_token(),
     ));
+    tokio::spawn(run_sweep_loop(
+        StoreFilesSweeper::new(
+            PathBuf::from(&config.store_path),
+            config
+                .checkpoint_enabled
+                .then(|| PathBuf::from(&config.checkpoint_local_dir)),
+        ),
+        config.stats_publish_interval(),
+        "store_files",
+        consumer_handle.shutdown_token(),
+    ));
     tokio::spawn(
         TokioRuntimeMonitor::new(
             &tokio::runtime::Handle::current(),
@@ -572,9 +586,9 @@ async fn async_main(config: Config) -> Result<()> {
     ));
 
     // Whole-DB checkpoints to the local volume and S3, from boot to the final one on a graceful stop.
-    // The loop waits for boot: a capture before the events rewind would record the broker's old
-    // offsets of a pending restore.
-    if let Some(checkpoint_handle) = checkpoint_handle {
+    // The task waits for boot: a capture before the events rewind would record the broker's old
+    // offsets of a pending restore. Its first checkpoint then waits for the pod to be ready.
+    if let Some((checkpoint_handle, mut upload_requests)) = checkpoint_handle.zip(upload_requests) {
         let sweeper = Arc::new(CheckpointSweeper::new(
             store_for_checkpoint,
             dispatcher.clone(),
@@ -587,6 +601,20 @@ async fn async_main(config: Config) -> Result<()> {
             ),
             consumer_handle.shutdown_token(),
         ));
+        let requests_stop = consumer_handle.shutdown_token();
+        let requested = sweeper.clone();
+        tokio::spawn(async move {
+            loop {
+                tokio::select! {
+                    biased;
+                    _ = requests_stop.cancelled() => break,
+                    Some(()) = upload_requests.recv() => {
+                        info!("checkpoint upload requested (SIGUSR1)");
+                        requested.request_upload();
+                    }
+                }
+            }
+        });
         let stop = consumer_handle.shutdown_token();
         let interval = config.checkpoint_interval();
         let checkpoint_readiness = boot_readiness.clone();
@@ -596,7 +624,8 @@ async fn async_main(config: Config) -> Result<()> {
                 // Boot never ended, so there are no settled positions to checkpoint.
                 _ = stop.cancelled() => checkpoint_handle.work_completed(),
                 _ = checkpoint_readiness.wait_until_dispatchable() => {
-                    run_checkpoints(sweeper, interval, checkpoint_handle).await;
+                    run_checkpoints(sweeper, &checkpoint_readiness, interval, checkpoint_handle)
+                        .await;
                 }
             }
         });
@@ -822,5 +851,10 @@ fn init_tracing() {
             .boxed()
     };
 
-    tracing_subscriber::registry().with(log_layer).init();
+    let subscriber = tracing_subscriber::registry().with(log_layer);
+    // Without `hotpath`, this returns an unfiltered no-op layer. That layer lifts the max level to
+    // TRACE, so every DEBUG/TRACE call site builds its event, sqlx's per-query log included.
+    #[cfg(feature = "hotpath")]
+    let subscriber = subscriber.with(hotpath::sqlx_tracing_layer());
+    subscriber.init();
 }

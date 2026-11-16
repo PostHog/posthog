@@ -1071,6 +1071,51 @@ describe("PiSessionController", () => {
     },
   );
 
+  it.each([
+    ["a loaded session with a local run", true, "local", false],
+    ["a loaded session with a cloud run", true, "cloud", true],
+    ["a failed load of a local run", false, "local", false],
+    ["a failed load of a cloud run", false, "cloud", true],
+    ["a run that cannot be fetched", false, "rejects", false],
+  ] as const)(
+    "restart with %s resumes in the cloud only for a cloud run",
+    async (_label, sessionLoads, fetchedRun, resumesInCloud) => {
+      const session = createSession();
+      const provider: PiSessionProvider = {
+        get: sessionLoads
+          ? vi.fn(async () => session)
+          : vi.fn(async () => {
+              throw new Error("Pi failed to start");
+            }),
+      };
+      const taskService = {
+        openTask: vi.fn(async () => ({ success: true })),
+        getTask: vi.fn(async () => {
+          if (fetchedRun === "rejects") {
+            throw new Error("Not authenticated");
+          }
+          return {
+            id: "task-1",
+            latest_run: { id: "run-1", environment: fetchedRun },
+          };
+        }),
+        resumeCloudPiRun: vi.fn(async () => ({ id: "run-1" })),
+      } as unknown as TaskService;
+      const controller = new PiSessionController(
+        provider,
+        taskService,
+        createLogger().logger,
+      );
+
+      await controller.connect("task-1", "run-1").catch(() => {});
+      await controller.restart("task-1").catch(() => {});
+
+      expect(vi.mocked(taskService.resumeCloudPiRun).mock.calls.length).toBe(
+        resumesInCloud ? 1 : 0,
+      );
+    },
+  );
+
   it("keeps a background cloud session until the run ends", async () => {
     const session: PiSession = {
       ...createSession(),

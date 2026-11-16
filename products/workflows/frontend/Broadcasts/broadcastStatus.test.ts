@@ -11,7 +11,7 @@ const withJob = (status: string): { latestBatchJob: HogFlowBatchJobApi; totals: 
     totals: {},
 })
 
-describe('getBroadcastStatus', () => {
+describe('broadcast status', () => {
     it.each([
         ['a draft, whatever its runs say', flow('draft'), withJob('completed'), 'draft'],
         ['an archived broadcast', flow('archived'), withJob('completed'), 'archived'],
@@ -49,6 +49,18 @@ describe('getBroadcastStatus', () => {
         ],
         // Runs not loaded yet, or failed to load, used to read as "scheduled" for a broadcast that already sent.
         ['a live broadcast whose runs have not loaded', flow('active'), undefined, 'unknown'],
+        [
+            'a run the server marks as partly failed',
+            flow('active'),
+            { ...withJob('partially_failed'), hasPendingSchedule: false },
+            'partially_failed',
+        ],
+        [
+            'a recurring broadcast whose last run partly failed',
+            flow('active'),
+            { ...withJob('partially_failed'), hasPendingSchedule: true },
+            'scheduled',
+        ],
     ])('reads %s as %s', (_name, broadcast, details, expected) => {
         expect(getBroadcastStatus(broadcast, details)).toBe(expected)
     })

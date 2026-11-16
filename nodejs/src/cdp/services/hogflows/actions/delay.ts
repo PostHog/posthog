@@ -18,7 +18,9 @@ export class DelayHandler implements ActionHandler {
             ? await scheduledAtFromInstant(action, invocation)
             : calculatedScheduledAt(
                   action.config.delay_duration ?? '',
-                  invocation.state.currentAction?.startedAtTimestamp
+                  invocation.state.currentAction?.startedAtTimestamp,
+                  undefined,
+                  MAX_DELAY_VALUE_FOR_DURATION_UNIT
               )
 
         // While the delay is still pending, park WITHOUT advancing currentAction. Advancing eagerly
@@ -44,9 +46,8 @@ const MAX_UNIX_SECONDS = 253402300799
  * Seconds for a signed offset, at its full magnitude.
  *
  * Deliberately not held to the per-unit ceilings a fixed delay uses. Those exist to bound how long a run
- * waits, which `max_delay_duration` already does here, and applying them to an offset would turn "45 days
- * before" into "30 days before" without saying so: for a date two months out that fires the message 15 days
- * late rather than not at all.
+ * waits, which `max_delay_duration` already does here, and applying them to an offset would shorten it
+ * without saying so: "48 hours before" would become "24 hours before" and fire the message a day late.
  */
 function offsetSeconds(value: string): number | null {
     const parsed = parseDuration(value)
@@ -62,12 +63,12 @@ function maxDelaySeconds(value: string): number | null {
     if (!parsed || parsed.negative) {
         return null
     }
-    return clampedAmount(parsed) * SECONDS_PER_DURATION_UNIT[parsed.unit]
+    return clampedAmount(parsed, MAX_DELAY_VALUE_FOR_DURATION_UNIT) * SECONDS_PER_DURATION_UNIT[parsed.unit]
 }
 
-/** The amount a fixed delay is allowed to wait for, held to this unit's ceiling. */
-function clampedAmount(parsed: ParsedDuration): number {
-    return Math.min(MAX_VALUE_FOR_DURATION_UNIT[parsed.unit], parsed.amount)
+/** The amount a step is allowed to wait for, held to this unit's ceiling. */
+function clampedAmount(parsed: ParsedDuration, ceilings: DurationCeilings): number {
+    return Math.min(ceilings[parsed.unit], parsed.amount)
 }
 
 /**
@@ -190,7 +191,19 @@ async function scheduledAtFromInstant(
 
 const LUXON_UNIT = { d: 'days', h: 'hours', m: 'minutes', s: 'seconds' } as const
 
-const MAX_VALUE_FOR_DURATION_UNIT: Record<string, number> = {
+type DurationCeilings = Record<string, number>
+
+// How long one step may wait, per unit. A delay parks once and wakes once, so it can run to a year.
+// A wait stays registered with the subscription matcher while it parks, so it keeps the shorter cap.
+// Mirrored in products/workflows/backend/utils/durations.py.
+export const MAX_DELAY_VALUE_FOR_DURATION_UNIT: DurationCeilings = {
+    d: 365,
+    h: 24,
+    m: 60,
+    s: 60,
+}
+
+export const MAX_WAIT_VALUE_FOR_DURATION_UNIT: DurationCeilings = {
     d: 30,
     h: 24,
     m: 60,
@@ -205,7 +218,8 @@ const MAX_VALUE_FOR_DURATION_UNIT: Record<string, number> = {
 export function calculatedScheduledAt(
     value: string,
     startedAtTimestamp?: number,
-    maxDelaySeconds?: number
+    maxDelaySeconds?: number,
+    ceilings: DurationCeilings = MAX_WAIT_VALUE_FOR_DURATION_UNIT
 ): DateTime | null {
     const actionStartedAt = startedAtTimestamp ? DateTime.fromMillis(startedAtTimestamp).toUTC() : null
 
@@ -219,7 +233,7 @@ export function calculatedScheduledAt(
         throw new Error(`Invalid duration: ${value}`)
     }
 
-    const duration: DurationLike = { [LUXON_UNIT[parsed.unit]]: clampedAmount(parsed) }
+    const duration: DurationLike = { [LUXON_UNIT[parsed.unit]]: clampedAmount(parsed, ceilings) }
 
     const waitUntilTime = actionStartedAt.plus(duration)
 

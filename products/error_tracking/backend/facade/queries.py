@@ -23,6 +23,9 @@ from products.error_tracking.backend.hogql_queries.error_tracking_fingerprint_pr
 from products.error_tracking.backend.hogql_queries.error_tracking_issue_correlation_query_runner import (
     ErrorTrackingIssueCorrelationQueryRunner,
 )
+from products.error_tracking.backend.hogql_queries.error_tracking_issue_events_query_runner import (
+    ErrorTrackingIssueEventsQueryRunner,
+)
 from products.error_tracking.backend.hogql_queries.error_tracking_query_runner import ErrorTrackingQueryRunner
 from products.error_tracking.backend.hogql_queries.error_tracking_releases_query_runner import (
     ErrorTrackingReleasesQueryRunner,
@@ -35,6 +38,7 @@ __all__ = [
     "ErrorTrackingBreakdownsQueryRunner",
     "ErrorTrackingFingerprintProjectionQueryRunner",
     "ErrorTrackingIssueCorrelationQueryRunner",
+    "ErrorTrackingIssueEventsQueryRunner",
     "ErrorTrackingQueryRunner",
     "ErrorTrackingReleasesQueryRunner",
     "ErrorTrackingSimilarIssuesQueryRunner",

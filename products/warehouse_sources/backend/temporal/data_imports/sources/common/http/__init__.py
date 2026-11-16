@@ -4,6 +4,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.htt
     current_job_context,
     scoped_job_context,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.retry_deadline import (
+    request_deadline_allows_wait,
+    retry_with_deadline,
+    stop_at_request_deadline,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.transport import (
     DEFAULT_RETRY,
     NO_REQUEST_TIMEOUT,
@@ -33,7 +38,10 @@ __all__ = [
     "make_tracked_adapter",
     "make_tracked_session",
     "request_deadline",
+    "request_deadline_allows_wait",
     "resolve_request_timeout",
+    "retry_with_deadline",
     "scoped_job_context",
+    "stop_at_request_deadline",
     "suspend_adapter_retries",
 ]

@@ -2,7 +2,7 @@ from typing import TYPE_CHECKING, Any
 
 from django.contrib.postgres.fields import ArrayField
 from django.db import models
-from django.db.models import QuerySet
+from django.db.models import Q, QuerySet
 
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.file_system.constants import DEFAULT_SURFACE
@@ -32,6 +32,23 @@ class LayoutCompaction(models.TextChoices):
 
 
 DASHBOARD_GRID_COMPACTION_MODES = tuple(LayoutCompaction.values)
+
+
+class TileGroupDisplay(models.TextChoices):
+    SECTIONS = "sections", "sections"
+    TABS = "tabs", "tabs"
+
+
+DASHBOARD_TILE_GROUP_DISPLAY_MODES = tuple(TileGroupDisplay.values)
+
+
+class DashboardTileGroupColor(models.TextChoices):
+    BLUE = "blue", "Blue"
+    PURPLE = "purple", "Purple"
+    GREEN = "green", "Green"
+    YELLOW = "yellow", "Yellow"
+    ORANGE = "orange", "Orange"
+    RED = "red", "Red"
 
 
 class DashboardManager(RootTeamManager):
@@ -161,4 +178,20 @@ class Dashboard(Taggable, FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin
             "has_description": self.description != "",
             "tags_count": self.tagged_items.count(),
             "creation_mode": self.creation_mode,
+            "group_display": self.group_display,
+            "group_count": self.tile_group_count,
         }
+
+    @property
+    def group_display(self) -> str:
+        group_display = self.customization.get("group_display") if isinstance(self.customization, dict) else None
+        return group_display if group_display in DASHBOARD_TILE_GROUP_DISPLAY_MODES else TileGroupDisplay.SECTIONS
+
+    @property
+    def tile_group_keys(self) -> set[str]:
+        visible_tiles = self.tiles.filter(Q(insight__deleted=False) | Q(insight__isnull=True))
+        return {group_key for group_key in visible_tiles.values_list("group_key", flat=True) if group_key}
+
+    @property
+    def tile_group_count(self) -> int:
+        return len(self.tile_group_keys)

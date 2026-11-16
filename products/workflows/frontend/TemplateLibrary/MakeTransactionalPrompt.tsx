@@ -5,19 +5,24 @@ import { LemonButton } from '@posthog/lemon-ui'
 import { messageTemplateLogic } from './messageTemplateLogic'
 import { MessageTemplateSceneLogicProps } from './messageTemplateSceneLogic'
 
-export function MakeTransactionalPrompt(props: MessageTemplateSceneLogicProps): JSX.Element {
+export function MakeTransactionalPrompt({
+    editDisabledReason,
+    ...props
+}: MessageTemplateSceneLogicProps & { editDisabledReason?: string }): JSX.Element {
     const logic = messageTemplateLogic(props)
     const { template, templateChanged, isMakingTransactional } = useValues(logic)
     const { makeTransactional } = useActions(logic)
 
     const email = template.content.email
-    const disabledReason = templateChanged
-        ? 'Save your changes first'
-        : !email?.subject
-          ? 'Add a subject first'
-          : !(email.html || email.text)
-            ? 'Add a body first'
-            : undefined
+    const disabledReason =
+        editDisabledReason ??
+        (templateChanged
+            ? 'Save your changes first'
+            : !email?.subject
+              ? 'Add a subject first'
+              : !(email.html || email.text)
+                ? 'Add a body first'
+                : undefined)
 
     return (
         <div className="flex flex-col gap-4 max-w-200" data-attr="make-transactional-prompt">
@@ -34,6 +39,7 @@ export function MakeTransactionalPrompt(props: MessageTemplateSceneLogicProps): 
                     Your edits save as a draft. Publishing updates the live email, and each publish keeps a version.
                 </li>
                 <li>Transactional emails ignore marketing opt-outs, so don't use them for marketing.</li>
+                <li>You can't undo this. The template stays transactional.</li>
             </ul>
             <div>
                 <LemonButton

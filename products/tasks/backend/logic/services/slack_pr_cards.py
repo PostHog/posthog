@@ -56,6 +56,8 @@ def _post_pr_closed_card(run_id: str, pr_url: str, *, merged: bool) -> bool:
         return False
 
     handler = SlackThreadHandler.for_run(SlackThreadContext.from_mapping(mapping), task_run.id)
+    if handler.proactive_notifications_muted():
+        return False
     posted = handler.post_pr_closed(
         pr_url,
         handler.reader_task_url(),

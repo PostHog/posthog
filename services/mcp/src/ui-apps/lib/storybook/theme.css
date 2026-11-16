@@ -123,3 +123,24 @@
 .font-mono {
     font-family: var(--font-mono, ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace);
 }
+
+/* PostHog's Tailwind marks `bg-muted` important over the `[data-quill]` bridge, and an important rule in an earlier layer beats one in `utilities`. */
+@layer base {
+    [data-mcp-storybook] .bg-muted {
+        background-color: var(--color-background-tertiary, #f2f4f7) !important;
+    }
+}
+
+/* Inverted surfaces, such as a selected marker. */
+[data-mcp-storybook] .bg-foreground {
+    background-color: var(--foreground);
+}
+
+[data-mcp-storybook] .text-background {
+    color: var(--background);
+}
+
+[data-mcp-storybook] .border-foreground,
+[data-mcp-storybook] .hover\:border-foreground:hover {
+    border-color: var(--foreground);
+}

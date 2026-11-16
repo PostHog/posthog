@@ -1,4 +1,3 @@
-import json
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any, NoReturn
@@ -19,6 +18,7 @@ from posthog.temporal.common.errors import NonReportableError
 from posthog.utils import get_machine_id
 
 from products.warehouse_sources.backend.billing import is_in_free_historical_window
+from products.warehouse_sources.backend.logic.source_inputs import SourceInputsStore, UnreadableSourceInputsError
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.load import get_incremental_field_value
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
     DUPLICATE_PRIMARY_KEYS_ERROR,
@@ -97,37 +97,14 @@ class UnreadableJobInputsError(Exception):
     """
 
 
-def _decode_job_inputs(job_inputs: str) -> dict[str, Any]:
-    """Recover the config mapping from a `job_inputs` value stored as a JSON string.
-
-    `EncryptedJSONField` encrypts a mapping value by value, but stringifies and encrypts anything
-    else whole, and its read path hands a scalar straight back without parsing it. So a config
-    written as a JSON string instead of a mapping decodes to that same string on every later read,
-    with the mapping still inside it as plain JSON. `Config.from_dict` recovers such a config the
-    same way, so decoding here keeps the two readers in agreement.
-    """
-    try:
-        decoded = json.loads(job_inputs)
-    except ValueError:
-        # Text that holds no JSON and JSON that holds no mapping leave the caller with the same
-        # unusable config, so both take the branch below.
-        decoded = None
-
-    if not isinstance(decoded, dict):
-        raise NonRetryableException() from UnreadableJobInputsError(UNREADABLE_JOB_INPUTS_MESSAGE)
-
-    return decoded
-
-
 async def trim_source_job_inputs(source: "ExternalDataSource") -> None:
-    decoded_from_string = isinstance(source.job_inputs, str)
-    if decoded_from_string:
-        job_inputs = _decode_job_inputs(source.job_inputs)
-    elif isinstance(source.job_inputs, dict):
-        job_inputs = source.job_inputs
-    else:
-        # An unconfigured source (`None`) or any other non-mapping has no keys to trim. The config
-        # parse in the import activity reports an unusable value.
+    decoded_from_string = SourceInputsStore.stored_as_string(source)
+    try:
+        job_inputs = await SourceInputsStore.aload(source)
+    except UnreadableSourceInputsError:
+        if decoded_from_string:
+            raise NonRetryableException() from UnreadableJobInputsError(UNREADABLE_JOB_INPUTS_MESSAGE)
+        # A value that is not a mapping has no keys to trim. Config parsing reports the invalid value.
         return
 
     # A value decoded out of a string is saved even when no key needs trimming, so the row is
@@ -140,8 +117,7 @@ async def trim_source_job_inputs(source: "ExternalDataSource") -> None:
                 did_update_inputs = True
 
     if did_update_inputs:
-        source.job_inputs = job_inputs
-        await database_sync_to_async_pool(source.save)()
+        await SourceInputsStore.asave(source, job_inputs)
 
 
 def _source_type_for_death_event(inputs: "ImportDataActivityInputs") -> str | None:
@@ -486,8 +462,9 @@ def validate_incremental_sync(
     # The Delta merge needs a key to match rows on, so a keyless incremental table fails once a
     # table already exists. Raise before extraction rather than letting the writer hit it mid-load:
     # on pipeline v3 the write happens in the load consumer, which can only fail the job, so the
-    # schema is never paused and the same doomed run repeats on every schedule.
-    if is_incremental and not is_first_sync and not resource.primary_keys:
+    # schema is never paused and the same doomed run repeats on every schedule. A run with a replace
+    # scope appends instead of merging, so it needs no key.
+    if is_incremental and not is_first_sync and not resource.primary_keys and resource.replace_scope is None:
         raise MissingPrimaryKeysException()
 
 
@@ -560,7 +537,11 @@ def import_replaces_table(
 
 
 def resets_table_before_extraction(
-    reset_pipeline: bool, should_resume: bool, schema: "ExternalDataSchema", webhook_only: bool = False
+    reset_pipeline: bool,
+    should_resume: bool,
+    schema: "ExternalDataSchema",
+    webhook_only: bool = False,
+    keeps_table: bool = False,
 ) -> bool:
     """Whether `handle_reset_or_full_refresh` deletes the table for these inputs."""
     from products.warehouse_sources.backend.models.external_data_schema import (  # noqa: PLC0415 — Django model import kept off this activity module's load path
@@ -570,7 +551,7 @@ def resets_table_before_extraction(
     if should_resume:
         return False
     if reset_pipeline:
-        return not webhook_only
+        return not webhook_only and not keeps_table
     return schema.sync_type == ExternalDataSchema.SyncType.FULL_REFRESH
 
 
@@ -581,7 +562,10 @@ async def handle_reset_or_full_refresh(
     delta_table_ref: DeltaTableRef,
     logger: FilteringBoundLogger,
     webhook_only: bool = False,
+    keeps_table: bool = False,
 ) -> None:
+    """`keeps_table` marks a table that holds the only copy of its data, such as a history table. Its
+    reset starts the sync position over and leaves the table alone."""
     from products.warehouse_sources.backend.models.external_data_schema import (
         ExternalDataSchema,
         update_sync_type_config_keys,
@@ -607,8 +591,11 @@ async def handle_reset_or_full_refresh(
             schema.sync_type_config.pop("reset_pipeline", None)
             schema.sync_type_config.pop("column_type_widened", None)
     elif reset_pipeline and not should_resume:
-        await logger.adebug("Deleting existing table due to reset_pipeline being set")
-        await delta_table_ref.reset_table()
+        if keeps_table:
+            await logger.adebug("Keeping the table through the reset; only its sync position starts over")
+        else:
+            await logger.adebug("Deleting existing table due to reset_pipeline being set")
+            await delta_table_ref.reset_table()
         await database_sync_to_async_pool(schema.update_sync_type_config_for_reset_pipeline)(
             promote_pending_repartition=True
         )
@@ -646,6 +633,10 @@ def _capture_delta_revived(
         capture_exception(e)
 
 
+class KeptTableCorruptError(Exception):
+    """A corrupt table that holds the only copy of its data, so no run can rebuild it. Non-retryable."""
+
+
 async def handle_corrupted_delta_log(
     schema: "ExternalDataSchema",
     job: "ExternalDataJob",
@@ -653,6 +644,7 @@ async def handle_corrupted_delta_log(
     logger: FilteringBoundLogger,
     *,
     table_will_be_reset: bool = False,
+    keeps_table: bool = False,
 ) -> bool:
     """Detect and revive a corrupt Delta table before extraction.
 
@@ -678,7 +670,11 @@ async def handle_corrupted_delta_log(
     log needs no detection there, and the open is skipped. A revive marker and a staged swap are
     still handled, because they need more than the delete.
 
-    Returns True if a revive happened. Best-effort: any failure here must not block the sync.
+    `keeps_table` marks a table that holds the only copy of its data, such as a history table. A rebuild
+    from the source can't bring that data back, so it is never reset here: `KeptTableCorruptError` stops
+    the run and leaves the table for a repair.
+
+    Returns True if a revive happened. Otherwise best-effort: any other failure here must not block the sync.
     """
     revive_marker = schema.delta_revive_required
     if revive_marker is None:
@@ -757,6 +753,17 @@ async def handle_corrupted_delta_log(
         except Exception as e:
             capture_exception(e)
             await logger.aexception(f"handle_corrupted_delta_log: salvage failed, resetting: {e}", exc_info=e)
+
+    if keeps_table:
+        await logger.aerror(
+            f"handle_corrupted_delta_log: keeping the corrupt table for a repair, schema_id={schema.id}",
+            schema_id=str(schema.id),
+        )
+        # A run would extract and bill rows it can't write, so syncs stop until the repair.
+        raise KeptTableCorruptError(
+            f"The table of {schema.name} is damaged, and it holds the only copy of its data, so it can't be "
+            "rebuilt from the source. Syncs stop until it's repaired. Contact support."
+        )
 
     # Reset + rebuild from source in this run, marked non-billable — we caused the corruption.
     from products.warehouse_sources.backend.models.external_data_schema import (  # noqa: PLC0415 — Django model import kept off this activity module's load path
@@ -893,12 +900,18 @@ async def update_row_tracking_after_batch(
     await decrement_rows(team_id, schema_id, row_count)
 
 
-def is_young_first_attempt() -> bool:
+def is_young_first_attempt(shutdown_grace_seconds: float = 0.0) -> bool:
+    """`shutdown_grace_seconds` is the time the shutdown monitor let the run continue after the signal.
+
+    It does not count toward the age, so the grace never turns a run that was young at the signal into
+    one that keeps the worker until it finishes.
+    """
     if not activity.in_activity():
         return False
 
     info = activity.info()
-    return info.attempt == 1 and datetime.now(UTC) - info.started_time < NON_RESUMABLE_HANDOFF_MAX_ATTEMPT_AGE
+    age = datetime.now(UTC) - info.started_time - timedelta(seconds=shutdown_grace_seconds)
+    return info.attempt == 1 and age < NON_RESUMABLE_HANDOFF_MAX_ATTEMPT_AGE
 
 
 def should_check_shutdown(
@@ -906,6 +919,7 @@ def should_check_shutdown(
     resource: SourceResponse,
     reset_pipeline: bool,
     source_is_resumable: bool,
+    shutdown_grace_seconds: float = 0.0,
 ) -> bool:
     # A descending run does not raise, because each stop restarts it from the old watermark. An ascending
     # incremental run keeps its progress after a stop only through the handoff checkpoint.
@@ -915,7 +929,9 @@ def should_check_shutdown(
     incremental_sync_raise_during_shutdown = (
         schema.should_use_incremental_field and resource.sort_mode != "desc" and not reset_pipeline
     )
-    return incremental_sync_raise_during_shutdown or source_is_resumable or is_young_first_attempt()
+    return (
+        incremental_sync_raise_during_shutdown or source_is_resumable or is_young_first_attempt(shutdown_grace_seconds)
+    )
 
 
 async def finalize_desc_sort_incremental_value(

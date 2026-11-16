@@ -46,9 +46,8 @@ _FOR_TEAM = "products.engineering_analytics.backend.logic.queries._curated.Curat
 _VIEWS = "products.engineering_analytics.backend.facade.api"
 _Q = "products.engineering_analytics.backend.logic.quarantine"
 
-# The exact bytes core.render (and therefore `hogli test:quarantine add`) writes for one
-# full entry: version, then entries sorted by id, 4-space indent, trailing newline. If this
-# breaks, the bot's PR diff would diverge from a human's and `quarantine check` could flag it.
+# The exact bytes that hogli's quarantine `core.render` writes for one full entry. The product must
+# write the same bytes, so that its PR diff matches one made with `hogli test:quarantine add`.
 _GOLDEN_ONE = (
     "{\n"
     '    "version": 1,\n'
@@ -69,7 +68,6 @@ _GOLDEN_ONE = (
 
 
 def _curated_source(results: list[tuple[str, str]]) -> mock.Mock:
-    """A stand-in CuratedGitHubSource: run_source() feeds the repo SQL, run() returns the rows."""
     source = mock.Mock()
     source.run_source.return_value = "(runs)"
     source.run.return_value = SimpleNamespace(results=results)
@@ -96,7 +94,6 @@ def _text(*entries: dict[str, Any]) -> str:
 
 
 def _response(status_code: int = 200, text: str = "", headers: dict[str, str] | None = None) -> mock.MagicMock:
-    """A streamed requests response: usable as a context manager, body delivered via iter_content."""
     body = text.encode("utf-8")
     response = mock.MagicMock()
     response.status_code = status_code
@@ -303,8 +300,7 @@ class TestQuarantineBuild(BaseTest):
 
     @time_machine.travel("2026-06-12", tick=False)
     def test_oversized_streamed_body_rejected_and_not_cached(self) -> None:
-        # No Content-Length header: the cap must hold on the streamed bytes, and a
-        # hostile oversize response must not poison the cache for the next caller.
+        # The response has no Content-Length header, so the cap must apply to the streamed bytes.
         with mock.patch(_MAX_BYTES, 16), mock.patch(_REQUESTS_GET, return_value=_response(200, _text(_entry()))) as get:
             first = build_quarantine(team=self.team, repo="PostHog/posthog")
             second = build_quarantine(team=self.team, repo="PostHog/posthog")
@@ -526,18 +522,16 @@ class TestQuarantineRender(TestCase):
 class TestQuarantineRequest(BaseTest):
     def _install(self, github: mock.Mock, *, has_integration: bool = True, connected: bool = True) -> mock.Mock:
         gh_patch = mock.patch(f"{_Q}.GitHubIntegration", return_value=github)
-        integration_patch = mock.patch(f"{_Q}.Integration")
-        # The explicit repo override is authorized against the team's connected GitHub sources;
-        # mock that list so the real _repo_is_connected runs against a matching source (or none).
+        integration_patch = mock.patch(f"{_Q}.IntegrationManager")
         sources = [SimpleNamespace(repo="PostHog/posthog")] if connected else []
         sources_patch = mock.patch(f"{_Q}.list_github_sources", return_value=sources)
         gh_patch.start()
-        integration_cls = integration_patch.start()
+        manager = integration_patch.start()
         sources_patch.start()
         self.addCleanup(gh_patch.stop)
         self.addCleanup(integration_patch.stop)
         self.addCleanup(sources_patch.stop)
-        integration_cls.objects.filter.return_value.first.return_value = object() if has_integration else None
+        manager.github.oauth.find.return_value = object() if has_integration else None
         return github
 
     @time_machine.travel("2026-06-12", tick=False)
@@ -630,8 +624,6 @@ class TestQuarantineRequest(BaseTest):
 
     @time_machine.travel("2026-06-12", tick=False)
     def test_explicit_repo_outside_the_team_is_rejected_before_any_write(self) -> None:
-        # A client-supplied repo the team hasn't connected as a GitHub source must not get the
-        # App's write token, even when it sits in the install's org.
         github = self._install(_github_mock(), connected=False)
         with self.assertRaises(contracts.QuarantineWriteError):
             request_quarantine(team=self.team, request=_request(repo="PostHog/not-ours"))
@@ -646,8 +638,6 @@ class TestQuarantineRequest(BaseTest):
     )
     @time_machine.travel("2026-06-12", tick=False)
     def test_github_failure_becomes_a_user_safe_error_not_a_500(self, _name: str, failure: Exception) -> None:
-        # get_default_branch raises plain ValueError/Exception, not QuarantineWriteError; without
-        # translation those escape as a 500 instead of the user-safe 400 the rest of the path gives.
         github = self._install(_github_mock())
         github.get_default_branch.side_effect = failure
         with self.assertRaises(contracts.QuarantineWriteError):
@@ -714,7 +704,7 @@ class TestQuarantineRequestAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            # quarantine sends a blank issue (the server files one); remove sends no reason/owner.
+            # The server files the issue on a quarantine, and a removal has no reason or owner.
             ("blank_issue_on_quarantine", {"issue": ""}),
             ("blank_reason_owner_on_remove", {"operation": "remove", "reason": "", "owner": "", "issue": ""}),
         ]
@@ -738,8 +728,6 @@ class TestQuarantineRequestAPI(APIBaseTest):
         assert "not 'PostHog'" in response.json()["detail"]
 
     def test_invalid_body_is_rejected(self) -> None:
-        # Proves the viewset runs the serializer at all; the case matrix lives in
-        # TestQuarantineRequestValidation, which needs no DB.
         body = self._body()
         body.pop("selector")
         with mock.patch(f"{_VIEWS}.request_quarantine") as called:
@@ -791,6 +779,9 @@ class _StubCurated:
     def trunk_org_url_slug(self) -> str | None:
         return None
 
+    def trunk_quarantined_tests_v2_shape(self) -> bool:
+        return True
+
     def run(self, sql: str, **_kwargs: Any) -> SimpleNamespace:
         self.sql = sql
         return SimpleNamespace(results=self._rows)
@@ -805,9 +796,9 @@ class TestTrunkQuarantineDebtTruncation(TestCase):
                 f"test_{index}",
                 f"products/a/test_{index}.py",
                 "",
-                "quarantined",
-                "always",
+                "flaky",
                 f"case-{index}",
+                f"https://app.trunk.io/example/tests/case-{index}",
                 datetime(2026, 1, 1, tzinfo=UTC),
             )
             for index in range(count)

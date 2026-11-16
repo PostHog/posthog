@@ -437,15 +437,19 @@ impl LeaderBackend {
             let partition = self.partition_for_person(key.0, key.1);
             // A partition born in the flip parks its writes until its first handoff drains
             // them. The table's read lock ensures a route added later meets the stash.
-            if self
-                .config
-                .changelog
+            let changelog = &self.config.changelog;
+            if let Some(floor) = changelog
                 .draining_floor()
-                .is_some_and(|floor| partition >= floor)
+                .filter(|floor| partition >= *floor)
             {
                 let table = self.routing_table.read().await;
                 if !table.contains_key(&partition) {
                     self.stash.begin_stash(partition);
+                } else if changelog.floor_held() {
+                    let partitions = changelog.partitions();
+                    if (floor..partitions).all(|p| table.contains_key(&p)) {
+                        changelog.release_floor(floor, partitions);
+                    }
                 }
             }
             // The stash module emits its own enqueued/rejected counters

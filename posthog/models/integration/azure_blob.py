@@ -1,9 +1,22 @@
 """Azure Blob Storage integration."""
 
-from posthog.models.user import User
-from posthog.security.url_validation import _dev_bypass_enabled, _test_bypass_enabled, is_url_allowed
+import operator
+from functools import reduce
+from itertools import groupby
+from operator import itemgetter
+from urllib.parse import urlsplit
 
-from . import model
+from posthog.integrations.contracts import IntegrationRecord
+from posthog.models.user import User
+from posthog.security.url_validation import (
+    ResolvedIPs,
+    _dev_bypass_enabled,
+    _test_bypass_enabled,
+    canonicalize_host,
+    validate_url_and_pin_ips,
+)
+
+from . import model, row_writes
 
 
 class AzureBlobIntegrationError(Exception):
@@ -21,12 +34,12 @@ class AzureBlobIntegration:
     integration: model.Integration
     connection_string: str
 
-    def __init__(self, integration: model.Integration) -> None:
+    def __init__(self, integration: IntegrationRecord) -> None:
         if integration.kind != model.Integration.IntegrationKind.AZURE_BLOB.value:
             raise AzureBlobIntegrationError(
                 f"Integration provided is not an Azure Blob integration (got kind='{integration.kind}')"
             )
-        self.integration = integration
+        self.integration = model.integration_model(integration)
 
         try:
             self.connection_string = self.integration.sensitive_config["connection_string"]
@@ -39,7 +52,7 @@ class AzureBlobIntegration:
         team_id: int,
         connection_string: str,
         created_by: "User | None" = None,
-    ) -> model.Integration:
+    ) -> IntegrationRecord:
         account_name = cls._extract_account_name(connection_string)
         if not account_name:
             raise AzureBlobIntegrationError(
@@ -59,20 +72,13 @@ class AzureBlobIntegration:
             "connection_string": connection_string,
         }
 
-        integration, created = model.Integration.objects.update_or_create(
-            team_id=team_id,
-            kind=model.Integration.IntegrationKind.AZURE_BLOB.value,
-            integration_id=account_name,
-            defaults={
-                "config": config,
-                "sensitive_config": sensitive_config,
-                "created_by": created_by,
-            },
+        integration, _ = row_writes.creator_accessor(model.Integration.IntegrationKind.AZURE_BLOB.value).upsert(
+            team_id,
+            account_name,
+            config=config,
+            sensitive_config=sensitive_config,
+            created_by_id=created_by.id if created_by else None,
         )
-
-        if integration.errors:
-            integration.errors = ""
-            integration.save()
 
         return integration
 
@@ -89,7 +95,7 @@ class EndpointNotAllowedError(ValueError):
     """Distinct error raised when an endpoint is not allowed."""
 
 
-def validate_azure_blob_connection_string(connection_string: str) -> None:
+def validate_azure_blob_connection_string(connection_string: str) -> dict[str, ResolvedIPs] | None:
     """Validate an Azure Blob connection string.
 
     Extract its parts, evaluate all required settings are included, and check
@@ -142,14 +148,26 @@ def validate_azure_blob_connection_string(connection_string: str) -> None:
         suffix = settings.get("ENDPOINTSUFFIX") or "core.windows.net"
         derived_endpoints.append(f"{protocol}://{account_name}.blob.{suffix}")
 
+    if not validation_applies:
+        return None
+
+    pinned_ips: list[tuple[str, ResolvedIPs]] = []
     for endpoint in explicit_endpoints + derived_endpoints:
-        if validation_applies and not endpoint.lower().startswith("https://"):
+        if not endpoint.lower().startswith("https://"):
             raise ValueError("Endpoints in the connection string must use https")
 
-        if validation_applies:
-            allowed, error = is_url_allowed(endpoint)
-            if not allowed:
-                raise EndpointNotAllowedError("Invalid endpoint found in connection string")
+        verdict = validate_url_and_pin_ips(endpoint)
+
+        if not verdict.allowed or not verdict.pinned_ips:
+            raise EndpointNotAllowedError("Invalid endpoint found in connection string")
+
+        host = canonicalize_host(urlsplit(endpoint).hostname or "")
+        pinned_ips.append((host, verdict.pinned_ips))
+
+    return {
+        host: reduce(operator.or_, (s[1] for s in grouped), set())
+        for host, grouped in groupby(sorted(pinned_ips, key=itemgetter(0)), key=itemgetter(0))
+    }
 
 
 def strip_leading_whitespace(conn_str: str) -> str:

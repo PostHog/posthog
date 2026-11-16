@@ -54,12 +54,14 @@ use personhog_proto::personhog::types::v1::{
     ListCohortMemberIdsResponse, ListGroupsRequest, ListGroupsResponse,
     ListPersonTombstoneQueueRequest, ListPersonTombstoneQueueResponse, ListPersonsForTeamRequest,
     ListPersonsForTeamResponse, Person, PersonsByDistinctIdsInTeamResponse,
-    PersonsByDistinctIdsResponse, PersonsResponse, SetPersonDistinctIdVersionFloorRequest,
-    SetPersonDistinctIdVersionFloorResponse, SetPersonVersionFloorRequest,
-    SetPersonVersionFloorResponse, SplitPersonRequest, SplitPersonResponse, UpdateGroupRequest,
-    UpdateGroupResponse, UpdateGroupTypeMappingRequest, UpdateGroupTypeMappingResponse,
-    UpdatePersonPropertiesRequest, UpdatePersonPropertiesResponse, UpsertHashKeyOverridesRequest,
-    UpsertHashKeyOverridesResponse,
+    PersonsByDistinctIdsResponse, PersonsResponse, RaisePersonVersionFloorsRequest,
+    RaisePersonVersionFloorsResponse, RestorePersonsRequest, RestorePersonsResponse,
+    SetPersonDistinctIdVersionFloorRequest, SetPersonDistinctIdVersionFloorResponse,
+    SetPersonVersionFloorRequest, SetPersonVersionFloorResponse, SplitPersonRequest,
+    SplitPersonResponse, UpdateGroupRequest, UpdateGroupResponse, UpdateGroupTypeMappingRequest,
+    UpdateGroupTypeMappingResponse, UpdatePersonPropertiesRequest, UpdatePersonPropertiesResponse,
+    UpsertHashKeyOverridesRequest, UpsertHashKeyOverridesResponse, WriteDistinctIdsRequest,
+    WriteDistinctIdsResponse,
 };
 use personhog_router::backend::{
     ChannelBackend, DnsBackendConfig, LeaderBackend, LeaderBackendConfig, StashTable,
@@ -563,6 +565,27 @@ impl PersonHogReplica for TestReplicaService {
     ) -> Result<Response<ListPersonsForTeamResponse>, Status> {
         Ok(Response::new(ListPersonsForTeamResponse::default()))
     }
+
+    async fn raise_person_version_floors(
+        &self,
+        _request: Request<RaisePersonVersionFloorsRequest>,
+    ) -> Result<Response<RaisePersonVersionFloorsResponse>, Status> {
+        Ok(Response::new(RaisePersonVersionFloorsResponse::default()))
+    }
+
+    async fn restore_persons(
+        &self,
+        _request: Request<RestorePersonsRequest>,
+    ) -> Result<Response<RestorePersonsResponse>, Status> {
+        Ok(Response::new(RestorePersonsResponse::default()))
+    }
+
+    async fn write_distinct_ids(
+        &self,
+        _request: Request<WriteDistinctIdsRequest>,
+    ) -> Result<Response<WriteDistinctIdsResponse>, Status> {
+        Ok(Response::new(WriteDistinctIdsResponse::default()))
+    }
 }
 
 /// Start a test replica server on a random port and return its address
@@ -850,6 +873,27 @@ impl PersonHogLeader for TestLeaderService {
             "fold-unverified".parse().expect("static slug parses"),
         );
         Err(status)
+    }
+
+    async fn raise_person_version(
+        &self,
+        request: Request<personhog_proto::personhog::types::v1::RaisePersonVersionRequest>,
+    ) -> Result<Response<personhog_proto::personhog::types::v1::RaisePersonVersionResponse>, Status>
+    {
+        require_partition_metadata(&request)?;
+        let req = request.into_inner();
+        let mut person = self
+            .persons
+            .get(&(req.team_id, req.person_id))
+            .map(|entry| entry.value().clone())
+            .ok_or_else(|| Status::not_found("person not found"))?;
+        person.version = person.version.max(req.min_version);
+        Ok(Response::new(
+            personhog_proto::personhog::types::v1::RaisePersonVersionResponse {
+                person: Some(person),
+                raised: true,
+            },
+        ))
     }
 
     async fn get_person(
@@ -1254,6 +1298,7 @@ impl PersonHogLifecycle for TestLifecycleService {
             .map(|person_id| lifecycle::DeletePersonResult {
                 person_id,
                 outcome: lifecycle::DeletePersonOutcome::Deleted as i32,
+                person_version: None,
             })
             .collect();
         Ok(Response::new(lifecycle::DeletePersonsResponse {

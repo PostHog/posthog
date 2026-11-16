@@ -24,6 +24,7 @@ from rest_framework.exceptions import NotFound, PermissionDenied, Throttled
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework.throttling import UserRateThrottle
 from rest_framework.viewsets import GenericViewSet
 
 from posthog.schema import (
@@ -42,6 +43,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.api.documentation import _FallbackSerializer
 from posthog.api.mixins import validated_request
 from posthog.api.project import capture_team_config_diff
+from posthog.api.query import CONCURRENCY_LIMIT_RETRY_AFTER_SECONDS
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.clickhouse.client.limit import (
     ConcurrencyLimitExceeded,
@@ -67,9 +69,14 @@ from products.marketing_analytics.backend.hogql_queries.adapters.factory import 
 from products.marketing_analytics.backend.hogql_queries.adapters.self_managed import SelfManagedAdapter
 from products.marketing_analytics.backend.hogql_queries.constants import CONVERSION_GOAL_KIND_CHOICES
 from products.marketing_analytics.backend.hogql_queries.utils import map_url_to_provider
+from products.marketing_analytics.backend.models.conversion_setup import ConversionRecommendationRun
 from products.marketing_analytics.backend.services.conversion_goals_inspector import (
     explain_conversion_goal,
     list_conversion_goals,
+)
+from products.marketing_analytics.backend.services.conversion_recommendations import (
+    ConversionRecommendationResults,
+    ConversionRecommendationService,
 )
 from products.marketing_analytics.backend.services.conversion_recordings import ConversionRecordingsQuery
 from products.marketing_analytics.backend.services.data_source_health import get_data_source_health
@@ -97,8 +104,24 @@ from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 logger = structlog.get_logger(__name__)
 
 
-def _setup_enabled(request: Request, team: Team, *, include_read_only: bool = False) -> bool:
-    """Evaluate eligible marketing flags once per request.
+def _marketing_feature_enabled(request: Request, team: Team, flag: str) -> bool:
+    person_properties = {}
+    email = getattr(request.user, "email", None)
+    if email:
+        person_properties["email"] = email
+    return feature_enabled_or_false(
+        flag,
+        # Service credentials authenticate as a synthetic user with no person behind them;
+        # the team UUID keeps the call well-formed, and a person condition won't match it.
+        getattr(request.user, "distinct_id", None) or str(team.uuid),
+        groups={"organization": str(team.organization.id)},
+        person_properties=person_properties,
+        group_properties={"organization": {"id": str(team.organization.id)}},
+    )
+
+
+def _setup_enabled(request: Request, team: Team) -> bool:
+    """Evaluate the setup flag once per request.
 
     Evaluated for the requesting person, because the flag's release conditions target
     people and the frontend renders the Setup tab off that same per-person answer.
@@ -107,35 +130,23 @@ def _setup_enabled(request: Request, team: Team, *, include_read_only: bool = Fa
     condition matches too. Cached on the request because a second call in the same one
     would fire a redundant `$feature_flag_called`.
     """
-    cache_attribute = "_ma_read_only_setup_flag" if include_read_only else "_ma_setup_flag"
-    cached = getattr(request, cache_attribute, None)
+    cached = getattr(request, "_ma_setup_flag", None)
     if cached is not None:
         return cached
     person_properties = {}
     email = getattr(request.user, "email", None)
     if email:
         person_properties["email"] = email
-    enabled = any(
-        feature_enabled_or_false(
-            flag,
-            # Service credentials authenticate as a synthetic user with no person behind them;
-            # the team UUID keeps the call well-formed, and a person condition won't match it.
-            getattr(request.user, "distinct_id", None) or str(team.uuid),
-            groups={"organization": str(team.organization.id)},
-            person_properties=person_properties,
-            group_properties={"organization": {"id": str(team.organization.id)}},
-        )
-        for flag in (
-            "marketing-analytics-setup",
-            "new-marketing-analytics-dashboard",
-            *(
-                ("marketing-analytics-source-onboarding", "marketing-analytics-setup-plan-mcp")
-                if include_read_only
-                else ()
-            ),
-        )
+    enabled = feature_enabled_or_false(
+        "marketing-analytics-setup",
+        # Service credentials authenticate as a synthetic user with no person behind them;
+        # the team UUID keeps the call well-formed, and a person condition won't match it.
+        getattr(request.user, "distinct_id", None) or str(team.uuid),
+        groups={"organization": str(team.organization.id)},
+        person_properties=person_properties,
+        group_properties={"organization": {"id": str(team.organization.id)}},
     )
-    setattr(request, cache_attribute, enabled)
+    request._ma_setup_flag = enabled  # type: ignore[attr-defined]
     return enabled
 
 
@@ -307,7 +318,7 @@ class ConversionGoalsListResponseSerializer(serializers.Serializer):
 
 
 _CONVERSION_GOAL_ADAPTER: TypeAdapter[ConversionGoalFilter1 | ConversionGoalFilter2 | ConversionGoalFilter3] = (
-    TypeAdapter(ConversionGoalFilter1 | ConversionGoalFilter2 | ConversionGoalFilter3)
+    TypeAdapter(cast(Any, ConversionGoalFilter1 | ConversionGoalFilter2 | ConversionGoalFilter3))
 )
 
 
@@ -456,6 +467,49 @@ class ConversionGoalUpdateSerializer(serializers.Serializer):
 class ConversionGoalWriteResponseSerializer(serializers.Serializer):
     goal = ConversionGoalField(help_text="The goal as stored after the write")
     conversion_goals = ConversionGoalListField(help_text="Every configured goal after the write, in display order")
+
+
+class ConversionRecommendationStartSerializer(serializers.Serializer):
+    refresh = serializers.BooleanField(
+        default=False,
+        help_text="False starts the first 30-day analysis once. True requests a new 14-day analysis; use only after an explicit user request.",
+    )
+
+
+class ConversionRecommendationRunSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ConversionRecommendationRun
+        fields = ["id", "status", "lookback_days", "date_from", "date_to", "created_at", "completed_at", "error"]
+        read_only_fields = fields
+
+
+@extend_schema_field(ConversionRecommendationResults)  # type: ignore[arg-type]
+class ConversionRecommendationResultsField(serializers.JSONField):
+    pass
+
+
+class ConversionRecommendationStateSerializer(serializers.Serializer):
+    generation_disabled_reason = serializers.CharField(
+        allow_null=True, help_text="Why this user cannot start an analysis, or null when generation is available."
+    )
+    latest_run = ConversionRecommendationRunSerializer(
+        allow_null=True, help_text="Latest analysis, including its actual state and observation period."
+    )
+    result_run = ConversionRecommendationRunSerializer(
+        allow_null=True,
+        help_text="Completed analysis that supplied the visible recommendations. Previous results remain available during an update or failure.",
+    )
+    results = ConversionRecommendationResultsField(
+        help_text="Suggested event or action goals with source evidence and business questions. Configure reviewed goals with the existing editor."
+    )
+    can_generate = serializers.BooleanField(
+        help_text="Whether this user can request or initialize project recommendations."
+    )
+
+
+class ConversionRecommendationThrottle(UserRateThrottle):
+    scope = "marketing_conversion_recommendations"
+    rate = "5/hour"
 
 
 # --- list_data_sources ---
@@ -1186,10 +1240,9 @@ class ConversionRecordingsResponseSerializer(serializers.Serializer):
 
 
 class MarketingAnalyticsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
-    # `marketing_analytics` is gated by the API scope of the same name and inherits
-    # RBAC from `web_analytics` (see RESOURCE_INHERITANCE_MAP). Custom @action methods
-    # below are not standard CRUD names, so each declares its own `required_scopes`;
-    # actions without it stay session-only (not reachable via API key / OAuth / MCP).
+    # `marketing_analytics` is gated by the API scope and the RBAC resource of the same
+    # name. Custom @action methods below are not standard CRUD names, so each declares
+    # its own `required_scopes`; actions without it stay session-only (not reachable via API key / OAuth / MCP).
     scope_object = "marketing_analytics"
     serializer_class = _FallbackSerializer
     permission_classes = [IsAuthenticated]
@@ -1235,7 +1288,10 @@ class MarketingAnalyticsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
                     limit=data["limit"],
                 )
         except ConcurrencyLimitExceeded as error:
-            raise Throttled(detail="Too many queries are running. Try again in a moment.") from error
+            raise Throttled(
+                wait=CONCURRENCY_LIMIT_RETRY_AFTER_SECONDS,
+                detail="Too many queries are running. Try again in a moment.",
+            ) from error
         return Response(ConversionRecordingsResponseSerializer(result).data)
 
     @validated_request(
@@ -1391,6 +1447,81 @@ class MarketingAnalyticsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             self._store_goals(config, goals, previous=previous)
 
         return Response({"goal": removed, "conversion_goals": goals})
+
+    def _require_conversion_setup_ai(self, request: Request) -> None:
+        if not _setup_enabled(request, self.team) or not _marketing_feature_enabled(
+            request, self.team, "marketing-analytics-conversion-setup-ai"
+        ):
+            raise NotFound("AI conversion setup is not enabled for this project.")
+        if not isinstance(request.user, User):
+            raise PermissionDenied("Use a user account to review AI conversion recommendations.")
+
+    def _recommendation_service(self, request: Request) -> ConversionRecommendationService:
+        service = ConversionRecommendationService(self.team, cast(User, request.user))
+        try:
+            service.require_access()
+        except PermissionError as error:
+            raise PermissionDenied(str(error)) from error
+        return service
+
+    def _recommendation_state(self, service: ConversionRecommendationService) -> Response:
+        service.expire_interrupted_runs()
+        runs = ConversionRecommendationRun.objects.for_team(service.team.pk).order_by("-created_at", "-id")
+        latest = runs.first()
+        completed = runs.filter(status=ConversionRecommendationRun.Status.COMPLETED).first()
+        generation_disabled_reason = None
+        try:
+            self._require_project_admin()
+            service.require_generation_access()
+        except (PermissionDenied, PermissionError) as error:
+            generation_disabled_reason = str(error)
+        can_generate = generation_disabled_reason is None
+        return Response(
+            ConversionRecommendationStateSerializer(
+                {
+                    "latest_run": latest,
+                    "result_run": completed,
+                    "results": service.visible_results(completed).model_dump(mode="json"),
+                    "can_generate": can_generate,
+                    "generation_disabled_reason": generation_disabled_reason,
+                }
+            ).data
+        )
+
+    @extend_schema(
+        responses=ConversionRecommendationStateSerializer, summary="Read persisted conversion recommendations"
+    )
+    @action(
+        methods=["GET"],
+        detail=False,
+        url_path="conversion_recommendations",
+        required_scopes=["marketing_analytics:read"],
+    )
+    def conversion_recommendations(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        self._require_conversion_setup_ai(request)
+        return self._recommendation_state(self._recommendation_service(request))
+
+    @validated_request(
+        request_serializer=ConversionRecommendationStartSerializer,
+        responses={200: OpenApiResponse(response=ConversionRecommendationStateSerializer)},
+        summary="Start a conversion recommendation analysis",
+    )
+    @action(
+        methods=["POST"],
+        detail=False,
+        url_path="conversion_recommendations/start",
+        required_scopes=["marketing_analytics:write"],
+        throttle_classes=[ConversionRecommendationThrottle],
+    )
+    def start_conversion_recommendations(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        self._require_conversion_setup_ai(request)
+        service = self._recommendation_service(request)
+        self._require_project_admin()
+        try:
+            service.start(refresh=request.validated_data["refresh"])
+        except PermissionError as error:
+            raise PermissionDenied(str(error)) from error
+        return self._recommendation_state(service)
 
     def _require_project_admin(self) -> None:
         # The settings PATCH path puts these fields behind ADMIN, so these endpoints have to clear
@@ -1650,7 +1781,6 @@ class MarketingAnalyticsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
                 response=SetupPlanResponseSerializer,
                 description="Ranked, machine-applicable setup suggestions plus per-capability readiness",
             ),
-            404: OpenApiResponse(description="Marketing Setup and new dashboard feature flags are both off"),
         },
         summary="Get the marketing analytics setup plan",
         description=(
@@ -1664,10 +1794,6 @@ class MarketingAnalyticsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
     )
     @action(methods=["GET"], detail=False, url_path="setup_plan", required_scopes=["marketing_analytics:read"])
     def setup_plan(self, request: Request, *args, **kwargs) -> Response:
-        # 404 rather than 403: an unreleased endpoint should look absent, not forbidden.
-        if not _setup_enabled(request, self.team, include_read_only=True):
-            raise NotFound("Marketing analytics setup is not enabled for this project.")
-
         date_from = request.validated_query_data["date_from"]
         # `IsAuthenticated` on the viewset rules out AnonymousUser, which is the only
         # reason `.pk` is optional here.
@@ -1708,7 +1834,7 @@ class MarketingAnalyticsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
                 description="The applied operations and the ops that reverse them",
             ),
             400: OpenApiResponse(description="An operation was malformed, unsupported, or not applicable"),
-            404: OpenApiResponse(description="Marketing Setup and new dashboard feature flags are both off"),
+            404: OpenApiResponse(description="Marketing analytics setup is not enabled for this project"),
         },
         summary="Apply setup operations",
         description=(
@@ -1720,8 +1846,7 @@ class MarketingAnalyticsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
     )
     @action(methods=["POST"], detail=False, url_path="apply_setup_ops", required_scopes=["marketing_analytics:write"])
     def apply_setup_ops(self, request: Request, *args, **kwargs) -> Response:
-        # Same gate as setup_plan: the ops only come from a plan, so an unreleased
-        # read side means there is nothing legitimate to apply.
+        # 404 rather than 403: an unreleased endpoint should look absent, not forbidden.
         if not _setup_enabled(request, self.team):
             raise NotFound("Marketing analytics setup is not enabled for this project.")
 

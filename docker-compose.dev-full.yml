@@ -18,6 +18,7 @@ services:
         depends_on:
             - replay-capture
             - capture
+            - capture-ai
             - feature-flags
             - hypercache-server
             - web
@@ -156,6 +157,16 @@ services:
             - redis7
             - kafka
 
+    capture-ai:
+        extends:
+            file: docker-compose.base.yml
+            service: capture-ai
+        environment:
+            - DEBUG=1
+        depends_on:
+            - redis7
+            - kafka
+
     replay-capture:
         extends:
             file: docker-compose.base.yml
@@ -188,6 +199,9 @@ services:
         depends_on:
             - redis7
             - db
+        environment:
+            # Answer /flags?v=4 with the v4 response, as production does
+            FLAGS_V4_RESPONSE_ENABLED: 'true'
 
     hypercache-server:
         extends:

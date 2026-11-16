@@ -22,8 +22,6 @@ from posthog.dataclasses import frozen
 logger = structlog.get_logger(__name__)
 
 Product = Literal[
-    "llm_gateway",
-    "ci",
     "posthog_code",
     "background_agents",
     "slack_app",
@@ -41,7 +39,6 @@ Product = Literal[
     "subscriptions",
     "signals",
     "review_hog",
-    "custom_image_scans",
     "conversations",
     "warehouse_semantic_enrichment",
     "warehouse_custom_source_builder",
@@ -312,6 +309,27 @@ def resolve_ai_gateway_config() -> AIGatewayConfig | None:
     return AIGatewayConfig(url=url, api_key=api_key)
 
 
+# A plain http URL to these hosts stays on this machine, so local development needs no certificate.
+_LOOPBACK_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
+
+
+def resolve_https_ai_gateway_config() -> AIGatewayConfig | None:
+    """``resolve_ai_gateway_config``, but None when the URL would send the gateway key in clear to
+    a host off this machine.
+
+    Use it for a client that puts the key in an ``Authorization`` header itself, instead of through
+    an SDK that the caller already pinned to https.
+    """
+    gateway = resolve_ai_gateway_config()
+    if gateway is None:
+        return None
+    parsed = urlparse(gateway.url)
+    if parsed.scheme != "https" and parsed.hostname not in _LOOPBACK_HOSTS:
+        logger.warning("ai_gateway_url_not_https")
+        return None
+    return gateway
+
+
 def _ai_property_headers(**labels: str | None) -> dict[str, str] | None:
     """Build the ``X-PostHog-Properties`` header from caller labels, dropping unset ones.
 
@@ -333,6 +351,7 @@ def ai_gateway_headers(
     session_id: str | None = None,
     properties: Mapping[str, str] | None = None,
     distinct_id: str | None = None,
+    privacy_mode: bool = False,
 ) -> dict[str, str] | None:
     """Build the Go ai-gateway headers that correlate a multi-call AI operation."""
     labels = dict(properties or {})
@@ -348,6 +367,8 @@ def ai_gateway_headers(
         headers["X-PostHog-Session-Id"] = session_id
     if distinct_id:
         headers["X-PostHog-Distinct-Id"] = distinct_id
+    if privacy_mode:
+        headers["X-PostHog-Privacy-Mode"] = "true"
     return headers or None
 
 
@@ -407,6 +428,11 @@ def anthropic_gateway_base_url(openai_base_url: str) -> str:
     return trimmed
 
 
+def openai_gateway_configured() -> bool:
+    """Whether :func:`build_openai_client` can build a client, without building one."""
+    return resolve_ai_gateway_config() is not None or bool(settings.LLM_GATEWAY_URL and settings.LLM_GATEWAY_API_KEY)
+
+
 def build_openai_client(
     product: Product,
     ai_product: str | None = None,
@@ -414,6 +440,7 @@ def build_openai_client(
     session_id: str | None = None,
     properties: Mapping[str, str] | None = None,
     distinct_id: str | None = None,
+    privacy_mode: bool = False,
 ) -> OpenAI:
     """Return a raw OpenAI client routed through the internal Go ai-gateway when configured,
     else the Python LLM gateway via :func:`get_llm_client`.
@@ -437,9 +464,12 @@ def build_openai_client(
                 session_id=session_id,
                 properties=properties,
                 distinct_id=distinct_id,
+                privacy_mode=privacy_mode,
             ),
             http_client=httpx.Client(trust_env=False),
         )
+    if privacy_mode:
+        raise GatewayNotConfiguredError("Privacy mode requires AI_GATEWAY_URL and AI_GATEWAY_API_KEY")
     fallback_headers = _python_gateway_observability_headers(trace_id, session_id, properties)
     return get_llm_client(product, default_headers=fallback_headers)
 
@@ -451,6 +481,7 @@ def build_async_openai_client(
     session_id: str | None = None,
     properties: Mapping[str, str] | None = None,
     distinct_id: str | None = None,
+    privacy_mode: bool = False,
 ) -> AsyncOpenAI:
     """Async variant of :func:`build_openai_client`."""
     gateway = resolve_ai_gateway_config()
@@ -464,11 +495,44 @@ def build_async_openai_client(
                 session_id=session_id,
                 properties=properties,
                 distinct_id=distinct_id,
+                privacy_mode=privacy_mode,
             ),
             http_client=httpx.AsyncClient(trust_env=False),
         )
+    if privacy_mode:
+        raise GatewayNotConfiguredError("Privacy mode requires AI_GATEWAY_URL and AI_GATEWAY_API_KEY")
     fallback_headers = _python_gateway_observability_headers(trace_id, session_id, properties)
     return get_async_llm_client(product, default_headers=fallback_headers)
+
+
+def build_ai_gateway_openai_client(
+    api_key: str,
+    ai_product: str,
+    trace_id: str | None = None,
+    session_id: str | None = None,
+    properties: Mapping[str, str] | None = None,
+    distinct_id: str | None = None,
+) -> OpenAI:
+    """Go ai-gateway client on the caller's own bearer (``pha_``, ``phe_``); no Python-gateway fallback."""
+    url = settings.AI_GATEWAY_URL
+    if not url:
+        raise GatewayNotConfiguredError("AI_GATEWAY_URL is not set")
+    if not urlparse(url).path.rstrip("/").endswith("/v1"):
+        raise GatewayNotConfiguredError(f"AI_GATEWAY_URL must end with /v1, got {url}")
+    if not api_key:
+        raise GatewayNotConfiguredError("api_key is required")
+    return OpenAI(
+        api_key=api_key,
+        base_url=url,
+        default_headers=ai_gateway_headers(
+            ai_product=ai_product,
+            trace_id=trace_id,
+            session_id=session_id,
+            properties=properties,
+            distinct_id=distinct_id,
+        ),
+        http_client=httpx.Client(trust_env=False),
+    )
 
 
 def build_async_anthropic_client(
@@ -538,6 +602,7 @@ def _ai_gateway_anthropic_client(
     properties: Mapping[str, str] | None,
     distinct_id: str | None,
     team_id: int | None,
+    privacy_mode: bool = False,
 ) -> Anthropic:
     labels = dict(properties or {})
     if team_id is not None:
@@ -550,6 +615,7 @@ def _ai_gateway_anthropic_client(
             trace_id=trace_id or team_trace_id(team_id),
             properties=labels,
             distinct_id=distinct_id,
+            privacy_mode=privacy_mode,
         ),
         http_client=httpx.Client(trust_env=False),
     )
@@ -561,15 +627,17 @@ def build_ai_gateway_anthropic_client(
     properties: Mapping[str, str] | None = None,
     distinct_id: str | None = None,
     team_id: int | None = None,
+    privacy_mode: bool = False,
 ) -> Anthropic:
     """:func:`build_anthropic_client` without the Python-gateway fallback, for callers with no route there.
 
-    Raises when the Go ai-gateway pair is unset or malformed.
+    Raises GatewayNotConfiguredError when the Go ai-gateway pair is unset or malformed. ``privacy_mode`` keeps
+    the request and response out of the generation the gateway captures.
     """
     gateway = resolve_ai_gateway_config()
     if gateway is None:
-        raise ValueError("AI_GATEWAY_URL and AI_GATEWAY_API_KEY must be configured")
-    return _ai_gateway_anthropic_client(gateway, ai_product, trace_id, properties, distinct_id, team_id)
+        raise GatewayNotConfiguredError("AI_GATEWAY_URL and AI_GATEWAY_API_KEY must be configured")
+    return _ai_gateway_anthropic_client(gateway, ai_product, trace_id, properties, distinct_id, team_id, privacy_mode)
 
 
 def build_anthropic_client(
@@ -630,11 +698,10 @@ def build_gemini_client(
             session_id=session_id,
             properties=properties,
             distinct_id=distinct_id,
+            privacy_mode=privacy_mode,
         )
         or {}
     )
-    if privacy_mode:
-        headers["X-PostHog-Privacy-Mode"] = "true"
     base_url = anthropic_gateway_base_url(gateway.url)
     # `files.upload` sends its chunks with none of the client's headers, so the transports carry them and the key.
     transport_headers = {**headers, "x-goog-api-key": gateway.api_key}

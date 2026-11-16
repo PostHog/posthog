@@ -17,6 +17,8 @@ class StoredNotification:
     resource_id: str
     source_url: str
     resolved_user_ids: list[int]
+    target_type: str
+    target_id: str
 
 
 def _stored(event: NotificationEvent) -> StoredNotification:
@@ -27,6 +29,8 @@ def _stored(event: NotificationEvent) -> StoredNotification:
         resource_id=event.resource_id,
         source_url=event.source_url,
         resolved_user_ids=list(event.resolved_user_ids),
+        target_type=event.target_type,
+        target_id=event.target_id,
     )
 
 

@@ -4,10 +4,10 @@ import { useCallback, useMemo } from 'react'
 import { ChartLegend, PieChart, TooltipSurface, TooltipSwatch, useChartLegend } from '@posthog/quill-charts'
 import type { PieChartConfig, TooltipContext } from '@posthog/quill-charts'
 
-import { ChartDisplayType } from '~/types'
+import { makeChartErrorHandler } from 'lib/charts/chartErrorHandler'
+import { DonutCenterLabel } from 'lib/charts/DonutCenterLabel'
 
-import { makeChartErrorHandler } from 'products/product_analytics/frontend/insights/trends/shared/chartErrorHandler'
-import { DonutCenterLabel } from 'products/product_analytics/frontend/insights/trends/TrendsPieChart/DonutCenterLabel'
+import { ChartDisplayType } from '~/types'
 
 import { SqlChartProps } from './SqlChart'
 import { formatPieSliceCount } from './sqlPieGraphAdapter'
@@ -29,6 +29,7 @@ export const SqlPieGraph = ({
     presetChartHeight,
     className,
     labelFormatter,
+    onSliceClick,
 }: SqlChartProps): JSX.Element => {
     const isDonut = visualizationType === ChartDisplayType.ActionsDonut
     const { theme, series, legendConfig, total, showTotal, formattingSettings, valueFormatter } =
@@ -119,6 +120,7 @@ export const SqlPieGraph = ({
                         centerLabel={centerLabel}
                         dataAttr="sql-pie-chart"
                         onError={handleChartError}
+                        onSliceClick={onSliceClick}
                     />
                 </div>
                 {legendAtSide && totalDisplay}

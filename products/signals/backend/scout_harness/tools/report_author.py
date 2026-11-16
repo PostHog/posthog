@@ -1,19 +1,22 @@
 """Who authors a report through the report channel.
 
 `emit_report` and `edit_report` read every author-specific value through `ReportAuthor`: the
-idempotency scope, the telemetry identity, the preflight gates, and the artefact attribution. A scout
-run is the only author that exists. Another author, such as a user who calls the channel over the MCP,
-implements the same protocol, so neither path forks on who wrote the report.
+idempotency scope, the telemetry identity, the preflight gates, and the artefact attribution. Two
+authors exist: a scout run (`ScoutRunReportAuthor`) and a project member who files a report through the
+report API, usually over the MCP (`UserReportAuthor`). Both implement the same protocol, so neither path
+forks on who wrote the report.
 """
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta
 from typing import Any, Protocol
 
 from posthog.dataclasses import frozen
 from posthog.models import Team
 
-from products.signals.backend.models import ArtefactAttribution, SignalScoutRun
+from products.signals.backend.daily_limit import team_day_start
+from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalScoutRun
 from products.signals.backend.scout_harness.tools.emit import (
     _assert_team_owns_run,
     _preflight_emit_gates,
@@ -33,6 +36,13 @@ class ReportAuthor(Protocol):
     @property
     def skill_name(self) -> str | None:
         """The skill whose owners get reviewer provenance stamps. None stamps no one."""
+        ...
+
+    @property
+    def user_id(self) -> int | None:
+        """The project member who filed the report by hand, or None for a scout. A set value stores the
+        report as `user_authored`, which keeps automatic start off, and skips the repository selection
+        sandbox."""
         ...
 
     @property
@@ -75,6 +85,10 @@ class ScoutRunReportAuthor:
         return self.run.skill_name
 
     @property
+    def user_id(self) -> int | None:
+        return None
+
+    @property
     def idempotency_scope(self) -> str:
         # Stored keys and event uuids hash this value. Changing its format lets a retry that crosses
         # a deploy author a second report and fire a second customer-facing event.
@@ -88,7 +102,20 @@ class ScoutRunReportAuthor:
         """Shared dimensions for the report-channel lifecycle events, mirroring the `signals_scout_run_*`
         events so the two join on `run_id` / `task_run_id` — a report event sits under the run that authored
         it. All fields are plain columns on the bridge row (no FK query)."""
+        metadata = self.run.metadata or {}
         return {
+            **{
+                key: metadata[key]
+                for key in (
+                    "experiment_key",
+                    "experiment_variant",
+                    "$feature/self-driving-banger-scout",
+                    "runtime",
+                    "model",
+                    "service_tier",
+                )
+                if key in metadata
+            },
             "skill_name": self.run.skill_name,
             "skill_version": self.run.skill_version,
             "scout_config_id": str(self.run.scout_config_id) if self.run.scout_config_id else None,
@@ -108,3 +135,72 @@ class ScoutRunReportAuthor:
     def attribution(self) -> ArtefactAttribution:
         task_id = _resolve_task_id(self.run)
         return ArtefactAttribution.from_task(task_id) if task_id is not None else ArtefactAttribution.system()
+
+
+USER_REPORT_DAILY_LIMIT = 20
+USER_REPORT_DAILY_LIMIT_REASON = "user_daily_report_limit"
+AI_PROCESSING_NOT_APPROVED_REASON = "ai_processing_not_approved"
+
+
+def user_reports_created_today(team: Team, user_id: int) -> int:
+    """Reports this member filed by hand since the start of the project's day. Suppressed and deleted
+    reports count too, because each one already paid for a safety judge call."""
+    return SignalReport.objects.filter(
+        team_id=team.id, created_by_id=user_id, user_authored=True, created_at__gte=team_day_start(team)
+    ).count()
+
+
+def user_report_limit_resets_at(team: Team) -> datetime:
+    return team_day_start(team) + timedelta(days=1)
+
+
+@frozen
+class UserReportAuthor:
+    """A project member who files a report through `POST /signals/reports/`.
+
+    The scout source toggle and scout configs do not apply: they control scouts, not a person.
+    Ownership needs no check, because the viewset already scopes the request to the team."""
+
+    user_id: int
+    user_distinct_id: str
+    request_attribution: ArtefactAttribution
+    client_name: str | None = None
+
+    @property
+    def scout_run(self) -> SignalScoutRun | None:
+        return None
+
+    @property
+    def skill_name(self) -> str | None:
+        return None
+
+    @property
+    def idempotency_scope(self) -> str:
+        # Stored keys and event uuids hash this value, so changing its format breaks retries across a deploy.
+        return f"user:{self.user_id}"
+
+    @property
+    def distinct_id(self) -> str:
+        return self.user_distinct_id
+
+    def event_properties(self) -> dict[str, Any]:
+        properties: dict[str, Any] = {"author_type": "user"}
+        if self.client_name:
+            properties["mcp_client_name"] = self.client_name
+        return properties
+
+    def log_extra(self) -> dict[str, Any]:
+        return {"author_type": "user", "user_id": self.user_id}
+
+    def assert_owned_by(self, team: Team) -> None:
+        return None
+
+    def preflight_skip_reason(self, team: Team) -> str | None:
+        if not team.organization.is_ai_data_processing_approved:
+            return AI_PROCESSING_NOT_APPROVED_REASON
+        if user_reports_created_today(team, self.user_id) >= USER_REPORT_DAILY_LIMIT:
+            return USER_REPORT_DAILY_LIMIT_REASON
+        return None
+
+    def attribution(self) -> ArtefactAttribution:
+        return self.request_attribution

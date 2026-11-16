@@ -4,6 +4,8 @@ import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
+from parameterized import parameterized
+
 from posthog.hogql.errors import QueryError
 
 from posthog.caching.warming import (
@@ -13,12 +15,18 @@ from posthog.caching.warming import (
     schedule_warming_for_teams_task,
     warm_insight_cache_task,
 )
+from posthog.constants import AvailableFeature
 from posthog.exceptions import ClickHouseAtCapacity
+from posthog.models import User
 from posthog.query_cache.freshness_index import update_target_age
+from posthog.query_cache.read_history import record_read
 from posthog.scheduling.jitter import deterministic_offset
 
+from products.access_control.backend.facade.contracts import PropertyAccessLevel
+from products.access_control.backend.models.property_access_control import PropertyAccessControl
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
+from products.event_definitions.backend.models import PropertyDefinition
 from products.product_analytics.backend.facade.api import record_insight_views
 from products.product_analytics.backend.facade.models import Insight, InsightVariable
 
@@ -129,6 +137,25 @@ class TestWarming(APIBaseTest):
             (3456, 7890),
         ]
         self.assertEqual(insights, expected_results)
+
+    @parameterized.expand([("read_on_one_day", 1, []), ("read_on_two_days", 2, [(2345, None), (3456, 7890)])])
+    @patch("posthog.caching.warming.get_stale_insights")
+    def test_time_of_day_rule_keeps_insights_read_at_this_time_on_enough_days(
+        self, _name: str, days_with_a_read: int, expected: list[tuple[int, int | None]], mock_get_stale_insights
+    ):
+        mock_get_stale_insights.return_value = ["2345:", "3456:7890"]
+        for days_ago in range(1, days_with_a_read + 1):
+            for insight_id, dashboard_id in [(2345, None), (3456, 7890)]:
+                record_read(
+                    team_id=self.team.pk,
+                    insight_id=insight_id,
+                    dashboard_id=dashboard_id,
+                    at=datetime.now(UTC) - timedelta(days=days_ago),
+                )
+
+        insights = list(insights_to_keep_fresh(self.team, read_at_this_time_only=True))
+
+        self.assertEqual(insights, expected)
 
 
 class TestScheduleWarmingForTeamsTask(APIBaseTest):
@@ -256,6 +283,35 @@ class TestWarmInsightCacheTask(APIBaseTest):
             warm_insight_cache_task(insight.pk, None)
 
         mock_capture_exception.assert_not_called()
+
+    @patch("posthog.caching.warming.capture_exception")
+    @patch("posthog.query_creator_access.ph_scoped_capture")
+    def test_creator_who_left_the_organization_is_reported_as_an_event_instead_of_being_captured(
+        self, mock_ph_scoped_capture, mock_capture_exception
+    ):
+        feature = AvailableFeature.PROPERTY_ACCESS_CONTROL
+        self.organization.available_product_features = [{"name": feature, "key": feature}]
+        self.organization.save()
+        property_definition = PropertyDefinition.objects.create(
+            team=self.team, name="secret_prop", property_type="String", type=PropertyDefinition.Type.EVENT
+        )
+        PropertyAccessControl.objects.create(
+            team=self.team, property_definition=property_definition, access_level=PropertyAccessLevel.NONE.value
+        )
+        former_member = User.objects.create(email="former-member@example.com")
+        insight = Insight.objects.create(
+            team=self.team, created_by=former_member, query={"kind": "HogQLQuery", "query": "select 1"}
+        )
+        capture_ph_event = mock_ph_scoped_capture.return_value.__enter__.return_value
+
+        warm_insight_cache_task(insight.pk, None)
+
+        mock_capture_exception.assert_not_called()
+        capture_ph_event.assert_called_once()
+        assert capture_ph_event.call_args.kwargs["event"] == "background query creator access revoked"
+        assert capture_ph_event.call_args.kwargs["properties"]["source"] == "cache_warming"
+        assert capture_ph_event.call_args.kwargs["properties"]["reason"] == "left_org"
+        assert capture_ph_event.call_args.kwargs["properties"]["insight_id"] == insight.pk
 
     @patch("posthog.caching.warming.capture_exception")
     @patch("posthog.caching.warming.ph_scoped_capture")

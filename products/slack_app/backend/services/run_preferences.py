@@ -28,6 +28,7 @@ from products.slack_app.backend.services.model_catalogue import (
     ModelChoice,
     available_model_choices,
     filter_unsupported_effort,
+    normalize_model_id,
     runtime_adapter_for,
 )
 from products.slack_app.backend.services.slack_settings import AIPreferences
@@ -59,7 +60,22 @@ def _central_run_default(team_id: int, user_id: int | None) -> ResolvedAIRunConf
     resolved = ai_run_defaults.resolve_ai_run_defaults(team_id, user_id)
     if resolved.runtime != ai_run_defaults.ACP or not resolved.model:
         return None
+    if find_model_choice(resolved.model, available_model_choices()) is None:
+        return None
     return resolved
+
+
+def resolve_effective_runtime_adapter(runtime_adapter: str | None, *, team_id: int, user_id: int | None) -> str | None:
+    """The runtime adapter a new run will use.
+
+    `resolve_run_preferences` leaves the triple empty when a central default exists, and
+    `create_run` fills it in later. A caller that must know the runtime before the run
+    exists (to choose its billing) reads the same default here.
+    """
+    if runtime_adapter:
+        return runtime_adapter
+    central_default = _central_run_default(team_id, user_id)
+    return central_default.runtime_adapter if central_default else None
 
 
 def _coherent_preferences(
@@ -213,8 +229,8 @@ def find_model_choice(model: str | None, choices: tuple[ModelChoice, ...]) -> Mo
     """Match a requested model id against the catalogue, case-insensitively."""
     if not model:
         return None
-    normalized = model.strip().lower()
-    return next((c for c in choices if c.model.lower() == normalized), None)
+    normalized = normalize_model_id(model)
+    return next((c for c in choices if normalize_model_id(c.model) == normalized), None)
 
 
 __all__ = [

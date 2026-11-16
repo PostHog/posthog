@@ -397,7 +397,7 @@ function taskMocks(
             },
             [`/api/projects/:team_id/tasks/${TASK_ID}/runs/${RUN_ID}/`]: run,
             [`/api/projects/:team_id/tasks/${TASK_ID}/runs/${EARLIER_RUN_ID}/`]: earlierRun,
-            [`/api/projects/:team_id/tasks/${TASK_ID}/runs/${RUN_ID}/logs`]: () => new HttpResponse(logs),
+            [`/api/projects/:team_id/tasks/${TASK_ID}/runs/${RUN_ID}/log_entries`]: () => new HttpResponse(logs),
             [`/api/projects/:team_id/tasks/${TASK_ID}/runs/:run_id/artifacts/artifact-chart/download/`]: () =>
                 new HttpResponse(CHART_SVG, { headers: { 'Content-Type': 'image/svg+xml' } }),
             [`/api/projects/:team_id/tasks/${TASK_ID}/runs/:run_id/artifacts/:artifact_id/preview/`]: {

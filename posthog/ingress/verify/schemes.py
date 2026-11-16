@@ -2,8 +2,8 @@
 
 A scheme whose lookup step fails answers `UNAVAILABLE` rather than judging the signature, because
 a step that never completed proves nothing about the caller. `BearerJwt` does this for a JWKS
-fetch failure, `HmacSha256` for a secret read that the database refuses, and `SnsSignature` for
-a signing certificate its verifier could not fetch.
+fetch failure, `HmacSha256` for a secret read that the database or the credentials service refuses,
+and `SnsSignature` for a signing certificate its verifier could not fetch.
 """
 
 import re
@@ -20,6 +20,7 @@ from django.db import DatabaseError, InterfaceError
 
 import structlog
 
+from posthog.credentials_service.errors import CredentialsServiceFailure
 from posthog.dataclasses import frozen
 from posthog.ingress.verify.errors import VerifierUnavailable
 from posthog.ingress.verify.sns_signature import verify_sns_message
@@ -31,6 +32,10 @@ SignatureEncoding = Literal["hex", "base64"]
 # SHA-1 is on this list because one provider signs with it, not because it is a choice worth
 # making for a new one. Reach for `HmacSha256` unless the provider leaves no option.
 HmacDigest = Literal["sha256", "sha1"]
+
+# A secret getter that raises one of these could not read the secret, which says nothing about the
+# caller. Any other exception is a bug and still raises.
+_SECRET_READ_FAILURES = (DatabaseError, InterfaceError, CredentialsServiceFailure)
 
 
 class VerificationOutcome(StrEnum):
@@ -137,6 +142,9 @@ class HmacSignature:
     timestamp_max_future_seconds: int = 300
     # Cheap shape gate run before the HMAC, so a probe cannot drive digest CPU.
     signature_pattern: re.Pattern[str] | None = None
+    # Set when the header can carry several signatures, such as one per secret while a secret rotates.
+    # Any one of them matching verifies the delivery.
+    signature_separator: str | None = None
 
     def _timestamp_is_fresh(self, timestamp: str) -> bool:
         try:
@@ -176,23 +184,27 @@ class HmacSignature:
         return not timestamp or not self._timestamp_is_fresh(timestamp)
 
     def rejects_headers(self, headers: Mapping[str, str]) -> bool:
+        # Well-shaped headers go straight to `_outcome` without a secret read here, so a delivery
+        # reads the secret once: during a credentials-service outage a second read would wait out
+        # a second timeout before answering UNAVAILABLE.
+        if not self._headers_fail(headers):
+            return False
         # An unconfigured endpoint keeps answering NOT_CONFIGURED, whatever the headers carry.
         try:
             secret = self.secret_getter()
-        except (DatabaseError, InterfaceError):
+        except _SECRET_READ_FAILURES:
             # Leave a failed read to `_outcome`, which answers UNAVAILABLE for it.
             return False
-        if not secret:
-            return False
-        return self._headers_fail(headers)
+        return bool(secret)
 
     def _outcome(self, *, body: bytes, headers: Mapping[str, str]) -> VerificationOutcome:
         try:
             secret = self.secret_getter()
-        except (DatabaseError, InterfaceError) as error:
-            # A getter that keeps its secret in Postgres reads it here, so a dropped connection
-            # leaves the signature unchecked. Letting the error out answers 500, which asks no
-            # sender to come back and leaves the lost delivery uncounted.
+        except _SECRET_READ_FAILURES as error:
+            # A getter that keeps its secret in Postgres or in the credentials service reads it here,
+            # so a dropped connection or a service outage leaves the signature unchecked. Letting the
+            # error out answers 500, which asks no sender to come back and leaves the lost delivery
+            # uncounted.
             logger.warning(
                 "ingress_secret_unavailable",
                 signature_header=self.signature_header,
@@ -211,7 +223,13 @@ class HmacSignature:
 
         delivery_id = header_value(headers, self.delivery_id_header) if self.delivery_id_header is not None else None
         expected = self._expected_signature(secret, self._signed_bytes(body, timestamp, delivery_id))
-        if signatures_match(expected, provided):
+        # Senders differ on punctuation around the separator: Supabase joins its signatures with ", ".
+        candidates = (
+            [part.strip().rstrip(",") for part in provided.split(self.signature_separator) if part.strip()]
+            if self.signature_separator
+            else [provided]
+        )
+        if any(signatures_match(expected, candidate) for candidate in candidates):
             return VerificationOutcome.VERIFIED
         return VerificationOutcome.INVALID
 
@@ -231,6 +249,26 @@ class HmacSha256(HmacSignature):
     """
 
     digest: HmacDigest = field(default="sha256", init=False)
+
+
+def standard_webhooks_scheme(
+    secret_getter: Callable[[], str | bytes | None], *, tolerance_seconds: int = 300
+) -> HmacSha256:
+    """The Standard Webhooks signature (https://www.standardwebhooks.com): `webhook-signature: v1,<base64>`
+    over `{webhook-id}.{webhook-timestamp}.{body}`. The getter returns the key, already base64-decoded from the
+    sender's `whsec_` secret, because each sender formats and validates that secret its own way."""
+    return HmacSha256(
+        secret_getter=secret_getter,
+        signature_header="webhook-signature",
+        prefix="v1,",
+        encoding="base64",
+        signed_input="id_timestamp_body",
+        delivery_id_header="webhook-id",
+        timestamp_header="webhook-timestamp",
+        timestamp_max_age_seconds=tolerance_seconds,
+        timestamp_max_future_seconds=tolerance_seconds,
+        signature_separator=" ",
+    )
 
 
 @frozen

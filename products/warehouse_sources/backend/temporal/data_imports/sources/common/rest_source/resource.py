@@ -21,6 +21,8 @@ class PageCheckpoints:
     def __init__(self, resume_hook: ResumeHook) -> None:
         self._resume_hook = resume_hook
         self._pending: list[Optional[dict[str, Any]]] = []
+        # The last page of a listing comes with no next-page state, so the cursor stays on that page.
+        self.last_page_advanced_cursor = False
 
     def defer(self, state: Optional[dict[str, Any]]) -> None:
         self._pending.append(state)
@@ -30,6 +32,7 @@ class PageCheckpoints:
 
     def apply(self, *, page_is_handed_on: bool) -> None:
         pending, self._pending = self._pending, []
+        self.last_page_advanced_cursor = any(state is not None for state in pending)
         if not pending:
             return
         if page_is_handed_on:
@@ -80,6 +83,16 @@ class Resource:
         self._kwargs = kwargs or {}
         self._data_from = data_from
         self._page_checkpoints = page_checkpoints
+
+    @property
+    def last_page_advanced_cursor(self) -> bool:
+        """Whether the page handed on last came with a saved state that fetches the page after it.
+
+        True only while the pipeline iterates this resource itself: a wrapper applies the state when it
+        asks for the next page. False for the last page of a listing, whose state is None, and for a
+        resource built without a resume hook.
+        """
+        return self._page_checkpoints is not None and self._page_checkpoints.last_page_advanced_cursor
 
     @property
     def column_hints(self) -> Optional[dict[str, Any]]:

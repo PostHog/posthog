@@ -9,6 +9,8 @@ from typing import TYPE_CHECKING, Any, ClassVar, Literal, Optional, Protocol, Ty
 
 from structlog.types import FilteringBoundLogger
 
+from posthog.dataclasses import frozen
+
 from products.warehouse_sources.backend.types import ExternalDataSchemaSyncType, IncrementalFieldType
 
 if TYPE_CHECKING:
@@ -70,6 +72,24 @@ class OutputLane:
     transform: Optional[Callable[[pa.Table], pa.Table]] = None
     """Applied to each batch before this lane writes it. May drop rows and add columns; the lane's
     own writer tracks the schema it ends up with."""
+
+
+@frozen
+class ReplaceScope:
+    """The destination rows that one incremental run replaces, named by the value of one column.
+
+    The source names each row's origin (for example the file it came from) in `column`. Before the
+    run's first batch loads, the loader deletes every row whose value is in `replaced` or is not in
+    `retained`. The run's batches then load as appends. So a run replaces the rows of each origin it
+    reads again, and removes the rows of each origin that is gone. A row with no value in `column`
+    is outside the scope and stays.
+    """
+
+    column: str
+    replaced: frozenset[str]
+    """The origins this run reads again: changed or new. Their old rows go before the new rows load."""
+    retained: frozenset[str]
+    """Every origin that is live now. The rows of any other origin go."""
 
 
 @dataclasses.dataclass(frozen=False)  # callers mutate `primary_keys` after construction
@@ -134,6 +154,13 @@ class SourceResponse:
     lanes: Optional[list[OutputLane]] = None
     """Tables this response's items feed, when it feeds more than the one `name` alone describes.
     None means the single lane built from `name` and `cdc_write_mode`."""
+    replace_scope: Optional[ReplaceScope] = None
+    """Set by an incremental source that replaces rows by origin instead of merging on a primary key
+    (see `ReplaceScope`). The run loads as appends and needs no primary key. A first sync or a reset
+    ignores it, because the table starts empty."""
+    preserve_column_names: bool = False
+    """Write the column names as the source yields them instead of normalizing them to snake_case.
+    Set for a table whose existing queries name its columns as they were before the import."""
 
 
 # Not frozen: nothing mutates it in place today, so freezing it is plausible, but every source

@@ -17,6 +17,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.auth import (
+    IDJagAccessTokenAuthentication,
     JwtAuthentication,
     OAuthAccessTokenAuthentication,
     PersonalAPIKeyAuthentication,
@@ -62,7 +63,11 @@ class SkillAccessMixin(_SkillViewBase):
     def _ensure_web_authenticated(self, request: Request) -> Response | None:
         if not isinstance(
             request.successful_authenticator,
-            SessionAuthentication | JwtAuthentication | PersonalAPIKeyAuthentication | OAuthAccessTokenAuthentication,
+            SessionAuthentication
+            | JwtAuthentication
+            | PersonalAPIKeyAuthentication
+            | OAuthAccessTokenAuthentication
+            | IDJagAccessTokenAuthentication,
         ):
             return Response(
                 {"detail": "This endpoint is only available to web-authenticated users."},
@@ -76,9 +81,11 @@ class SkillAccessMixin(_SkillViewBase):
         skill_name: str,
         version: int | None = None,
         version_id: str | None = None,
+        *,
+        defer_body: bool = False,
     ) -> LLMSkill | None:
         # has_permission passes anyone with a grant on any one skill, so the loaded row is checked here.
-        skill = get_skill_by_name_from_db(self.team, skill_name, version, version_id)
+        skill = get_skill_by_name_from_db(self.team, skill_name, version, version_id, defer_body=defer_body)
         if skill is not None:
             self.check_object_permissions(request, skill)
             skill = self._apply_trial_skill(request, skill)

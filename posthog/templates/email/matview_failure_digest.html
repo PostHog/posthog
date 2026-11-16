@@ -1,87 +1,72 @@
 {% extends "email/base.html" %}
-{% block preheader %}Materialized view failures in {{ team.name }}{% endblock %}
+{% block preheader %}{{ summary }} in {{ team.name }}{% endblock %}
 {% block heading %}Materialized view failures{% endblock %}
 {% block section %}
     <p style="color: #374151;">
-        Some materialized views are failing in project <strong>{{ team.name }}</strong>. Their data may be out of date
-        until a run succeeds.
-        {% if has_suspended %}
-            Views marked <strong>suspended</strong> failed too many times in a row, so we stopped running them. Open the
-            view, fix the error, and run it once to start it again.
-        {% endif %}
-        {% if has_unscheduled %}
-            Views marked <strong>not scheduled</strong> are no longer materialized, so they will not run again until
-            you materialize them.
-        {% endif %}
+        In project <strong>{{ team.name }}</strong>: {{ summary }}. Their data may be out of date until a run succeeds.
     </p>
-    <div style="background-color: #ffffff;
-                border: 1px solid #e5e7eb;
-                border-left: 4px solid {% if has_suspended %}#dc3545{% else %}#fd7e14{% endif %};
-                border-radius: 8px;
-                padding: 16px 20px;
-                margin-bottom: 12px">
-        <table width="100%"
-               cellpadding="0"
-               cellspacing="0"
-               border="0"
-               style="border-collapse: collapse">
-            {% for view in views %}
-                <tr>
-                    <td align="left"
-                        style="padding: 9px 8px 9px 0;
-                               border-top: 1px solid #f3f4f6;
-                               vertical-align: top;
-                               text-align: left;
-                               white-space: nowrap">
-                        <a href="{{ view.url }}"
-                           target="_blank"
-                           style="text-decoration: none;
-                                  color: #111827;
-                                  font-weight: 600;
-                                  font-size: 0.9em">{{ view.name|truncatechars:40 }}</a>
-                        <br />
-                        <span style="color: #9ca3af; font-size: 0.75em;">{{ view.last_run_at }}</span>
-                    </td>
-                    <td align="left"
-                        style="padding: 9px 8px;
-                               border-top: 1px solid #f3f4f6;
-                               vertical-align: top;
-                               text-align: left;
-                               color: #6b7280;
-                               font-size: 0.85em;
-                               word-break: break-word">{{ view.error|truncatechars:90 }}</td>
-                    <td align="right"
-                        style="padding: 9px 0 9px 8px;
-                               border-top: 1px solid #f3f4f6;
-                               vertical-align: top;
-                               text-align: right;
-                               white-space: nowrap">
-                        {% if view.suspended %}
-                            <span style="background-color: #fee2e2;
-                                         color: #b91c1c;
-                                         border-radius: 9999px;
-                                         padding: 2px 10px;
-                                         font-size: 0.75em;
-                                         font-weight: 600">Suspended, action required</span>
-                        {% elif not view.scheduled %}
-                            <span style="background-color: #fef3c7;
-                                         color: #92400e;
-                                         border-radius: 9999px;
-                                         padding: 2px 10px;
-                                         font-size: 0.75em;
-                                         font-weight: 600">Not scheduled</span>
-                        {% else %}
-                            <span style="background-color: #f3f4f6;
-                                         color: #6b7280;
-                                         border-radius: 9999px;
-                                         padding: 2px 10px;
-                                         font-size: 0.75em">Will retry</span>
-                        {% endif %}
-                    </td>
-                </tr>
-            {% endfor %}
-        </table>
-    </div>
+    {% for section in sections %}
+        <h3 style="color: #111827; font-size: 1em; margin: 20px 0 4px 0;">{{ section.title }} ({{ section.views|length }})</h3>
+        <p style="color: #6b7280; font-size: 0.85em; margin: 0 0 8px 0;">{{ section.description }}</p>
+        <div style="background-color: #ffffff;
+                    border: 1px solid #e5e7eb;
+                    border-left: 4px solid {{ section.color }};
+                    border-radius: 8px;
+                    padding: 8px 20px;
+                    margin-bottom: 12px">
+            <table width="100%"
+                   cellpadding="0"
+                   cellspacing="0"
+                   border="0"
+                   style="border-collapse: collapse">
+                {% for view in section.views %}
+                    <tr>
+                        <td align="left"
+                            style="padding: 9px 8px 9px 0;
+                                   border-top: {% if forloop.first %}0{% else %}1px solid #f3f4f6{% endif %};
+                                   vertical-align: top;
+                                   text-align: left;
+                                   white-space: nowrap">
+                            <a href="{{ view.url }}"
+                               target="_blank"
+                               style="text-decoration: none;
+                                      color: #111827;
+                                      font-weight: 600;
+                                      font-size: 0.9em">{{ view.name|truncatechars:40 }}</a>
+                            <br />
+                            <span style="color: #9ca3af; font-size: 0.75em;">
+                                {% if section.key == "new" %}
+                                    First failed {{ view.failing_since }}
+                                {% else %}
+                                    Failing since {{ view.failing_since }}, {{ view.failed_runs }} failed run{{ view.failed_runs|pluralize }}
+                                {% endif %}
+                            </span>
+                        </td>
+                        <td align="left"
+                            style="padding: 9px 8px;
+                                   border-top: {% if forloop.first %}0{% else %}1px solid #f3f4f6{% endif %};
+                                   vertical-align: top;
+                                   text-align: left;
+                                   color: #6b7280;
+                                   font-size: 0.85em;
+                                   word-break: break-word">
+                            {{ view.error|truncatechars:90 }}
+                            {% if view.suspended %}
+                                <br />
+                                <span style="color: #b91c1c; font-size: 0.9em;">Suspended after repeated failures. Fix the error, then select Resume on the view.</span>
+                            {% elif view.schedule == "paused" %}
+                                <br />
+                                <span style="color: #92400e; font-size: 0.9em;">Paused. Choose a sync frequency in the view's materialization settings to restart it.</span>
+                            {% elif view.schedule == "reverted" %}
+                                <br />
+                                <span style="color: #92400e; font-size: 0.9em;">Not scheduled. Materialize the view again to restart it.</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                {% endfor %}
+            </table>
+        </div>
+    {% endfor %}
     {% if omitted_count %}
         <p style="font-size: 0.9em; color: #374151; margin-top: 8px;">
             &hellip;and <strong>{{ omitted_count }}</strong> more failing view{{ omitted_count|pluralize }}.

@@ -37,15 +37,17 @@ To run:
 from __future__ import annotations
 
 import asyncio
+from types import SimpleNamespace
+from typing import cast
 
-from posthog.models.integration import Integration
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 
 from products.posthog_ai.eval_harness.config import BaseEvalCase
 from products.posthog_ai.eval_harness.harness.context import EvalContext
 from products.posthog_ai.eval_harness.harness.requirements import SuiteKind
-from products.posthog_ai.eval_harness.one_shot import OneShotPublicEval
+from products.posthog_ai.eval_harness.one_shot import OneShotEval
+from products.slack_app.backend.services.workspace_integrations import WorkspaceIntegration
 from products.slack_app.backend.temporal.activities import classifiers
 from products.slack_app.evals.offline_config import offline_suite
 from products.slack_app.evals.scorers import PROJECT_ROUTE_KEY, NoUnaskedProjectSwitch, ProjectRouteMatch
@@ -53,12 +55,17 @@ from products.slack_app.evals.scorers import PROJECT_ROUTE_KEY, NoUnaskedProject
 SUITE_KIND = SuiteKind.ONE_SHOT
 
 
-def _project(*, team_id: int, integration_id: int, name: str) -> Integration:
-    """An unsaved `Integration` row, which is all the classifier reads."""
-    return Integration(
-        id=integration_id,
-        kind="slack",
-        team=Team(id=team_id, name=name, organization=Organization(name="Northwind")),
+def _project(*, team_id: int, integration_id: int, name: str) -> WorkspaceIntegration:
+    """A stand-in row with only what the classifier reads."""
+    return cast(
+        WorkspaceIntegration,
+        SimpleNamespace(
+            id=integration_id,
+            team_id=team_id,
+            kind="slack",
+            integration_id="T_EVAL",
+            team=Team(id=team_id, name=name, organization=Organization(name="Northwind")),
+        ),
     )
 
 
@@ -113,18 +120,27 @@ NORTHWIND = _project(team_id=53, integration_id=530, name="Northwind")
 SITE_DEV = _project(team_id=54, integration_id=540, name="northwind.io development")
 SITES = [NORTHWIND, SITE_DEV, STAGING, AGENT_PLATFORM, MOBILE]
 
-WORKSPACES: dict[str, tuple[list[Integration], Integration]] = {
+# A fourth workspace, where the default and a mobile project both carry the company's
+# name, so one device word is all that tells them apart. A question about how people use
+# the product on a phone matches part of the mobile project's name, and that partial match
+# moved the run off the default, which holds the data the question asks about.
+NORTHWIND_APP = _project(team_id=55, integration_id=550, name="🎉 Northwind app + website")
+NORTHWIND_MOBILE = _project(team_id=56, integration_id=560, name="📱 Northwind mobile app")
+APPS = [NORTHWIND_APP, NORTHWIND_MOBILE, STAGING, AGENT_PLATFORM]
+
+WORKSPACES: dict[str, tuple[list[WorkspaceIntegration], WorkspaceIntegration]] = {
     "simple": (PROJECTS, MAIN),
     "crowded": (CROWD, MAIN),
     "sites": (SITES, NORTHWIND),
+    "apps": (APPS, NORTHWIND_APP),
 }
 
 
-def _routes_to(project: Integration | None = None) -> dict:
+def _routes_to(project: WorkspaceIntegration | None = None) -> dict:
     return {PROJECT_ROUTE_KEY: {"integration_id": project.id if project else None}}
 
 
-def _stays_on(default: Integration) -> dict:
+def _stays_on(default: WorkspaceIntegration) -> dict:
     """The message names the project the run is already on, so its id and null both pass."""
     return {PROJECT_ROUTE_KEY: {"integration_id": default.id, "is_default": True}}
 
@@ -135,6 +151,10 @@ def _in_the_crowd(**kwargs) -> BaseEvalCase:
 
 def _beside_the_site(**kwargs) -> BaseEvalCase:
     return BaseEvalCase(metadata={"workspace": "sites"}, **kwargs)
+
+
+def _beside_the_mobile_app(**kwargs) -> BaseEvalCase:
+    return BaseEvalCase(metadata={"workspace": "apps"}, **kwargs)
 
 
 ROUTING_CASES = [
@@ -406,6 +426,12 @@ NO_ROUTE_CASES = [
         ),
         expected=_routes_to(),
     ),
+    # A device word that is also part of a project's name, used to slice the data.
+    BaseEvalCase(
+        name="device_word_as_a_filter",
+        prompt="@PostHog how many mobile users finished onboarding yesterday?",
+        expected=_routes_to(),
+    ),
     _in_the_crowd(
         name="crowded_qualifier_word_as_a_verb",
         prompt="@PostHog can you test whether the paywall_viewed event still fires after the release?",
@@ -466,13 +492,70 @@ SITE_NO_ROUTE_CASES = [
     ),
 ]
 
+# A device type, platform or browser says which slice of the default's data to read. The
+# mobile project holds only what its own app sends.
+DEVICE_NO_ROUTE_CASES = [
+    _beside_the_mobile_app(
+        name="one_person_on_their_phone",
+        prompt="@PostHog look up ada.lin@example.com and summarize what they do when they use us from their phone",
+        expected=_routes_to(),
+    ),
+    _beside_the_mobile_app(
+        name="mobile_against_desktop",
+        prompt="@PostHog is checkout conversion lower on mobile than on desktop this month?",
+        expected=_routes_to(),
+    ),
+    _beside_the_mobile_app(
+        name="mobile_browsers_as_a_share",
+        prompt="@PostHog what fraction of last week's signups came in through mobile browsers?",
+        expected=_routes_to(),
+    ),
+    _beside_the_mobile_app(
+        name="mobile_as_an_adjective_on_visitors",
+        prompt="@PostHog are mobile visitors leaving the pricing page faster than they did in March?",
+        expected=_routes_to(),
+    ),
+    _beside_the_mobile_app(
+        name="device_model_as_a_cohort",
+        prompt="@PostHog show 4-week retention for people whose first visit was on an iPhone",
+        expected=_routes_to(),
+    ),
+    _beside_the_mobile_app(
+        name="company_name_beside_a_device_word",
+        prompt="@PostHog how much Northwind usage comes from tablets these days?",
+        expected=_routes_to(),
+    ),
+]
+
+# The mobile project is still one a person can ask for by name.
+DEVICE_ROUTING_CASES = [
+    _beside_the_mobile_app(
+        name="mobile_project_named_in_full",
+        prompt="@PostHog in the Northwind mobile app, which screens crash the most this week?",
+        expected=_routes_to(NORTHWIND_MOBILE),
+    ),
+    _beside_the_mobile_app(
+        name="mobile_project_as_a_label",
+        prompt="@PostHog mobile app: how many crashes since Friday's build?",
+        expected=_routes_to(NORTHWIND_MOBILE),
+    ),
+]
+
 # A mention normally arrives with the resolved project on offer as the default, but not
 # always: `routable_projects` drops an install the bot cannot post into, and the project
 # the run is on can be that one. The model then sees the list in the auth filter's own
 # order and no sentence naming where it already is.
 _CASES_BY_NAME = {
     case.name: case
-    for case in [*ROUTING_CASES, *NO_ROUTE_CASES, *CROWDED_ROUTING_CASES, *SITE_ROUTING_CASES, *SITE_NO_ROUTE_CASES]
+    for case in [
+        *ROUTING_CASES,
+        *NO_ROUTE_CASES,
+        *CROWDED_ROUTING_CASES,
+        *SITE_ROUTING_CASES,
+        *SITE_NO_ROUTE_CASES,
+        *DEVICE_ROUTING_CASES,
+        *DEVICE_NO_ROUTE_CASES,
+    ]
 }
 
 
@@ -501,6 +584,7 @@ NO_DEFAULT_CASES = [
         "crowded_change_the_agents_reply",
         "crowded_explicit_on_project",
         "site_named_without_its_qualifier",
+        "one_person_on_their_phone",
     )
 ]
 
@@ -530,7 +614,7 @@ async def eval_project_classifier(ctx: EvalContext) -> None:
             "last_message": f"{classifier_model}: {chosen.team.name if chosen else None}",
         }
 
-    await OneShotPublicEval(
+    await OneShotEval(
         experiment_name="slack-app-project-classifier",
         offline_suite=offline_suite(
             "slack_app/eval_project_classifier::eval_project_classifier",
@@ -541,8 +625,10 @@ async def eval_project_classifier(ctx: EvalContext) -> None:
             *ROUTING_CASES,
             *CROWDED_ROUTING_CASES,
             *SITE_ROUTING_CASES,
+            *DEVICE_ROUTING_CASES,
             *NO_ROUTE_CASES,
             *SITE_NO_ROUTE_CASES,
+            *DEVICE_NO_ROUTE_CASES,
             *NO_DEFAULT_CASES,
         ],
         scorers=[ProjectRouteMatch(), NoUnaskedProjectSwitch()],

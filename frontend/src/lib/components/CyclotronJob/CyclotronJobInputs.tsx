@@ -1109,7 +1109,10 @@ function CyclotronJobInputWithSchema({
 }: CyclotronJobInputWithSchemaProps): JSX.Element | null {
     const { attributes, listeners, setNodeRef, transform, transition } = useSortable({ id: schema.key })
     const [editing, setEditing] = useState(false)
+    const [replacingSecret, setReplacingSecret] = useState(false)
     const value = configuration.inputs?.[schema.key] ?? { value: null }
+    const hiddenSecret =
+        !!value?.secret && !(isSecretRowsCompanion(schema, configuration.inputs_schema) && secretEntries(value))
     const error = errors?.[schema.key]
     const warning = warnings?.[schema.key]
 
@@ -1148,6 +1151,13 @@ function CyclotronJobInputWithSchema({
             setEditing(false)
         }
     }, [showSource])
+
+    // A save masks the new value again, so the field goes back to the hidden state.
+    useEffect(() => {
+        if (value?.secret) {
+            setReplacingSecret(false)
+        }
+    }, [value?.secret])
 
     const onChange = (newValue: CyclotronJobInputType): void => {
         onInputChange?.(schema.key, {
@@ -1241,27 +1251,23 @@ function CyclotronJobInputWithSchema({
                                 />
                             )}
                         </div>
-                        {value?.secret &&
-                        !(isSecretRowsCompanion(schema, configuration.inputs_schema) && secretEntries(value)) ? (
+                        {hiddenSecret && !replacingSecret ? (
                             <div className="flex gap-2 items-center p-1 rounded border border-dashed">
                                 <span className="flex-1 p-1 italic text-secondary">
                                     This value is secret and is not displayed here.
                                 </span>
-                                <LemonButton
-                                    onClick={() => {
-                                        onChange({ value: '', secret: false })
-                                    }}
-                                    size="small"
-                                    type="secondary"
-                                >
+                                <LemonButton onClick={() => setReplacingSecret(true)} size="small" type="secondary">
                                     Edit
                                 </LemonButton>
                             </div>
                         ) : (
                             <CyclotronJobInputRenderer
                                 schema={schema}
-                                input={value ?? { value: '' }}
-                                onChange={onChange}
+                                input={hiddenSecret ? { value: '' } : (value ?? { value: '' })}
+                                // Save sends a `secret` input as "keep the stored value", so a new value drops the flag.
+                                onChange={
+                                    hiddenSecret ? (newValue) => onChange({ ...newValue, secret: false }) : onChange
+                                }
                                 onInputChange={onInputChange}
                                 onInputsChange={onInputsChange}
                                 configuration={configuration}

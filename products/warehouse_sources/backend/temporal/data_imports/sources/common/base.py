@@ -2,7 +2,7 @@ import datetime
 import functools
 import dataclasses
 from abc import ABC, abstractmethod
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Callable, Iterable, Iterator, Mapping
 from typing import TYPE_CHECKING, Any, Generic, Optional, TypeVar, Union, cast
 
 import structlog
@@ -14,11 +14,13 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.web
 
 if TYPE_CHECKING:
     from products.cdp.backend.templates.hog_function_template import HogFunctionTemplateDC
+    from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
     from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
     from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.predicates import RowFilterColumn
 
 from products.warehouse_sources.backend.facade.source_config import (
     SourceConfig,
+    SourceFieldConfig,
     SourceFieldCredentialAccountSelectConfig,
     SourceFieldFileUploadConfig,
     SourceFieldInputConfig,
@@ -32,6 +34,17 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
     CanonicalDescriptions,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.config import Config
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.credential_kind import (
+    default_credential_kind,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.legacy_oauth import LegacyOAuthGrant
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.oauth_pointers import (
+    OAuthPointer,
+    PointerPath,
+    declared_oauth_pointer_paths,
+    find_in_use_oauth_slot,
+    pointer_at,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import (
@@ -44,7 +57,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
     SourceResponse,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import get_config_for_source
-from products.warehouse_sources.backend.types import ExternalDataSourceType, IncrementalField
+from products.warehouse_sources.backend.types import IncrementalField, SourceKey
 
 logger = structlog.get_logger(__name__)
 
@@ -101,6 +114,35 @@ FieldType = Union[
 ]
 
 SourceCredentialsValidationResult = tuple[bool, str | None]
+
+# Field names that say where stored credentials connect, and as which account, for any source that
+# declares them. The input of the default `credential_identity_fields`.
+GENERIC_IDENTITY_FIELDS: frozenset[str] = frozenset(
+    {
+        "host",
+        "port",
+        "instance_url",
+        "connection_string",
+        "ssh_tunnel",
+        "user",
+        "username",
+        "account",
+        "account_id",
+        "account_sid",
+    }
+)
+
+
+def _declared_field_names(fields: Iterable[SourceFieldConfig]) -> Iterator[str]:
+    """The names of the form fields at any depth: in switch groups and in the options of a select."""
+    for field in fields:
+        yield field.name
+        if isinstance(field, SourceFieldSwitchGroupConfig):
+            yield from _declared_field_names(field.fields)
+        elif isinstance(field, SourceFieldSelectConfig):
+            for option in field.options:
+                yield from _declared_field_names(option.fields or [])
+
 
 # Label used by sources whose vendor has no meaningful API versioning. Version strings are
 # opaque vendor labels (Stripe date versions, semver, names) — never parsed or ordered.
@@ -204,9 +246,23 @@ class _BaseSource(ABC, Generic[ConfigType]):
     # instead of naming the source type.
     supports_xmin: bool = False
 
+    # `False` for sources whose incremental sync can replace rows by origin (a file) instead of merging
+    # them on a key. A history table orders each key's versions, so the API offers it only where this
+    # stays `True`.
+    supports_incremental_history: bool = True
+
     # Direct-only connectors opt out so API clients cannot create a source that is accepted by
     # discovery but can never run a scheduled import.
     supports_scheduled_sync: bool = True
+
+    # For a source PostHog creates and syncs itself, one run at a time, when the data behind it
+    # changes (an uploaded file). The API refuses to create one from a request body, and refuses to
+    # turn on its schedule, because each scheduled run would bill the same rows again.
+    syncs_on_demand: bool = False
+
+    # False keeps the source out of the source catalog, for a source the app sets up through its own
+    # flow and never through the generic setup form.
+    listed_in_catalog: bool = True
 
     # Sources with stable upstream resource ids need unfiltered discovery when a stored schema name
     # may no longer match after an upstream rename.
@@ -265,7 +321,7 @@ class _BaseSource(ABC, Generic[ConfigType]):
 
     @property
     @abstractmethod
-    def source_type(self) -> ExternalDataSourceType:
+    def source_type(self) -> SourceKey:
         raise NotImplementedError()
 
     @property
@@ -391,6 +447,19 @@ class _BaseSource(ABC, Generic[ConfigType]):
         """
         raise NotImplementedError()
 
+    def describe_pinned_schema(
+        self, config: ConfigType, team_id: int, name: str, schema_metadata: Mapping[str, Any]
+    ) -> SourceSchema | None:
+        """Describe a pinned schema from the definition stored on it, without discovery.
+
+        Discovery can't report a pinned schema (see `SCHEMA_PINNED_METADATA_KEY`), so callers ask
+        this first. A source that can rebuild the schema from `schema_metadata` checks that the
+        credentials can read the schema's own data, raises the errors a sync raises when they
+        can't, and returns the schema. `None` means the caller uses `validate_credentials` and
+        `get_schemas`, as for any other schema.
+        """
+        return None
+
     def _placeholder_config(self) -> ConfigType:
         """Build a credential-free config instance for static, no-network schema listing.
 
@@ -458,7 +527,7 @@ class _BaseSource(ABC, Generic[ConfigType]):
     def _vendor_label(self) -> str:
         # The label is for a message only, so a source config that cannot build must not hide the result.
         try:
-            return self.get_source_config.label or str(self.source_type.value)
+            return self.get_source_config.label or str(self.source_type)
         except Exception:
             return "the vendor"
 
@@ -508,6 +577,82 @@ class _BaseSource(ABC, Generic[ConfigType]):
         a differently named field (e.g. Okta's ``okta_domain``) should list it here."""
         return []
 
+    @property
+    def credential_identity_fields(self) -> frozenset[str]:
+        """Connection fields that say where the stored credentials connect, and as which account.
+
+        When other sources or products share the credentials row, a change to one of these fields makes a
+        new row, so the other users keep their connection. The default is ``connection_host_fields`` plus
+        each name in ``GENERIC_IDENTITY_FIELDS`` that the source declares as a form field (at any depth) or
+        stores as a config attribute."""
+        declared = set(_declared_field_names(self.get_source_config.fields))
+        declared |= {config_field.name for config_field in dataclasses.fields(self._config_class)}
+        return frozenset(self.connection_host_fields) | (GENERIC_IDENTITY_FIELDS & declared)
+
+    @property
+    def integration_id_fields_point_at_integrations(self) -> bool:
+        """True when each ``*_integration_id`` field of the inputs holds the id of a core ``Integration`` row.
+
+        The reconcile command checks that each such id points at a row. Override it to False when the source
+        keeps its OAuth rows in another model."""
+        return True
+
+    @property
+    def credential_kind(self) -> str | None:
+        """The ``Integration`` kind that holds this source's typed-in credentials, or None when the source has none.
+
+        The default is the kind of the source's OAuth field, else the kebab-case source type. Override it when the
+        source has the credential shape of an existing kind (Postgres is ``postgresql``), or when kebab-case splits
+        a brand name (MySQL is ``mysql``). The kind is stored data and `facade/credential_kinds.py` freezes it, so
+        never change the kind of a released source. A subclass inherits an override, so it must set its own kind."""
+        return default_credential_kind(self.source_type, self.get_source_config)
+
+    @property
+    def credential_auth_type(self) -> str:
+        """The default auth type (``oauth``, ``token`` or ``credentials``) of rows of ``credential_kind``.
+
+        The default comes from the connection fields. It is stored data and `facade/credential_auth_types.py`
+        freezes it, so never change it for a released source."""
+        # The derivation module imports this module.
+        from products.warehouse_sources.backend.temporal.data_imports.sources.common.credential_auth_type import (  # noqa: PLC0415
+            derive_credential_auth_type,
+        )
+
+        return derive_credential_auth_type(self.get_source_config)
+
+    def has_legacy_oauth_tokens(self, job_inputs: Mapping[str, Any]) -> bool:
+        """Check for legacy OAuth tokens without network calls."""
+        return False
+
+    def legacy_oauth_keys(self) -> tuple[str, ...]:
+        return ()
+
+    def adopt_legacy_oauth(self, job_inputs: Mapping[str, Any]) -> LegacyOAuthGrant | None:
+        """Prepare a grant for storage. This method can make network calls and raise LegacyOAuthGrantUnusable.
+
+        None means the inputs hold no legacy OAuth tokens to move into a row.
+        """
+        return None
+
+    def in_use_oauth_slot(self, job_inputs: Mapping[str, Any]) -> PointerPath | None:
+        """Where ``job_inputs`` keep the OAuth pointer (`*_integration_id`) that the sync uses, or None.
+
+        The default walks the form: an OAuth field under a select option or a switch group is in use only when
+        that option is selected or the group is on. Override it for a pointer that no form field declares
+        (Slack's legacy ``slack_integration_id``), together with ``oauth_pointer_paths``. Raises
+        `OAuthPointerShapeError` when the inputs cannot tell which field is in use."""
+        return find_in_use_oauth_slot(self.get_source_config.fields, job_inputs)
+
+    def in_use_oauth_pointer(self, job_inputs: Mapping[str, Any]) -> OAuthPointer | None:
+        """The OAuth pointer that the sync of these inputs uses, or None. Do not override: override
+        ``in_use_oauth_slot``."""
+        return pointer_at(job_inputs, self.in_use_oauth_slot(job_inputs))
+
+    @property
+    def oauth_pointer_paths(self) -> frozenset[PointerPath]:
+        """Every place in ``job_inputs`` that can hold an OAuth pointer, also under options that are not selected."""
+        return declared_oauth_pointer_paths(self.get_source_config.fields)
+
     def is_unreachable_validation_error(self, error: str) -> bool:
         """Whether a ``validate_credentials`` message means only that the host could not be reached
         over the network. The update serializer may then save the change with a warning for a team
@@ -525,10 +670,11 @@ class _BaseSource(ABC, Generic[ConfigType]):
         incoming and existing inputs so a source can gate on context. Default: none."""
         return []
 
-    # Feature flag a team must have before the API lets it discover tables for or create a source of
-    # this type. `SourceConfig.featureFlag` only hides the source in the UI, so a source that must
-    # not be reachable through the API without the flag sets this as well.
-    requires_team_feature_flag: str | None = None
+    # Top-level ``job_inputs`` keys that hold server-written runtime state, such as a pointer to an
+    # uploaded file. They are neither credentials nor settings a person picks, so they stay in
+    # ``job_inputs`` when the connection fields move to their own store. Keys that start with
+    # ``cdc_`` are runtime state for every source and need no entry here.
+    runtime_job_input_keys: frozenset[str] = frozenset()
 
     # Cap on how many active sources of this type a team may have (``None`` = unlimited). Custom
     # sources are capped; everything else is open. The API enforces this at create.
@@ -566,6 +712,32 @@ class _BaseSource(ABC, Generic[ConfigType]):
 
     def cleanup_cdc_resources_on_deletion(self, source: "ExternalDataSource") -> None:
         """Best-effort teardown of CDC resources tied to the source. No-op by default."""
+        return None
+
+    def on_source_deleted(self, source_model: "ExternalDataSource") -> None:
+        """Best-effort cleanup once the source is soft-deleted, for example of files PostHog stores
+        for it. Runs inside the delete's transaction, so work outside the database belongs in
+        `transaction.on_commit`. No-op by default."""
+        return None
+
+    def has_cleanup_after_sync(self, source_model: "ExternalDataSource") -> bool:
+        """Whether `cleanup_after_sync` has work to do after a sync of one of the source's schemas
+        completes. Kept cheap and false for most sources, because a true answer adds a step to the
+        post-import workflow."""
+        return False
+
+    def cleanup_after_sync(self, source_model: "ExternalDataSource", job: "ExternalDataJob") -> None:
+        """Runs after `job` completed and its table was loaded, when `has_cleanup_after_sync` said so.
+        No-op by default."""
+        return None
+
+    def manual_sync_refusal(self, source_model: "ExternalDataSource") -> str | None:
+        """Why a user can't start a sync of the source's schemas now, as a message for the user, or None
+        when they can. For a source whose inputs can't run a sync yet, such as one that waits for a file."""
+        return None
+
+    def uploaded_file_name(self, source_model: "ExternalDataSource") -> str | None:
+        """The name of the file the source imports, for a source that imports an uploaded file. None by default."""
         return None
 
 

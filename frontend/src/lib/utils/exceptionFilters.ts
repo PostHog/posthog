@@ -7,7 +7,7 @@ interface CapturedException {
     type?: string
     value?: string
     mechanism?: { handled?: boolean }
-    stacktrace?: { frames?: unknown[] }
+    stacktrace?: { frames?: { filename?: string }[] }
 }
 
 /**
@@ -80,16 +80,21 @@ export const dropUnactionableNetworkExceptions = dropExceptionsWhen((exceptions)
  */
 const UNKNOWN_IDENTIFIER_REFERENCE_ERROR = /^(Can't find variable: \S+|\S+ is not defined)$/
 
+const EXTENSION_SCRIPT_URL = /^(webkit-masked-url|chrome-extension|moz-extension|safari-web-extension):\/\//
+
 /**
  * Drops a ReferenceError that a browser extension or an in-app browser injected into the page, for an
- * identifier our code never defines. posthog-js captures it through the global handler with no stack
- * frames, because the throwing script is not ours. A real ReferenceError in our own bundle carries a
- * stack, so the empty-stack check keeps those. Each injected variant fingerprints to its own issue,
- * so the whole class is dropped here.
+ * identifier our code never defines. Extensions can expose no stack or a stack with an extension
+ * crash frame. posthog-js orders frames with the crash site last and exposes URLs as `filename`
+ * before ingestion. Keep events with an app crash frame, including wrapped causes, to avoid hiding
+ * defects in our own code. Each injected variant otherwise fingerprints to its own issue.
  */
 export const dropInjectedScriptReferenceErrors = dropExceptionsWhen(
     (exceptions) =>
-        !exceptions.some((exception) => (exception?.stacktrace?.frames?.length ?? 0) > 0) &&
+        exceptions.every((exception) => {
+            const frames = exception?.stacktrace?.frames ?? []
+            return frames.length === 0 || EXTENSION_SCRIPT_URL.test(frames[frames.length - 1]?.filename ?? '')
+        }) &&
         exceptions.every((exception) => exception?.mechanism?.handled === false) &&
         exceptions.some(
             (exception) =>

@@ -41,6 +41,7 @@ describe('PlayerFrame', () => {
     }
 
     it('mounts the player on the frame document once the frame loads', () => {
+        const captureSpy = jest.spyOn(posthog, 'capture')
         const iframe = renderPlayerFrame()
         const frameDocument = iframe.contentDocument!
         frameDocument.open()
@@ -54,6 +55,7 @@ describe('PlayerFrame', () => {
         )
         // The frame is same-origin, so any script permission added here runs as the app.
         expect(iframe).toHaveAttribute('sandbox', 'allow-same-origin')
+        expect(captureSpy).not.toHaveBeenCalledWith('replay player frame load recovered', expect.anything())
     })
 
     // A load event that never arrives used to leave rrweb with nowhere to mount, so the player
@@ -74,7 +76,13 @@ describe('PlayerFrame', () => {
             })
             expect(captureSpy).toHaveBeenCalledWith(
                 'replay player frame load retried',
-                expect.objectContaining({ attempt: 1, restarts: 0 })
+                // The focus and activation that may decide the load are read when the frame mounted, not 10s later.
+                expect.objectContaining({
+                    attempt: 1,
+                    restarts: 0,
+                    frameMountHasFocus: expect.any(Boolean),
+                    msSinceFrameMount: 10000,
+                })
             )
 
             // The retry replaces the frame, because a frame stuck on about:blank can ignore a new src.
@@ -213,6 +221,32 @@ describe('PlayerFrame', () => {
             ])
             expect(captureExceptionSpy).toHaveBeenCalledTimes(1)
             expect(captureExceptionSpy.mock.calls[0][1]).toMatchObject({ attempt: 3, frameDocumentReadable: false })
+        } finally {
+            jest.useRealTimers()
+        }
+    })
+
+    // Comparing the frames that loaded after a failure with the ones that did not tests why a retry recovers.
+    it('reports a frame that loads after a failed load', () => {
+        jest.useFakeTimers()
+        try {
+            const captureSpy = jest.spyOn(posthog, 'capture')
+            const container = renderPlayerFrame().parentElement!
+
+            fireEvent.load(currentFrame(container))
+            act(() => {
+                jest.advanceTimersByTime(1000)
+            })
+            const frameDocument = currentFrame(container).contentDocument!
+            frameDocument.open()
+            frameDocument.write('<div id="player-frame-content"></div>')
+            frameDocument.close()
+            fireEvent.load(currentFrame(container))
+
+            expect(captureSpy).toHaveBeenCalledWith(
+                'replay player frame load recovered',
+                expect.objectContaining({ attempt: 1, restarts: 0, frameMountHasFocus: expect.any(Boolean) })
+            )
         } finally {
             jest.useRealTimers()
         }

@@ -7,6 +7,7 @@ import { Button, Text } from '@posthog/quill'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 
 import { Composer } from 'products/posthog_ai/frontend/api/composer'
+import { captureInboxReportAction } from 'products/signals/frontend/inbox/inboxAnalytics'
 import { inboxTaskKickoffLogic } from 'products/signals/frontend/inbox/inboxTaskKickoffLogic'
 import type {
     ImplementationSlotClaim,
@@ -39,6 +40,7 @@ function PrimaryAction({
                 variant="primary"
                 className="me-1"
                 render={<LinkPrimitive to={primary.url} target="_blank" />}
+                onClick={() => captureInboxReportAction({ report, actionType: 'open_pr', surface: 'today' })}
                 disabledReason={isSample ? SAMPLE_REPORT_REASON : null}
                 data-attr="today-report-review-pr"
             >

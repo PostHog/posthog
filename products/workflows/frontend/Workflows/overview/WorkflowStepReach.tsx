@@ -62,7 +62,17 @@ function ReachRow({
     )
 }
 
-export function WorkflowStepReach({ id, logicKey }: { id: string; logicKey: string }): JSX.Element {
+export function WorkflowStepReach({
+    id,
+    logicKey,
+    period = 'in this date range',
+    runId,
+}: {
+    id: string
+    logicKey: string
+    period?: string
+    runId?: string
+}): JSX.Element {
     const logic = workflowOverviewLogic({ id, logicKey })
     const { stepReach, stepTotalsLoading, healthTotals, params, stepTotalsFailed, healthTotalsFailed, retrying } =
         useValues(logic)
@@ -82,7 +92,7 @@ export function WorkflowStepReach({ id, logicKey }: { id: string; logicKey: stri
                     </Tooltip>
                 </h3>
                 <span className="text-xs text-muted">
-                    How many runs got past each step in this date range, as a share of runs started.
+                    {`How many runs got past each step ${period}, as a share of runs started.`}
                 </span>
             </div>
             {stepTotalsFailed || healthTotalsFailed ? (
@@ -113,7 +123,7 @@ export function WorkflowStepReach({ id, logicKey }: { id: string; logicKey: stri
                             base={started}
                             failed={failed}
                             waiting={waiting}
-                            to={metricsStepUrl(id, action.id, params)}
+                            to={metricsStepUrl(id, action.id, params, runId)}
                         />
                     ))}
                 </div>

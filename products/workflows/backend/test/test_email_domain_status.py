@@ -1,0 +1,124 @@
+import threading
+from typing import Any
+
+from unittest.mock import patch
+
+from django.test import SimpleTestCase
+
+import dns.query
+from parameterized import parameterized
+
+from products.workflows.backend.facade.contracts import EmailDomainStatusRecord
+from products.workflows.backend.facade.enums import (
+    EmailDomainSetupRecordKind as Kind,
+    EmailDomainSetupRecordType as RecordType,
+)
+from products.workflows.backend.services.email_domain_dns import (
+    MAX_PARALLEL_LOOKUPS,
+    PublishedRecords,
+    find_published_records,
+)
+from products.workflows.backend.tests.fakes.world import EmailDomainWorld
+
+DOMAIN = "mail.example.com"
+
+
+def _record(kind: Kind, record_type: RecordType, hostname: str, value: str, priority: int | None = None):
+    return EmailDomainStatusRecord(kind=kind, hostname=hostname, type=record_type, value=value, priority=priority)
+
+
+SPF = _record(Kind.SPF, RecordType.TXT, DOMAIN, "v=spf1 include:amazonses.com ~all")
+VERIFICATION = _record(Kind.VERIFICATION, RecordType.TXT, f"_amazonses.{DOMAIN}", "tok")
+DKIM = _record(Kind.DKIM, RecordType.CNAME, f"dk1._domainkey.{DOMAIN}", "dk1.dkim.amazonses.com")
+MAIL_FROM_MX = _record(
+    Kind.MAIL_FROM_MX, RecordType.MX, f"feedback.{DOMAIN}", "feedback-smtp.us-east-1.amazonses.com", priority=10
+)
+DMARC = _record(Kind.DMARC, RecordType.TXT, f"_dmarc.{DOMAIN}", "v=DMARC1; p=none;")
+
+
+class TestFindPublishedRecords(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("txt_split_into_chunks", VERIFICATION, '"to" "k"', True),
+            ("txt_other_value", VERIFICATION, '"other"', False),
+            (
+                "spf_merged_with_another_sender",
+                SPF,
+                '"v=spf1 include:_spf.google.com include:amazonses.com -all"',
+                True,
+            ),
+            ("spf_without_ses_include", SPF, '"v=spf1 include:_spf.google.com ~all"', False),
+            ("spf_version_without_space", SPF, '"v=spf1\tinclude:amazonses.com ~all"', False),
+            ("cname_in_upper_case", DKIM, "DK1.DKIM.AMAZONSES.COM.", True),
+            ("mx_with_other_priority", MAIL_FROM_MX, "20 feedback-smtp.us-east-1.amazonses.com.", False),
+            ("existing_strict_dmarc", DMARC, '"v=DMARC1; p=reject; rua=mailto:dmarc@example.com"', True),
+        ]
+    )
+    def test_matches_published_value(
+        self, _name: str, record: EmailDomainStatusRecord, published: str, expected: bool
+    ) -> None:
+        world = EmailDomainWorld()
+        world.dns.add_zone("example.com", nameservers={"ns1.example-dns.net": "34.120.0.1"})
+        world.dns.publish(record.hostname, record.type.value, published)
+
+        with world.installed():
+            assert (record in find_published_records(DOMAIN, [record]).records) is expected
+
+    def test_spf_split_across_two_records_is_not_published(self) -> None:
+        world = EmailDomainWorld()
+        world.dns.add_zone("example.com", nameservers={"ns1.example-dns.net": "34.120.0.1"})
+        world.dns.publish_txt(DOMAIN, "v=spf1 include:_spf.google.com ~all", "v=spf1 include:amazonses.com ~all")
+
+        with world.installed():
+            assert SPF not in find_published_records(DOMAIN, [SPF]).records
+
+    def test_finds_every_record_while_holding_at_most_the_lookup_limit_in_flight(self) -> None:
+        records = [
+            _record(Kind.DKIM, RecordType.CNAME, f"dk{index}._domainkey.{DOMAIN}", f"dk{index}.dkim.amazonses.com")
+            for index in range(MAX_PARALLEL_LOOKUPS + 4)
+        ]
+        world = EmailDomainWorld()
+        world.dns.add_zone("example.com", nameservers={"ns1.example-dns.net": "34.120.0.1"})
+        for record in records:
+            world.dns.publish(record.hostname, "CNAME", f"{record.value}.")
+        lock = threading.Lock()
+        over_limit = threading.Event()
+        in_flight = peak = 0
+
+        with world.installed():
+            answer = dns.query.udp
+
+            def held_until_one_over_the_limit(*args: Any, **kwargs: Any) -> Any:
+                nonlocal in_flight, peak
+                with lock:
+                    in_flight += 1
+                    peak = max(peak, in_flight)
+                    if in_flight > MAX_PARALLEL_LOOKUPS:
+                        over_limit.set()
+                over_limit.wait(timeout=0.2)
+                try:
+                    return answer(*args, **kwargs)
+                finally:
+                    with lock:
+                        in_flight -= 1
+
+            with patch("dns.query.udp", held_until_one_over_the_limit):
+                published = find_published_records(DOMAIN, records)
+
+        assert peak <= MAX_PARALLEL_LOOKUPS
+        assert published.records == frozenset(records)
+
+
+class TestOOBDomainGuard(SimpleTestCase):
+    @parameterized.expand([("on_cloud", True), ("off_cloud", False)])
+    def test_a_listed_domain_is_refused_on_cloud_only(self, _name: str, cloud: bool) -> None:
+        module = "products.workflows.backend.services.email_domain_dns"
+        with (
+            patch(f"{module}.is_cloud", return_value=cloud),
+            patch(f"{module}._authoritative_resolver", return_value=None) as resolver,
+            patch(f"{module}._published_with", return_value=PublishedRecords(records=frozenset())),
+        ):
+            published = find_published_records("abc.oast.live", [SPF])
+
+        assert resolver.called is not cloud
+        assert published.records == frozenset()

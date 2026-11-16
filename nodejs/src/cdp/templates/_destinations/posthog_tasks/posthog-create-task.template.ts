@@ -34,7 +34,8 @@ if (not empty(inputs.model) and not empty(inputs.model.model)) {
 }
 
 if (not empty(inputs.repository)) {
-  payload.repository := inputs.repository
+  // Steps saved before the picker allowed several repositories hold one owner/repo string.
+  payload.repositories := typeof(inputs.repository) == 'array' ? inputs.repository : [inputs.repository]
 }
 
 if (not empty(inputs.connectors)) {
@@ -89,7 +90,8 @@ return task
             label: 'Instructions',
             secret: false,
             required: true,
-            description: 'What the agent should do. Supports variable templating.',
+            description:
+                'What the agent should do. Insert a value with braces, like `{person.properties.email}`. To use a literal brace, type `\\{`.',
         },
         {
             key: 'title',
@@ -110,11 +112,11 @@ return task
         {
             key: 'repository',
             type: 'task_repository',
-            label: 'Repository',
+            label: 'Repositories',
             secret: false,
             required: false,
             description:
-                'GitHub repository the agent works in, e.g. your-org/your-repo. Leave empty for no repository.',
+                'GitHub repositories the agent can work in, e.g. your-org/your-repo. Leave empty to give the agent no repository access.',
         },
         {
             key: 'connectors',

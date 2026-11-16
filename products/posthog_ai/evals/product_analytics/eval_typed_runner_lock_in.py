@@ -28,7 +28,7 @@ score confounds routing with "I answered this already".
 
 from __future__ import annotations
 
-from products.posthog_ai.eval_harness.base import SandboxedPublicEval
+from products.posthog_ai.eval_harness.base import SandboxedEval
 from products.posthog_ai.eval_harness.config import SandboxedEvalCase
 from products.posthog_ai.eval_harness.harness.context import EvalContext
 from products.posthog_ai.eval_harness.scorers import NoToolCall
@@ -105,7 +105,7 @@ async def eval_typed_runner_no_lock_in_control(ctx: EvalContext) -> None:
         ),
     ]
 
-    await SandboxedPublicEval(
+    await SandboxedEval(
         experiment_name="sandboxed-typed-runner-no-lock-in-control-cli",
         offline_suite=offline_suite(
             "product_analytics/eval_typed_runner_lock_in::eval_typed_runner_no_lock_in_control",
@@ -149,7 +149,7 @@ async def eval_typed_runner_lock_in(ctx: EvalContext) -> None:
         ),
     ]
 
-    await SandboxedPublicEval(
+    await SandboxedEval(
         experiment_name="sandboxed-typed-runner-lock-in-cli",
         offline_suite=offline_suite(
             "product_analytics/eval_typed_runner_lock_in::eval_typed_runner_lock_in",

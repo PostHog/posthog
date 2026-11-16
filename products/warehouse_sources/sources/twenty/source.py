@@ -1,0 +1,159 @@
+from typing import Optional, cast
+
+from products.warehouse_sources.sources.sdk import (
+    CanonicalDescriptions,
+    DataWarehouseSourceCategory,
+    ExternalDataSourceType,
+    FieldType,
+    ReleaseStatus,
+    ResumableSource,
+    ResumableSourceManager,
+    SourceConfig,
+    SourceFieldInputConfig,
+    SourceFieldInputConfigType,
+    SourceInputs,
+    SourceRegistry,
+    SourceResponse,
+    SourceSchema,
+    auth_non_retryable_errors,
+    build_endpoint_schemas,
+    detect,
+)
+from products.warehouse_sources.sources.twenty._config import TwentySourceConfig
+from products.warehouse_sources.sources.twenty.settings import ENDPOINTS, INCREMENTAL_FIELDS
+from products.warehouse_sources.sources.twenty.twenty import (
+    HOST_NOT_ALLOWED_ERROR,
+    HTTP_NOT_ALLOWED_ERROR,
+    TwentyResumeConfig,
+    twenty_source,
+    validate_credentials as validate_twenty_credentials,
+)
+
+
+@SourceRegistry.register
+class TwentySource(ResumableSource[TwentySourceConfig, TwentyResumeConfig]):
+    codebase_detection = detect(npm=("twenty-sdk", "twenty-client-sdk"))
+
+    api_docs_url = "https://docs.twenty.com/developers/extend/api"
+    lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+
+    @property
+    def source_type(self) -> ExternalDataSourceType:
+        return ExternalDataSourceType.TWENTY
+
+    @property
+    def connection_host_fields(self) -> list[str]:
+        # `base_url` is where the stored API key is sent; retargeting it must re-require the key.
+        return ["base_url"]
+
+    def get_non_retryable_errors(self) -> dict[str, str | None]:
+        return {
+            **auth_non_retryable_errors(service="Twenty"),
+            HOST_NOT_ALLOWED_ERROR: "The Twenty instance URL is not allowed. Please use a publicly reachable host.",
+            HTTP_NOT_ALLOWED_ERROR: "The Twenty instance URL must use HTTPS. Please update the instance URL to use https://.",
+            # `_is_host_safe` raises this when the self-hosted instance URL doesn't resolve via
+            # DNS — a hostname the customer typed wrong or one that's no longer publicly
+            # reachable. Deterministic and permanent until the URL is corrected, so stop
+            # retrying. Match the stable prefix, not the customer's hostname that follows it.
+            "Couldn't resolve the host": "The Twenty instance URL could not be resolved via DNS. Check that it's spelled correctly and reachable from the public internet, then reconnect.",
+            # Twenty's own backend throws this for an unhandled server-side bug while building the
+            # query (observed on `opportunities` with an incremental filter + sort); it is a bug in
+            # Twenty, not in the request we send, and it reproduces identically on every retry since
+            # the request is unchanged until the sync's watermark moves past it.
+            "code=TypeError": "Twenty's API returned an internal error (TypeError) while processing this request. This is a bug on Twenty's side — please report it to Twenty support, or try again later once it's fixed.",
+        }
+
+    def get_retryable_errors(self) -> set[str]:
+        # Twenty returns this as a 400, not a 5xx, so the shared REST client's retry loop (which
+        # only reissues 408/429/5xx) never catches it in-process — it reaches here on the first
+        # attempt. The code name says the failure is on Twenty's DB, not the request shape, and
+        # Temporal's activity retry recovers once it clears, so keep it out of error tracking as noise.
+        return {"code=TRANSIENT_DATABASE_ERROR"}
+
+    def get_canonical_descriptions(self) -> CanonicalDescriptions:
+        from products.warehouse_sources.sources.twenty.canonical_descriptions import (
+            CANONICAL_DESCRIPTIONS,  # noqa: PLC0415
+        )
+
+        return CANONICAL_DESCRIPTIONS
+
+    def get_schemas(
+        self,
+        config: TwentySourceConfig,
+        team_id: int,
+        with_counts: bool = False,
+        names: list[str] | None = None,
+        force_refresh: bool = False,
+        api_version: str | None = None,
+    ) -> list[SourceSchema]:
+        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+
+    def validate_credentials(
+        self,
+        config: TwentySourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
+    ) -> tuple[bool, str | None]:
+        return validate_twenty_credentials(config.base_url, config.api_key, team_id, schema_name)
+
+    def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[TwentyResumeConfig]:
+        return ResumableSourceManager[TwentyResumeConfig](inputs, TwentyResumeConfig)
+
+    def source_for_pipeline(
+        self,
+        config: TwentySourceConfig,
+        resumable_source_manager: ResumableSourceManager[TwentyResumeConfig],
+        inputs: SourceInputs,
+    ) -> SourceResponse:
+        return twenty_source(
+            base_url=config.base_url,
+            api_key=config.api_key,
+            endpoint=inputs.schema_name,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
+            resumable_source_manager=resumable_source_manager,
+            should_use_incremental_field=inputs.should_use_incremental_field,
+            db_incremental_field_last_value=inputs.db_incremental_field_last_value
+            if inputs.should_use_incremental_field
+            else None,
+            incremental_field=inputs.incremental_field,
+        )
+
+    @property
+    def get_source_config(self) -> SourceConfig:
+        return SourceConfig(
+            name=ExternalDataSourceType.TWENTY,
+            category=DataWarehouseSourceCategory.CRM,
+            label="Twenty",
+            releaseStatus=ReleaseStatus.GA,
+            keywords=["crm", "sales", "open source", "salesforce"],
+            caption="""Enter your Twenty API key to pull your CRM data into the PostHog Data warehouse.
+
+Generate an API key in Twenty under **Settings > API & Webhooks > + Create key**. Copy it immediately, it's only shown once.
+
+Self-hosted users should set the instance URL to their own Twenty host (for example `https://twenty.example.com`). Leave it blank to use Twenty Cloud (`https://api.twenty.com`).""",
+            iconPath="/static/services/twenty.svg",
+            docsUrl="https://posthog.com/docs/cdp/sources/twenty",
+            fields=cast(
+                list[FieldType],
+                [
+                    SourceFieldInputConfig(
+                        name="api_key",
+                        label="API key",
+                        type=SourceFieldInputConfigType.PASSWORD,
+                        required=True,
+                        placeholder="",
+                        secret=True,
+                    ),
+                    SourceFieldInputConfig(
+                        name="base_url",
+                        label="Instance URL (self-hosted only)",
+                        type=SourceFieldInputConfigType.TEXT,
+                        required=False,
+                        placeholder="https://api.twenty.com",
+                        secret=False,
+                    ),
+                ],
+            ),
+        )

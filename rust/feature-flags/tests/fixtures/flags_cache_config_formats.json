@@ -221,21 +221,44 @@
         "version": 2,
         "return_type": "boolean",
         "default_value": false,
+        "aggregation_group_type_index": 0,
         "rules": [
           {
             "id": "e5e5e5e5-e5e5-4e5e-8e5e-e5e5e5e5e5e5",
-            "rule_type": "experiment",
+            "rule_type": "targeted_release",
             "targeting": { "properties": [] },
-            "experiment_id": 1,
-            "rollout_percentage": 100,
-            "on_rollout_miss": "continue",
-            "assignment_algorithm": "sha1_60_v1",
-            "seed": "release-experiment",
-            "variants": [{ "key": "control", "value": false, "rollout_percentage": 100 }]
+            "value": true
           }
         ]
       },
       "expect": "unsupported"
+    },
+    {
+      "key": "v2-experiment-active",
+      "active": true,
+      "filters": {
+        "version": 2,
+        "return_type": "string",
+        "default_value": "standard",
+        "rules": [
+          {
+            "id": "f6f6f6f6-f6f6-4f6f-8f6f-f6f6f6f6f6f6",
+            "rule_type": "experiment",
+            "targeting": { "properties": [] },
+            "paused": false,
+            "rollout_percentage": 50,
+            "on_rollout_miss": "continue",
+            "assignment_algorithm": "sha1_60_v1",
+            "seed": "layout-split",
+            "variants": [
+              { "key": "control", "weight": 50, "value": "standard" },
+              { "key": "test", "weight": 50, "value": "compact" }
+            ],
+            "holdout": { "seed": "layout-split-holdout", "exclusion_percentage": 10 }
+          }
+        ]
+      },
+      "expect": "kept"
     },
     {
       "key": "v2-valid-inactive",
@@ -284,6 +307,42 @@
       "key": "malformed-v1-groups-string",
       "active": true,
       "filters": { "groups": "not a list" },
+      "expect": "unsupported"
+    },
+    {
+      "key": "malformed-v1-groups-object",
+      "active": true,
+      "filters": { "groups": { "key": "value" } },
+      "expect": "unsupported"
+    },
+    {
+      "key": "malformed-v1-group-not-object",
+      "active": true,
+      "filters": { "groups": [1] },
+      "expect": "unsupported"
+    },
+    {
+      "key": "malformed-v1-properties-string",
+      "active": true,
+      "filters": { "groups": [{ "properties": "x" }] },
+      "expect": "unsupported"
+    },
+    {
+      "key": "malformed-v1-property-not-object",
+      "active": true,
+      "filters": { "groups": [{ "properties": [[]] }] },
+      "expect": "unsupported"
+    },
+    {
+      "key": "malformed-v1-groups-number",
+      "active": true,
+      "filters": { "groups": 5 },
+      "expect": "unsupported"
+    },
+    {
+      "key": "malformed-v1-properties-boolean",
+      "active": true,
+      "filters": { "groups": [{ "properties": true }] },
       "expect": "unsupported"
     },
     {

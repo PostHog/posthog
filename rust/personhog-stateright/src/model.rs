@@ -88,13 +88,16 @@ fn production_handoff(p: Partition, h: &Handoff) -> HandoffState {
 
 fn production_config(config: &Config) -> ChangelogConfig {
     ChangelogConfig {
+        cluster: None,
         topic: generation_topic(config.live.epoch),
         partitions: config.live.partitions as u32,
         epoch: config.live.epoch as u64,
         writer_group: String::new(),
+        retire_groups: vec![],
         draining: config
             .draining
             .map(|g| ProductionGeneration {
+                cluster: None,
                 topic: generation_topic(g.epoch),
                 partitions: g.partitions as u32,
                 epoch: g.epoch as u64,

@@ -1,9 +1,15 @@
 import pytest
-from unittest.mock import Mock
+from unittest.mock import MagicMock, Mock, patch
 
 from parameterized import parameterized
+from requests import Response
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+    SinglePagePaginator,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import RESTClient
+
+MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client"
 
 
 def _client() -> RESTClient:
@@ -46,9 +52,43 @@ class TestRequiredDataSelector:
 
 
 class TestRequiredListBody:
-    def test_non_list_body_raises_when_required_and_no_selector(self) -> None:
-        with pytest.raises(ValueError, match="list response body"):
-            _client()._extract_response({"error": "x"}, None, required=True)
+    def test_non_list_body_raises_with_its_keys_when_required_and_no_selector(self) -> None:
+        with pytest.raises(ValueError, match=r"list response body, got dict \(body keys: \['error', 'items'\]\)"):
+            _client()._extract_response({"items": [], "error": "x"}, None, required=True)
 
     def test_list_body_ok_when_required_and_no_selector(self) -> None:
         assert _client()._extract_response([{"id": 1}], None, required=True) == [{"id": 1}]
+
+
+class TestRequiredEmptyHttpBody:
+    @parameterized.expand(
+        [
+            ("200_no_selector", 200, None),
+            ("200_selector", 200, "data"),
+            ("204_no_selector", 204, None),
+            ("204_selector", 204, "data"),
+        ]
+    )
+    @patch(f"{MODULE}.make_tracked_session")
+    def test_empty_body_is_zero_rows_when_required(
+        self, _name: str, status: int, data_selector: str | None, MockSession: MagicMock
+    ) -> None:
+        response = Response()
+        response.status_code = status
+        response._content = b""
+        response.url = "https://api.example.com/items"
+        session = MockSession.return_value
+        session.headers = {}
+        session.prepare_request.return_value = MagicMock()
+        session.send.return_value = response
+
+        pages = list(
+            RESTClient(base_url="https://api.example.com").paginate(
+                path="/items",
+                data_selector=data_selector,
+                paginator=SinglePagePaginator(),
+                data_selector_required=True,
+            )
+        )
+
+        assert pages == [[]]

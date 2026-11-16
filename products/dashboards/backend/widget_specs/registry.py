@@ -7,6 +7,7 @@ from typing import Any, Literal, NotRequired, TypedDict
 from pydantic import BaseModel, ValidationError
 from rest_framework.exceptions import ValidationError as DRFValidationError
 
+from products.dashboards.backend.constants import DASHBOARD_GRID_COLUMN_COUNT
 from products.dashboards.backend.widget_specs.configs import (
     ACTIVITY_EVENTS_LIST_WIDGET_TYPE,
     CANVAS_APP_WIDGET_TYPE,
@@ -15,6 +16,7 @@ from products.dashboards.backend.widget_specs.configs import (
     EXPERIMENT_RESULTS_WIDGET_TYPE,
     EXPERIMENTS_LIST_WIDGET_TYPE,
     LOGS_LIST_WIDGET_TYPE,
+    METRICS_TABLE_WIDGET_TYPE,
     NOTEBOOK_WIDGET_TYPE,
     SESSION_REPLAY_LIST_WIDGET_TYPE,
     SURVEY_RESULTS_WIDGET_TYPE,
@@ -25,10 +27,12 @@ from products.dashboards.backend.widget_specs.configs import (
     ExperimentResultsWidgetConfig,
     ExperimentsListWidgetConfig,
     LogsListWidgetConfig,
+    MetricsTableWidgetConfig,
     NotebookWidgetConfig,
     SessionReplayListWidgetConfig,
     SurveyResultsWidgetConfig,
 )
+from products.metrics.backend.facade.contracts import METRICS_FEATURE_FLAG
 
 DashboardWidgetType = Literal[
     "notebook_widget",
@@ -41,6 +45,7 @@ DashboardWidgetType = Literal[
     "logs_list",
     "conversations_recent_tickets",
     "canvas_app",
+    "metrics_table",
 ]
 
 __all__ = [
@@ -83,6 +88,9 @@ class WidgetSpec:
     # Adds-only rollout gate: creating a tile of this type requires this feature flag (resolved via
     # feature_flags.widget_flag_enabled in widget_create). Existing tiles keep rendering when it's off.
     creation_flag: str | None = None
+    # Grid size of a new tile, in columns (of 12) and rows. The frontend catalog `defaultLayout` must match.
+    default_width: int = 6
+    default_height: int = 5
 
     def __post_init__(self) -> None:
         if self.is_live:
@@ -126,6 +134,7 @@ def _load_widget_specs() -> dict[str, WidgetSpec]:
     from products.dashboards.backend.widgets.experiment_results import run_experiment_results_widget  # noqa: PLC0415
     from products.dashboards.backend.widgets.experiments_list import run_experiments_list_widget  # noqa: PLC0415
     from products.dashboards.backend.widgets.logs_list import run_logs_list_widget  # noqa: PLC0415
+    from products.dashboards.backend.widgets.metrics_table import run_metrics_table_widget  # noqa: PLC0415
     from products.dashboards.backend.widgets.notebook_widget import run_notebook_widget  # noqa: PLC0415
     from products.dashboards.backend.widgets.session_replay_list import run_session_replay_list_widget  # noqa: PLC0415
     from products.dashboards.backend.widgets.survey_results import run_survey_results_widget  # noqa: PLC0415
@@ -285,6 +294,25 @@ def _load_widget_specs() -> dict[str, WidgetSpec]:
             form_fields=("canvasId",),
             filter_fields=(),
             creation_flag="small-software-apps",
+        ),
+        METRICS_TABLE_WIDGET_TYPE: WidgetSpec(
+            widget_type=METRICS_TABLE_WIDGET_TYPE,
+            config_model=MetricsTableWidgetConfig,
+            query_fn=run_metrics_table_widget,
+            required_scopes=("query:read", "metrics:read"),
+            group_id="metrics",
+            group_label="Metrics",
+            label="Metrics table",
+            description="One row per label value, such as each endpoint, with a sparkline for each metric.",
+            required_product_access="metrics",
+            product_access_denied_message="You do not have access to metrics.",
+            availability_requirements=(),
+            form_fields=("limit", "dateRange"),
+            filter_fields=("dateRange",),
+            # Full width, like a Grafana row: each row is one label value, and the columns need the room.
+            default_width=DASHBOARD_GRID_COLUMN_COUNT,
+            default_height=6,
+            creation_flag=METRICS_FEATURE_FLAG,
         ),
     }
 

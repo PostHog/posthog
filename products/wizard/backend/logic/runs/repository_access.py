@@ -1,13 +1,13 @@
-import logging
-
 from django.core.cache import cache
+
+import structlog
 
 from products.tasks.backend.facade import repo_selection
 from products.wizard.backend.facade.errors import MissingGitHubIntegrationError, RepositoryNotAccessibleError
 from products.wizard.backend.logic.runs.validation import validate_git_repository_name
 from products.wizard.backend.observability.tracing import wizard_span
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 REPOSITORY_CACHE_MIN_REFRESH_INTERVAL_SECONDS = 60
 
@@ -48,7 +48,8 @@ def refresh_repository_cache(team_id: int) -> bool:
         logger.warning(
             "wizard_repository_cache_refresh_failed",
             exc_info=True,
-            extra={"team_id": team_id, "integration_id": github.integration.id},
+            team_id=team_id,
+            integration_id=github.integration.id,
         )
         return False
     return True

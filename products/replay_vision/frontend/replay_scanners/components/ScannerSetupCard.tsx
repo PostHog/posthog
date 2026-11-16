@@ -16,6 +16,7 @@ import { ReplayScannerTab } from '../replayScannerSceneLogic'
 import { scannerDashboardLogic } from '../scannerDashboardLogic'
 import { scannerEditUrl } from '../scannerEditorSceneLogic'
 import { SCANNER_TYPE_OPTIONS, modelName, scannerTypeLabel } from '../types'
+import { useModelNaming } from '../useModelNaming'
 import { PromptPreview } from './PromptPreview'
 import { ScannerRecordingFilters } from './ScannerRecordingFilters'
 
@@ -26,6 +27,7 @@ function EnabledText({ enabled }: { enabled: boolean }): JSX.Element {
 export function ScannerSetupCard({ scannerId }: { scannerId: string }): JSX.Element | null {
     const { scanner, experimentContext } = useValues(replayScannerLogic({ id: scannerId }))
     const { dashboardId } = useValues(scannerDashboardLogic({ scannerId }))
+    const { naming } = useModelNaming()
     if (!scanner) {
         return null
     }
@@ -61,7 +63,7 @@ export function ScannerSetupCard({ scannerId }: { scannerId: string }): JSX.Elem
                             {scannerTypeLabel(scanner.scanner_type)}
                         </span>
                     </Tooltip>{' '}
-                    · {modelName(scanner.model)}
+                    · {modelName(scanner.model, naming)}
                 </span>
                 {scanner.credits_per_observation != null && (
                     <span className="text-xs text-muted">

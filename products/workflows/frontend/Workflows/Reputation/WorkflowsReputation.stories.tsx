@@ -96,10 +96,9 @@ const baseResponse: TeamEmailReputationResponseApi = {
     sending_allowance: {
         tier: 2,
         max_tier: 4,
-        emails_per_hour: 5000,
         emails_per_day: 50000,
         max_batch_audience: 25000,
-        emails_sent_last_hour: 1200,
+        rate_limited_max_batch_audience: 70000,
         emails_sent_last_day: 18400,
         enforced: true,
     },
@@ -113,8 +112,10 @@ const meta: Meta<typeof WorkflowsReputation> = {
     component: WorkflowsReputation,
     parameters: {
         layout: 'padded',
+        // Pinned before the Nov 3, 2026 email metrics incident so its banner stays out of the snapshots.
+        mockDate: '2026-09-04 12:00:00',
         testOptions: { waitForLoadersToDisappear: true },
-        featureFlags: [FEATURE_FLAGS.WORKFLOWS_ISP_SENDING_HEALTH],
+        featureFlags: [FEATURE_FLAGS.WORKFLOWS_SENDING_TIER_REQUESTS],
     },
 }
 export default meta
@@ -151,3 +152,14 @@ export const DomainWithheldFromCaller: StoryFn = () => {
     useStorybookMocks(mockReputation({ ...baseResponse, isps: [], isp_withheld_domains: ['mail.example.com'] }))
     return <WorkflowsReputation />
 }
+
+export const HighBounceRate: StoryFn = () => {
+    useStorybookMocks(
+        mockReputation({
+            ...baseResponse,
+            reputation: { bounce_rate: 0.072, complaint_rate: 0.0001, emails_sent: 115025 },
+        })
+    )
+    return <WorkflowsReputation />
+}
+HighBounceRate.parameters = { testOptions: { snapshotBrowsers: [] } }

@@ -25,8 +25,9 @@ from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_fi
 
 from posthog.sync import database_sync_to_async_pool
 from posthog.temporal.ai_observability.coordinator_metrics import increment_consent_query_failed
-from posthog.temporal.ai_observability.shared_activities import consented_team_ids
 from posthog.temporal.common.heartbeat import Heartbeater
+
+from products.ai_observability.backend.facade.evaluation_runtime import consented_team_ids
 
 logger = structlog.get_logger(__name__)
 
@@ -153,6 +154,7 @@ class TeamDiscoveryInput:
     # a child workflow and its sampling query. Without a window, discovery uses the flag's lookback days.
     window_start: str | None = None
     window_end: str | None = None
+    trigger_events: list[str] | None = None
 
 
 @retry(
@@ -204,7 +206,9 @@ async def get_team_ids_for_ai_observability(inputs: TeamDiscoveryInput | None = 
                 get_teams_with_ai_events,
                 begin,
                 end,
-                LLM_ANALYTICS_DISCOVERY_TRIGGER_EVENTS,
+                inputs.trigger_events
+                if inputs is not None and inputs.trigger_events
+                else LLM_ANALYTICS_DISCOVERY_TRIGGER_EVENTS,
             )
 
             remaining = [t for t in ai_event_teams if t not in guaranteed and t not in skip]

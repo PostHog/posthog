@@ -231,6 +231,45 @@ When in doubt, classify as ACTIONABLE.
 Respond with exactly one word: ACTIONABLE or NOT_ACTIONABLE"""
 
 
+# ── Incidents / on-call alerts ───────────────────────────────────────────────
+
+INCIDENT_SUMMARIZATION_PROMPT = """Summarize this incident for semantic search.
+Output exactly two parts separated by a newline:
+1. A short title (under 100 characters) naming the failure and the affected service or component
+2. A concise summary of what broke or degraded, its severity and status, and the affected product area, service, or data asset
+
+Strip alert boilerplate, runbook links, and repeated notification text — but keep error messages, failing checks, and the most specific component name.
+Keep the total output under {max_length} characters. Respond with only the title and summary, nothing else.
+
+<incident>
+{description}
+</incident>
+"""
+
+INCIDENT_ACTIONABILITY_PROMPT = """You are a site reliability engineer triaging incidents. Given an incident or alert from an on-call, incident-management, or data-observability tool, determine if it is actionable — it points to a product, infrastructure, or data defect an engineer could fix or prevent.
+
+An incident is ACTIONABLE if it describes:
+- An outage, error spike, or degraded performance in a product or service
+- A failing health check, monitor, or job that reflects a real defect
+- A data quality problem (stale, missing, or wrong data) in a pipeline or table
+- A capacity, configuration, or deploy problem that caused or could cause user impact
+- and similar real defects
+
+An incident is NOT_ACTIONABLE if it is:
+- A test page, drill, or tutorial incident
+- A planned maintenance window or an expected, scheduled event
+- A duplicate of another incident with no new information
+- Pure noise (a flapping alert with no impact, a heartbeat or "all clear" notification)
+
+When in doubt, classify as ACTIONABLE.
+
+<incident>
+{description}
+</incident>
+
+Respond with exactly one word: ACTIONABLE or NOT_ACTIONABLE"""
+
+
 COMMON_ACTIONABILITY_PROMPT_NAMES = {
     TICKET_ACTIONABILITY_PROMPT: "signals-actionability-ticket",
     ISSUE_ACTIONABILITY_PROMPT: "signals-actionability-issue",
@@ -238,4 +277,5 @@ COMMON_ACTIONABILITY_PROMPT_NAMES = {
     SCANNER_ACTIONABILITY_PROMPT: "signals-actionability-scanner",
     FEEDBACK_ACTIONABILITY_PROMPT: "signals-actionability-feedback",
     REVIEW_ACTIONABILITY_PROMPT: "signals-actionability-review",
+    INCIDENT_ACTIONABILITY_PROMPT: "signals-actionability-incident",
 }

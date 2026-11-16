@@ -305,6 +305,10 @@ class CSPMiddleware:
                 resource_url = "https://*.dev.posthog.dev"
 
             connect_debug_url = "ws://localhost:8234" if settings.DEBUG or settings.TEST else ""
+            if settings.DEBUG and settings.DEV_CODE_INSPECTOR:
+                # Port 5678 is the opt-in code-inspector-plugin server in frontend/vite.config.mts. The
+                # click-to-source request goes to it, and the policy refuses that request without this source.
+                connect_debug_url += " http://localhost:5678"
             object_storage_source = object_storage_upload_source()
             # The image exporter renders replay exports in the bare /exporter document, and a frame of
             # that render calls eval. 'report-sample' puts the first 40 characters of the evaluated

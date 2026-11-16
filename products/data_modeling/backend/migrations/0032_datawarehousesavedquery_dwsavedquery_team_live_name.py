@@ -11,7 +11,6 @@ class Migration(migrations.Migration):
 
     dependencies = [
         ("data_modeling", "0031_datamodelingjob_run_mode"),
-        ("data_tools", "0003_datawarehouseexpression"),
         ("posthog", "1340_drop_userproductlist_reason_columns"),
         ("warehouse_sources", "0159_externaldatajob_destination_ids_and_more"),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),

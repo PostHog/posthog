@@ -16,7 +16,6 @@ from asgiref.sync import async_to_sync
 from dateutil import parser as dateutil_parser
 from prometheus_client import Counter
 from structlog.types import FilteringBoundLogger
-from temporalio import activity
 from tenacity import RetryCallState, retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 from urllib3.util.retry import Retry
 
@@ -38,6 +37,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.bas
     WebhookSyncResult,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.interruptible_wait import (
+    interruptible_wait,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
@@ -916,10 +918,10 @@ def _pace_before_request(installation_id: str, logger: FilteringBoundLogger) -> 
     inside the budget instead of recovering from it, and leaves the headroom the budget reserves for
     the interactive products that share this installation.
 
-    The wait is bounded by the worker drain signal rather than by sleep. The pipeline tests for
-    worker shutdown only between the chunks a source yields, so a plain sleep here would hold a
-    draining pod for the full wait and delay the hand-off by that much. Waiting on the shutdown event
-    returns as soon as the pod starts draining, so pacing costs the hand-off nothing.
+    The wait ends when the pipeline's hand-off gate says to stop. The pipeline tests for worker
+    shutdown only between the chunks a source yields, so a plain sleep here would hold a draining pod
+    for the full wait and delay the hand-off by that much. The gate stays closed during the shutdown
+    grace, so pacing continues while the run still has time to finish.
     """
     # The same ceiling the Retry-After path honors, and safe here for the reason recorded on
     # GITHUB_MAX_RETRY_AFTER_SECONDS: this runs in the source thread pool, while the activity's
@@ -931,10 +933,7 @@ def _pace_before_request(installation_id: str, logger: FilteringBoundLogger) -> 
         return
 
     logger.debug(f"Github: waiting {pace:.1f}s for egress budget before the next request")
-    if activity.in_activity():
-        activity.wait_for_worker_shutdown_sync(timeout=pace)
-    else:
-        time.sleep(pace)
+    interruptible_wait(pace)
 
 
 def _is_unmapped_client_status(status_code: int) -> bool:

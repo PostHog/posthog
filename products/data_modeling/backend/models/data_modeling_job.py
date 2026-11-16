@@ -3,24 +3,21 @@ from django.utils import timezone
 
 from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDTModel
 
+from products.data_modeling.backend.facade.enums import (
+    DataModelingJobEngine,
+    DataModelingJobRunMode,
+    DataModelingJobStatus,
+)
 
-class DataModelingJobStatus(models.TextChoices):
-    CANCELLED = "Cancelled", "Cancelled"
-    COMPLETED = "Completed", "Completed"
-    FAILED = "Failed", "Failed"
-    RUNNING = "Running", "Running"
-    SKIPPED = "Skipped", "Skipped"
-
-
-class DataModelingJobEngine(models.TextChoices):
-    CLICKHOUSE = "clickhouse", "ClickHouse"
-    LEGACY_DUCKGRES = "duckgres", "Duckgres"
-    MANAGED_WAREHOUSE = "managed_warehouse", "Managed warehouse"
-
-
-class DataModelingJobRunMode(models.TextChoices):
-    FULL_REFRESH = "full_refresh", "Full refresh"
-    INCREMENTAL = "incremental", "Incremental"
+# Once a job reaches one of these, later activities must not overwrite its status or error.
+TERMINAL_JOB_STATUSES = frozenset(
+    {
+        DataModelingJobStatus.CANCELLED,
+        DataModelingJobStatus.COMPLETED,
+        DataModelingJobStatus.FAILED,
+        DataModelingJobStatus.SKIPPED,
+    }
+)
 
 
 class DataModelingJob(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
@@ -30,10 +27,10 @@ class DataModelingJob(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
 
     team = models.ForeignKey("posthog.Team", on_delete=models.SET_NULL, null=True)
     saved_query = models.ForeignKey("data_modeling.DataWarehouseSavedQuery", on_delete=models.SET_NULL, null=True)
-    status = models.CharField(max_length=400, choices=Status, default=Status.RUNNING)
-    engine = models.CharField(max_length=20, choices=Engine, default=Engine.CLICKHOUSE)
+    status = models.CharField(max_length=400, choices=Status.choices, default=Status.RUNNING.value)
+    engine = models.CharField(max_length=20, choices=Engine.choices, default=Engine.CLICKHOUSE.value)
     # Null: recorded before run modes existed, or the run failed before the write plan resolved.
-    run_mode = models.CharField(max_length=20, choices=RunMode, null=True, blank=True)
+    run_mode = models.CharField(max_length=20, choices=RunMode.choices, null=True, blank=True)
     full_refresh_reason = models.CharField(max_length=200, null=True, blank=True)
     rows_materialized = models.IntegerField(default=0)
     error = models.TextField(null=True, blank=True)
@@ -55,10 +52,27 @@ class DataModelingJob(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
     last_run_at = models.DateTimeField(default=timezone.now)
     rows_expected = models.IntegerField(null=True, blank=True, help_text="Total rows expected to be materialized")
     storage_delta_mib = models.FloatField(null=True, blank=True, default=0)
+    read_bytes = models.BigIntegerField(
+        null=True, blank=True, help_text="Bytes read by this run, including probes and retries."
+    )
+    read_rows = models.BigIntegerField(
+        null=True, blank=True, help_text="Rows read by this run, including probes and retries."
+    )
+    cpu_microseconds = models.BigIntegerField(null=True, blank=True, help_text="ClickHouse CPU time in microseconds.")
+    query_count = models.IntegerField(
+        null=True, blank=True, help_text="Number of ClickHouse queries measured for this run."
+    )
+    usage_updated_at = models.DateTimeField(
+        null=True, blank=True, help_text="When usage was last measured. Null means unmeasured."
+    )
 
     class Meta:
         db_table = "posthog_datamodelingjob"
         indexes = [
+            models.Index(fields=["team", "-created_at"], name="dmjob_team_created"),
+            models.Index(fields=["team", "-last_run_at"], name="dmjob_team_usage_run"),
+            models.Index(fields=["last_run_at"], name="dmjob_usage_run"),
+            models.Index(fields=["team", "workflow_id", "workflow_run_id"], name="dmjob_workflow_run"),
             # serves to cut lookup times for pre-existing running jobs during the preempt stage
             models.Index(fields=["team", "status"], name="datamodelingjob_team_status"),
             # serves the per-saved-query lookup of the latest job of one engine, which the

@@ -46,6 +46,8 @@ import type {
     CanvasStateResponseApi,
     CanvasStateSetApi,
     CanvasStateValueResponseApi,
+    CanvasToolInvokeApi,
+    CanvasToolResultApi,
     CanvasValidateRequestApi,
     CanvasValidateResponseApi,
     CanvasViewResponseApi,
@@ -359,6 +361,8 @@ export const getCanvasesDraftCreateUrl = (projectId: string, id: string) => {
  * changes for viewers. Promote the version with `promote` to make it live.
  * The response reports how the draft's declared capabilities widen the
  * current head's, so growth in access can be reviewed before it ships.
+ * Only the canvas creator can stage a draft that adds capabilities, because
+ * a draft preview runs with the draft's capabilities.
  * No version guard applies: a draft conflicts with nothing.
  */
 export const canvasesDraftCreate = async (
@@ -805,6 +809,32 @@ export const canvasesStateValueRetrieve = async (
     })
 }
 
+export const getCanvasesToolsInvokeUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/canvases/${id}/tools/invoke/`
+}
+
+/**
+ * Run one PostHog MCP tool as the viewer.
+ *
+ * The canvas must declare the tool in capabilities.posthog.tools. The
+ * tool runs on the MCP server with a token minted for the viewer, so it
+ * has the viewer's own permissions, exactly as if they called it from
+ * an MCP client.
+ */
+export const canvasesToolsInvoke = async (
+    projectId: string,
+    id: string,
+    canvasToolInvokeApi: CanvasToolInvokeApi,
+    options?: RequestInit
+): Promise<CanvasToolResultApi> => {
+    return apiMutator<CanvasToolResultApi>(getCanvasesToolsInvokeUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(canvasToolInvokeApi),
+    })
+}
+
 export const getCanvasesValidateCreateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/canvases/${id}/validate/`
 }
@@ -893,7 +923,7 @@ export const getCanvasesActionsRetrieveUrl = (projectId: string) => {
 }
 
 /**
- * List the action registry: every verb a canvas may declare and invoke.
+ * List the action registry: every verb and PostHog MCP tool a canvas may declare and invoke.
  */
 export const canvasesActionsRetrieve = async (
     projectId: string,

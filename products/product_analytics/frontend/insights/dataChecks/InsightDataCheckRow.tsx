@@ -1,7 +1,7 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 
 import { IconCheck, IconWarning } from '@posthog/icons'
-import { AccordionContent, AccordionItem, AccordionTrigger, Dot, Text } from '@posthog/quill'
+import { AccordionContent, AccordionItem, AccordionTrigger, Dot, Skeleton, Spinner, Text } from '@posthog/quill'
 
 import type { InsightLogicProps } from '~/types'
 
@@ -10,7 +10,7 @@ import type {
     InsightDataCheckLevelEnumApi,
 } from 'products/product_analytics/frontend/generated/api.schemas'
 
-import { FILTER_CHECK_KEYS, dataCheckText, isFinding } from './dataCheckText'
+import { FILTER_CHECK_KEYS, botsFilteredOut, dataCheckText, isFinding } from './dataCheckText'
 import { DuplicateEventsDetails } from './DuplicateEventsDetails'
 import { FilterCheckDetails } from './FilterCheckDetails'
 import { insightDataChecksLogic } from './insightDataChecksLogic'
@@ -22,15 +22,15 @@ const LEVEL_LABELS: Record<InsightDataCheckLevelEnumApi, string> = {
     skipped: 'Not checked',
 }
 
-function LevelIcon({ check }: { check: InsightDataCheckApi }): JSX.Element {
-    if (check.level === 'passed') {
+function LevelIcon({ level }: { level: InsightDataCheckLevelEnumApi }): JSX.Element {
+    if (level === 'passed') {
         return <IconCheck className="size-4 text-(--success-foreground)" />
     }
-    if (isFinding(check)) {
+    if (level === 'warning' || level === 'problem') {
         return (
             <IconWarning
                 className={
-                    check.level === 'problem'
+                    level === 'problem'
                         ? 'size-4 text-(--destructive-foreground)'
                         : 'size-4 text-(--warning-foreground)'
                 }
@@ -47,8 +47,12 @@ export function InsightDataCheckRow({
     insightProps: InsightLogicProps
     check: InsightDataCheckApi
 }): JSX.Element {
-    const { filtersTestAccounts, status } = useValues(insightDataChecksLogic(insightProps))
-    const text = dataCheckText(check, filtersTestAccounts)
+    const logic = insightDataChecksLogic(insightProps)
+    const { filtersTestAccounts, filterRemovesBots, status } = useValues(logic)
+    const { reportCheckExpanded } = useActions(logic)
+    const checking = status === 'checking'
+    const text = dataCheckText(check, filtersTestAccounts, filterRemovesBots)
+    const level = botsFilteredOut(check, filtersTestAccounts, filterRemovesBots) ? 'passed' : check.level
     const dependsOnFilter = FILTER_CHECK_KEYS.includes(check.key)
     const foundRepeats = check.key === 'duplicate_events' && isFinding(check)
     const hasDetails = dependsOnFilter || foundRepeats
@@ -56,22 +60,23 @@ export function InsightDataCheckRow({
     const header = (
         <span className="flex items-start gap-2">
             <span className="flex h-5 w-4 shrink-0 items-center justify-center">
-                <LevelIcon check={check} />
+                {checking ? <Spinner aria-hidden className="text-(--muted-foreground)" /> : <LevelIcon level={level} />}
             </span>
             <span className="flex flex-col">
                 {/* No size of its own, so the name takes the text size that quill gives a popover. */}
                 <Text size={null} weight="medium" render={<span />}>
                     {text.name}
-                    <span className="sr-only">{`: ${LEVEL_LABELS[check.level]}`}</span>
+                    <span className="sr-only">{`: ${checking ? 'Checking' : LEVEL_LABELS[level]}`}</span>
                 </Text>
-                <Text
-                    size="xs"
-                    variant="muted"
-                    className={status === 'checking' ? 'animate-pulse motion-reduce:animate-none' : undefined}
-                    render={<span />}
-                >
-                    {text.result}
-                </Text>
+                {checking ? (
+                    <span className="flex h-4 items-center">
+                        <Skeleton className="h-2.5 w-28" />
+                    </span>
+                ) : (
+                    <Text size="xs" variant="muted" render={<span />}>
+                        {text.result}
+                    </Text>
+                )}
             </span>
         </span>
     )
@@ -90,9 +95,21 @@ export function InsightDataCheckRow({
     }
 
     return (
-        <AccordionItem value={check.key} data-attr="insight-data-check" data-check={check.key} data-level={check.level}>
+        <AccordionItem
+            value={check.key}
+            onOpenChange={(open) => {
+                if (open) {
+                    reportCheckExpanded(check)
+                }
+            }}
+            data-attr="insight-data-check"
+            data-check={check.key}
+            data-level={check.level}
+            // The trigger sits in an h3, and the app's base styles give every h3 a bottom margin.
+            className="[&>h3]:m-0"
+        >
             <AccordionTrigger className="px-2 py-1 font-normal">{header}</AccordionTrigger>
-            <AccordionContent className="flex flex-col items-start gap-2 ps-6">
+            <AccordionContent className="flex flex-col items-start gap-2 ps-6 pt-2">
                 {foundRepeats && <DuplicateEventsDetails insightProps={insightProps} check={check} />}
                 {dependsOnFilter && <FilterCheckDetails insightProps={insightProps} check={check} />}
             </AccordionContent>

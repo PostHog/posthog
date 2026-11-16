@@ -125,6 +125,9 @@ def _instance_host_missing(instance_url: str) -> bool:
 # lock clears in moments, so a short in-process backoff recovers without failing the whole import
 # activity — which would otherwise restart pagination and surface captured error-tracking noise.
 _TRANSIENT_TOKEN_REQUEST_ERROR = "token request is already being processed"
+# Salesforce's identity service also answers a 400 with this description for its own momentary
+# backend hiccups, literally asking the caller to retry — not a rejection of the credentials.
+_TRANSIENT_RETRY_REQUEST_ERROR = "retry your request"
 _MAX_TOKEN_REFRESH_ATTEMPTS = 4
 
 
@@ -177,7 +180,11 @@ def salesforce_refresh_access_token(refresh_token: str, instance_url: str, *, ca
             attempt += 1
             # A 5xx from the token endpoint (Salesforce's own maintenance page, an outage) never
             # minted a token either, so it's as safe to reissue as the connection failures above.
-            transient = _TRANSIENT_TOKEN_REQUEST_ERROR in str(err) or err.response.status_code >= 500
+            transient = (
+                _TRANSIENT_TOKEN_REQUEST_ERROR in str(err)
+                or _TRANSIENT_RETRY_REQUEST_ERROR in str(err)
+                or err.response.status_code >= 500
+            )
             if attempt >= _MAX_TOKEN_REFRESH_ATTEMPTS or not transient:
                 raise
             time.sleep(min(0.5 * attempt, 5))

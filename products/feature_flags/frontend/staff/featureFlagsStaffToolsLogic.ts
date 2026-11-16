@@ -815,7 +815,7 @@ export const featureFlagsStaffToolsLogic = kea<featureFlagsStaffToolsLogicType>(
         actions.loadWarmRun()
     }),
     urlToAction(({ actions, values }) => ({
-        '/feature_flags/staff': (_, searchParams) => {
+        '/feature-flags/staff': (_, searchParams) => {
             // Team-admin deep link: seed the selected team and resolve its display info
             // (exact id search hits the endpoint's Q(id=...) branch). Seeds only once per
             // mount so manually deselecting the team doesn't bring it back if this handler

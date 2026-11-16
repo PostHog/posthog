@@ -24,6 +24,8 @@ import type {
     LogsAnomalyScanRequestApi,
     LogsAnomalyScanResponseApi,
     LogsAttributesRetrieveParams,
+    LogsContextRequestApi,
+    LogsContextResponseApi,
     LogsExportCreate201,
     LogsHasLogsRetrieve200,
     LogsMetricRuleApi,
@@ -43,6 +45,7 @@ import type {
     LogsSamplingRulesReorderCreateParams,
     LogsSeriesBandsRequestApi,
     LogsSeriesBandsResponseApi,
+    LogsSigningSecretApi,
     LogsValuesRetrieveParams,
     LogsViewApi,
     LogsViewsListParams,
@@ -58,6 +61,7 @@ import type {
     PatchedLogsSamplingRuleApi,
     PatchedLogsViewApi,
     PatchedTeamLogsConfigApi,
+    TasksRunsLogsRetrieveParams,
     TeamLogsConfigApi,
     _LogsAttributesResponseApi,
     _LogsCountRangesRequestApi,
@@ -282,7 +286,7 @@ export const getLogsAlertsDestinationsDeleteCreateUrl = (projectId: string, id: 
 export const logsAlertsDestinationsDeleteCreate = async (
     projectId: string,
     id: string,
-    logsAlertDeleteDestinationApi: LogsAlertDeleteDestinationApi,
+    logsAlertDeleteDestinationApi?: LogsAlertDeleteDestinationApi,
     options?: RequestInit
 ): Promise<void> => {
     return apiMutator<void>(getLogsAlertsDestinationsDeleteCreateUrl(projectId, id), {
@@ -345,7 +349,7 @@ export const getLogsAlertsEventsListUrl = (projectId: string, id: string, params
 }
 
 /**
- * Paginated event history for this alert, newest first. Returns state transitions, errored checks, and user-initiated control-plane rows (reset, enable/disable, snooze/unsnooze, threshold change) — quiet no-op check rows (where state didn't change and there was no error) are filtered out since only the last 10 are kept and they carry no forensic value. Optional `?kind=...` narrows to a single kind. For an alert the alerts platform evaluates, checks since it took the alert over come from the platform's check history.
+ * Paginated event history for this alert, newest first. Returns state transitions, errored checks, and user-initiated control-plane rows (reset, enable/disable, snooze/unsnooze, threshold change) — quiet no-op check rows (where state didn't change and there was no error) are filtered out since only the last 10 are kept and they carry no forensic value. Optional `?kind=...` narrows to a single kind. For an alert the alerts platform evaluates, checks since it took the alert over come from the platform's check history. So do control-plane rows from the oldest one the platform recorded onward.
  */
 export const logsAlertsEventsList = async (
     projectId: string,
@@ -463,6 +467,23 @@ export const logsAttributesRetrieve = async (
     return apiMutator<_LogsAttributesResponseApi>(getLogsAttributesRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getLogsContextCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/logs/context/`
+}
+
+export const logsContextCreate = async (
+    projectId: string,
+    logsContextRequestApi: LogsContextRequestApi,
+    options?: RequestInit
+): Promise<LogsContextResponseApi> => {
+    return apiMutator<LogsContextResponseApi>(getLogsContextCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(logsContextRequestApi),
     })
 }
 
@@ -1127,7 +1148,7 @@ export const getLogsSamplingRulesReorderCreateUrl = (
 }
 
 /**
- * Atomically reassign priorities so the given ID order maps to ascending priorities (0..n-1).
+ * Atomically reassign priorities so the given ID order maps to ascending priorities (0..n-1). Log and span rules have separate orders; the `source` query parameter picks which one.
  */
 export const logsSamplingRulesReorderCreate = async (
     projectId: string,
@@ -1157,6 +1178,57 @@ export const logsServicesCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(_logsServicesRequestApi),
+    })
+}
+
+export const getLogsSigningSecretRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/logs/signing_secret/`
+}
+
+/**
+ * The secret that servers use to sign log requests for this project.
+ */
+export const logsSigningSecretRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<LogsSigningSecretApi> => {
+    return apiMutator<LogsSigningSecretApi>(getLogsSigningSecretRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getLogsSigningSecretExpirePreviousCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/logs/signing_secret/expire_previous/`
+}
+
+/**
+ * End the grace period now, so the previous secret stops being valid immediately. Use it when the replaced secret may be compromised, or once every server uses the new one.
+ */
+export const logsSigningSecretExpirePreviousCreate = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<LogsSigningSecretApi> => {
+    return apiMutator<LogsSigningSecretApi>(getLogsSigningSecretExpirePreviousCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+export const getLogsSigningSecretRotateCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/logs/signing_secret/rotate/`
+}
+
+/**
+ * Generate a new signing secret. The previous secret stays valid for 48 hours, then expires.
+ */
+export const logsSigningSecretRotateCreate = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<LogsSigningSecretApi> => {
+    return apiMutator<LogsSigningSecretApi>(getLogsSigningSecretRotateCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
     })
 }
 
@@ -1310,21 +1382,39 @@ export const logsViewsDestroy = async (projectId: string, shortId: string, optio
     })
 }
 
-export const getTasksRunsLogsRetrieveUrl = (projectId: string, taskId: string, id: string) => {
-    return `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/logs/`
+export const getTasksRunsLogsRetrieveUrl = (
+    projectId: string,
+    taskId: string,
+    id: string,
+    params?: TasksRunsLogsRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/logs/?${stringifiedParams}`
+        : `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/logs/`
 }
 
 /**
- * Fetch the logs for a task run as JSONL. If the run resumes from another (state.resume_from_run_id), each ancestor's log is concatenated first (oldest ancestor → ... → this run) so resume consumers see a single continuous history. A resumed Pi run includes the earlier runs of its task session the same way, each preceded by a pi_run_started entry that names its run.
+ * Fetch the logs for a task run as JSONL. If the run resumes from another (state.resume_from_run_id), each ancestor's log is concatenated first (oldest ancestor → ... → this run) so resume consumers see a single continuous history. A resumed Pi run includes the earlier runs of its task session the same way, each preceded by a pi_run_started entry that names its run. For a live presence-gated run, the request marks the stream as watched before it reads the log, so events after the snapshot reach the live stream. Pass tail_bytes to read only the latest turns first, add before to page back through older turns, or add start to read every entry after the ones a client holds. X-Log-Origin names the first run of the chain: indexes from responses with different origins do not match. A Pi run returns its full log without the X-Log headers. Pass view=thread to drop the duplicate tool response copy that a rendered conversation does not use.
  * @summary Get task run logs
  */
 export const tasksRunsLogsRetrieve = async (
     projectId: string,
     taskId: string,
     id: string,
+    params?: TasksRunsLogsRetrieveParams,
     options?: RequestInit
 ): Promise<void> => {
-    return apiMutator<void>(getTasksRunsLogsRetrieveUrl(projectId, taskId, id), {
+    return apiMutator<void>(getTasksRunsLogsRetrieveUrl(projectId, taskId, id, params), {
         ...options,
         method: 'GET',
     })

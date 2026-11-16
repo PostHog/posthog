@@ -25,6 +25,7 @@ from products.alerts_platform.backend.facade.contracts import (
     IncidentAction,
     LegacyEventEmission,
 )
+from products.alerts_platform.backend.facade.rolling_checks import rolling_check_lookback_minutes
 from products.logs.backend.alert_destinations import (
     EVENT_KIND_CONFIG,
     LOGS_ALERT_INCIDENT_CLOSED_EVENT,
@@ -36,7 +37,6 @@ from products.logs.backend.alert_event_properties import (
     incident_closed_event_properties,
     threshold_event_properties,
 )
-from products.logs.backend.alert_lookback import rolling_check_lookback_minutes
 from products.logs.backend.alert_state_machine import IncidentCloseReason
 from products.logs.backend.platform_alert_wording import check_window_end, in_utc
 from products.logs.backend.platform_source_config import filters_of
@@ -64,19 +64,6 @@ def emit_logs_legacy_events(
     emit_alert_internal_events(
         team_id=alert.team_id, alert_id=alert.alert_id, events=events, flush_timeout_seconds=FLUSH_TIMEOUT_SECONDS
     )
-
-
-def logs_source_facts(
-    *, request: AlertDeliveryRequest, announcement: EvaluationAnnouncement, transition: AnnouncedTransition
-) -> dict[str, Any]:
-    """The properties of the `$logs_alert_*` message event for this transition, for `$alert_transition` to carry."""
-    alert = _Alert(
-        team_id=request.team_id,
-        alert_id=request.destination_alert_id,
-        alert_name=announcement.alert_name,
-        consecutive_failures=announcement.consecutive_failures,
-    )
-    return _message_event(in_utc(transition), alert).properties
 
 
 @frozen

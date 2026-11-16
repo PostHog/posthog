@@ -173,6 +173,33 @@ class TestExecuteWithConflictRetry:
         table.update_incremental.assert_called_once()
 
     @pytest.mark.asyncio
+    async def test_retries_on_missing_scan_file_race_then_succeeds(self):
+        # A merge plans its scan against the stale file list on the handle it was given; if a
+        # concurrent vacuum (e.g. a zombie attempt's post-load pass) deletes one of those files
+        # before the scan reads it, delta-rs surfaces a 404 as a generic DeltaError with no typed
+        # class to catch (see errors.py's is_missing_scan_file_race). Regression coverage for this
+        # race killing the sync instead of refreshing the table and retrying like a commit conflict.
+        table = MagicMock()
+        operation_fn = MagicMock(
+            side_effect=[
+                deltalake.exceptions.DeltaError(
+                    "Generic DeltaTable error: Parquet error: Parquet error: Failed to fetch metadata "
+                    "for file dlt/team_1_source_1/orders/part-00000-abc.snappy.parquet: Object Store "
+                    "error: Object at location dlt/team_1_source_1/orders/part-00000-abc.snappy.parquet "
+                    "not found: Error performing GET in 20ms - Server returned non-2xx status code: "
+                    "404 Not Found"
+                ),
+                {"num_output_rows": 1},
+            ]
+        )
+
+        result = await execute_with_conflict_retry(table, operation_fn, "op", make_logger())
+
+        assert result == {"num_output_rows": 1}
+        assert operation_fn.call_count == 2
+        table.update_incremental.assert_called_once()
+
+    @pytest.mark.asyncio
     async def test_unrelated_delta_error_propagates_without_retry(self):
         table = MagicMock()
         operation_fn = MagicMock(side_effect=deltalake.exceptions.DeltaError("no protocol found in delta log"))

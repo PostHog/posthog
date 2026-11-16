@@ -84,6 +84,24 @@ describe("Slack product", () => {
       expect(
         deliveryInstructions.includes("Chart images are the one exception"),
       ).toBe(delivery === "message" && charts);
+      expect(deliveryInstructions.includes("insights/new#q=")).toBe(false);
+    },
+  );
+
+  // The backend sends both keys when links are on, and the chart endpoint has to leave the
+  // prompt with the link guidance in every delivery mode.
+  it.each(["none", "message", "canvas_file"] as const)(
+    "tells a %s workspace to share an insight link instead of a chart image when links are on",
+    async (delivery) => {
+      const { deliveryInstructions = "" } = await configure({
+        slack_artifact_delivery: delivery,
+        slack_chart_delivery: true,
+        slack_chart_links: true,
+      });
+
+      expect(deliveryInstructions).toContain("insights/new#q=<query>");
+      expect(deliveryInstructions).toContain("the only PostHog link");
+      expect(deliveryInstructions).not.toContain("living_artifacts/chart/");
     },
   );
 

@@ -19,9 +19,12 @@ export function metricsRangeSearchParams(range: MetricsRange): Record<string, st
     return search
 }
 
-/** Links to one step on the Metrics tab, keeping the date range the link was clicked from. */
-export function metricsStepUrl(id: string, actionId: string, range: MetricsRange): string {
+/** Links to one step on the Metrics tab, keeping the date range and the batch run the link was clicked from. */
+export function metricsStepUrl(id: string, actionId: string, range: MetricsRange, runId?: string): string {
     const search = new URLSearchParams({ action: actionId, ...metricsRangeSearchParams(range) })
+    if (runId) {
+        search.set('run', runId)
+    }
     return `${urls.workflow(id, 'metrics')}?${search.toString()}`
 }
 

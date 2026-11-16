@@ -80,12 +80,6 @@ export interface PropertyFilterInternalProps {
     endpointFilters?: Record<string, any>
     hogQLGlobals?: Record<string, any>
     /**
-     * `'input'` renders the replay-style input-box add-filter trigger; `'button'`
-     * (the default) renders a button. Only has an effect on the rebuild menu
-     * (`TAXONOMIC_FILTER_MENU_REBUILD`).
-     */
-    triggerVariant?: 'button' | 'input'
-    /**
      * Statically known value suggestions per property key, replacing API-fetched ones.
      * Return an empty array to disable suggestions for a key, or null to fall back
      * to the default behavior. See `PropertyValueProps.staticValues`.

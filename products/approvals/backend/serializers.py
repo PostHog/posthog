@@ -7,7 +7,9 @@ from posthog.api.shared import UserBasicSerializer
 
 from products.access_control.backend.models.role import Role
 from products.approvals.backend.experiment_policy_sync import SYNCED_ACTION_KEYS
+from products.approvals.backend.flag_payloads import redact_secret_payloads
 from products.approvals.backend.models import Approval, ApprovalPolicy, ChangeRequest, ChangeRequestState
+from products.approvals.backend.ownership import scope_by_owner_enabled
 from products.approvals.backend.policies import lock_approval_policies
 
 
@@ -95,6 +97,9 @@ class ChangeRequestSerializer(serializers.ModelSerializer):
             "apply_error",
             "result_data",
         ]
+
+    def to_representation(self, instance: ChangeRequest) -> dict:
+        return redact_secret_payloads(instance, super().to_representation(instance))
 
     @extend_schema_field(serializers.ListField(child=serializers.DictField()))
     def get_approvals(self, obj):
@@ -245,10 +250,11 @@ class ApprovalPolicySerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ["id", "created_by", "created_at", "updated_at"]
 
-    # TODO(experiment-approval-policies): temporary. Only the sync may write experiment policies.
+    # TODO(experiment-approval-policies): temporary. Until an organization evaluates policies by
+    # flag owner, its experiment policies are hidden mirrors that only the sync may write.
     # See experiment_policy_sync.py.
     def validate_action_key(self, value: str) -> str:
-        if value in SYNCED_ACTION_KEYS:
+        if value in SYNCED_ACTION_KEYS and not scope_by_owner_enabled(self.context["view"].organization):
             raise serializers.ValidationError("This approval action isn't available yet.")
         return value
 

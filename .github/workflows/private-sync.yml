@@ -4,6 +4,10 @@ on:
     push:
         branches:
             - master
+    # Catches private master up when the run for the last push failed and no newer push follows.
+    schedule:
+        - cron: '4,19,34,49 * * * *'
+    workflow_dispatch:
 
 concurrency:
     group: private-sync
@@ -17,12 +21,17 @@ jobs:
         if: github.repository == 'PostHog/posthog' && vars.PRIVATE_SYNC_PAUSED != 'true'
         runs-on: ubuntu-24.04
         timeout-minutes: 10
+        # The environment holds the app key and admits only master runs, so a branch workflow cannot read it.
+        environment:
+            name: posthog-private-sync
+            deployment: false
         permissions:
             contents: read
         steps:
             - name: Get app token
               id: app-token
-              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              # nosemgrep: yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag
+              uses: actions/create-github-app-token@v3.1.1
               with:
                   client-id: ${{ vars.GH_APP_POSTHOG_PRIVATE_SYNC_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_PRIVATE_SYNC_PRIVATE_KEY }}
@@ -33,7 +42,8 @@ jobs:
             # persist-credentials:false so checkout's default-token auth header doesn't shadow
             # the app token we push with (posthog is public, so lazy blob fetches still work).
             - name: Checkout posthog
-              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              # nosemgrep: yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag
+              uses: actions/checkout@v6.0.2
               with:
                   fetch-depth: 0
                   filter: blob:none
@@ -42,10 +52,25 @@ jobs:
 
             # 1:1 mirror: replays posthog's existing signed commits — no new commit, so
             # signing enforcement on posthog-private is unaffected.
+            # GitHub can start a push run long after its push, so push the current master tip
+            # rather than the triggering commit, and never force: a stale run must not move
+            # private master back.
             - name: Mirror master and tags to posthog-private
               env:
                   PRIVATE_TOKEN: ${{ steps.app-token.outputs.token }}
               run: |
+                  git fetch origin "+refs/heads/master:refs/remotes/origin/master"
+                  target="$(git rev-parse refs/remotes/origin/master)"
                   git remote add private "https://x-access-token:${PRIVATE_TOKEN}@github.com/PostHog/posthog-private.git"
-                  git push private "HEAD:refs/heads/master" --force
+                  if ! git push private "${target}:refs/heads/master"; then
+                      private_tip="$(git ls-remote --exit-code private refs/heads/master)"
+                      private_tip="${private_tip%%[[:space:]]*}"
+                      # A rejected push only means success if private master already contains the target.
+                      if ! git merge-base --is-ancestor "${target}" "${private_tip}" 2>/dev/null; then
+                          # This log is public, so it never prints the private tip, which can be a private-only commit.
+                          echo "::error::posthog-private master has commits that public master ${target} lacks; refusing to overwrite them."
+                          exit 1
+                      fi
+                      echo "posthog-private master already contains ${target}; nothing to push."
+                  fi
                   git push private "refs/tags/*:refs/tags/*" --force

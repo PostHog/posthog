@@ -30,12 +30,15 @@ import json
 import logging
 from collections.abc import Sequence
 from dataclasses import asdict, dataclass, field
+from datetime import datetime
 
 from django.db import IntegrityError, transaction
 from django.db.models import QuerySet
 from django.utils import timezone
 
 from pydantic import ValidationError
+
+from posthog.dataclasses import frozen
 
 from products.review_hog.backend.models import ReviewReport, ReviewReportArtefact
 from products.review_hog.backend.reviewer.artefact_content import (
@@ -54,8 +57,10 @@ from products.review_hog.backend.reviewer.artefact_content import (
 from products.review_hog.backend.reviewer.constants import (
     HUMAN_TRIGGER_SOURCES,
     REVIEW_ARMS_BY_TIER,
+    SINGLE_AGENT_FLASH_ARM,
     ReviewArm,
     ReviewTier,
+    SingleAgentArms,
     is_below_human_tier,
     is_single_agent_pass,
     resolve_review_arm,
@@ -67,9 +72,8 @@ from products.review_hog.backend.reviewer.models.issues_review import DroppedIss
 from products.review_hog.backend.reviewer.models.perspective_selection import PerspectiveSelection
 from products.review_hog.backend.reviewer.models.split_pr_into_chunks import ChunksList
 from products.review_hog.backend.reviewer.review_design import REVIEW_DESIGN_PIPELINE, REVIEW_DESIGN_SINGLE_AGENT
-from products.signals.backend.artefact_attribution import ArtefactAttribution
-from products.signals.backend.artefact_schemas import Commit
-from products.signals.backend.enums import ReportPriority
+from products.signals.backend.facade.report_artefacts import Commit
+from products.signals.backend.facade.taxonomy import ArtefactAttribution, ReportPriority
 
 logger = logging.getLogger(__name__)
 
@@ -387,6 +391,13 @@ def load_perspective_selection(*, team_id: int, report_id: str, head_sha: str) -
     return latest.selection if latest is not None else None
 
 
+def _review_config(review_arm: ReviewArm, *, fallback_for: ReviewArm | None = None) -> str:
+    config: dict[str, object] = asdict(review_arm)
+    if fallback_for is not None:
+        config["fallback_for"] = asdict(fallback_for)
+    return json.dumps(config, sort_keys=True)
+
+
 def persist_perspective_results(
     *,
     team_id: int,
@@ -394,8 +405,12 @@ def persist_perspective_results(
     head_sha: str,
     results: dict[tuple[int, int], IssuesReview],
     review_arm: ReviewArm,
+    fallback_for: ReviewArm | None = None,
 ) -> None:
-    """Append one `perspective_result` artefact per (pass, chunk), stamped with its reviewer configuration."""
+    """Append one `perspective_result` artefact per (pass, chunk), stamped with its reviewer configuration.
+
+    `fallback_for` names the arm a failed session ran on before it ran again on `review_arm`.
+    """
     if not results:
         return
     with transaction.atomic():
@@ -409,7 +424,7 @@ def persist_perspective_results(
                     chunk_id=chunk_id,
                     review=review,
                     review_model=review_arm.model,
-                    review_config=json.dumps(asdict(review_arm), sort_keys=True),
+                    review_config=_review_config(review_arm, fallback_for=fallback_for),
                 ),
                 attribution=ArtefactAttribution.system(),
             )
@@ -427,7 +442,7 @@ def load_perspective_results(
     each turn from combining the other's findings.
     """
     out: dict[tuple[int, int], IssuesReview] = {}
-    review_config = json.dumps(asdict(review_arm), sort_keys=True)
+    review_config = _review_config(review_arm)
     single_agent = review_design == REVIEW_DESIGN_SINGLE_AGENT
     for content in _load_working_state(
         team_id, report_id, ReviewReportArtefact.ArtefactType.PERSPECTIVE_RESULT, head_sha
@@ -439,14 +454,50 @@ def load_perspective_results(
     return out
 
 
-def reviewed_pipeline_chunk_ids(*, team_id: int, report_id: str, head_sha: str) -> set[int]:
+@frozen
+class SingleAgentResults:
+    reviews: dict[tuple[int, int], IssuesReview]
+    # The keys whose result came from the control arm after the session's own arm failed.
+    fallbacks: frozenset[tuple[int, int]]
+
+
+def load_single_agent_results(
+    *, team_id: int, report_id: str, head_sha: str, arms: SingleAgentArms
+) -> SingleAgentResults:
+    """The single-agent results at this head, each from its session's arm (latest wins per key).
+
+    A session on another arm that fails reruns on the control arm, so its fallback result counts when the
+    session's own arm has none. A control result without that fallback stamp came from a turn on the
+    control set, and a turn on another set does not read it.
+    """
+    own: dict[tuple[int, int], IssuesReview] = {}
+    fallback: dict[tuple[int, int], IssuesReview] = {}
+    for content in _load_working_state(
+        team_id, report_id, ReviewReportArtefact.ArtefactType.PERSPECTIVE_RESULT, head_sha
+    ):
+        assert isinstance(content, PerspectiveResultArtefact)
+        if not is_single_agent_pass(content.pass_number):
+            continue
+        key = (content.pass_number, content.chunk_id)
+        session_arm = arms.for_pass(content.pass_number)
+        if content.review_config == _review_config(session_arm):
+            own[key] = content.review
+        elif content.review_config == _review_config(SINGLE_AGENT_FLASH_ARM, fallback_for=session_arm):
+            fallback[key] = content.review
+    return SingleAgentResults(reviews={**fallback, **own}, fallbacks=frozenset(fallback.keys() - own.keys()))
+
+
+def reviewed_pipeline_chunk_ids(
+    *, team_id: int, report_id: str, head_sha: str, since: datetime | None = None
+) -> set[int]:
     """The pipeline chunks at this head that at least one review unit finished, a perspective or the blind spot.
 
-    Any arm counts, because the question is whether a reviewer read the chunk at all.
+    Any arm counts, because the question is whether a reviewer read the chunk at all. `since` keeps
+    only results written from that time on, so that a chunk an earlier turn read does not count for a later one.
     """
     chunk_ids: set[int] = set()
     for content in _load_working_state(
-        team_id, report_id, ReviewReportArtefact.ArtefactType.PERSPECTIVE_RESULT, head_sha
+        team_id, report_id, ReviewReportArtefact.ArtefactType.PERSPECTIVE_RESULT, head_sha, since=since
     ):
         assert isinstance(content, PerspectiveResultArtefact)
         if not is_single_agent_pass(content.pass_number):
@@ -465,6 +516,7 @@ def persist_pr_snapshot(
     review_design: str = REVIEW_DESIGN_PIPELINE,
     merge_base_sha: str | None = None,
     skipped_paths: Sequence[str] = (),
+    devex_lens_files: Sequence[str] = (),
 ) -> None:
     """Append this turn's fetched PR inputs as a `pr_snapshot` artefact (stored by reference).
 
@@ -483,6 +535,7 @@ def persist_pr_snapshot(
             review_design=review_design,
             merge_base_sha=merge_base_sha,
             skipped_paths=list(skipped_paths),
+            devex_lens_files=list(devex_lens_files),
         ),
         attribution=ArtefactAttribution.system(),
     )
@@ -505,7 +558,9 @@ def load_pr_snapshot(
     return latest
 
 
-def _load_working_state(team_id: int, report_id: str, artefact_type: str, head_sha: str) -> list[ReviewArtefactContent]:
+def _load_working_state(
+    team_id: int, report_id: str, artefact_type: str, head_sha: str, since: datetime | None = None
+) -> list[ReviewArtefactContent]:
     """Parsed working-state contents for this turn, oldest-first so callers can latest-wins them.
 
     Turn scoping happens in SQL via the denormalized `head_sha` column, so only the current turn's
@@ -518,6 +573,8 @@ def _load_working_state(team_id: int, report_id: str, artefact_type: str, head_s
         .filter(report_id=report_id, type=artefact_type, head_sha=head_sha)
         .order_by("created_at", "id")
     )
+    if since is not None:
+        rows = rows.filter(created_at__gte=since)
     for row in rows:
         try:
             content = parse_artefact_content(artefact_type, row.content)

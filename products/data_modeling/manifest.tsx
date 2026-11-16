@@ -41,16 +41,22 @@ export const manifest: ProductManifest = {
             href: urls.models(),
             searchKeywords: ['materialized views', 'materialization', 'data modeling', 'sql views', 'saved queries'],
             searchTabs: [
+                {
+                    name: 'Usage',
+                    href: urls.models('usage'),
+                    flag: FEATURE_FLAGS.DATA_MODELING_USAGE,
+                    searchKeywords: ['bytes read', 'cpu'],
+                },
                 { name: 'Lineage', href: urls.models('lineage'), searchKeywords: ['dag', 'dependencies'] },
                 {
                     name: 'Data quality',
                     href: urls.models('data-quality'),
-                    flag: FEATURE_FLAGS.DATA_QUALITY_CHECKS,
-                    searchKeywords: ['tests', 'checks', 'freshness'],
+                    searchKeywords: ['data tests', 'checks', 'freshness'],
                 },
             ],
             sceneKey: 'Models',
             sceneKeys: ['Models'],
+            hiddenWhenFlags: [FEATURE_FLAGS.TODAY_RAIL_NAV, FEATURE_FLAGS.DATA_CATALOG_RESTRUCTURE],
         },
     ],
 }

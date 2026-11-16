@@ -5,9 +5,9 @@ import { LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { pluralize } from 'lib/utils/strings'
 
-import { inboxSceneLogic } from '../../../inboxSceneLogic'
 import { entriesForSkill, scratchpadLogic } from '../../../logics/scratchpadLogic'
 import { ScratchpadEntryCard } from '../../scratchpad/ScratchpadEntryCard'
+import { OpenScratchpadButton } from './OpenScratchpadButton'
 
 const INITIAL_VISIBLE = 3
 
@@ -19,7 +19,6 @@ const INITIAL_VISIBLE = 3
 export function ScoutLearnedPanel({ skillName }: { skillName: string }): JSX.Element {
     const { scoutEntries, scoutEntriesLoadFailed } = useValues(scratchpadLogic)
     const { loadScoutEntries } = useActions(scratchpadLogic)
-    const { setScratchpadOpen } = useActions(inboxSceneLogic)
     const [showAll, setShowAll] = useState(false)
 
     const entries = entriesForSkill(scoutEntries, skillName)
@@ -49,25 +48,20 @@ export function ScoutLearnedPanel({ skillName }: { skillName: string }): JSX.Ele
                     Nothing yet. Scouts write here when they settle on a baseline or rule something out.
                 </div>
             ) : (
-                <>
+                <div className="flex flex-col rounded border border-primary bg-surface-primary">
                     {visible.map((entry) => (
                         <ScratchpadEntryCard key={entry.key} entry={entry} titled />
                     ))}
                     {entries.length > visible.length && (
-                        <LemonButton
-                            size="xsmall"
-                            type="tertiary"
-                            className="self-start"
-                            onClick={() => setShowAll(true)}
-                        >
-                            Show all {pluralize(entries.length, 'entry', 'entries')}
-                        </LemonButton>
+                        <div className="px-3 py-2">
+                            <LemonButton size="xsmall" type="tertiary" onClick={() => setShowAll(true)}>
+                                Show all {pluralize(entries.length, 'entry', 'entries')}
+                            </LemonButton>
+                        </div>
                     )}
-                </>
+                </div>
             )}
-            <LemonButton size="xsmall" type="tertiary" className="self-start" onClick={() => setScratchpadOpen(true)}>
-                All scouts
-            </LemonButton>
+            <OpenScratchpadButton skillName={skillName} entryPoint="learned_tab" />
         </div>
     )
 }

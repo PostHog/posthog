@@ -1,7 +1,8 @@
 import { useActions, useValues } from 'kea'
+import posthog from 'posthog-js'
 
 import { IconBell, IconCheck, IconInfo } from '@posthog/icons'
-import { LemonButton, Tooltip } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, Tooltip } from '@posthog/lemon-ui'
 import { useAnimatedNumber } from '@posthog/quill-charts'
 
 import { Spinner } from 'lib/lemon-ui/Spinner'
@@ -13,14 +14,23 @@ import { useRetryCountdownLabel } from '~/scenes/experiments/MetricsView/shared/
 import { Experiment } from '~/types'
 
 /**
- * Status line for an in-flight recalculation. Renders only while a run is actually executing
- * (`cold` / `refreshing`); loading-from-latest and terminal states show nothing — the metric rows
- * carry their own loading and error affordances. ExperimentView renders it once the experiment has metrics.
+ * Run progress and the configuration provenance of saved results.
+ * ExperimentView renders this once the experiment has metrics.
  */
 export function RecalculationStatus({ experiment }: { experiment: Experiment }): JSX.Element | null {
-    const { recalculationDisplayState, currentRecalculation, liveRowsProgress, metricRetries, nextRetryAt } = useValues(
-        experimentMetricsLogic({ experiment })
-    )
+    const logic = experimentMetricsLogic({ experiment })
+    const {
+        recalculationDisplayState,
+        currentRecalculation,
+        liveRowsProgress,
+        metricRetries,
+        nextRetryAt,
+        resultConfigurationNotice,
+        recalculationAgeLimitExceeded,
+        isRecalculating,
+        isManualRefreshBlocked,
+    } = useValues(logic)
+    const { triggerRecalculation } = useActions(logic)
     /**
      * Mounted here rather than inside the in-flight branch so the finish-edge subscription that
      * fires the browser notification is still alive when the bar disappears on the terminal state.
@@ -30,7 +40,38 @@ export function RecalculationStatus({ experiment }: { experiment: Experiment }):
     const { subscribeToResultsNotification } = useActions(notificationLogic)
 
     if (recalculationDisplayState !== 'cold' && recalculationDisplayState !== 'refreshing') {
-        return null
+        if (!resultConfigurationNotice) {
+            return null
+        }
+        const provenance =
+            resultConfigurationNotice === 'previous'
+                ? 'Some results were calculated with earlier settings.'
+                : 'Some results were saved before their settings were recorded.'
+        return recalculationAgeLimitExceeded ? (
+            <LemonBanner type="info" className="mb-2">
+                {provenance} This experiment started too long ago to recalculate, so the saved results stay as they are.
+            </LemonBanner>
+        ) : (
+            <LemonBanner
+                type="info"
+                className="mb-2"
+                action={{
+                    children: 'Recalculate',
+                    onClick: () => {
+                        posthog.capture('experiment results configuration notice recalculated', {
+                            experiment_id: experiment.id,
+                            notice: resultConfigurationNotice,
+                        })
+                        triggerRecalculation('manual')
+                    },
+                    loading: isRecalculating,
+                    disabledReason: isManualRefreshBlocked ? 'Please wait before recalculating again' : undefined,
+                }}
+            >
+                {provenance} You can recalculate the latest results with the current settings, which may change the
+                numbers. Time series points keep their saved values.
+            </LemonBanner>
+        )
     }
     return (
         <InFlightStatus
@@ -70,11 +111,13 @@ function InFlightStatus({
     const pending = Math.max(0, total - succeeded - failed - retryingCount)
     return (
         <StatusBar>
-            <span className="flex items-center gap-1.5 whitespace-nowrap">
+            <span className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
                 <Spinner textColored className="text-sm text-accent" />
                 <CountsSegment pending={pending} retrying={retryingCount} succeeded={succeeded} failed={failed} />
-                {retryingCount > 0 && <span className="text-muted text-xs">· next retry {nextRetryLabel}</span>}
-                <span className="text-muted text-xs">· running in the background</span>
+                {retryingCount > 0 && (
+                    <span className="text-muted text-xs whitespace-nowrap">· next retry {nextRetryLabel}</span>
+                )}
+                <span className="text-muted text-xs whitespace-nowrap">· running in the background</span>
                 <Tooltip title="We're computing each metric against the latest data. This runs server-side so you can leave this page; results appear as each metric finishes.">
                     <IconInfo className="text-muted text-xs" />
                 </Tooltip>
@@ -148,9 +191,9 @@ function CountsSegment({
         )
     }
     return (
-        <span className="flex items-center gap-1 whitespace-nowrap font-medium">
+        <span className="flex flex-wrap items-center gap-1 font-medium">
             {parts.map((part, i) => (
-                <span key={part.key} className="flex items-center gap-1">
+                <span key={part.key} className="flex items-center gap-1 whitespace-nowrap">
                     {i > 0 && <span>·</span>}
                     {part}
                 </span>

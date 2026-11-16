@@ -6,11 +6,16 @@ import posthog from 'posthog-js'
 import { useState } from 'react'
 
 import { IconArrowRight, IconCheckCircle } from '@posthog/icons'
-import { LemonButton, LemonCheckbox, ProfilePicture, SpinnerOverlay, lemonToast } from '@posthog/lemon-ui'
 
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { Link } from 'lib/lemon-ui/Link'
+import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
+import { ScrollableShadows } from 'lib/lemon-ui/ScrollableShadows/ScrollableShadows'
+import { SpinnerOverlay } from 'lib/lemon-ui/Spinner'
 import { preflightLogic } from 'lib/logic/preflightLogic'
 import { cn } from 'lib/utils/css-classes'
 import { getAppContext } from 'lib/utils/getAppContext'
@@ -23,7 +28,6 @@ import { adminLoginAs } from '~/layout/navigation/ImpersonationNotice/adminLogin
 import { ImpersonationReasonModal } from '~/layout/navigation/ImpersonationNotice/ImpersonationReasonModal'
 import { ActivityTab, PropertyFilterType, PropertyOperator, UserBasicType } from '~/types'
 
-import { ScrollableShadows } from '../ScrollableShadows/ScrollableShadows'
 import { supportLogic } from '../Support/supportLogic'
 
 export interface NotFoundProps {

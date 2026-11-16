@@ -1,0 +1,44 @@
+rules:
+    - id: warehouse-source-inputs-go-through-store
+      message: |
+          Raw access to `ExternalDataSource.job_inputs`. The field mixes connection credentials, sync
+          settings and runtime state, and the credentials are moving to a separate store. Read and write
+          it only through `SourceInputsStore` (`products/warehouse_sources/backend/logic/source_inputs.py`,
+          or `products/warehouse_sources/backend/facade/source_inputs.py` outside the product):
+          `load` / `load_many` for all inputs, `load_settings` for sync settings and `cdc_*` / upload
+          keys only, `save` / `assign` / `create` for writes, and `update_runtime` for runtime keys.
+
+          String field names in `.only(...)`, `.defer(...)` and `update_fields` are fine. For a genuine
+          exception, add `# nosemgrep: warehouse-source-inputs-go-through-store -- <reason>` on the line.
+      severity: ERROR
+      languages: [python]
+      paths:
+          include:
+              - 'common/**/*.py'
+              - 'ee/**/*.py'
+              - 'posthog/**/*.py'
+              - 'products/**/*.py'
+          exclude:
+              # The store is the only reader and writer of the field.
+              - '/products/warehouse_sources/backend/logic/source_inputs.py'
+              # The model defines the field.
+              - '/products/warehouse_sources/backend/models/external_data_source.py'
+              # ZendeskImportJob has its own unrelated `job_inputs` field.
+              - '/products/conversations/**'
+              - '**/test/**'
+              - '**/tests/**'
+              - '**/test_*.py'
+              - '**/*_test.py'
+              - '**/conftest*.py'
+              - '**/migrations/**'
+      pattern-either:
+          - pattern: $SOURCE.job_inputs
+          - pattern: getattr($SOURCE, "job_inputs", ...)
+          - pattern: setattr($SOURCE, "job_inputs", ...)
+          - pattern: ExternalDataSource(..., job_inputs=$INPUTS, ...)
+          - pattern: ExternalDataSource.$MANAGER.$METHOD(..., job_inputs=$INPUTS, ...)
+          - pattern: $QUERYSET.update(..., job_inputs=$INPUTS, ...)
+      metadata:
+          category: best-practice
+          subcategory:
+              - audit

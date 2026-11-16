@@ -7,6 +7,7 @@ export function enrolledPeopleAudience(earlyAccessFeature: EarlyAccessFeatureTyp
     const flagKey = earlyAccessFeature.feature_flag.key
     return {
         source,
+        sourceRecord: `early_access:${earlyAccessFeature.id}`,
         properties: [
             {
                 key: `$feature_enrollment/${flagKey}`,

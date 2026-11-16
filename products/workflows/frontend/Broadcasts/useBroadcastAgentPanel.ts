@@ -5,10 +5,10 @@ import { useDebouncedValue } from 'lib/hooks/useDebouncedValue'
 import { sceneAgentPanelLogic } from 'scenes/max/sceneAgentPanelLogic'
 import { useSceneAgentPanel } from 'scenes/max/useSceneAgentPanel'
 
+import { AttachedContextItem } from '~/layout/ai/attachedContext'
 import { HogFunctionTemplateType } from '~/types'
 
 import { resolveToolCall, useToolStreamListener } from 'products/posthog_ai/frontend/api/logics'
-import { AttachedContextItem } from 'products/posthog_ai/frontend/api/types'
 
 import type { HogFlow } from '../Workflows/hogflows/types'
 import { EMAIL_EDITOR_AGENT_HEADLINES, buildWorkflowAgentContext } from '../Workflows/workflowAgentContext'

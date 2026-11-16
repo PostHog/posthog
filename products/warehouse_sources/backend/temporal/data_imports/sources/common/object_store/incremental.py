@@ -1,4 +1,5 @@
-from collections.abc import Iterable
+import hashlib
+from collections.abc import Iterable, Sequence
 from datetime import UTC, datetime, timedelta
 from typing import Any, Literal
 
@@ -9,7 +10,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.obj
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.settings import (
     APPEND_SETTLE_SECONDS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import ReplaceScope, SourceInputs
 from products.warehouse_sources.backend.types import ExternalDataSchemaSyncType
 
 FILE_ROW_NUMBER_COLUMN = "_file_row_number"
@@ -69,3 +70,45 @@ class FileSelection:
 
 
 READ_ALL = FileSelection()
+
+
+def listing_digest(files: Iterable[StoredObject]) -> str:
+    """A 64-character digest of the path, size and modification time of each file."""
+    digest = hashlib.sha256()
+    for stored in sorted(files, key=lambda stored: stored.path):
+        digest.update(f"{stored.path}\t{stored.size}\t{stored.modified_at.isoformat()}\n".encode())
+    return digest.hexdigest()
+
+
+@frozen
+class MirrorPlan:
+    """One incremental read that makes a files table match the bucket.
+
+    The changed files are read again and replace their own rows, and the rows of a file that is no
+    longer in the bucket go (see `ReplaceScope`).
+    """
+
+    files: list[StoredObject]
+    """The files to read, oldest first."""
+    replace_scope: ReplaceScope | None
+    """None when nothing changed since the last sync, so the run reads and deletes nothing."""
+    digest: str
+    """The digest of the listing that this read brings the table up to."""
+
+
+def plan_mirror(
+    listed: Sequence[StoredObject], selection: FileSelection, stored_digest: str | None, now: datetime | None = None
+) -> MirrorPlan:
+    """Plan the read from the current listing and the digest of the listing at the last sync."""
+    digest = listing_digest(listed)
+    if digest == stored_digest:
+        # The files at the watermark are read again on every run, so the watermark alone can never
+        # tell that a listing has not changed.
+        return MirrorPlan(files=[], replace_scope=None, digest=digest)
+    files = selection.select(listed, now=now)
+    scope = ReplaceScope(
+        column=FILE_PATH_COLUMN,
+        replaced=frozenset(stored.path for stored in files),
+        retained=frozenset(stored.path for stored in listed),
+    )
+    return MirrorPlan(files=files, replace_scope=scope, digest=digest)

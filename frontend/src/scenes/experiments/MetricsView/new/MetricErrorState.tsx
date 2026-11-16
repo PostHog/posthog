@@ -8,7 +8,6 @@ import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { urls } from 'scenes/urls'
 
 import { parseErrorMessage } from '~/queries/query'
-import { ExperimentMetric } from '~/queries/schema/schema-general'
 
 type MetricErrorStateProps = {
     error: {
@@ -16,7 +15,6 @@ type MetricErrorStateProps = {
         statusCode?: number
         queryId?: string
     }
-    metric: ExperimentMetric
     query?: Record<string, any>
     onRetry?: () => void
     /** Disables the "Try again" button (with a tooltip) while a recalculation is already in flight. */

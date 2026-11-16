@@ -228,6 +228,7 @@ impl EventDispatcher {
     /// dispatch ceiling only for what lands. Events for a partition in `held` (already paused behind an
     /// older holdover) skip the send and are returned to queue behind it. Returns the un-dispatched
     /// events per partition for the caller to hold and pause.
+    #[hotpath::measure(impl_type = "EventDispatcher")]
     pub fn dispatch_events_nonblocking(
         &self,
         batch: Vec<ConsumedEvent>,
@@ -658,13 +659,14 @@ impl EventDispatcher {
         counter!(PARTITIONS_ASSIGNED_TOTAL).increment(1);
     }
 
-    /// Delete the on-disk slices of every partition `ownership` does not own. The store opens only
-    /// under the ownership it was written under, or adopts it, so at one pod this deletes nothing.
-    pub(crate) async fn reclaim_unowned_slices(&self, ownership: &PartitionOwnership) {
+    /// Delete the on-disk slices of every partition `ownership` does not own, and return how many
+    /// held any key. The store opens only under the ownership it was written under, or adopts it,
+    /// so at one pod this deletes nothing.
+    pub(crate) async fn reclaim_unowned_slices(&self, ownership: &PartitionOwnership) -> u64 {
         let mut wiped = 0u64;
         for partition in (0..ownership.partition_count()).filter(|&p| !ownership.owns(p)) {
             match self.handle.delete_partition(partition).await {
-                Ok(()) => wiped += 1,
+                Ok(held_keys) => wiped += u64::from(held_keys),
                 Err(err) => warn!(
                     partition,
                     error = %err, "failed to reclaim unowned-partition state at boot"
@@ -680,6 +682,7 @@ impl EventDispatcher {
             partition_count = ownership.partition_count(),
             "durable restore: boot staleness sweep complete"
         );
+        wiped
     }
 
     /// Re-produce every staged `cf_pending_transfers` entry for the owned partitions at boot, before
@@ -975,7 +978,7 @@ impl CohortStreamEventsConsumer {
                 self.wait_for_capture(&restore).await;
                 let mut resume = ResumePoints::default();
                 let topic = InputTopic::new(self.topic.as_str());
-                resume.rewind_to(&restore.plan().positions(&topic, &self.claimed.ownership()));
+                resume.rewind_to(&restore.plan().positions(&topic));
                 BootPhase::Rewinding {
                     resume,
                     restore: Box::new(restore),
@@ -1239,6 +1242,7 @@ impl CohortStreamEventsConsumer {
         gauge!(PENDING_HELD_EVENTS).set(backpressure.held_message_count() as f64);
     }
 
+    #[hotpath::measure(impl_type = "CohortStreamEventsConsumer")]
     async fn consume_batch(&self) -> ConsumeOutcome {
         let mut outcome = ConsumeOutcome {
             events: Vec::with_capacity(self.recv_batch_size),
@@ -1416,11 +1420,13 @@ pub(crate) async fn run_pauser_loop(
 // facade.
 #[allow(clippy::disallowed_methods)]
 mod tests {
+    use std::collections::HashSet;
     use std::num::{NonZeroU16, NonZeroUsize};
 
     use super::*;
     use chrono_tz::UTC;
     use common_kafka::kafka_producer::KafkaProduceError;
+    use common_types::cohort::TeamAllowlist;
     use futures::FutureExt;
     use serde_json::json;
     use tempfile::TempDir;
@@ -1858,7 +1864,7 @@ mod tests {
             PartitionOwnership::new(NonZeroU16::new(2).unwrap(), PodOrdinal::STANDALONE, 4)
                 .unwrap();
 
-        dispatcher.reclaim_unowned_slices(&pod_zero_of_two).await;
+        assert_eq!(dispatcher.reclaim_unowned_slices(&pod_zero_of_two).await, 2);
 
         assert_eq!(
             (0..4u16)
@@ -1866,6 +1872,7 @@ mod tests {
                 .collect::<Vec<_>>(),
             [true, false, true, false],
         );
+        assert_eq!(dispatcher.reclaim_unowned_slices(&pod_zero_of_two).await, 0);
     }
 
     #[tokio::test]
@@ -2703,8 +2710,11 @@ mod tests {
         )])))
     }
 
-    fn absent_team_catalog() -> Arc<CatalogHandle> {
-        Arc::new(CatalogHandle::from_catalog(FilterCatalog::from_teams([])))
+    fn team_without_cohorts_catalog() -> Arc<CatalogHandle> {
+        Arc::new(CatalogHandle::from_catalog(FilterCatalog::for_processing(
+            TeamAllowlist::Only(HashSet::from([TEAM])),
+            [],
+        )))
     }
 
     fn person_hashing_to(partition: u16, start: u128) -> Uuid {
@@ -3268,7 +3278,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn mixed_batch_marks_each_tracker_and_membership_produce_failure_holds_only_events() {
+    async fn mixed_batch_marks_each_tracker_and_a_membership_produce_failure_holds_none() {
         let (_dir, store) = temp_store();
         let (dispatcher, sink, _transfer_sink, merge) = dispatcher_full(
             &store,
@@ -3299,12 +3309,12 @@ mod tests {
 
         assert!(
             sink.changes().is_empty(),
-            "the failed flush recorded nothing"
+            "the failed produce recorded nothing"
         );
         assert_eq!(
             tracker.committable_offsets().get(&partition),
-            None,
-            "the membership produce failure holds the events offset",
+            Some(&11),
+            "live output is at most once, so the failed produce does not hold the events offset",
         );
         assert_eq!(
             merge.merge_tracker.committable_offsets().get(&partition),
@@ -3416,11 +3426,11 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn absent_team_merge_still_drains_tombstone_and_marker_and_marks() {
+    async fn team_without_cohorts_merge_still_drains_tombstone_and_marker_and_marks() {
         let (_dir, store) = temp_store();
         let (dispatcher, sink, transfer_sink, merge) = dispatcher_full(
             &store,
-            absent_team_catalog(),
+            team_without_cohorts_catalog(),
             CaptureSink::new(),
             CaptureTransferSink::new(),
         );
@@ -3472,16 +3482,16 @@ mod tests {
         assert_eq!(
             merge.merge_tracker.committable_offsets().get(&partition),
             Some(&10),
-            "an absent team never holds the offset",
+            "a team without cohorts never holds the offset",
         );
     }
 
     #[tokio::test]
-    async fn absent_team_transfer_applies_dropping_leaves_as_drift_and_marks() {
+    async fn team_without_cohorts_transfer_applies_dropping_leaves_as_drift_and_marks() {
         let (_dir, store) = temp_store();
         let (dispatcher, sink, _transfer_sink, merge) = dispatcher_full(
             &store,
-            absent_team_catalog(),
+            team_without_cohorts_catalog(),
             CaptureSink::new(),
             CaptureTransferSink::new(),
         );

@@ -3,8 +3,7 @@
 // Pins turbo-discover's DJANGO_SEGMENTS table to the Django pytest invocations
 // in ci-backend.yml. The table sizes the shards each segment gets, so a segment
 // listing paths the workflow no longer runs (or missing ones it does) budgets
-// wall time for a run that never happens. Both workflow copies are read: the
-// Depot mirror runs the same matrix and drifts on its own.
+// wall time for a run that never happens.
 //
 // Reads the workflow rather than a fixture on purpose — the workflow is the one
 // side that can drift, and there is nothing else to compare the table against.
@@ -19,7 +18,7 @@ const path = require('node:path')
 const { DJANGO_SEGMENTS, getIsolatedProducts, loadJsonTargets } = require('./turbo-discover')
 
 const REPO_ROOT = path.join(__dirname, '..', '..')
-const WORKFLOWS = ['.github/workflows/ci-backend.yml', '.depot/workflows/ci-backend.yml']
+const WORKFLOW = '.depot/workflows/ci-backend.yml'
 
 // pytest takes `./posthog/queries/` and `posthog` for the same directory, and
 // --ignore drops the trailing slash. DJANGO_SEGMENTS stores prefixes, so every
@@ -68,21 +67,19 @@ function parseTemporalTargets(text) {
     return invocation[1].split(/\s+/)
 }
 
-for (const workflow of WORKFLOWS) {
-    const text = fs.readFileSync(path.join(REPO_ROOT, workflow), 'utf8')
-    const core = parseCoreStep(text)
-    const expected = {
-        Core: { include: core.core, exclude: core.ignores },
-        CorePOE: { include: core.poe, exclude: [...core.ignores, ...core.poeIgnores] },
-        Temporal: { include: parseTemporalTargets(text), exclude: [] },
-    }
+const text = fs.readFileSync(path.join(REPO_ROOT, WORKFLOW), 'utf8')
+const core = parseCoreStep(text)
+const expected = {
+    Core: { include: core.core, exclude: core.ignores },
+    CorePOE: { include: core.poe, exclude: [...core.ignores, ...core.poeIgnores] },
+    Temporal: { include: parseTemporalTargets(text), exclude: [] },
+}
 
-    for (const [segment, paths] of Object.entries(expected)) {
-        test(`${segment} segment matches the pytest targets in ${workflow}`, () => {
-            assert.deepEqual(sorted(DJANGO_SEGMENTS[segment].include), sorted(paths.include.map(toPrefix)))
-            assert.deepEqual(sorted(DJANGO_SEGMENTS[segment].exclude), sorted(paths.exclude.map(toPrefix)))
-        })
-    }
+for (const [segment, paths] of Object.entries(expected)) {
+    test(`${segment} segment matches the pytest targets in ${WORKFLOW}`, () => {
+        assert.deepEqual(sorted(DJANGO_SEGMENTS[segment].include), sorted(paths.include.map(toPrefix)))
+        assert.deepEqual(sorted(DJANGO_SEGMENTS[segment].exclude), sorted(paths.exclude.map(toPrefix)))
+    })
 }
 
 // The backend test selector is the third copy of the partition: it routes each

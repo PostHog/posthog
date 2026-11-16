@@ -1,6 +1,6 @@
 import { MOCK_DEFAULT_BASIC_USER, MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
-import { Decorator, Meta, StoryObj } from '@storybook/react'
+import { Meta, StoryObj } from '@storybook/react'
 import { useActions } from 'kea'
 import { useLayoutEffect, useState } from 'react'
 
@@ -394,6 +394,15 @@ const STORY_ISSUE: ErrorTrackingRelationalIssue = {
         },
     ],
 }
+
+type StoryQueryBody<Q> = { query?: Q & { source?: Q } }
+
+// The issue page wraps its exceptions list in an ErrorTrackingIssueEventsQuery, and that query
+// answers in the shape of its source EventsQuery, so the mocks answer for the source.
+function storyQuery<Q extends { kind?: string }>(body: StoryQueryBody<Q>): Q | undefined {
+    return body.query?.kind === NodeKind.ErrorTrackingIssueEventsQuery ? body.query.source : body.query
+}
+
 const STORY_SUMMARY_RESPONSE: ErrorTrackingQueryResponse = {
     ...errorTrackingQueryResponse,
     results: [
@@ -491,6 +500,10 @@ const meta: Meta = {
                 ],
                 '/api/environments/:team_id/error_tracking/issues/exists/': [200, { exists: true }],
                 '/api/environments/:team_id/error_tracking/issues/:id/': [200, STORY_ISSUE],
+                '/api/projects/:team_id/error_tracking/issues/:id/summary/': [
+                    200,
+                    { status: 'unavailable', summary: null },
+                ],
                 '/api/environments/:team_id/error_tracking/fingerprints': [
                     200,
                     {
@@ -513,32 +526,32 @@ const meta: Meta = {
             },
             post: {
                 '/api/environments/:team_id/query/:kind/': async ({ request }) => {
-                    const body = (await request.json()) as {
-                        query?: {
+                    const query = storyQuery(
+                        (await request.json()) as StoryQueryBody<{
                             kind?: string
                             issueId?: string
                             select?: string[]
                             where?: string[]
                             maxReleases?: number
                             query?: string
-                        }
-                    }
-                    if (body.query?.kind === NodeKind.ErrorTrackingBreakdownsQuery) {
+                        }>
+                    )
+                    if (query?.kind === NodeKind.ErrorTrackingBreakdownsQuery) {
                         return [200, STORY_BREAKDOWNS_RESPONSE]
                     }
-                    if (body.query?.kind === NodeKind.EventsQuery) {
-                        if (body.query.where?.some((w: string) => w.includes('$exception_fingerprint'))) {
+                    if (query?.kind === NodeKind.EventsQuery) {
+                        if (query.where?.some((w: string) => w.includes('$exception_fingerprint'))) {
                             return [200, STORY_FINGERPRINT_EVENT_RESPONSE]
                         }
-                        return body.query.select?.includes('properties.$exception_list')
+                        return query.select?.includes('properties.$exception_list')
                             ? [200, STORY_TIMELINE_RESPONSE]
                             : [200, STORY_EVENTS_RESPONSE]
                     }
-                    if (body.query?.kind === NodeKind.ErrorTrackingReleasesQuery) {
-                        return [200, storyReleasesResponse(body.query.maxReleases ?? 5)]
+                    if (query?.kind === NodeKind.ErrorTrackingReleasesQuery) {
+                        return [200, storyReleasesResponse(query.maxReleases ?? 5)]
                     }
-                    if (body.query?.kind === NodeKind.HogQLQuery) {
-                        return body.query.query?.includes('$exception_fingerprint')
+                    if (query?.kind === NodeKind.HogQLQuery) {
+                        return query.query?.includes('$exception_fingerprint')
                             ? [200, STORY_FINGERPRINT_SAMPLES_RESPONSE]
                             : [200, { results: [] }]
                     }
@@ -1062,18 +1075,18 @@ export const GroupPageBreakdownLoading: Story = {
         mswDecorator({
             post: {
                 '/api/environments/:team_id/query/:kind/': async ({ request }) => {
-                    const body = (await request.json()) as { query?: { kind?: string; select?: string[] } }
-                    if (body.query?.kind === NodeKind.ErrorTrackingBreakdownsQuery) {
+                    const query = storyQuery(
+                        (await request.json()) as StoryQueryBody<{ kind?: string; select?: string[] }>
+                    )
+                    if (query?.kind === NodeKind.ErrorTrackingBreakdownsQuery) {
                         return new Promise<never>(() => {})
                     }
-                    if (body.query?.kind === NodeKind.EventsQuery) {
-                        return body.query.select?.includes('properties.$exception_list')
+                    if (query?.kind === NodeKind.EventsQuery) {
+                        return query.select?.includes('properties.$exception_list')
                             ? [200, STORY_TIMELINE_RESPONSE]
                             : [200, STORY_EVENTS_RESPONSE]
                     }
-                    return body.query?.kind === NodeKind.HogQLQuery
-                        ? [200, { results: [] }]
-                        : [200, STORY_SUMMARY_RESPONSE]
+                    return query?.kind === NodeKind.HogQLQuery ? [200, { results: [] }] : [200, STORY_SUMMARY_RESPONSE]
                 },
             },
         }),
@@ -1099,26 +1112,25 @@ export const GroupPageBreakdownModalLoading: Story = {
         mswDecorator({
             post: {
                 '/api/environments/:team_id/query/:kind/': async ({ request }) => {
-                    const body = (await request.json()) as {
-                        query?: { kind?: string; select?: string[]; maxValuesPerProperty?: number }
-                    }
-                    if (
-                        body.query?.kind === NodeKind.ErrorTrackingBreakdownsQuery &&
-                        body.query.maxValuesPerProperty === 100
-                    ) {
+                    const query = storyQuery(
+                        (await request.json()) as StoryQueryBody<{
+                            kind?: string
+                            select?: string[]
+                            maxValuesPerProperty?: number
+                        }>
+                    )
+                    if (query?.kind === NodeKind.ErrorTrackingBreakdownsQuery && query.maxValuesPerProperty === 100) {
                         return new Promise<never>(() => {})
                     }
-                    if (body.query?.kind === NodeKind.ErrorTrackingBreakdownsQuery) {
+                    if (query?.kind === NodeKind.ErrorTrackingBreakdownsQuery) {
                         return [200, STORY_BREAKDOWNS_RESPONSE]
                     }
-                    if (body.query?.kind === NodeKind.EventsQuery) {
-                        return body.query.select?.includes('properties.$exception_list')
+                    if (query?.kind === NodeKind.EventsQuery) {
+                        return query.select?.includes('properties.$exception_list')
                             ? [200, STORY_TIMELINE_RESPONSE]
                             : [200, STORY_EVENTS_RESPONSE]
                     }
-                    return body.query?.kind === NodeKind.HogQLQuery
-                        ? [200, { results: [] }]
-                        : [200, STORY_SUMMARY_RESPONSE]
+                    return query?.kind === NodeKind.HogQLQuery ? [200, { results: [] }] : [200, STORY_SUMMARY_RESPONSE]
                 },
             },
         }),
@@ -1135,18 +1147,18 @@ export const GroupPageEmptyWithFilter: Story = {
         mswDecorator({
             post: {
                 '/api/environments/:team_id/query/:kind/': async ({ request }) => {
-                    const body = (await request.json()) as { query?: { kind?: string; select?: string[] } }
-                    if (body.query?.kind === NodeKind.ErrorTrackingBreakdownsQuery) {
+                    const query = storyQuery(
+                        (await request.json()) as StoryQueryBody<{ kind?: string; select?: string[] }>
+                    )
+                    if (query?.kind === NodeKind.ErrorTrackingBreakdownsQuery) {
                         return [200, STORY_BREAKDOWNS_RESPONSE]
                     }
-                    if (body.query?.kind === NodeKind.EventsQuery) {
-                        return body.query.select?.includes('properties.$exception_list')
+                    if (query?.kind === NodeKind.EventsQuery) {
+                        return query.select?.includes('properties.$exception_list')
                             ? [200, STORY_TIMELINE_RESPONSE]
                             : [200, STORY_EMPTY_EVENTS_RESPONSE]
                     }
-                    return body.query?.kind === NodeKind.HogQLQuery
-                        ? [200, { results: [] }]
-                        : [200, STORY_SUMMARY_RESPONSE]
+                    return query?.kind === NodeKind.HogQLQuery ? [200, { results: [] }] : [200, STORY_SUMMARY_RESPONSE]
                 },
             },
         }),
@@ -1167,28 +1179,6 @@ export const GroupPageLoading: Story = {
             },
         }),
     ],
-}
-
-function selfDrivingReportsDecorator(count: number): Decorator {
-    return mswDecorator({
-        get: {
-            '/api/projects/:team_id/signals/reports/': () => [
-                200,
-                {
-                    next: null,
-                    results: Array.from({ length: count }, (_, index) => ({
-                        id: `019f9582-93e7-77c1-8912-4f541d70cb${String(index).padStart(2, '0')}`,
-                        status: index % 2 === 0 ? 'ready' : 'resolved',
-                        title: `fix(replay): guard against a missing snapshot index (${index + 1})`,
-                        summary: 'The player throws when a recording ends on a snapshot the index never received.',
-                        implementation_pr_url: `https://github.com/PostHog/posthog/pull/${64772 + index}`,
-                        implementation_pr_merged: index % 2 === 1,
-                        updated_at: '2024-07-08T21:00:00Z',
-                    })),
-                },
-            ],
-        },
-    })
 }
 
 // Self-driving investigated this issue, so its section renders in the right pane above the exception
@@ -1234,15 +1224,4 @@ export const GroupPageWithSelfDriving: Story = {
             },
         }),
     ],
-}
-
-// An issue the agent looked at many times. The section stops at half the pane and scrolls, so the
-// exception card and its stack trace stay on screen.
-export const GroupPageWithManySelfDrivingReports: Story = {
-    name: 'Issue scene with many self-driving reports',
-    parameters: {
-        pageUrl: urls.errorTrackingIssue(ISSUE_ID),
-        testOptions: { waitForLoadersToDisappear: false },
-    },
-    decorators: [selfDrivingReportsDecorator(12)],
 }

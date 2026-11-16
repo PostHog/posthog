@@ -92,6 +92,7 @@ describe('ScoutConfigForm', () => {
     it.each([
         ['dry-run', emitSwitchLabel],
         ['owner lock', 'signals-scout-general only the owner can pause or delete'],
+        ['show in inbox', 'signals-scout-general show in inbox'],
     ])('leaves the %s switch editable while the scout is disabled', (_name, label) => {
         const onUpdate = jest.fn()
         const { getByLabelText } = render(
@@ -258,6 +259,32 @@ describe('ScoutConfigForm', () => {
         const select = getByLabelText('signals-scout-general model')
         expect(select).toHaveTextContent('claude-opus-5')
         expect(select).not.toHaveTextContent('Default')
+        unmount()
+    })
+
+    // An update replaces the stored destinations, so a toggle that sends only the inbox flag
+    // would silently turn off Slack delivery and drop the webhook.
+    it.each([
+        ['hides', true, false],
+        ['shows', false, true],
+    ])('%s the scout in the inbox and keeps its Slack and webhook destinations', (_action, inbox, expected) => {
+        const onUpdate = jest.fn()
+        const outputDestinations = {
+            slack: { integration_id: 7, channel: 'C123', thread_reports: false },
+            webhook: { hog_function_id: 'hog-function-1' },
+            inbox,
+        }
+        const { getByLabelText, unmount } = render(
+            <ScoutConfigForm config={{ ...config, output_destinations: outputDestinations }} onUpdate={onUpdate} />
+        )
+        const inboxSwitch = getByLabelText(`${config.skill_name} show in inbox`)
+        expect(inboxSwitch).toHaveAttribute('aria-checked', String(inbox))
+
+        fireEvent.click(inboxSwitch)
+
+        expect(onUpdate).toHaveBeenCalledWith('config-1', {
+            output_destinations: { ...outputDestinations, inbox: expected },
+        })
         unmount()
     })
 

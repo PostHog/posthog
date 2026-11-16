@@ -11,6 +11,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.sync import database_sync_to_async_pool
 
 from products.data_modeling.backend.facade.models import (
+    TERMINAL_JOB_STATUSES,
     DataModelingJob,
     DataModelingJobEngine,
     DataModelingJobStatus,
@@ -109,7 +110,7 @@ def _succeed_node_and_data_modeling_job(
     job = DataModelingJob.objects.get(id=inputs.job_id)
 
     # if the job is already in a terminal state, don't overwrite it
-    if job.status in (DataModelingJobStatus.FAILED, DataModelingJobStatus.CANCELLED, DataModelingJobStatus.COMPLETED):
+    if job.status in TERMINAL_JOB_STATUSES:
         return SucceedNodeAndJobOutcome(
             node=node,
             job=job,

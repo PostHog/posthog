@@ -34,6 +34,10 @@ from posthog.session_recordings.queries.sub_queries.events_subquery import (
     ReplayFiltersEventsSubQuery,
     SessionIdMatchPlan,
 )
+from posthog.session_recordings.queries.sub_queries.group_key_resolver import (
+    GROUP_KEY_RESOLUTION_MAX_SECONDS,
+    GroupKeyLookupBudget,
+)
 from posthog.session_recordings.queries.sub_queries.person_ids_subquery import PersonsIdCompareOperation
 from posthog.session_recordings.queries.sub_queries.person_props_subquery import PersonsPropertiesSubQuery
 from posthog.session_recordings.queries.utils import (
@@ -50,7 +54,7 @@ from posthog.types import AnyPropertyFilter
 from products.access_control.backend.facade.user_access_control import UserAccessControlError
 
 if TYPE_CHECKING:
-    from products.experiments.backend.facade.replay import ExperimentExposureLinkage
+    from products.experiments.backend.facade.contracts import ExperimentExposureLinkage
 
 logger = structlog.get_logger(__name__)
 tracer = trace.get_tracer(__name__)
@@ -170,9 +174,13 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
         # variant (as `any(exposure.variant)`): the experiment-exposure join then projects it.
         # The population is unchanged, so plain listings never need this.
         project_exposure_variant: bool = False,
+        # For callers that read a short page as "no more matches", so a timeout must raise, not truncate.
+        throw_on_timeout: bool = False,
+        group_key_resolution_seconds: int = GROUP_KEY_RESOLUTION_MAX_SECONDS,
         **_,
     ):
         self._user = user
+        self._throw_on_timeout = throw_on_timeout
         self._project_exposure_variant = project_exposure_variant
         # Storage-level SAMPLE on any events subqueries; opt-in for estimates.
         self._events_sample_factor = events_sample_factor
@@ -180,6 +188,8 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
         # session window and do not need each run to re-scan the whole range.
         self._events_timestamp_floor = events_timestamp_floor
         self._resolve_group_properties = resolve_group_properties
+        # One budget for every builder this listing makes, so its group filters share one lookup allowance.
+        self._group_key_budget = GroupKeyLookupBudget(group_key_resolution_seconds)
         self.events_subqueries_sampled = False
         self._allow_combined_event_filters = allow_combined_event_filters
         self._event_match_plan: SessionIdMatchPlan | None = None
@@ -279,11 +289,10 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
             # with its status, machine code, and narrow-your-filters guidance, is honest for
             # every cause.
             settings_args["max_memory_usage"] = linkage.live_scan_max_memory_bytes
-        in_session_narrowed = linkage is not None and linkage.session_exposure is not None
-        if in_session_narrowed:
-            # Under a "break" timeout profile a timed-out evidence subquery would return a partial
-            # session set, silently listing fewer in-session recordings. A partial result is worse
-            # than an error here, so the execution-time kill must throw.
+        in_session_narrowed = linkage is not None and linkage.in_session
+        if in_session_narrowed or self._throw_on_timeout:
+            # Under a "break" timeout profile a timed-out query returns partial rows, which an in-session
+            # listing or a `throw_on_timeout` caller would take as complete. So the execution-time kill throws.
             settings_args["timeout_overflow_mode"] = "throw"
 
         with tracer.start_as_current_span("SessionRecordingListFromQuery.paginate"):
@@ -710,6 +719,8 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
             sample_factor=self._events_sample_factor,
             events_timestamp_floor=self._events_timestamp_floor,
             resolve_group_properties=self._resolve_group_properties,
+            user=self._user,
+            group_key_budget=self._group_key_budget,
         )
         self._event_match_plan = events_sub_query_builder.get_session_id_match_plan(
             allow_combined_filters=self._allow_combined_event_filters
@@ -842,6 +853,8 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
                 sample_factor=self._events_sample_factor,
                 events_timestamp_floor=self._events_timestamp_floor,
                 resolve_group_properties=self._resolve_group_properties,
+                user=self._user,
+                group_key_budget=self._group_key_budget,
             )
             for sub_q in test_account_events_builder.get_queries_for_session_id_matching():
                 exprs.append(

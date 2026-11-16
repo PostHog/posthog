@@ -282,6 +282,12 @@ class PersonHogServiceStub:
             response_deserializer=personhog_dot_types_dot_v1_dot_person__pb2.FoldPersonDocumentResponse.FromString,
             _registered_method=True,
         )
+        self.RaisePersonVersion = channel.unary_unary(
+            "/personhog.service.v1.PersonHogService/RaisePersonVersion",
+            request_serializer=personhog_dot_types_dot_v1_dot_person__pb2.RaisePersonVersionRequest.SerializeToString,
+            response_deserializer=personhog_dot_types_dot_v1_dot_person__pb2.RaisePersonVersionResponse.FromString,
+            _registered_method=True,
+        )
         self.DeletePersons = channel.unary_unary(
             "/personhog.service.v1.PersonHogService/DeletePersons",
             request_serializer=personhog_dot_types_dot_v1_dot_person__pb2.DeletePersonsRequest.SerializeToString,
@@ -352,6 +358,24 @@ class PersonHogServiceStub:
             "/personhog.service.v1.PersonHogService/ListPersonsForTeam",
             request_serializer=personhog_dot_types_dot_v1_dot_person__pb2.ListPersonsForTeamRequest.SerializeToString,
             response_deserializer=personhog_dot_types_dot_v1_dot_person__pb2.ListPersonsForTeamResponse.FromString,
+            _registered_method=True,
+        )
+        self.RaisePersonVersionFloors = channel.unary_unary(
+            "/personhog.service.v1.PersonHogService/RaisePersonVersionFloors",
+            request_serializer=personhog_dot_types_dot_v1_dot_person__pb2.RaisePersonVersionFloorsRequest.SerializeToString,
+            response_deserializer=personhog_dot_types_dot_v1_dot_person__pb2.RaisePersonVersionFloorsResponse.FromString,
+            _registered_method=True,
+        )
+        self.RestorePersons = channel.unary_unary(
+            "/personhog.service.v1.PersonHogService/RestorePersons",
+            request_serializer=personhog_dot_types_dot_v1_dot_person__pb2.RestorePersonsRequest.SerializeToString,
+            response_deserializer=personhog_dot_types_dot_v1_dot_person__pb2.RestorePersonsResponse.FromString,
+            _registered_method=True,
+        )
+        self.WriteDistinctIds = channel.unary_unary(
+            "/personhog.service.v1.PersonHogService/WriteDistinctIds",
+            request_serializer=personhog_dot_types_dot_v1_dot_person__pb2.WriteDistinctIdsRequest.SerializeToString,
+            response_deserializer=personhog_dot_types_dot_v1_dot_person__pb2.WriteDistinctIdsResponse.FromString,
             _registered_method=True,
         )
 
@@ -604,6 +628,12 @@ class PersonHogServiceServicer:
         context.set_details("Method not implemented!")
         raise NotImplementedError("Method not implemented!")
 
+    def RaisePersonVersion(self, request, context):
+        """Consistency repair version raise (routed to leader)"""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details("Method not implemented!")
+        raise NotImplementedError("Method not implemented!")
+
     def DeletePersons(self, request, context):
         """Person deletes
         DeletePersons tombstones the persons and reports the versions written. A caller that
@@ -688,6 +718,27 @@ class PersonHogServiceServicer:
         raise NotImplementedError("Method not implemented!")
 
     def ListPersonsForTeam(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details("Method not implemented!")
+        raise NotImplementedError("Method not implemented!")
+
+    def RaisePersonVersionFloors(self, request, context):
+        """Writes for the person consistency repair. Raises and mapping writes claim lifecycle marks on
+        the persons they write; restores only insert absent persons. Versions only go up. Same routing
+        caveat as DeletePersons above.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details("Method not implemented!")
+        raise NotImplementedError("Method not implemented!")
+
+    def RestorePersons(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details("Method not implemented!")
+        raise NotImplementedError("Method not implemented!")
+
+    def WriteDistinctIds(self, request, context):
         """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details("Method not implemented!")
@@ -896,6 +947,11 @@ def add_PersonHogServiceServicer_to_server(servicer, server):
             request_deserializer=personhog_dot_types_dot_v1_dot_person__pb2.FoldPersonDocumentRequest.FromString,
             response_serializer=personhog_dot_types_dot_v1_dot_person__pb2.FoldPersonDocumentResponse.SerializeToString,
         ),
+        "RaisePersonVersion": grpc.unary_unary_rpc_method_handler(
+            servicer.RaisePersonVersion,
+            request_deserializer=personhog_dot_types_dot_v1_dot_person__pb2.RaisePersonVersionRequest.FromString,
+            response_serializer=personhog_dot_types_dot_v1_dot_person__pb2.RaisePersonVersionResponse.SerializeToString,
+        ),
         "DeletePersons": grpc.unary_unary_rpc_method_handler(
             servicer.DeletePersons,
             request_deserializer=personhog_dot_types_dot_v1_dot_person__pb2.DeletePersonsRequest.FromString,
@@ -955,6 +1011,21 @@ def add_PersonHogServiceServicer_to_server(servicer, server):
             servicer.ListPersonsForTeam,
             request_deserializer=personhog_dot_types_dot_v1_dot_person__pb2.ListPersonsForTeamRequest.FromString,
             response_serializer=personhog_dot_types_dot_v1_dot_person__pb2.ListPersonsForTeamResponse.SerializeToString,
+        ),
+        "RaisePersonVersionFloors": grpc.unary_unary_rpc_method_handler(
+            servicer.RaisePersonVersionFloors,
+            request_deserializer=personhog_dot_types_dot_v1_dot_person__pb2.RaisePersonVersionFloorsRequest.FromString,
+            response_serializer=personhog_dot_types_dot_v1_dot_person__pb2.RaisePersonVersionFloorsResponse.SerializeToString,
+        ),
+        "RestorePersons": grpc.unary_unary_rpc_method_handler(
+            servicer.RestorePersons,
+            request_deserializer=personhog_dot_types_dot_v1_dot_person__pb2.RestorePersonsRequest.FromString,
+            response_serializer=personhog_dot_types_dot_v1_dot_person__pb2.RestorePersonsResponse.SerializeToString,
+        ),
+        "WriteDistinctIds": grpc.unary_unary_rpc_method_handler(
+            servicer.WriteDistinctIds,
+            request_deserializer=personhog_dot_types_dot_v1_dot_person__pb2.WriteDistinctIdsRequest.FromString,
+            response_serializer=personhog_dot_types_dot_v1_dot_person__pb2.WriteDistinctIdsResponse.SerializeToString,
         ),
     }
     generic_handler = grpc.method_handlers_generic_handler("personhog.service.v1.PersonHogService", rpc_method_handlers)
@@ -2169,6 +2240,36 @@ class PersonHogService:
         )
 
     @staticmethod
+    def RaisePersonVersion(
+        request,
+        target,
+        options=(),
+        channel_credentials=None,
+        call_credentials=None,
+        insecure=False,
+        compression=None,
+        wait_for_ready=None,
+        timeout=None,
+        metadata=None,
+    ):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            "/personhog.service.v1.PersonHogService/RaisePersonVersion",
+            personhog_dot_types_dot_v1_dot_person__pb2.RaisePersonVersionRequest.SerializeToString,
+            personhog_dot_types_dot_v1_dot_person__pb2.RaisePersonVersionResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True,
+        )
+
+    @staticmethod
     def DeletePersons(
         request,
         target,
@@ -2517,6 +2618,96 @@ class PersonHogService:
             "/personhog.service.v1.PersonHogService/ListPersonsForTeam",
             personhog_dot_types_dot_v1_dot_person__pb2.ListPersonsForTeamRequest.SerializeToString,
             personhog_dot_types_dot_v1_dot_person__pb2.ListPersonsForTeamResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True,
+        )
+
+    @staticmethod
+    def RaisePersonVersionFloors(
+        request,
+        target,
+        options=(),
+        channel_credentials=None,
+        call_credentials=None,
+        insecure=False,
+        compression=None,
+        wait_for_ready=None,
+        timeout=None,
+        metadata=None,
+    ):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            "/personhog.service.v1.PersonHogService/RaisePersonVersionFloors",
+            personhog_dot_types_dot_v1_dot_person__pb2.RaisePersonVersionFloorsRequest.SerializeToString,
+            personhog_dot_types_dot_v1_dot_person__pb2.RaisePersonVersionFloorsResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True,
+        )
+
+    @staticmethod
+    def RestorePersons(
+        request,
+        target,
+        options=(),
+        channel_credentials=None,
+        call_credentials=None,
+        insecure=False,
+        compression=None,
+        wait_for_ready=None,
+        timeout=None,
+        metadata=None,
+    ):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            "/personhog.service.v1.PersonHogService/RestorePersons",
+            personhog_dot_types_dot_v1_dot_person__pb2.RestorePersonsRequest.SerializeToString,
+            personhog_dot_types_dot_v1_dot_person__pb2.RestorePersonsResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True,
+        )
+
+    @staticmethod
+    def WriteDistinctIds(
+        request,
+        target,
+        options=(),
+        channel_credentials=None,
+        call_credentials=None,
+        insecure=False,
+        compression=None,
+        wait_for_ready=None,
+        timeout=None,
+        metadata=None,
+    ):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            "/personhog.service.v1.PersonHogService/WriteDistinctIds",
+            personhog_dot_types_dot_v1_dot_person__pb2.WriteDistinctIdsRequest.SerializeToString,
+            personhog_dot_types_dot_v1_dot_person__pb2.WriteDistinctIdsResponse.FromString,
             options,
             channel_credentials,
             insecure,

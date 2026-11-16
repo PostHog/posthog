@@ -19,9 +19,6 @@ def merge_modifiers(requested: dict | None, existing: object) -> dict | None:
     stored = existing if isinstance(existing, dict) else {}
     if requested is not None:
         return {**stored, **requested}
-    # PostHog staff set useNewEventsSchema per project, so a client that clears its modifiers keeps it.
-    if "useNewEventsSchema" in stored:
-        return {"useNewEventsSchema": stored["useNewEventsSchema"]}
     return None
 
 
@@ -32,10 +29,10 @@ def validate_modifiers(value: dict | None) -> dict | None:
     if not isinstance(value, dict):
         raise exceptions.ValidationError("Must provide a dictionary or None.")
 
-    # The native JSON events table is an internal rollout switch that PostHog staff set per project in Django
-    # admin. Dropping the key keeps a client from setting or clearing it, including a settings page that echoes
-    # the whole modifiers dict back.
-    value = {key: item for key, item in value.items() if key not in {"useNewEventsSchema", "useNewEventsCluster"}}
+    # The native JSON events table is switched per project by an instance setting, never by a stored modifier.
+    # Dropping the key keeps a client from storing one, including a settings page that echoes the whole
+    # modifiers dict back.
+    value = {key: item for key, item in value.items() if key != "useNewEventsSchema"}
 
     if "bounceRateDurationSeconds" in value:
         bounce_rate = value["bounceRateDurationSeconds"]

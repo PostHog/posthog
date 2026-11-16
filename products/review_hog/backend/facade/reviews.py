@@ -7,10 +7,6 @@ the webhook enqueue in ``github.py`` must not load.
 from datetime import datetime
 
 from posthog.dataclasses import frozen
-from posthog.models.scoping.manager import resolve_effective_team_id
-from posthog.models.team import Team
-from posthog.models.user import User
-from posthog.permissions import posthog_feature_flag_enabled
 
 from products.review_hog.backend.facade.contracts import (
     RUN_MODE_FLASH,
@@ -22,7 +18,10 @@ from products.review_hog.backend.facade.contracts import (
 )
 from products.review_hog.backend.facade.enums import PRReviewRequestStatus
 from products.review_hog.backend.pr_status import PRStatusLookup
-from products.review_hog.backend.requested_reviews import request_pr_review as _request_pr_review
+from products.review_hog.backend.requested_reviews import (
+    request_member_review,
+    request_pr_review as _request_pr_review,
+)
 from products.review_hog.backend.reviewer.tools.github_meta import PRParser
 from products.review_hog.backend.temporal.types import TRIGGER_COMMENT, TRIGGER_UI
 
@@ -36,8 +35,6 @@ __all__ = [
     "request_pr_review",
     "request_pr_review_by_url",
 ]
-
-_FEATURE_FLAG = "review-hog"
 
 
 @frozen
@@ -66,22 +63,10 @@ def request_pr_review(
     The caller has already checked that the requester is a member of the project.
     Raises `GitHubRateLimitError` when GitHub rate-limits the App's token.
     """
-    requester = User.objects.get(id=requester_id)
-    organization_id = Team.objects.values_list("organization_id", flat=True).get(id=team_id)
-    # Access is gated per environment, like the review API's permission class, while review data
-    # is shared under the parent project.
-    if not posthog_feature_flag_enabled(
-        _FEATURE_FLAG, str(requester.distinct_id), organization_id=organization_id, team_id=team_id
-    ):
-        return PRReviewRequestOutcome(
-            status=PRReviewRequestStatus.NOT_ALLOWED, error="PostHog Review isn't enabled for this project."
-        )
-    owner, _, repo = repository.partition("/")
-    return _request_pr_review(
-        team_id=resolve_effective_team_id(team_id),
+    return request_member_review(
+        team_id=team_id,
         requester_id=requester_id,
-        owner=owner,
-        repo=repo,
+        repository=repository,
         pr_number=pr_number,
         run_mode=run_mode,
         trigger_source=TRIGGER_COMMENT,

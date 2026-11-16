@@ -5,6 +5,9 @@ from posthog.settings.utils import get_from_env, str_to_bool
 # Off by default ("none"); enable per environment via the env override
 # A set-but-empty value survives as "", which the parser reads as "all teams".
 REALTIME_COHORT_TEAM_ALLOWLIST: str = os.getenv("REALTIME_COHORT_TEAM_ALLOWLIST", "none")
+# The longest history a realtime cohort's criteria may reach back. Keep it at or below rust/cohort-seeder's
+# `SEEDER_MAX_LOOKBACK_DAYS`: a cohort past the seeder's cap is backfilled truncated and still stamped ready.
+REALTIME_COHORT_MAX_HISTORY_DAYS: int = get_from_env("REALTIME_COHORT_MAX_HISTORY_DAYS", 400, type_cast=int)
 # Teams whose cohort saves enqueue a backfill run for rust/cohort-seeder to claim. Same grammar as
 # the allowlist above, except that a set-but-empty value means no teams: nothing outside Python
 # parses this setting, so it can fail closed on empty where the realtime allowlist cannot. It is
@@ -114,7 +117,6 @@ COHORT_DEPENDENCY_INCREMENTAL_MAINTENANCE: bool = get_from_env(
     "COHORT_DEPENDENCY_INCREMENTAL_MAINTENANCE", True, type_cast=str_to_bool
 )
 # Bounds one static cohort CSV upload. The IDs are collected in memory and sent to Celery in one
-# message, so the byte size and the row count both need a ceiling. 50 MB matches MAX_UPLOAD_SIZE_BYTES
-# in products/warehouse_sources/backend/file_uploads.py.
-COHORT_CSV_UPLOAD_MAX_BYTES: int = get_from_env("COHORT_CSV_UPLOAD_MAX_BYTES", 50 * 1024 * 1024, type_cast=int)
+# message, so the byte size and the row count both need a ceiling. 20 MB stays under proxy body limits.
+COHORT_CSV_UPLOAD_MAX_BYTES: int = get_from_env("COHORT_CSV_UPLOAD_MAX_BYTES", 20 * 1024 * 1024, type_cast=int)
 COHORT_CSV_UPLOAD_MAX_ROWS: int = get_from_env("COHORT_CSV_UPLOAD_MAX_ROWS", 1_000_000, type_cast=int)

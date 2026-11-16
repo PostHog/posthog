@@ -277,10 +277,18 @@ def escape_duckdb_identifier(v: str) -> str:
 
 
 def escape_trino_identifier(v: str) -> str:
-    for character, label in (("%", "%"), ("?", "?"), ("\0", "NUL")):
+    # "?" is allowed because convert_pyformat_placeholders does not read inside quoted identifiers.
+    for character, label in (("%", "%"), ("\0", "NUL")):
         if character in v:
             raise QueryError(f'The Trino identifier "{v}" is not permitted as it contains the "{label}" character')
     return '"' + v.replace('"', '""') + '"'
+
+
+def escape_trino_string(v: str) -> str:
+    # Trino string literals have no backslash escapes; doubling the quote is the only escape.
+    if "\0" in v:
+        raise QueryError("Trino string literals cannot contain the NUL character")
+    return "'" + v.replace("'", "''") + "'"
 
 
 def escape_snowflake_identifier(v: str) -> str:
@@ -337,6 +345,17 @@ def backquote_clickhouse_identifier(identifier: str) -> str:
     return "`{}`".format("".join(backquote_escape_chars_map.get(c, c) for c in identifier))
 
 
+def escape_clickhouse_json_path(key: str) -> str:
+    """Quote one segment of a JSON subcolumn path, spelling a `%` as the `\\x25` escape.
+
+    ClickHouse decodes the escape inside backticks, so the path reads as a direct subcolumn. A literal `%` cannot
+    appear in the SQL, because the client runs it through parameter substitution, where `%` opens a format directive.
+    """
+    if "%" not in key:
+        return escape_clickhouse_identifier(key)
+    return backquote_clickhouse_identifier(key).replace("%", "\\x25")
+
+
 def escape_hogql_string(
     name: bool | float | int | str | list | tuple | date | datetime | UUID | UUIDT | None,
     timezone: Optional[str] = None,
@@ -362,10 +381,11 @@ class SQLValueEscaper:
 
     # Unlike posthog.hogql.visitor.Visitor, this tiny visitor works on primitives.
     def visit(self, node: Any) -> str:
-        method_name = f"visit_{node.__class__.__name__.lower()}"
-        if hasattr(self, method_name):
-            return getattr(self, method_name)(node)
-        raise ResolutionError(f"SQLValueEscaper has no method {method_name}")
+        for cls in type(node).__mro__:
+            method = getattr(self, f"visit_{cls.__name__.lower()}", None)
+            if method is not None:
+                return method(node)
+        raise ResolutionError(f"SQLValueEscaper has no method visit_{node.__class__.__name__.lower()}")
 
     def visit_nonetype(self, value: None):
         return "NULL"

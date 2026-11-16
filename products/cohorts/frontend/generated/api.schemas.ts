@@ -356,6 +356,18 @@ export interface CohortHistoryBuildApi {
     updated_at: string | null
 }
 
+/**
+ * * `history_over_limit` - History over limit
+ * * `too_large_to_build` - Too large to build
+ */
+export type CohortRealtimeUnavailableReasonEnumApi =
+    (typeof CohortRealtimeUnavailableReasonEnumApi)[keyof typeof CohortRealtimeUnavailableReasonEnumApi]
+
+export const CohortRealtimeUnavailableReasonEnumApi = {
+    HistoryOverLimit: 'history_over_limit',
+    TooLargeToBuild: 'too_large_to_build',
+} as const
+
 export interface CohortRealtimeReadinessApi {
     /** Whether feature flags can target this cohort now. `ready`: they can, and they see membership changes within about a minute. `building` / `rebuilding`: PostHog is preparing the cohort from past events, and flags cannot target it yet. `needs_attention`: the cohort qualifies but nothing is preparing it. `daily`: its criteria are not supported in realtime, so its membership only comes from the once-a-day calculation. `person_properties`: it matches on person properties, which flags read directly, so they can always target it. `static`: it is a fixed list of people.
      *
@@ -374,6 +386,16 @@ export interface CohortRealtimeReadinessApi {
     ready_at: string | null
     /** The build preparing the cohort. Null unless the state is `building` or `rebuilding`. */
     build: CohortHistoryBuildApi | null
+    /** Why feature flags can't target the cohort. `history_over_limit`, on a `daily` cohort: its criteria look back further than `history_limit_days`. `too_large_to_build`, on a `needs_attention` cohort: the events in its criteria happen too often for PostHog to prepare it automatically. Null in every other case, including a `daily` cohort that other criteria keep off realtime.
+     *
+     * * `history_over_limit` - History over limit
+     * * `too_large_to_build` - Too large to build */
+    reason: CohortRealtimeUnavailableReasonEnumApi | null
+    /**
+     * The most days realtime cohort criteria can look back. Null unless the reason is `history_over_limit`.
+     * @nullable
+     */
+    history_limit_days: number | null
 }
 
 export type SearchMatchTypeEnumApi = (typeof SearchMatchTypeEnumApi)[keyof typeof SearchMatchTypeEnumApi]
@@ -588,7 +610,10 @@ export interface ActivityLogPaginatedResponseApi {
 }
 
 export interface PatchedAddPersonsToStaticCohortRequestApi {
-    /** List of person UUIDs to add to the cohort */
+    /**
+     * Person UUIDs to add to the cohort (the `id` column of the persons table, not distinct IDs). At most 1000 per request.
+     * @maxItems 1000
+     */
     person_ids?: string[]
 }
 
@@ -612,12 +637,104 @@ export interface CohortUsedInWorkflowsBlockApi {
     has_more: boolean
 }
 
+export interface CohortCalculationHistoryApi {
+    readonly id: string
+    /** Cohort filters/properties at time of calculation */
+    filters: unknown
+    /**
+     * Number of people in cohort
+     * @minimum 0
+     * @maximum 2147483647
+     * @nullable
+     */
+    count?: number | null
+    /** When calculation started */
+    started_at?: string
+    /**
+     * When calculation finished
+     * @nullable
+     */
+    finished_at?: string | null
+    /** Array of query information (query, query_id, query_ms, memory_mb, read_rows, written_rows) */
+    queries?: unknown
+    /**
+     * Error message if calculation failed
+     * @nullable
+     */
+    error?: string | null
+    /**
+     * Calculate duration in seconds if both start and end times are available
+     * @nullable
+     */
+    readonly duration_seconds: number | null
+    /** Check if calculation is completed (successfully or with error) */
+    readonly is_completed: boolean
+    /** Check if calculation completed successfully */
+    readonly is_successful: boolean
+    /**
+     * Get total query duration across all queries
+     * @nullable
+     */
+    readonly total_query_ms: number | null
+    /**
+     * Get total memory usage across all queries
+     * @nullable
+     */
+    readonly total_memory_mb: number | null
+    /**
+     * Get total rows read across all queries
+     * @nullable
+     */
+    readonly total_read_rows: number | null
+    /**
+     * Get total rows written across all queries
+     * @nullable
+     */
+    readonly total_written_rows: number | null
+    /**
+     * Get the main query (first query in the array)
+     * @nullable
+     */
+    readonly main_query: string | null
+}
+
+export interface CohortCalculationHistoryResponseApi {
+    /** Calculation runs on this page, newest first. */
+    results: CohortCalculationHistoryApi[]
+    /** Number of calculation runs recorded for the cohort. */
+    count: number
+    /**
+     * Query string for the next page, such as `?limit=100&offset=100`, or null.
+     * @nullable
+     */
+    next: string | null
+    /**
+     * Query string for the previous page, or null on the first page.
+     * @nullable
+     */
+    previous: string | null
+}
+
+export interface SerializedMatchedRecordingEventApi {
+    /** UUID of the matched event. */
+    uuid: string
+    /** When the matched event happened. */
+    timestamp: string
+    /** ID of the browser window the event was captured in. */
+    window_id: string
+}
+
+export interface SerializedMatchedRecordingApi {
+    /** ID of the session recording. */
+    session_id: string
+    /** Events of the recording that matched the query. */
+    events: SerializedMatchedRecordingEventApi[]
+}
+
 /**
  * The actor's properties.
  */
 export type SerializedPersonActorApiProperties = { [key: string]: unknown }
-
-export type SerializedPersonActorApiMatchedRecordingsItem = { [key: string]: unknown }
 
 export interface SerializedPersonActorApi {
     /** The person's UUID, or the group's key. */
@@ -630,7 +747,7 @@ export interface SerializedPersonActorApi {
      */
     created_at: string | null
     /** Recordings that matched the query. Empty unless the endpoint asks for them. */
-    matched_recordings: SerializedPersonActorApiMatchedRecordingsItem[]
+    matched_recordings: SerializedMatchedRecordingApi[]
     /**
      * The actor's value at the data point it was queried for. Null unless the query computes one.
      * @nullable
@@ -649,11 +766,8 @@ export interface SerializedPersonActorApi {
      * @nullable
      */
     last_seen_at: string | null
-    /**
-     * Whether the person has been identified.
-     * @nullable
-     */
-    is_identified: boolean | null
+    /** Whether the person has been identified. */
+    is_identified: boolean
 }
 
 export interface CohortPersonsResponseApi {
@@ -679,13 +793,17 @@ export interface CohortUsedInFlagApi {
      * @nullable
      */
     name: string | null
+    /** True when the flag is archived. Every flag that is not archived prevents the cohort from being deleted, enabled or not */
+    archived: boolean
 }
 
 export interface CohortUsedInFlagsBlockApi {
     /** Feature flags referencing this cohort, capped at 100 results */
     results: CohortUsedInFlagApi[]
-    /** Total number of feature flags referencing this cohort, before truncation */
+    /** Total number of feature flags referencing this cohort that the caller can view, before truncation */
     total: number
+    /** Number of flags that are not archived and that the caller cannot view. They prevent the cohort from being deleted but never appear in results or total */
+    hidden: number
     /** True when more feature flags exist beyond the truncation cap */
     has_more: boolean
 }
@@ -702,8 +820,10 @@ export interface CohortUsedInInsightApi {
 export interface CohortUsedInInsightsBlockApi {
     /** Insights referencing this cohort, capped at 100 results */
     results: CohortUsedInInsightApi[]
-    /** Total number of insights referencing this cohort, before truncation */
+    /** Total number of insights referencing this cohort that the caller can view, before truncation */
     total: number
+    /** Number of insights referencing this cohort that the caller cannot view. They prevent the cohort from being deleted but never appear in results or total */
+    hidden: number
     /** True when more insights exist beyond the truncation cap */
     has_more: boolean
 }
@@ -718,9 +838,27 @@ export interface CohortUsedInCohortApi {
 export interface CohortUsedInCohortsBlockApi {
     /** Cohorts that include this cohort as a criterion, capped at 100 results */
     results: CohortUsedInCohortApi[]
-    /** Total number of cohorts referencing this cohort, before truncation */
+    /** Total number of cohorts referencing this cohort that the caller can view, before truncation */
     total: number
+    /** Number of cohorts referencing this cohort that the caller cannot view. They prevent the cohort from being deleted but never appear in results or total */
+    hidden: number
     /** True when more cohorts exist beyond the truncation cap */
+    has_more: boolean
+}
+
+export interface CohortUsedInEnvironmentApi {
+    /** Environment (team) database ID */
+    id: number
+    /** Environment display name */
+    name: string
+}
+
+export interface CohortUsedInEnvironmentsBlockApi {
+    /** Environments that use this cohort in 'Filter out internal and test users', capped at 100 results */
+    results: CohortUsedInEnvironmentApi[]
+    /** Total number of environments using this cohort in their test account filters, before truncation */
+    total: number
+    /** True when more environments exist beyond the truncation cap */
     has_more: boolean
 }
 
@@ -731,6 +869,8 @@ export interface CohortUsedInResponseApi {
     insights: CohortUsedInInsightsBlockApi
     /** Other cohorts that include this cohort as a criterion, with truncation metadata */
     cohorts: CohortUsedInCohortsBlockApi
+    /** Environments across the project that use this cohort in 'Filter out internal and test users', with truncation metadata */
+    test_account_filters: CohortUsedInEnvironmentsBlockApi
     /** Active workflows that trigger on this cohort or branch on its membership. While any exist, the cohort cannot be deleted or edited in a way that stops it updating in real time. */
     workflows: CohortUsedInWorkflowsBlockApi
 }
@@ -793,6 +933,20 @@ export type CohortsActivityRetrieveParams = {
      * @minimum 1
      */
     page?: number
+}
+
+export type CohortsCalculationHistoryRetrieveParams = {
+    /**
+     * Number of calculation runs to return. Defaults to 100, at most 500.
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number
+    /**
+     * Number of calculation runs to skip. Defaults to 0.
+     * @minimum 0
+     */
+    offset?: number
 }
 
 export type CohortsPersonsRetrieveParams = {

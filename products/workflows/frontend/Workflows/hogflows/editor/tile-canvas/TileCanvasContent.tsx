@@ -1,6 +1,6 @@
-import { Background, BackgroundVariant, EdgeTypes, NodeTypes, Panel, ReactFlow } from '@xyflow/react'
+import { Background, BackgroundVariant, EdgeTypes, NodeTypes, Panel, ReactFlow, useReactFlow } from '@xyflow/react'
 import { useActions, useValues } from 'kea'
-import { KeyboardEvent, useMemo, useRef } from 'react'
+import { DragEvent, KeyboardEvent, useMemo, useRef } from 'react'
 
 import { cn } from 'lib/utils/css-classes'
 
@@ -9,13 +9,23 @@ import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { CommandBar } from './CommandBar'
 import { PathChip } from './PathChip'
 import { PathFrame } from './PathFrame'
+import { PathTrail } from './PathTrail'
 import { PlacementHint } from './PlacementHint'
 import { TileCanvasControls } from './TileCanvasControls'
 import { TileCanvasLayoutError } from './TileCanvasLayoutError'
 import { tileCanvasLogic } from './tileCanvasLogic'
 import { TileCanvasMeasureLayer } from './TileCanvasMeasureLayer'
-import { CANVAS_MIN_ZOOM, hasStepMenu } from './tileCanvasModel'
-import { buildCanvasEdges, buildCanvasNodes, keepUnchangedNodes, TileCanvasNode, TileEdgeType } from './tileCanvasNodes'
+import { CANVAS_MIN_ZOOM } from './tileCanvasModel'
+import {
+    buildCanvasEdges,
+    buildCanvasNodes,
+    handleStepDragOver,
+    handleStepDrop,
+    keepUnchangedNodes,
+    StepDropCanvas,
+    TileCanvasNode,
+    TileEdgeType,
+} from './tileCanvasNodes'
 import { TileCanvasPanel } from './TileCanvasPanel'
 import { TileEdge } from './TileEdge'
 import { TileFlowNode } from './TileFlowNode'
@@ -58,8 +68,15 @@ export function TileCanvasContent(): JSX.Element {
         stepMenuActionId,
         countOf,
         templateNameOf,
+        nodeToBeAdded,
+        isDraggingStep,
+        isDraggingNewStep,
+        placeableEdgeKeys,
+        dropTargetEdgeKey,
+        stepHasMenu,
     } = useValues(tileCanvasLogic)
-    const { activateNode, openStepMenu, handlePaneClick } = useActions(tileCanvasLogic)
+    const { activateNode, openStepMenu, handlePaneClick, setDropTargetEdgeKey, dropAt } = useActions(tileCanvasLogic)
+    const { screenToFlowPosition } = useReactFlow()
     useCanvasViewport(wrapperRef)
 
     const previousNodes = useRef<TileCanvasNode[]>([])
@@ -95,7 +112,23 @@ export function TileCanvasContent(): JSX.Element {
     const edges = useMemo(() => buildCanvasEdges(drawnGraph, layout), [drawnGraph, layout])
 
     const hasMenu = (nodeId: string): boolean =>
-        drawnGraph.nodes.some((node) => node.id === nodeId && node.kind === 'step' && hasStepMenu(node.action))
+        drawnGraph.nodes.some((node) => node.id === nodeId && node.kind === 'step' && stepHasMenu(node.action))
+
+    const stepDropCanvas: StepDropCanvas = {
+        edges,
+        placeableEdgeKeys,
+        isWaitingForStep: !!nodeToBeAdded || isDraggingStep,
+        toFlowPoint: screenToFlowPosition,
+        dropTargetEdgeKey,
+        setDropTargetEdgeKey,
+        dropAt,
+    }
+
+    const onDragLeave = (event: DragEvent<HTMLDivElement>): void => {
+        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+            setDropTargetEdgeKey(null)
+        }
+    }
 
     const onKeyDown = (event: KeyboardEvent<HTMLDivElement>): void => {
         const nodeId = focusedTileId(event)
@@ -123,7 +156,10 @@ export function TileCanvasContent(): JSX.Element {
             <div
                 ref={wrapperRef}
                 onKeyDown={onKeyDown}
-                className="TileCanvas__flow @container/tile-canvas relative flex min-h-0 min-w-0 grow @max-[48rem]/workflow-editor:min-h-80 @max-[48rem]/workflow-editor:shrink-0"
+                onDragOver={(event) => handleStepDragOver(event, stepDropCanvas)}
+                onDragLeave={onDragLeave}
+                onDrop={(event) => handleStepDrop(event, stepDropCanvas)}
+                className="TileCanvas__flow @container/tile-canvas relative flex min-h-0 min-w-0 grow @max-[48rem]/workflow-editor:min-h-48"
             >
                 <ReactFlow<TileCanvasNode, TileEdgeType>
                     className="grow"
@@ -145,9 +181,16 @@ export function TileCanvasContent(): JSX.Element {
                     proOptions={{ hideAttribution: true }}
                 >
                     <Background gap={36} variant={BackgroundVariant.Dots} />
-                    <Panel position="bottom-center" className="!mb-5">
+                    <Panel position="top-left" className="!m-2 max-w-[calc(100%-1rem)]">
+                        <PathTrail />
+                    </Panel>
+                    {/* A narrow editor stacks the panel under the canvas, which leaves no room for the bar over it. */}
+                    <Panel
+                        position="bottom-center"
+                        className={cn('!mb-5', isPanelOpen && '@max-[48rem]/workflow-editor:hidden')}
+                    >
                         <div className="flex flex-col items-center gap-2">
-                            {commandPaletteQuery === null && <PlacementHint />}
+                            {(commandPaletteQuery === null || isDraggingNewStep) && <PlacementHint />}
                             <CommandBar />
                         </div>
                     </Panel>

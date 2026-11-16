@@ -12,7 +12,7 @@ see ``retrieval/eval_system_table_search.py`` — and isn't duplicated here.
 
 from __future__ import annotations
 
-from products.posthog_ai.eval_harness.base import SandboxedPublicEval
+from products.posthog_ai.eval_harness.base import SandboxedEval
 from products.posthog_ai.eval_harness.config import SandboxedEvalCase
 from products.posthog_ai.eval_harness.harness.context import EvalContext
 from products.posthog_ai.eval_harness.scorers import NoToolCall
@@ -118,7 +118,7 @@ async def eval_sql_shaped_typed_query_routing(ctx: EvalContext) -> None:
         ),
     ]
 
-    await SandboxedPublicEval(
+    await SandboxedEval(
         experiment_name="sandboxed-sql-shaped-typed-query-routing-cli",
         offline_suite=offline_suite(
             "product_analytics/eval_sql_shaped_routing::eval_sql_shaped_typed_query_routing",
@@ -153,7 +153,7 @@ async def eval_sql_shaped_sql_controls(ctx: EvalContext) -> None:
         ),
     ]
 
-    await SandboxedPublicEval(
+    await SandboxedEval(
         experiment_name="sandboxed-sql-shaped-sql-controls-cli",
         offline_suite=offline_suite(
             "product_analytics/eval_sql_shaped_routing::eval_sql_shaped_sql_controls",

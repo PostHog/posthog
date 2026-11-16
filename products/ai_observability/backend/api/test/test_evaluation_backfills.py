@@ -1,7 +1,10 @@
+import asyncio
 from datetime import datetime, timedelta
 from types import SimpleNamespace
 from typing import cast
 
+import pytest
+import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -26,13 +29,13 @@ from posthog.rate_limit import (
     AIObservabilityBackfillEstimateSustainedThrottle,
     AIObservabilityBackfillEstimateThrottle,
 )
-from posthog.temporal.ai_observability.run_session_evaluation import AI_EVENTS_RETENTION_DAYS
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.ai_observability.backend.api.evaluation_backfills import (
     BACKFILL_AI_EVENTS_LAG,
     BACKFILL_RETENTION_MARGIN,
     BACKFILL_START_GRACE,
+    connect_with_deadline,
 )
 from products.ai_observability.backend.backfill_candidates import BackfillScope
 from products.ai_observability.backend.models.evaluation_backfill import EvaluationBackfill, EvaluationBackfillStatus
@@ -204,7 +207,7 @@ class TestEvaluationBackfillsApi(APIBaseTest):
 
     @patch(CAPTURE)
     @patch(f"{API_MODULE}.count_backfill_candidates", return_value=_scope(42))
-    @patch(f"{API_MODULE}.sync_connect")
+    @patch(f"{API_MODULE}.connect_with_deadline")
     def test_create_freezes_conditions_and_starts_workflow(self, connect, _count, capture):
         connect.return_value = _temporal_client()
 
@@ -240,7 +243,7 @@ class TestEvaluationBackfillsApi(APIBaseTest):
         }
 
     @patch(f"{API_MODULE}.count_backfill_candidates", return_value=_scope(7))
-    @patch(f"{API_MODULE}.sync_connect")
+    @patch(f"{API_MODULE}.connect_with_deadline")
     def test_create_uses_submitted_conditions_and_rerun_flag(self, connect, _count):
         connect.return_value = _temporal_client()
         conditions = [
@@ -266,7 +269,7 @@ class TestEvaluationBackfillsApi(APIBaseTest):
         ]
     )
     @patch(f"{API_MODULE}.count_backfill_candidates", return_value=_scope(7))
-    @patch(f"{API_MODULE}.sync_connect")
+    @patch(f"{API_MODULE}.connect_with_deadline")
     def test_create_rejects_a_second_backfill_while_a_recent_row_is_active(
         self, _case, workflow_status, describe_error, connect, _count
     ):
@@ -289,7 +292,7 @@ class TestEvaluationBackfillsApi(APIBaseTest):
         ]
     )
     @patch(f"{API_MODULE}.count_backfill_candidates", return_value=_scope(7))
-    @patch(f"{API_MODULE}.sync_connect")
+    @patch(f"{API_MODULE}.connect_with_deadline")
     def test_create_releases_an_old_row_whose_workflow_is_no_longer_running(
         self, _case, workflow_status, describe_error, connect, _count
     ):
@@ -314,7 +317,7 @@ class TestEvaluationBackfillsApi(APIBaseTest):
         ]
 
     @patch(f"{API_MODULE}.count_backfill_candidates", return_value=_scope(7))
-    @patch(f"{API_MODULE}.sync_connect")
+    @patch(f"{API_MODULE}.connect_with_deadline")
     def test_create_refuses_when_an_old_rows_workflow_still_runs(self, connect, _count):
         connect.return_value = _temporal_client(WorkflowExecutionStatus.RUNNING)
         active = self._stale_backfill()
@@ -335,7 +338,7 @@ class TestEvaluationBackfillsApi(APIBaseTest):
             ("describe_fails", None, RPCError("unavailable", RPCStatusCode.UNAVAILABLE, b"")),
         ]
     )
-    @patch(f"{API_MODULE}.sync_connect")
+    @patch(f"{API_MODULE}.connect_with_deadline")
     def test_an_alive_answer_is_reused_instead_of_probing_temporal_again(
         self, _case, connect_error, describe_error, connect
     ):
@@ -352,7 +355,7 @@ class TestEvaluationBackfillsApi(APIBaseTest):
         stale.refresh_from_db()
         assert stale.status == EvaluationBackfillStatus.RUNNING
 
-    @patch(f"{API_MODULE}.sync_connect")
+    @patch(f"{API_MODULE}.connect_with_deadline")
     def test_list_releases_an_old_row_whose_workflow_is_gone(self, connect):
         connect.return_value = _temporal_client(None)
         stale = self._stale_backfill()
@@ -365,7 +368,7 @@ class TestEvaluationBackfillsApi(APIBaseTest):
         assert stale.status == EvaluationBackfillStatus.INTERRUPTED
 
     @patch(f"{API_MODULE}.count_backfill_candidates", return_value=_scope(7))
-    @patch(f"{API_MODULE}.sync_connect", side_effect=RuntimeError("temporal down"))
+    @patch(f"{API_MODULE}.connect_with_deadline", side_effect=RuntimeError("temporal down"))
     def test_create_keeps_refusing_when_temporal_cannot_be_reached(self, _connect, _count):
         stale = self._stale_backfill()
 
@@ -376,22 +379,31 @@ class TestEvaluationBackfillsApi(APIBaseTest):
         stale.refresh_from_db()
         assert stale.status == EvaluationBackfillStatus.RUNNING
 
-    @parameterized.expand(["start_after_end", "entirely_in_future"])
-    def test_create_rejects_bad_windows(self, case):
+    @parameterized.expand(["start_after_end", "entirely_in_future", "expired_retention_day"])
+    @time_machine.travel("2024-03-01T12:00:00Z", tick=False)
+    @patch(f"{API_MODULE}.count_backfill_candidates", return_value=_scope(3))
+    @patch(f"{API_MODULE}.connect_with_deadline")
+    def test_create_rejects_bad_windows(self, case: str, connect: MagicMock, _count: MagicMock) -> None:
+        connect.return_value = _temporal_client()
         now = timezone.now()
         windows = {
             "start_after_end": (now, now - timedelta(days=1)),
             "entirely_in_future": (now + timedelta(days=1), now + timedelta(days=2)),
+            "expired_retention_day": (
+                datetime.fromisoformat("2024-01-31T18:00:00+00:00"),
+                datetime.fromisoformat("2024-02-01T00:00:00+00:00"),
+            ),
         }
         window_start, window_end = windows[case]
 
-        response = self.client.post(
-            f"{self.url}/",
-            {"window_start": window_start.isoformat(), "window_end": window_end.isoformat()},
-            format="json",
-        )
+        for path in (f"{self.url}/estimate/", f"{self.url}/"):
+            response = self.client.post(
+                path,
+                {"window_start": window_start.isoformat(), "window_end": window_end.isoformat()},
+                format="json",
+            )
 
-        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+            assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert EvaluationBackfill.objects.unscoped().count() == 0
 
     @parameterized.expand(["evaluation_has_no_conditions", "explicit_empty_list"])
@@ -409,28 +421,36 @@ class TestEvaluationBackfillsApi(APIBaseTest):
             assert "at least one condition set" in response.json()["detail"]
         assert EvaluationBackfill.objects.unscoped().count() == 0
 
+    @parameterized.expand(
+        [
+            ("2024-02-29T23:59:59Z", "2023-12-01T00:00:00+00:00", "2024-01-31T00:00:00+00:00"),
+            ("2024-03-01T00:00:00Z", "2023-12-01T00:00:00+00:00", "2024-02-01T00:00:00+00:00"),
+            ("2024-03-01T12:00:00Z", "2023-12-01T00:00:00+00:00", "2024-02-01T00:00:00+00:00"),
+            ("2024-03-01T12:00:00Z", "2024-02-15T07:30:00+05:30", "2024-02-15T02:00:00+00:00"),
+        ]
+    )
     @patch(f"{API_MODULE}.count_backfill_candidates", return_value=_scope(3))
-    @patch(f"{API_MODULE}.sync_connect")
-    def test_clamps_a_window_wider_than_retention(self, connect, _count):
+    @patch(f"{API_MODULE}.connect_with_deadline")
+    def test_clamps_a_window_to_ai_events_retention(
+        self, now_iso: str, requested_start: str, retained_start: str, connect: MagicMock, _count: MagicMock
+    ) -> None:
         connect.return_value = _temporal_client()
-        now = timezone.now()
-        body = _body(
-            window_start=(now - timedelta(days=90)).isoformat(),
-            window_end=(now + timedelta(days=1)).isoformat(),
-        )
+        with time_machine.travel(now_iso, tick=False):
+            now = timezone.now()
+            body = _body(window_start=requested_start, window_end=(now + timedelta(days=1)).isoformat())
 
-        estimate = self.client.post(f"{self.url}/estimate/", body, format="json")
-        assert estimate.status_code == status.HTTP_200_OK, estimate.json()
-        expected_end = now - BACKFILL_AI_EVENTS_LAG
-        assert abs(datetime.fromisoformat(estimate.json()["window_end"]) - expected_end) < timedelta(seconds=5)
-        expected_start = now - timedelta(days=AI_EVENTS_RETENTION_DAYS)
-        assert abs(datetime.fromisoformat(estimate.json()["window_start"]) - expected_start) < timedelta(seconds=5)
+            estimate = self.client.post(f"{self.url}/estimate/", body, format="json")
+            assert estimate.status_code == status.HTTP_200_OK, estimate.json()
+            expected_end = now - BACKFILL_AI_EVENTS_LAG
+            expected_start = datetime.fromisoformat(retained_start)
+            assert datetime.fromisoformat(estimate.json()["window_end"]) == expected_end
+            assert datetime.fromisoformat(estimate.json()["window_start"]) == expected_start
 
-        created = self.client.post(f"{self.url}/", body, format="json")
-        assert created.status_code == status.HTTP_201_CREATED, created.json()
-        row = EvaluationBackfill.objects.unscoped().get(pk=created.json()["id"])
-        assert abs(row.window_end - expected_end) < timedelta(seconds=5)
-        assert abs(row.window_start - expected_start) < timedelta(seconds=5)
+            created = self.client.post(f"{self.url}/", body, format="json")
+            assert created.status_code == status.HTTP_201_CREATED, created.json()
+            row = EvaluationBackfill.objects.unscoped().get(pk=created.json()["id"])
+            assert row.window_end == expected_end
+            assert row.window_start == expected_start
 
     @parameterized.expand(
         [
@@ -443,7 +463,7 @@ class TestEvaluationBackfillsApi(APIBaseTest):
         ]
     )
     @patch(f"{API_MODULE}.count_backfill_candidates", return_value=_scope(3))
-    @patch(f"{API_MODULE}.sync_connect")
+    @patch(f"{API_MODULE}.connect_with_deadline")
     def test_holds_the_window_back_from_units_the_live_path_is_still_grading(
         self, _case, target, target_config, connect, _count
     ):
@@ -466,7 +486,7 @@ class TestEvaluationBackfillsApi(APIBaseTest):
         assert EvaluationBackfill.objects.unscoped().count() == 0
 
     @patch(f"{API_MODULE}.count_backfill_candidates", return_value=_scope(3))
-    @patch(f"{API_MODULE}.sync_connect")
+    @patch(f"{API_MODULE}.connect_with_deadline")
     def test_a_generation_backfill_stops_short_of_the_ai_events_lag(self, connect, _count):
         connect.return_value = _temporal_client()
         margin = BACKFILL_AI_EVENTS_LAG
@@ -479,7 +499,7 @@ class TestEvaluationBackfillsApi(APIBaseTest):
         assert before - margin <= datetime.fromisoformat(estimate.json()["window_end"]) <= after - margin
 
     @patch(f"{API_MODULE}.count_backfill_candidates", return_value=_scope(3))
-    @patch(f"{API_MODULE}.sync_connect")
+    @patch(f"{API_MODULE}.connect_with_deadline")
     def test_clamps_the_window_to_the_projects_drop_threshold(self, connect, _count):
         connect.return_value = _temporal_client()
         self.team.drop_events_older_than = timedelta(days=3)
@@ -603,7 +623,7 @@ class TestEvaluationBackfillsApi(APIBaseTest):
         assert EvaluationBackfill.objects.unscoped().count() == 0
 
     @patch(f"{API_MODULE}.count_backfill_candidates", return_value=_scope(5))
-    @patch(f"{API_MODULE}.sync_connect", side_effect=RuntimeError("temporal down"))
+    @patch(f"{API_MODULE}.connect_with_deadline", side_effect=RuntimeError("temporal down"))
     def test_create_rolls_back_row_when_temporal_is_unreachable(self, _connect, _count):
         response = self.client.post(f"{self.url}/", _body(), format="json")
 
@@ -612,7 +632,7 @@ class TestEvaluationBackfillsApi(APIBaseTest):
 
     @patch(CAPTURE)
     @patch(f"{API_MODULE}.count_backfill_candidates", return_value=_scope(5))
-    @patch(f"{API_MODULE}.sync_connect")
+    @patch(f"{API_MODULE}.connect_with_deadline")
     def test_create_keeps_the_row_when_the_start_result_is_unknown(self, connect, _count, capture):
         connect.return_value = _temporal_client()
         connect.return_value.start_workflow.side_effect = RuntimeError("stream closed")
@@ -625,7 +645,7 @@ class TestEvaluationBackfillsApi(APIBaseTest):
         assert _captured(capture, "llma evaluation backfill started") == []
 
     @patch(CAPTURE)
-    @patch(f"{API_MODULE}.sync_connect")
+    @patch(f"{API_MODULE}.connect_with_deadline")
     def test_cancel_marks_terminal_and_is_idempotent(self, connect, capture):
         connect.return_value = _temporal_client()
         backfill = self._running_backfill()
@@ -718,7 +738,7 @@ class TestEvaluationBackfillsAccessControl(APIBaseTest):
         assert EvaluationBackfill.objects.unscoped().count() == 0
 
     @patch(f"{API_MODULE}.count_backfill_candidates", return_value=_scope(4))
-    @patch(f"{API_MODULE}.sync_connect")
+    @patch(f"{API_MODULE}.connect_with_deadline")
     def test_editor_on_this_evaluation_can_create_despite_being_a_viewer_on_the_resource(self, connect, _count):
         connect.return_value = _temporal_client()
         self._grant_editor_on_this_evaluation()
@@ -729,7 +749,7 @@ class TestEvaluationBackfillsAccessControl(APIBaseTest):
         assert EvaluationBackfill.objects.unscoped().count() == 1
 
     @patch(f"{API_MODULE}.count_backfill_candidates", return_value=_scope(4))
-    @patch(f"{API_MODULE}.sync_connect")
+    @patch(f"{API_MODULE}.connect_with_deadline")
     def test_a_personal_api_key_reaches_the_same_per_evaluation_grant_as_a_session(self, connect, _count):
         connect.return_value = _temporal_client()
         self._grant_editor_on_this_evaluation()
@@ -817,3 +837,15 @@ class TestBackfillThrottleBuckets(APIBaseTest):
             label=label, user=self.user, secure_value=hash_key_value(key_value), scopes=["evaluation:write"]
         )
         return key_value
+
+
+def test_a_stalled_temporal_connect_gives_up_at_the_deadline() -> None:
+    async def stall() -> None:
+        await asyncio.Event().wait()
+
+    with (
+        patch(f"{API_MODULE}.async_connect", new=stall),
+        patch(f"{API_MODULE}.TEMPORAL_REQUEST_TIMEOUT", timedelta(milliseconds=10)),
+        pytest.raises(TimeoutError),
+    ):
+        connect_with_deadline()

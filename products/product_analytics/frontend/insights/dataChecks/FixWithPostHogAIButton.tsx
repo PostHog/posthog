@@ -18,13 +18,16 @@ export function FixWithPostHogAIButton({
 }): JSX.Element {
     const logic = insightDataChecksLogic(insightProps)
     const { postHogAIOpen } = useValues(logic)
-    const { fixWithPostHogAI } = useActions(logic)
+    const { fixWithPostHogAI, reportButtonClicked } = useActions(logic)
     return (
         <Button
             variant="outline"
             size="sm"
             disabledReason={postHogAIOpen ? 'PostHog AI is already open' : undefined}
-            onClick={() => fixWithPostHogAI(check)}
+            onClick={() => {
+                reportButtonClicked('fix_with_posthog_ai', check.key)
+                fixWithPostHogAI(check)
+            }}
             data-attr="insight-data-check-fix-with-ai"
         >
             <IconSparkles />

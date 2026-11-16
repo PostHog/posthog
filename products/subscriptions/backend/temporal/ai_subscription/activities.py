@@ -13,6 +13,7 @@ from temporalio.exceptions import ApplicationError
 
 from posthog.dataclasses import frozen
 from posthog.models import OrganizationMembership
+from posthog.models.utils import strip_null_bytes
 from posthog.ph_client import ph_scoped_capture
 from posthog.sync import database_sync_to_async
 
@@ -36,7 +37,6 @@ from products.subscriptions.backend.temporal.delivery_common import (
     auto_disable_and_return,
     deliver_email,
     deliver_slack,
-    strip_null_bytes,
 )
 from products.subscriptions.backend.temporal.delivery_webhook import deliver_teams_webhook
 from products.subscriptions.backend.temporal.types import (
@@ -190,6 +190,7 @@ def _capture_ai_credit_event(
                     "team_id": subscription.team_id,
                     "$process_person_profile": False,
                     **(properties or {}),
+                    "$update_person_last_seen_at": False,
                 },
                 groups={"organization": str(subscription.team.organization_id)},
             )

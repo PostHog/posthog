@@ -62,11 +62,11 @@ const meta: Meta = {
                 '/api/environments/:team_id/default_release_conditions/': [],
                 '/api/projects/:team_id/property_definitions/seen_together': {},
                 '/api/projects/:team_id/vision/scanners/': { count: 0, results: [] },
+                // Loaded results start the running time estimate, and a failed request raises a toast.
+                '/api/projects/:team_id/experiments/:id/running_time_target/': {},
             },
             post: {
                 ...RECALCULATION.post,
-                // Loaded results start the running time estimate, and a failed request raises a toast.
-                '/api/projects/:team_id/experiments/calculate_running_time/': {},
                 '/api/environments/:team_id/query/:kind': [200, { results: [] }],
             },
         }),

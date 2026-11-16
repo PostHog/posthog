@@ -101,6 +101,75 @@ describe('dataWarehouseViewsLogic', () => {
         expect(listCalls).toBe(1)
     })
 
+    it.each([
+        {
+            name: 'reloads the catalog when another tab added a view',
+            listAfterFocus: ['view-1', 'view-2'],
+            refreshes: true,
+        },
+        { name: 'leaves the catalog alone when no view changed', listAfterFocus: ['view-1'], refreshes: false },
+    ])('on window focus, $name', async ({ listAfterFocus, refreshes }) => {
+        await expectLogic(logic).toDispatchActions(['loadDataWarehouseSavedQueriesSuccess'])
+        useMocks({
+            get: {
+                '/api/projects/:team_id/warehouse_saved_queries/': () => [
+                    200,
+                    { results: [{ id: 'view-1', name: 'view_1', columns: [] }] },
+                ],
+            },
+        })
+        logic.actions.loadDataWarehouseSavedQueries()
+        await expectLogic(logic).toDispatchActions(['loadDataWarehouseSavedQueriesSuccess']).toFinishAllListeners()
+
+        useMocks({
+            get: {
+                '/api/projects/:team_id/warehouse_saved_queries/': () => [
+                    200,
+                    { results: listAfterFocus.map((id) => ({ id, name: id.replace('-', '_'), columns: [] })) },
+                ],
+            },
+        })
+        await expectLogic(logic, () => {
+            window.dispatchEvent(new Event('focus'))
+        })
+            .toDispatchActions(['refreshAfterWindowFocus', 'loadDataWarehouseSavedQueriesSuccess'])
+            .toFinishAllListeners()
+
+        expect(logic.values.dataWarehouseSavedQueries.map((view) => view.id)).toEqual(listAfterFocus)
+        if (refreshes) {
+            await expectLogic(logic).toDispatchActions(['refreshDatabaseSchema'])
+        } else {
+            await expectLogic(logic).toNotHaveDispatchedActions(['refreshDatabaseSchema'])
+        }
+    })
+
+    it('keeps refreshing on window focus after a failed focus refresh', async () => {
+        await expectLogic(logic).toDispatchActions(['loadDataWarehouseSavedQueriesSuccess'])
+
+        useMocks({ get: { '/api/projects/:team_id/warehouse_saved_queries/': [500, {}] } })
+        await expectLogic(logic, () => {
+            window.dispatchEvent(new Event('focus'))
+        })
+            .toDispatchActions(['refreshAfterWindowFocus', 'loadDataWarehouseSavedQueriesFailure'])
+            .toFinishAllListeners()
+
+        useMocks({
+            get: {
+                '/api/projects/:team_id/warehouse_saved_queries/': () => [
+                    200,
+                    { results: [{ id: 'view-1', name: 'view_1', columns: [] }] },
+                ],
+            },
+        })
+        await expectLogic(logic, () => {
+            window.dispatchEvent(new Event('focus'))
+        })
+            .toDispatchActions(['refreshAfterWindowFocus', 'loadDataWarehouseSavedQueriesSuccess'])
+            .toFinishAllListeners()
+
+        expect(logic.values.dataWarehouseSavedQueries.map((view) => view.id)).toEqual(['view-1'])
+    })
+
     // Regression: deleting a view that's already gone (double DELETE, stale list, double-click) is
     // the outcome the user asked for, so a 404 must resolve as success — not throw an error toast.
     it('treats a 404 on delete as success', async () => {
@@ -126,6 +195,26 @@ describe('dataWarehouseViewsLogic', () => {
             .toNotHaveDispatchedActions(['deleteDataWarehouseSavedQueryFailure'])
 
         expect(logic.values.dataWarehouseSavedQueries).toEqual([])
+    })
+
+    it('treats a missing lineage node as no downstream references', async () => {
+        useMocks({
+            get: {
+                '/api/projects/:team_id/data_modeling_nodes/lineage/': [404, { detail: 'Node not found.' }],
+            },
+        })
+
+        await expectLogic(logic, () => {
+            logic.actions.loadDataWarehouseSavedQueryDownstreamReferences('view-404')
+        })
+            .toDispatchActions(['loadDataWarehouseSavedQueryDownstreamReferencesSuccess'])
+            .toNotHaveDispatchedActions(['loadDataWarehouseSavedQueryDownstreamReferencesFailure'])
+
+        expect(logic.values.dataWarehouseSavedQueryDownstreamReferences['view-404']).toEqual({
+            error: false,
+            loading: false,
+            references: [],
+        })
     })
 
     // Regression: the blocked node's id arrives on the response body's `extra`, which the error

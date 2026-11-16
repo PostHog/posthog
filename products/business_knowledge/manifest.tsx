@@ -20,12 +20,18 @@ export const manifest: ProductManifest = {
             activityScope: 'KnowledgeSource',
             iconType: 'business_knowledge',
             description:
-                'Upload text, public URLs, or files so PostHog AI can understand your business context, vision, and policies.',
+                'Upload text, public URLs, or files so AI can understand your business context, vision, and policies.',
         },
         BusinessKnowledgePlayground: {
             name: 'Business knowledge playground',
             import: () =>
                 import('products/business_knowledge/frontend/scenes/playground/BusinessKnowledgePlaygroundScene'),
+            projectBased: true,
+            iconType: 'business_knowledge',
+        },
+        BusinessKnowledgeUsage: {
+            name: 'Business knowledge usage',
+            import: () => import('./frontend/scenes/usage/BusinessKnowledgeUsageScene'),
             projectBased: true,
             iconType: 'business_knowledge',
         },
@@ -47,6 +53,8 @@ export const manifest: ProductManifest = {
         '/business-knowledge': ['BusinessKnowledge', 'businessKnowledge'],
         // Static sibling must stay above :id so kea-router does not treat "settings" as an id.
         '/business-knowledge/settings': ['BusinessKnowledgeSettings', 'businessKnowledgeSettings'],
+        // Static sibling must stay above :id so kea-router does not treat "usage" as an id.
+        '/business-knowledge/usage': ['BusinessKnowledgeUsage', 'businessKnowledgeUsage'],
         // Static sibling must stay above :id so kea-router does not treat "playground" as an id.
         '/business-knowledge/playground': ['BusinessKnowledgePlayground', 'businessKnowledgePlayground'],
         '/business-knowledge/playground/:chatId': ['BusinessKnowledgePlayground', 'businessKnowledgePlayground'],
@@ -56,6 +64,7 @@ export const manifest: ProductManifest = {
     urls: {
         businessKnowledge: (): string => '/business-knowledge',
         businessKnowledgeSettings: (): string => '/business-knowledge/settings',
+        businessKnowledgeUsage: (): string => '/business-knowledge/usage',
         businessKnowledgePlayground: (chatId?: string): string =>
             chatId ? `/business-knowledge/playground/${chatId}` : '/business-knowledge/playground',
         businessKnowledgeSource: (id: string): string => `/business-knowledge/${id}`,

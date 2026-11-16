@@ -1,4 +1,3 @@
-import logging
 from dataclasses import replace
 from datetime import datetime
 from functools import partial
@@ -7,7 +6,10 @@ from uuid import UUID
 from django.db import transaction as database_transaction
 from django.utils import timezone
 
+import structlog
+
 from posthog.models import Team, User
+from posthog.paging import Page, PageRequest
 
 from products.wizard.backend.facade.config import DEFAULT_WIZARD_VERSION
 from products.wizard.backend.facade.contracts import (
@@ -18,7 +20,6 @@ from products.wizard.backend.facade.contracts import (
     UpdateWizardRunTaskInput,
     WizardRunCreationResult,
     WizardRunDTO,
-    WizardRunPage,
     WizardRunTaskDTO,
 )
 from products.wizard.backend.facade.enums import (
@@ -49,7 +50,7 @@ from products.wizard.backend.logic.runs.transitions import transition
 from products.wizard.backend.observability.service import wizard_observability as run_observability
 from products.wizard.backend.observability.tracing import annotate_run_span, wizard_span
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 
 def create_run(params: CreateWizardRunInput) -> WizardRunDTO:
@@ -154,7 +155,9 @@ def _dispatch_cloud_run(team_id: int, run_id: UUID) -> None:
     except WizardRunDispatchError as error:
         logger.exception(
             "wizard_run_dispatch_failed",
-            extra={"team_id": team_id, "run_id": str(run_id), "exhausted": error.exhausted},
+            team_id=team_id,
+            run_id=str(run_id),
+            exhausted=error.exhausted,
         )
         if error.exhausted:
             fail_run(team_id, run_id, error_code=WizardRunErrorCode.DISPATCH_FAILED.value)
@@ -164,8 +167,8 @@ def get_run(team_id: int, run_id: UUID) -> WizardRunDTO:
     return store.get_run(team_id, run_id)
 
 
-def list_runs(params: ListWizardRunsInput) -> WizardRunPage:
-    return store.list_runs(params)
+def list_runs(params: ListWizardRunsInput, page: PageRequest) -> Page[WizardRunDTO]:
+    return store.list_runs(params, page)
 
 
 def start_run(team_id: int, run_id: UUID) -> WizardRunDTO:

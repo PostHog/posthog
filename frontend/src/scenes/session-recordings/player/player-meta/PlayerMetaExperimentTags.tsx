@@ -4,6 +4,7 @@ import { IconFlask } from '@posthog/icons'
 import { LemonTag } from '@posthog/lemon-ui'
 
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { playerUsesWatchLayout } from 'scenes/session-recordings/playlist/replayLayout'
 
 import { SessionRecordingSidebarTab } from '~/types'
 
@@ -22,7 +23,8 @@ export function PlayerMetaExperimentTags(): JSX.Element | null {
         sessionRecordingExperimentContextLogic({ sessionRecordingId: logicProps.sessionRecordingId })
     )
     const { setTab } = useActions(playerSidebarLogic)
-    const { setSidebarOpen } = useActions(playerSettingsLogic)
+    const { setSidebarOpen, openWatchPanelSection } = useActions(playerSettingsLogic)
+    const { replayLayout } = useValues(playerSettingsLogic)
 
     // Only surface the chip when something experiment-related happened *in this recording*.
     // Enrollments without an in-session exposure event have nothing visible to watch, so they
@@ -32,6 +34,11 @@ export function PlayerMetaExperimentTags(): JSX.Element | null {
     }
 
     const openOverview = (): void => {
+        // In the watch layout the overview is a section under the player, and the sidebar state means Debug mode.
+        if (playerUsesWatchLayout(replayLayout, logicProps)) {
+            openWatchPanelSection('overview')
+            return
+        }
         setSidebarOpen(true)
         setTab(SessionRecordingSidebarTab.OVERVIEW)
     }
@@ -47,7 +54,11 @@ export function PlayerMetaExperimentTags(): JSX.Element | null {
           }. Click to view.`
 
     return (
-        <span className="flex flex-row items-center gap-x-1 shrink-0" data-attr="replay-experiment-context-chip">
+        <span
+            data-not-quill
+            className="flex flex-row items-center gap-x-1 shrink-0"
+            data-attr="replay-experiment-context-chip"
+        >
             <Tooltip title={seenTooltip}>
                 <LemonTag
                     type={hasMultipleVariantWarning ? 'warning' : 'default'}

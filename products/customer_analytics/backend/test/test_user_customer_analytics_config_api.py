@@ -142,7 +142,9 @@ class TestUserCustomerAnalyticsConfigAPI(APIBaseTest):
         second_custom = self._custom_property()
         pinned_properties = [
             {"kind": "custom_property", "id": str(first_custom.id)},
+            {"kind": "account_field", "id": "stripe_customer_id"},
             {"kind": "relationship", "id": str(relationship.id)},
+            {"kind": "account_field", "id": "created_at"},
             {"kind": "custom_property", "id": str(second_custom.id)},
         ]
 
@@ -282,9 +284,9 @@ class TestUserCustomerAnalyticsConfigAPI(APIBaseTest):
             format="json",
         )
         account_detail_tabs = {
-            "ordered_tab_ids": ["system:usage", "view:11111111-2222-4333-8444-555555555555"],
-            "hidden_tab_ids": ["system:notes"],
-            "default_tab_id": "system:usage",
+            "ordered_tab_ids": ["system:automations", "system:usage", "view:11111111-2222-4333-8444-555555555555"],
+            "hidden_tab_ids": ["system:notes", "system:automations"],
+            "default_tab_id": "system:automations",
         }
 
         response = self.client.patch(self.endpoint, {"account_detail_tabs": account_detail_tabs}, format="json")
@@ -344,6 +346,13 @@ class TestUserCustomerAnalyticsConfigAPI(APIBaseTest):
         valid_reference = {"kind": "custom_property", "id": str(valid_custom.id)}
         cases = [
             ("duplicates", [valid_reference, valid_reference], "duplicates"),
+            (
+                "duplicates in another UUID case",
+                [valid_reference, {"kind": "custom_property", "id": str(valid_custom.id).upper()}],
+                "duplicates",
+            ),
+            ("unknown account field", [{"kind": "account_field", "id": "not_a_column"}], "account field"),
+            ("account field as custom", [{"kind": "custom_property", "id": "stripe_customer_id"}], "UUID"),
             ("wrong target", [{"kind": "custom_property", "id": str(person_custom.id)}], "account property"),
             ("relationship as custom", [{"kind": "custom_property", "id": str(relationship.id)}], "relationship"),
             ("custom as relationship", [{"kind": "relationship", "id": str(valid_custom.id)}], "custom property"),

@@ -1,13 +1,15 @@
 import enum
 from collections.abc import Iterable
+from datetime import timedelta
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Optional
 
 from django.conf import settings
 from django.db import models, transaction
-from django.db.models import QuerySet
+from django.db.models import Q, QuerySet
 from django.db.models.signals import post_delete, post_save
 from django.dispatch.dispatcher import receiver
+from django.utils import timezone
 
 import structlog
 from prometheus_client import Counter
@@ -26,7 +28,7 @@ from posthog.plugins.plugin_server_api import (
 )
 from posthog.utils import absolute_uri
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.contracts import ActionSaved
 from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
 from products.cdp.backend.models.plugin import sync_team_inject_web_apps
 from products.cohorts.backend.models.cohort import is_cohort_recalculation_only_save
@@ -79,6 +81,8 @@ TYPES_WITH_TRANSPILED_FILTERS = (HogFunctionType.SITE_DESTINATION, HogFunctionTy
 TYPES_WITH_JAVASCRIPT_SOURCE = (HogFunctionType.SITE_DESTINATION, HogFunctionType.SITE_APP)
 # Types that run sequentially during ingestion and are ordered by execution_order
 TYPES_WITH_EXECUTION_ORDER = (HogFunctionType.TRANSFORMATION, HogFunctionType.TRANSFORMATION_LOG)
+# Upper bound of the `execution_order` column, a PositiveSmallIntegerField
+MAX_EXECUTION_ORDER = 32767
 
 # Function types a cyclotron worker actually executes, so a "rerun" — which re-enqueues
 # the stored invocation onto the cyclotron hog queue — can run to completion. Every other
@@ -171,6 +175,17 @@ class HogFunction(FileSystemSyncMixin, UUIDTModel):
     # draft's secrets are promoted to `encrypted_inputs` on publish and dropped on discard, without
     # ever touching the live values.
     draft_encrypted_inputs: EncryptedJSONStringField = EncryptedJSONStringField(null=True, blank=True)
+
+    # Not serialized. A recent value means a Terraform state still manages this function.
+    last_terraform_read_at = models.DateTimeField(null=True, blank=True)
+
+    def record_terraform_read(self) -> None:
+        # Every `terraform plan` reads every managed function, so write at most once a day. A queryset
+        # update skips the save signals and leaves updated_at, which base_updated_at compares, alone.
+        now = timezone.now()
+        HogFunction.objects.filter(pk=self.pk).filter(
+            Q(last_terraform_read_at__isnull=True) | Q(last_terraform_read_at__lt=now - timedelta(days=1))
+        ).update(last_terraform_read_at=now)
 
     @classmethod
     def get_file_system_unfiled(cls, team: "Team", surface: str = DEFAULT_SURFACE) -> QuerySet["HogFunction"]:
@@ -369,14 +384,13 @@ def hog_function_saved(sender, instance: HogFunction, created, **kwargs):
         reload_hog_functions_on_workers(team_id=instance.team_id, hog_function_ids=[str(instance.id)])
 
 
-@receiver(post_save, sender=Action)
-def action_saved(sender, instance: Action, created, **kwargs):
+def action_saved(event: ActionSaved) -> None:
     # Whenever an action is saved we want to load all hog functions using it
     # and trigger a refresh of the filters bytecode
 
     from products.cdp.backend.tasks.hog_functions import refresh_affected_hog_functions
 
-    refresh_affected_hog_functions.delay(action_id=instance.id)
+    refresh_affected_hog_functions.delay(action_id=event.action_id)
 
 
 @receiver(post_save, sender=Team)

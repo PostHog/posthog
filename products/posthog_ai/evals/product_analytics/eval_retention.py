@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from posthog.schema import AssistantRetentionEventsNode, AssistantRetentionFilter, AssistantRetentionQuery
 
-from products.posthog_ai.eval_harness.base import SandboxedPublicEval
+from products.posthog_ai.eval_harness.base import SandboxedEval
 from products.posthog_ai.eval_harness.config import SandboxedEvalCase
 from products.posthog_ai.eval_harness.harness.context import EvalContext
 from products.posthog_ai.eval_harness.scorers import AnswerToolCallNot, NoToolCall
@@ -115,7 +115,7 @@ async def eval_retention(ctx: EvalContext) -> None:
         ),
     ]
 
-    await SandboxedPublicEval(
+    await SandboxedEval(
         experiment_name="sandboxed-retention-cli",
         offline_suite=offline_suite(
             "product_analytics/eval_retention::eval_retention",

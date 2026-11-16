@@ -19,6 +19,7 @@ import type {
 import {
   customModelMeta,
   isAnthropicModelId,
+  isRetiredModel,
   restrictedModelMeta,
 } from "@posthog/agent-contracts";
 import {
@@ -27,6 +28,7 @@ import {
   fetchGatewayModels,
   formatGatewayModelName,
   type GatewayModel,
+  isAnthropicModel,
   isClaudeAdapterModel,
   isClaudeAdapterModelId,
   isServedModelId,
@@ -161,7 +163,11 @@ export abstract class BaseAcpAgent implements Agent {
         : undefined,
     );
 
-    const adapterModels = this.gatewayModels.filter(isClaudeAdapterModel);
+    const adapterModels = this.gatewayModels.filter(
+      (model) =>
+        isClaudeAdapterModel(model) &&
+        (!this.usesMachineAuth() || isAnthropicModel(model)),
+    );
 
     const options = adapterModels
       .map((model) => ({
@@ -195,7 +201,10 @@ export abstract class BaseAcpAgent implements Agent {
       const rejectedByGateway = this.gatewayModels.some(
         (model) => model.id === currentModelId,
       );
-      if (rejectedByGateway || isServedModelId(currentModelId)) {
+      if (
+        !isRetiredModel(currentModelId) &&
+        (rejectedByGateway || isServedModelId(currentModelId))
+      ) {
         const fallbackOption =
           options.find((option) => option.value === DEFAULT_GATEWAY_MODEL) ??
           options.find((option) => option._meta === undefined);

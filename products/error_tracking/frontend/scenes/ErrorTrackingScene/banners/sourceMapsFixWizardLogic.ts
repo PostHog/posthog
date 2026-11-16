@@ -8,11 +8,22 @@ import { getSurveyIdBasedResponseKey, getSurveyResponseKey } from 'scenes/survey
 import { SurveyEventName, SurveyEventProperties } from '~/types'
 
 import type { FeatureFlagsSet } from '../../../../../../frontend/src/lib/logic/featureFlagLogic'
+import type { SourceMapsPlatform } from './types'
 
 export type WizardRating = 'good' | 'bad'
-export type WizardOpenSource = 'issues_list'
+// pinned: the `ui_source` value of the wizard opened event. Renaming one breaks dashboards.
+export type WizardOpenSource = 'issues_list' | 'source_maps_examples'
 
 export const SOURCE_MAPS_DOCS_URL = 'https://posthog.com/docs/error-tracking/upload-source-maps'
+
+export const SOURCE_MAPS_PLATFORM_LABELS: Record<
+    SourceMapsPlatform,
+    { platform: string; symbols: string; symbol: string }
+> = {
+    javascript: { platform: 'JavaScript', symbols: 'source maps', symbol: 'source map' },
+    java: { platform: 'Android', symbols: 'mapping files', symbol: 'mapping file' },
+    native: { platform: 'iOS and native', symbols: 'debug symbols', symbol: 'debug symbols' },
+}
 
 // Delay before we ask "how did the wizard do?" — long enough that the user has
 // actually had a chance to copy the command and kick the wizard off.
@@ -49,7 +60,7 @@ export interface sourceMapsFixWizardLogicActions {
         value: true
     }
     openModal: (source: WizardOpenSource) => {
-        source: 'issues_list'
+        source: WizardOpenSource
     }
     rateWizard: (rating: WizardRating) => {
         rating: WizardRating

@@ -2,9 +2,11 @@ import type { Meta, StoryObj } from '@storybook/react'
 
 import { IconTarget } from '@posthog/icons'
 
-import type { SignalReportCheckApi } from 'products/signals/frontend/generated/api.schemas'
+import type { SignalReportCheckApi, SignalReportStatusEnumApi } from 'products/signals/frontend/generated/api.schemas'
 
+import { SignalReportArtefact } from '../../types'
 import { DetailSection } from './DetailSection'
+import { checkObservationsByCheck } from './reportCheckObservations'
 import { buildReportCheckRows, reportChecksMeta } from './reportCheckPresentation'
 import { ReportCheckRow } from './ReportCheckRow'
 
@@ -84,16 +86,33 @@ const explanations = new Map([
     ['inconclusive', 'The crash only shows on a physical device, which no tool here can reach.'],
 ])
 
-function ChecksSection({ checks }: { checks: SignalReportCheckApi[] }): JSX.Element {
+function ChecksSection({
+    checks,
+    reportStatus = 'resolved',
+    artefacts = [],
+}: {
+    checks: SignalReportCheckApi[]
+    reportStatus?: SignalReportStatusEnumApi
+    artefacts?: SignalReportArtefact[]
+}): JSX.Element {
+    const observations = checkObservationsByCheck(artefacts)
     return (
         <DetailSection
             icon={<IconTarget />}
             title="Follow-up checks"
-            meta={<span className="text-xs text-tertiary tabular-nums">{reportChecksMeta(checks)}</span>}
+            meta={<span className="text-xs text-tertiary tabular-nums">{reportChecksMeta(checks, reportStatus)}</span>}
         >
             <div className="flex flex-col gap-1.5">
-                {buildReportCheckRows(checks, explanations).map((row) => (
-                    <ReportCheckRow key={row.check.id} row={row} cancelling={false} onCancel={() => undefined} />
+                {buildReportCheckRows(checks, explanations, reportStatus).map((row) => (
+                    <ReportCheckRow
+                        key={row.check.id}
+                        row={row}
+                        reportId="story-report"
+                        observations={observations.get(row.check.id)}
+                        cancelling={false}
+                        onCancel={() => undefined}
+                        onSuggestMetric={() => undefined}
+                    />
                 ))}
             </div>
         </DetailSection>
@@ -126,10 +145,103 @@ export const EveryState: Story = {
 }
 
 export const Running: Story = {
+    name: 'Resolved with stale dispatch',
     args: { checks: [check({ id: 'running', dispatched_at: '2026-09-21T09:00:00Z' })] },
 }
 
 export const NarrowRail: Story = {
     parameters: { railWidth: 'narrow' },
     args: { checks: everyState },
+}
+
+function observation(measuredAt: string, observedValue: number): SignalReportArtefact {
+    return {
+        id: `observation-${measuredAt}`,
+        type: 'check_observation',
+        created_at: measuredAt,
+        content: {
+            check_id: 'monitoring-scheduled',
+            title: 'Checkout errors stay at zero after the retry fix',
+            monitoring_started_at: '2026-09-21T00:00:00Z',
+            measured_at: measuredAt,
+            monitoring_ends_at: '2026-09-22T00:00:00Z',
+            unit: 'errors',
+            value_format: 'count',
+            observed_value: observedValue,
+            comparison: { operator: 'lte', value: 0 },
+            matches: observedValue <= 0,
+        },
+    }
+}
+
+export const Monitoring: Story = {
+    args: {
+        reportStatus: 'monitoring',
+        artefacts: [
+            observation('2026-09-21T18:00:00Z', 2),
+            observation('2026-09-21T12:00:00Z', 0),
+            observation('2026-09-21T06:00:00Z', 0),
+        ],
+        checks: [
+            check({
+                id: 'monitoring-scheduled',
+                kind: 'metric_threshold',
+                config: { comparison: { operator: 'lte', value: 0 } },
+                soak_minutes: 1440,
+                run_interval_minutes: 360,
+                next_run_at: '2026-09-21T21:00:00Z',
+                monitoring_timing: {
+                    state: 'scheduled',
+                    started_at: '2026-09-21T00:00:00Z',
+                    ends_at: '2026-09-22T00:00:00Z',
+                    next_measurement_at: '2026-09-21T21:00:00Z',
+                },
+            }),
+            check({
+                id: 'monitoring-ended',
+                title: 'The export backlog stays clear',
+                kind: 'metric_threshold',
+                config: { comparison: { operator: 'lte', value: 0 } },
+                soak_minutes: 1440,
+                next_run_at: '2026-09-21T00:00:00Z',
+                monitoring_timing: {
+                    state: 'window_ended',
+                    started_at: '2026-09-20T00:00:00Z',
+                    ends_at: '2026-09-21T00:00:00Z',
+                    next_measurement_at: null,
+                },
+            }),
+            check({
+                id: 'monitoring-agent',
+                title: 'No new reports of the export timeout',
+                soak_minutes: 1440,
+                next_run_at: '2026-09-22T00:00:00Z',
+                monitoring_timing: {
+                    state: 'paused',
+                    final_verification_state: 'monitoring',
+                    started_at: '2026-09-21T00:00:00Z',
+                    ends_at: '2026-09-22T00:00:00Z',
+                    next_measurement_at: null,
+                },
+            }),
+            check({
+                id: 'verifying-agent',
+                title: 'Checkout errors stay at zero after the retry fix',
+                soak_minutes: 1440,
+                next_run_at: '2026-09-21T00:00:00Z',
+                monitoring_timing: {
+                    state: 'paused',
+                    final_verification_state: 'verifying',
+                    started_at: '2026-09-20T00:00:00Z',
+                    ends_at: '2026-09-21T00:00:00Z',
+                    next_measurement_at: null,
+                },
+            }),
+        ],
+    },
+}
+
+export const MonitoringNarrowRail: Story = {
+    ...Monitoring,
+    parameters: { railWidth: 'narrow' },
 }

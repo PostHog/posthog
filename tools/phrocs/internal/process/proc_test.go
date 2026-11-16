@@ -3,6 +3,8 @@ package process
 import (
 	"fmt"
 	"os"
+	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"syscall"
@@ -217,6 +219,40 @@ func pidAlive(pid int) bool {
 		return false
 	}
 	return proc.Signal(syscall.Signal(0)) == nil
+}
+
+func TestStart_whilePendingKeepsTheFirstChild(t *testing.T) {
+	p := NewProcess("svc", config.ProcConfig{Shell: "sleep 30", ReadyPattern: "never printed"}, 100, "")
+	send, _, _ := collectMsgs()
+	if err := p.Start(send); err != nil {
+		t.Skipf("cannot spawn subprocess: %v", err)
+	}
+	t.Cleanup(p.Stop)
+	firstPID := p.PID()
+
+	if err := p.Start(send); err != nil {
+		t.Fatalf("second Start: %v", err)
+	}
+
+	if p.PID() != firstPID {
+		t.Errorf("second Start while pending replaced the child: pid %d, want %d", p.PID(), firstPID)
+	}
+}
+
+func TestStart_spawnFailureMarksCrashedWithReason(t *testing.T) {
+	p := NewProcess("svc", config.ProcConfig{Shell: "true", Cwd: filepath.Join(t.TempDir(), "missing")}, 100, "")
+	send, _, _ := collectMsgs()
+
+	if err := p.Start(send); err == nil {
+		t.Fatal("Start with a missing cwd: want an error")
+	}
+
+	if p.Status() != StatusCrashed {
+		t.Errorf("status: got %s, want crashed", p.Status())
+	}
+	if lines := strings.Join(p.Lines(), "\n"); !strings.Contains(lines, "could not start svc") {
+		t.Errorf("output should explain the failure, got %q", lines)
+	}
 }
 
 func TestStop_kills_entire_process_group(t *testing.T) {
@@ -657,6 +693,9 @@ func TestVT_scrollbackEviction(t *testing.T) {
 
 	for i := range 8 {
 		_, _ = fmt.Fprintf(p.emulator, "line %d\r\n", i)
+		if i == 3 {
+			_ = p.Lines()
+		}
 	}
 
 	lines := p.Lines()
@@ -760,6 +799,37 @@ func TestVT_clearLinesResetsScrollback(t *testing.T) {
 	}
 	if len(after) >= len(before) {
 		t.Errorf("after ClearLines: expected fewer lines (%d before), got %d", len(before), len(after))
+	}
+}
+
+func TestVT_linesSurviveRepeatedReads(t *testing.T) {
+	p := NewProcess("vt", config.ProcConfig{}, 100, "")
+	p.emulator.Resize(40, 2)
+
+	var want []string
+	for i := range 6 {
+		_, _ = fmt.Fprintf(p.emulator, "line %d\r\n", i)
+		want = append(want, fmt.Sprintf("line %d", i))
+		_ = p.Lines()
+	}
+
+	if got := p.Lines(); !slices.Equal(got, want) {
+		t.Errorf("Lines() after repeated reads:\n got %q\nwant %q", got, want)
+	}
+}
+
+func TestReadLoop_eraseScrollbackClearsHistory(t *testing.T) {
+	p := NewProcess("vt", config.ProcConfig{}, 100, "")
+	p.emulator.Resize(40, 2)
+	runReadLoop(t, p, "old 1\r\nold 2\r\nold 3\r\nold 4\r\n")
+	_ = p.Lines()
+
+	// Split ESC[3J across two reads, as a PTY read boundary can.
+	runReadLoop(t, p, "\x1b[H\x1b[2J\x1b[")
+	runReadLoop(t, p, "3Jnew\r\n")
+
+	if got := p.Lines(); !slices.Equal(got, []string{"new"}) {
+		t.Errorf("Lines() after ESC[3J: got %q, want [\"new\"]", got)
 	}
 }
 

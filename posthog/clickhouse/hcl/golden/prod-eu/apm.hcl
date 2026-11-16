@@ -1,5 +1,5 @@
 database "posthog" {
-  table "kafka_metrics_avro4" {
+  table "kafka_logs_avro" {
     settings = {
       input_format_avro_allow_missing_fields = "1"
     }
@@ -13,7 +13,7 @@ database "posthog" {
       type = "String"
     }
     column "trace_flags" {
-      type = "Nullable(Int32)"
+      type = "Int32"
     }
     column "timestamp" {
       type = "DateTime64(6)"
@@ -21,111 +21,68 @@ database "posthog" {
     column "observed_timestamp" {
       type = "DateTime64(6)"
     }
+    column "body" {
+      type = "String"
+    }
+    column "severity_text" {
+      type = "String"
+    }
+    column "severity_number" {
+      type = "Int32"
+    }
     column "service_name" {
-      type = "Nullable(String)"
-    }
-    column "metric_name" {
-      type = "Nullable(String)"
-    }
-    column "metric_type" {
-      type = "Nullable(String)"
-    }
-    column "value" {
-      type = "Nullable(Float64)"
-    }
-    column "count" {
-      type = "Nullable(Int64)"
-    }
-    column "histogram_bounds" {
-      type = "Array(Float64)"
-    }
-    column "histogram_counts" {
-      type = "Array(Int64)"
-    }
-    column "unit" {
-      type = "Nullable(String)"
-    }
-    column "aggregation_temporality" {
-      type = "Nullable(String)"
-    }
-    column "is_monotonic" {
-      type = "Nullable(UInt8)"
+      type = "String"
     }
     column "resource_attributes" {
-      type = "Map(String, String)"
+      type = "Map(LowCardinality(String), String)"
     }
     column "instrumentation_scope" {
-      type = "Nullable(String)"
+      type = "String"
+    }
+    column "event_name" {
+      type = "String"
     }
     column "attributes" {
-      type = "Map(String, String)"
-    }
-    column "series_fingerprint" {
-      type = "Nullable(Int64)"
-    }
-    column "has_labels" {
-      type = "Nullable(UInt8)"
+      type = "Map(LowCardinality(String), String)"
     }
     column "retention_days" {
       type = "Nullable(Int32)"
     }
+    column "pattern" {
+      type = "Nullable(String)"
+    }
+    column "pattern_version" {
+      type = "Nullable(Int32)"
+    }
     engine "kafka" {
-      collection           = "warpstream_metrics"
-      topic_list           = "clickhouse_metrics"
-      group_name           = "clickhouse-metrics-avro4"
+      collection           = "warpstream_logs"
+      topic_list           = "clickhouse_logs"
+      group_name           = "clickhouse-logs-avro-new"
       format               = "Avro"
-      num_consumers        = 8
-      max_block_size       = 1000000
+      num_consumers        = 4
       skip_broken_messages = 100
       poll_timeout_ms      = 3000
       poll_max_batch_size  = 1000
-      flush_interval_ms    = 30000
       thread_per_consumer  = true
     }
   }
 
-  table "metrics4_input" {
+  table "writable_logs34" {
+    settings = {
+      background_insert_batch = "1"
+    }
+    column "time_bucket" {
+      type         = "DateTime"
+      materialized = "toStartOfDay(timestamp)"
+    }
+    column "original_expiry_timestamp" {
+      type = "DateTime64(6)"
+    }
     column "uuid" {
       type = "String"
     }
     column "team_id" {
       type = "Int32"
-    }
-    column "metric_name" {
-      type = "LowCardinality(String)"
-    }
-    column "series_fingerprint" {
-      type = "UInt64"
-    }
-    column "resource_fingerprint" {
-      type = "UInt64"
-    }
-    column "timestamp" {
-      type = "DateTime64(6)"
-    }
-    column "observed_timestamp" {
-      type = "DateTime64(6)"
-    }
-    column "original_expiry_timestamp" {
-      type = "DateTime64(6)"
-    }
-    column "service_name" {
-      type = "LowCardinality(String)"
-    }
-    column "metric_type" {
-      type = "LowCardinality(String)"
-    }
-    column "value" {
-      type = "Float64"
-    }
-    column "count" {
-      type = "UInt64"
-    }
-    column "histogram_bounds" {
-      type = "Array(Float64)"
-    }
-    column "histogram_counts" {
-      type = "Array(UInt64)"
     }
     column "trace_id" {
       type = "String"
@@ -136,26 +93,68 @@ database "posthog" {
     column "trace_flags" {
       type = "Int32"
     }
-    column "has_labels" {
-      type = "Bool"
+    column "timestamp" {
+      type  = "DateTime64(6)"
+      codec = "DoubleDelta"
     }
-    column "unit" {
-      type = "LowCardinality(String)"
+    column "observed_timestamp" {
+      type = "DateTime64(6)"
     }
-    column "aggregation_temporality" {
-      type = "LowCardinality(String)"
+    column "created_at" {
+      type         = "DateTime64(6)"
+      materialized = "now()"
     }
-    column "is_monotonic" {
-      type = "Bool"
-    }
-    column "instrumentation_scope" {
+    column "body" {
       type = "String"
+    }
+    column "severity_text" {
+      type = "LowCardinality(String)"
+    }
+    column "severity_number" {
+      type = "Int32"
+    }
+    column "service_name" {
+      type = "LowCardinality(String)"
     }
     column "resource_attributes" {
       type = "Map(LowCardinality(String), String)"
     }
-    column "attributes" {
+    column "resource_fingerprint" {
+      type         = "UInt64"
+      materialized = "cityHash64(resource_attributes)"
+    }
+    column "instrumentation_scope" {
+      type = "String"
+    }
+    column "event_name" {
+      type = "String"
+    }
+    column "attributes_map_str" {
       type = "Map(LowCardinality(String), String)"
+    }
+    column "level" {
+      type  = "String"
+      alias = "severity_text"
+    }
+    column "mat_body_ipv4_matches" {
+      type  = "Array(String)"
+      alias = "extractAll(body, '(\\\\d\\\\.((25[0-5]|(2[0-4]|1(0, 1)[0-9])(0, 1)[0-9])\\\\.)(2, 2)([0-9]))')"
+    }
+    column "time_minute" {
+      type  = "DateTime"
+      alias = "toStartOfMinute(timestamp)"
+    }
+    column "attributes" {
+      type  = "Map(LowCardinality(String), String)"
+      alias = "mapApply((k, v) -> (left(k, -5), v), attributes_map_str)"
+    }
+    column "attributes_map_float" {
+      type         = "Map(LowCardinality(String), Float64)"
+      materialized = "mapFilter((k, v) -> (v IS NOT NULL), mapApply((k, v) -> (concat(left(k, -5), '__float'), toFloat64OrNull(v)), attributes_map_str))"
+    }
+    column "attributes_map_datetime" {
+      type         = "Map(LowCardinality(String), DateTime64(6))"
+      materialized = "mapFilter((k, v) -> (v IS NOT NULL), mapApply((k, v) -> (concat(left(k, -5), '__datetime'), parseDateTimeBestEffortOrNull(v, 6)), attributes_map_str))"
     }
     column "_partition" {
       type = "UInt32"
@@ -166,204 +165,29 @@ database "posthog" {
     column "_offset" {
       type = "UInt64"
     }
-    engine "null" {
-    }
-  }
-
-  table "writable_metrics4_attributes" {
-    column "team_id" {
-      type = "Int32"
-    }
-    column "metric_name" {
-      type = "LowCardinality(String)"
-    }
-    column "time_bucket" {
-      type = "DateTime64(0)"
-    }
-    column "original_expiry_time_bucket" {
-      type = "DateTime64(0)"
-    }
-    column "service_name" {
-      type = "LowCardinality(String)"
-    }
-    column "attribute_key" {
-      type = "LowCardinality(String)"
-    }
-    column "attribute_value" {
-      type = "String"
-    }
-    column "attribute_type" {
-      type = "LowCardinality(String)"
-    }
-    column "attribute_count" {
-      type = "SimpleAggregateFunction(sum, UInt64)"
-    }
-    engine "distributed" {
-      cluster_name    = "logs"
-      remote_database = "posthog"
-      remote_table    = "metrics4_attributes"
-    }
-  }
-
-  table "writable_metrics4_names" {
-    column "team_id" {
-      type = "Int32"
-    }
-    column "metric_name" {
-      type = "LowCardinality(String)"
-    }
-    column "time_bucket" {
-      type = "DateTime64(0)"
-    }
-    column "original_expiry_time_bucket" {
-      type = "DateTime64(0)"
-    }
-    column "original_expiry_timestamp" {
-      type = "SimpleAggregateFunction(max, DateTime64(6))"
-    }
-    column "service_name" {
-      type = "LowCardinality(String)"
-    }
-    column "metric_types" {
-      type = "SimpleAggregateFunction(groupUniqArrayArray, Array(String))"
-    }
-    engine "distributed" {
-      cluster_name    = "logs"
-      remote_database = "posthog"
-      remote_table    = "metrics4_names"
-    }
-  }
-
-  table "writable_metrics4_samples" {
-    column "team_id" {
-      type = "Int32"
-    }
-    column "metric_name" {
-      type = "LowCardinality(String)"
-    }
-    column "time_bucket" {
-      type = "DateTime"
-    }
-    column "series_fingerprint" {
+    column "_bytes_uncompressed" {
       type = "UInt64"
     }
-    column "original_expiry_date" {
-      type = "Date32"
-    }
-    column "resource_fingerprint" {
-      type = "SimpleAggregateFunction(any, UInt64)"
-    }
-    column "service_name" {
-      type = "SimpleAggregateFunction(any, LowCardinality(String))"
-    }
-    column "metric_type" {
-      type = "SimpleAggregateFunction(any, LowCardinality(String))"
-    }
-    column "unit" {
-      type = "SimpleAggregateFunction(any, LowCardinality(String))"
-    }
-    column "aggregation_temporality" {
-      type = "SimpleAggregateFunction(any, LowCardinality(String))"
-    }
-    column "is_monotonic" {
-      type = "SimpleAggregateFunction(max, UInt8)"
-    }
-    column "has_labels" {
-      type = "SimpleAggregateFunction(max, UInt8)"
-    }
-    column "instrumentation_scope" {
-      type = "SimpleAggregateFunction(any, String)"
-    }
-    column "histogram_bounds" {
-      type = "SimpleAggregateFunction(anyLast, Array(Float64))"
-    }
-    column "_topic" {
-      type = "SimpleAggregateFunction(any, LowCardinality(String))"
-    }
-    column "timestamp_arr" {
-      type = "SimpleAggregateFunction(groupArrayArray(10000), Array(DateTime64(6)))"
-    }
-    column "observed_timestamp_arr" {
-      type = "SimpleAggregateFunction(groupArrayArray(10000), Array(DateTime64(6)))"
-    }
-    column "value_arr" {
-      type = "SimpleAggregateFunction(groupArrayArray(10000), Array(Float64))"
-    }
-    column "count_arr" {
-      type = "SimpleAggregateFunction(groupArrayArray(10000), Array(UInt64))"
-    }
-    column "histogram_counts_arr" {
-      type = "SimpleAggregateFunction(groupArrayArray(10000), Array(Array(UInt64)))"
-    }
-    column "trace_id_arr" {
-      type = "SimpleAggregateFunction(groupArrayArray(10000), Array(String))"
-    }
-    column "span_id_arr" {
-      type = "SimpleAggregateFunction(groupArrayArray(10000), Array(String))"
-    }
-    column "trace_flags_arr" {
-      type = "SimpleAggregateFunction(groupArrayArray(10000), Array(Int32))"
-    }
-    engine "distributed" {
-      cluster_name    = "logs"
-      remote_database = "posthog"
-      remote_table    = "metrics4_samples"
-    }
-  }
-
-  table "writable_metrics4_series" {
-    column "team_id" {
-      type = "Int32"
-    }
-    column "metric_name" {
-      type = "LowCardinality(String)"
-    }
-    column "series_fingerprint" {
+    column "_bytes_compressed" {
       type = "UInt64"
     }
-    column "metric_type" {
-      type = "LowCardinality(String)"
+    column "_record_count" {
+      type = "UInt64"
     }
-    column "unit" {
-      type = "LowCardinality(String)"
-    }
-    column "aggregation_temporality" {
-      type = "LowCardinality(String)"
-    }
-    column "is_monotonic" {
-      type    = "Bool"
-      default = "false"
-    }
-    column "service_name" {
-      type = "LowCardinality(String)"
-    }
-    column "instrumentation_scope" {
+    column "pattern" {
       type = "String"
     }
-    column "resource_attributes" {
-      type = "Map(LowCardinality(String), String)"
+    column "pattern_version" {
+      type = "UInt8"
     }
-    column "resource_fingerprint" {
-      type         = "UInt64"
-      materialized = "cityHash64(resource_attributes)"
-    }
-    column "attributes" {
-      type = "Map(LowCardinality(String), String)"
-    }
-    column "timestamp" {
-      type = "DateTime64(6)"
-    }
-    column "time_bucket" {
-      type         = "DateTime"
-      materialized = "toStartOfHour(timestamp)"
-    }
-    column "original_expiry_timestamp" {
-      type = "DateTime64(6)"
+    column "internal_source" {
+      type    = "LowCardinality(String)"
+      default = "''"
     }
     engine "distributed" {
       cluster_name    = "logs"
       remote_database = "posthog"
-      remote_table    = "metrics4_series"
+      remote_table    = "logs34"
     }
   }
 
@@ -723,102 +547,47 @@ database "posthog" {
     }
   }
 
-  materialized_view "kafka_metrics_avro4_mv" {
-    to_table = "posthog.metrics4_input"
+  materialized_view "kafka_logs34_avro_mv" {
+    to_table = "posthog.writable_logs34"
     query    = <<SQL
 SELECT
   uuid,
-  toInt32OrZero(_headers.value[indexOf(_headers.name, 'team_id')]) AS team_id,
-  ifNull(metric_name, '') AS metric_name,
-  reinterpretAsUInt64(assumeNotNull(series_fingerprint)) AS series_fingerprint,
-  cityHash64(mapSort(mapApply((k, v) -> (k, JSONExtractString(v)), resource_attributes))) AS resource_fingerprint,
-  timestamp,
-  observed_timestamp,
-  timestamp
-  + toIntervalDay(
-    assumeNotNull(
-      if(
-        (retention_days IS NOT NULL) AND (retention_days > 0),
-        retention_days,
-        toInt32OrDefault(_headers.value[indexOf(_headers.name, 'retention-days')], toInt32(30))
-      )
-    )
-  ) AS original_expiry_timestamp,
-  ifNull(service_name, '') AS service_name,
-  ifNull(metric_type, '') AS metric_type,
-  ifNull(value, 0) AS value,
-  toUInt64(ifNull(count, 1)) AS count,
-  histogram_bounds,
-  arrayMap(x -> toUInt64(x), histogram_counts) AS histogram_counts,
   trace_id,
   span_id,
-  ifNull(trace_flags, 0) AS trace_flags,
-  toBool(ifNull(has_labels, 1)) AS has_labels,
-  ifNull(unit, '') AS unit,
-  ifNull(aggregation_temporality, '') AS aggregation_temporality,
-  ifNull(is_monotonic, 0) AS is_monotonic,
-  ifNull(instrumentation_scope, '') AS instrumentation_scope,
-  if(
-    toBool(ifNull(has_labels, 1)),
-    mapSort(mapApply((k, v) -> (k, JSONExtractString(v)), resource_attributes)),
-    CAST(map(), 'Map(String, String)')
-  ) AS resource_attributes,
-  if(
-    toBool(ifNull(has_labels, 1)),
-    mapSort(mapApply((k, v) -> (k, JSONExtractString(v)), attributes)),
-    CAST(map(), 'Map(String, String)')
-  ) AS attributes,
+  trace_flags,
+  timestamp,
+  observed_timestamp,
+  body,
+  severity_text,
+  severity_number,
+  service_name,
+  instrumentation_scope,
+  event_name,
+  mapSort(mapApply((k, v) -> (concat(k, '__str'), JSONExtractString(v)), attributes)) AS attributes_map_str,
+  mapSort(mapApply((k, v) -> (k, JSONExtractString(v)), resource_attributes)) AS resource_attributes,
+  toInt32OrZero(_headers.value[indexOf(_headers.name, 'team_id')]) AS team_id,
+  timestamp
+  + toIntervalDay(
+    if(
+      (retention_days IS NOT NULL) AND (retention_days > 0),
+      retention_days,
+      toInt32OrDefault(_headers.value[indexOf(_headers.name, 'retention-days')], toInt32(15))
+    )
+  ) AS original_expiry_timestamp,
   _partition,
   _topic,
-  _offset
-FROM posthog.kafka_metrics_avro4
-WHERE kafka_metrics_avro4.series_fingerprint IS NOT NULL
-SETTINGS
-  min_insert_block_size_rows = 0,
-  min_insert_block_size_bytes = 0
+  _offset,
+  toInt64OrDefault(_headers.value[indexOf(_headers.name, 'record_count')], toInt64(1)) AS _record_count,
+  toInt64OrNull(_headers.value[indexOf(_headers.name, 'bytes_uncompressed')]) / _record_count AS _bytes_uncompressed,
+  toInt64OrNull(_headers.value[indexOf(_headers.name, 'bytes_compressed')]) / _record_count AS _bytes_compressed,
+  ifNull(pattern, '') AS pattern,
+  toUInt8(ifNull(pattern_version, 0)) AS pattern_version,
+  _headers.value[indexOf(_headers.name, 'internal-source')] AS internal_source
+FROM posthog.kafka_logs_avro
 SQL
 
     column "uuid" {
       type = "String"
-    }
-    column "team_id" {
-      type = "Int32"
-    }
-    column "metric_name" {
-      type = "String"
-    }
-    column "series_fingerprint" {
-      type = "UInt64"
-    }
-    column "resource_fingerprint" {
-      type = "UInt64"
-    }
-    column "timestamp" {
-      type = "DateTime64(6)"
-    }
-    column "observed_timestamp" {
-      type = "DateTime64(6)"
-    }
-    column "original_expiry_timestamp" {
-      type = "DateTime64(6)"
-    }
-    column "service_name" {
-      type = "String"
-    }
-    column "metric_type" {
-      type = "String"
-    }
-    column "value" {
-      type = "Float64"
-    }
-    column "count" {
-      type = "UInt64"
-    }
-    column "histogram_bounds" {
-      type = "Array(Float64)"
-    }
-    column "histogram_counts" {
-      type = "Array(UInt64)"
     }
     column "trace_id" {
       type = "String"
@@ -829,26 +598,41 @@ SQL
     column "trace_flags" {
       type = "Int32"
     }
-    column "has_labels" {
-      type = "Bool"
+    column "timestamp" {
+      type = "DateTime64(6)"
     }
-    column "unit" {
+    column "observed_timestamp" {
+      type = "DateTime64(6)"
+    }
+    column "body" {
       type = "String"
     }
-    column "aggregation_temporality" {
+    column "severity_text" {
       type = "String"
     }
-    column "is_monotonic" {
-      type = "UInt8"
+    column "severity_number" {
+      type = "Int32"
+    }
+    column "service_name" {
+      type = "String"
     }
     column "instrumentation_scope" {
       type = "String"
     }
+    column "event_name" {
+      type = "String"
+    }
+    column "attributes_map_str" {
+      type = "Map(String, String)"
+    }
     column "resource_attributes" {
       type = "Map(String, String)"
     }
-    column "attributes" {
-      type = "Map(String, String)"
+    column "team_id" {
+      type = "Int32"
+    }
+    column "original_expiry_timestamp" {
+      type = "DateTime64(6)"
     }
     column "_partition" {
       type = "UInt64"
@@ -859,336 +643,23 @@ SQL
     column "_offset" {
       type = "UInt64"
     }
-  }
-
-  materialized_view "metrics4_input_to_metrics4_attributes" {
-    to_table = "posthog.writable_metrics4_attributes"
-    query    = <<SQL
-SELECT
-  team_id,
-  metric_name,
-  time_bucket,
-  original_expiry_time_bucket,
-  service_name,
-  attribute_key,
-  attribute_value,
-  attribute_type,
-  attribute_count
-FROM
-  (
-    SELECT
-      team_id AS team_id,
-      metric_name AS metric_name,
-      toStartOfInterval(timestamp, toIntervalHour(1)) AS time_bucket,
-      toStartOfInterval(original_expiry_timestamp, toIntervalHour(1)) AS original_expiry_time_bucket,
-      service_name AS service_name,
-      mapFilter((k, v) -> ((length(k) < 256) AND (length(v) < 256)), attributes) AS filtered_attributes,
-      arrayJoin(filtered_attributes) AS attribute,
-      'metric' AS attribute_type,
-      attribute.1 AS attribute_key,
-      attribute.2 AS attribute_value,
-      sumSimpleState(1) AS attribute_count
-    FROM posthog.metrics4_input
-    WHERE has_labels
-    GROUP BY
-      team_id, metric_name, time_bucket, original_expiry_time_bucket, service_name, filtered_attributes
-  )
-SQL
-
-    column "team_id" {
-      type = "Int32"
+    column "_record_count" {
+      type = "Int64"
     }
-    column "metric_name" {
-      type = "LowCardinality(String)"
+    column "_bytes_uncompressed" {
+      type = "Nullable(Int64)"
     }
-    column "time_bucket" {
-      type = "DateTime64(0)"
+    column "_bytes_compressed" {
+      type = "Nullable(Int64)"
     }
-    column "original_expiry_time_bucket" {
-      type = "DateTime64(0)"
-    }
-    column "service_name" {
-      type = "LowCardinality(String)"
-    }
-    column "attribute_key" {
-      type = "LowCardinality(String)"
-    }
-    column "attribute_value" {
+    column "pattern" {
       type = "String"
     }
-    column "attribute_type" {
-      type = "LowCardinality(String)"
-    }
-    column "attribute_count" {
-      type = "SimpleAggregateFunction(sum, UInt64)"
-    }
-  }
-
-  materialized_view "metrics4_input_to_metrics4_names" {
-    to_table = "posthog.writable_metrics4_names"
-    query    = <<SQL
-SELECT
-  team_id,
-  metric_name,
-  toStartOfHour(timestamp) AS time_bucket,
-  toStartOfHour(input.original_expiry_timestamp) AS original_expiry_time_bucket,
-  maxSimpleState(input.original_expiry_timestamp) AS original_expiry_timestamp,
-  service_name,
-  groupUniqArrayArraySimpleState([toString(metric_type)]) AS metric_types
-FROM posthog.metrics4_input AS input
-WHERE has_labels
-GROUP BY
-  team_id, time_bucket, metric_name, original_expiry_time_bucket, service_name
-SQL
-
-    column "team_id" {
-      type = "Int32"
-    }
-    column "metric_name" {
-      type = "LowCardinality(String)"
-    }
-    column "time_bucket" {
-      type = "DateTime64(0)"
-    }
-    column "original_expiry_time_bucket" {
-      type = "DateTime64(0)"
-    }
-    column "original_expiry_timestamp" {
-      type = "SimpleAggregateFunction(max, DateTime64(6))"
-    }
-    column "service_name" {
-      type = "LowCardinality(String)"
-    }
-    column "metric_types" {
-      type = "SimpleAggregateFunction(groupUniqArrayArray, Array(String))"
-    }
-  }
-
-  materialized_view "metrics4_input_to_metrics4_resource_attributes" {
-    to_table = "posthog.writable_metrics4_attributes"
-    query    = <<SQL
-SELECT
-  team_id,
-  metric_name,
-  time_bucket,
-  original_expiry_time_bucket,
-  service_name,
-  attribute_key,
-  attribute_value,
-  attribute_type,
-  attribute_count
-FROM
-  (
-    SELECT
-      team_id AS team_id,
-      metric_name AS metric_name,
-      toStartOfInterval(timestamp, toIntervalHour(1)) AS time_bucket,
-      toStartOfInterval(original_expiry_timestamp, toIntervalHour(1)) AS original_expiry_time_bucket,
-      service_name AS service_name,
-      resource_attributes AS filtered_attributes,
-      arrayJoin(filtered_attributes) AS attribute,
-      'resource' AS attribute_type,
-      attribute.1 AS attribute_key,
-      attribute.2 AS attribute_value,
-      sumSimpleState(1) AS attribute_count
-    FROM posthog.metrics4_input
-    WHERE has_labels
-    GROUP BY
-      team_id, metric_name, time_bucket, original_expiry_time_bucket, service_name, filtered_attributes
-  )
-SQL
-
-    column "team_id" {
-      type = "Int32"
-    }
-    column "metric_name" {
-      type = "LowCardinality(String)"
-    }
-    column "time_bucket" {
-      type = "DateTime64(0)"
-    }
-    column "original_expiry_time_bucket" {
-      type = "DateTime64(0)"
-    }
-    column "service_name" {
-      type = "LowCardinality(String)"
-    }
-    column "attribute_key" {
-      type = "LowCardinality(String)"
-    }
-    column "attribute_value" {
-      type = "String"
-    }
-    column "attribute_type" {
-      type = "LowCardinality(String)"
-    }
-    column "attribute_count" {
-      type = "SimpleAggregateFunction(sum, UInt64)"
-    }
-  }
-
-  materialized_view "metrics4_input_to_metrics4_samples" {
-    to_table = "posthog.writable_metrics4_samples"
-    query    = <<SQL
-SELECT
-  team_id,
-  metric_name,
-  toDateTime(toStartOfHour(timestamp)) AS time_bucket,
-  series_fingerprint,
-  toDate32(original_expiry_timestamp) AS original_expiry_date,
-  any(resource_fingerprint) AS resource_fingerprint,
-  any(service_name) AS service_name,
-  any(metric_type) AS metric_type,
-  any(unit) AS unit,
-  any(aggregation_temporality) AS aggregation_temporality,
-  max(toUInt8(is_monotonic)) AS is_monotonic,
-  max(toUInt8(has_labels)) AS has_labels,
-  any(instrumentation_scope) AS instrumentation_scope,
-  anyLast(histogram_bounds) AS histogram_bounds,
-  any(_topic) AS _topic,
-  groupArray(10000)(timestamp) AS timestamp_arr,
-  groupArray(10000)(observed_timestamp) AS observed_timestamp_arr,
-  groupArray(10000)(value) AS value_arr,
-  groupArray(10000)(count) AS count_arr,
-  groupArray(10000)(histogram_counts) AS histogram_counts_arr,
-  groupArray(10000)(trace_id) AS trace_id_arr,
-  groupArray(10000)(span_id) AS span_id_arr,
-  groupArray(10000)(trace_flags) AS trace_flags_arr
-FROM posthog.metrics4_input
-GROUP BY
-  team_id, metric_name, time_bucket, series_fingerprint, original_expiry_date
-SQL
-
-    column "team_id" {
-      type = "Int32"
-    }
-    column "metric_name" {
-      type = "LowCardinality(String)"
-    }
-    column "time_bucket" {
-      type = "DateTime"
-    }
-    column "series_fingerprint" {
-      type = "UInt64"
-    }
-    column "original_expiry_date" {
-      type = "Date32"
-    }
-    column "resource_fingerprint" {
-      type = "UInt64"
-    }
-    column "service_name" {
-      type = "String"
-    }
-    column "metric_type" {
-      type = "String"
-    }
-    column "unit" {
-      type = "String"
-    }
-    column "aggregation_temporality" {
-      type = "String"
-    }
-    column "is_monotonic" {
+    column "pattern_version" {
       type = "UInt8"
     }
-    column "has_labels" {
-      type = "UInt8"
-    }
-    column "instrumentation_scope" {
-      type = "String"
-    }
-    column "histogram_bounds" {
-      type = "Array(Float64)"
-    }
-    column "_topic" {
-      type = "String"
-    }
-    column "timestamp_arr" {
-      type = "Array(DateTime64(6))"
-    }
-    column "observed_timestamp_arr" {
-      type = "Array(DateTime64(6))"
-    }
-    column "value_arr" {
-      type = "Array(Float64)"
-    }
-    column "count_arr" {
-      type = "Array(UInt64)"
-    }
-    column "histogram_counts_arr" {
-      type = "Array(Array(UInt64))"
-    }
-    column "trace_id_arr" {
-      type = "Array(String)"
-    }
-    column "span_id_arr" {
-      type = "Array(String)"
-    }
-    column "trace_flags_arr" {
-      type = "Array(Int32)"
-    }
-  }
-
-  materialized_view "metrics4_input_to_metrics4_series" {
-    to_table = "posthog.writable_metrics4_series"
-    query    = <<SQL
-SELECT
-  team_id,
-  metric_name,
-  series_fingerprint,
-  metric_type,
-  unit,
-  aggregation_temporality,
-  is_monotonic,
-  service_name,
-  instrumentation_scope,
-  resource_attributes,
-  attributes,
-  timestamp,
-  original_expiry_timestamp
-FROM posthog.metrics4_input
-WHERE has_labels
-SQL
-
-    column "team_id" {
-      type = "Int32"
-    }
-    column "metric_name" {
+    column "internal_source" {
       type = "LowCardinality(String)"
-    }
-    column "series_fingerprint" {
-      type = "UInt64"
-    }
-    column "metric_type" {
-      type = "LowCardinality(String)"
-    }
-    column "unit" {
-      type = "LowCardinality(String)"
-    }
-    column "aggregation_temporality" {
-      type = "LowCardinality(String)"
-    }
-    column "is_monotonic" {
-      type = "Bool"
-    }
-    column "service_name" {
-      type = "LowCardinality(String)"
-    }
-    column "instrumentation_scope" {
-      type = "String"
-    }
-    column "resource_attributes" {
-      type = "Map(LowCardinality(String), String)"
-    }
-    column "attributes" {
-      type = "Map(LowCardinality(String), String)"
-    }
-    column "timestamp" {
-      type = "DateTime64(6)"
-    }
-    column "original_expiry_timestamp" {
-      type = "DateTime64(6)"
     }
   }
 
