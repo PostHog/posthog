@@ -327,6 +327,7 @@ def record_source_destination(
     event_kinds: Collection[AlertEventKind],
     hog_function_ids: Collection[UUID],
     hog_function_groups: Sequence[AlertDestinationGroup],
+    enabled: bool = True,
 ) -> StoredAlertDestination | None:
     """Adds the row for a destination its source has just written as `hog_function_ids`, so the
     destination outlives them. None when the platform has no alert under `public_id`, or when it keeps
@@ -345,7 +346,10 @@ def record_source_destination(
         configuration_id=configuration_id,
         destinations=(
             NewAlertDestination(
-                data=_own_fields(data), event_kinds=tuple(event_kinds), legacy_hog_function_ids=tuple(hog_function_ids)
+                data=_own_fields(data),
+                event_kinds=tuple(event_kinds),
+                enabled=enabled,
+                legacy_hog_function_ids=tuple(hog_function_ids),
             ),
         ),
         hog_function_groups=hog_function_groups,
@@ -385,7 +389,13 @@ def list_source_destinations(
             )
         )
     listed.extend(
-        SourceDestination(destination_id=row.id, hog_function_ids=(), data=row.data, enabled=row.enabled)
+        SourceDestination(
+            destination_id=row.id,
+            hog_function_ids=(),
+            data=row.data,
+            enabled=row.enabled,
+            retired_hog_function_ids=row.legacy_hog_function_ids,
+        )
         for row in rows
         if row.id not in matched
     )
@@ -460,6 +470,25 @@ def delete_rows_copying(*, team_id: int, hog_function_ids: Collection[UUID]) -> 
         .delete()
     )
     return deleted
+
+
+def copied_by_source_rows(*, team_id: int, public_id: UUID, hog_function_ids: Collection[UUID]) -> frozenset[UUID]:
+    """The ids among `hog_function_ids` that one of the alert's rows copies, whether or not the HogFunctions
+    still exist."""
+    if not hog_function_ids:
+        return frozenset()
+    wanted = set(hog_function_ids)
+    copies = (
+        AlertDestination.objects.for_team(team_id)
+        .filter(
+            configuration__in=_configurations_by_public_id(team_id, public_id),
+            legacy_hog_function_ids__overlap=list(wanted),
+        )
+        .values_list("legacy_hog_function_ids", flat=True)
+    )
+    return frozenset(
+        hog_function_id for row_copies in copies for hog_function_id in row_copies if hog_function_id in wanted
+    )
 
 
 # The fields each type sends with. A field of another type, such as a PagerDuty default on a Slack
