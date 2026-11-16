@@ -468,6 +468,14 @@ export class CyclotronV2Worker {
     protected wrapJob(row: RawJobRow): CyclotronV2DequeuedJob {
         const pool = this.pool
         const assignEmailDequeueSeq = this.assignEmailDequeueSeq
+        let reservedEmailDequeueSeq: Promise<string> | null = null
+        const reserveEmailDequeueSeqOnce = (): Promise<string> => {
+            reservedEmailDequeueSeq ??= assignEmailDequeueSeq(row.team_id).catch((error: unknown) => {
+                reservedEmailDequeueSeq = null
+                throw error
+            })
+            return reservedEmailDequeueSeq
+        }
         const lockId = row.lock_id
         const releaseWriteHeartbeatLimitMs = this.releaseWriteHeartbeatLimitMs
         const releaseWriteRetry = this.releaseWriteRetry
@@ -646,7 +654,7 @@ export class CyclotronV2Worker {
                 // so existing fair-ordered rows keep their place after retry/
                 // reschedule without bumping the counter.
                 if (options?.queueName === 'email' && row.queue_name !== 'email') {
-                    const dequeueSeq = await assignEmailDequeueSeq(row.team_id)
+                    const dequeueSeq = await reserveEmailDequeueSeqOnce()
                     params.push(dequeueSeq)
                     setClauses.push(`dequeue_seq = $${params.length}`)
                 }
@@ -659,7 +667,7 @@ export class CyclotronV2Worker {
             }),
 
             defer: releaseWrite('defer', async ({ scheduledAt, state }: { scheduledAt: Date; state?: Buffer }) => {
-                const dequeueSeq = row.queue_name === 'email' ? await assignEmailDequeueSeq(row.team_id) : null
+                const dequeueSeq = row.queue_name === 'email' ? await reserveEmailDequeueSeqOnce() : null
                 return pool.query(
                     `UPDATE cyclotron_jobs
                      SET status = 'available', lock_id = NULL, last_heartbeat = NULL,
