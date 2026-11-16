@@ -330,7 +330,15 @@ class TestRunArtifactsEndpoint:
         ]
         follow_up = _variables(result.requests)[2]
         assert (follow_up["run"], follow_up["after"]) == ("r1", "out-cur")
-        assert result.saved_states[0] == WeightsAndBiasesResumeConfig(project="proj-a", cursor="runs-cur")
+        # Each artifact page is its own batch, so a run with many artifact pages is never buffered.
+        assert len(result.items) == 4
+        # The bookmark past a run is committed with its last batch, and the next page after the first.
+        assert result.committed_states == [
+            WeightsAndBiasesResumeConfig(project="proj-a", cursor=None, run="r1"),
+            WeightsAndBiasesResumeConfig(project="proj-a", cursor=None, run="r2"),
+            WeightsAndBiasesResumeConfig(project="proj-a", cursor="runs-cur"),
+            WeightsAndBiasesResumeConfig(project="proj-a", cursor="runs-cur", run="r3"),
+        ]
 
 
 def _history_run(name: str, last_step: int, line_count: int) -> dict[str, Any]:
@@ -409,13 +417,41 @@ class TestRunHistoryEndpoint:
             "run_history",
             [
                 _projects_response(["proj-a"]),
-                _connection_response(("project", "runs"), [_history_run("r1", last_step=3, line_count=4)]),
+                _connection_response(
+                    ("project", "runs"),
+                    [_history_run("r1", last_step=3, line_count=4), _history_run("r2", last_step=3, line_count=4)],
+                ),
+                _history_response([0, 1]),
+                _history_response([2, 3]),
                 _history_response([0, 1]),
                 _history_response([2, 3]),
             ],
         )
 
-        assert result.committed_states == [WeightsAndBiasesResumeConfig(project="proj-a", run="r1", step=2)]
+        # The last window of r1 commits the bookmark past r1, so a resume does not read r1 again.
+        assert result.committed_states == [
+            WeightsAndBiasesResumeConfig(project="proj-a", run="r1", step=2),
+            WeightsAndBiasesResumeConfig(project="proj-a", run="r2"),
+            WeightsAndBiasesResumeConfig(project="proj-a", run="r2", step=2),
+        ]
+
+    def test_pages_of_runs_without_history_reach_a_safe_point(self):
+        result = _driver().run(
+            "run_history",
+            [
+                _projects_response(["proj-a"]),
+                _connection_response(
+                    ("project", "runs"),
+                    [_history_run("r1", last_step=-1, line_count=0)],
+                    has_next=True,
+                    end_cursor="c1",
+                ),
+                _connection_response(("project", "runs"), [_history_run("r2", last_step=-1, line_count=0)]),
+            ],
+        )
+
+        assert result.rows == []
+        assert result.committed_states == [WeightsAndBiasesResumeConfig(project="proj-a", cursor="c1")]
 
     @pytest.mark.parametrize(
         "line, expected",

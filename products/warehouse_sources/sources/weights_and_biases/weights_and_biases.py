@@ -77,7 +77,7 @@ class WeightsAndBiasesConfigError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class WeightsAndBiasesResumeConfig:
     # Project-name bookmark for the fan-out endpoints (runs, sweeps, reports, artifacts). A
     # stable name (not a positional index) so projects added/removed between a crash and the
@@ -678,52 +678,136 @@ def _run_artifact_rows(base: dict[str, Any], direction: str, edges: list[dict[st
     return rows
 
 
+@dataclasses.dataclass(frozen=True)
+class _RunCursor:
+    run: dict[str, Any]
+    # Bookmark that reads this run again from its start (history adds the step to it).
+    resume_here: WeightsAndBiasesResumeConfig
+    # Bookmark past this run, staged before its last batch is yielded. None for the last run of
+    # the project; get_rows then advances the project bookmark.
+    after_run: WeightsAndBiasesResumeConfig | None
+    first_step: int
+
+
+@dataclasses.dataclass(frozen=True)
+class _RunsPageEnd:
+    # Bookmark for the next runs page, or None after the last page.
+    next_page: WeightsAndBiasesResumeConfig | None
+
+
+def _finish_runs_page(
+    page_end: _RunsPageEnd, resumable_source_manager: ResumableSourceManager[WeightsAndBiasesResumeConfig]
+) -> None:
+    # Every run of the page is read, so the next page is a safe bookmark. The safe point also covers
+    # a page whose runs returned no rows, which would otherwise never hand control back.
+    if page_end.next_page is not None:
+        resumable_source_manager.save_state(page_end.next_page)
+    resumable_source_manager.safe_point()
+
+
+def _iter_runs(
+    execute: Callable[[str, dict[str, Any]], dict[str, Any]],
+    query: str,
+    variables: dict[str, Any],
+    project: str,
+    resume: WeightsAndBiasesResumeConfig | None,
+    logger: FilteringBoundLogger,
+) -> Iterator[_RunCursor | _RunsPageEnd]:
+    """Walk a project's runs for the run-child tables, with a run-level bookmark for each run.
+
+    After the runs of each page it yields a _RunsPageEnd, which the consumer passes to
+    _finish_runs_page once it has read those runs.
+    """
+    page_after = resume.cursor if resume else None
+    resume_run = resume.run if resume else None
+    resume_step = (resume.step or 0) if resume else 0
+
+    for edges, end_cursor, has_next in _iter_connection(
+        execute, query, variables, ("project", "runs"), logger, after=page_after
+    ):
+        runs = [edge["node"] for edge in edges if (edge.get("node") or {}).get("name")]
+        names = [run["name"] for run in runs]
+        # If the bookmarked run is gone, read the whole page again; merge dedupes on the key.
+        start = names.index(resume_run) if resume_run in names else 0
+        for index in range(start, len(runs)):
+            after_run: WeightsAndBiasesResumeConfig | None = None
+            if index + 1 < len(runs):
+                after_run = WeightsAndBiasesResumeConfig(project=project, cursor=page_after, run=names[index + 1])
+            elif has_next:
+                after_run = WeightsAndBiasesResumeConfig(project=project, cursor=end_cursor)
+            yield _RunCursor(
+                run=runs[index],
+                resume_here=WeightsAndBiasesResumeConfig(project=project, cursor=page_after, run=names[index]),
+                after_run=after_run,
+                first_step=resume_step if index == start and resume_run in names else 0,
+            )
+        yield _RunsPageEnd(
+            next_page=WeightsAndBiasesResumeConfig(project=project, cursor=end_cursor) if has_next else None
+        )
+        resume_run = None
+        resume_step = 0
+        page_after = end_cursor
+
+
+def _run_artifact_batches(
+    execute: Callable[[str, dict[str, Any]], dict[str, Any]],
+    entity: str,
+    project: str,
+    run: dict[str, Any],
+    logger: FilteringBoundLogger,
+) -> Iterator[list[dict[str, Any]]]:
+    base = _run_child_base(project, run)
+    for direction, connection_name in _RUN_ARTIFACT_CONNECTIONS.items():
+        connection = run.get(connection_name) or {}
+        yield _run_artifact_rows(base, direction, connection.get("edges") or [])
+        page_info = connection.get("pageInfo") or {}
+        if not page_info.get("hasNextPage") or not page_info.get("endCursor"):
+            continue
+        for more_edges, _c, _h in _iter_connection(
+            execute,
+            _SINGLE_RUN_ARTIFACTS_QUERIES[connection_name],
+            {"entity": entity, "project": project, "run": run["name"], "first": RUN_ARTIFACTS_PAGE_SIZE},
+            ("project", "run", connection_name),
+            logger,
+            after=page_info["endCursor"],
+        ):
+            yield _run_artifact_rows(base, direction, more_edges)
+
+
 def _get_run_artifact_rows(
     execute: Callable[[str, dict[str, Any]], dict[str, Any]],
     entity: str,
     project: str,
     variables: dict[str, Any],
-    after: str | None,
+    resume: WeightsAndBiasesResumeConfig | None,
     resumable_source_manager: ResumableSourceManager[WeightsAndBiasesResumeConfig],
     logger: FilteringBoundLogger,
 ) -> Iterator[list[dict[str, Any]]]:
     """One row per (run, direction, artifact version), from the runs connection with nested artifact pages.
 
     The first page of each run's input and output artifacts rides along in the runs query, so a run
-    costs an extra request only when it has more artifacts than fit on that page.
+    costs an extra request only when it has more artifacts than fit on that page. Each artifact page
+    is yielded on its own, so a run with many artifacts never builds up in memory.
     """
     variables = {**variables, "artifactsFirst": RUN_ARTIFACTS_PAGE_SIZE}
-    for edges, end_cursor, has_next in _iter_connection(
-        execute, _RUN_ARTIFACTS_RUNS_QUERY, variables, ("project", "runs"), logger, after=after
-    ):
-        rows: list[dict[str, Any]] = []
-        for edge in edges:
-            run = edge.get("node")
-            if not run or not run.get("name"):
-                continue
-            base = _run_child_base(project, run)
-            for direction, connection_name in _RUN_ARTIFACT_CONNECTIONS.items():
-                connection = run.get(connection_name) or {}
-                rows.extend(_run_artifact_rows(base, direction, connection.get("edges") or []))
-                page_info = connection.get("pageInfo") or {}
-                if not page_info.get("hasNextPage") or not page_info.get("endCursor"):
-                    continue
-                for more_edges, _c, _h in _iter_connection(
-                    execute,
-                    _SINGLE_RUN_ARTIFACTS_QUERIES[connection_name],
-                    {"entity": entity, "project": project, "run": run["name"], "first": RUN_ARTIFACTS_PAGE_SIZE},
-                    ("project", "run", connection_name),
-                    logger,
-                    after=page_info["endCursor"],
-                ):
-                    rows.extend(_run_artifact_rows(base, direction, more_edges))
-
-        if has_next:
-            resumable_source_manager.save_state(WeightsAndBiasesResumeConfig(project=project, cursor=end_cursor))
-        if rows:
-            yield rows
-        else:
-            resumable_source_manager.safe_point()
+    for cursor in _iter_runs(execute, _RUN_ARTIFACTS_RUNS_QUERY, variables, project, resume, logger):
+        if isinstance(cursor, _RunsPageEnd):
+            _finish_runs_page(cursor, resumable_source_manager)
+            continue
+        # Hold one batch back, so the bookmark past the run is staged before its last batch.
+        held: list[dict[str, Any]] | None = None
+        for batch in _run_artifact_batches(execute, entity, project, cursor.run, logger):
+            if held is not None:
+                resumable_source_manager.save_state(cursor.resume_here)
+                if held:
+                    yield held
+                else:
+                    resumable_source_manager.safe_point()
+            held = batch
+        if cursor.after_run is not None:
+            resumable_source_manager.save_state(cursor.after_run)
+        if held:
+            yield held
 
 
 def _last_history_step(history_keys: Any) -> int:
@@ -782,9 +866,7 @@ def _get_single_run_history_rows(
     execute: Callable[[str, dict[str, Any]], dict[str, Any]],
     entity: str,
     project: str,
-    run: dict[str, Any],
-    first_step: int,
-    runs_page_after: str | None,
+    cursor: _RunCursor,
     resumable_source_manager: ResumableSourceManager[WeightsAndBiasesResumeConfig],
     logger: FilteringBoundLogger,
 ) -> Iterator[list[dict[str, Any]]]:
@@ -796,10 +878,11 @@ def _get_single_run_history_rows(
     window and reads it again. A window no wider than RUN_HISTORY_PAGE_SIZE steps can't be sampled,
     because steps are unique.
     """
+    run = cursor.run
     last_step = _last_history_step(run.get("historyKeys"))
     base = _run_child_base(project, run)
-    step = first_step
-    window = _initial_history_window(run, first_step, last_step)
+    step = cursor.first_step
+    window = _initial_history_window(run, step, last_step)
 
     for _ in range(MAX_PAGES_PER_CONNECTION):
         if step > last_step:
@@ -831,9 +914,9 @@ def _get_single_run_history_rows(
             window *= 2
 
         if step <= last_step:
-            resumable_source_manager.save_state(
-                WeightsAndBiasesResumeConfig(project=project, cursor=runs_page_after, run=run["name"], step=step)
-            )
+            resumable_source_manager.save_state(dataclasses.replace(cursor.resume_here, step=step))
+        elif cursor.after_run is not None:
+            resumable_source_manager.save_state(cursor.after_run)
         if rows:
             yield rows
         else:
@@ -853,25 +936,11 @@ def _get_run_history_rows(
     resumable_source_manager: ResumableSourceManager[WeightsAndBiasesResumeConfig],
     logger: FilteringBoundLogger,
 ) -> Iterator[list[dict[str, Any]]]:
-    runs_page_after = resume.cursor if resume else None
-    resume_run = resume.run if resume else None
-    resume_step = resume.step if resume else None
-
-    for edges, end_cursor, _has_next in _iter_connection(
-        execute, _RUN_HISTORY_RUNS_QUERY, variables, ("project", "runs"), logger, after=runs_page_after
-    ):
-        runs = [edge["node"] for edge in edges if (edge.get("node") or {}).get("name")]
-        names = [run["name"] for run in runs]
-        # If the bookmarked run is gone, read the whole page again; merge dedupes on the key.
-        start = names.index(resume_run) if resume_run in names else 0
-        for index, run in enumerate(runs[start:]):
-            first_step = resume_step if index == 0 and resume_run in names and resume_step else 0
-            yield from _get_single_run_history_rows(
-                execute, entity, project, run, first_step, runs_page_after, resumable_source_manager, logger
-            )
-        resume_run = None
-        resume_step = None
-        runs_page_after = end_cursor
+    for cursor in _iter_runs(execute, _RUN_HISTORY_RUNS_QUERY, variables, project, resume, logger):
+        if isinstance(cursor, _RunsPageEnd):
+            _finish_runs_page(cursor, resumable_source_manager)
+            continue
+        yield from _get_single_run_history_rows(execute, entity, project, cursor, resumable_source_manager, logger)
 
 
 def _get_artifact_rows(
@@ -1048,7 +1117,7 @@ def get_rows(
                     should_use_incremental_field,
                     db_incremental_field_last_value,
                 ),
-                resume_cursor,
+                project_resume,
                 resumable_source_manager,
                 logger,
             )
