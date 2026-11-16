@@ -177,6 +177,9 @@ describe('RustVmExecutor', () => {
         const result = executor.execute(createExampleInvocation({ bytecode: PRINT_30_TIMES }), [])
 
         expect(result!.logs.map((log) => log.level)).toEqual([...Array(24).fill('info'), 'warn', 'debug'])
+        expect(result!.logs.slice(0, 24).map((log) => log.message)).toEqual(
+            Array.from({ length: 24 }, (_, i) => String(i))
+        )
         expect(result!.logs[24].message).toContain('Function exceeded maximum log entries')
     })
 
@@ -205,8 +208,9 @@ describe('RustVmExecutor', () => {
         ['unsupported host function', CALL_MESSAGING_PREFERENCES_URL],
         ['function missing from the rust vm', ['_H', 1, 32, 'x', 2, 'sendEmail', 1, 38]],
         ['global chain the rust vm cannot resolve', ['_H', 1, 32, 'foo', 32, 'inputs', 1, 2, 38]],
-    ])('falls back to the node vm on %s', (_name, bytecode) => {
+    ])('falls back to the node vm on %s', async (_name, bytecode) => {
         expect(executor.execute(createExampleInvocation({ bytecode }), [])).toBeNull()
+        expect(await outcomeCount('fallback_unsupported')).toEqual(1)
     })
 
     it('falls back to the node vm on an input shape the rust vm has no implementation for', () => {
@@ -284,6 +288,7 @@ describe('RustVmExecutor', () => {
             const invocation = createExampleInvocation({ bytecode: CALL_MESSAGING_PREFERENCES_URL })
 
             expect(await executor.executeBatched(invocation, [])).toBeNull()
+            expect(await outcomeCount('fallback_unsupported')).toEqual(1)
         })
 
         it('falls back to the node vm when the whole batch call rejects', async () => {
