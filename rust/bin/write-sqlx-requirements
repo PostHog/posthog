@@ -1,0 +1,41 @@
+#!/bin/sh
+# Writes the sqlx migration versions that an image needs, one "<database> <version>" line each.
+# The deploy-time check (sqlx-schema-check) reads this file from the app image, so the
+# requirements always come from the image that rolls out, not from today's migration image.
+#
+# Usage: write-sqlx-requirements "<databases>" <output file> [migrations base dir]
+# <databases> is a space-separated list of migrate-entry names, or empty for an image that
+# uses no sqlx database. An empty list writes a file with only the header.
+set -eu
+
+DATABASES="${1-}"
+OUTPUT="${2:?Usage: write-sqlx-requirements \"<databases>\" <output file> [migrations base dir]}"
+BASE="${3:-.}"
+
+migrations_dir() {
+    case "$1" in
+        persons) echo "persons_migrations" ;;
+        behavioral-cohorts) echo "behavioral_cohorts_migrations" ;;
+        cyclotron-node) echo "cyclotron-node-migrations" ;;
+        flags-read-store) echo "flags_read_store_migrations" ;;
+        *) return 1 ;;
+    esac
+}
+
+{
+    echo "# sqlx requirements: <database> <version>"
+    for database in $DATABASES; do
+        if ! dir=$(migrations_dir "$database"); then
+            echo "Unknown sqlx database '$database'. Use a name that migrate-entry accepts." >&2
+            exit 1
+        fi
+        # sqlx reads the version from the digits before the first underscore of each .sql file.
+        # A reversible migration has a .down.sql twin that is not a version of its own.
+        for path in "$BASE/$dir"/*.sql; do
+            [ -e "$path" ] || continue
+            name=$(basename "$path")
+            case "$name" in *.down.sql) continue ;; esac
+            echo "$database ${name%%_*}"
+        done
+    done
+} > "$OUTPUT"
