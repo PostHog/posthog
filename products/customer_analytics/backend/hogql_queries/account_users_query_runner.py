@@ -160,7 +160,9 @@ class AccountUsersQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
         reader = self.get_reader()
         return self._get_source_query(reader, reader.get_membership_query())
 
-    def _get_source_query(self, reader: AccountPersonsReader, membership: ast.Expr) -> ast.SelectQuery:
+    def _get_source_query(
+        self, reader: AccountPersonsReader, membership: ast.SelectQuery | ast.Field
+    ) -> ast.SelectQuery:
         self.modifiers.personsArgMaxVersion = PersonsArgMaxVersion.V2
         return reader.get_source_query(membership)
 

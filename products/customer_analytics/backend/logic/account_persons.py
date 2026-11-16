@@ -118,7 +118,7 @@ class AccountPersonsReader:
             },
         )
 
-    def get_source_query(self, membership: ast.Expr) -> ast.SelectQuery:
+    def get_source_query(self, membership: ast.SelectQuery | ast.Field) -> ast.SelectQuery:
         # GLOBAL IN sends the membership distinct IDs with the person_distinct_id2 query. A plain IN makes the
         # remote replica read the membership table again on the aux cluster for each person_distinct_id2 read.
         account_distinct_id = ast.CompareOperation(
