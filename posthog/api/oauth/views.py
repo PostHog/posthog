@@ -111,11 +111,8 @@ from posthog.models.oauth import (
     revoke_oauth_token_family,
 )
 from posthog.permissions import TimeSensitiveActionPermission
-from posthog.scopes import (
-    ALWAYS_ALLOWED_SCOPES,
-    EMA_ISSUER_MANAGE_SCOPE,
+from posthog.scopes.ceilings import (
     clamp_scopes_to_ceiling,
-    downgrade_scopes_to_read_only,
     effective_ceiling,
     grantable_ceiling,
     is_truncated_scope_request,
@@ -124,6 +121,8 @@ from posthog.scopes import (
     resolve_requested_scopes,
     scopes_outside_ceiling,
 )
+from posthog.scopes.checks import downgrade_scopes_to_read_only
+from posthog.scopes.oauth import ALWAYS_ALLOWED_SCOPES, EMA_ISSUER_MANAGE_SCOPE
 from posthog.security.url_validation import has_ambiguous_authority
 from posthog.user_permissions import UserPermissions
 from posthog.utils import absolute_uri, get_instance_region, get_trusted_client_ip, render_template
