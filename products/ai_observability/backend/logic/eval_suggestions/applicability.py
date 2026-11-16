@@ -107,7 +107,7 @@ def applicable(profile: TeamProfile, content: ContentProfile) -> Applicability:
             adapters.repeated_tool_calls(adapters.skipped_repeat_tools(profile.tool_counts, sorted(dispatchers)))
         )
     if content.text_share >= MIN_TEXT_SHARE:
-        checks += [adapters.refusals(), adapters.sensitive_data()]
+        checks.append(adapters.refusals())
 
     judges: list[str] = []
     if content.text_share >= MIN_TEXT_SHARE:
