@@ -1350,12 +1350,13 @@ class TestLogsAlertAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("by_hog_function_ids", "hog_function_ids"),
-            ("by_destination_id", "destination_ids"),
+            ("by_hog_function_ids", "hog_function_ids", False),
+            ("by_destination_id", "destination_ids", False),
+            ("by_hog_function_ids_after_conversion", "hog_function_ids", True),
         ]
     )
     def test_a_destination_is_a_platform_row_beside_its_hog_functions_until_deleted(
-        self, _name: str, delete_by: str
+        self, _name: str, delete_by: str, converted: bool
     ) -> None:
         self._sync_destination_templates()
         created = self._create_via_api()
@@ -1365,6 +1366,8 @@ class TestLogsAlertAPI(APIBaseTest):
             format="json",
         )
         hog_function_ids = create_response.json()["hog_function_ids"]
+        if converted:
+            HogFunction.objects.filter(id__in=hog_function_ids).update(deleted=True, enabled=False)
 
         (destination,) = self._read_destinations(created["id"])
         assert destination["id"] is not None
