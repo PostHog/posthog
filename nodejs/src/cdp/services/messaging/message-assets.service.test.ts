@@ -132,10 +132,44 @@ describe('MessageAssetsService', () => {
             expect(row!.subject).toBe('Welcome aboard')
         })
 
-        it('keeps a placeholder instead of the body when the template is marked sensitive', () => {
+        it.each([
+            {
+                case: 'the template is marked sensitive',
+                step: { template_uuid: 'template-1' },
+                templateSensitive: true,
+                send: undefined,
+                stored: false,
+            },
+            {
+                case: "the send is marked sensitive on a template that isn't",
+                step: { template_uuid: 'template-1' },
+                templateSensitive: false,
+                send: { sensitive: true, tracking: { captureEngagement: true } },
+                stored: false,
+            },
+            {
+                case: 'the send is marked not sensitive on a template that is',
+                step: { template_uuid: 'template-1' },
+                templateSensitive: true,
+                send: { sensitive: false, tracking: { captureEngagement: true } },
+                stored: false,
+            },
+            {
+                case: 'the send is marked not sensitive on a key without a template',
+                step: { template_key: 'welcome' },
+                templateSensitive: true,
+                send: { sensitive: false, tracking: { captureEngagement: true } },
+                stored: true,
+            },
+        ])('stores the body only when it may: $case', ({ step, templateSensitive, send, stored }) => {
             const invocation = invocationWithAction('flow-1')
-            invocation.hogFunction.metadata = { message_category_type: 'transactional', sensitive: true }
+            invocation.hogFunction.metadata = {
+                message_category_type: 'transactional',
+                sensitive: templateSensitive,
+                ...step,
+            }
             invocation.hogFunction.inputs = { email: { value: { subject: 'Your code is {{ variables.code }}' } } }
+            invocation.state.send = send
 
             const row = service.buildRowForEmail(
                 invocation,
@@ -147,11 +181,11 @@ describe('MessageAssetsService', () => {
 
             expect(row).toMatchObject({
                 recipient: 'recipient@example.com',
-                subject: 'Your code is {{ variables.code }}',
+                subject: stored ? 'Your code is 482913' : 'Your code is {{ variables.code }}',
                 status: 'sent',
             })
-            expect(row!.html).toContain('Email body not stored')
-            expect(row!.html).not.toContain('s3cret')
+            expect(row!.html.includes('s3cret')).toBe(stored)
+            expect(row!.html.includes('Email body not stored')).toBe(!stored)
         })
     })
 

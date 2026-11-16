@@ -149,10 +149,25 @@ def stripe_refresh_idempotency_key(refresh_token: str, config: Mapping[str, Any]
     return hashlib.sha256(seed.encode()).hexdigest()
 
 
+# Stripe saves the answer under the key only when the request started to run. A 400-class refusal of
+# the refresh itself (for example `invalid_grant`) is such an answer. A 401 or 403 comes before the
+# request runs, so nothing is saved, and a saved success can still replay under the old key. A 5xx
+# can come after the roll, and 409 and 429 are answers that Stripe does not save.
+_STRIPE_SAVED_REJECTION_STATUS_CODES = frozenset({400, 402, 404, 422})
+
+
 def _stripe_rejected_the_refresh(res: requests.Response) -> bool:
-    # A 4xx answer means Stripe did not roll the token, so a new key cannot lose rolled tokens. A
-    # 5xx can come after the roll, and 409 and 429 are answers that Stripe does not save.
-    return 400 <= res.status_code < 500 and res.status_code not in (409, 429)
+    return res.status_code in _STRIPE_SAVED_REJECTION_STATUS_CODES
+
+
+def _stripe_refresh_log_fields(kind: str, res: requests.Response | None) -> dict[str, Any]:
+    """Stripe's request ID, to look up in Stripe's request logs, and whether Stripe replayed a saved answer."""
+    if kind != "stripe" or res is None:
+        return {}
+    return {
+        "stripe_request_id": res.headers.get("Request-Id"),
+        "stripe_idempotent_replayed": res.headers.get("Idempotent-Replayed") == "true",
+    }
 
 
 def _raise_oauth_validation_error(kind: str, res: requests.Response) -> NoReturn:
@@ -1856,7 +1871,9 @@ class OauthIntegration:
 
         if res is None or res.status_code != 200 or not config.get("access_token"):
             logger.warning(
-                f"Failed to refresh token for {self}", response=res.text if res is not None else "network error"
+                f"Failed to refresh token for {self}",
+                response=res.text if res is not None else "network error",
+                **_stripe_refresh_log_fields(self.integration.kind, res),
             )
             reason = (
                 refresh_tracking.oauth_refresh_failure_reason(res.status_code, config, kind=self.integration.kind)
@@ -1874,7 +1891,7 @@ class OauthIntegration:
             # decrypted, and saving re-encrypts it, permanently adding a layer to the stored value.
             return replace(failure, errors=common.ERROR_TOKEN_REFRESH_FAILED)
 
-        logger.info(f"Refreshed access token for {self}")
+        logger.info(f"Refreshed access token for {self}", **_stripe_refresh_log_fields(self.integration.kind, res))
         tokens: dict[str, object] = {"access_token": config["access_token"]}
         # Some providers (e.g. Atlassian/Jira) rotate refresh tokens — each
         # refresh response includes a new refresh_token and the old one is

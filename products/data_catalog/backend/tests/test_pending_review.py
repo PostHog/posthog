@@ -3,13 +3,19 @@ from contextlib import contextmanager
 from datetime import timedelta
 
 import pytest
-from posthog.test.base import BaseTest
-from unittest.mock import patch
+from posthog.test.base import APIBaseTest, BaseTest
+from unittest.mock import MagicMock, patch
 
 from django.db.models import QuerySet
 from django.utils import timezone
 
+from parameterized import parameterized
+from rest_framework import status
+
+from posthog.models.organization import OrganizationMembership
+from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team import Team
+from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.data_catalog.backend.facade.enums import CertificationStatus, MetricStatus, RelationshipStatus
 from products.data_catalog.backend.logic.metrics import metrics_for_team
@@ -145,3 +151,66 @@ class TestBuildOrgPendingReviews(BaseTest):
     def test_raises_when_every_team_failed(self) -> None:
         with _failing_build_for(self.team), pytest.raises(RuntimeError):
             build_org_pending_reviews([self.team])
+
+
+class TestPendingReviewAPI(APIBaseTest):
+    @patch("products.data_catalog.backend.logic.metrics.Database.create_for")
+    def test_counts_proposed_items_the_caller_can_see(self, create_database: MagicMock) -> None:
+        create_database.return_value = MagicMock(_denied_tables={"restricted_source"})
+        _metric(self.team, "proposed_one")
+        _metric(self.team, "approved_one", status=MetricStatus.APPROVED)
+        _metric(self.team, "on_denied_table", referenced_table_names=["restricted_source"])
+        _relationship(self.team, "fp_proposed")
+        _relationship(self.team, "fp_rejected", status=RelationshipStatus.REJECTED)
+        _certification(self.team, "proposed_view")
+        _certification(self.team, "certified_view", status=CertificationStatus.CERTIFIED)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/data_catalog/pending_review/")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json() == {"metrics": 1, "relationships": 1, "certifications": 1}
+
+    @parameterized.expand(
+        [
+            ("member_with_nothing_proposed", OrganizationMembership.Level.MEMBER, [], 0),
+            ("admin", OrganizationMembership.Level.ADMIN, [["safe_source"], ["system.restricted"]], 1),
+        ]
+    )
+    @patch("products.data_catalog.backend.logic.metrics.system_table_denials", return_value=frozenset({"restricted"}))
+    @patch("products.data_catalog.backend.logic.metrics.Database.create_for")
+    def test_counts_metrics_without_building_the_hogql_database(
+        self,
+        _name: str,
+        level: OrganizationMembership.Level,
+        proposed_references: list[list[str]],
+        expected_metrics: int,
+        create_database: MagicMock,
+        _system_table_denials: MagicMock,
+    ) -> None:
+        self.organization_membership.level = level
+        self.organization_membership.save()
+        for index, references in enumerate(proposed_references):
+            _metric(self.team, f"proposed_{index}", referenced_table_names=references)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/data_catalog/pending_review/")
+
+        assert response.json()["metrics"] == expected_metrics
+        create_database.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("catalog_read_scope", ["data_catalog:read"], status.HTTP_200_OK),
+            ("unrelated_scope", ["insight:read"], status.HTTP_403_FORBIDDEN),
+        ]
+    )
+    def test_personal_api_key_needs_the_catalog_read_scope(
+        self, _name: str, scopes: list[str], expected_status: int
+    ) -> None:
+        raw_key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(label="k", user=self.user, secure_value=hash_key_value(raw_key), scopes=scopes)
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/data_catalog/pending_review/", HTTP_AUTHORIZATION=f"Bearer {raw_key}"
+        )
+
+        assert response.status_code == expected_status, response.json()

@@ -130,6 +130,8 @@ oauth_config:
       - mpim:read
       - users:read
       - users:read.email
+      - channels:read
+      - channels:history
     user_optional:
       - search:read.private
       - search:read.im
@@ -170,7 +172,11 @@ Django must be up at that moment.
 > Sign in with Slack (OpenID Connect) flow needs `user` scopes `openid` + `email` + `profile` and
 > the second redirect URL (`/complete/slack-link/`). With the `slack-app-link-search-scopes` flag on, the
 > link asks for the `search:read.*` and `users:read*` user scopes at `oauth.v2.authorize` instead, so the
-> manifest must declare them first. Slack refuses an authorize request for an undeclared scope. Drop those if you don't want either feature
+> manifest must declare them first. Slack refuses an authorize request for an undeclared scope. With the
+> `slack-app-slack-mcp` flag on and the Slack MCP available to the team in the MCP store, the link asks for exactly
+> the Slack MCP template's scopes instead, and the same token connects the person's Slack MCP.
+> The token must hold nothing outside the template's scopes. A person who clears an optional private search scope on the consent screen is still connected, without that search.
+> Drop those if you don't want either feature
 > locally. Neither is behind a feature flag: the App Home tab renders for every install, and the
 > identity link appears only when the install holds the `users:read` and `users:read.email` scopes.
 
@@ -199,7 +205,7 @@ PR activity, and people. Linked accounts also contains the ChatGPT plan connecti
 Task links include the Slack thread, the web task, and the pull request when available.
 
 > The `canvases:read` user scope lets the Slack MCP connection read canvases that the authorizing user can access.
-> The `search:read.private`, `search:read.im`, and `search:read.mpim` user scopes let the dev Slack MCP connection search private channels, DMs, and group DMs.
+> The `search:read.private`, `search:read.im`, and `search:read.mpim` user scopes let the Slack MCP connection search private channels, DMs, and group DMs.
 > The `groups:history`, `groups:read`, `im:history`, `im:read`, `mpim:history`, and `mpim:read` user scopes let it list and read the private channels, DMs, and group DMs the authorizing user is a member of. Existing connections keep their old scopes until the person disconnects and connects again.
 
 > `reaction_added` + `reactions:read` power thumbs-reaction feedback on agent replies. Without
@@ -350,8 +356,10 @@ The connection keeps the catalog's reviewed MCP scopes; it does not request all 
 The project restriction applies to authorization, token exchange, token refresh, and upstream requests.
 Removing a project from the allowlist blocks its existing connection, even before catalog sync runs.
 
+While a region has a non-empty allowlist or development-app installations, its Slack MCP entry stays on the development app for every project, so the production **Slack** entry is not available there.
 To retire this setup, empty the allowlist and run catalog sync to deactivate the entry.
 Disconnect the development-app MCP installations, then run catalog sync again to restore the `slack_app` credential source.
+The entry then activates on the production Slack app after its shared-client probe passes.
 Remove the separate development credentials and the added production redirect URL if nothing else uses them.
 After the production catalog suspension is removed, run catalog sync and reconnect through the production app.
 Tokens from the development app cannot be transferred to the production app.

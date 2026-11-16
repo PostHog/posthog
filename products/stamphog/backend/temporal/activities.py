@@ -70,6 +70,7 @@ from products.stamphog.backend.facade.review_evidence import (
     get_review_evidence_providers,
 )
 from products.stamphog.backend.logic.approvals import dismiss_stale_approvals_for_head
+from products.stamphog.backend.logic.attestation_pins import get_check_runs_with_pins
 from products.stamphog.backend.logic.audiences import resolve_audiences
 from products.stamphog.backend.logic.decision_fingerprint import (
     DECISION_FINGERPRINT_OUTPUT_KEY,
@@ -112,7 +113,12 @@ from products.stamphog.backend.logic.reviewer import (
 from products.stamphog.backend.logic.routing.fork_labels import fork_labels
 from products.stamphog.backend.logic.scrubbing import neutralize_active_markdown, scrub_credentials
 from products.stamphog.backend.models import PullRequest, PullRequestAudience, ReviewRun, StamphogRepoConfig
-from products.stamphog.backend.tasks.tasks import queue_routing_after_verdict, request_rereview_after_external_review
+from products.stamphog.backend.tasks.tasks import (
+    queue_routing_after_verdict,
+    request_rereview_after_external_review,
+    rereview_once_attestations_reported,
+    waits_on_attestations,
+)
 from products.stamphog.backend.temporal.constants import (
     ACTIVITY_RETRY_POLICY,
     CLONE_STEP_TIMEOUT_SECONDS,
@@ -518,7 +524,7 @@ def _read_review_context(run: ReviewRun) -> dict[str, Any]:
         # top-level discussion misses; fails closed on truncation/errors, same as get_pr_discussion.
         review_threads_future = submit("review_threads", client.get_pr_review_threads, repo, number)
         # Head-commit check runs let the engine's migration gate see a passing "Migration risk" check.
-        check_runs_future = submit("check_runs", client.get_check_runs, repo, run.head_sha)
+        check_runs_future = submit("check_runs", get_check_runs_with_pins, client, repo, run.head_sha)
         commit_messages_future = submit("commit_messages", _pr_commit_messages, client, repo, number, run.head_sha)
         reactions_future = submit("pr_reactions", client.get_pr_reactions, repo, number)
         policy_futures = {
@@ -901,6 +907,7 @@ def _review_invocation(run: ReviewRun, merge_base_sha: str | None) -> ReviewerIn
         # Read as a description rather than a permission: the reviewer is told why it was asked,
         # and decides for itself what that means for this diff.
         review_trigger=trigger_for_run(output=output, review_mode=run.pull_request.repo_config.review_mode),
+        admitted_bot=str((output.get("bot_admission") or {}).get("login") or ""),
     )
 
 
@@ -988,6 +995,14 @@ def _attest_gates(run: ReviewRun, client: StamphogGitHubClient) -> GateAttestati
             return GateAttestation(attested=False, reason="file_list_moved", gates=[])
         context, policy_files = _engine_gate_inputs(run)
         context["files"] = pinned_files
+        # A newer run of the check behind a deny lift may have failed since the context fetch, so
+        # the check runs are read again. A failed read lifts nothing, which refuses only the
+        # approvals that need a lift.
+        try:
+            context["check_runs"] = get_check_runs_with_pins(client, repo, run.head_sha)
+        except Exception:
+            activity.logger.exception(f"Run {run.id}: check runs unreadable for the gate attestation")
+            context["check_runs"] = []
         attestation = run_engine_attest(context, policy_files)
         if attestation.reason == "dependency_manifest" and 0 < len(attestation.manifests) <= _MAX_ATTESTED_MANIFESTS:
             manifest_contents = fetch_manifest_contents(
@@ -1961,11 +1976,12 @@ def post_verdict(input: StamphogReviewInput) -> dict:
     # A retry after the approval posted skips this, because the gates attested before that post.
     if parsed.verdict == ReviewVerdict.APPROVED and not parsed.gate_blocked and run.posted_review_id is None:
         stored = output.get("gate_attestation")
-        if isinstance(stored, dict):
-            # A retry reuses the first answer. Another check could attest where the first did not,
-            # and post an approval over the escalation that the first attempt already delivered.
+        if isinstance(stored, dict) and stored.get("attested") is not True:
+            # A retry reuses a first answer that did not attest, because a second check that attests
+            # would post an approval over the escalation the first attempt delivered. A retry checks
+            # an answer that attested again, because a deny lift can stop holding between attempts.
             attestation = GateAttestation(
-                attested=stored.get("attested") is True,
+                attested=False,
                 reason=str(stored.get("reason") or ""),
                 gates=list(stored.get("gates") or []),
             )
@@ -1978,6 +1994,7 @@ def post_verdict(input: StamphogReviewInput) -> dict:
                         "attested": attestation.attested,
                         "reason": attestation.reason,
                         "gates": attestation.gates,
+                        "lifted": attestation.lifted,
                     }
                 },
             )
@@ -1991,7 +2008,16 @@ def post_verdict(input: StamphogReviewInput) -> dict:
     # Computed before the branch chain because two things must agree on it: the trigger label is only
     # stripped for a refusal, and only then may the review tell the author to re-add it.
     is_refusal = parsed.verdict in (ReviewVerdict.REFUSED, ReviewVerdict.ESCALATE)
-    strips_label = repo_config.review_mode == ReviewMode.LABEL and is_refusal and run.may_publish(parsed.verdict)
+    # Same reading the reviewer got, from the same stamp, so the handoff can't disagree with what
+    # the run was told it was.
+    trigger = trigger_for_run(output=output, review_mode=repo_config.review_mode)
+    # No label requested an admitted bot's review, and a label added to its PR starts none.
+    strips_label = (
+        repo_config.review_mode == ReviewMode.LABEL
+        and is_refusal
+        and run.may_publish(parsed.verdict)
+        and trigger != ReviewTrigger.BOT_ADMISSION.value
+    )
 
     relabel_label = repo_config.trigger_label if strips_label else None
 
@@ -2049,10 +2075,6 @@ def post_verdict(input: StamphogReviewInput) -> dict:
     # Keyed off parsed.verdict, not run.verdict: the gate-blocked branch overrides run.verdict to WAIT,
     # but both the label-strip and the ReviewHog handoff below treat a gate-blocked refusal the same
     # as an engine-refused one.
-    # Same reading the reviewer got, from the same stamp, so the handoff can't disagree with what
-    # the run was told it was.
-    trigger = trigger_for_run(output=output, review_mode=repo_config.review_mode)
-
     # Action parity: in label-triggered mode a refused/escalated verdict strips the trigger label, so
     # the author re-requests the next review by re-adding it.
     # A failure here raises on purpose: the activity retries and the sticky upsert above is idempotent.
@@ -2128,7 +2150,21 @@ def post_verdict(input: StamphogReviewInput) -> dict:
     activity.logger.info(f"Posted verdict {parsed.verdict} for run {run.id}")
     # Nobody saw a WAIT that was not published, so the external review finishing has nothing to update.
     waited = _waited_on_external_review(run) and run.verdict_posted_at is not None
-    return {"verdict": str(parsed.verdict), "waited_on_external_review": waited}
+    return {
+        "verdict": str(parsed.verdict),
+        "waited_on_external_review": waited,
+        "waits_on_attestations": waits_on_attestations(run),
+    }
+
+
+@activity.defn
+@asyncify
+def poll_pending_attestations(input: StamphogReviewInput) -> dict:
+    """Queue a re-review once every check this WAIT is pending on has reported.
+
+    ``done`` tells the workflow to stop polling. An error raises, so Temporal retries the poll.
+    """
+    return {"done": rereview_once_attestations_reported(_load_run(input))}
 
 
 def _notify_finished_review(

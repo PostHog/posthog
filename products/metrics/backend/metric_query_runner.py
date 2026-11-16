@@ -27,7 +27,12 @@ from posthog.permissions import posthog_feature_flag_enabled
 
 from products.metrics.backend.facade.contracts import MetricFilter, MetricGroupBy, MetricQueryTooManyRowsError
 from products.metrics.backend.facade.enums import FilterOp, MetricType
-from products.metrics.backend.metrics4_samples import dedupe_points_limit_by, metric_name_expr, samples_points_query
+from products.metrics.backend.metrics4_samples import (
+    dedupe_points_limit_by,
+    metric_name_expr,
+    not_stale_marker_expr,
+    samples_points_query,
+)
 
 AttributeScope = Literal["resource", "attribute", "auto"]
 
@@ -168,6 +173,8 @@ class MergedDistribution(NamedTuple):
     # The edges the quantile estimate is accurate to; see `_resolution_edges`.
     resolution_bounds: list[float]
     fingerprints: set[int]
+    # Distinct explicit bucket layouts merged. Exponential layouts shift between emissions, so they don't count.
+    layout_count: int
 
 
 @frozen
@@ -515,6 +522,7 @@ def points_query(
     `row_filters` can use only columns that are constant in a series-hour.
     `samples_row_filters` apply only to `metric_samples`, for example array lookups.
     `dedupe_points` drops exact copies of a point, as written by a replayed Kafka batch.
+    Neither source returns Prometheus stale markers.
     """
     if from_samples:
         return samples_points_query(
@@ -533,8 +541,7 @@ def points_query(
     )
     assert isinstance(query, ast.SelectQuery) and query.where is not None
     query.select = [ast.Field(chain=[column]) for column in columns]
-    if row_filters or point_filters:
-        query.where = ast.And(exprs=[query.where, *row_filters, *point_filters])
+    query.where = ast.And(exprs=[query.where, not_stale_marker_expr(), *row_filters, *point_filters])
     if dedupe_points:
         query.limit_by = dedupe_points_limit_by([column for column in columns if column != "series_fingerprint"])
     return query
@@ -792,6 +799,7 @@ class MetricQueryRunner:
                     "labels": {group.key: key[1 + index] for index, group in enumerate(self.group_by)},
                     "series_fingerprints": sorted(merged.fingerprints),
                     "histogram_bounds": merged.resolution_bounds,
+                    "histogram_layout_count": merged.layout_count,
                 }
             )
         return rows
@@ -808,10 +816,13 @@ class MetricQueryRunner:
         group_count = len(self.group_by)
         layouts: dict[tuple[Any, ...], list[_Histogram]] = {}
         fingerprints: dict[tuple[Any, ...], set[int]] = {}
+        explicit_layouts: dict[tuple[Any, ...], set[tuple[float, ...]]] = {}
         for row in results:
             key = tuple(row[: 1 + group_count])
             layouts.setdefault(key, []).append(_row_distribution(row, group_count))
             fingerprints.setdefault(key, set()).update(row[3 + group_count])
+            if row[4 + group_count] != MetricType.EXPONENTIAL_HISTOGRAM.value:
+                explicit_layouts.setdefault(key, set()).add(tuple(row[1 + group_count]))
         extra = [_Histogram(bounds=list(edges), counts=[0.0] * (len(edges) + 1))] if edges else []
         merged: dict[tuple[Any, ...], MergedDistribution] = {}
         for key, distributions in layouts.items():
@@ -821,6 +832,7 @@ class MetricQueryRunner:
                 counts=histogram.counts,
                 resolution_bounds=_resolution_edges(distributions, histogram.bounds),
                 fingerprints=fingerprints[key],
+                layout_count=len(explicit_layouts.get(key, ())),
             )
         return merged
 

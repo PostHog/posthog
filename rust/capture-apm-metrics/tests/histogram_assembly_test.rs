@@ -3,7 +3,10 @@ use std::collections::HashMap;
 use capture_apm_metrics::histogram_assembly::{
     fingerprint_with_bounds, fold_classic_histograms, normalize_float_label,
 };
-use capture_logs::endpoints::prometheus::write_request_to_kafka_rows;
+use capture_logs::endpoints::prometheus::{
+    is_stale_marker, write_request_to_kafka_rows, write_timeseries_to_kafka_rows_with_options,
+    RemoteWriteOptions, STALE_NAN_BITS,
+};
 use capture_logs::metric_record::{flatten_metric, KafkaMetricRow};
 use chrono::{Duration, Utc};
 use opentelemetry_proto::tonic::common::v1::{any_value, AnyValue, KeyValue};
@@ -87,6 +90,35 @@ fn complete_histogram_request(timestamp: i64) -> WriteRequest {
     }
 }
 
+fn fold_keeping_stale_markers(request: WriteRequest) -> Vec<KafkaMetricRow> {
+    let (rows, _) = write_timeseries_to_kafka_rows_with_options(
+        request.timeseries,
+        &request.metadata,
+        RemoteWriteOptions {
+            keep_stale_markers: true,
+        },
+    );
+    fold_classic_histograms(rows, &request.metadata)
+}
+
+fn mark_stale(request: &mut WriteRequest, suffixes: &[&str], le: Option<&str>) {
+    for series in &mut request.timeseries {
+        let name = &series.labels[0].value;
+        let le_matches = le.is_none_or(|le| {
+            !name.ends_with("_bucket")
+                || series
+                    .labels
+                    .iter()
+                    .any(|l| l.name == "le" && l.value == le)
+        });
+        if suffixes.iter().any(|suffix| name.ends_with(suffix)) && le_matches {
+            for sample in &mut series.samples {
+                sample.value = f64::from_bits(STALE_NAN_BITS);
+            }
+        }
+    }
+}
+
 fn plain_rows(rows: &[KafkaMetricRow]) -> Vec<&KafkaMetricRow> {
     rows.iter()
         .filter(|row| row.metric_type != "histogram")
@@ -117,6 +149,33 @@ fn folds_complete_classic_histogram_into_one_native_row() {
         row.resource_attributes.get("service.name").unwrap(),
         "\"api\""
     );
+}
+
+#[test]
+fn stale_sum_or_inf_bucket_folds_into_one_stale_native_row() {
+    let timestamp = now_ms();
+    let live = fold(complete_histogram_request(timestamp));
+    let cases: [(&[&str], Option<&str>); 3] = [
+        // vmagent marks every series of a target that went away.
+        (&["_bucket", "_count", "_sum"], None),
+        (&["_sum"], None),
+        (&["_bucket"], Some("+Inf")),
+    ];
+    for (suffixes, le) in cases {
+        let mut request = complete_histogram_request(timestamp);
+        mark_stale(&mut request, suffixes, le);
+
+        let rows = fold_keeping_stale_markers(request);
+
+        assert_eq!(rows.len(), 1, "{suffixes:?} {le:?}: {rows:?}");
+        let row = &rows[0];
+        assert_eq!(row.metric_type, "histogram");
+        assert!(is_stale_marker(row.value), "{suffixes:?} {le:?}");
+        assert_eq!(row.histogram_bounds, vec![0.5, 1.0]);
+        assert_eq!(row.histogram_counts, vec![0, 0, 0]);
+        assert_eq!(row.count, 0);
+        assert_eq!(row.series_fingerprint, live[0].series_fingerprint);
+    }
 }
 
 #[test]

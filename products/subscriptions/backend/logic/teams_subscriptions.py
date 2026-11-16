@@ -1,3 +1,4 @@
+import re
 from typing import Any
 
 from django.conf import settings
@@ -37,6 +38,28 @@ TEAMS_WEBHOOK_URL_ERROR = (
 # envelope, the image URLs and the actions. Counting characters instead would let a card of emoji
 # or non-Latin text pass this check and still be rejected on the wire.
 TEAMS_CARD_TEXT_BUDGET = 20000
+
+
+_INLINE_CODE = re.compile(r"(?<!`)`([^`\n]+)`(?!`)")
+
+
+_FENCE = re.compile(r"^ {0,3}(`{3,}|~{3,})")
+
+
+def bold_inline_code(markdown: str) -> str:
+    """Teams TextBlocks render no inline code, so summary and report code spans would show their backticks.
+
+    Lines inside a fenced code block stay as written, so a code example keeps its backticks.
+    """
+    lines = markdown.split("\n")
+    fence = ""
+    for index, line in enumerate(lines):
+        opening = _FENCE.match(line)
+        if opening and (not fence or opening.group(1).startswith(fence)):
+            fence = "" if fence else opening.group(1)
+        elif not fence:
+            lines[index] = _INLINE_CODE.sub(r"**\1**", line)
+    return "\n".join(lines)
 
 
 def teams_byte_size(text: str) -> int:
@@ -136,7 +159,9 @@ def build_teams_subscription_card(
     if change_summary:
         # The summary is LLM output over customer data, so it is defanged the same way the AI
         # report is before it reaches a surface that turns a URL into a link.
-        summary = fit_to_teams_budget(f"**AI summary**\n\n{strip_external_links_markdown(change_summary)}", remaining)
+        summary = fit_to_teams_budget(
+            f"**AI summary**\n\n{strip_external_links_markdown(bold_inline_code(change_summary))}", remaining
+        )
         body.append(teams_text_block(summary))
         remaining -= teams_byte_size(summary)
     elif summary_skipped_over_budget:

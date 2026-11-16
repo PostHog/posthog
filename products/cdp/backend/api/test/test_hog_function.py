@@ -1843,6 +1843,25 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             "bytecode": ["_H", HOGQL_BYTECODE_VERSION, 32, "email", 32, "properties", 32, "person", 1, 3],
         }
 
+    @parameterized.expand(
+        [
+            ("missing_ttl", {"threshold": 20, "hash": "{person.properties.email}"}, "ttl"),
+            ("missing_hash", {"ttl": 60, "threshold": 20}, "hash"),
+        ]
+    )
+    def test_patch_rejects_incomplete_masking_config(self, _name, masking, missing_field):
+        created = self.client.post(f"/api/projects/{self.team.id}/hog_functions/", data=EXAMPLE_FULL)
+        assert created.status_code == status.HTTP_201_CREATED, created.json()
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_functions/{created.json()['id']}/",
+            data={"masking": masking},
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["attr"] == f"masking__{missing_field}"
+        assert HogFunction.objects.get(id=created.json()["id"]).masking is None
+
     @patch("posthog.permissions.posthoganalytics.feature_enabled", return_value=True)
     def test_loads_status_when_enabled_and_available(self, *args):
         with patch("posthog.plugins.plugin_server_api.internal_requests.get") as mock_get:
@@ -3814,19 +3833,41 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         assert response.json()["execution_order"] == MAX_EXECUTION_ORDER
 
-    def test_rearrange_rejects_execution_order_above_column_max(self):
+    @parameterized.expand(
+        [
+            ("order_above_column_max", lambda id: {id: MAX_EXECUTION_ORDER + 1}, "less than or equal to"),
+            ("key_not_a_uuid", lambda id: {id: 5, "not-a-uuid": 2}, "'not-a-uuid' is not a valid hog function UUID"),
+            ("same_id_in_two_cases", lambda id: {id.upper(): 2, id: 3}, "'{id}' is listed more than once"),
+        ]
+    )
+    def test_rearrange_rejects_invalid_orders_without_writing(self, _name, build_orders, expected_detail):
         function = HogFunction.objects.create(
             team=self.team, name="Transform", type="transformation", hog="return event", execution_order=1
         )
 
         response = self.client.patch(
             f"/api/projects/{self.team.id}/hog_functions/rearrange/",
-            data={"orders": {str(function.id): MAX_EXECUTION_ORDER + 1}},
+            data={"orders": build_orders(str(function.id))},
         )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert expected_detail.format(id=function.id) in response.json()["detail"]
         function.refresh_from_db()
         assert function.execution_order == 1
+
+    def test_rearrange_updates_function_named_by_uppercase_id(self):
+        function = HogFunction.objects.create(
+            team=self.team, name="Transform", type="transformation", hog="return event", execution_order=1
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_functions/rearrange/",
+            data={"orders": {str(function.id).upper(): 5}},
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        function.refresh_from_db()
+        assert function.execution_order == 5
 
     def test_create_in_folder(self):
         response = self.client.post(

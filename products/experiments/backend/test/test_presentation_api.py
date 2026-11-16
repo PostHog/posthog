@@ -12,6 +12,7 @@ from unittest.mock import ANY, AsyncMock, MagicMock, patch
 from django.core.cache import cache
 from django.db import connection
 from django.db.models import F
+from django.test import override_settings
 from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from django.utils import timezone
@@ -889,6 +890,9 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
                 "ensure_experience_continuity": False,
             },
         )
+        if _name == "condition_added_after_launch":
+            conditions = next(c for c in health["checks"] if c["key"] == "release_conditions_changed_mid_run")
+            self.assertEqual([row["before_exposure"] for row in conditions["rows"]], [False])
 
     @parameterized.expand(
         [
@@ -1061,20 +1065,20 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
 
     @parameterized.expand(
         [
-            ("staff_session", True, None, status.HTTP_200_OK, ("read", [120, 880], "ok", "ok")),
+            ("staff_session", True, None, status.HTTP_200_OK, (True, True, "read", [120, 880], "ok", "ok")),
             (
                 "staff_token_without_query_scope",
                 True,
                 ["experiment:read", "activity_log:read"],
                 status.HTTP_200_OK,
-                ("no_query_access", None, "ok", "skipped"),
+                (False, None, "no_query_access", None, "ok", "skipped"),
             ),
             (
                 "staff_denied_a_flag_call_property",
                 True,
                 None,
                 status.HTTP_200_OK,
-                ("denied_properties", None, "ok", "ok"),
+                (True, True, "denied_properties", None, "ok", "ok"),
                 "$feature_flag_reason",
             ),
             (
@@ -1082,7 +1086,7 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
                 True,
                 None,
                 status.HTTP_200_OK,
-                ("read", [120, 880], "ok", "skipped"),
+                (True, True, "read", [120, 880], "ok", "skipped"),
                 "$lib",
             ),
             ("not_staff", False, None, status.HTTP_403_FORBIDDEN, None),
@@ -1094,7 +1098,7 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         is_staff: bool,
         token_scopes: list[str] | None,
         expected_status: int,
-        expected: tuple[str, list[int] | None, str, str] | None,
+        expected: tuple[bool, bool | None, str, list[int] | None, str, str] | None,
         denied_property: str | None = None,
     ) -> None:
         self.user.is_staff = is_staff
@@ -1129,17 +1133,12 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
             [(condition["number"], condition["pinned_variant"]) for condition in inputs["flag"]["release_conditions"]],
             [(1, "test"), (2, None)],
         )
+        self.assertEqual(inputs["exposure_events"]["required_flag_key"], f"health-inputs-{_name}")
+        traffic = inputs["condition_set_traffic"]
         self.assertEqual(
             (
                 inputs["flag_last_called_at"] is not None,
                 inputs["flag_called_during_run"],
-                inputs["exposure_events"]["required_flag_key"],
-            ),
-            (True, True, f"health-inputs-{_name}"),
-        )
-        traffic = inputs["condition_set_traffic"]
-        self.assertEqual(
-            (
                 inputs["condition_set_traffic_status"],
                 [people["people"] for people in traffic["people_by_set"]] if traffic else None,
                 inputs["project"]["team_defaults"]["status"],
@@ -7372,6 +7371,8 @@ class TestExperimentAuxiliaryEndpoints(_HoistFlagConfigClientMixin, ClickhouseTe
             cohort = response.json()
         self.assertFalse(cohort["is_calculating"], f"Cohort {cohort['id']} is still calculating")
 
+    # The test writes its flag calls to events only, and the native JSON events table reads them from flag_evaluations.
+    @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False)
     @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
     def test_create_exposure_cohort_for_experiment(self, patch_on_commit: MagicMock):
         # From mode 1 on, the cohorts API rejects new criteria on $feature_flag_called, and the exposure cohort must still save.

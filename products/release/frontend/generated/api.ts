@@ -10,6 +10,8 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  */
 import type {
     BroadcastOptionApi,
+    ImportAllResponseApi,
+    MergeReleasesApi,
     PaginatedReleaseDTOListApi,
     PatchedUpdateReleaseApi,
     ReleaseDTOApi,
@@ -73,7 +75,7 @@ export const getReleasesPartialUpdateUrl = (projectId: string, id: string) => {
 }
 
 /**
- * Change the name, description, owner or linked flags of a release.
+ * Change the name, description, owner or linked flags, broadcasts, surveys and insights of a release.
  */
 export const releasesPartialUpdate = async (
     projectId: string,
@@ -100,6 +102,27 @@ export const releasesDestroy = async (projectId: string, id: string, options?: R
     return apiMutator<void>(getReleasesDestroyUrl(projectId, id), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+export const getReleasesMergeCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/releases/${id}/merge/`
+}
+
+/**
+ * Merge other releases into this one. This release keeps its name, gains their links, then they are deleted.
+ */
+export const releasesMergeCreate = async (
+    projectId: string,
+    id: string,
+    mergeReleasesApi: MergeReleasesApi,
+    options?: RequestInit
+): Promise<ReleaseDTOApi> => {
+    return apiMutator<ReleaseDTOApi>(getReleasesMergeCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(mergeReleasesApi),
     })
 }
 
@@ -133,5 +156,22 @@ export const releasesBroadcastSearchRetrieve = async (
     return apiMutator<BroadcastOptionApi[]>(getReleasesBroadcastSearchRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getReleasesImportAllCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/releases/import_all/`
+}
+
+/**
+ * Set up releases for the whole project once: one per active flag. Later calls create nothing.
+ */
+export const releasesImportAllCreate = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<ImportAllResponseApi> => {
+    return apiMutator<ImportAllResponseApi>(getReleasesImportAllCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
     })
 }

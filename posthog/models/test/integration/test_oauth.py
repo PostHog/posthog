@@ -41,8 +41,6 @@ from posthog.models.integration import (
     refresh_backoff_active,
 )
 from posthog.models.integration.model import integration_model
-from posthog.models.integration.oauth import posthog_slack_scope
-from posthog.schema_enums import SlackIntegrationScope, SlackIntegrationScopeInReview
 
 
 def get_db_field_value(field, model_id):
@@ -59,27 +57,15 @@ def test_slack_oauth_requests_the_recently_approved_scopes_on_every_instance():
 
     requested = set(POSTHOG_SLACK_SCOPE.split(","))
 
-    assert {"assistant:write", "im:history", "canvases:write", "files:write", "channels:manage"} <= requested
-
-
-@pytest.mark.parametrize(
-    "debug, cloud_deployment, requests_in_review",
-    [
-        (False, "US", False),
-        (False, "EU", False),
-        (False, None, False),
-        (False, "DEV", True),
-        (True, None, True),
-    ],
-)
-def test_slack_oauth_requests_in_review_scopes_only_on_dev_and_local(
-    debug: bool, cloud_deployment: str | None, requests_in_review: bool
-) -> None:
-    with override_settings(DEBUG=debug, CLOUD_DEPLOYMENT=cloud_deployment):
-        requested = set(posthog_slack_scope().split(","))
-
-    assert {scope.value for scope in SlackIntegrationScope} <= requested
-    assert ({scope.value for scope in SlackIntegrationScopeInReview} <= requested) is requests_in_review
+    assert {
+        "assistant:write",
+        "im:history",
+        "canvases:read",
+        "canvases:write",
+        "channels:join",
+        "files:write",
+        "channels:manage",
+    } <= requested
 
 
 class TestOauthIntegrationModel(BaseTest):
@@ -1134,6 +1120,27 @@ class TestOauthIntegrationModel(BaseTest):
             ("meta_shape_on_other_kind", 400, {"error": {"code": 190}}, "hubspot", "other"),
             ("meta_non_grant_error_code", 400, {"error": {"type": "OAuthException", "code": 10}}, "meta-ads", "other"),
             ("meta_190_5xx_is_outage", 502, {"error": {"code": 190}}, "meta-ads", "http_5xx"),
+            (
+                "stripe_app_rejected",
+                400,
+                {"error": "invalid_request", "error_description": "Authorization not supported for this app"},
+                "stripe",
+                "app_rejected",
+            ),
+            (
+                "stripe_other_invalid_request",
+                400,
+                {"error": "invalid_request", "error_description": "Missing required param: refresh_token."},
+                "stripe",
+                "other",
+            ),
+            (
+                "stripe_app_rejected_shape_on_other_kind",
+                400,
+                {"error": "invalid_request", "error_description": "Authorization not supported for this app"},
+                "hubspot",
+                "other",
+            ),
         ]
     )
     def test_oauth_refresh_failure_reason(self, _name, status_code, body, kind, expected):
@@ -1430,6 +1437,9 @@ class TestOauthIntegrationModel(BaseTest):
             ("server_error", [(500, {"error": {"type": "api_error"}})], False),
             ("rate_limited", [(429, {"error": {"type": "rate_limit_error"}})], False),
             ("concurrent_request", [(409, {"error": {"type": "idempotency_error"}})], False),
+            ("invalid_client", [(401, {"error": "invalid_client"})], False),
+            ("forbidden", [(403, {"error": {"type": "permission_error"}})], False),
+            ("invalid_grant", [(400, {"error": "invalid_grant"})], True),
             (
                 "rejected",
                 [(400, {"error": "invalid_request", "error_description": "Authorization not supported for this app"})],
@@ -1485,6 +1495,74 @@ class TestOauthIntegrationModel(BaseTest):
         assert all("REFRESH" not in key for key in keys)
         stored = Integration.objects.get(id=integration.id)
         assert stored.sensitive_config["refresh_token"] == "ROTATED_AGAIN"
+        assert "stripe_refresh_key_round" not in stored.config
+
+    @parameterized.expand(
+        [
+            (
+                "replayed_server_error",
+                500,
+                {"error": {"type": "api_error"}},
+                {"Request-Id": "req_original", "Idempotent-Replayed": "true"},
+                "warning",
+                {"stripe_request_id": "req_original", "stripe_idempotent_replayed": True},
+            ),
+            (
+                "fresh_success",
+                200,
+                {"access_token": "REFRESHED", "refresh_token": "ROTATED"},
+                {"Request-Id": "req_fresh"},
+                "info",
+                {"stripe_request_id": "req_fresh", "stripe_idempotent_replayed": False},
+            ),
+        ]
+    )
+    @patch("posthog.models.integration.oauth.logger")
+    @patch("posthog.models.integration.oauth.reload_integrations_on_workers")
+    @patch("posthog.models.integration.oauth.requests.post")
+    def test_stripe_refresh_logs_the_stripe_request_id_and_replay(
+        self, _name, status_code, body, headers, level, expected, mock_post, mock_reload, mock_logger
+    ):
+        res = requests.Response()
+        res.status_code = status_code
+        res._content = json.dumps(body).encode()
+        res.headers.update(headers)
+        mock_post.return_value = res
+        integration = self.create_integration(kind="stripe")
+
+        with self.settings(STRIPE_APP_CLIENT_ID="ca_test_clientid", STRIPE_APP_SECRET_KEY="sk_test_secret"):
+            OauthIntegration(integration).refresh_access_token()
+
+        assert getattr(mock_logger, level).call_args.kwargs.items() >= expected.items()
+
+    @parameterized.expand(
+        [
+            ("invalid_client", 401, {"error": "invalid_client"}),
+            ("forbidden", 403, {"error": {"type": "permission_error"}}),
+        ]
+    )
+    @patch("posthog.models.integration.oauth.reload_integrations_on_workers")
+    @patch("posthog.models.integration.oauth.requests.post")
+    def test_stripe_refresh_recovers_a_replayed_success_after_an_authentication_failure(
+        self, _name, status_code, body, mock_post, mock_reload
+    ):
+        lost_key = hashlib.sha256(b"REFRESH").hexdigest()
+        # Stripe rolled the token and saved the success under the key, but the response was lost.
+        saved = MagicMock(status_code=200, text="{}")
+        saved.json.return_value = {"access_token": "REFRESHED", "refresh_token": "ROTATED"}
+        failure = MagicMock(status_code=status_code, text=json.dumps(body))
+        failure.json.return_value = body
+        mock_post.side_effect = [failure, saved]
+        integration = self.create_integration(kind="stripe")
+
+        with self.settings(STRIPE_APP_CLIENT_ID="ca_test_clientid", STRIPE_APP_SECRET_KEY="sk_test_secret"):
+            OauthIntegration(integration).refresh_access_token()
+            OauthIntegration(Integration.objects.get(id=integration.id)).refresh_access_token()
+
+        keys = [call.kwargs["headers"]["Idempotency-Key"] for call in mock_post.call_args_list]
+        assert keys == [lost_key, lost_key]
+        stored = Integration.objects.get(id=integration.id)
+        assert stored.sensitive_config["refresh_token"] == "ROTATED"
         assert "stripe_refresh_key_round" not in stored.config
 
     @patch("posthog.models.integration.oauth.requests.post")

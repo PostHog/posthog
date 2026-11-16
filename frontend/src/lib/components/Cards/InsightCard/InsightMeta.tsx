@@ -2,37 +2,33 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import React, { useMemo, useState } from 'react'
 
-import { IconChevronRight, IconClock, IconPulse, IconThumbsDown, IconThumbsUp, IconWarning } from '@posthog/icons'
+import { IconClock, IconPulse, IconThumbsDown, IconThumbsUp } from '@posthog/icons'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import { CardMeta } from 'lib/components/Cards/CardMeta'
 import { CardMetaRefreshButton } from 'lib/components/Cards/CardMetaRefreshButton'
 import { CompactInfoPopover } from 'lib/components/Cards/InsightCard/CompactInfoPopover'
-import { DashboardTileRefreshDataButton } from 'lib/components/Cards/InsightCard/DashboardTileRefreshDataButton'
 import { TopHeading } from 'lib/components/Cards/InsightCard/TopHeading'
+import { QuillCardMeta } from 'lib/components/Cards/QuillCardMeta'
+import { QuillCardMetaRefreshButton } from 'lib/components/Cards/QuillCardMetaRefreshButton'
 import type { DisplayOptionTab } from 'lib/components/ChartOptions/displayOptions'
 import { useDisplayOptions } from 'lib/components/ChartOptions/useDisplayOptions'
-import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
+import { useQuillSurface } from 'lib/components/QuillSurface/quillSurfaceContext'
 import { captureImageLogic } from 'lib/components/Scenes/InsightOrDashboard/captureImageLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
-import { IconLink } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
-import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
 import { LemonTableLoader } from 'lib/lemon-ui/LemonTable/LemonTableLoader'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner'
-import { Splotch, SplotchColor } from 'lib/lemon-ui/Splotch'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { reportDashboardInsightMetaUpdated } from 'scenes/dashboard/dashboardEvents'
 import { getEffectiveDateOverride } from 'scenes/dashboard/dashboardUtils'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
@@ -77,18 +73,19 @@ import {
 } from 'products/alerts/frontend/logic/insightAlertsLogic'
 import type { AlertType } from 'products/alerts/frontend/types'
 import { ManageAlertsModal } from 'products/alerts/frontend/views/ManageAlertsModal'
-import { dataRetentionBannerLogic } from 'products/product_analytics/frontend/insights/dataRetention/dataRetentionBannerLogic'
-import { exceedsRetention } from 'products/product_analytics/frontend/insights/dataRetention/exceedsRetention'
 import { insightDisplayOptions } from 'products/product_analytics/frontend/insights/editor/insightDisplayOptions'
 
-import { DashboardInsightDisplayOptions } from './DashboardInsightDisplayOptions'
 import { useDashboardVisualizationOptions } from './dashboardVisualizationOptions'
 import type { DashboardVisualizationPersistence } from './dashboardVisualizationOptions'
 import { dashboardWidgetMenusLogic } from './dashboardWidgetMenusLogic'
-import { DashboardWidgetPlacementMenus } from './DashboardWidgetPlacementMenus'
 import { InsightCardProps } from './InsightCard'
 import { insightCardCaptureTarget } from './insightCardImageCapture'
+import type { InsightCardMenu } from './insightCardMenu'
+import { InsightCardMoreButtons } from './InsightCardMoreButtons'
 import { InsightDetails } from './InsightDetails'
+import { QuillCompactInfoPopover } from './QuillCompactInfoPopover'
+import { QuillInsightCardMenuItems } from './QuillInsightCardMenuItems'
+import { QuillInsightMetaContent } from './QuillInsightMetaContent'
 
 interface InsightMetaProps extends Pick<
     InsightCardProps,
@@ -230,7 +227,6 @@ function InsightMetaBody({
         })
     )
     const { samplingFactor, hasDataWarehouseSeries } = useValues(insightVizDataLogic(insightLogicProps))
-    const { retentionApplies, retentionMonths, retentionPeriodLabel } = useValues(dataRetentionBannerLogic)
     const dashboardWidgetMenusLogicProps = {
         instanceKey: insight.short_id,
         dashboardId,
@@ -242,6 +238,7 @@ function InsightMetaBody({
     const { updateInsightDirect } = useActions(insightsModel)
     const { reportInsightResultsCopiedToClipboard } = useActions(eventUsageLogic)
     const { featureFlags } = useValues(featureFlagLogic)
+    const quillSurface = useQuillSurface()
 
     const showCompactTile =
         placement === DashboardPlacement.Dashboard ||
@@ -258,20 +255,6 @@ function InsightMetaBody({
     // The ignore flag is surfaced by its own notice, so it alone shouldn't trigger the overrides warning.
     const hasTileOverrides = Object.keys(tileFiltersOverride ?? {}).some((key) => key !== 'ignoreDashboardFilters')
     const dateOverride = getEffectiveDateOverride(insight.filter_override_context, filtersOverride, tileFiltersOverride)
-    const showsDataRetentionWarning =
-        retentionApplies &&
-        placement !== DashboardPlacement.Public &&
-        placement !== DashboardPlacement.Export &&
-        exceedsRetention({
-            query: insight.query,
-            dateFromOverride: dateOverride.dateFromOverride,
-            resolvedDateFrom: insightData?.resolved_date_range?.date_from,
-            retentionMonths,
-        })
-    const dataRetentionWarning =
-        showsDataRetentionWarning && retentionPeriodLabel
-            ? `This insight's date range goes beyond your ${retentionPeriodLabel} data retention, so events older than that aren't included.`
-            : null
     const topHeadingProps = {
         query: insight.query,
         lastRefresh: insight.last_refresh,
@@ -340,7 +323,6 @@ function InsightMetaBody({
         savingDisplayOptions,
     })
 
-    const hasTileStyleActions = !!(showCompactTile && toggleShowDescription && insight.description) || !!updateColor
     const canShowCopyToDashboardTile = showCompactTile && !!copyToDashboard && canViewInsight
     const hasDashboardPlacementActions = canShowCopyToDashboardTile || !!moveToDashboard || !!removeFromDashboard
 
@@ -376,8 +358,26 @@ function InsightMetaBody({
         !!insight.id &&
         !!onCreateAnomalyAlert
 
+    const showQuillCard = quillSurface && showCompactTile
+
     // If user can't view the insight, show minimal interface
     if (!canViewInsight) {
+        if (showQuillCard) {
+            return (
+                <QuillCardMeta
+                    ribbonColor={ribbonColor}
+                    onMouseDown={onDragHandleMouseDown}
+                    content={
+                        <QuillInsightMetaContent
+                            title="Access denied"
+                            fallbackTitle={summary}
+                            loading={loading}
+                            loadingQueued={loadingQueued}
+                        />
+                    }
+                />
+            )
+        }
         return (
             <CardMeta
                 compact={showCompactTile}
@@ -433,15 +433,22 @@ function InsightMetaBody({
 
     // Gate the hover icon on `showEditingControls` so it doesn't appear on public/export
     // dashboards, matching the "⋯" menu (which is already gated there).
-    const refreshControl =
-        refresh && showEditingControls && !tileRefreshing ? (
-            <CardMetaRefreshButton
-                onRefresh={() => refresh()}
-                lastRefresh={insight.last_refresh}
-                disabledReason={refreshDisabledReason}
-                dataAttr="insight-card-refresh"
-            />
-        ) : null
+    const showRefreshControl = refresh && showEditingControls && !tileRefreshing
+    const refreshControl = !showRefreshControl ? null : showQuillCard ? (
+        <QuillCardMetaRefreshButton
+            onRefresh={() => refresh()}
+            lastRefresh={insight.last_refresh}
+            disabledReason={refreshDisabledReason}
+            dataAttr="insight-card-refresh"
+        />
+    ) : (
+        <CardMetaRefreshButton
+            onRefresh={() => refresh()}
+            lastRefresh={insight.last_refresh}
+            disabledReason={refreshDisabledReason}
+            dataAttr="insight-card-refresh"
+        />
+    )
 
     // On compact dashboard tiles the date just mirrors the dashboard's own range unless the
     // tile overrides it, so suppress the redundant label and only keep it for tile-level overrides.
@@ -498,6 +505,191 @@ function InsightMetaBody({
         )
     }
 
+    const placementActions = {
+        destinations: copyToDestinations,
+        onMoveToDashboard: moveToDashboard,
+        tileGroupMoveOptions,
+        onMoveToTileGroup: moveToTileGroup,
+        onCopyToDashboard: canShowCopyToDashboardTile ? copyToDashboard : undefined,
+    }
+    const menu: InsightCardMenu = {
+        view: canViewInsight
+            ? {
+                  url: insightViewUrl,
+                  onCopyLink: copyInsightLink,
+                  copyLinkDataAttr: dashboardId
+                      ? 'copy-insight-link-from-dashboard'
+                      : 'copy-insight-link-from-card-list-view',
+              }
+            : null,
+        edit: canEditInsight
+            ? {
+                  url: inInsightProject(
+                      isDataVisualizationNode(insight.query) && insight.query.kind !== NodeKind.BIVisualizationNode
+                          ? urls.sqlEditor({ insightShortId: short_id, dashboard: dashboardId ?? undefined })
+                          : urls.insightEdit(short_id, dashboardId)
+                  ),
+                  overrideWarning: getOverrideWarningPropsForButton(insight.query, filtersOverride, variablesOverride),
+              }
+            : null,
+        rename: canEditInsight && rename ? rename : null,
+        setOverride: canEditInsight && tile ? () => setOverride?.() : null,
+        duplicate: duplicate
+            ? {
+                  onClick: duplicate,
+                  dataAttr: dashboardId ? 'duplicate-insight-from-dashboard' : 'duplicate-insight-from-card-list-view',
+              }
+            : null,
+        openAlerts:
+            showDashboardAlertsMenuItem && insight.id
+                ? () => {
+                      void loadDeferredInsightAlerts()
+                      setIsManageAlertsModalOpen(true)
+                  }
+                : null,
+        displayOptions: showDisplayOptionsMenu ? { visualizationItems, tabs: displayOptionTabs } : null,
+        viewerPlacement:
+            canShowCopyToDashboardTile && !canEditCurrentDashboard
+                ? { destinations: copyToDestinations, onCopyToDashboard: copyToDashboard }
+                : null,
+        dashboard: canEditCurrentDashboard
+            ? {
+                  description:
+                      showCompactTile && toggleShowDescription && !!insight.description
+                          ? { shown: tile?.show_description !== false, toggle: toggleShowDescription }
+                          : null,
+                  color: updateColor ? { current: ribbonColor || InsightColor.White, update: updateColor } : null,
+                  placement: hasDashboardPlacementActions ? { ...placementActions, removeFromDashboard } : null,
+              }
+            : null,
+        deleteInsight:
+            canEditInsight && !removeFromDashboard && deleteWithUndo
+                ? () => {
+                      void (async () => {
+                          try {
+                              await deleteWithUndo()
+                          } catch (error: any) {
+                              lemonToast.error(`Failed to delete insight meta: ${error.detail}`)
+                          }
+                      })()
+                  }
+                : null,
+        export: exportContext
+            ? {
+                  items: [
+                      {
+                          export_format: ExporterFormat.PNG,
+                          insight: insight.id,
+                          dashboard: insightLogicProps.dashboardId,
+                          export_context: exportContext,
+                      },
+                      { export_format: ExporterFormat.CSV, export_context: exportContext },
+                      { export_format: ExporterFormat.XLSX, export_context: exportContext },
+                  ],
+                  copyToClipboardItems: showCopyTableData
+                      ? [
+                            {
+                                title: 'CSV',
+                                onClick: () => {
+                                    if (!copyTableAdapter) {
+                                        return
+                                    }
+                                    copyTableData(copyTableAdapter.toTableData(), ExporterFormat.CSV)
+                                    reportInsightResultsCopiedToClipboard(
+                                        'csv',
+                                        insight.id ?? null,
+                                        dashboardId ?? null
+                                    )
+                                },
+                                disabledReason: copyTableAdapter ? undefined : 'No data to copy yet',
+                                'data-attr': 'insight-card-copy-as-csv',
+                            },
+                        ]
+                      : undefined,
+              }
+            : null,
+        copyImage: {
+            onClick: () => copyImage(insightCardCaptureTarget(insight, tile, dashboardId)),
+            disabledReason: copyImageDisabledReason,
+        },
+        refresh: refresh
+            ? { onRefresh: refresh, disabledReason: refreshMenuDisabledReason, lastRefresh: insight.last_refresh }
+            : null,
+    }
+    const menuTooltip = canEditInsight
+        ? 'Rename, duplicate, export, copy as PNG, refresh and more…'
+        : 'Duplicate, export, copy as PNG, refresh and more…'
+
+    const metaContentProps: InsightMetaContentProps = {
+        link: insightViewUrl,
+        title: name,
+        fallbackTitle: summary,
+        description: insight.description,
+        loading,
+        loadingQueued,
+        tags: insight.tags,
+        compact: showCompactTile,
+        showDescription: tile?.show_description !== false,
+        queryScanTooltip,
+        warehouseSyncTooltip,
+        queryScanActionable: queryScanHasActionableFinding(scanFindings),
+    }
+    const infoPopoverProps = {
+        onVisibilityChange: onInfoVisibilityChange,
+        popoverTopHeading: popoverTopHeadingEl ?? topHeadingEl,
+        metaTitle: name,
+        metaDescription: metaDescriptionEl,
+        metaDescriptionText: insight.description || '',
+        onMetaSave,
+        metaDetails: metaDetailsEl,
+    }
+    const topHeading = contextHeading ? (
+        <span className="flex items-center gap-2 min-w-0">
+            {contextHeading}
+            {topHeadingEl}
+        </span>
+    ) : (
+        topHeadingEl
+    )
+    const manageAlertsModal =
+        showDashboardAlertsMenuItem && insight.id ? (
+            <ManageAlertsModal
+                isOpen={isManageAlertsModalOpen}
+                onClose={() => setIsManageAlertsModalOpen(false)}
+                insightLogicProps={insightLogicProps}
+                insightId={insight.id}
+                insightShortId={short_id as InsightShortId}
+                canCreateAlertForInsight={canCreateAlertForInsight}
+                onCreateAlert={onCreateAlert}
+                onEditAlert={onEditAlert}
+                insightQuery={query}
+                deferInitialAlertsLoad
+            />
+        ) : null
+
+    if (showQuillCard) {
+        return (
+            <>
+                <QuillCardMeta
+                    headerStatus={headerStatus}
+                    ribbonColor={ribbonColor}
+                    onMouseDown={onDragHandleMouseDown}
+                    topHeading={topHeading}
+                    content={
+                        <QuillInsightMetaContent
+                            {...metaContentProps}
+                            infoPopover={<QuillCompactInfoPopover {...infoPopoverProps} />}
+                        />
+                    }
+                    menuItems={showEditingControls ? <QuillInsightCardMenuItems menu={menu} /> : null}
+                    menuTooltip={menuTooltip}
+                    refreshControl={refreshControl}
+                />
+                {manageAlertsModal}
+            </>
+        )
+    }
+
     return (
         <>
             <CardMeta
@@ -510,45 +702,12 @@ function InsightMetaBody({
                 areDetailsShown={areDetailsShown}
                 detailsTooltip="Show insight details, such as creator, last edit, and applied filters."
                 onMouseDown={onDragHandleMouseDown}
-                topHeading={
-                    contextHeading ? (
-                        <span className="flex items-center gap-2 min-w-0">
-                            {contextHeading}
-                            {topHeadingEl}
-                        </span>
-                    ) : (
-                        topHeadingEl
-                    )
-                }
+                topHeading={topHeading}
                 popoverTopHeading={popoverTopHeadingEl}
                 content={
                     <InsightMetaContent
-                        link={insightViewUrl}
-                        title={name}
-                        fallbackTitle={summary}
-                        description={insight.description}
-                        loading={loading}
-                        loadingQueued={loadingQueued}
-                        tags={insight.tags}
-                        compact={showCompactTile}
-                        showDescription={tile?.show_description !== false}
-                        dataRetentionWarning={dataRetentionWarning}
-                        queryScanTooltip={queryScanTooltip}
-                        warehouseSyncTooltip={warehouseSyncTooltip}
-                        queryScanActionable={queryScanHasActionableFinding(scanFindings)}
-                        infoPopover={
-                            showCompactTile ? (
-                                <CompactInfoPopover
-                                    onVisibilityChange={onInfoVisibilityChange}
-                                    popoverTopHeading={popoverTopHeadingEl ?? topHeadingEl}
-                                    metaTitle={name}
-                                    metaDescription={metaDescriptionEl}
-                                    metaDescriptionText={insight.description || ''}
-                                    onMetaSave={onMetaSave}
-                                    metaDetails={metaDetailsEl}
-                                />
-                            ) : null
-                        }
+                        {...metaContentProps}
+                        infoPopover={showCompactTile ? <CompactInfoPopover {...infoPopoverProps} /> : null}
                     />
                 }
                 metaTitle={name}
@@ -557,267 +716,8 @@ function InsightMetaBody({
                 onMetaSave={onMetaSave}
                 metaDetails={metaDetailsEl}
                 samplingFactor={samplingFactor}
-                moreButtons={
-                    <>
-                        {/* Insight related */}
-                        {canViewInsight && (
-                            <LemonButton
-                                to={insightViewUrl}
-                                fullWidth
-                                sideAction={{
-                                    icon: <IconLink />,
-                                    tooltip: 'Copy link to insight',
-                                    'aria-label': 'Copy link to insight',
-                                    'data-attr': dashboardId
-                                        ? 'copy-insight-link-from-dashboard'
-                                        : 'copy-insight-link-from-card-list-view',
-                                    onClick: copyInsightLink,
-                                }}
-                            >
-                                View
-                            </LemonButton>
-                        )}
-                        {canEditInsight && (
-                            <>
-                                <LemonButton
-                                    to={inInsightProject(
-                                        isDataVisualizationNode(insight.query) &&
-                                            insight.query.kind !== NodeKind.BIVisualizationNode
-                                            ? urls.sqlEditor({
-                                                  insightShortId: short_id,
-                                                  dashboard: dashboardId ?? undefined,
-                                              })
-                                            : urls.insightEdit(short_id, dashboardId)
-                                    )}
-                                    fullWidth
-                                    {...getOverrideWarningPropsForButton(
-                                        insight.query,
-                                        filtersOverride,
-                                        variablesOverride
-                                    )}
-                                >
-                                    Edit
-                                </LemonButton>
-                                {rename && (
-                                    <LemonButton onClick={rename} fullWidth>
-                                        Rename
-                                    </LemonButton>
-                                )}
-                                {tile && (
-                                    <LemonButton onClick={setOverride} fullWidth>
-                                        Set override
-                                    </LemonButton>
-                                )}
-                            </>
-                        )}
-                        {duplicate && (
-                            <LemonButton
-                                onClick={duplicate}
-                                fullWidth
-                                data-attr={
-                                    dashboardId
-                                        ? 'duplicate-insight-from-dashboard'
-                                        : 'duplicate-insight-from-card-list-view'
-                                }
-                            >
-                                Duplicate
-                            </LemonButton>
-                        )}
-                        {showDashboardAlertsMenuItem && insight.id ? (
-                            <LemonButton
-                                onClick={() => {
-                                    void loadDeferredInsightAlerts()
-                                    setIsManageAlertsModalOpen(true)
-                                }}
-                                fullWidth
-                                data-attr="dashboard-insight-manage-alerts"
-                            >
-                                Alerts
-                            </LemonButton>
-                        ) : null}
-                        {showDisplayOptionsMenu && (
-                            <DashboardInsightDisplayOptions
-                                visualizationItems={visualizationItems}
-                                tabs={displayOptionTabs}
-                            />
-                        )}
-
-                        {canShowCopyToDashboardTile && !canEditCurrentDashboard && (
-                            <>
-                                <LemonDivider />
-                                <h5 className="mx-2 my-1">Dashboard</h5>
-                                <DashboardWidgetPlacementMenus
-                                    placementDestinations={copyToDestinations}
-                                    onCopyToDashboard={copyToDashboard}
-                                />
-                            </>
-                        )}
-
-                        {/* Dashboard related */}
-                        {canEditCurrentDashboard && (
-                            <>
-                                <LemonDivider />
-                                {showCompactTile && toggleShowDescription && !!insight.description && (
-                                    <LemonButton onClick={toggleShowDescription} fullWidth>
-                                        {tile?.show_description === false ? 'Show description' : 'Hide description'}
-                                    </LemonButton>
-                                )}
-                                {updateColor && (
-                                    <LemonMenu
-                                        items={Object.values(InsightColor).map((availableColor) => ({
-                                            label: (
-                                                <span className="flex items-center gap-2">
-                                                    {availableColor !== InsightColor.White ? (
-                                                        <Splotch color={availableColor as string as SplotchColor} />
-                                                    ) : null}
-                                                    <span>
-                                                        {availableColor !== InsightColor.White
-                                                            ? capitalizeFirstLetter(availableColor)
-                                                            : 'No color'}
-                                                    </span>
-                                                </span>
-                                            ),
-                                            key: availableColor,
-                                            active: availableColor === (ribbonColor || InsightColor.White),
-                                            onClick: () => {
-                                                updateColor?.(availableColor)
-                                            },
-                                        }))}
-                                        placement="right-start"
-                                        fallbackPlacements={['left-start']}
-                                        closeParentPopoverOnClickInside
-                                    >
-                                        <LemonButton fullWidth sideIcon={<IconChevronRight className="size-3" />}>
-                                            Set color
-                                        </LemonButton>
-                                    </LemonMenu>
-                                )}
-                                {hasDashboardPlacementActions && (
-                                    <>
-                                        {hasTileStyleActions && <LemonDivider />}
-                                        <h5 className="mx-2 my-1">Dashboard</h5>
-                                        <DashboardWidgetPlacementMenus
-                                            placementDestinations={copyToDestinations}
-                                            onMoveToDashboard={moveToDashboard}
-                                            tileGroupMoveOptions={tileGroupMoveOptions}
-                                            onMoveToTileGroup={moveToTileGroup}
-                                            onCopyToDashboard={canShowCopyToDashboardTile ? copyToDashboard : undefined}
-                                        />
-                                        {removeFromDashboard && (
-                                            <LemonButton status="danger" onClick={removeFromDashboard} fullWidth>
-                                                Remove from dashboard
-                                            </LemonButton>
-                                        )}
-                                    </>
-                                )}
-                            </>
-                        )}
-
-                        {/* Insight deletion - separate from dashboard actions */}
-                        {canEditInsight && !removeFromDashboard && deleteWithUndo && (
-                            <>
-                                <LemonDivider />
-                                <LemonButton
-                                    status="danger"
-                                    onClick={() => {
-                                        void (async () => {
-                                            try {
-                                                await deleteWithUndo?.()
-                                            } catch (error: any) {
-                                                lemonToast.error(`Failed to delete insight meta: ${error.detail}`)
-                                            }
-                                        })()
-                                    }}
-                                    fullWidth
-                                >
-                                    Delete insight
-                                </LemonButton>
-                            </>
-                        )}
-
-                        {/* Data related */}
-                        {exportContext ? (
-                            <>
-                                <LemonDivider />
-                                <ExportButton
-                                    fullWidth
-                                    sideIcon={<IconChevronRight className="size-3" />}
-                                    items={[
-                                        {
-                                            export_format: ExporterFormat.PNG,
-                                            insight: insight.id,
-                                            dashboard: insightLogicProps.dashboardId,
-                                            export_context: exportContext,
-                                        },
-                                        {
-                                            export_format: ExporterFormat.CSV,
-                                            export_context: exportContext,
-                                        },
-                                        {
-                                            export_format: ExporterFormat.XLSX,
-                                            export_context: exportContext,
-                                        },
-                                    ]}
-                                    copyToClipboardItems={
-                                        showCopyTableData
-                                            ? [
-                                                  {
-                                                      title: 'CSV',
-                                                      onClick: () => {
-                                                          if (!copyTableAdapter) {
-                                                              return
-                                                          }
-                                                          copyTableData(
-                                                              copyTableAdapter.toTableData(),
-                                                              ExporterFormat.CSV
-                                                          )
-                                                          reportInsightResultsCopiedToClipboard(
-                                                              'csv',
-                                                              insight.id ?? null,
-                                                              dashboardId ?? null
-                                                          )
-                                                      },
-                                                      disabledReason: copyTableAdapter
-                                                          ? undefined
-                                                          : 'No data to copy yet',
-                                                      'data-attr': 'insight-card-copy-as-csv',
-                                                  },
-                                              ]
-                                            : undefined
-                                    }
-                                />
-                            </>
-                        ) : null}
-                        <LemonButton
-                            onClick={() => copyImage(insightCardCaptureTarget(insight, tile, dashboardId))}
-                            disabledReason={copyImageDisabledReason}
-                            tooltip="Copy the tile to your clipboard as a PNG"
-                            fullWidth
-                            data-attr="insight-card-copy-image"
-                        >
-                            Copy as PNG
-                        </LemonButton>
-                        {refresh && (
-                            <DashboardTileRefreshDataButton
-                                onRefresh={refresh}
-                                disabledReason={refreshMenuDisabledReason}
-                                lastRefresh={insight.last_refresh}
-                            />
-                        )}
-                        {/* More */}
-                        {moreButtons && (
-                            <>
-                                <LemonDivider />
-                                {moreButtons}
-                            </>
-                        )}
-                    </>
-                }
-                moreTooltip={
-                    canEditInsight
-                        ? 'Rename, duplicate, export, copy as PNG, refresh and more…'
-                        : 'Duplicate, export, copy as PNG, refresh and more…'
-                }
+                moreButtons={<InsightCardMoreButtons menu={menu} moreButtons={moreButtons} />}
+                moreTooltip={menuTooltip}
                 extraControls={
                     placement !== DashboardPlacement.Public &&
                     (surveyOpportunityInsight || canShowCreateAnomalyAlert || feedbackButtons) ? (
@@ -830,20 +730,7 @@ function InsightMetaBody({
                 }
                 refreshControl={refreshControl}
             />
-            {showDashboardAlertsMenuItem && insight.id ? (
-                <ManageAlertsModal
-                    isOpen={isManageAlertsModalOpen}
-                    onClose={() => setIsManageAlertsModalOpen(false)}
-                    insightLogicProps={insightLogicProps}
-                    insightId={insight.id}
-                    insightShortId={short_id as InsightShortId}
-                    canCreateAlertForInsight={canCreateAlertForInsight}
-                    onCreateAlert={onCreateAlert}
-                    onEditAlert={onEditAlert}
-                    insightQuery={query}
-                    deferInitialAlertsLoad
-                />
-            ) : null}
+            {manageAlertsModal}
         </>
     )
 }
@@ -896,6 +783,23 @@ function InsightMetaExtraControls({
     )
 }
 
+export interface InsightMetaContentProps {
+    title: string
+    fallbackTitle?: string
+    description?: string
+    link?: string
+    loading?: boolean
+    loadingQueued?: boolean
+    tags?: string[]
+    compact?: boolean
+    showDescription?: boolean
+    infoPopover?: JSX.Element | null
+    queryScanTooltip?: JSX.Element | null
+    /** Whether the person can act on a finding. Without one the tile only notes that the query is slow. */
+    queryScanActionable?: boolean
+    warehouseSyncTooltip?: JSX.Element | null
+}
+
 export function InsightMetaContent({
     title,
     fallbackTitle,
@@ -907,32 +811,10 @@ export function InsightMetaContent({
     compact,
     showDescription,
     infoPopover,
-    dataRetentionWarning,
     queryScanTooltip,
     queryScanActionable,
     warehouseSyncTooltip,
-}: {
-    title: string
-    fallbackTitle?: string
-    description?: string
-    link?: string
-    loading?: boolean
-    loadingQueued?: boolean
-    tags?: string[]
-    compact?: boolean
-    showDescription?: boolean
-    infoPopover?: JSX.Element | null
-    dataRetentionWarning?: string | null
-    queryScanTooltip?: JSX.Element | null
-    /** Whether the person can act on a finding. Without one the tile only notes that the query is slow. */
-    queryScanActionable?: boolean
-    warehouseSyncTooltip?: JSX.Element | null
-}): JSX.Element {
-    const dataRetentionIndicator = dataRetentionWarning ? (
-        <Tooltip title={dataRetentionWarning}>
-            <IconWarning className="ml-1.5 text-base shrink-0 text-warning" />
-        </Tooltip>
-    ) : null
+}: InsightMetaContentProps): JSX.Element {
     const queryScanIndicator = queryScanTooltip ? (
         <Tooltip title={queryScanTooltip}>
             {queryScanActionable ? (
@@ -954,7 +836,7 @@ export function InsightMetaContent({
             </LemonTag>
         </Tooltip>
     ) : null
-    const hasTitleIndicator = !!(infoPopover || dataRetentionIndicator || queryScanIndicator || warehouseSyncIndicator)
+    const hasTitleIndicator = !!(infoPopover || queryScanIndicator || warehouseSyncIndicator)
     const titleContent = (
         <>
             <span className={clsx('text-primary', hasTitleIndicator && 'truncate')}>
@@ -982,7 +864,6 @@ export function InsightMetaContent({
             ) : (
                 titleContent
             )}
-            {dataRetentionIndicator}
             {queryScanIndicator}
             {warehouseSyncIndicator}
             {infoPopover}

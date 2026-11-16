@@ -170,7 +170,7 @@ export interface StamphogPullRequestRoutingApi {
     readonly scope: RoutingScopeEnumApi | null
     /** The head commit the record is for. It can be older than the pull request head. */
     readonly head_sha: string
-    /** What started the record: 'opened', 'ready_for_review', 'verdict:<outcome>' or 'safety_net'. */
+    /** What started the record: 'opened', 'ready_for_review', 'verdict:<outcome>', 'external_review', 'approval_retracted' or 'safety_net'. */
     readonly trigger: string
     /** True when a 'routing' or 'requested' claim is older than the takeover limit. The task can still be alive, and a later delivery does not always finish an expired 'requested' claim. */
     readonly claim_expired: boolean
@@ -503,6 +503,7 @@ export interface StamphogSyncInstallationResponseApi {
 
 /**
  * * `self_driving` - Self-driving
+ * * `bot_admission` - Bot author
  * * `manual` - Manual
  * * `reviewhog_clean` - Clean PostHog Review
  * * `label` - Label
@@ -512,6 +513,7 @@ export type ReviewTriggerEnumApi = (typeof ReviewTriggerEnumApi)[keyof typeof Re
 
 export const ReviewTriggerEnumApi = {
     SelfDriving: 'self_driving',
+    BotAdmission: 'bot_admission',
     Manual: 'manual',
     ReviewhogClean: 'reviewhog_clean',
     Label: 'label',
@@ -560,7 +562,7 @@ export const ReviewRunVerdictEnumApi = {
  * Allowlisted, content-free slice of ``ReviewRun.gate_result``.
  *
  * The raw gate blob nests ``gates``, ``classification``, and ``policy`` sub-objects that carry
- * repository content — changed-file paths (``safe_migration_files``, ``invalid_folder_files``),
+ * repository content — changed-file paths (``lifted_files``, ``invalid_folder_files``),
  * manifest gate messages, and declared ``policy.scopes`` — which a project member without repo
  * access must not read. Only the terminal decision is exposed.
  */
@@ -637,6 +639,7 @@ export interface ReviewRunApi {
     /** What caused this run to exist: self-driving inbox provenance, a manual request through the API, a clean PostHog Review run (a silent review that posts only an approval), the repo's trigger label, or the repo reviewing every PR event.
      *
      * * `self_driving` - Self-driving
+     * * `bot_admission` - Bot author
      * * `manual` - Manual
      * * `reviewhog_clean` - Clean PostHog Review
      * * `label` - Label
@@ -872,7 +875,7 @@ export interface StamphogRoutingRunApi {
      * * `always` - Always
      * * `fallback` - When stamphog does not approve */
     readonly mode: RoutingModeEnumApi
-    /** What started the run: 'opened', 'ready_for_review', 'verdict:<outcome>' or 'safety_net'. */
+    /** What started the run: 'opened', 'ready_for_review', 'verdict:<outcome>', 'external_review', 'approval_retracted' or 'safety_net'. */
     trigger: string
     /** 'full', or 'pinned' when a stamphog approval asked only the owners of sensitive and new paths.
      *
@@ -992,7 +995,7 @@ export interface StamphogRoutingRunDetailApi {
      * * `always` - Always
      * * `fallback` - When stamphog does not approve */
     readonly mode: RoutingModeEnumApi
-    /** What started the run: 'opened', 'ready_for_review', 'verdict:<outcome>' or 'safety_net'. */
+    /** What started the run: 'opened', 'ready_for_review', 'verdict:<outcome>', 'external_review', 'approval_retracted' or 'safety_net'. */
     trigger: string
     /** 'full', or 'pinned' when a stamphog approval asked only the owners of sensitive and new paths.
      *
@@ -1107,7 +1110,7 @@ export type StamphogReviewRunsListParams = {
      */
     status?: string
     /**
-     * Filter by what caused the run. Leave it unset to include runs from every trigger. 'all' is not a wildcard: it matches only runs in repos that review every pull request event. The other values: 'label' (the repo's trigger label opted the PR in), 'manual' (someone requested the review through the API or MCP), 'reviewhog_clean' (a clean PostHog Review run started a silent review, which posts only an approval), and 'self_driving' (stamphog reviewed a bot-authored PR from the inbox).
+     * Filter by what caused the run. Leave it unset to include runs from every trigger. 'all' is not a wildcard: it matches only runs in repos that review every pull request event. The other values: 'label' (the repo's trigger label opted the PR in), 'manual' (someone requested the review through the API or MCP), 'reviewhog_clean' (a clean PostHog Review run started a silent review, which posts only an approval), 'self_driving' (stamphog reviewed a bot-authored PR from the inbox), and 'bot_admission' (the repo policy names the bot that authored the PR).
      */
     trigger?: StamphogReviewRunsListTrigger
 }
@@ -1117,6 +1120,7 @@ export type StamphogReviewRunsListTrigger =
 
 export const StamphogReviewRunsListTrigger = {
     All: 'all',
+    BotAdmission: 'bot_admission',
     Label: 'label',
     Manual: 'manual',
     ReviewhogClean: 'reviewhog_clean',
