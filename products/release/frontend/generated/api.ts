@@ -10,11 +10,16 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  */
 import type {
     BroadcastOptionApi,
+    CatalogFlagsResponseApi,
+    CatalogReleasesResponseApi,
     ImportAllResponseApi,
+    MergeReleasesApi,
     PaginatedReleaseDTOListApi,
     PatchedUpdateReleaseApi,
     ReleaseDTOApi,
     ReleasesBroadcastSearchRetrieveParams,
+    ReleasesCatalogFlagsRetrieveParams,
+    ReleasesCatalogReleasesRetrieveParams,
     ReleasesListParams,
     WriteReleaseApi,
 } from './api.schemas'
@@ -104,6 +109,27 @@ export const releasesDestroy = async (projectId: string, id: string, options?: R
     })
 }
 
+export const getReleasesMergeCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/releases/${id}/merge/`
+}
+
+/**
+ * Merge other releases into this one. This release keeps its name, gains their links, then they are deleted.
+ */
+export const releasesMergeCreate = async (
+    projectId: string,
+    id: string,
+    mergeReleasesApi: MergeReleasesApi,
+    options?: RequestInit
+): Promise<ReleaseDTOApi> => {
+    return apiMutator<ReleaseDTOApi>(getReleasesMergeCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(mergeReleasesApi),
+    })
+}
+
 export const getReleasesBroadcastSearchRetrieveUrl = (
     projectId: string,
     params?: ReleasesBroadcastSearchRetrieveParams
@@ -132,6 +158,69 @@ export const releasesBroadcastSearchRetrieve = async (
     options?: RequestInit
 ): Promise<BroadcastOptionApi[]> => {
     return apiMutator<BroadcastOptionApi[]>(getReleasesBroadcastSearchRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getReleasesCatalogFlagsRetrieveUrl = (projectId: string, params?: ReleasesCatalogFlagsRetrieveParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/releases/catalog_flags/?${stringifiedParams}`
+        : `/api/projects/${projectId}/releases/catalog_flags/`
+}
+
+/**
+ * List the project's feature flags the caller can see, newest first, with only the fields a list shows.
+ */
+export const releasesCatalogFlagsRetrieve = async (
+    projectId: string,
+    params?: ReleasesCatalogFlagsRetrieveParams,
+    options?: RequestInit
+): Promise<CatalogFlagsResponseApi> => {
+    return apiMutator<CatalogFlagsResponseApi>(getReleasesCatalogFlagsRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getReleasesCatalogReleasesRetrieveUrl = (
+    projectId: string,
+    params?: ReleasesCatalogReleasesRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/releases/catalog_releases/?${stringifiedParams}`
+        : `/api/projects/${projectId}/releases/catalog_releases/`
+}
+
+/**
+ * List the project's releases, newest first, with only the fields a list shows.
+ */
+export const releasesCatalogReleasesRetrieve = async (
+    projectId: string,
+    params?: ReleasesCatalogReleasesRetrieveParams,
+    options?: RequestInit
+): Promise<CatalogReleasesResponseApi> => {
+    return apiMutator<CatalogReleasesResponseApi>(getReleasesCatalogReleasesRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
     })

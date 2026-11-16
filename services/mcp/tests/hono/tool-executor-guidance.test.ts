@@ -18,12 +18,9 @@ vi.mock('@/lib/posthog', async () => {
 })
 
 import { GuidanceEngine } from '@/hono/guidance/engine'
-import {
-    MCP_GUIDANCE_REPLAY_VISION_FLAG,
-    MCP_GUIDANCE_SELF_DRIVING_ACTIVATION_FLAG,
-    MCP_GUIDANCE_SQL_SCHEMA_FLAG,
-    type GuidanceRule,
-} from '@/hono/guidance/rules'
+import type { GuidanceRule } from '@/hono/guidance/rule-schema'
+import { MCP_GUIDANCE_SELF_DRIVING_ACTIVATION_FLAG } from '@/hono/guidance/rules'
+import { MCP_GUIDANCE_REPLAY_VISION_FLAG, MCP_GUIDANCE_SQL_SCHEMA_FLAG } from '@/hono/guidance/rules/sql'
 import { InstructionsBuilder } from '@/hono/instructions'
 import { ToolCatalog } from '@/hono/tool-catalog'
 import { ToolExecutor } from '@/hono/tool-executor'

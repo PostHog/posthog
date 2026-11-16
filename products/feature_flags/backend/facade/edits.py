@@ -9,6 +9,7 @@ these at module level.
 """
 
 import json
+import dataclasses
 from collections import deque
 from collections.abc import Callable, Collection, Hashable, Mapping, Sequence
 from datetime import datetime
@@ -95,6 +96,57 @@ def split_variant_keys(split: Split) -> tuple[str, ...]:
     return tuple(variant.key for variant in split if variant.key)
 
 
+def switchable_shares(served: Split, current: Split) -> dict[str, float] | None:
+    """
+    For each variant key of `served`, the share of its slot that `current` gives to another variant. A person keeps
+    the same hash, so a person who got a variant under `served` gets another one under `current` only when their hash
+    lies in that part of the slot. None when a percentage can't be read, because the slots are then unknown.
+    """
+    served_ranges = _slots(served)
+    current_ranges = _slots(current)
+    if served_ranges is None or current_ranges is None:
+        return None
+    boundaries = sorted({point for slot in (*served_ranges, *current_ranges) for point in (slot.start, slot.end)})
+    shares: dict[str, float] = {}
+    for slot in served_ranges:
+        if slot.key is None or slot.end <= slot.start:
+            continue
+        given_away = sum(
+            upper - lower
+            for lower, upper in zip(boundaries, boundaries[1:])
+            if slot.start <= lower and upper <= slot.end and _owner(current_ranges, (lower + upper) / 2) != slot.key
+        )
+        shares[slot.key] = given_away / (slot.end - slot.start)
+    return shares
+
+
+@frozen
+class _Slot:
+    """A variant's range of the hash on the 0-1 scale, from `start` up to but not including `end`."""
+
+    key: str | None
+    start: float
+    end: float
+
+
+def _slots(split: Split) -> list[_Slot] | None:
+    # The cumulative ranges of `select_variant` in rust/feature-flags/src/flags/v1_bucketing.rs.
+    slots = []
+    cumulative = 0.0
+    for variant in split:
+        if variant.rollout_percentage is None:
+            return None
+        start = cumulative
+        cumulative += variant.rollout_percentage / 100
+        slots.append(_Slot(key=variant.key, start=start, end=cumulative))
+    return slots
+
+
+def _owner(slots: list[_Slot], point: float) -> str | None:
+    # A hash past the last slot gets no variant, which differs from every variant key.
+    return next((slot.key for slot in slots if slot.start <= point < slot.end), None)
+
+
 def _flag_variant(variant: object) -> FlagVariant:
     if not isinstance(variant, dict):
         return FlagVariant(key=None, rollout_percentage=None)
@@ -134,12 +186,20 @@ class ReleaseCondition:
 
 ReleaseConditions = tuple[ReleaseCondition, ...]
 
+# The release conditions of a save as the flag stores them: the `groups` and the `aggregation_group_type_index` of
+# its filters.
+SavedReleaseConditions = Mapping[str, object]
+
 
 @frozen
 class ConditionsChange:
     changed_at: datetime
     before: ReleaseConditions
     after: ReleaseConditions
+    # The conditions as saved, for a reader that needs the values and operators that the parsed sides drop. They
+    # take no part in eq and hash, so that the change stays hashable while it holds dicts.
+    before_filters: SavedReleaseConditions | None = dataclasses.field(default=None, compare=False)
+    after_filters: SavedReleaseConditions | None = dataclasses.field(default=None, compare=False)
 
 
 _MAX_LOOK_ALIKES = 100

@@ -11,6 +11,7 @@ import { finder } from '~/toolbar/shared/vendor/finder'
 import { Experiment, ActionStepType, ExperimentStatus } from '~/types'
 
 import { ActionStepPropertyKey } from './actions/ActionStep'
+import { asToolbarProject, ToolbarProject } from './toolbarProject'
 
 export const TOOLBAR_ID = '__POSTHOG_TOOLBAR__'
 // The browser extension's content script draws its overlay in this host.
@@ -78,6 +79,8 @@ export const PKCE_STORAGE_KEY = '_postHogToolbarPKCE'
 export interface ToolbarAuthParams {
     code: string
     clientId: string
+    /** Null when the PostHog that issued the code does not name the project in the callback. */
+    project: ToolbarProject | null
 }
 
 /**
@@ -99,9 +102,11 @@ export function parseToolbarAuthHash(rawHash: string): ToolbarAuthParams | null 
     if (!codeMatch) {
         return null
     }
+    const projectMatch = hash.match(/__posthog_toolbar=code:[^,]+,client_id:[^,&]+,team_id:(\d+),project_id:(\d+)/)
     return {
         code: codeMatch[1],
         clientId: codeMatch[2],
+        project: projectMatch ? asToolbarProject(projectMatch[1], projectMatch[2]) : null,
     }
 }
 

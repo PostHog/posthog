@@ -840,6 +840,18 @@ CACHES["metrics_variable_options"] = {
     "LOCATION": REDIS_URL,
 }
 
+# Prometheus API usage is deduplicated with SETNX after a query has already succeeded. Short socket
+# deadlines keep a stalled Redis from holding the query response; the event is skipped instead.
+CACHES["metrics_prometheus_usage"] = {
+    **CACHES["default"],
+    "LOCATION": REDIS_URL,
+    "OPTIONS": {
+        **CACHES["default"]["OPTIONS"],
+        "SOCKET_CONNECT_TIMEOUT": 0.2,
+        "SOCKET_TIMEOUT": 0.2,
+    },
+}
+
 # Warehouse destination connect tokens are polled right after they are written, and completion claims a
 # token with SETNX. A lagging replica would report a fresh token as expired, so read from the writer.
 CACHES["warehouse_destination_connect"] = {

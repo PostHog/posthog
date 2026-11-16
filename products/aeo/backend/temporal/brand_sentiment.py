@@ -186,9 +186,7 @@ async def classify_aeo_brand_sentiment(inputs: AEOBrandSentimentInputs) -> dict[
         try:
             results = []
             for offset in range(0, len(texts), CLASSIFY_BATCH):
-                results.extend(
-                    await asyncio.to_thread(sentiment_model.classify, texts[offset : offset + CLASSIFY_BATCH])
-                )
+                results.extend(await sentiment_model.classify_in_executor(texts[offset : offset + CLASSIFY_BATCH]))
         except (ImportError, FileNotFoundError) as error:
             return _model_unavailable(inputs, pending, error)
         scored: list[_ScoredAnswer] = []

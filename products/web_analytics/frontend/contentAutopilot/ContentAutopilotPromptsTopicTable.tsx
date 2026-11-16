@@ -1,6 +1,6 @@
 import { LemonTable, LemonTableColumn, Link } from '@posthog/lemon-ui'
 
-import { percentage } from 'lib/utils/numbers'
+import { humanFriendlyNumber, percentage } from 'lib/utils/numbers'
 
 import type { AEOPromptSetTopicCountsApi } from 'products/web_analytics/frontend/generated/api.schemas'
 
@@ -14,7 +14,7 @@ const RateCell = ({ rate, answers }: { rate: number | null; answers: number }): 
         <span className="text-muted">No answers</span>
     ) : (
         <span className="tabular-nums">
-            {percentage(rate, 0)} <span className="text-muted">of {answers}</span>
+            {percentage(rate, 0)} <span className="text-muted">of {humanFriendlyNumber(answers)}</span>
         </span>
     )
 

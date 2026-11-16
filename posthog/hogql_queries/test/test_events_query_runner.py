@@ -1467,11 +1467,13 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 {},
                 EVENTS_FLAG_KEY,
             ),
+            # A filter that mixes flag calls with other events reads the union, which takes new flag calls from
+            # flag_evaluations.
             (
                 "flag_evaluations_only_with_a_second_event_in_the_filter",
                 FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
                 {"event": "$feature_flag_called", "events": ["$pageview"]},
-                EVENTS_FLAG_KEY,
+                FLAG_EVALUATIONS_FLAG_KEY,
             ),
             (
                 "flag_evaluations_only_with_action_steps",
