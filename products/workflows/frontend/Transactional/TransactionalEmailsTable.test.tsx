@@ -148,11 +148,11 @@ describe('TransactionalEmailsTable', () => {
         expect(await screen.findByText(heading)).toBeInTheDocument()
     })
 
-    const loadFlags = (wizardOffered = false): void =>
+    const loadFlags = (wizardOffered = false, codeSendsOn = true): void =>
         featureFlagLogic.actions.setFeatureFlags(
             [FEATURE_FLAGS.WORKFLOWS_EMAIL_FROM_CODE, FEATURE_FLAGS.WORKFLOWS_TRANSACTIONAL_EMAIL_WIZARD],
             {
-                [FEATURE_FLAGS.WORKFLOWS_EMAIL_FROM_CODE]: true,
+                [FEATURE_FLAGS.WORKFLOWS_EMAIL_FROM_CODE]: codeSendsOn,
                 [FEATURE_FLAGS.WORKFLOWS_TRANSACTIONAL_EMAIL_WIZARD]: wizardOffered,
             }
         )
@@ -175,6 +175,9 @@ describe('TransactionalEmailsTable', () => {
                 ...get,
             } as Record<string, any>,
         })
+        if (!flagsLoaded) {
+            window.localStorage.clear()
+        }
         initKeaTests()
         if (flagsLoaded) {
             loadFlags(wizardOffered)
@@ -346,18 +349,31 @@ describe('TransactionalEmailsTable', () => {
         expect(await screen.findByText(/Your code can send any email/)).toBeInTheDocument()
     })
 
-    it('holds a link from the domain-ready card until feature flags load', async () => {
-        renderWithCodeSends(
-            { '/api/projects/:team_id/messaging_templates/': { results: [receipt] } },
-            { flagsLoaded: false }
-        )
-        expect(await screen.findByText('Receipt')).toBeInTheDocument()
-        act(() => router.actions.push(sendFromCodeGuideUrl()))
-        expect(router.values.searchParams).toEqual({ guide: 'send-from-code' })
+    it.each([
+        ['opens the guide over the list once code sends turn out on', [receipt], 'Receipt', true, true],
+        [
+            'drops the link from an empty tab once code sends turn out off',
+            [],
+            'Create your first transactional email',
+            false,
+            false,
+        ],
+    ])(
+        'holds a link from the domain-ready card until feature flags load, then %s',
+        async (_case, templates, landmark, codeSendsOn, modalOpens) => {
+            renderWithCodeSends(
+                { '/api/projects/:team_id/messaging_templates/': { results: templates } },
+                { flagsLoaded: false }
+            )
+            expect(await screen.findByText(landmark)).toBeInTheDocument()
+            await waitFor(() => expect(transactionalEmailsLogic.values.codeEmails).toEqual([]))
+            act(() => router.actions.push(sendFromCodeGuideUrl()))
+            expect(router.values.searchParams).toEqual({ guide: 'send-from-code' })
 
-        act(() => loadFlags())
+            act(() => loadFlags(false, codeSendsOn))
 
-        expect(await screen.findByText('Send an email from your code')).toBeInTheDocument()
-        expect(router.values.searchParams).toEqual({})
-    })
+            await waitFor(() => expect(router.values.searchParams).toEqual({}))
+            expect(screen.queryByText('Send an email from your code') !== null).toBe(modalOpens)
+        }
+    )
 })

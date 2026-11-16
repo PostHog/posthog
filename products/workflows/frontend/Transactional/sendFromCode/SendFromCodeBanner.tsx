@@ -1,37 +1,29 @@
 import { useValues } from 'kea'
 import posthog from 'posthog-js'
-import { useState } from 'react'
 
 import { LemonBanner, LemonModal } from '@posthog/lemon-ui'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { transactionalEmailsLogic } from '../transactionalEmailsLogic'
 import { SendFromCodeSetup } from './SendFromCodeSetup'
 import { SendingDomainRow } from './SendingDomainRow'
-import { useSendFromCodeGuideLink } from './useSendFromCodeGuideLink'
 
-export function SendFromCodeBanner(): JSX.Element | null {
+export function SendFromCodeBanner({
+    guideOpen,
+    onGuideOpenChange,
+}: {
+    guideOpen: boolean
+    onGuideOpenChange: (open: boolean) => void
+}): JSX.Element | null {
     const { codeEmails, transactionalTemplatesLoading, transactionalTemplatesFailed } =
         useValues(transactionalEmailsLogic)
     const sendFromCodeEnabled = useFeatureFlag('WORKFLOWS_EMAIL_FROM_CODE')
-    const { receivedFeatureFlags } = useValues(featureFlagLogic)
-    const [guideOpen, setGuideOpen] = useState(false)
     const offered =
         sendFromCodeEnabled &&
         codeEmails?.length === 0 &&
         !transactionalTemplatesLoading &&
         !transactionalTemplatesFailed
-    useSendFromCodeGuideLink({
-        surface: 'transactional',
-        settled:
-            receivedFeatureFlags &&
-            (!sendFromCodeEnabled ||
-                (!transactionalTemplatesLoading && (transactionalTemplatesFailed || codeEmails !== null))),
-        offered,
-        onOpen: () => setGuideOpen(true),
-    })
 
     if (!offered) {
         return null
@@ -49,7 +41,7 @@ export function SendFromCodeBanner(): JSX.Element | null {
                     onClick: () => {
                         // pinned: analytics event name
                         posthog.capture('send from code guide opened', { surface: 'transactional' })
-                        setGuideOpen(true)
+                        onGuideOpenChange(true)
                     },
                 }}
             >
@@ -58,7 +50,7 @@ export function SendFromCodeBanner(): JSX.Element | null {
             </LemonBanner>
             <LemonModal
                 isOpen={guideOpen}
-                onClose={() => setGuideOpen(false)}
+                onClose={() => onGuideOpenChange(false)}
                 title="Send an email from your code"
                 width={720}
             >
