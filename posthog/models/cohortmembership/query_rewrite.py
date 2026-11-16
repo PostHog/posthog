@@ -170,9 +170,20 @@ def rewrite_hogql(sql: str) -> Optional[SqlRewrite]:
     return SqlRewrite(before=sql, after=rewritten)
 
 
-def runs_on_posthog(query: dict[str, Any]) -> bool:
-    """False for a query that a direct connection or hosted Trino runs, where `cohort_membership` is another table."""
-    return not query.get("connectionId") and query.get("executionTarget") in (None, "clickhouse")
+def _runs_on_posthog(node: dict[str, Any]) -> bool:
+    # A direct connection or hosted Trino runs the SQL elsewhere, where `cohort_membership` is another table.
+    return not node.get("connectionId") and node.get("executionTarget") in (None, "clickhouse")
+
+
+def rewrite_hogql_node(node: dict[str, Any]) -> tuple[dict[str, Any], Optional[SqlRewrite]]:
+    """Rewrites the HogQL in `node["query"]` when PostHog runs it, for a query node or a view's stored query."""
+    sql = node.get("query")
+    if not isinstance(sql, str) or not _runs_on_posthog(node):
+        return node, None
+    rewrite = rewrite_hogql(sql)
+    if rewrite is None or rewrite.after is None:
+        return node, rewrite
+    return {**node, "query": rewrite.after}, rewrite
 
 
 def rewrite_query_nodes(value: Any) -> tuple[Any, list[SqlRewrite]]:
@@ -188,12 +199,10 @@ def rewrite_query_nodes(value: Any) -> tuple[Any, list[SqlRewrite]]:
     for key, item in value.items():
         rewritten[key], item_rewrites = rewrite_query_nodes(item)
         rewrites.extend(item_rewrites)
-    if rewritten.get("kind") == "HogQLQuery" and isinstance(rewritten.get("query"), str) and runs_on_posthog(rewritten):
-        rewrite = rewrite_hogql(rewritten["query"])
+    if rewritten.get("kind") == "HogQLQuery":
+        rewritten, rewrite = rewrite_hogql_node(rewritten)
         if rewrite is not None:
             rewrites.append(rewrite)
-            if rewrite.after is not None:
-                rewritten["query"] = rewrite.after
     return rewritten, rewrites
 
 

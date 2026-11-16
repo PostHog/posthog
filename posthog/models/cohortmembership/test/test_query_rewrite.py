@@ -67,6 +67,13 @@ class TestRewriteHogQL(SimpleTestCase):
                 None,
             ),
             ("select_star", "SELECT * FROM cohort_membership", True, None),
+            (
+                "reads_status_qualified_by_table_name",
+                "SELECT cohort_membership.status FROM cohort_membership",
+                True,
+                None,
+            ),
+            ("aliased_star", "SELECT cm.* FROM cohort_membership cm", True, None),
             ("unparseable", "SELECT FROM cohort_membership WHERE", True, None),
             ("leading_byte_order_mark", "﻿SELECT person_id FROM cohort_membership WHERE cohort_id = 7", True, None),
             (

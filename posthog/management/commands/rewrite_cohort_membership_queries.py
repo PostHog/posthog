@@ -36,7 +36,7 @@ class Command(BaseCommand):
         for team_id in options["team_id"]:
             for rewrite_team in REWRITERS:
                 for row in rewrite_team(team_id, apply):
-                    changed += row.changed
+                    changed += row.written if apply else row.changed
                     manual += row.needs_manual_check
                     stale += apply and row.changed and not row.written
                     self._write_row(row, apply, show_sql)

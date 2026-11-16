@@ -9,9 +9,10 @@ from django.core.management import call_command
 from parameterized import parameterized
 
 from posthog.models import Team
+from posthog.models.cohortmembership.query_rewrite import rewrite_query_nodes, rewrite_saved_rows
 from posthog.redis import get_client
 
-from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
+from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery, Edge
 from products.endpoints.backend.facade.models import Endpoint, EndpointVersion
 from products.notebooks.backend.collab_stream import STREAM_KEY_PATTERN
 from products.notebooks.backend.models import Notebook
@@ -37,6 +38,10 @@ def _visualization(sql: str) -> dict[str, Any]:
     return {"kind": "DataVisualizationNode", "source": {"kind": "HogQLQuery", "query": sql}}
 
 
+def _markdown_with_query(sql: str) -> str:
+    return "# Members\n\n<Query query={" + json.dumps(_visualization(sql)) + "} />\n"
+
+
 class TestRewriteCohortMembershipQueriesCommand(BaseTest):
     def setUp(self) -> None:
         super().setUp()
@@ -52,6 +57,15 @@ class TestRewriteCohortMembershipQueriesCommand(BaseTest):
                 "content": [
                     {"type": "ph-query", "attrs": {"query": _visualization(MEMBERSHIP_FILTER)}},
                     {"type": "ph-query", "attrs": {"query": json.dumps(_visualization(MEMBERSHIP_FILTER))}},
+                ],
+            },
+        )
+        self.markdown_notebook = Notebook.objects.create(
+            team=self.team,
+            content={
+                "type": "doc",
+                "content": [
+                    {"type": "ph-markdown-notebook", "attrs": {"markdown": _markdown_with_query(MEMBERSHIP_FILTER)}}
                 ],
             },
         )
@@ -77,15 +91,18 @@ class TestRewriteCohortMembershipQueriesCommand(BaseTest):
         endpoint_query: Any = EndpointVersion.objects.get(pk=self.endpoint_version.pk).query
         stream_key = STREAM_KEY_PATTERN.format(team_id=self.team.pk, notebook_id=notebook.short_id)
         last_stream_entry = get_client().xrevrange(stream_key, count=1)
+        markdown_content: Any = Notebook.objects.get(pk=self.markdown_notebook.pk).content
         return {
             "insight": insight_query["source"]["query"],
             "status_insight": status_query["source"]["query"],
             "filter_insight": Insight.objects.get(pk=self.filter_insight.pk).query,
             "view": view_query["query"],
             "view_revision_rotated": view.query_revision != self.view_revision,
+            "view_parents": sorted(edge.source.name for edge in Edge.objects.filter(target__saved_query=view)),
             "notebook_dict_node": dict_node["attrs"]["query"]["source"]["query"],
             "notebook_string_node": json.loads(string_node["attrs"]["query"])["source"]["query"],
             "notebook_version": notebook.version,
+            "markdown_notebook": markdown_content["content"][0]["attrs"]["markdown"],
             "notebook_stream_entry": last_stream_entry[0][0].decode() if last_stream_entry else None,
             "endpoint_version": endpoint_query["query"],
             "other_team_insight": other_team_query["source"]["query"],
@@ -108,14 +125,35 @@ class TestRewriteCohortMembershipQueriesCommand(BaseTest):
             "filter_insight": HOGQL_PROPERTY_FILTER,
             "view": REWRITTEN_QUALIFIED if applied else QUALIFIED,
             "view_revision_rotated": applied,
+            "view_parents": ["cohort_people"] if applied else [],
             "notebook_dict_node": REWRITTEN_FILTER if applied else MEMBERSHIP_FILTER,
             "notebook_string_node": REWRITTEN_FILTER if applied else MEMBERSHIP_FILTER,
             "notebook_version": 1 if applied else 0,
+            "markdown_notebook": _markdown_with_query(REWRITTEN_FILTER if applied else MEMBERSHIP_FILTER),
             "notebook_stream_entry": "1-1" if applied else None,
             "endpoint_version": REWRITTEN_FILTER if applied else MEMBERSHIP_FILTER,
             "other_team_insight": MEMBERSHIP_FILTER,
         }
-        verb = "Rewrote" if applied else "Would rewrite"
-        assert output.getvalue().splitlines()[-1] == (
-            f"{verb} 4 rows. 2 rows need a manual check. 0 rows changed while running."
+        lines = output.getvalue().splitlines()
+        assert lines[lines.index(f"insight {self.status_insight.pk} (team {self.team.pk}):") + 1] == (
+            "  a query needs a manual fix"
         )
+        assert lines[lines.index(f"insight {self.filter_insight.pk} (team {self.team.pk}):") + 1] == (
+            "  still names cohort_membership outside a query this command rewrites"
+        )
+        verb = "Rewrote" if applied else "Would rewrite"
+        assert lines[-1] == f"{verb} 5 rows. 2 rows need a manual check. 0 rows changed while running."
+
+    def test_skips_a_row_edited_after_the_read(self) -> None:
+        edited = _visualization(MEMBERSHIP_STATUS)
+
+        def rewrite_after_an_edit(value: Any) -> tuple[Any, list[Any]]:
+            Insight.objects.filter(pk=self.insight.pk).update(query=edited)
+            return rewrite_query_nodes(value)
+
+        [row] = rewrite_saved_rows(
+            Insight.objects.filter(pk=self.insight.pk), "query", "insight", rewrite_after_an_edit, apply=True
+        )
+
+        assert (row.changed, row.written) == (True, False)
+        assert Insight.objects.get(pk=self.insight.pk).query == edited
