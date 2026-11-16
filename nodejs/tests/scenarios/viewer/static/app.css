@@ -190,7 +190,9 @@ code,
 
 .chip.valve {
     color: var(--ink);
+    white-space: normal;
     border-color: rgb(217 89 38 / 60%);
+    border-radius: 8px;
 }
 
 .badge {
@@ -666,4 +668,32 @@ select {
 
 .reason .open {
     margin-left: 8px;
+}
+
+[hidden] {
+    display: none !important;
+}
+
+.chip .tech {
+    display: block;
+    font-family: var(--mono, ui-monospace, monospace);
+    font-size: 11px;
+    color: var(--muted);
+}
+
+.running-now {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    margin-bottom: 16px;
+}
+
+.running-now .open {
+    margin-left: auto;
+}
+
+.finding {
+    font-size: 13px;
+    line-height: 1.45;
+    color: var(--ink);
 }

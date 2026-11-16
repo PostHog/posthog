@@ -142,18 +142,26 @@ const hideTooltip = () => {
 const NODE_W = 182
 const NODE_H = 82
 
+// Each system carries what it does as its name, for readers who don't know the stack, and its
+// component name underneath.
 const NODES = [
     { id: 'generator', name: 'Load generator', role: 'scenario runner', x: 10, y: 170 },
-    { id: 'kafka', name: 'Kafka', role: 'events topic', x: 232, y: 50 },
-    { id: 'cdp-api', name: 'CDP API', role: 'cdp-api', x: 232, y: 290 },
-    { id: 'cdp-processed-events', name: 'Event consumer', role: 'cdp-processed-events', x: 454, y: 50 },
-    { id: 'postgres', name: 'Cyclotron Postgres', role: 'cyclotron_jobs', x: 676, y: 170 },
-    { id: 'cdp-cyclotron-v2-janitor', name: 'Janitor', role: 'cdp-cyclotron-v2-janitor', x: 676, y: 320 },
-    { id: 'cdp-ses-webhooks', name: 'SES feedback', role: 'cdp-ses-webhooks', x: 454, y: 380 },
-    { id: 'cdp-cyclotron-worker-hogflow', name: 'Hogflow worker', role: 'cdp-cyclotron-worker-hogflow', x: 898, y: 50 },
-    { id: 'cdp-cyclotron-worker-email', name: 'Email worker', role: 'cdp-cyclotron-worker-email', x: 898, y: 290 },
-    { id: 'hooks', name: 'Webhooks', role: 'hooks.example.com', x: 1120, y: 50 },
-    { id: 'ses', name: 'SES', role: 'provider edge', x: 1120, y: 290 },
+    { id: 'kafka', name: 'Event stream', role: 'Kafka, events topic', x: 232, y: 50 },
+    { id: 'cdp-api', name: 'Send API', role: 'cdp-api', x: 232, y: 290 },
+    { id: 'cdp-processed-events', name: 'Workflow trigger', role: 'cdp-processed-events', x: 454, y: 50 },
+    { id: 'postgres', name: 'Job queue database', role: 'Cyclotron Postgres', x: 676, y: 170 },
+    { id: 'cdp-cyclotron-v2-janitor', name: 'Stuck job cleanup', role: 'cdp-cyclotron-v2-janitor', x: 676, y: 320 },
+    { id: 'cdp-ses-webhooks', name: 'Email feedback intake', role: 'cdp-ses-webhooks', x: 454, y: 380 },
+    {
+        id: 'cdp-cyclotron-worker-hogflow',
+        name: 'Workflow runner',
+        role: 'cdp-cyclotron-worker-hogflow',
+        x: 898,
+        y: 50,
+    },
+    { id: 'cdp-cyclotron-worker-email', name: 'Email sender', role: 'cdp-cyclotron-worker-email', x: 898, y: 290 },
+    { id: 'hooks', name: 'Customer webhooks', role: 'fake hooks.example.com', x: 1120, y: 50 },
+    { id: 'ses', name: 'Email provider', role: 'fake SES', x: 1120, y: 290 },
 ]
 
 const NODE_BY_ID = Object.fromEntries(NODES.map((node) => [node.id, node]))
@@ -166,6 +174,41 @@ const TARGET_NODE = {
 }
 
 const nodeOfTarget = (target) => TARGET_NODE[target] ?? (NODE_BY_ID[target] ? target : undefined)
+
+const plainOf = (target) => {
+    const id = nodeOfTarget(target)
+    return id ? NODE_BY_ID[id].name.toLowerCase() : target
+}
+
+const VALVE_PLAIN = {
+    'role.kill': (name) => `Kills the ${name}`,
+    'role.freeze': (name) => `Freezes the ${name}`,
+    'pg.drop_connections': (name) => `Drops connections to the ${name}`,
+    'pg.failover': (name) => `Fails over the ${name}`,
+    'dest.status': (name, dose) => `Makes the ${name} answer ${dose.code ?? 'with errors'}`,
+    'ses.throttle': (name, dose) => `Throttles the ${name}${dose.rate ? ` to ${dose.rate} a second` : ''}`,
+    'ses.reject': (name) => `Makes the ${name} reject mail`,
+}
+
+const valvePlain = ({ valve, target, dose }) =>
+    (VALVE_PLAIN[valve] ?? ((name) => `${valve} on the ${name}`))(plainOf(target), dose ?? {})
+
+const INVARIANT_PLAIN = {
+    at_least_once: () => 'every message arrives',
+    duplicate_sends: (gate) =>
+        gate === null
+            ? 'duplicate sends counted'
+            : gate === 0
+              ? 'no duplicate sends'
+              : `at most ${gate} duplicate sends`,
+    refused_at_intake: (gate) =>
+        gate === null || gate === 0 ? 'nothing refused at intake' : `at most ${gate} refused at intake`,
+    bounced_suppressed: () => 'bounced addresses get suppressed',
+    resident_backlog_intact: () => 'jobs already queued survive',
+}
+
+const invariantPlain = (name, gate = null) =>
+    INVARIANT_PLAIN[name]?.(gate) ?? (gate === null ? name : `${name} ≤ ${gate}`)
 
 const right = (n) => [n.x + NODE_W, n.y + NODE_H / 2]
 const left = (n) => [n.x, n.y + NODE_H / 2]
@@ -576,11 +619,24 @@ function cardTile(card, runs) {
             h('span', { class: 'badge' }, `v${card.version ?? '?'}`),
             card.runHostOnly ? h('span', { class: 'badge' }, 'run host only') : null,
             h('span', { style: 'flex:1' }),
+            h('span', { class: 'status running live-badge', 'data-card': card.id, hidden: 'hidden' }, 'running now'),
             last ? statusPill(last.status) : h('span', { class: 'muted' }, 'never run')
         ),
         card.problems.length
             ? h('div', { class: 'reason failed' }, card.problems.join('; '))
             : [
+                  h(
+                      'div',
+                      { class: 'row' },
+                      h('span', { class: 'label' }, 'Found'),
+                      h(
+                          'div',
+                          { class: 'finding', 'data-finding': card.id },
+                          last
+                              ? h('span', { class: 'muted' }, 'reading the last run…')
+                              : h('span', { class: 'muted' }, '-')
+                      )
+                  ),
                   h(
                       'div',
                       { class: 'row' },
@@ -593,7 +649,8 @@ function cardTile(card, runs) {
                                     h(
                                         'span',
                                         { class: 'chip valve', title: valveText(valve) },
-                                        `${valve.valve} → ${valve.target}${doseText(valve.valve, valve.dose) ? ` (${doseText(valve.valve, valve.dose)})` : ''}`
+                                        valvePlain(valve),
+                                        h('span', { class: 'tech' }, `${valve.valve} → ${valve.target}`)
                                     )
                                 )
                             )
@@ -631,7 +688,7 @@ function cardTile(card, runs) {
                           'div',
                           { class: 'chips' },
                           card.invariants.map(({ name, gate }) =>
-                              h('span', { class: 'chip' }, gate === null ? name : `${name} ≤ ${gate}`)
+                              h('span', { class: 'chip', title: name }, invariantPlain(name, gate))
                           ),
                           card.bars.map(({ name, params }) =>
                               h(
@@ -667,20 +724,112 @@ function cardTile(card, runs) {
     )
 }
 
+const PHASE_PLAIN = {
+    reset: 'resetting the services',
+    seed: 'creating test workflows',
+    drive: 'sending load',
+    converge: 'waiting for the last deliveries',
+    judge: 'checking what arrived',
+}
+
+function findingOf(detail) {
+    const perSecond = 1000 / detail.series.bucketMs
+    const lines = []
+    if (detail.status === 'passed') {
+        lines.push('Every check held.')
+    } else if (detail.status === 'failed') {
+        const broke = detail.invariants.filter((i) => !i.passed).map((i) => invariantPlain(i.name))
+        lines.push(broke.length ? `Broke: ${broke.join(', ')}.` : detail.statusReason)
+    } else {
+        lines.push(`Did not finish: ${detail.statusReason}`)
+    }
+    const p95 = latencyOf(detail, 'p95')
+    if (p95 !== null) {
+        lines.push(`95% of messages arrived within ${fmtNumber(p95 / 1000)} s.`)
+    }
+    const failing = Math.max(0, ...detail.series.flow.map((p) => (p.emailFaulted + p.webhookFaulted) * perSecond))
+    if (failing >= 1) {
+        lines.push(`Up to ${fmtNumber(failing, 0)} failed send attempts a second while the fault was on.`)
+    }
+    for (const role of detail.series.roles.filter((r) => r.restarts.length)) {
+        lines.push(`The ${plainOf(role.role)} came back after a restart.`)
+    }
+    const due = Math.max(0, ...detail.series.queue.map((p) => p.due))
+    if (due >= 20) {
+        const oldest = Math.max(0, ...detail.series.queue.map((p) => p.oldestDueSeconds))
+        lines.push(`Up to ${due} jobs waited in the job queue, the oldest for ${fmtNumber(oldest, 0)} s.`)
+    }
+    return lines.slice(0, 3)
+}
+
 async function cardsPage() {
     const [all, runs] = await Promise.all([cards(), getJson('/api/runs')])
+    const running = h('div', { class: 'panel running-now' }, h('span', { class: 'muted' }, 'Checking for a run…'))
+    const diagram = deliveryPath()
+    diagram.paint({ nodes: {}, links: {} })
     render(
-        h('h1', {}, 'Cards'),
+        h('h1', {}, 'Scenario dashboard'),
         h(
             'p',
             { class: 'sub' },
-            `${all.length} cards, each one failure class on the delivery path. ${runs.length} ${runs.length === 1 ? 'run' : 'runs'} recorded on this box.`
+            `Each card breaks one part of the Workflows delivery path on purpose while synthetic load runs through it, then checks that every message still arrived. ${all.length} cards, ${runs.length} ${runs.length === 1 ? 'run' : 'runs'} on this box.`
         ),
+        running,
         h(
             'div',
             { class: 'grid' },
             all.map((card) => cardTile(card, runs))
+        ),
+        h('h2', {}, 'The delivery path the cards break'),
+        h(
+            'div',
+            { class: 'panel' },
+            h(
+                'p',
+                { class: 'sub' },
+                'An event or an API call starts a workflow. Its steps wait as jobs in the job queue database until a worker picks them up and sends the email or webhook.'
+            ),
+            diagram.svg
         )
+    )
+    const showLive = async () => {
+        const live = await getJson('/api/live').catch(() => null)
+        const now = live && !live.ended ? live : null
+        document.querySelectorAll('.live-badge').forEach((badge) => (badge.hidden = badge.dataset.card !== now?.cardId))
+        running.replaceChildren(
+            ...(now
+                ? [
+                      statusPill('running'),
+                      h('span', {}, ` ${now.cardId}, ${PHASE_PLAIN[now.phase] ?? now.phase}`),
+                      h('a', { href: '#/live', class: 'open' }, 'Watch it live →'),
+                  ]
+                : [
+                      h('span', { class: 'muted' }, 'Nothing running now.'),
+                      runs[0]
+                          ? h(
+                                'span',
+                                { class: 'muted' },
+                                ` Last run: ${runs[0].cardId}, ${runs[0].status}, ${ago(runs[0].startedAt)}.`
+                            )
+                          : null,
+                  ].filter(Boolean))
+        )
+    }
+    const timer = setInterval(() => void showLive(), 2000)
+    stopReplay = () => clearInterval(timer)
+    await showLive()
+    await Promise.all(
+        all.map(async (card) => {
+            const last = runs.find((run) => run.cardId === card.id)
+            const slot = document.querySelector(`[data-finding="${card.id}"]`)
+            if (!last || !slot) {
+                return
+            }
+            const detail = await getJson(`/api/runs/${last.runId}`).catch(() => null)
+            slot.replaceChildren(
+                ...(detail ? findingOf(detail).map((line) => h('div', {}, line)) : [h('span', { class: 'muted' }, '-')])
+            )
+        })
     )
 }
 
@@ -841,7 +990,9 @@ async function cardPage(id) {
                 h(
                     'ul',
                     {},
-                    card.invariants.map(({ name, gate }) => h('li', {}, name, gate === null ? '' : `, gate ${gate}`))
+                    card.invariants.map(({ name, gate }) =>
+                        h('li', {}, invariantPlain(name, gate), h('span', { class: 'muted mono' }, ` ${name}`))
+                    )
                 ),
                 card.bars.length
                     ? [
@@ -894,7 +1045,12 @@ function invariantsTable(run) {
                 h(
                     'tr',
                     {},
-                    h('td', {}, inv.name),
+                    h(
+                        'td',
+                        {},
+                        invariantPlain(inv.name, inv.gate ?? null),
+                        h('div', { class: 'muted mono' }, inv.name)
+                    ),
                     h('td', {}, statusPill(inv.passed ? 'passed' : 'failed')),
                     h('td', { class: 'num' }, inv.observed),
                     h('td', { class: 'num' }, inv.gate ?? '-'),
@@ -1017,7 +1173,7 @@ function timelineTable(windows, from) {
                             ? h('span', { class: 'muted' }, ` (${doseText(w.valve, w.dose)})`)
                             : ''
                     ),
-                    h('td', { class: 'mono' }, w.target),
+                    h('td', {}, plainOf(w.target), h('div', { class: 'muted mono' }, w.target)),
                     h('td', {}, rel(w.requestedAt)),
                     h('td', {}, rel(w.appliedAt)),
                     h('td', {}, rel(w.observedAt)),
@@ -1062,7 +1218,7 @@ function runCharts(detail, windows, from, to) {
             ],
         }),
         lineChart({
-            title: 'Cyclotron jobs',
+            title: 'Jobs waiting in the job queue',
             unit: 'jobs',
             from,
             to,
@@ -1097,19 +1253,19 @@ function runCharts(detail, windows, from, to) {
             ],
         }),
         lineChart({
-            title: 'CPU per role',
+            title: 'CPU per service',
             unit: '% of one core',
             from,
             to,
             bands,
             series: detail.series.roles.map((role, i) => ({
-                name: role.role.replace(/^cdp-(cyclotron-)?/, ''),
+                name: NODE_BY_ID[role.role]?.name ?? role.role,
                 color: SERIES[i % SERIES.length],
                 points: role.points.map((p) => [p.at, p.cpuPercent]),
             })),
         }),
         lineChart({
-            title: 'Cyclotron writer probe',
+            title: 'Time to write a job to the job queue database',
             unit: 'ms per write',
             from,
             to,
@@ -1152,12 +1308,16 @@ async function runPage(runId, startAtSeconds = 0) {
     )
     const happenings = windows
         .flatMap((w) => [
-            w.from !== null ? { at: w.from, text: `${w.valve} applied on ${w.target}` } : null,
+            w.from !== null ? { at: w.from, text: `Valve on: ${valvePlain(w).toLowerCase()} (${w.valve})` } : null,
             w.releasedAt && w.valve !== 'role.kill'
-                ? { at: Date.parse(w.releasedAt), text: `${w.valve} released` }
+                ? { at: Date.parse(w.releasedAt), text: `Valve off: the ${plainOf(w.target)} is back to normal` }
                 : null,
         ])
-        .concat(detail.series.roles.flatMap((r) => r.restarts.map((at) => ({ at, text: `${r.role} restarted` }))))
+        .concat(
+            detail.series.roles.flatMap((r) =>
+                r.restarts.map((at) => ({ at, text: `The ${plainOf(r.role)} restarted` }))
+            )
+        )
         .filter(Boolean)
         .sort((a, b) => a.at - b.at)
     const show = (t) => {
@@ -1377,13 +1537,27 @@ async function livePage() {
                 : `started ${ago(live.startedAt)}`
             const happenings = windows
                 .flatMap((w) => [
-                    w.from !== null ? { at: w.from, text: `${w.valve} applied on ${w.target}` } : null,
+                    w.from !== null
+                        ? { at: w.from, text: `Valve on: ${valvePlain(w).toLowerCase()} (${w.valve})` }
+                        : null,
                     w.releasedAt && w.valve !== 'role.kill'
-                        ? { at: Date.parse(w.releasedAt), text: `${w.valve} released` }
+                        ? {
+                              at: Date.parse(w.releasedAt),
+                              text: `Valve off: the ${plainOf(w.target)} is back to normal`,
+                          }
                         : null,
                 ])
-                .concat(live.series.roles.flatMap((r) => r.restarts.map((at) => ({ at, text: `${r.role} restarted` }))))
-                .concat(live.phases.map((p) => ({ at: p.at, text: `${p.phase} started` })))
+                .concat(
+                    live.series.roles.flatMap((r) =>
+                        r.restarts.map((at) => ({ at, text: `The ${plainOf(r.role)} restarted` }))
+                    )
+                )
+                .concat(
+                    live.phases.map((p) => ({
+                        at: p.at,
+                        text: PHASE_PLAIN[p.phase] ? `Started ${PHASE_PLAIN[p.phase]}` : `${p.phase} started`,
+                    }))
+                )
                 .filter(Boolean)
                 .sort((a, b) => a.at - b.at)
             events.replaceChildren(
