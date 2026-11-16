@@ -132,7 +132,7 @@ const SPARKLINE_PATH = 'M0,72 C12,64 22,68 34,56 S56,50 66,44 S86,34 100,30'
 function MetricTileSkeleton({ label, sparklineHeight }: { label: string; sparklineHeight?: number }): JSX.Element {
     return (
         <div className="flex flex-col">
-            <MetricTitle className="flex h-5 items-center">{label}</MetricTitle>
+            <MetricTitle>{label}</MetricTitle>
             <div className="mt-2 flex h-10 items-center">
                 <Skeleton className="h-7 w-24" />
             </div>
