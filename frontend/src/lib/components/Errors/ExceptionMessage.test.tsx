@@ -11,6 +11,11 @@ describe('ExceptionMessage', () => {
         ['Error without a URL', []],
         ['Read https://react.dev/errors/418.', ['https://react.dev/errors/418']],
         ['Read http://docs.example.com/help.', ['http://docs.example.com/help']],
+        ['Read \u202Ehttps://docs.example.com/help for details.', ['https://docs.example.com/help']],
+        ['Read https://docs.example.com/\u061Chelp.', []],
+        ['Read https://docs.example.com/\u200Fhelp.', []],
+        ['Read https://docs.example.com/\u202Ehelp\u202C.', []],
+        ['Read https://docs.example.com/\u2067help\u2069.', []],
         ['Read https://docs.example.com:8443/help.', ['https://docs.example.com:8443/help']],
         ['Read https://docs.example.com:443/help.', ['https://docs.example.com:443/help']],
         ['Read https://docs.example.com/café.', ['https://docs.example.com/café']],
@@ -37,5 +42,8 @@ describe('ExceptionMessage', () => {
         expect(container.textContent).toBe(value)
         expect(links.map((link) => link.getAttribute('href'))).toEqual(expectedUrls)
         expect(links.map((link) => link.getAttribute('title'))).toEqual(expectedUrls)
+        for (const link of links) {
+            expect(link.closest('bdi')).toHaveAttribute('dir', 'ltr')
+        }
     })
 })
