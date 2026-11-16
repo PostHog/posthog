@@ -27,6 +27,21 @@ const CATALOG_TABS: DataCatalogTab[] = ['metrics', 'relationships', 'certificati
 const SECTION_TABS: DataCatalogTab[] = ['overview', 'tables', 'lineage', 'metrics', 'relationships', 'data-quality']
 const FOLDED_INTO_TABLES: DataCatalogTab[] = ['certifications']
 
+export type DataCatalogLayout = 'classic' | 'restructured'
+
+export interface DataCatalogSectionView {
+    section: DataCatalogTab
+    layout: DataCatalogLayout
+}
+
+function isNewSectionView(
+    reported: DataCatalogSectionView | null,
+    section: DataCatalogTab,
+    layout: DataCatalogLayout
+): boolean {
+    return reported?.section !== section || reported.layout !== layout
+}
+
 // pinned: analytics event name and properties, renaming breaks the insights built on them
 export const SECTION_VIEWED_EVENT = 'data catalog section viewed'
 
@@ -37,8 +52,9 @@ export interface dataCatalogSceneLogicValues {
     activeTab: DataCatalogTab
     availableTabs: DataCatalogTab[]
     defaultTab: DataCatalogTab
+    layout: DataCatalogLayout
     lineageVisited: boolean
-    reportedSection: DataCatalogTab | null
+    reportedView: DataCatalogSectionView | null
     restructureEnabled: boolean
 }
 
@@ -51,7 +67,11 @@ export interface dataCatalogSceneLogicActions {
         flags: string[]
         variants: Record<string, boolean | string>
     } // featureFlagLogic
-    reportSectionViewed: (section: DataCatalogTab) => {
+    reportSectionViewed: (
+        section: DataCatalogTab,
+        layout: DataCatalogLayout
+    ) => {
+        layout: DataCatalogLayout
         section: DataCatalogTab
     }
     setActiveTab: (activeTab: DataCatalogTab) => {
@@ -65,6 +85,7 @@ export interface dataCatalogSceneLogicMeta {
         restructureEnabled: (featureFlags: FeatureFlagsSet) => boolean
         availableTabs: (restructureEnabled: boolean, featureFlags: FeatureFlagsSet) => DataCatalogTab[]
         defaultTab: (restructureEnabled: boolean) => DataCatalogTab
+        layout: (restructureEnabled: boolean) => DataCatalogLayout
     }
 }
 
@@ -84,7 +105,7 @@ export const dataCatalogSceneLogic = kea<dataCatalogSceneLogicType>([
     })),
     actions({
         setActiveTab: (activeTab: DataCatalogTab) => ({ activeTab }),
-        reportSectionViewed: (section: DataCatalogTab) => ({ section }),
+        reportSectionViewed: (section: DataCatalogTab, layout: DataCatalogLayout) => ({ section, layout }),
     }),
     reducers({
         activeTab: [
@@ -93,11 +114,12 @@ export const dataCatalogSceneLogic = kea<dataCatalogSceneLogicType>([
                 setActiveTab: (_, { activeTab }) => activeTab,
             },
         ],
-        // Holds the last reported section, so a URL change inside a section, such as a filter, reports nothing.
-        reportedSection: [
-            null as DataCatalogTab | null,
+        // Holds the last reported section and layout, so a URL change inside a section, such as a filter, reports nothing.
+        // The nav switch changes the layout in place, so a layout change on the same section reports a new view.
+        reportedView: [
+            null as DataCatalogSectionView | null,
             {
-                reportSectionViewed: (_, { section }) => section,
+                reportSectionViewed: (_, { section, layout }) => ({ section, layout }),
             },
         ],
         lineageVisited: [
@@ -129,13 +151,14 @@ export const dataCatalogSceneLogic = kea<dataCatalogSceneLogicType>([
             (s) => [s.restructureEnabled],
             (restructureEnabled: boolean): DataCatalogTab => (restructureEnabled ? 'overview' : 'metrics'),
         ],
+        layout: [
+            (s) => [s.restructureEnabled],
+            (restructureEnabled: boolean): DataCatalogLayout => (restructureEnabled ? 'restructured' : 'classic'),
+        ],
     }),
     listeners(({ actions, values }) => ({
-        reportSectionViewed: ({ section }) => {
-            posthog.capture(SECTION_VIEWED_EVENT, {
-                section,
-                layout: values.restructureEnabled ? 'restructured' : 'classic',
-            })
+        reportSectionViewed: ({ section, layout }) => {
+            posthog.capture(SECTION_VIEWED_EVENT, { section, layout })
         },
         setFeatureFlags: () => {
             // On a cold load the flags can arrive after the URL, so check a usage link again once they do.
@@ -148,8 +171,8 @@ export const dataCatalogSceneLogic = kea<dataCatalogSceneLogicType>([
             if (tab !== values.activeTab) {
                 actions.setActiveTab(tab)
             }
-            if (tab !== values.reportedSection) {
-                actions.reportSectionViewed(tab)
+            if (isNewSectionView(values.reportedView, tab, values.layout)) {
+                actions.reportSectionViewed(tab, values.layout)
             }
         },
     })),
@@ -179,8 +202,8 @@ export const dataCatalogSceneLogic = kea<dataCatalogSceneLogicType>([
                 actions.setActiveTab(tab)
             }
             // Before the flags arrive, the layout is not known yet. The flags listener reports the view then.
-            if (values.receivedFeatureFlags && tab !== values.reportedSection) {
-                actions.reportSectionViewed(tab)
+            if (values.receivedFeatureFlags && isNewSectionView(values.reportedView, tab, values.layout)) {
+                actions.reportSectionViewed(tab, values.layout)
             }
         },
     })),

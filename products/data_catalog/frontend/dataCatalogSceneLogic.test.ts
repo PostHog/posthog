@@ -102,9 +102,9 @@ describe('dataCatalogSceneLogic', () => {
     it.each([
         [
             'classic layout',
-            false,
             [],
             ['/data-catalog', '/data-catalog?tab=relationships', '/data-catalog?tab=relationships&page=2'],
+            null,
             [
                 ['metrics', 'classic'],
                 ['relationships', 'classic'],
@@ -112,30 +112,40 @@ describe('dataCatalogSceneLogic', () => {
         ],
         [
             'restructured layout',
-            false,
             RESTRUCTURE,
             ['/data-catalog', '/data-catalog?tab=tables', '/data-catalog?tab=tables&filter=proposed'],
+            null,
             [
                 ['overview', 'restructured'],
                 ['tables', 'restructured'],
             ],
         ],
-        ['flags that arrive after the URL', true, RESTRUCTURE, ['/data-catalog'], [['overview', 'restructured']]],
-    ])('reports each section view once, with its layout (%s)', async (_, flagsAfterMount, flags, paths, expected) => {
+        ['flags that arrive after the URL', null, ['/data-catalog'], RESTRUCTURE, [['overview', 'restructured']]],
+        [
+            'a layout switch on a section both layouts show',
+            RESTRUCTURE,
+            ['/data-catalog?tab=relationships'],
+            [],
+            [
+                ['relationships', 'restructured'],
+                ['relationships', 'classic'],
+            ],
+        ],
+    ])('reports each section view once, with its layout (%s)', async (_, flagsBefore, paths, flagsAfter, expected) => {
         const capture = jest.spyOn(posthog, 'capture').mockImplementation()
-        const setFlags = (): void =>
+        const setFlags = (flags: string[]): void =>
             featureFlagLogic.actions.setFeatureFlags(flags, Object.fromEntries(flags.map((flag) => [flag, true])))
-        if (!flagsAfterMount) {
-            setFlags()
+        if (flagsBefore) {
+            setFlags(flagsBefore)
         }
         router.actions.push(paths[0])
         logic = dataCatalogSceneLogic()
         logic.mount()
-        if (flagsAfterMount) {
-            setFlags()
-        }
         for (const path of paths.slice(1)) {
             router.actions.push(path)
+        }
+        if (flagsAfter) {
+            setFlags(flagsAfter)
         }
         await expectLogic(logic).toFinishAllListeners()
 
