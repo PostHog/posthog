@@ -80,6 +80,7 @@ You don't need to add waits for any of this. Knowing the order helps when a stor
    - waits up to 8 seconds for iframes, plus 1 second;
    - scrolls the window and the scroll containers back to the top;
    - waits until the body size stops changing, for up to 3 seconds;
+   - waits 1 more second;
    - waits until no quill chart canvas is still painting.
 6. It runs the loader wait again and captures the target. A component snapshot grows to include a popover or a tooltip that overflows the root.
 7. It waits 100 ms, waits for chart paint, animations and loaders again, and captures again. It keeps the capture when two in a row match and no loader shows after the capture. After four captures it keeps the last one and logs the story as still changing.

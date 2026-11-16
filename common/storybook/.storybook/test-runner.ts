@@ -674,6 +674,9 @@ async function takeSnapshotWithTheme(
             // if content keeps changing, that's okay - we'll proceed anyway
         })
 
+    // final wait for any remaining renders
+    await page.waitForTimeout(1000)
+
     await waitForChartCanvasesPainted(page)
 
     await finishAnimations(page)
