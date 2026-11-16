@@ -1,10 +1,15 @@
+import { useActions } from 'kea'
+
 import { Link } from '@posthog/lemon-ui'
 
-import { urls } from 'scenes/urls'
+import { feedbackSurveyModalLogic } from '../feedbackSurveyModalLogic'
+import { FeedbackSurveyModal } from './FeedbackSurveyModal'
 
 const FEEDBACK_DOCS_URL = 'https://posthog.com/docs/ai-observability/collect-user-feedback'
 
 export function FeedbackEmptyState(): JSX.Element {
+    const { openModal } = useActions(feedbackSurveyModalLogic)
+
     return (
         <div className="flex flex-col gap-1">
             <p className="m-0 text-secondary">
@@ -12,13 +17,15 @@ export function FeedbackEmptyState(): JSX.Element {
                 when users answer a survey that sends its trace id.
             </p>
             <div className="flex flex-wrap gap-x-4 gap-y-1">
-                <Link to={urls.surveyWizard()} data-attr="trace-view-feedback-surveys-link">
-                    Create a survey
+                {/* data-attr is frozen: it predates the modal and is used in product analytics. */}
+                <Link onClick={openModal} data-attr="trace-view-feedback-surveys-link">
+                    Create a feedback survey
                 </Link>
                 <Link to={FEEDBACK_DOCS_URL} target="_blank" data-attr="trace-view-feedback-docs-link">
                     Send feedback from your code
                 </Link>
             </div>
+            <FeedbackSurveyModal />
         </div>
     )
 }
