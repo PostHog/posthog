@@ -6,6 +6,7 @@ import { defaultConfig } from '~/common/config/config'
 import { internalFetch } from '~/common/utils/request'
 
 import { scratchSchema } from '../environment/stack'
+import { SCHEMA_VERSION } from '../scorecard/scorecard'
 import { INGEST_PATH, RUNS_PATH, RunningStore, startStore } from './server'
 
 const TOKEN = 'test-run-token'
@@ -14,7 +15,7 @@ const schema = scratchSchema(defaultConfig.DATABASE_URL, `scenario_store_${proce
 
 function scorecardFixture(runId: string, overrides: Record<string, unknown> = {}): Record<string, unknown> {
     return {
-        schema_version: 1,
+        schema_version: SCHEMA_VERSION,
         run_id: runId,
         card_id: 'example-card',
         card_hash: 'c0ffee',

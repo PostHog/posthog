@@ -479,7 +479,8 @@ The card hash is the SHA-256 of the card without `gates` and the profile hash, s
 Gates stay outside the card hash; anything else that changes what runs changes it.
 `runner_version` leaves out the YAML files in `cards/` and `profiles/`, so a committed gate edit keeps the fingerprint and the card hash, and runs on either side of it compare.
 An edit to a shipped profile keeps the fingerprint too, and changes the profile hash, which the card hash carries.
-Every other committed edit under `nodejs/tests/scenarios/` outside `generator/` and `valves/` still changes `runner_version`, a test file or the loader included.
+Every other committed edit under `nodejs/tests/scenarios/` outside `generator/`, `valves/` and `store/` still changes `runner_version`, a test file or the loader included.
+The run store only records runs, so its edits leave `runner_version` alone; the calls that report to it live in `runner/` and `cloud/` and still count.
 
 **Profiles.**
 A profile has a `name`, per-traffic-kind rates under `traffic`, and role environment under `settings`.
@@ -799,7 +800,7 @@ A property is added without a version change; a rename, a removal or a change of
 | `fingerprint`       | string or null  | SHA-256 of `target`, `host_cpu`, `host_memory_gb`, the three versions and `seed`. Runs compare only within one fingerprint and card hash. `null` when a version is unknown |
 | `host_cpu`          | string          | CPU model and count, as `<model> x <count>`                                                                                                                                |
 | `host_memory_gb`    | number          | Total memory, rounded to whole gigabytes                                                                                                                                   |
-| `runner_version`    | string or null  | Git tree hash of `nodejs/tests/scenarios/` without `generator/`, `valves/`, and the YAML files in `cards/` and `profiles/`; test files count                               |
+| `runner_version`    | string or null  | Git tree hash of `nodejs/tests/scenarios/` without `generator/`, `valves/`, `store/`, and the YAML files in `cards/` and `profiles/`; test files count                     |
 | `generator_version` | string or null  | Git tree hash of `generator/`                                                                                                                                              |
 | `valves_version`    | string or null  | Git tree hash of `valves/`, or of the empty tree when it does not exist                                                                                                    |
 | `seed`              | number          | The card's `seed`                                                                                                                                                          |
