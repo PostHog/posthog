@@ -3,7 +3,6 @@ import posthog from 'posthog-js'
 
 import { urls } from 'scenes/urls'
 
-/** The button a person pressed to start the sending domain setup. */
 export type EmailDomainSetupEntry = 'channels' | 'broadcast' | 'add_sender' | 'transactional' | 'configure'
 
 export const emailDomainSetupPath = (id: number | 'new'): string => urls.workflowsEmailDomain(id)
