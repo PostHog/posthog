@@ -33581,6 +33581,13 @@ export namespace Schemas {
       layout: AnalyticsFragmentLayout;
     }
 
+    export interface DailyCitedRuns {
+      /** Day, in UTC. */
+      readonly date: string;
+      /** Support agent runs that cited knowledge on this day. */
+      readonly cited_run_count: number;
+    }
+
     export type DashboardFilters = { [key: string]: unknown };
 
     /**
@@ -44549,12 +44556,12 @@ export namespace Schemas {
       /** Percentage (0-100) of matching units the evaluation runs on. */
       readonly rollout_percentage: number;
       /**
-         * Share (0-1) of sampled traces that fail the check. Only Hog checks are measured; null otherwise.
+         * Share (0-1) of sampled traces or generations, per the draft's target, that fail the check. Null when nothing measured it.
          * @nullable
          */
       readonly measured_failure_rate: number | null;
       /**
-         * Traces the failure rate was measured on. Null when there is no rate.
+         * Traces or generations, per the draft's target, that the failure rate was measured on. Null when there is no rate.
          * @nullable
          */
       readonly sample_size: number | null;
@@ -66153,6 +66160,13 @@ export namespace Schemas {
       readonly always_include: boolean;
       /** Libraries this source belongs to. Empty when the source is in none. */
       readonly library_ids: readonly string[];
+      /** Number of support agent runs that cited this source. */
+      readonly cited_run_count: number;
+      /**
+         * When a support agent run last cited this source. Null when none has.
+         * @nullable
+         */
+      readonly last_cited_at: string | null;
     }
 
     /**
@@ -66182,6 +66196,39 @@ export namespace Schemas {
        * * `safe` - Safe
        * * `unsafe` - Unsafe */
       readonly safety_verdict: SafetyVerdictEnum;
+    }
+
+    export interface SourceUsage {
+      /** ID of the knowledge source. */
+      readonly source_id: string;
+      /** Name of the knowledge source. */
+      readonly name: string;
+      /** True when the source was learned from a past support ticket. */
+      readonly is_generated: boolean;
+      /** Support agent runs that cited this source in the period. */
+      readonly cited_run_count: number;
+      /** When a run last cited this source in the period. */
+      readonly last_cited_at: string;
+    }
+
+    /**
+     * How much support agent runs used the knowledge base in a period.
+     */
+    export interface KnowledgeUsage {
+      /** Number of days the report covers, today included. */
+      readonly days: number;
+      /** Support agent runs that cited at least one knowledge source. */
+      readonly cited_run_count: number;
+      /** Runs that cited at least one source learned from a past support ticket. */
+      readonly learned_cited_run_count: number;
+      /** Knowledge sources in the project. */
+      readonly source_count: number;
+      /** Knowledge sources that at least one run cited in the period. */
+      readonly cited_source_count: number;
+      /** One entry per day, oldest first. */
+      readonly daily: readonly DailyCitedRuns[];
+      /** The most cited sources in the period, most cited first. */
+      readonly top_sources: readonly SourceUsage[];
     }
 
     export interface KustomerConversationSignalExtra {
@@ -69702,6 +69749,24 @@ export namespace Schemas {
       RollupRaw: 'rollup+raw',
       Raw: 'raw',
     } as const;
+
+    export interface LogsSigningSecret {
+      /**
+         * Raw secret that a server uses to sign log requests (HMAC). Null until one exists.
+         * @nullable
+         */
+      readonly secret: string | null;
+      /**
+         * When the secret last changed, or null when no secret exists yet.
+         * @nullable
+         */
+      readonly updated_at: string | null;
+      /**
+         * Until when the previous secret stays valid after a rotation, or null when no grace period is active.
+         * @nullable
+         */
+      readonly previous_secret_valid_until: string | null;
+    }
 
     /**
      * Filter criteria — subset of LogsViewerFilters. May contain severityLevels, serviceNames, searchTerm, filterGroup, dateRange, and other keys.
@@ -79874,6 +79939,7 @@ export namespace Schemas {
 
     /**
      * * `self_driving` - Self-driving
+     * * `bot_admission` - Bot author
      * * `manual` - Manual
      * * `reviewhog_clean` - Clean PostHog Review
      * * `label` - Label
@@ -79884,6 +79950,7 @@ export namespace Schemas {
 
     export const ReviewTriggerEnum = {
       SelfDriving: 'self_driving',
+      BotAdmission: 'bot_admission',
       Manual: 'manual',
       ReviewhogClean: 'reviewhog_clean',
       Label: 'label',
@@ -80011,6 +80078,7 @@ export namespace Schemas {
       /** What caused this run to exist: self-driving inbox provenance, a manual request through the API, a clean PostHog Review run (a silent review that posts only an approval), the repo's trigger label, or the repo reviewing every PR event.
        *
        * * `self_driving` - Self-driving
+       * * `bot_admission` - Bot author
        * * `manual` - Manual
        * * `reviewhog_clean` - Clean PostHog Review
        * * `label` - Label
@@ -134249,6 +134317,15 @@ export namespace Schemas {
       text?: string;
     };
 
+    export type BusinessKnowledgeSourcesUsageRetrieveParams = {
+    /**
+     * Number of days to report, counting back from today. From 1 to 90.
+     * @minimum 1
+     * @maximum 90
+     */
+    days?: number;
+    };
+
     export type CanvasesListParams = {
     /**
      * Only return canvases in this channel.
@@ -145603,7 +145680,7 @@ export namespace Schemas {
      */
     status?: string;
     /**
-     * Filter by what caused the run. Leave it unset to include runs from every trigger. 'all' is not a wildcard: it matches only runs in repos that review every pull request event. The other values: 'label' (the repo's trigger label opted the PR in), 'manual' (someone requested the review through the API or MCP), 'reviewhog_clean' (a clean PostHog Review run started a silent review, which posts only an approval), and 'self_driving' (stamphog reviewed a bot-authored PR from the inbox).
+     * Filter by what caused the run. Leave it unset to include runs from every trigger. 'all' is not a wildcard: it matches only runs in repos that review every pull request event. The other values: 'label' (the repo's trigger label opted the PR in), 'manual' (someone requested the review through the API or MCP), 'reviewhog_clean' (a clean PostHog Review run started a silent review, which posts only an approval), 'self_driving' (stamphog reviewed a bot-authored PR from the inbox), and 'bot_admission' (the repo policy names the bot that authored the PR).
      */
     trigger?: StamphogReviewRunsListTrigger;
     };
@@ -145613,6 +145690,7 @@ export namespace Schemas {
 
     export const StamphogReviewRunsListTrigger = {
       All: 'all',
+      BotAdmission: 'bot_admission',
       Label: 'label',
       Manual: 'manual',
       ReviewhogClean: 'reviewhog_clean',
