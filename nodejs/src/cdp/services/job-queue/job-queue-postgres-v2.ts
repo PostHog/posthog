@@ -19,7 +19,7 @@ import {
 } from '../cyclotron-v2'
 import { encodeJob, encodeStateColumns, v2JobToInvocation } from '../cyclotron-v2/job-codec'
 import { IDEMPOTENCY_CLAIM_LOCK_TIMEOUT_MS } from '../cyclotron-v2/manager'
-import { CyclotronV2IdempotentClaim, CyclotronV2WorkerConfig } from '../cyclotron-v2/types'
+import { CyclotronV2IdempotencyKey, CyclotronV2IdempotentClaim, CyclotronV2WorkerConfig } from '../cyclotron-v2/types'
 import { IdempotentInvocation, IdempotentJobQueue } from './job-queue.interface'
 import { cdpJobSizeCompressedKb, cdpJobSizeKb, createInvocationSanitizer, observeConsumedBatch } from './shared'
 
@@ -301,12 +301,13 @@ export class CyclotronJobQueuePostgresV2 implements IdempotentJobQueue {
             invocations.map((invocation, i) => ({
                 job: invocationToV2JobInit(invocation),
                 fingerprint: entries[i].fingerprint,
+                reply: entries[i].reply,
             })),
             { lockTimeoutMs: IDEMPOTENCY_CLAIM_LOCK_TIMEOUT_MS }
         )
     }
 
-    public async findIdempotencyKey(id: string): Promise<{ fingerprint: string } | null> {
+    public async findIdempotencyKey(id: string): Promise<CyclotronV2IdempotencyKey | null> {
         if (!this.manager) {
             throw new Error('CyclotronV2Manager not initialized')
         }

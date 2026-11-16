@@ -150,6 +150,8 @@ type StoredKey = {
     replayFields?: ReplayFields
 }
 
+export type QueuedReply = Pick<StoredKey, 'replayFields' | 'scheduledAt' | 'senderKind'>
+
 export const storedFingerprint = (fingerprint: Fingerprint): Pick<StoredKey, 'fingerprint' | 'currentFingerprint'> =>
     typeof fingerprint === 'string'
         ? { fingerprint }
@@ -440,10 +442,7 @@ export class IdempotencyKeys {
     }
 
     // What a queued key holds besides its run, for a retry answered from the cyclotron database, which keeps neither.
-    async queuedReplay(
-        teamId: number,
-        key: string
-    ): Promise<Pick<StoredKey, 'replayFields' | 'scheduledAt' | 'senderKind'> | undefined> {
+    async queuedReplay(teamId: number, key: string): Promise<QueuedReply | undefined> {
         if (!this.enabled) {
             return undefined
         }

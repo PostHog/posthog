@@ -3873,15 +3873,19 @@ describe('CDP API', () => {
             )
 
             it.each([
-                ['the same files', () => [reference(invoice)], 202],
-                ['other files', () => [reference(receipt)], 422],
+                ['the same files', () => [reference(invoice)], 202, true],
+                ['other files', () => [reference(receipt)], 422, true],
+                ['the same files while Valkey is switched off', () => [reference(invoice)], 202, false],
             ])(
                 'answers a retry of a keyed send with files that names %s from its first send, and queues one job',
-                async (_name, retryFiles, status) => {
+                async (_name, retryFiles, status, valkeyEnabled) => {
+                    const app = valkeyEnabled
+                        ? filesApp
+                        : await servedForOneTest({ CDP_IDEMPOTENCY_VALKEY_ENABLED: false })
                     const key = newKey()
-                    const sent = await sendWithFiles(key, [reference(invoice)])
+                    const sent = await sendWithFiles(key, [reference(invoice)], { app })
 
-                    const retried = await sendWithFiles(key, retryFiles())
+                    const retried = await sendWithFiles(key, retryFiles(), { app })
 
                     expect(sent.status).toBe(202)
                     expect(retried.status).toBe(status)
