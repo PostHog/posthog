@@ -28,6 +28,7 @@ from psycopg import OperationalError as PsycopgOperationalError
 from posthog.dataclasses import frozen
 from posthog.exceptions import ClickHouseAtCapacity, ClickHouseQueryMemoryLimitExceeded, ClickHouseQueryTimeOut
 
+from products.posthog_ai.backend.message_routing import POSTHOG_AI_INTERACTION_ORIGIN
 from products.posthog_ai.backend.services.system_prompt.service import PromptService
 from products.tasks.backend.facade.agents import EVAL_INTERACTION_ORIGIN, CustomPromptSandboxContext, TurnPollTimeout
 
@@ -593,9 +594,11 @@ class _SandboxedEvalRun(_BaseEvalRun):
                     )
                     if original_case is not None and original_case.interaction_origin:
                         sandbox_context = replace(sandbox_context, interaction_origin=original_case.interaction_origin)
+                    elif self.ctx.surface == "app":
+                        sandbox_context = replace(sandbox_context, interaction_origin=POSTHOG_AI_INTERACTION_ORIGIN)
                     elif self.ctx.skill_delivery == "exec":
                         sandbox_context = replace(sandbox_context, interaction_origin=EVAL_INTERACTION_ORIGIN)
-                    if sandbox_context.interaction_origin == "posthog_ai":
+                    if sandbox_context.interaction_origin == POSTHOG_AI_INTERACTION_ORIGIN:
                         prompt = PromptService.build()
                         sandbox_context = replace(
                             sandbox_context,
@@ -791,6 +794,7 @@ class _SandboxedEvalRun(_BaseEvalRun):
             "skill_delivery": self.ctx.skill_delivery,
             "reasoning_effort": self.ctx.reasoning_effort,
             "service_tier": self.ctx.service_tier,
+            "eval_surface": self.ctx.surface,
         }
 
 
