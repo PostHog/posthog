@@ -1,5 +1,7 @@
 import io
 import json
+from collections.abc import Callable
+from typing import Any
 from urllib.parse import quote, urlparse
 
 import pytest
@@ -27,6 +29,7 @@ from posthog.models.scoping import team_scope
 from posthog.models.team.team import Team
 from posthog.models.user_integration import UserIntegration
 from posthog.object_tags.kinds import ObjectRef
+from posthog.paging import PageRequest
 from posthog.storage import object_storage
 
 from products.access_control.backend.models.access_control import AccessControl
@@ -40,6 +43,10 @@ from products.experiments.backend.facade.testing import create_experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.notebooks.backend.models import Notebook
 from products.product_analytics.backend.facade.models import Insight
+from products.release.backend.facade import (
+    api as release_api,
+    contracts as release_contracts,
+)
 from products.signals.backend.models import SignalReport
 from products.slack_app.backend.api import ROUTE_HANDLED_LOCALLY, route_posthog_code_event_to_relevant_region
 from products.slack_app.backend.models import SlackChannel, SlackThreadTaskMapping
@@ -106,6 +113,35 @@ def _create_task_artifact(
 
 
 RELEASES_ENABLED = "products.release.backend.facade.api.releases_enabled"
+
+
+def _everything(visibility: type[Any]) -> Callable[[list[Any]], Any]:
+    return lambda ids: visibility(existing=frozenset(ids), visible=frozenset(ids), linkable=frozenset(ids))
+
+
+RELEASE_LOOKUPS = release_api.LinkLookups(
+    flags=_everything(release_contracts.FlagVisibility),
+    broadcasts=_everything(release_contracts.BroadcastVisibility),
+    surveys=_everything(release_contracts.SurveyVisibility),
+    insights=_everything(release_contracts.InsightVisibility),
+)
+
+
+def _create_release(team_id: int, name: str, description: str, feature_flag_ids: list[int]) -> str:
+    with team_scope(team_id):
+        release = release_api.create(
+            release_contracts.CreateReleaseInput(
+                team_id=team_id, name=name, description=description, feature_flag_ids=tuple(feature_flag_ids)
+            ),
+            RELEASE_LOOKUPS,
+        )
+    return str(release.id)
+
+
+def _import_release(team_id: int, flag: FeatureFlag) -> str:
+    with team_scope(team_id):
+        release_api.import_all(team_id, lambda: [release_contracts.ImportFlag(id=flag.pk, key=flag.key)])
+        return str(release_api.list_page(team_id, PageRequest(limit=1), RELEASE_LOOKUPS).results[0].id)
 
 
 class TestParsePosthogResourceLink:
@@ -975,11 +1011,7 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
                 return f"{base}/surveys/{survey.pk}", ["Checkout NPS", "*Draft*", "1 question", "1. Why?"]
             case "release":
                 flag = FeatureFlag.objects.create(team=self.team, key="checkout-v2", created_by=self.user, active=True)
-                release_id = self.client.post(
-                    f"/api/projects/{self.team.pk}/releases/",
-                    {"name": "Checkout v2", "description": "One-page checkout", "feature_flag_ids": [flag.pk]},
-                    format="json",
-                ).json()["id"]
+                release_id = _create_release(self.team.pk, "Checkout v2", "One-page checkout", [flag.pk])
                 return f"{base}/releases/{release_id}", ["Release", "Checkout v2", "1 flag", "checkout-v2 · Active"]
             case "cohort":
                 cohort = Cohort.objects.create(team=self.team, name="Power users", count=1200)
@@ -1201,8 +1233,7 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
         ]
         self.organization.save()
         flag = FeatureFlag.objects.create(team=self.team, key="secret-pricing", created_by=self.user, active=True)
-        self.client.post(f"/api/projects/{self.team.pk}/releases/import_all/")
-        release_id = self.client.get(f"/api/projects/{self.team.pk}/releases/").json()["results"][0]["id"]
+        release_id = _import_release(self.team.pk, flag)
         AccessControl.objects.create(
             team=self.team, resource="feature_flag", resource_id=str(flag.pk), access_level="none"
         )
@@ -1230,8 +1261,7 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
         ]
         self.organization.save()
         flag = FeatureFlag.objects.create(team=self.team, key="secret-pricing", created_by=self.user, active=True)
-        self.client.post(f"/api/projects/{self.team.pk}/releases/import_all/")
-        release_id = self.client.get(f"/api/projects/{self.team.pk}/releases/").json()["results"][0]["id"]
+        release_id = _import_release(self.team.pk, flag)
         AccessControl.objects.create(
             team=self.team, resource="feature_flag", resource_id=str(flag.pk), access_level="none"
         )
