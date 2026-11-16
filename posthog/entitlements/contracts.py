@@ -73,6 +73,12 @@ class EntitlementChange:
 
 @frozen
 class EntitlementReactor:
+    """After `react` the product must match `change.current`, and `react` must be safe to run twice.
+
+    `change.previous` is the last value the framework applied; it does not show the steps in between.
+    A reactor whose action depends on `previous` checks it against its own state first.
+    """
+
     key: str
     feature_keys: frozenset[str]
     react: Callable[[EntitlementChange], None]
