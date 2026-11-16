@@ -10,19 +10,20 @@ import { LiveCard } from './LiveCard'
 import { LIVE_ROW_HEIGHT, LiveSlidingRow } from './LiveSlidingRow'
 
 interface LiveCountryListProps {
+    users?: boolean
     /** Most visitors first, as `liveWorld` sorts them. */
     countries: LiveBreakdownRow[]
 }
 
 /** Every country with its visitors and a share bar scaled to the leading country. Rows slide when ranks change. */
-export function LiveCountryList({ countries }: LiveCountryListProps): ReactElement {
+export function LiveCountryList({ countries, users = false }: LiveCountryListProps): ReactElement {
     const styles = useStyles()
     const most = countries[0]?.count ?? 0
     return (
         <LiveCard flush testID="live-countries-list">
             <View style={styles.header}>
                 <Text style={styles.columnLabel}>Country</Text>
-                <Text style={styles.columnLabel}>Visitors</Text>
+                <Text style={styles.columnLabel}>{users ? 'Users' : 'Visitors'}</Text>
             </View>
             <View style={{ height: countries.length * LIVE_ROW_HEIGHT }}>
                 {countries.map((country, index) => (
@@ -30,6 +31,7 @@ export function LiveCountryList({ countries }: LiveCountryListProps): ReactEleme
                         key={country.key}
                         country={country}
                         index={index}
+                        users={users}
                         share={most > 0 ? country.count / most : 0}
                     />
                 ))}
@@ -39,20 +41,21 @@ export function LiveCountryList({ countries }: LiveCountryListProps): ReactEleme
 }
 
 interface CountryRowProps {
+    users: boolean
     country: LiveBreakdownRow
     index: number
     /** Visitors over the leading country's, 0 to 1. */
     share: number
 }
 
-function CountryRow({ country, index, share }: CountryRowProps): ReactElement {
+function CountryRow({ country, index, share, users }: CountryRowProps): ReactElement {
     const styles = useStyles()
     const percent = `${country.percent.toFixed(1)}%`
     return (
         <LiveSlidingRow index={index}>
             <View
                 accessible
-                accessibilityLabel={`${country.label}, ${plural(country.count, 'visitor')}, ${percent}`}
+                accessibilityLabel={`${country.label}, ${plural(country.count, users ? 'user' : 'visitor')}, ${percent}`}
                 style={styles.row}
                 testID={`live-countries-row-${country.key}`}
             >
@@ -117,7 +120,8 @@ const useStyles = createStyles(({ colors }) => ({
         backgroundColor: colors.blue,
     },
     value: {
-        ...type.bodySmallStrong,
+        ...type.metaSmall,
+        fontWeight: '600',
         minWidth: 84,
         textAlign: 'right',
         color: colors.ink,

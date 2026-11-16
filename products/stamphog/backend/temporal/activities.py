@@ -113,7 +113,12 @@ from products.stamphog.backend.logic.reviewer import (
 from products.stamphog.backend.logic.routing.fork_labels import fork_labels
 from products.stamphog.backend.logic.scrubbing import neutralize_active_markdown, scrub_credentials
 from products.stamphog.backend.models import PullRequest, PullRequestAudience, ReviewRun, StamphogRepoConfig
-from products.stamphog.backend.tasks.tasks import queue_routing_after_verdict, request_rereview_after_external_review
+from products.stamphog.backend.tasks.tasks import (
+    queue_routing_after_verdict,
+    request_rereview_after_external_review,
+    rereview_once_attestations_reported,
+    waits_on_attestations,
+)
 from products.stamphog.backend.temporal.constants import (
     ACTIVITY_RETRY_POLICY,
     CLONE_STEP_TIMEOUT_SECONDS,
@@ -902,6 +907,7 @@ def _review_invocation(run: ReviewRun, merge_base_sha: str | None) -> ReviewerIn
         # Read as a description rather than a permission: the reviewer is told why it was asked,
         # and decides for itself what that means for this diff.
         review_trigger=trigger_for_run(output=output, review_mode=run.pull_request.repo_config.review_mode),
+        admitted_bot=str((output.get("bot_admission") or {}).get("login") or ""),
     )
 
 
@@ -2002,7 +2008,16 @@ def post_verdict(input: StamphogReviewInput) -> dict:
     # Computed before the branch chain because two things must agree on it: the trigger label is only
     # stripped for a refusal, and only then may the review tell the author to re-add it.
     is_refusal = parsed.verdict in (ReviewVerdict.REFUSED, ReviewVerdict.ESCALATE)
-    strips_label = repo_config.review_mode == ReviewMode.LABEL and is_refusal and run.may_publish(parsed.verdict)
+    # Same reading the reviewer got, from the same stamp, so the handoff can't disagree with what
+    # the run was told it was.
+    trigger = trigger_for_run(output=output, review_mode=repo_config.review_mode)
+    # No label requested an admitted bot's review, and a label added to its PR starts none.
+    strips_label = (
+        repo_config.review_mode == ReviewMode.LABEL
+        and is_refusal
+        and run.may_publish(parsed.verdict)
+        and trigger != ReviewTrigger.BOT_ADMISSION.value
+    )
 
     relabel_label = repo_config.trigger_label if strips_label else None
 
@@ -2060,10 +2075,6 @@ def post_verdict(input: StamphogReviewInput) -> dict:
     # Keyed off parsed.verdict, not run.verdict: the gate-blocked branch overrides run.verdict to WAIT,
     # but both the label-strip and the ReviewHog handoff below treat a gate-blocked refusal the same
     # as an engine-refused one.
-    # Same reading the reviewer got, from the same stamp, so the handoff can't disagree with what
-    # the run was told it was.
-    trigger = trigger_for_run(output=output, review_mode=repo_config.review_mode)
-
     # Action parity: in label-triggered mode a refused/escalated verdict strips the trigger label, so
     # the author re-requests the next review by re-adding it.
     # A failure here raises on purpose: the activity retries and the sticky upsert above is idempotent.
@@ -2139,7 +2150,21 @@ def post_verdict(input: StamphogReviewInput) -> dict:
     activity.logger.info(f"Posted verdict {parsed.verdict} for run {run.id}")
     # Nobody saw a WAIT that was not published, so the external review finishing has nothing to update.
     waited = _waited_on_external_review(run) and run.verdict_posted_at is not None
-    return {"verdict": str(parsed.verdict), "waited_on_external_review": waited}
+    return {
+        "verdict": str(parsed.verdict),
+        "waited_on_external_review": waited,
+        "waits_on_attestations": waits_on_attestations(run),
+    }
+
+
+@activity.defn
+@asyncify
+def poll_pending_attestations(input: StamphogReviewInput) -> dict:
+    """Queue a re-review once every check this WAIT is pending on has reported.
+
+    ``done`` tells the workflow to stop polling. An error raises, so Temporal retries the poll.
+    """
+    return {"done": rereview_once_attestations_reported(_load_run(input))}
 
 
 def _notify_finished_review(

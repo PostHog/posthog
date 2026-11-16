@@ -23,17 +23,10 @@ from products.ai_observability.backend.models.eval_suggestions import (
 
 from .coverage import dismissed_dedupe_keys
 from .measure import SampleRef
-from .profile import StructuredGap, TeamProfile
+from .profile import TeamProfile
 from .ranking import Proposal
 
 STAGE_ORDER = ("measure", "screening", "drafting")
-
-
-@frozen
-class GapCandidate:
-    gap: StructuredGap
-    # The templated judge for the gap, which a draft replaces.
-    proposal: Proposal
 
 
 @frozen
@@ -44,7 +37,6 @@ class Handoff:
     sample: list[SampleRef]
     # Candidates from every stage so far.
     proposals: list[Proposal]
-    gaps: list[GapCandidate]
     screened_judges: list[str]
     judge_target: str
     judge_model: str | None
