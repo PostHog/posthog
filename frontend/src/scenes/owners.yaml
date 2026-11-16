@@ -102,6 +102,8 @@ rules:
       owners: team-product-analytics
     - match: '/toolbar-launch/'
       owners: team-growth
+    - match: '/Unsubscribe/'
+      owners: team-product-analytics
     - match: '/web-analytics/'
       owners: team-web-analytics
     - match: '/welcome/'
