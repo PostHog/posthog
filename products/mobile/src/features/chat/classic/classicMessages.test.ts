@@ -1,3 +1,4 @@
+import { classicToolInvocations } from './classicActivity'
 import {
     appendClassicMessage,
     classicHistory,
@@ -7,6 +8,170 @@ import {
 } from './classicMessages'
 
 describe('classic conversation events', () => {
+    test.each(['form', 'approval'] as const)(
+        'keeps a tool awaiting a %s response pending until its result arrives',
+        (decision) => {
+            let state = classicHistory(
+                [
+                    { id: 'question', type: 'human', content: 'Configure an event report.' },
+                    {
+                        id: 'request',
+                        type: 'ai',
+                        content: '',
+                        tool_calls: [
+                            {
+                                id: 'waiting-tool',
+                                name: decision === 'form' ? 'create_form' : 'create_insight',
+                                args:
+                                    decision === 'form'
+                                        ? {
+                                              questions: [
+                                                  {
+                                                      id: 'event',
+                                                      question: 'Which event?',
+                                                      options: [{ value: 'signup' }],
+                                                  },
+                                              ],
+                                          }
+                                        : {},
+                            },
+                        ],
+                    },
+                ],
+                null,
+                decision === 'approval'
+                    ? [
+                          {
+                              proposal_id: 'proposal',
+                              decision_status: 'pending',
+                              original_tool_call_id: 'waiting-tool',
+                          },
+                      ]
+                    : []
+            )
+            expect(classicToolInvocations(state, false).get('waiting-tool')?.status).toBe('pending')
+            state = appendClassicMessage(state, {
+                type: 'tool',
+                tool_call_id: 'waiting-tool',
+                content: 'Response received.',
+            })
+            expect(classicToolInvocations(state, false).get('waiting-tool')?.status).toBe('completed')
+        }
+    )
+    test.each(['history', 'stream'])(
+        'folds structured intermediate responses and keeps the final answer in %s',
+        (source) => {
+            const messages = [
+                { id: 'question', type: 'human', content: 'Compare signups.', trace_id: 'trace-signups' },
+                { id: 'commentary', type: 'ai', content: 'I will inspect the signup events.' },
+                {
+                    id: 'inspection',
+                    type: 'ai',
+                    content: 'Checking the selected dates.',
+                    meta: { thinking: [{ type: 'thinking', thinking: 'Use matching date ranges.' }] },
+                    tool_calls: [
+                        { id: 'query-signups', name: 'query_insight', args: { context: 'Compare signup events' } },
+                    ],
+                },
+                { type: 'tool', tool_call_id: 'query-signups', content: 'Query completed.' },
+                { id: 'summary', type: 'ai', content: '**Signups increased.**' },
+            ]
+            const state =
+                source === 'history'
+                    ? classicHistory(messages, null)
+                    : messages.reduce(appendClassicMessage, EMPTY_CLASSIC_STATE)
+            const items = classicThreadItems(state, '')
+            expect(items.map((item) => item.kind)).toEqual([
+                'user',
+                'thought',
+                'thought',
+                'thought',
+                'tool',
+                'assistant',
+            ])
+            expect(items.at(-1)).toMatchObject({
+                text: '**Signups increased.**',
+                traceId: 'trace-signups',
+                complete: true,
+            })
+            expect(classicToolInvocations(state, false).get('query-signups')).toMatchObject({
+                status: 'completed',
+                detail: 'Compare signup events',
+            })
+        }
+    )
+
+    test('keeps tool results separate without wire message IDs and preserves their latest progress', () => {
+        let state = classicHistory(
+            [
+                { id: 'question', type: 'human', content: 'Compare two events.' },
+                {
+                    id: 'inspection',
+                    type: 'ai',
+                    content: '',
+                    tool_calls: [
+                        { id: 'first', name: 'query_insight', args: {} },
+                        { id: 'second', name: 'query_insight', args: {} },
+                    ],
+                },
+            ],
+            null
+        )
+        expect([...classicToolInvocations(state, true).values()].map((tool) => tool.status)).toEqual([
+            'in_progress',
+            'in_progress',
+        ])
+        state = reduceClassicEvent(state, {
+            event: 'update',
+            data: JSON.stringify({ tool_call_id: 'second', content: 'Running the second query.' }),
+        })
+        state = appendClassicMessage(state, { type: 'tool', tool_call_id: 'first', content: 'First result' })
+        state = appendClassicMessage(state, {
+            type: 'tool',
+            tool_call_id: 'second',
+            content: 'Query unavailable.',
+            status: 'error',
+        })
+        expect([...classicToolInvocations(state, false).values()]).toMatchObject([
+            { status: 'completed' },
+            { status: 'failed', detail: 'Running the second query.', errorMessage: 'Query unavailable.' },
+        ])
+        expect(state.messages.filter((message) => message.data.type === 'tool')).toHaveLength(2)
+    })
+
+    test('reads all reasoning summaries and settles temporary thinking after an interrupted stream', () => {
+        const state = appendClassicMessage(EMPTY_CLASSIC_STATE, {
+            id: 'temp-thinking',
+            type: 'ai',
+            content: '',
+            meta: {
+                thinking: [
+                    { type: 'reasoning', summary: [{ text: 'Inspect the events.' }, { text: 'Compare the counts.' }] },
+                    { type: 'reasoning', summary: null },
+                    null,
+                ],
+            },
+        })
+        expect(classicThreadItems(state, '', true)).toEqual([
+            {
+                kind: 'thought',
+                id: 'stream-0-thinking-0',
+                text: 'Inspect the events.\n\nCompare the counts.',
+                complete: false,
+            },
+        ])
+        expect(classicThreadItems(state, '', false)[0]).toMatchObject({ complete: true })
+        const failed = appendClassicMessage(state, {
+            id: 'failure',
+            type: 'ai/failure',
+            content: 'The query failed. Try again.',
+        })
+        expect(classicThreadItems(failed, '').at(-1)).toMatchObject({
+            kind: 'error',
+            message: 'The query failed. Try again.',
+        })
+    })
+
     test('replaces the optimistic human echo and accumulated answer snapshots without duplicating turns', () => {
         let state = appendClassicMessage(EMPTY_CLASSIC_STATE, {
             type: 'human',

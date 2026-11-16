@@ -266,6 +266,94 @@ describe('SessionThread', () => {
     })
 
     test.each([
+        ['idle', 'completed'],
+        ['idle', 'failed'],
+        ['idle', 'cancelled'],
+        ['reconnecting', 'in_progress'],
+    ] as const)('stops activity spinners when the session is %s and the run is %s', (phase, runStatus) => {
+        const view = render(
+            <SessionThread
+                session={session({ items: TWO_GROUPS, invocations: INVOCATIONS, phase: 'working' })}
+                onRetryHistory={jest.fn()}
+            />
+        )
+        expect(screen.getByLabelText('Edit Legend.tsx')).toBeTruthy()
+        expect(screen.UNSAFE_queryAllByType(ActivityIndicator).length).toBeGreaterThan(0)
+
+        view.rerender(
+            <SessionThread
+                session={session({ items: TWO_GROUPS, invocations: INVOCATIONS, phase, runStatus })}
+                onRetryHistory={jest.fn()}
+            />
+        )
+
+        expect(screen.getByLabelText('Edited a file')).toBeTruthy()
+        expect(screen.UNSAFE_queryByType(ActivityIndicator)).toBeNull()
+        fireEvent.press(screen.getByLabelText('Edited a file'))
+        expect(screen.getByTestId('session-tool-c3')).toHaveTextContent(/Pass the series name to the legend/)
+        expect(capture).toHaveBeenCalledWith(
+            'mobile_chat_activity_expanded',
+            expect.objectContaining({ running: false })
+        )
+    })
+
+    test('keeps expanded activity details in view while more messages arrive', () => {
+        const scrollToEnd = jest.spyOn(ScrollView.prototype, 'scrollToEnd')
+        render(
+            <SessionThread
+                session={session({ items: TWO_GROUPS, invocations: INVOCATIONS, phase: 'working' })}
+                onRetryHistory={jest.fn()}
+            />
+        )
+        const thread = screen.getByTestId('session-thread')
+        fireEvent(thread, 'contentSizeChange', 400, 1800)
+        expect(scrollToEnd).toHaveBeenCalledWith({ animated: false })
+        scrollToEnd.mockClear()
+
+        fireEvent.press(screen.getByLabelText('Ran 1 command, read a file'))
+        fireEvent(thread, 'contentSizeChange', 400, 2000)
+        expect(screen.getByTestId('session-tool-c1')).toBeTruthy()
+        expect(scrollToEnd).not.toHaveBeenCalled()
+        fireEvent.press(screen.getByLabelText('Ran 1 command, read a file'))
+        fireEvent(thread, 'contentSizeChange', 400, 1800)
+        expect(scrollToEnd).not.toHaveBeenCalled()
+
+        fireEvent(thread, 'scrollBeginDrag')
+        fireEvent(thread, 'scrollEndDrag', {
+            nativeEvent: {
+                contentOffset: { y: 1300 },
+                contentSize: { height: 1800 },
+                layoutMeasurement: { height: 500 },
+            },
+        })
+        fireEvent(thread, 'contentSizeChange', 400, 1900)
+        expect(scrollToEnd).toHaveBeenCalledWith({ animated: true })
+    })
+
+    test.each(['turn_end', 'user'] as const)('keeps earlier activity settled after a %s boundary', (kind) => {
+        render(
+            <SessionThread
+                session={session({
+                    items: [
+                        ...TWO_GROUPS,
+                        kind === 'user'
+                            ? { kind: 'user', id: 'next-user', text: 'Try a different approach' }
+                            : { kind: 'turn_end', id: 'ended-turn' },
+                        { kind: 'thought', id: 'current-thought', text: 'Checking another approach', complete: false },
+                    ],
+                    invocations: INVOCATIONS,
+                    phase: 'working',
+                })}
+                onRetryHistory={jest.fn()}
+            />
+        )
+
+        expect(screen.getByLabelText('Edited a file')).toBeTruthy()
+        expect(screen.queryByLabelText('Edit Legend.tsx')).toBeNull()
+        expect(screen.getAllByLabelText('Thinking…').length).toBeGreaterThan(0)
+    })
+
+    test.each([
         ['above newer messages', 200],
         ['at the bottom', 1300],
     ])('preserves the viewport when toggling a notice %s', (_name, offset) => {

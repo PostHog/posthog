@@ -1,7 +1,7 @@
 import type { SseEvent } from '@/api/sse'
 import { asRecord, isRecord } from '@/lib/records'
-
 import type { SessionThreadItem } from '../session/types'
+import { classicIntermediateIds, classicThinkingItems, classicToolCalls } from './classicActivity'
 
 export interface ClassicMessage {
     id: string
@@ -13,6 +13,7 @@ export interface ClassicApproval {
     id: string
     preview: string
     toolName: string
+    toolCallId?: string
 }
 
 export interface ClassicForm {
@@ -28,6 +29,7 @@ export interface ClassicState {
     approval: ClassicApproval | null
     form: ClassicForm | null
     error: string | null
+    toolUpdates: Record<string, string[]>
 }
 
 export const EMPTY_CLASSIC_STATE: ClassicState = {
@@ -38,6 +40,7 @@ export const EMPTY_CLASSIC_STATE: ClassicState = {
     approval: null,
     form: null,
     error: null,
+    toolUpdates: {},
 }
 
 function approvalFrom(value: unknown): ClassicApproval | null {
@@ -47,6 +50,7 @@ function approvalFrom(value: unknown): ClassicApproval | null {
               id: data.proposal_id,
               preview: typeof data.preview === 'string' ? data.preview : 'Allow this change?',
               toolName: typeof data.tool_name === 'string' ? data.tool_name : 'PostHog AI',
+              ...(typeof data.original_tool_call_id === 'string' ? { toolCallId: data.original_tool_call_id } : {}),
           }
         : null
 }
@@ -66,8 +70,15 @@ export function appendClassicMessage(state: ClassicState, data: Record<string, u
         return state
     }
     const wireId = typeof data.id === 'string' ? data.id : null
-    const complete = wireId !== null && !wireId.startsWith('temp-')
+    const complete =
+        (wireId !== null && !wireId.startsWith('temp-')) ||
+        (data.type === 'tool' && typeof data.tool_call_id === 'string')
     let index = wireId ? state.messages.findIndex((message) => message.data.id === wireId) : -1
+    if (index < 0 && data.type === 'tool' && typeof data.tool_call_id === 'string') {
+        index = state.messages.findIndex(
+            (message) => message.data.type === 'tool' && message.data.tool_call_id === data.tool_call_id
+        )
+    }
     if (index < 0 && data.type === 'human') {
         index = state.messages.findLastIndex(
             (message) =>
@@ -157,6 +168,16 @@ export function reduceClassicEvent(state: ClassicState, event: SseEvent): Classi
         case 'conversation':
             return { ...state, title: typeof data.title === 'string' ? data.title : state.title }
         case 'update':
+            if (typeof data.tool_call_id === 'string' && typeof data.content === 'string') {
+                const previous = state.toolUpdates?.[data.tool_call_id] ?? []
+                return {
+                    ...state,
+                    toolUpdates: {
+                        ...state.toolUpdates,
+                        [data.tool_call_id]: previous.at(-1) === data.content ? previous : [...previous, data.content],
+                    },
+                }
+            }
             return {
                 ...state,
                 progress: typeof data.content === 'string' ? data.content : state.progress,
@@ -214,9 +235,11 @@ function notebookText(data: Record<string, unknown>, projectUrl: string): string
     return parts.filter(Boolean).join('\n\n') || 'This report has no content yet.'
 }
 
-export function classicThreadItems(state: ClassicState, projectUrl: string): SessionThreadItem[] {
+export function classicThreadItems(state: ClassicState, projectUrl: string, working = false): SessionThreadItem[] {
     let currentTraceId: string | undefined
-    return state.messages.flatMap((message): SessionThreadItem[] => {
+    const intermediateIds = classicIntermediateIds(state.messages)
+    const lastHuman = state.messages.findLastIndex((message) => message.data.type === 'human')
+    return state.messages.flatMap((message, index): SessionThreadItem[] => {
         const data = message.data
         const text = typeof data.content === 'string' ? data.content : ''
         const traceId = typeof data.trace_id === 'string' && data.trace_id ? data.trace_id : undefined
@@ -225,12 +248,59 @@ export function classicThreadItems(state: ClassicState, projectUrl: string): Ses
         switch (data.type) {
             case 'human':
                 return [{ kind: 'user', id: message.id, text }]
-            case 'ai':
-                return text
-                    ? [{ kind: 'assistant', id: message.id, text, complete: message.complete, projectUrl, ...feedback }]
+            case 'ai': {
+                const calls = classicToolCalls(data)
+                const complete = !working || index < lastHuman || message.complete
+                const thoughts = classicThinkingItems(
+                    message,
+                    !working || index < state.messages.length - 1 || !!text || calls.length > 0
+                )
+                const content: SessionThreadItem[] = text
+                    ? intermediateIds.has(message.id)
+                        ? [{ kind: 'thought', id: message.id, text, complete }]
+                        : [
+                              {
+                                  kind: 'assistant',
+                                  id: message.id,
+                                  text,
+                                  complete,
+                                  projectUrl,
+                                  ...feedback,
+                              },
+                          ]
                     : []
+                return [
+                    ...thoughts,
+                    ...content,
+                    ...calls.map(
+                        (call): SessionThreadItem => ({
+                            kind: 'tool',
+                            id: `${message.id}-tool-${call.id}`,
+                            toolCallId: String(call.id),
+                        })
+                    ),
+                ]
+            }
             case 'ai/reasoning':
-                return text ? [{ kind: 'thought', id: message.id, text, complete: message.complete }] : []
+                return text
+                    ? [
+                          {
+                              kind: 'thought',
+                              id: message.id,
+                              text,
+                              complete: !working || index < state.messages.length - 1,
+                          },
+                      ]
+                    : []
+            case 'ai/failure':
+                return [
+                    {
+                        kind: 'error',
+                        id: message.id,
+                        message: text || 'PostHog AI ran into a problem. Try again.',
+                        variant: 'error',
+                    },
+                ]
             case 'ai/viz':
             case 'ai/artifact': {
                 const link =

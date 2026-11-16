@@ -66,6 +66,17 @@ export interface SessionThoughtItem {
     complete: boolean
 }
 
+export interface SessionVisualizationItem {
+    kind: 'visualization'
+    id: string
+    query?: unknown
+    shortId?: string
+    title?: string
+    result?: unknown
+    traceId?: string
+    webUrl?: string
+}
+
 export interface SessionToolItem {
     kind: 'tool'
     id: string
@@ -108,6 +119,7 @@ export interface SessionProgressItem {
 export type SessionThreadItem =
     | SessionUserItem
     | SessionAssistantItem
+    | SessionVisualizationItem
     | SessionThoughtItem
     | SessionToolItem
     | SessionTurnEndItem

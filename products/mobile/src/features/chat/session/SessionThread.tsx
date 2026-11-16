@@ -19,7 +19,7 @@ import { UserBubble } from '../UserBubble'
 import { ActivityGroupRow } from './ActivityGroupRow'
 import { NoticeRow } from './NoticeRow'
 import { ProgressRow } from './ProgressRow'
-import { errorItemText, groupSessionItems, shouldShowRunError } from './sessionDisplay'
+import { currentTurnActivityIds, errorItemText, groupSessionItems, shouldShowRunError } from './sessionDisplay'
 import type { Session, SessionAssistantItem, SessionDisplayItem, SessionErrorItem } from './types'
 
 export type SessionThreadState = Pick<
@@ -109,6 +109,7 @@ export function SessionThread({
     const positioned = useRef(false)
     const following = useRef(true)
     const displayItems = useMemo(() => groupSessionItems(session.items), [session.items])
+    const activeActivityIds = useMemo(() => currentTurnActivityIds(session.items), [session.items])
     const replyActions = useMemo(
         () => chatReplyActions(session.items, feedbackContext, session.phase),
         [session.items, feedbackContext, session.phase]
@@ -165,6 +166,8 @@ export function SessionThread({
                         group={item}
                         invocations={session.invocations}
                         waitingToolCallId={session.decision?.toolCallId}
+                        active={session.phase === 'working' && item.items.some((row) => activeActivityIds.has(row.id))}
+                        onToggle={pauseFollowing}
                     />
                 )
             case 'turn_end':
