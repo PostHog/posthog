@@ -584,14 +584,18 @@ export const dataQualityChecksLogic = kea<dataQualityChecksLogicType>([
                     lemonToast.success(message)
                     return
                 }
+                const toastId = suiteRunToastId(suiteRun)
                 lemonToast.warning(message, {
-                    toastId: suiteRunToastId(suiteRun),
+                    toastId,
                     autoClose: false,
                     button: {
                         label: 'View results',
                         action: () => actions.showSuiteRunResults(suiteRun.id),
                         dataAttr: 'data-quality-toast-view-results',
                     },
+                })
+                cache.disposables.add(() => () => lemonToast.dismiss(toastId), toastId, {
+                    pauseOnPageHidden: false,
                 })
             },
             showSuiteRunResults: ({ suiteRunId }) => {

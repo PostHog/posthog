@@ -40,7 +40,7 @@ jest.mock('lib/api', () => {
 })
 
 jest.mock('lib/lemon-ui/LemonToast/LemonToast', () => ({
-    lemonToast: { success: jest.fn(), error: jest.fn(), info: jest.fn(), warning: jest.fn() },
+    lemonToast: { success: jest.fn(), error: jest.fn(), info: jest.fn(), warning: jest.fn(), dismiss: jest.fn() },
 }))
 
 jest.mock('scenes/data-management/database/databaseTableListLogic', () => ({
@@ -307,6 +307,11 @@ describe('dataQualityChecksLogic', () => {
         expect(logic.values.runHistoryOpen).toBe(true)
         expect(logic.values.expandedSuiteRunId).toBe('suite-9')
         expect(logic.values.suiteRunCheckRunsBySuiteRunId['suite-9']).toEqual([])
+
+        expect(lemonToast.dismiss).not.toHaveBeenCalled()
+        logic.unmount()
+        expect(lemonToast.dismiss).toHaveBeenCalledWith('data-quality-suite-run-suite-9')
+        logic.mount()
     })
 
     it('ignores a stale poll after a newer run has replaced the active one', async () => {
