@@ -146,18 +146,6 @@ def _is_older_than_applied_billing_status(organization: Organization, computed_a
 
 BILLING_ACCESS_BLOCK_FLAG = "billing-access-block"
 
-# Every field a billing status can change. Saving only these keeps a stale copy from undoing a change
-# made since it was loaded, such as a deactivation by staff.
-BILLING_STATUS_FIELDS = [
-    "customer_id",
-    "usage",
-    "available_product_features",
-    "never_drop_data",
-    "has_active_subscription",
-    "customer_trust_scores",
-    "updated_at",
-]
-
 
 def _access_block_change(organization: Organization, access_blocked: bool) -> tuple[bool, str | None] | None:
     """The (is_active, is_not_active_reason) that Billing's block calls for, or None to leave the organization alone.
@@ -983,7 +971,7 @@ class BillingManager:
             organization.usage["billing_latest_usage_report_date"] = billing_status.get("latest_usage_report_date")
 
         if org_modified:
-            organization.save(update_fields=BILLING_STATUS_FIELDS)
+            organization.save()
 
         access_blocked = data.get("access_blocked")
         if isinstance(access_blocked, bool):

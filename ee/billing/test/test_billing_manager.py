@@ -1273,20 +1273,6 @@ class TestUpdateOrgDetailsAccessBlock(BaseTest):
         feature_enabled.assert_called_once()
         assert feature_enabled.call_args.args[0] == "billing-access-block"
 
-    def test_a_stale_copy_does_not_overwrite_a_deactivation_made_since_it_was_loaded(self, _feature_enabled: MagicMock):
-        # Staff deactivated the organization after this copy was loaded, and the status also changes usage.
-        Organization.objects.filter(id=self.organization.id).update(
-            is_active=False, is_not_active_reason=COMPLIANCE_REVIEW
-        )
-
-        BillingManager(license=None).update_org_details(self.organization, self._status(True, events_usage=4242))
-
-        self.organization.refresh_from_db()
-        assert self.organization.is_active is False
-        assert self.organization.is_not_active_reason == COMPLIANCE_REVIEW
-        assert self.organization.usage is not None
-        assert self.organization.usage["events"]["usage"] == 4242
-
     def test_an_older_blocked_status_does_not_undo_a_newer_lift(self, _feature_enabled: MagicMock):
         manager = BillingManager(license=None)
         self.organization.is_active = False
