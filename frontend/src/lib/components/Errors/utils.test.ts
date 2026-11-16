@@ -18,6 +18,7 @@ import {
 
 describe('Error Display', () => {
     it.each([
+        ['posthog-convex', 'convex'],
         ['posthog-kmp', 'kotlin'],
         ['posthog-laravel', 'php'],
     ])('recognizes the %s SDK runtime', (lib, runtime) => {

@@ -254,7 +254,7 @@ class MCPServerInstallation(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
 
     def upstream_access_token(self) -> str | None:
         """The installation's own OAuth token first. Otherwise the token of the member's Slack link, while the link
-        exists, belongs to the same member and grants exactly the scopes that the template allows."""
+        exists, belongs to the same member and fits the scopes that the template allows."""
         if own_token := (self.sensitive_configuration or {}).get("access_token"):
             return own_token
         link = self.linked_user_integration

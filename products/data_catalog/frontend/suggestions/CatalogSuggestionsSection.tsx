@@ -63,6 +63,7 @@ function SuggestionsList(): JSX.Element {
                                 windowDays={status?.window_days ?? 0}
                                 renderSelection={(suggestion) => <CatalogSuggestionCheckbox suggestion={suggestion} />}
                                 renderGroupSelection={(group) => <CatalogSuggestionsGroupCheckbox group={group} />}
+                                assigneeColumn
                             />
                         </div>
                     ) : (
