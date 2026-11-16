@@ -459,6 +459,8 @@ class OrganizationSerializer(
         user: object = self.user_permissions.user
         if not isinstance(user, User) or user.pk is None:
             return []
+        if (access := self.user_access_control) is not None:
+            authorization.reuse_current_rules(access, self.user_permissions)
         visible_teams = (
             _visible_teams(instance, user)
             .select_related("project")
