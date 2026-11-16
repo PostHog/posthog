@@ -6016,7 +6016,7 @@ describe('CDP API', () => {
                 ...getDefaultCdpConfig(),
                 CDP_EMAIL_ATTACHMENTS_S3_PREFIX: `attachments-api-test/${Date.now()}`,
             })!
-            redis = createAttachmentQuotaValkeyPool(hub)!
+            redis = createAttachmentQuotaValkeyPool({ ...hub, CDP_EMAIL_ATTACHMENTS_QUOTA_VALKEY_HOST: '127.0.0.1' })!
         })
 
         beforeEach(async () => {
