@@ -5,7 +5,8 @@ import type { GuidanceRule } from '../rule-schema'
 const QUERY_LOGS_TOOL = 'query-logs'
 const VALUE_TOOLS = ['logs-attributes-list', 'logs-attribute-values-list']
 
-const LOGS_FILTERS = ['serviceNames', 'severityLevels', 'filterGroup']
+const VALUE_FILTERS = ['serviceNames', 'severityLevels', 'filterGroup']
+const SCOPES = ['personId', 'sessionId']
 
 // The tool takes every parameter inside `query`.
 function queryOf(call: GuidanceCall): GuidanceCall {
@@ -13,9 +14,22 @@ function queryOf(call: GuidanceCall): GuidanceCall {
     return { ...call, args: typeof query === 'object' && query !== null ? (query as Record<string, unknown>) : {} }
 }
 
-function filtersIn(call: GuidanceCall): string[] {
-    return LOGS_FILTERS.filter((filter) => hasArg(queryOf(call), filter))
+function valueFiltersIn(call: GuidanceCall): string[] {
+    return VALUE_FILTERS.filter((filter) => hasArg(queryOf(call), filter))
 }
+
+// The query matches nothing for a blank ID, so a scope counts whenever it is present.
+function scopesIn(call: GuidanceCall): string[] {
+    const query = queryOf(call).args ?? {}
+    return SCOPES.filter((scope) => query[scope] !== undefined && query[scope] !== null)
+}
+
+function filtersIn(call: GuidanceCall): string[] {
+    return [...valueFiltersIn(call), ...scopesIn(call)]
+}
+
+const SCOPE_FACT =
+    '`personId` and `sessionId` match only logs that hold that ID in an attribute, so a log sent without it is not in this result.'
 
 function searches(call: GuidanceCall): boolean {
     return hasArg(queryOf(call), 'searchTerm')
@@ -66,6 +80,7 @@ const rules: GuidanceRule[] = [
                 '`searchTerm` matches the log body only, as one substring, and ignores case.',
                 'It does not match service names, attributes or severity, and several words match only in that exact order.',
                 'A value held in an attribute needs a `filterGroup` filter: `logs-attributes-list` lists the keys and `logs-attribute-values-list` lists the values.',
+                ...(scopesIn(call).length > 0 ? [SCOPE_FACT] : []),
             ].join(' '),
     }),
     logsRule({
@@ -79,8 +94,13 @@ const rules: GuidanceRule[] = [
                 `This call filtered on ${filtersIn(call)
                     .map((filter) => `\`${filter}\``)
                     .join(', ')}.`,
-                'A service name, severity or attribute value that does not exist matches nothing.',
-                '`logs-attribute-values-list` lists the values in use, with `key: "service.name"` and `attribute_type: "resource"` for services.',
+                ...(valueFiltersIn(call).length > 0
+                    ? [
+                          'A service name, severity or attribute value that does not exist matches nothing.',
+                          '`logs-attribute-values-list` lists the values in use, with `key: "service.name"` and `attribute_type: "resource"` for services.',
+                      ]
+                    : []),
+                ...(scopesIn(call).length > 0 ? [SCOPE_FACT] : []),
             ].join(' '),
     }),
     logsRule({

@@ -31,6 +31,8 @@ describe('logs empty-result guidance', () => {
         ['a project with no logs', false, { searchTerm: 'timeout', serviceNames: ['api'] }, 'no-logs'],
         ['a search term with filters', true, { searchTerm: 'timeout', serviceNames: ['api'] }, 'search'],
         ['filters without a search term', true, { serviceNames: ['api'], severityLevels: ['error'] }, 'filters+names'],
+        ['a session scope only', true, { sessionId: 's' }, 'filters'],
+        ['a blank person scope', true, { personId: '' }, 'filters'],
         ['a date range only', true, { dateRange: { date_from: '-1h' }, serviceNames: [] }, 'range'],
         ['a later page', true, { serviceNames: ['api'], after: 'cursor' }, undefined],
     ])('handles %s', async (_label, hasLogs, query, expected) => {
