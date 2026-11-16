@@ -2,7 +2,7 @@
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
         "focus": {
-            "description": "Free text about what to put first, such as `error tracking` or `billing reports`. A request with focus always starts a new build, and an unfocused request never reuses it. Pass `wait_seconds` to wait for it.",
+            "description": "Free text about what to put first, such as `error tracking` or `billing reports`. A request with focus starts a new build, and an unfocused request never reuses it. Pass `wait_seconds` to wait for it. When another build is already running or a build limit is reached, no focused build starts and the response has `focus_dropped: true`.",
             "maxLength": 2000,
             "type": "string"
         },
