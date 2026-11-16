@@ -34,6 +34,7 @@ import {
     secretsOf,
 } from '../environment/roles'
 import { cyclotronUrlOf, postgresUrlOf } from '../environment/stack'
+import { TOPOLOGY_FILE, Topology, hostsOf, missingTargets, nodesOf } from '../environment/topology'
 import { DriveSummary, SeedState, drive, seed } from '../generator/generator'
 import { watchSesFeedback } from '../generator/ses-feedback'
 import { BarResult, CpuPoint, judgeBars } from '../judge/bars'
@@ -53,12 +54,16 @@ import {
 import { CyclotronProbe, Queue, createCyclotronProbe } from '../probe/cyclotron-probe'
 import { Sampling, sampleEvery } from '../probe/every'
 import { WriterProbe, WriterSample, createWriterProbe } from '../probe/writer-probe'
+import { WEBHOOK_HOST } from '../provider-edge'
 import { provenanceOf } from '../scorecard/provenance'
 import { scorecardOf } from '../scorecard/scorecard'
 import { publish } from '../scorecard/write'
 import { ValveTimelineEntry, createValves } from '../valves/valves'
 import { openLiveLog } from './live'
 import { Admission, Status, admissionsOf, statusOf } from './status'
+
+// A valve names a host the edge answers for; `ses` stands for every send.
+const EDGE_HOSTS = ['ses', WEBHOOK_HOST]
 
 export type RunVerdict = Omit<RunResult, 'recorded' | 'captured' | 'scorecardError'>
 
@@ -72,6 +77,7 @@ export type RunResult = {
     cardId: string
     cardHash: string
     profileHash: string
+    topologyHash?: string
     origin: 'local-agent'
     units?: DriveSummary
     convergence?: Convergence
@@ -394,6 +400,7 @@ export function createRunner(
             let probes: Probes | undefined
             let probed: Probed = { writer: [], queue: [] }
             let driven: DriveWindow | undefined
+            let topology: Topology | undefined
             let producer: KafkaProducerWrapper | undefined
             try {
                 producer = await KafkaProducerWrapper.createWithConfig(undefined, producerConfigOf(specs[0].env))
@@ -416,6 +423,17 @@ export function createRunner(
                     }
                 )
                 await judge.open(seeded)
+                topology = await environment.topology()
+                const nodes = nodesOf(topology, EDGE_HOSTS)
+                const missing = missingTargets(
+                    card.valves.map(({ target }) => target),
+                    nodes
+                )
+                if (missing.length > 0) {
+                    throw new Error(
+                        `the card targets ${missing.join(', ')}, which this run's topology does not have; it found ${nodes.join(', ')}`
+                    )
+                }
                 const exitsBefore = environment.exits().length
                 stopHealth = watchHealth(environment)
                 sampler = await startSampler(
@@ -540,6 +558,7 @@ export function createRunner(
                 cardId: card.id,
                 cardHash: loaded.cardHash,
                 profileHash: loaded.profileHash,
+                ...(topology ? { topologyHash: topology.hash } : {}),
                 origin: 'local-agent',
                 timeline: valves.timeline(),
                 startedAt,
@@ -554,6 +573,9 @@ export function createRunner(
                 writeJson(evidenceDir, 'truth.json', truth)
                 writeJson(evidenceDir, 'metrics.json', sampled)
                 writeJson(evidenceDir, 'probes.json', { drive: driven ?? null, ...probed })
+                if (topology) {
+                    writeJson(evidenceDir, TOPOLOGY_FILE, { ...topology, hosts: hostsOf(truth) })
+                }
                 writeJson(evidenceDir, 'scorecard.json', {
                     ...verdict,
                     event: scorecardOf(verdict, loaded, provenance),

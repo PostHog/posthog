@@ -146,7 +146,7 @@ export function membersOf(rpkDescribe: string): number | null {
     return members ? Number(members[1]) : null
 }
 
-async function rpk(docker: string, args: string[]): Promise<string> {
+export async function rpk(docker: string, args: string[]): Promise<string> {
     try {
         const { stdout } = await promisify(execFile)(docker, ['exec', STACK.kafkaContainer, 'rpk', ...args], {
             timeout: 10_000,

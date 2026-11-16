@@ -56,6 +56,7 @@ import { Backlog, CdpRole, LoadedCard, Named, Profile, ValveEntry, load } from '
 import { Environment, RoleExit, defaultStateDir } from '../environment/environment'
 import { Role, RoleSpec, consumerGroupsOf, roleSpecs, secretsOf } from '../environment/roles'
 import { RESIDENT_TEAMS_FROM, cyclotronUrlOf, scratchSchema, withPostgres } from '../environment/stack'
+import { WORKFLOWS_ADAPTER, topologyOf } from '../environment/topology'
 import { JournalEntry } from '../judge/judge'
 import { ProviderEdge, TruthRecord, WEBHOOK_HOST, startProviderEdge } from '../provider-edge'
 import { FakeProjectApi, startFakeProjectApi } from '../scorecard/fake-project-api'
@@ -132,6 +133,16 @@ describe('runner', () => {
         dependencyHealth: () => Promise.resolve({ healthy: true, down: [] }),
         exits: () => [],
         groupLag: () => Promise.resolve(0),
+        topology: () =>
+            Promise.resolve(
+                topologyOf({
+                    adapter: WORKFLOWS_ADAPTER,
+                    specs: roleSpecs(process.env, { url: 'http://edge' }, secretsOf({}), stateDir),
+                    groups: [],
+                    clients: [],
+                    recordedAt: new Date(),
+                })
+            ),
         down: () => Promise.resolve(),
     }
 
@@ -651,6 +662,7 @@ describe('runner through seed, drive and judge', () => {
     let handles: RoleSpec[] = []
     let exits: RoleExit[]
     let killExits: (role: Role) => RoleExit[]
+    let missingFromTopology: Role | undefined
     const exitOfTheKill = (role: Role): RoleExit[] => [
         { role, replica: 0, at: new Date().toISOString(), code: null, signal: 'SIGKILL', byValve: true },
     ]
@@ -688,6 +700,18 @@ describe('runner through seed, drive and judge', () => {
         dependencyHealth: () => Promise.resolve({ healthy: true, down: [] }),
         exits: () => [...exits],
         groupLag: () => Promise.resolve(0),
+        topology: () =>
+            Promise.resolve(
+                topologyOf({
+                    adapter: WORKFLOWS_ADAPTER,
+                    specs: handles.filter(({ role }) => role !== missingFromTopology),
+                    groups: [],
+                    clients: [
+                        { application: 'scenario-cdp-cyclotron-worker-hogflow', database: 'cyclotron', connections: 1 },
+                    ],
+                    recordedAt: new Date(),
+                })
+            ),
         writerCpu: () => Promise.reject(new Error('a local run reads no writer CPU')),
         down: async () => {
             await roles?.stop()
@@ -771,6 +795,7 @@ describe('runner through seed, drive and judge', () => {
     })
 
     beforeEach(async () => {
+        missingFromTopology = undefined
         api = await startFakeProjectApi()
         cacheHome = mkdtempSync(path.join(os.tmpdir(), 'scenario-runner-'))
         env = {
@@ -949,6 +974,14 @@ describe('runner through seed, drive and judge', () => {
                 deliveredBy ? offered.map(({ unitId }) => `${unitId}/${deliveredBy}/200`).sort() : []
             )
             expect(offered).not.toHaveLength(0)
+            expect(evidenceOf(result, 'topology.json')).toMatchObject({
+                hash: result.topologyHash,
+                databases: [{ role: 'cdp-cyclotron-worker-hogflow', database: 'cyclotron' }],
+                hosts: deliveredBy
+                    ? [{ host: deliveredBy === 'email' ? 'ses' : 'hooks.example.com', requests: offered.length }]
+                    : [],
+            })
+            expect(api.captured[0]?.properties.topology_hash).toEqual(expect.stringMatching(/^[0-9a-f]{12}$/))
         },
         30_000
     )
@@ -1188,6 +1221,20 @@ describe('runner through seed, drive and judge', () => {
         },
         30_000
     )
+
+    it('calls a run invalid before its drive when a valve targets a node its topology lacks, and names the nodes found', async () => {
+        missingFromTopology = 'cdp-cyclotron-worker-email'
+
+        const result = await run('all', [{ ...KILL_EMAIL_WORKER, at: '1s', for: '500ms' }])
+
+        expect(result).toMatchObject({
+            status: 'invalid',
+            statusReason:
+                "the run stopped: the card targets cdp-cyclotron-worker-email, which this run's topology does not have; it found cdp-api, cdp-cyclotron-v2-janitor, cdp-cyclotron-worker-hogflow, cdp-processed-events, cdp-ses-webhooks, postgres, cyclotron, ses, hooks.example.com",
+            timeline: [],
+        })
+        expect(api.captured[0]?.properties.topology_hash).toEqual(result.topologyHash)
+    }, 30_000)
 
     it('calls the failover card invalid at its valve on a host without a run manifest', async () => {
         const [failover] = load(path.join(__dirname, '..', 'cards', 'cyclotron-failover-under-load.yaml')).card.valves

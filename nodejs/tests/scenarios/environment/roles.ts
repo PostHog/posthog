@@ -94,6 +94,9 @@ export function roleSpecs(
             PLUGIN_SERVER_MODE: id.role,
             HTTP_SERVER_PORT: String(portOf(id)),
             PGAPPNAME: `${SCENARIO_SESSION_PREFIX}${id.role}`,
+            // Consumers spread KAFKA_CONSUMER_* over their own client id, so the broker names the role
+            // that holds each group membership.
+            KAFKA_CONSUMER_CLIENT_ID: `${SCENARIO_SESSION_PREFIX}${id.role}`,
             [MARKER_KEY]: stateDir,
         },
     }))
