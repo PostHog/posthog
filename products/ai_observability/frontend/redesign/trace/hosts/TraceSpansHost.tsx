@@ -5,6 +5,8 @@ import { ViewTraceButton } from 'lib/components/ViewTraceButton/ViewTraceButton'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
+import { useOpenTraceDialog } from 'products/tracing/frontend/components/TraceDialog/useOpenTraceDialog'
+
 import { SaveToDatasetButton } from '../../../datasets/SaveToDatasetButton'
 import { TraceSplitView } from '../components/TraceSplitView'
 import { traceFeedbackLogic } from '../traceFeedbackLogic'
@@ -35,12 +37,15 @@ export function TraceSpansHost({ hostId, traceId, timestampHint }: TraceViewKey)
     const { messagesOpening } = useValues(traceMessagesOpeningLogic)
     const { setMessagesOpening } = useActions(traceMessagesOpeningLogic)
     const { featureFlags } = useValues(featureFlagLogic)
+    const openTraceDialog = useOpenTraceDialog()
 
     if (!trace) {
         return null
     }
     const datasetsEnabled = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_DATASETS]
     const selectedEvent = selectedNodeLoad.status === 'ready' ? selectedNodeLoad.node.event : null
+    const distributedTraceId = usableId(traceId)
+    const distributedTraceTs = selectedEvent?.timestamp ?? createdAt
     return (
         <TraceSplitView
             tree={trace.tree}
@@ -71,13 +76,22 @@ export function TraceSpansHost({ hostId, traceId, timestampHint }: TraceViewKey)
                               <>
                                   {/* Tracing shows each AI event as a span with the id `ai:<event uuid>`. */}
                                   <ViewTraceButton
-                                      traceId={usableId(traceId)}
+                                      traceId={distributedTraceId}
                                       spanId={selectedEvent ? `ai:${selectedEvent.uuid}` : null}
-                                      timestamp={selectedEvent?.timestamp ?? createdAt}
+                                      timestamp={distributedTraceTs}
                                       label="Open distributed trace"
                                       type="secondary"
                                       size="xsmall"
                                       data-attr="trace-view-open-in-tracing"
+                                      onClick={(event) =>
+                                          distributedTraceId &&
+                                          // The dialog loads no AI events, so it has no row to select for this step.
+                                          openTraceDialog(
+                                              event,
+                                              { traceId: distributedTraceId, ts: distributedTraceTs },
+                                              { entryPoint: 'ai_trace_step' }
+                                          )
+                                      }
                                   />
                                   {datasetsEnabled && createdAt ? (
                                       <SaveToDatasetButton
