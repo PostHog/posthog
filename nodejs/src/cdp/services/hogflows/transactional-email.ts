@@ -6,7 +6,10 @@ import {
     EmailAttachmentMetadata,
     MAX_EMAIL_ATTACHMENTS,
 } from '~/cdp/schema/cyclotron'
+import { HogFlow, HogFlowAction } from '~/cdp/schema/hogflow'
 import { SHA256_HEX } from '~/cdp/services/messaging/attachment-store'
+
+import { UNSUBSCRIBE_PLACEHOLDER, clickableHrefs, isTooLargeToCheck } from '../messaging/helpers/clickable-links'
 
 export const MAX_COPY_RECIPIENTS = 10
 export const ATTACHMENT_FILENAME_MAX_LENGTH = 255
@@ -21,6 +24,13 @@ const CopyRecipientsSchema = z
     .max(MAX_COPY_RECIPIENTS)
     .readonly()
     .optional()
+
+const SendCategorySchema = z
+    .object({ id: z.guid(), type: z.enum(['marketing', 'transactional']) })
+    .strict()
+    .readonly()
+
+export type SendCategory = z.infer<typeof SendCategorySchema>
 
 export const SES_UNSUPPORTED_ATTACHMENT_EXTENSIONS: ReadonlySet<string> = new Set([
     '.ade',
@@ -200,13 +210,90 @@ export const AcceptedSendSchema = z
             .max(MAX_EMAIL_ATTACHMENTS)
             .readonly()
             .optional(),
+        message_category: SendCategorySchema.optional(),
     })
     .strict()
     .readonly()
 
-export type AcceptedSend = z.infer<typeof AcceptedSendSchema>
+export type AcceptedSend = Omit<z.infer<typeof AcceptedSendSchema>, 'message_category'>
 
 export type QueuedSend = Omit<AcceptedSend, 'attachments'> & { attachments?: readonly EmailAttachmentMetadata[] }
+
+type EmailStep = Extract<HogFlowAction, { type: 'function_email' }>
+
+export const emailStepForApiSend = <Action extends HogFlowAction>(
+    action: Action,
+    category: SendCategory | undefined
+): Action => {
+    if (action.type !== 'function_email' || !category) {
+        return action
+    }
+    const step: EmailStep = {
+        ...action,
+        config: {
+            ...action.config,
+            message_category_type: category.type,
+            message_category_id: category.id,
+            skip_frequency_cap: true,
+        },
+    }
+    return step as Action
+}
+
+export const hogFlowForApiSend = (hogFlow: HogFlow, category: SendCategory | undefined): HogFlow =>
+    category ? { ...hogFlow, actions: hogFlow.actions.map((action) => emailStepForApiSend(action, category)) } : hogFlow
+
+const isMarketingEmailStep = (action: HogFlowAction): action is EmailStep =>
+    action.type === 'function_email' && action.config.message_category_type !== 'transactional'
+
+export const marketingEmailStep = (hogFlow: HogFlow, category: SendCategory | undefined): EmailStep | undefined =>
+    category?.type === 'marketing' ? hogFlow.actions.find(isMarketingEmailStep) : undefined
+
+const LIQUID_UNSUBSCRIBE_PLACEHOLDER = /\{\{-?\s*unsubscribe_url(_one_click)?\s*-?\}\}|\{%-?\s*unsubscribe_url\s*-?%\}/g
+
+const hasUnsubscribeLink = ({ html, text }: { html?: string; text?: string }, placeholder: RegExp): boolean =>
+    html
+        ? clickableHrefs(html).some((href) => href.search(placeholder) !== -1)
+        : (text ?? '').search(placeholder) !== -1
+
+const hasAddresses = (value: unknown): boolean =>
+    Array.isArray(value) ? value.length > 0 : typeof value === 'string' && value.trim() !== ''
+
+const marketingEmailInputs = (action: HogFlowAction, category: SendCategory | undefined) =>
+    category?.type === 'marketing' && isMarketingEmailStep(action)
+        ? (action.config.inputs.email?.value ?? {})
+        : undefined
+
+export type MarketingSendRefusal = 'content_too_large' | 'unsubscribe_link_required' | 'copies_not_allowed'
+
+export const marketingCopiesRefusal = (
+    action: HogFlowAction,
+    send: AcceptedSend | undefined,
+    category: SendCategory | undefined
+): 'copies_not_allowed' | undefined => {
+    const email = marketingEmailInputs(action, category)
+    return email && (hasAddresses(send?.cc ?? email.cc) || hasAddresses(send?.bcc ?? email.bcc))
+        ? 'copies_not_allowed'
+        : undefined
+}
+
+export const marketingSendRefusal = (
+    action: HogFlowAction,
+    send: AcceptedSend | undefined,
+    category: SendCategory | undefined
+): MarketingSendRefusal | undefined => {
+    const email = marketingEmailInputs(action, category)
+    if (!email) {
+        return undefined
+    }
+    if (isTooLargeToCheck(send?.content ?? email)) {
+        return 'content_too_large'
+    }
+    const linked = send?.content
+        ? hasUnsubscribeLink(send.content, UNSUBSCRIBE_PLACEHOLDER)
+        : hasUnsubscribeLink(email, LIQUID_UNSUBSCRIBE_PLACEHOLDER)
+    return linked ? marketingCopiesRefusal(action, send, category) : 'unsubscribe_link_required'
+}
 
 export const acceptedSendEmailFields = (
     send: QueuedSend | undefined
@@ -244,9 +331,14 @@ export const TEMPLATE_SEND_TOKEN_CLAIMS = { kind: undefined }
 export const CODE_SEND_TOKEN_CLAIMS = { kind: 'code_send' }
 export const ATTACHMENT_UPLOAD_TOKEN_CLAIMS = { kind: 'attachment_upload' }
 
-export const AcceptedSendRequestSchema = TransactionalEmailRequestSchema.extend({ send: AcceptedSendSchema })
+export const AcceptedSendRequestSchema = TransactionalEmailRequestSchema.extend({ send: AcceptedSendSchema }).transform(
+    ({ send: { message_category, ...send }, ...request }) => ({ ...request, send, message_category })
+)
 
-export type TransactionalEmailRequest = z.infer<typeof TransactionalEmailRequestSchema> & { send?: AcceptedSend }
+export type TransactionalEmailRequest = z.infer<typeof TransactionalEmailRequestSchema> & {
+    send?: AcceptedSend
+    message_category?: SendCategory
+}
 
 export const transactionalEmailRecipients = ({ to, send }: TransactionalEmailRequest): string[] => [
     to,
@@ -267,6 +359,8 @@ export type TransactionalSendRefusal =
     | 'sending_suspended'
     | 'sending_paused'
     | 'recipient_suppressed'
+    | 'recipient_opted_out'
+    | MarketingSendRefusal
     | 'recipient_unreachable'
     | 'invalid_scheduled_at'
     | 'sandbox_recipient_not_member'
@@ -313,7 +407,7 @@ export type TransactionalEmailStage = (typeof TRANSACTIONAL_EMAIL_STAGES)[number
 
 export const transactionalEmailStageDurationMs = new Histogram({
     name: 'cdp_transactional_email_stage_duration_ms',
-    help: 'Milliseconds one transactional email request spends in each stage: auth (the JWT), validate (the body), load (the team and the workflow), build (the run and its idempotency fingerprint), idempotency (every Idempotency-Key call to Valkey), checks (suspension, pause, suppression, quota and MX), attachments (verifying the files and estimating the message, only for a send with files), queue_insert (the email queue insert), metrics_flush (the hand-off of the result and status rows to the Kafka producer, without the wait for the broker), and total. A request records only the stages it reached, so a refusal shows in the stage that refused it.',
+    help: 'Milliseconds one transactional email request spends in each stage: auth (the JWT), validate (the body), load (the team and the workflow), build (the run and its idempotency fingerprint), idempotency (every Idempotency-Key call to Valkey), checks (suspension, pause, suppression, opt-out, quota and MX), attachments (verifying the files and estimating the message, only for a send with files), queue_insert (the email queue insert), metrics_flush (the hand-off of the result and status rows to the Kafka producer, without the wait for the broker), and total. A request records only the stages it reached, so a refusal shows in the stage that refused it.',
     labelNames: ['stage'],
     buckets: [1, 2.5, 5, 10, 25, 50, 100, 250, 500, 1_000, 2_500, 5_000, 10_000],
 })

@@ -1366,6 +1366,16 @@ describe('SesWebhookHandler', () => {
             expect(result.metrics?.[0].properties?.$email_transactional).toEqual(expected)
             expect(result.metrics?.[0].properties?.$email_message_id).toEqual(baseMail.messageId)
         })
+
+        it('marks the event of a marketing email sent through the API as not transactional, and still updates its status', async () => {
+            const mail = { ...transactionalMail, tags: { ...transactionalMail.tags, ph_marketing: ['true'] } }
+            const body = [{ mail, ...delivery(['to@example.com']) }]
+
+            const result = await handler.handleWebhook({ body, headers: {} })
+
+            expect(result.metrics?.[0].properties?.$email_transactional).toEqual(false)
+            expect(result.emailStatusUpdates).toEqual(update('delivered', '2025-10-03T12:01:00Z'))
+        })
     })
 
     describe('security: TopicArn allowlist + signed-code gate', () => {

@@ -34,6 +34,7 @@ import {
 } from '../messaging/email-status.service'
 import { EmailSuppressionService } from '../messaging/email-suppression.service'
 import { EmailValidationService } from '../messaging/email-validation.service'
+import { RecipientPreferencesService } from '../messaging/recipient-preferences.service'
 import { CodeSendSender, SandboxCodeSendRefusal, senderOfCodeSend } from '../messaging/sandbox/sandbox-code-send'
 import { HogInvocationResultsService } from '../monitoring/hog-invocation-results.service'
 import { EmailStep, FilesWorkflowShape } from './files-workflow-shape'
@@ -53,6 +54,8 @@ import {
     TransactionalEmailRequest,
     TransactionalEmailStageTimer,
     TransactionalSendRefusal,
+    marketingEmailStep,
+    marketingSendRefusal,
     transactionalEmailRecipients,
 } from './transactional-email'
 
@@ -62,7 +65,6 @@ const MAX_SCHEDULE_AHEAD_MS = 30 * 24 * 60 * 60 * 1000
 // Pods' clocks disagree, so a run's row can read as created a little after this pod saw it exist.
 const CLOCK_SKEW_MARGIN_MS = 60 * 60 * 1000
 const NO_ATTACHMENTS = { attachment_count: 0, attachment_bytes: 0 }
-const PRIORITY_CLASS: EmailQueuePriorityClass = 'fast'
 const RUN_SCOPE = 'transactional-email'
 
 // A keyed id holds no time, so a keyed send is dated by its trigger event, which every reschedule carries along.
@@ -89,11 +91,11 @@ const claimedShape = (fingerprint: string): FingerprintWithPreviousShape => ({
 
 const transactionalEmailFingerprint = (
     hogFlowId: string,
-    { to, distinct_id, variables }: TransactionalEmailRequest,
+    { to, distinct_id, variables, message_category }: TransactionalEmailRequest,
     send: AcceptedSend | undefined,
     scheduledAt: Date | null
 ): string | FingerprintWithPreviousShape => {
-    const request: unknown[] = [hogFlowId, to, distinct_id, variables]
+    const request: unknown[] = [hogFlowId, to, distinct_id, variables, ...(message_category ? [message_category] : [])]
     const schedule: unknown[] = scheduledAt ? [SCHEDULED_AT_FINGERPRINT_MARKER, scheduledAt.toISOString()] : []
     if (!send) {
         return IdempotencyKeys.fingerprint([...request, ...schedule])
@@ -147,6 +149,7 @@ const isSkippedSendRefusal = (
     refusal === 'sending_suspended' ||
     refusal === 'sending_paused' ||
     refusal === 'recipient_suppressed' ||
+    refusal === 'recipient_opted_out' ||
     refusal === 'recipient_unreachable'
 
 const scheduledAtOfRunningRow = (job: CyclotronJobInvocation): DateTime | undefined => {
@@ -168,6 +171,7 @@ export type TransactionalSendsDeps = {
     teamWorkflowsConfig: TeamWorkflowsConfigService
     emailSuppression: EmailSuppressionService
     emailValidation: EmailValidationService
+    recipientPreferences: RecipientPreferencesService
     quotaLimiting: QuotaLimiting
     attachmentUploads: AttachmentUploads
     refuseSandboxSend: (teamId: number, recipient: string) => Promise<SandboxCodeSendRefusal | null>
@@ -235,7 +239,10 @@ export class TransactionalSends {
         const scheduledAt =
             stored?.scheduledAt ??
             (replayed && requestedAt && requestedAt.getTime() > Date.now() ? requestedAt.toISOString() : null)
-        const sender = replayed && !stored && send ? senderOfCodeSend(teamId, send, await senderLookup) : undefined
+        const sender =
+            replayed && !stored && send
+                ? senderOfCodeSend(teamId, send, await senderLookup, request.message_category)
+                : undefined
         const senderKind = stored ? stored.senderKind : sender?.kind === 'email_sandbox' ? sender.kind : undefined
         if (!stored) {
             // Restores a record Valkey lost, because an older pod reads only Valkey and would queue a second run.
@@ -275,11 +282,13 @@ export class TransactionalSends {
     ): Promise<TransactionalSendResult> {
         const senderKind = sender.kind === 'email_sandbox' ? sender.kind : undefined
         const { idempotencyKeys } = this.deps
-        const { to, idempotency_key: idempotencyKey, send } = request
+        const { to, idempotency_key: idempotencyKey, send, message_category: category } = request
         const requestedAt = request.scheduled_at ? new Date(request.scheduled_at) : null
+        const marketingStep = marketingEmailStep(hogFlow, category)
+        const priorityClass: EmailQueuePriorityClass = marketingStep ? 'bulk' : 'fast'
 
         stages.start('build')
-        const invocation = this.buildInvocation(team, hogFlow, request, send, senderKind)
+        const invocation = this.buildInvocation(team, hogFlow, request, send, priorityClass, senderKind)
         const fingerprint = transactionalEmailFingerprint(hogFlow.id, request, send, requestedAt)
         const claim = claimFor(team.id, idempotencyKey, fingerprint)
         if (claim) {
@@ -336,7 +345,14 @@ export class TransactionalSends {
             stages.start('checks')
             const refusal = tooFarAhead
                 ? 'invalid_scheduled_at'
-                : await this.refusal(team.id, hogFlow, transactionalEmailRecipients(request), senderKind)
+                : ((marketingStep && marketingSendRefusal(marketingStep, send, category)) ??
+                  (await this.refusal(
+                      team.id,
+                      hogFlow,
+                      transactionalEmailRecipients(request),
+                      marketingStep && (marketingStep.config.message_category_id || '$all'),
+                      senderKind
+                  )))
             if (refusal) {
                 await releaseKey()
                 if (isSkippedSendRefusal(refusal)) {
@@ -433,7 +449,7 @@ export class TransactionalSends {
                 senderKind,
             }
         }
-        cdpEmailQueuedTotal.labels(PRIORITY_CLASS).inc()
+        cdpEmailQueuedTotal.labels(priorityClass).inc()
         if (idempotencyKey) {
             stages.start('idempotency')
             await idempotencyKeys.markQueued(
@@ -477,9 +493,10 @@ export class TransactionalSends {
         hogFlow: HogFlow,
         request: TransactionalEmailRequest,
         send: AcceptedSend | undefined,
+        priorityClass: EmailQueuePriorityClass,
         senderKind: SenderKind | undefined
     ) {
-        const { to, distinct_id: distinctId, variables } = request
+        const { to, distinct_id: distinctId, variables, message_category: category } = request
         const event: HogFunctionInvocationGlobals['event'] = {
             uuid: new UUIDT().toString(),
             event: TRANSACTIONAL_EMAIL_EVENT,
@@ -511,6 +528,9 @@ export class TransactionalSends {
             const { attachments: _references, ...queuedSend } = send
             invocation.state.send = queuedSend
         }
+        if (category) {
+            invocation.state.messageCategory = category
+        }
         if (senderKind) {
             invocation.state.senderKind = senderKind
         }
@@ -520,7 +540,7 @@ export class TransactionalSends {
         // Straight to the email queue: the flow's only step is the email, so a hop through the
         // workflow queue would only add latency to a password reset or a verification code.
         invocation.queue = 'email'
-        invocation.queuePriority = EMAIL_QUEUE_PRIORITY[PRIORITY_CLASS]
+        invocation.queuePriority = EMAIL_QUEUE_PRIORITY[priorityClass]
         return invocation
     }
 
@@ -531,6 +551,7 @@ export class TransactionalSends {
         teamId: number,
         hogFlow: HogFlow,
         recipients: string[],
+        marketingCategoryId: string | undefined,
         senderKind: SenderKind | undefined
     ): Promise<TransactionalSendRefusal | null> {
         if (hogFlow.status !== 'active') {
@@ -548,8 +569,15 @@ export class TransactionalSends {
         const suspension = this.deps.teamWorkflowsConfig.getEmailSendingSuspension(teamId)
         const suppressed = Promise.all(
             recipients.map((email) =>
-                this.deps.emailSuppression.isKnownSuppressed(teamId, email, { transactional: true })
+                this.deps.emailSuppression.isKnownSuppressed(teamId, email, { transactional: !marketingCategoryId })
             )
+        )
+        const optedOut = Promise.all(
+            marketingCategoryId
+                ? recipients.map((email) =>
+                      this.deps.recipientPreferences.isOptedOut(teamId, email, marketingCategoryId)
+                  )
+                : []
         )
         const quota = checkHogFlowQuotaLimits(hogFlow, teamId, this.deps.quotaLimiting)
         // A DNS failure lets the send through.
@@ -557,7 +585,7 @@ export class TransactionalSends {
             recipients.map((email) => this.deps.emailValidation.getRecipientSkipReason(teamId, email))
         )
         // An earlier refusal returns before the later lookups are awaited, so their failures must not go unhandled.
-        const lookups: Promise<unknown>[] = [suspension, suppressed, quota, recipientSkipReasons]
+        const lookups: Promise<unknown>[] = [suspension, suppressed, optedOut, quota, recipientSkipReasons]
         for (const lookup of lookups) {
             lookup.catch(() => undefined)
         }
@@ -570,6 +598,9 @@ export class TransactionalSends {
         }
         if ((await suppressed).some(Boolean)) {
             return 'recipient_suppressed'
+        }
+        if ((await optedOut).some(Boolean)) {
+            return 'recipient_opted_out'
         }
         if ((await quota).isLimited) {
             return 'quota_limited'

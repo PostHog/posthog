@@ -129,6 +129,35 @@ export class FixtureHogFlowBuilder {
         return this
     }
 
+    withApiEmailWorkflow(stepCategory: 'transactional' | 'marketing', email: Record<string, unknown>): this {
+        return this.withStatus('active')
+            .withExitCondition('exit_only_at_end')
+            .withWorkflow({
+                actions: {
+                    trigger: { type: 'trigger', config: { type: 'api' } },
+                    email_1: {
+                        type: 'function_email',
+                        on_error: 'abort',
+                        config: {
+                            template_id: 'template-email',
+                            message_category_type: stepCategory,
+                            inputs: {
+                                email: {
+                                    templating: 'liquid',
+                                    value: { to: { email: '{{ event.properties.to | raw }}', name: '' }, ...email },
+                                },
+                            },
+                        },
+                    },
+                    exit: { type: 'exit', config: {} },
+                },
+                edges: [
+                    { from: 'trigger', to: 'email_1', type: 'continue' },
+                    { from: 'email_1', to: 'exit', type: 'continue' },
+                ],
+            })
+    }
+
     withSimpleWorkflow({ trigger }: { trigger?: HogFlow['trigger'] } = {}): this {
         return this.withWorkflow({
             actions: {

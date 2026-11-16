@@ -13,7 +13,7 @@ import {
     PersonPropertyFilter,
     Team,
 } from '../types'
-import type { QueuedSend } from './services/hogflows/transactional-email'
+import type { QueuedSend, SendCategory } from './services/hogflows/transactional-email'
 import type { HogErrorClass } from './utils/hog-error-classification'
 import type { RebuildableInputsSource } from './utils/rebuildable-inputs'
 
@@ -457,6 +457,7 @@ export type CyclotronJobInvocationHogFunctionContext = {
     actionStepCount?: number
     customerTaskIdempotencyVersion?: 1
     send?: QueuedSend
+    messageCategory?: SendCategory
     scheduledAt?: string
     renderedWorkflowVersion?: number
     // Set when the inputs come from the stored function config, so the job queue can drop them and the
@@ -636,6 +637,7 @@ export type HogFlowInvocationContext = {
     conversionCounted?: boolean
     variables?: Record<string, any>
     send?: QueuedSend
+    messageCategory?: SendCategory
     senderKind?: 'email_sandbox'
     scheduledAt?: string
     statusAt?: string

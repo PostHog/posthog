@@ -71,6 +71,7 @@ import {
     TransactionalEmailStageTimer,
     TransactionalSendRefusal,
     acceptedSendEmailFields,
+    hogFlowForApiSend,
     isRecipientFormatIssue,
     transactionalEmailRequestsTotal,
 } from './services/hogflows/transactional-email'
@@ -97,10 +98,12 @@ import { EmailStatusService } from './services/messaging/email-status.service'
 import { EmailSuppressionService } from './services/messaging/email-suppression.service'
 import { EmailTrackingService } from './services/messaging/email-tracking.service'
 import { EmailValidationService } from './services/messaging/email-validation.service'
+import { BODY_MAX_LENGTH } from './services/messaging/helpers/clickable-links'
 import { utmTagsFor } from './services/messaging/helpers/email-html'
 import { sesHtmlMaxBytes } from './services/messaging/helpers/ses-html-max-bytes'
 import { EmailTrackingCodeSigner } from './services/messaging/helpers/tracking-code'
 import { UTM_VALUE_LIMIT_CHARS, utmValueOverLimit } from './services/messaging/helpers/utm'
+import { RecipientPreferencesService } from './services/messaging/recipient-preferences.service'
 import { RecipientTokensService } from './services/messaging/recipient-tokens.service'
 import {
     SANDBOX_CODE_SEND_REFUSAL_STATUS,
@@ -289,6 +292,10 @@ const TRANSACTIONAL_SEND_REFUSAL_STATUS: Record<TransactionalSendRefusal, number
     sending_suspended: 422,
     sending_paused: 422,
     recipient_suppressed: 422,
+    recipient_opted_out: 422,
+    content_too_large: 413,
+    unsubscribe_link_required: 400,
+    copies_not_allowed: 400,
     quota_limited: 429,
     recipient_unreachable: 422,
     invalid_scheduled_at: 400,
@@ -344,6 +351,7 @@ export class CdpApi {
     private transactionalEmailIdempotencyKeys: IdempotencyKeys
     private attachmentUploads: AttachmentUploads
     private emailSuppressionService: EmailSuppressionService
+    private recipientPreferencesService: RecipientPreferencesService
     private emailValidationService: EmailValidationService
     private teamWorkflowsConfigService: TeamWorkflowsConfigService
     private emailStatusService: EmailStatusService
@@ -361,6 +369,7 @@ export class CdpApi {
         this.hogFlowManager = services.hogFlowManager
         this.recipientTokensService = services.recipientTokensService
         this.emailSuppressionService = services.emailSuppressionService
+        this.recipientPreferencesService = services.recipientPreferencesService
         this.emailValidationService = services.emailValidationService
         this.teamWorkflowsConfigService = services.teamWorkflowsConfigService
         this.hogExecutorAsync = services.hogExecutorAsync
@@ -1425,7 +1434,7 @@ export class CdpApi {
     // in its path (step resume) pins the job through extraClaims instead. Writes the 401 itself
     // and returns false on any mismatch.
     // Run a transactional email's workflow once. Django checks the template and the workflow, then calls this
-    // once per send. The job goes straight onto the email queue's fast lane.
+    // once per send.
     //
     // Auth: a per-call JWT minted by Django on its own audience and key, pinned to the team and the workflow,
     // never the fleet-wide internal secret.
@@ -1496,6 +1505,9 @@ export class CdpApi {
                     return reply(result.outcome, TRANSACTIONAL_SEND_REFUSAL_STATUS[result.outcome], {
                         error: result.outcome,
                         ...(result.outcome === 'invalid_scheduled_at' && { reason: 'too_far' }),
+                        ...(result.outcome === 'content_too_large' && {
+                            reason: `The html and the text of a marketing email can each be at most ${BODY_MAX_LENGTH.toLocaleString('en-US')} characters long.`,
+                        }),
                     })
                 }
                 const sends = this.transactionalSendsForRequest()
@@ -1523,14 +1535,16 @@ export class CdpApi {
                 if (!team) {
                     return reply('not_found', 404, { error: 'Team not found' })
                 }
-                const hogFlow = await hogFlowLookup
-                if (!hogFlow || hogFlow.team_id !== team.id) {
+                const savedHogFlow = await hogFlowLookup
+                if (!savedHogFlow || savedHogFlow.team_id !== team.id) {
                     return reply('not_found', 404, { error: 'Workflow not found' })
                 }
+                const category = parsed.data.message_category
+                const hogFlow = hogFlowForApiSend(savedHogFlow, category)
                 if (hogFlow.trigger?.type !== 'api') {
                     return reply('not_sendable', 400, { error: 'not_sendable' })
                 }
-                const sender = send ? senderOfCodeSend(team.id, send, await senderLookup) : undefined
+                const sender = send ? senderOfCodeSend(team.id, send, await senderLookup, category) : undefined
                 const filesShape = references.length > 0 ? filesWorkflowShape(hogFlow) : null
 
                 return answer(
@@ -1700,6 +1714,7 @@ export class CdpApi {
             teamWorkflowsConfig: this.teamWorkflowsConfigService,
             emailSuppression: this.emailSuppressionService,
             emailValidation: this.emailValidationService,
+            recipientPreferences: this.recipientPreferencesService,
             quotaLimiting: this.deps.quotaLimiting,
             attachmentUploads: this.attachmentUploads,
             refuseSandboxSend: (teamId, recipient) =>

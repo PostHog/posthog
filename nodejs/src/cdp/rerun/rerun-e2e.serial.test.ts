@@ -3,13 +3,19 @@ import { mockFetch } from '~/tests/helpers/mocks/request.mock'
 
 import { KafkaProducerObserver } from '~/tests/helpers/mocks/producer.spy'
 
+import jsonwebtoken from 'jsonwebtoken'
 import { DateTime } from 'luxon'
 import { Pool } from 'pg'
+import supertest from 'supertest'
+import express from 'ultimate-express'
 
+import { setupExpressApp } from '~/common/api/router'
 import { KAFKA_HOG_INVOCATION_RESULTS } from '~/common/config/kafka-topics'
 import { KafkaProducerWrapper } from '~/common/kafka/producer'
 import { PersonReadRepository } from '~/common/persons/repositories/person-repository'
 import { closeHub, createHub } from '~/common/utils/db/hub'
+import { PostgresUse } from '~/common/utils/db/postgres'
+import { UUIDT } from '~/common/utils/utils'
 import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
 import { Clickhouse } from '~/tests/helpers/clickhouse'
 import { waitForExpect } from '~/tests/helpers/expectations'
@@ -24,15 +30,19 @@ import {
     insertHogFunction as _insertHogFunction,
     createHogExecutionGlobals,
     insertHogFunctionTemplate,
+    insertIntegration,
 } from '../_tests/fixtures'
 import { insertHogFlow } from '../_tests/fixtures-hogflows'
+import { CdpApi } from '../cdp-api'
 import { CdpConsumerBaseDeps } from '../consumers/cdp-base.consumer'
+import { CdpCyclotronWorkerEmail } from '../consumers/cdp-cyclotron-worker-email.consumer'
 import { CdpCyclotronWorkerHogFlow } from '../consumers/cdp-cyclotron-worker-hogflow.consumer'
 import { CdpCyclotronWorker } from '../consumers/cdp-cyclotron-worker.consumer'
 import { CdpEventsConsumer } from '../consumers/cdp-events.consumer'
 import { CdpRerunWorkerConsumer } from '../consumers/cdp-rerun-worker.consumer'
 import { CyclotronJobQueueKafka } from '../services/job-queue/job-queue-kafka'
 import { CyclotronJobQueuePostgresV2 } from '../services/job-queue/job-queue-postgres-v2'
+import { mailDevWebUrl } from '../services/messaging/helpers/maildev'
 import { compileHog } from '../templates/compiler'
 import { HogFunctionInvocationGlobals, HogFunctionType } from '../types'
 import { RerunJobManager } from './rerun-job.manager'
@@ -40,7 +50,24 @@ import { RERUN_QUEUE_NAME } from './rerun-job.types'
 
 const ActualKafkaProducerWrapper = jest.requireActual('~/common/kafka/producer').KafkaProducerWrapper
 
-const NODE_DB_URL = 'postgres://posthog:posthog@localhost:5432/test_cyclotron_node'
+jest.mock('node:dns/promises', () => {
+    const lookup =
+        <T>(records: Record<string, T>) =>
+        (name: string): Promise<T> =>
+            name in records
+                ? Promise.resolve(records[name])
+                : Promise.reject(Object.assign(new Error(`queryMx ENOTFOUND ${name}`), { code: 'ENOTFOUND' }))
+    return {
+        Resolver: class {
+            resolveMx = lookup({ 'example.com': [{ exchange: 'mx.example.com', priority: 10 }] })
+            resolve4 = lookup({ 'example.com': ['192.0.2.1'], 'mx.example.com': ['192.0.2.1'] })
+            resolve6 = lookup<string[]>({})
+        },
+    }
+})
+
+const NODE_DB_URL =
+    process.env.CYCLOTRON_NODE_DATABASE_URL ?? 'postgres://posthog:posthog@localhost:5432/test_cyclotron_node'
 
 interface PersistedRow {
     invocation_id: string
@@ -615,5 +642,135 @@ describe('CDP hog invocation rerun e2e', () => {
         // ── 5. The resume ran nothing already done: the fetch is still at ONE call ──
         // Restart-from-trigger (the pre-#70792 bug) would make this 2.
         expect(mockFetch.mock.calls.filter(([url]) => String(url) === FLOW_WEBHOOK_URL).length).toBe(1)
+    })
+
+    it("reruns a failed email sent through the API under the send's category, so an opt-out since then holds", async () => {
+        const senderId = 9101
+        await insertHogFunctionTemplate(hub.postgres, {
+            id: 'template-email',
+            name: 'Email',
+            code: `sendEmail(inputs.email)`,
+            inputs_schema: [
+                { type: 'native_email', key: 'email', integration: 'email', required: true, templating: 'liquid' },
+            ],
+        })
+        const flow = new FixtureHogFlowBuilder()
+            .withTeamId(team.id)
+            .withApiEmailWorkflow('transactional', {
+                from: { integrationId: senderId, email: 'sender@posthog.com' },
+                subject: 'News',
+                text: 'News',
+                html: '<p>News</p><a href="{{ unsubscribe_url }}">Unsubscribe</a>',
+            })
+            .build()
+        await insertHogFlow(hub.postgres, flow)
+        const newsletterId = '0195d6b4-6c3e-0000-1a2b-3c4d5e6f7a8b'
+        const to = `reader-${new UUIDT().toString()}@example.com`
+
+        const api = new CdpApi(hub, cdpDeps, {
+            hogQueue: new CyclotronJobQueuePostgresV2(hub.CONSUMER_BATCH_SIZE, hub),
+            hogflowQueue: new CyclotronJobQueuePostgresV2(hub.CONSUMER_BATCH_SIZE, hub),
+        })
+        await api.start()
+        const app: express.Application = setupExpressApp()
+        app.use('/', api.router())
+        const server = app.listen(0, () => {})
+        hogflowWorker = new CdpCyclotronWorkerHogFlow(hub, cdpDeps, postgresV2Queue)
+        const startEmailWorker = async (): Promise<CdpCyclotronWorkerEmail> => {
+            const worker = new CdpCyclotronWorkerEmail(
+                hub,
+                cdpDeps,
+                new CyclotronJobQueuePostgresV2(hub.CONSUMER_BATCH_SIZE, hub)
+            )
+            await worker.start()
+            return worker
+        }
+        await hogflowWorker.start()
+        let emailWorker = await startEmailWorker()
+
+        try {
+            const token = jsonwebtoken.sign(
+                { team_id: team.id, hog_flow_id: flow.id, kind: 'code_send' },
+                hub.WORKFLOWS_TRANSACTIONAL_EMAIL_JWT_SECRET,
+                { audience: 'posthog:workflows:send_transactional_email', expiresIn: '2m' }
+            )
+            const res = await supertest(app)
+                .post(`/api/projects/${team.id}/hog_flows/${flow.id}/transactional_email/send`)
+                .set({ Authorization: `Bearer ${token}` })
+                .send({
+                    to,
+                    distinct_id: 'reader',
+                    send: {
+                        tracking: { captureEngagement: false },
+                        message_category: { id: newsletterId, type: 'marketing' },
+                    },
+                })
+            expect(res.status).toEqual(202)
+
+            const failedRunId = await waitForExpect(async () => {
+                const rows = await clickhouse.query<PersistedRow>(
+                    `SELECT invocation_id FROM hog_invocation_results
+                     WHERE team_id = ${team.id} AND function_id = '${flow.id}' AND status = 'failed'`
+                )
+                expect(rows).toHaveLength(1)
+                return rows[0].invocation_id
+            }, 30_000)
+
+            await insertIntegration(hub.postgres, team.id, {
+                id: senderId,
+                kind: 'email',
+                config: {
+                    email: 'sender@posthog.com',
+                    name: 'Sender',
+                    domain: 'posthog.com',
+                    verified: true,
+                    provider: 'maildev',
+                },
+            })
+            await hub.pubSub.publish('reload-integrations', JSON.stringify({ integrationIds: [senderId] }))
+            await waitForExpect(async () => expect(await hub.integrationManager.get(senderId)).not.toBeNull())
+            await hub.postgres.query(
+                PostgresUse.COMMON_WRITE,
+                `INSERT INTO posthog_messagerecipientpreference
+                    (id, team_id, identifier, preferences, created_at, updated_at, deleted)
+                 VALUES (gen_random_uuid(), $1, $2, $3, NOW(), NOW(), false)`,
+                [team.id, to, JSON.stringify({ [newsletterId]: 'OPTED_OUT' })],
+                'test-insert-opt-out'
+            )
+
+            await emailWorker.stop()
+            emailWorker = await startEmailWorker()
+            await rerunManager.enqueue(team.id, 'hog_flow', flow.id, {
+                filter: {
+                    window_start: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString(),
+                    window_end: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+                    status: ['failed'],
+                    invocation_ids: [failedRunId],
+                },
+                replay_code_sends: true,
+            })
+            rerunWorker = new CdpRerunWorkerConsumer(
+                { ...hub, CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_MODE: 'postgres' },
+                cdpDeps,
+                { hog_function: kafkaQueue, hog_flow: postgresV2Queue }
+            )
+            await rerunWorker.start()
+
+            await waitForExpect(async () => {
+                const rows = await clickhouse.query<PersistedRow>(
+                    `SELECT status FROM hog_invocation_results
+                     WHERE team_id = ${team.id} AND invocation_id = '${failedRunId}' AND is_retry = 1
+                       AND status = 'succeeded'`
+                )
+                expect(rows).toHaveLength(1)
+            }, 30_000)
+            const emails = (await (await globalThis.fetch(`${mailDevWebUrl}/email`)).json()) as any[]
+            expect(
+                emails.filter((email) => email.envelope.to.some((r: { address: string }) => r.address === to))
+            ).toEqual([])
+        } finally {
+            server.close()
+            await Promise.all([api.stop(), emailWorker.stop()])
+        }
     })
 })

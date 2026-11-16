@@ -61,6 +61,10 @@ export class RecipientsManagerService {
         return (await this.lazyLoader.get(key)) ?? null
     }
 
+    public markForRefresh(args: RecipientGetArgs): void {
+        this.lazyLoader.markForRefresh(toKey(args))
+    }
+
     public async getMany(args: RecipientGetArgs[]): Promise<Record<string, RecipientManagerRecipient | null>> {
         const keys = args.map(toKey)
         return await this.lazyLoader.getMany(keys)
