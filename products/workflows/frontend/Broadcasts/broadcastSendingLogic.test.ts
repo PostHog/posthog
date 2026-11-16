@@ -71,11 +71,8 @@ describe('broadcastSendingLogic', () => {
     })
 
     afterEach(async () => {
-        const cancel = screen.queryByText('Cancel')
-        if (cancel) {
-            fireEvent.click(cancel)
-            await waitFor(() => expect(screen.queryByText('Cancel')).toBeNull())
-        }
+        screen.queryAllByText('Cancel').forEach((cancel) => fireEvent.click(cancel))
+        await waitFor(() => expect(screen.queryByText('Cancel')).toBeNull())
         resumeKeaLoadersErrors()
         cleanup()
         toast.dismiss()
