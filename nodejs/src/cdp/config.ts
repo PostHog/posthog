@@ -563,7 +563,9 @@ export function getDefaultCdpConfig(): CdpConfig {
         CDP_EMAIL_ATTACHMENTS_MEMORY_BUDGET_FRACTION: 0.5,
         CDP_EMAIL_ATTACHMENTS_TEAMS: '',
         CDP_EMAIL_ATTACHMENTS_UPLOAD_MAX_BYTES_PER_TEAM_DAY: 50_000_000_000,
-        CDP_EMAIL_ATTACHMENTS_QUOTA_VALKEY_HOST: isTestEnv() || isDevEnv() ? '127.0.0.1' : '',
+        // Empty everywhere, so a stack without this Valkey, such as the Docker sandbox, keeps counting in the
+        // idempotency Valkey instead of failing on a default host.
+        CDP_EMAIL_ATTACHMENTS_QUOTA_VALKEY_HOST: '',
         CDP_EMAIL_ATTACHMENTS_QUOTA_VALKEY_PORT: isTestEnv() || isDevEnv() ? 6390 : 6379,
         CDP_EMAIL_ATTACHMENTS_QUOTA_VALKEY_PASSWORD: '',
         CDP_EMAIL_ATTACHMENTS_QUOTA_VALKEY_TLS: false,
