@@ -233,7 +233,8 @@ Everything under them is evidence and provenance, and a reviewer reaches it last
 When the lower half outgrows the upper half, cut the lower half.
 
 - Testing: name the regression each new test catches, under the claim rules above. Transcripts go in a `<details>` block.
-- Agent context: autonomy, the tool with its exact model, and the skills invoked stay visible. Session notes, decisions and the rest go in the collapsed "More context for AI agents" block, in the template's field order.
+- Agent context: autonomy, the tool with its exact model, the skills invoked, and what the driver checked stay visible. Session notes, decisions and the rest go in the collapsed "More context for AI agents" block, in the template's field order.
+- "Driver checked" records what the person who directed the work said they read, ran or decided. Take it from their words in the session, never from your own checks or from their approval of a plan or summary. "Not yet checked by the driver" is an honest line, and a reviewer who sees it knows to read the whole diff.
 - Rewrite that block on every push so it describes the PR at that commit. A stale block misleads the next agent more than an empty one.
 - The reason your design beats the obvious alternative belongs in Changes. A reviewer needs it to review, and nobody scrolls past the release status section to find it.
 
@@ -320,7 +321,7 @@ A "no" anywhere means the body is ordered for the writer, not the reader. Go bac
 15. Does prose compare several values across the same dimensions? Replace it with a table.
 16. Does every claim about what you ran, measured or saw link its evidence, or say it went unchecked? Descriptions of behavior need no link.
 17. Did a `<!-- -->` template comment or any template placeholder text, such as `tool, model` or the bracketed test rationale, survive anywhere, collapsed blocks included? That field is unfilled. Fill it or delete it.
-18. Is the `## 🤖 Agent context` section filled, naming the exact model and listing the skills invoked? Does the collapsed block still describe the PR as pushed?
+18. Is the `## 🤖 Agent context` section filled, naming the exact model and listing the skills invoked? Does "Driver checked" hold only what the driver stated, or say that nothing is checked yet? Does the collapsed block still describe the PR as pushed?
 19. Does the body claim manual testing that did not happen? Delete it.
 20. Does the body name an internal customer, incident, Slack quote, or operational metric? This repo is public. Delete it.
 
