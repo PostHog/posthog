@@ -1,4 +1,5 @@
 import type { InsightApi } from '@/api/insights'
+import { serverNow } from '@/api/serverClock'
 import { asRecord } from '@/lib/records'
 import { insightSnapshot } from '@/model/adapters/insightSnapshot'
 import type { InsightSnapshot } from '@/model/views'
@@ -37,6 +38,7 @@ export function visualizationSnapshot(query: unknown, response: unknown, title?:
         visualizationSource(query)?.kind !== 'HogQLQuery' || (Array.isArray(body.columns) && body.columns.length > 0)
     const result = Array.isArray(candidate) && complete ? candidate : null
     const now = Date.now()
+    const serverTime = serverNow()
     const insight: InsightApi = {
         id: 0,
         short_id: '',
@@ -44,7 +46,7 @@ export function visualizationSnapshot(query: unknown, response: unknown, title?:
         derived_name: null,
         query: visualizationQuery(query),
         result,
-        last_refresh: result === null ? null : new Date(now).toISOString(),
+        last_refresh: result === null ? null : new Date(serverTime).toISOString(),
         cache_target_age: null,
         next_allowed_client_refresh: null,
         columns: Array.isArray(body.columns) ? (body.columns as string[]) : null,
@@ -52,5 +54,5 @@ export function visualizationSnapshot(query: unknown, response: unknown, title?:
         hasMore: body.hasMore === true,
         query_status: asRecord(body.query_status),
     }
-    return insightSnapshot(insight, undefined, { readAt: now, serverNow: now })
+    return insightSnapshot(insight, undefined, { readAt: now, serverNow: serverTime })
 }
