@@ -3,7 +3,7 @@ import { urls } from 'scenes/urls'
 
 import { Breadcrumb } from '~/types'
 
-export type EmailDomainSetupOrigin = 'workflows'
+export type EmailDomainSetupOrigin = 'workflows' | 'transactional'
 
 export interface EmailDomainSetupOriginConfig {
     backLabel: string
@@ -26,6 +26,14 @@ export const EMAIL_DOMAIN_SETUP_ORIGINS: Record<EmailDomainSetupOrigin, EmailDom
         breadcrumbs: [
             { key: Scene.Workflows, name: 'Workflows', path: urls.workflows(), iconType: 'workflows' },
             { key: 'channels', name: 'Channels', path: urls.workflows('channels'), iconType: 'workflows' },
+        ],
+    },
+    transactional: {
+        backLabel: 'Back to transactional emails',
+        backUrl: urls.transactional(),
+        backDataAttr: 'email-domain-back-to-transactional',
+        breadcrumbs: [
+            { key: Scene.Transactional, name: 'Transactional', path: urls.transactional(), iconType: 'transactional' },
         ],
     },
 }

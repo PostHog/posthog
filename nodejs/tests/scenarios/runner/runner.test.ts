@@ -57,7 +57,7 @@ import { Environment, RoleExit, defaultStateDir } from '../environment/environme
 import { Role, RoleSpec, consumerGroupsOf, roleSpecs, secretsOf } from '../environment/roles'
 import { RESIDENT_TEAMS_FROM, cyclotronUrlOf, scratchSchema, withPostgres } from '../environment/stack'
 import { JournalEntry } from '../judge/judge'
-import { ProviderEdge, TruthRecord, startProviderEdge } from '../provider-edge'
+import { ProviderEdge, TruthRecord, WEBHOOK_HOST, startProviderEdge } from '../provider-edge'
 import { FakeProjectApi, startFakeProjectApi } from '../scorecard/fake-project-api'
 import { RunResult, Runner, createRunner } from './runner'
 
@@ -78,11 +78,17 @@ const withSettings = (settings: Record<string, string>): LoadedCard => ({
 })
 
 let processMetrics: { url: string; server: http.Server }
+let janitor: { scrapes: number; resetsAfterFirstScrape: number }
 
 beforeAll(async () => {
     const registry = new Registry()
     collectDefaultMetrics({ register: registry })
-    const server = http.createServer(async (_req, res) => res.end(await registry.metrics()))
+    const server = http.createServer(async (req, res) => {
+        const resets = req.url?.includes('role=cdp-cyclotron-v2-janitor')
+            ? [`cdp_cyclotron_v2_janitor_stalled ${janitor.scrapes++ === 0 ? 0 : janitor.resetsAfterFirstScrape}`]
+            : []
+        res.end([await registry.metrics(), ...resets].join('\n'))
+    })
     await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
     processMetrics = { url: `http://127.0.0.1:${(server.address() as AddressInfo).port}/_metrics`, server }
 })
@@ -673,7 +679,7 @@ describe('runner through seed, drive and judge', () => {
                 name: role,
                 replica,
                 url: roleUrl,
-                metricsUrl: `${processMetrics.url}?replica=${replica}`,
+                metricsUrl: `${processMetrics.url}?replica=${replica}&role=${role}`,
             })),
         actuate(action) {
             exits.push(...(action.kind === 'kill' ? killExits(action.role) : []))
@@ -788,6 +794,7 @@ describe('runner through seed, drive and judge', () => {
         results = []
         exits = []
         killExits = exitOfTheKill
+        janitor = { scrapes: 0, resetsAfterFirstScrape: 0 }
         await withPostgres((client) => client.query('DELETE FROM cyclotron_jobs'), cyclotronUrl)
     })
 
@@ -945,6 +952,36 @@ describe('runner through seed, drive and judge', () => {
         },
         30_000
     )
+    it.each([
+        ['passes a duplicate send the janitor reset accounts for', 1, true],
+        ['fails a duplicate send that no janitor reset accounts for', 0, false],
+    ])(
+        '%s',
+        async (_story, resets, passed) => {
+            janitor.resetsAfterFirstScrape = resets
+            let duplicated = false
+            jest.mocked(fetch).mockImplementation(async (url, options) => {
+                if (!duplicated && String(url).includes(WEBHOOK_HOST)) {
+                    duplicated = true
+                    await _fetch(url, options, throughTheEdge)
+                }
+                return _fetch(url, options, throughTheEdge)
+            })
+
+            const result = await run('all', [], 'event_webhook')
+
+            expect(result).toMatchObject({
+                status: passed ? 'passed' : 'failed',
+                janitorResets: resets,
+                invariants: expect.arrayContaining([
+                    expect.objectContaining({ name: 'duplicate_sends', passed, observed: 1, gate: 0 }),
+                ]),
+            })
+            expect(api.captured[0]?.properties).toMatchObject({ janitor_resets: resets, inv_duplicate_sends_gate: 0 })
+        },
+        30_000
+    )
+
     it('fails a run whose intake role refused every unit, rather than calling it invalid', async () => {
         const result = await createRunner(environmentOf('none'), env).run(
             shortSmoke([], 'transactional_email'),

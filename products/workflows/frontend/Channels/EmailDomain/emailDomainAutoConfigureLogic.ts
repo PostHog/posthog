@@ -120,7 +120,7 @@ export interface emailDomainAutoConfigureLogicMeta {
         pageUrl: (
             currentTeamId: number | null,
             integrationId: number | null,
-            arg: 'workflows' | undefined
+            arg: EmailDomainSetupOrigin | undefined
         ) => string | null
     }
 }

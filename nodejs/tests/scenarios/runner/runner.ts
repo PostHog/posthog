@@ -46,6 +46,7 @@ import {
     Sampled,
     Sampler,
     baselineOf,
+    janitorResetsOf,
     measure,
     startSampler,
 } from '../judge/measurements'
@@ -73,6 +74,7 @@ export type RunResult = {
     origin: 'local-agent'
     units?: DriveSummary
     convergence?: Convergence
+    janitorResets?: number
     invariants: InvariantResult[]
     measurements: Measurement[]
     admissions: Admission[]
@@ -99,7 +101,15 @@ const PROBED_QUEUES: Queue[] = ['hogflow', 'email']
 
 type Outcome = Pick<
     RunResult,
-    'status' | 'statusReason' | 'units' | 'convergence' | 'invariants' | 'measurements' | 'admissions' | 'bars'
+    | 'status'
+    | 'statusReason'
+    | 'units'
+    | 'convergence'
+    | 'janitorResets'
+    | 'invariants'
+    | 'measurements'
+    | 'admissions'
+    | 'bars'
 >
 
 type Probes = { commits(): readonly WriterSample[]; stop(): Promise<Probed> }
@@ -436,7 +446,8 @@ export function createRunner(
                 probed = await probes.stop()
                 sampled = await sampler.stop()
                 const down = await stopHealth()
-                const invariants = await judge.check(card.invariants, card.gates)
+                const janitorResets = janitorResetsOf({ ...sampled, sampledFrom: sampler.sampledFrom })
+                const invariants = await judge.check(card.invariants, card.gates, { janitorResets })
                 const evidence = {
                     ...judge.evidence(),
                     ...sampled,
@@ -469,7 +480,7 @@ export function createRunner(
                     drive: driveWindow,
                     bars,
                 })
-                outcome = { ...verdict, units, convergence, invariants, measurements, admissions, bars }
+                outcome = { ...verdict, units, convergence, janitorResets, invariants, measurements, admissions, bars }
                 if (signal.aborted) {
                     outcome = { ...outcome, status: 'invalid', statusReason: 'the run was interrupted' }
                 }

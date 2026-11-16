@@ -208,8 +208,8 @@ export interface emailDomainLogicMeta {
         ) => VerificationStep[]
         offersDataSuggestions: (currentOrganization: OrganizationType | null) => boolean
         preloadsDataSuggestions: (offersDataSuggestions: boolean, integrationId: number | null) => boolean
-        origin: (arg: 'workflows' | undefined) => EmailDomainSetupOrigin
-        originConfig: (origin: 'workflows') => EmailDomainSetupOriginConfig
+        origin: (arg: EmailDomainSetupOrigin | undefined) => EmailDomainSetupOrigin
+        originConfig: (origin: EmailDomainSetupOrigin) => EmailDomainSetupOriginConfig
         breadcrumbs: (
             originConfig: EmailDomainSetupOriginConfig,
             domain: string | null,
