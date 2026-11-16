@@ -42,6 +42,9 @@ export const BasicFiltersTab = (): JSX.Element => {
                             setFilters({ start_date: start_date || undefined, end_date: end_date || undefined })
                         }}
                         placeholder="All time"
+                        allowTimePrecision
+                        showJumpToTimestamp
+                        allowedRollingDateOptions={['hours', 'days', 'weeks', 'months', 'years']}
                         data-attr="audit-logs-date-filter"
                         className="h-[24px] flex items-center"
                     />

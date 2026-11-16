@@ -253,7 +253,9 @@ export const AdvancedActivityLogsListQueryParams = () => zod.object({
     end_date: zod.iso
         .datetime({ offset: true })
         .optional()
-        .describe('Upper bound on `created_at` (inclusive), ISO-8601.'),
+        .describe(
+            'Upper bound on `created_at` (inclusive), as an ISO 8601 timestamp such as `2026-01-15T11:30:00Z`. A value without a UTC offset is read as UTC.'
+        ),
     follow: zod
         .boolean()
         .default(advancedActivityLogsListQueryFollowDefault)
@@ -312,7 +314,9 @@ export const AdvancedActivityLogsListQueryParams = () => zod.object({
     start_date: zod.iso
         .datetime({ offset: true })
         .optional()
-        .describe('Lower bound on `created_at` (inclusive), ISO-8601.'),
+        .describe(
+            'Lower bound on `created_at` (inclusive), as an ISO 8601 timestamp such as `2026-01-15T10:30:00Z`. A value without a UTC offset is read as UTC.'
+        ),
     team_ids: zod
         .array(zod.number())
         .default(advancedActivityLogsListQueryTeamIdsDefault)
