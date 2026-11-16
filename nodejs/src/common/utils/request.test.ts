@@ -579,7 +579,7 @@ describe('fetch', () => {
                             EXTERNAL_REQUEST_NEW_CONNECTIONS_PER_IP_ENFORCED: enforced,
                         },
                         async (fresh) => {
-                            fresh.limitNewConnectionsWith(connectionLimitRedis, 5_000)
+                            require('./connection-rate-limiter').limitNewConnectionsWith(connectionLimitRedis, 5_000)
                             jest.mocked(require('dns/promises').lookup).mockResolvedValue(addresses)
                             const {
                                 fetchAttribution,
@@ -611,7 +611,7 @@ describe('fetch', () => {
             await withIsolatedRequestModule(
                 { EXTERNAL_REQUEST_NEW_CONNECTIONS_PER_IP_PER_SECOND: '1' },
                 async (fresh) => {
-                    fresh.limitNewConnectionsWith(connectionLimitRedis, 5_000)
+                    require('./connection-rate-limiter').limitNewConnectionsWith(connectionLimitRedis, 5_000)
                     jest.mocked(require('dns/promises').lookup).mockResolvedValue([ipv4, ipv4, ...ipv4Mapped])
                     const result = await new Promise((resolve, reject) =>
                         fresh.httpStaticLookup('localhost', {}, (error, addresses) =>

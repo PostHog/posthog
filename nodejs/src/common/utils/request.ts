@@ -24,10 +24,9 @@ import { URL } from 'url'
 
 import { getExternalRequestConfig } from '~/common/config'
 import { buildIntegerMatcherWithPercentage } from '~/common/config/matchers'
-import type { RedisV2 } from '~/common/redis/redis-v2'
 
 import { ColdStartGate } from './cold-start-gate'
-import { ConnectionRateLimiter } from './connection-rate-limiter'
+import { installedConnectionRateLimiter } from './connection-rate-limiter'
 import { isProdEnv } from './env-utils'
 import { fetchAttribution } from './fetch-attribution'
 import { parseJSON } from './json-parse'
@@ -361,20 +360,6 @@ async function staticLookupAsync(hostname: string): Promise<LookupAddress[]> {
     return validAddrinfo
 }
 
-let connectionRateLimiter: ConnectionRateLimiter | null = null
-
-export function limitNewConnectionsWith(redis: RedisV2 | null, redisDeadlineMs?: number): void {
-    const perSecond = requestConfig.EXTERNAL_REQUEST_NEW_CONNECTIONS_PER_IP_PER_SECOND
-    connectionRateLimiter =
-        redis && perSecond > 0
-            ? new ConnectionRateLimiter(redis, {
-                  perSecond,
-                  burst: requestConfig.EXTERNAL_REQUEST_NEW_CONNECTIONS_PER_IP_BURST,
-                  redisDeadlineMs,
-              })
-            : null
-}
-
 const connectionRateLimitedCounter = new Counter({
     name: 'node_request_connection_rate_limited_total',
     help: 'New third-party connections over the limit for their destination IP address, by whether the limit rejected them',
@@ -398,6 +383,7 @@ function natAddress({ address, family }: LookupAddress): string | null {
 // Only a new connection resolves its hostname, so kept-alive requests never take a token. The socket may dial every
 // address it gets, so each IPv4 address takes one.
 async function admitNewConnection(hostname: string, addresses: LookupAddress[]): Promise<LookupAddress[]> {
+    const connectionRateLimiter = installedConnectionRateLimiter()
     if (!connectionRateLimiter) {
         return addresses
     }

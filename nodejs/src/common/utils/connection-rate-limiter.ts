@@ -1,5 +1,6 @@
 import { Counter } from 'prom-client'
 
+import { getExternalRequestConfig } from '~/common/config'
 import { RedisV2 } from '~/common/redis/redis-v2'
 
 export type ConnectionRateLimiterOptions = {
@@ -54,4 +55,24 @@ export class ConnectionRateLimiter {
             return Number(result[1]) >= 0
         })
     }
+}
+
+let installed: ConnectionRateLimiter | null = null
+
+// Lives here rather than in request.ts, which many tests mock whole, so CDP startup can call it under those mocks.
+export function limitNewConnectionsWith(redis: RedisV2 | null, redisDeadlineMs?: number): void {
+    const config = getExternalRequestConfig()
+    const perSecond = config.EXTERNAL_REQUEST_NEW_CONNECTIONS_PER_IP_PER_SECOND
+    installed =
+        redis && perSecond > 0
+            ? new ConnectionRateLimiter(redis, {
+                  perSecond,
+                  burst: config.EXTERNAL_REQUEST_NEW_CONNECTIONS_PER_IP_BURST,
+                  redisDeadlineMs,
+              })
+            : null
+}
+
+export function installedConnectionRateLimiter(): ConnectionRateLimiter | null {
+    return installed
 }
