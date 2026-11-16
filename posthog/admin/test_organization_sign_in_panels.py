@@ -75,7 +75,10 @@ class TestChangeMemberEmails(BaseTest):
         for domain in ("old.example.com", "new.example.com"):
             OrganizationDomain.objects.create(organization=self.organization, domain=domain, verified_at=timezone.now())
         self.member = self._create_user("ada@old.example.com", first_name="Ada")
-        self.url = f"/admin/console/organizations/{self.organization.pk}/sign-in/change-emails-old-example-com/"
+        self.url = self._url("old--example--com")
+
+    def _url(self, domain_key: str) -> str:
+        return f"/admin/console/organizations/{self.organization.pk}/sign-in/change-emails-{domain_key}/"
 
     def _preview(self, members: str, new_domain: str = "new.example.com", notify: bool = True):
         data = {"members": members, "new_domain": new_domain, "reason": "IdP migration"}
@@ -92,14 +95,22 @@ class TestChangeMemberEmails(BaseTest):
         self._create_user("guest@other.example.com")
         self._create_user("grace@new.example.com")
         self._create_user("staff@old.example.com", is_staff=True)
+        # A domain that differs from old.example.com only by a hyphen in place of a dot.
+        OrganizationDomain.objects.create(
+            organization=self.organization, domain="old-example.com", verified_at=timezone.now()
+        )
+        self._create_user("linus@old-example.com")
 
         old_domain = self.client.get(self.url)
-        new_domain = self.client.get(self.url.replace("old-example-com", "new-example-com"))
+        new_domain = self.client.get(self._url("new--example--com"))
+        hyphen_domain = self.client.get(self._url("old-example--com"))
 
         assert old_domain.context["form"].initial["members"] == "ada@old.example.com"
+        assert hyphen_domain.context["form"].initial["members"] == "linus@old-example.com"
         assert [value for value, _ in old_domain.context["form"].fields["new_domain"].choices] == [
             "",
             "new.example.com",
+            "old-example.com",
         ]
         assert new_domain.context["form"].initial["members"] == "grace@new.example.com"
 

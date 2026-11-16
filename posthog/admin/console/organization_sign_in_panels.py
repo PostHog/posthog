@@ -94,6 +94,12 @@ class ChangeMemberEmailsForm(forms.Form):
         return cleaned_data
 
 
+def _operation_key(domain: str) -> str:
+    # The key is part of the URL, which takes letters, digits and hyphens. A domain holds single hyphens only,
+    # so a double hyphen for each dot gives every domain its own key: old.example.com and old-example.com differ.
+    return f"change-emails-{re.sub(r'[^a-z0-9-]', '-', domain.replace('.', '--'))}"
+
+
 def _migration(organization: Organization, form: forms.Form) -> MemberEmailMigration:
     return MemberEmailMigration(
         organization=organization,
@@ -231,8 +237,7 @@ class OrganizationSignInPanel(Panel):
                 description += f" The form lists the first {limit}. Run it again for the rest."
             operations.append(
                 Operation(
-                    # The key is part of the URL, which takes letters, digits and hyphens.
-                    key=f"change-emails-{re.sub(r'[^a-z0-9]+', '-', domain)}",
+                    key=_operation_key(domain),
                     label=f"Change emails on {domain}",
                     handler=change_member_emails,
                     preview=preview_member_email_changes,
