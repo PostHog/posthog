@@ -329,6 +329,25 @@ An optional `pools` list in the payload replaces the default candidate pools, in
 Each entry takes a `source` (`for_you_recommended`, `for_you_updated` or `assigned`), a `size` (0 turns it off) and an optional `name`.
 The build logs and drops an invalid entry, such as one with the removed `scored` or `priority` source, and uses the default pools when no entry is valid.
 
+An optional `model_arms` list sends a share of people to another model, so models can be compared side by side:
+
+```json
+{
+  "model_arms_salt": "2026-11-models-1",
+  "model_arms": [
+    { "name": "terra", "percentage": 5, "model": "gpt-6.1-terra" },
+    { "name": "luna_medium", "percentage": 5, "model": "gpt-6-luna", "reasoning_effort": "medium" }
+  ]
+}
+```
+
+Each arm takes a contiguous range of a salted hash of the user id, in list order, so a person keeps one arm across projects, and a higher percentage keeps the people the arm had.
+An arm sets `model` and optionally `reasoning_effort` and `timeout_seconds`. People outside every arm keep the top-level values.
+A new `model_arms_salt` draws a new split. At most 5 arms, with unique names other than `default`, and percentages above 0 that add up to at most 100.
+One invalid arm or key turns every arm off and logs `personal_inbox_ranking_model_arms_invalid`.
+The model is in the input hash, so only a person who moves into or out of an arm gets a rebuild.
+`personal inbox ranking built` and the model call carry `model_arm`: the arm name, or `default`.
+
 A person with no ready activity summary gets a list in model order with no model call, marked `personalized: False` and `fallback_reason: no_activity_summary`.
 When the model call fails or answers outside the schema, the list is in model order and `fallback_reason` says why.
 The `personal inbox ranking built` event records `model_called`, so builds with and without a model call can be counted apart.
@@ -343,6 +362,10 @@ It limits builds per person with `build_burst`, `builds_per_hour` and `builds_pe
 A build with no ready activity summary, or for an organization that has not approved AI data processing, does not call the model and does not spend that limit.
 When a limit refuses a build, the read serves the latest row as stale, or the candidates in inbox order with `fallback_reason: rate_limited`.
 The scheduled tick spends from the same bucket.
+
+When the activity summary tick stores a person's first summary and the person has no list, it queues the same Celery task with `trigger: first_summary`, so the first list does not wait for the personal ranking tick.
+That build takes the per-person lock, needs `"enabled"` in the payload, and runs only when it calls the model, so it also needs candidates and AI approval, and it spends the shared `max_builds_per_day`.
+It does not need tick enrollment. A build that a gate refuses leaves the pair to the tick.
 
 ### Scheduled personal ranking tick
 
@@ -380,7 +403,7 @@ The `tick` object of the `personal-inbox-ranking` payload holds its levers. With
 
 Each enabled tick captures `personal inbox ranking tick` with the due pairs, the pairs it picked, a count per pair status (`built`, `failed`, `unchanged`, `running`, `not_enrolled`, `tick_limited`, `shared_limited`), the stop reason, `oldest_due_hours`, `fresh_share`, the enrolled organizations and teams, and the duration.
 It also carries `unchanged_pair_seconds_p50`, `unchanged_pair_seconds_p95`, `built_pair_seconds_p50` and `built_pair_seconds_p95`: the seconds from the start of a pair to its result, for sizing `max_concurrency` and `max_pairs_per_tick`.
-`personal inbox ranking built` and the model call's trace carry `trigger` (`tick` or `on_demand`), so cost can be split by what started a build.
+`personal inbox ranking built` and the model call's trace carry `trigger` (`tick`, `on_demand` or `first_summary`), so cost can be split by what started a build.
 
 `due_pairs`, `due_without_list` and `oldest_due_hours` are read when the tick plans, before it does any work.
 A healthy tick reads `oldest_due_hours` a little above `target_interval_minutes`, and one old list that just became due makes it spike, so do not alert on it.

@@ -36,6 +36,7 @@ import { CommandResultCard } from '../../../components/composer/CommandResultCar
 import { CommentContextChips } from '../../../components/composer/CommentContextChips'
 import { ComposerAttachmentChips } from '../../../components/composer/ComposerAttachmentChips'
 import { ComposerAttachments, useComposerAttachmentPaste } from '../../../components/composer/ComposerAttachments'
+import { ComposerCodexBillingIndicator } from '../../../components/composer/ComposerCodexBillingIndicator'
 import { ComposerCodexBillingPickers } from '../../../components/composer/ComposerCodexBillingPickers'
 import { ComposerCommandMenu } from '../../../components/composer/ComposerCommandMenu'
 import {
@@ -347,12 +348,21 @@ export function TaskRunComposer({
                         }
                         singleRow
                         meta={
-                            <div className="flex min-w-0 items-center gap-1 [&>fieldset]:min-w-0 [&>fieldset]:flex-nowrap">
-                                <span className="px-1 empty:hidden">
-                                    <QuillContextUsage />
-                                </span>
-                                {pickers(modelPicker, null)}
-                            </div>
+                            <>
+                                {codexBillingEnabled &&
+                                    !isPiTask &&
+                                    getRuntimeAdapterForModel(catalogue, selectedModel) === 'codex' && (
+                                        <ComposerCodexBillingIndicator
+                                            lockedCodexModelAccess={lockedCodexModelAccess}
+                                        />
+                                    )}
+                                <div className="flex min-w-0 items-center gap-1 [&>fieldset]:min-w-0 [&>fieldset]:flex-nowrap">
+                                    <span className="px-1 empty:hidden">
+                                        <QuillContextUsage />
+                                    </span>
+                                    {pickers(modelPicker, null)}
+                                </div>
+                            </>
                         }
                     />
                 ) : (

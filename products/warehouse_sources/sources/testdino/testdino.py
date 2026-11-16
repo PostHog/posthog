@@ -92,8 +92,8 @@ def client_config(config: TestDinoSourceConfig) -> ClientConfig:
     }
 
 
-def paged_endpoint_extra() -> Endpoint:
-    return {"data_selector": "data", "data_selector_required": True, "paginator": TestDinoPagePaginator()}
+def paged_endpoint_extra(data_selector: str = "data") -> Endpoint:
+    return {"data_selector": data_selector, "data_selector_required": True, "paginator": TestDinoPagePaginator()}
 
 
 def testdino_source(
@@ -103,7 +103,7 @@ def testdino_source(
 ) -> SourceResponse:
     validate_project_id(config.project_id)
     settings = schema_for_resource(ENDPOINTS, inputs.schema_name)
-    primary_keys = list(settings.primary_keys)
+    primary_keys = list(settings.primary_keys) if settings.primary_keys is not None else None
 
     if settings.fanout is not None:
         dependent = build_dependent_resource(
@@ -134,7 +134,7 @@ def testdino_source(
     initial_state: dict[str, Any] | None = None
     resumable = inputs.schema_name in PAGED_ENDPOINTS
     if resumable:
-        endpoint.update(paged_endpoint_extra())
+        endpoint.update(paged_endpoint_extra(settings.data_selector))
         endpoint["params"] = {"limit": settings.page_size, **settings.params}
     elif inputs.schema_name == "manual_cases":
         endpoint["paginator"] = TestDinoCasePaginator()

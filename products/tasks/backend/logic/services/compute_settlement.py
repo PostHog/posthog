@@ -364,6 +364,9 @@ def settle_task_run_compute(task_run_id: UUID | str, team_id: int) -> list[Settl
         return []
     run_uuid = task_run_id if isinstance(task_run_id, UUID) else UUID(task_run_id)
     sessions = _unsettled(SandboxSession.objects.for_team(team_id).filter(task_run_id=run_uuid, ended_at__isnull=False))
+    since = _settle_since()
+    if since is not None:
+        sessions = sessions.filter(ended_at__gte=since)
     return [settle_sandbox_session(session) for session in sessions]
 
 

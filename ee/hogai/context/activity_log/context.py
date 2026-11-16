@@ -35,6 +35,7 @@ SCOPE_DISPLAY_NAMES: dict[str, str] = {
     "ExternalDataSource": "Source",
     "HogFunction": "Data pipeline",
     "PersonalAPIKey": "Personal API key",
+    "PlatformAlertConfiguration": "Platform alert",
     "LLMTrace": "LLM trace",
     "Ticket": "Support ticket",
 }

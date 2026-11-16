@@ -416,12 +416,12 @@ pub struct Config {
     pub continuous_profiling: ContinuousProfilingConfig,
 
     /// Maximum compressed (wire) body size the v1 endpoint will accept (bytes).
-    #[envconfig(default = "10485760")]
-    pub capture_v1_max_compressed_body_bytes: usize,
+    /// Unset, it is 10 MiB, or `router::AI_BODY_SIZE` on capture-ai.
+    pub capture_v1_max_compressed_body_bytes: Option<usize>,
 
     /// Maximum decompressed body size the v1 endpoint will accept (bytes).
-    #[envconfig(default = "52428800")]
-    pub capture_v1_max_decompressed_body_bytes: usize,
+    /// Unset, it is 50 MiB, or `router::AI_BODY_SIZE` on capture-ai.
+    pub capture_v1_max_decompressed_body_bytes: Option<usize>,
 
     /// Batch size threshold for parallel scatter-gather serialization; 0 disables fanout.
     #[envconfig(default = "8")]

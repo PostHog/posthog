@@ -20,6 +20,7 @@ from products.review_hog.backend.temporal.types import (
 )
 
 SILENT_STAMPHOG_PATCH = "reviewhog-silent-stamphog-2026-11"
+STAMPHOG_REPORT_AFTER_TURN_PATCH = "reviewhog-stamphog-report-after-turn-2026-11"
 
 
 async def request_silent_stamphog(request: ReviewPRWorkflowInputs, head_sha: str) -> None:
@@ -129,6 +130,32 @@ class ReviewPRQueueWorkflow:
     def requested_heads(self) -> dict[str, list[str | None]]:
         return self._requests.requested_heads()
 
+    async def _answer_ready_event(self, request: ReviewPRWorkflowInputs, *, turn_succeeded: bool) -> None:
+        """Ask stamphog about the head of a ready event once the turn for it ended.
+
+        The activity queues the silent review for a head recorded clean and reports every other head as
+        unreviewed. A ready event can join the running turn, so the active request decides, not `request`.
+        A waiting request that a newer head replaces is not answered: its head is stale, stamphog acts on
+        the live head, and the newer event answers for itself.
+
+        A queue whose history predates the patch keeps its old commands: only a ready event that joined a
+        successful turn was answered here, and the turn answered for its own ready event.
+        """
+        active = self._requests.active
+        if request.answered_by_queue:
+            if active is not None and active.marks_ready and active.requested_head_sha is not None:
+                await request_silent_stamphog(active, active.requested_head_sha)
+            return
+        if (
+            turn_succeeded
+            and workflow.patched(SILENT_STAMPHOG_PATCH)
+            and active is not None
+            and active.marks_ready
+            and not request.marks_ready
+            and request.requested_head_sha is not None
+        ):
+            await request_silent_stamphog(request, request.requested_head_sha)
+
     @workflow.run
     async def run(self, inputs: ReviewPRQueueInputs) -> str:
         result = ""
@@ -141,6 +168,10 @@ class ReviewPRQueueWorkflow:
                 retry_policy=RetryPolicy(maximum_interval=timedelta(minutes=1)),
             ):
                 await workflow.sleep(timedelta(seconds=15))
+            # The patch decides once for the queue's life, because a queue that replays turns from before it
+            # must keep the commands of those turns.
+            if workflow.patched(STAMPHOG_REPORT_AFTER_TURN_PATCH):
+                request = replace(request, answered_by_queue=True)
             try:
                 result = await workflow.execute_child_workflow(
                     "review-pr",
@@ -150,17 +181,9 @@ class ReviewPRQueueWorkflow:
                     id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
                     retry_policy=RetryPolicy(maximum_attempts=2),
                 )
-                # The turn ran with `request`, so a ready event that joined it later is answered here.
-                active = self._requests.active
-                if (
-                    workflow.patched(SILENT_STAMPHOG_PATCH)
-                    and active is not None
-                    and active.marks_ready
-                    and not request.marks_ready
-                    and request.requested_head_sha is not None
-                ):
-                    await request_silent_stamphog(request, request.requested_head_sha)
+                await self._answer_ready_event(request, turn_succeeded=True)
             except ChildWorkflowError:
+                await self._answer_ready_event(request, turn_succeeded=False)
                 if not self._requests.pending:
                     raise
                 workflow.logger.exception("Review failed; processing the next requested review")

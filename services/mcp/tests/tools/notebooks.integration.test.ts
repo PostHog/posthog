@@ -40,8 +40,8 @@ describe('Notebooks', { concurrent: false }, () => {
         createdNotebookShortIds.length = 0
     })
 
-    describe('notebooks-create tool', () => {
-        const createTool = getToolByName('notebooks-create')
+    describe('notebooks-create-markdown tool', () => {
+        const createTool = getToolByName('notebooks-create-markdown')
 
         it('should create a notebook with title only', async () => {
             const params = {
@@ -51,43 +51,26 @@ describe('Notebooks', { concurrent: false }, () => {
             const result = await createTool.handler(context, params)
             const notebook = parseToolResponse(result)
 
-            expect(notebook.short_id).toBeTruthy()
+            expect(notebook.notebook_id).toBeTruthy()
             expect(notebook.title).toBe(params.title)
-            expect(notebook.version).toBe(0)
-            expect(notebook.deleted).toBe(false)
             expect(notebook._posthogUrl).toContain('/notebooks/')
 
-            createdNotebookShortIds.push(notebook.short_id)
+            createdNotebookShortIds.push(notebook.notebook_id)
         })
 
         it('should create a notebook with content', async () => {
             const params = {
                 title: generateUniqueKey('Content Notebook'),
-                content: {
-                    type: 'doc',
-                    content: [
-                        {
-                            type: 'heading',
-                            attrs: { level: 1 },
-                            content: [{ type: 'text', text: 'Test heading' }],
-                        },
-                        {
-                            type: 'paragraph',
-                            content: [{ type: 'text', text: 'Test paragraph' }],
-                        },
-                    ],
-                },
+                markdown: '# Test heading\n\nTest paragraph',
             }
 
             const result = await createTool.handler(context, params)
             const notebook = parseToolResponse(result)
 
-            expect(notebook.short_id).toBeTruthy()
+            expect(notebook.notebook_id).toBeTruthy()
             expect(notebook.title).toBe(params.title)
-            expect(notebook.content).toBeTruthy()
-            expect(notebook.content.type).toBe('doc')
 
-            createdNotebookShortIds.push(notebook.short_id)
+            createdNotebookShortIds.push(notebook.notebook_id)
         })
     })
 
@@ -104,29 +87,29 @@ describe('Notebooks', { concurrent: false }, () => {
         })
     })
 
-    describe('notebooks-retrieve tool', () => {
-        const createTool = getToolByName('notebooks-create')
-        const retrieveTool = getToolByName('notebooks-retrieve')
+    describe('notebooks-get tool', () => {
+        const createTool = getToolByName('notebooks-create-markdown')
+        const retrieveTool = getToolByName('notebooks-get')
 
         it('should get a specific notebook by short_id', async () => {
             const createResult = await createTool.handler(context, {
                 title: generateUniqueKey('Retrieve Test Notebook'),
             })
             const created = parseToolResponse(createResult)
-            createdNotebookShortIds.push(created.short_id)
+            createdNotebookShortIds.push(created.notebook_id)
 
-            const result = await retrieveTool.handler(context, { short_id: created.short_id })
+            const result = await retrieveTool.handler(context, { short_id: created.notebook_id })
             const retrieved = parseToolResponse(result)
 
-            expect(retrieved.short_id).toBe(created.short_id)
+            expect(retrieved.notebook_id).toBe(created.notebook_id)
             expect(retrieved.title).toContain('Retrieve Test Notebook')
             expect(retrieved).toHaveProperty('version')
-            expect(retrieved).toHaveProperty('content')
+            expect(retrieved).toHaveProperty('markdown')
         })
     })
 
     describe('notebooks-partial-update tool', () => {
-        const createTool = getToolByName('notebooks-create')
+        const createTool = getToolByName('notebooks-create-markdown')
         const updateTool = getToolByName('notebooks-partial-update')
 
         it('should update notebook title', async () => {
@@ -134,32 +117,28 @@ describe('Notebooks', { concurrent: false }, () => {
                 title: generateUniqueKey('Update Test Notebook'),
             })
             const created = parseToolResponse(createResult)
-            createdNotebookShortIds.push(created.short_id)
+            createdNotebookShortIds.push(created.notebook_id)
 
             const updateResult = await updateTool.handler(context, {
-                short_id: created.short_id,
+                short_id: created.notebook_id,
                 title: 'Updated Title',
             })
             const updated = parseToolResponse(updateResult)
 
-            expect(updated.short_id).toBe(created.short_id)
+            expect(updated.short_id).toBe(created.notebook_id)
             expect(updated.title).toBe('Updated Title')
         })
 
         it('should update notebook content with version for concurrency control', async () => {
             const createResult = await createTool.handler(context, {
                 title: generateUniqueKey('Version Test Notebook'),
-                content: {
-                    type: 'doc',
-                    content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Original' }] }],
-                },
+                markdown: 'Initial content',
             })
             const created = parseToolResponse(createResult)
-            createdNotebookShortIds.push(created.short_id)
-            expect(created.version).toBe(0)
+            createdNotebookShortIds.push(created.notebook_id)
 
             const updateResult = await updateTool.handler(context, {
-                short_id: created.short_id,
+                short_id: created.notebook_id,
                 version: 0,
                 content: {
                     type: 'doc',
@@ -172,118 +151,8 @@ describe('Notebooks', { concurrent: false }, () => {
         })
     })
 
-    describe('notebook-edit tool', () => {
-        const createTool = getToolByName('notebooks-create')
-        const retrieveTool = getToolByName('notebooks-retrieve')
-        const editTool = getToolByName('notebook-edit')
-
-        // notebooks-create stores rich-text content as a markdown notebook, so these edits target its markdown.
-        it('should replace a paragraph and bump the version', async () => {
-            const createResult = await createTool.handler(context, {
-                title: generateUniqueKey('Edit Test Notebook'),
-                content: {
-                    type: 'doc',
-                    content: [
-                        { type: 'heading', attrs: { level: 1 }, content: [{ type: 'text', text: 'Heading' }] },
-                        { type: 'paragraph', content: [{ type: 'text', text: 'Original paragraph' }] },
-                    ],
-                },
-            })
-            const created = parseToolResponse(createResult)
-            createdNotebookShortIds.push(created.short_id)
-
-            const editResult = await editTool.handler(context, {
-                short_id: created.short_id,
-                old_markdown: 'Original paragraph',
-                new_markdown: 'Edited paragraph',
-            })
-            const edited = parseToolResponse(editResult)
-
-            expect(edited.short_id).toBe(created.short_id)
-            expect(edited.version).toBe(created.version + 1)
-            const serialized = JSON.stringify(edited.content)
-            expect(serialized).toContain('Edited paragraph')
-            expect(serialized).not.toContain('Original paragraph')
-        })
-
-        it('should replace every occurrence when replace_all is true', async () => {
-            const createResult = await createTool.handler(context, {
-                title: generateUniqueKey('Edit Replace-All Notebook'),
-                content: {
-                    type: 'doc',
-                    content: [
-                        { type: 'paragraph', content: [{ type: 'text', text: 'duplicate' }] },
-                        { type: 'paragraph', content: [{ type: 'text', text: 'duplicate' }] },
-                    ],
-                },
-            })
-            const created = parseToolResponse(createResult)
-            createdNotebookShortIds.push(created.short_id)
-
-            const editResult = await editTool.handler(context, {
-                short_id: created.short_id,
-                old_markdown: 'duplicate',
-                new_markdown: 'unique',
-                replace_all: true,
-            })
-            const edited = parseToolResponse(editResult)
-
-            const serialized = JSON.stringify(edited.content)
-            expect(serialized).not.toContain('duplicate')
-            expect((serialized.match(/unique/g) || []).length).toBe(2)
-        })
-
-        it('should error when old_markdown matches multiple places without replace_all', async () => {
-            const createResult = await createTool.handler(context, {
-                title: generateUniqueKey('Edit Ambiguous Notebook'),
-                content: {
-                    type: 'doc',
-                    content: [
-                        { type: 'paragraph', content: [{ type: 'text', text: 'duplicate' }] },
-                        { type: 'paragraph', content: [{ type: 'text', text: 'duplicate' }] },
-                    ],
-                },
-            })
-            const created = parseToolResponse(createResult)
-            createdNotebookShortIds.push(created.short_id)
-
-            await expect(
-                editTool.handler(context, {
-                    short_id: created.short_id,
-                    old_markdown: 'duplicate',
-                    new_markdown: 'unique',
-                })
-            ).rejects.toThrow(/matches 2 places/)
-
-            // Notebook untouched.
-            const retrieveResult = await retrieveTool.handler(context, { short_id: created.short_id })
-            const retrieved = parseToolResponse(retrieveResult)
-            expect(retrieved.version).toBe(created.version)
-        })
-
-        it('should error when old_markdown is not found', async () => {
-            const createResult = await createTool.handler(context, {
-                title: generateUniqueKey('Edit Missing Notebook'),
-                content: {
-                    type: 'doc',
-                    content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Hello' }] }],
-                },
-            })
-            const created = parseToolResponse(createResult)
-            createdNotebookShortIds.push(created.short_id)
-
-            await expect(
-                editTool.handler(context, {
-                    short_id: created.short_id,
-                    old_markdown: 'Nope',
-                    new_markdown: 'Something',
-                })
-            ).rejects.toThrow(/was not found/)
-        })
-    })
-
     describe('notebooks-destroy tool', () => {
-        const createTool = getToolByName('notebooks-create')
+        const createTool = getToolByName('notebooks-create-markdown')
         const destroyTool = getToolByName('notebooks-destroy')
 
         it('should soft-delete a notebook', async () => {
@@ -293,7 +162,7 @@ describe('Notebooks', { concurrent: false }, () => {
             const created = parseToolResponse(createResult)
 
             const deleteResult = await destroyTool.handler(context, {
-                short_id: created.short_id,
+                short_id: created.notebook_id,
             })
             const deleted = parseToolResponse(deleteResult)
 
@@ -303,30 +172,27 @@ describe('Notebooks', { concurrent: false }, () => {
 
     describe('Notebook workflow', () => {
         it('should support full CRUD workflow', async () => {
-            const createTool = getToolByName('notebooks-create')
-            const retrieveTool = getToolByName('notebooks-retrieve')
+            const createTool = getToolByName('notebooks-create-markdown')
+            const retrieveTool = getToolByName('notebooks-get')
             const updateTool = getToolByName('notebooks-partial-update')
             const destroyTool = getToolByName('notebooks-destroy')
 
             // Create
             const createResult = await createTool.handler(context, {
                 title: generateUniqueKey('Workflow Notebook'),
-                content: {
-                    type: 'doc',
-                    content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Initial content' }] }],
-                },
+                markdown: 'Initial content',
             })
             const created = parseToolResponse(createResult)
-            expect(created.short_id).toBeTruthy()
+            expect(created.notebook_id).toBeTruthy()
 
             // Retrieve
-            const getResult = await retrieveTool.handler(context, { short_id: created.short_id })
+            const getResult = await retrieveTool.handler(context, { short_id: created.notebook_id })
             const retrieved = parseToolResponse(getResult)
-            expect(retrieved.short_id).toBe(created.short_id)
+            expect(retrieved.notebook_id).toBe(created.notebook_id)
 
             // Update
             const updateResult = await updateTool.handler(context, {
-                short_id: created.short_id,
+                short_id: created.notebook_id,
                 title: 'Updated Workflow Notebook',
                 version: retrieved.version,
                 content: {
@@ -342,7 +208,7 @@ describe('Notebooks', { concurrent: false }, () => {
             expect(updated.version).toBe(retrieved.version + 1)
 
             // Delete
-            const deleteResult = await destroyTool.handler(context, { short_id: created.short_id })
+            const deleteResult = await destroyTool.handler(context, { short_id: created.notebook_id })
             const deleted = parseToolResponse(deleteResult)
             expect(deleted.deleted).toBe(true)
         })

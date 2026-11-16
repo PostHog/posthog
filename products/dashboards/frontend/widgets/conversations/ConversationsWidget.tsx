@@ -27,7 +27,7 @@ import {
     WidgetContentFooter,
     WidgetListCount,
 } from '../../components/WidgetCard'
-import type { DashboardWidgetTopHeadingProps } from '../../components/WidgetCard/WidgetCardHeader'
+import type { DashboardWidgetTopHeadingProps } from '../../components/WidgetCard/WidgetCardTopHeading'
 import type { DashboardWidgetComponentProps } from '../registry'
 import { parseConversationsWidgetConfig } from './conversationsWidgetConfigValidation'
 import { conversationsWidgetLogic } from './conversationsWidgetLogic'

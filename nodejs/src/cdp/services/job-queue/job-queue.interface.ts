@@ -1,7 +1,19 @@
+import type { KafkaConsumerConfig } from '~/common/kafka/consumer'
+import { ProducerMessage } from '~/common/kafka/producer'
+
 import { HealthCheckResult } from '../../../types'
 import { CyclotronJobInvocation, CyclotronJobInvocationResult, CyclotronJobQueueKind } from '../../types'
+import { CyclotronV2IdempotentClaim } from '../cyclotron-v2/types'
+import type { CrashGuard } from '../poison-batch/crash-guard'
 
 export type ConsumeBatchFn = (invocations: CyclotronJobInvocation[]) => Promise<{ backgroundTask: Promise<any> }>
+
+/** Only the Kafka queue reads these, because they act on its consumer and the messages it fetches. */
+export type ConsumerOptions = Pick<KafkaConsumerConfig, 'fetchBatchSize' | 'maxBackgroundTasks'> & {
+    // A factory, because the guard keys its counts by the consumer group, which the queue names. produce goes
+    // through the queue's own producer.
+    crashGuard?: (consumer: { groupId: string; produce: (message: ProducerMessage) => Promise<void> }) => CrashGuard
+}
 
 /**
  * Common interface for job queue backends (Kafka, postgres-v2).
@@ -9,7 +21,11 @@ export type ConsumeBatchFn = (invocations: CyclotronJobInvocation[]) => Promise<
  */
 export interface JobQueue {
     startAsProducer(): Promise<void>
-    startAsConsumer(queue: CyclotronJobQueueKind, consumeBatch: ConsumeBatchFn): Promise<void>
+    startAsConsumer(
+        queue: CyclotronJobQueueKind,
+        consumeBatch: ConsumeBatchFn,
+        options?: ConsumerOptions
+    ): Promise<void>
     stopConsumer(): Promise<void>
     stopProducer(): Promise<void>
     isHealthy(): HealthCheckResult
@@ -17,5 +33,13 @@ export interface JobQueue {
     queueInvocationResults(results: CyclotronJobInvocationResult[]): Promise<void>
     dequeueInvocations(invocations: CyclotronJobInvocation[]): Promise<void>
     heartbeatInvocations(invocations: CyclotronJobInvocation[]): Promise<void>
+    stillOwns(invocation: CyclotronJobInvocation): Promise<boolean>
     deferInvocations(deferrals: { invocation: CyclotronJobInvocation; scheduledAt: Date }[]): Promise<void>
+}
+
+export type IdempotentInvocation = { invocation: CyclotronJobInvocation; fingerprint: string }
+
+export interface IdempotentJobQueue extends JobQueue {
+    queueInvocationsIdempotently(entries: IdempotentInvocation[]): Promise<CyclotronV2IdempotentClaim[]>
+    findIdempotencyKey(id: string): Promise<{ fingerprint: string } | null>
 }

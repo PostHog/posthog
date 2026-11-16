@@ -53,6 +53,7 @@ class TestMarketingCostFallback(SimpleTestCase):
             compareFilter=CompareFilter(compare=True, compare_to=compare_to),
             series=[precomputed],
             marketingAnalyticsCostFallback=MarketingAnalyticsCostFallback(series=[live], sourceIds=["a"]),
+            modifiers=HogQLQueryModifiers(useNewEventsSchema=False),
         )
         warning = BreakdownNotAppliedWarning(type="breakdown_not_applied", message="Costs are shown by source.")
         original_calculate = TrendsQueryRunner.calculate

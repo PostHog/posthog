@@ -1,13 +1,14 @@
 import { expectLogic } from 'kea-test-utils'
 
-import api from 'lib/api'
 import { AppMetricsTimeSeriesResponse, appMetricsLogic } from 'lib/components/AppMetrics/appMetricsLogic'
+import { dayjs } from 'lib/dayjs'
 
 import { silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import type { HogFlow, HogFlowAction } from './hogflows/types'
+import { workflowOverviewLogic } from './overview/workflowOverviewLogic'
 import { workflowLogic } from './workflowLogic'
 import {
     type EmailMetric,
@@ -17,12 +18,15 @@ import {
     buildEmailMetricRows,
     buildPushMetricRows,
     channelSentLabel,
+    conversionRateQuery,
     detectMessagingChannels,
     parseEmailLinkTotals,
     subtractSeries,
     withDisplayName,
     workflowMetricsSummaryLogic,
 } from './workflowMetricsSummaryLogic'
+
+const SANDBOX_ONLY_RATE = { value: '-', tag: null, detail: 'All emails were sent from the sandbox sender' }
 
 const series = (labels: string[], ...namedValues: [string, number[]][]): AppMetricsTimeSeriesResponse => ({
     labels,
@@ -184,6 +188,11 @@ describe('detectMessagingChannels', () => {
             input: series(['d1'], ['email_delivered', [3]], ['push_skipped', [1]]),
             expected: { hasEmail: false, hasPush: false },
         },
+        {
+            name: 'sandbox email only',
+            input: series(['d1'], ['email_sandbox_sent', [3]]),
+            expected: { hasEmail: true, hasPush: false },
+        },
     ])('$name', ({ input, expected }) => {
         expect(detectMessagingChannels(input)).toEqual(expected)
     })
@@ -234,8 +243,10 @@ describe('buildEmailMetricRows', () => {
                 missingRecipient: 5,
                 frequencyCapped: 3,
                 markedAsSpam: 4,
+                sandboxBlocked: 0,
                 untracked: 7,
                 trackedSends: 93,
+                removed: false,
             },
         ])
     })
@@ -245,6 +256,18 @@ describe('buildEmailMetricRows', () => {
             a1: { email_sent: 100, email_delivered: 60, email_untracked: 90, email_bounced: 40 },
         })
         expect(row.trackedSends).toBe(10)
+    })
+
+    it('adds a removed row for totals recorded under a step the workflow no longer has', () => {
+        const rows = buildEmailMetricRows([{ id: 'current', name: 'New welcome email' }], {
+            deleted: { email_sent: 30, email_opened: 12, email_link_clicked: 4 },
+            unused: { email_sent: 0 },
+            cappedPushStep: { message_frequency_capped: 5 },
+        })
+        expect(rows).toMatchObject([
+            { id: 'current', email: 'New welcome email', sent: 0, opened: 0, linkClicked: 0, removed: false },
+            { id: 'deleted', email: 'Removed email', sent: 30, opened: 12, linkClicked: 4, removed: true },
+        ])
     })
 
     // delivered falls back to sent - bounced (clamped at 0) when it wasn't collected. Spam
@@ -341,7 +364,7 @@ describe('workflowMetricsSummaryLogic', () => {
 
     type MetricRow = { instanceId: string; metricName: string; count: number }
 
-    const step = (id: string, type: 'function_email' | 'function_push'): HogFlowAction =>
+    const step = (id: string, type: 'function_email' | 'email_sandbox' | 'function_push'): HogFlowAction =>
         ({ id, type, name: id, description: '', created_at: 0, updated_at: 0, config: { inputs: {} } }) as HogFlowAction
 
     const makeWorkflow = (actions: HogFlowAction[], overrides: Partial<HogFlow> = {}): HogFlow =>
@@ -362,42 +385,60 @@ describe('workflowMetricsSummaryLogic', () => {
     let queries: string[]
     let servedWorkflow: HogFlow
 
+    type Fault = { status: number; retryAfter?: string; times: number }
+
     // A stand-in for the app_metrics table: it applies the metric-name and run-level filters the
     // query asks for, then groups by the requested breakdown columns.
-    const serveAppMetrics = (rows: MetricRow[], failWhen?: string): void => {
+    const useAppMetricsMocks = (
+        rows: MetricRow[],
+        failWhen?: string,
+        fault: Fault = { status: 500, times: Infinity }
+    ): void => {
         queries = []
-        jest.spyOn(api, 'queryHogQL').mockImplementation(async (query) => {
-            const sql = String(query)
-            queries.push(sql)
-            if (failWhen && sql.includes(failWhen)) {
-                throw new Error('query failed')
-            }
-            const nameList = sql.match(/metric_name IN \[([^\]]*)\]/)?.[1] ?? ''
-            const names = [...nameList.matchAll(/'([^']*)'/g)].map((m) => m[1])
-            const matching = rows.filter(
-                (r) =>
-                    (names.length === 0 || names.includes(r.metricName)) &&
-                    (!sql.includes("instance_id = ''") || r.instanceId === '')
-            )
-            const totalsBreakdown = sql.match(/sum\(count\) AS total,\s*([\w, ]+)\n/)?.[1]
-            const columns = totalsBreakdown ? totalsBreakdown.split(',').map((c) => c.trim()) : ['metric_name']
-            const groups = new Map<string, { keys: string[]; total: number }>()
-            matching.forEach((r) => {
-                const keys = columns.map((c) => (c === 'instance_id' ? r.instanceId : r.metricName))
-                const group = groups.get(keys.join('|')) ?? { keys, total: 0 }
-                group.total += r.count
-                groups.set(keys.join('|'), group)
-            })
-            const results = [...groups.values()].map(({ keys, total }) =>
-                totalsBreakdown ? [total, ...keys] : [LABELS, keys[0], [total, 0]]
-            )
-            return { results } as any
+        let faultsLeft = fault.times
+        useMocks({
+            post: {
+                '/api/environments/:team_id/query/:kind/': async ({ request }) => {
+                    const sql = ((await request.json()) as { query: { query: string } }).query.query
+                    queries.push(sql)
+                    if (failWhen && sql.includes(failWhen) && faultsLeft-- > 0) {
+                        return new Response(JSON.stringify({ detail: 'Query refused.' }), {
+                            status: fault.status,
+                            headers: {
+                                'Content-Type': 'application/json',
+                                ...(fault.retryAfter ? { 'Retry-After': fault.retryAfter } : {}),
+                            },
+                        })
+                    }
+                    const nameList = sql.match(/metric_name IN \[([^\]]*)\]/)?.[1] ?? ''
+                    const names = [...nameList.matchAll(/'([^']*)'/g)].map((m) => m[1])
+                    const matching = rows.filter(
+                        (r) =>
+                            (names.length === 0 || names.includes(r.metricName)) &&
+                            (!sql.includes("instance_id = ''") || r.instanceId === '')
+                    )
+                    const totalsBreakdown = sql.match(/sum\(count\) AS total,\s*([\w, ]+)\n/)?.[1]
+                    const columns = totalsBreakdown ? totalsBreakdown.split(',').map((c) => c.trim()) : ['metric_name']
+                    const groups = new Map<string, { keys: string[]; total: number }>()
+                    matching.forEach((r) => {
+                        const keys = columns.map((c) => (c === 'instance_id' ? r.instanceId : r.metricName))
+                        const group = groups.get(keys.join('|')) ?? { keys, total: 0 }
+                        group.total += r.count
+                        groups.set(keys.join('|'), group)
+                    })
+                    const results = [...groups.values()].map(({ keys, total }) =>
+                        totalsBreakdown ? [total, ...keys] : [LABELS, keys[0], [total, 0]]
+                    )
+                    return [200, { results }]
+                },
+            },
         })
     }
 
     const mountMetrics = async (
         workflow: HogFlow,
-        props: Partial<WorkflowMetricsSummaryLogicProps> = {}
+        props: Partial<WorkflowMetricsSummaryLogicProps> = {},
+        listenerWaitMs?: number
     ): Promise<ReturnType<typeof workflowMetricsSummaryLogic.build>> => {
         servedWorkflow = workflow
         const flowLogic = workflowLogic({ id: WORKFLOW_ID })
@@ -412,14 +453,19 @@ describe('workflowMetricsSummaryLogic', () => {
         trendsLogic.mount()
         const logic = workflowMetricsSummaryLogic({ logicKey: LOGIC_KEY, id: WORKFLOW_ID, ...props })
         logic.mount()
-        await expectLogic(trendsLogic).toFinishAllListeners()
-        await expectLogic(logic).toFinishAllListeners()
+        await expectLogic(trendsLogic).toFinishAllListeners(listenerWaitMs)
+        await expectLogic(logic).toFinishAllListeners(listenerWaitMs)
         return logic
     }
 
     beforeEach(() => {
         initKeaTests()
-        useMocks({ get: { '/api/environments/:team_id/hog_flows/:id/': () => [200, servedWorkflow] } })
+        useMocks({
+            get: {
+                '/api/environments/:team_id/hog_flows/:id/': () => [200, servedWorkflow],
+                '/api/projects/:team_id/hog_flows/:id/in_flight/': () => [200, { total: 0, by_action: {} }],
+            },
+        })
     })
 
     afterEach(() => {
@@ -427,7 +473,7 @@ describe('workflowMetricsSummaryLogic', () => {
     })
 
     it('totals each email and push step of the workflow', async () => {
-        serveAppMetrics([
+        useAppMetricsMocks([
             { instanceId: 'email-1', metricName: 'email_sent', count: 100 },
             { instanceId: 'email-1', metricName: 'email_bounced', count: 6 },
             { instanceId: 'email-1', metricName: 'email_opened', count: 30 },
@@ -454,11 +500,106 @@ describe('workflowMetricsSummaryLogic', () => {
         expect(queries.filter((q) => q.includes('email_link_clicked_by_link')).join()).toContain('LIMIT 1000')
     })
 
+    it.each(['constructor', '__proto__'])('totals an email step whose id is %s', async (id) => {
+        useAppMetricsMocks([
+            { instanceId: id, metricName: 'email_sent', count: 10 },
+            { instanceId: id, metricName: 'email_sandbox_sent', count: 2 },
+        ])
+        const logic = await mountMetrics(makeWorkflow([step(id, 'function_email')]))
+
+        expect(logic.values.emailMetricsRows).toEqual([expect.objectContaining({ id, sent: 12, delivered: 12 })])
+    })
+
+    const SANDBOX_EMAIL_CASES = [
+        {
+            name: 'only sandbox steps',
+            steps: [step('sandbox-1', 'email_sandbox')],
+            rows: [
+                { instanceId: 'sandbox-1', metricName: 'email_sandbox_sent', count: 20 },
+                { instanceId: 'sandbox-1', metricName: 'email_sandbox_delivered', count: 17 },
+                { instanceId: 'sandbox-1', metricName: 'email_sandbox_bounced', count: 2 },
+                { instanceId: 'sandbox-1', metricName: 'email_sandbox_failed', count: 1 },
+                { instanceId: 'sandbox-1', metricName: 'email_sandbox_complained', count: 1 },
+            ],
+            emailsSent: 20,
+            stepTotals: [{ id: 'sandbox-1', sent: 20, delivered: 17, bounced: 2, markedAsSpam: 1, sandboxBlocked: 0 }],
+            health: { bounce: SANDBOX_ONLY_RATE, complaint: SANDBOX_ONLY_RATE },
+        },
+        {
+            name: 'own and sandbox steps, and a step that moved between senders',
+            steps: [step('email-1', 'function_email'), step('sandbox-1', 'email_sandbox')],
+            rows: [
+                { instanceId: 'email-1', metricName: 'email_sent', count: 100 },
+                { instanceId: 'email-1', metricName: 'email_sandbox_sent', count: 5 },
+                { instanceId: 'email-1', metricName: 'email_sandbox_delivered', count: 5 },
+                { instanceId: 'email-1', metricName: 'email_blocked', count: 4 },
+                { instanceId: 'email-1', metricName: 'email_bounced', count: 3 },
+                { instanceId: 'email-1', metricName: 'email_bounced_hard', count: 2 },
+                { instanceId: 'sandbox-1', metricName: 'email_sandbox_sent', count: 20 },
+            ],
+            emailsSent: 125,
+            stepTotals: [
+                { id: 'email-1', sent: 105, delivered: 102, bounced: 3, markedAsSpam: 4, sandboxBlocked: 0 },
+                { id: 'sandbox-1', sent: 20, delivered: 20, bounced: 0, markedAsSpam: 0, sandboxBlocked: 0 },
+            ],
+            health: {
+                bounce: {
+                    value: '2.00%',
+                    tag: { label: 'Healthy', type: 'success' },
+                    detail: '2 hard, 3 bounced in total',
+                },
+                complaint: { value: '4.00%', tag: null, detail: '4 marked as spam' },
+            },
+        },
+        {
+            name: 'a sandbox block that is not a spam complaint',
+            steps: [step('sandbox-1', 'email_sandbox')],
+            rows: [
+                { instanceId: 'sandbox-1', metricName: 'email_sandbox_sent', count: 6 },
+                { instanceId: 'sandbox-1', metricName: 'email_sandbox_blocked', count: 3 },
+            ],
+            emailsSent: 6,
+            stepTotals: [{ id: 'sandbox-1', sent: 6, delivered: 6, bounced: 0, markedAsSpam: 0, sandboxBlocked: 3 }],
+            health: { bounce: SANDBOX_ONLY_RATE, complaint: SANDBOX_ONLY_RATE },
+        },
+    ]
+
+    it.each(SANDBOX_EMAIL_CASES)(
+        'counts sandbox sender email on the Metrics tab for $name',
+        async ({ steps, rows, emailsSent, stepTotals }) => {
+            useAppMetricsMocks(rows)
+            const logic = await mountMetrics(makeWorkflow(steps))
+
+            expect({
+                tile: logic.values.getSentSummarySeries()?.series.map(({ name, values }) => [name, values]),
+                chart: logic.values.workflowSummaryTrends?.series.find((s) => s.name === 'Emails sent')?.values,
+                steps: logic.values.emailMetricsRows,
+            }).toEqual({
+                tile: [['Emails sent', [emailsSent, 0]]],
+                chart: [emailsSent, 0],
+                steps: stepTotals.map((totals) => expect.objectContaining(totals)),
+            })
+        }
+    )
+
+    it.each(SANDBOX_EMAIL_CASES)(
+        'rates overview Health on own-sender email for $name',
+        async ({ steps, rows, health }) => {
+            useAppMetricsMocks(rows)
+            await mountMetrics(makeWorkflow(steps))
+            const overview = workflowOverviewLogic({ id: WORKFLOW_ID, logicKey: LOGIC_KEY })
+            overview.mount()
+            await expectLogic(overview).toFinishAllListeners()
+
+            expect(overview.values.emailHealth).toEqual(health)
+        }
+    )
+
     it.each([
         { name: 'divides conversions by runs started', conversions: 3, triggered: 12, rate: 0.25 },
         { name: 'reads 0 when no run started', conversions: 3, triggered: 0, rate: 0 },
     ])('conversion rate $name', async ({ conversions, triggered, rate }) => {
-        serveAppMetrics([
+        useAppMetricsMocks([
             { instanceId: 'exit_node', metricName: 'conversion', count: conversions },
             { instanceId: 'trigger_node', metricName: 'triggered', count: triggered },
         ])
@@ -472,7 +613,7 @@ describe('workflowMetricsSummaryLogic', () => {
         { name: 'runs started minus runs finished', triggered: 10, finished: 4, inProgress: 6 },
         { name: 'never below 0', triggered: 2, finished: 5, inProgress: 0 },
     ])('in-progress total is $name', async ({ triggered, finished, inProgress }) => {
-        serveAppMetrics([
+        useAppMetricsMocks([
             { instanceId: 'trigger_node', metricName: 'triggered', count: triggered },
             { instanceId: '', metricName: 'succeeded', count: finished },
             // A step's own success is not a finished run.
@@ -489,13 +630,13 @@ describe('workflowMetricsSummaryLogic', () => {
         { failing: "['conversion']", flag: 'conversionStatsFailed' as const },
     ])('$flag holds while the $failing query fails and clears on a successful reload', async ({ failing, flag }) => {
         silenceKeaLoadersErrors()
-        serveAppMetrics([], failing)
+        useAppMetricsMocks([], failing)
         const logic = await mountMetrics(
             makeWorkflow([step('email-1', 'function_email'), step('push-1', 'function_push')])
         )
         expect(logic.values[flag]).toBe(true)
 
-        serveAppMetrics([
+        useAppMetricsMocks([
             { instanceId: 'email-1', metricName: 'email_sent', count: 3 },
             { instanceId: 'push-1', metricName: 'push_sent', count: 4 },
         ])
@@ -506,12 +647,57 @@ describe('workflowMetricsSummaryLogic', () => {
     })
 
     it.each([
+        {
+            name: 'show once a concurrency 429 clears',
+            fault: { status: 429, retryAfter: '5', times: 1 },
+            outcome: { failed: false, sent: 3, waitedRetryAfter: true },
+        },
+        {
+            name: 'fail when the retry gets a 429 too',
+            fault: { status: 429, retryAfter: '5', times: 2 },
+            outcome: { failed: true, sent: 0, waitedRetryAfter: true },
+        },
+        {
+            name: 'fail on a server error',
+            fault: { status: 500, times: 1 },
+            outcome: { failed: true, sent: 0, waitedRetryAfter: false },
+        },
+        {
+            name: 'fail on a 429 that asks for a long wait',
+            fault: { status: 429, retryAfter: '3600', times: 1 },
+            outcome: { failed: true, sent: 0, waitedRetryAfter: false },
+        },
+    ])('message totals $name', async ({ fault, outcome }) => {
+        silenceKeaLoadersErrors()
+        useAppMetricsMocks([{ instanceId: 'email-1', metricName: 'email_sent', count: 3 }], "'email_sent'", fault)
+        jest.useFakeTimers({ doNotFake: ['nextTick', 'setImmediate', 'queueMicrotask'] })
+        try {
+            let logic: ReturnType<typeof workflowMetricsSummaryLogic.build> | undefined
+            void mountMetrics(makeWorkflow([step('email-1', 'function_email')]), {}, 60_000).then(
+                (mounted) => (logic = mounted)
+            )
+            let waitedMs = 0
+            while (!logic && waitedMs < 20_000) {
+                await jest.advanceTimersByTimeAsync(500)
+                waitedMs += 500
+            }
+            expect({
+                failed: logic?.values.messageTotalsFailed,
+                sent: logic?.values.emailMetricsRows[0].sent,
+                waitedRetryAfter: waitedMs >= 5000,
+            }).toEqual(outcome)
+        } finally {
+            jest.useRealTimers()
+        }
+    })
+
+    it.each([
         { tab: 'Metrics tab', overview: false, pushSteps: ['push-1'], linkLoads: 2, completedFrom: NEW_RANGE.dateFrom },
         { tab: 'overview', overview: true, pushSteps: [], linkLoads: 0, completedFrom: '-7d' },
     ])(
         'the $tab reads its own workflow version and range',
         async ({ overview, pushSteps, linkLoads, completedFrom }) => {
-            serveAppMetrics([])
+            useAppMetricsMocks([])
             const live = makeWorkflow([step('email-1', 'function_email')], {
                 draft: { actions: [step('email-1', 'function_email'), step('push-1', 'function_push')] },
             })
@@ -570,7 +756,7 @@ describe('workflowMetricsSummaryLogic', () => {
             { instanceId: 'email-1', metricName: 'email_sent', count: 8 },
             { instanceId: 'push-1', metricName: 'push_sent', count: 5 },
         ]
-        serveAppMetrics([
+        useAppMetricsMocks([
             { instanceId: 'trigger_node', metricName: 'triggered', count: 10 },
             ...sends.filter((row) => sending.some((channel) => row.metricName.startsWith(channel))),
             { instanceId: '', metricName: 'succeeded', count: 4 },
@@ -597,14 +783,14 @@ describe('workflowMetricsSummaryLogic', () => {
         { name: 'a property goal', conversion: { filters: [{ key: 'plan' }] }, expected: true },
         { name: 'an event goal', conversion: { filters: [], events: [{ id: 'purchase' }] }, expected: true },
     ])('shows conversion tiles for $name: $expected', async ({ conversion, expected }) => {
-        serveAppMetrics([])
+        useAppMetricsMocks([])
         const logic = await mountMetrics(makeWorkflow([], { conversion } as Partial<HogFlow>))
 
         expect(logic.values.hasConversionGoal).toBe(expected)
     })
 
     it('links converted users to this workflow’s conversion events', async () => {
-        serveAppMetrics([])
+        useAppMetricsMocks([])
         const logic = await mountMetrics(makeWorkflow([]))
 
         const hash = new URLSearchParams(logic.values.convertedUsersUrl.split('#')[1])
@@ -613,5 +799,42 @@ describe('workflowMetricsSummaryLogic', () => {
             event: '$workflows_conversion',
             properties: [{ key: '$workflow_id', value: WORKFLOW_ID }],
         })
+    })
+})
+
+describe('conversionRateQuery', () => {
+    it.each([
+        {
+            name: 'a range after the ship date reads whole hours by run start',
+            dateFrom: '2026-11-20T10:30:00Z',
+            dateTo: '2026-11-20T12:30:00Z',
+            expected: {
+                dateFrom: '2026-11-20T10:00:00.000Z',
+                dateTo: '2026-11-20T13:00:00.000Z',
+                metricName: ['conversion_by_start'],
+            },
+        },
+        {
+            name: 'an end time already on the hour stays there',
+            dateFrom: '2026-11-20T10:00:00Z',
+            dateTo: '2026-11-20T12:00:00Z',
+            expected: {
+                dateFrom: '2026-11-20T10:00:00.000Z',
+                dateTo: '2026-11-20T12:00:00.000Z',
+                metricName: ['conversion_by_start'],
+            },
+        },
+        {
+            name: 'a range reaching back past the ship date keeps counting by conversion time',
+            dateFrom: '2026-11-12T23:30:00Z',
+            dateTo: '2026-11-20T12:30:00Z',
+            expected: {
+                dateFrom: '2026-11-12T23:30:00.000Z',
+                dateTo: '2026-11-20T12:30:00.000Z',
+                metricName: ['conversion'],
+            },
+        },
+    ])('$name', ({ dateFrom, dateTo, expected }) => {
+        expect(conversionRateQuery(dayjs.utc(dateFrom), dayjs.utc(dateTo))).toEqual(expected)
     })
 })

@@ -11,18 +11,10 @@ import { TodayTourPoint } from './todayTourGeometry'
 export type TodayTourStep = {
     title: string
     description: string
-} & (
-    | {
-          /** Opens a rail pane, then rests on the page or on the pane's sidebar. */
-          kind: 'pane'
-          pane: TodayRailPane
-          pointsAt: 'page' | 'sidebar'
-      }
-    | {
-          /** Opens the "More" menu, then rests on the switch back to the old navigation. */
-          kind: 'switch'
-      }
-)
+    kind: 'pane'
+    pane: TodayRailPane
+    pointsAt: 'page' | 'sidebar'
+}
 
 export const TODAY_TOUR_STEPS: TodayTourStep[] = [
     {
@@ -55,9 +47,12 @@ export const TODAY_TOUR_STEPS: TodayTourStep[] = [
         description: "All the stuff you're used to is right here, no stress.",
     },
     {
-        kind: 'switch',
-        title: 'Old navigation',
-        description: 'You can switch back here at any time.',
+        kind: 'pane',
+        pane: 'settings',
+        pointsAt: 'sidebar',
+        title: 'Settings',
+        description:
+            'To switch back to the old design, go to Settings > Feature previews and turn off the new design preview.',
     },
 ]
 
@@ -78,6 +73,7 @@ export interface todayTourLogicValues {
     tour: TodayTourSession | null
     tourActive: boolean
     tourCompleted: boolean
+    tourJustCompleted: boolean
     tourStep: TodayTourStep | null
 }
 
@@ -86,6 +82,9 @@ export interface todayTourLogicActions {
     setHelpMenuOpen: (isOpen: boolean) => {
         isOpen: boolean
     } // helpMenuLogic
+    dismissNewNavDialog: () => {
+        value: true
+    } // navSwitchLogic
     setNewNavDialogOpen: (open: boolean) => {
         open: boolean
     } // navSwitchLogic
@@ -137,11 +136,6 @@ export type todayTourLogicType = MakeLogicType<
     todayTourLogicMeta
 >
 
-/**
- * Walks through the main rail panes and the switch back in the "More" menu, then returns to the view the tour
- * started from. `TodayTourCursor` moves between the steps: it calls `clickTourTarget` when it clicks, and
- * `revealTourStep` with the point it stopped at, which is where the card shows.
- */
 export const todayTourLogic = kea<todayTourLogicType>([
     path(['layout', 'today', 'todayTourLogic']),
     connect(() => ({
@@ -150,7 +144,7 @@ export const todayTourLogic = kea<todayTourLogicType>([
             todayShellLogic,
             ['showPane', 'restoreView'],
             navSwitchLogic,
-            ['setNewNavDialogOpen', 'showAdvertisement'],
+            ['setNewNavDialogOpen', 'dismissNewNavDialog', 'showAdvertisement'],
             helpMenuLogic,
             ['setHelpMenuOpen'],
         ],
@@ -180,6 +174,17 @@ export const todayTourLogic = kea<todayTourLogicType>([
             { persist: true },
             {
                 markTourCompleted: () => true,
+                resetDesignTour: () => false,
+            },
+        ],
+        // The dialog that opens when the tour ends congratulates someone who saw every step. Once that dialog closes,
+        // a later dialog shows its usual copy, so this is not persisted.
+        tourJustCompleted: [
+            false,
+            {
+                markTourCompleted: () => true,
+                setNewNavDialogOpen: (state, { open }) => open && state,
+                dismissNewNavDialog: () => false,
                 resetDesignTour: () => false,
             },
         ],
@@ -213,9 +218,7 @@ export const todayTourLogic = kea<todayTourLogicType>([
         },
         clickTourTarget: () => {
             const step = values.tourStep
-            if (step?.kind === 'switch') {
-                actions.setHelpMenuOpen(true)
-            } else if (step?.kind === 'pane') {
+            if (step) {
                 actions.showPane(step.pane)
             }
         },
@@ -231,7 +234,6 @@ export const todayTourLogic = kea<todayTourLogicType>([
                 actions.markTourCompleted()
             }
             actions.setTour(null)
-            // Only the last step opens the "More" menu. Closing a closed menu changes nothing.
             actions.setHelpMenuOpen(false)
             actions.restoreView(tour.returnTo)
             actions.setNewNavDialogOpen(true)

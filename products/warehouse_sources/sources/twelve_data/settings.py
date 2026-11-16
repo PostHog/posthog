@@ -36,8 +36,11 @@ DEFAULT_TIME_SERIES_INTERVAL = "1day"
 class TwelveDataEndpointConfig:
     path: str
     primary_keys: list[str]
-    # JSON key holding the row list in the response body. None means the body itself is one row.
+    # JSON key holding the rows in the response body: a list of rows, or one object for a single
+    # row. None means the body itself is one row.
     data_key: str | None = None
+    # Keys from the response `meta` object copied onto every row. `symbol` is always copied.
+    meta_fields: tuple[str, ...] = ()
     # Whether the endpoint is fetched once per configured symbol (vs one catalog-wide call).
     per_symbol: bool = False
     # Static query params sent on every request to the endpoint.
@@ -114,6 +117,38 @@ ENDPOINTS: dict[str, TwelveDataEndpointConfig] = {
         # Default `outputsize` is only the most recent reports; 1000 is the documented maximum.
         params={"outputsize": "1000"},
         primary_keys=["symbol", "date"],
+    ),
+    "profiles": TwelveDataEndpointConfig(
+        path="/profile",
+        data_key=None,
+        per_symbol=True,
+        primary_keys=["symbol"],
+    ),
+    "statistics": TwelveDataEndpointConfig(
+        path="/statistics",
+        data_key="statistics",
+        per_symbol=True,
+        meta_fields=("currency",),
+        primary_keys=["symbol"],
+    ),
+    # The default `outputsize` is only the 6 most recent statements. No maximum is documented;
+    # 1000 returns the whole history (about 150 quarters for a large US company).
+    "balance_sheets": TwelveDataEndpointConfig(
+        path="/balance_sheet",
+        data_key="balance_sheet",
+        per_symbol=True,
+        params={"period": "quarterly", "outputsize": "1000"},
+        meta_fields=("currency", "period"),
+        # `period` is in the key because a fiscal year end and its fourth quarter share a fiscal_date.
+        primary_keys=["symbol", "period", "fiscal_date"],
+    ),
+    "cash_flows": TwelveDataEndpointConfig(
+        path="/cash_flow",
+        data_key="cash_flow",
+        per_symbol=True,
+        params={"period": "quarterly", "outputsize": "1000"},
+        meta_fields=("currency", "period"),
+        primary_keys=["symbol", "period", "fiscal_date"],
     ),
 }
 

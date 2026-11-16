@@ -15,7 +15,6 @@ export interface LlmGatewayAuth {
 export interface LlmGatewayEndpoints {
   messagesUrl(apiHost: string): string;
   usageUrl(apiHost: string, projectId: number): string;
-  legacyUsageUrl(apiHost: string): string;
   defaultModel: string;
 }
 

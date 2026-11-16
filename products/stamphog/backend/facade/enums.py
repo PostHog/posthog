@@ -79,7 +79,7 @@ class LlmSkipReason(LabeledStrEnum):
     FORK = "fork", "Fork"
     NOTHING_CUTTABLE = "nothing_cuttable", "Nothing cuttable"
     NO_ANSWER = "no_answer", "No answer"
-    # Stamphog approved the head, so only pinned owners are requested and nothing is left to cut.
+    # Kept for older runs: an approved head once skipped the model. Approved heads now ask it like any other.
     STAMPHOG_APPROVED = "stamphog_approved", "Stamphog approved"
     # GitHub listed fewer files than the pull request changes, so the model would judge a partial diff.
     FILES_TRUNCATED = "files_truncated", "Files truncated"
@@ -94,7 +94,9 @@ class RoutingOwnerOutcome(LabeledStrEnum):
     # Requested, and GitHub refused the request, for example for a team without access to the repository.
     REFUSED = "refused", "Refused by GitHub"
     CUT = "cut", "Cut"
-    # Stamphog approved the head, so the routing asked only the owners of sensitive and new paths.
+    # Stamphog approved the head, so the routing asked only the owners of sensitive and new paths. The model
+    # kept this owner, so routing would have asked it without the approval. On an older run whose llm_skipped is
+    # STAMPHOG_APPROVED, no model ran, and it means only that the owner owns changed code.
     NOT_REQUESTED = "not_requested", "Not requested"
     # A pinned owner that an earlier routing of the pull request already requested.
     ALREADY_REQUESTED = "already_requested", "Already requested"
@@ -114,6 +116,7 @@ class RoutingOwnerReason(LabeledStrEnum):
     CUT_SKIPPED = "cut_skipped", "Cut step skipped"
     MODEL_KEPT = "model_kept", "Kept by the model"
     MODEL_CUT = "model_cut", "Cut by the model"
+    # Kept for older runs, which logged every unpinned owner of an approved head with this reason.
     STAMPHOG_APPROVED = "stamphog_approved", "Stamphog approved"
 
 

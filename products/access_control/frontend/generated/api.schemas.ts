@@ -48,6 +48,7 @@ export const ResolvedAccessSourceSubjectEnumApi = {
  * * `action` - action
  * * `access_control` - access_control
  * * `account` - account
+ * * `account_note` - account_note
  * * `activity_log` - activity_log
  * * `alert` - alert
  * * `annotation` - annotation
@@ -155,7 +156,6 @@ export const ResolvedAccessSourceSubjectEnumApi = {
  * * `uploaded_media` - uploaded_media
  * * `usage_metric` - usage_metric
  * * `user` - user
- * * `user_interview` - user_interview
  * * `vision_action` - vision_action
  * * `vision_alert` - vision_alert
  * * `visual_review` - visual_review
@@ -175,6 +175,7 @@ export const ScopeObjectEnumApi = {
     Action: 'action',
     AccessControl: 'access_control',
     Account: 'account',
+    AccountNote: 'account_note',
     ActivityLog: 'activity_log',
     Alert: 'alert',
     Annotation: 'annotation',
@@ -282,7 +283,6 @@ export const ScopeObjectEnumApi = {
     UploadedMedia: 'uploaded_media',
     UsageMetric: 'usage_metric',
     User: 'user',
-    UserInterview: 'user_interview',
     VisionAction: 'vision_action',
     VisionAlert: 'vision_alert',
     VisualReview: 'visual_review',
@@ -325,6 +325,7 @@ export interface ProjectAccessSourceApi {
      * * `action` - action
      * * `access_control` - access_control
      * * `account` - account
+     * * `account_note` - account_note
      * * `activity_log` - activity_log
      * * `alert` - alert
      * * `annotation` - annotation
@@ -432,7 +433,6 @@ export interface ProjectAccessSourceApi {
      * * `uploaded_media` - uploaded_media
      * * `usage_metric` - usage_metric
      * * `user` - user
-     * * `user_interview` - user_interview
      * * `vision_action` - vision_action
      * * `vision_alert` - vision_alert
      * * `visual_review` - visual_review
@@ -495,6 +495,7 @@ export interface AccessControlObjectRuleApi {
      * * `action` - action
      * * `access_control` - access_control
      * * `account` - account
+     * * `account_note` - account_note
      * * `activity_log` - activity_log
      * * `alert` - alert
      * * `annotation` - annotation
@@ -602,7 +603,6 @@ export interface AccessControlObjectRuleApi {
      * * `uploaded_media` - uploaded_media
      * * `usage_metric` - usage_metric
      * * `user` - user
-     * * `user_interview` - user_interview
      * * `vision_action` - vision_action
      * * `vision_alert` - vision_alert
      * * `visual_review` - visual_review
@@ -655,6 +655,7 @@ export interface AccessControlPropertyRulesResponseApi {
 
 /**
  * * `account` - account
+ * * `account_note` - account_note
  * * `action` - action
  * * `activity_log` - activity_log
  * * `ai_observability_clusters` - ai_observability_clusters
@@ -714,6 +715,7 @@ export type RuleResourceEnumApi = (typeof RuleResourceEnumApi)[keyof typeof Rule
 
 export const RuleResourceEnumApi = {
     Account: 'account',
+    AccountNote: 'account_note',
     Action: 'action',
     ActivityLog: 'activity_log',
     AiObservabilityClusters: 'ai_observability_clusters',
@@ -778,6 +780,7 @@ export interface AccessControlRuleRequestApi {
     /** The scope of the rule: `project` for the project itself (with the project id as `resource_id`), a resource type such as `dashboard` for the whole resource type or for one object of it, or `property_definition` for one person or event property.
      *
      * * `account` - account
+     * * `account_note` - account_note
      * * `action` - action
      * * `activity_log` - activity_log
      * * `ai_observability_clusters` - ai_observability_clusters
@@ -893,6 +896,7 @@ export interface AccessControlObjectRuleResourceApi {
      * * `action` - action
      * * `access_control` - access_control
      * * `account` - account
+     * * `account_note` - account_note
      * * `activity_log` - activity_log
      * * `alert` - alert
      * * `annotation` - annotation
@@ -1000,7 +1004,6 @@ export interface AccessControlObjectRuleResourceApi {
      * * `uploaded_media` - uploaded_media
      * * `usage_metric` - usage_metric
      * * `user` - user
-     * * `user_interview` - user_interview
      * * `vision_action` - vision_action
      * * `vision_alert` - vision_alert
      * * `visual_review` - visual_review
@@ -1064,6 +1067,7 @@ export interface AccessControlMemberRuleRequestApi {
     /** The scope of the rule: `project` for the project itself (with the project id as `resource_id`), a resource type such as `dashboard` for the whole resource type or for one object of it, or `property_definition` for one person or event property.
      *
      * * `account` - account
+     * * `account_note` - account_note
      * * `action` - action
      * * `activity_log` - activity_log
      * * `ai_observability_clusters` - ai_observability_clusters
@@ -1186,6 +1190,7 @@ export interface ResolvedAccessApi {
      * * `action` - action
      * * `access_control` - access_control
      * * `account` - account
+     * * `account_note` - account_note
      * * `activity_log` - activity_log
      * * `alert` - alert
      * * `annotation` - annotation
@@ -1293,7 +1298,6 @@ export interface ResolvedAccessApi {
      * * `uploaded_media` - uploaded_media
      * * `usage_metric` - usage_metric
      * * `user` - user
-     * * `user_interview` - user_interview
      * * `vision_action` - vision_action
      * * `vision_alert` - vision_alert
      * * `visual_review` - visual_review
@@ -1382,6 +1386,7 @@ export interface AccessControlRoleRuleRequestApi {
     /** The scope of the rule: `project` for the project itself (with the project id as `resource_id`), a resource type such as `dashboard` for the whole resource type or for one object of it, or `property_definition` for one person or event property.
      *
      * * `account` - account
+     * * `account_note` - account_note
      * * `action` - action
      * * `activity_log` - activity_log
      * * `ai_observability_clusters` - ai_observability_clusters
@@ -1716,7 +1721,12 @@ export interface PropertyAccessControlUpdateApi {
 
 export type MembersProjectAccessRetrieveParams = {
     /**
-     * Narrow the list to one organization membership id.
+     * Narrow the list to the member with this email address (case-insensitive). Combined with `member_id`, both must match.
+     * @minLength 1
+     */
+    email?: string
+    /**
+     * Narrow the list to one organization membership id. Combined with `email`, both must match.
      */
     member_id?: string
 }

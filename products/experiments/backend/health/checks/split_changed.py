@@ -19,10 +19,12 @@ from products.experiments.backend.health.checks.change_wording import (
     RESET_EFFECT,
     duration,
     suggested_start,
+    suggested_start_at,
     the_change,
 )
 from products.experiments.backend.health.checks.flag_change_findings import (
     change_finding,
+    change_rows,
     changes_to_check,
     delay_after_launch,
     exposed_when,
@@ -32,7 +34,13 @@ from products.experiments.backend.health.checks.flag_change_findings import (
 )
 from products.experiments.backend.health.checks.flag_state import is_single_variant_shipped
 from products.experiments.backend.health.context import FlagHistory, FlagHistoryNotChecked, FlagState, HealthContext
-from products.experiments.backend.health.skips import CheckOutcome, CheckSkip
+from products.experiments.backend.health.skips import (
+    REPORTED_BY_FLAG_STATE,
+    CheckOutcome,
+    CheckRows,
+    CheckSkip,
+    not_applicable,
+)
 from products.experiments.backend.health.split_changes import (
     SplitChangeShape,
     SplitNetEffect,
@@ -53,6 +61,10 @@ _REVERTED_INFO_TITLE = "The variant split changed and was set back"
 _NOT_CHECKED_TITLE = "Variant split changes were not checked"
 
 
+def split_changed_rows(ctx: HealthContext) -> CheckRows:
+    return change_rows(ctx, SplitChange)
+
+
 def split_changed_mid_run(ctx: HealthContext) -> CheckOutcome:
     history = changes_to_check(ctx)
     if isinstance(history, CheckSkip):
@@ -64,8 +76,10 @@ def split_changed_mid_run(ctx: HealthContext) -> CheckOutcome:
     if isinstance(history, FlagHistoryNotChecked):
         return _not_checked(history, flag)
     effect = net_effect(history.counted(SplitChange))
-    if effect is None or _reported_as_shipped(effect, flag):
+    if effect is None:
         return None
+    if _reported_as_shipped(effect, flag):
+        return not_applicable(REPORTED_BY_FLAG_STATE)
 
     if (
         effect.shape == SplitChangeShape.REVERTED
@@ -97,6 +111,7 @@ def split_changed_mid_run(ctx: HealthContext) -> CheckOutcome:
                 f"Move the start date to {start_at}, or reset the experiment.",
                 RESET_EFFECT,
             ],
+            moves_start_date=True,
         )
     return _finding(
         history,
@@ -110,13 +125,19 @@ def split_changed_mid_run(ctx: HealthContext) -> CheckOutcome:
             "A sample ratio mismatch or users in more than one variant can come from "
             f"{the_change(effect.change_count, 'this')}.",
         ],
+        # From the rollout on everyone gets one variant, so a later start date compares nothing. The detail says to
+        # end the experiment instead.
+        moves_start_date=effect.shape != SplitChangeShape.VARIANT_ROLLED_OUT,
+        end_experiment=effect.shape == SplitChangeShape.VARIANT_ROLLED_OUT,
     )
 
 
-def _not_checked(history: FlagHistoryNotChecked, flag: FlagState) -> ExperimentHealthFinding | None:
+def _not_checked(history: FlagHistoryNotChecked, flag: FlagState) -> CheckOutcome:
     effect = net_effect(history.of_kind(SplitChange))
-    if effect is None or _reported_as_shipped(effect, flag):
+    if effect is None:
         return None
+    if _reported_as_shipped(effect, flag):
+        return not_applicable(REPORTED_BY_FLAG_STATE)
     at = format_change_time(effect.last.changed_at, history.team_timezone)
     from_split = describe_split(effect.from_split)
     if effect.shape == SplitChangeShape.REVERTED:
@@ -150,6 +171,7 @@ def _few_exposed(history: FlagHistory, effect: SplitNetEffect, count: int) -> Ex
     if effect.shape == SplitChangeShape.VARIANT_ZEROED:
         keys = _quoted(zeroed_variant_keys(effect.from_split, effect.to_split), conjunction="and")
         from_then_on = [f"No new users get {keys}."]
+    move_start = leave_out(history, effect, count)
     return _finding(
         history,
         effect,
@@ -158,9 +180,10 @@ def _few_exposed(history: FlagHistory, effect: SplitNetEffect, count: int) -> Ex
         sentences=[
             *what_changed,
             exposed_when(history, effect, count),
-            *leave_out(history, effect, count),
+            *move_start,
             *from_then_on,
         ],
+        moves_start_date=bool(move_start),
     )
 
 
@@ -273,6 +296,8 @@ def _finding(
     severity: ExperimentHealthFindingSeverity,
     title: str,
     sentences: list[str],
+    moves_start_date: bool = False,
+    end_experiment: bool = False,
 ) -> ExperimentHealthFinding:
     return change_finding(
         history,
@@ -287,6 +312,8 @@ def _finding(
         diagnostic_ref=(
             "E4" if effect.shape in (SplitChangeShape.VARIANT_ADDED, SplitChangeShape.VARIANT_REMOVED) else "E3"
         ),
+        suggested_start_date=suggested_start_at(effect.last.changed_at) if moves_start_date else None,
+        end_experiment=end_experiment,
     )
 
 

@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonButton, LemonCollapse, LemonTag } from '@posthog/lemon-ui'
+import { LemonButton, LemonTag } from '@posthog/lemon-ui'
 
 import { OAuthConnectionLogos } from 'lib/components/OAuthConnectionLogos/OAuthConnectionLogos'
 import { OAuthScopeList } from 'lib/components/ScopeAccessRow/OAuthScopeList'
@@ -15,20 +15,8 @@ import { oauthDeviceAuthorizeLogic } from '../oauthDeviceAuthorizeLogic'
 import { DeviceProjectPicker } from './DeviceProjectPicker'
 
 export function DeviceReview({ deviceGrant }: { deviceGrant: DeviceGrantDetailsApi }): JSX.Element {
-    const {
-        projectId,
-        decisionLoading,
-        error,
-        isStepUp,
-        identityScopeDescriptions,
-        requiredScopeRows,
-        adjustableScopeRows,
-        scopeGroups,
-        allScopesRequired,
-        requiredScopesNote,
-        scopeSummary,
-        keptScopes,
-    } = useValues(oauthDeviceAuthorizeLogic)
+    const { projectId, decisionLoading, error, isStepUp, scopeGroups, requiredScopesNote, keptScopes } =
+        useValues(oauthDeviceAuthorizeLogic)
     const { approve, deny, setScopeAccess, setScopeGroupAccess } = useActions(oauthDeviceAuthorizeLogic)
 
     return (
@@ -59,38 +47,21 @@ export function DeviceReview({ deviceGrant }: { deviceGrant: DeviceGrantDetailsA
                         gives them access to your account.
                     </AuthBanner>
                     <DeviceProjectPicker />
-                    <LemonCollapse
-                        panels={[
-                            {
-                                key: 'permissions',
-                                header: (
-                                    <span className="font-semibold" data-attr="oauth-device-scope-summary">
-                                        {scopeSummary}
-                                    </span>
-                                ),
-                                content: (
-                                    <div className="flex flex-col gap-3">
-                                        {requiredScopesNote && (
-                                            <p className="m-0 text-secondary" data-attr="oauth-device-required-note">
-                                                {requiredScopesNote}
-                                            </p>
-                                        )}
-                                        <OAuthScopeList
-                                            appName={deviceGrant.client_name}
-                                            identityScopeDescriptions={identityScopeDescriptions}
-                                            requiredScopeRows={requiredScopeRows}
-                                            adjustableScopeRows={adjustableScopeRows}
-                                            scopeGroups={scopeGroups}
-                                            allScopesRequired={allScopesRequired}
-                                            onChangeRow={setScopeAccess}
-                                            onChangeGroup={setScopeGroupAccess}
-                                            dataAttrPrefix="oauth-device-scope-group"
-                                        />
-                                    </div>
-                                ),
-                            },
-                        ]}
-                    />
+                    <div className="flex flex-col">
+                        <OAuthScopeList
+                            groups={scopeGroups}
+                            onChangeRow={setScopeAccess}
+                            onChangeGroup={setScopeGroupAccess}
+                            dataAttrPrefix="oauth-device-scope-group"
+                            headerClassName="pb-2 border-b border-border"
+                            bodyClassName="pt-2"
+                        />
+                        {requiredScopesNote && (
+                            <p className="m-0 text-secondary" data-attr="oauth-device-required-note">
+                                {requiredScopesNote}
+                            </p>
+                        )}
+                    </div>
                     {error && <AuthBanner variant="danger">{error}</AuthBanner>}
                     <div className="grid grid-cols-2 gap-2">
                         <LemonButton
