@@ -105,6 +105,13 @@ _MONGO_AUTHENTICATION_FAILED_MESSAGE = (
     "MongoDB authentication failed. Please check the username and password for this source."
 )
 
+_MONGO_PROTOCOL_INCOMPATIBLE_MESSAGE = (
+    "PostHog's MongoDB driver received a reply it doesn't support. This usually means the server "
+    "on the other end of this connection string isn't a genuine MongoDB server, or something "
+    "between PostHog and the server (a proxy or load balancer) is altering the connection. Connect "
+    "to a standard MongoDB server and try again."
+)
+
 _MONGO_NOT_AUTHORIZED_MESSAGE = (
     "PostHog connected to MongoDB, but this user isn't authorized to list collections on the "
     "database. Grant the user a read role on the database (e.g. read or readAnyDatabase) and try again."
@@ -173,6 +180,15 @@ _SRV_DNS_NAME_NOT_FOUND_MARKER = "The DNS query name does not exist"
 # below the driver's minimum (pymongo 4.15 dropped MongoDB 4.0). The variable parts are the
 # address and version numbers; this fragment stays fixed.
 _SERVER_TOO_OLD_MARKER = "version of PyMongo requires at least"
+
+# pymongo's OP_MSG reply parser raises ProtocolError with one of four fixed "Unsupported OP_MSG
+# ..." messages (an unexpected checksum flag, an unrecognized flag, a non-zero payload type, or
+# more than one payload section) when the bytes it receives don't match the single-section OP_MSG
+# shape this driver parses. A genuine MongoDB server never sends these; seeing one means whatever
+# answered the connection string isn't speaking the wire protocol this driver expects — a
+# non-MongoDB proxy, a mangling load balancer, or an incompatible MongoDB-wire-protocol emulation.
+# Retrying reads the same malformed reply from the same endpoint every time.
+_MONGO_PROTOCOL_INCOMPATIBLE_MARKER = "Unsupported OP_MSG"
 
 
 @SourceRegistry.register
@@ -347,6 +363,7 @@ class MongoDBSource(ResumableSource[MongoDBSourceConfig, MongoResumeConfig], Val
             # MongoDB OperationFailure code 125 (CommandFailed): an Atlas Data Federation / Online
             # Archive data source still names a cluster that no longer exists in the project.
             "not found in project": _MONGO_CLUSTER_NOT_FOUND_MESSAGE,
+            _MONGO_PROTOCOL_INCOMPATIBLE_MARKER: _MONGO_PROTOCOL_INCOMPATIBLE_MESSAGE,
         }
 
     def get_retryable_errors(self) -> set[str]:
@@ -496,7 +513,7 @@ class MongoDBSource(ResumableSource[MongoDBSourceConfig, MongoResumeConfig], Val
         schema_name: Optional[str] = None,
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
-        from pymongo.errors import ConfigurationError, OperationFailure, ServerSelectionTimeoutError
+        from pymongo.errors import ConfigurationError, OperationFailure, ProtocolError, ServerSelectionTimeoutError
 
         try:
             connection_params = _parse_connection_string(config.connection_string, config.database_name)
@@ -572,6 +589,15 @@ class MongoDBSource(ResumableSource[MongoDBSourceConfig, MongoResumeConfig], Val
                 return False, _MONGO_SERVER_TOO_OLD_MESSAGE
             if "must be escaped according to RFC 3986" in message:
                 return False, _MONGO_UNESCAPED_CREDENTIALS_MESSAGE
+            capture_exception(e)
+            return False, _MONGO_CONNECT_FAILED_MESSAGE
+        except ProtocolError as e:
+            # The server on the other end of this connection string isn't speaking the MongoDB
+            # wire protocol this driver expects — already surfaced with an actionable message, so
+            # don't report it as error-tracking noise.
+            message = str(e)
+            if _MONGO_PROTOCOL_INCOMPATIBLE_MARKER in message:
+                return False, _MONGO_PROTOCOL_INCOMPATIBLE_MESSAGE
             capture_exception(e)
             return False, _MONGO_CONNECT_FAILED_MESSAGE
         except Exception as e:

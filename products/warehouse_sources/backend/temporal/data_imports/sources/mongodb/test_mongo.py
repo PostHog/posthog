@@ -448,6 +448,13 @@ class TestMongoDBNonRetryableErrors(SimpleTestCase):
                 "found in project 000000000000000000000000, correlationID = 000000000000000000000000', "
                 "'code': 125, 'codeName': 'CommandFailed'}",
             ),
+            # Real pymongo ProtocolError raised by _OpMsg.unpack when a reply carries more than
+            # one payload section — the server isn't speaking the wire protocol this driver expects.
+            ("protocol_error_multiple_sections", "Unsupported OP_MSG reply: >1 section"),
+            # The sibling ProtocolError variants from the same unpack method, for an unrecognized
+            # flag and a non-zero payload type.
+            ("protocol_error_unsupported_flags", "Unsupported OP_MSG flags: 0x2"),
+            ("protocol_error_payload_type", "Unsupported OP_MSG payload type: 0x1"),
         ]
     )
     def test_known_errors_are_non_retryable(self, _name, error_msg):
@@ -507,6 +514,7 @@ class TestMongoDBNonRetryableErrors(SimpleTestCase):
             ("replica_set_no_members", "No replica set members available for replica set name", "replica set"),
             ("replica_set_mismatch", "client is configured to connect to a replica set named", "replica set"),
             ("cluster_not_found_in_project", "not found in project", "data federation"),
+            ("protocol_error", "Unsupported OP_MSG", "genuine mongodb server"),
         ]
     )
     def test_pattern_has_friendly_message(self, _name, pattern, expected_substring):
