@@ -91,6 +91,12 @@ def _enforce_caller_may_grant_business_knowledge_read(request: Request, team: Te
         )
 
 
+def _mirrors_legacy_team_token(key: ProjectSecretAPIKey) -> bool:
+    team = key.team
+    tokens = (team.secret_api_token, team.secret_api_token_backup)
+    return any(token and key.secure_value == hash_key_value(token) for token in tokens)
+
+
 def _enforce_gateway_bans(request: Request, team) -> None:
     """A phs_ key reaches the gateway with no user attached, so the user bans that
     other gateway credential paths enforce run here, when the scope is granted."""
@@ -195,6 +201,17 @@ class ProjectSecretAPIKeySerializer(serializers.ModelSerializer):
         _enforce_caller_holds_scopes(self.context["request"], added)
         _enforce_caller_may_grant_billing_read(self.context["request"], self.context["view"].team.organization, added)
         _enforce_caller_may_grant_business_knowledge_read(self.context["request"], self.context["view"].team, added)
+        # Every project member can read the legacy secret token, so the check on the person who grants
+        # the scope does not limit who ends up holding this key.
+        if (
+            "business_knowledge:read" in added
+            and self.instance is not None
+            and _mirrors_legacy_team_token(self.instance)
+        ):
+            raise serializers.ValidationError(
+                "This key is the project's legacy secret token, which every project member can read. "
+                "Create a new key for the business_knowledge:read scope."
+            )
         if "llm_gateway:read" in added:
             _enforce_gateway_bans(self.context["request"], self.context["view"].team)
         return scopes
