@@ -19,11 +19,9 @@ dedupe_cache = caches["current_alias_usage"]
 CURRENT_ALIAS = "@current"
 CURRENT_ALIAS_REQUESTS_METRIC = "api.current_alias.requests"
 CURRENT_ALIAS_USED_EVENT = "api current alias used"
-# One event per caller and route each day is enough to find who to contact, while the
-# metric keeps the full request volume.
+# One event per caller and route each day identifies who to contact; the metric keeps the volume.
 ATTRIBUTION_DEDUPE_SECONDS = 24 * 60 * 60
-# Session calls come from PostHog's own web app, which is fixed in code rather than through
-# outreach, so only credential callers get an attribution event. The metric counts every caller.
+# Session calls come from PostHog's own web app, which is fixed in code, so they get no event.
 UNATTRIBUTED_ACCESS_METHODS = frozenset({"session", "anonymous"})
 TOKEN_QUERY_PARAMS = ("token", "api_key")
 
@@ -62,7 +60,13 @@ def record_current_alias_use(request: HttpRequest, *, route: str, status_class: 
 
 def _record(request: HttpRequest, *, scope: CurrentAliasScope, route: str, status_class: str) -> None:
     user = request.user
-    access_method = str(get_query_tag_value("access_method") or ("session" if user.is_authenticated else "anonymous"))
+    # The authenticator's tag can be missing when the middleware reads it, so an Authorization header alone marks a
+    # credential caller rather than a session.
+    access_method = str(
+        get_query_tag_value("access_method")
+        or ("credential" if request.headers.get("Authorization") else None)
+        or ("session" if user.is_authenticated else "anonymous")
+    )
     source = str(get_query_tag_value("source") or "")
     token_in_query = any(param in request.GET for param in TOKEN_QUERY_PARAMS)
     method = request.method or ""
@@ -96,8 +100,7 @@ def _record(request: HttpRequest, *, scope: CurrentAliasScope, route: str, statu
     if not dedupe_cache.add(dedupe_key, True, timeout=ATTRIBUTION_DEDUPE_SECONDS):
         return
 
-    # Read the ids from foreign key columns, so recording adds no query to the request it observes.
-    # Project secret keys authenticate as a SyntheticUser, which the request.user annotation does not include.
+    # Foreign key columns give the ids without a query. `object` admits SyntheticUser, which request.user omits.
     principal: object = request.user
     if isinstance(principal, SyntheticUser):
         team_id, organization_id = principal.team.pk, principal.team.organization_id

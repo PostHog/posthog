@@ -861,8 +861,7 @@ CACHES["aeo_prompt_suggestions"] = {
     "LOCATION": REDIS_URL,
 }
 
-# The `@current` attribution dedupe runs inside the request, after the view returns. Short socket timeouts make a
-# stalled Redis drop one attribution event instead of holding the response and its web worker.
+# The `@current` dedupe runs inside the request, so a stalled Redis must drop an event, not hold a worker.
 CACHES["current_alias_usage"] = {
     **CACHES["default"],
     "OPTIONS": {**CACHES["default"]["OPTIONS"], "SOCKET_CONNECT_TIMEOUT": 0.1, "SOCKET_TIMEOUT": 0.1},

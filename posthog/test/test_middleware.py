@@ -3737,3 +3737,13 @@ class TestCurrentAliasUsage(APIBaseTest):
             "scope": CurrentAliasScope.PROJECT,
             "api_key_label": "Reporting script",
         }
+
+    def test_recording_failure_does_not_fail_the_request(self) -> None:
+        token = generate_random_token_personal()
+        PersonalAPIKey.objects.create(user=self.user, secure_value=hash_key_value(token), scopes=["*"])
+        self.client.logout()
+
+        with patch("posthog.api.current_alias_usage.dedupe_cache.add", side_effect=ConnectionError("redis is down")):
+            response = self.client.get("/api/projects/@current/", HTTP_AUTHORIZATION=f"Bearer {token}")
+
+        assert response.status_code == status.HTTP_200_OK
