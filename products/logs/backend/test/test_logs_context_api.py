@@ -13,6 +13,7 @@ from rest_framework import status
 
 from posthog.clickhouse.client import sync_execute
 from posthog.errors import CHQueryErrorTooManyBytes
+from posthog.exceptions import ClickHouseQueryTimeOut
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
@@ -335,6 +336,43 @@ class TestLogsContextAPI(ClickhouseTestMixin, APIBaseTest):
 
         assert [row["body"] for row in body["timeline"]] == ["hello"]
         assert body["correlation_keys"] == []
+
+    @parameterized.expand(
+        [
+            (
+                "trace_read",
+                {"traceId": _TRACE_HEX, "around": "2026-06-23T12:00:00Z"},
+                CHQueryErrorTooManyBytes("too many bytes", code=307),
+            ),
+            (
+                "log_lookup",
+                {"logUuid": "00000000-0000-0000-0000-000000000001", "timestamp": "2026-06-23T12:00:00Z"},
+                CHQueryErrorTooManyBytes("too many bytes", code=307),
+            ),
+            (
+                "timeline",
+                {"attribute": {"key": "run_id", "value": "r1"}, "around": "2026-06-23T12:00:00Z"},
+                CHQueryErrorTooManyBytes("too many bytes", code=307),
+            ),
+            (
+                "timeline_timeout",
+                {"attribute": {"key": "run_id", "value": "r1"}, "around": "2026-06-23T12:00:00Z"},
+                ClickHouseQueryTimeOut(),
+            ),
+        ]
+    )
+    @time_machine.travel(_NOW, tick=False)
+    def test_read_budget_errors_ask_the_caller_to_narrow_the_query(
+        self, _name: str, anchor: dict, error: Exception
+    ) -> None:
+        def over_budget(runner: LogsContextRunner, sql: str, placeholders: dict) -> list:
+            raise error
+
+        with patch.object(LogsContextRunner, "_execute", over_budget):
+            response = self._request({"anchor": anchor}, expected_status=status.HTTP_400_BAD_REQUEST)
+
+        assert "padding" in response["detail"]
+        assert "serviceNames" in response["detail"]
 
     @time_machine.travel(_NOW, tick=False)
     def test_trace_anchor_without_spans_needs_a_time_hint(self) -> None:
