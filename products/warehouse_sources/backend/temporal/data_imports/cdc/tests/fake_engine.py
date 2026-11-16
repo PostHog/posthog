@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterable, Iterator, Mapping
 from contextlib import contextmanager, nullcontext
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal
 
 from products.warehouse_sources.backend.temporal.data_imports.cdc.adapters import CDCSourceAdapter
@@ -17,7 +18,13 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.tests.conforma
     SourceDatabase,
     Transaction,
 )
-from products.warehouse_sources.backend.temporal.data_imports.cdc.types import CDCConfig, CDCStreamReader, ChangeEvent
+from products.warehouse_sources.backend.temporal.data_imports.cdc.types import (
+    CDCConfig,
+    CDCLag,
+    CDCStreamReader,
+    ChangeEvent,
+)
+from products.warehouse_sources.backend.types import CDCEngine
 
 if TYPE_CHECKING:
     from contextlib import AbstractContextManager
@@ -25,7 +32,6 @@ if TYPE_CHECKING:
     from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 
 _STREAM_NAME = "fake_stream"
-_CAPTURE_SET_NAME = "fake_capture_set"
 # Raised by the adapter methods that only setup, the sweeper and repair call, so a test that starts
 # to reach one fails instead of trusting behavior nothing checks.
 _NOT_EXERCISED = "The conformance suite does not exercise this adapter method"
@@ -33,6 +39,17 @@ _NOT_EXERCISED = "The conformance suite does not exercise this adapter method"
 
 class FakeStreamLostError(Exception):
     pass
+
+
+@dataclass(frozen=True)
+class FakeCDCConfig(CDCConfig):
+    @property
+    def stream_name(self) -> str:
+        return _STREAM_NAME
+
+    @property
+    def stream_resources_configured(self) -> bool:
+        return True
 
 
 def _position(transaction_number: int) -> str:
@@ -121,7 +138,7 @@ class FakeCDCStreamReader:
         self._truncated.clear()
 
     @property
-    def last_commit_end_lsn(self) -> str | None:
+    def last_commit_position(self) -> str | None:
         return self._last_commit_position
 
     def close(self) -> None:
@@ -129,6 +146,9 @@ class FakeCDCStreamReader:
 
 
 class FakeCDCAdapter:
+    # The catalog never lists the fake engine, so any member satisfies the interface.
+    engine = CDCEngine.POSTGRES
+
     def __init__(self, db: SourceDatabase) -> None:
         self._db = db
 
@@ -148,21 +168,17 @@ class FakeCDCAdapter:
         management_mode: Literal["posthog", "self_managed"],
         tables: list[str],
         schema: str,
-        slot_name: str | None,
-        publication_name: str | None,
+        setup: Mapping[str, Any],
     ) -> list[str]:
         raise NotImplementedError(_NOT_EXERCISED)
 
-    def drop_resources(self, conn: Any, slot_name: str, pub_name: str) -> None:
+    def drop_stream(self, conn: Any, source: ExternalDataSource) -> None:
         raise NotImplementedError(_NOT_EXERCISED)
 
-    def slot_exists(self, conn: Any, slot_name: str) -> bool:
+    def stream_exists(self, conn: Any, source: ExternalDataSource) -> bool:
         raise NotImplementedError(_NOT_EXERCISED)
 
-    def get_lag_bytes(self, conn: Any, slot_name: str) -> int | None:
-        raise NotImplementedError(_NOT_EXERCISED)
-
-    def get_retention_cap_mb(self, conn: Any) -> int | None:
+    def get_lag(self, conn: Any, source: ExternalDataSource) -> CDCLag | None:
         raise NotImplementedError(_NOT_EXERCISED)
 
     def is_slot_invalidation_error(self, exc: BaseException) -> bool:
@@ -177,14 +193,12 @@ class FakeCDCAdapter:
     def classify_error(self, exc: BaseException) -> CDCErrorInfo | None:
         return None
 
-    def recreate_slot(self, source: ExternalDataSource, tables: list[str]) -> dict[str, Any]:
+    def recreate_stream(self, source: ExternalDataSource, tables: list[str]) -> dict[str, Any]:
         return {"cdc_consistent_point": _position(self._db.recreate_stream())}
 
     def parse_cdc_config(self, source: ExternalDataSource) -> CDCConfig:
-        return CDCConfig(
+        return FakeCDCConfig(
             enabled=True,
-            slot_name=_STREAM_NAME,
-            publication_name=_CAPTURE_SET_NAME,
             management_mode="posthog",
             lag_warning_threshold_mb=512,
             lag_critical_threshold_mb=2048,
@@ -200,10 +214,16 @@ class FakeCDCAdapter:
     def get_status(self, source: ExternalDataSource) -> dict[str, Any]:
         raise NotImplementedError(_NOT_EXERCISED)
 
+    def capture_resources_present(self, status: Mapping[str, Any]) -> bool:
+        raise NotImplementedError(_NOT_EXERCISED)
+
     def add_table(self, source: ExternalDataSource, schema: str, table: str) -> None:
         raise NotImplementedError(_NOT_EXERCISED)
 
     def remove_table(self, source: ExternalDataSource, schema: str, table: str) -> None:
+        raise NotImplementedError(_NOT_EXERCISED)
+
+    def manages_capture_set(self, source: ExternalDataSource) -> bool:
         raise NotImplementedError(_NOT_EXERCISED)
 
 

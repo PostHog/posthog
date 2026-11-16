@@ -161,6 +161,19 @@ class TestUser(BaseTest):
         self.assertFalse(loaded._original_is_active)
         self.assertEqual(loaded._original_is_active, loaded.is_active)
 
+    def test_saving_a_user_with_withheld_staff_rights_keeps_the_stored_value(self):
+        user = User.objects.create(email="withheld@example.com", is_staff=True)
+        loaded = User.objects.get(pk=user.pk)
+        loaded.withhold_staff_rights()
+
+        loaded.first_name = "Changed"
+        loaded.save()
+
+        assert loaded.is_staff is False
+        stored = User.objects.get(pk=user.pk)
+        assert stored.is_staff is True
+        assert stored.first_name == "Changed"
+
     def test_get_by_natural_key_exact_match(self):
         user = User.objects.create(email="alice@example.com")
         self.assertEqual(User.objects.get_by_natural_key("alice@example.com"), user)

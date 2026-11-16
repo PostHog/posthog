@@ -239,7 +239,7 @@ def execute_process_query(
 
     user: Optional[User] = None
     if user_id:
-        user = User.objects.only("email", "is_staff").get(pk=user_id)
+        user = User.objects.only("email", "is_staff", "distinct_id").get(pk=user_id)
         is_staff_user = user.is_staff
     elif sharing_configuration_id:
         # A shared-link viewer has no user row, so the identity has to be rebuilt from the share it

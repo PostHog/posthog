@@ -230,6 +230,7 @@ export const AdvancedActivityLogsListQueryParams = () => zod.object({
         .describe(
             "Filter by API clients that generated the activity (the x-posthog-client header, or 'scout:<skill_name>' for a scout run)."
         ),
+    cursor: zod.string().optional().describe('The pagination cursor value.'),
     detail_filters: zod
         .string()
         .optional()

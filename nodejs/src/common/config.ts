@@ -236,17 +236,6 @@ export type CommonConfig = BaseServerConfig & {
     // Takes the buildIntegerMatcherWithPercentage syntax: '2' for team 2 only, '2,*:0.1' for team 2 plus a tenth of
     // everyone else's requests, '*' for all.
     EXTERNAL_REQUEST_PROXY_TEAMS: string
-    // Resolve third-party hostnames as absolute names (with a trailing dot) on the direct route. The resolver then
-    // skips the cluster search domains, so a hostname that does not exist costs one query instead of one per search
-    // domain. A customer-supplied hostname never names a cluster service, so the search domains never help it.
-    EXTERNAL_REQUEST_DNS_ABSOLUTE_LOOKUP: boolean
-    // A process-local cache of hostnames that returned ENOTFOUND on the direct route. 'off' disables it. 'shadow'
-    // still runs every lookup and only counts the lookups the cache would have skipped. 'enforce' fails those lookups
-    // at once with the same ResolutionError. Only ENOTFOUND is cached: a timeout or SERVFAIL can be the resolver's
-    // fault, and caching it would fail healthy destinations while the resolver is under load.
-    EXTERNAL_REQUEST_DNS_NEGATIVE_CACHE_MODE: string
-    EXTERNAL_REQUEST_DNS_NEGATIVE_CACHE_TTL_MS: number
-    EXTERNAL_REQUEST_DNS_NEGATIVE_CACHE_MAX_ENTRIES: number
 
     // PostHog analytics
     POSTHOG_API_KEY: string
@@ -287,10 +276,6 @@ export type ExternalRequestConfig = Pick<
     | 'EXTERNAL_REQUEST_CONNECTIONS'
     | 'EXTERNAL_REQUEST_H2_CONNECTIONS'
     | 'EXTERNAL_REQUEST_PROXY_TEAMS'
-    | 'EXTERNAL_REQUEST_DNS_ABSOLUTE_LOOKUP'
-    | 'EXTERNAL_REQUEST_DNS_NEGATIVE_CACHE_MODE'
-    | 'EXTERNAL_REQUEST_DNS_NEGATIVE_CACHE_TTL_MS'
-    | 'EXTERNAL_REQUEST_DNS_NEGATIVE_CACHE_MAX_ENTRIES'
 >
 
 export function getExternalRequestConfig(): ExternalRequestConfig {
@@ -304,14 +289,6 @@ export function getExternalRequestConfig(): ExternalRequestConfig {
         EXTERNAL_REQUEST_CONNECTIONS: Number(process.env.EXTERNAL_REQUEST_CONNECTIONS ?? 500),
         EXTERNAL_REQUEST_H2_CONNECTIONS: Number(process.env.EXTERNAL_REQUEST_H2_CONNECTIONS ?? 8),
         EXTERNAL_REQUEST_PROXY_TEAMS: process.env.EXTERNAL_REQUEST_PROXY_TEAMS ?? '',
-        EXTERNAL_REQUEST_DNS_ABSOLUTE_LOOKUP: process.env.EXTERNAL_REQUEST_DNS_ABSOLUTE_LOOKUP === 'true',
-        EXTERNAL_REQUEST_DNS_NEGATIVE_CACHE_MODE: process.env.EXTERNAL_REQUEST_DNS_NEGATIVE_CACHE_MODE ?? 'off',
-        EXTERNAL_REQUEST_DNS_NEGATIVE_CACHE_TTL_MS: Number(
-            process.env.EXTERNAL_REQUEST_DNS_NEGATIVE_CACHE_TTL_MS ?? 10_000
-        ),
-        EXTERNAL_REQUEST_DNS_NEGATIVE_CACHE_MAX_ENTRIES: Number(
-            process.env.EXTERNAL_REQUEST_DNS_NEGATIVE_CACHE_MAX_ENTRIES ?? 10_000
-        ),
     }
 }
 
@@ -470,10 +447,6 @@ export function getDefaultCommonConfig(): CommonConfig {
         EXTERNAL_REQUEST_CONNECTIONS: 500,
         EXTERNAL_REQUEST_H2_CONNECTIONS: 8,
         EXTERNAL_REQUEST_PROXY_TEAMS: '',
-        EXTERNAL_REQUEST_DNS_ABSOLUTE_LOOKUP: false,
-        EXTERNAL_REQUEST_DNS_NEGATIVE_CACHE_MODE: 'off',
-        EXTERNAL_REQUEST_DNS_NEGATIVE_CACHE_TTL_MS: 10_000,
-        EXTERNAL_REQUEST_DNS_NEGATIVE_CACHE_MAX_ENTRIES: 10_000,
 
         // PostHog analytics
         POSTHOG_API_KEY: '',
@@ -484,7 +457,9 @@ export function getDefaultCommonConfig(): CommonConfig {
         // Shared between ingestion and CDP
         CDP_HOG_RUST_VM_EXECUTION_ENABLED: false,
         CDP_HOG_RUST_VM_BATCH_EXECUTION_ENABLED: false,
-        CDP_HOG_FLOW_BATCH_AUDIENCE_FETCH_TIMEOUT_MS: 30_000,
+        // Above Django's WORKFLOWS_BATCH_AUDIENCE_QUERY_TIMEOUT_SECONDS (180s), so ClickHouse ends a slow
+        // audience query before this client gives up and a retry never overlaps a query that still runs.
+        CDP_HOG_FLOW_BATCH_AUDIENCE_FETCH_TIMEOUT_MS: 185_000,
         TRANSFORMATIONS_HOG_TIMEOUT_MS: 300,
 
         // Event loop yield helper

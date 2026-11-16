@@ -13,10 +13,14 @@ use tracing::{debug, info, warn};
 
 /// Sibling-JS size below which an empty sourcemap is treated as a harmless
 /// bundler-generated wrapper (e.g. Turbopack App Router page entries,
-/// webpack re-export shims). Observed wrapper files in the wild are
-/// under 1 KiB; 2 KiB leaves comfortable headroom for tools that inject
-/// extra glue (PostHog chunk-id IIFE, etc.) without misclassifying real code.
-const WRAPPER_JS_SIZE_THRESHOLD_BYTES: usize = 2048;
+/// webpack re-export shims). Turbopack page entries reach about 3 KiB after
+/// chunk-id injection (#70235), and every layout, loading or error file on the
+/// route makes the entry larger. Every empty map is skipped whatever its size,
+/// so this cutoff only picks the log message and which of the
+/// `empty_skipped_wrapper` and `empty_skipped_suspect` telemetry counts the
+/// map adds to. A bundler that drops maps for a whole build also writes empty
+/// maps for chunks well above 4 KiB, so the summary still reports it.
+const WRAPPER_JS_SIZE_THRESHOLD_BYTES: usize = 4096;
 
 /// Cap on the suspect paths named in the summary line. They share one line, and an
 /// oversized line kills the process on a non-blocking stderr pipe (see `FileSelectionArgs`).
@@ -167,45 +171,8 @@ pub fn upload_pairs(
     let (empty_pairs, valid_pairs): (Vec<_>, Vec<_>) = pairs
         .into_iter()
         .partition(|pair| pair.sourcemap.is_empty());
-    let mut empty_skipped_wrapper = 0usize;
-    let mut empty_skipped_suspect = 0usize;
-    let mut suspect_paths: Vec<String> = Vec::new();
-    for pair in &empty_pairs {
-        let js_size = pair.source.inner.content.len();
-        let map_path = pair.sourcemap.inner.path.display();
-        if js_size < WRAPPER_JS_SIZE_THRESHOLD_BYTES {
-            empty_skipped_wrapper += 1;
-            debug!(
-                "Skipping {}: sourcemap is empty and sibling JS is {} bytes — bundler-generated wrapper, nothing to symbolicate",
-                map_path, js_size
-            );
-        } else {
-            empty_skipped_suspect += 1;
-            if suspect_paths.len() < MAX_LISTED_SUSPECT_PATHS {
-                suspect_paths.push(map_path.to_string());
-            }
-            debug!(
-                "Skipping {}: sourcemap is empty but sibling JS is {} bytes — possible bundler misconfiguration",
-                map_path, js_size
-            );
-        }
-    }
-    if empty_skipped_suspect > 0 {
-        let unlisted = empty_skipped_suspect - suspect_paths.len();
-        let rest = if unlisted > 0 {
-            format!(" and {unlisted} more (set RUST_LOG=debug to list them all)")
-        } else {
-            String::new()
-        };
-        info!(
-            "Skipped {} empty sourcemaps whose sibling JS file is at least {} bytes: {}{}. If those files must symbolicate, check your bundler's source-map setting (e.g. webpack `devtool`, Next.js `productionBrowserSourceMaps`, server compiler config).",
-            empty_skipped_suspect,
-            WRAPPER_JS_SIZE_THRESHOLD_BYTES,
-            suspect_paths.join(", "),
-            rest
-        );
-    }
     let empty_skipped = empty_pairs.len();
+    let empty_skipped_suspect = report_empty_pairs(&empty_pairs);
 
     let uploads = prepare_uploads(valid_pairs, args.release_mode)?;
 
@@ -218,7 +185,10 @@ pub fn upload_pairs(
             ("file_count", json!(file_count)),
             ("total_bytes", json!(total_bytes)),
             ("empty_skipped", json!(empty_skipped)),
-            ("empty_skipped_wrapper", json!(empty_skipped_wrapper)),
+            (
+                "empty_skipped_wrapper",
+                json!(empty_skipped - empty_skipped_suspect),
+            ),
             ("empty_skipped_suspect", json!(empty_skipped_suspect)),
         ],
     );
@@ -313,6 +283,46 @@ fn select_uploadable_pairs(pairs: Vec<SourcePair>) -> Vec<SourcePair> {
         }
     }
     uploadable
+}
+
+fn report_empty_pairs(empty_pairs: &[SourcePair]) -> usize {
+    let mut empty_skipped_suspect = 0usize;
+    let mut suspect_paths: Vec<String> = Vec::new();
+    for pair in empty_pairs {
+        let js_size = pair.source.inner.content.len();
+        let map_path = pair.sourcemap.inner.path.display();
+        if js_size < WRAPPER_JS_SIZE_THRESHOLD_BYTES {
+            debug!(
+                "Skipping {}: sourcemap is empty and sibling JS is {} bytes — bundler-generated wrapper, nothing to symbolicate",
+                map_path, js_size
+            );
+        } else {
+            empty_skipped_suspect += 1;
+            if suspect_paths.len() < MAX_LISTED_SUSPECT_PATHS {
+                suspect_paths.push(map_path.to_string());
+            }
+            debug!(
+                "Skipping {}: sourcemap is empty but sibling JS is {} bytes — possible bundler misconfiguration",
+                map_path, js_size
+            );
+        }
+    }
+    if empty_skipped_suspect > 0 {
+        let unlisted = empty_skipped_suspect - suspect_paths.len();
+        let rest = if unlisted > 0 {
+            format!(" and {unlisted} more (set RUST_LOG=debug to list them all)")
+        } else {
+            String::new()
+        };
+        info!(
+            "Skipped {} empty sourcemaps whose sibling JS file is at least {} bytes: {}{}. If those files must symbolicate, check your bundler's source-map setting (e.g. webpack `devtool`, Next.js `productionBrowserSourceMaps`, server compiler config).",
+            empty_skipped_suspect,
+            WRAPPER_JS_SIZE_THRESHOLD_BYTES,
+            suspect_paths.join(", "),
+            rest
+        );
+    }
+    empty_skipped_suspect
 }
 
 /// Build the upload payloads for `pairs`, at most one per chunk id. Event mode derives the id
@@ -681,6 +691,25 @@ mod tests {
         let stripped = std::fs::read_to_string(&source_path).unwrap();
         assert!(!stripped.contains("sourceMappingURL"), "{stripped}");
         assert_eq!(std::fs::read_to_string(&map_path).unwrap(), replacement_map);
+    }
+
+    #[test]
+    fn empty_maps_split_into_wrappers_and_suspects_at_4_kib() {
+        let dir = tempfile::tempdir().unwrap();
+        for (name, js_size) in [("page", 2900), ("stub", 4095), ("chunk", 4096)] {
+            let reference = format!("\n//# sourceMappingURL={name}.js.map\n");
+            let source = "x".repeat(js_size - reference.len()) + &reference;
+            std::fs::write(dir.path().join(format!("{name}.js")), source).unwrap();
+            std::fs::write(
+                dir.path().join(format!("{name}.js.map")),
+                r#"{"version":3,"sources":[],"names":[],"mappings":""}"#,
+            )
+            .unwrap();
+        }
+        let pairs = read_dir_pairs(dir.path());
+        assert_eq!(pairs.len(), 3);
+
+        assert_eq!(report_empty_pairs(&pairs), 1);
     }
 
     #[test]

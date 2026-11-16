@@ -1,6 +1,6 @@
 """Tests that all Hog evaluation examples compile and run correctly.
 
-Examples are defined in hogEvalExamples.json (shared with the frontend).
+Examples are defined in shared/hog_eval_examples.json (shared with the frontend).
 """
 
 import json
@@ -20,7 +20,7 @@ from posthog.temporal.ai_observability.run_trace_evaluation import build_trace_h
 
 from products.cdp.backend.validation import compile_hog
 
-EXAMPLES_PATH = Path(__file__).resolve().parents[1] / "frontend" / "evaluations" / "hogEvalExamples.json"
+EXAMPLES_PATH = Path(__file__).resolve().parents[1] / "shared" / "hog_eval_examples.json"
 EXAMPLES: list[dict] = json.loads(EXAMPLES_PATH.read_text())
 EXAMPLE_LABELS = [e["label"] for e in EXAMPLES]
 

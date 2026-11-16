@@ -34,6 +34,7 @@ from products.metrics.backend.facade.contracts import METRICS_FEATURE_FLAG, Metr
 from products.metrics.backend.facade.enums import AttributeScope, FilterOp
 from products.metrics.backend.metric_query_runner import _INTERVAL_LADDER, _QUERY_SETTINGS, _interval_step
 from products.metrics.backend.metric_samples_query_runner import build_metric_query_runner
+from products.metrics.backend.query_counts import record_metric_queries
 from products.metrics.backend.query_interval import resolve_query_interval
 from products.metrics.backend.variables import (
     filter_referenced_names,
@@ -159,6 +160,7 @@ class MetricsHistogramQueryRunner(AnalyticsQueryRunner[MetricsHistogramQueryResp
             # errors, so a bare ValueError would surface as a 500 instead of a 400.
             raise ExposedHogQLError(str(exc)) from exc
 
+        record_metric_queries(self.team, [self.query.metricName])
         # Reuse the per-bucket distribution query directly rather than the quantile post-processing.
         query = runner._build_histogram_query()
         response = execute_hogql_query(

@@ -4,15 +4,17 @@ import { LemonSegmentedButton } from '@posthog/lemon-ui'
 
 import { isPlainObject, toDisplayText } from './jsonText'
 import { KeyValueTable } from './KeyValueTable'
+import { ShowMore } from './ShowMore'
 
 type IOFormat = 'pretty' | 'json'
 
 export interface IOSectionProps {
     title: string
     value: unknown
+    highlightQuery?: string | null
 }
 
-export function IOSection({ title, value }: IOSectionProps): JSX.Element {
+export function IOSection({ title, value, highlightQuery = null }: IOSectionProps): JSX.Element {
     const [format, setFormat] = useState<IOFormat>('pretty')
     const isEmpty =
         value === null ||
@@ -36,7 +38,7 @@ export function IOSection({ title, value }: IOSectionProps): JSX.Element {
                     />
                 ) : null}
             </header>
-            <div className="px-3 py-2">
+            <ShowMore highlightQuery={highlightQuery} className="px-3 py-2">
                 {isEmpty ? (
                     <span className="text-secondary text-sm">Nothing captured.</span>
                 ) : isPlainObject(value) && format === 'pretty' ? (
@@ -44,9 +46,9 @@ export function IOSection({ title, value }: IOSectionProps): JSX.Element {
                 ) : typeof value === 'string' ? (
                     <p className="m-0 whitespace-pre-wrap break-words text-sm">{value}</p>
                 ) : (
-                    <pre className="m-0 max-h-96 overflow-auto text-xs">{toDisplayText(value)}</pre>
+                    <pre className="m-0 whitespace-pre-wrap break-words text-xs">{toDisplayText(value)}</pre>
                 )}
-            </div>
+            </ShowMore>
         </section>
     )
 }

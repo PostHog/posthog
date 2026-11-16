@@ -1,31 +1,24 @@
 import { useActions, useValues } from 'kea'
 import { type RefObject, Suspense, lazy, useLayoutEffect, useRef } from 'react'
 
-import { Skeleton } from '@posthog/quill'
+import { Button, Skeleton, Text } from '@posthog/quill'
 
 import { dayjs } from 'lib/dayjs'
+import { formatAggregationAxisValue } from 'lib/insights/aggregationAxisFormat'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { retryImport } from 'lib/utils/retryImport'
-import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { teamLogic } from 'scenes/teamLogic'
-import { urls } from 'scenes/urls'
 
 import type { CurrencyCode, TrendsFilter } from '~/queries/schema/schema-general'
-import type { InsightShortId } from '~/types'
 
-import type { HighlightMetricApi } from 'products/today/frontend/generated/api.schemas'
+import type { HighlightMetricApi, PulseSlotApi } from 'products/today/frontend/generated/api.schemas'
 
 import { TodayChange } from './TodayChange'
-import {
-    type PulsePlaceholderTile,
-    type TodayPulseTile,
-    isPlaceholderTile,
-    pulsePinLimitReason,
-    todayHighlightsLogic,
-} from './todayHighlightsLogic'
+import { pulsePinLimitReason, todayHighlightsLogic } from './todayHighlightsLogic'
 import { todayNumber } from './todayNumbers'
 import { TodayPulseCard } from './TodayPulseCard'
+import { pulseChange } from './todayPulseFacts'
 import { TodayPulseHoverCard } from './TodayPulseHoverCard'
 import { pulseOpenHandlers } from './todayPulseOpenHandlers'
 import type { TodayTone } from './todayTone'
@@ -73,40 +66,8 @@ function metricFormatter(metric: HighlightMetricApi, currency: CurrencyCode): (v
     return (value) => formatAggregationAxisValue(trendsFilter, value, currency)
 }
 
-function TodayPulsePlaceholder({ tile }: { tile: PulsePlaceholderTile }): JSX.Element {
-    if (tile.placeholder === 'computing') {
-        return (
-            <>
-                <span className="TodayPulse__name">{tile.name}</span>
-                <span className="TodayPulse__row">
-                    <span className="TodayPulse__value">
-                        <Skeleton className="inline-block h-4 w-20 align-middle" />
-                    </span>
-                </span>
-                <span className="TodayPulse__spark">
-                    <Skeleton className="h-3 w-full" />
-                </span>
-            </>
-        )
-    }
-    const shortId = tile.key.startsWith('insight:') ? tile.key.slice('insight:'.length) : null
-    const content = (
-        <>
-            <span className="TodayPulse__name">{tile.name}</span>
-            <span className="TodayPulse__row">
-                <span className="TodayPulse__unavailable">
-                    {shortId ? "Can't show this insight" : "Can't show this number"}
-                </span>
-            </span>
-        </>
-    )
-    return shortId ? (
-        <LinkPrimitive to={urls.insightView(shortId as InsightShortId)} className="TodayPulse__link">
-            {content}
-        </LinkPrimitive>
-    ) : (
-        content
-    )
+function cardNumber(value: number): string {
+    return humanFriendlyNumber(value, Math.abs(value) >= 100 ? 0 : 2)
 }
 
 const REORDER_MS = 220
@@ -137,32 +98,82 @@ function useSettleOnReorder(listRef: RefObject<HTMLUListElement>, order: string)
     }, [order, listRef])
 }
 
-export function TodayPulse({ metrics }: { metrics: TodayPulseTile[] }): JSX.Element {
+export function TodayPulse({ metrics, slots }: { metrics: HighlightMetricApi[]; slots?: PulseSlotApi[] }): JSX.Element {
+    const cards =
+        slots ??
+        metrics.map(
+            (metric): PulseSlotApi => ({
+                key: metric.key,
+                name: metric.name,
+                status: 'ready',
+                url: metric.url,
+                interval: metric.interval,
+            })
+        )
+    const { highlightsLoading, highlights, highlightsFailed, pulsePins, pulsePinsUnavailableReason } =
+        useValues(todayHighlightsLogic)
     const listRef = useRef<HTMLUListElement>(null)
-    useSettleOnReorder(listRef, metrics.map((tile) => tile.key).join('|'))
+    useSettleOnReorder(listRef, cards.map((tile) => tile.key).join('|'))
     const { baseCurrency } = useValues(teamLogic)
-    const { pulsePins, pulsePinsUnavailableReason } = useValues(todayHighlightsLogic)
-    const { pulseMetricOpened, pulseMetricPreviewed, togglePulsePin, holdPulseOrder, releasePulseOrder } =
+    const { pulseMetricOpened, pulseMetricPreviewed, hidePulseMetric, togglePulsePin, retryPulse } =
         useActions(todayHighlightsLogic)
     return (
         <ul ref={listRef} className="TodayPulse" aria-label="Key numbers, against the period before">
-            {metrics.map((metric, position) => {
-                if (isPlaceholderTile(metric)) {
+            {cards.map((slot, position) => {
+                const metric = metrics.find((metric) => metric.key === slot.key)
+                if (!metric) {
+                    const loading = slot.status === 'pending'
                     return (
                         <li
-                            key={metric.key}
-                            data-pulse-key={metric.key}
+                            key={slot.key}
+                            data-pulse-key={slot.key}
                             className="TodayPulse__metric"
-                            aria-busy={metric.placeholder === 'computing'}
+                            aria-busy={loading}
+                            aria-label={`${slot.name}: ${loading ? 'Loading' : slot.status === 'error' ? 'Could not load' : 'No data'}`}
                         >
-                            <TodayPulsePlaceholder tile={metric} />
+                            {slot.url ? (
+                                <LinkPrimitive to={slot.url} className="TodayPulse__name">
+                                    {slot.name}
+                                </LinkPrimitive>
+                            ) : (
+                                <span className="TodayPulse__name">{slot.name}</span>
+                            )}
+                            <span className="TodayPulse__row">
+                                {loading ? (
+                                    <Skeleton className="inline-block h-5 w-24" />
+                                ) : (
+                                    <Text size="sm" variant="muted">
+                                        {slot.status === 'error' ? 'Could not load' : 'No data'}
+                                    </Text>
+                                )}
+                            </span>
+                            <span className="TodayPulse__spark">
+                                {loading ? (
+                                    <Skeleton className="h-3 w-full" />
+                                ) : slot.status === 'error' ? (
+                                    <Button
+                                        size="xs"
+                                        variant="link-muted"
+                                        className="-ms-2"
+                                        disabled={
+                                            highlightsLoading ||
+                                            (!highlightsFailed && highlights?.status === 'computing')
+                                        }
+                                        onClick={retryPulse}
+                                    >
+                                        Retry
+                                    </Button>
+                                ) : null}
+                            </span>
                         </li>
                     )
                 }
+
                 const isInsight = metric.key.startsWith('insight:')
                 const pinned = pulsePins.some((pin) => pin.key === metric.key)
                 const tone = isInsight ? 'neutral' : metricTone(metric.change_pct, metric.value)
                 const formatValue = metric.value_format ? metricFormatter(metric, baseCurrency) : todayNumber
+                const change = pulseChange(metric)
                 const content = (
                     <>
                         <span className="TodayPulse__name">{metric.name}</span>
@@ -170,7 +181,7 @@ export function TodayPulse({ metrics }: { metrics: TodayPulseTile[] }): JSX.Elem
                             <span className="TodayPulse__value" translate="no">
                                 {formatValue(metric.value)}
                             </span>
-                            <TodayChange change={metric.change_pct} tone={tone} />
+                            <TodayChange change={change.value} unit={change.unit} tone={tone} />
                         </span>
                         <span className="TodayPulse__spark">
                             <Suspense fallback={null}>
@@ -187,22 +198,17 @@ export function TodayPulse({ metrics }: { metrics: TodayPulseTile[] }): JSX.Elem
                 return (
                     <li key={metric.key} data-pulse-key={metric.key} className="TodayPulse__metric">
                         <TodayPulseHoverCard
+                            focusable={!metric.url}
                             onOpenChange={(open) => {
                                 if (open) {
                                     pulseMetricPreviewed(metric, position)
-                                    holdPulseOrder(
-                                        metric.key,
-                                        metrics.map((tile) => tile.key)
-                                    )
-                                } else {
-                                    releasePulseOrder(metric.key)
                                 }
                             }}
                             card={
                                 <TodayPulseCard
                                     metric={metric}
                                     tone={tone}
-                                    formatValue={metric.value_format ? formatValue : humanFriendlyNumber}
+                                    formatValue={metric.value_format ? formatValue : cardNumber}
                                     onOpen={() => pulseMetricOpened(metric, position)}
                                     pinned={pinned}
                                     pinDisabledReason={
@@ -214,6 +220,7 @@ export function TodayPulse({ metrics }: { metrics: TodayPulseTile[] }): JSX.Elem
                                             'hover_card'
                                         )
                                     }
+                                    onHide={() => hidePulseMetric(metric, position)}
                                 />
                             }
                         >

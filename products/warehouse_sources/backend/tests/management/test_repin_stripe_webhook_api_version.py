@@ -39,6 +39,7 @@ def _create_source_with_webhook(
         connection_id=str(uuid.uuid4()),
         source_type="Stripe",
         job_inputs={"stripe_secret_key": secret_key, "auth_method": auth_method},
+        api_version=STRIPE_API_VERSION_ACACIA,
     )
     hog_function = HogFunction.objects.create(
         team=team,

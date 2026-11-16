@@ -2000,7 +2000,7 @@ class TestSendEmailReplyMultiConfig(BaseTest):
         assert b"From: " in mime_bytes
         assert b"support@example.com" in mime_bytes
 
-        # Guard against someone dropping linesep="\r\n" from the as_bytes() call.
+        # Guard against someone dropping linesep="\r\n" from mime_bytes_with_crlf().
         # RFC 5322 wants CRLF; Django's default is LF-only.
         assert b"\r\n" in mime_bytes
 

@@ -125,6 +125,7 @@ class TestConfigurationErrors:
             (SnowflakeIntegrationNotFoundError(42, 1), "connection details"),
             (ProgrammingError(msg="fake-secret", errno=3001), "privileges"),
             (ProgrammingError(msg="fake-secret", errno=2043), "database or schema"),
+            (ProgrammingError(msg="fake-secret", errno=666), "suspended"),
         ],
     )
     async def test_permanent_errors_are_configuration_errors(

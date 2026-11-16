@@ -258,7 +258,7 @@ export const mcpAnalyticsOnboardingLogic = kea<mcpAnalyticsOnboardingLogicType>(
             }
         },
     })),
-    afterMount(({ actions, cache }) => {
+    afterMount(({ actions, cache, values }) => {
         actions.loadSignals()
         // Register product intent so activation lands in the standard cross-customer
         // funnel (`has_activated_mcp_analytics` flips once tool calls arrive too).
@@ -269,7 +269,9 @@ export const mcpAnalyticsOnboardingLogic = kea<mcpAnalyticsOnboardingLogicType>(
             })
         }
         cache.disposables.add(() => {
-            const id = window.setInterval(() => actions.loadSignals(), POLL_INTERVAL_MS)
+            // Skips while a request is in flight, so a request slower than the interval is not
+            // cancelled by the next one. Setup mode polls the same loader on its own timer.
+            const id = window.setInterval(() => !values.signalsLoading && actions.loadSignals(), POLL_INTERVAL_MS)
             return () => clearInterval(id)
         }, 'poll')
     }),

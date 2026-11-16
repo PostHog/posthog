@@ -32,15 +32,14 @@ from posthog.clickhouse.preaggregation.experiment_metric_events_sql import (
     SHARDED_EXPERIMENT_METRIC_EVENTS_TABLE,
 )
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
-from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.team.team import Team
 from posthog.permissions import APIScopePermission
 from posthog.settings.base_variables import DEBUG
 from posthog.settings.data_stores import CLICKHOUSE_AUX_CLUSTER, CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE
 
 from products.analytics_platform.backend.models import PreaggregationJob
-from products.experiments.backend.hogql_queries.types import PrecomputeSkipReason
-from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
+from products.experiments.backend.facade import api as experiments_api
+from products.experiments.backend.facade.enums import PrecomputeSkipReason
 from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import (
     BACKGROUND_WARMING_TRIGGERS as WEB_ANALYTICS_WARMING_TRIGGERS,
 )
@@ -509,31 +508,22 @@ class DebugCHQueries(viewsets.ViewSet):
                 .select_related("organization")
                 .order_by("organization__name", "name")
             )
-            # Batch-fetch precomputation configs for matched teams
-            configs_by_team = dict(
-                TeamExperimentsConfig.objects.filter(
-                    team__in=teams,
-                    experiment_precomputation_enabled=True,
-                ).values_list("team_id", "experiment_precomputation_enabled")
-            )
+            enabled_team_ids = experiments_api.list_precomputation_enabled_team_ids([team.id for team in teams])
             org_ids = {str(t.organization.id) for t in teams if t.organization}
             arr_by_org = self._fetch_org_arr(org_ids) if org_ids else {}
             return Response(
-                [
-                    self._serialize_precomputation_team(team, configs_by_team.get(team.id, False), arr_by_org)
-                    for team in teams
-                ]
+                [self._serialize_precomputation_team(team, team.id in enabled_team_ids, arr_by_org) for team in teams]
             )
 
         # Default: only teams with precomputation enabled
-        configs = list(
-            TeamExperimentsConfig.objects.filter(experiment_precomputation_enabled=True)
-            .select_related("team", "team__organization")
-            .order_by("team__name")
+        teams = list(
+            Team.objects.filter(id__in=experiments_api.list_precomputation_enabled_team_ids())
+            .select_related("organization")
+            .order_by("name")
         )
-        org_ids = {str(c.team.organization.id) for c in configs if c.team.organization}
+        org_ids = {str(t.organization.id) for t in teams if t.organization}
         arr_by_org = self._fetch_org_arr(org_ids) if org_ids else {}
-        return Response([self._serialize_precomputation_team(config.team, True, arr_by_org) for config in configs])
+        return Response([self._serialize_precomputation_team(team, True, arr_by_org) for team in teams])
 
     def _update_precomputation(self, request) -> Response:
         team_id = request.data.get("team_id")
@@ -547,12 +537,7 @@ class DebugCHQueries(viewsets.ViewSet):
         except (Team.DoesNotExist, TypeError, ValueError):
             raise exceptions.NotFound(f"Team {team_id} not found.")
 
-        config = get_or_create_team_extension(team, TeamExperimentsConfig)
-        config.experiment_precomputation_enabled = enabled
-        # A human toggling precomputation must stick: the auto-enrollment job only
-        # writes when precomputation_enabled_set_by is null or "auto".
-        config.precomputation_enabled_set_by = TeamExperimentsConfig.PrecomputationEnabledSetBy.MANUAL
-        config.save(update_fields=["experiment_precomputation_enabled", "precomputation_enabled_set_by"])
+        experiments_api.set_precomputation_enabled(team_id=team.id, enabled=enabled)
 
         org_id = str(team.organization.id) if team.organization else None
         arr_by_org = self._fetch_org_arr({org_id}) if org_id else {}

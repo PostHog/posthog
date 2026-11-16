@@ -20,7 +20,7 @@ from products.experiments.backend.health.skips import (
     not_applicable,
 )
 
-# pinned: the subcodes are sent as `finding_variant` on the health finding events, so insights group on them.
+# pinned: the subcodes are sent as `finding_subcode` on the health finding events, so insights group on them.
 FLAG_HAS_NO_VARIANTS = "flag_has_no_variants"
 NO_CONTROL_VARIANT = "no_control_variant"
 

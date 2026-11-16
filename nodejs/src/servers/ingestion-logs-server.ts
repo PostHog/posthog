@@ -14,7 +14,7 @@ import {
     LogsIngestionOutputsConfig,
     getDefaultLogsIngestionOutputsConfig,
 } from '~/logs/config'
-import { LogsIngestionConsumer } from '~/logs/logs-ingestion-consumer'
+import { createLogsIngestionConsumer } from '~/logs/framework/create-consumer'
 import { MetricRulesCache } from '~/logs/metrics-rules/metric-rules-cache'
 import { LogsMetricsEmitter } from '~/logs/metrics-rules/metrics-emitter'
 import { createProducerRegistry } from '~/logs/outputs/producer-registry'
@@ -163,7 +163,7 @@ export class IngestionLogsServer implements NodeServer {
                 unit: 'bytes',
                 isTeamEnabled: usageReportTeamMatcher(this.config),
             })
-            const consumer = new LogsIngestionConsumer(this.config, {
+            const consumer = createLogsIngestionConsumer(this.config, {
                 teamManager,
                 quotaLimiting,
                 outputs,

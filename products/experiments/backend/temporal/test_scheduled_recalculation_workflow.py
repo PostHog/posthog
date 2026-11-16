@@ -269,6 +269,10 @@ async def test_discovery_failure_fails_the_workflow():
 # an uncommitted test transaction.
 @time_machine.travel("2026-09-15T02:30:00Z", tick=True)
 class TestScheduledRecalculationWorkflowDiscovery(NonAtomicBaseTest):
+    # The flush after each test deletes the team and user, so a pytest rerun or a second
+    # test in this class needs them created again.
+    CLASS_DATA_LEVEL_SETUP = False
+
     def _experiment(self, rollout_percentage: int) -> Experiment:
         flag = FeatureFlag.objects.create(
             team=self.team,

@@ -23,6 +23,8 @@
 // Tests seed and assert through `CohortStore` directly — the sanctioned direct-store test surface.
 #![allow(clippy::disallowed_methods)]
 
+mod support;
+
 use std::collections::{HashMap, HashSet};
 use std::future::Future;
 use std::panic::AssertUnwindSafe;
@@ -76,6 +78,8 @@ use tempfile::TempDir;
 use tokio::task::JoinHandle;
 use uuid::Uuid;
 
+use support::{bootstrap_servers, consume_all};
+
 const TEAM: i32 = 7;
 const HASH: [u8; 16] = *b"0123456789abcdef";
 const NUM_PARTITIONS: i32 = COHORT_PARTITION_COUNT as i32;
@@ -84,10 +88,6 @@ const TS_LATER: &str = "2026-06-10 13:34:56.789000";
 const MERGED_AT: i64 = 1_770_000_000_000;
 const COMMIT_INTERVAL: Duration = Duration::from_millis(250);
 const RECV_TIMEOUT: Duration = Duration::from_millis(200);
-
-fn bootstrap_servers() -> String {
-    std::env::var("KAFKA_HOSTS").unwrap_or_else(|_| "localhost:9092".to_string())
-}
 
 /// Cohort 1: `performed_event` single. Cohort 2: `performed_event_multiple gte 2` daily.
 /// Both share one `$pageview` conditionHash; daily bucket counts make a double-apply observable.
@@ -304,38 +304,6 @@ fn topic_message_count(topic: &str) -> i64 {
             high - low
         })
         .sum()
-}
-
-/// Read up to `expected` messages (all partitions from the beginning). Assigned explicitly — no group
-/// join, no commit — so committed offsets the test asserts on are never perturbed.
-async fn consume_all(topic: &str, expected: usize, deadline: Duration) -> Vec<(i32, Vec<u8>)> {
-    let consumer: StreamConsumer = ClientConfig::new()
-        .set("bootstrap.servers", bootstrap_servers())
-        .set("group.id", format!("scan-verifier-{}", Uuid::new_v4()))
-        .set("enable.auto.commit", "false")
-        .create()
-        .expect("create scan verifier");
-    let mut tpl = TopicPartitionList::new();
-    for partition in 0..NUM_PARTITIONS {
-        tpl.add_partition_offset(topic, partition, Offset::Beginning)
-            .expect("add partition to scan TPL");
-    }
-    consumer.assign(&tpl).expect("assign scan verifier");
-
-    let mut messages = Vec::new();
-    let start = Instant::now();
-    while messages.len() < expected && start.elapsed() < deadline {
-        match tokio::time::timeout(Duration::from_secs(2), consumer.recv()).await {
-            Ok(Ok(message)) => {
-                if let Some(payload) = message.payload() {
-                    messages.push((message.partition(), payload.to_vec()));
-                }
-            }
-            Ok(Err(err)) => panic!("scan verifier recv error: {err}"),
-            Err(_) => {}
-        }
-    }
-    messages
 }
 
 async fn wait_for(what: &str, deadline: Duration, mut condition: impl FnMut() -> bool) {
@@ -1257,10 +1225,13 @@ async fn follower_re_establishes_consumption_from_the_committed_offset() {
             .expect("incremental_assign");
         let mut offsets = Vec::new();
         for _ in 0..5 {
-            let message = tokio::time::timeout(Duration::from_secs(15), consumer.recv())
-                .await
-                .expect("recv deadline")
-                .expect("recv");
+            let message = tokio::time::timeout(
+                Duration::from_secs(15),
+                support::recv(&mut consumer.stream()),
+            )
+            .await
+            .expect("recv deadline")
+            .expect("recv");
             offsets.push(message.offset());
         }
         assert_eq!(
@@ -1288,19 +1259,25 @@ async fn follower_re_establishes_consumption_from_the_committed_offset() {
             .incremental_assign(&stored(&topic))
             .expect("re-assign at Offset::Stored");
 
-        let next = tokio::time::timeout(Duration::from_secs(15), consumer.recv())
-            .await
-            .expect("recv deadline after re-assign")
-            .expect("recv after re-assign");
+        let next = tokio::time::timeout(
+            Duration::from_secs(15),
+            support::recv(&mut consumer.stream()),
+        )
+        .await
+        .expect("recv deadline after re-assign")
+        .expect("recv after re-assign");
         assert_eq!(
             next.offset(),
             3,
             "Offset::Stored must rewind to the committed offset, not keep the in-session position",
         );
-        let after = tokio::time::timeout(Duration::from_secs(15), consumer.recv())
-            .await
-            .expect("recv deadline")
-            .expect("recv");
+        let after = tokio::time::timeout(
+            Duration::from_secs(15),
+            support::recv(&mut consumer.stream()),
+        )
+        .await
+        .expect("recv deadline")
+        .expect("recv");
         assert_eq!(after.offset(), 4, "and redeliver the rest of the window");
     })
     .await;

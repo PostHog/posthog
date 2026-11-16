@@ -1,8 +1,9 @@
 from copy import deepcopy
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 
+import time_machine
 from posthog.test.base import BaseTest
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.test import SimpleTestCase
 
@@ -14,6 +15,7 @@ from posthog.models.user import User
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.exports.backend.facade.api import (
     _validate_adhoc_export_context,
+    create_export_asset_async,
     get_delivery_image_url,
     query_with_reference_lines,
     render_png_export,
@@ -167,6 +169,23 @@ class TestRenderPngExportInsightLookup(BaseTest):
     def test_rejects_unresolvable_or_ambiguous_insight_selectors(self, _name, kwargs):
         with self.assertRaises(ValueError):
             render_png_export(team=self.team, created_by=self.user, **kwargs)
+
+
+class TestCreateExportAssetAsync(BaseTest):
+    @time_machine.travel(datetime(2026, 3, 2, 12, 0, tzinfo=UTC), tick=False)
+    @patch("products.exports.backend.facade.api.async_connect", new_callable=AsyncMock)
+    def test_create_export_asset_async_rounds_an_explicit_expiry_up_to_utc_midnight(
+        self, async_connect: AsyncMock
+    ) -> None:
+        asset = create_export_asset_async(
+            team=self.team,
+            created_by=self.user,
+            export_format=ExportedAsset.ExportFormat.JSON,
+            export_context={"kind": "test_kind"},
+            expires_after=datetime(2026, 3, 9, 12, 0, tzinfo=UTC),
+        )
+
+        assert asset.expires_after == datetime(2026, 3, 10, 0, 0, tzinfo=UTC)
 
 
 class TestGetDeliveryImageUrl(BaseTest):

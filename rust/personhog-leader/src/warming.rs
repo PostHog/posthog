@@ -15,6 +15,7 @@ use tokio::time::{sleep, timeout};
 use personhog_common::partitioning::partition_for_person;
 use personhog_coordination::changelog::WarmSource;
 use personhog_coordination::error::{Error as CoordError, Result as CoordResult};
+use personhog_coordination::types::ClusterEndpoint;
 use personhog_proto::personhog::types::v1::Person;
 
 use crate::cache::{CachedPerson, DirtyIndex, DirtyMark, PartitionedCache, PersonCacheKey, Stream};
@@ -308,17 +309,24 @@ impl ConsumerPool {
     }
 }
 
-/// The two client pools the warm path and the dirty-index prune share.
+pub fn changelog_kafka(base: &KafkaConfig, cluster: Option<&ClusterEndpoint>) -> KafkaConfig {
+    match cluster {
+        Some(cluster) => base.with_endpoint(&cluster.hosts, cluster.tls),
+        None => base.clone(),
+    }
+}
+
+/// One cluster's two client pools, which the warm path and the dirty-index prune share.
 /// Separate pools because a client's group id is fixed at construction:
 /// offset queries must carry the writer's group id to OffsetFetch its
 /// committed offsets, while warming consumers carry their own.
-pub struct WarmClientPools {
+pub struct ClusterPools {
     pub offsets: ConsumerPool,
     pub warming: ConsumerPool,
 }
 
-impl WarmClientPools {
-    pub fn new(kafka: &KafkaConfig, pod_name: &str, writer_group: &str) -> Self {
+impl ClusterPools {
+    fn new(kafka: &KafkaConfig, pod_name: &str, writer_group: &str) -> Self {
         Self {
             offsets: ConsumerPool::new(kafka.clone(), writer_group.to_string(), "offsets"),
             warming: ConsumerPool::new(
@@ -327,6 +335,41 @@ impl WarmClientPools {
                 "warming",
             ),
         }
+    }
+}
+
+pub struct WarmClientPools {
+    base: KafkaConfig,
+    pod_name: String,
+    writer_group: String,
+    default: Arc<ClusterPools>,
+    named: StdMutex<HashMap<ClusterEndpoint, Arc<ClusterPools>>>,
+}
+
+impl WarmClientPools {
+    pub fn new(kafka: &KafkaConfig, pod_name: &str, writer_group: &str) -> Self {
+        Self {
+            base: kafka.clone(),
+            pod_name: pod_name.to_string(),
+            writer_group: writer_group.to_string(),
+            default: Arc::new(ClusterPools::new(kafka, pod_name, writer_group)),
+            named: StdMutex::new(HashMap::new()),
+        }
+    }
+
+    pub fn on(&self, cluster: Option<&ClusterEndpoint>) -> Arc<ClusterPools> {
+        let Some(cluster) = cluster else {
+            return Arc::clone(&self.default);
+        };
+        let mut named = self.named.lock().unwrap();
+        let pools = named.entry(cluster.clone()).or_insert_with(|| {
+            Arc::new(ClusterPools::new(
+                &changelog_kafka(&self.base, Some(cluster)),
+                &self.pod_name,
+                &self.writer_group,
+            ))
+        });
+        Arc::clone(pools)
     }
 }
 
@@ -463,8 +506,10 @@ async fn warm_source(
     })?;
     let stream = Stream {
         topic: Arc::clone(&source.topic),
+        cluster: source.cluster.clone().map(Arc::new),
         partition: source.partition,
     };
+    let pools = pools.on(source.cluster.as_ref());
 
     // Arc because the watermark retry closure needs its own handle for
     // the blocking pool; sole ownership returns once the retries finish.
@@ -712,10 +757,11 @@ pub async fn warm_from_sources(
     // that generation's marked tail.
     let mut committed = Vec::with_capacity(sources.len());
     for source in sources {
+        let source_pools = pools.on(source.cluster.as_ref());
         committed.push(
             with_warm_retry("committed_offset", partition, cfg.retry, || async {
                 fetch_writer_committed_offset(
-                    &pools.offsets,
+                    &source_pools.offsets,
                     &source.topic,
                     source.partition,
                     cfg.committed_offsets_timeout,
@@ -764,6 +810,21 @@ mod tests {
     use std::sync::Arc;
 
     use super::*;
+
+    #[test]
+    fn a_named_cluster_gets_its_own_pools_once() {
+        use envconfig::Envconfig;
+        let kafka = KafkaConfig::init_from_hashmap(&HashMap::new()).unwrap();
+        let pools = WarmClientPools::new(&kafka, "pod", "writer");
+        let dedicated = ClusterEndpoint {
+            name: "dedicated".to_string(),
+            hosts: "d:9092".to_string(),
+            tls: false,
+        };
+        let named = pools.on(Some(&dedicated));
+        assert!(Arc::ptr_eq(&named, &pools.on(Some(&dedicated))));
+        assert!(!Arc::ptr_eq(&named, &pools.on(None)));
+    }
 
     const TEST_RETRY_POLICY: WarmingRetryPolicy = WarmingRetryPolicy {
         max_attempts: 3,
@@ -817,6 +878,7 @@ mod tests {
                     partition: 0,
                     stream: Stream {
                         topic: Arc::from("personhog_updates"),
+                        cluster: None,
                         partition: 0,
                     },
                     is_deleted: false,
@@ -865,6 +927,7 @@ mod tests {
                     partition: 0,
                     stream: Stream {
                         topic: Arc::from("personhog_updates"),
+                        cluster: None,
                         partition: 0,
                     },
                     is_deleted: false,

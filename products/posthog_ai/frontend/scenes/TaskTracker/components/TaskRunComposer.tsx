@@ -26,7 +26,7 @@ import {
     pickerModels,
 } from 'products/posthog_ai/frontend/utils/composerModels'
 import { cycleMode, getModesForRuntimeAdapter } from 'products/posthog_ai/frontend/utils/composerModes'
-import { ModelAccessEnumApi, RuntimeAdapterEnumApi } from 'products/tasks/frontend/generated/api.schemas'
+import { ModelAccessEnumApi } from 'products/tasks/frontend/generated/api.schemas'
 
 import { AttachedContextChips } from '../../../components/composer/AttachedContextChips'
 import { AttachedContextPicker } from '../../../components/composer/AttachedContextPicker'
@@ -34,8 +34,6 @@ import { CommandResultCard } from '../../../components/composer/CommandResultCar
 import { CommentContextChips } from '../../../components/composer/CommentContextChips'
 import { ComposerAttachmentChips } from '../../../components/composer/ComposerAttachmentChips'
 import { ComposerAttachments, useComposerAttachmentPaste } from '../../../components/composer/ComposerAttachments'
-import { ComposerBillingIndicator } from '../../../components/composer/ComposerBillingIndicator'
-import { ComposerCodexBillingIndicator } from '../../../components/composer/ComposerCodexBillingIndicator'
 import { ComposerCodexBillingPickers } from '../../../components/composer/ComposerCodexBillingPickers'
 import { ComposerCommandMenu } from '../../../components/composer/ComposerCommandMenu'
 import {
@@ -46,6 +44,7 @@ import { ComposerModePicker } from '../../../components/composer/ComposerModePic
 import { ComposerModeShortcut } from '../../../components/composer/ComposerModeShortcut'
 import { useDebouncedDraft } from '../../../components/composer/useDebouncedDraft'
 import { ContextUsageChip } from '../../../components/ContextUsageChip'
+import { QuillAttachedContextChips } from '../../../components/quill/QuillAttachedContextChips'
 import { QuillAttachedContextPicker } from '../../../components/quill/QuillAttachedContextPicker'
 import { QuillComposerLayout } from '../../../components/quill/QuillComposerLayout'
 import { QuillComposerSendButton } from '../../../components/quill/QuillComposerSendButton'
@@ -175,7 +174,6 @@ export function TaskRunComposer({
     const lockedCodexModelAccess = isTerminal
         ? null
         : (logicProps.currentCodexModelAccess ?? ModelAccessEnumApi.PosthogGateway)
-    const billingAdapter = isTerminal ? getRuntimeAdapterForModel(catalogue, selectedModel) : composerAdapter
     const modelPicker =
         codexBillingEnabled && !isPiTask ? (
             <ComposerCodexBillingPickers {...modelPickerProps} lockedCodexModelAccess={lockedCodexModelAccess} />
@@ -285,7 +283,7 @@ export function TaskRunComposer({
                             <>
                                 {repository && <QuillRunRepositoryChip repository={repository} branch={branch} />}
                                 {logicProps.taskId && <CommentContextChips logicProps={logicProps} />}
-                                <AttachedContextChips />
+                                <QuillAttachedContextChips taskId={logicProps.taskId} />
                                 <ComposerAttachmentChips attachmentsKey={attachmentsKey} />
                             </>
                         }
@@ -299,21 +297,21 @@ export function TaskRunComposer({
                                     onAddContext={() => setContextPickerOpen(true)}
                                 />
                                 <QuillAttachedContextPicker
+                                    taskId={logicProps.taskId}
                                     open={contextPickerOpen}
                                     onOpenChange={setContextPickerOpen}
                                     anchor={groupRef}
                                 />
-                                {pickers(modelPicker, modePicker)}
+                                <div className="shrink-0">{pickers(modePicker, null)}</div>
                             </>
                         }
+                        singleRow
                         meta={
-                            <div className="flex items-center divide-x divide-border *:px-2 *:last:pr-1">
-                                <QuillContextUsage />
-                                {codexBillingEnabled && !isPiTask && billingAdapter === RuntimeAdapterEnumApi.Codex ? (
-                                    <ComposerCodexBillingIndicator lockedCodexModelAccess={lockedCodexModelAccess} />
-                                ) : (
-                                    <ComposerBillingIndicator ownPlan={false} />
-                                )}
+                            <div className="flex min-w-0 items-center gap-1 [&>fieldset]:min-w-0 [&>fieldset]:flex-nowrap">
+                                <span className="px-1 empty:hidden">
+                                    <QuillContextUsage />
+                                </span>
+                                {pickers(modelPicker, null)}
                             </div>
                         }
                     />
@@ -322,13 +320,13 @@ export function TaskRunComposer({
                         <Composer.Frame ref={labelRef}>
                             <Composer.Header className="flex flex-wrap items-center gap-2 empty:hidden">
                                 {logicProps.taskId && <CommentContextChips logicProps={logicProps} />}
-                                <AttachedContextChips />
+                                <AttachedContextChips taskId={logicProps.taskId} />
                                 <ComposerAttachmentChips attachmentsKey={attachmentsKey} />
                             </Composer.Header>
                             {field}
                             <Composer.Footer className="flex flex-wrap items-center gap-1 pl-2">
                                 <ComposerAttachments attachmentsKey={attachmentsKey} dropTargetRef={labelRef} />
-                                <AttachedContextPicker />
+                                <AttachedContextPicker taskId={logicProps.taskId} />
                                 {pickers(modelPicker, modePicker)}
                                 <div className="ml-auto">
                                     <ContextUsageChip />

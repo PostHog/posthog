@@ -15,7 +15,7 @@ import { InboxSetupScoutsStep } from './InboxSetupScoutsStep'
 import { InboxSetupSourcesStep } from './InboxSetupSourcesStep'
 
 export function InboxSetupFlow(): JSX.Element {
-    const { draft, ready, saving, error, activationDisabledReason, isFinalStep, sourceSetupSource, currentTeamId } =
+    const { draft, ready, saving, error, activationDisabledReason, isFinalStep, currentTeamId } =
         useValues(inboxSetupLogic)
     const { startSetup, goToStep, activate, retry, reportStepViewed } = useActions(inboxSetupLogic)
     useMountedLogic(scoutSuggestionsLogic)
@@ -45,11 +45,11 @@ export function InboxSetupFlow(): JSX.Element {
                 <GuidedWizardStepper
                     steps={[
                         { step: 'signals', label: 'Sources' },
-                        { step: 'scouts', label: 'Background agents' },
+                        { step: 'scouts', label: 'Scouts' },
                         { step: 'github', label: 'Review and activate' },
                     ]}
                     currentStep={draft.step}
-                    onStepClick={saving || !ready || sourceSetupSource ? undefined : goToStep}
+                    onStepClick={saving || !ready ? undefined : goToStep}
                     className="shrink-0 flex-nowrap overflow-x-auto whitespace-nowrap py-1 [&>div]:shrink-0"
                     aria-label="Self-Driving setup progress"
                 />
@@ -69,40 +69,38 @@ export function InboxSetupFlow(): JSX.Element {
                             </LemonButton>
                         </LemonBanner>
                     )}
-                    {!sourceSetupSource && (
-                        <div className="flex shrink-0 flex-wrap justify-between items-center gap-3 border-t border-primary pt-4">
-                            {draft.step !== 'signals' && (
-                                <LemonButton
-                                    type="secondary"
-                                    icon={<IconArrowLeft />}
-                                    disabled={saving}
-                                    onClick={() => goToStep(draft.step === 'github' ? 'scouts' : 'signals')}
-                                >
-                                    Back
-                                </LemonButton>
-                            )}
+                    <div className="flex shrink-0 flex-wrap justify-between items-center gap-3 border-t border-primary pt-4">
+                        {draft.step !== 'signals' && (
                             <LemonButton
-                                type="primary"
-                                className="ml-auto"
-                                status="alt"
-                                loading={saving}
-                                disabledReason={
-                                    !ready ? 'Loading your setup' : isFinalStep ? activationDisabledReason : undefined
-                                }
-                                sideIcon={isFinalStep ? undefined : <IconArrowRight />}
-                                onClick={() =>
-                                    isFinalStep ? activate() : goToStep(draft.step === 'signals' ? 'scouts' : 'github')
-                                }
-                                data-attr="inbox-setup-continue"
+                                type="secondary"
+                                icon={<IconArrowLeft />}
+                                disabled={saving}
+                                onClick={() => goToStep(draft.step === 'github' ? 'scouts' : 'signals')}
                             >
-                                {isFinalStep
-                                    ? 'Activate Self-Driving'
-                                    : draft.step === 'signals'
-                                      ? 'Continue to scouts'
-                                      : 'Continue'}
+                                Back
                             </LemonButton>
-                        </div>
-                    )}
+                        )}
+                        <LemonButton
+                            type="primary"
+                            className="ml-auto"
+                            status="alt"
+                            loading={saving}
+                            disabledReason={
+                                !ready ? 'Loading your setup' : isFinalStep ? activationDisabledReason : undefined
+                            }
+                            sideIcon={isFinalStep ? undefined : <IconArrowRight />}
+                            onClick={() =>
+                                isFinalStep ? activate() : goToStep(draft.step === 'signals' ? 'scouts' : 'github')
+                            }
+                            data-attr="inbox-setup-continue"
+                        >
+                            {isFinalStep
+                                ? 'Activate Self-Driving'
+                                : draft.step === 'signals'
+                                  ? 'Continue to scouts'
+                                  : 'Continue'}
+                        </LemonButton>
+                    </div>
                 </GuidedWizardPanel>
             </div>
         </div>

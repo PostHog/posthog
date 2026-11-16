@@ -1,6 +1,8 @@
 from drf_spectacular.utils import extend_schema_serializer
 from rest_framework import serializers
 
+from posthog.api.pagination import PageLinksSerializer
+
 from products.notebooks.backend.facade.widgets import MAX_REUSABLE_WIDGET_DEMO_ROWS
 from products.notebooks.backend.presentation.widget_serializers import (
     WidgetFrameSerializer,
@@ -134,7 +136,7 @@ class ReusableWidgetSummarySerializer(serializers.Serializer):
 
 
 @extend_schema_serializer(many=False)
-class ReusableWidgetPageSerializer(serializers.Serializer):
+class ReusableWidgetPageSerializer(PageLinksSerializer):
     results = ReusableWidgetSummarySerializer(many=True, help_text="Reusable widgets in this page.")
     count = serializers.IntegerField(help_text="Total reusable widgets matching the search.")
     next_offset = serializers.IntegerField(
@@ -192,7 +194,7 @@ class ReusableWidgetVersionDetailSerializer(serializers.Serializer):
 
 
 @extend_schema_serializer(many=False)
-class ReusableWidgetVersionPageSerializer(serializers.Serializer):
+class ReusableWidgetVersionPageSerializer(PageLinksSerializer):
     results = ReusableWidgetVersionDetailSerializer(many=True, help_text="Published versions, newest first.")
     count = serializers.IntegerField(help_text="Total number of published versions.")
     next_offset = serializers.IntegerField(allow_null=True, help_text="Next page offset, or null on the final page.")

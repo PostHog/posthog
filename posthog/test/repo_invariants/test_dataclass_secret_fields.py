@@ -14,6 +14,8 @@ import ast
 import subprocess
 from pathlib import Path
 
+from repo_invariant_scan_scope import ScanScope
+
 REPO_ROOT = Path(__file__).parents[3]
 EXEMPTIONS_PATH = Path(__file__).parent / "dataclass_secret_field_exemptions.txt"
 SCANNED_ROOTS = ("posthog", "ee", "products", "dags", "common")
@@ -114,7 +116,17 @@ def _is_test_file(path: Path) -> bool:
 
 def _candidate_paths() -> list[Path]:
     """Tracked Python files with a dataclass decorator, found by git grep so most files are never read."""
-    pathspecs = [f"{root}/**/*.py" for root in SCANNED_ROOTS]
+    scope = ScanScope.from_environment()
+    if scope.directories is None:
+        pathspecs = [f"{root}/**/*.py" for root in SCANNED_ROOTS]
+    else:
+        # A scope directory sits inside a root, so `<root>/**/*.py` takes every Python file in it.
+        # `<directory>/**/*.py` would skip the files at its top. A `*` in a git pathspec also
+        # matches `/`, so `<directory>/*.py` takes the same files that the full walk takes.
+        pathspecs = [f"{directory}/*.py" for directory in scope.roots(SCANNED_ROOTS)]
+    # git grep with no pathspec searches the whole repo, so an empty scope must stop here.
+    if not pathspecs:
+        return []
     result = subprocess.run(
         ["git", "grep", "-l", "-E", "-e", "@([A-Za-z_]+\\.)?(dataclass|frozen)", "--", *pathspecs],
         cwd=REPO_ROOT,

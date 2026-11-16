@@ -18,6 +18,11 @@ type CellLayout = {
     valign?: VAlign
     /** Absorb remaining width in a `fullWidth` table. Mark one column per table. */
     expand?: boolean
+    /**
+     * An empty last cell in each row of a `fullWidth` table with resizable columns. It fills the space the columns
+     * leave, and shows only once their widths are fixed.
+     */
+    filler?: boolean
 }
 
 // Sets each ref (object or callback) to the same node — lets the viewport carry
@@ -71,6 +76,27 @@ function useScrollEdges(
     }, [rootRef, viewportRef])
 }
 
+function sumWidths(widths: number[]): number {
+    return widths.reduce((total, width) => total + width, 0)
+}
+
+/**
+ * Moves a column to a width straight in the DOM, for each frame of a drag, because rendering there would render every
+ * row. It does nothing until the table's widths are fixed.
+ */
+function previewTableColumnWidth(table: HTMLTableElement, index: number, width: number): void {
+    const cols = Array.from(table.querySelector('colgroup')?.children ?? []) as HTMLElement[]
+    const col = cols[index]
+    if (!col?.style.width) {
+        return
+    }
+    col.style.width = `${width}px`
+    // A full-width table's last `col` is the filler, which has no width.
+    const total = sumWidths(cols.map((c) => parseFloat(c.style.width) || 0))
+    // The same property the render sets: React leaves alone a style it thinks has not changed.
+    table.style[table.hasAttribute('data-full-width') ? 'minWidth' : 'width'] = `${total}px`
+}
+
 type TableProps = React.ComponentProps<'table'> & {
     /**
      * `true` — header sticks within the table's own scroll viewport (needs a
@@ -91,16 +117,36 @@ type TableProps = React.ComponentProps<'table'> & {
      * `0.75rem` inline padding. Pair with `Card size="sm" flush`.
      */
     size?: 'default' | 'sm'
+    /**
+     * Makes the columns resizable, with a `TableColumnResizer` in each `TableHead`. `'content'` — the columns still fit
+     * their content. An array — one width in pixels per column, and only these decide the widths from then on, so a
+     * cell can be narrower than what it holds. The table's width is their sum. Pass the array as the widths change.
+     */
+    columnWidths?: 'content' | number[]
     /** Classes for the inner `<table>`. Size/scroll go on the container via `className`. */
     tableClassName?: string
     /** Ref to the scrolling viewport — for scroll-to-row, virtualization, IntersectionObservers, etc. */
     viewportRef?: React.Ref<HTMLDivElement>
+    /** Ref to a marker after the table, inside the viewport. Observe it to load more rows near the end. */
+    viewportEndRef?: React.Ref<HTMLDivElement>
 }
 
 // The forwarded ref points at the `<table>` element (consistent with `...props`,
 // which also land there). The scroll container is reached via `viewportRef`.
 const Table = React.forwardRef<HTMLTableElement, TableProps>(function Table(
-    { className, tableClassName, stickyHeader = false, fullWidth = false, size = 'default', viewportRef, ...props },
+    {
+        className,
+        tableClassName,
+        stickyHeader = false,
+        fullWidth = false,
+        size = 'default',
+        columnWidths,
+        viewportRef,
+        viewportEndRef,
+        style,
+        children,
+        ...props
+    },
     ref
 ) {
     const rootRef = React.useRef<HTMLDivElement | null>(null)
@@ -110,6 +156,7 @@ const Table = React.forwardRef<HTMLTableElement, TableProps>(function Table(
         (node: HTMLDivElement | null): void => setRefs(node, innerViewportRef, viewportRef),
         [viewportRef]
     )
+    const widths = Array.isArray(columnWidths) ? columnWidths : null
     // `className` sizes the non-scrolling root (which clips + hosts the fixed edge
     // shadows); the inner viewport owns the scroll. Sticky header/columns position
     // against the viewport.
@@ -128,9 +175,33 @@ const Table = React.forwardRef<HTMLTableElement, TableProps>(function Table(
                     data-sticky-header={stickyHeader ? '' : undefined}
                     data-full-width={fullWidth ? '' : undefined}
                     data-size={size}
+                    data-resizable={columnWidths ? '' : undefined}
+                    data-layout={widths ? 'fixed' : undefined}
                     className={cn('quill-table', tableClassName)}
+                    style={
+                        widths
+                            ? {
+                                  ...style,
+                                  // A full-width table fills its container, and only grows past it.
+                                  ...(fullWidth ? {} : { width: sumWidths(widths) }),
+                                  minWidth: fullWidth ? sumWidths(widths) : 0,
+                              }
+                            : style
+                    }
                     {...props}
-                />
+                >
+                    {/* In the DOM from the first render: inserting it beside the rows at the first drag restyles them all. */}
+                    {columnWidths ? (
+                        <colgroup>
+                            {widths?.map((width, index) => (
+                                <col key={index} style={{ width }} />
+                            ))}
+                            {widths && fullWidth ? <col /> : null}
+                        </colgroup>
+                    ) : null}
+                    {children}
+                </table>
+                {viewportEndRef ? <div ref={viewportEndRef} aria-hidden /> : null}
             </div>
         </div>
     )
@@ -166,7 +237,7 @@ const TableRow = React.forwardRef<HTMLTableRowElement, React.ComponentProps<'tr'
 
 const TableHead = React.forwardRef<HTMLTableCellElement, React.ComponentProps<'th'> & { sticky?: Sticky } & CellLayout>(
     // `scope="col"` by default (the common case); override to "row" for row headers.
-    function TableHead({ className, sticky, align, valign, expand, scope = 'col', ...props }, ref) {
+    function TableHead({ className, sticky, align, valign, expand, filler, scope = 'col', ...props }, ref) {
         return (
             <th
                 ref={ref}
@@ -175,6 +246,8 @@ const TableHead = React.forwardRef<HTMLTableCellElement, React.ComponentProps<'t
                 data-align={align}
                 data-valign={valign}
                 data-expand={expand ? '' : undefined}
+                data-filler={filler ? '' : undefined}
+                role={filler ? 'presentation' : undefined}
                 scope={scope}
                 className={cn('quill-table__head', className)}
                 {...props}
@@ -184,7 +257,7 @@ const TableHead = React.forwardRef<HTMLTableCellElement, React.ComponentProps<'t
 )
 
 const TableCell = React.forwardRef<HTMLTableCellElement, React.ComponentProps<'td'> & { sticky?: Sticky } & CellLayout>(
-    function TableCell({ className, sticky, align, valign, expand, ...props }, ref) {
+    function TableCell({ className, sticky, align, valign, expand, filler, ...props }, ref) {
         return (
             <td
                 ref={ref}
@@ -193,6 +266,8 @@ const TableCell = React.forwardRef<HTMLTableCellElement, React.ComponentProps<'t
                 data-align={align}
                 data-valign={valign}
                 data-expand={expand ? '' : undefined}
+                data-filler={filler ? '' : undefined}
+                role={filler ? 'presentation' : undefined}
                 className={cn('quill-table__cell', className)}
                 {...props}
             />
@@ -237,4 +312,15 @@ TableCell.displayName = 'TableCell'
 TableEmpty.displayName = 'TableEmpty'
 TableCaption.displayName = 'TableCaption'
 
-export { Table, TableHeader, TableBody, TableFooter, TableHead, TableRow, TableCell, TableEmpty, TableCaption }
+export {
+    Table,
+    TableHeader,
+    TableBody,
+    TableFooter,
+    TableHead,
+    TableRow,
+    TableCell,
+    TableEmpty,
+    TableCaption,
+    previewTableColumnWidth,
+}

@@ -126,7 +126,11 @@ pub async fn export_prometheus_remote_write_http(
     // expansion-bomb payloads and oversized blocks exceed it.
     // 400, not 5xx: a batch that expands past the limit will never fit, so the
     // sender must drop it rather than retry it forever.
-    let expanded = estimate_expanded_bytes(&write_request);
+    // The k8s resource attribute copy clones labels into every row after this
+    // check, so its bytes count toward the same limit.
+    let k8s_resource_attributes = &service.k8s_resource_attributes;
+    let added = k8s_resource_attributes.estimate_added_bytes(&token, &write_request);
+    let expanded = estimate_expanded_bytes(&write_request).saturating_add(added);
     let max_expanded = service.remote_write_max_expanded_bytes;
     if expanded > max_expanded {
         error!(
@@ -140,8 +144,11 @@ pub async fn export_prometheus_remote_write_http(
         ));
     }
 
-    let (rows, timestamps_overridden) =
+    let (mut rows, timestamps_overridden) =
         write_timeseries_to_kafka_rows(write_request.timeseries, &write_request.metadata);
+    // Before the histogram fold, so folded histograms carry the attributes and
+    // fingerprint them.
+    service.k8s_resource_attributes.apply(&token, &mut rows);
     let mut rows = fold_classic_histograms(rows, &write_request.metadata);
     service.series_label_gate.apply(&token, &mut rows);
     let row_count = rows.len();

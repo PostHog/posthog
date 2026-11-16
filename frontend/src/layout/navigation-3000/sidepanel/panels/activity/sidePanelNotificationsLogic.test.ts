@@ -1,5 +1,8 @@
 import { expectLogic } from 'kea-test-utils'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { InAppNotification } from '~/types'
@@ -244,6 +247,36 @@ describe('sidePanelNotificationsLogic.archive', () => {
             logic.actions.archiveAll()
         }).toDispatchActions(['archiveAll', 'refreshInAppUnreadCount', 'setInAppUnreadCount'])
         expect(logic.values.inAppUnreadCount).toBe(1)
+    })
+})
+
+describe('sidePanelNotificationsLogic.unreadCount', () => {
+    let logic: ReturnType<typeof sidePanelNotificationsLogic.build>
+
+    afterEach(() => logic.unmount())
+
+    it.each([
+        { mode: 'real-time', realTime: true, legacyRequests: 0 },
+        { mode: 'legacy', realTime: false, legacyRequests: 1 },
+    ])('requests legacy notifications $legacyRequests times in $mode mode', async ({ realTime, legacyRequests }) => {
+        let requests = 0
+        useMocks({
+            get: {
+                '/api/projects/:tid/my_notifications': () => {
+                    requests += 1
+                    return [200, { results: [], last_read: null }]
+                },
+            },
+        })
+        initKeaTests()
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.REAL_TIME_NOTIFICATIONS]: realTime })
+        logic = sidePanelNotificationsLogic()
+        logic.mount()
+
+        expect(logic.values.unreadCount).toBe(0)
+        await expectLogic(logic).toDispatchActions(['loadImportantChangesSuccess'])
+
+        expect(requests).toBe(legacyRequests)
     })
 })
 

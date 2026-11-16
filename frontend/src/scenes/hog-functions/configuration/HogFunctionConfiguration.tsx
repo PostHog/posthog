@@ -22,6 +22,7 @@ import { SurveyResponseKeysReference } from 'scenes/surveys/components/SurveyRes
 
 import { useAttachedContext, useToolStreamListener } from 'products/posthog_ai/frontend/api/logics'
 import { resolveToolCall } from 'products/posthog_ai/frontend/api/tools'
+import { DestinationWorkflowSuggestionModal } from 'products/workflows/frontend/DestinationWorkflowSuggestion/DestinationWorkflowSuggestionModal'
 
 import { humanizeHogFunctionType } from '../hog-function-utils'
 import { HogFunctionStatusIndicator } from '../misc/HogFunctionStatusIndicator'
@@ -269,6 +270,7 @@ export function HogFunctionConfiguration({
                         </div>
                     </Form>
                 </div>
+                {type === 'destination' ? <DestinationWorkflowSuggestionModal /> : null}
             </BindLogic>
         </div>
     )

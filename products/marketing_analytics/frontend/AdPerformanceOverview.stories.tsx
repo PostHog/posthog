@@ -173,7 +173,6 @@ export const WithTrends: Story = {
                                         ? series.custom_name
                                         : marketingAnalyticsLogic.values.tileColumnSelection
                                 return {
-                                    action: { ...series, type: 'data_warehouse', order: index },
                                     order: index,
                                     label: series.custom_name ?? metric,
                                     days,

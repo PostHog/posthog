@@ -391,7 +391,7 @@ export const todaySpacesLogic = kea<todaySpacesLogicType>([
                     }
                     const response = await taskChannelsList(String(values.currentTeamId))
                     // Without `limit` the endpoint answers with a bare array rather than a page.
-                    return Array.isArray(response) ? (response as ChannelDTOApi[]) : response.results
+                    return Array.isArray(response) ? response : response.results
                 },
             },
         ],

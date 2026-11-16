@@ -1,0 +1,31 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+  <uses-permission android:name="android.permission.INTERNET" />
+  <application>
+    <receiver
+      android:name=".ChartWidgetProvider"
+      android:exported="false"
+      android:label="@string/chart_widget_label">
+      <intent-filter>
+        <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+      </intent-filter>
+      <meta-data
+        android:name="android.appwidget.provider"
+        android:resource="@xml/chart_widget_info" />
+    </receiver>
+
+    <!-- The launcher starts it in its own task, so it must not bring the app's task forward. -->
+    <!-- Android launchers require access; the activity validates a bound Chart widget and returns only its ID after confirmation. -->
+    <!-- nosemgrep: java.android.security.exported_activity.exported_activity -->
+    <activity
+      android:name=".ChartWidgetConfigureActivity"
+      android:excludeFromRecents="true"
+      android:exported="true"
+      android:label="@string/chart_widget_choose_pin"
+      android:taskAffinity=""
+      android:theme="@style/ChartWidgetConfigureTheme">
+      <intent-filter>
+        <action android:name="android.appwidget.action.APPWIDGET_CONFIGURE" />
+      </intent-filter>
+    </activity>
+  </application>
+</manifest>

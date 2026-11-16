@@ -566,6 +566,12 @@ export const todayReportLogic = kea<todayReportLogicType>([
             })
         }
         return {
+            // A verdict that failed without an answer can still have saved, so the page reloads the report.
+            [todayVerdictLogic.actionTypes.setReportVerdictFailure]: ({ reportId }: { reportId: string }) => {
+                if (reportId === props.reportId) {
+                    actions.loadFullReport()
+                }
+            },
             reportVisited: () => {
                 // A visit with no click on Today is a deep-link: a shared URL, a PostHog AI link, a refresh,
                 // or back / forward.

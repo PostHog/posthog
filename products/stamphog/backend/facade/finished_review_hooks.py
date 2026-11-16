@@ -30,6 +30,11 @@ class FinishedReviewRun:
     pr_number: int
     status: ReviewRunStatus
     verdict: ReviewVerdict
+    head_sha: str
+    author_login: str
+    head_branch: str
+    # Not read off `verdict`, because a gate-blocked refusal stores WAIT.
+    request_external_review: bool
 
 
 FinishedReviewHook = Callable[[FinishedReviewRun], None]

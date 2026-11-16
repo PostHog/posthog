@@ -585,7 +585,7 @@ const ExplainChartEvidenceSchema = z.object({
         .record(z.string(), z.unknown())
         .optional()
         .describe(
-            'The query that found this, as you ran it (for example a TrendsQuery with a breakdown). It becomes a link to that chart, and a TrendsQuery also draws as a chart in the walkthrough.'
+            'The query that found this, as you ran it. The explanation runs it again and draws the result beside the finding. An insight query (`TrendsQuery`, `FunnelsQuery`, `RetentionQuery`, `StickinessQuery`, `PathsQuery` or `LifecycleQuery`) draws with its insight chart. A `HogQLQuery` draws from its rows: select the x-axis column first (a time bucket or a label), then either the numbers to draw, or one text column to break down by followed by one number. Order by the x-axis column. SQL returns 100 rows unless it sets a `LIMIT`.'
         ),
     url: z
         .string()
@@ -737,6 +737,15 @@ const EventDefinitionTagSchema = z
 
 export const EventDefinitionUpdateInputSchema = z.object({
     description: z.string().optional().describe('Description explaining when the event is triggered'),
+    owner: z
+        .number()
+        .int()
+        .positive()
+        .nullable()
+        .optional()
+        .describe(
+            'Numeric user ID of the person responsible for the event. Must be a member of the organization. To find the ID from an email, call `org-members-list` and use `user.id`. Pass null to remove the owner.'
+        ),
     tags: z
         .array(EventDefinitionTagSchema)
         .optional()
@@ -756,6 +765,10 @@ export const EventDefinitionUpdateInputSchema = z.object({
 export const EventDefinitionUpdateSchema = z.object({
     eventName: z.string().describe('The name of the event to update (e.g. "$pageview", "user_signed_up")'),
     data: EventDefinitionUpdateInputSchema.describe('The event definition data to update'),
+})
+
+export const EventDefinitionGetSchema = z.object({
+    eventName: z.string().min(1).describe('The exact name of the event (e.g. "$pageview", "user_signed_up")'),
 })
 
 export const EventDefinitionCreateSchema = z.object({
@@ -1322,7 +1335,7 @@ export const WorkflowGraphPatchSchema = z.object({
 const EmailDesignFreeformObject = z.record(z.string(), z.unknown())
 
 const EmailDesignPatchOperationSchema = z.discriminatedUnion('op', [
-    z.object({
+    z.strictObject({
         op: z.literal('update_content'),
         id: z.string().describe('Id of the content block to update.'),
         patch: EmailDesignFreeformObject.describe(
@@ -1330,23 +1343,23 @@ const EmailDesignPatchOperationSchema = z.discriminatedUnion('op', [
                 "e.g. {values: {text: '<p>Hi</p>'}} changes only the block's text."
         ),
     }),
-    z.object({
+    z.strictObject({
         op: z.literal('update_column'),
         id: z.string().describe('Id of the column to update.'),
         patch: EmailDesignFreeformObject.describe('Partial column fields, deep-merged; a null leaf deletes that key.'),
     }),
-    z.object({
+    z.strictObject({
         op: z.literal('update_row'),
         id: z.string().describe('Id of the row to update.'),
         patch: EmailDesignFreeformObject.describe('Partial row fields, deep-merged; a null leaf deletes that key.'),
     }),
-    z.object({
+    z.strictObject({
         op: z.literal('update_body'),
         patch: EmailDesignFreeformObject.describe(
             "Partial body fields, deep-merged. e.g. {values: {backgroundColor: '#ffffff'}}."
         ),
     }),
-    z.object({
+    z.strictObject({
         op: z.literal('add_content'),
         column_id: z.string().describe('Id of the column to insert the block into.'),
         content: EmailDesignFreeformObject.describe(
@@ -1355,17 +1368,17 @@ const EmailDesignPatchOperationSchema = z.discriminatedUnion('op', [
         ),
         index: z.number().int().optional().describe('0-based insert position; omit to append to the end.'),
     }),
-    z.object({
+    z.strictObject({
         op: z.literal('remove_content'),
         id: z.string().describe('Id of the content block to remove.'),
     }),
-    z.object({
+    z.strictObject({
         op: z.literal('move_content'),
         id: z.string().describe('Id of the content block to move.'),
         column_id: z.string().describe('Id of the destination column.'),
         index: z.number().int().optional().describe('0-based position in the destination column; omit to append.'),
     }),
-    z.object({
+    z.strictObject({
         op: z.literal('add_row'),
         row: EmailDesignFreeformObject.describe(
             'A full row {cells, columns: [{contents: [...], values}], values}; ids and Unlayer numbering are ' +
@@ -1373,13 +1386,13 @@ const EmailDesignPatchOperationSchema = z.discriminatedUnion('op', [
         ),
         index: z.number().int().optional().describe('0-based insert position; omit to append to the end.'),
     }),
-    z.object({
+    z.strictObject({
         op: z.literal('remove_row'),
         id: z.string().describe('Id of the row to remove.'),
     }),
 ])
 
-export const EmailTemplateDesignPatchSchema = z.object({
+export const EmailTemplateDesignPatchSchema = z.strictObject({
     id: z.string().describe('The email template id to edit.'),
     operations: z
         .array(EmailDesignPatchOperationSchema)
@@ -1483,4 +1496,49 @@ export const FlagRulesV2UpdateInputSchema = z.preprocess(
             })
             .describe('The complete new configuration. It replaces the stored `filters`.'),
     })
+)
+
+// A scanner's recording filter, as the replay vision tools take it. The API validates the full
+// `RecordingsQuery`; inlining that schema in every scanner tool costs agents hundreds of kilobytes each,
+// so this names the parts a scanner filters on and lets each item through for the API to check.
+const RecordingFilterItemsSchema = z.array(z.record(z.string(), z.unknown()))
+
+const ScannerRecordingsFilterFields = z
+    .object({
+        kind: z.literal('RecordingsQuery').default('RecordingsQuery'),
+        events: RecordingFilterItemsSchema.nullish().describe(
+            'Events a recording must contain, such as `{"id": "$pageview", "type": "events", "order": 0}`. Each can carry `properties` that filter that event.'
+        ),
+        actions: RecordingFilterItemsSchema.nullish().describe(
+            'Saved actions a recording must contain, such as `{"id": 12, "type": "actions", "order": 0}`.'
+        ),
+        properties: RecordingFilterItemsSchema.nullish().describe(
+            'Recording, session, person and cohort filters, such as `{"type": "recording", "key": "visited_page", "value": "/checkout", "operator": "icontains"}` or `{"type": "cohort", "key": "id", "value": 7, "operator": "in"}`.'
+        ),
+        having_predicates: RecordingFilterItemsSchema.nullish().describe(
+            'Duration filters, such as `{"type": "recording", "key": "active_seconds", "value": 60, "operator": "gt"}`. These always apply with AND, whatever `operand` says.'
+        ),
+        console_log_filters: RecordingFilterItemsSchema.nullish().describe(
+            'Console log filters, such as `{"type": "log_entry", "key": "level", "value": ["error"], "operator": "exact"}`.'
+        ),
+        operand: z
+            .enum(['AND', 'OR'])
+            .nullish()
+            .describe(
+                'How `events`, `actions`, `properties` and `console_log_filters` combine. `AND`, the default when omitted, keeps recordings that match every condition. `OR` keeps recordings that match any one. An explicit `null` is read as `OR`. `having_predicates` and `filter_test_accounts` always apply with AND.'
+            ),
+        filter_test_accounts: z.boolean().nullish().describe('Leave out recordings from internal and test accounts.'),
+    })
+    .passthrough()
+
+export const ScannerRecordingsFilterSchema = ScannerRecordingsFilterFields.optional().describe(
+    'Which recordings the scanner watches, as a `RecordingsQuery`. Omit every filter to watch every new recording. The date range is ignored, because the schedule controls time.'
+)
+
+export const ScannerUpdateRecordingsFilterSchema = ScannerRecordingsFilterFields.optional().describe(
+    "The filter that replaces the scanner's current one, as a `RecordingsQuery`. It is not merged: any field you leave out is cleared, and `{}` watches every new recording. To change part of the filter, read the current one with `vision-scanners-get`, change it, and send it back in full. The date range is ignored, because the schedule controls time."
+)
+
+export const ScannerEstimateRecordingsFilterSchema = ScannerRecordingsFilterFields.optional().describe(
+    'Which recordings to count, as a `RecordingsQuery`. Omit every filter to count every recording. The date range is ignored, because the estimate counts a recent window (`window_days` in the response) and scales it to 30 days.'
 )

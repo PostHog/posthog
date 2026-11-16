@@ -91,7 +91,7 @@ const CANDIDATES = {
 const trend = (label: string, values: number[]): Record<string, unknown> => ({
     results: [
         {
-            action: { id: label, name: label, type: 'events', order: 0 },
+            order: 0,
             label,
             data: values,
             days: BUCKETS,
@@ -206,13 +206,5 @@ export function WebAnalyticsPagePerformance(): JSX.Element {
         setConversionGoal({ customEventName: 'signed_up' })
     }, [setConversionGoal])
 
-    return <App />
-}
-
-MarketingPageVisibility.parameters = {
-    pageUrl: `${urls.marketingAnalyticsApp()}?tab=page-visibility`,
-    featureFlags: [FEATURE_FLAGS.WEB_ANALYTICS_MARKETING, FEATURE_FLAGS.MARKETING_ANALYTICS_NEW_DASHBOARD],
-}
-export function MarketingPageVisibility(): JSX.Element {
     return <App />
 }

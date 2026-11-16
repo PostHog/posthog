@@ -7,6 +7,7 @@ picker and model-override classifier) import from here rather than reaching into
 `logic/services/`.
 """
 
+from products.tasks.backend.logic.services.gateway_model_pin import model_allowed_by_product_pin
 from products.tasks.backend.logic.services.model_catalogue import (
     COST_BASELINE_MODEL,
     REASONING_EFFORT_DISPLAY_NAMES,
@@ -41,6 +42,7 @@ __all__ = [
     "filter_unsupported_effort",
     "group_by_runtime",
     "label_for",
+    "model_allowed_by_product_pin",
     "normalize_model_id",
     "offered_model_choices",
     "runtime_adapter_for",

@@ -64,6 +64,9 @@ export function getItemId(item: FileSystemImport | FileSystemEntry, protocol = '
     return item.type === 'folder' ? `${root}://${item.path}` : `${root}/${item.id || item.path}`
 }
 
+// pinned: stored as each source star's type. Its source id `ref` keeps it apart from the ref-less Sources page star.
+export const DATA_SOURCE_SHORTCUT_TYPE = 'data_source'
+
 type ProjectTreeDrop =
     | { type: 'reorder'; activeId: string; overId: string }
     | { type: 'star'; item: FileSystemEntry }
@@ -86,9 +89,11 @@ export function resolveProjectTreeDrop(
     if (!item) {
         return null
     }
+    // A source star's ref is a source id, not a file-system entry, so there is no file to move.
+    const canMove = !activeShortcut || (!!activeShortcut.ref && activeShortcut.type !== DATA_SOURCE_SHORTCUT_TYPE)
     if (overShortcut?.type === 'folder' && position === 'onto') {
         // A shortcut's path is its label; ref points to the real folder, including unloaded home folders.
-        return overShortcut.ref && (!activeShortcut || activeShortcut.ref)
+        return overShortcut.ref && canMove
             ? { type: activeShortcut ? 'move-shortcut' : 'move', item, folder: overShortcut.ref }
             : null
     }
@@ -97,9 +102,7 @@ export function resolveProjectTreeDrop(
             ? ''
             : items.find((entry) => entry.type === 'folder' && getItemId(entry) === overId)?.path
     if (folder !== undefined) {
-        return !activeShortcut || activeShortcut.ref
-            ? { type: activeShortcut ? 'move-shortcut' : 'move', item, folder }
-            : null
+        return canMove ? { type: activeShortcut ? 'move-shortcut' : 'move', item, folder } : null
     }
     if (activeShortcut) {
         return overShortcut ? { type: 'reorder', activeId, overId } : null
