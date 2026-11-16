@@ -34,6 +34,8 @@ from posthog.auth import SessionAuthentication
 from posthog.constants import AvailableFeature
 from posthog.helpers.two_factor_session import code_based_verification_token_generator
 from posthog.models import Team, User
+from posthog.models.id_jag_identity import IdJagIdentity
+from posthog.models.identity_provider_config import IdentityProviderConfig
 from posthog.models.instance_setting import set_instance_setting
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthGrant, OAuthRefreshToken
 from posthog.models.organization import Organization, OrganizationMembership
@@ -1502,6 +1504,21 @@ class TestUserAPI(APIBaseTest):
         other_user_social_auth_id = UserSocialAuth.objects.create(
             user=other_user, provider="google-oauth2", uid="other-google-sub"
         ).id
+        OrganizationDomain.objects.create(
+            organization=self.organization, domain="example.com", verified_at=timezone.now()
+        )
+        other_organization = Organization.objects.create(name="Other")
+        id_jag_bindings = {
+            organization.pk: IdJagIdentity.objects.create(
+                identity_provider_config=IdentityProviderConfig.objects.create(
+                    organization=organization, id_jag_issuer_url="https://idp.example.com"
+                ),
+                issuer="https://idp.example.com",
+                subject="alpha",
+                user=self.user,
+            )
+            for organization in (self.organization, other_organization)
+        }
 
         with (
             patch("posthog.api.user.is_email_available", return_value=True) as mock_is_email_available,
@@ -1532,6 +1549,8 @@ class TestUserAPI(APIBaseTest):
             for social_auth_id in social_auth_ids:
                 assert not UserSocialAuth.objects.filter(id=social_auth_id).exists()
             assert UserSocialAuth.objects.filter(id=other_user_social_auth_id).exists()
+            assert not IdJagIdentity.objects.filter(pk=id_jag_bindings[self.organization.pk].pk).exists()
+            assert IdJagIdentity.objects.filter(pk=id_jag_bindings[other_organization.pk].pk).exists()
             mock_send_email_change_emails.assert_called_once_with(
                 ANY,
                 self.user.first_name,

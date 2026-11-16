@@ -171,7 +171,7 @@ class MemberEmailMigration:
                     return "The account changed while this ran"
                 # The plan checked every row before any write. Check again with the database fold, so
                 # an earlier row of this run cannot hold an address that folds onto this one.
-                change = LoginEmailChange(user=user, new_email=new_email, id_jag_organization=self.organization)
+                change = LoginEmailChange(user=user, new_email=new_email)
                 if change.is_taken():
                     return "Another account already uses this email"
                 change.apply()
