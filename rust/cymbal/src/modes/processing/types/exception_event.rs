@@ -657,6 +657,13 @@ impl TryFrom<AnyEvent> for ExceptionEvent<Parsed> {
             recursively_sanitize_properties(event.uuid, value, 0)?;
             normalize_legacy_tags(value);
         }
+        // Native resolution binds each image's debug_id as Postgres text, which rejects NUL.
+        if let Some(value) = properties
+            .as_object_mut()
+            .and_then(|object| object.get_mut("$debug_images"))
+        {
+            recursively_sanitize_properties(event.uuid, value, 0)?;
+        }
 
         let mut raw: RawExceptionProperties = serde_json::from_value(properties)
             .map_err(|error| EventError::InvalidProperties(event.uuid, error.to_string()))?;
