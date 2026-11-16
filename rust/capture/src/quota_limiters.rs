@@ -26,10 +26,6 @@ pub struct EventInfo<'a> {
 // associated with the QuotaResource type you will bind to the
 // CaptureQuotaLimiter
 //
-// The experiments billing limit check keeps a copy of these predicates
-// to tell which exposure events the events limit doesn't drop, in
-// products/experiments/backend/health/checks/billing_limit.py. Update both.
-//
 
 // for QuotaResource::Exceptions
 pub fn is_exception_event(info: EventInfo) -> bool {
