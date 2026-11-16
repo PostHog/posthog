@@ -1215,8 +1215,8 @@ class ErrorTrackingIssueTag(TeamScopedRootMixin, UUIDModel):
     """The answer to one tag question about an issue.
 
     A row holds only the answer of the highest-ranked tagger that answered, so write it through
-    logic/issue_tags/writer.py. Only a true `value` applies the label, so a missing row and a false `value` both
-    mean no label.
+    logic/issue_tags/writer.py. Only a true `value` applies the label. A missing row, a false `value` and a null
+    `value` all mean no label.
     """
 
     class Source(models.TextChoices):
