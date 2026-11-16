@@ -551,6 +551,29 @@ class TestDeletionRequestConsole(BaseTest):
         obj.refresh_from_db()
         assert obj.request_type == RequestType.EVENT_REMOVAL
 
+    def test_criteria_of_a_property_removal_whose_run_started_stay_fixed(self) -> None:
+        # The edit would clear the marker, which lets another removal on the team start while this run may
+        # still restore its staged copy.
+        marker = timezone.now()
+        obj = self._request(
+            request_type=RequestType.PROPERTY_REMOVAL, properties=["$ip"], property_removal_marker=marker
+        )
+
+        response = self._edit(
+            obj,
+            {
+                "request_type": RequestType.PROPERTY_REMOVAL.value,
+                "start_time": "2026-10-30 12:00",
+                "end_time": "2026-11-06 11:59",
+                "events": "$pageview",
+                "properties": "email",
+            },
+        )
+
+        assert response.status_code == 409
+        obj.refresh_from_db()
+        assert (obj.properties, obj.property_removal_marker) == (["$ip"], marker)
+
     def test_an_edit_does_not_overwrite_a_change_made_after_the_form_opened(self) -> None:
         obj = self._request(status=RequestStatus.PENDING)
         opened_at = obj.updated_at.isoformat()

@@ -25,6 +25,7 @@ from posthog.dataclasses import frozen
 from posthog.models.data_deletion_request import (
     AUTO_APPROVE_INTERVAL_MINUTES,
     AUTO_APPROVE_MAX_EVENTS,
+    CRITERIA_FIELDS,
     EDITABLE_STATUSES,
     DataDeletionRequest,
     ExecutionMode,
@@ -667,6 +668,15 @@ def edit_criteria(request: HttpRequest, obj: Model, form: forms.Form | None) -> 
             return HttpResponse(status=409)
         if current[0] not in EDITABLE_STATUSES:
             messages.error(request, "The request was approved or started since you opened this form. Reload it.")
+            return HttpResponse(status=409)
+        # A criteria edit clears the marker, which lets another property removal on the team start. This run may
+        # still restore its staged copy over the rows that removal rewrites.
+        if CRITERIA_FIELDS & set(form.changed_data) and unfinished_property_removals().filter(pk=obj.pk).exists():
+            messages.error(
+                request,
+                "This property removal's run started and did not complete. Retry it until it completes before "
+                "you change its criteria.",
+            )
             return HttpResponse(status=409)
         notices = obj.apply_staff_edit(cast(User, request.user), form.changed_data, is_new=False)
         obj.save()
