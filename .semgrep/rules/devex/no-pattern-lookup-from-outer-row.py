@@ -153,3 +153,30 @@ FileSystem.objects.filter(
     # nosemgrep: no-pattern-lookup-from-outer-row -- the outer query is one row, fetched by id
     path__startswith=OuterRef("path"),
 )
+
+
+def list_held_in_a_variable(queryset):
+    labels = [OuterRef("label")]
+    # ok: no-pattern-lookup-from-outer-row
+    return queryset.filter(labels__contains=labels)
+
+
+def tuple_held_in_a_variable(queryset):
+    labels = (OuterRef("label"), OuterRef("tag"))
+    # todook: no-pattern-lookup-from-outer-row
+    return queryset.filter(labels__contains=labels)
+
+
+# ok: no-pattern-lookup-from-outer-row
+Task.objects.filter(Contains(F("labels"), [OuterRef("label")]))
+
+
+def lookup_dict_held_in_a_variable(queryset):
+    # ruleid: no-pattern-lookup-from-outer-row
+    filters = {"team_id": team_id, "path__startswith": Concat(OuterRef("path"), Value("/"))}
+    return queryset.filter(**filters)
+
+
+def lookup_key_built_with_an_f_string(queryset, field):
+    # ruleid: no-pattern-lookup-from-outer-row
+    return queryset.filter(**{f"{field}__startswith": OuterRef("path")})

@@ -10,8 +10,9 @@ rules:
 
           A JSON or array `__contains` compares values (`@>`) instead of matching a pattern, so a
           `JSONArray`, `JSONObject`, list or tuple value does not count. The rule can't see the
-          column type, so it also flags a bare `OuterRef` compared to a JSON or array column, and
-          a pattern served by a trigram index. Suppress those with the reason.
+          column type, so it also flags a bare `OuterRef` compared to a JSON or array column, a
+          tuple held in a variable, and a pattern served by a trigram index. Suppress those with
+          the reason.
 
           Match against constant values instead: loop over the known prefixes and build one
           uncorrelated `Exists` per prefix, as `_visible_files` in
@@ -23,27 +24,27 @@ rules:
       mode: taint
       pattern-sources:
           - pattern: OuterRef(...)
-          - pattern: models.OuterRef(...)
           - pattern: django.db.models.OuterRef(...)
       pattern-sanitizers:
           - pattern: JSONArray(...)
           - pattern: JSONObject(...)
+          - patterns:
+                - pattern: '[...]'
+                - pattern-not-inside: $FUNC(..., *$UNPACKED, ...)
       pattern-sinks:
           - patterns:
                 - pattern: $CALL(..., $LOOKUP=$VALUE, ...)
-                - pattern-not: $CALL(..., $LOOKUP=[...], ...)
                 - pattern-not: $CALL(..., $LOOKUP=($ITEM, ...), ...)
                 - metavariable-regex:
                       metavariable: $LOOKUP
                       regex: ^\w+__i?(contains|startswith|endswith|regex)$
                 - focus-metavariable: $VALUE
           - patterns:
-                - pattern: '$CALL(..., **{..., $KEY: $VALUE, ...}, ...)'
-                - pattern-not: '$CALL(..., **{..., $KEY: [...], ...}, ...)'
-                - pattern-not: '$CALL(..., **{..., $KEY: ($ITEM, ...), ...}, ...)'
+                - pattern: '{..., $KEY: $VALUE, ...}'
+                - pattern-not: '{..., $KEY: ($ITEM, ...), ...}'
                 - metavariable-regex:
                       metavariable: $KEY
-                      regex: ^["']\w+__i?(contains|startswith|endswith|regex)["']$
+                      regex: ^f?["'][\w{}.]+__i?(contains|startswith|endswith|regex)["']$
                 - focus-metavariable: $VALUE
           - patterns:
                 - pattern-either:
