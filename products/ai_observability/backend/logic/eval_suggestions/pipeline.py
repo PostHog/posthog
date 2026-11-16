@@ -58,7 +58,6 @@ logger = structlog.get_logger(__name__)
 WINDOW = timedelta(days=7)
 # Traces younger than this may still be receiving events, so the window stops short of now.
 SETTLE = timedelta(minutes=30)
-# Below this share of sampled traces with a model answer, the team has not captured enough to suggest anything.
 MIN_CONTENT_SHARE = 0.25
 # Dedupe asks the model about each hand-written evaluation, so a team with many pays for this many at most.
 MAX_DEDUPED_EVALS = 50
@@ -239,7 +238,7 @@ def _reviewed_proposals(
         stages.set("drafting", "skipped", detail="budget used up")
         return []
     spent = triage_call.cost_usd
-    triage = call_review.parse_triage(triage_call.tool_input, call_types)
+    triage = call_review.parse_triage(triage_call.answer, call_types)
     if triage is None:
         stages.set("drafting", "failed", detail="unreadable triage answer", cost_usd=round(spent, 4))
         return []
@@ -261,7 +260,7 @@ def _reviewed_proposals(
     if review_call is None:
         stages.set("drafting", "skipped", detail="budget used up", cost_usd=round(spent, 4))
         return []
-    cards = call_review.parse_cards(review_call.tool_input, rendering)
+    cards = call_review.parse_cards(review_call.answer, rendering)
     spent += review_call.cost_usd
     calibrated = _calibrate(team, run, cards, rendering, judge_model, budget, deadline)
     stages.set(

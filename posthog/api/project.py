@@ -67,10 +67,12 @@ from posthog.api.team.team_config import (
     drop_cached_workflows_config,
 )
 from posthog.api.team.team_serializer import (
+    REALTIME_COHORTS_FIELD_SCHEMA,
     EvaluationContextSuggestionRequestSerializer,
     EvaluationContextSuggestionResponseSerializer,
     TeamSerializer,
     hide_team_secrets_from_workload_tokens,
+    realtime_cohorts_for_request,
 )
 from posthog.api.team.viewsets import EventIngestionRestrictionSerializer, team_event_ingestion_restrictions_view
 from posthog.api.utils import validate_authorized_url_wildcards
@@ -636,6 +638,7 @@ class ProjectBackwardCompatSerializer(
     product_intents = serializers.SerializerMethodField()  # Compat with TeamSerializer
     available_setup_task_ids = serializers.SerializerMethodField()  # Compat with TeamSerializer
     managed_viewsets = serializers.SerializerMethodField()  # Compat with TeamSerializer
+    realtime_cohorts = serializers.SerializerMethodField()  # Compat with TeamSerializer
     flag_evaluations_mode = serializers.SerializerMethodField(  # Compat with TeamSerializer
         help_text=(
             "Which table this project's feature flag usage data is read from. PostHog sets it for the "
@@ -820,6 +823,7 @@ class ProjectBackwardCompatSerializer(
             "project_id",  # Compat with TeamSerializer
             "user_access_level",  # Compat with TeamSerializer
             "managed_viewsets",  # Compat with TeamSerializer
+            "realtime_cohorts",  # Compat with TeamSerializer
             "flag_evaluations_mode",  # Compat with TeamSerializer
             "api_host",  # Compat with TeamSerializer
             "revenue_analytics_config",  # Compat with TeamSerializer
@@ -863,6 +867,7 @@ class ProjectBackwardCompatSerializer(
             "project_id",
             "user_access_level",
             "managed_viewsets",
+            "realtime_cohorts",
             "flag_evaluations_mode",
             "api_host",
         )
@@ -1049,6 +1054,10 @@ class ProjectBackwardCompatSerializer(
     @extend_schema_field(serializers.ChoiceField(choices=FlagEvaluationsMode.choices))
     def get_flag_evaluations_mode(self, obj: Project) -> int:
         return get_flag_evaluations_read_mode(obj.organization_id)
+
+    @extend_schema_field(REALTIME_COHORTS_FIELD_SCHEMA)
+    def get_realtime_cohorts(self, obj: Project) -> dict[str, str]:
+        return realtime_cohorts_for_request(self.context.get("request"), obj.passthrough_team)
 
     @staticmethod
     def validate_revenue_analytics_config(value):
