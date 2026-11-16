@@ -1,6 +1,10 @@
 from typing import Optional
 
-from django.db import models
+from django.db import models, router
+from django.db.models import F, Value
+from django.db.models.expressions import CombinedExpression
+from django.db.models.functions import Coalesce
+from django.utils import timezone
 
 from posthog.models.utils import UUIDTModel
 
@@ -42,8 +46,17 @@ class MessageRecipientPreference(UUIDTModel):
         if not isinstance(status, PreferenceStatus):
             raise ValueError(f"Status must be a PreferenceStatus enum, got {type(status)}")
 
-        self.preferences[str(category_id)] = status.value
-        self.save(update_fields=["preferences", "updated_at"])
+        # Merge the one key in the database. Saving the whole column would drop a category that another request
+        # set after this row was read.
+        type(self).objects.filter(pk=self.pk, team_id=self.team_id).update(
+            preferences=CombinedExpression(
+                Coalesce(F("preferences"), Value({}, output_field=models.JSONField())),
+                "||",
+                Value({str(category_id): status.value}, output_field=models.JSONField()),
+            ),
+            updated_at=timezone.now(),
+        )
+        self.refresh_from_db(using=router.db_for_write(type(self)), fields=["preferences", "updated_at"])
 
     def get_preference(self, category_id: str) -> PreferenceStatus:
         """Get preference for a specific category"""

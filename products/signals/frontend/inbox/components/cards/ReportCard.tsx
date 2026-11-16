@@ -1,5 +1,4 @@
 import clsx from 'clsx'
-import { router } from 'kea-router'
 import { memo } from 'react'
 
 import { IconHide, IconUndo } from '@posthog/icons'
@@ -14,35 +13,33 @@ import { PrBadge } from 'lib/signals/SignalReportPrBadge'
 
 import type { InboxRankingSortField } from '../../logics/inboxFiltersLogic'
 import { useReportCiStatus } from '../../logics/prCiStatusLogic'
-import {
-    INBOX_SECTION_LEGACY_TAB,
-    InboxReportSectionKey,
-    SignalReport,
-    SignalReportStatus,
-    SignalSourceProduct,
-} from '../../types'
+import { SignalReport, SignalReportStatus, SignalSourceProduct } from '../../types'
 import { dismissalReasonLabel, DismissalFeedback, heldBackLabel, isResolveReason } from '../../utils/dismissalReasons'
 import { inboxReportDetailUrl } from '../../utils/inboxReportUrls'
 import {
     deriveHeadline,
     displayConventionalCommitTitle,
-    parseConventionalCommitTitle,
     parsePrUrlParts,
     safeHttpUrl,
 } from '../../utils/reportPresentation'
 import { primaryReportPullRequest } from '../../utils/reportPullRequests'
-import { SignalReportActionabilityBadge } from '../badges/SignalReportActionabilityBadge'
+import { ReportClaimAvatar } from '../badges/ReportClaimAvatar'
 import { SignalReportBillingBadge } from '../badges/SignalReportBillingBadge'
 import { SignalReportPriorityBadge } from '../badges/SignalReportPriorityBadge'
-import { isStatusRedundantWithActionability, SignalReportStatusBadge } from '../badges/SignalReportStatusBadge'
 import {
     knownSourceProductEntries,
     SourceProductIconRow,
     sourceProductsTooltipTitle,
 } from '../badges/sourceProductIcons'
+import { useReportClaim } from '../badges/useReportClaim'
 import { inboxCardRowClassName } from './inboxCardRowClassName'
 import { ReportCardImpactMetric } from './ReportCardImpactMetric'
+import { ReportCardMonitoringBand } from './ReportCardMonitoringBand'
+import { ReportCardMonitoringPanel } from './ReportCardMonitoringPanel'
+import { ReportCardPersonalReason } from './ReportCardPersonalReason'
+import { ReportCardRankingPill } from './ReportCardRankingPill'
 import { ReportCardRankingTag } from './ReportCardRankingTag'
+import { useMinuteClock } from './useMinuteClock'
 import { useReportCardSelection } from './useReportCardSelection'
 import { useReportDismiss } from './useReportDismiss'
 
@@ -108,16 +105,14 @@ export function InboxCardSourceMeta({
  * "Review" action; plain reports get a dashed border, a summary placeholder, and the
  * status/actionability chips.
  *
- * Under the redesign the row itself is the way in: the whole card links to the report detail, so
- * there is no separate open button. Dismissing and resolving live in the report detail pane and the
- * bulk selection bar, where what is being judged is in full view. Other surfaces that embed this
- * card can still opt into a row-level Dismiss via `onDismiss`. The redesign also drops the status
- * and actionability chips: the state a row is in (Needs decision, Not actionable, ...) already says
- * what they said. With the flag off every row keeps its chips, its Dismiss button, and "Review".
+ * The row itself is the way in: the whole card links to the report detail, so there is no separate
+ * open button. Dismissing and resolving live in the report detail pane and the bulk selection bar,
+ * where what is being judged is in full view. Other surfaces that embed this card can still opt
+ * into a row-level Dismiss via `onDismiss`. Rows show no status or actionability chips: the state a
+ * row is in (Needs decision, Not actionable, ...) already says what they said.
  */
 function ReportCardRaw({
     report,
-    sectionKey = 'needs-decision',
     attached = false,
     onDismiss,
     onRestore,
@@ -125,10 +120,12 @@ function ReportCardRaw({
     preview = false,
     selectable = false,
     rankingSortField = null,
+    rankingPill = false,
+    personalSort = false,
     timestampField = 'updated_at',
+    hideOwnClaim = false,
 }: {
     report: SignalReport
-    sectionKey?: InboxReportSectionKey
     attached?: boolean
     /** Dismiss from the row. The inbox list omits it; surfaces that embed this card can opt in. */
     onDismiss?: (dismissal: DismissalFeedback) => void
@@ -142,11 +139,15 @@ function ReportCardRaw({
     selectable?: boolean
     /** The active model sort, if any. The meta row then shows the report's probability for that head. */
     rankingSortField?: InboxRankingSortField | null
+    /** The Recommended list asked for score pills. The meta row then shows all three scores. A model sort shows its own tag instead. */
+    rankingPill?: boolean
+    /** The list is in the user's personal order. The card then shows the report's tier and the reason for its place. */
+    personalSort?: boolean
     /** The time the card shows. Match it to the active time sort, so the list reads in order. */
     timestampField?: 'created_at' | 'updated_at'
+    /** Hide the user's own claim marker, for views where every card is theirs. */
+    hideOwnClaim?: boolean
 }): JSX.Element {
-    // Keyed on status, not the section: the legacy Archive tab lists dismissed and resolved rows
-    // through one section key, and the two need different affordances.
     const isDismissed = report.status === SignalReportStatus.SUPPRESSED
     // Resolved reports are terminal (a merged PR or a resolve) – shown for reference in the Resolved
     // section. They can't be restored or dismissed; refunding their PR lives in the detail pane.
@@ -158,22 +159,23 @@ function ReportCardRaw({
     const repoSlug = prUrlParts?.repoSlug ?? null
 
     const isReady = report.status === 'ready'
-    const conventionalTitle = parseConventionalCommitTitle(report.title)
+    // A Monitoring row names its merged PR in the band across its top, so it drops the corner PR badge
+    // and puts the Monitoring evidence where the impact column would be.
+    const isMonitoring = report.status === SignalReportStatus.MONITORING
+    const monitoringSummary = isMonitoring ? (report.monitoring_summary ?? null) : null
+    const showsPrBadge = hasPr && !isMonitoring
     const cardTitle = displayConventionalCommitTitle(report.title, hasPr ? 'Untitled pull request' : 'Untitled report')
     const headline = deriveHeadline(report.summary)
     const cardTime = timestampField === 'created_at' ? report.created_at : (report.updated_at ?? report.created_at)
     const cardTimeTitle = timestampField === 'created_at' ? 'Created' : 'Last updated'
-    const redesign = useFeatureFlag('INBOX_REDESIGN')
-    const metricsEnabled = useFeatureFlag('SIGNALS_REPORT_METRICS')
-    // The impact column carries its own flag on top of the redesign: its figures come from live
-    // queries, so it rolls out per team as the metric quality is verified.
-    const showImpactColumn = redesign && metricsEnabled
-    // The legacy layout addresses a report through the tab that listed it, so its back control returns there.
-    const detailUrl = inboxReportDetailUrl(
-        report.id,
-        backUrl,
-        redesign ? 'reports' : INBOX_SECTION_LEGACY_TAB[sectionKey]
-    )
+    // The impact column carries its own flag: its figures come from live queries, so it rolls out
+    // per team as the metric quality is verified.
+    const reportMetricsEnabled = useFeatureFlag('SIGNALS_REPORT_METRICS')
+    const showImpactColumn = reportMetricsEnabled && !isMonitoring
+    const hasRightColumn = showImpactColumn || !!monitoringSummary
+    const now = useMinuteClock(isMonitoring)
+    const detailUrl = inboxReportDetailUrl(report.id, backUrl)
+    const personalReason = personalSort ? report.personal_reason : null
 
     const { isSelected, isHolding, cardHandlers } = useReportCardSelection(
         report.id,
@@ -198,7 +200,11 @@ function ReportCardRaw({
     const glyphStatus = prCiGlyphStatus(prState, ciStatus)
 
     const isRefunded = !!report.refund
-    const showsDismiss = !!onDismiss || !redesign
+
+    const claim = useReportClaim(report.assignee)
+    const showsClaim = !!claim && !isDismissed && !isResolved && !(claim.isMine && hideOwnClaim)
+    const claimAvatar = showsClaim ? <ReportClaimAvatar claim={claim} /> : null
+    const showsDismiss = !!onDismiss
 
     // Why the report left the inbox (reason tag + note tooltip) when we have it: the dismiss reason
     // on dismissed rows, and a resolve reason on rows resolved by hand. A report that was dismissed,
@@ -217,30 +223,27 @@ function ReportCardRaw({
         'flex min-w-0 flex-1 items-start gap-3 text-left text-inherit no-underline',
         // Too narrow to hold the impact column beside the content: let it drop to its own line rather
         // than squeeze the title into a column of single words.
-        showImpactColumn && 'flex-wrap @lg:flex-nowrap'
+        hasRightColumn && 'flex-wrap @lg:flex-nowrap'
     )
     const cardBody = (
         <>
-            {report.priority && (
-                <div className="shrink-0">
-                    <SignalReportPriorityBadge priority={report.priority} />
-                </div>
-            )}
-
-            <div className={clsx('flex flex-col gap-2 min-w-0 flex-1', showImpactColumn && 'self-stretch')}>
+            <div className={clsx('flex flex-col gap-1.5 min-w-0 flex-1', hasRightColumn && 'self-stretch')}>
                 {/* Keep the title clear of the PR badge. With the impact column shown the badge sits
                     over that column from `@lg` up, so only the stacked width needs the reserved space. */}
                 <div
                     className={clsx(
-                        'min-w-0 break-words font-semibold text-sm leading-snug text-balance',
+                        'min-w-0 break-words font-semibold text-[15px] leading-snug text-balance',
                         // A CI glyph widens the pill, so the title gives back the space it takes.
                         // A state that draws no glyph keeps the pill at its plain width.
-                        hasPr && (glyphStatus ? 'pr-24' : 'pr-14'),
-                        hasPr && showImpactColumn && '@lg:pr-0'
+                        showsPrBadge && (glyphStatus ? 'pr-24' : 'pr-14'),
+                        showsPrBadge && showImpactColumn && '@lg:pr-0'
                     )}
                 >
-                    {conventionalTitle && (
-                        <ConventionalCommitScopeTag type={conventionalTitle.type} scope={conventionalTitle.scope} />
+                    {/* Inline like ConventionalCommitScopeTag, so wrapped title lines use the full width. */}
+                    {report.priority && (
+                        <span className="mr-1.5 inline-flex align-middle">
+                            <SignalReportPriorityBadge priority={report.priority} size="small" />
+                        </span>
                     )}
                     {cardTitle}
                 </div>
@@ -250,7 +253,7 @@ function ReportCardRaw({
                         className={clsx(
                             'min-w-0',
                             !hasPr && !isReady && 'opacity-80',
-                            'break-words line-clamp-2 text-xs text-secondary leading-snug m-0'
+                            'break-words line-clamp-2 text-sm text-secondary leading-snug m-0'
                         )}
                     >
                         {headline}
@@ -260,7 +263,7 @@ function ReportCardRaw({
                         className={clsx(
                             'min-w-0',
                             !isReady && 'opacity-80',
-                            'break-words line-clamp-2 text-xs text-tertiary italic leading-snug m-0'
+                            'break-words line-clamp-2 text-sm text-tertiary italic leading-snug m-0'
                         )}
                     >
                         No summary yet. Still collecting context.
@@ -272,22 +275,11 @@ function ReportCardRaw({
                         'flex items-center flex-wrap min-w-0 gap-x-2.5 gap-y-1 text-xs text-tertiary leading-none select-none',
                         // Sit on the bottom edge of the column so the sources line up with the timestamp
                         // opposite, whichever column is taller.
-                        showImpactColumn ? 'mt-auto pt-1' : 'mt-1.5'
+                        hasRightColumn ? 'mt-auto pt-1' : 'mt-1.5'
                     )}
                 >
                     {hasPr && repoSlug ? <span className="truncate font-mono">{repoSlug}</span> : null}
                     <InboxCardSourceMeta sourceProducts={report.source_products} scoutSkillName={report.scout_name} />
-                    {!hasPr &&
-                        !redesign &&
-                        !isStatusRedundantWithActionability(report.status, report.actionability) && (
-                            <SignalReportStatusBadge
-                                status={report.status}
-                                suppressionSource={report.suppression_source}
-                            />
-                        )}
-                    {!hasPr && !redesign && report.actionability && (
-                        <SignalReportActionabilityBadge actionability={report.actionability} />
-                    )}
                     {outcomeLabel && (
                         <Tooltip title={outcomeTooltip}>
                             <LemonTag
@@ -306,46 +298,65 @@ function ReportCardRaw({
                         </Tooltip>
                     )}
                     <SignalReportBillingBadge report={report} />
-                    {rankingSortField && <ReportCardRankingTag report={report} sortField={rankingSortField} />}
+                    {rankingSortField ? (
+                        <ReportCardRankingTag report={report} sortField={rankingSortField} />
+                    ) : rankingPill ? (
+                        <ReportCardRankingPill report={report} personalSort={personalSort} />
+                    ) : null}
                     {!showImpactColumn && (
-                        <TZLabel
-                            time={cardTime}
-                            className="ml-auto shrink-0 text-xs text-tertiary tabular-nums"
-                            title={cardTimeTitle}
-                        />
+                        <span className="ml-auto flex shrink-0 items-center gap-2">
+                            {claimAvatar}
+                            <TZLabel
+                                time={cardTime}
+                                className="shrink-0 text-xs text-tertiary tabular-nums"
+                                title={cardTimeTitle}
+                            />
+                        </span>
                     )}
                 </div>
+                {personalReason && <ReportCardPersonalReason reason={personalReason} />}
             </div>
 
             {/* Reserved even with no figure to show: the fixed width keeps every row's figure and
                 timestamp on the same two vertical lines down the list. */}
             {showImpactColumn ? (
-                <div className="flex w-full items-center gap-3 @lg:relative @lg:w-auto @lg:min-h-23 @lg:min-w-39 @lg:flex-none @lg:justify-end">
+                <div className="flex w-full items-center gap-3 @lg:relative @lg:w-auto @lg:min-h-23 @lg:min-w-39 @lg:flex-none @lg:self-stretch @lg:justify-end">
                     <ReportCardImpactMetric metrics={report.metrics} />
-                    <TZLabel
-                        time={cardTime}
-                        className="ml-auto shrink-0 whitespace-nowrap text-xs leading-none text-tertiary tabular-nums @lg:absolute @lg:right-0 @lg:bottom-0 @lg:ml-0"
-                        title={cardTimeTitle}
-                    />
+                    <span className="ml-auto flex shrink-0 items-center gap-2 @lg:absolute @lg:right-0 @lg:bottom-0 @lg:ml-0">
+                        {claimAvatar}
+                        <TZLabel
+                            time={cardTime}
+                            className="shrink-0 whitespace-nowrap text-xs leading-none text-tertiary tabular-nums"
+                            title={cardTimeTitle}
+                        />
+                    </span>
                 </div>
+            ) : null}
+            {monitoringSummary ? (
+                <ReportCardMonitoringPanel summary={monitoringSummary} metrics={report.metrics} now={now} />
             ) : null}
         </>
     )
 
-    return (
+    const rowStateClassName = clsx(
+        // Closed rows recede so open work stands out in the mixed flat list; hover restores
+        // full opacity for reading. Matches the disabled-scout treatment in ScoutRosterCard.
+        (isDismissed || isResolved) && 'opacity-55 hover:opacity-100',
+        isSelected && 'ring-1 ring-accent',
+        // A long press must not paint the title as selected text under the finger.
+        isHolding && 'select-none'
+    )
+
+    const row = (
         <div
             className={clsx(
-                inboxCardRowClassName(attached, { dashed: !hasPr }),
-                // Closed rows recede so open work stands out in the mixed flat list; hover restores
-                // full opacity for reading. Matches the disabled-scout treatment in ScoutRosterCard.
-                (isDismissed || isResolved) && 'opacity-55 hover:opacity-100',
-                isSelected && 'ring-1 ring-accent',
-                // A long press must not paint the title as selected text under the finger.
-                isHolding && 'select-none'
+                // Inside the Monitoring frame the row is attached: the frame carries the border.
+                inboxCardRowClassName(attached || isMonitoring, { dashed: !hasPr }),
+                !isMonitoring && rowStateClassName
             )}
         >
             <div className="relative flex min-w-0 flex-1">
-                {hasPr && prNumber != null ? (
+                {showsPrBadge && prNumber != null ? (
                     <div className="absolute right-0 top-0 z-10">
                         <PrBadge
                             prNumber={prNumber}
@@ -375,7 +386,7 @@ function ReportCardRaw({
                 pane, where the consequences are in view. Resolved reports are terminal and a refunded
                 dismissed report can't be restored, so neither carries actions – skip the column (and
                 divider) for both. */}
-            {!isResolved && !(isDismissed && isRefunded) && (isDismissed || showsDismiss || !redesign) && (
+            {!isResolved && !(isDismissed && isRefunded) && (isDismissed || showsDismiss) && (
                 <div className="flex items-center justify-end gap-2.5 shrink-0 @lg:self-stretch @lg:border-l @lg:border-primary @lg:pl-3">
                     {isDismissed ? (
                         // A refunded report can't be restored (its PR can never be billed again).
@@ -396,44 +407,39 @@ function ReportCardRaw({
                             </LemonButton>
                         )
                     ) : (
-                        <>
-                            {showsDismiss && (
-                                <LemonButton
-                                    type="secondary"
-                                    size="small"
-                                    icon={<IconHide />}
-                                    tooltip="Dismiss this report"
-                                    aria-label="Dismiss this report"
-                                    loading={isDismissing}
-                                    onClick={preview ? undefined : onDismissClick}
-                                    tabIndex={preview ? -1 : undefined}
-                                >
-                                    Dismiss
-                                </LemonButton>
-                            )}
-                            {!redesign && (
-                                <LemonButton
-                                    type="primary"
-                                    size="small"
-                                    tooltip="Open the full report to see its summary, evidence, and actions"
-                                    onClick={
-                                        preview
-                                            ? undefined
-                                            : (event) => {
-                                                  event.preventDefault()
-                                                  event.stopPropagation()
-                                                  router.actions.push(detailUrl)
-                                              }
-                                    }
-                                    tabIndex={preview ? -1 : undefined}
-                                >
-                                    Review
-                                </LemonButton>
-                            )}
-                        </>
+                        <LemonButton
+                            type="secondary"
+                            size="small"
+                            icon={<IconHide />}
+                            tooltip="Dismiss this report"
+                            aria-label="Dismiss this report"
+                            loading={isDismissing}
+                            onClick={preview ? undefined : onDismissClick}
+                            tabIndex={preview ? -1 : undefined}
+                        >
+                            Dismiss
+                        </LemonButton>
                     )}
                 </div>
             )}
+        </div>
+    )
+
+    if (!isMonitoring) {
+        return row
+    }
+    return (
+        <div
+            className={clsx(
+                'overflow-hidden',
+                attached
+                    ? 'border-b border-primary last:border-b-0'
+                    : 'rounded border border-primary hover:border-secondary',
+                rowStateClassName
+            )}
+        >
+            <ReportCardMonitoringBand report={report} summary={monitoringSummary} now={now} preview={preview} />
+            {row}
         </div>
     )
 }

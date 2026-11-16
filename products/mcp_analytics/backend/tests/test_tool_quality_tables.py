@@ -231,17 +231,26 @@ class TestMCPToolQualityRowsQueryRunner(_MCPAnalyticsTeamScopedTestMixin, Clickh
         assert row.total_calls == 1
         assert row.previous_calls == 1
 
-    def test_total_sessions_ignores_search_and_counts_each_session_once(self) -> None:
-        _emit(self.team, tool_name="query_run", session_id="s1")
-        _emit(self.team, tool_name="insight_get", session_id="s1")
-        _emit(self.team, tool_name="insight_get", session_id="s2")
+    @parameterized.expand(
+        [
+            ("search", {"search": "query_run"}, [("query_run", 1)]),
+            ("category", {"categories": ["Data"]}, [("query_run", 1)]),
+            ("no_matching_tool", {"search": "no_such_tool"}, []),
+        ]
+    )
+    def test_total_sessions_ignore_table_filters_and_count_each_session_once(
+        self, _name: str, table_filters: dict[str, Any], expected_rows: list[tuple[str, int]]
+    ) -> None:
+        _emit(self.team, tool_name="query_run", category="Data", session_id="s1")
+        _emit(self.team, tool_name="insight_get", category="Insights", session_id="s1")
+        _emit(self.team, tool_name="insight_get", category="Insights", session_id="s2")
         flush_persons_and_events()
 
         response = MCPToolQualityRowsQueryRunner(
-            query=MCPToolQualityRowsQuery(dateRange=DateRange(date_from="-7d"), search="query_run"), team=self.team
+            query=MCPToolQualityRowsQuery(dateRange=DateRange(date_from="-7d"), **table_filters), team=self.team
         ).calculate()
 
-        assert [(row.tool, row.sessions) for row in response.results] == [("query_run", 1)]
+        assert [(row.tool, row.sessions) for row in response.results] == expected_rows
         assert response.totalSessions == 2
 
     def test_sessions_count_the_mcp_session_id_when_there_is_no_posthog_session(self) -> None:
@@ -379,6 +388,31 @@ class TestMCPToolQualityDailyStatsQueryRunner(_MCPAnalyticsTeamScopedTestMixin, 
         rows = runner.calculate().results
 
         assert sum(r.calls for r in rows) == 2
+
+    def test_returns_the_latency_spread_for_box_plots(self) -> None:
+        for duration_ms in [100, 200, 300, 400, 500]:
+            _emit(self.team, duration_ms=duration_ms)
+        flush_persons_and_events()
+
+        runner = MCPToolQualityDailyStatsQueryRunner(
+            query=MCPToolQualityDailyStatsQuery(dateRange=DateRange(date_from="-7d")),
+            team=self.team,
+        )
+        [row] = runner.calculate().results
+
+        assert (row.min, row.p25, row.p50, row.mean, row.p75, row.max) == (100, 200, 300, 300, 400, 500)
+
+    def test_returns_none_for_latency_spread_when_durations_are_missing(self) -> None:
+        _emit(self.team, duration_ms=None)
+        flush_persons_and_events()
+
+        runner = MCPToolQualityDailyStatsQueryRunner(
+            query=MCPToolQualityDailyStatsQuery(dateRange=DateRange(date_from="-7d")),
+            team=self.team,
+        )
+        [row] = runner.calculate().results
+
+        assert (row.min, row.p25, row.mean, row.p75, row.max) == (None, None, None, None, None)
 
 
 class TestMCPToolCategoryCountsQueryRunner(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin, APIBaseTest):

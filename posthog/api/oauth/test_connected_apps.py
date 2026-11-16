@@ -202,6 +202,26 @@ class TestConnectedAppsViewSet(APIBaseTest):
         data = response.json()[0]
         assert {flag: data[flag] for flag in expected_flags} == expected_flags
 
+    @parameterized.expand(
+        [
+            ("dynamic_client_registration", {"is_dcr_client": True}, True),
+            ("client_id_metadata_document", {"client_id": "https://agent.example.com/oauth/client.json"}, True),
+            ("registered_by_posthog", {}, False),
+        ]
+    )
+    def test_list_shows_verified_first_party_and_self_registered_flags(
+        self, _name: str, app_kwargs: dict, is_self_registered: bool
+    ):
+        app = self._create_app(is_verified=True, is_first_party=True, **app_kwargs)
+        self._create_token(app)
+
+        response = self.client.get("/api/oauth/connected-apps/")
+
+        data = response.json()[0]
+        assert data["is_verified"] is True
+        assert data["is_first_party"] is True
+        assert data["is_self_registered"] is is_self_registered
+
     def test_revoke_deletes_all_tokens_for_app(self):
         app = self._create_app()
         self._create_token(app)

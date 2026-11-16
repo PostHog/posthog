@@ -1,23 +1,18 @@
 """A pull request's delivery timeline: what it waited on at every moment from ready to merge.
 
-The warehouse holds immutable timestamps (run attempts, job attempts, reviews, merge-queue gate
-runs), not a state history, so the timeline is replayed from them. Every timestamp becomes a
-change point, the state is evaluated once per interval between two points, and equal neighbours
-merge into one segment. The evaluation is a fixed precedence, most blocking first:
+The warehouse holds immutable timestamps, not a state history, so the timeline is replayed from
+them. Every timestamp is a change point, and the state between two points follows one precedence,
+most blocking first:
 
-1. Merge queue: inside a gate attempt, or from the first gate attempt after the last push to the
-   merge. Every queue state (own test, a collateral restart, an ejection, a cancel gap) collapses
-   into this one span, because the warehouse keeps no queue transition history.
-2. Out of the merge queue: an open PR whose last gate attempt ended and whose current Trunk state
-   is failed or cancelled. Current state only, so this never appears on a merged PR.
+1. Merge queue. Every queue state collapses into this one span, because the warehouse keeps no
+   queue transition history.
+2. Out of the merge queue, from the current Trunk state, so it never appears on a merged PR.
 3. Red CI on the head commit, labelled by what turned it green (see ``_red_kind``).
 4. CI running on the head commit.
-5. Review state from each reviewer's latest verdict: changes requested with no push since while any
-   reviewer's latest verdict requests changes, approved when none does, else waiting for review.
+5. Review state from each reviewer's latest verdict.
 
-A commit's check state per workflow is its latest attempt: a re-run in flight reads as running,
-not red, the same way GitHub shows it. A run that exists but has not started yet also reads as
-running, because the wait for a runner is CI time, not review time.
+A commit's check state per workflow is its latest attempt, so a re-run in flight reads as running.
+A run that has not started yet also reads as running, because the wait for a runner is CI time.
 """
 
 import bisect
@@ -37,9 +32,8 @@ from products.engineering_analytics.backend.logic.merge_queue import GateAttempt
 from products.engineering_analytics.backend.logic.queries.master_failures import strip_shard_suffix
 from products.engineering_analytics.backend.logic.views.reviews import APPROVED_STATE, CHANGES_REQUESTED_STATE
 
-# A PR job failure counts as "master broken" when the same job failed on the default branch this
-# close to it. Wide enough for a master fix to take a few hours, narrow enough that an unrelated
-# failure of the same job days apart does not explain it.
+# Wide enough for a default-branch fix to take a few hours, and narrow enough that an unrelated
+# failure of the same job days apart does not explain a PR failure.
 MASTER_FAILURE_PROXIMITY = timedelta(hours=12)
 
 
@@ -51,15 +45,13 @@ class RunAttempt:
     workflow_name: str
     head_sha: str
     attempt: int
-    # When the workflow run was created. A queued run starts later.
     queued_at: datetime
     started_at: datetime
-    # None while the attempt is still running.
     completed_at: datetime | None
     failed: bool
     # Cancelled, neutral and action-required attempts are neither failed nor succeeded.
     succeeded: bool
-    # Names of the jobs that failed in this attempt; empty when job data is not synced.
+    # Empty when job data is not synced.
     failed_jobs: tuple[str, ...]
 
 
@@ -88,7 +80,7 @@ class MasterFailureIndex:
 
     def explains(self, attempt: RunAttempt) -> bool:
         """True when every failed job of the attempt also failed on the default branch close to it.
-        An attempt without job names (no job data) is never explained."""
+        An attempt without job names is never explained."""
         if not attempt.failed_jobs or attempt.completed_at is None:
             return False
         return all(self._failed_near(attempt.workflow_name, job, attempt.completed_at) for job in attempt.failed_jobs)
@@ -112,7 +104,6 @@ class PRTimelineInput:
     gate_attempts: list[GateAttempt]
     # None when the reviews table is not synced.
     reviews: list[ReviewVerdict] | None
-    # Current Trunk state is failed or cancelled. Only meaningful for an open PR.
     trunk_out_of_queue: bool
 
 
@@ -126,7 +117,7 @@ class _QueueSpan:
 class _Push:
     head_sha: str
     pushed_at: datetime
-    # Attempts per workflow, oldest first.
+    # Oldest attempt first.
     attempts_by_workflow: dict[str, list[RunAttempt]]
 
 
@@ -161,8 +152,8 @@ class PRTimelineBuilder:
         return sorted(grouped, key=lambda push: (push.pushed_at, push.head_sha))
 
     def _queue_span(self) -> _QueueSpan:
-        """The continuous queue stretch: from the first gate attempt after the last push to the merge
-        (merged PR), or to the end of the last gate attempt (open or closed PR; the end while one still runs)."""
+        """The queue stretch starts at the first gate attempt after the last push. It ends at the end of
+        the PR when the PR merged or a gate attempt still runs, else at the end of the last gate attempt."""
         last_push_at = self._push_times[-1] if self._push_times else None
         after_last_push = [
             gate for gate in self._pr.gate_attempts if last_push_at is None or gate.started_at >= last_push_at
@@ -262,15 +253,8 @@ class PRTimelineBuilder:
         return failed, running
 
     def _red_kind(self, push: _Push, failed: list[RunAttempt], at: datetime) -> PRTimelineSegmentKind:
-        """What turned the red checks green, in order of how much it clears the author:
-
-        - passed on a re-run: every failed workflow passed a later attempt on the same commit;
-        - master broken: every failed job failed on the default branch close to the failure;
-        - fixed by a push: a later commit arrived before the end;
-        - not provable: none of those, including a check that is still red now.
-
-        A mix of causes across workflows falls through to the weaker label on purpose.
-        """
+        """What turned the red checks green. A mix of causes across workflows falls through to the
+        weaker label on purpose."""
         if all(self._passed_later(push, attempt) for attempt in failed):
             return PRTimelineSegmentKind.RED_PASSED_ON_RERUN
         if all(self._master_failures.explains(attempt) for attempt in failed):
@@ -291,7 +275,7 @@ class PRTimelineBuilder:
         if self._pr.reviews is None:
             return PRTimelineSegmentKind.REVIEW_STATE_UNKNOWN
         # GitHub keeps a change request open until the same reviewer approves, so another reviewer's
-        # approval does not clear it. Only each reviewer's latest verdict counts.
+        # approval does not clear it.
         latest_by_reviewer: dict[str, ReviewVerdict] = {}
         for review in self._verdicts:
             if review.submitted_at > at:

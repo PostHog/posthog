@@ -18,15 +18,23 @@ import ast
 import sys
 import warnings
 from collections.abc import Callable
+from datetime import date
 from pathlib import Path
 
 import pytest
 
+from posthog.test.repo_invariants.ratchet import enforce_baseline
+from posthog.test.repo_invariants.repo_invariant_scan_scope import ScanScope
+
 REPO_ROOT = Path(__file__).parents[3]
 BASELINE_DIR = Path(__file__).parent
-SOURCES_ROOT = REPO_ROOT / "products/warehouse_sources/backend/temporal/data_imports/sources"
+# Vendor directories live in the product and in the `products/warehouse_sources/sources/` tree.
+SOURCE_ROOTS = (
+    REPO_ROOT / "products/warehouse_sources/backend/temporal/data_imports/sources",
+    REPO_ROOT / "products/warehouse_sources/sources",
+)
 SKIPPED_DIRS = {"common", "tests", "test", "__pycache__", "generated_configs"}
-REGENERATE = "python posthog/test/repo_invariants/test_warehouse_source_static_contract.py"
+REGENERATE = "PYTHONPATH=. python posthog/test/repo_invariants/test_warehouse_source_static_contract.py"
 
 FUNCTIONS = (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)
 HTTP_VERBS = {"get", "post", "put", "patch", "delete", "head", "request", "send"}
@@ -35,6 +43,10 @@ RESOURCE_BUILDERS = {"rest_api_resource", "rest_api_resources", "build_dependent
 SAFE_POINT_CALLS = {"safe_point", "reach_safe_point"}
 
 Check = Callable[[ast.Module], list[str]]
+
+
+def _source_files(pattern: str) -> list[tuple[Path, Path]]:
+    return ScanScope.from_environment().walk(REPO_ROOT, SOURCE_ROOTS, pattern)
 
 
 def _own_nodes(node: ast.AST) -> list[ast.AST]:
@@ -209,11 +221,17 @@ CHECKS: dict[str, tuple[Check, tuple[str, ...], str, str]] = {
     ),
 }
 
+BLOCKING_FROM: dict[str, date] = {
+    "raw_sleep": date.fromisoformat("2026-10-07"),
+    "request_without_timeout": date.fromisoformat("2026-10-07"),
+    "wrapped_resource": date.fromisoformat("2026-10-07"),
+}
+
 
 def collect(check: Check, words: tuple[str, ...]) -> list[str]:
     found: list[str] = []
-    for path in SOURCES_ROOT.rglob("*.py"):
-        relative = path.relative_to(SOURCES_ROOT)
+    for root, path in _source_files("*.py"):
+        relative = path.relative_to(root)
         if SKIPPED_DIRS.intersection(relative.parts) or path.name.startswith("test_"):
             continue
         source = path.read_text(encoding="utf-8", errors="ignore")
@@ -301,18 +319,28 @@ def read_baseline(file_name: str) -> list[str]:
 def test_source_functions_match_the_baseline(check: str) -> None:
     collector, words, file_name, explanation = CHECKS[check]
     scanned = collect(collector, words)
-    recorded = read_baseline(file_name)
+    scope = ScanScope.from_environment()
+    recorded = [
+        line
+        for line in read_baseline(file_name)
+        if scope.covers_root_relative(REPO_ROOT, SOURCE_ROOTS, line.split("::")[0])
+    ]
     if scanned == recorded:
         return
 
     added = [line for line in scanned if line not in recorded]
     removed = [line for line in recorded if line not in scanned]
     report = "\n".join([*(f"  + {line}" for line in added), *(f"  - {line}" for line in removed)])
-    raise AssertionError(
-        f"{file_name} no longer matches the repo.\n"
-        f"{explanation} Do not add the line to the baseline: the list may only get shorter.\n"
-        f"A '-' line means a function was fixed. The file must record that too. Run: {REGENERATE}\n"
-        f"{report}"
+    enforce_baseline(
+        added=added,
+        removed=removed,
+        blocking_from=BLOCKING_FROM[check],
+        message=(
+            f"{file_name} no longer matches the repo.\n"
+            f"{explanation} Do not add the line to the baseline: the list may only get shorter.\n"
+            f"A '-' line means a function was fixed. The file must record that too. Run: {REGENERATE}\n"
+            f"{report}"
+        ),
     )
 
 

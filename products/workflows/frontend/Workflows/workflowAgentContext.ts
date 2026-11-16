@@ -1,11 +1,11 @@
 import { redactSecretHogFunctionInputs } from 'scenes/hog-functions/hog-function-utils'
 import type { AiFirstSuggestion } from 'scenes/max/aiFirstCreate/AiFirstCreateScene'
 
+import { AttachedContextItem } from '~/layout/ai/attachedContext'
 import { CyclotronJobInputSchemaType, CyclotronJobInputType, HogFunctionTemplateType } from '~/types'
 
-import { AttachedContextItem } from 'products/posthog_ai/frontend/api/types'
-
-import { isEmailAction, isFunctionAction, isTriggerFunction } from './hogflows/steps/types'
+import { isEmailStep } from './hogflows/steps/email/emailStepVariants'
+import { isFunctionAction, isTriggerFunction } from './hogflows/steps/types'
 import type { HogFlow } from './hogflows/types'
 
 // Each visible chip and the hidden payload items it stands for share a dismiss group, so closing
@@ -116,11 +116,16 @@ const DRAFT_FIRST_CONTEXT_ITEM: AttachedContextItem = {
     hidden: true,
     dismissGroup: NEW_WORKFLOW_DISMISS_GROUP,
     value:
-        'The user is starting a new workflow from a description. Make workflows-create your first tool call and ' +
-        'keep it minimal: the trigger plus the steps as placeholders, with placeholder email subjects and bodies. ' +
-        'Do not ask clarifying questions first. The editor opens the draft the moment it exists, so fill in ' +
-        'content and details afterwards with workflows-patch-graph and workflows-patch-action-email, then test. ' +
-        'Never enable it.',
+        'The user is starting a new workflow from a description. Work draft-first:\n' +
+        `1. Load the ${DESIGNING_EMAIL_TEMPLATES_SKILL} skill.\n` +
+        '2. Make workflows-create your first workflows tool call; questions wait until the draft exists. Keep it ' +
+        'minimal: the trigger plus each step as a placeholder. Each email step gets a placeholder subject, a ' +
+        "plain-text text, and a design copied from the skill reference's minimal example. Leave html out: step 4 " +
+        'renders it from the design. Done when the draft exists; the editor opens it at once.\n' +
+        '3. Fill in the details with workflows-patch-graph.\n' +
+        '4. Fill each email with one workflows-patch-action-email call: block operations for the content, plus an ' +
+        'email_patch with the real subject and a matching text. Done when no email holds placeholder copy.\n' +
+        '5. Test the workflow and leave it disabled.',
 }
 
 /** Skill pointer plus the draft-first instruction, no editor state. Not dismissible: the page only advances once the draft exists. */
@@ -144,7 +149,7 @@ function findEmailAction(workflow: HogFlow | null, actionId: string | null): Hog
         return null
     }
     const action = workflow?.actions?.find((a) => a.id === actionId)
-    return action && isEmailAction(action) ? action : null
+    return action && isEmailStep(action) ? action : null
 }
 
 /**
@@ -175,8 +180,10 @@ function buildEmailEditingContextItems(): AttachedContextItem[] {
                 `anything earlier in the conversation. Requests about "this email" mean that action's ` +
                 `config.inputs.email.value. For content and layout changes prefer ` +
                 `workflows-patch-action-email with design operations targeting that action; use ` +
-                `workflows-patch-graph with update_action on it for other fields. The open editor reloads ` +
-                `external edits live, so the user sees applied changes immediately.`,
+                `workflows-patch-graph with update_action on it for other fields. An email_sandbox step sends ` +
+                `from PostHog's sandbox sender to verified members of the organization only, so it takes no ` +
+                `from, replyTo, cc or bcc; switch a step's sender with workflows-patch-action-email's sender ` +
+                `field. The open editor reloads external edits live, so the user sees applied changes immediately.`,
         },
         {
             type: 'skill',
@@ -267,7 +274,7 @@ export function redactWorkflowSecretInputs(
 }
 
 function emailValueOf(action: HogFlow['actions'][number]): Record<string, unknown> | null {
-    if (!isEmailAction(action)) {
+    if (!isEmailStep(action)) {
         return null
     }
     const value = (action.config as { inputs?: Record<string, CyclotronJobInputType> | null })?.inputs?.email?.value

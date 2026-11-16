@@ -48,6 +48,11 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arr
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import PARTITION_KEY
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.memory_governor import get_governor
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.ops import (
+    OBJECT_STORE_PERMISSION_DENIED_MESSAGE,
+    ObjectStorePermissionDeniedError,
+    is_object_store_permission_denied,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.table import _purge_s3_prefix
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.partitioning import (
     NULL_NUMERICAL_PARTITION,
@@ -303,6 +308,11 @@ async def _valid_delta_row_count(uri: str, storage_options: dict[str, str]) -> i
     DeltaError / FileNotFoundError from an interrupted write or swap). Used to gate destructive swap
     steps on the temp/live tables actually being intact, so a partial `__repartitioned` temp can never
     be copied over a good live table.
+
+    Raises `ObjectStorePermissionDeniedError` for a bucket refusal (see `is_object_store_permission_denied`)
+    rather than folding it into the same None as a missing/corrupt table: unlike those, a refusal says
+    nothing about whether the table is intact, and the raw `OSError` otherwise carries the bucket key
+    straight into whatever reports it.
     """
     try:
         is_delta = await asyncio.to_thread(
@@ -314,6 +324,10 @@ async def _valid_delta_row_count(uri: str, storage_options: dict[str, str]) -> i
         return await asyncio.to_thread(_table_row_count, dt)
     except (deltalake.exceptions.DeltaError, FileNotFoundError):
         return None
+    except OSError as e:
+        if is_object_store_permission_denied(e):
+            raise ObjectStorePermissionDeniedError(OBJECT_STORE_PERMISSION_DENIED_MESSAGE) from e
+        raise
 
 
 # Rows read from the live table to tell which partition scheme its data is bucketed under. The
@@ -579,6 +593,10 @@ async def _live_missing_data_file(live_uri: str, storage_options: dict[str, str]
     except (deltalake.exceptions.DeltaError, FileNotFoundError):
         # Live unreadable — the corrupted-log revive already covers that state.
         return None
+    except OSError as e:
+        if is_object_store_permission_denied(e):
+            raise ObjectStorePermissionDeniedError(OBJECT_STORE_PERMISSION_DENIED_MESSAGE) from e
+        raise
     basename = missing_path.rsplit("/", 1)[-1]
     referenced = next((uri for uri in file_uris if uri.rsplit("/", 1)[-1] == basename), None)
     if referenced is None:
@@ -851,8 +869,16 @@ def select_coarsen_target(
     schema: ExternalDataSchema,
     partition_bytes: dict[str | None, int],
     target_partition_bytes: int,
+    *,
+    min_md5_count: int = 1,
+    preferred_md5_count: int | None = None,
 ) -> tuple[RepartitionTarget | None, str]:
     """Pick the coarsest partition scheme whose largest partition still fits `target_partition_bytes`.
+
+    For md5, `min_md5_count` and `preferred_md5_count` change "coarsest" to "the fitting divisor nearest
+    to `preferred_md5_count`, never below `min_md5_count`". A keyed upsert rewrites at least one file in
+    each md5 partition, but it also merges up to a fixed number of partitions in parallel, so the fewest
+    partitions is not the fastest layout for that table.
 
     The mirror of `select_repartition_target`, for tables left over-fragmented, most of them by the
     finer path itself reacting to failures that were never about partition size. Fragmentation is not
@@ -914,15 +940,25 @@ def select_coarsen_target(
                 divisors.add(low)
                 divisors.add(count // low)
         divisors.discard(count)
-        for new_count in sorted(divisors):  # ascending, so the coarsest layout that fits wins
-            if acceptable(_simulate_modulo_coarsening(partition_bytes, new_count)):
-                return RepartitionTarget(
-                    partition_keys=keys,
-                    trigger_reason="",
-                    partition_mode="md5",
-                    partition_count=new_count,
-                ), "selected"
-        return None, "no_coarser_layout_fits"
+        allowed = sorted(divisor for divisor in divisors if divisor >= min_md5_count)
+        if not allowed:
+            return None, "md5_at_partition_floor"
+        fitting = [
+            new_count for new_count in allowed if acceptable(_simulate_modulo_coarsening(partition_bytes, new_count))
+        ]
+        if not fitting:
+            return None, "no_coarser_layout_fits"
+        if preferred_md5_count is None:
+            new_count = fitting[0]  # ascending, so the coarsest layout that fits wins
+        else:
+            # On a tie, the larger count wins, because it keeps the partitions smaller.
+            new_count = min(fitting, key=lambda divisor: (abs(divisor - preferred_md5_count), -divisor))
+        return RepartitionTarget(
+            partition_keys=keys,
+            trigger_reason="",
+            partition_mode="md5",
+            partition_count=new_count,
+        ), "selected"
 
     if mode == "numerical":
         current_size = schema.partition_size

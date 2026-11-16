@@ -1,4 +1,3 @@
-import uuid
 import asyncio
 import contextlib
 import dataclasses
@@ -9,10 +8,11 @@ from enum import StrEnum
 from typing import Any, Optional, Union
 
 import structlog
+from openai.lib._pydantic import to_strict_json_schema
 
 from posthog.schema import AssistantHogQLQuery
 
-from posthog.hogql.errors import ExposedHogQLError, InternalHogQLError
+from posthog.hogql.errors import ExposedHogQLError, InternalHogQLError, QueryError
 
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
@@ -24,6 +24,7 @@ from posthog.slo.types import SloArea, SloOperation
 from posthog.sync import database_sync_to_async
 
 from products.subscriptions.backend.facade.contracts import PromptRejectedError
+from products.subscriptions.backend.logic.report_text import REPORT_TEXT_INSTRUCTIONS, ReportDocument
 from products.subscriptions.backend.models.subscription import AIQueryPlanStatus
 from products.subscriptions.backend.temporal.ai_subscription.charts import (
     SPEC_INVALID_DROP_REASONS,
@@ -38,6 +39,7 @@ from products.subscriptions.backend.temporal.ai_subscription.prompts import (
     AI_SUBSCRIPTION_SYNTHESIS_PROMPT,
     HOGQL_FIX_PROMPT,
     HOGQL_FIX_PROMPT_NAME,
+    REPORT_PRESENTATION_INSTRUCTIONS,
     SYNTHESIS_PROMPT_NAME,
     prepend_hogql_query_writing_rules,
     render_prompt,
@@ -55,19 +57,34 @@ from products.subscriptions.backend.temporal.ai_subscription.schemas import (
 )
 from products.subscriptions.backend.temporal.ai_subscription.spec_generator import (
     AI_QUERY_PLAN_VERSION,
+    COMPARE_DATE_RANGE_PLACEHOLDER,
+    COMPARE_WINDOW_START_PLACEHOLDER,
     DEFAULT_PLANNER_MODEL,
     DEFAULT_SYNTHESIS_MODEL,
+    LLM_REASONING_EFFORT,
+    WINDOW_BOUND_PLACEHOLDERS,
+    WINDOW_FILTER_PLACEHOLDERS,
     WINDOW_PLACEHOLDERS,
+    WINDOW_START_PLACEHOLDER,
     ReportWindow,
     StoredPlanInvalidError,
+    ai_subscription_llm_trace,
+    ai_subscription_llm_tracing,
     build_enriched_prompt,
     build_frozen_prompt,
     get_ai_query_plan_status,
     resolve_ai_query_plan_status,
+    window_token_problems,
 )
-from products.subscriptions.backend.temporal.types import safe_query_error_details
+from products.subscriptions.backend.temporal.types import QueryErrorDetails, safe_query_error_details
 
-from ee.hogai.context.insight.query_executor import AssistantQueryExecutor
+from ee.hogai.context.insight.clickhouse_rejections import describe_clickhouse_rejection
+from ee.hogai.context.insight.format import format_access_control_warnings, format_warehouse_sync_warnings
+from ee.hogai.context.insight.query_executor import (
+    HOGQL_ERROR_CODES_BY_MESSAGE_PREFIX,
+    HOGQL_INPUT_ERROR_CODES,
+    AssistantQueryExecutor,
+)
 from ee.hogai.llm import MaxChatOpenAI
 from ee.hogai.tool_errors import MaxToolRetryableError
 
@@ -77,6 +94,7 @@ logger = structlog.get_logger(__name__)
 # activity timeout for scheduled, request timeout for ad-hoc) is the ultimate cap; these prevent a
 # single slow upstream from soaking it.
 _SYNTHESIS_LLM_TIMEOUT_SECONDS = 90.0
+_SYNTHESIS_SOURCE_URL_CHAR_BUDGET = 60_000
 _HOGQL_STEP_TIMEOUT_SECONDS = 60.0
 # Backstop length cap on a single step's formatted results before they enter the synthesis prompt.
 # The executor already truncates; this is defense-in-depth against a giant value.
@@ -93,6 +111,7 @@ _MIN_STEP_RESULT_CHARS = _SYNTHESIS_RESULTS_CHAR_BUDGET // MAX_QUERY_PLAN_STEPS
 # instead of "no data"; it's injected into that prompt (the {{{failure_marker}}} placeholder) from this
 # same constant in `_synthesize`, so the rendered marker and the prompt instruction can't drift apart.
 QUERY_FAILED_PREFIX = "Query failed to run"
+QUERY_RETURNED_NO_ROWS = "The query ran but found no data for this period"
 
 # Per-step query-fix budget: the planner occasionally emits HogQL that fails to parse, so we feed the
 # error back and ask for a rewrite rather than dropping the step. Worst case per step is one original
@@ -116,6 +135,42 @@ _RETRYABLE_QUERY_ERRORS: tuple[type[BaseException], ...] = (
 )
 
 
+def _or_list(tokens: Sequence[str]) -> str:
+    quoted = [f"`{token}`" for token in tokens]
+    return f"{', '.join(quoted[:-1])} or {quoted[-1]}"
+
+
+WINDOW_TOKEN_HINT = (
+    f"For the report window, use {_or_list(WINDOW_FILTER_PLACEHOLDERS)} as a whole time filter, or "
+    f"{_or_list(WINDOW_BOUND_PLACEHOLDERS)} as a single timestamp, outside quotes. "
+    f"`{COMPARE_DATE_RANGE_PLACEHOLDER}` covers the previous and the current period together. For the previous "
+    f"period alone, use `timestamp >= {COMPARE_WINDOW_START_PLACEHOLDER} AND timestamp < {WINDOW_START_PLACEHOLDER}`. "
+    "The report fills in the dates when it runs."
+)
+
+
+def _reject_unknown_placeholders(hogql: str) -> None:
+    if problems := window_token_problems(hogql):
+        raise QueryError(" ".join([*problems, WINDOW_TOKEN_HINT]))
+
+
+_HOGQL_INPUT_ERROR_CODES = HOGQL_INPUT_ERROR_CODES | {code for _, code in HOGQL_ERROR_CODES_BY_MESSAGE_PREFIX}
+
+
+def _safe_step_error_details(exc: BaseException) -> QueryErrorDetails | None:
+    if details := safe_query_error_details(exc):
+        return details
+    if not isinstance(exc, MaxToolRetryableError) or not exc.error_code:
+        return None
+    if exc.error_code in _HOGQL_INPUT_ERROR_CODES and exc.error_type == "validation":
+        message: str | None = str(exc)
+    else:
+        message = describe_clickhouse_rejection(exc.error_code)
+    if not message:
+        return None
+    return {"type": type(exc).__name__, "code": exc.error_code, "message": message.replace("\x00", "")}
+
+
 def _all_queries_failed_notice(total_steps: int, *, include_manage_link: bool = True) -> str:
     noun = "the query" if total_steps == 1 else f"all {total_steps} queries"
     notice = f"> ⚠️ This report could not be generated — {noun} the assistant wrote failed to run."
@@ -124,6 +179,17 @@ def _all_queries_failed_notice(total_steps: int, *, include_manage_link: bool = 
     if include_manage_link:
         notice += " Use the Manage subscription link to review the generated queries and the errors they hit."
     return notice + "\n\n"
+
+
+def _no_rows_notice(*, include_manage_link: bool = True) -> str:
+    notice = "> ⚠️ None of the queries in this report found any data for this period, so there is nothing to summarize."
+    if include_manage_link:
+        notice += " Use the Manage subscription link to review the generated queries."
+    return notice + "\n\n"
+
+
+async def _no_rows_report(rendered: Sequence[str], *, include_manage_link: bool) -> str:
+    return _no_rows_notice(include_manage_link=include_manage_link) + "\n\n".join(rendered)
 
 
 def _validate_step_chart(
@@ -179,7 +245,9 @@ class QueryStepDiagnostic:
 class StepOutcome:
     rendered: str
     diagnostic: QueryStepDiagnostic
+    has_rows: bool
     chart: Optional[ValidatedChart] = None
+    source_urls: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -188,6 +256,8 @@ class PlanExecution:
     failed_count: int
     diagnostics: list[QueryStepDiagnostic]
     charts: list[ValidatedChart]
+    source_urls: tuple[str, ...] = ()
+    no_rows_count: int = 0
 
 
 @frozen
@@ -220,16 +290,19 @@ async def generate_ai_report(
 
     initial_query_plan_status = get_ai_query_plan_status(ai_query_plan)
 
-    with slo_operation(
-        spec=SloSpec(
-            distinct_id=str(user.distinct_id),
-            area=SloArea.ANALYTIC_PLATFORM,
-            operation=SloOperation.AI_SUBSCRIPTION_PROMPT_GENERATION,
-            team_id=team.id,
-            resource_id=str(trace_correlation_id) if trace_correlation_id is not None else None,
-        ),
-        properties={"window_start": window.start_literal, "window_end": window.end_literal},
-    ) as slo:
+    with (
+        ai_subscription_llm_trace(),
+        slo_operation(
+            spec=SloSpec(
+                distinct_id=str(user.distinct_id),
+                area=SloArea.ANALYTIC_PLATFORM,
+                operation=SloOperation.AI_SUBSCRIPTION_PROMPT_GENERATION,
+                team_id=team.id,
+                resource_id=str(trace_correlation_id) if trace_correlation_id is not None else None,
+            ),
+            properties={"window_start": window.start_literal, "window_end": window.end_literal},
+        ) as slo,
+    ):
         try:
             # A stored plan that no longer validates self-heals by re-planning live.
             if ai_query_plan is not None:
@@ -271,8 +344,13 @@ async def generate_ai_report(
                     requested=len(charts),
                     selected=len(selected),
                 )
+            no_step_has_rows = execution.no_rows_count > 0 and (
+                execution.no_rows_count + failed_count == len(spec.plan.steps)
+            )
             synthesis_task = asyncio.ensure_future(
-                _synthesize(spec, execution.rendered, team, user, trace_correlation_id)
+                _no_rows_report(execution.rendered, include_manage_link=include_manage_link)
+                if no_step_has_rows
+                else _synthesize(spec, execution.rendered, team, user, trace_correlation_id, execution.source_urls)
             )
             render_task = asyncio.ensure_future(render_charts(selected, team=team, user=user))
             try:
@@ -302,6 +380,7 @@ async def generate_ai_report(
             failed_steps=failed_count,
             query_coverage=(total_steps - failed_count) / total_steps if total_steps else 0.0,
             degraded=bool(failed_count),
+            no_rows_steps=execution.no_rows_count,
             charts_requested=len(charts),
             charts_rendered=len(rendered_charts),
             chart_failures=len(chart_failures),
@@ -330,6 +409,8 @@ async def generate_ai_report(
             relevant_events=spec.relevant_events,
             trace_correlation_id=trace_correlation_id,
             chart_failure_count=chart_spec_failures,
+            no_rows_count=execution.no_rows_count,
+            coverage_complete=spec.coverage_complete,
         )
         query_plan_status = resolve_ai_query_plan_status(
             initial_status=initial_query_plan_status,
@@ -372,6 +453,8 @@ def _plan_to_freeze(
     relevant_events: Sequence[str],
     trace_correlation_id: Optional[Union[int, str]],
     chart_failure_count: int = 0,
+    no_rows_count: int = 0,
+    coverage_complete: bool = True,
 ) -> Optional[dict]:
     # Steps already carry their final HogQL by this point — see the write-back in `run_step`.
     # Never freeze a plan the next delivery is better off re-planning: a plan with any failed step would
@@ -390,6 +473,18 @@ def _plan_to_freeze(
             failed_count=failed_count,
             total_steps=total_steps,
         )
+        return None
+    # When no step finds data, the plan can filter on an event or value the project never sends. A frozen
+    # copy would then send the no-data notice on every delivery until the prompt changes.
+    if total_steps and no_rows_count == total_steps:
+        logger.warning(
+            "ai_report.plan_found_no_data_not_frozen",
+            trace_correlation_id=trace_correlation_id,
+            total_steps=total_steps,
+        )
+        return None
+    if not coverage_complete:
+        logger.warning("ai_report.plan_coverage_incomplete_not_frozen", trace_correlation_id=trace_correlation_id)
         return None
     if chart_failure_count:
         logger.warning(
@@ -467,42 +562,72 @@ async def _synthesize(
     team: Team,
     user: User,
     trace_correlation_id: Optional[Union[int, str]],
+    source_urls: tuple[str, ...] = (),
 ) -> str:
-    posthog_properties: dict[str, Union[str, int]] = {
-        "feature": "ai_subscription",
-        "stage": "synthesis",
-        "trace_id": str(uuid.uuid4()),
-    }
-    if trace_correlation_id is not None:
-        posthog_properties["subscription_id"] = trace_correlation_id
+    # The privacy-mode flag check can make a blocking HTTP request.
+    posthog_properties, llm_config = await database_sync_to_async(ai_subscription_llm_tracing, thread_sensitive=False)(
+        team=team, user=user, stage="synthesis", trace_correlation_id=trace_correlation_id
+    )
 
+    report_schema = to_strict_json_schema(ReportDocument)
+    allowed_urls: list[str] = []
+    url_characters = 0
+    for url in dict.fromkeys(source_urls):
+        if url_characters + len(url) > _SYNTHESIS_SOURCE_URL_CHAR_BUDGET:
+            continue
+        allowed_urls.append(url)
+        url_characters += len(url)
+        if len(allowed_urls) == 100:
+            break
+    if allowed_urls:
+        report_schema["$defs"]["ReportLinkItem"]["properties"]["url"]["enum"] = allowed_urls
+    else:
+        report_schema["$defs"]["ReportText"]["properties"]["items"]["items"] = {"$ref": "#/$defs/ReportTextItem"}
     chat = MaxChatOpenAI(
         model=DEFAULT_SYNTHESIS_MODEL,
+        reasoning_effort=LLM_REASONING_EFFORT,
         timeout=_SYNTHESIS_LLM_TIMEOUT_SECONDS,
         user=user,
         team=team,
         billable=True,
         posthog_properties=posthog_properties,
-    )
+    ).with_structured_output(report_schema, method="json_schema", strict=True, include_raw=False)
     synthesis_prompt = await database_sync_to_async(resolve_prompt, thread_sensitive=False)(
         team, SYNTHESIS_PROMPT_NAME, AI_SUBSCRIPTION_SYNTHESIS_PROMPT
     )
     # Inject the failure marker from the same constant the placeholder renders, so the prompt's
     # "treat this as an error, not 'no data'" instruction can't drift from what _run_steps emits.
     synthesis_prompt = render_prompt(synthesis_prompt, {"failure_marker": QUERY_FAILED_PREFIX})
+    synthesis_prompt += f"\n\n{REPORT_PRESENTATION_INSTRUCTIONS}"
+    synthesis_prompt += (
+        f"\n\n{REPORT_TEXT_INSTRUCTIONS}"
+        + """
+Return a structured report document. Use a short topic for a major grouping of related sections,
+section headings for related findings, and subsection headings only for a meaningful deeper grouping.
+Headings are topic labels, not sentences or findings. Put every result, value, date, and explanation
+in a finding under its heading. Each finding becomes one bullet. Do not put heading or bullet
+markers inside finding text. Use visuals for tables, code, or other Markdown blocks when useful.
+Put a whole table in one visual: header, separator, and every row, with one newline between rows.
+Leave unused lists empty. Do not add empty sections or repeat findings to create hierarchy.
+Use custom_layout only when the user explicitly requests a fixed template; otherwise leave it empty.
+"""
+    )
+
+    human_message = _compose_synthesis_human_message(spec, rendered_results)
 
     try:
         # database_sync_to_async (not to_thread): MaxChatOpenAI reads billing/quota from the ORM
-        result = await database_sync_to_async(chat.invoke, thread_sensitive=False)(
+        response = await database_sync_to_async(chat.invoke, thread_sensitive=False)(
             [
                 ("system", synthesis_prompt),
-                ("human", _compose_synthesis_human_message(spec, rendered_results)),
+                ("human", human_message),
             ],
+            config=llm_config,
         )
+        result = ReportDocument.model_validate(response)
     except Exception as exc:
         raise AiReportStageError(ReportStage.SYNTHESIS, exc) from exc
-    content = result.content if hasattr(result, "content") else str(result)
-    return content if isinstance(content, str) else str(content)
+    return result.render()
 
 
 def _compose_synthesis_human_message(spec: EnrichedPromptSpec, rendered_results: list[str]) -> str:
@@ -548,13 +673,12 @@ async def _run_steps(
         for attempt in range(_MAX_QUERY_FIX_RETRIES + 1):
             executable_hogql = window.render_window_filter(current_hogql)
             try:
+                _reject_unknown_placeholders(current_hogql)
                 query = AssistantHogQLQuery(query=executable_hogql)
                 query_result = await asyncio.wait_for(
                     executor.arun_format_and_capture(query),
                     timeout=_HOGQL_STEP_TIMEOUT_SECONDS,
                 )
-                # result values are attacker-influenceable (public project tokens) — strip framing markers
-                safe_formatted = strip_llm_framing_markers(query_result.formatted, per_step_cap)
                 # Write the succeeding query (post any fix-LLM rewrite, still window-agnostic) back onto
                 # the step so `_plan_to_freeze` freezes what actually ran — a no-op unless the fix LLM
                 # rewrote it. A failed step keeps the planner's original, never a broken rewrite.
@@ -570,8 +694,25 @@ async def _run_steps(
                 except Exception:
                     logger.warning("ai_report.chart_validation_error", step_index=step_index, exc_info=True)
                     chart, chart_dropped_reason = None, ChartFailureReason.VALIDATION_ERROR
+                has_rows = bool(query_result.response.get("results"))
+                if has_rows:
+                    # result values are attacker-influenceable (public project tokens) — strip framing markers
+                    safe_formatted = strip_llm_framing_markers(query_result.formatted, per_step_cap)
+                    rendered = f"### {safe_description}\n\n{safe_formatted}"
+                else:
+                    # Access-control filtering or a stale warehouse sync can explain an empty result.
+                    query_warnings = strip_llm_framing_markers(
+                        format_warehouse_sync_warnings(query_result.response)
+                        + format_access_control_warnings(query_result.response),
+                        per_step_cap,
+                    )
+                    rendered = "\n\n".join(
+                        part
+                        for part in (f"### {safe_description}", query_warnings, f"_{QUERY_RETURNED_NO_ROWS}._")
+                        if part
+                    )
                 return StepOutcome(
-                    rendered=f"### {safe_description}\n\n{safe_formatted}",
+                    rendered=rendered,
                     diagnostic=QueryStepDiagnostic(
                         description=safe_description,
                         hogql=executable_hogql,
@@ -580,6 +721,16 @@ async def _run_steps(
                         chart_dropped_reason=chart_dropped_reason,
                     ),
                     chart=chart,
+                    has_rows=has_rows,
+                    source_urls=tuple(
+                        dict.fromkeys(
+                            value
+                            for row in query_result.response.get("results", [])
+                            if isinstance(row, (list, tuple))
+                            for value in row
+                            if isinstance(value, str) and value.startswith(("https://", "http://"))
+                        )
+                    )[:100],
                 )
             except Exception as exc:
                 last_exc = exc
@@ -593,7 +744,7 @@ async def _run_steps(
                     max_retries=_MAX_QUERY_FIX_RETRIES,
                     error_type=type(exc).__name__,
                 )
-                error_details = safe_query_error_details(exc)
+                error_details = _safe_step_error_details(exc)
                 fixed = await _arequest_hogql_fix(
                     original_hogql=current_hogql,
                     # Forward explicitly safe detail when available; fall back to the type name.
@@ -611,7 +762,7 @@ async def _run_steps(
                 current_hogql = fixed
 
         type_name = type(last_exc).__name__ if last_exc is not None else "UnknownError"
-        error_details = safe_query_error_details(last_exc) if last_exc is not None else None
+        error_details = _safe_step_error_details(last_exc) if last_exc is not None else None
         logger.warning(
             "ai_report.query_failed",
             trace_correlation_id=trace_correlation_id,
@@ -634,6 +785,7 @@ async def _run_steps(
                 error_code=error_details["code"] if error_details else None,
                 human_readable_error=error_details["message"] if error_details else None,
             ),
+            has_rows=False,
         )
 
     async def run_step_bounded(step: QueryPlanStep, step_index: int) -> StepOutcome:
@@ -648,6 +800,8 @@ async def _run_steps(
         failed_count=sum(1 for diag in diagnostics if not diag.ok),
         diagnostics=diagnostics,
         charts=[outcome.chart for outcome in step_results if outcome.chart is not None],
+        source_urls=tuple(dict.fromkeys(url for outcome in step_results for url in outcome.source_urls))[:100],
+        no_rows_count=sum(1 for outcome in step_results if outcome.diagnostic.ok and not outcome.has_rows),
     )
 
 
@@ -675,12 +829,14 @@ async def _arequest_hogql_fix(
     user: User,
     trace_correlation_id: Optional[Union[int, str]],
 ) -> Optional[str]:
-    posthog_properties: dict[str, Union[str, int]] = {"feature": "ai_subscription", "stage": "query_fix"}
-    if trace_correlation_id is not None:
-        posthog_properties["subscription_id"] = trace_correlation_id
+    # The privacy-mode flag check can make a blocking HTTP request.
+    posthog_properties, llm_config = await database_sync_to_async(ai_subscription_llm_tracing, thread_sensitive=False)(
+        team=team, user=user, stage="query_fix", trace_correlation_id=trace_correlation_id
+    )
 
     llm = MaxChatOpenAI(
         model=DEFAULT_PLANNER_MODEL,
+        reasoning_effort=LLM_REASONING_EFFORT,
         timeout=_FIX_LLM_TIMEOUT_SECONDS,
         user=user,
         team=team,
@@ -702,7 +858,9 @@ async def _arequest_hogql_fix(
     rendered = f"{rendered}\n\n{_fix_project_context_block(context_blob)}"
 
     try:
-        result = await database_sync_to_async(llm.invoke, thread_sensitive=False)([("system", rendered)])
+        result = await database_sync_to_async(llm.invoke, thread_sensitive=False)(
+            [("system", rendered)], config=llm_config
+        )
     except Exception as exc:
         logger.warning(
             "ai_report.query_fix_llm_failed",

@@ -1,7 +1,7 @@
 # Out-of-band interaction domains
 
 `oob_domains.json` lists the services that exist to capture out-of-band interactions, and the
-DNS rebinding services. PostHog's host guards log a lookup of any of these names.
+DNS rebinding services. PostHog's host guards refuse any of these names, and log the match.
 
 ## What belongs on the list
 
@@ -18,7 +18,8 @@ These do not belong here:
 ## How to edit the list
 
 1. Edit this file first.
-2. Update each mirror. A parity test in that language fails until you do.
+2. Update each mirror. The Rust mirror is `OOB_DOMAINS` in `rust/common/dns/src/oob_domains.rs`.
+   A parity test in that language fails until you do.
 3. The matcher compares the canonical host, exactly or on a label boundary. Write the registrable
    domain only, lowercase, with no leading dot.
 

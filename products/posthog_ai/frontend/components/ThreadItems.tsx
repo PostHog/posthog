@@ -42,6 +42,13 @@ export function StatusItem({ item }: { item: ThreadItem }): JSX.Element {
             : "Couldn't compact the conversation"
         return <StatusLine icon={<IconWarning className="size-3" />}>{reason}</StatusLine>
     }
+    if (item.status === 'turn_cancelled') {
+        return (
+            <StatusLine icon={<IconWarning className="size-3" />}>
+                The agent stopped before it finished. Background agents may have stopped too.
+            </StatusLine>
+        )
+    }
     if (item.status === 'extension_notice' && item.message) {
         return <StatusLine icon={<IconWarning className="size-3" />}>{item.message}</StatusLine>
     }

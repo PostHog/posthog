@@ -57,7 +57,14 @@ export function BISourcePreviewModal({ tabId }: { tabId: string }): JSX.Element 
                     </details>
                 )}
                 {query ? (
-                    <Query query={query} context={{ insightProps }} readOnly embedded />
+                    <div className="flex h-96 min-h-0 flex-col" data-attr="bi-source-preview-table">
+                        <Query
+                            query={query}
+                            context={{ insightProps, dataVisualizationTableVirtualized: true }}
+                            readOnly
+                            embedded
+                        />
+                    </div>
                 ) : (
                     <LemonBanner type="warning">
                         Check the source and row filters before viewing this sample.

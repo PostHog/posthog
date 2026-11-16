@@ -39,13 +39,14 @@ function readStream(streamKey: string): StreamSnapshot {
         return { traceId: null, turnIndex: null, humanMessageCount: 0, run: undefined }
     }
     const items = stream.values.threadItems
-    const trailers = computeTurnTrailers(items)
+    const turnBase = stream.values.historyTurnBase
+    const trailers = computeTurnTrailers(items, turnBase)
     const lastTurn = [...trailers.values()].find((trailer) => trailer.isLastTurn)
     return {
         // Same trailer as turnIndex, so the two can never describe different turns.
         traceId: lastTurn?.traceId ?? null,
         turnIndex: lastTurn?.turnIndex ?? null,
-        humanMessageCount: items.filter((item) => item.type === 'human_message').length,
+        humanMessageCount: turnBase + items.filter((item) => item.type === 'human_message').length,
         run: stream.cache.activeRun as RunRef | undefined,
     }
 }

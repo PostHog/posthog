@@ -1,6 +1,7 @@
 import { closeHub, createHub } from '~/common/utils/db/hub'
 import { PostgresUse } from '~/common/utils/db/postgres'
 import { createTeam, createTestTeamFixture } from '~/tests/helpers/sql'
+import { INVALID_TEAM_ID_KEYS } from '~/tests/helpers/team'
 import { Hub } from '~/types'
 
 import { insertEvaluation, insertModelConfiguration, insertProviderKey } from '../_tests/fixtures'
@@ -181,6 +182,17 @@ describe('EvaluationManagerService', () => {
         expect(result[nonExistentTeamId]).toEqual([])
         expect(result[teamId2]).toHaveLength(1)
     })
+
+    it.each(INVALID_TEAM_ID_KEYS)(
+        'returns no evaluations for invalid team id %p without failing the valid team in the same load',
+        async (key) => {
+            const invalidTeamId = key as unknown as number
+            const result = await manager.getEvaluationsForTeams([teamId1, invalidTeamId])
+
+            expect(result[teamId1]).toHaveLength(1)
+            expect(result[invalidTeamId]).toEqual([])
+        }
+    )
 
     it('handles evaluations with bytecode errors', async () => {
         await insertEvaluation(hub.postgres, teamId1, {

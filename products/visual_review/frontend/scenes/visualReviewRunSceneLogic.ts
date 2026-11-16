@@ -41,6 +41,7 @@ import {
 } from '../lib/liftOnMerge'
 import { type RecentTolerations, countRecentTolerations } from '../lib/quarantineNudge'
 import { repoBreadcrumbs } from '../lib/repoBreadcrumbs'
+import { isNotFoundError } from '../lib/repoIds'
 import { runPath } from '../lib/repoPaths'
 import { isReportingOnlyRun } from '../lib/runPredicates'
 import { visualReviewPreferencesLogic } from './visualReviewPreferencesLogic'
@@ -88,6 +89,7 @@ export interface visualReviewRunSceneLogicValues {
     repoLoading: boolean
     run: RunApi | null
     runLoading: boolean
+    runNotFound: boolean
     selectedLiftOnMergeDisabledReason: string | null
     selectedLiftRequest: QuarantineLiftEntryApi | null
     selectedSnapshot: SnapshotApi | null
@@ -227,10 +229,10 @@ export interface visualReviewRunSceneLogicActions {
         errorObject?: any
     }
     loadRunSuccess: (
-        run: RunApi,
+        run: RunApi | null,
         payload?: any
     ) => {
-        run: RunApi
+        run: RunApi | null
         payload?: any
     }
     loadSnapshots: () => any
@@ -298,6 +300,9 @@ export interface visualReviewRunSceneLogicActions {
         value: true
     }
     requestLiftOnMergeSuccess: () => {
+        value: true
+    }
+    setRunNotFound: () => {
         value: true
     }
     setSelectedSnapshotId: (snapshotId: string | null) => {
@@ -392,6 +397,7 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
         actions: [visualReviewPreferencesLogic, ['setAddImagesToComment', 'rememberRepo']],
     })),
     actions({
+        setRunNotFound: true,
         setSelectedSnapshotId: (snapshotId: string | null) => ({ snapshotId }),
         finalizeRun: true,
         finalizeRunSuccess: true,
@@ -441,6 +447,13 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
             null as string | null,
             {
                 setSelectedSnapshotId: (_, { snapshotId }) => snapshotId,
+            },
+        ],
+        runNotFound: [
+            false,
+            {
+                setRunNotFound: () => true,
+                loadRunSuccess: (state, { run }) => (run ? false : state),
             },
         ],
         snapshotsLoaded: [
@@ -540,12 +553,20 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
             },
         ],
     }),
-    loaders(({ props, values }) => ({
+    loaders(({ actions, props, values }) => ({
         run: [
             null as RunApi | null,
             {
                 loadRun: async () => {
-                    return visualReviewRunsRetrieve(String(values.currentProjectId), props.runId)
+                    try {
+                        return await visualReviewRunsRetrieve(String(values.currentProjectId), props.runId)
+                    } catch (error) {
+                        if (isNotFoundError(error)) {
+                            actions.setRunNotFound()
+                            return null
+                        }
+                        throw error
+                    }
                 },
             },
         ],
@@ -553,12 +574,24 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
             [] as SnapshotApi[],
             {
                 loadSnapshots: async () => {
-                    const response = await visualReviewRunsSnapshotsList(String(values.currentProjectId), props.runId, {
-                        limit: 10000,
-                        include_quarantined: true,
-                        exclude_unchanged: true,
-                    })
-                    return response.results
+                    try {
+                        const response = await visualReviewRunsSnapshotsList(
+                            String(values.currentProjectId),
+                            props.runId,
+                            {
+                                limit: 10000,
+                                include_quarantined: true,
+                                exclude_unchanged: true,
+                            }
+                        )
+                        return response.results
+                    } catch (error) {
+                        // The run itself is missing, and loadRun renders NotFound for it.
+                        if (isNotFoundError(error)) {
+                            return []
+                        }
+                        throw error
+                    }
                 },
             },
         ],
@@ -568,10 +601,18 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
             null as SnapshotApi | null,
             {
                 loadDeepLinkedSnapshot: async (snapshotId: string, breakpoint) => {
-                    const response = await visualReviewRunsSnapshotsList(String(values.currentProjectId), props.runId, {
-                        include_quarantined: true,
-                        snapshot_id: snapshotId,
-                    })
+                    let response
+                    try {
+                        response = await visualReviewRunsSnapshotsList(String(values.currentProjectId), props.runId, {
+                            include_quarantined: true,
+                            snapshot_id: snapshotId,
+                        })
+                    } catch (error) {
+                        if (isNotFoundError(error)) {
+                            return null
+                        }
+                        throw error
+                    }
                     breakpoint()
                     // The user may have gone back to a snapshot cached here, which starts no request.
                     if (values.selectedSnapshotId !== snapshotId) {
@@ -867,7 +908,10 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
                 actions.loadToleratedHashes(snapshot.identifier)
             }
         },
-        loadRunSuccess: () => {
+        loadRunSuccess: ({ run }) => {
+            if (!run) {
+                return
+            }
             actions.loadRepo()
             actions.loadQuarantinedIdentifiers()
             actions.loadQuarantineLifts()

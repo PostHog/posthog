@@ -74,11 +74,15 @@ class AsyncMessageReader:
         total_message_size = 8 + metadata_size + body_size
         await self.read_until(total_message_size)
 
+        # A message parsed from a view of the buffer keeps the whole buffer alive, including bytes of later
+        # messages. Parse a copy of the message instead, so a held record batch only keeps its own bytes.
         with memoryview(self._buffer) as buffer_view:
-            loop = asyncio.get_running_loop()
-            msg = await loop.run_in_executor(None, pa.ipc.read_message, buffer_view[:total_message_size])
+            message_bytes = bytes(buffer_view[:total_message_size])
+        del self._buffer[:total_message_size]
 
-        self._buffer = self._buffer[total_message_size:]
+        loop = asyncio.get_running_loop()
+        msg = await loop.run_in_executor(None, pa.ipc.read_message, message_bytes)
+
         self._bytes_consumed += total_message_size
 
         return msg

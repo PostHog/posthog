@@ -1,6 +1,7 @@
+import { escapeRawPropertyAsHogQLIdentifier } from 'lib/utils/hogql'
+
 import { EnterprisePropertyDefinitionApi } from '~/generated/core/api.schemas'
 import { BIField } from '~/queries/schema/schema-business-intelligence'
-import { escapeRawPropertyAsHogQLIdentifier } from '~/queries/utils'
 
 import {
     getSidebarPropertyDefinitionTarget,

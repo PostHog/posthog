@@ -16,21 +16,17 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
 from posthog.auth import PersonalAPIKeyAuthentication, SessionAuthentication
-from posthog.llm.wizard_blocklist import WIZARD_BLOCKED_DETAIL, wizard_identity_blocked
+from posthog.exceptions import InsufficientScope
+from posthog.llm.wizard_blocklist import WIZARD_BLOCKED_DETAIL
 from posthog.models import Organization, User
 from posthog.models.project_secret_api_key import ProjectSecretAPIKey, RevokedTeamSecretToken
 from posthog.models.utils import ai_credential_value, generate_random_token_secret, hash_key_value, mask_key_value
-from posthog.permissions import (
-    TeamMemberStrictManagementPermission,
-    TimeSensitiveActionPermission,
-    get_authenticator_scopes,
-)
+from posthog.permissions import TeamMemberStrictManagementPermission, TimeSensitiveActionPermission, scopes_caller_lacks
 from posthog.scopes import (
     API_SCOPE_ACTIONS,
     API_SCOPE_OBJECTS,
     INTERNAL_API_SCOPE_OBJECTS,
     PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION,
-    scopes_not_covered,
 )
 from posthog.settings import EE_AVAILABLE
 from posthog.tasks.email import send_feature_flags_secure_api_key_exposed, send_project_secret_api_key_exposed
@@ -50,15 +46,13 @@ MAX_PROJECT_SECRET_API_KEYS_PER_TEAM = 50
 
 def _enforce_caller_holds_scopes(request: Request, scopes: Iterable[str]) -> None:
     """A project secret API key outlives the credential that issued it, so a scoped caller must not
-    issue one with scopes it lacks. Session auth and `*` keys carry the user's full authority."""
-    caller_scopes = get_authenticator_scopes(getattr(request, "successful_authenticator", None))
-    if caller_scopes is None or "*" in caller_scopes:
-        return
-    missing = sorted(scopes_not_covered(caller_scopes, scopes))
+    issue one with scopes it lacks."""
+    missing = scopes_caller_lacks(request, scopes)
     if missing:
-        raise PermissionDenied(
-            "Your API key or OAuth token can only issue a project secret API key with scopes it has. "
-            f"Use a key or token that has these scopes: {', '.join(missing)}."
+        raise InsufficientScope(
+            missing,
+            detail="Your API key or OAuth token can only issue a project secret API key with scopes it has. "
+            f"Use a key or token that has these scopes: {', '.join(missing)}.",
         )
 
 
@@ -98,14 +92,7 @@ def _enforce_gateway_bans(request: Request, team) -> None:
     except Exception:
         logger.exception("security_access_check_site_failed", call_site="project_secret_api_key")
         refused = False
-    if refused or wizard_identity_blocked(
-        distinct_id=str(user.distinct_id or ""),
-        email=user.email,
-        user_uuid=str(user.uuid),
-        organization_ids=[str(team.organization_id)],
-        team_ids=[team.id],
-        surface="project_secret_api_key",
-    ):
+    if refused:
         raise PermissionDenied(WIZARD_BLOCKED_DETAIL)
 
 

@@ -16,7 +16,7 @@ from django.utils import timezone
 import httpx
 from anthropic import APIStatusError
 from parameterized import parameterized
-from rest_framework.exceptions import PermissionDenied
+from rest_framework.exceptions import PermissionDenied, ValidationError
 
 from posthog.constants import AvailableFeature
 from posthog.models import Team
@@ -707,8 +707,6 @@ class TestWidgetData(APIBaseTest):
                 WidgetSnapshots(self.notebook, lambda _run: None).capture(self.NODE_ID, version.id)
         assert not NotebookWidgetSnapshot.objects.for_team(self.team.id).exists()
 
-    @patch("products.dashboards.backend.widget_publication.dashboard_widgets_enabled", return_value=True)
-    @patch("products.dashboards.backend.widget_create.dashboard_widgets_enabled", return_value=True)
     @patch("products.dashboards.backend.widget_create.widget_flag_enabled", return_value=True)
     @patch("products.canvas.backend.facade.notebooks.list_notebook_canvas_versions", return_value=[])
     def test_dashboard_publication_attaches_results_atomically(self, *_mocks: MagicMock) -> None:
@@ -725,7 +723,10 @@ class TestWidgetData(APIBaseTest):
             "name": "Results",
         }
 
-        with patch("products.dashboards.backend.widget_create.dashboard_widgets_enabled", return_value=False):
+        with patch(
+            "products.dashboards.backend.widget_publication.create_widget_tile",
+            side_effect=ValidationError("Cannot create widget tile."),
+        ):
             assert self.client.post(path, payload).status_code == 400
         assert not NotebookWidgetSnapshot.objects.for_team(self.team.id).exists()
         assert not dashboard.tiles.exists()
@@ -849,8 +850,6 @@ class TestWidgetData(APIBaseTest):
         cleanup_widget_snapshots()
         assert list(NotebookWidgetSnapshot.objects.for_team(self.team.id).values_list("id", flat=True)) == [recent.id]
 
-    @patch("products.dashboards.backend.widget_publication.dashboard_widgets_enabled", return_value=True)
-    @patch("products.dashboards.backend.widget_create.dashboard_widgets_enabled", return_value=True)
     @patch("products.dashboards.backend.widget_create.widget_flag_enabled", return_value=True)
     @patch("products.canvas.backend.facade.notebooks.list_notebook_canvas_versions", return_value=[])
     def test_dashboard_refresh_does_not_share_the_snapshot_creation_bucket(self, *_mocks: MagicMock) -> None:
@@ -1248,9 +1247,15 @@ class TestWidgetData(APIBaseTest):
             return_value=history,
         ):
             history_response = self.client.get(history_url, {"limit": 1})
+            older_response = self.client.get(history_response.json()["next"])
         assert history_response.status_code == 200
         assert history_response.json()["count"] == 2
         assert len(history_response.json()["results"]) == 1
+        assert older_response.json()["next"] is None
+        assert [row["id"] for row in older_response.json()["results"]] != [
+            row["id"] for row in history_response.json()["results"]
+        ]
+        assert len(older_response.json()["results"]) == 1
         assert history_response.json()["results"][0]["build_hash"] == "b" * 64
         assert history_response.json()["results"][0]["security_review"]["severity"] == "high"
         assert history_response.json()["results"][0]["generation_cost_usd"] == "0.123456"

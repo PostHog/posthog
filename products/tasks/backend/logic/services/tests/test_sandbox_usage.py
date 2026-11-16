@@ -10,9 +10,14 @@ from parameterized import parameterized
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 
+from products.signals.backend.models import SignalReport
+from products.tasks.backend.exceptions import ActiveSessionCapError
+from products.tasks.backend.logic.services.compute_quota import is_billable_sandbox_session
 from products.tasks.backend.logic.services.sandbox import Sandbox, SandboxConfig
 from products.tasks.backend.logic.services.sandbox_pricing import ComputeRateCard, ComputeRateCardConfigurationError
 from products.tasks.backend.logic.services.sandbox_usage import (
+    SandboxCpuAttribution,
+    claim_task_run_sandbox_sessions,
     close_sandbox_session,
     get_billable_sandbox_compute_usage_by_team,
     get_task_sandbox_usage_by_team,
@@ -20,6 +25,7 @@ from products.tasks.backend.logic.services.sandbox_usage import (
     open_sandbox_session,
     record_task_run_user_activity,
 )
+from products.tasks.backend.logic.services.warm import ActiveSessionCaps, SandboxWarmer
 from products.tasks.backend.models import SandboxSession, Task, TaskClientProvenance, TaskRun
 
 
@@ -211,6 +217,8 @@ class TestSandboxSessionWrites(SandboxUsageBase):
     @patch("products.tasks.backend.models.posthoganalytics.capture")
     def test_close_captures_analytics_once(self, mock_capture):
         run = self._run()
+        run.task.created_by = self.user
+        run.task.save(update_fields=["created_by"])
         open_sandbox_session(run_id=run.id, sandbox_id="sb-analytics", config=_config())
         record_task_run_user_activity(run.id, self.team.id)
 
@@ -220,6 +228,8 @@ class TestSandboxSessionWrites(SandboxUsageBase):
         captured = [c for c in mock_capture.call_args_list if c.kwargs.get("event") == "sandbox_session_closed"]
         assert len(captured) == 1
         props = captured[0].kwargs["properties"]
+        assert props["$update_person_last_seen_at"] is False
+        assert captured[0].kwargs["distinct_id"] == str(self.user.distinct_id)
         assert props["ended_reason"] == SandboxSession.EndedReason.CLEANUP
         assert props["runtime_seconds"] >= 0
         assert props["idle_seconds"] >= 0
@@ -324,6 +334,91 @@ class TestSandboxSessionWrites(SandboxUsageBase):
         assert SandboxSession.objects.unscoped().get(sandbox_id="sb-claim").user_attributed_at is None
 
 
+class TestActiveSessionCapReservation(SandboxUsageBase):
+    def setUp(self) -> None:
+        super().setUp()
+        caps = patch.dict(
+            SandboxWarmer.ORIGIN_ACTIVE_SESSION_CAPS,
+            {Task.OriginProduct.USER_CREATED: ActiveSessionCaps(per_user=1, per_org=1)},
+        )
+        caps.start()
+        self.addCleanup(caps.stop)
+
+    def _fill_the_cap(self) -> None:
+        with patch.dict(
+            SandboxWarmer.ORIGIN_ACTIVE_SESSION_CAPS,
+            {Task.OriginProduct.USER_CREATED: ActiveSessionCaps(per_user=10, per_org=10)},
+        ):
+            open_sandbox_session(run_id=self._run().id, sandbox_id="sb-busy", config=_config())
+
+    def test_cold_open_at_the_cap_is_refused_without_a_row(self) -> None:
+        self._fill_the_cap()
+        run = self._run()
+
+        with self.assertRaises(ActiveSessionCapError) as error_context:
+            open_sandbox_session(run_id=run.id, sandbox_id="sb-new", config=_config())
+
+        assert error_context.exception.context["scope"] == "org"
+        assert not SandboxSession.objects.unscoped().filter(sandbox_id="sb-new").exists()
+
+    def test_cold_open_on_a_report_task_with_a_live_sandbox_is_refused(self) -> None:
+        task = Task.objects.create(
+            team=self.team,
+            title="",
+            description="",
+            origin_product=Task.OriginProduct.SIGNAL_REPORT,
+            signal_report=SignalReport.objects.create(team=self.team),
+            created_by=self.user,
+        )
+        open_sandbox_session(run_id=task.create_run(mode="interactive").id, sandbox_id="sb-first", config=_config())
+        second = task.create_run(mode="interactive")
+
+        with self.assertRaises(ActiveSessionCapError) as error_context:
+            open_sandbox_session(run_id=second.id, sandbox_id="sb-second", config=_config())
+
+        assert error_context.exception.context["scope"] == "task"
+        assert not SandboxSession.objects.unscoped().filter(sandbox_id="sb-second").exists()
+
+    def test_cold_open_below_the_cap_creates_the_attributed_row(self) -> None:
+        run = self._run()
+
+        open_sandbox_session(run_id=run.id, sandbox_id="sb-new", config=_config())
+
+        assert SandboxSession.objects.unscoped().get(sandbox_id="sb-new").user_attributed_at is not None
+
+    @parameterized.expand([("warm_open", True), ("reprovision_update", False)])
+    def test_open_at_the_cap_is_not_refused(self, _name: str, warm: bool) -> None:
+        run = self._run(state={"await_user_message": True} if warm else None)
+        if not warm:
+            open_sandbox_session(run_id=run.id, sandbox_id="sb-own", config=_config())
+        self._fill_the_cap()
+
+        open_sandbox_session(run_id=run.id, sandbox_id="sb-own", config=_config(cpu_cores=2.0))
+
+        assert SandboxSession.objects.unscoped().get(sandbox_id="sb-own").cpu_cores == 2.0
+
+    @parameterized.expand([("below_cap", False), ("at_cap", True)])
+    def test_warm_claim_reserves_capacity(self, _name: str, at_cap: bool) -> None:
+        run = self._run(state={"await_user_message": True})
+        open_sandbox_session(run_id=run.id, sandbox_id="sb-warm", config=_config())
+        if at_cap:
+            self._fill_the_cap()
+        measured_at = datetime(2026, 1, 2, 10, tzinfo=UTC)
+        attribution = {
+            "sb-warm": SandboxCpuAttribution(cpu_usage_usec=1_000, billed_cpu_usage_usec=None, measured_at=measured_at)
+        }
+
+        if at_cap:
+            with self.assertRaises(ActiveSessionCapError):
+                claim_task_run_sandbox_sessions(run.id, self.team.id, attribution)
+        else:
+            claim_task_run_sandbox_sessions(run.id, self.team.id, attribution)
+
+        session = SandboxSession.objects.unscoped().get(sandbox_id="sb-warm")
+        assert session.user_attributed_at == (None if at_cap else measured_at)
+        assert session.last_user_activity_at is None
+
+
 class TestSandboxUsageAggregation(SandboxUsageBase):
     BEGIN = datetime(2026, 1, 2, tzinfo=UTC)
     END = datetime(2026, 1, 3, tzinfo=UTC)
@@ -375,6 +470,29 @@ class TestSandboxUsageAggregation(SandboxUsageBase):
         assert usage.cpu_millicore_seconds == [(self.team.id, 43_200_000)]
         assert usage.memory_mib_seconds == [(self.team.id, 176_947_200)]
         assert usage.credits == [(self.team.id, 6048)]
+
+    @parameterized.expand(
+        [
+            ("desktop_user_created", TaskClientProvenance.POSTHOG_DESKTOP, Task.OriginProduct.USER_CREATED, True),
+            ("desktop_loop", TaskClientProvenance.POSTHOG_DESKTOP, Task.OriginProduct.LOOP, True),
+            ("desktop_space_setup", TaskClientProvenance.POSTHOG_DESKTOP, Task.OriginProduct.SPACE_SETUP, True),
+            ("desktop_slack", TaskClientProvenance.POSTHOG_DESKTOP, Task.OriginProduct.SLACK, True),
+            ("no_provenance", None, Task.OriginProduct.USER_CREATED, True),
+            ("unattributed", TaskClientProvenance.POSTHOG_DESKTOP, Task.OriginProduct.USER_CREATED, False),
+        ]
+    )
+    def test_billable_session_predicate_matches_the_billing_aggregate(
+        self, _name: str, provenance: TaskClientProvenance | None, origin: str, attributed: bool
+    ) -> None:
+        session = self._session(
+            client_provenance=provenance,
+            origin_product=origin,
+            user_attributed_at=datetime(2026, 1, 2, 1, tzinfo=UTC) if attributed else None,
+        )
+
+        usage = get_billable_sandbox_compute_usage_by_team(self.BEGIN, self.END, rate_cards=(self._rate(),))
+
+        assert is_billable_sandbox_session(session) is bool(usage.credits)
 
     def test_billable_compute_uses_session_snapshot_after_task_changes(self):
         session = self._session(client_provenance=TaskClientProvenance.POSTHOG_DESKTOP)

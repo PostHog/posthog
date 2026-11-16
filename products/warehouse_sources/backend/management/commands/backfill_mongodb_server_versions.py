@@ -13,6 +13,7 @@ from django.core.management.base import BaseCommand, CommandParser
 
 import structlog
 
+from products.warehouse_sources.backend.logic.source_inputs import SourceInputsStore, UnreadableSourceInputsError
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.types import ExternalDataSourceType
@@ -117,14 +118,22 @@ class Command(BaseCommand):
         # A source with no stored credentials has nothing to connect with, and reaching one costs a
         # full server-selection timeout, so drop those before probing rather than counting them as
         # failures.
-        return [source for source in sources if source.job_inputs]
+        configured_sources: list[ExternalDataSource] = []
+        for source in sources:
+            try:
+                if not SourceInputsStore.load(source):
+                    continue
+            except UnreadableSourceInputsError:
+                pass
+            configured_sources.append(source)
+        return configured_sources
 
     def _probe(self, source_impl: Any, source: ExternalDataSource) -> dict[str, Any] | None:
         # An unreachable or misconfigured cluster is the common case here, not an exception worth
         # stopping for: this command's whole purpose is to survey a population that includes broken
         # sources, so a failure is logged and the survey continues.
         try:
-            config = source_impl.parse_config(source.job_inputs)
+            config = source_impl.parse_config(SourceInputsStore.load(source))
             metadata = source_impl.get_server_metadata(config, source.team_id)
         except Exception as error:
             logger.warning(

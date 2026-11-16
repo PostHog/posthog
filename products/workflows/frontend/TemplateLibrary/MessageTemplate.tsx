@@ -1,22 +1,26 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 
-import { IconTrash } from '@posthog/icons'
+import { IconLock, IconTrash } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
+    LemonCard,
     LemonDivider,
     LemonMenuOverlay,
+    LemonSwitch,
     LemonTag,
     Spinner,
     SpinnerOverlay,
     Tooltip,
 } from '@posthog/lemon-ui'
 
+import { SceneTags } from 'lib/components/Scenes/SceneTags'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
+import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { EmailTemplater, TemplatePickerModal } from 'scenes/hog-functions/email-templater/EmailTemplater'
 import { emailTemplaterLogic } from 'scenes/hog-functions/email-templater/emailTemplaterLogic'
 import { AI_FIRST_COMPOSER_OVERRIDE } from 'scenes/max/aiFirstCreate/aiFirstMode'
@@ -26,7 +30,9 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
+import { transactionalEditorGlobals, variablesInEmail } from '../Transactional/wizard/emailVariables'
 import { WorkflowInvocations } from '../Workflows/WorkflowInvocations'
 import { workflowLogic } from '../Workflows/workflowLogic'
 import { WorkflowMetrics } from '../Workflows/WorkflowMetrics'
@@ -66,6 +72,8 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
         keepMyTemplateVersion,
         setTransactionalTab,
         discardDraft,
+        saveTags,
+        setSensitive,
     } = useActions(logic)
     const {
         template,
@@ -84,6 +92,7 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
         hasUnsavedChanges,
         isSavingDraft,
         isDiscardingDraft,
+        isSavingSensitive,
     } = useValues(logic)
     const transactionalEmailsEnabled = useFeatureFlag('WORKFLOWS_TRANSACTIONAL_EMAIL_API')
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
@@ -119,6 +128,22 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
         )
     }
 
+    const editDisabledReason =
+        getAccessControlDisabledReason(AccessControlResourceType.Workflow, AccessControlLevel.Editor) ?? undefined
+    const saveDisabledReason =
+        editDisabledReason ??
+        (draftsEnabled && isSavingDraft
+            ? 'Saving your draft'
+            : draftsEnabled && !hasDraft && !hasUnsavedChanges
+              ? 'No changes to publish'
+              : !draftsEnabled && !templateChanged && props.id !== 'new'
+                ? 'No changes to save'
+                : !template.name
+                  ? 'Name is required'
+                  : undefined)
+    const sendTestDisabledReason =
+        editDisabledReason ?? (!template.content.email?.subject ? 'Add a subject first' : undefined)
+
     const editor = (
         <div className="flex flex-col flex-1 gap-2 min-h-0 relative">
             {/* The editor stays mounted through a sync: the templater pushes the new design into the open canvas. */}
@@ -130,7 +155,16 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
                     value={template?.content.email}
                     onChange={(value) => setTemplateValue('content.email', value)}
                     onChangeTemplating={(templating) => setTemplateValue('content.email.templating', templating)}
-                    type="native_email_template"
+                    type={
+                        template?.transactional_hog_flow_id
+                            ? 'native_email_transactional_template'
+                            : 'native_email_template'
+                    }
+                    variables={
+                        template?.transactional_hog_flow_id
+                            ? transactionalEditorGlobals(variablesInEmail(template.content.email))
+                            : undefined
+                    }
                     layout="inline"
                 />
             )}
@@ -170,9 +204,35 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
                     key: 'api',
                     label: 'API',
                     content: transactionalHogFlowId ? (
-                        <TransactionalEmailApiExample templateId={props.id} />
+                        <div className="flex flex-col gap-4">
+                            <LemonCard hoverEffect={false} className="max-w-200 p-4">
+                                <div className="flex items-start justify-between gap-4">
+                                    <div className="flex items-start gap-3 min-w-0">
+                                        <IconLock className="text-xl text-secondary shrink-0 mt-0.5" />
+                                        <div className="min-w-0">
+                                            <div className="font-semibold">Protect sensitive data</div>
+                                            <p className="text-secondary text-sm m-0 mt-1">
+                                                For emails with login codes or reset links. PostHog keeps no copy of
+                                                what each email contained, and doesn&apos;t track link clicks.
+                                            </p>
+                                        </div>
+                                    </div>
+                                    <LemonSwitch
+                                        checked={!!originalTemplate.sensitive}
+                                        onChange={setSensitive}
+                                        loading={isSavingSensitive}
+                                        disabledReason={
+                                            editDisabledReason ?? (isSavingSensitive ? 'Saving the setting' : undefined)
+                                        }
+                                        aria-label="Protect sensitive data"
+                                        data-attr="message-template-sensitive-toggle"
+                                    />
+                                </div>
+                            </LemonCard>
+                            <TransactionalEmailApiExample templateId={props.id} />
+                        </div>
                     ) : (
-                        <MakeTransactionalPrompt {...props} />
+                        <MakeTransactionalPrompt {...props} editDisabledReason={editDisabledReason} />
                     ),
                 },
             ]}
@@ -191,7 +251,7 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
                     name={template.name}
                     description={template.description}
                     resourceType={{ type: 'template' }}
-                    canEdit
+                    canEdit={!editDisabledReason}
                     descriptionAlwaysVisible
                     isLoading={messageLoading || templateLoading}
                     onNameChange={(name) => setTemplateValue('name', name)}
@@ -202,6 +262,18 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
                                 <LemonTag type="success" className="ml-1">
                                     Transactional
                                 </LemonTag>
+                                {originalTemplate.sensitive && (
+                                    <Tooltip title="PostHog keeps no copy of what each email contained, and doesn't track link clicks.">
+                                        <LemonTag
+                                            type="highlight"
+                                            icon={<IconLock />}
+                                            className="ml-1"
+                                            data-attr="message-template-sensitive-tag"
+                                        >
+                                            Sensitive
+                                        </LemonTag>
+                                    </Tooltip>
+                                )}
                                 {(hasDraft || hasUnsavedChanges) && (
                                     <Tooltip title="Your changes save as a draft. Sends use the live version until you publish.">
                                         <LemonTag
@@ -220,23 +292,13 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
                         todayRailNav ? (
                             <QuillMessageTemplateActions
                                 isNew={props.id === 'new'}
-                                sendTestDisabledReason={
-                                    !template.content.email?.subject ? 'Add a subject first' : undefined
-                                }
-                                saveDisabledReason={
-                                    draftsEnabled && isSavingDraft
-                                        ? 'Saving your draft'
-                                        : draftsEnabled && !hasDraft && !hasUnsavedChanges
-                                          ? 'No changes to publish'
-                                          : !draftsEnabled && !templateChanged && props.id !== 'new'
-                                            ? 'No changes to save'
-                                            : !template.name
-                                              ? 'Name is required'
-                                              : undefined
-                                }
+                                sendTestDisabledReason={sendTestDisabledReason}
+                                saveDisabledReason={saveDisabledReason}
                                 duplicateDisabledReason={
-                                    templateChanged ? 'Save your changes before duplicating' : undefined
+                                    editDisabledReason ??
+                                    (templateChanged ? 'Save your changes before duplicating' : undefined)
                                 }
+                                editDisabledReason={editDisabledReason}
                                 templateChanged={templateChanged && !draftsEnabled}
                                 saving={isTemplateSubmitting || templateLoading}
                                 onSendTest={() => setSendTestEmailModalOpen(true)}
@@ -253,9 +315,7 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
                                     data-attr="send-test-message-template"
                                     type="secondary"
                                     onClick={() => setSendTestEmailModalOpen(true)}
-                                    disabledReason={
-                                        !template.content.email?.subject ? 'Add a subject first' : undefined
-                                    }
+                                    disabledReason={sendTestDisabledReason}
                                     size="small"
                                 >
                                     Send test
@@ -276,17 +336,7 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
                                     form="template"
                                     onClick={submitTemplate}
                                     loading={isTemplateSubmitting || templateLoading}
-                                    disabledReason={
-                                        draftsEnabled && isSavingDraft
-                                            ? 'Saving your draft'
-                                            : draftsEnabled && !hasDraft && !hasUnsavedChanges
-                                              ? 'No changes to publish'
-                                              : !draftsEnabled && !templateChanged && props.id !== 'new'
-                                                ? 'No changes to save'
-                                                : !template.name
-                                                  ? 'Name is required'
-                                                  : undefined
-                                    }
+                                    disabledReason={saveDisabledReason}
                                     size="small"
                                     sideAction={
                                         draftsEnabled
@@ -303,11 +353,13 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
                                                                       icon: <IconTrash />,
                                                                       status: 'danger',
                                                                       onClick: discardDraft,
-                                                                      disabledReason: !hasDraft
-                                                                          ? 'There is no draft to discard'
-                                                                          : isSavingDraft || isDiscardingDraft
-                                                                            ? 'Wait for the draft to finish saving'
-                                                                            : undefined,
+                                                                      disabledReason:
+                                                                          editDisabledReason ??
+                                                                          (!hasDraft
+                                                                              ? 'There is no draft to discard'
+                                                                              : isSavingDraft || isDiscardingDraft
+                                                                                ? 'Wait for the draft to finish saving'
+                                                                                : undefined),
                                                                       'data-attr': 'message-template-discard-draft',
                                                                   },
                                                               ]}
@@ -328,6 +380,7 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
                                                 data-attr="save-as-new-template"
                                                 fullWidth
                                                 onClick={() => setIsSaveTemplateModalOpen(true)}
+                                                disabledReason={editDisabledReason}
                                             >
                                                 Save as new template
                                             </LemonButton>
@@ -338,9 +391,10 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
                                                         fullWidth
                                                         onClick={duplicateTemplate}
                                                         disabledReason={
-                                                            hasUnsavedChanges
+                                                            editDisabledReason ??
+                                                            (hasUnsavedChanges
                                                                 ? 'Save your changes before duplicating'
-                                                                : undefined
+                                                                : undefined)
                                                         }
                                                     >
                                                         Duplicate
@@ -351,6 +405,7 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
                                                         status="danger"
                                                         fullWidth
                                                         onClick={deleteTemplate}
+                                                        disabledReason={editDisabledReason}
                                                     >
                                                         Delete
                                                     </LemonButton>
@@ -362,6 +417,14 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
                             </>
                         )
                     }
+                />
+
+                <SceneTags
+                    tags={[...(template.tags ?? [])]}
+                    onSave={saveTags}
+                    canEdit={!editDisabledReason}
+                    loading={isTemplateSubmitting}
+                    dataAttrKey="message-template"
                 />
 
                 <TemplatePickerModal isOpen={templatePickerOpen} onClose={() => setTemplatePickerOpen(false)} />

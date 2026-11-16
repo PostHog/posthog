@@ -1,24 +1,21 @@
 import { useActions, useValues } from 'kea'
-import { router } from 'kea-router'
 
-import { LemonButton, LemonDialog, LemonInput, LemonSelect, LemonTable, LemonTag, lemonToast } from '@posthog/lemon-ui'
+import { LemonButton, LemonSelect, LemonTable, LemonTag } from '@posthog/lemon-ui'
 
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
-import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TZLabel } from 'lib/components/TZLabel'
-import { OrganizationMembershipLevel } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
-import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTableColumn } from 'lib/lemon-ui/LemonTable'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { cn } from 'lib/utils/css-classes'
 import { approvalsLogic } from 'scenes/approvals/approvalsLogic'
-import { getChangeRequestButtonVisibility } from 'scenes/approvals/changeRequestsLogic'
 import { getApprovalActionLabel, getApprovalResourceName, getApprovalResourceUrl } from 'scenes/approvals/utils'
 import { urls } from 'scenes/urls'
 
 import { AvailableFeature, ChangeRequest, ChangeRequestState } from '~/types'
+
+import { ChangeRequestTableActions } from './ChangeRequestTableActions'
 
 export function ChangeRequestsList(): JSX.Element {
     const { changeRequests, changeRequestsDataLoading, filters, hasMore } = useValues(approvalsLogic)
@@ -40,7 +37,7 @@ export function ChangeRequestsList(): JSX.Element {
         {
             title: 'Resource',
             render: function RenderResource(_, changeRequest) {
-                const resourceUrl = getApprovalResourceUrl(changeRequest.action_key, changeRequest.resource_id)
+                const resourceUrl = getApprovalResourceUrl(changeRequest.resource_type, changeRequest.resource_id)
                 const name = getApprovalResourceName(changeRequest.resource_type, changeRequest.intent)
                 return resourceUrl && name ? <LemonTableLink to={resourceUrl} title={name} /> : name
             },
@@ -172,113 +169,6 @@ export function ChangeRequestsList(): JSX.Element {
                 />
             </div>
         </PayGateMini>
-    )
-}
-
-function ChangeRequestTableActions({
-    changeRequest,
-    onApprove,
-    onReject,
-}: {
-    changeRequest: ChangeRequest
-    onApprove: (id: string) => void
-    onReject: (id: string, reason: string) => void
-}): JSX.Element {
-    const restrictedReason = useRestrictedArea({
-        scope: RestrictionScope.Organization,
-        minimumAccessLevel: OrganizationMembershipLevel.Admin,
-    })
-    const { showApproveButton, showRejectButton } = getChangeRequestButtonVisibility(changeRequest)
-
-    return (
-        <More
-            overlay={
-                <>
-                    <LemonButton fullWidth onClick={() => router.actions.push(urls.approval(changeRequest.id))}>
-                        View details
-                    </LemonButton>
-                    {showApproveButton && (
-                        <LemonButton
-                            fullWidth
-                            type="primary"
-                            disabledReason={restrictedReason}
-                            onClick={() => {
-                                LemonDialog.open({
-                                    title: 'Approve this change request?',
-                                    content: (
-                                        <div className="text-sm text-secondary">
-                                            This will add your approval to the change request.
-                                            {changeRequest.policy_snapshot?.quorum === 1
-                                                ? ' The change will be applied automatically.'
-                                                : ''}
-                                        </div>
-                                    ),
-                                    primaryButton: {
-                                        children: 'Approve',
-                                        type: 'primary',
-                                        onClick: () => onApprove(changeRequest.id),
-                                        size: 'small',
-                                    },
-                                    secondaryButton: {
-                                        children: 'Cancel',
-                                        type: 'tertiary',
-                                        size: 'small',
-                                    },
-                                })
-                            }}
-                        >
-                            Approve
-                        </LemonButton>
-                    )}
-                    {showRejectButton && (
-                        <LemonButton
-                            fullWidth
-                            status="danger"
-                            disabledReason={restrictedReason}
-                            onClick={() => {
-                                LemonDialog.open({
-                                    title: 'Reject this change request?',
-                                    content: (
-                                        <div>
-                                            <div className="text-sm text-secondary mb-2">
-                                                This will reject the change request and prevent it from being applied.
-                                            </div>
-                                            <LemonInput
-                                                id="reject-reason"
-                                                placeholder="Reason for rejection (required)"
-                                            />
-                                        </div>
-                                    ),
-                                    primaryButton: {
-                                        children: 'Reject',
-                                        type: 'primary',
-                                        status: 'danger',
-                                        onClick: () => {
-                                            const reason = (
-                                                document.getElementById('reject-reason') as HTMLInputElement
-                                            )?.value
-                                            if (!reason) {
-                                                lemonToast.error('Please provide a reason for rejection')
-                                                return
-                                            }
-                                            onReject(changeRequest.id, reason)
-                                        },
-                                        size: 'small',
-                                    },
-                                    secondaryButton: {
-                                        children: 'Cancel',
-                                        type: 'tertiary',
-                                        size: 'small',
-                                    },
-                                })
-                            }}
-                        >
-                            Reject
-                        </LemonButton>
-                    )}
-                </>
-            }
-        />
     )
 }
 

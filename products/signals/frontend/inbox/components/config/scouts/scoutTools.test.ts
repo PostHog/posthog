@@ -19,6 +19,7 @@ describe('scoutTools', () => {
         ['DASHBOARD', ['Dashboards']],
         // The run context tools are always held, so a search never offers them as choices.
         ['scout', []],
+        ['skill', []],
     ])('groups the selectable tools for search %p', (search, categories) => {
         expect(groupScoutTools(SCOUT_TOOL_CATALOGUE, search).map((group) => group.category)).toEqual(categories)
     })

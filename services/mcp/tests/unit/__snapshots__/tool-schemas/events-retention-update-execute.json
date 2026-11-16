@@ -1,0 +1,16 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "additionalProperties": false,
+    "properties": {
+        "confirmation": {
+            "description": "The literal string \"confirm\", typed by the user in chat. Required to proceed.",
+            "type": "string"
+        },
+        "confirmation_hash": {
+            "description": "The confirmation_hash returned by the matching -prepare tool. Pass it back verbatim.",
+            "type": "string"
+        }
+    },
+    "required": ["confirmation_hash", "confirmation"],
+    "type": "object"
+}

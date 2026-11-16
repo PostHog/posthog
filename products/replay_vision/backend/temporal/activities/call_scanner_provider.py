@@ -267,12 +267,9 @@ async def run_scan(
 ) -> ScannerCallOutput:
     """Run the scanner conversation over an already-uploaded video, independent of where the inputs came from.
 
-    The activity path above loads the snapshot and inputs from the observation row and Redis; the golden-dataset
-    eval suite (products/replay_vision/evals) feeds this same function from files on disk so prompt changes are
-    tested against the exact production pipeline. `scanner` is required (no snapshot fallback) so no caller can
+    `scanner` is required (no snapshot fallback) so no caller can
     silently skip the known-freeform-tags injection. The production activity checks AI data-processing consent
-    before calling this; any other caller must do the same before recording data reaches the provider (the eval
-    suite is covered because dataset collection is consent-gated and time-boxed).
+    before calling this; any other caller must do the same before recording data reaches the provider.
     """
     # Built before the preamble so one object decides both the wording and what a network lookup returns, which
     # keeps the prompt from promising network data the scan does not carry.
@@ -644,7 +641,7 @@ async def _run_mission(
             )
         steps.append(step)
 
-    gemini = await replay_gemini_client(team_id, properties=properties)
+    gemini = replay_gemini_client(properties=properties)
     run = functools.partial(
         _run_steps,
         client=gemini,
@@ -874,7 +871,6 @@ async def _run_step(
             posthog_distinct_id=replay_vision_distinct_id(team_id),
             posthog_trace_id=trace_id,
             posthog_properties={"$ai_span_name": step.name},
-            posthog_groups={"project": str(team_id)},
         )
 
     last_error: str | None = None

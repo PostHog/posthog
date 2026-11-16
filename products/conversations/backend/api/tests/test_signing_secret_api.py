@@ -4,6 +4,7 @@ from datetime import timedelta
 from posthog.test.base import APIBaseTest
 
 from django.conf import settings as django_settings
+from django.utils import timezone
 
 from parameterized import parameterized
 from rest_framework import status
@@ -32,7 +33,7 @@ class TestSigningSecretAPI(APIBaseTest):
     def test_get_without_a_row_returns_null(self):
         response = self.client.get(self._url())
         assert response.status_code == status.HTTP_200_OK
-        assert response.json() == {"secret": None, "updated_at": None}
+        assert response.json() == {"secret": None, "updated_at": None, "previous_secret_valid_until": None}
 
     def test_rotate_mints_an_independent_secret_and_leaves_the_legacy_token_alone(self):
         self._make_admin()
@@ -47,6 +48,9 @@ class TestSigningSecretAPI(APIBaseTest):
         assert response.json()["secret"] == row.secret
         assert row.secret != "phs_legacy_token"
         assert row.rotated_independently is True
+        assert row.previous_secret == "phs_legacy_token"
+        assert row.previous_secret_rotated_at is not None
+        assert response.json()["previous_secret_valid_until"] is not None
         self.team.refresh_from_db()
         assert self.team.secret_api_token == "phs_legacy_token"
 
@@ -60,6 +64,71 @@ class TestSigningSecretAPI(APIBaseTest):
         change = log.detail["changes"][0]
         assert change["action"] == "changed"
         assert change["before"] is not None
+
+    def test_rotate_from_stale_row_grants_no_grace(self):
+        # A stale mirror holds a retired key the staleness guard excluded; grace for it
+        # would resurrect a revoked credential.
+        self._make_admin()
+        self.team.secret_api_token = "phs_legacy_token"
+        self.team.save()
+        SigningSecret.objects.for_team(self.team.id).create(team=self.team, secret="a_retired_secret")
+
+        response = self.client.post(self._url("rotate/"))
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["previous_secret_valid_until"] is None
+        row = SigningSecret.objects.for_team(self.team.id).get()
+        assert row.previous_secret is None
+
+    def test_expire_previous_ends_the_grace_window(self):
+        self._make_admin()
+        SigningSecret.objects.for_team(self.team.id).create(
+            team=self.team,
+            secret="phs_new_secret",
+            rotated_independently=True,
+            previous_secret="phs_old_secret",
+            previous_secret_rotated_at=timezone.now(),
+        )
+
+        response = self.client.post(self._url("expire_previous/"))
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["previous_secret_valid_until"] is None
+        row = SigningSecret.objects.for_team(self.team.id).get()
+        assert row.previous_secret is None
+        log = ActivityLog.objects.get(
+            scope="Team", team_id=self.team.id, detail__changes__0__field="conversations_signing_secret_previous"
+        )
+        assert "phs_old_secret" not in str(log.detail)
+
+    @parameterized.expand(
+        [
+            # Expiry is a revocation: the same credential sitting in the legacy backup
+            # column must die with it, or "Expire now" reports success while the key
+            # keeps verifying through the legacy fallback.
+            ("backup_holds_the_expired_secret", "phs_legacy_token", None),
+            ("unrelated_backup_is_kept", "phs_some_other_backup", "phs_some_other_backup"),
+        ]
+    )
+    def test_expire_previous_revokes_the_matching_legacy_backup(self, _name, backup, expected_backup_after):
+        self._make_admin()
+        self.team.secret_api_token = "phs_current_token"
+        self.team.secret_api_token_backup = backup
+        self.team.save()
+        SigningSecret.objects.for_team(self.team.id).create(
+            team=self.team,
+            secret="phs_current_token",
+            previous_secret="phs_legacy_token",
+            previous_secret_rotated_at=timezone.now(),
+        )
+
+        response = self.client.post(self._url("expire_previous/"))
+
+        assert response.status_code == status.HTTP_200_OK
+        self.team.refresh_from_db()
+        assert self.team.secret_api_token_backup == expected_backup_after
+        row = SigningSecret.objects.for_team(self.team.id).get()
+        assert row.previous_secret is None
 
     def test_rotate_requires_admin(self):
         response = self.client.post(self._url("rotate/"))

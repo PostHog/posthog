@@ -14,6 +14,7 @@ from django.http import HttpResponse
 from django.utils import timezone
 from django.utils.cache import get_conditional_response, patch_cache_control, patch_vary_headers
 
+import re2
 import structlog
 import posthoganalytics
 from drf_spectacular.types import OpenApiTypes
@@ -41,7 +42,7 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.mixins import ValidatedRequest, validated_request
-from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.routing import PathParameter, TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.uploaded_media import validate_image_file
 from posthog.api.utils import action
@@ -499,7 +500,14 @@ class HeatmapsRequestSerializer(serializers.Serializer):
     def validate_url_pattern(self, value: str | None) -> str | None:
         if value is None:
             return None
-        return anchor_url_pattern(value)
+        pattern = anchor_url_pattern(value)
+        options = re2.Options()
+        options.log_errors = False
+        try:
+            re2.compile(pattern, options=options)
+        except re2.error as error:
+            raise serializers.ValidationError("Enter a valid URL pattern.") from error
+        return pattern
 
     def validate(self, values) -> dict:
         if ("timestamp_from" in values) != ("timestamp_to" in values):
@@ -1762,6 +1770,12 @@ class SavedHeatmapViewSet(
     serializer_class = HeatmapScreenshotResponseSerializer
     queryset = SavedHeatmap.objects.all()
     lookup_field = "short_id"
+    path_parameters = {
+        "request_id": UUID,
+        "history_id": PathParameter(
+            type=UUID, description="ID of the capture, as listed by the screenshot history endpoint."
+        ),
+    }
     # list() returns its own {results, count} shape (paginated via the query serializer), so
     # opt out of the project-global LimitOffsetPagination to avoid a double-wrapped schema.
     pagination_class = None
@@ -2092,13 +2106,6 @@ class SavedHeatmapViewSet(
             raise NotFound()
         return obj
 
-    @staticmethod
-    def _path_uuid(kwargs: dict[str, Any], name: str) -> UUID:
-        try:
-            return UUID(str(kwargs.get(name)))
-        except ValueError:
-            raise NotFound()
-
     @extend_schema(
         responses={
             200: HeatmapScreenshotHistoryResponseSerializer,
@@ -2169,7 +2176,6 @@ class SavedHeatmapViewSet(
         return response.Response(serializer.data, status=status.HTTP_202_ACCEPTED)
 
     @extend_schema(
-        parameters=[OpenApiParameter("request_id", OpenApiTypes.UUID, OpenApiParameter.PATH)],
         responses={200: HeatmapCaptureRequestSerializer},
         description="Read the outcome of a capture request.",
     )
@@ -2181,7 +2187,7 @@ class SavedHeatmapViewSet(
     )
     def screenshot_history_request(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         obj = self._page_history_heatmap()
-        request_id = self._path_uuid(kwargs, "request_id")
+        request_id: UUID = kwargs["request_id"]
         capture = (
             HeatmapCaptureRequest.objects.for_team(self.team.id)
             .filter(heatmap=obj, id=request_id, expires_at__gt=timezone.now())
@@ -2192,15 +2198,7 @@ class SavedHeatmapViewSet(
         return response.Response(HeatmapCaptureRequestSerializer(capture).data)
 
     @extend_schema(
-        parameters=[
-            OpenApiParameter(
-                name="history_id",
-                type=OpenApiTypes.UUID,
-                location=OpenApiParameter.PATH,
-                description="ID of the capture, as listed by the screenshot history endpoint.",
-            ),
-            HeatmapScreenshotHistoryContentQuerySerializer,
-        ],
+        parameters=[HeatmapScreenshotHistoryContentQuerySerializer],
         responses={
             (200, "image/jpeg"): OpenApiTypes.BINARY,
             304: OpenApiResponse(description="Not modified"),
@@ -2220,7 +2218,7 @@ class SavedHeatmapViewSet(
         obj = self._page_history_heatmap()
         query = HeatmapScreenshotHistoryContentQuerySerializer(data=request.query_params)
         query.is_valid(raise_exception=True)
-        history_id = self._path_uuid(kwargs, "history_id")
+        history_id: UUID = kwargs["history_id"]
         revision: UUID = query.validated_data["v"]
         variant = query.validated_data["variant"]
         now = timezone.now()

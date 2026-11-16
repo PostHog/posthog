@@ -31,8 +31,16 @@ const METRIC_OPTIONS: { value: LeaderboardMetric; label: string }[] = [
     { value: 'clicked', label: 'Clicked' },
 ]
 
-export function WorkflowMessageLeaderboard({ id, logicKey }: { id: string; logicKey: string }): JSX.Element {
-    const summaryLogic = workflowMetricsSummaryLogic({ logicKey, id, overview: true })
+export function WorkflowMessageLeaderboard({
+    id,
+    logicKey,
+    appSourceId,
+}: {
+    id: string
+    logicKey: string
+    appSourceId?: string
+}): JSX.Element {
+    const summaryLogic = workflowMetricsSummaryLogic({ logicKey, id, overview: true, appSourceId })
     const {
         emailMetricsRows,
         pushMetricsRows,
@@ -40,7 +48,6 @@ export function WorkflowMessageLeaderboard({ id, logicKey }: { id: string; logic
         pushTotalsByActionIdLoading,
         params,
         messageTotalsFailed,
-        emailTotalsByActionId,
         pushTotalsByActionId,
     } = useValues(summaryLogic)
     const { loadEmailTotals, loadPushTotals } = useActions(summaryLogic)
@@ -48,15 +55,18 @@ export function WorkflowMessageLeaderboard({ id, logicKey }: { id: string; logic
 
     const rows = useMemo<LeaderboardRow[]>(() => {
         const all: LeaderboardRow[] = [
-            ...emailMetricsRows.map((row) => ({
-                id: row.id,
-                name: row.email,
-                channel: 'email' as const,
-                sent: row.sent,
-                opened: row.opened,
-                clicked: row.linkClicked,
-                engagementBase: row.trackedSends,
-            })),
+            ...emailMetricsRows
+                .filter((row) => !row.removed || row.sent + row.opened + row.linkClicked > 0)
+                .map((row) => ({
+                    id: row.id,
+                    name: row.email,
+                    channel: 'email' as const,
+                    sent: row.sent,
+                    opened: row.opened,
+                    clicked: row.linkClicked,
+                    engagementBase: row.trackedSends,
+                    removed: row.removed,
+                })),
             ...pushMetricsRows.map((row) => ({
                 id: row.id,
                 name: row.push,
@@ -68,23 +78,6 @@ export function WorkflowMessageLeaderboard({ id, logicKey }: { id: string; logic
             })),
         ]
         const known = new Set(all.map((row) => row.id))
-        for (const [actionId, totals] of Object.entries(emailTotalsByActionId)) {
-            const emailActivity =
-                (totals.email_sent ?? 0) + (totals.email_opened ?? 0) + (totals.email_link_clicked ?? 0)
-            if (!known.has(actionId) && emailActivity > 0) {
-                const sent = totals.email_sent ?? 0
-                all.push({
-                    id: actionId,
-                    name: 'Removed email',
-                    channel: 'email',
-                    sent,
-                    opened: totals.email_opened ?? 0,
-                    clicked: totals.email_link_clicked ?? 0,
-                    engagementBase: Math.max(0, sent - (totals.email_untracked ?? 0)),
-                    removed: true,
-                })
-            }
-        }
         for (const [actionId, totals] of Object.entries(pushTotalsByActionId)) {
             if (!known.has(actionId) && (totals.push_sent ?? 0) + (totals.push_opened ?? 0) > 0) {
                 all.push({
@@ -100,7 +93,7 @@ export function WorkflowMessageLeaderboard({ id, logicKey }: { id: string; logic
             }
         }
         return all.filter((row) => row[metric] !== null).sort((a, b) => (b[metric] ?? 0) - (a[metric] ?? 0))
-    }, [emailMetricsRows, pushMetricsRows, emailTotalsByActionId, pushTotalsByActionId, metric])
+    }, [emailMetricsRows, pushMetricsRows, pushTotalsByActionId, metric])
 
     const columns: LemonTableColumns<LeaderboardRow> = [
         {
@@ -124,7 +117,7 @@ export function WorkflowMessageLeaderboard({ id, logicKey }: { id: string; logic
                     <span className="inline-flex items-center gap-1.5 font-medium text-muted">{label}</span>
                 ) : (
                     <Link
-                        to={metricsStepUrl(id, row.id, params)}
+                        to={metricsStepUrl(id, row.id, params, appSourceId)}
                         className="inline-flex items-center gap-1.5 font-medium"
                         data-attr="workflow-overview-leaderboard-message"
                     >

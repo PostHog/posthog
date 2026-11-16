@@ -238,6 +238,7 @@ async function summarize(
   const response = await fetch(`${baseUrl}/v1/chat/completions`, {
     method: "POST",
     headers: {
+      ...gateway.headers,
       "Content-Type": "application/json",
       Authorization: `Bearer ${gateway.apiKey}`,
     },

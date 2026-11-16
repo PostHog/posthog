@@ -125,6 +125,7 @@ mod tests {
             timestamp,
             is_cookieless_mode: false,
             historical_migration: false,
+            options: None,
         };
         let metadata = ProcessedEventMetadata {
             data_type,

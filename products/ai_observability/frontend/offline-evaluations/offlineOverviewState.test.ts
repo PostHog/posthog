@@ -51,8 +51,17 @@ describe('offline overview preferences', () => {
     })
 
     it.each(['00123', 'true', '[draft]'])('keeps the experiment search %p in shared URLs', (search) => {
-        const url = encodeParams(offlineFiltersToUrl({ search, date_from: '-7d' }), '?')
-        expect(offlineFiltersFromUrl(decodeParams(url, '?'))).toEqual({ search, date_from: '-7d' })
+        const url = encodeParams(offlineFiltersToUrl({ search, date_from: '-7d', created_by: 42 }), '?')
+        expect(offlineFiltersFromUrl(decodeParams(url, '?'))).toEqual({ search, date_from: '-7d', created_by: 42 })
+    })
+
+    it('keeps the no-author filter in shared URLs and clears it for any author', () => {
+        const url = encodeParams(offlineFiltersToUrl({ created_by_is_null: true }), '?')
+        expect(offlineFiltersFromUrl(decodeParams(url, '?'))).toEqual({ created_by_is_null: true })
+        expect(offlineFiltersFromUrl({ created_by_is_null: false })).toEqual({})
+        expect(offlineFiltersFromUrl({ created_by_is_null: true, created_by: 42 })).toEqual({
+            created_by_is_null: true,
+        })
     })
 
     it.each([

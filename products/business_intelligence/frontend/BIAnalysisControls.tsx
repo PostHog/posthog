@@ -6,6 +6,7 @@ import { ChartDisplayType } from '~/types'
 
 import { biEditorLogic } from './biEditorLogic'
 import { getBIValuePillLabel, isDateTimeBIField } from './biEditorTypes'
+import { isBIPivotTable } from './biTableLayout'
 import { getBIMissingDatesDisabledReason } from './biTimeSeries'
 import { BIShelfCard } from './components/BIShelfCard'
 
@@ -109,13 +110,11 @@ export function BIAnalysisControls(): JSX.Element {
                         <LemonLabel>Totals</LemonLabel>
                         <LemonCheckbox
                             labelClassName="text-xs"
-                            label={
-                                config.chartType === ChartDisplayType.ActionsTable ? 'Grand total' : 'Row grand totals'
-                            }
+                            label={isBIPivotTable(config) ? 'Row grand totals' : 'Grand total'}
                             checked={!!config.totals?.rows}
                             onChange={(rows) => setTotals({ ...config.totals, rows })}
                         />
-                        {config.chartType === ChartDisplayType.TwoDimensionalHeatmap ? (
+                        {isBIPivotTable(config) ? (
                             <LemonCheckbox
                                 labelClassName="text-xs"
                                 label="Column grand totals"

@@ -183,6 +183,17 @@ export const ChangedSnapshot: Story = {
     ),
 }
 
+export const NarrowContainer: Story = {
+    args: ChangedSnapshot.args,
+    render: (args) => (
+        <div className="flex items-start p-4 bg-bg-light min-h-screen">
+            <div className="w-full max-w-lg">
+                <VisualImageDiffViewer {...args} />
+            </div>
+        </div>
+    ),
+}
+
 export const NewSnapshot: Story = {
     args: {
         baselineUrl: null,

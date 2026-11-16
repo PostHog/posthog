@@ -5,7 +5,12 @@ import { createExampleHogFlowInvocation } from '~/cdp/_tests/fixtures-hogflows'
 
 import { findActionByType } from '../hogflow-utils'
 import { ActionHandlerResult } from './action.interface'
-import { DelayHandler, calculatedScheduledAt } from './delay'
+import {
+    DelayHandler,
+    MAX_DELAY_VALUE_FOR_DURATION_UNIT,
+    MAX_WAIT_VALUE_FOR_DURATION_UNIT,
+    calculatedScheduledAt,
+} from './delay'
 
 describe('calculatedScheduledAt', () => {
     let startedAtTimestamp: number
@@ -71,13 +76,16 @@ describe('calculatedScheduledAt', () => {
         })
 
         it.each([
-            ['61s', DateTime.fromISO('2025-01-01T00:00:00.000Z').toUTC().plus({ seconds: 60 })],
-            ['61m', DateTime.fromISO('2025-01-01T00:00:00.000Z').toUTC().plus({ minutes: 60 })],
-            ['25h', DateTime.fromISO('2025-01-01T00:00:00.000Z').toUTC().plus({ hours: 24 })],
-            ['31d', DateTime.fromISO('2025-01-01T00:00:00.000Z').toUTC().plus({ days: 30 })],
-        ])('should enforce a maximum value for max delay duration', (duration, expectedTime) => {
-            const result = calculatedScheduledAt(duration, startedAtTimestamp)
-            expect(result).toEqual(expectedTime)
+            ['61s', MAX_WAIT_VALUE_FOR_DURATION_UNIT, { seconds: 60 }],
+            ['61m', MAX_WAIT_VALUE_FOR_DURATION_UNIT, { minutes: 60 }],
+            ['25h', MAX_WAIT_VALUE_FOR_DURATION_UNIT, { hours: 24 }],
+            ['31d', MAX_WAIT_VALUE_FOR_DURATION_UNIT, { days: 30 }],
+            ['42d', MAX_DELAY_VALUE_FOR_DURATION_UNIT, { days: 42 }],
+            ['400d', MAX_DELAY_VALUE_FOR_DURATION_UNIT, { days: 365 }],
+            ['25h', MAX_DELAY_VALUE_FOR_DURATION_UNIT, { hours: 24 }],
+        ])('should hold %s to the ceiling of its unit', (duration, ceilings, expected) => {
+            const result = calculatedScheduledAt(duration, startedAtTimestamp, undefined, ceilings)
+            expect(result).toEqual(DateTime.fromISO('2025-01-01T00:00:00.000Z').toUTC().plus(expected))
         })
     })
 
@@ -191,15 +199,15 @@ describe('DelayHandler with delay_until', () => {
         expect(result.nextAction?.type).toBe('exit')
     })
 
-    // A fixed delay caps each unit ('45d' means 30 days). Carrying that into the offset would send a "45
-    // days before" reminder 15 days late, and silently, so the offset keeps its full magnitude. The wait
+    // A fixed delay caps each unit ('48h' means 24 hours). Carrying that into the offset would send a "48
+    // hours before" reminder a day late, and silently, so the offset keeps its full magnitude. The wait
     // stays bounded by max_delay_duration instead.
     it('keeps an offset larger than a fixed delay allows', async () => {
-        const result = await runDelay(delayUntil({ offset: '-45d' }), {
-            trial_expiration_at: '2025-03-02T00:00:00.000Z',
+        const result = await runDelay(delayUntil({ offset: '-48h' }), {
+            trial_expiration_at: '2025-01-05T00:00:00.000Z',
         })
 
-        expect(result.scheduledAt?.toUTC().toISO()).toBe(DateTime.fromISO('2025-01-16T00:00:00.000Z').toUTC().toISO())
+        expect(result.scheduledAt?.toUTC().toISO()).toBe(DateTime.fromISO('2025-01-03T00:00:00.000Z').toUTC().toISO())
     })
 
     // A ceiling nothing can parse must not read as zero: that puts the cap at the step's own start, so every
@@ -222,8 +230,8 @@ describe('DelayHandler with delay_until', () => {
     })
 
     // An offset whose magnitude overflows luxon's date range makes an invalid target: without a guard it
-    // slips past the cap and hands the queue an unschedulable instant. It must clamp like '45d' or a
-    // far-future date instead.
+    // slips past the cap and hands the queue an unschedulable instant. It must clamp like a far-future
+    // date instead.
     it('clamps an offset too large to represent to the default maximum', async () => {
         const result = await runDelay(delayUntil({ offset: '100000000000000000000d' }), {
             trial_expiration_at: '2025-01-08T00:00:00.000Z',
@@ -233,13 +241,17 @@ describe('DelayHandler with delay_until', () => {
         expect(result.nextAction).toBeUndefined()
     })
 
-    it('honours a configured maximum', async () => {
+    it.each([
+        ['2d', { days: 2 }],
+        ['90d', { days: 90 }],
+        ['400d', { days: 365 }],
+    ])('honours a configured maximum of %s', async (maxDelayDuration, expected) => {
         const result = await runDelay(
-            { ...delayUntil(), max_delay_duration: '2d' },
-            { trial_expiration_at: '2025-01-08T00:00:00.000Z' }
+            { ...delayUntil(), max_delay_duration: maxDelayDuration },
+            { trial_expiration_at: '2027-01-01T00:00:00.000Z' }
         )
 
-        expect(result.scheduledAt?.toISO()).toBe(DateTime.fromISO(NOW).toUTC().plus({ days: 2 }).toISO())
+        expect(result.scheduledAt?.toISO()).toBe(DateTime.fromISO(NOW).toUTC().plus(expected).toISO())
     })
 
     // Failing is deliberate. Continuing would run the next step at once, which for a "before X" reminder

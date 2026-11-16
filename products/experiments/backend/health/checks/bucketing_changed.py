@@ -3,7 +3,8 @@ A flag setting that decides the variant draw changed after launch while people w
 group type the flag matches by, the bucketing identifier, or persistence across authentication. Pure functions, no
 I/O: `health/exposure_gate.py` loads the changes and the exposure answers.
 
-People exposed before such a change get a new draw, so they can get another variant after it.
+People exposed before such a change get a new draw, so they can get another variant after it. When fewer than
+MIN_EXPOSED_UNITS_TO_WARN were exposed before the last change, that can't move the results, so it is info.
 """
 
 from products.experiments.backend.facade.contracts import (
@@ -17,23 +18,29 @@ from products.experiments.backend.health.bucketing_changes import (
     BucketingNetEffect,
     bucketing_net_effect,
     describe_bucketing_value,
+    describe_flag_key,
 )
-from products.experiments.backend.health.checks.change_wording import duration, suggested_start, the_change
+from products.experiments.backend.health.checks.change_wording import (
+    RESET_EFFECT,
+    duration,
+    suggested_start,
+    suggested_start_at,
+    the_change,
+)
 from products.experiments.backend.health.checks.flag_change_findings import (
     change_finding,
-    changes_not_checked,
+    change_rows,
+    changes_to_check,
     delay_after_launch,
-    history_to_check,
+    exposed_when,
+    few_exposed_units,
+    leave_out,
     not_checked_finding,
 )
-from products.experiments.backend.health.context import (
-    BucketingChange,
-    BucketingSetting,
-    FlagHistory,
-    FlagHistoryNotChecked,
-    HealthContext,
-)
+from products.experiments.backend.health.context import FlagHistory, FlagHistoryNotChecked, HealthContext
+from products.experiments.backend.health.skips import CheckOutcome, CheckRows, CheckSkip
 from products.experiments.backend.health.split_changes import format_change_time
+from products.feature_flags.backend.facade.edits import BucketingChange, BucketingSetting
 
 _TITLE = "The flag's variant assignment changed after launch"
 _KEY_TITLE = "The flag key changed after launch"
@@ -48,16 +55,21 @@ _SETTING_NAMES = {
 }
 
 
-def bucketing_changed_mid_run(ctx: HealthContext) -> ExperimentHealthFinding | None:
-    history = history_to_check(ctx)
-    if history is None:
-        return None
+def bucketing_changed_rows(ctx: HealthContext) -> CheckRows:
+    return change_rows(ctx, BucketingChange)
+
+
+def bucketing_changed_mid_run(ctx: HealthContext) -> CheckOutcome:
+    history = changes_to_check(ctx)
+    if isinstance(history, CheckSkip):
+        return history
     if isinstance(history, FlagHistoryNotChecked):
         return _not_checked(history)
     effect = bucketing_net_effect(history.counted(BucketingChange))
     if effect is None:
         return None
 
+    few = few_exposed_units(history, ExperimentHealthFlagChangeKind.BUCKETING)
     if effect.shape == BucketingChangeShape.REVERTED:
         first_at = format_change_time(effect.first.changed_at, history.team_timezone)
         changed = _changed_settings(effect)
@@ -74,44 +86,90 @@ def bucketing_changed_mid_run(ctx: HealthContext) -> ExperimentHealthFinding | N
                 ],
             )
         last_at = format_change_time(effect.last.changed_at, history.team_timezone)
+        set_back = f"{changed} changed on {first_at} and {_was(effect)} set back on {last_at}."
+        if few is not None:
+            move_start = leave_out(history, effect, few)
+            return _finding(
+                history,
+                effect,
+                severity=ExperimentHealthFindingSeverity.INFO,
+                title=_TITLE,
+                sentences=[set_back, exposed_when(history, effect, few), *move_start],
+                moves_start_date=bool(move_start),
+            )
         return _finding(
             history,
             effect,
             severity=ExperimentHealthFindingSeverity.WARNING,
             title=_TITLE,
             sentences=[
-                f"{changed} changed on {first_at} and {_was(effect)} set back on {last_at}.",
+                set_back,
                 *delay_after_launch(history, effect),
                 "People exposed in between got a new variant draw, so they may have switched variants.",
                 f"Move the start date to {suggested_start(effect.last.changed_at, history.team_timezone)}, or "
                 "reset the experiment.",
+                RESET_EFFECT,
             ],
+            moves_start_date=True,
         )
 
+    title = _KEY_TITLE if effect.shape == BucketingChangeShape.KEY_CHANGED else _TITLE
+    what_changed = [_what_changed(net, history) for net in effect.net_changes]
+    if _continuity_turned_on(effect):
+        # Turning persistence on keeps the variants that exposed users already have. Only a user who logs in again from
+        # a new anonymous ID can get another one, and where an SDK can't apply persistence, nobody moves.
+        return _finding(
+            history,
+            effect,
+            severity=ExperimentHealthFindingSeverity.INFO,
+            title=title,
+            sentences=[
+                *what_changed,
+                "Turning it on doesn't move users who were already exposed to another variant, unless they log in "
+                "later on another device or after logging out.",
+            ],
+        )
+    if few is not None:
+        move_start = leave_out(history, effect, few)
+        return _finding(
+            history,
+            effect,
+            severity=ExperimentHealthFindingSeverity.INFO,
+            title=title,
+            sentences=[
+                *what_changed,
+                exposed_when(history, effect, few),
+                *move_start,
+                *_key_state(effect),
+            ],
+            moves_start_date=bool(move_start),
+        )
     start_at = suggested_start(effect.last.changed_at, history.team_timezone)
     return _finding(
         history,
         effect,
         severity=ExperimentHealthFindingSeverity.WARNING,
-        title=_KEY_TITLE if effect.shape == BucketingChangeShape.KEY_CHANGED else _TITLE,
+        title=title,
         sentences=[
-            *(_what_changed(net, history.team_timezone) for net in effect.net_changes),
+            *what_changed,
             *delay_after_launch(history, effect),
             *_consequence(effect),
             f"Reset the experiment, or move its start date to {start_at}.",
+            RESET_EFFECT,
         ],
+        moves_start_date=True,
     )
 
 
 def _not_checked(history: FlagHistoryNotChecked) -> ExperimentHealthFinding | None:
-    effect = bucketing_net_effect(changes_not_checked(history, BucketingChange))
+    effect = bucketing_net_effect(history.of_kind(BucketingChange))
     if effect is None:
         return None
     if effect.shape == BucketingChangeShape.REVERTED:
         at = format_change_time(effect.last.changed_at, history.team_timezone)
         what_changed = [f"{_changed_settings(effect)} changed after launch and {_was(effect)} set back on {at}."]
     else:
-        what_changed = [_what_changed(net, history.team_timezone) for net in effect.net_changes]
+        what_changed = [_what_changed(net, history) for net in effect.net_changes]
     return not_checked_finding(
         history,
         effect,
@@ -123,26 +181,24 @@ def _not_checked(history: FlagHistoryNotChecked) -> ExperimentHealthFinding | No
     )
 
 
-def _what_changed(change: BucketingChange, team_timezone: str) -> str:
-    at = format_change_time(change.changed_at, team_timezone)
-    before = describe_bucketing_value(change.setting, change.before)
-    after = describe_bucketing_value(change.setting, change.after)
+def _what_changed(change: BucketingChange, history: FlagHistory | FlagHistoryNotChecked) -> str:
+    at = format_change_time(change.changed_at, history.team_timezone)
+    before = describe_bucketing_value(change.setting, change.before, group_type_names=history.group_type_names)
+    after = describe_bucketing_value(change.setting, change.after, group_type_names=history.group_type_names)
     match change.setting:
         case BucketingSetting.KEY:
             return f"The flag key changed from {before} to {after} on {at}."
-        case BucketingSetting.AGGREGATION if change.before is not None and change.after is not None:
-            return f"The flag changed to match by another group type on {at}."
         case BucketingSetting.AGGREGATION | BucketingSetting.BUCKETING_IDENTIFIER:
             return f"The flag changed from matching by {before} to matching by {after} on {at}."
         case BucketingSetting.EXPERIENCE_CONTINUITY:
-            return f'"Persist flag across authentication steps" was turned {after} on {at}.'
+            return f'On {at}, "Persist flag across authentication steps" was turned {after}.'
 
 
 def _consequence(effect: BucketingNetEffect) -> list[str]:
     match effect.shape:
         case BucketingChangeShape.KEY_CHANGED:
             key = next(change for change in effect.net_changes if change.setting == BucketingSetting.KEY)
-            old_key = describe_bucketing_value(BucketingSetting.KEY, key.before)
+            old_key = describe_flag_key(key.before)
             return [
                 "The key is an input of the variant draw, so every user got a new one.",
                 f"Exposures under {old_key} are no longer in the results, and code that still uses {old_key} no "
@@ -158,13 +214,35 @@ def _consequence(effect: BucketingNetEffect) -> list[str]:
                 "Users whose device ID differs from their user ID got a new variant draw, so they may have switched "
                 "variants."
             )
+        case _ if effect.net_changes[0].after:
+            consequence = "Users exposed between these changes may have switched variants."
         case _:
-            consequence = "Users who logged in got a new variant draw, so they may have switched variants."
+            consequence = (
+                "Users who logged in while it was on no longer keep the variant they got before logging in, so they "
+                "may have switched variants."
+            )
     return [
         consequence,
         "A sample ratio mismatch or users in more than one variant can come from "
         f"{the_change(effect.change_count, 'this')}.",
     ]
+
+
+def _continuity_turned_on(effect: BucketingNetEffect) -> bool:
+    """Whether one save turned persistence on and no other setting changed. A setting that changed and was set back,
+    or persistence that was off for a while, can have moved exposed users in between."""
+    return (
+        effect.changed_settings == (BucketingSetting.EXPERIENCE_CONTINUITY,)
+        and effect.change_count == 1
+        and bool(effect.net_changes[0].after)
+    )
+
+
+def _key_state(effect: BucketingNetEffect) -> list[str]:
+    if effect.shape != BucketingChangeShape.KEY_CHANGED:
+        return []
+    key = next(change for change in effect.net_changes if change.setting == BucketingSetting.KEY)
+    return [f"Code that still uses {describe_flag_key(key.before)} no longer gets this flag."]
 
 
 def _changed_settings(effect: BucketingNetEffect) -> str:
@@ -184,10 +262,14 @@ def _finding(
     severity: ExperimentHealthFindingSeverity,
     title: str,
     sentences: list[str],
+    moves_start_date: bool = False,
 ) -> ExperimentHealthFinding:
+    """`moves_start_date` when the sentences move the start date past the last change, so the button and the text
+    agree."""
     return change_finding(
         history,
         effect,
+        kind=ExperimentHealthFlagChangeKind.BUCKETING,
         code=ExperimentHealthFindingCode.BUCKETING_CHANGED_MID_RUN,
         subcode=effect.shape.value,
         severity=severity,
@@ -195,6 +277,7 @@ def _finding(
         sentences=sentences,
         kind_evidence=_kind_evidence(effect),
         diagnostic_ref="A6",
+        suggested_start_date=suggested_start_at(effect.last.changed_at) if moves_start_date else None,
     )
 
 

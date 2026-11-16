@@ -5,17 +5,14 @@ import { IconEllipsis, IconPlus, IconShare } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonInput, LemonMenu, LemonModal, Spinner } from '@posthog/lemon-ui'
 
 import { AccessDenied } from 'lib/components/AccessDenied'
-import { NotFound } from 'lib/components/NotFound'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { userHasAccess } from 'lib/utils/accessControlUtils'
 import { useSceneAgentPanel } from 'scenes/max/useSceneAgentPanel'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { Query } from '~/queries/Query/Query'
-import { isDataVisualizationNode } from '~/queries/utils'
+import { isDataVisualizationNode } from '~/queries/schema/node-guards'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { useMcpToolApplyBack } from 'products/posthog_ai/frontend/api/logics'
@@ -42,7 +39,6 @@ export const scene: SceneExport = {
 }
 
 export function BusinessIntelligenceScene({ tabId = 'bi-default' }: { tabId?: string }): JSX.Element {
-    const { featureFlags } = useValues(featureFlagLogic)
     const { activePanel, dataPaneFields, dataPaneFieldsLoading } = useValues(biEditorLogic({ tabId }))
     const { setActivePanel, startSuggestedChart, restoreState, runAfterChange } = useActions(biEditorLogic({ tabId }))
     const [settingsContainer, setSettingsContainer] = useState<HTMLDivElement | null>(null)
@@ -84,6 +80,7 @@ export function BusinessIntelligenceScene({ tabId = 'bi-default' }: { tabId?: st
         navigateHierarchy,
         setSqlPreviewOpen,
         refreshInsightFromAgent,
+        runQuery,
     } = useActions(logic)
 
     const hierarchyParent = getBIHierarchyParent(worksheet)
@@ -95,14 +92,14 @@ export function BusinessIntelligenceScene({ tabId = 'bi-default' }: { tabId?: st
     useSceneAgentPanel({
         sceneKey: 'business-intelligence',
         contextItems,
-        active: !!featureFlags[FEATURE_FLAGS.SQL_EDITOR_BI_MODE],
+        active: true,
         autoOpen: false,
         headlines: ['Build a worksheet from a catalog metric', 'What would you like to explore?'],
     })
     useMcpToolApplyBack({
         tools: ['insight-update'],
         targetKey: `bi-worksheet:${currentTeamId}:${insight?.id ?? 'unsaved'}`,
-        active: !!insight && !!featureFlags[FEATURE_FLAGS.SQL_EDITOR_BI_MODE],
+        active: !!insight,
         onApply: (_event, { innerInput }) => refreshInsightFromAgent(innerInput),
     })
 
@@ -117,10 +114,6 @@ export function BusinessIntelligenceScene({ tabId = 'bi-default' }: { tabId?: st
             },
         },
     })
-
-    if (!featureFlags[FEATURE_FLAGS.SQL_EDITOR_BI_MODE]) {
-        return <NotFound object="page" />
-    }
 
     if (!userHasAccess(AccessControlResourceType.WarehouseObjects, AccessControlLevel.Viewer)) {
         return (
@@ -320,6 +313,16 @@ export function BusinessIntelligenceScene({ tabId = 'bi-default' }: { tabId?: st
                                               : 'Drag or double-click a field to start. Dimensions define groups; measures calculate a value for each group.'
                                           : 'Select a table and add fields to build your worksheet.'}
                                 </span>
+                                {generatedQuery && (
+                                    <LemonButton
+                                        type="primary"
+                                        onClick={runQuery}
+                                        aria-label="Run worksheet"
+                                        data-attr="bi-run-empty-worksheet"
+                                    >
+                                        Run
+                                    </LemonButton>
+                                )}
                                 {worksheet.config.source &&
                                     !worksheet.config.rows.length &&
                                     !worksheet.config.columns.length &&

@@ -13,9 +13,10 @@ body {
 .TodayAppLayout--top-bar {
     --today-top-bar-height: 40px;
 
-    // The rail runs the full height. The top bar spans the sidebar, the content and the side panel.
+    // The top bar runs the full width, and its first column holds the org menu above the rail, so the rail and the
+    // bar meet at one seam.
     grid-template:
-        'rail top top top' var(--today-top-bar-height)
+        'top top top top' var(--today-top-bar-height)
         'rail left content side' minmax(0, 1fr) / var(--today-rail-width) calc(
             var(--left-nav-width) - var(--today-rail-width)
         ) minmax(0, 1fr) var(--side-panel-width, 0);
@@ -54,7 +55,7 @@ body {
 }
 
 .TodayTopBar {
-    // Above the rail, which comes later in the grid and would otherwise paint over focus rings at the bar's left edge.
+    // Above the rail, which comes later in the grid and would otherwise paint over the org tile where it hangs below the bar.
     position: relative;
     z-index: 1;
     grid-area: top;
@@ -154,7 +155,7 @@ body {
 .TodayShell__drawer {
     position: fixed;
     top: calc(var(--today-top-bar-height, 0px) + var(--today-frame-inset));
-    bottom: var(--today-frame-inset);
+    bottom: calc(var(--today-frame-inset) + var(--bottom-notice-height, 0px));
 
     // A gap off the rail, so the floating sidebar reads as a separate layer.
     left: calc(var(--today-rail-width) + var(--today-frame-inset) * 2);
@@ -239,7 +240,9 @@ body {
     }
 }
 
-body.has-today-phone-layout :is(input, textarea, select) {
+// Inputs are 16px on a phone, because iOS Safari zooms the page when an input under 16px gets focus. `data-compact` is
+// for a field that must match the small rows it sits with, such as a search in a filter submenu. It takes that zoom.
+body.has-today-phone-layout :is(input, textarea, select):not([data-compact]) {
     font-size: 1rem;
 }
 
@@ -311,17 +314,6 @@ body.has-today-phone-layout .Toastify__toast-container--bottom-right {
     min-height: 0;
 }
 
-.TodayPane {
-    // The pane sits on the shell's chrome, not the app background.
-    --quill-icon-stack-ring: var(--chrome);
-
-    display: flex;
-    flex: 1 1 auto;
-    flex-direction: column;
-    min-height: 0;
-    padding: 0 8px;
-}
-
 .TodayPane__filters {
     display: flex;
     flex-direction: column;
@@ -347,11 +339,6 @@ body.has-today-phone-layout .Toastify__toast-container--bottom-right {
     font-size: 12px;
     line-height: 1.5;
     color: var(--today-muted);
-}
-
-// While the keyboard highlights a row, a row under a resting pointer would look active too, so its hover tint drops.
-.TodayPaneSearchList:has([data-highlighted]) [role='option']:not([data-highlighted]):hover {
-    background: transparent;
 }
 
 // A context panel tab fills the card. Switching tabs fades the new one in with a short slide from the side of
@@ -410,4 +397,14 @@ body.has-today-phone-layout .Toastify__toast-container--bottom-right {
             transition: none;
         }
     }
+}
+
+// The "PostHog is changing" dialog announces a change to the whole app, so its backdrop dims the page more than quill's
+// default. The starting and ending states stay at quill's 0, so the backdrop still fades in and out.
+.TodayNavSwitchDialog__overlay:not([data-starting-style], [data-ending-style]) {
+    opacity: 0.5;
+}
+
+:is(.dark, [theme='dark']) .TodayNavSwitchDialog__overlay:not([data-starting-style], [data-ending-style]) {
+    opacity: 0.85;
 }

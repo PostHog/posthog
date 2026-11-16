@@ -7,7 +7,6 @@ from django.conf import settings
 from django.core.cache import cache
 
 import structlog
-import posthoganalytics
 from drf_spectacular.utils import extend_schema
 from prometheus_client import Counter
 from rest_framework import exceptions, serializers, status, viewsets
@@ -20,7 +19,8 @@ from rest_framework.response import Response
 from posthog.api.email_verification import email_verification_pending
 from posthog.auth import OAuthAccessTokenAuthentication, SessionAuthentication
 from posthog.exceptions_capture import capture_exception
-from posthog.llm.wizard_blocklist import WIZARD_BLOCKED_DETAIL, wizard_identity_blocked
+from posthog.ip_restrictions import enforce_ip_restrictions
+from posthog.llm.wizard_blocklist import WIZARD_BLOCKED_DETAIL
 from posthog.llm.wizard_gateway_token import (
     WizardGatewayMintError,
     WizardPosture,
@@ -71,7 +71,7 @@ WIZARD_GATEWAY_TOKEN_REQUESTS_TOTAL = Counter(
     "posthog_wizard_gateway_token_requests_total",
     "Wizard gateway-token mint requests, by outcome (minted/unconfigured/invalid_token/"
     "not_wizard_app/scope_missing/team_ambiguous/team_missing/unauthorized/blocked/"
-    "program_unknown/not_rolled_out/throttled/mint_failed)",
+    "program_unknown/throttled/mint_failed)",
     labelnames=["outcome"],
 )
 
@@ -144,6 +144,9 @@ class SetupWizardCloudRunResponseSerializer(serializers.Serializer):
 
 
 class SetupWizardViewSet(viewsets.ViewSet):
+    # Each action resolves its target from the submitted project or validated OAuth token.
+    _ip_restrictions_use_view_scope = True
+
     permission_classes = ()
 
     def throttled(self, request: Request, wait: float) -> NoReturn:
@@ -181,7 +184,7 @@ class SetupWizardViewSet(viewsets.ViewSet):
             _refuse_mint(outcome, exc, program=program, product_node=product, user=user, team=team)
 
         def refuse_absent_gateway(outcome: str, message: str, *, user: User | None = None) -> NoReturn:
-            """Refuse one of the three outcomes the CLI's legacy fallback absorbed.
+            """Refuse one of the outcomes the CLI's legacy fallback absorbed.
 
             A build that still falls back needs the 404 to reach the legacy
             gateway, which carries its own retirement message; it renders a 403
@@ -233,6 +236,7 @@ class SetupWizardViewSet(viewsets.ViewSet):
         if team is None:
             # 403: a vanished team is an authorization failure, not a missing route.
             refuse("team_missing", exceptions.PermissionDenied(ERROR_PROJECT_NOT_FOUND), user=user)
+        enforce_ip_restrictions(request, user, authenticator, organization_id=str(team.organization_id))
         posture = wizard_posture(team.organization, team)
 
         # Named ahead of the generic authorization check so the CLI can tell the user what to do.
@@ -249,17 +253,6 @@ class SetupWizardViewSet(viewsets.ViewSet):
             )
 
         distinct_id = str(user.distinct_id)
-        if wizard_identity_blocked(
-            distinct_id=distinct_id,
-            email=user.email,
-            user_uuid=str(user.uuid),
-            organization_ids=[str(team.organization_id)],
-            team_ids=[team.id],
-            surface="gateway_token",
-        ):
-            # Ahead of the rollout gate, so a ban reads as a ban whatever the flag says.
-            refuse("blocked", exceptions.PermissionDenied(WIZARD_BLOCKED_DETAIL), user=user)
-
         try:
             refused = security_access_refused(
                 SecuritySubject(
@@ -275,31 +268,7 @@ class SetupWizardViewSet(viewsets.ViewSet):
             logger.exception("security_access_check_site_failed", call_site="wizard_gateway_token")
             refused = False
         if refused:
-            # The flag's refusal, word for word, so a client cannot tell which blocklist matched.
             refuse("blocked", exceptions.PermissionDenied(WIZARD_BLOCKED_DETAIL), user=user)
-
-        # A kill switch, not a rollout gate: only a literal False refuses. With the
-        # legacy product off there is no second path, so reading an outage as "not
-        # rolled out" turns a flag-service blip into a global wizard outage.
-        try:
-            rolled_out = posthoganalytics.feature_enabled(
-                "wizard-gateway-v2",
-                distinct_id,
-                groups={"organization": str(team.organization_id), "project": str(team.id)},
-                group_properties={"organization": {"id": str(team.organization_id)}},
-                only_evaluate_locally=False,
-                send_feature_flag_events=False,
-            )
-        except Exception as e:
-            logger.warning("wizard_gateway_token: rollout flag unavailable, minting", error=str(e))
-            rolled_out = None
-        else:
-            if rolled_out is None:
-                logger.warning("wizard_gateway_token: rollout flag returned no verdict, minting")
-        if rolled_out is False:
-            refuse_absent_gateway(
-                "not_rolled_out", "Wizard gateway tokens are switched off for this organization.", user=user
-            )
 
         # Read once, after every gate that needs no flag, so an unauthenticated or
         # refused request costs no flag read. A policy flag that is off or broken
@@ -434,30 +403,19 @@ class SetupWizardViewSet(viewsets.ViewSet):
         repository = serializer.validated_data["repository"]
         branch = serializer.validated_data.get("branch") or None
 
-        visible_project_ids = UserPermissions(cast(User, request.user)).project_ids_visible_for_user
         try:
             # nosemgrep: idor-lookup-without-org, idor-taint-user-input-to-org-model (permission check below)
             project = Project.objects.get(id=project_id)
         except Project.DoesNotExist:
             raise serializers.ValidationError({"project_id": [ERROR_PROJECT_NOT_FOUND]}, code="not_found")
-        if project.id not in visible_project_ids:
-            raise exceptions.PermissionDenied("You don't have access to this project.")
-
         user = cast(User, request.user)
+        enforce_ip_restrictions(
+            request, user, request.successful_authenticator, organization_id=str(project.organization_id)
+        )
+        if project.id not in UserPermissions(user).project_ids_visible_for_user:
+            raise exceptions.PermissionDenied("You don't have access to this project.")
         # The sandbox this starts mints its own gateway token. Refused before the
         # attempt is reserved, so a ban does not also cost a daily slot.
-        if wizard_identity_blocked(
-            distinct_id=str(user.distinct_id),
-            email=user.email,
-            user_uuid=str(user.uuid),
-            organization_ids=[str(project.organization_id)],
-            team_ids=[project.id],
-            surface="cloud_run",
-        ):
-            # No outcome label: `cloud_run` already counts every PermissionDenied as
-            # permission_denied.
-            raise exceptions.PermissionDenied(WIZARD_BLOCKED_DETAIL)
-
         try:
             refused = security_access_refused(
                 SecuritySubject(
@@ -473,6 +431,8 @@ class SetupWizardViewSet(viewsets.ViewSet):
             logger.exception("security_access_check_site_failed", call_site="wizard_cloud_run")
             refused = False
         if refused:
+            # No outcome label: `cloud_run` already counts every PermissionDenied as
+            # permission_denied.
             raise exceptions.PermissionDenied(WIZARD_BLOCKED_DETAIL)
 
         self._reserve_cloud_run_attempt(user.id)

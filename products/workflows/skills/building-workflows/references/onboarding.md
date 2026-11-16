@@ -6,7 +6,7 @@ The goal is the same result as the in-app setup wizard, with as few messages as 
 ## 1. Check the setup, and start the suggestions
 
 Call `workflows-setup-status`.
-It returns every setup step with `done`, a `next_step` and an `app_url`, plus `ready_to_send_email`, `email_sending_paused` and `data_suggestions_available`.
+It returns every setup step with `done`, a `next_step` and an `app_url`, plus `ready_to_send_email` and `email_sending_paused`.
 
 The email steps only matter for workflows that send email.
 An SMS or push workflow sends through its own channel, so do not ask for the email channel or domain when the workflow has no email step.
@@ -16,7 +16,7 @@ When it is true and the workflow sends email, tell the user that email sending i
 
 If every step is done and sending is not paused, skip to the lifecycle in [SKILL.md](../SKILL.md).
 
-If `data_suggestions_available` is true, call `workflows-data-suggestions-list` now.
+Call `workflows-data-suggestions-list` now.
 It starts a background run, so the suggestions are ready by the time setup is done.
 
 ## 2. Say what is missing, in one message
@@ -45,14 +45,14 @@ It needs a project admin. If it returns a permission error, tell the user that a
 
 ## 4. Offer a first workflow
 
-When `data_suggestions_available` is true, read the suggestions with `workflows-data-suggestions-get` (or the result from step 1).
+Read the suggestions with `workflows-data-suggestions-get` (or the result from step 1).
 Show up to three, each with its name, trigger event and one line on why it fits.
 Offer to start from scratch as well.
 
 When the user picks a suggestion, build it with `workflows-data-suggestions-create`.
 It saves a draft. Hand over to the lifecycle in [SKILL.md](../SKILL.md): test it, then enable it only after the user says so.
 
-When suggestions are not available, ask what the workflow should do and build it from the lifecycle.
+When there are no suggestions, ask what the workflow should do and build it from the lifecycle.
 
 ## When the user skips the app steps
 

@@ -1,13 +1,15 @@
 from collections.abc import Callable
 from contextlib import nullcontext
+from datetime import datetime, timedelta
 from typing import Optional
 
 import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
+from django.core.cache import cache
 from django.db import InterfaceError, OperationalError
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 from django.utils import timezone
 
 import grpc
@@ -38,7 +40,9 @@ from posthog.tasks.calculate_cohort import (
     increment_version_and_enqueue_calculate_cohort,
     insert_cohort_from_filters,
     insert_cohort_from_query,
+    refresh_static_cohort_count,
     reset_stuck_cohorts,
+    schedule_static_cohort_count_refresh,
     trigger_cohort_backfill_run_task,
     update_cohort_metrics,
 )
@@ -51,6 +55,7 @@ from products.cohorts.backend.models.calculation_history import CohortCalculatio
 from products.cohorts.backend.models.cohort import Cohort, CohortType
 from products.cohorts.backend.models.util import (
     CohortErrorCode,
+    StaticCohortReadBackIncomplete,
     count_cohort_members,
     get_friendly_error_message,
     insert_static_cohort,
@@ -77,6 +82,7 @@ BACKFILL_TASK_SETTINGS = {
     "BEHAVIORAL_BACKFILL_PERSON_TTL_ATTESTED": True,
     "BEHAVIORAL_BACKFILL_PERSON_SIZING_ATTESTED": True,
     "BEHAVIORAL_BACKFILL_PERSON_TOPIC_BYTES_BUDGET": 1_000_000,
+    "BEHAVIORAL_BACKFILL_MAX_SCAN_EVENTS_PER_DAY": 0,
 }
 
 
@@ -598,10 +604,7 @@ def calculate_cohort_test_factory(event_factory: Callable, person_factory: Calla
             reset_stuck_cohorts()
 
             stuck_static_cohort.refresh_from_db()
-            # Should NOT be picked up because errors_calculating is at the max
-            self.assertTrue(stuck_static_cohort.is_calculating)
-
-            # Verify insert_cohort_from_query was NOT called
+            self.assertFalse(stuck_static_cohort.is_calculating)
             mock_insert_cohort_from_query.delay.assert_not_called()
 
         @patch("posthog.tasks.calculate_cohort.increment_version_and_enqueue_calculate_cohort")
@@ -1539,6 +1542,13 @@ class TestCohortCalculationTasks(APIBaseTest):
                 PG_SYNC_PATH,
                 lambda: SoftTimeLimitExceeded(),
             ),
+            (
+                "query_read_back_incomplete",
+                insert_cohort_from_query,
+                QUERY_CH_INSERT_PATH,
+                PG_SYNC_PATH,
+                lambda: StaticCohortReadBackIncomplete("Read 0 of 1 rows"),
+            ),
         ]
     )
     def test_static_population_retries_a_transient_failure(
@@ -1676,19 +1686,29 @@ class TestCohortCalculationTasks(APIBaseTest):
         cohort = Cohort.objects.create(team=self.team, name="static cohort", is_static=True)
         task.push_request(retries=0, called_directly=False, is_eager=True)
         try:
-            with (
-                patch(ch_insert_path),
-                patch(PG_SYNC_PATH, side_effect=_rpc_error(grpc.StatusCode.UNAVAILABLE)),
-                self.assertRaises(Retry) as scheduled,
-            ):
-                task.run(cohort.id, self.team.pk)
+            with time_machine.travel(datetime(2026, 3, 1, 12, 0, 0), tick=False) as traveller:
 
-            with patch(ch_insert_path) as mock_insert_ch, patch(PG_SYNC_PATH):
+                def slow_insert(*_args: object, **_kwargs: object) -> int:
+                    traveller.shift(timedelta(hours=1))
+                    return 7
+
+                with (
+                    patch(ch_insert_path, side_effect=slow_insert),
+                    patch(PG_SYNC_PATH, side_effect=_rpc_error(grpc.StatusCode.UNAVAILABLE)),
+                    self.assertRaises(Retry) as scheduled,
+                ):
+                    task.run(cohort.id, self.team.pk)
+
+            with patch(ch_insert_path) as mock_insert_ch, patch(PG_SYNC_PATH) as mock_sync:
                 task.run(cohort.id, self.team.pk, **scheduled.exception.sig.kwargs)
         finally:
             task.pop_request()
 
         mock_insert_ch.assert_not_called()
+        # The retry still has to wait for the rows the first attempt wrote, or a lagging replica reads as empty.
+        self.assertEqual(mock_sync.call_args.kwargs["min_rows"], 7)
+        self.assertEqual(scheduled.exception.sig.kwargs["written_since"], "2026-03-01 12:00:00")
+        self.assertEqual(mock_sync.call_args.kwargs["written_since"], "2026-03-01 12:00:00")
 
     @parameterized.expand(
         [
@@ -2279,3 +2299,18 @@ class TestCollectCohortQueryStats(APIBaseTest):
             task.pop_request()
 
         mock_logger.exception.assert_not_called()
+
+
+class TestScheduleStaticCohortCountRefresh(SimpleTestCase):
+    def test_a_failed_publish_lets_the_next_insert_schedule_the_recount(self) -> None:
+        cohort_id = 987654
+        self.addCleanup(cache.delete, f"static-cohort-count-refresh:{cohort_id}")
+
+        with patch.object(
+            refresh_static_cohort_count, "apply_async", side_effect=[ConnectionError("broker down"), None]
+        ) as publish:
+            with self.assertRaises(ConnectionError):
+                schedule_static_cohort_count_refresh(team_id=1, cohort_id=cohort_id)
+            schedule_static_cohort_count_refresh(team_id=1, cohort_id=cohort_id)
+
+        assert publish.call_count == 2

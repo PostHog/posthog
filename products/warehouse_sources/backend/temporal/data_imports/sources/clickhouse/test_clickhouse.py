@@ -17,6 +17,7 @@ from django.conf import settings
 import pyarrow as pa
 import clickhouse_connect
 from clickhouse_connect.driver.exceptions import ClickHouseError, OperationalError, ProgrammingError
+from clickhouse_connect.driver.httpclient import HttpClient
 from parameterized import parameterized
 from sshtunnel import BaseSSHTunnelForwarderError
 
@@ -36,6 +37,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.clickhouse
     _parse_mv_target,
     _project_columns,
     _quote_identifier,
+    _reads_in_incremental_order,
     filter_clickhouse_incremental_fields,
     get_primary_keys_for_schemas,
 )
@@ -175,6 +177,54 @@ class TestBuildQuery:
         assert "toString(`status`) AS `status`" in query
         assert "toString(`payload`) AS `payload`" in query
         assert "toString(`value`) AS `value`" in query
+
+    @pytest.mark.parametrize(
+        "should_use_incremental_field,page_conditions,expected_tail",
+        [
+            pytest.param(True, (), " ORDER BY `created_at` ASC", id="incremental_single_query"),
+            pytest.param(
+                True, ("(`created_at`) > (%(page_lower_0)s)",), " ORDER BY `created_at` ASC", id="incremental_paged"
+            ),
+            pytest.param(False, (), None, id="full_refresh"),
+        ],
+    )
+    def test_orders_only_an_incremental_query_and_ends_with_the_order(
+        self, should_use_incremental_field: bool, page_conditions: tuple[str, ...], expected_tail: str | None
+    ) -> None:
+        query, _ = _build_query(
+            database="default",
+            table_name="events",
+            columns=self._cols(("id", "Int64"), ("created_at", "DateTime64(6)")),
+            should_use_incremental_field=should_use_incremental_field,
+            incremental_field="created_at" if should_use_incremental_field else None,
+            incremental_field_type=IncrementalFieldType.DateTime if should_use_incremental_field else None,
+            page_conditions=page_conditions,
+        )
+        if expected_tail is None:
+            assert "ORDER BY" not in query
+        else:
+            assert query.endswith(expected_tail)
+
+    @pytest.mark.parametrize(
+        "data_type,should_use_incremental_field,incremental_field,expected",
+        [
+            ("DateTime64(6)", True, "created_at", True),
+            ("Date", True, "created_at", True),
+            ("Nullable(Int64)", True, "created_at", True),
+            ("LowCardinality(Nullable(UInt32))", True, "created_at", True),
+            # The SELECT list casts these with toString(), and the alias can make the order textual.
+            ("Int128", True, "created_at", False),
+            ("UInt256", True, "created_at", False),
+            ("Nullable(Int256)", True, "created_at", False),
+            ("DateTime64(6)", False, "created_at", False),
+            ("DateTime64(6)", True, "missing", False),
+        ],
+    )
+    def test_reads_in_incremental_order(
+        self, data_type: str, should_use_incremental_field: bool, incremental_field: str, expected: bool
+    ) -> None:
+        columns = self._cols(("id", "Int64"), ("created_at", data_type))
+        assert _reads_in_incremental_order(columns, should_use_incremental_field, incremental_field) is expected
 
 
 class TestProjectColumns:
@@ -428,6 +478,16 @@ class TestClickHouseSourceRetryableErrors:
         retryable = source.get_retryable_errors()
         assert any(pattern in error_msg for pattern in retryable)
 
+    def test_arrow_stream_flatbuffer_error_is_classified_as_retryable(self, source):
+        # pyarrow raises `OSError("Invalid flatbuffers message.")` from its own IPC framing when
+        # the connection carrying `query_arrow_stream` drops before the first message's header can
+        # be verified — the same mid-transfer connection drop as "bytes for message body, got",
+        # just caught earlier in the read. Without this it would be reported as tracked exception
+        # noise on every occurrence instead of silently retried.
+        error_msg = "Invalid flatbuffers message."
+        retryable = source.get_retryable_errors()
+        assert any(pattern in error_msg for pattern in retryable)
+
 
 class TestGetClientTransientRetry:
     """`_get_client` retries a transient connection drop during connect in-process."""
@@ -483,6 +543,24 @@ class TestGetClientTransientRetry:
             with pytest.raises(ClickHouseConnectionError, match="did not return a valid ClickHouse response"):
                 self._connect()
         assert mock_get_client.call_count == 1
+        mock_sleep.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("single_integer_line", b"200\n"),
+            ("empty_body", b""),
+            ("html_page", b"<html><body>It works</body></html>\n"),
+            ("too_many_columns", b"a\tb\tc\n"),
+        ]
+    )
+    def test_wraps_non_clickhouse_probe_body(self, _name, body):
+        response = MagicMock(data=body, headers={})
+        with (
+            patch.object(ch_module.time, "sleep") as mock_sleep,
+            patch.object(HttpClient, "_raw_request", return_value=response),
+        ):
+            with pytest.raises(ClickHouseConnectionError, match="did not return a valid ClickHouse response"):
+                self._connect()
         mock_sleep.assert_not_called()
 
 
@@ -707,20 +785,63 @@ class TestHasDuplicatePrimaryKeys:
 
         mock_capture.assert_called_once()
 
+    @parameterized.expand(
+        [
+            (
+                "remote_disconnected",
+                "Caused by ProxyError('Cannot connect to proxy.', "
+                "RemoteDisconnected('Remote end closed connection without response'))",
+            ),
+            ("timeout", "Caused by ProxyError('Cannot connect to proxy.', TimeoutError('timed out'))"),
+            (
+                "new_connection_error",
+                "Caused by ProxyError('Cannot connect to proxy.', NewConnectionError('could not connect'))",
+            ),
+        ]
+    )
+    def test_egress_proxy_blip_leaves_key_unverified_without_capturing(self, _name, cause):
+        from products.warehouse_sources.backend.temporal.data_imports.sources.clickhouse import clickhouse as ch_module
+
+        client = MagicMock()
+        client.query.side_effect = ClickHouseError(
+            f"HTTPSConnectionPool(host='ch.example.com', port=8443): Max retries exceeded with url: / ({cause})"
+        )
+
+        with patch.object(ch_module, "capture_exception") as mock_capture:
+            assert _has_duplicate_primary_keys(client, "db", "t", ["id"], self._logger()) is None
+
+        mock_capture.assert_not_called()
+
+    def test_access_denied_leaves_key_unverified_without_capturing(self):
+        from products.warehouse_sources.backend.temporal.data_imports.sources.clickhouse import clickhouse as ch_module
+
+        client = MagicMock()
+        client.query.side_effect = ClickHouseError(
+            "Code: 497. DB::Exception: posthog: Not enough privileges. To execute this query, it's necessary "
+            "to have the grant SELECT ON db.t. (ACCESS_DENIED)"
+        )
+
+        with patch.object(ch_module, "capture_exception") as mock_capture:
+            assert _has_duplicate_primary_keys(client, "db", "t", ["id"], self._logger()) is None
+
+        mock_capture.assert_not_called()
+
 
 class TestDuplicateProbeTargetsMergeKey:
     _MEMORY_LIMIT = ClickHouseError("Code: 241. DB::Exception: Query memory limit exceeded. (MEMORY_LIMIT_EXCEEDED)")
     _INCREMENTAL = ExternalDataSchemaSyncType.INCREMENTAL
 
-    def _run(self, *, sync_type, stored_primary_keys, sorting_key, probe_outcome):
+    def _run(self, *, sync_type, stored_primary_keys, sorting_key, probe_outcome, last_value=None):
         probe_queries: list[str] = []
+        probe_parameters: list[dict | None] = []
 
-        def fake_query(query, **_kwargs):
+        def fake_query(query, parameters=None, **_kwargs):
             result = MagicMock()
             if "is_in_sorting_key" in query:
                 result.result_rows = [(name,) for name in sorting_key]
             elif "HAVING count() > 1" in query:
                 probe_queries.append(query)
+                probe_parameters.append(parameters)
                 if isinstance(probe_outcome, Exception):
                     raise probe_outcome
                 result.result_rows = probe_outcome
@@ -759,11 +880,11 @@ class TestDuplicateProbeTargetsMergeKey:
                 incremental_field="created_at",
                 incremental_field_type=IncrementalFieldType.Timestamp,
                 logger=MagicMock(),
-                db_incremental_field_last_value=None,
+                db_incremental_field_last_value=last_value,
                 stored_primary_keys=stored_primary_keys,
                 sync_type=sync_type,
             )
-        return response, probe_queries
+        return response, probe_queries, probe_parameters
 
     @pytest.mark.parametrize(
         "sync_type,stored_primary_keys,sorting_key,probe_outcome,expected_group_by,expected_blocked",
@@ -785,7 +906,7 @@ class TestDuplicateProbeTargetsMergeKey:
     def test_probe_checks_the_merge_key(
         self, sync_type, stored_primary_keys, sorting_key, probe_outcome, expected_group_by, expected_blocked
     ):
-        response, probe_queries = self._run(
+        response, probe_queries, _ = self._run(
             sync_type=sync_type,
             stored_primary_keys=stored_primary_keys,
             sorting_key=sorting_key,
@@ -798,6 +919,31 @@ class TestDuplicateProbeTargetsMergeKey:
             assert len(probe_queries) == 1
             assert expected_group_by in probe_queries[0]
         assert response.has_duplicate_primary_keys is expected_blocked
+
+    @pytest.mark.parametrize(
+        "last_value,expected_from,expected_last_value",
+        [
+            (None, "FROM `db`.`events` GROUP BY", None),
+            (
+                datetime(2026, 1, 1, tzinfo=UTC),
+                "FROM `db`.`events` WHERE `created_at` > fromUnixTimestamp64Micro(%(last_value)s) GROUP BY",
+                1_767_225_600_000_000,
+            ),
+        ],
+        ids=["first_sync_probes_the_table", "cursor_scopes_the_probe_to_new_rows"],
+    )
+    def test_probe_reads_only_the_rows_after_the_cursor(self, last_value, expected_from, expected_last_value):
+        _, probe_queries, probe_parameters = self._run(
+            sync_type=self._INCREMENTAL,
+            stored_primary_keys=["id"],
+            sorting_key=["created_at", "id"],
+            probe_outcome=[],
+            last_value=last_value,
+        )
+
+        assert len(probe_queries) == 1
+        assert expected_from in probe_queries[0]
+        assert (probe_parameters[0] or {}).get("last_value") == expected_last_value
 
     def test_source_for_pipeline_passes_the_schema_key_to_the_probe(self):
         from products.warehouse_sources.backend.temporal.data_imports.sources.clickhouse import source as source_module
@@ -860,14 +1006,24 @@ class TestGetPartitionSettings:
     def _logger(self):
         return MagicMock()
 
-    def test_unexpected_error_is_captured(self):
+    @parameterized.expand(
+        [
+            ("unexpected_error", "Code: 62. DB::Exception: Syntax error", True),
+            (
+                "read_timeout",
+                "HTTPSConnectionPool(host='ch.example.com', port=8443): Read timed out. (read timeout=120)",
+                False,
+            ),
+        ]
+    )
+    def test_falls_back_and_captures_only_actionable_errors(self, _name, message, should_capture):
         client = MagicMock()
-        client.query.side_effect = ClickHouseError("Code: 62. DB::Exception: Syntax error")
+        client.query.side_effect = ClickHouseError(message)
 
         with patch.object(ch_module, "capture_exception") as mock_capture:
             assert _get_partition_settings(client, "db", "t", self._logger()) is None
 
-        mock_capture.assert_called_once()
+        assert mock_capture.called is should_capture
 
 
 class TestGetRowsBatching:
@@ -1002,6 +1158,24 @@ class TestGetRowsBatching:
             "label": ["a", None, "c"],
             "location": ["(1.5, 2.5)", "(0.0, 0.0)", "(3.0, 4.0)"],
         }
+
+    def test_treats_empty_arrow_response_as_zero_rows(self):
+        stream_client = MagicMock()
+        stream_client.query_arrow_stream.side_effect = pa.ArrowInvalid(
+            "Tried reading schema message, was null or length 0"
+        )
+
+        yielded = self._run_get_rows([], stream_client=stream_client)
+
+        assert yielded == []
+        stream_client.query_column_block_stream.assert_not_called()
+
+    def test_other_arrow_invalid_errors_are_not_treated_as_zero_rows(self):
+        stream_client = MagicMock()
+        stream_client.query_arrow_stream.side_effect = pa.ArrowInvalid("Invalid IPC stream: unsupported feature")
+
+        with pytest.raises(pa.ArrowInvalid, match="unsupported feature"):
+            self._run_get_rows([], stream_client=stream_client)
 
     def test_other_query_errors_do_not_fall_back_to_native(self):
         stream_client = MagicMock()

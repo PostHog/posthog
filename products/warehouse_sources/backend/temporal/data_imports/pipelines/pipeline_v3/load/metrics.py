@@ -17,6 +17,11 @@ IDEMPOTENCY_HIT_TOTAL = Counter(
     "Total idempotency cache hits (batch already processed)",
 )
 
+INCOMPLETE_RUN_COMPLETIONS_REFUSED_TOTAL = Counter(
+    "warehouse_load_incomplete_run_completions_refused_total",
+    "Final batches that did not complete their job because an earlier batch of the run did not load",
+)
+
 APPEND_ROLLBACK_TOTAL = Counter(
     "warehouse_load_append_rollback_total",
     "Append rollback attempts by outcome",
@@ -139,4 +144,13 @@ DELTALITE_GOVERNOR_INFLIGHT = Gauge(
 DELTALITE_GOVERNOR_RESERVED_MB = Gauge(
     "warehouse_load_deltalite_governor_reserved_mb",
     "Total memory (MB) currently reserved by in-flight deltalite upserts on this process",
+)
+
+# One per run in a write that records a loaded-prefix watermark and does not complete in that write.
+#   outcome - promoted | kept (the guards kept the current watermark) | incomplete (an earlier
+#             batch of the run is not loaded) | error
+LOADED_PREFIX_PROMOTION_TOTAL = Counter(
+    "warehouse_load_loaded_prefix_promotion_total",
+    "Watermark promotions after a loaded prefix of an incremental run, by outcome",
+    labelnames=["outcome"],
 )

@@ -10,6 +10,26 @@ Queries 13 to 15 use 90 days.
 
 Exclude staff when the question is about customers, for example with the project's test account filters.
 
+## Contents
+
+- [Live metrics](#live-metrics)
+- [1. Selection breakdown by source group type](#1-selection-breakdown-by-source-group-type)
+- [2. Top searches (share of top-N)](#2-top-searches-share-of-top-n)
+- [3. Top empty-result searches](#3-top-empty-result-searches)
+- [4. Selection rate and dwell distribution](#4-selection-rate-and-dwell-distribution)
+- [5. Selection-source mix](#5-selection-source-mix)
+- [6. Position distribution](#6-position-distribution)
+- [7. Input mode mix](#7-input-mode-mix)
+- [8. The category trap (open level)](#8-the-category-trap-open-level)
+- [9. Search latency by group](#9-search-latency-by-group)
+- [10. Fetch failures by group](#10-fetch-failures-by-group)
+- [11. Assistive feature funnels](#11-assistive-feature-funnels)
+- [12. Recovery after an empty result](#12-recovery-after-an-empty-result)
+- [13. Tab use, docking and empty-result rate](#13-tab-use-docking-and-empty-result-rate)
+- [14. Which tabs users open](#14-which-tabs-users-open)
+- [15. Users who return to the same tab](#15-users-who-return-to-the-same-tab)
+- [Updating the doc](#updating-the-doc)
+
 ## Live metrics
 
 Nine of these queries are saved as metrics in the PostHog data catalog for project 2.
@@ -17,6 +37,10 @@ Run a metric with `posthog:data-catalog-metric-run` to get the current value ins
 The metrics are proposed until a person approves them in the data catalog, so treat their results as noncanonical until then.
 The metric and the query here hold the same SQL.
 When you change one, change the other in the same PR (`posthog:data-catalog-metric-update` for the metric).
+
+The rebuilt menu is removed from the code, but its `rebuild-menu` events stay in the data until they age out of the query windows.
+That is why these queries still split or filter by `surface`.
+Once no window holds a `rebuild-menu` row, simplify a query and its metric together.
 
 | Query | Metric                                               |
 | ----- | ---------------------------------------------------- |
@@ -325,38 +349,19 @@ LIMIT 15
 
 ### 11. Assistive feature funnels
 
-Event match: answered, then suggested, then selected.
 Intent banner: banner shown, then switched.
 Write back the step ratios.
 
-- `event match suggested` carries no query or request ID, so no key counts suggestions exactly.
-  The raw count runs high: a tab switch that reuses a cached answer sends it again.
-  The distinct count per person, session and suggestion list can run high or low: two queries with the same list count once, but pickers with different exclusions turn one answer into several lists.
-  Neither is a bound.
-  Report both as rough estimates, and trust the order of magnitude, not the exact value.
-- The backend sends `event match answered` for every call, even when the model never answered.
-  The query leaves out `outcome` values `unavailable`, `wrong_length` and `only_values`, so the base is real model answers.
-- Selections have no exposure ID to pair with a suggestion, so the selection step compares person-sessions on both sides.
 - Every experiment arm sends `search intent predicted`, but only the `banner` arm can switch.
   On the banner arm, `shown` can be true when `suggestsSwitch` is false (it seems to lag one prediction), so the query needs both.
 
 ```sql
 SELECT
-  round(100 * uniqIf((person_id, $session_id, toString(properties.suggestedEvents)), event = 'taxonomic filter event match suggested')
-    / countIf(event = 'taxonomic filter event match answered'
-              AND toString(properties.outcome) NOT IN ('unavailable', 'wrong_length', 'only_values')), 1) AS match_suggested_per_answer_distinct_pct,
-  round(100 * countIf(event = 'taxonomic filter event match suggested')
-    / countIf(event = 'taxonomic filter event match answered'
-              AND toString(properties.outcome) NOT IN ('unavailable', 'wrong_length', 'only_values')), 1) AS match_suggested_per_answer_raw_pct,
-  round(100 * uniqIf((person_id, $session_id), event = 'taxonomic filter event match selected')
-    / uniqIf((person_id, $session_id), event = 'taxonomic filter event match suggested'), 1) AS sessions_selecting_per_session_suggested_pct,
   round(100 * countIf(event = 'taxonomic filter search intent switched')
     / countIf(event = 'taxonomic filter search intent predicted' AND properties.variant = 'banner'
               AND toString(properties.suggestsSwitch) = 'true' AND toString(properties.shown) = 'true'), 1) AS switched_per_shown_banner_pct
 FROM events
-WHERE event IN ('taxonomic filter event match answered', 'taxonomic filter event match suggested',
-                'taxonomic filter event match selected', 'taxonomic filter search intent predicted',
-                'taxonomic filter search intent switched')
+WHERE event IN ('taxonomic filter search intent predicted', 'taxonomic filter search intent switched')
   AND timestamp >= now() - INTERVAL 7 DAY
 ```
 

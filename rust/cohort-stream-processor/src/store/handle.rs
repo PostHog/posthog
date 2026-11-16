@@ -54,9 +54,9 @@ const LANE_SECTION: &str = "section";
 pub enum OffloadMode {
     /// Every op runs inline on the caller's thread. The operator kill switch.
     Off,
-    /// Maintenance-lane reads, `flush_wal_sync`, `run_section`, and `stats_snapshot` offload;
-    /// Event-lane reads and every other write run inline. Keeps the event path off the blocking pool
-    /// while still isolating maintenance storms and the fsync syscall.
+    /// Maintenance-lane reads, `flush_wal_sync`, `delete_partition`, `run_section`, and
+    /// `stats_snapshot` offload; Event-lane reads and every other write run inline. Keeps the event
+    /// path off the blocking pool while still isolating maintenance storms and the fsync syscall.
     Maintenance,
     /// Every op offloads. The default operating point.
     #[default]
@@ -117,7 +117,9 @@ pub struct StoreHandle {
     maintenance_permits: Option<Arc<Semaphore>>,
 }
 
+#[hotpath::measure_all]
 impl StoreHandle {
+    #[hotpath::skip]
     pub fn new(store: CohortStore, config: OffloadConfig) -> Self {
         // `0` = unbounded: model it as the absence of a semaphore so the offload path skips permit
         // acquisition entirely.
@@ -130,6 +132,7 @@ impl StoreHandle {
         }
     }
 
+    #[hotpath::skip]
     fn lane_permits(&self, lane: ReadLane) -> Option<&Arc<Semaphore>> {
         match lane {
             ReadLane::Event => self.event_permits.as_ref(),
@@ -139,6 +142,7 @@ impl StoreHandle {
 
     /// Whether a read on `lane` runs inline under the current mode. Off is always inline; under
     /// Maintenance only the Event lane is inline (maintenance offloads); under All nothing is inline.
+    #[hotpath::skip]
     fn read_runs_inline(&self, lane: ReadLane) -> bool {
         match self.mode {
             OffloadMode::Off => true,
@@ -151,6 +155,7 @@ impl StoreHandle {
 
     /// Run a read op, offloading per mode + lane. Inline runs record no offload metrics, so Off adds
     /// no measurement overhead; the rocks-level metrics inside `CohortStore` fire on both paths.
+    #[hotpath::skip]
     async fn read<T, F>(&self, op: &'static str, lane: ReadLane, f: F) -> Result<T, StoreError>
     where
         T: Send + 'static,
@@ -164,9 +169,10 @@ impl StoreHandle {
     }
 
     /// Run a write op. Writes take no permit. Under Maintenance every write runs inline *except*
-    /// `flush_wal_sync` (`is_fsync`): the fsync is the expensive syscall, memtable writes are cheap,
-    /// so the fsync offloads while ordinary commits stay on the caller's thread. Under Off all
-    /// inline, under All all offloaded.
+    /// the ones that fsync (`is_fsync`): the fsync is the expensive syscall, memtable writes are
+    /// cheap, so the fsync offloads while ordinary commits stay on the caller's thread. Under Off
+    /// all inline, under All all offloaded.
+    #[hotpath::skip]
     async fn write<T, F>(&self, op: &'static str, is_fsync: bool, f: F) -> Result<T, StoreError>
     where
         T: Send + 'static,
@@ -190,6 +196,7 @@ impl StoreHandle {
     /// label follows the permit so that `store_offload_inflight{lane="maintenance"}` counts every
     /// holder of a maintenance permit, sections included. Keeping stats on this executor is what
     /// lets `mode` stay matched in exactly the three executors (`read`, `write`, `section`).
+    #[hotpath::skip]
     async fn section<T, F>(
         &self,
         op: &'static str,
@@ -213,6 +220,7 @@ impl StoreHandle {
     /// The single offload path. Acquires the lane permit on the async side (cancellable), then moves
     /// it into the blocking closure so its hold time is exactly the op's execution — never spanning
     /// the post-spawn wake, which would couple hold time to runtime saturation.
+    #[hotpath::skip]
     async fn offload<T, F>(
         &self,
         op: &'static str,
@@ -389,6 +397,7 @@ impl StoreHandle {
 
     /// Start process-local dirty capture for one queued reconcile job. The returned lease owns the
     /// registration and disables it on drop.
+    #[hotpath::skip]
     pub fn track_stage2_dirty(&self, prefix: Stage2CohortPrefix) -> Stage2DirtyTrackingGuard {
         self.store.track_stage2_dirty(prefix)
     }
@@ -490,9 +499,9 @@ impl StoreHandle {
         .await
     }
 
-    /// Reclaim all state for one partition on rebalance. No permit.
-    pub async fn delete_partition(&self, partition_id: u16) -> Result<(), StoreError> {
-        self.write("delete_partition", false, move |store| {
+    /// Reclaim all state for one partition, and return whether it held any key. No permit.
+    pub async fn delete_partition(&self, partition_id: u16) -> Result<bool, StoreError> {
+        self.write("delete_partition", true, move |store| {
             store.delete_partition(partition_id)
         })
         .await
@@ -545,17 +554,6 @@ impl StoreHandle {
             store.stats_snapshot()
         })
         .await
-    }
-
-    /// SYNCHRONOUS escape hatch: delete one partition's state on the caller's thread, bypassing the
-    /// offload path entirely.
-    ///
-    /// The single sanctioned caller is `EventDispatcher::reclaim_stale_slice`, which runs under a
-    /// DashMap shard guard where no `.await` is possible. It is rare (a post-boot partition move-in)
-    /// and fast (one range tombstone per CF). Any new caller must justify the same no-await
-    /// constraint — prefer the async [`Self::delete_partition`] everywhere else.
-    pub fn delete_partition_blocking(&self, partition_id: u16) -> Result<(), StoreError> {
-        self.store.delete_partition(partition_id)
     }
 }
 

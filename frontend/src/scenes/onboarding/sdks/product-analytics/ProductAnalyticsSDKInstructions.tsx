@@ -6,6 +6,7 @@ import {
     BubbleInstallation,
     DjangoInstallation,
     DocusaurusInstallation,
+    DotNetInstallation,
     ElixirInstallation,
     FlutterInstallation,
     FramerInstallation,
@@ -183,6 +184,7 @@ const ProductAnalyticsDjangoInstructionsWrapper = withOnboardingDocsWrapper({
     wizardIntegrationName: 'Django',
 })
 const ProductAnalyticsGoInstructionsWrapper = withOnboardingDocsWrapper({ Installation: GoInstallation })
+const ProductAnalyticsDotNetInstructionsWrapper = withOnboardingDocsWrapper({ Installation: DotNetInstallation })
 const ProductAnalyticsPHPInstructionsWrapper = withOnboardingDocsWrapper({ Installation: PHPInstallation })
 const ProductAnalyticsLaravelInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: LaravelInstallation,
@@ -232,6 +234,7 @@ export const ProductAnalyticsSDKInstructions: SDKInstructionsMap = {
     [SDKKey.BUBBLE]: ProductAnalyticsBubbleInstructionsWrapper,
     [SDKKey.DJANGO]: ProductAnalyticsDjangoInstructionsWrapper,
     [SDKKey.DOCUSAURUS]: ProductAnalyticsDocusaurusInstructionsWrapper,
+    [SDKKey.DOTNET]: ProductAnalyticsDotNetInstructionsWrapper,
     [SDKKey.ELIXIR]: ProductAnalyticsElixirInstructionsWrapper,
     [SDKKey.FLUTTER]: ProductAnalyticsFlutterInstructionsWrapper,
     [SDKKey.FRAMER]: ProductAnalyticsFramerInstructionsWrapper,

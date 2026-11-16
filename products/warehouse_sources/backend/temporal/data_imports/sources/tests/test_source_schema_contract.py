@@ -15,7 +15,6 @@ import pytest
 
 from posthog.dataclasses import frozen
 
-import products.warehouse_sources.backend.temporal.data_imports.sources._load_all  # noqa: F401
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import _BaseSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
@@ -49,10 +48,16 @@ PASS = "pass"
 # `config`: `get_schemas` rejects every placeholder config.
 # `empty`: `get_schemas` returns no schema for a placeholder config.
 SCHEMA_FILTER_NOT_CHECKABLE: dict[str, str] = {
+    "AmazonS3": "network",
+    "AwsAthena": "network",
+    "AwsDocumentDB": "driver",
+    "AzureBlob": "network",
     "BigQuery": "driver",
     "Baserow": "network",
     "CheckoutCom": "network",
     "ClickHouse": "network",
+    "CloudflareD1": "network",
+    "CloudflareR2": "config",
     "Convex": "config",
     "CosmosDB": "config",
     "Custom": "config",
@@ -62,6 +67,7 @@ SCHEMA_FILTER_NOT_CHECKABLE: dict[str, str] = {
     "Elasticsearch": "network",
     "Firebase": "config",
     "GoogleAds": "driver",
+    "GoogleCloudStorage": "network",
     "GoogleSheets": "config",
     "Kafka": "driver",
     "MSSQL": "driver",
@@ -94,7 +100,12 @@ SCHEMA_FILTER_NOT_CHECKABLE: dict[str, str] = {
 # `request`: the extraction sends a request before it checks the schema, or the vendor supplies the list.
 # `webhook`: the schemas are webhook-only, so the extraction accepts any name and yields no rows.
 UNKNOWN_SCHEMA_NOT_CHECKABLE: dict[str, str] = {
+    "AmazonS3": "request",
     "Attentive": "webhook",
+    "AwsAthena": "request",
+    "AwsDocumentDB": "driver",
+    "AzureBlob": "request",
+    "AzureLogAnalytics": "request",
     "Baserow": "request",
     "BigQuery": "driver",
     "BingAds": "database",
@@ -103,6 +114,8 @@ UNKNOWN_SCHEMA_NOT_CHECKABLE: dict[str, str] = {
     "Clay": "request",
     "ClickHouse": "database",
     "Cliniko": "request",
+    "CloudflareD1": "request",
+    "CloudflareR2": "config",
     "Convex": "cursor",
     "CosmosDB": "config",
     "Custom": "config",
@@ -112,9 +125,11 @@ UNKNOWN_SCHEMA_NOT_CHECKABLE: dict[str, str] = {
     "DoIt": "request",
     "DynamoDB": "request",
     "Elasticsearch": "request",
+    "FileUpload": "config",
     "FullStory": "request",
     "Github": "config",
     "GoogleAds": "driver",
+    "GoogleCloudStorage": "request",
     "GoogleSheets": "config",
     "Hatchet": "config",
     "HelpScout": "database",

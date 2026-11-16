@@ -70,12 +70,12 @@
         "scope": "project"
     },
     "aiObservabilityDataset": {
-        "template": "/ai-evals/datasets/{id}",
+        "template": "/ai-evals/evaluations/offline/datasets/{id}",
         "params": ["id"],
         "scope": "project"
     },
     "aiObservabilityDatasets": {
-        "template": "/ai-evals/datasets",
+        "template": "/ai-evals/evaluations/offline/experiments?tab=datasets",
         "params": [],
         "scope": "project"
     },
@@ -235,7 +235,7 @@
         "scope": "project"
     },
     "analyticsSpaces": {
-        "template": "/analytics/spaces",
+        "template": "/analytics/collections",
         "params": [],
         "scope": "project"
     },
@@ -246,6 +246,11 @@
     },
     "annotations": {
         "template": "/data-management/annotations",
+        "params": [],
+        "scope": "project"
+    },
+    "applicationObservability": {
+        "template": "/application-observability",
         "params": [],
         "scope": "project"
     },
@@ -317,6 +322,11 @@
     "broadcasts": {
         "template": "/broadcasts",
         "params": [],
+        "scope": "project"
+    },
+    "broadcastsTemplate": {
+        "template": "/broadcasts/library/templates/{id}",
+        "params": ["id"],
         "scope": "project"
     },
     "businessIntelligence": {
@@ -425,7 +435,7 @@
         "scope": "project"
     },
     "cohortsStaffTools": {
-        "template": "/feature_flags/staff/cohorts",
+        "template": "/feature-flags/staff/cohorts",
         "params": [],
         "scope": "global"
     },
@@ -524,6 +534,11 @@
         "params": [],
         "scope": "project"
     },
+    "customerAnalyticsProductActivity": {
+        "template": "/customer_analytics/product-activity",
+        "params": [],
+        "scope": "project"
+    },
     "customerAnalyticsTasks": {
         "template": "/customer_analytics/tasks",
         "params": [],
@@ -589,6 +604,16 @@
         "params": ["name"],
         "scope": "project"
     },
+    "dataCatalogNewMetric": {
+        "template": "/data-catalog/new-metric",
+        "params": [],
+        "scope": "project"
+    },
+    "dataDeletionRequestNew": {
+        "template": "/settings/environment-danger-zone/data-deletion/new",
+        "params": [],
+        "scope": "project"
+    },
     "dataManagementHistory": {
         "template": "/data-management/history",
         "params": [],
@@ -606,6 +631,11 @@
     },
     "dataWarehouseManagedViewsets": {
         "template": "/data-management/managed-viewsets",
+        "params": [],
+        "scope": "project"
+    },
+    "dataWarehouseMigrationConnect": {
+        "template": "/data-warehouse/migrate/connect",
         "params": [],
         "scope": "project"
     },
@@ -845,27 +875,27 @@
         "scope": "project"
     },
     "featureFlag": {
-        "template": "/feature_flags/{id}",
+        "template": "/feature-flags/{id}",
         "params": ["id"],
         "scope": "project"
     },
     "featureFlagNew": {
-        "template": "/feature_flags/new",
+        "template": "/feature-flags/new",
         "params": [],
         "scope": "project"
     },
     "featureFlagTemplates": {
-        "template": "/feature_flags/templates",
+        "template": "/feature-flags/templates",
         "params": [],
         "scope": "project"
     },
     "featureFlags": {
-        "template": "/feature_flags",
+        "template": "/feature-flags",
         "params": [],
         "scope": "project"
     },
     "featureFlagsStaffTools": {
-        "template": "/feature_flags/staff",
+        "template": "/feature-flags/staff",
         "params": [],
         "scope": "global"
     },
@@ -956,6 +986,16 @@
     },
     "inbox": {
         "template": "/inbox",
+        "params": [],
+        "scope": "project"
+    },
+    "inboxActivate": {
+        "template": "/inbox/activate",
+        "params": [],
+        "scope": "project"
+    },
+    "inboxActivateWithoutGithub": {
+        "template": "/inbox/activate/without-github",
         "params": [],
         "scope": "project"
     },
@@ -1254,11 +1294,6 @@
         "params": ["tab"],
         "scope": "project"
     },
-    "mcpRegistry": {
-        "template": "/mcp-registry",
-        "params": [],
-        "scope": "project"
-    },
     "metrics": {
         "template": "/metrics",
         "params": [],
@@ -1304,8 +1339,18 @@
         "params": [],
         "scope": "global"
     },
+    "oauthDeviceAuthorize": {
+        "template": "/device",
+        "params": [],
+        "scope": "global"
+    },
     "onboarding": {
         "template": "/onboarding",
+        "params": [],
+        "scope": "project"
+    },
+    "onboardingWelcome": {
+        "template": "/welcome",
         "params": [],
         "scope": "project"
     },
@@ -1451,6 +1496,21 @@
     },
     "pulse": {
         "template": "/pulse",
+        "params": [],
+        "scope": "project"
+    },
+    "release": {
+        "template": "/releases/{id}",
+        "params": ["id"],
+        "scope": "project"
+    },
+    "releaseList": {
+        "template": "/releases/list",
+        "params": [],
+        "scope": "project"
+    },
+    "releases": {
+        "template": "/releases",
         "params": [],
         "scope": "project"
     },
@@ -1619,6 +1679,11 @@
         "params": ["categoryTab"],
         "scope": "project"
     },
+    "slackAppWorkspaceSetup": {
+        "template": "/integrations/slack/{integrationId}/setup",
+        "params": ["integrationId"],
+        "scope": "project"
+    },
     "slackTaskContext": {
         "template": "/slack-task-context",
         "params": [],
@@ -1755,7 +1820,7 @@
         "scope": "project"
     },
     "taskNewSession": {
-        "template": "/spaces/new",
+        "template": "/ai/new",
         "params": [],
         "scope": "project"
     },
@@ -1819,6 +1884,41 @@
         "params": [],
         "scope": "project"
     },
+    "transactional": {
+        "template": "/transactional",
+        "params": [],
+        "scope": "project"
+    },
+    "transactionalCodeEmail": {
+        "template": "/transactional/code-emails/{id}",
+        "params": ["id"],
+        "scope": "project"
+    },
+    "transactionalEmailLogEntry": {
+        "template": "/transactional/log/{messageId}",
+        "params": ["messageId"],
+        "scope": "project"
+    },
+    "transactionalLog": {
+        "template": "/transactional/log",
+        "params": [],
+        "scope": "project"
+    },
+    "transactionalMetrics": {
+        "template": "/transactional/metrics",
+        "params": [],
+        "scope": "project"
+    },
+    "transactionalNew": {
+        "template": "/transactional/new",
+        "params": [],
+        "scope": "project"
+    },
+    "transactionalTemplate": {
+        "template": "/transactional/library/templates/{id}",
+        "params": ["id"],
+        "scope": "project"
+    },
     "transformations": {
         "template": "/data-management/transformations",
         "params": [],
@@ -1831,6 +1931,11 @@
     },
     "unsubscribe": {
         "template": "/unsubscribe",
+        "params": [],
+        "scope": "project"
+    },
+    "uptimeMonitoring": {
+        "template": "/uptime-monitoring",
         "params": [],
         "scope": "project"
     },
@@ -1929,14 +2034,14 @@
         "params": [],
         "scope": "project"
     },
-    "webAnalyticsBotAnalytics": {
-        "template": "/web/bots",
+    "webAnalyticsContentAutopilot": {
+        "template": "/web/ai-visibility",
         "params": [],
         "scope": "project"
     },
-    "webAnalyticsContentAutopilot": {
-        "template": "/web/content-autopilot",
-        "params": [],
+    "webAnalyticsContentAutopilotPrompt": {
+        "template": "/web/ai-visibility/prompts/{id}",
+        "params": ["id"],
         "scope": "project"
     },
     "webAnalyticsHealth": {
@@ -2004,6 +2109,11 @@
         "params": [],
         "scope": "project"
     },
+    "workflowsEmailDomain": {
+        "template": "/workflows/channels/email/{id}",
+        "params": ["id"],
+        "scope": "project"
+    },
     "workflowsLibraryMessage": {
         "template": "/workflows/library/messages/{id}",
         "params": ["id"],
@@ -2022,6 +2132,11 @@
     "workflowsLibraryTemplateNew": {
         "template": "/workflows/library/templates/new",
         "params": [],
+        "scope": "project"
+    },
+    "workloadTrustPolicyRequest": {
+        "template": "/workload-trust-policy-requests/{id}",
+        "params": ["id"],
         "scope": "project"
     }
 }

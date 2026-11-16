@@ -370,6 +370,8 @@ const taskRunStateFields = {
   benjamin_version: optionalField(z.string()),
   codex_max_subagents: optionalField(z.number().int().positive()),
   codex_shared_prompt_cache: optionalField(z.boolean()),
+  disable_repo_hooks: optionalField(z.boolean()),
+  disable_skills: optionalField(z.boolean()),
   initial_permission_mode: optionalField(executionModeSchema),
   initial_prompt_override: optionalField(z.string()),
   pending_followup_messages: optionalField(
@@ -388,10 +390,12 @@ const taskRunStateFields = {
     z.enum(["none", "message", "canvas_file"]),
   ),
   slack_chart_delivery: optionalField(z.boolean()),
+  slack_chart_links: optionalField(z.boolean()),
   slack_notified_pr_url: optionalField(z.string()),
   slack_thread_url: optionalField(z.string()),
   snapshot_kind: optionalField(z.string()),
   store_skills: optionalField(z.array(storeSkillStubSchema)),
+  store_skills_bridge: optionalField(z.boolean()),
   token_usage: optionalField(z.record(z.string(), z.unknown())),
 } satisfies z.ZodRawShape;
 
@@ -735,14 +739,11 @@ export type SignalReportActionability =
 
 /**
  * One or more `SignalReportStatus` values joined by commas, e.g. `potential` or `potential,candidate,ready`.
- * This looks horrendous but it's superb, trust me bro.
+ * Check the first status without expanding every possible combination.
  */
 export type CommaSeparatedSignalReportStatuses =
   | SignalReportStatus
-  | `${SignalReportStatus},${SignalReportStatus}`
-  | `${SignalReportStatus},${SignalReportStatus},${SignalReportStatus}`
-  | `${SignalReportStatus},${SignalReportStatus},${SignalReportStatus},${SignalReportStatus}`
-  | `${SignalReportStatus},${SignalReportStatus},${SignalReportStatus},${SignalReportStatus},${SignalReportStatus}`;
+  | `${SignalReportStatus},${string}`;
 
 export type SignalReportChartSize = "small" | "medium" | "large";
 
@@ -757,6 +758,14 @@ export interface SignalReportChart {
   query: unknown;
   caption?: string | null;
   size?: SignalReportChartSize | null;
+}
+
+export interface SignalReportClaimUser {
+  id: number;
+  uuid: string;
+  email?: string;
+  first_name?: string;
+  last_name?: string;
 }
 
 export interface SignalReport {
@@ -785,13 +794,25 @@ export interface SignalReport {
   is_suggested_reviewer?: boolean;
   /** Distinct source products contributing signals to this report. */
   source_products?: string[];
+  /** Whether the report proposes an improvement to a scout. */
+  is_self_improvement_report?: boolean;
+  /** Selected code repository, when the report has one. */
+  repo_slug?: string | null;
   /** PR URL from the latest implementation task run, if available. */
   implementation_pr_url?: string | null;
   work_state?: "unclaimed" | "working" | "in_review" | "done";
   assignee?: {
     kind: "user" | "task" | "agent" | "system";
     task_id: string | null;
+    /** The claim being taken over. Sending it back makes the server refuse when a newer claim replaced it. */
+    claim_id?: string | null;
+    /** The person who claimed, directly or through their agent. */
+    user?: SignalReportClaimUser | null;
+    /** The person an agent's claim answers to, when the server knows one. */
+    responsible_user?: SignalReportClaimUser | null;
   } | null;
+  /** Whether an implementation run for this report is still working. A new run cannot start until it settles. */
+  implementation_in_flight?: boolean;
   /**
    * Whether that PR merged (GitHub webhook). A merged PR is history, not work
    * in flight: a report can outlive its fix when evidence keeps arriving, and
@@ -956,6 +977,7 @@ export interface DismissalArtefact extends SignalReportArtefactBase {
 }
 
 export interface DismissalContent {
+  state?: "resolved" | "suppressed" | "potential" | null;
   reason: ReportStateReason;
   /** Optional free-form detail provided alongside the reason. */
   note: string;
@@ -1173,6 +1195,20 @@ export interface Signal {
 export interface SignalReportsResponse {
   results: SignalReport[];
   count: number;
+}
+
+/** The list filters a section count request shares with the inbox list. */
+export interface SignalReportSectionCountsParams {
+  source_product?: string;
+  priority?: string;
+  suggested_reviewers?: string;
+}
+
+export interface SignalReportSectionCounts {
+  /** Ready reports with an implementation pull request. */
+  pull_requests: number;
+  /** Ready reports without an implementation pull request. */
+  reports: number;
 }
 
 export interface SignalProcessingStateResponse {

@@ -567,6 +567,47 @@ class TestPublishReviewGate:
 
     @parameterized.expand(
         [
+            ("first_review", None, True),
+            ("later_review", "old", False),
+        ]
+    )
+    @patch(_POST)
+    @patch(_LOAD_FINDINGS)
+    @patch(_REPORT)
+    def test_only_the_first_review_with_findings_carries_the_first_review_note(
+        self,
+        _name: str,
+        published_head_sha: str | None,
+        expects_note: bool,
+        mock_report_cls: MagicMock,
+        mock_load: MagicMock,
+        mock_post: MagicMock,
+    ) -> None:
+        self._wire_report(mock_report_cls, published_head_sha)
+        mock_load.return_value = [(_finding(), _verdict())]
+
+        publish_review(
+            owner="o",
+            repo="r",
+            pr_number=1,
+            team_id=1,
+            report_id="rep",
+            run_index=1,
+            pr_files=[],
+            token="t",
+            head_sha="sha",
+            published_priorities=_SHOULD_FIX_PUBLISHED,
+            review_mode="flash",
+            footer="Footer.",
+            first_review_note="First review note.",
+        )
+
+        marker = mock_post.call_args.kwargs["marker"]
+        closing = "Footer.\n\nFirst review note.\n\n" if expects_note else "Footer.\n\n"
+        assert mock_post.call_args.args[3].endswith(f"{closing}{marker}")
+
+    @parameterized.expand(
+        [
             ("keeps_nothing_stays_silent", IssuePriority.CONSIDER, False),
             ("posts_findings_with_the_note", IssuePriority.SHOULD_FIX, True),
         ]
@@ -601,11 +642,12 @@ class TestPublishReviewGate:
             published_priorities=_SHOULD_FIX_PUBLISHED,
             review_mode="flash",
             budget_note="Budget note.",
+            round_note="Round note.",
         )
 
         assert outcome.posted is expected_posted
         if expected_posted:
-            assert "Budget note." in mock_post.call_args.args[3]
+            assert "Budget note.\n\nRound note.\n\n" in mock_post.call_args.args[3]
         else:
             mock_post.assert_not_called()
 

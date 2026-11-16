@@ -157,6 +157,8 @@ describe("SuggestedReviewerAvatarStack", () => {
       {
         // The write names the kept reviewer by PostHog user, so it keeps routing if they unlink GitHub.
         content: [{ user_uuid: "user-bob" }],
+        action: "remove",
+        targets: [{ user_uuid: "user-me" }],
         optimisticReviewers: [teammate],
       },
       expect.objectContaining({

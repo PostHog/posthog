@@ -186,7 +186,7 @@ export class ParseResult {
     for (const [key, flag] of flags) {
       flagUrls.set(
         key,
-        `${host}/project/${config.projectId}/feature_flags/${flag.id}`,
+        `${host}/project/${config.projectId}/feature-flags/${flag.id}`,
       );
     }
 

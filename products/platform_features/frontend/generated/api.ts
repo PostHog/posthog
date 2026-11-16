@@ -24,15 +24,15 @@ import type {
     CommentSlackThreadApi,
     CommentsListParams,
     DiagnosticReportApi,
-    InternalFeedbackCreateBody,
-    InternalFeedbackResponseApi,
     ListParams,
+    MemberOffboardingResourceApi,
     MembersListParams,
     OrganizationAIAccessRequestResponseApi,
     OrganizationApi,
     OrganizationDataFreshnessApi,
     OrganizationMemberApi,
     OrganizationMemberGithubLoginApi,
+    OrganizationPersonalAPIKeyActionResultApi,
     OrganizationRemoveBlockedMembersResponseApi,
     PaginatedActivityLogListApi,
     PaginatedApprovalPolicyListApi,
@@ -82,38 +82,6 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
           [P in keyof Writable<T>]: T[P] extends object ? NonReadonly<NonNullable<T[P]>> : T[P]
       }
     : DistributeReadOnlyOverUnions<T>
-
-export const getInternalFeedbackCreateUrl = () => {
-    return `/api/internal_feedback/`
-}
-
-/**
- * Send feedback about an element or page of the PostHog web app to the team's Slack channel.
- */
-export const internalFeedbackCreate = async (
-    internalFeedbackCreateBody?: InternalFeedbackCreateBody,
-    options?: RequestInit
-): Promise<InternalFeedbackResponseApi> => {
-    const formData = new FormData()
-    if (internalFeedbackCreateBody?.comment !== undefined) {
-        formData.append(`comment`, internalFeedbackCreateBody.comment)
-    }
-    if (internalFeedbackCreateBody?.page_url !== undefined) {
-        formData.append(`page_url`, internalFeedbackCreateBody.page_url)
-    }
-    if (internalFeedbackCreateBody?.element_identifier !== undefined) {
-        formData.append(`element_identifier`, internalFeedbackCreateBody.element_identifier)
-    }
-    if (internalFeedbackCreateBody?.screenshot !== undefined) {
-        formData.append(`screenshot`, internalFeedbackCreateBody.screenshot)
-    }
-
-    return apiMutator<InternalFeedbackResponseApi>(getInternalFeedbackCreateUrl(), {
-        ...options,
-        method: 'POST',
-        body: formData,
-    })
-}
 
 export const getListUrl = (params?: ListParams) => {
     const normalizedParams = new URLSearchParams()
@@ -360,6 +328,24 @@ export const membersGithubLoginRetrieve = async (
     })
 }
 
+export const getMembersOffboardingPreviewRetrieveUrl = (organizationId: string, userUuid: string) => {
+    return `/api/organizations/${organizationId}/members/${userUuid}/offboarding_preview/`
+}
+
+export const membersOffboardingPreviewRetrieve = async (
+    organizationId: string,
+    userUuid: string,
+    options?: RequestInit
+): Promise<MemberOffboardingResourceApi[]> => {
+    return apiMutator<MemberOffboardingResourceApi[]>(
+        getMembersOffboardingPreviewRetrieveUrl(organizationId, userUuid),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
 export const getMembersScopedApiKeysRetrieveUrl = (organizationId: string, userUuid: string) => {
     return `/api/organizations/${organizationId}/members/${userUuid}/scoped_api_keys/`
 }
@@ -400,6 +386,42 @@ export const personalApiKeysList = async (
         ...options,
         method: 'GET',
     })
+}
+
+export const getOrganizationPersonalApiKeysRevokeUrl = (organizationId: string, id: string) => {
+    return `/api/organizations/${organizationId}/personal_api_keys/${id}/revoke/`
+}
+
+export const organizationPersonalApiKeysRevoke = async (
+    organizationId: string,
+    id: string,
+    options?: RequestInit
+): Promise<OrganizationPersonalAPIKeyActionResultApi> => {
+    return apiMutator<OrganizationPersonalAPIKeyActionResultApi>(
+        getOrganizationPersonalApiKeysRevokeUrl(organizationId, id),
+        {
+            ...options,
+            method: 'POST',
+        }
+    )
+}
+
+export const getOrganizationPersonalApiKeysRollUrl = (organizationId: string, id: string) => {
+    return `/api/organizations/${organizationId}/personal_api_keys/${id}/roll/`
+}
+
+export const organizationPersonalApiKeysRoll = async (
+    organizationId: string,
+    id: string,
+    options?: RequestInit
+): Promise<OrganizationPersonalAPIKeyActionResultApi> => {
+    return apiMutator<OrganizationPersonalAPIKeyActionResultApi>(
+        getOrganizationPersonalApiKeysRollUrl(organizationId, id),
+        {
+            ...options,
+            method: 'POST',
+        }
+    )
 }
 
 export const getProxyRecordsListUrl = (organizationId: string) => {
@@ -1220,7 +1242,7 @@ export const getCommentsSendToSlackCreateUrl = (projectId: string, id: string) =
 }
 
 /**
- * Mirror this discussion thread to a Slack channel. Posts the comment (and its existing replies) as a new Slack thread; later replies on either side sync across. A discussion mirrors to exactly one Slack thread: re-calling with the same channel returns the existing mirror; a different channel is a 400 naming the existing one. 409 while a concurrent send is in flight. 404 when the feature is not enabled for the team.
+ * Mirror this discussion thread to a Slack channel. Posts the comment (and its existing replies) as a new Slack thread; later replies on either side sync across. A discussion mirrors to exactly one Slack thread: re-calling with the same channel returns the existing mirror; a different channel is a 400 naming the existing one. 409 while a concurrent send is in flight. 404 when the feature is not enabled for the team. Only the person who started a ticket discussion can send it (403), and it cannot go to a channel shared with another Slack workspace (400). 429 when the Slack integration has made too many channel lookups in the last minute.
  */
 export const commentsSendToSlackCreate = async (
     projectId: string,

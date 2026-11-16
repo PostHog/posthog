@@ -6,7 +6,6 @@ import { MetricErrorState } from '../new/MetricErrorState'
 interface ChartEmptyStateProps {
     height: number
     experimentStarted: boolean
-    metric: any
     error?: any
     query?: Record<string, any>
     onRetry?: () => void
@@ -18,7 +17,6 @@ export function ChartEmptyState({
     height,
     experimentStarted,
     error,
-    metric,
     query,
     onRetry,
     retryDisabledReason,
@@ -48,11 +46,10 @@ export function ChartEmptyState({
         <div
             className="flex items-center justify-center w-full"
             // eslint-disable-next-line react/forbid-dom-props
-            style={error ? { minHeight: `${height}px` } : { height: `${height}px` }}
+            style={{ minHeight: `${height}px` }}
         >
             <MetricErrorState
                 error={error}
-                metric={metric}
                 query={query}
                 onRetry={onRetry}
                 retryDisabledReason={retryDisabledReason}

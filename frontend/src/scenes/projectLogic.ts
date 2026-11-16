@@ -12,7 +12,6 @@ import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { identifierToHuman } from 'lib/utils/strings'
 
 import { organizationsProjectsCancelDeletionCreate } from '~/generated/core/api'
-import { tagsModel } from '~/models/tagsModel'
 import { ProjectType } from '~/types'
 
 import type { OrganizationBasicType } from '../types'
@@ -21,6 +20,13 @@ import { urls } from './urls'
 import { userLogic } from './userLogic'
 
 const CREATE_PROJECT_TIMEOUT_MS = 60_000
+
+function toastDuplicateNameConflict(error: string, errorObject: unknown): void {
+    const apiError = errorObject as ApiError | undefined
+    if (apiError?.status === 409) {
+        lemonToast.error(apiError.detail || error)
+    }
+}
 
 export function isPathOpenWhileProjectPendingDeletion(pathname: string): boolean {
     // projectBased scenes are served under a /project/:id prefix, so match the lockout path by suffix.
@@ -230,8 +236,11 @@ export const projectLogic = kea<projectLogicType>([
                         return null
                     }
                     try {
+                        // @current is the user's server-side current project, which another tab can change.
+                        // Once this tab has a project, reload it by id so its API calls stay in it.
+                        const projectId = values.currentProject?.id ?? '@current'
                         // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
-                        return await api.get('api/projects/@current')
+                        return await api.get(`api/projects/${projectId}`)
                     } catch {
                         return values.currentProject
                     }
@@ -246,9 +255,6 @@ export const projectLogic = kea<projectLogicType>([
                         `api/projects/${values.currentProject.id}`,
                         payload
                     )
-                    if ('tags' in payload) {
-                        tagsModel.findMounted()?.actions.refreshTags()
-                    }
                     breakpoint()
 
                     // We need to reload current org (which lists its projects) in organizationLogic AND in userLogic
@@ -347,10 +353,10 @@ export const projectLogic = kea<projectLogicType>([
             actions.guardPendingDeletion(pathname, values.currentProject?.is_pending_deletion)
         },
         updateCurrentProjectFailure: ({ error, errorObject }) => {
-            const apiError = errorObject as ApiError | undefined
-            if (apiError?.status === 409) {
-                lemonToast.error(apiError.detail || error)
-            }
+            toastDuplicateNameConflict(error, errorObject)
+        },
+        createProjectFailure: ({ error, errorObject }) => {
+            toastDuplicateNameConflict(error, errorObject)
         },
         guardPendingDeletion: ({ pathname, isPendingDeletion }) => {
             const onLockoutScreen = pathname.endsWith(urls.projectPendingDeletion())

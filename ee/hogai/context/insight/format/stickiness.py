@@ -1,6 +1,9 @@
-from typing import Any
+from collections.abc import Mapping
+from typing import Any, Optional
 
 from posthog.schema import AssistantStickinessQuery, Compare, StickinessQuery
+
+from posthog.hogql_queries.utils.result_series import get_result_series, get_series_custom_name
 
 from .utils import format_matrix, format_number
 
@@ -21,9 +24,12 @@ class StickinessResultsFormatter:
         self,
         query: AssistantStickinessQuery | StickinessQuery,
         results: list[dict[str, Any]],
+        action_names: Optional[Mapping[int, str | None]] = None,
     ):
         self._query = query
+        self._query_dict = query.model_dump(mode="json")
         self._results = results
+        self._action_names = action_names
 
     def format(self) -> str:
         results = self._results
@@ -66,10 +72,6 @@ class StickinessResultsFormatter:
         return format_matrix(matrix)
 
     def _extract_series_label(self, series: dict[str, Any]) -> str:
-        action = series.get("action")
-        name = series["label"]
-        if isinstance(action, dict):
-            custom_name = action.get("custom_name")
-            if custom_name is not None:
-                name = custom_name
-        return name
+        node = get_result_series(self._query_dict, series)
+        custom_name = get_series_custom_name(node, self._action_names) if node is not None else None
+        return custom_name if custom_name is not None else series["label"]

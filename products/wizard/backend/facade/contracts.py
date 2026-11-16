@@ -13,6 +13,7 @@ from uuid import UUID
 from posthog.dataclasses import frozen
 
 from .enums import (
+    WizardPullRequestState,
     WizardRunArtifactType,
     WizardRunEnvironment,
     WizardRunStage,
@@ -104,6 +105,8 @@ class LocalFolderWorkspace:
 @frozen
 class GitRepositoryWorkspace:
     repository: str
+    # None means the repository's default branch.
+    branch: str | None = None
     type: Literal["git_repository"] = "git_repository"
 
 
@@ -120,6 +123,8 @@ class WizardProgram:
     tags: tuple[str, ...]
     required_programs: tuple[str, ...]
     supported_environments: tuple[WizardRunEnvironment, ...]
+    # None means cloud runs follow the latest context-mill release.
+    context_mill_version: str | None = None
 
 
 @frozen
@@ -136,6 +141,19 @@ class CreateWizardRunInput:
     workspace: WizardWorkspace
     program_id: str
     wizard_version: str | None = None
+    idempotency_key: str | None = None
+
+
+@frozen
+class StartWizardInstallInput:
+    """
+    Starts the PostHog setup program in the cloud on a GitHub repository of the project.
+    """
+
+    team_id: int
+    created_by_id: int
+    repository: str
+    branch: str | None = None
     idempotency_key: str | None = None
 
 
@@ -217,18 +235,18 @@ class WizardRunDTO:
 
 
 @frozen
-class ListWizardRunsInput:
-    team_id: int
-    offset: int
-    limit: int
-    statuses: tuple[WizardRunStatus, ...] = ()
-    created_after: datetime | None = None
+class WizardInstallStatusDTO:
+    run: WizardRunDTO
+    pull_request_url: str | None
+    next_step: str
 
 
 @frozen
-class WizardRunPage:
-    results: tuple[WizardRunDTO, ...]
-    count: int
+class ListWizardRunsInput:
+    team_id: int
+    statuses: tuple[WizardRunStatus, ...] = ()
+    created_after: datetime | None = None
+    created_by_id: int | None = None
 
 
 @frozen
@@ -267,6 +285,10 @@ class WizardRunPullRequestArtifactDTO:
     head_branch: str
     base_branch: str
     created_at: datetime
+    # None for artifacts stored before the pull request state was tracked.
+    state: WizardPullRequestState | None = None
+    merged_at: datetime | None = None
+    closed_at: datetime | None = None
 
 
 type WizardRunArtifactDTO = WizardRunGitDiffArtifactDTO | WizardRunPullRequestArtifactDTO
@@ -305,3 +327,11 @@ class WizardScanResult:
     id: UUID
     # False when the session already reported this scan, so nothing was written.
     created: bool
+
+
+@frozen
+class WizardDetectedWarehouseSource:
+    kind: str
+    warehouse_source_type: str
+    first_seen_at: datetime
+    last_seen_at: datetime

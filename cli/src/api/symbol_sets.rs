@@ -21,7 +21,7 @@ use tracing::{debug, info, warn};
 use crate::{
     api::client::ClientError,
     invocation_context::context,
-    utils::{files::content_hash, raise_for_err},
+    utils::{files::content_hash, raise_for_presigned_err, redact_request_error},
 };
 
 pub(crate) const MAX_FILE_SIZE: usize = 100 * 1024 * 1024; // 100 MB
@@ -171,6 +171,10 @@ pub struct PresignedUrl {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct BulkUploadRequest {
     symbol_sets: Vec<CreateSymbolSetRequest>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    upload_attempt_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    upload_run_id: Option<String>,
     /// When true, allow overwriting symbol sets whose content has changed.
     #[serde(default)]
     force: bool,
@@ -198,6 +202,8 @@ struct HashedUpload<'a> {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct BulkUploadFinishRequest {
     content_hashes: HashMap<String, String>,
+    upload_attempt_id: String,
+    upload_run_id: String,
 }
 
 /// Upload symbol sets with optional retry on release_id_mismatch error.
@@ -246,6 +252,8 @@ pub fn upload_with_retry_and_concurrency(
         Ok(client) => UploadTransport {
             client,
             accelerated_unreachable: AtomicBool::new(false),
+            // A release-ID retry reuses this transport and belongs to the same CLI run.
+            upload_run_id: uuid::Uuid::now_v7().to_string(),
         },
         Err(e) => return (summary, Err(e)),
     };
@@ -305,13 +313,13 @@ fn build_upload_thread_pool(concurrency: NonZeroUsize) -> Result<ThreadPool> {
         .context("Failed to initialize symbol set upload thread pool")
 }
 
-/// Shared S3 upload transport for one run: a single client, because reusing its
-/// connection pool avoids paying a TCP + TLS handshake per uploaded chunk, and
-/// the run-wide latch that stops attempts against the accelerated endpoint once
-/// it is known to be unreachable.
+/// Shared S3 upload transport and tracking ID for one run. Reusing the client avoids
+/// a TCP + TLS handshake per chunk; the run-wide latch stops attempts against the
+/// accelerated endpoint once it is known to be unreachable.
 struct UploadTransport {
     client: Client,
     accelerated_unreachable: AtomicBool,
+    upload_run_id: String,
 }
 
 impl UploadTransport {
@@ -381,7 +389,14 @@ fn upload_inner(
 
     for (i, batch) in to_upload.chunks(batch_size).enumerate() {
         info!("Starting upload of batch {i}, {} symbol sets", batch.len());
-        let start_response = start_upload(batch, force, skip_on_conflict)?;
+        let upload_attempt_id = uuid::Uuid::now_v7().to_string();
+        let start_response = start_upload(
+            batch,
+            force,
+            skip_on_conflict,
+            &upload_attempt_id,
+            &transport.upload_run_id,
+        )?;
 
         let id_map: HashMap<&str, HashedUpload> = batch
             .iter()
@@ -418,7 +433,7 @@ fn upload_inner(
         }
         let uploaded = content_hashes.len();
 
-        finish_upload(content_hashes)?;
+        finish_upload(content_hashes, &upload_attempt_id, &transport.upload_run_id)?;
         summary.uploaded += uploaded;
     }
 
@@ -476,6 +491,8 @@ fn bulk_upload_request(
     skip_on_conflict: bool,
 ) -> BulkUploadRequest {
     BulkUploadRequest {
+        upload_attempt_id: None,
+        upload_run_id: None,
         symbol_sets: batch
             .iter()
             .map(|hashed| CreateSymbolSetRequest {
@@ -528,9 +545,9 @@ where
 
     match res {
         Ok(CheckOutcome::Answered(response)) => Some(response.chunk_ids_to_upload),
-        Ok(CheckOutcome::Rejected(ClientError::ApiError(status @ 403..=405, _, body))) => {
+        Ok(CheckOutcome::Rejected(ClientError::ApiError(status @ 403..=405, _, _))) => {
             info!("The server does not support upload checks. Sending every chunk.");
-            debug!("Upload check rejected with status {status}: {body}");
+            debug!("Upload check rejected with status {status}");
             None
         }
         Ok(CheckOutcome::Rejected(e)) | Err(e) => {
@@ -544,9 +561,15 @@ fn start_upload(
     batch: &[HashedUpload],
     force: bool,
     skip_on_conflict: bool,
+    upload_attempt_id: &str,
+    upload_run_id: &str,
 ) -> Result<BulkUploadStartResponse, UploadError> {
     let client = &context().client;
-    let request = bulk_upload_request(batch, force, skip_on_conflict);
+    let request = BulkUploadRequest {
+        upload_attempt_id: Some(upload_attempt_id.to_string()),
+        upload_run_id: Some(upload_run_id.to_string()),
+        ..bulk_upload_request(batch, force, skip_on_conflict)
+    };
 
     let res = retry(retry_policy(500, 2, 3), |_| {
         client.send_post(
@@ -665,7 +688,7 @@ fn upload_to_s3(
             Ok(response) => response,
             Err(e) => {
                 router.record_transport_error(use_fallback);
-                return Err(e.into());
+                return Err(redact_request_error(e).into());
             }
         };
         if !use_fallback {
@@ -673,7 +696,7 @@ fn upload_to_s3(
         }
         // HTTP errors never reroute: a response proves the endpoint is
         // reachable, and the standard endpoint would return the same error.
-        raise_for_err(response)?;
+        raise_for_presigned_err(response)?;
 
         if router.should_set_latch(use_fallback) {
             transport.mark_accelerated_unreachable();
@@ -686,9 +709,17 @@ fn upload_to_s3(
     Ok(())
 }
 
-fn finish_upload(content_hashes: HashMap<String, String>) -> Result<(), UploadError> {
+fn finish_upload(
+    content_hashes: HashMap<String, String>,
+    upload_attempt_id: &str,
+    upload_run_id: &str,
+) -> Result<(), UploadError> {
     let client = &context().client;
-    let request = BulkUploadFinishRequest { content_hashes };
+    let request = BulkUploadFinishRequest {
+        content_hashes,
+        upload_attempt_id: upload_attempt_id.to_string(),
+        upload_run_id: upload_run_id.to_string(),
+    };
 
     retry(retry_policy(500, 2, 3), |_| {
         client.send_post(
@@ -768,6 +799,7 @@ pub fn download_bytes(symbol_set_id: &str) -> Result<Vec<u8>> {
     let response = http_client
         .get(&presigned_url)
         .send()
+        .map_err(redact_request_error)
         .context("Failed to download from S3")?;
 
     if !response.status().is_success() {
@@ -844,7 +876,7 @@ mod tests {
         cell::Cell,
         fmt::Debug,
         io::{Read, Write},
-        net::TcpListener,
+        net::{TcpListener, TcpStream},
         sync::{mpsc, Arc, Mutex, MutexGuard},
     };
     use tracing::{field::Visit, Event, Subscriber};
@@ -1064,6 +1096,39 @@ mod tests {
     }
 
     #[test]
+    fn upload_ids_correlate_batches_and_finishes_but_not_checks() {
+        let check = bulk_upload_request(&[], false, false);
+        let check_json = serde_json::to_value(&check).unwrap();
+        assert!(check_json.get("upload_attempt_id").is_none());
+        assert!(check_json.get("upload_run_id").is_none());
+
+        let upload_run_id = uuid::Uuid::now_v7().to_string();
+        let attempt_ids = [
+            uuid::Uuid::now_v7().to_string(),
+            uuid::Uuid::now_v7().to_string(),
+        ];
+        assert_ne!(attempt_ids[0], attempt_ids[1]);
+        for upload_attempt_id in attempt_ids {
+            let start = BulkUploadRequest {
+                upload_attempt_id: Some(upload_attempt_id.clone()),
+                upload_run_id: Some(upload_run_id.clone()),
+                ..check.clone()
+            };
+            let finish = BulkUploadFinishRequest {
+                content_hashes: HashMap::new(),
+                upload_attempt_id: upload_attempt_id.clone(),
+                upload_run_id: upload_run_id.clone(),
+            };
+            let start_json = serde_json::to_value(&start).unwrap();
+            let finish_json = serde_json::to_value(&finish).unwrap();
+            assert_eq!(start_json["upload_attempt_id"], upload_attempt_id);
+            assert_eq!(finish_json["upload_attempt_id"], upload_attempt_id);
+            assert_eq!(start_json["upload_run_id"], upload_run_id);
+            assert_eq!(finish_json["upload_run_id"], upload_run_id);
+        }
+    }
+
+    #[test]
     fn start_upload_response_parses_without_fallback_presigned_url() {
         let json = r#"{"id_map":{"chunk":{"presigned_url":{"url":"https://example.com/","fields":{}},"symbol_set_id":"id"}}}"#;
         let parsed: BulkUploadStartResponse = serde_json::from_str(json).unwrap();
@@ -1117,49 +1182,96 @@ mod tests {
 
         std::thread::spawn(move || {
             let (mut stream, _) = listener.accept().expect("accept upload connection");
-            let mut buffer = Vec::new();
-            let mut chunk = [0u8; 8192];
-
-            let head_end = loop {
-                if let Some(position) = buffer.windows(4).position(|window| window == b"\r\n\r\n") {
-                    break position + 4;
-                }
-                let read = stream.read(&mut chunk).expect("read request head");
-                assert_ne!(read, 0, "connection closed before the request head ended");
-                buffer.extend_from_slice(&chunk[..read]);
-            };
-
-            let head = String::from_utf8_lossy(&buffer[..head_end]).to_string();
-            let body_len: usize = head
-                .lines()
-                .find_map(|line| {
-                    let (name, value) = line.split_once(':')?;
-                    name.eq_ignore_ascii_case("content-length")
-                        .then(|| value.trim().parse().expect("numeric content-length"))
-                })
-                .expect("an upload request always declares its length");
-
-            while buffer.len() < head_end + body_len {
-                let read = stream.read(&mut chunk).expect("read request body");
-                assert_ne!(read, 0, "connection closed before the body ended");
-                buffer.extend_from_slice(&chunk[..read]);
-            }
-
+            let request = read_request(&mut stream);
             stream
                 .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n")
                 .expect("write response");
             sender
-                .send((head, buffer[head_end..head_end + body_len].to_vec()))
+                .send(request)
                 .expect("hand the request back to the test");
         });
 
         (format!("http://{address}"), receiver)
     }
 
+    fn read_request(stream: &mut TcpStream) -> (String, Vec<u8>) {
+        let mut buffer = Vec::new();
+        let mut chunk = [0u8; 8192];
+
+        let head_end = loop {
+            if let Some(position) = buffer.windows(4).position(|window| window == b"\r\n\r\n") {
+                break position + 4;
+            }
+            let read = stream.read(&mut chunk).expect("read request head");
+            assert_ne!(read, 0, "connection closed before the request head ended");
+            buffer.extend_from_slice(&chunk[..read]);
+        };
+
+        let head = String::from_utf8_lossy(&buffer[..head_end]).to_string();
+        let body_len: usize = head
+            .lines()
+            .find_map(|line| {
+                let (name, value) = line.split_once(':')?;
+                name.eq_ignore_ascii_case("content-length")
+                    .then(|| value.trim().parse().expect("numeric content-length"))
+            })
+            .expect("an upload request always declares its length");
+
+        while buffer.len() < head_end + body_len {
+            let read = stream.read(&mut chunk).expect("read request body");
+            assert_ne!(read, 0, "connection closed before the body ended");
+            buffer.extend_from_slice(&chunk[..read]);
+        }
+
+        (head, buffer[head_end..head_end + body_len].to_vec())
+    }
+
+    const PRESIGNED_SECRETS: [&str; 5] = [
+        "ASIAEXAMPLEKEYID",
+        "SESSIONTOKEN",
+        "SIGNATURE",
+        "COOKIE_SECRET",
+        "LOCATION_SECRET",
+    ];
+
+    fn presigned_put_url(origin: &str) -> String {
+        format!("{origin}/symbolsets/chunk?X-Amz-Credential=ASIAEXAMPLEKEYID%2F20261104%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Security-Token=SESSIONTOKEN&X-Amz-Signature=SIGNATURE")
+    }
+
+    fn serve_upload_error(attempts: usize, body: &'static str) -> String {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind loopback port");
+        let address = listener.local_addr().expect("read bound address");
+
+        std::thread::spawn(move || {
+            for _ in 0..attempts {
+                let (mut stream, _) = listener.accept().expect("accept upload connection");
+                read_request(&mut stream);
+                write!(
+                    stream,
+                    "HTTP/1.1 403 Forbidden\r\nContent-Type: application/xml\r\nContent-Length: {}\r\nSet-Cookie: session=COOKIE_SECRET\r\nLocation: https://example.com/?token=LOCATION_SECRET\r\nConnection: close\r\n\r\n{body}",
+                    body.len()
+                )
+                .expect("write response");
+            }
+        });
+
+        format!("http://{address}")
+    }
+
+    fn refused_origin() -> String {
+        let port = TcpListener::bind("127.0.0.1:0")
+            .expect("bind loopback port")
+            .local_addr()
+            .expect("read bound address")
+            .port();
+        format!("http://127.0.0.1:{port}")
+    }
+
     fn test_transport() -> UploadTransport {
         UploadTransport {
             client: Client::new(),
             accelerated_unreachable: AtomicBool::new(false),
+            upload_run_id: uuid::Uuid::now_v7().to_string(),
         }
     }
 
@@ -1220,6 +1332,60 @@ mod tests {
     }
 
     #[test]
+    fn upload_to_s3_keeps_presigned_credentials_out_of_logs_and_errors() {
+        let _retry_tracing_lock = lock_retry_tracing();
+        let cases = [
+            (
+                "storage answers with an error",
+                serve_upload_error(3, "<Error><Code>SignatureDoesNotMatch</Code><Message>The request signature we calculated does not match the signature you provided.</Message><AWSAccessKeyId>ASIAEXAMPLEKEYID</AWSAccessKeyId><CanonicalRequest>PUT\n/symbolsets/chunk\nX-Amz-Security-Token=SESSIONTOKEN&amp;X-Amz-Signature=SIGNATURE</CanonicalRequest><RequestId>REQ123</RequestId></Error>"),
+                Some("Code=SignatureDoesNotMatch"),
+                false,
+            ),
+            (
+                "storage rejects a POST policy",
+                serve_upload_error(3, "<Error><Code>AccessDenied</Code><Message>Invalid according to Policy: Policy Condition failed: [eq, $x-amz-security-token, SESSIONTOKEN]</Message><RequestId>REQ123</RequestId></Error>"),
+                Some("Code=AccessDenied"),
+                true,
+            ),
+            ("storage refuses the connection", refused_origin(), None, false),
+        ];
+
+        for (name, origin, expected, use_post) in cases {
+            let url = presigned_put_url(&origin);
+            let presigned = PresignedUrl {
+                url: format!("{origin}/symbolsets/chunk"),
+                fields: HashMap::from([
+                    ("key".to_string(), "symbolsets/chunk".to_string()),
+                    (
+                        "x-amz-security-token".to_string(),
+                        "SESSIONTOKEN".to_string(),
+                    ),
+                ]),
+            };
+            let target = if use_post {
+                UploadTarget::Post(&presigned)
+            } else {
+                UploadTarget::Put(&url)
+            };
+            let mut result = None;
+            let messages = capture_tracing_messages(|| {
+                result = Some(upload_to_s3(&test_transport(), target, None, b"bytes"));
+            });
+
+            let err = result.expect("upload ran").expect_err(name);
+            let output = format!("{}\n{err:?}", messages.join("\n"));
+            assert!(output.contains("/symbolsets/chunk"), "{name}: {output}");
+            if let Some(expected) = expected {
+                assert!(output.contains(expected), "{name}: {output}");
+                assert!(output.contains("RequestId=REQ123"), "{name}: {output}");
+            }
+            for secret in PRESIGNED_SECRETS {
+                assert!(!output.contains(secret), "{name}: {output}");
+            }
+        }
+    }
+
+    #[test]
     fn start_request_declares_the_chunk_length() {
         // The server signs this number into the presigned PUT, so it must be the exact body size.
         let upload = SymbolSetUpload {
@@ -1262,10 +1428,11 @@ mod tests {
             crate::invocation_context::InvocationContext::new(config, client)
         });
 
-        let err = finish_upload(HashMap::from([(
-            "symbol-set-id".to_string(),
-            "content-hash".to_string(),
-        )]))
+        let err = finish_upload(
+            HashMap::from([("symbol-set-id".to_string(), "content-hash".to_string())]),
+            "test-attempt",
+            "test-run",
+        )
         .unwrap_err();
         let UploadError::Other(err) = err else {
             panic!("expected UploadError::Other");

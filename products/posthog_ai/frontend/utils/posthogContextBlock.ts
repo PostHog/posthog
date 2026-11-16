@@ -1,4 +1,4 @@
-import type { AttachedContextItem } from '../types/contextTypes'
+import type { AttachedContextItem } from '~/layout/ai/attachedContext'
 
 /**
  * Standing instruction attached by the sidebar (foreground) surfaces — the ones where

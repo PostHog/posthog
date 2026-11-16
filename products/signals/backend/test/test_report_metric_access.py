@@ -4,9 +4,11 @@ from typing import cast
 from posthog.test.base import APIBaseTest
 from unittest.mock import Mock, patch
 
+from parameterized import parameterized
 from rest_framework.request import Request
 
 from products.signals.backend.report_metric_access import ReportMetricAccessPolicy
+from products.signals.backend.report_metric_query_access import query_filter_shape_allows_read
 
 
 class TestReportMetricAccessPolicy(APIBaseTest):
@@ -52,16 +54,36 @@ class TestReportMetricAccessPolicy(APIBaseTest):
         }
         return {"query": {"kind": "InsightVizNode", "source": source}}
 
-    def test_allows_ordinary_filters_in_each_supported_location(self) -> None:
-        ordinary_filter = {"type": "event", "key": "$browser", "operator": "exact", "value": "Chrome"}
+    @parameterized.expand(
+        [
+            ("event", {"type": "event", "key": "$browser", "operator": "exact", "value": "Chrome"}),
+            (
+                "hogql",
+                {
+                    "type": "hogql",
+                    "key": "elements_chain ILIKE '%purchase-button%' AND properties.$current_url ILIKE '%/basket%'",
+                },
+            ),
+            ("hogql_not", {"type": "hogql", "key": "NOT (properties.$browser = 'Chrome')"}),
+            ("hogql_tuple", {"type": "hogql", "key": "properties.$browser IN ('Chrome', 'Firefox')"}),
+            ("hogql_array", {"type": "hogql", "key": "properties.$browser IN ['Chrome', 'Firefox']"}),
+            (
+                "hogql_arithmetic",
+                {"type": "hogql", "key": "event = '$pageview' OR properties.amount + 1 > 3"},
+            ),
+        ]
+    )
+    def test_allows_supported_filters_in_each_supported_location(
+        self, _name: str, property_filter: dict[str, object]
+    ) -> None:
         metric = self._metric(
-            properties={"type": "AND", "values": [{"type": "OR", "values": [ordinary_filter]}]},
+            properties={"type": "AND", "values": [{"type": "OR", "values": [property_filter]}]},
             series=[
                 {
                     "kind": "EventsNode",
                     "event": "$pageview",
                     "math": "dau",
-                    "properties": [ordinary_filter],
+                    "properties": [property_filter],
                     "fixedProperties": [{"type": "person", "key": "plan", "value": "free"}],
                 }
             ],
@@ -71,6 +93,7 @@ class TestReportMetricAccessPolicy(APIBaseTest):
 
         assert policy.may_read_query(metric)
         assert policy.may_read_snapshot(metric)
+        assert query_filter_shape_allows_read(cast(dict[str, object], metric["query"]))
 
     def test_requires_scopes_and_object_access_for_nested_cohorts(self) -> None:
         metric = self._metric(
@@ -128,7 +151,14 @@ class TestReportMetricAccessPolicy(APIBaseTest):
             {"type": "future_resource", "key": "id", "value": 12},
             {"type": "cohort", "key": "name", "value": 12},
             {"type": "AND", "values": "not-a-list"},
-            {"type": "hogql", "key": "properties.secret"},
+            {"type": "hogql", "key": "matchesAction(12)"},
+            {"type": "hogql", "key": "person.cohorts = 12"},
+            {"type": "hogql", "key": "distinct_id IN COHORT 12"},
+            {"type": "hogql", "key": "distinct_id NOT IN COHORT 12"},
+            {"type": "hogql", "key": "person_id IN (SELECT person_id FROM cohortpeople WHERE cohort_id = 12)"},
+            {"type": "hogql", "key": "properties.$browser ="},
+            {"type": "hogql", "key": ""},
+            {"type": "hogql", "key": None},
             {"type": [], "key": "id", "value": 12},
             {"type": {}, "key": "id", "value": 12},
         ]
@@ -136,7 +166,10 @@ class TestReportMetricAccessPolicy(APIBaseTest):
         policy = self._policy(["query:read", "event_definition:read", "cohort:read"])
         for property_filter in invalid_filters:
             with self.subTest(property_filter=property_filter):
-                assert not policy.may_read_query(self._metric(properties=[property_filter]))
+                metric = self._metric(properties=[property_filter])
+                assert not policy.may_read_query(metric)
+                assert not policy.may_read_snapshot(metric)
+                assert not query_filter_shape_allows_read(cast(dict[str, object], metric["query"]))
 
         assert not policy.may_read_query(self._metric(conversionGoal={"actionId": 42, "futureField": True}))
         assert not policy.may_read_query(self._metric(conversionGoal={"futureResourceId": 42}))

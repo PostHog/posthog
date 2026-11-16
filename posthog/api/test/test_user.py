@@ -3,7 +3,7 @@ import time
 import uuid
 import datetime
 from datetime import timedelta
-from typing import Any, cast
+from typing import Any, Literal, cast
 from urllib.parse import quote, unquote, urlparse
 
 import pytest
@@ -16,7 +16,7 @@ from django.conf import settings
 from django.core import mail
 from django.core.cache import cache
 from django.db import connection
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, override_settings
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 from django.utils.text import slugify
@@ -38,7 +38,11 @@ from posthog.models.instance_setting import set_instance_setting
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthGrant, OAuthRefreshToken
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
+from posthog.models.organization_integration import OrganizationIntegration
+from posthog.models.organization_ip_restrictions import OrganizationIPRestrictions
+from posthog.models.organization_provisioning import OrganizationProvisioning
 from posthog.models.personal_api_key import PersonalAPIKey
+from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.models.webauthn_credential import WebauthnCredential
 from posthog.temporal.tests.delete_teams.inline import execute_deletion_workflows_inline
@@ -62,6 +66,9 @@ def issue_verification_code(user: User, target_email: str | None = None) -> str:
     with patch("posthog.api.email_verification.send_email_verification_code") as mock_send:
         email_verification_code_verifier.send_code(user, target_email=target_email)
     return mock_send.call_args[0][1]
+
+
+ProvisionedBy = Literal["organization", "team", "vercel_installation", "vercel_connectable"]
 
 
 class TestUserAPI(APIBaseTest):
@@ -307,26 +314,47 @@ class TestUserAPI(APIBaseTest):
         assert "active_realtime_notification_types" in body
         assert "comment_mention" in body["active_realtime_notification_types"]
 
+    def _provision_organization(self, provisioned_by: ProvisionedBy | None = "organization") -> None:
+        if provisioned_by == "organization":
+            OrganizationProvisioning.objects.create(
+                organization=self.organization, partner=OrganizationProvisioning.Partner.VERCEL
+            )
+        elif provisioned_by == "team":
+            TeamProvisioningConfig.objects.create(team=self.team)
+        elif provisioned_by in ("vercel_installation", "vercel_connectable"):
+            OrganizationIntegration.objects.create(
+                organization=self.organization,
+                kind=OrganizationIntegration.OrganizationIntegrationKind.VERCEL,
+                integration_id="icfg_test",
+                config={"type": "connectable"} if provisioned_by == "vercel_connectable" else {},
+            )
+
     @parameterized.expand(
         [
-            ("unreviewed_nothing", False, False, False, False),
-            ("unreviewed_pat_only", False, True, False, True),
-            ("unreviewed_passkey_only", False, False, True, True),
-            ("unreviewed_pat_and_passkey", False, True, True, True),
-            ("reviewed_pat_only", True, True, False, False),
-            ("reviewed_passkey_only", True, False, True, False),
-            ("reviewed_pat_and_passkey", True, True, True, False),
-            ("reviewed_nothing", True, False, False, False),
+            ("unreviewed_nothing", "organization", False, False, False, False),
+            ("unreviewed_pat_only", "organization", False, True, False, True),
+            ("unreviewed_passkey_only", "organization", False, False, True, True),
+            ("unreviewed_pat_and_passkey", "organization", False, True, True, True),
+            ("unreviewed_pat_only_legacy_team_provisioning", "team", False, True, False, True),
+            ("unreviewed_pat_only_legacy_vercel_installation", "vercel_installation", False, True, False, True),
+            ("unreviewed_pat_only_vercel_connected_own_organization", "vercel_connectable", False, True, False, False),
+            ("unreviewed_pat_and_passkey_not_provisioned", None, False, True, True, False),
+            ("reviewed_pat_only", "organization", True, True, False, False),
+            ("reviewed_passkey_only", "organization", True, False, True, False),
+            ("reviewed_pat_and_passkey", "organization", True, True, True, False),
+            ("reviewed_nothing", "organization", True, False, False, False),
         ]
     )
     def test_requires_credential_review(
         self,
         _name: str,
+        provisioned_by: ProvisionedBy | None,
         reviewed: bool,
         with_key: bool,
         with_passkey: bool,
         expected: bool,
     ):
+        self._provision_organization(provisioned_by)
         self.user.credentials_reviewed_at = timezone.now() if reviewed else None
         self.user.save(update_fields=["credentials_reviewed_at"])
         if with_key:
@@ -351,6 +379,7 @@ class TestUserAPI(APIBaseTest):
         assert response.json()["requires_credential_review"] is expected
 
     def test_requires_credential_review_skipped_when_impersonating_via_session(self):
+        self._provision_organization()
         User.objects.filter(pk=self.user.pk).update(credentials_reviewed_at=None)
         PersonalAPIKey.objects.create(
             user=self.user,
@@ -364,6 +393,7 @@ class TestUserAPI(APIBaseTest):
         assert response.json()["requires_credential_review"] is False
 
     def test_requires_credential_review_skipped_when_impersonating_via_oauth_token(self):
+        self._provision_organization()
         User.objects.filter(pk=self.user.pk).update(credentials_reviewed_at=None)
         PersonalAPIKey.objects.create(
             user=self.user,
@@ -396,9 +426,126 @@ class TestUserAPI(APIBaseTest):
         assert response.json()["requires_credential_review"] is False
         assert response.json()["is_impersonated"] is False
 
+    @parameterized.expand(
+        [
+            ("one_organization", "organization", None, True),
+            ("one_team", "team", None, True),
+            ("two_teams", "two_teams", None, False),
+            ("one_team_in_an_ip_blocked_organization", "team", "ip_restrictions", False),
+            ("one_team_in_a_domain_enforcing_organization", "team", "verified_domains", False),
+            ("one_team_where_member_keys_are_off", "team", "member_personal_api_keys_off", False),
+        ]
+    )
+    @override_settings(IS_BEHIND_PROXY=False, TRUST_ALL_PROXIES=False)
+    def test_me_with_a_scoped_key_hides_other_organizations_and_names_a_sole_reachable_project(
+        self, _name: str, scope: str, restriction: str | None, names_the_reachable_project: bool
+    ) -> None:
+        other_organization, _, other_team = Organization.objects.bootstrap(self.user)
+        self.user.current_team = other_team
+        self.user.current_organization = other_organization
+        self.user.save()
+        if restriction == "ip_restrictions":
+            OrganizationIPRestrictions.objects.create(
+                organization=self.organization, ip_restrictions=["203.0.113.0/24"], enabled=True
+            )
+        elif restriction == "verified_domains":
+            self.organization.enforce_verified_domains = True
+            self.organization.save()
+            OrganizationDomain.objects.create(
+                domain="verified.example.com", organization=self.organization, verified_at=timezone.now()
+            )
+        elif restriction == "member_personal_api_keys_off":
+            self.organization.available_product_features = [{"key": AvailableFeature.ORGANIZATION_SECURITY_SETTINGS}]
+            self.organization.members_can_use_personal_api_keys = False
+            self.organization.save()
+        scope_fields: dict[str, dict[str, list]] = {
+            "organization": {"scoped_organizations": [str(self.organization.id)]},
+            "team": {"scoped_teams": [self.team.id]},
+            "two_teams": {"scoped_teams": [self.team.id, self.new_project.id]},
+        }
+        token = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            user=self.user,
+            label="Scoped key",
+            secure_value=hash_key_value(token),
+            scopes=["user:read"],
+            **scope_fields[scope],
+        )
+        self.client.logout()
+
+        response = self.client.get(
+            "/api/users/@me/", headers={"authorization": f"Bearer {token}"}, REMOTE_ADDR="198.51.100.7"
+        )
+
+        assert response.status_code == 200, response.content
+        body = response.json()
+        if names_the_reachable_project:
+            assert body["team"]["id"] == self.team.id
+            assert body["organization"]["id"] == str(self.organization.id)
+        else:
+            assert body["team"] is None
+            assert body["organization"] is None
+        assert str(other_organization.id) not in [organization["id"] for organization in body["organizations"]]
+
+    def _authenticate_with_scoped_key(self, **scope: list) -> None:
+        token = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            user=self.user,
+            label="Scoped key",
+            secure_value=hash_key_value(token),
+            scopes=["user:read", "user:write"],
+            **scope,
+        )
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+
+    def test_team_scoped_key_cannot_reach_a_sibling_project(self) -> None:
+        sibling_team = Team.objects.create(organization=self.organization, name="Sibling")
+        self._authenticate_with_scoped_key(scoped_teams=[self.team.id])
+
+        switch = self.client.patch("/api/users/@me/", {"set_current_team": sibling_team.id}, format="json")
+        self.user.current_team = sibling_team
+        self.user.save()
+        me = self.client.get("/api/users/@me/")
+
+        assert switch.status_code == 400, switch.content
+        assert me.status_code == 200, me.content
+        assert me.json()["team"]["id"] == self.team.id
+        assert [team["id"] for team in me.json()["organization"]["teams"]] == [self.team.id]
+
+    def test_switching_organization_with_a_team_scoped_key_picks_a_scoped_project(self) -> None:
+        other_organization, _, first_team = Organization.objects.bootstrap(self.user)
+        scoped_team = Team.objects.create(organization=other_organization, name="Scoped")
+        self._authenticate_with_scoped_key(scoped_teams=[self.team.id, scoped_team.id])
+
+        response = self.client.patch(
+            "/api/users/@me/", {"set_current_organization": str(other_organization.id)}, format="json"
+        )
+
+        assert response.status_code == 200, response.content
+        self.user.refresh_from_db()
+        assert self.user.current_team_id == scoped_team.id
+        assert first_team.id != scoped_team.id
+
+    def test_scoped_key_of_a_staff_user_reaches_only_itself(self) -> None:
+        self.user.is_staff = True
+        self.user.save()
+        other_user = create_user("other@example.com", "password12345", self.new_org)
+        self._authenticate_with_scoped_key(scoped_organizations=[str(self.organization.id)])
+
+        other = self.client.get(f"/api/users/{other_user.uuid}/")
+        listed = self.client.get("/api/users/")
+        integrations = self.client.get(f"/api/users/{other_user.uuid}/integrations/")
+
+        assert other.status_code == 403, other.content
+        assert integrations.status_code == 403, integrations.content
+        assert listed.status_code == 200, listed.content
+        assert [user["uuid"] for user in listed.json()["results"]] == [str(self.user.uuid)]
+
     def test_requires_credential_review_unverified_passkey(self):
         # Unverified passkeys are the realistic pre-claim attack artifact - a partner
         # session can register a credential without ever completing verification.
+        self._provision_organization()
         self.user.credentials_reviewed_at = None
         self.user.save(update_fields=["credentials_reviewed_at"])
         WebauthnCredential.objects.create(
@@ -416,21 +563,26 @@ class TestUserAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("live_access_token", 1, False, False, True),
-            ("live_refresh_token_only", -1, True, False, True),
-            ("expired_access_token_only", -1, False, False, False),
-            ("live_access_token_first_party", 1, False, True, False),
-            ("live_refresh_token_only_first_party", -1, True, True, False),
+            ("live_access_token", True, 1, False, False, True),
+            ("live_refresh_token_only", True, -1, True, False, True),
+            ("expired_access_token_only", True, -1, False, False, False),
+            ("live_access_token_first_party", True, 1, False, True, False),
+            ("live_refresh_token_only_first_party", True, -1, True, True, False),
+            ("live_access_token_not_provisioned", False, 1, False, False, False),
+            ("live_refresh_token_only_not_provisioned", False, -1, True, False, False),
         ]
     )
     def test_requires_credential_review_for_oauth_access(
         self,
         _name: str,
+        provisioned: bool,
         expires_hours: int,
         with_refresh_token: bool,
         is_first_party: bool,
         expected: bool,
     ):
+        if provisioned:
+            self._provision_organization()
         User.objects.filter(pk=self.user.pk).update(credentials_reviewed_at=None)
         app = OAuthApplication.objects.create(
             name="Provisioning partner",
@@ -463,6 +615,7 @@ class TestUserAPI(APIBaseTest):
         assert response.json()["requires_credential_review"] is expected
 
     def test_credentials_review_complete_endpoint(self):
+        self._provision_organization()
         User.objects.filter(pk=self.user.pk).update(credentials_reviewed_at=None)
         PersonalAPIKey.objects.create(
             user=self.user,
@@ -724,6 +877,7 @@ class TestUserAPI(APIBaseTest):
             },
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["detail"] == "Dashboard must belong to the user's current team."
 
     @patch("posthoganalytics.capture")
     def test_set_scene_personalisation_for_user_dashboard_must_exist(self, _mock_capture):
@@ -733,6 +887,7 @@ class TestUserAPI(APIBaseTest):
             {"user": 12345, "team": 12345, "dashboard": 12345, "scene": "Person"},
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["detail"] == "Dashboard must belong to the user's current team."
 
     @patch("posthoganalytics.capture")
     def test_set_scene_personalisation_for_user_must_send_dashboard(self, _mock_capture):
@@ -1189,14 +1344,20 @@ class TestUserAPI(APIBaseTest):
         assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
         mock_report.assert_called_once_with(self.user, field="email", reason="stale_reauth")
 
-    def test_email_change_rejected_when_new_email_is_plus_addressed(self):
+    @parameterized.expand(
+        [
+            ("plus_addressed", "alpha+alias@example.com", "plus_addressing_not_allowed"),
+            ("lookalike_dot", "alpha@ph\uff0eexample.com", "lookalike_characters_not_allowed"),
+        ]
+    )
+    def test_email_change_rejected_when_new_email_is_unsupported(self, _name, new_email, code):
         self.user.email = "alpha@example.com"
         self.user.save()
 
-        response = self.client.patch("/api/users/@me/", {"email": "alpha+alias@example.com"})
+        response = self.client.patch("/api/users/@me/", {"email": new_email})
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json()["code"] == "plus_addressing_not_allowed"
+        assert response.json()["code"] == code
         self.user.refresh_from_db()
         assert self.user.email == "alpha@example.com"
         assert self.user.pending_email is None
@@ -2488,6 +2649,7 @@ class TestUserAPI(APIBaseTest):
             {
                 "notification_settings": {
                     "plugin_disabled": False,
+                    "mobile_push_tasks_enabled": False,
                     "discussions_mentioned": False,
                     "error_tracking_issue_assigned": False,
                     "project_weekly_digest_disabled": {123: True},
@@ -2506,6 +2668,10 @@ class TestUserAPI(APIBaseTest):
                 "plugin_disabled": False,
                 "discussions_mentioned": False,
                 "task_comments_slack_dm": True,
+                "mobile_push_enabled": True,
+                "mobile_push_tasks_enabled": False,
+                "mobile_push_reports_enabled": True,
+                "mobile_push_report_updates_enabled": True,
                 "project_weekly_digest_disabled": {"123": True},  # Note: JSON converts int keys to strings
                 "all_weekly_digest_disabled": True,
                 "error_tracking_issue_assigned": False,
@@ -2534,6 +2700,10 @@ class TestUserAPI(APIBaseTest):
                 "plugin_disabled": False,
                 "discussions_mentioned": False,
                 "task_comments_slack_dm": True,
+                "mobile_push_enabled": True,
+                "mobile_push_tasks_enabled": False,
+                "mobile_push_reports_enabled": True,
+                "mobile_push_report_updates_enabled": True,
                 "project_weekly_digest_disabled": {"123": True},
                 "all_weekly_digest_disabled": True,
                 "error_tracking_issue_assigned": False,
@@ -2809,7 +2979,11 @@ class TestUserAPI(APIBaseTest):
             {
                 "plugin_disabled": True,  # Default value
                 "discussions_mentioned": True,  # Default value
-                "task_comments_slack_dm": True,  # Default value
+                "task_comments_slack_dm": True,
+                "mobile_push_enabled": True,
+                "mobile_push_tasks_enabled": True,
+                "mobile_push_reports_enabled": True,
+                "mobile_push_report_updates_enabled": True,
                 "project_weekly_digest_disabled": {},  # Default value
                 "all_weekly_digest_disabled": True,
                 "error_tracking_issue_assigned": True,  # Default value
@@ -2840,6 +3014,22 @@ class TestUserUIConfigurationValidation(SimpleTestCase):
             ("non_boolean_vim_mode", {"version": 1, "sql_editor": {"vim_mode_enabled": "nope"}}),
             ("non_string_vimrc", {"version": 1, "sql_editor": {"vimrc": ["imap jj <Esc>"]}}),
             ("vimrc_too_long", {"version": 1, "sql_editor": {"vimrc": "x" * 10001}}),
+            ("unknown_analytics_list_sort", {"version": 1, "analytics_list": {"default_sort": "name"}}),
+            ("unknown_analytics_list_key", {"version": 1, "analytics_list": {"columns": ["owner"]}}),
+            ("non_boolean_hide_insights", {"version": 1, "analytics_list": {"hide_insights": "nope"}}),
+            ("non_list_ticket_sidebar_order", {"version": 1, "ticket_sidebar": {"order": "activity"}}),
+            (
+                "non_boolean_session_replay_filter_test_accounts",
+                {"version": 1, "session_replay": {"filter_test_accounts": "nope"}},
+            ),
+            (
+                "coercible_string_session_replay_filter_test_accounts",
+                {"version": 1, "session_replay": {"filter_test_accounts": "false"}},
+            ),
+            (
+                "coercible_int_session_replay_filter_test_accounts",
+                {"version": 1, "session_replay": {"filter_test_accounts": 1}},
+            ),
         ]
     )
     def test_invalid_ui_configuration_is_rejected(self, _name, value):
@@ -2853,6 +3043,19 @@ class TestUserUIConfigurationValidation(SimpleTestCase):
             ("null", None),
             ("minimal", {"version": 1}),
             ("unknown_top_level_key", {"version": 1, "surprise": True}),
+            (
+                "analytics_list",
+                {"version": 1, "analytics_list": {"hide_insights": True, "default_sort": "-created_at"}},
+            ),
+            ("session_replay", {"version": 1, "session_replay": {"filter_test_accounts": False}}),
+            (
+                # A layout can name a widget that a later release removed. Rejecting it would block every later save.
+                "ticket_sidebar_with_removed_widget",
+                {
+                    "version": 1,
+                    "ticket_sidebar": {"order": ["removed_widget", "activity"], "hidden": ["removed_widget"]},
+                },
+            ),
             (
                 # Sidebar settings an older client stored. Rejecting them would block every later save.
                 "stored_sidebar_settings",
@@ -3312,7 +3515,7 @@ class TestEmailVerificationAPI(APIBaseTest):
         self.assertEqual(mail.outbox[0].subject, "Verify your email address")
         self.assertEqual(mail.outbox[0].body, "")  # no plain-text version support yet
 
-        html_message = mail.outbox[0].alternatives[0][0]  # type: ignore
+        html_message = cast(str, mail.outbox[0].alternatives[0][0])  # type: ignore
         code = re.search(r"(\d{6}) is your code\.", html_message).group(1)  # type: ignore[union-attr]
         self.validate_basic_html(html_message, "https://my.posthog.net", preheader=f"{code} is your code.")
 
@@ -3587,6 +3790,21 @@ class TestEmailVerificationCodeAPI(APIBaseTest):
 
         response = self.client.post("/api/users/verify_email/", {"uuid": self.user.uuid, "code": "000000"})
         self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+
+    @parameterized.expand([("not_a_uuid", "notauuid"), ("truncated", "0199a1b2-3c4d-7e8f")])
+    def test_malformed_uuid_answers_like_an_unknown_user(self, _name, bad_uuid):
+        response = self.client.post("/api/users/verify_email/", {"uuid": bad_uuid, "code": "123456"})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["code"], "invalid_code")
+
+        response = self.client.post("/api/users/request_email_verification/", {"uuid": bad_uuid})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"success": True})
+
+    def test_request_email_verification_without_uuid_is_not_an_error(self):
+        response = self.client.post("/api/users/request_email_verification/", {})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"success": True})
 
     def test_numeric_json_code_is_a_normal_guess(self):
         # A client that sends the six digits as a JSON number must get a 400, not a 500, and the
@@ -4123,6 +4341,7 @@ class TestUserDeletionAfterOrgDeletion(NonAtomicBaseTest):
     """
 
     CLASS_DATA_LEVEL_SETUP = False
+    databases = {"default", "ui_customization_db_writer", "ui_customization_db_reader"}
 
     @patch("posthoganalytics.capture")
     def test_can_delete_account_after_deleting_only_organization(self, mock_capture):

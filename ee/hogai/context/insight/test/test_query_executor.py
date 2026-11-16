@@ -92,7 +92,13 @@ class TestHogQLErrorCode(SimpleTestCase):
 class TestSQLResultBudgets(SimpleTestCase):
     @parameterized.expand(["table", "fallback", "warnings"])
     async def test_sql_result_budget_reaches_formatting_and_fallback(self, kind: str) -> None:
-        response: dict[str, Any] = {"results": [["x" * 2000] for _ in range(100)]}
+        response: dict[str, Any] = {
+            "results": [["x" * 2000] for _ in range(100)],
+            "warehouse_suggestions": [
+                {"message": f"Materializing `view_{index}` would save time.", "url": f"https://example.com/{index}"}
+                for index in range(3)
+            ],
+        }
         if kind != "fallback":
             response["columns"] = ["example"]
         if kind == "warnings":
@@ -113,6 +119,10 @@ class TestSQLResultBudgets(SimpleTestCase):
         self.assertEqual(response["results"][0][0], "x" * 2000)
         if kind == "fallback":
             self.assertIn("JSON shown may be cut off", result)
+        if kind == "warnings":
+            self.assertNotIn("Warehouse suggestions", result)
+        else:
+            self.assertTrue(result.endswith("- Materializing `view_2` would save time."))
 
     def test_synchronous_execution_keeps_sql_budget(self) -> None:
         runner = AssistantQueryExecutor(
@@ -330,7 +340,7 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
 
     @parameterized.expand(
         [
-            ("outage_without_code", ExposedHogQLError("Warehouse connection failed"), "internal", None),
+            ("outage", ExposedHogQLError("Warehouse connection failed"), "internal", "hogql_error"),
             ("unresolved_field", QueryError("Unable to resolve field: plan"), "validation", "hogql_unresolved_field"),
             ("syntax", HogQLSyntaxError("mismatched input 'FORM'"), "validation", "hogql_syntax_error"),
             (
@@ -356,7 +366,7 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
 
     @parameterized.expand(
         [
-            ("unknown", ExposedCHQueryError("ClickHouse error"), "ClickHouse error", "internal", None),
+            ("unknown", ExposedCHQueryError("ClickHouse error"), "ClickHouse error", "internal", "unknown_exception"),
             (
                 "argument_type",
                 CHQueryErrorIllegalTypeOfArgument("Expected an integer argument", code=43),
@@ -383,7 +393,7 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
                 ExposedCHQueryError("Server failure", code=99999, code_name="caller-supplied-name"),
                 "Server failure",
                 "internal",
-                None,
+                "unknown_exception",
             ),
         ]
     )
@@ -449,18 +459,33 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
 
         self.assertEqual(str(context.exception), "Query has hit the max execution time before completing.")
         self.assertEqual(context.exception.error_type, "internal")
+        self.assertEqual(context.exception.error_code, "query_result_error")
         self.assertEqual(context.exception.retry_hint, " You may retry with adjusted inputs.")
 
+    @parameterized.expand(
+        [
+            ("finished_by_first_poll", 0, [0.05]),
+            ("still_running_until_the_cap", 7, [0.05, 0.075, 0.1125, 0.1688, 0.2531, 0.3797, 0.5, 0.5]),
+        ]
+    )
     @patch("ee.hogai.context.insight.query_executor.process_query_dict")
     @patch("ee.hogai.context.insight.query_executor.get_query_status")
-    async def test_async_query_polling_success(self, mock_get_query_status, mock_process_query):
+    async def test_async_query_polling_success(
+        self,
+        _name: str,
+        running_polls: int,
+        expected_waits_s: list[float],
+        mock_get_query_status: Mock,
+        mock_process_query: Mock,
+    ) -> None:
         """Test successful async query polling"""
         # Initial response with incomplete query
         mock_process_query.return_value = {"query_status": {"id": "test-query-id", "complete": False}}
 
         # Mock polling responses
+        still_running = Mock(model_dump=lambda mode: {"id": "test-query-id", "complete": False})
         mock_get_query_status.side_effect = [
-            Mock(model_dump=lambda mode: {"id": "test-query-id", "complete": False}),  # Still running
+            *[still_running] * running_polls,  # Still running
             Mock(
                 model_dump=lambda mode: {
                     "id": "test-query-id",
@@ -478,8 +503,8 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
         self.assertIsInstance(result, str)
         self.assertFalse(used_fallback)
         self.assertIn("Date|test", result)
-        self.assertEqual(mock_get_query_status.call_count, 2)
-        self.assertEqual(mock_sleep.call_count, 2)
+        self.assertEqual(mock_get_query_status.call_count, running_polls + 1)
+        self.assertEqual([round(wait.args[0], 4) for wait in mock_sleep.await_args_list], expected_waits_s)
 
     @patch("ee.hogai.context.insight.query_executor.process_query_dict")
     @patch("ee.hogai.context.insight.query_executor.get_query_status")
@@ -508,7 +533,7 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
                 "Query memory limit exceeded",
                 "clickhouse_memory_limit_exceeded",
                 "Query memory limit exceeded",
-                None,
+                "clickhouse_memory_limit_exceeded",
                 expected_error_type="memory_limit",
             ),
             ("warehouse_connection", "Warehouse connection failed", None, "Warehouse connection failed", None),
@@ -671,10 +696,19 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
             self.assertEqual(context.exception.error_code, expected_code)
             self.assertEqual(context.exception.retry_hint, " You may retry with adjusted inputs.")
 
-    @parameterized.expand([("keeper_exception",), ("syntax_error",), (None,)])
+    @parameterized.expand(
+        [
+            ("keeper_exception", "keeper_exception"),
+            ("syntax_error", "syntax_error"),
+            ("UNKNOWN_EXCEPTION", "unknown_exception"),
+            (None, None),
+        ]
+    )
     @patch("ee.hogai.context.insight.query_executor.process_query_dict")
     @patch("ee.hogai.context.insight.query_executor.get_query_status")
-    async def test_async_server_fault_stays_unknown(self, error_code, mock_get_query_status, mock_process_query):
+    async def test_async_server_fault_stays_unknown(
+        self, error_code, expected_code, mock_get_query_status, mock_process_query
+    ):
         mock_process_query.return_value = {"query_status": {"id": "test-query-id", "complete": False}}
         mock_get_query_status.return_value = Mock(
             model_dump=lambda mode: {
@@ -686,10 +720,11 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
             }
         )
         with patch("ee.hogai.context.insight.query_executor.asyncio.sleep"):
-            with self.assertRaises(Exception) as context:
+            with self.assertRaises(MaxToolRetryableError) as context:
                 await self.query_runner.arun_and_format_query(AssistantHogQLQuery(query="SELECT 1"))
-        self.assertIs(type(context.exception), Exception)
-        self.assertEqual(str(context.exception), "There was an unknown error running this query: Query failed")
+        self.assertEqual(str(context.exception), "The query failed because of an internal error")
+        self.assertEqual(context.exception.error_type, "internal")
+        self.assertEqual(context.exception.error_code, expected_code)
 
     @parameterized.expand(
         [
@@ -805,13 +840,7 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
                     "days": [1, 2, 3],
                     "labels": ["1 day", "2 days", "3 days"],
                     "label": "$pageview",
-                    "action": {
-                        "order": 0,
-                        "type": "events",
-                        "name": "$pageview",
-                        "id": "$pageview",
-                        "custom_name": None,
-                    },
+                    "order": 0,
                 }
             ]
         }
@@ -829,7 +858,7 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
                     "labels": ["20-Jan", "21-Jan"],
                     "label": "$pageview - new",
                     "status": "new",
-                    "action": {},
+                    "order": 0,
                 },
                 {
                     "data": [120.0, 105.0],
@@ -837,7 +866,7 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
                     "labels": ["20-Jan", "21-Jan"],
                     "label": "$pageview - returning",
                     "status": "returning",
-                    "action": {},
+                    "order": 0,
                 },
                 {
                     "data": [15.0, 22.0],
@@ -845,7 +874,7 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
                     "labels": ["20-Jan", "21-Jan"],
                     "label": "$pageview - resurrecting",
                     "status": "resurrecting",
-                    "action": {},
+                    "order": 0,
                 },
                 {
                     "data": [-30.0, -45.0],
@@ -853,7 +882,7 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
                     "labels": ["20-Jan", "21-Jan"],
                     "label": "$pageview - dormant",
                     "status": "dormant",
-                    "action": {},
+                    "order": 0,
                 },
             ]
         }

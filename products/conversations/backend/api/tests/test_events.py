@@ -6,6 +6,7 @@ from posthog.test.base import APIBaseTest, BaseTest, ClickhouseTestMixin, _creat
 from unittest.mock import Mock, patch
 
 from django.core.cache import cache
+from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
@@ -16,17 +17,45 @@ from posthog.settings import SITE_URL
 from products.access_control.backend.models.role import Role
 from products.conversations.backend.events import (
     EVENT_SOURCE,
+    MAX_CUSTOMER_TRAIT_LENGTH,
+    _get_customer_properties,
     _resolve_groups_from_analytics,
+    build_ticket_tag_added_event,
     capture_message_received,
     capture_message_sent,
+    capture_private_message_sent,
     capture_ticket_assigned,
     capture_ticket_created,
     capture_ticket_priority_changed,
     capture_ticket_status_changed,
+    capture_ticket_tag_added,
 )
 from products.conversations.backend.models import Ticket, TicketAssignment
 from products.conversations.backend.models.constants import OrganizationIdSource
 from products.customer_analytics.backend.facade import contracts as ca_contracts
+
+
+def _capture_ticket_tag_added(ticket: Ticket, tag_id: str, tag_name: str) -> None:
+    event = build_ticket_tag_added_event(ticket, tag_id, tag_name)
+    capture_ticket_tag_added(event, event_uuid=str(uuid.uuid4()), timestamp="2026-11-09T12:00:00+00:00")
+
+
+class TestCustomerProperties(SimpleTestCase):
+    @parameterized.expand(
+        [
+            (
+                "text_over_the_cap",
+                dict.fromkeys(("name", "email"), "n" * (MAX_CUSTOMER_TRAIT_LENGTH + 1)),
+                "n" * MAX_CUSTOMER_TRAIT_LENGTH,
+            ),
+            ("non_text_traits", {"name": {"first": "Ada"}, "email": 42}, ""),
+            ("non_object_traits", ["Ada"], ""),
+        ]
+    )
+    def test_name_and_email_are_capped_text(self, _name: str, traits: object, expected: str) -> None:
+        properties = _get_customer_properties(Ticket(anonymous_traits=traits))
+
+        assert (properties["customer_name"], properties["customer_email"]) == (expected, expected)
 
 
 class TestConversationEvents(BaseTest):
@@ -133,6 +162,28 @@ class TestConversationEvents(BaseTest):
         assert properties["assignee_id"] == str(role.id)
         assert properties["assignee_role_name"] == "Data Warehouse"
 
+    @parameterized.expand([("without_organization", None), ("with_organization", "org-123")])
+    @patch("products.conversations.backend.events.capture_internal")
+    def test_capture_ticket_tag_added(self, _name, organization_id, mock_capture):
+        self.ticket.organization_id = organization_id
+        tag_id, event_uuid = str(uuid.uuid4()), str(uuid.uuid4())
+
+        event = build_ticket_tag_added_event(self.ticket, tag_id, "sf-lead", actor=self.user, actor_type="user")
+        capture_ticket_tag_added(event, event_uuid=event_uuid, timestamp="2026-11-09T12:00:00+00:00")
+
+        mock_capture.assert_called_once()
+        call_kwargs = mock_capture.call_args.kwargs
+        assert (call_kwargs["event_uuid"], call_kwargs["timestamp"]) == (event_uuid, "2026-11-09T12:00:00+00:00")
+        assert call_kwargs["token"] == self.team.api_token
+        assert call_kwargs["event_name"] == "$conversation_ticket_tag_added"
+        assert call_kwargs["distinct_id"] == self.user.distinct_id
+        properties = call_kwargs["properties"]
+        assert properties["tag"] == "sf-lead"
+        assert properties["tag_id"] == tag_id
+        assert properties["customer_distinct_id"] == self.ticket.distinct_id
+        assert properties.get("organization_id") == organization_id
+        assert "$groups" not in properties
+
     @parameterized.expand(
         [
             ("unassigned", None, None, None),
@@ -164,8 +215,9 @@ class TestConversationEvents(BaseTest):
             assert properties["assignee_id"] == expected_id
             assert properties["assignee_role_name"] == expected_role_name
 
+    @patch("products.conversations.backend.events.produce_internal_event")
     @patch("products.conversations.backend.events.capture_internal")
-    def test_capture_message_sent_uses_team_token(self, mock_capture):
+    def test_capture_message_sent_uses_team_token(self, mock_capture, mock_produce_internal_event):
         capture_message_sent(self.ticket, "msg-123", "Hello customer", author=self.user)
 
         mock_capture.assert_called_once()
@@ -183,6 +235,22 @@ class TestConversationEvents(BaseTest):
         assert call_kwargs["properties"]["customer_name"] == "Test Customer"
         assert call_kwargs["properties"]["customer_email"] == "test@example.com"
         assert call_kwargs["properties"]["customer_distinct_id"] == self.ticket.distinct_id
+
+        mock_produce_internal_event.assert_called_once()
+        team_id, internal_event = mock_produce_internal_event.call_args.args
+        assert team_id == self.team.id
+        assert internal_event.event == "$conversation_message_sent"
+        assert internal_event.properties["message_id"] == "msg-123"
+        assert internal_event.properties["customer_email"] == "test@example.com"
+        assert "message_content" not in internal_event.properties
+
+    @patch("products.conversations.backend.events.produce_internal_event")
+    @patch("products.conversations.backend.events.capture_internal")
+    def test_capture_private_message_sent_emits_no_internal_event(self, mock_capture, mock_produce_internal_event):
+        capture_private_message_sent(self.ticket, "msg-123", author=self.user)
+
+        assert mock_capture.call_args.kwargs["event_name"] == "$conversation_private_message_sent"
+        mock_produce_internal_event.assert_not_called()
 
     @parameterized.expand(
         [
@@ -231,6 +299,7 @@ class TestConversationEvents(BaseTest):
             ("capture_ticket_status_changed", capture_ticket_status_changed, ["new", "pending"]),
             ("capture_ticket_priority_changed", capture_ticket_priority_changed, [None, "high"]),
             ("capture_ticket_assigned", capture_ticket_assigned, ["user", "123"]),
+            ("capture_ticket_tag_added", _capture_ticket_tag_added, ["tag-id", "sf-lead"]),
         ]
     )
     @patch("products.conversations.backend.events.capture_internal")
@@ -245,6 +314,77 @@ class TestConversationEvents(BaseTest):
 
         call_kwargs = mock_capture.call_args.kwargs
         assert call_kwargs["properties"]["customer_email"] == "customer@example.com"
+
+    @parameterized.expand(
+        [
+            ("authenticated_email", "email", True, "customer@example.com", "customer@example.com", True),
+            ("outbound_email_verified_by_reply", "email", True, "recipient-analytics-id", "customer@example.com", True),
+            ("non_string_trait_email", "email", True, "customer@example.com", 42, True),
+            ("widget_form_email", "widget", True, "customer-123", "customer@example.com", False),
+            ("unauthenticated_email", "email", False, "customer@example.com", "customer@example.com", False),
+        ]
+    )
+    def test_customer_email_verified_requires_attested_email(
+        self, _name, channel_source, identity_verified, distinct_id, trait_email, expected
+    ):
+        ticket = Ticket(
+            team=self.team,
+            channel_source=channel_source,
+            identity_verified=identity_verified,
+            distinct_id=distinct_id,
+            anonymous_traits={"email": trait_email},
+            email_from="customer@example.com",
+        )
+
+        assert _get_customer_properties(ticket)["customer_email_verified"] is expected
+
+    @parameterized.expand(
+        [
+            (
+                "email_authenticated_customer",
+                "email",
+                {"email_from": "customer@example.com", "email_sender_authenticated": True},
+                True,
+            ),
+            (
+                "email_unauthenticated_customer_address",
+                "email",
+                {"email_from": "customer@example.com", "email_sender_authenticated": False},
+                False,
+            ),
+            (
+                "email_other_participant",
+                "email",
+                {"email_from": "colleague@example.com", "email_sender_authenticated": True},
+                False,
+            ),
+            ("slack_ticket_customer", "slack", {"slack_author_email": "Customer@example.com"}, True),
+            ("slack_other_thread_member", "slack", {"slack_author_email": "other@example.com"}, False),
+            ("teams_other_thread_member", "teams", {"teams_author_email": "other@example.com"}, False),
+            (
+                "widget_signed_customer",
+                "widget",
+                {"distinct_id": "customer@example.com", "distinct_id_verified": True},
+                True,
+            ),
+            ("widget_unsigned_customer_id", "widget", {"distinct_id": "customer@example.com"}, False),
+        ]
+    )
+    @patch("products.conversations.backend.events.capture_internal")
+    def test_message_received_verifies_email_only_for_the_ticket_customer(
+        self, _name, channel_source, item_context, expected, mock_capture
+    ):
+        self.ticket.channel_source = channel_source
+        self.ticket.identity_verified = True
+        self.ticket.distinct_id = "customer@example.com"
+        self.ticket.email_from = "customer@example.com"
+        self.ticket.anonymous_traits = {"email": "customer@example.com"}
+
+        capture_message_received(
+            self.ticket, "msg-id", "content", item_context={"author_type": "customer", **item_context}
+        )
+
+        assert mock_capture.call_args.kwargs["properties"]["customer_email_verified"] is expected
 
     @patch("products.conversations.backend.events.capture_internal")
     def test_capture_message_received_uses_team_token(self, mock_capture):
@@ -278,6 +418,12 @@ class TestConversationEvents(BaseTest):
                 [None, "high"],
             ),
             ("capture_ticket_assigned", capture_ticket_assigned, "$conversation_ticket_assigned", ["user", "123"]),
+            (
+                "capture_ticket_tag_added",
+                _capture_ticket_tag_added,
+                "$conversation_ticket_tag_added",
+                ["tag-id", "sf-lead"],
+            ),
             ("capture_message_sent", capture_message_sent, "$conversation_message_sent", ["msg-id", "content"]),
             (
                 "capture_message_received",

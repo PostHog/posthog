@@ -6,10 +6,9 @@
 //! answer would put two pods into catch-up at once.
 
 use std::fmt;
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
-use tokio::sync::SetOnce;
+use tokio::sync::{watch, SetOnce};
 
 use crate::filters::manager::CatalogHandle;
 
@@ -39,7 +38,7 @@ impl fmt::Display for NotReady {
 pub struct BootReadiness {
     catalog: Arc<CatalogHandle>,
     live: SetOnce<()>,
-    rebuilding: AtomicUsize,
+    rebuilding: watch::Sender<usize>,
 }
 
 impl BootReadiness {
@@ -47,7 +46,7 @@ impl BootReadiness {
         Arc::new(Self {
             catalog,
             live: SetOnce::new(),
-            rebuilding: AtomicUsize::new(0),
+            rebuilding: watch::Sender::new(0),
         })
     }
 
@@ -58,7 +57,8 @@ impl BootReadiness {
         if !self.live.initialized() {
             return Err(NotReady::Booting);
         }
-        match self.rebuilding.load(Ordering::Acquire) {
+        let rebuilding = *self.rebuilding.borrow();
+        match rebuilding {
             0 => Ok(()),
             partitions => Err(NotReady::Rebuilding { partitions }),
         }
@@ -77,8 +77,19 @@ impl BootReadiness {
         self.live.wait().await;
     }
 
+    /// Resolve once [`Self::check`] reads ready. Boot registers every worker's rebuild before it
+    /// ends, so after that the count only falls.
+    pub async fn wait_until_ready(&self) {
+        self.wait_until_dispatchable().await;
+        self.rebuilding
+            .subscribe()
+            .wait_for(|&rebuilding| rebuilding == 0)
+            .await
+            .expect("the sender lives in self, so the channel never closes");
+    }
+
     pub fn rebuild_started(self: &Arc<Self>) -> RebuildGuard {
-        self.rebuilding.fetch_add(1, Ordering::AcqRel);
+        self.rebuilding.send_modify(|rebuilding| *rebuilding += 1);
         RebuildGuard(self.clone())
     }
 }
@@ -89,12 +100,16 @@ pub struct RebuildGuard(Arc<BootReadiness>);
 
 impl Drop for RebuildGuard {
     fn drop(&mut self) {
-        self.0.rebuilding.fetch_sub(1, Ordering::AcqRel);
+        self.0.rebuilding.send_modify(|rebuilding| *rebuilding -= 1);
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::pin::pin;
+
+    use futures::FutureExt;
+
     use super::*;
     use crate::filters::FilterCatalog;
 
@@ -111,6 +126,8 @@ mod tests {
         let readiness =
             BootReadiness::new(Arc::new(CatalogHandle::from_catalog(FilterCatalog::new())));
         assert_eq!(readiness.check(), Err(NotReady::Booting));
+        let mut ready = pin!(readiness.wait_until_ready());
+        assert_eq!(ready.as_mut().now_or_never(), None);
 
         let finished = readiness.rebuild_started();
         let panicked = readiness.rebuild_started();
@@ -125,6 +142,7 @@ mod tests {
             readiness.check(),
             Err(NotReady::Rebuilding { partitions: 1 })
         );
+        assert_eq!(ready.as_mut().now_or_never(), None);
 
         let rebuild = tokio::spawn(async move {
             let _guard = panicked;
@@ -132,5 +150,6 @@ mod tests {
         });
         assert!(rebuild.await.unwrap_err().is_panic());
         assert_eq!(readiness.check(), Ok(()));
+        assert_eq!(ready.now_or_never(), Some(()));
     }
 }

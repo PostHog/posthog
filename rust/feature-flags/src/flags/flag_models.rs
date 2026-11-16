@@ -80,6 +80,12 @@ pub struct EvaluationMetadata {
         serialize_with = "serialize_string_keyed_i32_map"
     )]
     pub transitive_deps: HashMap<i32, HashSet<i32>>,
+    /// True when the serving read skipped a cached flag that it could not parse, or the
+    /// PostgreSQL fallback omitted a flag that Python's builder can read.
+    /// The response then sets `errorsWhileComputingFlags`, so an SDK merges the
+    /// response into its stored flags and keeps the skipped flag's last value.
+    #[serde(skip)]
+    pub has_unparseable_flags: bool,
 }
 
 impl EvaluationMetadata {
@@ -91,6 +97,33 @@ impl EvaluationMetadata {
             transitive_deps: flags.iter().map(|f| (f.id, HashSet::new())).collect(),
             ..Default::default()
         }
+    }
+
+    /// Drops every reference to a flag outside `kept_flag_ids`, and marks a kept
+    /// flag that depends on a dropped one as missing a dependency, so it fails
+    /// closed like any other flag whose dependency Django cannot resolve.
+    /// Changes nothing when `kept_flag_ids` holds every flag id that the metadata names.
+    pub fn retain_flags(&mut self, kept_flag_ids: &HashSet<i32>) {
+        self.flags_with_missing_deps
+            .retain(|id| kept_flag_ids.contains(id));
+        self.flags_with_missing_deps.extend(
+            self.transitive_deps
+                .iter()
+                .filter(|(id, deps)| kept_flag_ids.contains(id) && !deps.is_subset(kept_flag_ids))
+                .map(|(id, _)| *id),
+        );
+        self.flags_with_missing_deps.sort_unstable();
+        self.flags_with_missing_deps.dedup();
+
+        self.transitive_deps
+            .retain(|id, _| kept_flag_ids.contains(id));
+        for deps in self.transitive_deps.values_mut() {
+            deps.retain(|dep| kept_flag_ids.contains(dep));
+        }
+        for stage in &mut self.dependency_stages {
+            stage.retain(|id| kept_flag_ids.contains(id));
+        }
+        self.dependency_stages.retain(|stage| !stage.is_empty());
     }
 }
 
@@ -105,9 +138,12 @@ impl EvaluationMetadata {
 /// `_get_feature_flags_for_service()` in products/feature_flags/backend/flags_cache.py.
 /// Field changes must follow the expand-and-contract pattern — see contract tests in
 /// products/feature_flags/backend/test/test_flags_cache.py.
+///
+/// `F` is the flags array type. The serving read uses
+/// [`LenientFlags`](crate::flags::feature_flag_list::LenientFlags) to skip a flag it cannot read.
 #[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct HypercacheFlagsWrapper {
-    pub flags: Vec<FeatureFlag>,
+pub struct HypercacheFlagsWrapper<F = Vec<FeatureFlag>> {
+    pub flags: F,
     pub evaluation_metadata: EvaluationMetadata,
     /// Cohort definitions referenced by flags (including transitive deps).
     /// Precomputed by Django at cache-write time so the Rust service can skip
@@ -731,6 +767,7 @@ mod mock_impls {
                 dependency_stages: vec![],
                 flags_with_missing_deps: vec![],
                 transitive_deps: HashMap::new(),
+                ..Default::default()
             }
         }
     }

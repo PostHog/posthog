@@ -75,6 +75,29 @@ export const NarrowWithLongLabels: Story = {
     },
 }
 
+// On a wide card the label column stops at 12rem, so one long label truncates instead of squeezing the bars.
+export const WideWithOneLongLabel: Story = {
+    render: () => {
+        const theme = useReactiveTheme()
+        return (
+            <Stage width={960} height={120}>
+                <BarList
+                    series={[
+                        ...BROWSERS.slice(0, 3),
+                        {
+                            key: 'long',
+                            label: 'Browsers that report a custom user agent string from an embedded web view',
+                            data: [420],
+                        },
+                    ]}
+                    theme={theme}
+                    config={{ valueDisplay: 'both' }}
+                />
+            </Stage>
+        )
+    },
+}
+
 // Above the bar, a long label reads in full and the bar takes the full width of a narrow list.
 export const LabelsOnTop: Story = {
     render: () => {

@@ -12,6 +12,7 @@ export const ERROR_ISSUE_LIST_RESOURCE_URI = 'ui://posthog/error-issue-list.html
 export const EXPERIMENT_RESOURCE_URI = 'ui://posthog/experiment.html'
 export const EXPERIMENT_LIST_RESOURCE_URI = 'ui://posthog/experiment-list.html'
 export const EXPERIMENT_RESULTS_RESOURCE_URI = 'ui://posthog/experiment-results.html'
+export const EXPLAIN_CHART_RESOURCE_URI = 'ui://posthog/explain-chart.html'
 export const FEATURE_FLAG_RESOURCE_URI = 'ui://posthog/feature-flag.html'
 export const FEATURE_FLAG_LIST_RESOURCE_URI = 'ui://posthog/feature-flag-list.html'
 export const FEATURE_FLAG_TESTING_RESOURCE_URI = 'ui://posthog/feature-flag-testing.html'
@@ -32,6 +33,7 @@ export const VISUAL_REVIEW_SNAPSHOTS_RESOURCE_URI = 'ui://posthog/visual-review-
 export const WORKFLOW_RESOURCE_URI = 'ui://posthog/workflow.html'
 export const WORKFLOW_DATA_SUGGESTIONS_RESOURCE_URI = 'ui://posthog/workflow-data-suggestions.html'
 export const WORKFLOW_LIST_RESOURCE_URI = 'ui://posthog/workflow-list.html'
+export const WORKFLOW_SENDING_RULES_RESOURCE_URI = 'ui://posthog/workflow-sending-rules.html'
 export const WORKFLOW_SETUP_STATUS_RESOURCE_URI = 'ui://posthog/workflow-setup-status.html'
 
 export type UiAppKey =
@@ -47,6 +49,7 @@ export type UiAppKey =
     | 'experiment'
     | 'experiment-list'
     | 'experiment-results'
+    | 'explain-chart'
     | 'feature-flag'
     | 'feature-flag-list'
     | 'feature-flag-testing'
@@ -67,6 +70,7 @@ export type UiAppKey =
     | 'workflow'
     | 'workflow-data-suggestions'
     | 'workflow-list'
+    | 'workflow-sending-rules'
     | 'workflow-setup-status'
 
 export const URI_MAP: Record<UiAppKey, string> = {
@@ -82,6 +86,7 @@ export const URI_MAP: Record<UiAppKey, string> = {
     experiment: EXPERIMENT_RESOURCE_URI,
     'experiment-list': EXPERIMENT_LIST_RESOURCE_URI,
     'experiment-results': EXPERIMENT_RESULTS_RESOURCE_URI,
+    'explain-chart': EXPLAIN_CHART_RESOURCE_URI,
     'feature-flag': FEATURE_FLAG_RESOURCE_URI,
     'feature-flag-list': FEATURE_FLAG_LIST_RESOURCE_URI,
     'feature-flag-testing': FEATURE_FLAG_TESTING_RESOURCE_URI,
@@ -102,6 +107,7 @@ export const URI_MAP: Record<UiAppKey, string> = {
     workflow: WORKFLOW_RESOURCE_URI,
     'workflow-data-suggestions': WORKFLOW_DATA_SUGGESTIONS_RESOURCE_URI,
     'workflow-list': WORKFLOW_LIST_RESOURCE_URI,
+    'workflow-sending-rules': WORKFLOW_SENDING_RULES_RESOURCE_URI,
     'workflow-setup-status': WORKFLOW_SETUP_STATUS_RESOURCE_URI,
 }
 
@@ -121,6 +127,7 @@ export const DISPATCHABLE_APP_KEYS: UiAppKey[] = [
     'experiment',
     'experiment-list',
     'experiment-results',
+    'explain-chart',
     'feature-flag',
     'feature-flag-list',
     'feature-flag-testing',
@@ -138,6 +145,7 @@ export const DISPATCHABLE_APP_KEYS: UiAppKey[] = [
     'vision-observation-list',
     'workflow',
     'workflow-list',
+    'workflow-sending-rules',
     'workflow-setup-status',
 ]
 
@@ -183,6 +191,14 @@ export const UI_APPS: Array<{
         uri: EMAIL_TEMPLATE_RESOURCE_URI,
         description: 'Email Template detail view',
         appDir: 'generated/email-template',
+        resourceDomains: [
+            'https://us-media.posthog.com/uploaded_media/',
+            'https://eu-media.posthog.com/uploaded_media/',
+            'https://us.posthog.com/uploaded_media/',
+            'https://eu.posthog.com/uploaded_media/',
+            'https://assets.unlayer.com/projects/275430/',
+            'https://cdn.tools.unlayer.com/social/icons/',
+        ],
     },
     {
         name: 'PostHog Error Details',
@@ -219,6 +235,12 @@ export const UI_APPS: Array<{
         uri: EXPERIMENT_RESULTS_RESOURCE_URI,
         description: 'Experiment Results detail view',
         appDir: 'generated/experiment-results',
+    },
+    {
+        name: 'PostHog Chart Explanation',
+        uri: EXPLAIN_CHART_RESOURCE_URI,
+        description: 'A trends chart with the moments that stand out highlighted, explained one chapter at a time.',
+        appDir: 'explain-chart',
     },
     {
         name: 'PostHog Feature Flag',
@@ -267,6 +289,14 @@ export const UI_APPS: Array<{
         uri: RENDER_UI_RESOURCE_URI,
         description: 'Renders the visualization for a PostHog MCP tool result',
         appDir: 'render-ui',
+        resourceDomains: [
+            'https://us-media.posthog.com/uploaded_media/',
+            'https://eu-media.posthog.com/uploaded_media/',
+            'https://us.posthog.com/uploaded_media/',
+            'https://eu.posthog.com/uploaded_media/',
+            'https://assets.unlayer.com/projects/275430/',
+            'https://cdn.tools.unlayer.com/social/icons/',
+        ],
     },
     {
         name: 'PostHog Session Recording',
@@ -343,6 +373,13 @@ export const UI_APPS: Array<{
         uri: WORKFLOW_LIST_RESOURCE_URI,
         description: 'Workflow List view',
         appDir: 'generated/workflow-list',
+    },
+    {
+        name: 'PostHog Sending Rules',
+        uri: WORKFLOW_SENDING_RULES_RESOURCE_URI,
+        description:
+            'Sending rules for the project, with a button to apply the recommended frequency cap and a switch for engagement events.',
+        appDir: 'workflow-sending-rules',
     },
     {
         name: 'PostHog Messaging Setup',

@@ -45,17 +45,15 @@ from posthog.models.scoping.manager import resolve_effective_team_id
 from posthog.models.team.team import Team
 from posthog.models.utils import uuid7
 
+from products.signals.backend.constants import SYSTEM_SCOUT_NAMES
 from products.signals.backend.models import (
     SignalReportAction,
     SignalScoutConfig,
     SignalScoutSuggestionSet,
     SignalSourceConfig,
 )
-from products.signals.backend.scout_harness.lazy_seed import (
-    CanonicalSkillParseError,
-    canonical_operational_scout_names,
-    discover_canonical_skills,
-)
+from products.signals.backend.scout_harness.lazy_seed import CanonicalSkillParseError, discover_canonical_skills
+from products.signals.backend.scout_harness.operational import operational_config_q
 from products.signals.backend.scout_harness.prompt import SCOUT_PROJECT_SCAN_GUIDANCE
 from products.signals.backend.scout_harness.skill_loader import SIGNALS_SCOUT_SKILL_PREFIX
 from products.signals.backend.scout_harness.team_limits import read_flag_payload, withheld_skills_for_team
@@ -311,7 +309,7 @@ def set_up_team_q() -> Q:
     user_scout_teams = (
         SignalScoutConfig.all_teams.filter(enabled=True)
         .exclude(managed_by=SignalScoutConfig.ManagedBy.BACKGROUND)
-        .exclude(skill_name__in=canonical_operational_scout_names())
+        .exclude(operational_config_q())
         .values("team_id")
     )
     return (
@@ -777,7 +775,12 @@ class FleetContext:
 
 def enabled_skill_names(team_id: int) -> list[str]:
     """The project's enabled scout skill names, sorted, as `fleet_snapshot` stores them."""
-    return sorted(SignalScoutConfig.objects.for_team(team_id).filter(enabled=True).values_list("skill_name", flat=True))
+    return sorted(
+        SignalScoutConfig.objects.for_team(team_id)
+        .filter(enabled=True)
+        .exclude(skill_name__in=SYSTEM_SCOUT_NAMES)
+        .values_list("skill_name", flat=True)
+    )
 
 
 def reserved_scout_names(team_id: int) -> frozenset[str]:
@@ -806,7 +809,7 @@ def fleet_context(team_id: int) -> FleetContext:
     enabled_set = set(enabled)
     # A held-back canonical scout is not seeded by the sync path and the config API refuses to
     # enable it, so offering it would surface an unreleased scout behind a Create that must fail.
-    withheld = withheld_skills_for_team(resolve_effective_team_id(team_id))
+    withheld = withheld_skills_for_team(resolve_effective_team_id(team_id)) | SYSTEM_SCOUT_NAMES
     # Companion helper skills ship in the same manifest but never get a scout config, so Create
     # could never apply them. The parser pins the scout prefix to scouts only.
     available = tuple(

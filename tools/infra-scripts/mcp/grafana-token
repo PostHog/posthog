@@ -7,10 +7,12 @@
 #   grafana-token eu               # Show if EU token exists
 #   grafana-token dev              # Show if dev token exists
 #   grafana-token internal         # Show if internal token exists
+#   grafana-token mw-dev           # Show if mw-dev token exists
 #   grafana-token us <token>       # Set prod-us token
 #   grafana-token eu <token>       # Set prod-eu token
 #   grafana-token dev <token>      # Set dev token
 #   grafana-token internal <token> # Set internal token
+#   grafana-token mw-dev <token>   # Set mw-dev token (same for mw-prod-us, mw-prod-eu, infra-dev, infra-dev-wl)
 #
 # Note: This script requires macOS (uses Keychain).
 # On Linux, set the GRAFANA_SERVICE_ACCOUNT_TOKEN environment variable instead.
@@ -51,35 +53,53 @@ show_status() {
     else
         echo "  internal:      not configured"
     fi
+
+    for region in mw-dev mw-prod-us mw-prod-eu infra-dev infra-dev-wl; do
+        if security find-generic-password -a "$USER" -s "grafana-service-account-token-$region" &>/dev/null; then
+            printf "  %-14s configured\n" "$region:"
+        else
+            printf "  %-14s not configured\n" "$region:"
+        fi
+    done
 }
 
 show_usage() {
-    echo "Usage: grafana-token [us|eu|dev|internal] [token]"
+    echo "Usage: grafana-token [us|eu|dev|internal|mw-dev|mw-prod-us|mw-prod-eu|infra-dev|infra-dev-wl] [token]"
     echo ""
     echo "Commands:"
-    echo "  (no args)        Show token status for all regions"
-    echo "  us               Show if US token is configured"
-    echo "  eu               Show if EU token is configured"
-    echo "  dev              Show if dev token is configured"
-    echo "  internal         Show if internal token is configured"
-    echo "  us <token>       Set prod-us token"
-    echo "  eu <token>       Set prod-eu token"
-    echo "  dev <token>      Set dev token"
-    echo "  internal <token> Set internal token"
+    echo "  (no args)             Show token status for all regions"
+    echo "  us                    Show if US token is configured"
+    echo "  eu                    Show if EU token is configured"
+    echo "  dev                   Show if dev token is configured"
+    echo "  internal              Show if internal token is configured"
+    echo "  mw-dev                Show if mw-dev token is configured"
+    echo "  mw-prod-us            Show if mw-prod-us token is configured"
+    echo "  mw-prod-eu            Show if mw-prod-eu token is configured"
+    echo "  infra-dev             Show if infra-dev token is configured"
+    echo "  infra-dev-wl          Show if infra-dev-wl token is configured"
+    echo "  us <token>            Set prod-us token"
+    echo "  eu <token>            Set prod-eu token"
+    echo "  dev <token>           Set dev token"
+    echo "  internal <token>      Set internal token"
+    echo "  mw-dev <token>        Set mw-dev token"
+    echo "  mw-prod-us <token>    Set mw-prod-us token"
+    echo "  mw-prod-eu <token>    Set mw-prod-eu token"
+    echo "  infra-dev <token>     Set infra-dev token"
+    echo "  infra-dev-wl <token>  Set infra-dev-wl token"
     echo ""
     echo "After setting a token, restart your MCP client to pick it up."
     echo ""
     echo "To create a service account token in Grafana:"
-    echo "  1. Go to Administration > Service accounts"
-    echo "  2. Create a new service account or use an existing one"
-    echo "  3. Add a token with appropriate permissions"
+    echo "  1.                    Go to Administration > Service accounts"
+    echo "  2.                    Create a new service account or use an existing one"
+    echo "  3.                    Add a token with appropriate permissions"
 }
 
 case "${1:-}" in
     "")
         show_status
         ;;
-    us|eu|dev|internal)
+    us|eu|dev|internal|mw-dev|mw-prod-us|mw-prod-eu|infra-dev|infra-dev-wl)
         REGION="$1"
         SERVICE="grafana-service-account-token-$REGION"
 
@@ -119,7 +139,7 @@ case "${1:-}" in
         show_usage
         ;;
     *)
-        echo "Error: Invalid region '$1'. Must be 'us', 'eu', 'dev', or 'internal'." >&2
+        echo "Error: Invalid region '$1'. Must be 'us', 'eu', 'dev', 'internal', 'mw-dev', 'mw-prod-us', 'mw-prod-eu', 'infra-dev', or 'infra-dev-wl'." >&2
         echo ""
         show_usage
         exit 1

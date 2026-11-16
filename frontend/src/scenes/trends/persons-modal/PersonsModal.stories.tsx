@@ -1,9 +1,10 @@
 import { Meta, StoryObj } from '@storybook/react'
 import { delay, HttpResponse } from 'msw'
 
-import { RawPropertiesTimelineResult } from 'lib/components/PropertiesTimeline/propertiesTimelineLogic'
-
 import { useStorybookMocks } from '~/mocks/browser'
+import { InsightActorsQuery, NodeKind } from '~/queries/schema/schema-general'
+
+import type { PropertiesTimelineResponseApi } from 'products/persons/frontend/generated/api.schemas'
 
 import EXAMPLE_PERSONS_RESPONSE from './__mocks__/examplePersonsResponse.json'
 import EXAMPLE_SESSION_ACTORS_RESPONSE from './__mocks__/exampleSessionActorsResponse.json'
@@ -17,11 +18,47 @@ export default meta
 
 type Story = StoryObj<{}>
 
+const EXAMPLE_TRENDS_ACTORS_QUERY: InsightActorsQuery = {
+    kind: NodeKind.InsightActorsQuery,
+    source: {
+        kind: NodeKind.TrendsQuery,
+        series: [{ kind: NodeKind.EventsNode, event: '$pageview', name: '$pageview' }],
+        interval: 'day',
+        dateRange: { date_from: '2022-12-01', date_to: '2022-12-13' },
+        breakdownFilter: { breakdown: '$geoip_country_code', breakdown_type: 'person' },
+    },
+    day: '2022-12-02',
+    series: 0,
+    includeRecordings: true,
+}
+
+const EXAMPLE_ACTORS_QUERY_RESPONSE = {
+    columns: ['actor', 'event_count', 'matched_recordings'],
+    results: EXAMPLE_PERSONS_RESPONSE.results[0].people.map((person) => [
+        {
+            id: person.uuid,
+            distinct_ids: person.distinct_ids,
+            is_identified: person.is_identified,
+            properties: person.properties,
+            created_at: person.created_at,
+        },
+        person.value_at_data_point,
+        person.matched_recordings.map((session_id) => ({ session_id, events: [] })),
+    ]),
+    hasMore: false,
+    limit: 100,
+    offset: 0,
+    missing_actors_count: 0,
+}
+
 export const WithResults: Story = {
     render: () => {
         useStorybookMocks({
-            get: {
-                [EXAMPLE_PERSONS_RESPONSE.initial]: EXAMPLE_PERSONS_RESPONSE,
+            post: {
+                '/api/environments/:team_id/query/:kind/': ({ params }) => [
+                    200,
+                    params.kind === NodeKind.ActorsQuery ? EXAMPLE_ACTORS_QUERY_RESPONSE : {},
+                ],
                 [`/api/projects/:team_id/persons/${EXAMPLE_PERSONS_RESPONSE.results[0].people[0].uuid}/properties_timeline/`]:
                     {
                         points: [
@@ -32,7 +69,6 @@ export const WithResults: Story = {
                                     email: 'mortgage2056@yandex.com',
                                     $geoip_country_code: 'US',
                                 },
-                                matched_recordings: ['1234567890'],
                                 relevant_event_count: 2,
                             },
                             {
@@ -45,34 +81,30 @@ export const WithResults: Story = {
                                 relevant_event_count: 9,
                             },
                             {
-                                timestamp: '2022-12-08T00:00:00.000Z',
+                                timestamp: '2022-12-02T14:00:00.000Z',
                                 properties: {
                                     name: 'Francisco Elliott',
                                     email: 'mortgage2056@yandex.com',
                                     $geoip_country_code: 'DE',
                                 },
-                                relevant_event_count: 155,
-                            },
-                            {
-                                timestamp: '2022-12-12T00:00:00.000Z',
-                                properties: {
-                                    name: 'Francisco Elliott',
-                                    email: 'mortgage2056@yandex.com',
-                                    $geoip_country_code: 'CN',
-                                },
-                                relevant_event_count: 13,
+                                relevant_event_count: 3,
                             },
                         ],
                         crucial_property_keys: ['$geoip_country_code'],
-                        effective_date_from: '2022-12-01T00:00:00.000+00:00',
-                        effective_date_to: '2022-12-13T23:59:59.999999+00:00',
-                    } as RawPropertiesTimelineResult,
+                        effective_date_from: '2022-12-02T00:00:00+00:00',
+                        effective_date_to: '2022-12-03T00:00:00+00:00',
+                    } as PropertiesTimelineResponseApi,
             },
         })
 
         return (
             <div className="flex max-h-200">
-                <PersonsModalComponent title="Hello!" url={EXAMPLE_PERSONS_RESPONSE.initial} inline />
+                <PersonsModalComponent
+                    title="Hello!"
+                    query={EXAMPLE_TRENDS_ACTORS_QUERY}
+                    additionalSelect={{ value_at_data_point: 'event_count', matched_recordings: 'matched_recordings' }}
+                    inline
+                />
             </div>
         )
     },

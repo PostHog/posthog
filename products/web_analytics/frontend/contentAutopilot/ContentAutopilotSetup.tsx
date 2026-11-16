@@ -3,10 +3,16 @@ import { useActions, useValues } from 'kea'
 import { IconArrowLeft, IconArrowRight, IconTrash } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonCard, LemonDialog } from '@posthog/lemon-ui'
 
-import { contentAutopilotLogic } from './contentAutopilotLogic'
-import { ContentAutopilotSetupStepIndicator } from './ContentAutopilotSetupStepIndicator'
+import { GuidedWizardStep, GuidedWizardStepper } from 'lib/components/GuidedWizard/GuidedWizardStepper'
+
+import { ContentAutopilotOnboardingStep, contentAutopilotLogic } from './contentAutopilotLogic'
 import { ContentAutopilotSiteFields } from './ContentAutopilotSiteFields'
 import { ContentAutopilotSourceFields } from './ContentAutopilotSourceFields'
+
+const SETUP_STEPS: GuidedWizardStep<ContentAutopilotOnboardingStep>[] = [
+    { step: 'site', label: 'Site' },
+    { step: 'sources', label: 'Sources' },
+]
 
 export const ContentAutopilotSetup = ({ onboarding = false }: { onboarding?: boolean }): JSX.Element => {
     const {
@@ -45,11 +51,8 @@ export const ContentAutopilotSetup = ({ onboarding = false }: { onboarding?: boo
 
     if (!onboarding) {
         return (
-            <LemonCard hoverEffect={false} className="p-4">
-                <div className="mb-4">
-                    <h2 className="m-0">Site settings</h2>
-                    <p className="m-0 mt-1 text-muted">Change this site's sources and research boundaries.</p>
-                </div>
+            <LemonCard hoverEffect={false} className="w-full max-w-3xl p-4">
+                <p className="m-0 mb-4 text-secondary">Change this site's sources and research boundaries.</p>
                 <div className="flex flex-col gap-5">
                     <ContentAutopilotSiteFields draft={profileDraft} />
                     <ContentAutopilotSourceFields draft={profileDraft} />
@@ -80,7 +83,7 @@ export const ContentAutopilotSetup = ({ onboarding = false }: { onboarding?: boo
 
     return (
         <LemonCard hoverEffect={false} className="mx-auto w-full max-w-3xl p-6">
-            <ContentAutopilotSetupStepIndicator currentStep={onboardingStep} />
+            <GuidedWizardStepper steps={SETUP_STEPS} currentStep={onboardingStep} aria-label="Setup progress" />
             <div className="my-6 border-t" />
 
             {onboardingStep === 'site' ? (

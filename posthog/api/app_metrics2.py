@@ -51,6 +51,30 @@ class AppMetricsTotalsResponseSerializer(DataclassSerializer):
         dataclass = AppMetricsTotalsResponse
 
 
+MAX_REQUESTED_BREAKDOWN_VALUES = 50
+
+MAX_TREND_BUCKETS = 100_000
+
+MAX_ZERO_FILLED_CELLS = 1_000_000
+
+TREND_INTERVAL_STEPS: dict[str, timedelta] = {
+    "hour": timedelta(hours=1),
+    "day": timedelta(days=1),
+    "week": timedelta(weeks=1),
+}
+
+
+def _split_requested_values(value: str) -> list[str]:
+    values = list(dict.fromkeys(part.strip() for part in value.split(",") if part.strip()))
+    if not values:
+        raise serializers.ValidationError("Enter at least one value. Separate values with commas.")
+    if len(values) > MAX_REQUESTED_BREAKDOWN_VALUES:
+        raise serializers.ValidationError(
+            f"Request at most {MAX_REQUESTED_BREAKDOWN_VALUES} distinct values, got {len(values)}."
+        )
+    return values
+
+
 class AppMetricsRequestSerializer(serializers.Serializer):
     after = serializers.CharField(
         required=False,
@@ -73,11 +97,11 @@ class AppMetricsRequestSerializer(serializers.Serializer):
     )
     name = serializers.CharField(
         required=False,
-        help_text="Comma-separated metric names to filter by.",
+        help_text="Comma-separated metric names to filter by, up to 50. With breakdown_by=name, each named metric is returned, as zeros when it has no rows.",
     )
     kind = serializers.CharField(
         required=False,
-        help_text="Comma-separated metric kinds to filter by, e.g. 'success,failure'.",
+        help_text="Comma-separated metric kinds to filter by, up to 50, e.g. 'success,failure'. With breakdown_by=kind, each named kind is returned, as zeros when it has no rows.",
     )
     breakdown_by = serializers.ChoiceField(
         choices=["name", "kind"],
@@ -85,6 +109,25 @@ class AppMetricsRequestSerializer(serializers.Serializer):
         default="kind",
         help_text="Group the series by metric 'name' or 'kind'. Defaults to 'kind'.",
     )
+
+    def validate_name(self, value: str) -> list[str]:
+        return _split_requested_values(value)
+
+    def validate_kind(self, value: str) -> list[str]:
+        return _split_requested_values(value)
+
+
+def _requested_breakdown_values(breakdown_by: str, name: list[str], kind: list[str]) -> list[str]:
+    return name if breakdown_by == "name" else kind
+
+
+def _trend_range_start(after: datetime, interval: str) -> datetime:
+    if interval == "hour":
+        return after.replace(minute=0, second=0, microsecond=0)
+    start = after.replace(hour=0, minute=0, second=0, microsecond=0)
+    if interval == "week":
+        start -= timedelta(days=start.weekday())
+    return start
 
 
 def fetch_app_metrics_trends(
@@ -104,11 +147,30 @@ def fetch_app_metrics_trends(
     name = name or []
     kind = kind or []
 
+    range_start = _trend_range_start(after, interval)
+    step = TREND_INTERVAL_STEPS[interval]
+    bucket_count = (before - range_start) // step + 1 if before >= range_start else 0
+    if bucket_count > MAX_TREND_BUCKETS:
+        raise ValidationError(
+            f"This range has {bucket_count:,} {interval} buckets, more than the limit of {MAX_TREND_BUCKETS:,}. "
+            "Use a shorter range or a larger interval."
+        )
+
+    requested_breakdown_values = _requested_breakdown_values(breakdown_by, name, kind)
+    if len(requested_breakdown_values) * bucket_count > MAX_ZERO_FILLED_CELLS:
+        raise ValidationError(
+            f"This request asks for {len(requested_breakdown_values)} series over {bucket_count:,} {interval} buckets, "
+            f"more than the limit of {MAX_ZERO_FILLED_CELLS:,} values. "
+            "Request fewer names or kinds, a shorter range, or a larger interval."
+        )
+
     clickhouse_kwargs: dict[str, Any] = {}
 
+    # The bucket alias must not be `timestamp`. ClickHouse resolves SELECT aliases inside WHERE, so the
+    # range filter would compare the bucket start to `after` and drop the first, partial bucket.
     clickhouse_query = f"""
         SELECT
-            toStartOfInterval(timestamp, INTERVAL 1 {interval}) as timestamp,
+            toStartOfInterval(timestamp, INTERVAL 1 {interval}) as bucket,
             metric_{breakdown_by} as breakdown,
             sum(count) as count
         FROM app_metrics2
@@ -120,8 +182,8 @@ def fetch_app_metrics_trends(
         {"AND instance_id = %(instance_id)s" if instance_id else ""}
         {"AND metric_name IN %(name)s" if name else ""}
         {"AND metric_kind IN %(kind)s" if kind else ""}
-        GROUP BY timestamp, breakdown
-        ORDER BY timestamp ASC
+        GROUP BY bucket, breakdown
+        ORDER BY bucket ASC
     """
 
     clickhouse_kwargs["team_id"] = team_id
@@ -129,8 +191,9 @@ def fetch_app_metrics_trends(
     clickhouse_kwargs["app_source_id"] = app_source_id
     # Convert to UTC before formatting — the naive string is read as UTC by toDateTime64, so a
     # team-timezone-aware bound would otherwise shift the window by the team's offset.
-    clickhouse_kwargs["after"] = after.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S")
-    clickhouse_kwargs["before"] = before.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S")
+    # Keep the microseconds: a `before` of "now" truncated to the second excludes rows written earlier in that second.
+    clickhouse_kwargs["after"] = after.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S.%f")
+    clickhouse_kwargs["before"] = before.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S.%f")
     clickhouse_kwargs["instance_id"] = instance_id
     clickhouse_kwargs["name"] = name
     clickhouse_kwargs["kind"] = kind
@@ -142,32 +205,13 @@ def fetch_app_metrics_trends(
         raise ValueError("Unexpected results from ClickHouse")
 
     # We create the x values based on the date range and interval
-    labels: list[str] = []
     label_format = "%Y-%m-%dT%H:%M" if interval == "hour" else "%Y-%m-%d"
-
-    range_date = after
-    # Normalize the start of the range to the start of the interval
-    if interval == "hour":
-        range_date = range_date.replace(minute=0, second=0, microsecond=0)
-    elif interval == "day":
-        range_date = range_date.replace(hour=0, minute=0, second=0, microsecond=0)
-    elif interval == "week":
-        range_date = range_date.replace(hour=0, minute=0, second=0, microsecond=0)
-        range_date -= timedelta(days=range_date.weekday())
-
-    while range_date <= before:
-        labels.append(range_date.strftime(label_format))
-        if interval == "hour":
-            range_date += timedelta(hours=1)
-        elif interval == "day":
-            range_date += timedelta(days=1)
-        elif interval == "week":
-            range_date += timedelta(weeks=1)
+    labels = [(range_start + step * i).strftime(label_format) for i in range(bucket_count)]
 
     response = AppMetricsResponse(labels=[], series=[])
     data_by_breakdown: dict[str, dict[str, int]] = {}
 
-    breakdown_names = {row[1] for row in results}
+    breakdown_names = dict.fromkeys([*requested_breakdown_values, *(row[1] for row in results)])
 
     for result in results:
         timestamp, breakdown, count = result
@@ -210,12 +254,13 @@ def fetch_app_metric_totals(
 
     # Convert to UTC before formatting — the naive string is read as UTC by toDateTime64, so a
     # team-timezone-aware bound would otherwise shift the window by the team's offset.
+    # Keep the microseconds: a `before` of "now" truncated to the second excludes rows written earlier in that second.
     clickhouse_kwargs: dict[str, Any] = {
         "team_id": team_id,
         "app_source": app_source,
         "app_source_id": app_source_id,
-        "after": after.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S") if after else None,
-        "before": before.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S") if before else None,
+        "after": after.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S.%f") if after else None,
+        "before": before.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S.%f") if before else None,
         "instance_id": instance_id,
         "name": name,
         "kind": kind,
@@ -244,7 +289,9 @@ def fetch_app_metric_totals(
     if not isinstance(results, list):
         raise ValueError("Unexpected results from ClickHouse")
 
-    totals = {row[0]: row[1] for row in results}
+    totals = dict.fromkeys(_requested_breakdown_values(breakdown_by, name, kind), 0) | {
+        row[0]: row[1] for row in results
+    }
     return AppMetricsTotalsResponse(totals=totals)
 
 
@@ -503,8 +550,8 @@ class AppMetricsMixin(viewsets.GenericViewSet):
             after=after_date,
             before=before_date,
             breakdown_by=params.get("breakdown_by"),
-            name=params["name"].split(",") if params.get("name") else None,
-            kind=params["kind"].split(",") if params.get("kind") else None,
+            name=params.get("name") or None,
+            kind=params.get("kind") or None,
         )
 
         serializer = AppMetricResponseSerializer(instance=data)
@@ -545,8 +592,8 @@ class AppMetricsMixin(viewsets.GenericViewSet):
             after=after_date,
             before=before_date,
             breakdown_by=params.get("breakdown_by"),
-            name=params["name"].split(",") if params.get("name") else None,
-            kind=params["kind"].split(",") if params.get("kind") else None,
+            name=params.get("name") or None,
+            kind=params.get("kind") or None,
         )
 
         serializer = AppMetricsTotalsResponseSerializer(instance=data)

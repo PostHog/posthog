@@ -105,6 +105,7 @@ class SessionReplayAgentToolkit(AgentToolkit):
             CreateReplayVisionScannerTool,
             DeleteReplayVisionScannerTool,
             EstimateReplayVisionScannerTool,
+            GetReplayVisionObservationStatsTool,
             GetReplayVisionQuotaTool,
             GetReplayVisionScanResultsTool,
             LabelReplayVisionObservationTool,
@@ -112,7 +113,6 @@ class SessionReplayAgentToolkit(AgentToolkit):
             RetryReplayVisionObservationTool,
             ScanReplayVisionSessionsTool,
             SearchReplayVisionObservationsTool,
-            SuggestReplayVisionTagsTool,
             UpdateReplayVisionScannerTool,
         )
 
@@ -121,6 +121,7 @@ class SessionReplayAgentToolkit(AgentToolkit):
             SearchReplayVisionObservationsTool,
             ScanReplayVisionSessionsTool,
             GetReplayVisionScanResultsTool,
+            GetReplayVisionObservationStatsTool,
             RetryReplayVisionObservationTool,
             GetReplayVisionQuotaTool,
             CreateReplayVisionScannerTool,
@@ -131,7 +132,6 @@ class SessionReplayAgentToolkit(AgentToolkit):
             EstimateReplayVisionScannerTool,
             LabelReplayVisionObservationTool,
             ListReplayVisionScannersTool,
-            SuggestReplayVisionTagsTool,
         ]
         return tools
 

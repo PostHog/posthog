@@ -22,11 +22,10 @@ def _load_fixture(filename: str) -> list[dict]:
 
 def _validate_output(output):
     data = dataclasses.asdict(output)
-    data.pop("signal_id")
     variant_type = SIGNAL_VARIANT_LOOKUP.get((output.source_product, output.source_type))
     if variant_type is None:
         raise ValueError(f"No SignalInput variant for ({output.source_product}, {output.source_type})")
-    variant_type.model_validate(data)
+    variant_type.model_validate({field: data[field] for field in variant_type.model_fields if field in data})
 
 
 GITHUB_RECORDS = _load_fixture("github_issues.json")

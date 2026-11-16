@@ -130,7 +130,9 @@ def export_environment(uid: int, gid: int) -> None:
         "UV_LINK_MODE": "copy",
         "XDG_CACHE_HOME": "/tmp/sandbox-cache",
         "CARGO_TARGET_DIR": "/cache/cargo-target",
+        # The image outlives the checkout. A checkout that pins an older pnpm reads npm_config_* instead.
         "npm_config_store_dir": "/cache/pnpm",
+        "pnpm_config_store_dir": "/cache/pnpm",
         "COREPACK_ENABLE_AUTO_PIN": "0",
         "COREPACK_ENABLE_DOWNLOAD_PROMPT": "0",
     }
@@ -593,6 +595,7 @@ def _setup_user_env() -> None:
             "COREPACK_ENABLE_DOWNLOAD_PROMPT": "0",
             "CARGO_TARGET_DIR": "/cache/cargo-target",
             "npm_config_store_dir": "/cache/pnpm",
+            "pnpm_config_store_dir": "/cache/pnpm",
         }
     )
     _configure_ssh_agent_env()

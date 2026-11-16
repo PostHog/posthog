@@ -24,7 +24,7 @@ Run on the latest Claude Opus and GPT Sol models, one runtime per run:
 
 from __future__ import annotations
 
-from products.posthog_ai.eval_harness.base import SandboxedPublicEval
+from products.posthog_ai.eval_harness.base import SandboxedEval
 from products.posthog_ai.eval_harness.config import SandboxedEvalCase
 from products.posthog_ai.eval_harness.harness.context import EvalContext
 from products.posthog_ai.eval_harness.scorers import NoToolCall
@@ -34,6 +34,7 @@ from products.posthog_ai.evals.cli_mcp.scorers import (
     DidNotCiteRawSqlAfterTypedQuery,
     NoMarkdownDataTable,
 )
+from products.posthog_ai.evals.offline_config import offline_suite
 from products.posthog_ai.evals.product_analytics.scorers import INSIGHT_WRITE_TOOLS, AnswerFromTypedQuery
 
 
@@ -91,8 +92,19 @@ async def eval_chart_not_table(ctx: EvalContext) -> None:
         ),
     ]
 
-    await SandboxedPublicEval(
+    await SandboxedEval(
         experiment_name="sandboxed-chart-not-table-cli",
+        offline_suite=offline_suite(
+            "product_analytics/eval_chart_not_table::eval_chart_not_table",
+            metrics=[
+                "no_persistent_insight_save",
+                "answer_from_typed_query",
+                "chart_shown",
+                "chart_from_typed_query",
+                "no_markdown_data_table",
+                "did_not_cite_raw_sql_after_typed_query",
+            ],
+        ),
         cases=cases,
         scorers=[
             NoToolCall(forbidden=INSIGHT_WRITE_TOOLS, name="no_persistent_insight_save"),

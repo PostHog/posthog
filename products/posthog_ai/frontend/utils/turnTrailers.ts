@@ -20,9 +20,10 @@ export interface TurnTrailer {
  * the end of a completed turn, so a consumer can render per-turn UI (e.g. feedback actions) at
  * the separator's position without the surface knowing what that UI is.
  */
-export function computeTurnTrailers(threadItems: ThreadItem[]): Map<string, TurnTrailer> {
+export function computeTurnTrailers(threadItems: ThreadItem[], turnBase = 0): Map<string, TurnTrailer> {
     const trailers = new Map<string, TurnTrailer>()
-    let turnIndex = -1
+    // A partial history starts after `turnBase` user turns.
+    let turnIndex = turnBase - 1
     let textParts: string[] = []
     let lastSeparatorId: string | null = null
     for (const item of threadItems) {

@@ -1,11 +1,15 @@
 import { combineUrl, router } from 'kea-router'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { urls } from 'scenes/urls'
 
 import { initKeaTests } from '~/test/init'
 
 import * as api from '../generated/api'
 import type { OfflineExperimentPageApi } from '../generated/api.schemas'
+import { offlineEvaluationsLogic } from './offlineEvaluationsLogic'
 import { offlineExperimentsLogic } from './offlineExperimentsLogic'
 import { overviewExperiments, overviewScorers, overviewHistory } from './offlineOverviewFixtures'
 import { readOfflineScorerPreferences, saveOfflineScorerPreferences } from './offlineOverviewState'
@@ -19,7 +23,13 @@ jest.mock('../generated/api', () => ({
     aiObservabilityOfflineScorersHistoryList: jest.fn(),
 }))
 
-const page: OfflineExperimentPageApi = { results: overviewExperiments, count: 100, next_cursor: 'cursor-2' }
+const page: OfflineExperimentPageApi = {
+    results: overviewExperiments,
+    count: 100,
+    next: null,
+    previous: null,
+    next_cursor: 'cursor-2',
+}
 const props = { teamId: 997, userId: 1, timezone: 'America/Toronto' }
 const list = jest.mocked(api.aiObservabilityOfflineExperimentsList)
 
@@ -33,6 +43,8 @@ describe('offlineExperimentsLogic', () => {
         jest.mocked(api.aiObservabilityOfflineExperimentsScorerSummariesList).mockResolvedValue({
             results: overviewScorers.map((scorer) => overviewHistory(scorer)[0].summary),
             count: 3,
+            next: null,
+            previous: null,
             next_cursor: null,
         })
         jest.mocked(api.llmAnalyticsScoreDefinitionsList).mockResolvedValue({
@@ -53,6 +65,113 @@ describe('offlineExperimentsLogic', () => {
 
     afterEach(() => jest.useRealTimers())
 
+    it.each(['new', 'dataset-1'])(
+        'keeps the selected sub-tab and destination when opening dataset %s',
+        async (datasetId) => {
+            featureFlagLogic.mount()
+            featureFlagLogic.actions.setFeatureFlags([], {
+                [FEATURE_FLAGS.LLM_ANALYTICS_DATASETS]: true,
+                [FEATURE_FLAGS.AI_OBSERVABILITY_OFFLINE_EVALUATIONS]: true,
+            })
+            const tabs = offlineEvaluationsLogic()
+            tabs.mount()
+            expect(tabs.values.activeTab).toBe('experiments')
+            const logic = offlineExperimentsLogic(props)
+            logic.mount()
+            tabs.actions.setActiveTab('datasets')
+            await jest.advanceTimersByTimeAsync(400)
+            expect(tabs.values.activeTab).toBe('datasets')
+            expect(router.values.searchParams.tab).toBe('datasets')
+            router.actions.push(urls.aiObservabilityDataset(datasetId), { search: 'regression' })
+            expect(tabs.values.activeTab).toBe('datasets')
+            logic.actions.suggestScorerIds([overviewScorers[0].id])
+            expect(removeProjectIdIfPresent(router.values.location.pathname)).toBe(
+                urls.aiObservabilityDataset(datasetId)
+            )
+            expect(router.values.searchParams).toEqual({ search: 'regression' })
+            tabs.actions.setActiveTab('datasets')
+            expect(router.values.searchParams).toMatchObject({ tab: 'datasets', search: 'regression' })
+            router.actions.push(urls.aiObservabilityOfflineEvaluations(), { tab: 'experiments' })
+            expect(tabs.values.activeTab).toBe('experiments')
+            expect(router.values.searchParams.tab).toBe('experiments')
+            router.actions.push(urls.aiObservabilityOfflineEvaluations(), { tab: 'unknown' })
+            expect(tabs.values.activeTab).toBe('experiments')
+        }
+    )
+
+    it.each([undefined, 'experiments', 'datasets'])(
+        'opens datasets and preserves filters when offline evals are disabled and tab is %s',
+        (tab) => {
+            featureFlagLogic.mount()
+            featureFlagLogic.actions.setFeatureFlags([], {
+                [FEATURE_FLAGS.LLM_ANALYTICS_DATASETS]: true,
+                [FEATURE_FLAGS.AI_OBSERVABILITY_OFFLINE_EVALUATIONS]: false,
+            })
+            const filters = { tab, search: 'regression', dataset_status: 'archived', datasets_page: 2 }
+            router.actions.push(urls.aiObservabilityOfflineEvaluations(), filters, { panel: 'datasets' })
+            const tabs = offlineEvaluationsLogic()
+            tabs.mount()
+
+            expect(tabs.values.activeTab).toBe('datasets')
+            expect(router.values.searchParams).toEqual({ ...filters, tab: 'datasets' })
+            expect(router.values.hashParams).toEqual({ panel: 'datasets' })
+            expect(router.values.lastMethod).toBe(tab === 'datasets' ? 'PUSH' : 'REPLACE')
+
+            router.actions.push(urls.aiObservabilityOfflineEvaluations(), { tab: 'experiments' })
+            expect(router.values.searchParams.tab).toBe('datasets')
+            tabs.actions.setActiveTab('experiments')
+            expect(tabs.values.activeTab).toBe('datasets')
+            expect(router.values.searchParams.tab).toBe('datasets')
+        }
+    )
+
+    it('redirects after feature flags arrive without redirecting unrelated pages', () => {
+        const tabs = offlineEvaluationsLogic()
+        tabs.mount()
+        expect(router.values.searchParams.tab).toBeUndefined()
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.LLM_ANALYTICS_DATASETS]: true })
+        expect(tabs.values.activeTab).toBe('datasets')
+        expect(router.values.searchParams.tab).toBe('datasets')
+
+        router.actions.push(urls.aiObservabilityScorers())
+        const pathname = router.values.location.pathname
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.LLM_ANALYTICS_DATASETS]: true })
+        expect(router.values.location.pathname).toBe(pathname)
+        expect(router.values.searchParams.tab).toBeUndefined()
+    })
+
+    it('remembers collapsed score trends and defers score requests until the first expansion', async () => {
+        const logic = offlineExperimentsLogic(props)
+        const unmount = logic.mount()
+        expect(logic.values.scoreTrendsExpanded).toBe(true)
+        logic.actions.toggleScoreTrends()
+        unmount()
+        router.actions.replace(urls.aiObservabilityOfflineEvaluations(), { scores: '' })
+        jest.clearAllMocks()
+        const remounted = offlineExperimentsLogic(props)
+        remounted.mount()
+        expect(remounted.values.scoreTrendsExpanded).toBe(false)
+        await jest.advanceTimersByTimeAsync(400)
+        expect(list).toHaveBeenCalledTimes(1)
+        expect(api.aiObservabilityOfflineExperimentsScorerSummariesList).not.toHaveBeenCalled()
+        expect(api.llmAnalyticsScoreDefinitionsList).not.toHaveBeenCalled()
+
+        remounted.actions.setFilters({ run_source: 'ci' })
+        remounted.actions.refresh()
+        await jest.advanceTimersByTimeAsync(400)
+        expect(api.aiObservabilityOfflineExperimentsScorerSummariesList).not.toHaveBeenCalled()
+        expect(api.llmAnalyticsScoreDefinitionsList).not.toHaveBeenCalled()
+
+        remounted.actions.toggleScoreTrends()
+        await jest.advanceTimersByTimeAsync(400)
+        expect(api.aiObservabilityOfflineExperimentsScorerSummariesList).toHaveBeenCalledTimes(1)
+        expect(remounted.values.scorerIds).toEqual(overviewScorers.map(({ id }) => id))
+        remounted.actions.toggleScoreTrends()
+        remounted.actions.toggleScoreTrends()
+        await jest.advanceTimersByTimeAsync(400)
+        expect(api.aiObservabilityOfflineExperimentsScorerSummariesList).toHaveBeenCalledTimes(1)
+    })
+
     it('shares experiment tag filters with trends and restores them from the URL', async () => {
         const logic = offlineExperimentsLogic(props)
         logic.mount()
@@ -67,6 +186,8 @@ describe('offlineExperimentsLogic', () => {
         jest.mocked(api.aiObservabilityOfflineScorersHistoryList).mockResolvedValue({
             results: overviewHistory(overviewScorers[0]),
             count: 6,
+            next: null,
+            previous: null,
             next_cursor: null,
         })
         const trend = offlineOverviewTrendLogic({
@@ -122,6 +243,8 @@ describe('offlineExperimentsLogic', () => {
 
         jest.mocked(api.aiObservabilityOfflineScorersHistoryList).mockImplementation(async (_, scorerId) => ({
             count: 1,
+            next: null,
+            previous: null,
             next_cursor: null,
             results: [
                 {
@@ -222,6 +345,8 @@ describe('offlineExperimentsLogic', () => {
         jest.mocked(api.aiObservabilityOfflineExperimentsScorerSummariesList).mockResolvedValue({
             results: [],
             count: 0,
+            next: null,
+            previous: null,
             next_cursor: null,
         })
         const logic = offlineExperimentsLogic(props)
@@ -391,7 +516,13 @@ describe('offlineExperimentsLogic', () => {
     it.each([true, false])(
         'distinguishes no matching experiments from a new project (has history: %s)',
         async (hasHistory) => {
-            const emptyPage: OfflineExperimentPageApi = { results: [], count: 0, next_cursor: null }
+            const emptyPage: OfflineExperimentPageApi = {
+                results: [],
+                count: 0,
+                next: null,
+                previous: null,
+                next_cursor: null,
+            }
             list.mockResolvedValueOnce(emptyPage).mockResolvedValueOnce(hasHistory ? page : emptyPage)
             const logic = offlineExperimentsLogic(props)
             logic.mount()
@@ -404,9 +535,13 @@ describe('offlineExperimentsLogic', () => {
     )
 
     it('keeps onboarding hidden when the project presence check fails', async () => {
-        list.mockResolvedValueOnce({ results: [], count: 0, next_cursor: null }).mockRejectedValueOnce(
-            new Error('Unavailable')
-        )
+        list.mockResolvedValueOnce({
+            results: [],
+            count: 0,
+            next: null,
+            previous: null,
+            next_cursor: null,
+        }).mockRejectedValueOnce(new Error('Unavailable'))
         const logic = offlineExperimentsLogic(props)
         logic.mount()
         await jest.advanceTimersByTimeAsync(150)

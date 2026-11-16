@@ -4,11 +4,12 @@ import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from
 import { lazyLoaders } from 'kea-loaders'
 
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { CdpFilterEntities } from 'scenes/hog-functions/filters/cdpFilterSeries'
 import { projectLogic } from 'scenes/projectLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
-import { FilterType } from '~/types'
+import { AnyPropertyFilter } from '~/types'
 
 import {
     groupsTypesMetricsCreate,
@@ -29,9 +30,14 @@ export type UsageMetricFiltersDataWarehouse = {
     key_field?: string | null
 }
 
+export type UsageMetricEventFilters = Partial<CdpFilterEntities> & {
+    properties?: AnyPropertyFilter[]
+    filter_test_accounts?: boolean
+}
+
 export type UsageMetricFormData = Omit<GroupUsageMetricApi, 'id' | 'filters'> & {
     id?: string
-    filters: FilterType | UsageMetricFiltersDataWarehouse
+    filters: UsageMetricEventFilters | UsageMetricFiltersDataWarehouse
 }
 
 const NEW_USAGE_METRIC: UsageMetricFormData = {
@@ -57,10 +63,10 @@ export function getMetricSource(filters: UsageMetricFormData['filters']): UsageM
 }
 
 /**
- * Render the saved filters in the standard FilterType shape that ActionFilter expects.
+ * Render the saved filters in the matcher shape the event picker reads.
  * DW metrics get hoisted into a single `data_warehouse` entry; events metrics pass through.
  */
-export function savedFiltersToActionFilterValue(filters: UsageMetricFormData['filters']): FilterType {
+export function savedFiltersToActionFilterValue(filters: UsageMetricFormData['filters']): UsageMetricEventFilters {
     if (getMetricSource(filters) === 'data_warehouse') {
         const dw = filters as UsageMetricFiltersDataWarehouse
         return {
@@ -74,18 +80,18 @@ export function savedFiltersToActionFilterValue(filters: UsageMetricFormData['fi
                     key_field: dw.key_field,
                 },
             ],
-        } as FilterType
+        }
     }
-    return (filters ?? {}) as FilterType
+    return (filters ?? {}) as UsageMetricEventFilters
 }
 
 /**
- * Translate ActionFilter's FilterType payload back into our saved shape (events shape or DW shape).
+ * Translate the event picker's matcher payload back into our saved shape (events shape or DW shape).
  * If both branches are populated (the user just added an entry of the opposite type), resolve by
  * switching to whichever side just received the new entry — using `prevSource` as the reference.
  */
 export function actionFilterValueToSavedFilters(
-    payload: FilterType,
+    payload: UsageMetricEventFilters,
     prevSource: UsageMetricSource
 ): UsageMetricFormData['filters'] {
     const dwEntries = (payload.data_warehouse ?? []) as Array<Record<string, any>>
@@ -110,7 +116,7 @@ export function actionFilterValueToSavedFilters(
         actions: actionEntries,
         properties: payload.properties ?? [],
         filter_test_accounts: payload.filter_test_accounts,
-    } as FilterType
+    }
 }
 
 // Hardcoded to 0 — the backend model is coupled to groups but will be refactored to be group-agnostic

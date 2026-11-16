@@ -77,6 +77,23 @@ export class RedisCache<T extends Record<string, any>> extends ScopedCache<T> {
         await this.redis.del(scopedKey)
     }
 
+    async setIfAbsent<K extends keyof T>(key: K, value: T[K]): Promise<boolean> {
+        try {
+            const result = await this.redis.set(
+                this.getScopedKey(key as string),
+                JSON.stringify(value),
+                'EX',
+                this.ttl,
+                'NX'
+            )
+            redisOperationsTotal.inc({ operation: 'set', status: 'success' })
+            return result === 'OK'
+        } catch (error) {
+            redisOperationsTotal.inc({ operation: 'set', status: 'error' })
+            throw error
+        }
+    }
+
     /**
      * Renew the TTL on `keys` without rewriting their values. `set` stamps a
      * fresh TTL on every write, so a value only read on later requests would

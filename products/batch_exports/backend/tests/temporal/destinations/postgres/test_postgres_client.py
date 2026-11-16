@@ -1,7 +1,9 @@
+import socket
 import typing
 import pathlib
 
 import pytest
+from unittest import mock
 
 import psycopg
 from psycopg import sql
@@ -13,6 +15,7 @@ from products.batch_exports.backend.temporal.destinations.postgres_batch_export 
     NON_RETRYABLE_ERROR_TYPES,
     PostgresInsertInputs,
     PostgreSQLClient,
+    PostgreSQLConnectionError,
     PostgreSQLMergeTimeoutError,
     PostgreSQLMissingRequiredInputsError,
     PostgreSQLTransactionError,
@@ -67,6 +70,46 @@ def test_from_inputs_raises_value_error_when_connection_inputs_missing(missing_f
 
 def test_missing_required_inputs_error_is_non_retryable():
     assert PostgreSQLMissingRequiredInputsError.__name__ in NON_RETRYABLE_ERROR_TYPES
+
+
+def _client_resolving_to(address: str) -> tuple[PostgreSQLClient, list[tuple]]:
+    client = PostgreSQLClient(
+        user="loader", password="secret", database="db", host="db.example.com", port=5432, ssl_mode="require"
+    )
+    addrinfo = [(socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", (address, 5432))]
+    return client, addrinfo
+
+
+async def test_connect_dials_the_address_it_checked(settings):
+    settings.FORCE_URL_VALIDATION = True
+    client, addrinfo = _client_resolving_to("8.8.8.8")
+    connection = mock.AsyncMock()
+    connection.__aenter__.return_value = connection
+
+    with (
+        mock.patch("socket.getaddrinfo", return_value=addrinfo),
+        mock.patch.object(psycopg.AsyncConnection, "connect", return_value=connection) as connect,
+    ):
+        async with client.connect():
+            pass
+
+    assert connect.call_args.kwargs["host"] == "db.example.com"
+    assert connect.call_args.kwargs["hostaddr"] == "8.8.8.8"
+
+
+async def test_connect_refuses_a_host_that_resolves_internal(settings):
+    settings.FORCE_URL_VALIDATION = True
+    client, addrinfo = _client_resolving_to("169.254.169.254")
+
+    with (
+        mock.patch("socket.getaddrinfo", return_value=addrinfo),
+        mock.patch.object(psycopg.AsyncConnection, "connect") as connect,
+        pytest.raises(PostgreSQLConnectionError),
+    ):
+        async with client.connect():
+            pass
+
+    connect.assert_not_called()
 
 
 async def test_run_in_retryable_transaction_raises_non_retryable_error_after_max_retries(

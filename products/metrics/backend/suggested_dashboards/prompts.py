@@ -58,6 +58,9 @@ Variables:
 - Add a dashboard variable when the metrics share an attribute that names one of several instances of the system, \
 such as a job, an instance, a namespace or a cluster. A user then picks one instance for the whole dashboard. \
 service_name, the service that sends the metric, is always available for a variable.
+- variable_candidates lists the attributes that most of the metrics have, with 2 to 20 values. Prefer them. An \
+attribute with one value makes no variable.
+- Two variables never select the same thing, such as a host and its instance id. Keep the one a person knows.
 - Add no variable for an attribute that splits one instance, such as a route, a status or a mode. Use group_by \
 for those. Use at most 2 variables.
 - Every panel whose metrics have the attribute refers to the variable with a filter: key is the attribute, op is \
@@ -92,6 +95,9 @@ Look for problems that a person would notice:
 - The layout has holes or overlaps, a half-width panel alone in a row, or stats outside the top row.
 - Two panels show the same thing.
 - A variable that no panel refers to, or a panel that does not refer to a variable whose attribute its metrics have.
+- A variable whose attribute has one value, or two variables that select the same thing.
+- A panel in panels_that_failed_checks: its query failed, with the error after the title. Fix the query or leave \
+the panel out.
 
 When there is no such problem, set looks_good to true. A small style preference is not a problem.
 When there are problems, set looks_good to false, list them, and return the complete corrected panel list and \
@@ -148,12 +154,14 @@ def draft_input(
     entries: Sequence[CatalogEntry],
     attributes: dict[str, list[str]],
     attribute_values: dict[str, list[str]],
+    variable_candidates: Sequence[str],
 ) -> str:
     return json.dumps(
         {
             "dashboard": {"name": name, "description": description},
             "metrics": [{**_entry(entry), "attributes": attributes.get(entry.name, [])} for entry in entries],
             "attribute_values": attribute_values,
+            "variable_candidates": list(variable_candidates),
         },
         indent=1,
     )
@@ -166,6 +174,7 @@ def critique_input(
     entries: Sequence[CatalogEntry],
     attributes: dict[str, list[str]],
     attribute_values: dict[str, list[str]],
+    variable_candidates: Sequence[str],
     dropped: Sequence[str],
 ) -> str:
     payload: dict[str, Any] = {
@@ -173,6 +182,7 @@ def critique_input(
         "variables": [variable.model_dump(mode="json") for variable in variables],
         "metric_catalog": [{**_entry(entry), "attributes": attributes.get(entry.name, [])} for entry in entries],
         "attribute_values": attribute_values,
+        "variable_candidates": list(variable_candidates),
     }
     if dropped:
         payload["panels_that_failed_checks"] = list(dropped)

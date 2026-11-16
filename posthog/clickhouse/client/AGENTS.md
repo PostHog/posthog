@@ -17,6 +17,8 @@ Use these paths and token auth is automatic.
 
 `get_cluster` in `posthog/clickhouse/cluster.py` is token-aware for the user that its `ch_user` argument resolves to, which is the pod's `CLICKHOUSE_USER` unless you set it: the per-host pools carry a credential provider that re-stamps the live token on each checkout.
 Its bootstrap discovery client is long-lived, so each discovery attempt stamps the live token onto it first, including the discovery that `sibling()` runs hours into a job.
+A per-host task can hold one checkout for hours, for example a mutation wait.
+When the cluster has a retry policy, each attempt of a token-backed task stamps the live token, and the policy also retries a rejected login.
 Pass `ch_user` to connect as a dedicated user, the way `get_migrations_cluster` does, because discovery and the pools then both use that user.
 A caller that connects as a different user through `connection_overrides` owns its own credential, and its discovery still runs as the pod's `CLICKHOUSE_USER`.
 The part_breaker Dagster resource does this: it sets `credential_provider` itself when its user is file-backed, the way `get_pool` does.
@@ -44,6 +46,7 @@ An HTTP or one-shot client is rebuilt on each call, so it needs no credential pr
 Resolve the token once with `creds.read_password()` and pass it as the password, the way `get_http_kwargs` does.
 A client that is retained and reconnects is not one-shot: a token baked into it expires with no recovery, because `read_password`'s expired-token fallback only fires when it is called again.
 Stamp `read_password()` onto `client.connection.password` before each use, the way the `get_cluster` bootstrap does, or use a refreshing pool.
+A refreshing pool stamps only at checkout, so a client that one checkout holds across a reconnect needs the same stamp.
 
 ## Wire the username, or the user falls back to the pod's `CLICKHOUSE_USER`
 

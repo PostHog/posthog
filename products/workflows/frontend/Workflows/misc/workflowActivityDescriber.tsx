@@ -168,6 +168,18 @@ function describeWorkflowField(change: ActivityChange): JSX.Element[] {
             return describeWorkflowItems(change, 'variable')
         case 'schedule':
             return [describeScheduleChange(change)]
+        case 'tag':
+            return [
+                change.action === 'created' ? (
+                    <>
+                        added the tag <strong>{String(change.after)}</strong>
+                    </>
+                ) : (
+                    <>
+                        removed the tag <strong>{String(change.before)}</strong>
+                    </>
+                ),
+            ]
         default:
             return [<>updated {change.field}</>]
     }
@@ -244,6 +256,20 @@ export function workflowActivityDescriber(logItem: ActivityLogItem, asNotificati
             description: (
                 <>
                     <ActivityLogUserName logItem={logItem} /> deleted the {objectNoun}: {logItem.detail.name}
+                </>
+            ),
+        }
+    }
+
+    if (logItem.activity == 'tested') {
+        const workflowName = nameOrLinkToWorkflow(logItem?.item_id, logItem?.detail.name)
+
+        return {
+            summary: activityLogSummary(logItem, `Tested a ${objectNoun} step with real requests`, workflowName),
+            description: (
+                <>
+                    <ActivityLogUserName logItem={logItem} /> tested a step of the {objectNoun} with real requests:{' '}
+                    {workflowName}
                 </>
             ),
         }

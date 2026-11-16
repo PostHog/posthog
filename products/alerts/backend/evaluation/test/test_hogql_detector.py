@@ -95,7 +95,7 @@ def test_large_result_is_bounded_to_the_detector_window(evaluation, label_type):
 
 @pytest.mark.parametrize("sql", ["SELECT value FROM events", "SELECT value FROM events LIMIT 6"])
 def test_a_short_sql_series_still_reaches_the_ai_judge(sql):
-    llm = {"type": "llm", "threshold": 0.7, "window": 90}
+    llm = {"type": "llm"}
     result = _extract([1.0, 2.0, 1.0, 2.0, 1.0, 9.0], detector_config=llm, query={"kind": "HogQLQuery", "query": sql})
     assert len(result.series[0].points) == 6
     with pytest.raises(AlertDataUnavailableError, match="at least 5 rows"):

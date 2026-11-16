@@ -2,9 +2,13 @@ import { Fragment, useState } from 'react'
 
 import { cn } from '@posthog/quill'
 
+import { SidebarOption } from '~/layout/today/sidebar/SidebarOption'
+
 import { TodayListItemDetail } from './todayListAppearance'
 import { TodayOverflowText } from './TodayOverflowText'
-import { TodayPaneOption } from './TodayPaneOption'
+import { useHoverIntent } from './useHoverIntent'
+
+const HOVER_INTENT_MS = 120
 
 // The label's right padding for the icon-sized slots that sit over the end of the row.
 const TRAILING_PADDING = ['', 'pr-8', 'pr-12', 'pr-16', 'pr-20'] as const
@@ -29,6 +33,8 @@ interface TodaySpacesRowProps {
     /** A second line under the label, like Desktop's list item appearance. Empty keeps the row on one line. */
     details?: TodayListItemDetail[]
     optionValue: string
+    /** Runs once when the pointer rests on the row, so the row can start loading what a click opens. */
+    onHoverIntent?: () => void
 }
 
 export function TodaySpacesRow({
@@ -45,8 +51,10 @@ export function TodaySpacesRow({
     onClickCapture,
     details = [],
     optionValue,
+    onHoverIntent,
 }: TodaySpacesRowProps): JSX.Element {
     const [hovered, setHovered] = useState(false)
+    const hoverIntent = useHoverIntent(onHoverIntent, HOVER_INTENT_MS)
     const [keyboardFocused, setKeyboardFocused] = useState(false)
     const badgeSlots = badge ? badgeCount : 0
     const showUnreadDot = unread && !active
@@ -102,10 +110,24 @@ export function TodaySpacesRow({
     return (
         <div
             className="group/row relative flex min-w-0 items-center"
-            onPointerEnter={ticker ? () => setHovered(true) : undefined}
-            onPointerLeave={ticker ? () => setHovered(false) : undefined}
+            onPointerEnter={
+                ticker || onHoverIntent
+                    ? () => {
+                          setHovered(true)
+                          hoverIntent.start()
+                      }
+                    : undefined
+            }
+            onPointerLeave={
+                ticker || onHoverIntent
+                    ? () => {
+                          setHovered(false)
+                          hoverIntent.cancel()
+                      }
+                    : undefined
+            }
         >
-            <TodayPaneOption
+            <SidebarOption
                 value={optionValue}
                 to={to}
                 active={active}
@@ -122,7 +144,7 @@ export function TodaySpacesRow({
                 className={rowClassName}
             >
                 {content}
-            </TodayPaneOption>
+            </SidebarOption>
             {badge && (
                 // Like PostHog Desktop, the badges sit at the end of the row.
                 <div className="absolute right-1 flex min-w-0 items-center gap-0.5">

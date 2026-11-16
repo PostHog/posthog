@@ -26,6 +26,7 @@ import {
 } from "@posthog/core/mcp-gateway/gatewayConnect";
 import {
   agentShareMessage,
+  canEditGatewayPolicyScope,
   countPoliciesByState,
   formatAgo,
   getGatewayServerRemovalAction,
@@ -219,10 +220,11 @@ export function GatewayServerDetail({
   const bulkEditableCount = hasToolSearch
     ? filteredEditablePolicies.length
     : editableCount;
-  const scopeEditable =
-    isAdmin ||
-    scope.scopeType === "member" ||
-    (scope.scopeType === "agent" && canManageAgentAccess);
+  const scopeEditable = canEditGatewayPolicyScope(server, scope, {
+    isAdmin,
+    canManageAgentAccess,
+    currentUserId: currentUser?.id ?? null,
+  });
   // Any connected member can re-list — it runs against their own credential,
   // and it is the manual retry when auto-discovery failed.
   const refreshInstallationId = liveInstallationId;
@@ -535,13 +537,15 @@ export function GatewayServerDetail({
             );
           })}
           <div className="ml-auto flex items-center gap-1">
-            <BulkTrio
-              label={`Set all for ${scope.label}`}
-              filtered={hasToolSearch}
-              disabled={tools.setAllPending || bulkEditableCount === 0}
-              allowNeedsApproval={!agentScope}
-              onSet={setBulkPolicy}
-            />
+            {scopeEditable && (
+              <BulkTrio
+                label={`Set all for ${scope.label}`}
+                filtered={hasToolSearch}
+                disabled={tools.setAllPending || bulkEditableCount === 0}
+                allowNeedsApproval={!agentScope}
+                onSet={setBulkPolicy}
+              />
+            )}
             {refreshInstallationId && (
               <RefreshToolsButton
                 pending={tools.refreshPending}

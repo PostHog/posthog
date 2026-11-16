@@ -2,19 +2,22 @@
 
 from typing import Any
 
-from django.conf import settings
-
 import requests
 import structlog
 from rest_framework.exceptions import ValidationError
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_fixed
 
+from posthog.credentials_service.callers import CredentialsCaller
+from posthog.credentials_service.settings_fallback import get_or_settings
 from posthog.egress.slack.client import SlackWebClient as WebClient
 from posthog.exceptions_capture import capture_exception
+from posthog.integrations.contracts import IntegrationPatch, IntegrationRecord
 
-from . import common, model
+from . import common, row_writes
 
 logger = structlog.get_logger(__name__)
+
+DEVELOPER_TOKEN_KEY = "GOOGLE_ADS_DEVELOPER_TOKEN"
 
 
 def google_ads_hierarchy_level(account: dict) -> int:
@@ -27,6 +30,10 @@ class GoogleAdsScopeInsufficientError(ValidationError):
     """Google's consent screen lets a login sign in without ticking the Google Ads permission."""
 
 
+class GoogleAdsQuotaExhaustedError(Exception):
+    """Google rejected the request with a 429 RESOURCE_EXHAUSTED — a transient quota limit, not a bug."""
+
+
 @retry(
     stop=stop_after_attempt(3),
     wait=wait_fixed(2),
@@ -36,16 +43,16 @@ class GoogleAdsScopeInsufficientError(ValidationError):
 def _google_ads_request(method: str, url: str, **kwargs) -> requests.Response:
     """`requests.request` with retries for a transient timeout/connection blip.
 
-    `list_google_ads_accessible_accounts` walks the account hierarchy with a chain of sequential
-    requests, so a single transient blip on any one of them would otherwise fail the whole walk.
+    Google Ads intermittently answers slower than our timeout. Without a retry, one slow reply fails a
+    picker the user is waiting on, or the whole chain of requests in the accessible-accounts walk.
     """
     return requests.request(method, url, **kwargs)
 
 
 class GoogleAdsIntegration:
-    integration: model.Integration
+    integration: IntegrationRecord
 
-    def __init__(self, integration: model.Integration) -> None:
+    def __init__(self, integration: IntegrationRecord) -> None:
         if integration.kind != "google-ads":
             raise Exception("GoogleAdsIntegration init called with Integration with wrong 'kind'")
 
@@ -56,7 +63,9 @@ class GoogleAdsIntegration:
         return WebClient(self.integration.sensitive_config["access_token"])
 
     def list_google_ads_conversion_actions(self, customer_id, parent_id=None) -> list[dict]:
-        response = requests.request(
+        # Only CDP destinations list conversion actions.
+        developer_token = get_or_settings(DEVELOPER_TOKEN_KEY, CredentialsCaller.CDP)
+        response = _google_ads_request(
             "POST",
             f"https://googleads.googleapis.com/v24/customers/{customer_id}/googleAds:searchStream",
             json={
@@ -65,7 +74,7 @@ class GoogleAdsIntegration:
             headers={
                 "Content-Type": "application/json",
                 "Authorization": f"Bearer {self.integration.sensitive_config['access_token']}",
-                "developer-token": settings.GOOGLE_ADS_DEVELOPER_TOKEN,
+                "developer-token": developer_token,
                 **({"login-customer-id": parent_id} if parent_id else {}),
             },
             timeout=10,
@@ -77,8 +86,9 @@ class GoogleAdsIntegration:
                 status_code=response.status_code,
                 integration_id=self.integration.id,
             )
-            self.integration.errors = common.ERROR_TOKEN_REFRESH_FAILED
-            self.integration.save(update_fields=["errors"])
+            self.integration = row_writes.update_row(
+                self.integration, IntegrationPatch(errors=common.ERROR_TOKEN_REFRESH_FAILED)
+            )
             raise ValidationError(
                 "This integration's authentication is no longer valid. "
                 "Please reconnect or disconnect this integration and connect a different account."
@@ -101,13 +111,15 @@ class GoogleAdsIntegration:
     # Google Ads manager accounts can have access to other accounts (including other manager accounts).
     # Filter out duplicates where a user has direct access and access through a manager account, while prioritizing direct access.
     def list_google_ads_accessible_accounts(self) -> list[dict[str, Any]]:
+        # Read once for the whole walk below, which can make many requests.
+        developer_token = get_or_settings(DEVELOPER_TOKEN_KEY, CredentialsCaller.INTEGRATIONS)
         response = _google_ads_request(
             "GET",
             "https://googleads.googleapis.com/v24/customers:listAccessibleCustomers",
             headers={
                 "Content-Type": "application/json",
                 "Authorization": f"Bearer {self.integration.sensitive_config['access_token']}",
-                "developer-token": settings.GOOGLE_ADS_DEVELOPER_TOKEN,
+                "developer-token": developer_token,
             },
             timeout=10,
         )
@@ -118,8 +130,9 @@ class GoogleAdsIntegration:
                 status_code=response.status_code,
                 integration_id=self.integration.id,
             )
-            self.integration.errors = common.ERROR_TOKEN_REFRESH_FAILED
-            self.integration.save(update_fields=["errors"])
+            self.integration = row_writes.update_row(
+                self.integration, IntegrationPatch(errors=common.ERROR_TOKEN_REFRESH_FAILED)
+            )
             raise ValidationError(
                 "This integration's authentication is no longer valid. "
                 "Please reconnect or disconnect this integration and connect a different account."
@@ -135,6 +148,13 @@ class GoogleAdsIntegration:
                 "This integration does not have permission to access this resource. "
                 "Please check the account permissions on the provider side."
             )
+
+        if response.status_code == 429:
+            # A quota/rate-limit RESOURCE_EXHAUSTED on this interactive call isn't retried
+            # automatically (no Temporal activity wraps it, unlike the sync path), and it isn't a
+            # bug worth paging on, so skip capture_exception and let the caller tell the user to
+            # retry instead of surfacing a generic internal error.
+            raise GoogleAdsQuotaExhaustedError("Google Ads rate-limited this request (quota exhausted).")
 
         if response.status_code != 200:
             capture_exception(Exception(f"GoogleAdsIntegration: Failed to list accessible accounts: {response.text}"))
@@ -155,7 +175,7 @@ class GoogleAdsIntegration:
                 headers={
                     "Content-Type": "application/json",
                     "Authorization": f"Bearer {self.integration.sensitive_config['access_token']}",
-                    "developer-token": settings.GOOGLE_ADS_DEVELOPER_TOKEN,
+                    "developer-token": developer_token,
                     **({"login-customer-id": parent_id} if parent_id else {}),
                 },
                 timeout=10,

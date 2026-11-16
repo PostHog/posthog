@@ -20,10 +20,11 @@ export type TicketChannelDetail =
     | 'github_issue'
 export type TicketSlaState = 'on-track' | 'at-risk' | 'breached'
 export type TicketPriority = 'low' | 'medium' | 'high' | 'critical'
-export type SceneTabKey = 'tickets' | 'settings'
+export type SceneTabKey = 'tickets' | 'overview' | 'settings'
 export type MessageAuthorType = 'customer' | 'AI' | 'human'
 export type MessageDeliveryStatus = 'sent' | 'read'
 export type SidePanelViewState = 'list' | 'ticket' | 'new' | 'restore'
+export type TicketsLoadState = 'unknown' | 'loaded' | 'failed'
 export type RestoreFlowState = 'idle' | 'sending' | 'sent' | 'error'
 /** Legacy single-value shape, still present in old saved views and persisted filter state. */
 export type AssigneeFilterValue = 'all' | 'unassigned' | TicketAssignee
@@ -179,6 +180,8 @@ export interface Ticket {
     github_repo?: string | null
     github_issue_number?: number | null
     zendesk_ticket_id?: number | null
+    intercom_conversation_id?: string | null
+    pylon_issue_id?: string | null
     organization_id?: string | null
     organization_id_source?: string | null
     person?: TicketPerson | null
@@ -234,12 +237,15 @@ export interface ChatMessage {
     createdBy?: MessageAuthor | null
     createdAt: string
     isPrivate?: boolean
+    automatedUpdate?: boolean
     /** Edit count from the comment row. 0 means never edited. */
     version?: number
     emailDeliveryStatus?: EmailDeliveryStatus
-    /** Imported from an external tool (e.g. Zendesk). Such content is untrusted, so its Markdown
+    /** Imported from an external tool (Zendesk, Intercom, Pylon). Such content is untrusted, so its Markdown
      * is rendered with external image auto-loading disabled. */
-    fromZendesk?: boolean
+    fromExternalImport?: boolean
+    /** Synced from a GitHub issue. Its content is GitHub-flavored Markdown, where HTML is markup. */
+    fromGithub?: boolean
     hasFullEmailContent?: boolean
     citations?: string[]
     confidence?: number
@@ -340,6 +346,8 @@ export const aiTriageResultLabel: Record<AITriageResult, string> = {
     escalated_with_best: 'Escalated with draft',
     escalated_no_reply: 'Escalated, no draft',
     skipped_unactionable: 'Skipped',
+    skipped_team_replied: 'Skipped, team replied',
+    skipped_channel_excluded: 'Skipped, channel off',
     blocked_unsafe: 'Blocked unsafe ticket',
     blocked_unsafe_reply: 'Blocked unsafe reply',
     clarified: 'Asked a question',
@@ -382,6 +390,8 @@ const AI_TRIAGE_RESULT_TAG_TYPE: Record<AITriageResult, AITriageTagType> = {
     escalated_with_best: 'warning',
     escalated_no_reply: 'warning',
     skipped_unactionable: 'default',
+    skipped_team_replied: 'default',
+    skipped_channel_excluded: 'default',
     blocked_unsafe: 'danger',
     blocked_unsafe_reply: 'danger',
     clarified: 'warning',

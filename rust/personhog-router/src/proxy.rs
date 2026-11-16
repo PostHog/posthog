@@ -72,8 +72,11 @@ pub const KNOWN_METHODS: &[&str] = &[
     "ListGroups",
     "ListPersonTombstoneQueue",
     "ListPersonsForTeam",
+    "RaisePersonVersion",
+    "RaisePersonVersionFloors",
     "ReleaseFence",
     "ReleaseFences",
+    "RestorePersons",
     "SetPersonDistinctIdVersionFloor",
     "SetPersonVersionFloor",
     "SplitPerson",
@@ -81,6 +84,7 @@ pub const KNOWN_METHODS: &[&str] = &[
     "UpdateGroupTypeMapping",
     "UpdatePersonProperties",
     "UpsertHashKeyOverrides",
+    "WriteDistinctIds",
 ];
 
 /// Identity-server RPCs, forwarded verbatim; sorted for binary search.
@@ -285,6 +289,10 @@ impl RawProxyInner {
             // person write.
             (Target::Service, "FoldPersonDocument") => {
                 let (resp, call_ms) = self.raw_proxy_to_leader(req, "FoldPersonDocument").await;
+                (resp, "leader", call_ms)
+            }
+            (Target::Service, "RaisePersonVersion") => {
+                let (resp, call_ms) = self.raw_proxy_to_leader(req, "RaisePersonVersion").await;
                 (resp, "leader", call_ms)
             }
             (Target::Service, "GetPerson") => {
@@ -620,17 +628,9 @@ impl RawProxyInner {
             Err(resp) => return (resp, None),
         };
 
-        let partition = leader.partition_for_person(team_id, person_id);
-
         let _in_flight = ClientInFlightGuard::new("leader");
         leader
-            .forward_or_stash(
-                method,
-                partition,
-                (team_id, person_id),
-                parts.headers,
-                body_bytes,
-            )
+            .forward_or_stash(method, (team_id, person_id), parts.headers, body_bytes)
             .await
     }
 }

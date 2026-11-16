@@ -1,15 +1,18 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from io import StringIO
 
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
 from django.core.management import call_command
+from django.utils import timezone
 
 from products.signals.backend.models import (
     SignalReport,
     SignalReportArtefact,
     SignalReportAssignment,
+    SignalReportCheck,
+    SignalReportMonitoringAttempt,
     SignalReportPullRequest,
     SignalReportTask,
 )
@@ -18,6 +21,74 @@ from products.tasks.backend.models import Task, TaskRun
 
 
 class TestBackfillReportPullRequests(BaseTest):
+    @patch("products.signals.backend.report_content_gates.feature_enabled_or_false", return_value=True)
+    def test_repairs_task_history_merge_time_before_starting_monitoring(self, _flag: MagicMock) -> None:
+        from products.signals.backend.tasks import refresh_pull_request_review_decision
+
+        report = SignalReport.objects.create(team=self.team, status="ready", title="Report", summary="Summary")
+        task = Task.objects.create(team=self.team, title="Implementation", description="", origin_product="signals")
+        SignalReportTask.objects.create(team=self.team, report=report, task=task, relationship="implementation")
+        run = TaskRun.objects.create(team=self.team, task=task, status=TaskRun.Status.COMPLETED)
+        TaskRun.objects.filter(id=run.id).update(
+            output={"pr_url": "https://github.com/example/app/pull/1", "pr_state": "merged", "pr_merged": True}
+        )
+        SignalReportAssignment.all_teams.create(
+            team=self.team,
+            report=report,
+            pr_url="https://github.com/example/app/pull/2",
+            repository="example/app",
+            pr_number=2,
+            pr_state="open",
+        )
+        check = SignalReportCheck.objects.for_team(self.team.id).create(
+            team=self.team,
+            report=report,
+            title="Verify recovery",
+            kind=SignalReportCheck.Kind.AGENT,
+            config={"instructions": "Verify recovery", "skill_name": "verification"},
+            soak_minutes=60,
+            status=SignalReportCheck.Status.PENDING,
+            next_run_at=timezone.now(),
+            expires_at=timezone.now() + timedelta(days=7),
+        )
+        latest_merge = timezone.now() - timedelta(hours=1)
+        github = MagicMock()
+        github.get_pull_request.return_value = {
+            "success": True,
+            "merged": True,
+            "merged_at": (latest_merge - timedelta(hours=1)).isoformat(),
+        }
+        github.get_pull_request_snapshot.return_value = {"success": True, "review_decision": "approved"}
+        with (
+            patch("products.signals.backend.tasks.refresh_pull_request_review_decision.delay") as refresh,
+            patch("products.signals.backend.tasks.refresh_pull_request_participants.delay"),
+            patch("products.signals.backend.tasks.assign_reviewers_on_implementation_pr.delay"),
+            patch("products.signals.backend.tasks.send_pull_request_ready_push.delay"),
+            patch("posthog.models.integration.GitHubIntegration.first_for_team_repository", return_value=github),
+        ):
+            with self.captureOnCommitCallbacks(execute=True):
+                update_assignments_for_pull_request(
+                    team_ids=[self.team.id],
+                    repository="example/app",
+                    pr_number=2,
+                    pr_state="merged",
+                    merged_at=latest_merge,
+                )
+            report.refresh_from_db()
+            assert report.status == "ready"
+            refresh.assert_any_call(team_id=self.team.id, repository="example/app", pr_number=1)
+            link = SignalReportArtefact.objects.get(report=report, type="pull_request", task=task)
+            assert link.actor_kind == "task"
+            assert not SignalReportArtefact.objects.filter(report=report, type="work_claim").exists()
+            with self.captureOnCommitCallbacks(execute=True):
+                refresh_pull_request_review_decision(team_id=self.team.id, repository="example/app", pr_number=1)
+
+        completed = SignalReport.objects.get(id=report.id, team_id=self.team.id)
+        assert completed.status == SignalReport.Status.MONITORING
+        attempt = SignalReportMonitoringAttempt.objects.for_team(self.team.id).get(report=report)
+        assert attempt.monitoring_started_at == latest_merge
+        assert set(attempt.check_versions) == {str(check.id)}
+
     def test_refreshes_stored_review_decision(self) -> None:
         from products.signals.backend.tasks import refresh_pull_request_review_decision
 
@@ -82,10 +153,14 @@ class TestBackfillReportPullRequests(BaseTest):
             }
         )
         SignalReportTask.objects.create(team=self.team, report=task_report, task=task, relationship="implementation")
-        with patch("products.signals.backend.tasks.assign_reviewers_on_implementation_pr.delay") as reviewers:
+        with (
+            patch("products.signals.backend.tasks.assign_reviewers_on_implementation_pr.delay") as reviewers,
+            patch("products.signals.backend.tasks.send_pull_request_ready_push.delay") as ready_push,
+        ):
             with self.captureOnCommitCallbacks(execute=True):
                 call_command("backfill_report_pull_requests", team_id=self.team.id, batch_size=1, stdout=StringIO())
             reviewers.assert_not_called()
+            ready_push.assert_not_called()
         assignment.refresh_from_db()
         claim_id = SignalReportArtefact.objects.get(report=active, type="work_claim").id
         assert claim_id is not None

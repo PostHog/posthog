@@ -10,7 +10,7 @@ import { IconSubtitles, IconSubtitlesOff } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
+import { inStorybook } from 'lib/utils/dom'
 
 import { InsightColor } from '~/types'
 
@@ -41,6 +41,7 @@ export interface CardMetaProps extends Pick<React.HTMLAttributes<HTMLDivElement>
     extraControls?: JSX.Element | null
     /** Refresh control revealed on card hover, shown in the top controls area. */
     refreshControl?: JSX.Element | null
+    headerStatus?: JSX.Element | null
     /** Description shown in the compact popover. */
     metaDescription?: JSX.Element | null
     /** Heading always shown in the popover (e.g. insight type + date range). Falls back to topHeading. */
@@ -71,6 +72,7 @@ export function CardMeta({
     samplingFactor,
     extraControls,
     refreshControl,
+    headerStatus,
 }: CardMetaProps): JSX.Element {
     const { ref: primaryRef, width: primaryWidth } = useResizeObserver()
     const { ref: detailsRef, height: detailsHeight } = useResizeObserver()
@@ -101,9 +103,7 @@ export function CardMeta({
     // Show labels if card is wide enough AND there's room for labeled buttons
     // But also when in storybook to make it neater
     const showControlsLabels =
-        inStorybook() ||
-        inStorybookTestRunner() ||
-        (!!primaryWidth && primaryWidth > 480 && controlsAvailableSpace >= neededWidth)
+        inStorybook() || (!!primaryWidth && primaryWidth > 480 && controlsAvailableSpace >= neededWidth)
     const extraControlsWithLabel = extraControls
         ? React.cloneElement(extraControls, {
               ...extraControls.props,
@@ -111,12 +111,30 @@ export function CardMeta({
           })
         : null
 
+    const editingControl = showEditingControls ? (
+        moreTooltip ? (
+            <Tooltip title={moreTooltip}>
+                <More overlay={moreButtons} />
+            </Tooltip>
+        ) : (
+            <More overlay={moreButtons} />
+        )
+    ) : null
+    const compactControls = (
+        <div className="CardMeta__controls">
+            {refreshControl}
+            {headerStatus}
+            {editingControl}
+        </div>
+    )
+
     return (
         <div
             className={clsx(
                 'CardMeta',
                 className,
                 compact && 'CardMeta--compact',
+                compact && headerStatus && 'CardMeta--header-status',
                 areDetailsShown && 'CardMeta--details-shown',
                 onMouseDown && 'cursor-grab'
             )}
@@ -133,17 +151,7 @@ export function CardMeta({
                         <>
                             <div className="CardMeta__top">
                                 <div className="CardMeta__heading">{topHeading}</div>
-                                <div className="CardMeta__controls">
-                                    {refreshControl}
-                                    {showEditingControls &&
-                                        (moreTooltip ? (
-                                            <Tooltip title={moreTooltip}>
-                                                <More overlay={moreButtons} />
-                                            </Tooltip>
-                                        ) : (
-                                            <More overlay={moreButtons} />
-                                        ))}
-                                </div>
+                                {!headerStatus && compactControls}
                             </div>
                             {meta}
                         </>
@@ -179,20 +187,15 @@ export function CardMeta({
                                             </LemonButton>
                                         </Tooltip>
                                     )}
-                                    {showEditingControls &&
-                                        (moreTooltip ? (
-                                            <Tooltip title={moreTooltip}>
-                                                <More overlay={moreButtons} />
-                                            </Tooltip>
-                                        ) : (
-                                            <More overlay={moreButtons} />
-                                        ))}
+                                    {headerStatus}
+                                    {editingControl}
                                 </div>
                             </div>
                             {meta}
                         </>
                     )}
                 </div>
+                {compact && headerStatus && compactControls}
             </div>
 
             <div className="CardMeta__divider" />

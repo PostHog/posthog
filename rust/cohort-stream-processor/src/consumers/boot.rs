@@ -1,18 +1,18 @@
 //! Boot recovery for the events consumer.
 //!
 //! With durable restore, the store reopens with state the broker's committed offsets may not
-//! match. Nothing may fold until the consumer has reclaimed unowned slices, redriven the merge
-//! outbox and sought every owned partition back to the first event it polled and did not fold. A
+//! match. The consumer reclaims unowned slices and redrives the merge outbox before its first
+//! poll. After a checkpoint restore, nothing may fold until it has also sought every owned
+//! partition back to its restored position, or to the first event it polled and did not fold. A
 //! fold before that would set per-key replay marks above offsets that are fetched again later, so
 //! the second fetch would skip those events as replays.
 
 use std::collections::{BTreeMap, HashSet};
 
 use rdkafka::error::KafkaResult;
-use rdkafka::{Offset, TopicPartitionList};
 
 use crate::consumers::events::ConsumedEvent;
-use crate::partitions::ResumeOffset;
+use crate::partitions::{CommitStamp, ResumeOffset, StampedList};
 use crate::store::durability::PendingRestore;
 
 /// The lowest offset per events partition that boot polled and did not fold. A seek there fetches
@@ -37,20 +37,25 @@ impl ResumePoints {
         }
     }
 
-    /// The seek list for the partitions still owned, or `None` when nothing needs a seek. Fails only
-    /// on a negative offset, which a polled message never carries.
+    /// The seek list for the partitions still owned, stamped for the restore's commit, or `None`
+    /// when nothing needs a seek. Fails only on a negative offset, which a polled message never
+    /// carries.
     pub(crate) fn seek_list(
         &self,
+        stamp: &CommitStamp,
         topic: &str,
         owned: &HashSet<i32>,
-    ) -> KafkaResult<Option<TopicPartitionList>> {
-        let mut tpl = TopicPartitionList::new();
-        for (&partition, &offset) in &self.0 {
-            if owned.contains(&partition) {
-                tpl.add_partition_offset(topic, partition, Offset::Offset(offset))?;
-            }
+    ) -> KafkaResult<Option<StampedList>> {
+        let positions: Vec<(i32, i64)> = self
+            .0
+            .iter()
+            .filter(|(partition, _)| owned.contains(partition))
+            .map(|(&partition, &offset)| (partition, offset))
+            .collect();
+        if positions.is_empty() {
+            return Ok(None);
         }
-        Ok((tpl.count() > 0).then_some(tpl))
+        stamp.list(topic, positions).map(Some)
     }
 
     fn lower(&mut self, partition: i32, offset: i64) {
@@ -61,56 +66,27 @@ impl ResumePoints {
     }
 }
 
-/// Where the events consumer's boot stands. Nothing folds before [`BootPhase::Live`]. A pending
-/// checkpoint restore rides along until the rewind commits its positions and finishes it.
+/// Where the events consumer's boot stands. Nothing folds before [`BootPhase::Live`].
 pub(crate) enum BootPhase {
-    /// Waiting for two consecutive polls to report the same non-empty assignment.
-    Settling {
-        previous: Option<HashSet<i32>>,
-        resume: ResumePoints,
-        restore: Option<PendingRestore>,
-    },
-    /// Recovery ran. The owned partitions must seek before anything folds.
+    /// Recovery ran on a restored store. The owned partitions must seek, and the rewind must commit
+    /// the restore's positions and finish it, before anything folds.
     Rewinding {
         resume: ResumePoints,
-        restore: Option<PendingRestore>,
+        restore: Box<PendingRestore>,
     },
-    /// A restored position expired during boot and the process is stopping. Nothing seeks, settles
-    /// or folds, and the restore marker keeps the next boot on the restore path.
+    /// A restored position expired during boot and the process is stopping. Nothing seeks or folds,
+    /// and the restore marker keeps the next boot on the restore path.
     Halted,
     Live,
-}
-
-impl BootPhase {
-    pub(crate) fn settling(restore: Option<PendingRestore>) -> Self {
-        Self::Settling {
-            previous: None,
-            resume: ResumePoints::default(),
-            restore,
-        }
-    }
-}
-
-/// Returns `true` once the same non-empty assignment is seen on two consecutive polls. An empty or
-/// changing assignment is not yet settled; a cooperative-incremental assign re-baselines until stable.
-pub(crate) fn boot_assignment_settled(
-    assignment: &HashSet<i32>,
-    prev: &mut Option<HashSet<i32>>,
-) -> bool {
-    if assignment.is_empty() {
-        return false;
-    }
-    if prev.as_ref() != Some(assignment) {
-        *prev = Some(assignment.clone());
-        return false;
-    }
-    true
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rdkafka::Offset;
+
     use crate::consumers::events::CohortStreamEvent;
+    use crate::partitions::PartitionOwnership;
 
     const TOPIC: &str = "cohort_stream_events";
 
@@ -137,9 +113,10 @@ mod tests {
         }
     }
 
-    fn sought(seek_list: Option<TopicPartitionList>) -> Option<BTreeMap<i32, i64>> {
-        seek_list.map(|tpl| {
-            tpl.elements_for_topic(TOPIC)
+    fn sought(seek_list: Option<StampedList>) -> Option<BTreeMap<i32, i64>> {
+        seek_list.map(|list| {
+            list.as_list()
+                .elements_for_topic(TOPIC)
                 .iter()
                 .map(|elem| match elem.offset() {
                     Offset::Offset(offset) => (elem.partition(), offset),
@@ -175,7 +152,7 @@ mod tests {
                 expected: Some(&[(0, 4), (1, 2), (2, 9)]),
             },
             Case {
-                name: "a partition revoked during boot is not sought",
+                name: "a partition another pod owns is not sought",
                 polls: &[&[(0, 3), (1, 7)]],
                 restored: None,
                 owned: &[1],
@@ -217,31 +194,14 @@ mod tests {
                 resume.rewind_to(&positions);
             }
 
+            let stamp = CommitStamp::for_test(PartitionOwnership::single(4));
             assert_eq!(
-                sought(resume.seek_list(TOPIC, &owned).unwrap()),
+                sought(resume.seek_list(&stamp, TOPIC, &owned).unwrap()),
                 case.expected
                     .map(|offsets| offsets.iter().copied().collect()),
                 "{}",
                 case.name,
             );
         }
-    }
-
-    #[test]
-    fn boot_assignment_settled_requires_a_stable_non_empty_assignment() {
-        let mut prev: Option<HashSet<i32>> = None;
-
-        assert!(!boot_assignment_settled(&HashSet::new(), &mut prev));
-        assert_eq!(prev, None);
-
-        let first: HashSet<i32> = [0].into_iter().collect();
-        assert!(!boot_assignment_settled(&first, &mut prev));
-        assert_eq!(prev.as_ref(), Some(&first));
-
-        let second: HashSet<i32> = [0, 1].into_iter().collect();
-        assert!(!boot_assignment_settled(&second, &mut prev));
-        assert_eq!(prev.as_ref(), Some(&second));
-
-        assert!(boot_assignment_settled(&second, &mut prev));
     }
 }

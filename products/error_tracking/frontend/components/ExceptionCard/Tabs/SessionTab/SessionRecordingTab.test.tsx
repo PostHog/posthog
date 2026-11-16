@@ -6,6 +6,7 @@ import { ErrorEventProperties } from 'lib/components/Errors/types'
 
 import { initKeaTests } from '~/test/init'
 
+import { exceptionCardLogic } from '../../exceptionCardLogic'
 import { SessionRecordingContent } from './SessionRecordingTab'
 
 const SESSION_ID = '0199aaaa-bbbb-cccc-dddd-eeeeffff0000'
@@ -55,8 +56,10 @@ function renderTab(recordingStatus?: string): HTMLElement {
 
     const { container } = render(
         <Provider>
-            <BindLogic logic={errorPropertiesLogic} props={{ id: 'exception-uuid', properties }}>
-                <SessionRecordingContent />
+            <BindLogic logic={exceptionCardLogic} props={{ issueId: 'issue-id', loading: false }}>
+                <BindLogic logic={errorPropertiesLogic} props={{ id: 'exception-uuid', properties }}>
+                    <SessionRecordingContent />
+                </BindLogic>
             </BindLogic>
         </Provider>
     )
@@ -84,7 +87,7 @@ describe('SessionRecordingContent', () => {
         mockRecordingExists.value = false
         const container = renderTab(undefined)
 
-        expect(container.textContent).toContain('No recording for this event')
+        expect(container.textContent).toContain('No recording for this exception')
         expect(playerIn(container)).toBeNull()
     })
 

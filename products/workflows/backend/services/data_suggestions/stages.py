@@ -89,8 +89,11 @@ def classify_event_stages(*, team_id: int, event_names: Sequence[str]) -> dict[s
             if isinstance(answer, ChoiceAnswer) and answer.choice in valid_stages:
                 required = MIN_CONFIDENCE_BY_STAGE.get(answer.choice, MIN_CONFIDENCE)
                 confident = answer.confidence >= required
+                # When the name also looks like the stage Jev picked, the answer is kept even at low confidence.
+                # Otherwise a plain `account created` that Jev is unsure about reads as routine usage.
+                looks_like = guess_stage(name) == answer.choice
                 # Jev can call a busy usage event a sign-up, and its volume then outranks every real moment. The two
                 # highest weights need the event name to look like the stage too.
-                agrees = answer.choice not in MIN_CONFIDENCE_BY_STAGE or guess_stage(name) == answer.choice
-                stages[name] = cast(LifecycleStage, answer.choice) if confident and agrees else "other"
+                agrees = answer.choice not in MIN_CONFIDENCE_BY_STAGE or looks_like
+                stages[name] = cast(LifecycleStage, answer.choice) if looks_like or (confident and agrees) else "other"
     return stages

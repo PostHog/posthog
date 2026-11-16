@@ -4,7 +4,14 @@ import { expectLogic } from 'kea-test-utils'
 import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
-import { FunnelsActorsQuery, FunnelsQuery, NodeKind } from '~/queries/schema/schema-general'
+import {
+    DataWarehouseNode,
+    FunnelsActorsQuery,
+    FunnelsQuery,
+    InsightActorsQuery,
+    NodeKind,
+    TrendsQuery,
+} from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { ActivityTab, FilterLogicalOperator, PersonActorType, PropertyFilterType, PropertyOperator } from '~/types'
 
@@ -687,6 +694,59 @@ describe('personsModalLogic', () => {
             logic.mount()
 
             expect(logic.values.insightEventsQueryUrl).toBeNull()
+        })
+    })
+
+    describe('propertiesTimelineQuery', () => {
+        const trendsQuery = (series: TrendsQuery['series']): InsightActorsQuery => ({
+            kind: NodeKind.InsightActorsQuery,
+            source: { kind: NodeKind.TrendsQuery, series },
+            day: '2024-05-01',
+            series: 1,
+        })
+
+        it.each([
+            [
+                'a Trends events series',
+                true,
+                trendsQuery([
+                    { kind: NodeKind.DataWarehouseNode } as DataWarehouseNode,
+                    { kind: NodeKind.EventsNode, event: '$pageview' },
+                ]),
+            ],
+            [
+                'a Trends actions series',
+                true,
+                trendsQuery([{ kind: NodeKind.EventsNode }, { kind: NodeKind.ActionsNode, id: 1 }]),
+            ],
+            [
+                'a Trends data warehouse series',
+                false,
+                trendsQuery([{ kind: NodeKind.EventsNode }, { kind: NodeKind.DataWarehouseNode } as DataWarehouseNode]),
+            ],
+            [
+                'a Stickiness data point',
+                false,
+                {
+                    kind: NodeKind.InsightActorsQuery,
+                    source: { kind: NodeKind.StickinessQuery, series: [{ kind: NodeKind.EventsNode }] },
+                    day: 2,
+                } as InsightActorsQuery,
+            ],
+            [
+                'a funnel step',
+                false,
+                {
+                    kind: NodeKind.FunnelsActorsQuery,
+                    source: { kind: NodeKind.FunnelsQuery, series: [] },
+                    funnelStep: 1,
+                } as FunnelsActorsQuery,
+            ],
+        ])('%s gets a properties timeline: %s', (_name, expectsTimeline, query) => {
+            logic = personsModalLogic({ query, url: null })
+            logic.mount()
+
+            expect(logic.values.propertiesTimelineQuery).toEqual(expectsTimeline ? query : null)
         })
     })
 })

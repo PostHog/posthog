@@ -21,7 +21,7 @@ from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog.constants import AvailableFeature
 from posthog.exceptions import ClickHouseQueryTimeOut
-from posthog.models import Organization, OrganizationMembership, PropertyDefinition
+from posthog.models import Organization, OrganizationMembership
 from posthog.models.event.util import bulk_create_events
 from posthog.models.scoping import team_scope
 from posthog.temporal.tests.utils.events import generate_test_events
@@ -45,6 +45,7 @@ from products.batch_exports.backend.presentation.views.file_download import (
 )
 from products.batch_exports.backend.temporal import ACTIVITIES, WORKFLOWS
 from products.batch_exports.backend.tests.temporal.destinations.s3.utils import has_valid_credentials
+from products.event_definitions.backend.models import PropertyDefinition
 
 pytestmark = [
     pytest.mark.asyncio,
@@ -566,7 +567,10 @@ async def test_file_download_list_returns_run_ids_and_statuses(
     await async_client.aforce_login(user)
 
     tied_runs = sorted([completed_run, cancelled_run], key=lambda run: run.id, reverse=True)
-    expected = [{"id": str(run.id), "status": run.status} for run in [*tied_runs, running_run]]
+    expected = [
+        {"id": str(run.id), "status": run.status, "created_at": run.created_at.isoformat().replace("+00:00", "Z")}
+        for run in [*tied_runs, running_run]
+    ]
 
     response = await async_client.get(f"/api/projects/{team.pk}/file_download_batch_exports")
 
@@ -827,11 +831,6 @@ class TestFileDownloadHogQL:
                 id="events-model-missing-intervals",
             ),
             pytest.param(
-                {"hogql_modifiers": {"useNewEventsCluster": True}},
-                "synchronous query API",
-                id="native-cluster-modifier",
-            ),
-            pytest.param(
                 {"model": "events", "hogql_query": None, "hogql_modifiers": {"convertToProjectTimezone": False}},
                 "'hogql_modifiers' are only supported when 'model' is 'hogql'",
                 id="modifiers-with-events-model",
@@ -945,9 +944,9 @@ class TestFileDownloadHogQL:
         mock_start_file_download_export.assert_called_once()
         batch_export_model = mock_start_file_download_export.call_args.kwargs["batch_export_model"]
         assert batch_export_model.name == "hogql"
-        assert batch_export_model.hogql_query == hogql_query
+        assert batch_export_model.query == hogql_query
         assert batch_export_model.user_id == user.pk
-        assert batch_export_model.hogql_modifiers == {"convertToProjectTimezone": False}
+        assert batch_export_model.modifiers == {"convertToProjectTimezone": False}
         assert mock_start_file_download_export.call_args.kwargs["max_size_mb"] == DEFAULT_MAX_SIZE_MB
         assert mock_start_file_download_export.call_args.kwargs["data_interval_start"] == run.data_interval_start
         assert mock_start_file_download_export.call_args.kwargs["data_interval_end"] == run.data_interval_end
@@ -1255,15 +1254,6 @@ class TestFileDownloadHogQL:
                 },
                 "Extra inputs are not permitted",
                 id="unknown-modifier",
-            ),
-            pytest.param(
-                {
-                    "model": "hogql",
-                    "hogql_query": "SELECT event AS event FROM events",
-                    "hogql_modifiers": {"useNewEventsCluster": True},
-                },
-                "synchronous query API",
-                id="native-cluster-modifier",
             ),
         ],
     )

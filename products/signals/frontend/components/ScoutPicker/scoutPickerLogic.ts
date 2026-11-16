@@ -1,7 +1,9 @@
 import { MakeLogicType, afterMount, connect, kea, path } from 'kea'
 import { loaders } from 'kea-loaders'
 
+import { FIRST_REPORT_SCOUT_NAME } from 'lib/constants'
 import { teamLogic } from 'scenes/teamLogic'
+import { userLogic } from 'scenes/userLogic'
 
 import { signalsScoutConfigList } from 'products/signals/frontend/generated/api'
 import type { SignalScoutConfigApi } from 'products/signals/frontend/generated/api.schemas'
@@ -47,7 +49,10 @@ export const scoutPickerLogic = kea<scoutPickerLogicType>([
                     if (!values.currentTeamId) {
                         return []
                     }
-                    return await signalsScoutConfigList(String(values.currentTeamId))
+                    const configs = await signalsScoutConfigList(String(values.currentTeamId))
+                    return configs.filter(
+                        (config) => userLogic.values.user?.is_staff || config.skill_name !== FIRST_REPORT_SCOUT_NAME
+                    )
                 },
             },
         ],

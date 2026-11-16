@@ -385,6 +385,24 @@ describe('secure HTTP/2 requests', () => {
         expect(http2SessionCount).toBe(1)
     }, 10000)
 
+    it('keeps requests of different connection groups on separate sessions', async () => {
+        const http2Url = `https://origin.test:${serverPort(http2Origin)}`
+        const send = async (path: string, group: string): Promise<string> => {
+            const response = await requestModule.fetch(`${http2Url}${path}`, {
+                allowH2: true,
+                http2ConnectionGroup: group,
+            })
+            return await response.text()
+        }
+
+        expect(await send('/team-a-1', 'team-a')).toBe('/team-a-1')
+        expect(await send('/team-a-2', 'team-a')).toBe('/team-a-2')
+        expect(http2SessionCount).toBe(1)
+
+        expect(await send('/team-b-1', 'team-b')).toBe('/team-b-1')
+        expect(http2SessionCount).toBe(2)
+    }, 10000)
+
     it('shares one client for six cold image fetches and closes the idle client and its connections', async () => {
         const { HttpImageFetcher } =
             require('~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/image-fetcher') as typeof import('~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/image-fetcher')

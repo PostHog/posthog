@@ -23,6 +23,8 @@ from botocore.exceptions import ClientError
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.models import Team, User
+from posthog.paging import Page, PageRequest
+from posthog.queryset_paging import select_page
 from posthog.temporal.common.client import sync_connect
 
 from products.batch_exports.backend.facade import contracts
@@ -39,8 +41,8 @@ from products.batch_exports.backend.models.batch_export import (
     BatchExportSource,
 )
 from products.batch_exports.backend.service import (
-    BatchExportModel,
     cancel_running_batch_export_run,
+    get_batch_export_model,
     start_file_download_batch_export,
 )
 from products.batch_exports.backend.temporal.record_batch_model import HogQLQueryRecordBatchModel
@@ -116,9 +118,8 @@ def _to_file_download_run(batch_export_run: BatchExportRun) -> contracts.FileDow
     )
 
 
-def list_file_download_runs(team_id: int, *, offset: int, limit: int) -> tuple[list[BatchExportRun], int]:
-    runs = _file_download_runs(team_id)
-    return list(runs[offset : offset + limit]), runs.count()
+def list_file_download_runs(team_id: int, *, page: PageRequest) -> Page[BatchExportRun]:
+    return select_page(_file_download_runs(team_id), page)
 
 
 def get_file_download_run(team_id: int, run_id: UUID) -> contracts.FileDownloadRun:
@@ -198,7 +199,6 @@ def start_file_download(team_id: int, user_id: int, request: contracts.FileDownl
 
     batch_export_on_demand = instance.batch_export_on_demand
     assert batch_export_on_demand is not None
-    source = batch_export_on_demand.source
     destination_config = batch_export_on_demand.destination.config
     try:
         start_file_download_batch_export(
@@ -207,13 +207,7 @@ def start_file_download(team_id: int, user_id: int, request: contracts.FileDownl
             batch_export_run_id=instance.id,
             data_interval_start=instance.data_interval_start,
             data_interval_end=instance.data_interval_end,
-            batch_export_model=BatchExportModel(
-                name=request.model,
-                schema=None,
-                hogql_query=source.hogql_query if source is not None else None,
-                user_id=batch_export_on_demand.last_modified_by_id if request.model == "hogql" else None,
-                hogql_modifiers=source.hogql_modifiers if source is not None else None,
-            ),
+            batch_export_model=get_batch_export_model(batch_export_on_demand),
             compression=destination_config.get("compression", None),
             format=destination_config.get("format", "Parquet"),
             max_size_mb=destination_config.get("max_size_mb", 0),

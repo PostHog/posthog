@@ -16,10 +16,11 @@ from __future__ import annotations
 
 import math
 import time
-from collections.abc import Iterator, Mapping
+import functools
+from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
 from contextvars import ContextVar
-from typing import Any, cast
+from typing import Any, ParamSpec, cast
 from urllib.parse import urlparse
 
 from django.conf import settings
@@ -33,12 +34,14 @@ from urllib3.util.retry import Retry
 from urllib3.util.timeout import Timeout
 
 from posthog.cloud_utils import is_cloud
-from posthog.security.oob_domains import matched_oob_domain
+from posthog.security.oob_domains import OOB_DOMAIN_REFUSAL, matched_oob_domain
+from posthog.temporal.common.errors import NonReportableError
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.observer import record_request
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.interruptible_wait import (
     interruptible_wait,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import SOURCE_HOST_NOT_ALLOWED_ERROR
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.retry_limits import retry_budget_seconds
 
 logger = structlog.get_logger(__name__)
@@ -80,13 +83,16 @@ def current_request_deadline() -> float | None:
 
 
 @contextmanager
-def request_deadline(deadline: float) -> Iterator[None]:
+def request_deadline(deadline: float | None = None) -> Iterator[None]:
     """Make requests in the block end by `deadline`, a `time.monotonic()` value.
 
     For a caller that retries a request itself, so that all of its tries share one deadline. Each
     try gets only the time that is left, and the adapter starts no retry that the deadline cuts off.
-    An earlier deadline that is already in effect wins.
+    An earlier deadline that is already in effect wins. With no `deadline`, the block ends
+    `retry_budget_seconds()` from now.
     """
+    if deadline is None:
+        deadline = _monotonic() + retry_budget_seconds()
     current = _request_deadline.get()
     token = _request_deadline.set(deadline if current is None else min(current, deadline))
     try:
@@ -174,7 +180,8 @@ class BoundedRetry(Retry):
     - All tries of one request end by one deadline. In `TrackedHTTPAdapter` it is the request
       deadline (see `request_deadline`). Outside it, it is `retry_budget_seconds()` after the first
       failure. No wait starts that would end at or after the deadline: the last response or error
-      goes to the caller.
+      goes to the caller. A `Retry-After` counts with the delay that the server asked for, before
+      the cap, so a server that asks for a day gets its 429 back at once and no capped wait.
     - A wait ends early when the worker starts to shut down, so the caller can hand the run off.
     """
 
@@ -206,15 +213,17 @@ class BoundedRetry(Retry):
         deadline = _request_deadline.get()
         if deadline is None:
             deadline = now + retry_budget_seconds() if self._retry_deadline is None else self._retry_deadline
-        if now + retry._next_wait(response) >= deadline:
+        if now + retry._requested_wait(response) >= deadline:
             raise MaxRetryError(_pool, url or "", error or ResponseError("retry budget spent"))
         retry._retry_deadline = deadline
         return retry
 
-    def _next_wait(self, response: Any) -> float:
-        # The same choice as `Retry.sleep`, which urllib3 calls on the object that `increment` returns.
+    def _requested_wait(self, response: Any) -> float:
+        # The same choice as `Retry.sleep`, which urllib3 calls on the object that `increment` returns,
+        # but with the delay the server asked for and not the capped one. A capped wait ends before the
+        # server is ready, so a retry after it fails again and only holds the worker.
         if self.respect_retry_after_header and response is not None:
-            retry_after = self.get_retry_after(response)
+            retry_after = super().get_retry_after(response)
             if retry_after:
                 return retry_after
         return self.get_backoff_time()
@@ -270,14 +279,24 @@ DEFAULT_RETRY = BoundedRetry(
 )
 
 
-def _note_oob_domain(request: PreparedRequest) -> None:
-    """Record a request to an out-of-band interaction domain, without refusing it.
+class OutOfBandDomainError(NonReportableError):
+    """The request targets a listed out-of-band interaction domain, so the adapter never sent it.
 
-    `requests` re-enters the adapter on every redirect hop, so a hop to a listed host is recorded
+    Deliberately not a `RequestException`: the sources catch that broadly and relabel it, and
+    several retry on it, so a refusal raised as one would be retried or reported as a transport
+    fault. `NonReportableError` keeps it out of error tracking, and the message carries
+    `SOURCE_HOST_NOT_ALLOWED_ERROR` so `Any_Source_Errors` pauses the schema instead.
+    """
+
+
+def _check_oob_domain(request: PreparedRequest) -> str | None:
+    """The listed out-of-band interaction domain this request targets, or None.
+
+    `requests` re-enters the adapter on every redirect hop, so a hop to a listed host is checked
     as well as the first request.
     """
     if not is_cloud():
-        return
+        return None
 
     try:
         host = urlparse(request.url or "").hostname
@@ -287,19 +306,22 @@ def _note_oob_domain(request: PreparedRequest) -> None:
         # parsers disagree. The URL stays out of the line because it carries the credential that
         # `record_request` scrubs; it logs the same request a moment later.
         logger.warning("security.oob_domain_url_unparsed", error=type(exc).__name__)
-        return
+        return None
 
     if host is None:
-        return
+        return None
 
     try:
         oob_domain = matched_oob_domain(host)
     except Exception:
+        # A fault in the matcher must not fail a customer's sync. The request goes out as it did
+        # before this list existed.
         logger.exception("security.oob_domain_check_failed", host=host)
-        return
+        return None
 
     if oob_domain is not None:
         logger.info("security.oob_domain_seen", host=host, domain=oob_domain, guard="warehouse_http")
+    return oob_domain
 
 
 class TrackedHTTPAdapter(HTTPAdapter):
@@ -347,7 +369,8 @@ class TrackedHTTPAdapter(HTTPAdapter):
         cert: bytes | str | tuple[bytes | str, bytes | str] | None = None,
         proxies: Mapping[str, str] | None = None,
     ) -> Response:
-        _note_oob_domain(request)
+        if _check_oob_domain(request) is not None:
+            raise OutOfBandDomainError(f"{SOURCE_HOST_NOT_ALLOWED_ERROR}: {OOB_DOMAIN_REFUSAL}")
         started = time.monotonic()
         deadline = _request_deadline.get()
         if deadline is None:
@@ -421,6 +444,34 @@ class _NoRedirectSession(requests.Session):
         return super().send(request, **kwargs)
 
 
+_P = ParamSpec("_P")
+_session_observers: list[Callable[[dict[str, Any]], None]] = []
+
+
+@contextmanager
+def observe_tracked_sessions(observer: Callable[[dict[str, Any]], None]) -> Iterator[None]:
+    """Pass the keyword arguments of each `make_tracked_session` call in the block to `observer`.
+
+    For the source test harness. Only the innermost observer sees a call, so a nested block records its own sessions.
+    """
+    _session_observers.append(observer)
+    try:
+        yield
+    finally:
+        _session_observers.remove(observer)
+
+
+def _observed(factory: Callable[_P, requests.Session]) -> Callable[_P, requests.Session]:
+    @functools.wraps(factory)
+    def make(*args: _P.args, **kwargs: _P.kwargs) -> requests.Session:
+        if _session_observers:
+            _session_observers[-1](dict(kwargs))
+        return factory(*args, **kwargs)
+
+    return make
+
+
+@_observed
 def make_tracked_session(
     *,
     retry: Retry | None = None,

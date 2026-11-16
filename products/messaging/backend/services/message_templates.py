@@ -8,6 +8,14 @@ from django.db.models.fields.json import KT
 from django.db.models.functions import Cast
 from django.utils import timezone
 
+from posthog.api.tagged_item import current_tag_names, replace_tags_on_object, set_tags_on_object
+from posthog.models import TaggedItem
+from posthog.models.file_system.constants import DEFAULT_SURFACE, surface_q
+from posthog.models.file_system.file_system import FileSystem
+from posthog.models.file_system.refs import file_refs_q
+from posthog.models.tag import tagify
+from posthog.models.utils import strict_fetch
+
 from products.messaging.backend.facade.contracts import EmailTemplateSummary
 from products.messaging.backend.models import MessageCategory, MessageTemplate
 
@@ -70,13 +78,53 @@ def rewrite_content(
     return occurrences
 
 
-def team_templates(team_id: int) -> models.QuerySet[MessageTemplate]:
+def _with_tags(queryset: models.QuerySet[MessageTemplate]) -> models.QuerySet[MessageTemplate]:
+    # The contract reads prefetched_tags, so a page costs one tag query rather than one per row.
+    return queryset.prefetch_related(
+        models.Prefetch("tagged_items", queryset=TaggedItem.objects.select_related("tag"), to_attr="prefetched_tags")
+    )
+
+
+def team_templates(team_id: int, *, transactional: bool | None = None) -> models.QuerySet[MessageTemplate]:
+    queryset = MessageTemplate.objects.filter(team_id=team_id, deleted=False)
+    if transactional is not None:
+        queryset = queryset.filter(transactional_hog_flow_id__isnull=not transactional)
     # The pk tiebreak keeps pages stable, as the mixin ordering did for the queryset view.
-    return MessageTemplate.objects.filter(team_id=team_id, deleted=False).order_by("-created_at", "-pk")
+    return _with_tags(queryset).order_by("-created_at", "-pk")
+
+
+def team_basic_templates(team_id: int, *, transactional: bool | None = None) -> models.QuerySet[MessageTemplate]:
+    return strict_fetch(
+        team_templates(team_id, transactional=transactional)
+        .defer("content", "draft_content")
+        .annotate(has_draft=models.ExpressionWrapper(models.Q(draft_content__isnull=False), models.BooleanField()))
+    )
 
 
 def team_template(team_id: int, template_id: UUID | str) -> MessageTemplate:
     return MessageTemplate.objects.get(team_id=team_id, deleted=False, pk=template_id)
+
+
+def team_template_id(team_id: int, template_id: UUID | str) -> UUID:
+    return (
+        MessageTemplate.objects.filter(team_id=team_id, deleted=False, pk=template_id)
+        .values_list("id", flat=True)
+        .get()
+    )
+
+
+def file_path(team_id: int, template_id: UUID) -> str | None:
+    return (
+        FileSystem.objects.filter(
+            surface_q(DEFAULT_SURFACE),
+            file_refs_q("message_template", [str(template_id)]),
+            team_id=team_id,
+            type="message_template",
+        )
+        .exclude(shortcut=True)
+        .values_list("path", flat=True)
+        .first()
+    )
 
 
 def category_id_for_team(team_id: int, category_id: Any) -> UUID:
@@ -90,16 +138,31 @@ def _apply_fields(template: MessageTemplate, fields: dict[str, Any]) -> None:
 
 
 def create_template(team_id: int, created_by_id: int | None, fields: dict[str, Any]) -> MessageTemplate:
-    template = MessageTemplate(team_id=team_id, created_by_id=created_by_id)
-    _apply_fields(template, fields)
-    template.save(force_insert=True)
+    fields = dict(fields)
+    tags = fields.pop("tags", None)
+    with transaction.atomic():
+        template = MessageTemplate(team_id=team_id, created_by_id=created_by_id)
+        _apply_fields(template, fields)
+        template.save(force_insert=True)
+        if tags:
+            set_tags_on_object(tags, template)
     return template
 
 
 def update_template(team_id: int, template_id: UUID | str, fields: dict[str, Any]) -> MessageTemplate:
-    template = team_template(team_id, template_id)
-    _apply_fields(template, fields)
-    template.save()
+    fields = dict(fields)
+    tags = fields.pop("tags", None)
+    with transaction.atomic():
+        template = team_template(team_id, template_id)
+        # The editor sends the tags with every save, so only write them when they change.
+        tags_changed = tags is not None and {tagify(tag) for tag in tags} != current_tag_names(template)
+        # Tags live on their own rows. Saving the template too would write back every column this
+        # read saw, so a tag edit would overwrite content a concurrent publish had just committed.
+        if fields:
+            _apply_fields(template, fields)
+            template.save()
+        if tags_changed:
+            replace_tags_on_object(tags, template)
     return template
 
 

@@ -1,5 +1,6 @@
+import { escapeRawPropertyAsHogQLIdentifier } from 'lib/utils/hogql'
+
 import { DataVisualizationNode, NodeKind } from '~/queries/schema/schema-general'
-import { escapeRawPropertyAsHogQLIdentifier } from '~/queries/utils'
 import { ChartDisplayType } from '~/types'
 
 export type BillingUsageInterval = 'day' | 'week' | 'month'

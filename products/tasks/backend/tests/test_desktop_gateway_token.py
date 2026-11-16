@@ -27,7 +27,7 @@ from products.tasks.backend.logic.services.desktop_gateway_token import (
     posthog_code_billing_synced,
     posthog_code_trusted,
 )
-from products.tasks.backend.logic.services.gateway_model_pin import DESKTOP_AGENT_MODELS, FREE_TIER_MODELS
+from products.tasks.backend.logic.services.gateway_model_pin import DESKTOP_AGENT_MODELS, FREE_TIER_MODELS, gateway_pin
 
 from ee.billing.billing_manager import OrganizationFundingStatus, PrepaidCreditState
 
@@ -103,7 +103,6 @@ class TestDesktopGatewayTokenMint(_GatewayTestBase):
         self.gates = {
             "access": patch(f"{_VIEW}.get_desktop_access_decision", return_value=DesktopAccessDecision.ALLOWED),
             "credit": patch(f"{_VIEW}.team_credit_refusal", return_value=None),
-            "blocked": patch(f"{_VIEW}.wizard_identity_blocked", return_value=False),
             "tier": patch(f"{_VIEW}.desktop_limit_tier", return_value="standard"),
             "rules": patch(f"{_VIEW}.security_access_refused", return_value=False),
         }
@@ -188,22 +187,6 @@ class TestDesktopGatewayTokenMint(_GatewayTestBase):
         assert response.status_code == status.HTTP_403_FORBIDDEN
         assert response.json()["reason"] == "unauthorized"
         post.assert_not_called()
-
-    def test_blocklisted_identity_is_refused_before_access(self) -> None:
-        self.mocks["blocked"].return_value = True
-        response, post = self._mint()
-        assert response.status_code == status.HTTP_403_FORBIDDEN
-        assert response.json()["reason"] == "blocked"
-        self.mocks["access"].assert_not_called()
-        post.assert_not_called()
-        self.mocks["blocked"].assert_called_once_with(
-            distinct_id=str(self.user.distinct_id),
-            email=self.user.email,
-            user_uuid=str(self.user.uuid),
-            organization_ids=[str(self.organization.id)],
-            team_ids=[self.team.id],
-            surface="desktop_gateway_token",
-        )
 
     def test_an_access_rule_refusal_is_refused_before_access(self) -> None:
         self.mocks["rules"].return_value = True
@@ -317,7 +300,7 @@ class TestDesktopGatewayTokenMint(_GatewayTestBase):
             "product": "posthog_code",
             "obo": str(self.team.id),
             "user": self.user.distinct_id,
-            "allowed_models": FREE_TIER_MODELS,
+            "allowed_models": gateway_pin(FREE_TIER_MODELS),
             "limit_tier": "standard",
         }
         assert response.json() == {
@@ -353,7 +336,7 @@ class TestDesktopGatewayTokenMint(_GatewayTestBase):
         self.organization.save()
         response, post = self._mint(go=_minted(allowed_models=DESKTOP_AGENT_MODELS))
         assert response.status_code == status.HTTP_201_CREATED
-        assert post.call_args.kwargs["json"]["allowed_models"] == DESKTOP_AGENT_MODELS
+        assert post.call_args.kwargs["json"]["allowed_models"] == gateway_pin(DESKTOP_AGENT_MODELS)
         assert response.json()["plan"] == "paid"
         assert response.json()["allowed_models"] == DESKTOP_AGENT_MODELS
 
@@ -497,7 +480,7 @@ class TestDesktopGatewayTokenMint(_GatewayTestBase):
         assert refused.status_code == status.HTTP_402_PAYMENT_REQUIRED
         assert throttled.status_code == status.HTTP_429_TOO_MANY_REQUESTS
         # The throttled request reached no gate past the credential shape check.
-        for gate in (email_pending, authorized, self.mocks["blocked"], self.mocks["access"]):
+        for gate in (email_pending, authorized, self.mocks["rules"], self.mocks["access"]):
             assert gate.call_count == 1
         post.assert_not_called()
 
@@ -747,17 +730,14 @@ class TestPosthogCodeTrusted(APIBaseTest):
     @parameterized.expand(
         [
             ("new org below 7", 2, {"posthog_code_credits": 6}, False),
-            ("6-day-old org needs 7", 6, {"posthog_code_credits": 6}, False),
-            ("8-day-old org needs 3", 8, {"posthog_code_credits": 3}, True),
-            ("29-day-old org needs 3", 29, {"posthog_code_credits": 2}, False),
             ("new org at 7", 2, {"posthog_code_credits": 7}, True),
             ("new org best score of any product", 2, {"ai_credits": 8, "posthog_code_credits": 0}, True),
             ("new org no score", 2, {}, False),
             ("new org malformed score", 2, {"posthog_code_credits": "9"}, False),
-            ("week-old org below 3", 10, {"posthog_code_credits": 2}, False),
-            ("week-old org at 3", 10, {"posthog_code_credits": 3}, True),
-            ("25-day-old org below 3", 25, {"posthog_code_credits": 2}, False),
-            ("month-old org no score", 31, {}, True),
+            ("week-old org subscribed never paid", 10, {"posthog_code_credits": 3}, False),
+            ("month-old org subscribed never paid", 32, {"posthog_code_credits": 3, "events": 3}, False),
+            ("month-old org no score", 31, {}, False),
+            ("month-old org paying", 31, {"posthog_code_credits": 7}, True),
         ]
     )
     def test_age_and_trust(self, _name, age_days, scores, expected) -> None:

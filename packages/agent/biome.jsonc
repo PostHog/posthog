@@ -87,7 +87,8 @@
         "packages/agent/src/sdk/**/*.ts",
         "packages/agent/src/server/agent-server.ts",
         "packages/agent/src/server/pi-agent-server.ts",
-        "packages/agent/src/server/product/**/*.ts"
+        "packages/agent/src/server/product/**/*.ts",
+        "packages/agent/src/server/launch/**/*.ts"
       ],
       "linter": {
         "rules": {

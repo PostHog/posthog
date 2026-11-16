@@ -186,11 +186,14 @@ const CALLBACK_TIMEOUT_MS = 10_000
 const RETRY_DELAY_MS = 1000
 const RETRYABLE_KINDS: ReadonlySet<SideEffectKind> = new Set([
     'awaiting_input',
+    'permission_requested',
     'turn_failed',
     'budget_steer',
     'process_killed',
 ])
 const PROCESS_KILLED_METHOD = '_posthog/process_killed'
+const PERMISSION_REQUEST_TYPE = 'permission_request'
+const PERMISSION_REQUEST_METHOD = '_posthog/permission_request'
 
 interface ProcessKilledPayload {
     comm: string
@@ -251,9 +254,18 @@ function fireCallback(
         activityStarted?: boolean
         budgetSteer?: { sequence: number; timestamp?: string; params: Record<string, unknown> }
         processKilled?: { sequence: number; payload: ProcessKilledPayload }
+        permissionRequest?: { sequence: number; requestId: string }
     } = {}
 ): void {
-    const { releaseClaim, turnCompleted, turnSucceeded, activityStarted, budgetSteer, processKilled } = options
+    const {
+        releaseClaim,
+        turnCompleted,
+        turnSucceeded,
+        activityStarted,
+        budgetSteer,
+        processKilled,
+        permissionRequest,
+    } = options
     if (!config.djangoCallbackBaseUrl) {
         // Dev environment without AGENT_PROXY_DJANGO_CALLBACK_URL — skip silently.
         void releaseMilestoneClaim(releaseClaim, runId, kind)
@@ -277,6 +289,7 @@ function fireCallback(
               }
             : {}),
         ...(processKilled ? { sequence: processKilled.sequence, process_killed: processKilled.payload } : {}),
+        ...(permissionRequest ? { sequence: permissionRequest.sequence, request_id: permissionRequest.requestId } : {}),
         kind,
         agent_active: agentActive,
         task_id: taskId,
@@ -409,6 +422,63 @@ export function captureProcessKilledIfNeeded(
     }
     fireCallback(runId, 'process_killed', false, taskId, teamId, originalToken, config, {
         processKilled: { sequence, payload },
+    })
+}
+
+function asObject(value: unknown): Record<string, unknown> | null {
+    return typeof value === 'object' && value !== null && !Array.isArray(value)
+        ? (value as Record<string, unknown>)
+        : null
+}
+
+function permissionRequestPayload(event: Record<string, unknown>): Record<string, unknown> | null {
+    if (event['type'] === PERMISSION_REQUEST_TYPE) {
+        return event
+    }
+    const notification = asObject(event['notification'])
+    if (notification === null || notification['method'] !== PERMISSION_REQUEST_METHOD) {
+        return null
+    }
+    return asObject(notification['params'])
+}
+
+// permissionRequestId mirrors permission_broker.py:parse_permission_request exactly, so the proxy
+// pushes for the same events as the Django ingest. Unlike isTurnComplete and the other ACP
+// predicates, the notification shape does not need type 'notification'.
+export function permissionRequestId(event: Record<string, unknown>): string | null {
+    const payload = permissionRequestPayload(event)
+    if (payload === null) {
+        return null
+    }
+    const requestId = payload['requestId']
+    const options = payload['options']
+    const hasOption =
+        Array.isArray(options) &&
+        options.some((option) => {
+            const optionId = asObject(option)?.['optionId']
+            return typeof optionId === 'string' && optionId !== ''
+        })
+    if (typeof requestId !== 'string' || requestId === '' || asObject(payload['toolCall']) === null || !hasOption) {
+        return null
+    }
+    return requestId
+}
+
+export function notifyPermissionRequestIfNeeded(
+    runId: string,
+    sequence: number,
+    event: Record<string, unknown>,
+    taskId: string,
+    teamId: number,
+    originalToken: string,
+    config: Config
+): void {
+    const requestId = permissionRequestId(event)
+    if (requestId === null) {
+        return
+    }
+    fireCallback(runId, 'permission_requested', false, taskId, teamId, originalToken, config, {
+        permissionRequest: { sequence, requestId },
     })
 }
 

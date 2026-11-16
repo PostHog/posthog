@@ -6,14 +6,29 @@ land in PostHog's own data warehouse bucket, namespaced by team then by a per-up
 what keeps a table's read path scoped to its own team's files.
 
 An uploaded file becomes a self-managed ``DataWarehouseTable`` pointing straight at the stored
-object: PostHog reads it in place from its own bucket, so there is no import pipeline and no
-recurring sync — the same shape as a linked S3/GCS bucket, just hosted by us.
+object: PostHog reads it in place from its own bucket. A team with the object storage sources also
+gets a file upload source that imports the file into a managed table (see ``file_upload_sources``).
+
+Every key is built from a team id that PostHog supplies, never from request input. The parts a
+client sends (the upload id and the filename) go through ``UploadLocation`` before they reach a key,
+so a crafted value can't name an object outside the team's own folder.
 """
+
+import re
+import uuid
 
 from django.conf import settings
 
+from posthog.dataclasses import frozen
+
 # Top-level bucket folder for user-uploaded files.
 FILE_UPLOADS_FOLDER = "file_uploads"
+# Folder the legacy `file` table action writes to, with one object per team and filename.
+LEGACY_UPLOADS_FOLDER = "managed"
+
+_UNSAFE_FILENAME_CHARACTERS = re.compile(r"[^a-zA-Z0-9._-]")
+# One key segment that is never '.', '..' or a hidden name.
+_SAFE_FILENAME = re.compile(r"[a-zA-Z0-9_-][a-zA-Z0-9._-]*")
 
 # Formats a user can upload. Lowercase tokens accepted by the upload endpoint and mapped to a
 # ClickHouse read format (`FILE_FORMAT_TO_TABLE_FORMAT`) when the table is created.
@@ -31,6 +46,10 @@ FILE_FORMAT_TO_TABLE_FORMAT: dict[str, str] = {
     FORMAT_CSV: "CSVWithNames",
     FORMAT_JSON: "JSONEachRow",
     FORMAT_PARQUET: "Parquet",
+}
+# The upload format a table of each read format was made from.
+TABLE_FORMAT_TO_FILE_FORMAT: dict[str, str] = {
+    table_format: file_format for file_format, table_format in FILE_FORMAT_TO_TABLE_FORMAT.items()
 }
 
 # Per-format guidance shown when column detection fails on create. Each hint names the exact shape
@@ -98,3 +117,113 @@ def hosted_upload_s3_path(url_pattern: str) -> str | None:
     if not key:
         return None
     return f"{bucket}/{key}"
+
+
+def sanitize_upload_filename(name: str) -> str | None:
+    """The name an uploaded file is stored under, or None when nothing safe is left of it."""
+    safe_filename = _UNSAFE_FILENAME_CHARACTERS.sub("_", name)
+    return safe_filename if is_safe_upload_filename(safe_filename) else None
+
+
+def is_safe_upload_filename(filename: object) -> bool:
+    return isinstance(filename, str) and _SAFE_FILENAME.fullmatch(filename) is not None
+
+
+class InvalidUploadError(ValueError):
+    """An upload id or a filename that can't name an object in the team's upload folder."""
+
+
+def _validate_team_id(team_id: object) -> None:
+    if isinstance(team_id, bool) or not isinstance(team_id, int) or team_id <= 0:
+        raise InvalidUploadError("The upload doesn't belong to a valid team.")
+
+
+@frozen
+class UploadLocation:
+    """One uploaded file in PostHog's bucket: `file_uploads/team_<team_id>/<upload_id>/<filename>`."""
+
+    team_id: int
+    upload_id: str
+    filename: str
+
+    def __post_init__(self) -> None:
+        _validate_team_id(self.team_id)
+        try:
+            canonical_id = str(uuid.UUID(self.upload_id))
+        except (TypeError, ValueError, AttributeError):
+            canonical_id = None
+        # Only the canonical spelling, so one upload has exactly one key.
+        if canonical_id is None or canonical_id != self.upload_id:
+            raise InvalidUploadError("The upload id isn't valid.")
+        if not is_safe_upload_filename(self.filename):
+            raise InvalidUploadError("The uploaded filename isn't valid.")
+
+    @property
+    def folder_key(self) -> str:
+        return build_file_upload_s3_prefix(self.team_id, self.upload_id)
+
+    @property
+    def key(self) -> str:
+        return f"{self.folder_key}/{self.filename}"
+
+    @property
+    def path(self) -> str:
+        """``bucket/key``, the form s3fs takes."""
+        return f"{settings.DATAWAREHOUSE_BUCKET}/{self.key}"
+
+    @property
+    def url_pattern(self) -> str:
+        return f"https://{settings.DATAWAREHOUSE_BUCKET_DOMAIN}/{self.key}"
+
+
+@frozen
+class LegacyUpload:
+    """A file the legacy `file` table action stored: `managed/team_<team_id>/<filename>`."""
+
+    team_id: int
+    filename: str
+
+    def __post_init__(self) -> None:
+        _validate_team_id(self.team_id)
+        if not is_safe_upload_filename(self.filename):
+            raise InvalidUploadError("The uploaded filename isn't valid.")
+
+    @property
+    def key(self) -> str:
+        return f"{LEGACY_UPLOADS_FOLDER}/team_{self.team_id}/{self.filename}"
+
+    @property
+    def path(self) -> str:
+        return f"{settings.DATAWAREHOUSE_BUCKET}/{self.key}"
+
+    @property
+    def url_pattern(self) -> str:
+        return f"https://{settings.DATAWAREHOUSE_BUCKET_DOMAIN}/{self.key}"
+
+
+HostedUpload = UploadLocation | LegacyUpload
+
+
+def parse_hosted_upload(team_id: int, url_pattern: str) -> HostedUpload | None:
+    """The uploaded file one of `team_id`'s tables reads, or None when its URL names anything else.
+
+    Exact on purpose: other objects in PostHog's bucket (synced tables, materialized views) and other
+    teams' uploads give None, so a caller that copies or deletes the result only ever touches a file
+    this team uploaded.
+    """
+    domain = settings.DATAWAREHOUSE_BUCKET_DOMAIN
+    if not domain or not settings.DATAWAREHOUSE_BUCKET:
+        return None
+    prefix = f"https://{domain}/"
+    if not url_pattern.startswith(prefix):
+        return None
+    segments = url_pattern[len(prefix) :].split("/")
+    team_folder = f"team_{team_id}"
+    try:
+        if len(segments) == 4 and segments[:2] == [FILE_UPLOADS_FOLDER, team_folder]:
+            return UploadLocation(team_id=team_id, upload_id=segments[2], filename=segments[3])
+        if len(segments) == 3 and segments[:2] == [LEGACY_UPLOADS_FOLDER, team_folder]:
+            return LegacyUpload(team_id=team_id, filename=segments[2])
+    except InvalidUploadError:
+        return None
+    return None

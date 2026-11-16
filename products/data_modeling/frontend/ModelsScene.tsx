@@ -25,6 +25,8 @@ import { DataQualityOverview } from 'products/data_quality/frontend/overview/Dat
 import { ModelsLineageTab } from './lineage/ModelsLineageTab'
 import { ModelsOverviewTab } from './ModelsOverviewTab'
 import { ModelsSceneTab, modelsSceneLogic } from './modelsSceneLogic'
+import { ModelsUsageDateFilter } from './ModelsUsageDateFilter'
+import { ModelsUsageTab } from './ModelsUsageTab'
 import { ViewsTab } from './ViewsTab'
 
 export const scene: SceneExport = {
@@ -34,7 +36,7 @@ export const scene: SceneExport = {
 }
 
 export function ModelsScene(): JSX.Element {
-    const { savedQueryIdToNodeId, activeTab, lineageTabVisited, dataQualityTabEnabled, suspensionBySavedQueryId } =
+    const { savedQueryIdToNodeId, activeTab, lineageTabVisited, suspensionBySavedQueryId, usageEnabled } =
         useValues(modelsSceneLogic)
 
     const getViewUrl = useCallback(
@@ -67,6 +69,22 @@ export function ModelsScene(): JSX.Element {
             content: <ViewsTab getViewUrl={getViewUrl} suspensionByViewId={suspensionBySavedQueryId} />,
             'data-attr': 'models-tab-models',
         },
+        ...(usageEnabled
+            ? [
+                  {
+                      key: 'usage' as const,
+                      label: 'Usage',
+                      link: urls.models('usage'),
+                      content: (
+                          <ModelsUsageTab
+                              savedQueryIdToNodeId={savedQueryIdToNodeId}
+                              dateFilter={<ModelsUsageDateFilter />}
+                          />
+                      ),
+                      'data-attr': 'models-tab-usage',
+                  },
+              ]
+            : []),
         {
             key: 'lineage',
             label: 'Lineage',
@@ -75,17 +93,13 @@ export function ModelsScene(): JSX.Element {
             keepMounted: lineageTabVisited,
             'data-attr': 'models-tab-lineage',
         },
-        ...(dataQualityTabEnabled
-            ? [
-                  {
-                      key: 'data-quality' as const,
-                      label: 'Data quality',
-                      link: urls.models('data-quality'),
-                      content: <DataQualityOverview />,
-                      'data-attr': 'models-tab-data-quality',
-                  },
-              ]
-            : []),
+        {
+            key: 'data-quality',
+            label: 'Data quality',
+            link: urls.models('data-quality'),
+            content: <DataQualityOverview />,
+            'data-attr': 'models-tab-data-quality',
+        },
     ]
 
     return (

@@ -1,6 +1,7 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonButton, LemonSkeleton, LemonTag, Link } from '@posthog/lemon-ui'
+import { IconInfo } from '@posthog/icons'
+import { LemonButton, LemonSkeleton, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { humanFriendlyNumber, percentage } from 'lib/utils/numbers'
@@ -61,7 +62,17 @@ function ReachRow({
     )
 }
 
-export function WorkflowStepReach({ id, logicKey }: { id: string; logicKey: string }): JSX.Element {
+export function WorkflowStepReach({
+    id,
+    logicKey,
+    period = 'in this date range',
+    runId,
+}: {
+    id: string
+    logicKey: string
+    period?: string
+    runId?: string
+}): JSX.Element {
     const logic = workflowOverviewLogic({ id, logicKey })
     const { stepReach, stepTotalsLoading, healthTotals, params, stepTotalsFailed, healthTotalsFailed, retrying } =
         useValues(logic)
@@ -74,10 +85,14 @@ export function WorkflowStepReach({ id, logicKey }: { id: string; logicKey: stri
             data-attr="workflow-overview-step-reach"
         >
             <div className="flex flex-col gap-1">
-                <h3 className="mb-0 text-base font-semibold">Step reach</h3>
+                <h3 className="mb-0 flex items-center gap-1 text-base font-semibold">
+                    Step reach
+                    <Tooltip title="A run that is waiting at a step counts for that step once it moves on.">
+                        <IconInfo className="text-muted" />
+                    </Tooltip>
+                </h3>
                 <span className="text-xs text-muted">
-                    How many runs finished each step in this date range, as a share of runs started. Runs still waiting
-                    at a step count once they move on.
+                    {`How many runs got past each step ${period}, as a share of runs started.`}
                 </span>
             </div>
             {stepTotalsFailed || healthTotalsFailed ? (
@@ -108,7 +123,7 @@ export function WorkflowStepReach({ id, logicKey }: { id: string; logicKey: stri
                             base={started}
                             failed={failed}
                             waiting={waiting}
-                            to={metricsStepUrl(id, action.id, params)}
+                            to={metricsStepUrl(id, action.id, params, runId)}
                         />
                     ))}
                 </div>

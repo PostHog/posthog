@@ -104,7 +104,7 @@ if (bootstrap.enrichment) {
 const runtime = await createHarnessRuntime({
   cwd,
   sessionManager,
-  projectTrusted: () => true,
+  projectTrusted: () => bootstrap.taskContext?.environment === "local",
   resourceLoaderOptions: { extensionFactories: runtimeExtensions },
   ...providerOptions,
   runtimeMcpServers: bootstrap.runtimeMcpServers,

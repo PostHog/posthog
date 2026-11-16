@@ -11,6 +11,12 @@ import type { Context } from '@/tools/types'
 export interface ToolHooks<TParams = never> {
     /** Runs before the request. Return the params the request should use. */
     beforeRequest?(context: Context, params: TParams): TParams | Promise<TParams>
+    /** Runs after the generated handler builds the request body. Return the body to send. */
+    transformBody?(
+        context: Context,
+        params: TParams,
+        body: Record<string, unknown>
+    ): Record<string, unknown> | Promise<Record<string, unknown>>
     /** Runs after a successful request. Return the result to send to the client. */
     afterResponse?(context: Context, params: TParams, result: unknown): unknown
     /** Runs when the request fails. Return a result to handle the error, or rethrow it to keep it. */
@@ -39,4 +45,14 @@ export function withToolHooks<TParams, TResult>(
         }
         return hooks.afterResponse ? ((await hooks.afterResponse(context, requestParams, result)) as TResult) : result
     }
+}
+
+/** Applies the transformBody hook to a generated request body, or returns the body unchanged. */
+export async function transformRequestBody<TParams>(
+    hooks: ToolHooks<TParams>,
+    context: Context,
+    params: TParams,
+    body: Record<string, unknown>
+): Promise<Record<string, unknown>> {
+    return hooks.transformBody ? await hooks.transformBody(context, params, body) : body
 }

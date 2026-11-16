@@ -49,6 +49,9 @@ describe('ScoutToolsSection', () => {
         fireEvent.click(screen.getByText('Chosen tools'))
 
         expect(await screen.findByText('Get insight')).toBeInTheDocument()
+        expect(screen.getByText('Get skill')).toBeInTheDocument()
+        expect(screen.getByText('Get skill file')).toBeInTheDocument()
+        expect(screen.queryByLabelText(/Get skill/)).not.toBeInTheDocument()
         expect(onUpdate).not.toHaveBeenCalled()
     })
 
@@ -83,5 +86,21 @@ describe('ScoutToolsSection', () => {
         fireEvent.click(screen.getByText('Save tools'))
 
         expect(onUpdate).not.toHaveBeenCalled()
+    })
+
+    it.each([
+        ['an empty list', []],
+        ['a saved list with bootstrap reads', ['skill-get', 'skill-file-get', 'insight-get']],
+    ])('edits %s without submitting always-held tools', async (_name, savedTools) => {
+        const onUpdate = renderSection({ allowed_mcp_tools: savedTools })
+        fireEvent.click(screen.getByText('Edit tools'))
+        await screen.findByText('Update dashboard')
+
+        fireEvent.click(screen.getByText('Update dashboard'))
+        fireEvent.click(screen.getByText('Save tools'))
+
+        expect(onUpdate).toHaveBeenCalledWith('config-1', {
+            allowed_mcp_tools: savedTools.length ? ['dashboard-update', 'insight-get'] : ['dashboard-update'],
+        })
     })
 })

@@ -21,6 +21,7 @@ export function ResourceTags({
     onTagClick,
     userAccessLevel,
     disabledReason,
+    compact = false,
 }: {
     entity: TaggedResource
     resourceId: string
@@ -29,18 +30,20 @@ export function ResourceTags({
     onTagClick: (tag: string) => void
     userAccessLevel?: AccessControlLevel
     disabledReason?: string
+    compact?: boolean
 }): JSX.Element {
     const { currentTeamId } = useValues(teamLogic)
     const logic = resourceTagsLogic({ entity, resourceId, tags, onSaved, teamId: currentTeamId ?? 0 })
     const { isOpen } = useValues(logic)
     const { open } = useActions(logic)
     return (
-        <div className="flex items-start gap-1 min-w-0 max-w-64">
+        <div className="flex items-center gap-1 min-w-0 max-w-64">
             <ObjectTags
                 tags={[...tags]}
                 staticOnly
-                maxVisibleTags={2}
-                wrap
+                maxVisibleTags={compact ? 1 : 2}
+                compact={compact}
+                wrap={!compact}
                 onTagClick={onTagClick}
                 data-attr="aio-resource-tags"
             />

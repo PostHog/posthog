@@ -30,6 +30,7 @@ from posthog.schema import (
     HogQLAutocomplete,
     HogQLPropertyFilter,
     HogQLQuery,
+    HogQLQueryResponse,
     PersonPropertyFilter,
     PropertyOperator,
     QueryScanAnalysis,
@@ -40,6 +41,7 @@ from posthog.schema import (
 from posthog.hogql.constants import LimitContext
 
 from posthog.api.query import (
+    CONCURRENCY_LIMIT_RETRY_AFTER_SECONDS,
     CONCURRENCY_LIMIT_USER_MESSAGE,
     MANAGED_WAREHOUSE_QUERY_UNAVAILABLE_CODE,
     MANAGED_WAREHOUSE_QUERY_UNAVAILABLE_MESSAGE,
@@ -53,14 +55,17 @@ from posthog.errors import InternalCHQueryError
 from posthog.event_usage import EventSource
 from posthog.exceptions import APIQueriesBudgetExceeded, ClickHouseQueryTimeOut
 from posthog.llm.completions import OpenAICompletion
-from posthog.models import PersonalAPIKey
+from posthog.models import OrganizationMembership, PersonalAPIKey
 from posthog.models.utils import UUIDT, generate_random_token_personal, hash_key_value
 from posthog.query_scan.findings import FindingCause, build_warning
 from posthog.query_scan.flag import QueryScanFlag, QueryScanMode
 from posthog.query_scan.test.slots import stored_slot
 
 from products.event_definitions.backend.models.property_definition import PropertyDefinition, PropertyType
-from products.managed_warehouse.backend.facade.query_labels import MANAGED_WAREHOUSE_QUERY_STATUS_LABEL_PREFIX
+from products.managed_warehouse.backend.facade.query_labels import (
+    MANAGED_TRINO_RAW_QUERY_STATUS_LABEL,
+    MANAGED_WAREHOUSE_QUERY_STATUS_LABEL_PREFIX,
+)
 from products.product_analytics.backend.facade.models import InsightVariable
 from products.warehouse_sources.backend.facade.models import MANAGED_WAREHOUSE_SOURCE_PREFIX, ExternalDataSource
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
@@ -87,6 +92,31 @@ class TestQueryTraceCorrelation(SimpleTestCase):
 
 class TestQuery(ClickhouseTestMixin, APIBaseTest):
     ENDPOINT = "query"
+
+    @patch("posthog.api.query.report_user_or_team_action")
+    @patch("posthog.api.query.process_query_model")
+    def test_query_response_identity_matches_query_analytics(self, mock_process_query_model, mock_report_action):
+        request_id = "01234567-89ab-4def-8123-456789abcdef"
+        client_query_id = "11111111-1111-4111-8111-111111111111"
+        mock_process_query_model.return_value = {"results": [[1]]}
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/query/",
+            {
+                "query": {"kind": "HogQLQuery", "query": "select 1"},
+                "client_query_id": client_query_id,
+            },
+            HTTP_X_REQUEST_ID=request_id,
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"results": [[1]]})
+        self.assertEqual(response["X-Request-ID"], request_id)
+        self.assertIn(f'request_id;desc="{request_id}"', response["Server-Timing"])
+        self.assertEqual(mock_process_query_model.call_args.kwargs["analytics_props"]["http_request_id"], request_id)
+        self.assertEqual(mock_report_action.call_args.args[0], "query api response")
+        self.assertEqual(mock_report_action.call_args.args[1]["client_query_id"], client_query_id)
+        self.assertEqual(mock_report_action.call_args.kwargs["analytics_props"]["http_request_id"], request_id)
 
     @parameterized.expand(
         [
@@ -146,8 +176,10 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 {"query": HogQLQuery(query="select 1").model_dump()},
             )
         self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+        self.assertEqual(response["Retry-After"], str(CONCURRENCY_LIMIT_RETRY_AFTER_SECONDS))
         detail = response.json()["detail"]
-        self.assertEqual(detail, CONCURRENCY_LIMIT_USER_MESSAGE)
+        self.assertTrue(detail.startswith(CONCURRENCY_LIMIT_USER_MESSAGE), detail)
+        self.assertIn(f"Expected available in {CONCURRENCY_LIMIT_RETRY_AFTER_SECONDS} seconds.", detail)
         self.assertNotIn("app:query:per-org", detail)
 
     @parameterized.expand(
@@ -1319,6 +1351,112 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         assert response.results[0][0] == variable_override_value
 
 
+class TestManagedTrinoRawQuery(APIBaseTest):
+    def _organization_credential_source(self, *, legacy: bool) -> ExternalDataSource:
+        return ExternalDataSource.objects.create(
+            source_id="managed-source",
+            connection_id="managed-connection",
+            destination_id="managed-destination",
+            team=self.team,
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type=ExternalDataSourceType.POSTGRES,
+            prefix=MANAGED_WAREHOUSE_SOURCE_PREFIX,
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            direct_query_enabled=True,
+            connection_metadata=(
+                {"engine": "duckdb", "system_managed": True, "credential_kind": "org_root"}
+                if legacy
+                else {
+                    "engine": "duckdb",
+                    "system_managed": True,
+                    "credential_kind": "duckgres_service",
+                    "lifecycle_generation": 1,
+                }
+            ),
+            job_inputs=(
+                {
+                    "host": "warehouse.example.com",
+                    "port": 5432,
+                    "database": "ducklake",
+                    "user": "org-root",
+                    "password": "fake-root-password",
+                }
+                if legacy
+                else {}
+            ),
+        )
+
+    @parameterized.expand(
+        [
+            ("member", OrganizationMembership.Level.MEMBER, False, "execution_target", 200),
+            ("admin", OrganizationMembership.Level.ADMIN, False, "execution_target", 200),
+            ("owner", OrganizationMembership.Level.OWNER, False, "execution_target", 200),
+            ("restricted_api_key", OrganizationMembership.Level.ADMIN, True, "execution_target", 400),
+            ("member_trino_connection", OrganizationMembership.Level.MEMBER, False, "trino_connection", 200),
+            ("restricted_api_key_trino_connection", OrganizationMembership.Level.ADMIN, True, "trino_connection", 400),
+            (
+                "restricted_api_key_duckgres_connection",
+                OrganizationMembership.Level.ADMIN,
+                True,
+                "duckgres_connection",
+                400,
+            ),
+            (
+                "restricted_api_key_legacy_organization_login",
+                OrganizationMembership.Level.ADMIN,
+                True,
+                "legacy_connection",
+                400,
+            ),
+        ]
+    )
+    def test_raw_managed_warehouse_execution_requires_a_project_browser_session(
+        self, _name: str, membership_level: int, token: bool, route: str, expected_status: int
+    ) -> None:
+        self.organization_membership.level = membership_level
+        self.organization_membership.save()
+        headers = {}
+        if token:
+            value = generate_random_token_personal()
+            PersonalAPIKey.objects.create(
+                label="project-restricted query",
+                user=self.user,
+                secure_value=hash_key_value(value),
+                scopes=["query:read"],
+                scoped_teams=[self.team.pk],
+            )
+            headers["Authorization"] = f"Bearer {value}"
+        query: dict[str, object] = {"kind": "HogQLQuery", "query": "SELECT 1", "sendRawQuery": True}
+        if route == "execution_target":
+            query["executionTarget"] = "managed_trino"
+        else:
+            query["connectionId"] = str(self._organization_credential_source(legacy=route == "legacy_connection").id)
+        result = HogQLQueryResponse(results=[[1]], columns=["value"], types=[["value", "Int64"]])
+        with (
+            patch("posthoganalytics.feature_enabled", return_value=route != "duckgres_connection"),
+            patch(
+                "posthog.hogql_queries.hogql_query_runner.execute_managed_trino_query", return_value=result
+            ) as execute_on_target,
+            patch(
+                "posthog.hogql_queries.hogql_query_runner.execute_hogql_query", return_value=result
+            ) as execute_on_connection,
+        ):
+            response = self.client.post(
+                f"/api/projects/{self.team.pk}/query/",
+                {"query": query},
+                format="json",
+                headers=headers,
+            )
+        execute = execute_on_target if route == "execution_target" else execute_on_connection
+        self.assertEqual(response.status_code, expected_status, response.content)
+        if expected_status == 200:
+            self.assertEqual(response.json()["results"], [[1]])
+            execute.assert_called_once()
+        else:
+            self.assertIn("browser session", response.json()["detail"])
+            execute.assert_not_called()
+
+
 class TestQueryRetrieve(APIBaseTest):
     def setUp(self):
         super().setUp()
@@ -1432,6 +1570,49 @@ class TestQueryRetrieve(APIBaseTest):
             self.assertEqual(response.json()["code"], MANAGED_WAREHOUSE_QUERY_UNAVAILABLE_CODE)
             self.assertNotIn(self.valid_query_id, response.json()["detail"])
             self.assertNotIn(str(self.team_id), response.json()["detail"])
+
+    @parameterized.expand(
+        [
+            ("member", OrganizationMembership.Level.MEMBER, False, 200),
+            ("admin", OrganizationMembership.Level.ADMIN, False, 200),
+            ("restricted_api_key", OrganizationMembership.Level.ADMIN, True, 403),
+        ]
+    )
+    def test_raw_trino_results_require_current_project_access_and_browser_session(
+        self, _name: str, membership_level: int, token: bool, expected_status: int
+    ) -> None:
+        self.organization_membership.level = membership_level
+        self.organization_membership.save()
+        self.redis_client_mock.get.return_value = json.dumps(
+            {
+                "id": self.valid_query_id,
+                "team_id": self.team_id,
+                "complete": True,
+                "labels": [MANAGED_TRINO_RAW_QUERY_STATUS_LABEL],
+                "results": ["warehouse result"],
+            }
+        ).encode()
+        headers = {}
+        if token:
+            value = generate_random_token_personal()
+            PersonalAPIKey.objects.create(
+                label="project-restricted query results",
+                user=self.user,
+                secure_value=hash_key_value(value),
+                scopes=["query:read"],
+                scoped_teams=[self.team.pk],
+            )
+            headers["Authorization"] = f"Bearer {value}"
+        response = self.client.get(f"/api/projects/{self.team.pk}/query/{self.valid_query_id}/", headers=headers)
+        self.assertEqual(response.status_code, expected_status, response.content)
+        if expected_status == 200:
+            self.assertEqual(response.json()["query_status"]["results"], ["warehouse result"])
+            self.organization_membership.delete()
+            response = self.client.get(f"/api/projects/{self.team.pk}/query/{self.valid_query_id}/")
+            self.assertEqual(response.status_code, 403, response.content)
+            self.assertNotIn("warehouse result", response.content.decode())
+        else:
+            self.assertNotIn("warehouse result", response.content.decode())
 
     def test_failed_query_with_internal_error(self):
         self.redis_client_mock.get.return_value = json.dumps(

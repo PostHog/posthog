@@ -1,6 +1,8 @@
 import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
+import type { LemonTagType } from '@posthog/lemon-ui'
+
 import { ApiConfig } from 'lib/api'
 import {
     AppMetricsCommonParams,
@@ -10,18 +12,22 @@ import {
     loadAppMetricsTotals,
 } from 'lib/components/AppMetrics/appMetricsLogic'
 import type { Dayjs } from 'lib/dayjs'
+import { humanFriendlyNumber, percentage } from 'lib/utils/numbers'
 
 import type { TeamPublicType, TeamType } from '~/types'
 
 import { hogFlowsInFlightRetrieve } from '../../generated/api'
 import type { HogFlowInFlightApi } from '../../generated/api.schemas'
 import type { HogFlow, HogFlowAction } from '../hogflows/types'
+import { RATE_LEVEL_TAG, classifyRate, minimumVolumeToClassify } from '../Reputation/emailRateLevels'
 import { getOrderedActions } from '../templates/workflowTemplateDisplay'
 import { workflowLogic } from '../workflowLogic'
 
 export interface WorkflowOverviewLogicProps {
     id: string
     logicKey: string
+    // A batch run compares with the run before it, loaded by its own appMetricsLogic under this key.
+    previousRunLogicKey?: string
 }
 
 const STEP_METRICS = ['succeeded', 'failed', 'filtered'] as const
@@ -37,15 +43,35 @@ const HEALTH_METRICS = [
     'email_blocked',
     'push_sent',
     'push_failed',
+    'email_sandbox_sent',
 ] as const
 export type HealthMetric = (typeof HEALTH_METRICS)[number]
+
+export type HealthRate = { value: string; tag: { label: string; type: LemonTagType } | null; detail: string }
+
+export type EmailHealth = { bounce: HealthRate; complaint: HealthRate }
+
+const SANDBOX_ONLY_RATE: HealthRate = { value: '-', tag: null, detail: 'All emails were sent from the sandbox sender' }
+
+function healthRate(kind: 'bounce' | 'complaint', count: number, sent: number, detail: string): HealthRate {
+    if (sent === 0) {
+        return { value: '-', tag: null, detail: 'No emails sent' }
+    }
+    const rate = count / sent
+    return {
+        value: percentage(rate, 2, true),
+        tag: sent < minimumVolumeToClassify(kind) ? null : RATE_LEVEL_TAG[classifyRate(rate, kind)],
+        detail,
+    }
+}
 
 export type StepReach = {
     action: HogFlowAction
     // Runs that finished this step in the selected date range. A step records its metric when it finishes.
     reached: number
     failed: number
-    // Runs at this step now. Counted only when the date range ends now, because the queue has no history.
+    // Runs at this step now. Counted only when the date range ends now, because the queue has no history,
+    // and never for a batch run, because the queue counts every run of the workflow together.
     waiting: number
 }
 
@@ -67,6 +93,7 @@ export interface workflowOverviewLogicValues {
     } // appMetricsLogic
     params: Partial<AppMetricsCommonParams> // appMetricsLogic
     originalWorkflow: HogFlow | null // workflowLogic
+    emailHealth: EmailHealth
     failedRuns: number | null
     healthTotals: Partial<Record<HealthMetric, number>> | null
     healthTotalsFailed: boolean
@@ -76,6 +103,8 @@ export interface workflowOverviewLogicValues {
     inFlightSteps: InFlightStep[]
     orderedSteps: HogFlowAction[]
     previousPeriodFailed: boolean
+    previousRunFailed: boolean
+    previousRunLoading: boolean
     retrying: boolean
     stepReach: StepReach[] | null
     stepTotals: Record<string, Partial<Record<StepMetric, number>>> | null
@@ -149,6 +178,7 @@ export interface workflowOverviewLogicActions {
                 | 'email_blocked'
                 | 'email_bounced'
                 | 'email_bounced_hard'
+                | 'email_sandbox_sent'
                 | 'email_sent'
                 | 'push_failed'
                 | 'push_sent'
@@ -163,6 +193,7 @@ export interface workflowOverviewLogicActions {
                 | 'email_blocked'
                 | 'email_bounced'
                 | 'email_bounced_hard'
+                | 'email_sandbox_sent'
                 | 'email_sent'
                 | 'push_failed'
                 | 'push_sent'
@@ -211,16 +242,33 @@ export interface workflowOverviewLogicActions {
 export interface workflowOverviewLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
+        emailHealth: (
+            healthTotals: Partial<
+                Record<
+                    | 'email_blocked'
+                    | 'email_bounced'
+                    | 'email_bounced_hard'
+                    | 'email_sandbox_sent'
+                    | 'email_sent'
+                    | 'push_failed'
+                    | 'push_sent'
+                    | 'triggered',
+                    number
+                >
+            > | null
+        ) => EmailHealth
         orderedSteps: (originalWorkflow: HogFlow | null) => HogFlowAction[]
         stepReach: (
             orderedSteps: HogFlowAction[],
             stepTotals: Record<string, Partial<Record<'failed' | 'filtered' | 'succeeded', number>>> | null,
             inFlight: HogFlowInFlightApi | null,
-            params: Partial<AppMetricsCommonParams>
+            params: Partial<AppMetricsCommonParams>,
+            arg: string
         ) => StepReach[] | null
         retrying: (
             appMetricsTrendsLoading: boolean,
             appMetricsTrendsPreviousPeriodLoading: boolean,
+            previousRunLoading: boolean,
             stepTotalsLoading: boolean,
             healthTotalsLoading: boolean
         ) => boolean
@@ -241,7 +289,7 @@ export type workflowOverviewLogicType = MakeLogicType<
 export const workflowOverviewLogic = kea<workflowOverviewLogicType>([
     path(['products', 'workflows', 'frontend', 'Workflows', 'overview', 'workflowOverviewLogic']),
     props({} as WorkflowOverviewLogicProps),
-    key(({ id }: WorkflowOverviewLogicProps) => id),
+    key(({ logicKey }: WorkflowOverviewLogicProps) => logicKey),
     connect((props: WorkflowOverviewLogicProps) => ({
         values: [
             workflowLogic,
@@ -272,35 +320,60 @@ export const workflowOverviewLogic = kea<workflowOverviewLogicType>([
     actions({
         retry: true,
     }),
-    reducers({
-        trendsFailed: [
-            false,
-            {
-                loadAppMetricsTrendsFailure: () => true,
-                loadAppMetricsTrendsSuccess: () => false,
-            },
-        ],
-        previousPeriodFailed: [
-            false,
-            {
-                loadAppMetricsTrendsPreviousPeriodFailure: () => true,
-                loadAppMetricsTrendsPreviousPeriodSuccess: () => false,
-            },
-        ],
-        stepTotalsFailed: [
-            false,
-            {
-                loadStepTotalsFailure: () => true,
-                loadStepTotalsSuccess: () => false,
-            },
-        ],
-        healthTotalsFailed: [
-            false,
-            {
-                loadHealthTotalsFailure: () => true,
-                loadHealthTotalsSuccess: () => false,
-            },
-        ],
+    reducers(({ props }) => {
+        // WorkflowOverview builds this appMetricsLogic with its full props before it builds this logic.
+        const previousRun = props.previousRunLogicKey
+            ? appMetricsLogic({ logicKey: props.previousRunLogicKey }).actionTypes
+            : null
+        return {
+            trendsFailed: [
+                false,
+                {
+                    loadAppMetricsTrendsFailure: () => true,
+                    loadAppMetricsTrendsSuccess: () => false,
+                },
+            ],
+            previousPeriodFailed: [
+                false,
+                {
+                    loadAppMetricsTrendsPreviousPeriodFailure: () => true,
+                    loadAppMetricsTrendsPreviousPeriodSuccess: () => false,
+                },
+            ],
+            stepTotalsFailed: [
+                false,
+                {
+                    loadStepTotalsFailure: () => true,
+                    loadStepTotalsSuccess: () => false,
+                },
+            ],
+            healthTotalsFailed: [
+                false,
+                {
+                    loadHealthTotalsFailure: () => true,
+                    loadHealthTotalsSuccess: () => false,
+                },
+            ],
+            previousRunFailed: [
+                false,
+                previousRun
+                    ? {
+                          [previousRun.loadAppMetricsTrendsFailure]: () => true,
+                          [previousRun.loadAppMetricsTrendsSuccess]: () => false,
+                      }
+                    : {},
+            ],
+            previousRunLoading: [
+                false,
+                previousRun
+                    ? {
+                          [previousRun.loadAppMetricsTrends]: () => true,
+                          [previousRun.loadAppMetricsTrendsFailure]: () => false,
+                          [previousRun.loadAppMetricsTrendsSuccess]: () => false,
+                      }
+                    : {},
+            ],
+        }
     }),
     loaders(({ props, values }) => ({
         stepTotals: [
@@ -311,7 +384,8 @@ export const workflowOverviewLogic = kea<workflowOverviewLogicType>([
                     const dateRange = values.getDateRangeAbsolute()
                     const request: AppMetricsTotalsRequest = {
                         appSource: 'hog_flow',
-                        appSourceId: props.id,
+                        // A batch run records its metrics under the run's id, which the overview passes in as appSourceId.
+                        appSourceId: values.params.appSourceId ?? props.id,
                         breakdownBy: ['instance_id', 'metric_name'],
                         metricName: [...STEP_METRICS],
                         limit: STEP_TOTALS_LIMIT,
@@ -343,7 +417,7 @@ export const workflowOverviewLogic = kea<workflowOverviewLogicType>([
                     const dateRange = values.getDateRangeAbsolute()
                     const request: AppMetricsTotalsRequest = {
                         appSource: 'hog_flow',
-                        appSourceId: props.id,
+                        appSourceId: values.params.appSourceId ?? props.id,
                         breakdownBy: ['metric_name'],
                         metricName: [...HEALTH_METRICS],
                         dateFrom: dateRange.dateFrom.toISOString(),
@@ -370,6 +444,31 @@ export const workflowOverviewLogic = kea<workflowOverviewLogicType>([
         ],
     })),
     selectors({
+        emailHealth: [
+            (s) => [s.healthTotals],
+            (totals: Partial<Record<HealthMetric, number>> | null): EmailHealth => {
+                const sent = totals?.email_sent ?? 0
+                if (sent === 0 && (totals?.email_sandbox_sent ?? 0) > 0) {
+                    return { bounce: SANDBOX_ONLY_RATE, complaint: SANDBOX_ONLY_RATE }
+                }
+                const hardBounces = totals?.email_bounced_hard ?? 0
+                const complaints = totals?.email_blocked ?? 0
+                return {
+                    bounce: healthRate(
+                        'bounce',
+                        hardBounces,
+                        sent,
+                        `${humanFriendlyNumber(hardBounces)} hard, ${humanFriendlyNumber(totals?.email_bounced ?? 0)} bounced in total`
+                    ),
+                    complaint: healthRate(
+                        'complaint',
+                        complaints,
+                        sent,
+                        `${humanFriendlyNumber(complaints)} marked as spam`
+                    ),
+                }
+            },
+        ],
         orderedSteps: [
             (s) => [s.originalWorkflow],
             (workflow: HogFlow | null): HogFlowAction[] =>
@@ -381,18 +480,26 @@ export const workflowOverviewLogic = kea<workflowOverviewLogicType>([
                     : [],
         ],
         stepReach: [
-            (s) => [s.orderedSteps, s.stepTotals, s.inFlight, s.params],
+            (s) => [
+                s.orderedSteps,
+                s.stepTotals,
+                s.inFlight,
+                s.params,
+                (_, props: WorkflowOverviewLogicProps): string => props.id,
+            ],
             (
                 steps: HogFlowAction[],
                 stepTotals: Record<string, Partial<Record<StepMetric, number>>> | null,
                 inFlight: HogFlowInFlightApi | null,
-                params: Partial<AppMetricsCommonParams>
+                params: Partial<AppMetricsCommonParams>,
+                id: string
             ): StepReach[] | null =>
                 stepTotals
                     ? steps.map((action) => {
                           const totals = stepTotals[action.id] ?? {}
                           const failed = totals.failed ?? 0
-                          const waiting = params.dateTo ? 0 : (inFlight?.by_action?.[action.id] ?? 0)
+                          const isBatchRun = !!params.appSourceId && params.appSourceId !== id
+                          const waiting = params.dateTo || isBatchRun ? 0 : (inFlight?.by_action?.[action.id] ?? 0)
                           // A step that continues on error records `succeeded` as well as `failed`. The current
                           // on_error setting is applied to the whole range, so a change to it inside the range skews this.
                           const abortedRuns = action.on_error === 'abort' ? failed : 0
@@ -410,15 +517,22 @@ export const workflowOverviewLogic = kea<workflowOverviewLogicType>([
             (s) => [
                 s.appMetricsTrendsLoading,
                 s.appMetricsTrendsPreviousPeriodLoading,
+                s.previousRunLoading,
                 s.stepTotalsLoading,
                 s.healthTotalsLoading,
             ],
             (
                 trendsLoading: boolean,
                 previousPeriodLoading: boolean,
+                previousRunLoading: boolean,
                 stepTotalsLoading: boolean,
                 healthTotalsLoading: boolean
-            ): boolean => trendsLoading || previousPeriodLoading || stepTotalsLoading || healthTotalsLoading,
+            ): boolean =>
+                trendsLoading ||
+                previousPeriodLoading ||
+                previousRunLoading ||
+                stepTotalsLoading ||
+                healthTotalsLoading,
         ],
         failedRuns: [
             (s) => [s.stepTotals],
@@ -436,7 +550,7 @@ export const workflowOverviewLogic = kea<workflowOverviewLogicType>([
             },
         ],
     }),
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, props }) => ({
         setParams: () => {
             actions.loadStepTotals({})
             actions.loadHealthTotals({})
@@ -452,6 +566,9 @@ export const workflowOverviewLogic = kea<workflowOverviewLogicType>([
             actions.loadStepTotals({})
             actions.loadHealthTotals({})
             actions.loadInFlight()
+            if (props.previousRunLogicKey) {
+                appMetricsLogic.findMounted({ logicKey: props.previousRunLogicKey })?.actions.loadAppMetricsTrends()
+            }
         },
     })),
     afterMount(({ actions }) => {

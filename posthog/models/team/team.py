@@ -1,4 +1,5 @@
 from collections import defaultdict
+from collections.abc import Collection
 from datetime import timedelta
 from decimal import Decimal
 from typing import TYPE_CHECKING, Optional, cast
@@ -19,15 +20,16 @@ import pydantic
 
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries, tags_context
 from posthog.cloud_utils import is_cloud
+from posthog.constants import GroupTypeIndex
 from posthog.helpers.session_recording_playlist_templates import DEFAULT_PLAYLISTS
-from posthog.models.filters.utils import GroupTypeIndex
+from posthog.migration_helpers import deprecate_field
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.project_secret_api_key import (
     create_project_secret_api_key_for_token,
     delete_project_secret_api_keys_for_token,
 )
-from posthog.models.signals import mutable_receiver, secret_api_token_rotated
+from posthog.models.signals import mutable_receiver, secret_api_token_backup_deleted, secret_api_token_rotated
 from posthog.models.utils import (
     UUIDTClassicModel,
     generate_random_token_heatmap_screenshot,
@@ -54,6 +56,7 @@ from .team_caching import get_team_in_cache, set_team_in_cache
 if TYPE_CHECKING:
     from posthog.schema import PathCleaningFilter
 
+    from posthog.hogql.constants import HogQLGlobalSettings
     from posthog.hogql.database.database import Database
 
     from posthog.models.user import User
@@ -61,6 +64,13 @@ if TYPE_CHECKING:
     from products.dashboards.backend.models.dashboard import Dashboard
 
 TIMEZONES = [(tz, tz) for tz in pytz.all_timezones]
+
+
+# nosemgrep: tuple-return-prefer-dataclass -- Django's `choices` contract is (value, label) pairs.
+def timezone_choices() -> list[tuple[str, str]]:
+    # Callable so a pytz release that adds a zone doesn't generate a no-op migration.
+    return TIMEZONES
+
 
 # TODO: DEPRECATED; delete when these attributes can be fully removed from `Team` model
 DEPRECATED_ATTRS = (
@@ -139,22 +149,10 @@ class TeamManager(models.Manager):
         team.extra_settings.setdefault("recorder_script", "posthog-recorder")
 
         # Create default dashboards (demo projects skip above)
-        from posthog.helpers.dashboard_templates import create_from_template  # noqa: PLC0415 — breaks team import cycle
+        from products.dashboards.backend.facade import api as dashboards_api  # noqa: PLC0415 — breaks team import cycle
 
-        from products.dashboards.backend.models.dashboard import Dashboard  # noqa: PLC0415 — breaks team import cycle
-        from products.dashboards.backend.models.dashboard_templates import (  # noqa: PLC0415 — breaks team import cycle
-            DashboardTemplate,
-        )
-
-        template = DashboardTemplate.default_signup_template()
-        dashboard = Dashboard.objects.db_manager(self.db).create(
-            name="Your starter dashboard",
-            pinned=True,
-            team=team,
-            description=template.dashboard_description or "",
-        )
-        create_from_template(dashboard, template)
-        team.primary_dashboard = dashboard
+        starter_dashboard = dashboards_api.create_starter_dashboard(team_id=team.id)
+        team.primary_dashboard_id = starter_dashboard.id
 
         # Create default session recording playlists
         for playlist in DEFAULT_PLAYLISTS:
@@ -598,7 +596,7 @@ class Team(UUIDTClassicModel):
     )
 
     timezone = field_access_control(
-        models.CharField(max_length=240, choices=TIMEZONES, default="UTC"), "project", "admin"
+        models.CharField(max_length=240, choices=timezone_choices, default="UTC"), "project", "admin"
     )
     data_attributes = field_access_control(
         models.JSONField(default=get_default_data_attributes, blank=True), "project", "admin"
@@ -670,12 +668,7 @@ class Team(UUIDTClassicModel):
     def aggregate_users_by_distinct_id(self) -> bool:
         return str(self.pk) in get_list(get_instance_setting("AGGREGATE_BY_DISTINCT_IDS_TEAMS"))
 
-    # This correlation_config is intended to be used initially for
-    # `excluded_person_property_names` but will be used as a general config
-    # repository for correlation related settings.
-    # NOTE: we're not doing any schema checking here, just storing whatever is
-    # thrown at us. Correlation code can handle schema related issues.
-    correlation_config = field_access_control(models.JSONField(default=dict, null=True, blank=True), "project", "admin")
+    correlation_config = deprecate_field(models.JSONField(default=dict, null=True, blank=True))
 
     # DEPRECATED, DISUSED: recordings on CH are cleared with Clickhouse's TTL
     session_recording_retention_period_days = models.IntegerField(null=True, default=None, blank=True)
@@ -863,7 +856,9 @@ class Team(UUIDTClassicModel):
         enabled_teams = get_list(get_instance_setting("STRICT_CACHING_TEAMS"))
         return str(self.pk) in enabled_teams or "all" in enabled_teams
 
-    def count_persons_seen_so_far(self, database: Optional["Database"] = None) -> int:
+    def count_persons_seen_so_far(
+        self, database: Optional["Database"] = None, settings: Optional["HogQLGlobalSettings"] = None
+    ) -> int:
         from posthog.schema import HogQLQueryModifiers
 
         from posthog.hogql.context import HogQLContext
@@ -883,6 +878,7 @@ class Team(UUIDTClassicModel):
                 # The v1 pin survives a shared database: the persons table reads the dedup mode from
                 # each query's modifiers at print time, not from the database.
                 context=HogQLContext(team_id=self.pk, database=database),
+                settings=settings,
             ).results[0][0]
 
     def count_groups_seen_so_far(self, group_type_index: GroupTypeIndex, database: Optional["Database"] = None) -> int:
@@ -949,9 +945,14 @@ class Team(UUIDTClassicModel):
 
     def _persist_api_token_change(self, *, old_token: str, user: "User", is_impersonated_session: bool) -> None:
         from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
+        from posthog.storage.team_metadata_signal_handlers import enqueue_retired_token_metadata_clear_on_commit
         from posthog.tasks.remote_config import update_team_remote_config
+        from posthog.tasks.team_access_cache_tasks import invalidate_team_tokens_sync
 
         self.save()
+        # The auth entries go first, because the metadata clear removes the entry they still point to.
+        transaction.on_commit(lambda: invalidate_team_tokens_sync(self.id))
+        enqueue_retired_token_metadata_clear_on_commit(self.id, old_token)
         # The post_save receiver also dispatches the plain remote config sync for this save.
         # A worker that predates the old_token argument rejects this task. That worker still
         # runs the plain sync, which writes the new token's Redis entry.
@@ -1003,7 +1004,9 @@ class Team(UUIDTClassicModel):
                     delete_project_secret_api_keys_for_token(self.id, expired_token)
                 # With the legacy verifiers off, only the mirror row authenticates the new token.
                 create_project_secret_api_key_for_token(self.id, new_token)
-                secret_api_token_rotated.send(sender=self.__class__, team=self)
+                # expired_token lets receivers drop their own copies of the credential
+                # this rotation retires for good (it leaves the backup column too).
+                secret_api_token_rotated.send(sender=self.__class__, team=self, expired_token=expired_token)
         except Exception:
             # save() already cached this team (post_save) with the new tokens, which the
             # rollback discarded. Rewrite that entry from the committed row.
@@ -1148,6 +1151,7 @@ class Team(UUIDTClassicModel):
                 self.secret_api_token_backup = None
                 self.save()
                 delete_project_secret_api_keys_for_token(self.id, old_backup_token)
+                secret_api_token_backup_deleted.send(sender=self.__class__, team=self, deleted_token=old_backup_token)
         except Exception:
             # save() already cached this team (post_save) with the cleared backup, which
             # the rollback discarded. Rewrite that entry from the committed row.
@@ -1189,7 +1193,7 @@ class Team(UUIDTClassicModel):
         cache.set(cache_key, "True")  # Create an item in the cache that we can use to see if the demo data is ready
         create_data_for_demo_team.delay(self.id, initiating_user.id, cache_key)
 
-    def all_users_with_access(self) -> QuerySet["User"]:
+    def all_users_with_access(self, *, user_uuids: Optional[Collection[str]] = None) -> QuerySet["User"]:
         from posthog.constants import AvailableFeature  # noqa: PLC0415
         from posthog.models.user import User  # noqa: PLC0415
 
@@ -1200,13 +1204,14 @@ class Team(UUIDTClassicModel):
         from products.access_control.backend.models.role import RoleMembership  # noqa: PLC0415
 
         organization = self.organization
+        member_queryset = OrganizationMembership.objects.filter(organization_id=self.organization_id)
+        if user_uuids is not None:
+            member_queryset = member_queryset.filter(user__uuid__in=user_uuids)
         # An organization without ACCESS_CONTROL has no private projects, so every active member
         # has access. Return a SQL subquery so `.exists()`, `.count()`, and `.filter()` callers
         # answer in Postgres instead of materializing every membership here first.
         if not organization.is_feature_available(AvailableFeature.ACCESS_CONTROL):
-            member_user_ids = OrganizationMembership.objects.filter(organization_id=self.organization_id).values_list(
-                "user_id", flat=True
-            )
+            member_user_ids = member_queryset.values_list("user_id", flat=True)
             return User.objects.filter(is_active=True, id__in=member_user_ids)
 
         team_rows = list(AccessControl.objects.filter(team_id=self.id, resource="project", resource_id=str(self.id)))
@@ -1228,23 +1233,20 @@ class Team(UUIDTClassicModel):
             if default_level in (None, "member", "admin"):
                 # No default rule falls through to the facade's admin default; "member"/"admin"
                 # default rules grant access to every active org member.
-                member_user_ids = OrganizationMembership.objects.filter(
-                    organization_id=self.organization_id
-                ).values_list("user_id", flat=True)
+                member_user_ids = member_queryset.values_list("user_id", flat=True)
             else:
                 # Default "none" denies every member; only org admins and owners pass the
                 # subject's admin bypass.
-                member_user_ids = OrganizationMembership.objects.filter(
-                    organization_id=self.organization_id,
-                    level__gte=OrganizationMembership.Level.ADMIN,
-                ).values_list("user_id", flat=True)
+                member_user_ids = member_queryset.filter(level__gte=OrganizationMembership.Level.ADMIN).values_list(
+                    "user_id", flat=True
+                )
             return User.objects.filter(is_active=True, id__in=member_user_ids)
 
         # General case: resolve each active member through `SubjectAccessControl`, seeding its
         # pool from the single team-rules fetch so N subjects share one query rather than running
         # N of them. Only load the user columns subject resolution actually reads (its id).
         memberships = list(
-            OrganizationMembership.objects.filter(organization_id=self.organization_id, user__is_active=True)
+            member_queryset.filter(user__is_active=True)
             .select_related("user")
             .only("id", "user_id", "level", "user__id")
         )

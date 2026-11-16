@@ -13,32 +13,36 @@ import {
     NetworkError,
     type NetworkFailureReason,
     readableErrorMessage,
+    requestIdFromHeaders,
     ResponseBodyReadError,
 } from 'lib/api-error'
+import { ApiRequestTiming, ApiRequestTimingRecorder } from 'lib/apiRequestTiming'
 import { ActivityLogProps } from 'lib/components/ActivityLog/ActivityLog'
 import { ActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
+import { SURVEY_PAGE_SIZE } from 'lib/constants'
 import { apiStatusLogic, awaitReauthentication, isUserActionInProgress } from 'lib/logic/apiStatusLogic'
-import { getBackendHost, getStoredSession, isOAuthMode, refreshAccessToken } from 'lib/oauth/oauthClient'
+import { retryWithBackoff } from 'lib/utils/async'
+import { HogQLQueryString } from 'lib/utils/hogql'
+import { getBackendHost, getStoredSession, isOAuthMode, refreshAccessToken } from 'lib/utils/oauthClient'
 import { objectClean } from 'lib/utils/objects'
 import { toParams } from 'lib/utils/url'
 import { CohortCalculationHistoryResponse } from 'scenes/cohorts/cohortCalculationHistorySceneLogic'
 import { EventSchema } from 'scenes/data-management/events/eventDefinitionSchemaLogic'
 import { SchemaPropertyGroup } from 'scenes/data-management/schema/schemaManagementLogic'
-import { MaxBillingContext } from 'scenes/max/maxBillingContextLogic'
+import type { MaxBillingContext } from 'scenes/max/maxBillingContextLogic'
 import { NotebookListItemType, NotebookNodeResource, NotebookType } from 'scenes/notebooks/types'
 import { RecordingComment } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
-import { SURVEY_PAGE_SIZE } from 'scenes/surveys/constants'
 
 import { getCurrentExporterData, isSharedView } from '~/exporter/exporterViewLogic'
 import { OrganizationOAuthApplicationApi, ProjectSecretAPIKeyApi } from '~/generated/core/api.schemas'
 import { Variable } from '~/queries/nodes/DataVisualization/types'
+import { setLatestVersionsOnQuery } from '~/queries/schema/query-versions'
 import {
     AggregatedSpanRow,
     AnyResponseType,
     DashboardFilter,
     DatabaseSerializedFieldType,
     DataWarehouseManagedViewsetKind,
-    DomainConnectProviderName,
     EndpointLastExecutionTimesRequest,
     EndpointRequest,
     EndpointRunRequest,
@@ -69,7 +73,6 @@ import {
     SpanTreeNode,
     TileFilters,
 } from '~/queries/schema/schema-general'
-import { HogQLQueryString, setLatestVersionsOnQuery } from '~/queries/utils'
 import {
     ActionType,
     ActivityScope,
@@ -129,6 +132,7 @@ import {
     ExternalDataSourceRevenueAnalyticsConfig,
     ExternalDataSourceSchema,
     ExternalDataSourceSyncSchema,
+    type ExternalDataSourceType,
     FeatureFlagType,
     FileSystemDeleteResponse,
     GoogleAdsConversionActionType,
@@ -168,8 +172,6 @@ import {
     PluginConfigWithPluginInfoNew,
     PluginLogEntry,
     ProductTour,
-    ProductTourAIGenerationResponse,
-    ProductTourStep,
     ProjectSecretAPIKeyRequest,
     ProjectType,
     PropertyDefinition,
@@ -215,20 +217,21 @@ import type {
     ErrorTrackingRuleType,
 } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/rules/types'
 import type { SymbolSetOrder } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/symbol_sets/symbolSetLogic'
-import type { ErrorTrackingRecommendation } from 'products/error_tracking/frontend/scenes/ErrorTrackingScene/tabs/recommendations/types'
 import type { CopyFlagsResponseApi } from 'products/feature_flags/frontend/generated/api.schemas'
 import type {
+    EmailDomainConnectCheckApi,
     GitHubBranchesResponseApi,
     GitHubReposResponseApi,
 } from 'products/integrations/frontend/generated/api.schemas'
 import type { LogExplanation } from 'products/logs/frontend/components/LogsViewer/LogDetailsModal/Tabs/ExploreWithAI/types'
+import type { TasksRunsLogsRetrieveParams } from 'products/logs/frontend/generated/api.schemas'
 import type { NotebookCollabCursorApi } from 'products/notebooks/frontend/generated/api.schemas'
 import type { Task, TaskListParams, TaskRun, TaskUpsertProps } from 'products/posthog_ai/frontend/types/taskTypes'
 import type {
     ColumnConfigurationApi,
     PaginatedColumnConfigurationListApi,
 } from 'products/product_analytics/frontend/generated/api.schemas'
-import {
+import type {
     SignalReport,
     SignalReportArtefact,
     SignalReportArtefactResponse,
@@ -240,10 +243,7 @@ import type {
     TaskRunBootstrapCreateRequestInitialPermissionModeEnumApi,
     TaskRunCreateRequestSchemaApi,
 } from 'products/tasks/frontend/generated/api.schemas'
-import type {
-    ExternalDataSourceTypeEnumApi,
-    SourceConfigMapResponseApi,
-} from 'products/warehouse_sources/frontend/generated/api.schemas'
+import type { SourceConfigMapResponseApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
 import type { HogFlowPublishResponseApi } from 'products/workflows/frontend/generated/api.schemas'
 import type { MessageTemplate } from 'products/workflows/frontend/TemplateLibrary/types'
 import type { HogflowTestResult } from 'products/workflows/frontend/Workflows/hogflows/steps/types'
@@ -311,6 +311,7 @@ export interface ActivityLogPaginatedResponse<T> extends PaginatedResponse<T> {
 export interface ApiMethodOptions {
     signal?: AbortSignal
     headers?: Record<string, any>
+    onRequestTiming?: (timing: ApiRequestTiming) => void
 }
 
 export interface ApiUploadProgress {
@@ -342,6 +343,20 @@ export class RecordingDeletedError extends Error {
     }
 }
 
+export class NotAReplayBlockError extends Error {
+    constructor() {
+        super('Block fetch returned something other than a block')
+        this.name = 'NotAReplayBlockError'
+    }
+}
+
+function asRecordingDeletedError(e: unknown): unknown {
+    if (e instanceof ApiError && e.status === 410 && e.data?.error === 'recording_deleted') {
+        return new RecordingDeletedError(e.data?.deleted_at ?? null, e.data?.deleted_by ?? null)
+    }
+    return e
+}
+
 const CSRF_COOKIE_NAME = 'posthog_csrftoken'
 
 export function getCookie(name: string): string | null {
@@ -363,9 +378,9 @@ export function isAbortError(error: unknown): boolean {
     return (error as { name?: string } | null)?.name === 'AbortError'
 }
 
-export async function getJSONOrNull(response: Response): Promise<any> {
+export async function getJSONOrNull(response: Response, timing?: ApiRequestTimingRecorder): Promise<any> {
     try {
-        return await response.json()
+        return timing ? timing.parseJSON(await timing.readBody(response)) : await response.json()
     } catch (error) {
         if (isAbortError(error)) {
             throw error
@@ -398,7 +413,12 @@ function apiErrorFallback(response: Response, method: string, url: string): stri
  * with unparsable content) throws `ResponseBodyReadError`, so it can be recognized as wire-level
  * noise and left out of error tracking.
  */
-export async function getJSONFromSuccessResponse(response: Response, method: string, url: string): Promise<any> {
+export async function getJSONFromSuccessResponse(
+    response: Response,
+    method: string,
+    url: string,
+    timing?: ApiRequestTimingRecorder
+): Promise<any> {
     const requestContext = (): string =>
         `[${method} ${new URL(url, location.origin).pathname}] (status ${response.status})`
     // A no-content response must not depend on reading its body: some engines (in our telemetry,
@@ -408,7 +428,7 @@ export async function getJSONFromSuccessResponse(response: Response, method: str
     }
     let text: string
     try {
-        text = await response.text()
+        text = timing ? await timing.readBody(response) : await response.text()
     } catch (error) {
         if (isAbortError(error)) {
             throw error
@@ -425,6 +445,7 @@ export async function getJSONFromSuccessResponse(response: Response, method: str
             status: response.status,
             is_shared_view: isSharedView(),
             failure_reason: 'response_body_read',
+            http_request_id: requestIdFromHeaders(response.headers),
         })
         throw new ResponseBodyReadError(`Failed to read response body ${requestContext()}`)
     }
@@ -432,7 +453,7 @@ export async function getJSONFromSuccessResponse(response: Response, method: str
         return null
     }
     try {
-        return JSON.parse(text)
+        return timing ? timing.parseJSON(text) : JSON.parse(text)
     } catch {
         throw new ApiError(`Malformed JSON response ${requestContext()}`)
     }
@@ -483,6 +504,22 @@ export class ApiConfig {
 
 /** A workflow's type: the surface that owns it, else what it does. */
 export type HogFlowListType = 'messaging' | 'automation' | 'loop' | 'broadcast'
+
+function parseLogEntries(text: string): Record<string, any>[] {
+    const entries: Record<string, any>[] = []
+    for (const line of text.split('\n')) {
+        const trimmed = line.trim()
+        if (!trimmed) {
+            continue
+        }
+        try {
+            entries.push(JSON.parse(trimmed))
+        } catch {
+            // Skip unparseable lines — the stream is best-effort historical replay.
+        }
+    }
+    return entries
+}
 
 export class ApiRequest {
     private pathComponents: string[]
@@ -759,10 +796,6 @@ export class ApiRequest {
 
     public event(id: EventType['id'], teamId?: TeamType['id']): ApiRequest {
         return this.events(teamId).addPathComponent(id)
-    }
-
-    public tags(projectId?: ProjectType['id']): ApiRequest {
-        return this.projectsDetail(projectId).addPathComponent('tags')
     }
 
     // # Logs
@@ -1350,14 +1383,6 @@ export class ApiRequest {
         return this.errorTracking(teamId).addPathComponent('spike_events')
     }
 
-    public errorTrackingRecommendations(teamId?: TeamType['id']): ApiRequest {
-        return this.errorTracking(teamId).addPathComponent('recommendations')
-    }
-
-    public errorTrackingRecommendation(id: string, teamId?: TeamType['id']): ApiRequest {
-        return this.errorTrackingRecommendations(teamId).addPathComponent(id)
-    }
-
     public quickFilters(teamId?: TeamType['id']): ApiRequest {
         return this.teamProjectDetail(teamId).addPathComponent('quick_filters')
     }
@@ -1883,10 +1908,6 @@ export class ApiRequest {
         return this.teamProjectDetail().addPathComponent('messaging_categories')
     }
 
-    public messagingCategoriesImportFromCustomerIO(): ApiRequest {
-        return this.messagingCategories().addPathComponent('import_from_customerio')
-    }
-
     public messagingCategoriesOptOutSyncConfig(): ApiRequest {
         return this.messagingCategories().addPathComponent('optout_sync_config')
     }
@@ -1931,10 +1952,6 @@ export class ApiRequest {
 
     public hogFlowTemplate(hogFlowTemplateId: HogFlowTemplate['id']): ApiRequest {
         return this.hogFlowTemplates().addPathComponent(hogFlowTemplateId)
-    }
-
-    public evaluationRuns(teamId?: TeamType['id']): ApiRequest {
-        return this.teamProjectDetail(teamId).addPathComponent('evaluation_runs')
     }
 
     // Heatmap screenshots
@@ -2024,6 +2041,19 @@ function tracingHeaders({ includeDistinctId = false } = {}): Record<string, stri
         ...(sessionId ? { 'X-POSTHOG-SESSION-ID': sessionId } : {}),
         ...(distinctId ? { 'X-POSTHOG-DISTINCT-ID': distinctId } : {}),
     }
+}
+
+/**
+ * The frontend build, so the server can count requests from a tab on another build than the pod
+ * that answers. Same-origin only: other targets (the agent proxy, a remote region) have their own
+ * CORS allowlists, and an unlisted header fails the preflight.
+ */
+function clientBuildHeader(url: string): Record<string, string> {
+    const clientBuild = window.POSTHOG_APP_CONTEXT?.commit_sha
+    if (!clientBuild || new URL(url, window.location.origin).origin !== window.location.origin) {
+        return {}
+    }
+    return { 'X-PostHog-Client-Build': clientBuild }
 }
 
 const PROJECT_ID_REGEX = /\/api\/(project|environment)s\/(\w+)(?:$|[/?#])/
@@ -2456,8 +2486,17 @@ const api = {
             }
             return await request.get({ signal })
         },
-        async create(data: { path: string; href?: string; ref?: string; type?: string }): Promise<FileSystemEntry> {
-            return await new ApiRequest().fileSystemShortcut().create({ data })
+        async create(data: {
+            path: string
+            href?: string
+            ref?: string
+            type?: string
+        }): Promise<{ shortcut: FileSystemEntry; created: boolean }> {
+            const url = new ApiRequest().fileSystemShortcut().assembleFullUrl()
+            const response = await api.createResponse(url, data)
+            const shortcut: FileSystemEntry = await getJSONFromSuccessResponse(response, 'POST', url)
+            // The API answers 200 instead of 201 when the user already has this shortcut.
+            return { shortcut, created: response.status === 201 }
         },
         async delete(id: FileSystemEntry['id']): Promise<void> {
             return await new ApiRequest().fileSystemShortcutDetail(id).delete()
@@ -2877,6 +2916,8 @@ const api = {
                 limit?: number
                 offset?: number
                 includeImpact?: boolean
+                groupByEndpoint?: boolean
+                includeHealth?: boolean
             },
             signal?: AbortSignal
         ): Promise<{
@@ -2987,12 +3028,6 @@ const api = {
         ): string {
             const params: EventsListQueryParams = { ...filters, limit }
             return new ApiRequest().events(teamId).withQueryString(toParams(params)).assembleFullUrl()
-        },
-    },
-
-    tags: {
-        async list(projectId: TeamType['id'] = ApiConfig.getCurrentProjectId()): Promise<string[]> {
-            return new ApiRequest().tags(projectId).get()
         },
     },
 
@@ -3638,16 +3673,6 @@ const api = {
         determineListUrl(params: PersonListParams = {}): string {
             return new ApiRequest().persons().withQueryString(toParams(params)).assembleFullUrl()
         },
-        async resetPersonDistinctId(distinctId: string): Promise<void> {
-            return await new ApiRequest()
-                .persons()
-                .withAction('reset_person_distinct_id')
-                .create({
-                    data: {
-                        distinct_id: distinctId,
-                    },
-                })
-        },
         async getByDistinctIds(distinctIds: string[]): Promise<Record<string, PersonType>> {
             const response = await new ApiRequest()
                 .persons()
@@ -3742,22 +3767,24 @@ const api = {
                 insightId,
                 recordingId,
                 notebookShortId,
+                teamId,
             }: {
                 dashboardId?: DashboardType['id']
                 insightId?: InsightModel['id']
                 recordingId?: SessionRecordingType['id']
                 notebookShortId?: NotebookType['short_id']
+                teamId?: TeamType['id']
             },
             data: Partial<SharingConfigurationType>
         ): Promise<SharingConfigurationType | null> {
             return dashboardId
-                ? new ApiRequest().dashboardSharing(dashboardId).update({ data })
+                ? new ApiRequest().dashboardSharing(dashboardId, teamId).update({ data })
                 : insightId
-                  ? new ApiRequest().insightSharing(insightId).update({ data })
+                  ? new ApiRequest().insightSharing(insightId, teamId).update({ data })
                   : recordingId
-                    ? new ApiRequest().recordingSharing(recordingId).update({ data })
+                    ? new ApiRequest().recordingSharing(recordingId, teamId).update({ data })
                     : notebookShortId
-                      ? new ApiRequest().notebookSharing(notebookShortId).update({ data })
+                      ? new ApiRequest().notebookSharing(notebookShortId, teamId).update({ data })
                       : null
         },
 
@@ -4142,31 +4169,6 @@ const api = {
             return await new ApiRequest().errorTrackingRules(ruleType).get()
         },
 
-        async listRecommendations({ poll = false }: { poll?: boolean } = {}): Promise<{
-            results: ErrorTrackingRecommendation[]
-        }> {
-            return await new ApiRequest().errorTrackingRecommendations().withQueryString({ poll }).get()
-        },
-
-        async dismissRecommendation(id: string): Promise<ErrorTrackingRecommendation> {
-            return await new ApiRequest().errorTrackingRecommendation(id).withAction('dismiss').create()
-        },
-
-        async restoreRecommendation(id: string): Promise<ErrorTrackingRecommendation> {
-            return await new ApiRequest().errorTrackingRecommendation(id).withAction('restore').create()
-        },
-
-        async refreshRecommendation(
-            id: string,
-            { force = true }: { force?: boolean } = {}
-        ): Promise<ErrorTrackingRecommendation> {
-            return await new ApiRequest()
-                .errorTrackingRecommendation(id)
-                .withAction('refresh')
-                .withQueryString({ force })
-                .create()
-        },
-
         async createRule(
             ruleType: ErrorTrackingRuleType,
             { id: _, ...data }: ErrorTrackingRule
@@ -4395,7 +4397,11 @@ const api = {
             recordingId: SessionRecordingType['id'],
             headers: Record<string, string> = {}
         ): Promise<SessionRecordingSnapshotResponse> {
-            return await new ApiRequest().recording(recordingId).withAction('snapshots').get({ headers })
+            try {
+                return await new ApiRequest().recording(recordingId).withAction('snapshots').get({ headers })
+            } catch (e) {
+                throw asRecordingDeletedError(e)
+            }
         },
 
         async getSnapshots(
@@ -4411,10 +4417,7 @@ const api = {
                     .withQueryString(params)
                     .getResponse({ headers })
             } catch (e) {
-                if (e instanceof ApiError && e.status === 410 && e.data?.error === 'recording_deleted') {
-                    throw new RecordingDeletedError(e.data?.deleted_at ?? null, e.data?.deleted_by ?? null)
-                }
-                throw e
+                throw asRecordingDeletedError(e)
             }
 
             const contentBuffer = new Uint8Array(await response.arrayBuffer())
@@ -4437,6 +4440,90 @@ const api = {
                 console.error('Failed to decode snapshot response as text:', error)
             }
             return []
+        },
+
+        /**
+         * Fetches blocks straight from recording-api, one request per block so the browser caches each one. Returns
+         * the same length-prefixed bytes as getSnapshots with decompress=false.
+         */
+        async getBlocksDirectly(urls: string[], token: string): Promise<Uint8Array> {
+            // One failed block fails the batch, so the other downloads stop too. The deadline matches Django's upstream
+            // read limit, so a stalled block falls back instead of holding the loader forever.
+            const controller = new AbortController()
+            const deadline = setTimeout(() => controller.abort(), 30_000)
+            const fetchBlock = async (url: string): Promise<Uint8Array> => {
+                const response = await fetch(url, {
+                    headers: { Authorization: `Bearer ${token}` },
+                    credentials: 'omit',
+                    // A long page URL as the Referer pushes the headers past recording-api's size limit, which answers 431.
+                    referrerPolicy: 'no-referrer',
+                    signal: controller.signal,
+                })
+                if (!response.ok) {
+                    const data = await response.json().catch(() => null)
+                    throw asRecordingDeletedError(
+                        new ApiError('Block fetch failed', response.status, response.headers, data)
+                    )
+                }
+                // Without a route to recording-api the app shell answers with HTML, which is not a block.
+                if (!response.headers.get('Content-Type')?.startsWith('application/octet-stream')) {
+                    throw new NotAReplayBlockError()
+                }
+                return new Uint8Array(await response.arrayBuffer())
+            }
+            // Blocks still waiting out a 429. While one waits, the batch fails as rate limited, because reading the
+            // batch through the snapshots endpoint would get round the limit.
+            const pendingRateLimits = new Map<string, ApiError>()
+            let reportedRateLimit = false
+            const blocks = await Promise.all(
+                urls.map(async (url) => {
+                    try {
+                        // recording-api refills each viewer's budget every second, so only the limited block waits
+                        // and retries while the rest of the batch keeps downloading.
+                        const block = await retryWithBackoff(() => fetchBlock(url), {
+                            maxAttempts: 4,
+                            initialDelayMs: 1000,
+                            backoffMultiplier: 2,
+                            signal: controller.signal,
+                            shouldRetry: (e) => e instanceof ApiError && e.status === 429,
+                            getDelayMs: (e) => {
+                                // Runs only when a retry follows, so the event counts rate-limited batches.
+                                if (!reportedRateLimit) {
+                                    reportedRateLimit = true
+                                    posthog.capture('replay direct block fetch rate limited')
+                                }
+                                pendingRateLimits.set(url, e as ApiError)
+                                const seconds = Number((e as ApiError).headers?.get('Retry-After'))
+                                return seconds > 0 ? seconds * 1000 : undefined
+                            },
+                        })
+                        pendingRateLimits.delete(url)
+                        return block
+                    } catch (e) {
+                        // Only an aborted wait leaves the block rate limited; any other answer replaces the 429.
+                        if (!(e instanceof DOMException && e.name === 'AbortError')) {
+                            pendingRateLimits.delete(url)
+                        }
+                        controller.abort()
+                        throw e
+                    }
+                })
+            )
+                .catch((e) => {
+                    // A sibling's failure or the deadline cuts the wait short, and must not turn into a fallback.
+                    const pendingRateLimit = pendingRateLimits.values().next().value
+                    throw pendingRateLimit && !(e instanceof RecordingDeletedError) ? pendingRateLimit : e
+                })
+                .finally(() => clearTimeout(deadline))
+            const framed = new Uint8Array(blocks.reduce((total, block) => total + 4 + block.length, 0))
+            const view = new DataView(framed.buffer)
+            let offset = 0
+            for (const block of blocks) {
+                view.setUint32(offset, block.length)
+                framed.set(block, offset + 4)
+                offset += 4 + block.length
+            }
+            return framed
         },
 
         async listPlaylists(params: string): Promise<SavedSessionRecordingPlaylistsResult> {
@@ -4935,6 +5022,8 @@ const api = {
             include_source_metadata?: 'true' | 'false'
             /** ISO 8601 datetime. Keeps reports created at or after it. */
             created_after?: string
+            /** For `sort=personal`: the `ranking_id` of the first page, so later pages keep its order. */
+            ranking_id?: string
         }): Promise<CountedPaginatedResponse<SignalReport>> {
             return await new ApiRequest().signalReports().withQueryString(params).get()
         },
@@ -5067,22 +5156,60 @@ const api = {
             ): Promise<Record<string, any>[]> {
                 const response = await new ApiRequest()
                     .taskRun(taskId, runId, options.projectId)
-                    .withAction('logs')
+                    .withAction('log_entries')
                     .getResponse({ signal: options.signal })
-                const text = await response.text()
-                const entries: Record<string, any>[] = []
-                for (const line of text.split('\n')) {
-                    const trimmed = line.trim()
-                    if (!trimmed) {
-                        continue
-                    }
-                    try {
-                        entries.push(JSON.parse(trimmed))
-                    } catch {
-                        // Skip unparseable lines — the stream is best-effort historical replay.
-                    }
+                return parseLogEntries(await response.text())
+            },
+            /**
+             * Fetch part of a run's resume-chain log. With `tailBytes`, the latest turns (at least `tailBytes`, from a
+             * cut where a user turn starts) that end before entry index `before`, or with `start`, every entry from
+             * that index on. The page starts with `preamble` earlier entries that still set run state; `offset` is
+             * the full-log index of the first entry after them, `count` is the full-log size, and `turnsBefore`
+             * counts the user turns before `offset`. Without `tailBytes`, or for a log the server does not page, the
+             * response is the full log and `indexed` is false.
+             */
+            async getLogPage(
+                taskId: Task['id'],
+                runId: TaskRun['id'],
+                options: {
+                    signal?: AbortSignal
+                    projectId?: TeamType['id']
+                    tailBytes?: number
+                    before?: number
+                    start?: number
+                    view?: TasksRunsLogsRetrieveParams['view']
                 }
-                return entries
+            ): Promise<{
+                entries: Record<string, any>[]
+                offset: number
+                count: number
+                preamble: number
+                turnsBefore: number
+                origin: string
+                indexed: boolean
+            }> {
+                const response = await new ApiRequest()
+                    .taskRun(taskId, runId, options.projectId)
+                    .withAction('log_entries')
+                    .withQueryString({
+                        ...(options.tailBytes !== undefined ? { tail_bytes: options.tailBytes } : {}),
+                        ...(options.before !== undefined ? { before: options.before } : {}),
+                        ...(options.start !== undefined ? { start: options.start } : {}),
+                        ...(options.view ? { view: options.view } : {}),
+                    })
+                    .getResponse({ signal: options.signal })
+                const entries = parseLogEntries(await response.text())
+                const indexed = response.headers.get('X-Log-Offset') !== null
+                const header = (name: string): number => Number(response.headers.get(name) ?? 0) || 0
+                return {
+                    entries,
+                    offset: header('X-Log-Offset'),
+                    count: indexed ? header('X-Log-Count') : entries.length,
+                    preamble: header('X-Log-Preamble'),
+                    turnsBefore: header('X-Log-Turns-Before'),
+                    origin: response.headers.get('X-Log-Origin') ?? '',
+                    indexed,
+                }
             },
             /**
              * Open the live SSE stream for a run as a `fetch` response (the caller reads it with
@@ -5324,15 +5451,6 @@ const api = {
         async delete(tourId: ProductTour['id']): Promise<void> {
             await new ApiRequest().productTour(tourId).delete()
         },
-        async generateContent(
-            tourId: ProductTour['id'],
-            title: ProductTour['name'],
-            steps: ProductTourStep[],
-            goal: string
-        ): Promise<ProductTourAIGenerationResponse> {
-            const apiRequest = new ApiRequest().productTour(tourId).withAction('generate')
-            return await apiRequest.create({ data: { title, steps, goal } })
-        },
         async saveDraft(tourId: ProductTour['id'], data: Partial<ProductTour>): Promise<ProductTour> {
             return await new ApiRequest().productTour(tourId).withAction('draft').update({ data })
         },
@@ -5361,9 +5479,6 @@ const api = {
         },
         async get(tableId: DataWarehouseTable['id']): Promise<DataWarehouseTable> {
             return await new ApiRequest().dataWarehouseTable(tableId).get()
-        },
-        async create(data: Partial<DataWarehouseTable>): Promise<DataWarehouseTable> {
-            return await new ApiRequest().dataWarehouseTables().create({ data })
         },
         async delete(tableId: DataWarehouseTable['id']): Promise<void> {
             await new ApiRequest().dataWarehouseTable(tableId).delete()
@@ -5421,6 +5536,7 @@ const api = {
             data: Partial<DataWarehouseSavedQuery> & {
                 types?: string[][]
                 edited_history_id?: string
+                acknowledge_breaking_changes?: boolean
             }
         ): Promise<DataWarehouseSavedQuery> {
             return await new ApiRequest().dataWarehouseSavedQuery(viewId).update({ data })
@@ -5652,7 +5768,7 @@ const api = {
             return await new ApiRequest().externalDataSource(sourceId).update({ data })
         },
         async database_schema(
-            source_type: ExternalDataSourceTypeEnumApi,
+            source_type: ExternalDataSourceType,
             payload: Record<string, any>
         ): Promise<ExternalDataSourceSyncSchema[]> {
             return await new ApiRequest()
@@ -5664,7 +5780,7 @@ const api = {
             return await new ApiRequest().externalDataSources().withAction('wizard').get()
         },
         async source_prefix(
-            source_type: ExternalDataSourceTypeEnumApi,
+            source_type: ExternalDataSourceType,
             prefix: string
         ): Promise<ExternalDataSourceSyncSchema[]> {
             return await new ApiRequest()
@@ -5674,7 +5790,7 @@ const api = {
         },
         async check_cdc_prerequisites(
             payload: {
-                source_type: ExternalDataSourceTypeEnumApi
+                source_type: ExternalDataSourceType
                 cdc_management_mode: 'posthog' | 'self_managed'
                 tables?: string[]
                 cdc_slot_name?: string | null
@@ -6049,14 +6165,7 @@ const api = {
         ): Promise<IntegrationType> {
             return await new ApiRequest().integrationEmail(integrationId).update({ data })
         },
-        async domainConnectCheck(domain: string): Promise<{
-            supported: boolean
-            provider_name: DomainConnectProviderName | null
-            available_providers: {
-                endpoint: string
-                name: DomainConnectProviderName
-            }[]
-        }> {
+        async domainConnectCheck(domain: string): Promise<EmailDomainConnectCheckApi> {
             return await new ApiRequest()
                 .integrationsDomainConnectCheck()
                 .withQueryString(`domain=${encodeURIComponent(domain)}`)
@@ -6124,8 +6233,8 @@ const api = {
     },
 
     queryStatus: {
-        async get(queryId: string, showProgress: boolean): Promise<QueryStatusResponse> {
-            return await new ApiRequest().queryStatus(queryId, showProgress).get()
+        async get(queryId: string, showProgress: boolean, options?: ApiMethodOptions): Promise<QueryStatusResponse> {
+            return await new ApiRequest().queryStatus(queryId, showProgress).get(options)
         },
     },
 
@@ -6154,8 +6263,11 @@ const api = {
         async delete(id: PersonalAPIKeyType['id']): Promise<void> {
             await new ApiRequest().personalApiKey(id).delete()
         },
-        async roll(id: PersonalAPIKeyType['id']): Promise<PersonalAPIKeyType> {
-            return await new ApiRequest().personalApiKey(id).withAction('roll').create()
+        async roll(
+            id: PersonalAPIKeyType['id'],
+            data: Pick<Partial<PersonalAPIKeyType>, 'expires_at'> = {}
+        ): Promise<PersonalAPIKeyType> {
+            return await new ApiRequest().personalApiKey(id).withAction('roll').create({ data })
         },
     },
 
@@ -6313,6 +6425,8 @@ const api = {
             type?: HogFlowListType[]
             /** JSON-encoded object the stored trigger must contain, e.g. `{"type":"batch"}`. */
             trigger?: string
+            /** JSON-encoded list of tag names. A workflow matches when it carries at least one. */
+            tags?: string
             limit?: number
             offset?: number
         }): Promise<CountedPaginatedResponse<HogFlow>> {
@@ -6498,22 +6612,33 @@ const api = {
             throw new Error(`Query kind mismatch: path kind "${pathKind}" does not match body kind "${bodyKind}".`)
         }
 
+        const data = {
+            query,
+            client_query_id: queryOptions?.clientQueryId,
+            refresh: queryOptions?.refresh,
+            filters_override: queryOptions?.filtersOverride,
+            variables_override: queryOptions?.variablesOverride,
+            limit_context: queryOptions?.limitContext,
+        }
+        if (bodyKind === NodeKind.ActorsQuery && query.source?.kind === NodeKind.AccountUsersQuery) {
+            const { getAccountsPersonsQueryCreateUrl } =
+                await import('products/customer_analytics/frontend/generated/api')
+            return await api.create(
+                getAccountsPersonsQueryCreateUrl(
+                    String(ApiConfig.getCurrentTeamId()),
+                    encodeURIComponent(query.source.accountId)
+                ),
+                data,
+                queryOptions?.requestOptions
+            )
+        }
+
         const apiRequest =
             bodyKind === NodeKind.AccountsTableQuery
                 ? new ApiRequest().accountsTableQuery()
                 : new ApiRequest().query(undefined, bodyKind)
 
-        return await apiRequest.create({
-            ...queryOptions?.requestOptions,
-            data: {
-                query,
-                client_query_id: queryOptions?.clientQueryId,
-                refresh: queryOptions?.refresh,
-                filters_override: queryOptions?.filtersOverride,
-                variables_override: queryOptions?.variablesOverride,
-                limit_context: queryOptions?.limitContext,
-            },
-        })
+        return await apiRequest.create({ ...queryOptions?.requestOptions, data })
     },
 
     async queryHogQL<T = any[]>(
@@ -6662,30 +6787,17 @@ const api = {
                     .update({ data: { content } })
             },
 
-            delete(conversationId: string, queueId: string): Promise<ConversationQueueResponse> {
-                return new ApiRequest().conversation(conversationId).withAction(`queue/${queueId}`).delete()
+            async delete(conversationId: string, queueId: string): Promise<ConversationQueueResponse> {
+                const response = await new ApiRequest()
+                    .conversation(conversationId)
+                    .withAction(`queue/${queueId}`)
+                    .delete()
+                return response.json()
             },
 
             clear(conversationId: string): Promise<ConversationQueueResponse> {
                 return new ApiRequest().conversation(conversationId).withAction('queue/clear').create({ data: {} })
             },
-        },
-    },
-
-    evaluationRuns: {
-        async create(data: {
-            evaluation_id: string
-            target_event_id: string
-            timestamp: string
-            event: string
-            distinct_id?: string
-        }): Promise<{
-            workflow_id: string
-            status: string
-            evaluation: { id: string; name: string }
-            target_event_id: string
-        }> {
-            return await new ApiRequest().evaluationRuns().create({ data })
         },
     },
 
@@ -6722,11 +6834,13 @@ const api = {
 
     /** Fetch data from specified URL. The result already is JSON-parsed. */
     async get<T = any>(url: string, options?: ApiMethodOptions): Promise<T> {
-        const res = await api.getResponse(url, options)
-        return await getJSONFromSuccessResponse(res, 'GET', url)
+        return await withRequestTiming(options, async (timing) => {
+            const res = await api.getResponse(url, options, timing)
+            return await getJSONFromSuccessResponse(res, 'GET', url, timing)
+        })
     },
 
-    async getResponse(url: string, options?: ApiMethodOptions): Promise<Response> {
+    async getResponse(url: string, options?: ApiMethodOptions, timing?: ApiRequestTimingRecorder): Promise<Response> {
         url = prepareUrl(url)
         ensureProjectIdNotInvalid(url)
 
@@ -6738,15 +6852,19 @@ const api = {
         }
 
         return await handleFetch(url, 'GET', async () => {
-            return fetch(url, {
+            timing?.startFetch(url)
+            const response = await fetch(url, {
                 signal: options?.signal,
                 headers: {
                     ...objectClean(options?.headers ?? {}),
                     ...tracingHeaders({ includeDistinctId: true }),
+                    ...clientBuildHeader(url),
                     ...oauthAuthHeaders(url),
                     ...authHeaders,
                 },
             })
+            timing?.recordHeaders(response)
+            return response
         })
     },
 
@@ -6768,6 +6886,7 @@ const api = {
                     ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
                     'X-CSRFToken': getCookie(CSRF_COOKIE_NAME) || '',
                     ...tracingHeaders(),
+                    ...clientBuildHeader(url),
                     ...oauthAuthHeaders(url),
                 },
                 body: isFormData ? data : JSON.stringify(data),
@@ -6787,29 +6906,40 @@ const api = {
     },
 
     async create<T = any, P = any>(url: string, data?: P, options?: ApiMethodOptions): Promise<T> {
-        const res = await api.createResponse(url, data, options)
-        return await getJSONFromSuccessResponse(res, 'POST', url)
+        return await withRequestTiming(options, async (timing) => {
+            const res = await api.createResponse(url, data, options, timing)
+            return await getJSONFromSuccessResponse(res, 'POST', url, timing)
+        })
     },
 
-    async createResponse(url: string, data?: any, options?: ApiMethodOptions): Promise<Response> {
+    async createResponse(
+        url: string,
+        data?: any,
+        options?: ApiMethodOptions,
+        timing?: ApiRequestTimingRecorder
+    ): Promise<Response> {
         url = prepareUrl(url)
         ensureProjectIdNotInvalid(url)
         const isFormData = data instanceof FormData
 
-        return await handleFetch(url, 'POST', async () =>
-            fetch(url, {
+        return await handleFetch(url, 'POST', async () => {
+            timing?.startFetch(url)
+            const response = await fetch(url, {
                 method: 'POST',
                 headers: {
                     ...objectClean(options?.headers ?? {}),
                     ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
                     'X-CSRFToken': getCookie(CSRF_COOKIE_NAME) || '',
                     ...tracingHeaders(),
+                    ...clientBuildHeader(url),
                     ...oauthAuthHeaders(url),
                 },
                 body: data ? (isFormData ? data : JSON.stringify(data)) : undefined,
                 signal: options?.signal,
             })
-        )
+            timing?.recordHeaders(response)
+            return response
+        })
     },
 
     /**
@@ -6837,6 +6967,7 @@ const api = {
                     'Content-Type': 'application/x-www-form-urlencoded',
                     'X-CSRFToken': getCookie(CSRF_COOKIE_NAME) || '',
                     ...tracingHeaders(),
+                    ...clientBuildHeader(url),
                     ...oauthAuthHeaders(url),
                 },
             })
@@ -6893,6 +7024,7 @@ const api = {
                 ...(method === 'POST' ? { 'Content-Type': 'application/json' } : {}),
                 'X-CSRFToken': getCookie('posthog_csrftoken') || '',
                 ...tracingHeaders(),
+                ...clientBuildHeader(url),
                 ...objectClean(headers ?? {}),
             },
             body: data !== undefined ? JSON.stringify(data) : undefined,
@@ -7134,6 +7266,10 @@ function captureClientRequestFailure(properties: {
     status: number
     is_shared_view: boolean
     failure_reason?: ClientRequestFailureReason
+    /** DRF error `code` from the response body, which separates failures that share a status. */
+    code?: string | null
+    /** Backend request UUID, equal to `request_id` on the backend logs. Absent when no response arrived. */
+    http_request_id?: string | null
 }): void {
     // when used inside the posthog toolbar, `posthog.capture` isn't loaded
     // check if the function is available before calling it.
@@ -7165,6 +7301,7 @@ function xhrPost(url: string, data: FormData, options?: ApiUploadOptions): Promi
             ...objectClean(options?.headers ?? {}),
             'X-CSRFToken': getCookie(CSRF_COOKIE_NAME) || '',
             ...tracingHeaders(),
+            ...clientBuildHeader(url),
             ...oauthAuthHeaders(url),
         }
         for (const [name, value] of Object.entries(headers)) {
@@ -7201,6 +7338,31 @@ async function isStaleSessionResponse(response: Response): Promise<boolean> {
         return data?.code === 'sensitive_action_required_reauth'
     } catch {
         return false
+    }
+}
+
+export async function withRequestTiming<T>(
+    options: ApiMethodOptions | undefined,
+    request: (timing?: ApiRequestTimingRecorder) => Promise<T>
+): Promise<T> {
+    const onRequestTiming = options?.onRequestTiming
+    if (!onRequestTiming) {
+        return await request()
+    }
+    const timing = new ApiRequestTimingRecorder()
+    try {
+        return await request(timing)
+    } catch (error) {
+        if (error instanceof ApiError) {
+            timing.recordFailure(error)
+        }
+        throw error
+    } finally {
+        try {
+            onRequestTiming(timing.finish())
+        } catch {
+            // Observability must not change request success, failure, or cancellation.
+        }
     }
 }
 
@@ -7274,12 +7436,15 @@ async function handleFetch(
         const duration = new Date().getTime() - startTime
         const pathname = new URL(url, location.origin).pathname
         const inSharedView = isSharedView()
+        const failure = await ApiError.fromResponse(response, apiErrorFallback(response, method, url))
         captureClientRequestFailure({
             pathname,
             method,
             duration,
             status: response.status,
             is_shared_view: inSharedView,
+            code: failure.code,
+            http_request_id: failure.requestId,
         })
         if (inSharedView && (response.status === 401 || response.status === 403)) {
             const leakKey = `${method} ${pathname}`
@@ -7289,7 +7454,7 @@ async function handleFetch(
             }
         }
 
-        throw await ApiError.fromResponse(response, apiErrorFallback(response, method, url))
+        throw failure
     }
 
     return response

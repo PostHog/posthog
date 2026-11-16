@@ -2,7 +2,15 @@ import pytest
 
 from products.review_hog.backend.models import ReviewReport
 from products.review_hog.backend.reviewer.artefact_content import ReviewIssueFinding, ValidationVerdict
-from products.review_hog.backend.reviewer.finding_budget import FINDING_BUDGET, FindingBudget, budget_arm, budget_note
+from products.review_hog.backend.reviewer.finding_budget import (
+    FINDING_BUDGET,
+    ROUND_CAP,
+    FindingBudget,
+    ReviewRound,
+    budget_arm,
+    budget_note,
+    round_note,
+)
 from products.review_hog.backend.reviewer.models.issues_review import IssuePriority
 
 
@@ -62,3 +70,31 @@ def test_budget_note_offers_only_a_review_that_runs_on_this_head(comment_command
     assert note.startswith("This pull request reached its limit of 20 automatic review findings")
     assert ("`@posthog review --deep`" in note) is offers_deep
     assert "`@posthog review` " not in note
+
+
+@pytest.mark.parametrize(
+    "published_head_shas,run_index,expected_number,asks_for_a_rethink",
+    [
+        (None, 1, 1, False),
+        # Turn 2 kept nothing, so turn 3 is still round 2.
+        ({"1": "a"}, 3, 2, False),
+        ({"1": "a", "2": "b"}, 3, 3, True),
+        # Read after this turn published: its own key does not count twice.
+        ({"1": "a", "2": "b", "3": "c"}, 3, 3, True),
+        ({"1": "a", "2": "b", "3": "c", "5": "e"}, 6, 5, True),
+    ],
+)
+def test_review_round_counts_the_turns_that_published_before_this_one(
+    published_head_shas: dict[str, str] | None, run_index: int, expected_number: int, asks_for_a_rethink: bool
+) -> None:
+    report = ReviewReport(repository="PostHog/posthog", pr_number=1, published_head_shas=published_head_shas)
+
+    review_round = ReviewRound.for_turn(report, run_index=run_index)
+
+    assert (review_round.number, review_round.asks_for_a_rethink) == (expected_number, asks_for_a_rethink)
+
+
+def test_round_note_names_the_round() -> None:
+    assert round_note(ReviewRound(number=ROUND_CAP)).startswith(
+        f"This is review round {ROUND_CAP} on this pull request."
+    )

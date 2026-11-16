@@ -4,10 +4,12 @@ import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
 import { initKeaTests } from '~/test/init'
+import type { IntegrationType } from '~/types'
 
 import { visionAlertsDestinationsCreate } from 'products/replay_vision/frontend/generated/api'
 
 import { scannerAlertNotificationLogic } from './scannerAlertNotificationLogic'
+import { VISION_ALERT_NOTIFICATION_TYPE_SLACK } from './scannerAlertUtils'
 
 jest.mock('lib/api', () => {
     const actual = jest.requireActual('lib/api')
@@ -35,10 +37,94 @@ const mockApi = api as jest.Mocked<typeof api>
 const mockCreate = visionAlertsDestinationsCreate as jest.MockedFunction<typeof visionAlertsDestinationsCreate>
 
 describe('scannerAlertNotificationLogic', () => {
+    let logic: ReturnType<typeof scannerAlertNotificationLogic.build> | undefined
+
     beforeEach(() => {
         initKeaTests()
         jest.clearAllMocks()
+        logic = undefined
         ;(mockApi.hogFunctions.list as jest.Mock).mockResolvedValue({ results: [] })
+    })
+
+    afterEach(() => {
+        logic?.unmount()
+    })
+
+    const makeSlackIntegration = (id: number): IntegrationType => ({
+        id,
+        kind: 'slack',
+        display_name: `Workspace ${id}`,
+        icon_url: '',
+        config: {},
+        created_at: '2026-01-01T00:00:00Z',
+    })
+
+    it('stages a notification for the selected Slack workspace', async () => {
+        logic = scannerAlertNotificationLogic({})
+        logic.mount()
+        const firstWorkspace = makeSlackIntegration(1)
+        const secondWorkspace = makeSlackIntegration(2)
+        logic.actions.loadIntegrationsSuccess([firstWorkspace, secondWorkspace])
+
+        await expectLogic(logic).toMatchValues({
+            selectedSlackIntegrationId: 1,
+            selectedSlackIntegration: firstWorkspace,
+        })
+
+        logic.actions.setSlackChannelValue('C123|#general')
+        logic.actions.setSelectedSlackIntegrationId(2)
+        await expectLogic(logic).toMatchValues({
+            selectedSlackIntegration: secondWorkspace,
+            slackChannelValue: null,
+        })
+
+        logic.actions.setSlackChannelValue('C456|#alerts')
+        logic.actions.addSelectedNotification()
+
+        await expectLogic(logic).toMatchValues({
+            pendingNotifications: [
+                {
+                    type: VISION_ALERT_NOTIFICATION_TYPE_SLACK,
+                    slackWorkspaceId: 2,
+                    slackChannelId: 'C456',
+                    slackChannelName: 'alerts',
+                },
+            ],
+            slackChannelValue: null,
+        })
+    })
+
+    it('keeps staged Slack state on reload only while its workspace is still connected', async () => {
+        logic = scannerAlertNotificationLogic({})
+        logic.mount()
+        const firstWorkspace = makeSlackIntegration(1)
+        const secondWorkspace = makeSlackIntegration(2)
+        logic.actions.loadIntegrationsSuccess([firstWorkspace, secondWorkspace])
+        logic.actions.setSlackChannelValue('C123|#general')
+
+        logic.actions.loadIntegrationsSuccess([firstWorkspace, secondWorkspace])
+
+        await expectLogic(logic).toMatchValues({
+            selectedSlackIntegrationId: 1,
+            slackChannelValue: 'C123|#general',
+        })
+
+        logic.actions.loadIntegrationsSuccess([secondWorkspace])
+
+        await expectLogic(logic).toMatchValues({
+            selectedSlackIntegration: secondWorkspace,
+            slackChannelValue: null,
+        })
+
+        logic.actions.setSlackChannelValue('C456|#alerts')
+        logic.actions.addSelectedNotification()
+        logic.actions.addPendingNotification({ type: 'webhook', webhookUrl: 'https://example.com/hook' })
+        logic.actions.loadIntegrationsSuccess([firstWorkspace])
+
+        await expectLogic(logic).toMatchValues({
+            selectedSlackIntegration: firstWorkspace,
+            pendingNotifications: [{ type: 'webhook', webhookUrl: 'https://example.com/hook' }],
+        })
     })
 
     it.each([
@@ -47,20 +133,20 @@ describe('scannerAlertNotificationLogic', () => {
     ])('%s', async (_name, alertId, expectedToast) => {
         mockCreate.mockRejectedValueOnce(new Error('API error'))
 
-        const logic = scannerAlertNotificationLogic({ alertId })
-        logic.mount()
+        const alertLogic = scannerAlertNotificationLogic({ alertId })
+        alertLogic.mount()
 
-        await expectLogic(logic, () => {
-            logic.actions.addPendingNotification({ type: 'webhook', webhookUrl: 'https://example.com/hook' })
+        await expectLogic(alertLogic, () => {
+            alertLogic.actions.addPendingNotification({ type: 'webhook', webhookUrl: 'https://example.com/hook' })
             if (!alertId) {
-                logic.actions.createPendingHogFunctions('alert-1')
+                alertLogic.actions.createPendingHogFunctions('alert-1')
             }
         }).toFinishAllListeners()
 
         expect(mockCreate).toHaveBeenCalledTimes(1)
         expect(lemonToast.error).toHaveBeenCalledWith(expect.stringContaining(expectedToast))
-        expect(logic.values.pendingNotifications).toHaveLength(1)
+        expect(alertLogic.values.pendingNotifications).toHaveLength(1)
 
-        logic.unmount()
+        alertLogic.unmount()
     })
 })

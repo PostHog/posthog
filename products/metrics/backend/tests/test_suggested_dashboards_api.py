@@ -28,7 +28,7 @@ from products.metrics.backend.suggested_dashboards.generation import (
     finish_generation,
     generation_key,
 )
-from products.metrics.backend.suggested_dashboards.review import SuggestionGone, create_from_suggestion
+from products.metrics.backend.suggested_dashboards.review import SuggestionGone, create_from_suggestion, reject
 from products.metrics.backend.suggested_dashboards.spec import EvaluationAnswer
 from products.metrics.backend.tests._seeder import seed_metric, truncate_metrics_tables
 from products.metrics.backend.variable_options import list_variable_options
@@ -147,6 +147,52 @@ class TestSuggestedDashboardsAPI(APIBaseTest):
         assert recreated.status_code == status.HTTP_201_CREATED
         assert recreated.json()["dashboard_id"] not in (None, first.json()["dashboard_id"])
 
+    @parameterized.expand(
+        [
+            ("when_the_next_analysis_suggests_it_again", False, [["queue"]]),
+            ("when_an_analysis_drops_it_and_a_later_one_suggests_it_again", False, [[], ["queue"]]),
+            ("when_its_template_is_rejected_and_approved_again", True, [["queue"]]),
+        ]
+    )
+    def test_a_dismissed_suggestion_does_not_come_back(
+        self, _name: str, rejected: bool, analyses: list[list[str]]
+    ) -> None:
+        template = _template("queue", "approved", *QUEUE_METRICS[:2], source="generated")
+        suggestion = MetricsDashboardSuggestion.objects.for_team(self.team.id).create(
+            team_id=self.team.id, template=template, coverage=1.0
+        )
+
+        dismissed = self.client.post(f"{self.base_url}/suggested_dashboards/{suggestion.id}/dismiss/")
+        repeated = self.client.post(f"{self.base_url}/suggested_dashboards/{suggestion.id}/dismiss/")
+        if rejected:
+            reject(template=template, user=self.user)
+            MetricsDashboardTemplate.objects.filter(id=template.id).update(status="approved")
+        for keys in analyses:
+            answer = self._answer(suggested=[{"key": key, "reason": "Queue depth and wait"} for key in keys])
+            with patch("products.metrics.backend.suggested_dashboards.analysis.ask_model", return_value=answer):
+                analyze_team(self.team.id, force=True)
+        listed = self.client.get(f"{self.base_url}/suggested_dashboards/")
+        created = self.client.post(f"{self.base_url}/suggested_dashboards/{suggestion.id}/dashboard/")
+
+        assert (dismissed.status_code, repeated.status_code) == (
+            status.HTTP_204_NO_CONTENT,
+            status.HTTP_204_NO_CONTENT,
+        )
+        assert listed.json() == []
+        assert created.status_code == status.HTTP_404_NOT_FOUND
+
+    @parameterized.expand(
+        [
+            ("dismissing_a_suggestion_that_an_analysis_removed", "dismiss", "0b5e7c3a-2f1d-4c8e-9a6b-3d2f1e0c9b8a"),
+            ("dismissing_with_an_id_that_is_not_a_uuid", "dismiss", "-" * 36),
+            ("creating_with_an_id_that_is_not_a_uuid", "dashboard", "-" * 36),
+        ]
+    )
+    def test_a_suggestion_that_does_not_exist_returns_not_found(self, _name: str, action: str, pk: str) -> None:
+        response = self.client.post(f"{self.base_url}/suggested_dashboards/{pk}/{action}/")
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
     def test_a_suggested_dashboard_gets_the_variables_of_its_tiles(self) -> None:
         template = _template("mixed", "approved", "orders_total", "unknown_total")
         _with_variable_filter(template.panels[0], "instance")
@@ -167,6 +213,7 @@ class TestSuggestedDashboardsAPI(APIBaseTest):
         dashboard = Dashboard.objects.get(id=response.json()["dashboard_id"])
         assert dashboard.filters["metricVariables"] == [template.variables[0]]
         assert dashboard.filters["metricVariables"][0]["current"] == {"values": [], "all": True}
+        assert dashboard.filters["date_from"] == "-1h"
 
     def test_suggestions_need_the_feature_flag(self) -> None:
         self.flags.discard("metrics-suggested-dashboards")
@@ -313,6 +360,9 @@ class TestSuggestedDashboardsAPI(APIBaseTest):
             ("rejecting_a_curated_one", "reject", "approved", "curated"),
             ("rejecting_one_still_generating", "reject", "generating", "generated"),
             ("approving_a_withdrawn_curated_one", "approve", "rejected", "curated"),
+            ("regenerating_a_curated_one", "regenerate", "rejected", "curated"),
+            ("regenerating_one_still_generating", "regenerate", "generating", "generated"),
+            ("regenerating_an_approved_one", "regenerate", "approved", "generated"),
         ]
     )
     def test_a_template_that_cannot_be_reviewed(
@@ -327,6 +377,75 @@ class TestSuggestedDashboardsAPI(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         template.refresh_from_db()
         assert template.status == template_status
+
+    @parameterized.expand(
+        [
+            ("started", None, None, 200, "generating"),
+            ("not_started", RuntimeError, False, 400, "failed"),
+            ("started_but_the_answer_was_lost", RuntimeError, True, 200, "generating"),
+            ("unknown", RuntimeError, None, 400, "generating"),
+        ]
+    )
+    def test_regenerating_discards_the_panels_and_starts_again_from_the_requested_metrics(
+        self,
+        _name: str,
+        start_error: type[Exception] | None,
+        running: bool | None,
+        expected_code: int,
+        expected_status: str,
+    ) -> None:
+        self.user.is_staff = True
+        self.user.save(update_fields=["is_staff"])
+        preview = Dashboard.objects.create(
+            team=self.team, name="Preview", creation_mode=Dashboard.CreationMode.UNLISTED
+        )
+        template = _template("generated-queue", "rejected", "queue_depth", source="generated")
+        template.source_team_id = self.team.id
+        template.preview_team_id, template.preview_dashboard_id = self.team.id, preview.id
+        template.generation = {"requested_name": "Job queue", "requested_metric_names": QUEUE_METRICS}
+        template.save()
+
+        with (
+            patch("products.metrics.backend.temporal.schedule.start_regeneration", side_effect=start_error) as start,
+            patch(
+                "products.metrics.backend.temporal.schedule.generation_running",
+                side_effect=lambda key, started_after=None: running if started_after else False,
+            ),
+            patch("products.metrics.backend.suggested_dashboards.generation.ph_background_capture"),
+        ):
+            response = self.client.post(f"{self.base_url}/dashboard_templates/{template.id}/regenerate/")
+
+        assert response.status_code == expected_code
+        start.assert_called_once()
+        team_id, template_id, request = start.call_args.args
+        assert (team_id, template_id, request.key, request.metric_names) == (
+            self.team.id,
+            str(template.id),
+            "generated-queue",
+            QUEUE_METRICS,
+        )
+        saved = MetricsDashboardTemplate.objects.get(id=template.id)
+        assert (saved.status, saved.panels, saved.name) == (expected_status, [], "Job queue")
+        assert saved.preview_dashboard_id is None
+        assert not Dashboard.objects.filter(id=preview.id, deleted=False).exists()
+
+    def test_regenerating_waits_for_the_previous_run_to_close(self) -> None:
+        self.user.is_staff = True
+        self.user.save(update_fields=["is_staff"])
+        template = _template("generated-queue", "pending_review", "queue_depth", source="generated")
+        template.source_team_id = self.team.id
+        template.save(update_fields=["source_team_id"])
+
+        with (
+            patch("products.metrics.backend.temporal.schedule.generation_running", return_value=True),
+            patch("products.metrics.backend.temporal.schedule.start_regeneration") as start,
+        ):
+            response = self.client.post(f"{self.base_url}/dashboard_templates/{template.id}/regenerate/")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        start.assert_not_called()
+        template.refresh_from_db()
+        assert (template.status, len(template.panels)) == ("pending_review", 1)
 
     def test_a_curated_template_comes_back_with_its_file(self) -> None:
         sync_curated_templates()

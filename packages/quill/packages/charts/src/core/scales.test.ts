@@ -253,6 +253,22 @@ describe('hog-charts scales', () => {
             expect(scale.domain()).toEqual([0, 40])
         })
 
+        // A log domain can't hold zero, so a non-positive end is dropped and the axis stays logarithmic.
+        it.each([
+            ['both ends positive', { min: 1, max: 100 }],
+            ['a zero min', { min: 0, max: 100 }],
+        ])('keeps a log scale with %s', (_name, valueDomain) => {
+            const series = [makeSeries({ key: 's1', data: [1, 10, 100] })]
+            const scale = createYScale(series, dimensions, { scaleType: 'log', valueDomain })
+            expect(scale(10)).toBeCloseTo((scale(1) + scale(100)) / 2)
+        })
+
+        it('maps a value past a pinned log domain off the plot, so overlays can hide it', () => {
+            const series = [makeSeries({ key: 's1', data: [1, 10, 100] })]
+            const scale = createYScale(series, dimensions, { scaleType: 'log', valueDomain: { min: 1, max: 100 } })
+            expect(scale(1000)).toBeLessThan(dimensions.plotTop)
+        })
+
         it('takes precedence over percent stack mode', () => {
             const series = [makeSeries({ key: 's1', data: [10, 20, 30] })]
             const scale = createYScale(series, dimensions, { percentStack: true, valueDomain: { min: 0, max: 200 } })
@@ -673,6 +689,17 @@ describe('hog-charts scales', () => {
             expect(() => computePercentStackData(series, ['a', 'b'])).not.toThrow()
         })
 
+        it('keeps a non-finite value as a gap and leaves the other shares intact', () => {
+            const s1 = makeSeries({ key: 's1', data: [30] })
+            const s2 = makeSeries({ key: 's2', data: [Infinity] })
+            const s3 = makeSeries({ key: 's3', data: [70] })
+            const result = computePercentStackData([s1, s2, s3], ['a'])
+
+            expect(result.get('s1')).toEqual({ top: [0.3], bottom: [0] })
+            expect(result.get('s2')).toEqual({ top: [NaN], bottom: [NaN] })
+            expect(result.get('s3')).toEqual({ top: [1], bottom: [0.3] })
+        })
+
         it.each(['s1', 's2'])('replaces NaN with 0 for series %s in an all-zero column', (key) => {
             const s1 = makeSeries({ key: 's1', data: [10, 0, 30] })
             const s2 = makeSeries({ key: 's2', data: [20, 0, 40] })
@@ -730,6 +757,16 @@ describe('hog-charts scales', () => {
             expect(result.get('s2')!.bottom).toEqual([10])
             expect(result.get('s3')!.top).toEqual([60])
             expect(result.get('s3')!.bottom).toEqual([30])
+        })
+
+        it('keeps a non-finite value as a gap and stacks the series above it on what is below', () => {
+            const s1 = makeSeries({ key: 's1', data: [10, 20] })
+            const s2 = makeSeries({ key: 's2', data: [NaN, 5] })
+            const s3 = makeSeries({ key: 's3', data: [3, 3] })
+            const result = computeStackData([s1, s2, s3], ['a', 'b'])
+
+            expect(result.get('s2')).toEqual({ top: [NaN, 25], bottom: [NaN, 20] })
+            expect(result.get('s3')).toEqual({ top: [13, 28], bottom: [10, 25] })
         })
 
         it('stacks a series whose key collides with Object.prototype (e.g. __proto__)', () => {

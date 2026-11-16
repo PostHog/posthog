@@ -120,6 +120,24 @@ class TestMetricAttributesAPI(ClickhouseTestMixin, APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert [r["name"] for r in response.json()["results"]] == ["prod"]
 
+    @parameterized.expand(
+        [
+            ("matching_metric", "http_requests", "region", ["us"]),
+            ("other_metric", "queue_depth", "region", []),
+            ("service_name_matching_metric", "http_requests", "service_name", ["checkout", "billing"]),
+            ("service_name_unknown_metric", "missing_metric", "service_name", []),
+        ]
+    )
+    def test_attribute_values_metric_name_limits_values_to_that_metric(
+        self, _name: str, metric_name: str, key: str, expected: list[str]
+    ) -> None:
+        response = self._get(
+            "attribute_values",
+            {"key": key, "metricName": metric_name, "dateFrom": (self.now - dt.timedelta(hours=6)).isoformat()},
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert [r["name"] for r in response.json()["results"]] == expected
+
     @parameterized.expand([("underscore_spelling", "service_name"), ("dotted_spelling", "service.name")])
     def test_attribute_values_for_service_name_read_the_column(self, _name: str, key: str) -> None:
         response = self._get("attribute_values", {"key": key})
@@ -174,12 +192,17 @@ class TestMetricAttributeDistinctValuesAPI(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("no_search", "", ["service.name", "env"]),
-            ("underscore_search", "service_name", ["service.name"]),
-            ("dotted_search", "service.name", ["service.name"]),
+            ("no_search", "job.duration", "", ["service.name", "env"]),
+            ("underscore_search", "job.duration", "service_name", ["service.name"]),
+            ("dotted_search", "job.duration", "service.name", ["service.name"]),
+            ("project_wide_no_search", "", "", ["service.name", "env"]),
+            ("project_wide_underscore_search", "", "service_name", ["service.name"]),
+            ("project_wide_dotted_search", "", "service.name", ["service.name"]),
         ]
     )
-    def test_service_name_resource_attribute_is_listed_once(self, _name: str, search: str, expected: list[str]) -> None:
+    def test_service_name_resource_attribute_is_listed_once(
+        self, _name: str, metric_name: str, search: str, expected: list[str]
+    ) -> None:
         truncate_metrics_tables()
         now = timezone.now().replace(second=0, microsecond=0)
         for service in ("checkout", "billing"):
@@ -193,8 +216,45 @@ class TestMetricAttributeDistinctValuesAPI(ClickhouseTestMixin, APIBaseTest):
             )
 
         response = self.client.get(
-            f"/api/projects/{self.team.id}/metrics/attributes/", {"metricName": "job.duration", "search": search}
+            f"/api/projects/{self.team.id}/metrics/attributes/", {"metricName": metric_name, "search": search}
         )
 
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert [r["name"] for r in response.json()["results"]] == expected
+
+    @parameterized.expand(
+        [
+            ("one_metric", "job.duration", "service_name"),
+            ("project_wide", "", "service_name"),
+            ("project_wide_dotted_datapoint_label", "", "service.name"),
+        ]
+    )
+    def test_services_without_dotted_resource_attribute_keep_one_synthetic_key(
+        self, _name: str, metric_name: str, datapoint_service_key: str
+    ) -> None:
+        truncate_metrics_tables()
+        now = timezone.now().replace(second=0, microsecond=0)
+        seed_metric(
+            team_id=self.team.id,
+            metric_name="job.duration",
+            service_name="checkout",
+            points=[(now - dt.timedelta(minutes=2), 1.0)],
+            labels={"env": "prod"},
+            resource_labels={"service.name": "checkout"},
+        )
+        seed_metric(
+            team_id=self.team.id,
+            metric_name="job.duration",
+            service_name="billing",
+            points=[(now - dt.timedelta(minutes=2), 1.0)],
+            labels={"env": "prod", datapoint_service_key: "billing"},
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/metrics/attributes/", {"metricName": metric_name})
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["results"] == [
+            {"name": "env", "value_count": 1},
+            {"name": "service.name", "value_count": 1},
+            {"name": "service_name", "value_count": 1},
+        ]

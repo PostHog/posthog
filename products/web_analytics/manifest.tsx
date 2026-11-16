@@ -1,3 +1,5 @@
+import { combineUrl } from 'kea-router'
+
 import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
@@ -7,12 +9,10 @@ import { FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
 
 export const manifest: ProductManifest = {
     name: 'Web Analytics',
-    // Boot-time approximation of webVitalsSetupLogic - this gates only the web
-    // vitals tab, not the analytics tabs. The in-scene check stays the source of
-    // truth (it also reads the autocapture opt-in for the waiting state).
+    // Boot-time approximation of webAnalyticsSetupLogic.
     setupProbe: {
         productKey: ProductKey.WEB_ANALYTICS,
-        hasDataEvents: ['$web_vitals'],
+        hasDataEvents: ['$pageview'],
     },
     urls: {
         webAnalytics: (): string => `/web`,
@@ -21,8 +21,8 @@ export const manifest: ProductManifest = {
         webAnalyticsMarketing: (): string => `/web/marketing`,
         webAnalyticsHealth: (): string => `/web/health`,
         webAnalyticsLive: (): string => `/web/live`,
-        webAnalyticsBotAnalytics: (): string => `/web/bot-analytics`,
-        webAnalyticsContentAutopilot: (): string => `/web/content-autopilot`,
+        webAnalyticsContentAutopilot: (): string => `/web/ai-visibility`,
+        webAnalyticsContentAutopilotPrompt: (id: string): string => `/web/ai-visibility/prompts/${id}`,
         heatmaps: (params?: string): string =>
             `/heatmaps${params ? `?${params.startsWith('?') ? params.slice(1) : params}` : ''}`,
         heatmapNew: (params?: string): string =>
@@ -60,11 +60,20 @@ export const manifest: ProductManifest = {
         },
     },
     routes: {
-        '/web/content-autopilot': ['WebAnalytics', 'webAnalyticsContentAutopilot'],
+        '/web/ai-visibility': ['WebAnalytics', 'webAnalyticsContentAutopilot'],
+        '/web/ai-visibility/prompts/:promptId': ['WebAnalytics', 'webAnalyticsContentAutopilotPrompt'],
         '/heatmaps': ['Heatmaps', 'heatmaps'],
         '/heatmaps/new': ['HeatmapNew', 'heatmapNew'],
         '/heatmaps/recording': ['HeatmapRecording', 'heatmapRecording'],
         '/heatmaps/:id': ['Heatmap', 'heatmap'],
+    },
+    // AI visibility used to live under its old content autopilot path, and bots had a tab inside it.
+    redirects: {
+        '/web/content-autopilot': (_, searchParams) =>
+            combineUrl(urls.webAnalyticsContentAutopilot(), searchParams).url,
+        '/web/content-autopilot/prompts/:promptId': ({ promptId }, searchParams) =>
+            combineUrl(urls.webAnalyticsContentAutopilotPrompt(promptId ?? ''), searchParams).url,
+        '/web/bots': () => urls.webAnalyticsContentAutopilot(),
     },
     fileSystemTypes: {},
     treeItemsProducts: [
@@ -73,7 +82,10 @@ export const manifest: ProductManifest = {
             intents: [ProductKey.WEB_ANALYTICS],
             category: ProductItemCategory.ANALYTICS,
             iconType: 'web_analytics',
-            iconColor: ['var(--color-product-web-analytics-light)'] as FileSystemIconColor,
+            iconColor: [
+                'var(--color-product-web-analytics-light)',
+                'var(--color-product-web-analytics-dark)',
+            ] as FileSystemIconColor,
             href: urls.webAnalytics(),
             searchKeywords: ['traffic', 'pageviews', 'visitors', 'bounce rate', 'referrers'],
             searchTabs: [
@@ -81,9 +93,13 @@ export const manifest: ProductManifest = {
                 { name: 'Page reports', href: urls.webAnalyticsPageReports() },
                 { name: 'Live', href: urls.webAnalyticsLive() },
                 { name: 'Installation health', href: urls.webAnalyticsHealth() },
-                { name: 'Bots', href: urls.webAnalyticsBotAnalytics(), flag: FEATURE_FLAGS.WEB_ANALYTICS_BOT_ANALYSIS },
                 {
-                    name: 'Search & AI',
+                    name: 'AI visibility',
+                    href: urls.webAnalyticsContentAutopilot(),
+                    flag: FEATURE_FLAGS.WEB_ANALYTICS_CONTENT_AUTOPILOT,
+                },
+                {
+                    name: 'AI traffic',
                     href: urls.webAnalyticsPagePerformance(),
                     flag: FEATURE_FLAGS.WEB_ANALYTICS_PAGE_PERFORMANCE,
                 },

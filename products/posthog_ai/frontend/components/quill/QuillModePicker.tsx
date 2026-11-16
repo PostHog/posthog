@@ -15,6 +15,8 @@ import {
     MenuLabel,
 } from '@posthog/quill-primitives'
 
+import { cn } from 'lib/utils/css-classes'
+
 import { TodaySheetMenu } from '~/layout/today/TodaySheetMenu'
 import { todayShellLogic } from '~/layout/today/todayShellLogic'
 
@@ -23,6 +25,8 @@ import {
     CodexTaskRunCreateSchemaInitialPermissionModeEnumApi,
     InitialPermissionModeEnumApi,
 } from 'products/tasks/frontend/generated/api.schemas'
+
+import { COMPOSER_MENU_CLASS } from './composerMenuClass'
 
 const UNSUPERVISED_MODES: PermissionMode[] = [
     InitialPermissionModeEnumApi.BypassPermissions,
@@ -40,6 +44,7 @@ export function QuillModePicker({ selectedMode, onModeChange, modes }: QuillMode
     const options = modes.flatMap((mode) => MODE_OPTIONS.filter((option) => option.value === mode))
     const selectedLabel = getModeOption(selectedMode)?.label ?? 'Mode'
     const unsupervised = UNSUPERVISED_MODES.includes(selectedMode)
+    const riskFill = unsupervised ? 'bg-[color-mix(in_oklab,var(--destructive)_30%,transparent)]' : undefined
     const { todayRailEnabled, phoneLayout } = useValues(todayShellLogic)
 
     if (todayRailEnabled && phoneLayout) {
@@ -49,6 +54,7 @@ export function QuillModePicker({ selectedMode, onModeChange, modes }: QuillMode
                     type="button"
                     variant={unsupervised ? 'destructive' : 'default'}
                     size="lg"
+                    className={riskFill}
                     aria-label="Mode"
                     title={selectedLabel}
                     onClick={() => setOpen(true)}
@@ -85,6 +91,7 @@ export function QuillModePicker({ selectedMode, onModeChange, modes }: QuillMode
                         type="button"
                         variant={unsupervised ? 'destructive' : 'default'}
                         size="sm"
+                        className={riskFill}
                         aria-label="Mode"
                         title={selectedLabel}
                     >
@@ -92,7 +99,12 @@ export function QuillModePicker({ selectedMode, onModeChange, modes }: QuillMode
                     </Button>
                 }
             />
-            <DropdownMenuContent align="start" side="top" sideOffset={6} className="min-w-[200px]">
+            <DropdownMenuContent
+                align="start"
+                side="top"
+                sideOffset={6}
+                className={cn('min-w-[200px]', COMPOSER_MENU_CLASS)}
+            >
                 <MenuLabel>Mode</MenuLabel>
                 <DropdownMenuRadioGroup
                     value={selectedMode}

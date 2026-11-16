@@ -2,7 +2,7 @@ import '@testing-library/jest-dom'
 
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 
-import { getHogChart, mockRect, setupJsdom, setupSyncRaf, waitForHogChartTooltip } from '@posthog/quill-charts/testing'
+import { getChart, mockRect, setupJsdom, setupSyncRaf, waitForChartTooltip } from '@posthog/quill-charts/testing'
 
 import { ChartSettings } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
@@ -87,7 +87,7 @@ describe('SqlProportionBar', () => {
         const props = partCount ? withParts(partCount) : barProps(chartSettings, [40, 30, 20, 10])
         const { container } = render(<SqlProportionBar {...props} />)
 
-        const legendRows = getHogChart(container).legendItems()
+        const legendRows = getChart(container).legendItems()
         expect(legendRows.map((row) => row.secondaryLabel)).toEqual(expectedShares)
         expect(screen.queryByText('100') !== null).toBe(showsTotal)
     })
@@ -96,9 +96,9 @@ describe('SqlProportionBar', () => {
         const props = barProps({}, [0.2, 0.2])
         props.yData[0].settings = { formatting: { style: 'percent' } }
         const { container } = render(<SqlProportionBar {...props} />)
-        const chart = getHogChart(container)
+        const chart = getChart(container)
 
-        const tooltip = await waitForHogChartTooltip(3000, () =>
+        const tooltip = await waitForChartTooltip(3000, () =>
             fireEvent.mouseMove(chart.element, { clientX: mockRect.width / 4, clientY: mockRect.height / 2 })
         )
 

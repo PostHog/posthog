@@ -53,7 +53,7 @@ from posthog.schema import QueryStatus
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.errors import ExposedHogQLError
+from posthog.hogql.errors import ExposedHogQLError, QueryError
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import HogQLQueryExecutor
 from posthog.hogql.visitor import clone_expr
@@ -62,16 +62,18 @@ from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import (
     ClickHouseCredentials,
     ClickHouseUser,
+    events_cluster_http_url,
     get_clickhouse_creds,
     get_kwargs_for_client,
     is_file_backed_user,
     make_ch_pool,
+    query_cluster_name,
 )
 from posthog.clickhouse.client.execute import kill_switch_overrides
 from posthog.clickhouse.client.execute_async import QueryNotFoundError, QueryStatusManager, get_query_status
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded, ConcurrencySlot, RateLimit
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
-from posthog.clickhouse.workload import Workload
+from posthog.clickhouse.workload import PINNED_CLUSTER_WORKLOADS, Workload
 from posthog.dataclasses import frozen
 from posthog.errors import ExposedCHQueryError, InternalCHQueryError
 from posthog.exceptions import (
@@ -156,6 +158,9 @@ _QUERY_SIZE_MESSAGE = "The query is too large to materialize. Simplify it (e.g. 
 _RESULT_SIZE_MESSAGE = (
     "The materialized result is too large (over the frame size budget). "
     "Select fewer columns or aggregate before materializing."
+)
+_LOGS_CLUSTER_MESSAGE = (
+    "Notebooks can't load logs, trace spans, or metrics yet. Run this query in the SQL editor instead."
 )
 _MID_STREAM_ERROR_MESSAGE = "The query failed while its result was streaming. Adjust it and re-run."
 # ClickHouse exception codes worth a specific user-facing message when a query dies
@@ -432,6 +437,10 @@ def _generate_sql(
     context.values.clear()
     sql, resolved = executor.generate_clickhouse_sql()
     seconds = time.perf_counter() - started
+    # Both write paths connect to the main cluster, and logs and metrics tables exist only on their
+    # own clusters. Fail before the DESCRIBE so the user sees why, not an unknown-table error.
+    if resolved.workload in PINNED_CLUSTER_WORKLOADS:
+        raise QueryError(_LOGS_CLUSTER_MESSAGE)
     # The executor keeps the database it built on its own `dataclasses.replace` copy, so
     # without this hand-back the shared context still looks empty and the next pass builds a
     # second one. It resets the per-execution state it shares by reference, so a database
@@ -681,7 +690,7 @@ def _execute_insert_to_s3(team: Team, user: User | None, query: str, key: str) -
     """Materialize by having ClickHouse write the object itself.
 
     Runs through the pooled native clients (sync_execute) with a bounded socket timeout:
-    offline workload and hedging hygiene come from the workload routing, errors arrive
+    the offline workload comes from the workload routing, errors arrive
     in-band and typed, and no result bytes transit the worker — so the streaming path's
     EOS-marker check and query_log recovery have no equivalent here.
     """
@@ -788,7 +797,7 @@ class _ArrowTailReader:
         return chunk
 
 
-def _fetch_query_log_exception(ch_query_id: str) -> tuple[int, str] | None:
+def _fetch_query_log_exception(ch_query_id: str, workload: Workload, team_id: int) -> tuple[int, str] | None:
     """Best-effort lookup of a failed query's exception in system.query_log.
 
     Returns (exception_code, exception_message), or None when no exception entry appears
@@ -817,7 +826,9 @@ def _fetch_query_log_exception(ch_query_id: str) -> tuple[int, str] | None:
                 ORDER BY event_time DESC
                 LIMIT 1
                 """,
-                {"cluster": settings.CLICKHOUSE_CLUSTER, "query_id": ch_query_id},
+                {"cluster": query_cluster_name(workload, team_id), "query_id": ch_query_id},
+                workload=workload,
+                team_id=team_id,
             )
         except Exception as exc:
             # A broken lookup silently downgrades error classification (deterministic
@@ -837,7 +848,7 @@ def materialize_frame(inputs: FrameMaterializeInputs) -> str:
     """
     # The new flow rides one flag, resolved per user in the web process and carried on the
     # job. Off, this run is the path that has been serving frames all along: interactive
-    # pool, default credentials, hedging left alone.
+    # pool, default credentials.
     offline = inputs.ch_writes
     # Dedicated `notebooks` CH user (server-side profile/quota backstop no application
     # bug can exceed); falls back to the default credentials where not provisioned.
@@ -853,12 +864,17 @@ def materialize_frame(inputs: FrameMaterializeInputs) -> str:
             query_id=inputs.query_id,
         )
     mode = "ch_writes" if ch_writes else "streaming"
-    ch_url = settings.CLICKHOUSE_OFFLINE_HTTP_URL if offline else settings.CLICKHOUSE_HTTP_URL
+    stream_workload = Workload.OFFLINE if offline else Workload.ONLINE
+    ch_url = events_cluster_http_url(stream_workload, inputs.team_id) or (
+        settings.CLICKHOUSE_OFFLINE_HTTP_URL if offline else settings.CLICKHOUSE_HTTP_URL
+    )
     # Reports where the query actually went, not what the flag asked for, and the two paths
     # answer that differently: sync_execute keys on the offline host being set at all, while
     # the HTTP client's URL collapses to the online one under TEST/DEBUG as well.
     pool_offline = (
-        settings.CLICKHOUSE_OFFLINE_CLUSTER_HOST is not None if ch_writes else ch_url != settings.CLICKHOUSE_HTTP_URL
+        settings.CLICKHOUSE_OFFLINE_CLUSTER_HOST is not None
+        if ch_writes
+        else offline and ch_url != settings.CLICKHOUSE_HTTP_URL
     )
     FRAME_MATERIALIZATIONS_STARTED_COUNTER.labels(
         ch_user="notebooks" if not resolved_default_user else "default",
@@ -931,14 +947,6 @@ def materialize_frame(inputs: FrameMaterializeInputs) -> str:
                         max_result_bytes=_MAX_RESULT_BYTES,
                         result_overflow_mode="throw",
                     )
-                    if offline:
-                        # sync_execute's offline hygiene, and only meaningful off the
-                        # interactive pool: without it, distributed subqueries of a saturated
-                        # offline query hedge onto online replicas, bleeding the whale back
-                        # into the pool this move protects. Set after construction rather than
-                        # as a kwarg so the online path sends no such setting at all, exactly
-                        # as it did before this flag existed.
-                        client.params["use_hedged_requests"] = "0"
                     printed = _print_clickhouse_sql(
                         lambda sql, sql_values: _describe_columns(client, sql, sql_values, ch_query_id),
                         team,
@@ -1112,7 +1120,7 @@ def materialize_frame(inputs: FrameMaterializeInputs) -> str:
             # closed cleanly without the EOS marker (corrupt object, deleted above). Recover
             # the real error from the query log: a query-side exception is deterministic for
             # an identical retry, so surface it and stop instead of re-running the scan.
-            logged = _fetch_query_log_exception(ch_query_id)
+            logged = _fetch_query_log_exception(ch_query_id, stream_workload, inputs.team_id)
             if logged is None:
                 raise  # no query-side exception found — plausibly transient, retry per policy
             exception_code, exception_message = logged

@@ -12,7 +12,9 @@ import { z } from 'zod'
 
 import {
     castBooleanToString,
+    castObjectToJsonString,
     castStringToInt,
+    castSyncFrequency,
     normalizeParamAliases,
     readParamAliases,
 } from '../../src/tools/cast-helpers'
@@ -62,6 +64,33 @@ describe('castStringToInt', () => {
     })
 })
 
+describe('castObjectToJsonString', () => {
+    const schema = z.preprocess(castObjectToJsonString, z.string())
+
+    it('JSON-encodes a plain object', () => {
+        expect(schema.parse({ date_from: '-24h' })).toBe('{"date_from":"-24h"}')
+    })
+
+    it('gives the same value for an object and its JSON-encoded string', () => {
+        expect(schema.parse({ date_from: '-1h', date_to: null })).toBe(
+            schema.parse(JSON.stringify({ date_from: '-1h', date_to: null }))
+        )
+    })
+
+    it('passes through strings untouched', () => {
+        expect(schema.parse('{"date_from": "-1h"}')).toBe('{"date_from": "-1h"}')
+    })
+
+    it.each([
+        ['array', ['-1h']],
+        ['number', 7],
+        ['boolean', true],
+        ['null', null],
+    ] as const)('passes non-object input through to zod: %s', (_label, input) => {
+        expect(() => schema.parse(input)).toThrow()
+    })
+})
+
 describe('castBooleanToString', () => {
     const schema = z.preprocess(castBooleanToString, z.string())
 
@@ -81,6 +110,65 @@ describe('castBooleanToString', () => {
         ['null', null],
         ['empty array', []],
     ] as const)('rejects non-boolean, non-string input: %s', (_label, input) => {
+        expect(() => schema.parse(input)).toThrow()
+    })
+})
+
+describe('castSyncFrequency', () => {
+    const CANONICAL = ['5min', '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day'] as const
+    const schema = z.preprocess(castSyncFrequency, z.enum(CANONICAL))
+
+    it.each(CANONICAL.map((value) => [value, value] as const))('keeps the canonical value %s', (input, expected) => {
+        expect(schema.parse(input)).toBe(expected)
+    })
+
+    it.each([
+        ['hourly', '1hour'],
+        ['daily', '24hour'],
+        ['weekly', '7day'],
+        ['monthly', '30day'],
+        ['1h', '1hour'],
+        ['1hr', '1hour'],
+        ['60min', '1hour'],
+        ['60m', '1hour'],
+        ['60 minutes', '1hour'],
+        ['1day', '24hour'],
+        ['1d', '24hour'],
+        ['24h', '24hour'],
+        ['24hours', '24hour'],
+        ['1440min', '24hour'],
+        ['1week', '7day'],
+        ['1w', '7day'],
+        ['7d', '7day'],
+        ['1month', '30day'],
+        ['30d', '30day'],
+        ['5m', '5min'],
+        ['15 min', '15min'],
+        ['6h', '6hour'],
+        ['12h', '12hour'],
+        ['every 6 hours', '6hour'],
+        ['1_hour', '1hour'],
+        ['  Daily  ', '24hour'],
+        ['DAILY', '24hour'],
+    ] as const)('maps %s to %s', (input, expected) => {
+        expect(schema.parse(input)).toBe(expected)
+    })
+
+    it.each([
+        ['fortnightly'],
+        ['2h'],
+        ['1min'],
+        ['90min'],
+        ['never'],
+        [''],
+        [60],
+        [null],
+        ['-5min'],
+        ['+5min'],
+        ['1-2h'],
+        ['5-15min'],
+        ['9'.repeat(5000) + 'min'],
+    ] as const)('rejects %s so the enum check still reports the valid values', (input) => {
         expect(() => schema.parse(input)).toThrow()
     })
 })

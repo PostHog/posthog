@@ -6,6 +6,8 @@ from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _
 
 from django.test import override_settings
 
+from parameterized import parameterized
+
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
 
@@ -23,6 +25,7 @@ from products.web_analytics.backend.hogql_queries.web_dimensional_precompute imp
     DIMENSIONAL_TTL_SECONDS,
     STATS_INSERT_TEMPLATE,
     _base_placeholders,
+    dimensional_ttl_schedule,
     ensure_web_bounces_dimensional_precomputed,
     ensure_web_stats_dimensional_precomputed,
 )
@@ -137,6 +140,47 @@ class TestWebDimensionalPrecompute(ClickhouseTestMixin, APIBaseTest):
         # No new jobs created — the window is already fresh.
         assert jobs_after_second == jobs_after_first
         assert set(second.job_ids) == set(first.job_ids)
+
+    @parameterized.expand(
+        [
+            ("bounce_duration", {"bounceRateDurationSeconds": 30}),
+            ("bounce_page_view_mode", {"bounceRatePageViewMode": "uniq_urls"}),
+            ("sessions_join_mode", {"sessionsV2JoinMode": "string"}),
+            # Never the team default, so the change is real in every persons-on-events CI mode.
+            ("persons_on_events_mode", {"personsOnEventsMode": "disabled"}),
+            ("materialization_mode", {"materializationMode": "legacy_null_as_string"}),
+        ]
+    )
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
+    def test_a_team_settings_change_misses_the_existing_jobs(self, _name: str, team_modifiers: dict):
+        self._seed_two_sessions()
+        built = ensure_web_bounces_dimensional_precomputed(self.team, WINDOW_START, WINDOW_END)
+        assert built.ready
+
+        self.team.modifiers = team_modifiers
+        self.team.save()
+        after_change = ensure_web_bounces_dimensional_precomputed(
+            self.team, WINDOW_START, WINDOW_END, run_inserts=False
+        )
+
+        assert not after_change.ready
+        assert after_change.job_ids == []
+
+    @parameterized.expand([("UTC",), ("Pacific/Honolulu",), ("Asia/Tokyo",)])
+    def test_current_utc_day_refreshes_hourly_in_any_team_timezone(self, timezone: str):
+        # 16:00 UTC is after local midnight in both non-UTC zones, so team-timezone TTL bands would
+        # put the current UTC day in the 1-day band and skip the second build.
+        self.team.timezone = timezone
+        self.team.save()
+        today_start, today_end = datetime(2024, 1, 15, tzinfo=UTC), datetime(2024, 1, 16, tzinfo=UTC)
+
+        with time_machine.travel("2024-01-15T16:00:00Z", tick=False):
+            first = ensure_web_stats_dimensional_precomputed(self.team, today_start, today_end)
+        with time_machine.travel("2024-01-15T17:01:00Z", tick=False):
+            second = ensure_web_stats_dimensional_precomputed(self.team, today_start, today_end)
+
+        assert first.ready and second.ready
+        assert set(second.job_ids).isdisjoint(first.job_ids)
 
     @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_bounces_ensure_creates_jobs_and_correct_totals(self):
@@ -279,7 +323,7 @@ class TestColdBackfillSplitsByTtlBandNotPerDay(unittest.TestCase):
         # DIMENSIONAL_TTL_SECONDS has 3 entries (0d / 2d / default) -> 3 INSERTs,
         # oldest first. NOT 90.
         ttls = [ttl for _s, _e, ttl in bands]
-        assert ttls == [90 * 86400, 86400, 3600]
+        assert ttls == [90 * 86400, 86400, 45 * 60]
 
         # The bulk of history is ONE query covering many days, not one-per-day.
         oldest_start, oldest_end, _ = bands[0]
@@ -289,6 +333,18 @@ class TestColdBackfillSplitsByTtlBandNotPerDay(unittest.TestCase):
         for (_s1, e1, _t1), (s2, _e2, _t2) in zip(bands, bands[1:]):
             assert e1 == s2
         assert sum((e - s).days for s, e, _ in bands) >= 90
+
+    @time_machine.travel("2024-06-15T12:00:00Z", tick=False)
+    def test_older_days_refresh_on_spread_out_runs(self):
+        schedule = dimensional_ttl_schedule()
+        old_days = [datetime(2024, 4, 1, tzinfo=UTC) + timedelta(days=offset) for offset in range(30)]
+
+        ttls = [schedule.get_ttl(day, jittered=True) for day in old_days]
+
+        assert all(90 * 86400 <= ttl < 97 * 86400 for ttl in ttls)
+        # A backfill builds every day in one run. Days that kept one TTL would all expire, and be
+        # rebuilt, on the same later run.
+        assert len(set(ttls)) > 20
 
     @time_machine.travel("2024-06-15T12:00:00Z", tick=False)
     def test_today_yesterday_7d_rest_schedule_is_four_bands(self):

@@ -53,7 +53,11 @@ class TestSignupEnrichmentSnapshot(BaseTest):
         pha_client.capture.assert_called_once_with(
             distinct_id="user-distinct-id",
             event=SNAPSHOT_EVENT_NAME,
-            properties={"company_type_at_signup": "startup", "headcount_at_signup": 42},
+            properties={
+                "company_type_at_signup": "startup",
+                "headcount_at_signup": 42,
+                "$update_person_last_seen_at": False,
+            },
             groups={"organization": str(self.organization.id)},
         )
         assert EnrichmentSignupSnapshot.objects.filter(organization_id=self.organization.id).count() == 1

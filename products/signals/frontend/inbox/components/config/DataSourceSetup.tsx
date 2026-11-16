@@ -18,15 +18,19 @@ export function DataSourceSetup({
     onComplete,
     onCancel,
     completing = false,
+    oauthRedirectUrl,
+    cancelLabel = 'Back to signals',
 }: {
     source: WarehouseBackedSource
     onComplete: () => void
     onCancel?: () => void
     completing?: boolean
+    oauthRedirectUrl?: string
+    cancelLabel?: string
 }): JSX.Element {
     const { availableSources, availableSourcesLoading } = useValues(availableSourcesLogic)
     const { load } = useActions(availableSourcesLogic)
-    const { dwSourceType, requiredTables } = WAREHOUSE_SOURCE_SETUP[source]
+    const { dwSourceType, requiredTables, requiredTableSyncType } = WAREHOUSE_SOURCE_SETUP[source]
 
     const sourceConfig = availableSources
         ? Object.values(availableSources).find((s: SourceConfigResponseApi) => s.name === dwSourceType)
@@ -36,7 +40,7 @@ export function DataSourceSetup({
             <div className="space-y-4">
                 {onCancel && (
                     <LemonButton type="tertiary" size="small" icon={<IconArrowLeft />} onClick={onCancel}>
-                        Back to signals
+                        {cancelLabel}
                     </LemonButton>
                 )}
                 {availableSourcesLoading ? (
@@ -59,10 +63,17 @@ export function DataSourceSetup({
             props={{
                 availableSources,
                 requiredTables,
+                requiredTableSyncType,
                 onComplete,
+                oauthRedirectUrl,
             }}
         >
-            <DataSourceSetupForm sourceConfig={sourceConfig} onCancel={onCancel} completing={completing} />
+            <DataSourceSetupForm
+                sourceConfig={sourceConfig}
+                onCancel={onCancel}
+                cancelLabel={cancelLabel}
+                completing={completing}
+            />
         </BindLogic>
     )
 }
@@ -70,10 +81,12 @@ export function DataSourceSetup({
 function DataSourceSetupForm({
     sourceConfig,
     onCancel,
+    cancelLabel,
     completing,
 }: {
     sourceConfig: SourceConfigResponseApi
     onCancel?: () => void
+    cancelLabel: string
     completing: boolean
 }): JSX.Element {
     const { isLoading, canGoNext } = useValues(sourceWizardLogic)
@@ -93,7 +106,7 @@ function DataSourceSetupForm({
                     onClick={onCancel}
                     disabled={isLoading || completing}
                 >
-                    Back to signals
+                    {cancelLabel}
                 </LemonButton>
             )}
             <div className="flex items-center gap-3">

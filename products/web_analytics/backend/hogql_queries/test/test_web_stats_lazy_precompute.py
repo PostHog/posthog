@@ -219,7 +219,8 @@ class TestWebStatsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
     def test_lazy_matches_raw(self, _name: str, breakdown_by: WebStatsBreakdown):
         self._seed()
 
-        raw = self._metrics(self._run(self._build_query(breakdown_by=breakdown_by)))
+        raw_response = self._run(self._build_query(breakdown_by=breakdown_by))
+        raw = self._metrics(raw_response)
 
         with self._enable_lazy():
             lazy_response = self._run(self._build_query(breakdown_by=breakdown_by))
@@ -230,6 +231,8 @@ class TestWebStatsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         ).count()
         assert ready_jobs > 0, f"expected a READY precompute job for {breakdown_by}"
         assert lazy_response.preComputeStrategy == WebAnalyticsPreComputeStrategy.LAZY_PRECOMPUTE
+        assert lazy_response.preComputedAt == "2024-01-15T12:00:00+00:00"
+        assert raw_response.preComputedAt is None
         assert lazy == raw, f"lazy/raw mismatch for {breakdown_by}: raw={raw}, lazy={lazy}"
 
     @time_machine.travel("2024-01-15T12:00:00Z", tick=False)

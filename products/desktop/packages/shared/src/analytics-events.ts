@@ -355,6 +355,10 @@ export interface DesktopAccessScreenShownProperties {
   reason: "startup_plan" | "prepaid_credits" | null;
 }
 
+export interface DesktopAccessLinkOpenedProperties {
+  link: "games";
+}
+
 export type TaskListSurface = "sidebar" | "space" | "saved_search";
 
 export interface TaskListGroupingChangedProperties {
@@ -802,6 +806,7 @@ export type InboxReportActionType =
   | "reingest"
   | "implement"
   | "create_pr"
+  | "claim_dialog"
   | "refund"
   | "open_pr"
   | "open_task"
@@ -988,6 +993,12 @@ export interface InboxReportActionProperties {
   has_question?: boolean;
   // True when the user submitted Create PR with extra feedback via the popover.
   has_feedback?: boolean;
+  // What the claim asked of Create PR: start straight away, take over a teammate's claim, or confirm a run
+  // next to the user's own agent.
+  claim_step?: "start" | "take_over" | "confirm_own_agent";
+  // For `claim_dialog`: whether confirming starts a run, and whether the user confirmed.
+  starts_run?: boolean;
+  confirmed?: boolean;
 }
 
 export interface InboxReportActionResultProperties {
@@ -1269,6 +1280,8 @@ type ChannelActionType =
   | "expand_channel"
   | "activity_unreads_toggle"
   | "activity_mark_all_read"
+  | "mark_task_read"
+  | "mark_task_unread"
   | "activity_load_more";
 
 type TaskFeedActionType = "create" | "update" | "delete" | "open";
@@ -1845,6 +1858,7 @@ export const ANALYTICS_EVENTS = {
   CONTEXT_ACTION: "Context action",
   PROJECT_MENU_ACTION: "Project menu action",
   DESKTOP_ACCESS_SCREEN_SHOWN: "Desktop access screen shown",
+  DESKTOP_ACCESS_LINK_OPENED: "Desktop access link opened",
 
   // Autoresearch events
   AUTORESEARCH_ARMED: "Autoresearch armed",
@@ -2072,6 +2086,7 @@ export type EventPropertyMap = {
   [ANALYTICS_EVENTS.CONTEXT_ACTION]: ContextActionProperties;
   [ANALYTICS_EVENTS.PROJECT_MENU_ACTION]: ProjectMenuActionProperties;
   [ANALYTICS_EVENTS.DESKTOP_ACCESS_SCREEN_SHOWN]: DesktopAccessScreenShownProperties;
+  [ANALYTICS_EVENTS.DESKTOP_ACCESS_LINK_OPENED]: DesktopAccessLinkOpenedProperties;
 
   // Autoresearch events
   [ANALYTICS_EVENTS.AUTORESEARCH_ARMED]: AutoresearchArmedProperties;

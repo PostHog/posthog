@@ -49,9 +49,11 @@ import type {
     ErrorTrackingExternalReference,
     ErrorTrackingIssueAssignee,
     ErrorTrackingIssueCohort,
+    ErrorTrackingIssueEventsQuery,
     EventsQuery,
 } from '../../../../../frontend/src/queries/schema/schema-general'
 import type { ErrorTrackingQueryIssueSeverity } from '../../../../../frontend/src/queries/schema/schema-general'
+import type { ErrorTrackingIssueTag } from '../../../../../frontend/src/queries/schema/schema-general'
 import { eventsSourceLogic } from '../../components/EventsTable/eventsSourceLogic'
 import { issueActionsLogic } from '../../components/IssueActions/issueActionsLogic'
 import {
@@ -63,10 +65,16 @@ import {
 } from '../../components/IssueFilters/issueFiltersLogic'
 import { errorTrackingExternalReferencesLinkIssueCreate } from '../../generated/api'
 import { ErrorTrackingExternalReferenceLinkApiExternalContext } from '../../generated/api.schemas'
-import { errorTrackingIssueEventsQuery, errorTrackingIssueQuery } from '../../queries'
-import { syncSearchParams } from '../../utils'
+import {
+    errorTrackingIssueEventsQuery,
+    errorTrackingIssueEventsListQuery,
+    errorTrackingIssueQuery,
+} from '../../queries'
+import { syncSearchParams, updateSearchParams } from '../../utils'
 import { ERROR_TRACKING_DETAILS_RESOLUTION, dateRangeToIsoBounds } from '../../utils'
+import { issueRecordingFilterLogic } from './issueRecordingFilterLogic'
 import { linkedReportsLogic } from './linkedReportsLogic'
+import { issueAffectedBroadcastLogic } from './ScenePanel/issueAffectedBroadcastLogic'
 
 export interface ErrorTrackingIssueSceneLogicProps {
     id: ErrorTrackingIssue['id']
@@ -82,6 +90,7 @@ export interface errorTrackingIssueSceneLogicValues {
     filterGroup: UniversalFiltersGroup // issueFiltersLogic
     filterTestAccounts: boolean // issueFiltersLogic
     searchQuery: string // issueFiltersLogic
+    onlyWithRecording: boolean // issueRecordingFilterLogic
     linkedReports: SignalReportApi[] // linkedReportsLogic
     linkedReportsLoading: boolean // linkedReportsLogic
     aggregations: ErrorTrackingIssueAggregations | undefined
@@ -93,6 +102,8 @@ export interface errorTrackingIssueSceneLogicValues {
     initialEventLoading: boolean
     initialEventTimestamp: string | null
     issue: ErrorTrackingRelationalIssue | null
+    issueEventsQuery: ErrorTrackingIssueEventsQuery
+    issueEventsQueryKey: string
     issueFingerprints: ErrorTrackingFingerprint[]
     issueFingerprintsLoading: boolean
     issueId: string
@@ -184,6 +195,9 @@ export interface errorTrackingIssueSceneLogicActions {
     setSearchQuery: (searchQuery: string) => {
         searchQuery: string
     } // issueFiltersLogic
+    setOnlyWithRecording: (onlyWithRecording: boolean) => {
+        onlyWithRecording: boolean
+    } // issueRecordingFilterLogic
     loadLinkedReports: () => any // linkedReportsLogic
     createExternalReference: (
         integrationId: IntegrationType['id'],
@@ -212,6 +226,7 @@ export interface errorTrackingIssueSceneLogicActions {
             name: string | null
             severity?: ErrorTrackingQueryIssueSeverity | null | undefined
             status: ErrorTrackingIssueStatus
+            tags?: ErrorTrackingIssueTag[] | null | undefined
         } | null,
         payload?: {
             config: Record<string, string>
@@ -229,6 +244,7 @@ export interface errorTrackingIssueSceneLogicActions {
             name: string | null
             severity?: ErrorTrackingQueryIssueSeverity | null | undefined
             status: ErrorTrackingIssueStatus
+            tags?: ErrorTrackingIssueTag[] | null | undefined
         } | null
         payload?: {
             config: Record<string, string>
@@ -261,6 +277,7 @@ export interface errorTrackingIssueSceneLogicActions {
             name: string | null
             severity?: ErrorTrackingQueryIssueSeverity | null | undefined
             status: ErrorTrackingIssueStatus
+            tags?: ErrorTrackingIssueTag[] | null | undefined
         } | null,
         payload?: {
             externalContext: ErrorTrackingExternalReferenceLinkApiExternalContext
@@ -277,6 +294,7 @@ export interface errorTrackingIssueSceneLogicActions {
             name: string | null
             severity?: ErrorTrackingQueryIssueSeverity | null | undefined
             status: ErrorTrackingIssueStatus
+            tags?: ErrorTrackingIssueTag[] | null | undefined
         } | null
         payload?: {
             externalContext: ErrorTrackingExternalReferenceLinkApiExternalContext
@@ -433,6 +451,7 @@ export interface errorTrackingIssueSceneLogicActions {
             name: string | null
             severity?: ErrorTrackingQueryIssueSeverity | null | undefined
             status: ErrorTrackingIssueStatus
+            tags?: ErrorTrackingIssueTag[] | null | undefined
         } | null,
         payload?: {
             assignee: ErrorTrackingIssueAssignee | null
@@ -448,6 +467,7 @@ export interface errorTrackingIssueSceneLogicActions {
             name: string | null
             severity?: ErrorTrackingQueryIssueSeverity | null | undefined
             status: ErrorTrackingIssueStatus
+            tags?: ErrorTrackingIssueTag[] | null | undefined
         } | null
         payload?: {
             assignee: ErrorTrackingIssueAssignee | null
@@ -474,6 +494,7 @@ export interface errorTrackingIssueSceneLogicActions {
             name: string | null
             severity?: ErrorTrackingQueryIssueSeverity | null | undefined
             status: ErrorTrackingIssueStatus
+            tags?: ErrorTrackingIssueTag[] | null | undefined
         } | null,
         payload?: {
             description: string
@@ -489,6 +510,7 @@ export interface errorTrackingIssueSceneLogicActions {
             name: string | null
             severity?: ErrorTrackingQueryIssueSeverity | null | undefined
             status: ErrorTrackingIssueStatus
+            tags?: ErrorTrackingIssueTag[] | null | undefined
         } | null
         payload?: {
             description: string
@@ -515,6 +537,7 @@ export interface errorTrackingIssueSceneLogicActions {
             name: string
             severity?: ErrorTrackingQueryIssueSeverity | null | undefined
             status: ErrorTrackingIssueStatus
+            tags?: ErrorTrackingIssueTag[] | null | undefined
         } | null,
         payload?: {
             name: string
@@ -530,6 +553,7 @@ export interface errorTrackingIssueSceneLogicActions {
             name: string
             severity?: ErrorTrackingQueryIssueSeverity | null | undefined
             status: ErrorTrackingIssueStatus
+            tags?: ErrorTrackingIssueTag[] | null | undefined
         } | null
         payload?: {
             name: string
@@ -556,6 +580,7 @@ export interface errorTrackingIssueSceneLogicActions {
             name: string | null
             severity: ErrorTrackingQueryIssueSeverity | null
             status: ErrorTrackingIssueStatus
+            tags?: ErrorTrackingIssueTag[] | null | undefined
         } | null,
         payload?: {
             severity: ErrorTrackingQueryIssueSeverity | null
@@ -571,6 +596,7 @@ export interface errorTrackingIssueSceneLogicActions {
             name: string | null
             severity: ErrorTrackingQueryIssueSeverity | null
             status: ErrorTrackingIssueStatus
+            tags?: ErrorTrackingIssueTag[] | null | undefined
         } | null
         payload?: {
             severity: ErrorTrackingQueryIssueSeverity | null
@@ -597,6 +623,7 @@ export interface errorTrackingIssueSceneLogicActions {
             name: string | null
             severity?: ErrorTrackingQueryIssueSeverity | null | undefined
             status: ErrorTrackingIssueStatus
+            tags?: ErrorTrackingIssueTag[] | null | undefined
         } | null,
         payload?: {
             status: ErrorTrackingIssueStatus
@@ -612,6 +639,7 @@ export interface errorTrackingIssueSceneLogicActions {
             name: string | null
             severity?: ErrorTrackingQueryIssueSeverity | null | undefined
             status: ErrorTrackingIssueStatus
+            tags?: ErrorTrackingIssueTag[] | null | undefined
         } | null
         payload?: {
             status: ErrorTrackingIssueStatus
@@ -643,6 +671,12 @@ export interface errorTrackingIssueSceneLogicMeta {
             dateRange: DateRange
         ) => EventsQuery
         eventsQueryKey: (eventsQuery: EventsQuery) => string
+        issueEventsQuery: (
+            issueId: string,
+            eventsQuery: EventsQuery,
+            onlyWithRecording: boolean
+        ) => ErrorTrackingIssueEventsQuery
+        issueEventsQueryKey: (issueEventsQuery: ErrorTrackingIssueEventsQuery) => string
         maxContext: (issue: ErrorTrackingRelationalIssue | null, issueId: string) => MaxContextInput[]
     }
 }
@@ -672,6 +706,8 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
             ['dateRange', 'filterTestAccounts', 'filterGroup', 'searchQuery'],
             linkedReportsLogic({ issueId: props.id }),
             ['linkedReports', 'linkedReportsLoading'],
+            issueRecordingFilterLogic({ issueId: props.id }),
+            ['onlyWithRecording'],
         ],
         actions: [
             issueFiltersLogic({ logicKey: ERROR_TRACKING_ISSUE_SCENE_LOGIC_KEY }),
@@ -688,6 +724,8 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
             ],
             linkedReportsLogic({ issueId: props.id }),
             ['loadLinkedReports'],
+            issueRecordingFilterLogic({ issueId: props.id }),
+            ['setOnlyWithRecording'],
         ],
     })),
 
@@ -1020,6 +1058,18 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
             (eventsQuery: import('~/queries/schema').EventsQuery): string => JSON.stringify(eventsQuery),
         ],
 
+        issueEventsQuery: [
+            (s) => [s.issueId, s.eventsQuery, s.onlyWithRecording],
+            (issueId: string, eventsQuery: EventsQuery, onlyWithRecording: boolean): ErrorTrackingIssueEventsQuery =>
+                errorTrackingIssueEventsListQuery({ issueId, source: eventsQuery, onlyWithRecording }),
+            { resultEqualityCheck: objectsEqual },
+        ],
+
+        issueEventsQueryKey: [
+            (s) => [s.issueEventsQuery],
+            (issueEventsQuery: ErrorTrackingIssueEventsQuery): string => JSON.stringify(issueEventsQuery),
+        ],
+
         maxContext: [
             (s) => [s.issue, s.issueId],
             (issue: ErrorTrackingRelationalIssue | null, issueId: string): MaxContextInput[] => {
@@ -1082,9 +1132,13 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
                     actions.loadSummary()
                     actions.loadIssueFingerprints()
                     actions.loadSpikeEvents()
-                    eventsSourceLogic
-                        .findMounted({ query: values.eventsQuery, queryKey: values.eventsQueryKey })
-                        ?.actions.loadData('force_blocking')
+                    // The issue page lists the issue events query, and the notebook widget lists the plain events query.
+                    for (const source of [
+                        { query: values.issueEventsQuery, queryKey: values.issueEventsQueryKey },
+                        { query: values.eventsQuery, queryKey: values.eventsQueryKey },
+                    ]) {
+                        eventsSourceLogic.findMounted(source)?.actions.loadData('force_blocking')
+                    }
                 }
             },
             selectEvent: ({ event }) => {
@@ -1100,8 +1154,14 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
                 }
             },
             [issueActionsLogic.actionTypes.mutationSuccess]: ({ mutationName, issueId }) => {
-                if (mutationName === 'createIssueCohort' && issueId === props.id) {
-                    actions.loadIssue()
+                if (
+                    mutationName === 'updateIssueStatus' &&
+                    issueId === props.id &&
+                    values.issue?.status === 'resolved'
+                ) {
+                    issueAffectedBroadcastLogic
+                        .findMounted({ issueId: props.id, issueName: values.issue.name })
+                        ?.actions.offerAfterResolve()
                 }
             },
         }
@@ -1131,6 +1191,10 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
                     actions.setListDateRange(params.dateRange ?? DEFAULT_DATE_RANGE)
                 }
                 triggerFilterActions(params, values, actions)
+                const onlyWithRecording = [true, 'true'].includes(params.onlyWithRecording)
+                if (onlyWithRecording !== values.onlyWithRecording) {
+                    actions.setOnlyWithRecording(onlyWithRecording)
+                }
             },
         }
     }),
@@ -1139,6 +1203,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
         const buildURL = (): ReturnType<typeof syncSearchParams> =>
             syncSearchParams(router, (params: Params) => {
                 updateFilterSearchParams(params, values)
+                updateSearchParams(params, 'onlyWithRecording', values.onlyWithRecording, false)
                 delete params.tab
                 return params
             })
@@ -1148,6 +1213,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
             setFilterGroup: buildURL,
             setSearchQuery: buildURL,
             setFilterTestAccounts: buildURL,
+            setOnlyWithRecording: buildURL,
         }
     }),
 ])

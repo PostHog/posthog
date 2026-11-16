@@ -53,16 +53,19 @@ EMIT_HEARTBEAT_TIMEOUT = timedelta(seconds=30)  # 30 seconds - ClickHouse writes
 # Schedule-to-close timeouts - caps total time including all retry attempts,
 # backoff intervals, and queue time. Prevents runaway retries from blocking
 # the workflow indefinitely.
-COMPUTE_SCHEDULE_TO_CLOSE_TIMEOUT = timedelta(seconds=720)  # Two attempts, 60s backoff, and queue time
+# A query-capacity rejection fails in about 10s (the limiter's wait) and backs off at most 60s, so
+# two of them still leave a full 300s attempt inside this budget.
+COMPUTE_SCHEDULE_TO_CLOSE_TIMEOUT = timedelta(seconds=720)
 LLM_SCHEDULE_TO_CLOSE_TIMEOUT = timedelta(
     seconds=1260
 )  # 21 min: 2 attempts * 600s + backoff, so a timed-out first attempt still leaves the retry a full run
 AGGREGATES_SCHEDULE_TO_CLOSE_TIMEOUT = timedelta(seconds=330)  # 5.5 min (1 attempt only, best-effort)
 EMIT_SCHEDULE_TO_CLOSE_TIMEOUT = timedelta(seconds=150)  # 2.5 min (2 attempts * 60s + backoff)
 
-# Compute activity - CPU bound, quick retries
+# Compute activity - CPU bound, quick retries. A third attempt lets a run outlast a short burst in which
+# no ClickHouse slot frees up; COMPUTE_SCHEDULE_TO_CLOSE_TIMEOUT still caps the total.
 COMPUTE_ACTIVITY_RETRY_POLICY = RetryPolicy(
-    maximum_attempts=2,
+    maximum_attempts=3,
     initial_interval=timedelta(seconds=1),
     maximum_interval=timedelta(seconds=10),
     backoff_coefficient=2.0,

@@ -1,5 +1,8 @@
 import { HogFunctionTemplate } from '~/cdp/types'
 
+import { ERROR_TRACKING_TICKET_DESCRIPTION, ERROR_TRACKING_TICKET_TITLE } from '../../error-tracking-ticket'
+import { hogErrorTrackingStacktraceFn } from '../../hog-helpers'
+
 export const template: HogFunctionTemplate = {
     status: 'stable',
     free: false,
@@ -10,7 +13,9 @@ export const template: HogFunctionTemplate = {
     icon_url: '/static/services/linear.png',
     category: ['Error tracking'],
     code_language: 'hog',
-    code: `fun query(mutation) {
+    code: `${hogErrorTrackingStacktraceFn}
+
+fun query(mutation) {
     return fetch('https://api.linear.app/graphql', {
         'body': {
             'query': mutation,
@@ -23,7 +28,9 @@ export const template: HogFunctionTemplate = {
     })
 }
 
-let issue_mutation := f'mutation IssueCreate \\{ issueCreate(input: \\{ title: {jsonStringify(inputs.title)} description: {jsonStringify(inputs.description)} teamId: "{inputs.team}" }) \\{ success issue \\{ identifier } } }';
+let description := concat(inputs.description, errorTrackingStacktrace(event.properties.$exception_list));
+
+let issue_mutation := f'mutation IssueCreate \\{ issueCreate(input: \\{ title: {jsonStringify(inputs.title)} description: {jsonStringify(description)} teamId: "{inputs.team}" }) \\{ success issue \\{ identifier } } }';
 
 let issue_response := query(issue_mutation);
 
@@ -67,7 +74,7 @@ query(attachment_mutation);`,
             secret: false,
             hidden: false,
             required: true,
-            default: '{event.properties.$exception_types[1]}',
+            default: ERROR_TRACKING_TICKET_TITLE,
         },
         {
             key: 'description',
@@ -76,7 +83,7 @@ query(attachment_mutation);`,
             secret: false,
             hidden: false,
             required: true,
-            default: '{event.properties.$exception_values[1]}',
+            default: ERROR_TRACKING_TICKET_DESCRIPTION,
         },
         {
             key: 'posthog_issue_id',

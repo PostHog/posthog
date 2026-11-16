@@ -1,16 +1,29 @@
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Final, Optional, cast
+
+from django.db.models import Case, CharField, Count, Exists, Model, OuterRef, QuerySet, Value, When
+from django.db.models.fields.reverse_related import ForeignObjectRel
 
 from rest_framework import serializers
 
+from products.approvals.backend.coverage import (
+    adoption_drops_approval_cover,
+    adoption_skips_enable_review,
+    release_drops_approval_cover,
+)
 from products.feature_flags.backend.facade.config import detect_config_format
 
 if TYPE_CHECKING:
     from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
-FLAG_OWNER_EXPERIMENT = "experiment"
-FLAG_OWNER_SURVEY = "survey"
-FLAG_OWNER_PRODUCT_TOUR = "product_tour"
-FLAG_OWNER_EARLY_ACCESS = "early_access_feature"
+FLAG_OWNER_EXPERIMENT: Final = "experiment"
+FLAG_OWNER_SURVEY: Final = "survey"
+FLAG_OWNER_PRODUCT_TOUR: Final = "product_tour"
+FLAG_OWNER_EARLY_ACCESS: Final = "early_access_feature"
+
+# Serializer context key that names the product a create mints its flag for. Only the flag facade
+# sets it, from `create_flag(owner=...)`. Request data never reaches serializer context, so a caller
+# of the public flag API cannot claim an owner to move a flag out of the `feature_flag.*` policies.
+MINTED_OWNER_CONTEXT_KEY = "approval_minted_owner_kind"
 
 _OWNER_LABELS = {
     FLAG_OWNER_EXPERIMENT: "an experiment",
@@ -27,8 +40,11 @@ _OWNER_LABELS = {
 # `ProductTour.objects` hides archived tours. An archived tour keeps its `internal_targeting_flag`,
 # so the default manager would report that flag as free while a tour still holds it, and
 # unarchiving the tour would then produce the second owner this module exists to prevent.
+#
+# Experiments need the opposite correction, because `Experiment.objects` keeps soft-deleted rows
+# and a deleted experiment leaves no page where a user could unlink its flag.
 _OWNING_ACCESSORS: tuple[tuple[str, str, str | None], ...] = (
-    ("experiment_set", FLAG_OWNER_EXPERIMENT, None),
+    ("experiment_set", FLAG_OWNER_EXPERIMENT, "live_objects"),
     ("surveys_targeting_flag", FLAG_OWNER_SURVEY, None),
     ("surveys_internal_targeting_flag", FLAG_OWNER_SURVEY, None),
     ("surveys_internal_response_sampling_flag", FLAG_OWNER_SURVEY, None),
@@ -51,8 +67,15 @@ _REFERENCE_ACCESSORS: frozenset[str] = frozenset(
         "featureflagoverride_set",
         "featureflagdashboards_set",
         "access",
+        # A code analysis reads where the repository checks the flag. It doesn't own the flag.
+        "code_analyses",
     }
 )
+
+
+def flag_owner_label(kind: str) -> str:
+    """The owning product as it is named to a user, such as "an experiment"."""
+    return _OWNER_LABELS[kind]
 
 
 def flag_owner_kind(flag: "FeatureFlag") -> str | None:
@@ -69,7 +92,7 @@ def flag_owner_kind(flag: "FeatureFlag") -> str | None:
     return None
 
 
-def assert_flag_available_for(flag: "FeatureFlag", *, product: str) -> None:
+def assert_flag_available_for(flag: "FeatureFlag", *, product: str, links_a_rule: bool = False) -> None:
     """Reject adopting a flag that a different product already owns.
 
     What must stay unambiguous is the owning *product*, not the owning object. Two experiments
@@ -80,14 +103,21 @@ def assert_flag_available_for(flag: "FeatureFlag", *, product: str) -> None:
     parent that already owns the flag must not raise, so the caller compares the incoming id
     against the stored one first.
 
+    Reject it too when the adoption would leave the flag less governed by approval policies, or
+    would skip the review the product gives to turning a flag on. Which policies cover a flag
+    follows its owner, so either is a way around a policy rather than a routine edit. See
+    approvals' `coverage` module for when this applies.
+
     This reads before the caller writes, so two products adopting the same free flag at the same
     moment can both pass. No database constraint can span the four owning tables, so the remaining
     window is accepted rather than locked.
 
     A flag stored in another config format is not available either: every adopting product reads
-    and writes its document as config version 1.
+    and writes its document as config version 1. The exception is a caller that links one rule of a
+    config version 2 flag and writes nothing to the flag, which says so with `links_a_rule`.
     """
-    if detect_config_format(flag.filters).kind != "v1":
+    config_format = detect_config_format(flag.filters).kind
+    if config_format != "v1" and not (links_a_rule and config_format == "v2"):
         raise serializers.ValidationError(
             f"The feature flag {flag.key} uses a configuration format that {_OWNER_LABELS[product]} "
             "cannot use yet. Pick a different flag."
@@ -98,3 +128,69 @@ def assert_flag_available_for(flag: "FeatureFlag", *, product: str) -> None:
             f"The feature flag {flag.key} already belongs to {_OWNER_LABELS[owner]}. "
             f"Pick a different flag, or edit this one where it is already used."
         )
+    if adoption_drops_approval_cover(owner, product, flag.team, flag.team.organization):
+        raise serializers.ValidationError(
+            f"Changes to the feature flag {flag.key} need approval, and {_OWNER_LABELS[product]} "
+            f"cannot keep that. Pick a different flag, or make a new one."
+        )
+    if adoption_skips_enable_review(flag.active, owner, product, flag.team, flag.team.organization):
+        raise serializers.ValidationError(
+            f"The feature flag {flag.key} is already on, and turning it on for {_OWNER_LABELS[product]} "
+            f"needs approval. Turn the flag off first, or make a new one."
+        )
+
+
+def assert_flag_releasable_by(flag: "FeatureFlag", *, product: str) -> None:
+    """Reject letting go of a flag when that would leave it less governed by approval policies.
+
+    The mirror of the cover check in `assert_flag_available_for`. Which policies cover a flag
+    follows its owner, so the release of a flag changes that cover just as an adoption does, and
+    a release needs no second product to take the flag on.
+
+    Call this where a product stops owning a flag, which is where its last owning row goes away.
+    """
+    if release_drops_approval_cover(product, flag.team, flag.team.organization):
+        raise serializers.ValidationError(
+            f"Changes to the feature flag {flag.key} need approval, and a flag that no product owns "
+            f"cannot keep that. Ask an organization admin to add an approval policy for feature flags, "
+            f"or point another product at this flag first."
+        )
+
+
+def _owning_conditions(model: type[Model]) -> list[tuple[str, Exists]]:
+    """One EXISTS per owning relation, in the order `flag_owner_kind` checks them.
+
+    Built from `_OWNING_ACCESSORS` rather than written out, so a relation cannot be classified in
+    one place and missed in the other. The manager matters for the same reason it does there: an
+    archived product tour still holds its flag.
+    """
+    relations = {
+        relation.get_accessor_name(): relation
+        for relation in model._meta.get_fields()
+        if isinstance(relation, ForeignObjectRel)
+    }
+    conditions = []
+    for accessor, kind, manager in _OWNING_ACCESSORS:
+        relation = relations[accessor]
+        # Every accessor in `_OWNING_ACCESSORS` names a concrete reverse relation, so the related
+        # model is a model class rather than the "self" sentinel the field type allows.
+        related_model = cast(type[Model], relation.related_model)
+        objects = getattr(related_model, manager) if manager else related_model._default_manager
+        conditions.append((kind, Exists(objects.filter(**{relation.field.name: OuterRef("pk")}))))
+    return conditions
+
+
+def owner_kind_counts(flags: "QuerySet[FeatureFlag]") -> dict[Optional[str], int]:
+    """Count the flags in a queryset by the product that owns each one.
+
+    The same classification and the same precedence as `flag_owner_kind`, as one query, because
+    the populations worth counting are too large to classify row by row. A flag no product owns
+    counts under None, exactly as that function reports it.
+    """
+    whens = [When(condition, then=Value(kind)) for kind, condition in _owning_conditions(flags.model)]
+    rows = (
+        flags.annotate(owner_kind=Case(*whens, default=Value(None, output_field=CharField())))
+        .values("owner_kind")
+        .annotate(total=Count("id"))
+    )
+    return {row["owner_kind"]: row["total"] for row in rows}

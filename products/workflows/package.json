@@ -1,7 +1,7 @@
 {
     "name": "@posthog/products-workflows",
     "scripts": {
-        "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/ -v --tb=short",
+        "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/ skills/ -v --tb=short",
         "backend:contract-check": "echo 'Contract files unchanged'"
     },
     "dependencies": {
@@ -14,14 +14,16 @@
         "kea-loaders": "catalog:",
         "kea-router": "catalog:",
         "kea-subscriptions": "catalog:",
-        "papaparse": "^5.4.1",
+        "papaparse": "^5.5.4",
         "posthog-js": "catalog:",
         "use-debounce": "catalog:",
         "zod": "^4.0.0"
     },
     "devDependencies": {
         "@storybook/react": "catalog:",
+        "@testing-library/dom": "*",
         "@testing-library/react": "*",
+        "@testing-library/user-event": "*",
         "@types/papaparse": "*",
         "kea-test-utils": "catalog:"
     },

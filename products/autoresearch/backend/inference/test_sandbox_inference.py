@@ -52,9 +52,11 @@ from products.tasks.backend.facade.sandbox import ExecutionResult
 _VALID_FEATURE_SQL = "SELECT a.person_id AS distinct_id, count() AS events_total FROM {anchors} a GROUP BY a.person_id"
 
 
-def _scores_parquet(rows: list[tuple[str, object]]) -> bytes:
+def _scores_parquet(rows: list[tuple[str, object]], compression: str = "snappy") -> bytes:
     buf = io.BytesIO()
-    pd.DataFrame({"distinct_id": [r[0] for r in rows], "p_y": [r[1] for r in rows]}).to_parquet(buf, index=False)
+    pd.DataFrame({"distinct_id": [r[0] for r in rows], "p_y": [r[1] for r in rows]}).to_parquet(
+        buf, index=False, compression=compression
+    )
     return buf.getvalue()
 
 
@@ -491,6 +493,11 @@ class TestFileReadback(SimpleTestCase):
         with patch.object(sandbox_inference, "_MAX_READBACK_BYTES", 200):
             with self.assertRaises(SandboxInferenceError):
                 _read_scores(fake, expected_rows=1)
+
+    def test_read_scores_rejects_brotli_compression_before_decoding(self):
+        fake = _FakeSandbox(scores_parquet=_scores_parquet([("s1", 0.8)], compression="brotli"))
+        with self.assertRaisesRegex(SandboxInferenceError, "Brotli"):
+            _read_scores(fake, expected_rows=1)
 
     def test_join_scores_fails_when_predictions_omit_rows(self):
         # A user missing from scores.parquet must fail the run — skipping them would

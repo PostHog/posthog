@@ -700,6 +700,11 @@ export interface DataQualityCheckTypeApi {
     config_schema: DataQualityCheckTypeApiConfigSchema
 }
 
+export interface DataQualityFailingCheckCountApi {
+    /** Enabled checks whose last run reported a failure. */
+    count: number
+}
+
 /**
  * Per-subject rollup, the same rule the information_schema.data_quality_health table uses.
  */
@@ -1035,6 +1040,48 @@ export const DataQualityChecksScheduleRetrieveSubjectType = {
     PosthogTable: 'posthog_table',
     Table: 'table',
     View: 'view',
+} as const
+
+export type DataQualityChecksSubjectsListParams = {
+    /**
+     * Set to false to return an empty columns map for every subject. Use it to find a subject id without reading every column schema.
+     */
+    include_columns?: boolean
+    /**
+     * Maximum number of subjects to return. Omit to return every match.
+     * @minimum 1
+     * @maximum 1000
+     */
+    limit?: number
+    /**
+     * Number of matching subjects to skip. Subjects are sorted by subject_type, then name. When a response has limit rows, call again with offset increased by limit to read the next page.
+     * @minimum 0
+     */
+    offset?: number
+    /**
+     * Return only subjects whose name or display name contains this text, ignoring case.
+     */
+    search?: string
+    /**
+     * Return only subjects of this kind: 'table', 'view', 'metric', or 'posthog_table'.
+     *
+     * * `table` - table
+     * * `view` - view
+     * * `metric` - metric
+     * * `posthog_table` - posthog_table
+     * @minLength 1
+     */
+    subject_type?: DataQualityChecksSubjectsListSubjectType
+}
+
+export type DataQualityChecksSubjectsListSubjectType =
+    (typeof DataQualityChecksSubjectsListSubjectType)[keyof typeof DataQualityChecksSubjectsListSubjectType]
+
+export const DataQualityChecksSubjectsListSubjectType = {
+    Table: 'table',
+    View: 'view',
+    Metric: 'metric',
+    PosthogTable: 'posthog_table',
 } as const
 
 export type DataQualityRunsListParams = {

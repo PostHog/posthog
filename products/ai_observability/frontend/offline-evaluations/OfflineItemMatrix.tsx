@@ -6,6 +6,7 @@ import { LemonBanner, LemonButton, LemonTable } from '@posthog/lemon-ui'
 import type { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 
 import type { OfflineItemReadApi } from '../generated/api.schemas'
+import { ScorerLabel } from '../scoreDefinitions/ScorerLabel'
 import { OfflineExperimentLogicProps, offlineExperimentLogic } from './offlineExperimentLogic'
 import {
     OFFLINE_ITEM_COLUMN_WIDTH,
@@ -78,11 +79,9 @@ export function OfflineItemMatrix(props: OfflineExperimentLogicProps): JSX.Eleme
             width: OFFLINE_SCORER_COLUMN_WIDTH,
             className: 'min-w-[180px] max-w-[180px]',
             title: (
-                <span
-                    data-offline-scorer={scorer.id}
-                    className="block truncate"
-                    title={`${scorer.name} v${scorer.version}`}
-                >{`${scorer.name} v${scorer.version}`}</span>
+                <div data-offline-scorer={scorer.id}>
+                    <ScorerLabel scorer={scorer} />
+                </div>
             ),
             render: (_: unknown, item: OfflineItemReadApi) => {
                 const batchIndex = Math.floor(index / OFFLINE_SCORER_BATCH_SIZE)
@@ -121,7 +120,9 @@ export function OfflineItemMatrix(props: OfflineExperimentLogicProps): JSX.Eleme
                         <OfflineResultTag result={result} scorer={scorer} />
                     </LemonButton>
                 ) : (
-                    <span className="text-muted text-xs">No result</span>
+                    <span className="text-muted text-xs">
+                        {scorer.calculation === 'composite' ? 'Not requested' : 'No result'}
+                    </span>
                 )
             },
         })),

@@ -28,16 +28,19 @@ from products.warehouse_sources.backend.models.external_data_schema import (
     DUPLICATE_PRIMARY_KEYS_RAW_ERROR,
     MISSING_PRIMARY_KEY_DISABLED_MESSAGE,
     MISSING_PRIMARY_KEYS_RAW_ERROR,
+    PREFIX_PROMOTION_KEY,
     REPARTITION_HOLD_MAX_AGE,
     STAGED_CURSOR_PENDING_LIMIT,
     ExternalDataSchema,
     apply_incremental_lookback,
     mark_initial_sync_complete,
     mark_schema_running_unless_halted,
+    prefix_promotion_rows_synced,
     process_incremental_value,
     staged_handoff_resume_point,
     staged_handoff_resume_value,
     staged_run_last_value,
+    update_should_sync,
     update_sync_type_config_keys,
 )
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
@@ -128,6 +131,35 @@ class TestExternalDataSchemaSave(BaseTest):
         schema.save(update_fields=["status", "updated_at"])
         schema.refresh_from_db()
         assert schema.s3_folder_name == "orders"
+
+    @parameterized.expand(
+        [
+            ("cdc", ExternalDataSchema.SyncType.CDC, None, True, None),
+            ("cdc_schedule_sync_fails", ExternalDataSchema.SyncType.CDC, None, True, RuntimeError("temporal down")),
+            ("cdc_waiting_for_repair", ExternalDataSchema.SyncType.CDC, "slot_missing", False, None),
+            ("full_refresh", ExternalDataSchema.SyncType.FULL_REFRESH, None, False, None),
+        ]
+    )
+    def test_re_enabling_restores_the_cdc_extraction_schedule(
+        self, _name, sync_type, broken_reason, restores, sync_error
+    ) -> None:
+        schema = self._create("orders", sync_type=sync_type, should_sync=False)
+        if broken_reason:
+            schema.sync_type_config = {**(schema.sync_type_config or {}), "cdc_broken": {"reason": broken_reason}}
+            schema.save()
+        service = "products.data_warehouse.backend.logic.data_load.service"
+
+        with (
+            patch(f"{service}.external_data_workflow_exists", return_value=True),
+            patch(f"{service}.cdc_extraction_schedule_exists", return_value=False),
+            patch(f"{service}.unpause_external_data_schedule"),
+            patch(f"{service}.sync_cdc_extraction_schedule", side_effect=sync_error) as mock_sync,
+        ):
+            update_should_sync(schema_id=str(schema.id), team_id=self.team.pk, should_sync=True)
+
+        assert mock_sync.called is restores
+        schema.refresh_from_db()
+        assert schema.should_sync is True
 
 
 class TestExternalDataSchemaActivityLogging(BaseTest):
@@ -1452,6 +1484,30 @@ class TestStagedIncrementalCursor:
 
     @parameterized.expand(
         [
+            # A run that read only above the stored watermark saw none of the older rows of the table.
+            # Its oldest row as the earliest value makes the next run read the whole table below it again.
+            ("a_forward_only_run_sets_no_earliest_value", {"incremental_field_last_value": 90}, None),
+            ("the_first_run_sets_the_earliest_value", {}, 5),
+            (
+                "a_backfill_below_the_stored_earliest_value_advances_it",
+                {"incremental_field_last_value": 90, "incremental_field_earliest_value": 40},
+                5,
+            ),
+        ]
+    )
+    def test_promote_sets_the_earliest_value_unless_the_watermark_has_none(
+        self, _name: str, stored: dict[str, Any], expected_earliest: int | None
+    ) -> None:
+        schema = self._make_schema(
+            **stored, incremental_staged={"run_uuid": "run-1", "last_value": 99, "earliest_value": 5}
+        )
+        with self._staged_in_memory(schema):
+            assert schema.promote_staged_incremental_values("run-1") is True
+        assert schema.sync_type_config["incremental_field_last_value"] == 99
+        assert schema.sync_type_config.get("incremental_field_earliest_value") == expected_earliest
+
+    @parameterized.expand(
+        [
             ("older_epoch_keeps_iso", IncrementalFieldType.DateTime, "2026-06-14T00:00:00+00:00", 1767225600),
             ("older_iso_keeps_epoch", IncrementalFieldType.DateTime, 1781395200, "2026-01-01T00:00:00+00:00"),
             ("older_epoch_keeps_naive_iso", IncrementalFieldType.DateTime, "2026-06-14T00:00:00", 1767225600),
@@ -1674,11 +1730,112 @@ class TestStagedIncrementalCursor:
         schema = self._make_schema(
             incremental_staged={"run_uuid": "run-1", "last_value": 42},
             incremental_staged_pending=[{"run_uuid": "run-0", "last_value": 1}],
+            **{PREFIX_PROMOTION_KEY: {"job_id": "job-1", "run_uuid": "run-1", "value": 30, "rows_synced": 7}},
         )
         with _merge_in_memory(schema):
             schema.update_sync_type_config_for_reset_pipeline()
         assert "incremental_staged" not in schema.sync_type_config
         assert "incremental_staged_pending" not in schema.sync_type_config
+        assert PREFIX_PROMOTION_KEY not in schema.sync_type_config
+
+    def _promote_prefix(self, schema: ExternalDataSchema, value: Any, *, field: str = "id") -> bool:
+        with self._staged_in_memory(schema):
+            return schema.promote_loaded_prefix_value(
+                run_uuid="run-1", job_id="job-1", field=field, value=value, job_rows_synced=7
+            )
+
+    @parameterized.expand(
+        [
+            ("no_watermark_yet", {}, 30),
+            ("above_the_watermark", {"incremental_field_last_value": 10}, 30),
+            (
+                "parked_staged_cursor",
+                {
+                    "incremental_staged": {"run_uuid": "run-2", "last_value": 5},
+                    "incremental_staged_pending": [{"run_uuid": "run-1", "last_value": 50}],
+                },
+                30,
+            ),
+        ]
+    )
+    def test_promote_loaded_prefix_moves_the_watermark_up(self, _name: str, config: dict, value: Any) -> None:
+        schema = self._make_schema(
+            incremental_field="id", **{"incremental_staged": {"run_uuid": "run-1", "last_value": 50}, **config}
+        )
+
+        assert self._promote_prefix(schema, value) is True
+
+        assert schema.sync_type_config["incremental_field_last_value"] == value
+        assert schema.sync_type_config[PREFIX_PROMOTION_KEY] == {
+            "job_id": "job-1",
+            "run_uuid": "run-1",
+            "value": value,
+            "rows_synced": 7,
+        }
+
+    @parameterized.expand(
+        [
+            # A newer run already moved the watermark past this run's prefix.
+            ("newer_run_is_ahead", {"incremental_field_last_value": 40}, "id", 30),
+            ("equal_to_the_watermark", {"incremental_field_last_value": 30}, "id", 30),
+            # A reset dropped the staged cursors, so the loaded rows belong to the deleted table.
+            ("reset_dropped_the_staged_cursor", {"incremental_staged": None}, "id", 30),
+            (
+                "staged_cursor_of_another_run_only",
+                {"incremental_staged": {"run_uuid": "run-2", "last_value": 50}},
+                "id",
+                30,
+            ),
+            ("value_above_what_the_run_read", {}, "id", 60),
+            ("incremental_field_changed", {}, "updated_at", 30),
+            (
+                "values_cannot_be_ordered",
+                {"incremental_field_type": IncrementalFieldType.ObjectID, "incremental_field_last_value": "abc"},
+                "id",
+                "65f0c0c0a1b2c3d4e5f60001",
+            ),
+        ]
+    )
+    def test_promote_loaded_prefix_keeps_the_watermark(self, _name: str, config: dict, field: str, value: Any) -> None:
+        schema = self._make_schema(
+            incremental_field="id", **{"incremental_staged": {"run_uuid": "run-1", "last_value": 50}, **config}
+        )
+        if schema.sync_type_config["incremental_staged"] is None:
+            del schema.sync_type_config["incremental_staged"]
+        watermark_before = schema.sync_type_config.get("incremental_field_last_value")
+
+        assert self._promote_prefix(schema, value, field=field) is False
+
+        assert schema.sync_type_config.get("incremental_field_last_value") == watermark_before
+        assert PREFIX_PROMOTION_KEY not in schema.sync_type_config
+
+    def test_final_promotion_still_moves_the_watermark_to_the_full_value_after_a_prefix(self) -> None:
+        schema = self._make_schema(incremental_field="id", incremental_staged={"run_uuid": "run-1", "last_value": 50})
+
+        assert self._promote_prefix(schema, 30) is True
+        with self._staged_in_memory(schema):
+            assert schema.promote_staged_incremental_values("run-1") is True
+
+        assert schema.sync_type_config["incremental_field_last_value"] == 50
+
+    @parameterized.expand(
+        [
+            ("same_job_and_watermark", "job-1", 30, 7),
+            ("another_job", "job-2", 30, None),
+            # A later promotion moved the watermark, so this attempt does not start at the prefix.
+            ("watermark_moved_since", "job-1", 45, None),
+        ]
+    )
+    def test_prefix_promotion_rows_synced(self, _name: str, job_id: str, watermark: Any, expected: int | None) -> None:
+        config = {
+            "incremental_field_last_value": watermark,
+            PREFIX_PROMOTION_KEY: {"job_id": "job-1", "run_uuid": "run-1", "value": 30, "rows_synced": 7},
+        }
+
+        assert prefix_promotion_rows_synced(config, job_id) == expected
+
+    def test_prefix_promotion_rows_synced_without_a_promotion(self) -> None:
+        assert prefix_promotion_rows_synced({"incremental_field_last_value": 30}, "job-1") is None
 
 
 class TestStagedIncrementalCursorStaleWriters(BaseTest):
@@ -1926,6 +2083,8 @@ class TestDeleteTable(BaseTest):
         self, _name: str, error: Exception, expected_reported: bool
     ) -> None:
         schema = self._schema()
+        schema.live_query_enabled = True
+        schema.save(update_fields=["live_query_enabled"])
         table_id = schema.table_id
         assert table_id is not None
         client = MagicMock()
@@ -1940,6 +2099,7 @@ class TestDeleteTable(BaseTest):
         assert capture.called is expected_reported
         schema.refresh_from_db()
         assert schema.table_id is None
+        assert schema.live_query_enabled is False
         assert schema.status is None
         assert schema.last_synced_at is None
         assert DataWarehouseTable.objects.get(id=table_id).deleted is True

@@ -14,6 +14,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
+import { openEmailDomainSetupPage } from './Channels/EmailDomain/openEmailDomainSetupPage'
 import type { MessagingNavTabKey } from './messagingTabs'
 import { optOutCategoriesLogic } from './OptOuts/optOutCategoriesLogic'
 import { QuillMessagingTabActions } from './QuillMessagingTabActions'
@@ -74,7 +75,7 @@ function NewChannelButton({ channelsUrl }: { channelsUrl: string }): JSX.Element
                     <IconLetter /> Email
                 </div>
             ),
-            onClick: () => openSetupModal(undefined, 'email'),
+            onClick: () => openEmailDomainSetupPage('channels'),
         },
 
         {

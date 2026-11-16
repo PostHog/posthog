@@ -2,6 +2,8 @@ from typing import Literal
 
 from posthog.dataclasses import frozen
 
+DEFAULT_ACCOUNT_PROPERTY_SOURCE_CONCURRENCY = 3
+
 
 @frozen
 class StageAccountPropertySyncInput:
@@ -37,6 +39,7 @@ class AccountPropertySyncInput:
     saved_query_id: str
     job_id: str
     segment: str
+    source_concurrency: int = DEFAULT_ACCOUNT_PROPERTY_SOURCE_CONCURRENCY
 
 
 @frozen

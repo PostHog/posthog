@@ -37,7 +37,19 @@ import {
   appendRichOutputPrompt,
   getProjectWebUrl,
 } from "@posthog/agent-contracts/rich-output-prompt";
+import {
+  readStartupFailure,
+  type StartupFailure,
+} from "@posthog/agent-contracts/startup-failure";
 import { execGh } from "@posthog/git/gh";
+import {
+  getGitlabCurrentUsername,
+  getGitlabMergeRequest,
+  isGitlabRun,
+  parseGitlabMergeRequestUrl,
+  parseGitlabRemoteProject,
+  resolveGitlabClient,
+} from "@posthog/git/gitlab";
 import { getCurrentBranch, getRemoteUrl } from "@posthog/git/queries";
 import { ghTokenEnv } from "@posthog/git/signed-commit";
 import {
@@ -60,6 +72,8 @@ import {
 import { appendRtkGuidanceForCodex } from "@posthog/harness/extensions/rtk";
 import {
   buildStoreSkillsInstructions,
+  NO_STORE_SKILLS,
+  type StoreSkillsListing,
   syncStoreSkills,
 } from "@posthog/harness/extensions/skills-store";
 import {
@@ -131,7 +145,6 @@ import type {
   TaskRun,
   TaskRunArtifact,
   TaskRunState,
-  TaskRunStateField,
 } from "../types";
 import { resourceLink } from "../utils/acp-content";
 import { attachmentFilePath, safeArtifactFileName } from "../utils/attachments";
@@ -159,6 +172,7 @@ import {
   type GatewayEnvInput,
 } from "./gateway-env";
 import { type JwtPayload, JwtValidationError, validateJwt } from "./jwt";
+import { readProductLaunch, readRunLaunch } from "./launch/run-launch";
 import { type McpRelayResponse, McpRelayServer } from "./mcp-relay-server";
 import {
   CliProcessRegistry,
@@ -172,7 +186,6 @@ import {
 import {
   appendClosingInstructions,
   openProductSession,
-  readOriginProduct,
   readQuestionRequest,
   resolvePullRequestFooter,
 } from "./product/session";
@@ -180,7 +193,6 @@ import { createRtkSavingsNotification } from "./rtk-savings";
 import { RunUsageAccumulator, reportRunUsage, seedRunUsage } from "./run-usage";
 import {
   type CredentialResponseParams,
-  claudeCodeConfigSchema,
   jsonRpcRequestSchema,
   validateCommandParams,
 } from "./schemas";
@@ -407,6 +419,13 @@ function hiddenPromptBlock(block: ContentBlock): ContentBlock {
   } as ContentBlock;
 }
 
+function compactionFailed(result: PromptResponse): boolean {
+  return (
+    (result._meta as { compactionFailed?: unknown } | undefined)
+      ?.compactionFailed === true
+  );
+}
+
 function isManualCompactPrompt(prompt: ContentBlock[]): boolean {
   return /^\/compact(?:\s|$)/.test(promptBlocksToText(prompt).trimStart());
 }
@@ -437,14 +456,6 @@ interface LocalSkillPromptContext {
   /** Set when the message is a bare `/skill` invocation the adapter should strip. */
   skillName?: string;
   context: string;
-}
-
-function getTaskRunStateString(
-  taskRun: TaskRun | null,
-  key: TaskRunStateField,
-): string | null {
-  const value = taskRun?.state[key];
-  return typeof value === "string" ? value : null;
 }
 
 type SteerDeclineReason =
@@ -478,12 +489,15 @@ interface PrAttribution {
 
 const GITHUB_REMOTE_REGEX = /github\.com[:/]([^/\s]+\/[^/\s]+?)(?:\.git)?\/?$/i;
 
-export function parseGithubRemoteRepository(
+// `owner/name` for a GitHub remote, or the full project path for a gitlab.com
+// remote, lowercased to match `parsePrRepository`.
+export function parseRemoteRepository(
   remoteUrl: string | null | undefined,
 ): string | null {
   if (!remoteUrl) return null;
   const match = GITHUB_REMOTE_REGEX.exec(remoteUrl.trim());
-  return match ? match[1].toLowerCase() : null;
+  if (match) return match[1].toLowerCase();
+  return parseGitlabRemoteProject(remoteUrl)?.toLowerCase() ?? null;
 }
 
 // Branches the run has pushed, as recorded on its task run by signed commits
@@ -561,7 +575,7 @@ export class AgentServer {
   // run's state when the first message arrives (see resolveActivationSettings).
   private prewarmedRun = false;
   private prewarmedStartupTurnPending = false;
-  private storeSkillsInstalledCount = 0;
+  private storeSkills: StoreSkillsListing = NO_STORE_SKILLS;
   private storeSkillsActivationResolved = false;
   private agentInstructions: string | null = null;
   private autoPublishStateResolved = false;
@@ -579,6 +593,7 @@ export class AgentServer {
     typeof createAcpConnection
   > | null = null;
   private initializationFailureCode: string | undefined;
+  private startupFailure: StartupFailure | undefined;
   private initializationPhase: InitializationPhase | undefined;
   private initializingSseController: SseController | null = null;
   private initializingTelemetry: OtelRunTelemetry | undefined;
@@ -814,6 +829,8 @@ export class AgentServer {
         readiness: boot.state,
         initializationPhase: this.initializationPhase,
         failureCode: this.initializationFailureCode,
+        startupFailure: this.startupFailure,
+        runId: this.config.runId,
         bootMs: this.sessionReadyBootMs,
         sessionInitMs: this.sessionInitMs,
         boot,
@@ -1039,7 +1056,11 @@ export class AgentServer {
     });
 
     await this.startMemoryWatchdogWatcher();
-    await this.autoInitializeSession();
+    try {
+      await this.autoInitializeSession();
+    } catch (error) {
+      if (!this.startupFailure) throw error;
+    }
   }
 
   private async startMemoryWatchdogWatcher(): Promise<void> {
@@ -1096,6 +1117,7 @@ export class AgentServer {
       if (this.session?.payload.run_id === currentRunId) {
         this.session.contextSelection.resetHistory(
           formatConversationForResume(this.resumeState.conversation),
+          this.resumeState.injectedReferences,
         );
       }
       this.logger.debug("Resume state loaded", {
@@ -1269,10 +1291,12 @@ export class AgentServer {
         this.config.taskId,
         this.config.runId,
         {
-          status: "failed",
+          ...(this.startupFailure ? {} : { status: "failed" as const }),
           error_message: `Agent server crashed: ${errorMessage}`,
           error_type: "agent_server_crash",
-          state: { agent_version: this.agentVersion },
+          state: {
+            agent_version: this.agentVersion,
+          },
         },
       );
     } catch (updateError) {
@@ -1354,10 +1378,10 @@ export class AgentServer {
     return this.codexTokenClient;
   }
 
-  private async reportSubscriptionTokenMissing(
+  private reportSubscriptionTokenMissing(
     adapter: "claude" | "codex",
     reason: string,
-  ): Promise<void> {
+  ): void {
     const failure = SUBSCRIPTION_TOKEN_FAILURE[adapter];
     this.initializationFailureCode = `${adapter}_credential_unavailable`;
     this.logger.warn(this.initializationFailureCode);
@@ -1376,12 +1400,8 @@ export class AgentServer {
           },
         },
       });
-      await this.eventStreamSender?.stop({ complete: false });
     } catch (error) {
-      this.logger.error(
-        "Failed to flush events after credential relay failure",
-        error,
-      );
+      this.logger.error("Failed to report credential relay failure", error);
     }
   }
 
@@ -1659,7 +1679,11 @@ export class AgentServer {
                 result = await runTurn();
               }
 
-              if (result.stopReason === "end_turn" && manualCompactPrompt) {
+              if (
+                result.stopReason === "end_turn" &&
+                manualCompactPrompt &&
+                !compactionFailed(result)
+              ) {
                 commitDelivery();
                 if (messageId) {
                   this.pendingCompactContinuationMessageIds.add(messageId);
@@ -1963,6 +1987,7 @@ export class AgentServer {
   private createContextSelection(
     runId: string,
     history: string,
+    injected: string[] = [],
   ): ContextSelection {
     return new ContextSelection(
       this.contextSelectionAPI,
@@ -1976,6 +2001,7 @@ export class AgentServer {
         ),
       this.config.version ?? packageJson.version,
       history,
+      injected,
     );
   }
 
@@ -2015,19 +2041,44 @@ export class AgentServer {
       this.httpReadyBootMs,
       this.config.launcherToProcessMs,
     );
+    this.startupFailure = undefined;
+    this.initializationFailureCode = undefined;
     this.initializationPromise = this._doInitializeSession(payload);
     const initStartedAt = Date.now();
     try {
       await this.initializationPromise;
     } catch (error) {
       if (this.shutdownController.signal.aborted) throw error;
-      this.bootTracker.markFailed();
+      if (this.bootTracker.snapshot().state === "ready") throw error;
+      this.logger.error(
+        "Agent session initialization failed",
+        redactSecrets(describeFatalError(error)),
+      );
+      this.startupFailure = readStartupFailure(error) ?? {
+        provider: this.getRuntimeAdapter(),
+        phase: "session_setup",
+        reason: null,
+        retryability: "unknown",
+      };
       if (
         error instanceof CredentialRelayError ||
         error instanceof CodexSubscriptionTokenError
       ) {
+        const transient =
+          error instanceof CodexSubscriptionTokenError &&
+          (error.code === "request_failed" ||
+            error.code === "openai_unavailable");
+        this.startupFailure = {
+          provider: this.subscriptionAdapter(),
+          phase: "session_setup",
+          reason: transient
+            ? "credential_service_unavailable"
+            : "credential_unavailable",
+          retryability: transient ? "transient" : "requires_action",
+        };
         this.initializationFailureCode = `${this.subscriptionAdapter()}_credential_unavailable`;
       }
+      this.bootTracker.markFailed();
       const telemetry = this.initializingTelemetry;
       telemetry?.append(payload.run_id, {
         type: "notification",
@@ -2037,6 +2088,7 @@ export class AgentServer {
           method: POSTHOG_NOTIFICATIONS.INITIALIZATION_FAILED,
           params: {
             runtimeAdapter: this.getRuntimeAdapter(),
+            startupFailure: this.startupFailure,
             initializationPhase: "session_setup",
             initMs: Date.now() - initStartedAt,
             requestedModel: this.config.model,
@@ -2156,17 +2208,23 @@ export class AgentServer {
           this.fetchTaskForSessionContext(payload.task_id),
         ]),
     );
-    this.taskRepositories =
-      preTask?.repositories ??
-      (preTask?.repository ? [preTask.repository] : []);
+    const launchSources = {
+      payload,
+      task: preTask,
+      taskRun: preTaskRun,
+      config: this.config,
+      env: process.env,
+    };
+    const launch = readRunLaunch(launchSources);
+    this.taskRepositories = launch.repositories;
 
     this.runUsage = new RunUsageAccumulator();
     this.runUsageRunId = payload.run_id;
     this.lastBudgetSnapshot = undefined;
     this.lastPersistedBudgetKey = undefined;
     this.budgetPersistInFlightKey = undefined;
-    seedRunUsage(this.runUsage, preTaskRun?.state.token_usage);
-    this.prewarmedRun = preTaskRun?.state.prewarmed === true;
+    seedRunUsage(this.runUsage, launch.tokenUsage);
+    this.prewarmedRun = launch.prewarmed === true;
     this.prewarmedStartupTurnPending = this.prewarmedRun;
 
     const runtimeAdapter = this.getRuntimeAdapter();
@@ -2180,28 +2238,23 @@ export class AgentServer {
 
     const gatewayEnv = this.configureEnvironment({
       runSpanContext: telemetry?.getRunSpanContext(),
-      isInternal: preTask?.internal === true,
-      originProduct: preTask?.origin_product,
-      signalReportId: preTask?.signal_report,
-      aiStage: getTaskRunStateString(preTaskRun, "ai_stage"),
-      aiAgentName: getTaskRunStateString(preTaskRun, "ai_agent_name"),
+      isInternal: launch.internal,
+      originProduct: launch.originProduct,
+      signalReportId: launch.signalReportId,
+      aiStage: launch.aiStage,
+      aiAgentName: launch.aiAgentName,
       taskId: payload.task_id,
       taskRunId: payload.run_id,
-      taskUserId: payload.user_id || preTask?.created_by?.id || null,
-      taskTitle: preTask?.title,
-      taskOriginKey: preTask?.origin_key,
-      repositories: this.taskRepositories,
+      taskUserId: launch.userId,
+      taskTitle: launch.title,
+      taskOriginKey: launch.originKey,
+      repositories: launch.repositories,
       runtimeAdapter,
-      sandboxEnvironmentId: getTaskRunStateString(
-        preTaskRun,
-        "sandbox_environment_id",
-      ),
-      snapshotKind: preTaskRun
-        ? (getTaskRunStateString(preTaskRun, "snapshot_kind") ?? "absent")
-        : null,
-      prewarmed: preTaskRun ? this.prewarmedRun : null,
+      sandboxEnvironmentId: launch.sandboxEnvironmentId,
+      snapshotKind: launch.snapshotKind,
+      prewarmed: launch.prewarmed,
       executionEnvironment: "cloud",
-      sharedPromptCache: preTaskRun?.state.codex_shared_prompt_cache === true,
+      sharedPromptCache: launch.sharedPromptCache,
     });
 
     // Only that stamped header makes the run id a trace the generations land
@@ -2219,62 +2272,36 @@ export class AgentServer {
       }).catch(() => {});
     }
 
-    const runState = preTaskRun?.state;
-
-    // Web backlink to the inbox report that spawned this task, so the
-    // auto-generated PR can point back at it. Built from the same pieces as the
-    // report's `_posthogUrl`: <apiUrl>/project/<projectId>/inbox/<reportId>.
-    const signalReportId = preTask?.signal_report;
-    const inboxReportUrl = signalReportId
-      ? `${this.config.apiUrl.replace(/\/$/, "")}/project/${this.config.projectId}/inbox/${signalReportId}`
-      : null;
-
     // Unconditional so a re-init on the same instance drops the previous run's product
     // behavior and PR URL.
-    await this.openProductSession({
-      taskId: payload.task_id,
-      runId: payload.run_id,
-      originProduct: readOriginProduct(),
-      launchOptions: structuredClone(runState ?? {}),
-      source: inboxReportUrl
-        ? { label: "inbox report", url: inboxReportUrl }
-        : undefined,
-    });
+    await this.openProductSession(readProductLaunch(launchSources));
     const prUrl = this.detectedPrUrl;
 
     // Before the prompt: its skills-store section counts the stubs on disk.
     await this.installStoreSkills(
       payload.task_id,
       payload.run_id,
-      runState ?? null,
+      launch.runState,
     );
     // Before the adapter starts: Claude and Codex read these files when the session opens.
     this.agentInstructions = await new AgentInstructionFiles(this.logger).sync(
-      runState ?? null,
+      launch.runState,
       { taskId: payload.task_id, runId: payload.run_id },
     );
 
-    const runStateSystemPrompt =
-      claudeCodeConfigSchema.shape.systemPrompt.safeParse(
-        runState?.systemPrompt,
-      );
-    const runStateSystemPromptData = runStateSystemPrompt.success
-      ? runStateSystemPrompt.data
-      : undefined;
-
     if (
-      preTask?.origin_product === POSTHOG_AI_ORIGIN_PRODUCT &&
-      !systemPromptAppendText(runStateSystemPromptData)
+      launch.originProduct === POSTHOG_AI_ORIGIN_PRODUCT &&
+      !systemPromptAppendText(launch.systemPrompt)
     ) {
       this.logger.warn("posthog_ai_run_state_system_prompt_missing", {
         runId: payload.run_id,
-        parsed: runStateSystemPrompt.success,
+        parsed: launch.systemPromptValid,
       });
     }
 
     const sessionSystemPrompt = this.buildSessionSystemPrompt(
       prUrl,
-      runStateSystemPromptData,
+      launch.systemPrompt,
     );
     const codexInstructions =
       runtimeAdapter === "codex"
@@ -2307,7 +2334,7 @@ export class AgentServer {
         if (this.shutdownController.signal.aborted) throw error;
         const reason = error instanceof Error ? error.message : String(error);
         this.logger.warn("Claude subscription token relay failed", { reason });
-        await this.reportSubscriptionTokenMissing("claude", reason);
+        this.reportSubscriptionTokenMissing("claude", reason);
         throw error;
       }
     }
@@ -2328,7 +2355,7 @@ export class AgentServer {
               ? error.message
               : String(error);
         this.logger.warn("ChatGPT token request failed", { reason });
-        await this.reportSubscriptionTokenMissing("codex", reason);
+        this.reportSubscriptionTokenMissing("codex", reason);
         throw error;
       }
     }
@@ -2363,6 +2390,10 @@ export class AgentServer {
         runtimeAdapter !== "codex" && claudeSubscriptionToken !== null
           ? { oauthToken: claudeSubscriptionToken }
           : undefined,
+      claudeModelsGatewayUrl:
+        runtimeAdapter !== "codex" && claudeSubscriptionToken !== null
+          ? gatewayEnv.anthropicBaseUrl
+          : undefined,
       codexOptions:
         runtimeAdapter === "codex"
           ? {
@@ -2390,10 +2421,10 @@ export class AgentServer {
               serviceTier: this.config.serviceTier,
               // Codex runs at most 3 sub-agents per session at once by default; the main agent does
               // not count. A run that starts more sub-agents at once sets its own limit.
-              ...(runState?.codex_max_subagents && {
+              ...(launch.codexMaxSubagents && {
                 configOverrides: {
                   "agents.max_concurrent_threads_per_session":
-                    runState.codex_max_subagents,
+                    launch.codexMaxSubagents,
                 },
               }),
               developerInstructions: codexInstructions,
@@ -2445,18 +2476,8 @@ export class AgentServer {
     // local sessions. Claude keeps the historical auto-approved default when
     // PostHog Desktop has not explicitly selected a mode.
     const initialPermissionMode: PermissionMode =
-      typeof runState?.initial_permission_mode === "string"
-        ? (runState.initial_permission_mode as PermissionMode)
-        : runtimeAdapter === "codex"
-          ? "auto"
-          : "bypassPermissions";
-    const pendingUserArtifactIds = Array.isArray(
-      runState?.pending_user_artifact_ids,
-    )
-      ? runState.pending_user_artifact_ids.filter(
-          (artifactId): artifactId is string => typeof artifactId === "string",
-        )
-      : [];
+      launch.initialPermissionMode ??
+      (runtimeAdapter === "codex" ? "auto" : "bypassPermissions");
     const sessionCwd = this.config.repositoryPath ?? "/tmp/workspace";
     // Only a run with no repository at all gets the discover-and-clone tools;
     // a multi-repository workspace already has its repos on disk.
@@ -2471,15 +2492,17 @@ export class AgentServer {
       systemPrompt: sessionSystemPrompt,
       ...(this.config.model && { model: this.config.model }),
       allowedDomains: this.config.allowedDomains,
-      jsonSchema: preTask?.json_schema ?? null,
+      jsonSchema: launch.jsonSchema,
       permissionMode: initialPermissionMode,
       ...(channelMode && { channelMode: true }),
       budgetSteer: { mode: this.budgetSteerMode() },
       posthogExecPermissionRegex: this.posthogExecPermissionRegexSource,
-      ...(preTask?.origin_product && {
-        taskOriginProduct: preTask.origin_product,
+      ...(launch.originProduct && {
+        taskOriginProduct: launch.originProduct,
       }),
-      ...(runState?.end_run_when_done === true && { endRunWhenDone: true }),
+      ...(launch.endRunWhenDone && { endRunWhenDone: true }),
+      ...(launch.callerEndsRun && { callerEndsRun: true }),
+      ...(launch.disableRepoHooks && { disableRepoHooks: true }),
       ...(this.config.baseBranch && { baseBranch: this.config.baseBranch }),
       ...(runtimeAdapter === "claude" &&
         this.config.contextWindow && {
@@ -2489,7 +2512,7 @@ export class AgentServer {
         this.config.fastMode !== undefined && {
           fastMode: this.config.fastMode,
         }),
-      ...this.buildClaudeCodeSessionMeta(runtimeAdapter),
+      ...this.buildClaudeCodeSessionMeta(runtimeAdapter, launch.disableSkills),
     };
 
     await this.measureInitialization("repository_ready", () =>
@@ -2519,7 +2542,7 @@ export class AgentServer {
             payload.run_id,
             this.getArtifactsById(
               preTaskRun?.artifacts,
-              pendingUserArtifactIds,
+              launch.pendingUserArtifactIds,
             ),
           );
           const preparedNativeResume = await this.prepareNativeResume(
@@ -2617,6 +2640,7 @@ export class AgentServer {
         resumeState
           ? formatConversationForResume(resumeState.conversation)
           : "",
+        resumeState?.injectedReferences ?? [],
       ),
       cancellationVersion: 0,
       payload,
@@ -2697,16 +2721,23 @@ export class AgentServer {
     this.broadcastAndPersistNotification(agentStartedProgress);
 
     // Signal in_progress so the UI can start polling for updates
-    this.posthogAPI
-      .updateTaskRun(payload.task_id, payload.run_id, {
-        status: "in_progress",
-        state: {
-          agent_version: this.agentVersion,
-          ...(isBenjaminEnabled() && {
-            benjamin_version: BENJAMIN_UPSTREAM_COMMIT,
-          }),
+    this.startupFailure = undefined;
+    await this.posthogAPI
+      .updateTaskRun(
+        payload.task_id,
+        payload.run_id,
+        {
+          status: "in_progress",
+          error_message: null,
+          state: {
+            agent_version: this.agentVersion,
+            ...(isBenjaminEnabled() && {
+              benjamin_version: BENJAMIN_UPSTREAM_COMMIT,
+            }),
+          },
         },
-      })
+        AbortSignal.timeout(2_000),
+      )
       .catch((err) =>
         this.logger.debug("Failed to set task run to in_progress", err),
       );
@@ -2825,6 +2856,7 @@ export class AgentServer {
     ) {
       return { stopReason: "cancelled" };
     }
+    session.contextSelection.recordInjected(context);
     const result = await session.clientConnection.prompt({
       ...request,
       prompt: context
@@ -4420,7 +4452,7 @@ export class AgentServer {
     runId: string,
     runState: TaskRunState | null,
   ): Promise<void> {
-    this.storeSkillsInstalledCount = await syncStoreSkills(
+    this.storeSkills = await syncStoreSkills(
       runState,
       { taskId, runId },
       this.logger,
@@ -4556,12 +4588,13 @@ export class AgentServer {
    */
   private buildClaudeCodeSessionMeta(
     runtimeAdapter: Adapter,
+    disableSkills = false,
   ): { claudeCode: { options: Record<string, unknown> } } | undefined {
     const plugins = this.config.claudeCode?.plugins;
     const effort =
       runtimeAdapter === "claude" ? this.config.reasoningEffort : undefined;
 
-    if (!plugins?.length && !effort) {
+    if (!plugins?.length && !effort && !disableSkills) {
       return undefined;
     }
 
@@ -4571,6 +4604,9 @@ export class AgentServer {
     }
     if (effort) {
       options.effort = effort;
+    }
+    if (disableSkills) {
+      options.skills = [];
     }
     return { claudeCode: { options } };
   }
@@ -4658,13 +4694,20 @@ export class AgentServer {
     const context: string[] = [];
     if (shouldResolveStoreSkills) {
       const { task_id: taskId, run_id: runId } = this.session.payload;
-      const previousCount = this.storeSkillsInstalledCount;
+      const previousInstructions = buildStoreSkillsInstructions(
+        this.storeSkills,
+      );
       await this.installStoreSkills(taskId, runId, state ?? null);
       this.storeSkillsActivationResolved = true;
-      if (previousCount === 0 && this.storeSkillsInstalledCount > 0) {
-        context.push(
-          buildStoreSkillsInstructions(this.storeSkillsInstalledCount).trim(),
-        );
+      const storeSkillsInstructions = buildStoreSkillsInstructions(
+        this.storeSkills,
+      );
+      // The system prompt still carries the prewarm section, so only a changed one is worth sending.
+      if (
+        storeSkillsInstructions &&
+        storeSkillsInstructions !== previousInstructions
+      ) {
+        context.push(storeSkillsInstructions.trim());
       }
       const instructions = await new AgentInstructionFiles(this.logger).sync(
         state ?? null,
@@ -4795,10 +4838,11 @@ export class AgentServer {
       hasGithubToken: Boolean(resolveGithubToken()),
       identityInstructions: this.productSession.identityInstructions,
       deliveryInstructions: this.productSession.deliveryInstructions,
+      gitProvider: isGitlabRun() ? "gitlab" : "github",
       projectId: this.config.projectId,
       repositoryAttached: Boolean(this.config.repositoryPath),
       shouldAutoPublish: this.shouldAutoPublishCloudChanges(),
-      storeSkillsInstalledCount: this.storeSkillsInstalledCount,
+      storeSkills: this.storeSkills,
       taskId: this.config.taskId,
       taskRepositories: this.taskRepositories,
     });
@@ -4831,14 +4875,12 @@ export class AgentServer {
     }
   }
 
-  // The checked-out branch and the GitHub repository its `origin` points at, or
-  // null without a checkout (no-repository mode) or on a detached HEAD.
   private async getCurrentCheckout(): Promise<OwnedBranch | null> {
     const branch = await this.getCurrentGitBranch();
     if (!branch || !this.config.repositoryPath) return null;
     let repository: string | null = null;
     try {
-      repository = parseGithubRemoteRepository(
+      repository = parseRemoteRepository(
         await getRemoteUrl(this.config.repositoryPath),
       );
     } catch (error) {
@@ -5250,7 +5292,7 @@ export class AgentServer {
             outcome: { outcome: "cancelled" },
             _meta: {
               message:
-                "This run is configured to stop before publishing. Do not push commits or create/update pull requests unless the user explicitly asks.",
+                "This run is configured to stop before publishing. Publishing is disabled for this run, even if the user invokes a skill. Do not retry this push or pull request update here. Explain that publishing must be enabled for this run.",
             },
           };
         }
@@ -5397,9 +5439,12 @@ export class AgentServer {
     let checkout: OwnedBranch | null;
     let freshOutput: Record<string, unknown> | null;
     try {
+      const gitlabMr = parseGitlabMergeRequestUrl(prUrl);
       [attribution, ghLogin, checkout, freshOutput] = await Promise.all([
-        this.fetchPrAttribution(prUrl),
-        this.fetchGhLogin(),
+        gitlabMr
+          ? this.fetchGitlabMrAttribution(gitlabMr.projectPath, gitlabMr.iid)
+          : this.fetchPrAttribution(prUrl),
+        gitlabMr ? this.fetchGitlabLogin() : this.fetchGhLogin(),
         this.getCurrentCheckout(),
         this.posthogAPI
           .getTaskRun(payload.task_id, payload.run_id)
@@ -5524,6 +5569,52 @@ export class AgentServer {
     } catch {
       return unknown;
     }
+  }
+
+  private async fetchGitlabMrAttribution(
+    projectPath: string,
+    iid: number,
+  ): Promise<PrAttribution> {
+    const unknown: PrAttribution = {
+      createdAt: null,
+      author: null,
+      headRefName: null,
+      isCrossRepository: null,
+    };
+    const client = resolveGitlabClient();
+    if (!client) return unknown;
+    try {
+      const mr = await getGitlabMergeRequest(client, projectPath, iid);
+      return {
+        createdAt: mr.created_at,
+        author: mr.author_username,
+        headRefName: mr.source_branch,
+        isCrossRepository:
+          mr.source_project_id !== null && mr.target_project_id !== null
+            ? mr.source_project_id !== mr.target_project_id
+            : null,
+      };
+    } catch {
+      return unknown;
+    }
+  }
+
+  private gitlabLoginPromise: Promise<string | null> | null = null;
+
+  private fetchGitlabLogin(): Promise<string | null> {
+    if (this.gitlabLoginPromise !== null) return this.gitlabLoginPromise;
+    const client = resolveGitlabClient();
+    if (!client) return Promise.resolve(null);
+    this.gitlabLoginPromise = getGitlabCurrentUsername(client)
+      .then((login) => {
+        if (!login) this.gitlabLoginPromise = null;
+        return login;
+      })
+      .catch(() => {
+        this.gitlabLoginPromise = null;
+        return null;
+      });
+    return this.gitlabLoginPromise;
   }
 
   private ghLoginPromise: Promise<string | null> | null = null;
@@ -5719,6 +5810,15 @@ export class AgentServer {
       message.method === POSTHOG_NOTIFICATIONS.CONVERSATION_CLEARED
     ) {
       this.session.contextSelection.resetHistory();
+    }
+    if (
+      this.session &&
+      typeof message === "object" &&
+      message !== null &&
+      "method" in message &&
+      message.method === POSTHOG_NOTIFICATIONS.COMPACT_BOUNDARY
+    ) {
+      this.session.contextSelection.forgetInjected();
     }
     const budget = budgetSnapshotFromUsageUpdate(message);
     if (budget) {

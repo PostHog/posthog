@@ -17,6 +17,7 @@ from posthog.models.scoping import team_scope
 from posthog.models.team import Team
 from posthog.redis import get_client
 
+from products.experiments.backend.facade.daily_calculation import DAILY_CALCULATION_DAYS
 from products.experiments.backend.hogql_queries import MULTIPLE_VARIANT_KEY
 from products.experiments.backend.models.experiment import (
     EXPOSURE_FROZEN_GROUP_KEY,
@@ -28,7 +29,6 @@ from products.experiments.backend.models.experiment import (
 )
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 from products.experiments.backend.temporal.scheduled_recalculation_logic import (
-    EXPERIMENT_RECALCULATION_MAX_AGE_DAYS,
     EXPOSURE_BACKOFF_INTERVAL,
     EXPOSURE_BACKOFF_KEY_PREFIX,
     EXPOSURE_BACKOFF_MIN_CONSECUTIVE_CHECKS,
@@ -214,9 +214,9 @@ class TestScheduledRecalculationLogic(BaseTest):
         [
             ("too_new", 3, False),
             ("just_old_enough", 13, True),
-            ("too_old", 24 * 61, False),
+            ("too_old", (DAILY_CALCULATION_DAYS + 1) * 24, False),
             ("min_age_boundary", MIN_EXPERIMENT_AGE.total_seconds() / 3600, True),
-            ("max_age_boundary", EXPERIMENT_RECALCULATION_MAX_AGE_DAYS * 24, True),
+            ("max_age_boundary", DAILY_CALCULATION_DAYS * 24, True),
         ]
     )
     def test_age_bounds(self, _name: str, started_hours_ago: float, expected: bool):
@@ -394,6 +394,24 @@ class TestScheduledRecalculationLogic(BaseTest):
                 completed_at=None,
             )
         self._assert_discovery_and_start_skip(experiment, None)
+
+    def test_candidates_come_oldest_scheduled_run_first(self):
+        ran_yesterday, never_ran, ran_two_days_ago = self._experiment(), self._experiment(), self._experiment()
+        with team_scope(self.team.id, canonical=True):
+            for experiment, age in [(ran_yesterday, timedelta(days=1)), (ran_two_days_ago, timedelta(days=2))]:
+                recalc = ExperimentMetricsRecalculation.objects.create(
+                    team=self.team,
+                    experiment=experiment,
+                    status=ExperimentMetricsRecalculation.Status.COMPLETED,
+                    trigger=ExperimentMetricsRecalculation.Trigger.SCHEDULED,
+                    completed_at=timezone.now() - age,
+                )
+                ExperimentMetricsRecalculation.objects.filter(id=recalc.id).update(created_at=timezone.now() - age)
+
+        with patch(FLAG_PATH, return_value=True):
+            candidates = find_scheduled_recalculation_candidates().discovery.candidates
+
+        assert [c.experiment_id for c in candidates] == [never_ran.id, ran_two_days_ago.id, ran_yesterday.id]
 
     def test_flag_helper_passes_group_properties(self):
         with patch(

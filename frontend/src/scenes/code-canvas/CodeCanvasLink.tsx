@@ -1,10 +1,12 @@
+import { useValues } from 'kea'
+import { router } from 'kea-router'
 import { useEffect } from 'react'
 
-import { BridgePage } from 'lib/components/BridgePage/BridgePage'
+import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { SceneExport } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
 
-import { DesktopBridgeBody } from './DesktopBridgeBody'
-import { DESKTOP_SCHEME } from './desktopScheme'
+import { webPath } from './webPath'
 
 export interface CodeCanvasLinkProps {
     channelId: string
@@ -19,34 +21,24 @@ export const scene: SceneExport<CodeCanvasLinkProps> = {
     }),
 }
 
-function canvasDeepLink(channelId: string, dashboardId: string): string {
-    return `${DESKTOP_SCHEME}://canvas/${encodeURIComponent(channelId)}/${encodeURIComponent(dashboardId)}`
-}
-
 /**
- * Public, unauthenticated bridge for desktop-app "canvas" share links
- * (`/code/canvas/<channelId>/<dashboardId>`). On mount it deep-links into the desktop
- * app via the `posthog-code(-dev)://` custom scheme; for visitors without the app it
- * shows an explanation, a manual "open" button (in case the browser blocks the
- * auto-redirect), and a download link. The canvas itself only exists in the desktop
- * app, so nothing is rendered here beyond this interstitial.
+ * Public entry point for canvas share links (`/code/canvas/<channelId>/<dashboardId>`).
+ * The link shape stays because released desktop apps parse it, but in the browser it
+ * always opens the canvas in the web app.
  */
-export function CodeCanvasLink({ channelId, dashboardId }: CodeCanvasLinkProps): JSX.Element {
-    // Null when a param is missing (a partial URL or params not yet resolved) —
-    // firing with an empty id would send a malformed `<scheme>://canvas//`.
-    const deepLink = channelId && dashboardId ? canvasDeepLink(channelId, dashboardId) : null
+export function CodeCanvasLink({ dashboardId }: CodeCanvasLinkProps): JSX.Element {
+    const { location } = useValues(router)
+    const webUrl = dashboardId ? webPath(location.pathname, urls.canvasDetail(dashboardId)) : null
 
     useEffect(() => {
-        if (deepLink) {
-            window.location.href = deepLink
+        if (webUrl) {
+            // A full page load, because a client-side route change skips the server login gate
+            // and a signed-out visitor would see a blank page instead of the login page.
+            window.location.replace(webUrl)
         }
-    }, [deepLink])
+    }, [webUrl])
 
-    return (
-        <BridgePage view="code-canvas-link">
-            <DesktopBridgeBody subject="This canvas" deepLink={deepLink} />
-        </BridgePage>
-    )
+    return <SpinnerOverlay sceneLevel />
 }
 
 export default CodeCanvasLink

@@ -8,7 +8,7 @@ from django.db.models import QuerySet
 
 import structlog
 
-from posthog.models.integration import Integration
+from posthog.integrations import IntegrationManager
 from posthog.models.scoping.manager import resolve_effective_team_id
 from posthog.models.team.team import Team
 from posthog.models.user import User
@@ -195,14 +195,14 @@ def delete_alert(team_id: int, alert_id: UUID | str) -> bool:
     return deleted > 0
 
 
-def _validate_filter_surface(filters: dict[str, Any]) -> None:
+def _validate_filter_surface(filters: dict[str, Any], subject: str = "Alert") -> None:
     # Delivery evaluates filters without person, group, or cohort context, and
     # native alerts have no bytecode refresh when actions or test-account
     # definitions change. Reject what cannot be honored instead of silently
     # mis-evaluating it.
     unsupported_keys = [key for key in ("actions", "filter_test_accounts") if filters.get(key)]
     if unsupported_keys:
-        raise AlertValidationError(f"Alert filters do not support {', '.join(unsupported_keys)}.")
+        raise AlertValidationError(f"{subject} filters do not support {', '.join(unsupported_keys)}.")
     property_lists = [filters.get("properties") or []]
     for entity in filters.get("events") or []:
         if isinstance(entity, dict):
@@ -210,24 +210,24 @@ def _validate_filter_surface(filters: dict[str, Any]) -> None:
                 # A typeless entity compiles without its event-name predicate (a
                 # match-all branch), and an action entity smuggled into the events
                 # list would compile too.
-                raise AlertValidationError(f"Alert event filters must have type events, got: {entity.get('type')}.")
+                raise AlertValidationError(f"{subject} event filters must have type events, got: {entity.get('type')}.")
             # Without an event name the entity compiles to a match-all branch too.
             if not isinstance(entity.get("id"), str) or not entity["id"]:
-                raise AlertValidationError("Alert event filters must name an event.")
+                raise AlertValidationError(f"{subject} event filters must name an event.")
             property_lists.append(entity.get("properties") or [])
     for property_list in property_lists:
         # The compiler accepts an object here and iterating it would only yield keys,
         # so the leaf checks below would never run.
         if not isinstance(property_list, list):
-            raise AlertValidationError("Alert property filters must be a list.")
+            raise AlertValidationError(f"{subject} property filters must be a list.")
         for property_filter in property_list:
             # A leaf without a key makes the compiler fall back to a constant-true
             # branch, turning a "filtered" alert into a match-all.
             if not isinstance(property_filter, dict) or not isinstance(property_filter.get("key"), str):
-                raise AlertValidationError("Each alert property filter must be an object with a key.")
+                raise AlertValidationError(f"Each {subject.lower()} property filter must be an object with a key.")
             if property_filter.get("type") not in (None, "event"):
                 raise AlertValidationError(
-                    f"Alert filters support event properties only, got: {property_filter.get('type')}."
+                    f"{subject} filters support event properties only, got: {property_filter.get('type')}."
                 )
             # A leaf with a key but no value compiles to constant-true as well. An empty
             # string is a real comparison value and stays allowed.
@@ -236,19 +236,39 @@ def _validate_filter_surface(filters: dict[str, Any]) -> None:
                 [],
             ):
                 raise AlertValidationError(
-                    f"Alert property filter on {property_filter['key']} needs a value, or an is set / is not set operator."
+                    f"{subject} property filter on {property_filter['key']} needs a value, or an is set / is not set operator."
                 )
 
 
-def _compile_filters(team_id: int, filters: dict[str, Any]) -> dict[str, Any]:
+def _compile_filters(team_id: int, filters: dict[str, Any], subject: str = "Alert") -> dict[str, Any]:
     if not isinstance(filters, dict):
-        raise AlertValidationError("Alert filters must be an object.")
-    _validate_filter_surface(filters)
+        raise AlertValidationError(f"{subject} filters must be an object.")
+    _validate_filter_surface(filters, subject)
     team = Team.objects.get(id=team_id)
     compiled = compile_filters_bytecode(dict(filters), team)
     if compiled.get("bytecode_error"):
         raise AlertValidationError(f"Invalid filter configuration: {compiled['bytecode_error']}")
     return compiled
+
+
+# Keys a stored signal source filter may carry: the property list a person writes, and the
+# compiler's outputs, which a client may echo back from a read.
+_SIGNAL_SOURCE_FILTER_KEYS = frozenset({"properties", "bytecode", "bytecode_error", "bytecode_contract"})
+
+
+def compile_signal_source_filters(team_id: int, filters: dict[str, Any]) -> dict[str, Any]:
+    """Validate and compile the Inbox error tracking source filter on the server.
+
+    The filter applies to every lifecycle trigger, so it takes global properties only. An event
+    branch would match one trigger and drop the others. Client bytecode is discarded and compiled
+    again, because emission trusts the stored bytecode.
+    """
+    if not isinstance(filters, dict):
+        raise AlertValidationError("Inbox filters must be an object.")
+    unsupported_keys = sorted(set(filters) - _SIGNAL_SOURCE_FILTER_KEYS)
+    if unsupported_keys:
+        raise AlertValidationError(f"Inbox filters do not support {', '.join(unsupported_keys)}.")
+    return _compile_filters(team_id, {"properties": filters.get("properties") or []}, subject="Inbox")
 
 
 def _reject_duplicate_destinations(destinations: list[dict[str, Any]]) -> None:
@@ -278,9 +298,11 @@ def _validate_destination(team_id: int, destination: dict[str, Any]) -> None:
         # canonical team, so accept any integration in the same project.
         project_id = Team.objects.values_list("project_id", flat=True).get(id=team_id)
         # nosemgrep: environment-model-scoped-by-project -- alert rows live on the canonical team, so a Slack integration from any environment of the project is valid
-        if not Integration.objects.filter(
-            team__project_id=project_id, id=integration_id, kind=Integration.IntegrationKind.SLACK
-        ).exists():
+        project_team_ids = Team.objects.filter(project_id=project_id).values_list("id", flat=True)
+        if not any(
+            IntegrationManager.slack.oauth.get_many(project_team_id, [integration_id])
+            for project_team_id in project_team_ids
+        ):
             raise AlertValidationError("Slack integration not found for this project.")
         channel = config.get("channel")
         if not isinstance(channel, str) or not channel:

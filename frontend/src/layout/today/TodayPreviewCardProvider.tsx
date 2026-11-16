@@ -14,6 +14,9 @@ const TodayChatHoverCard = lazyWithRetry(() =>
 const TodayObjectHoverCard = lazyWithRetry(() =>
     import('./TodayObjectHoverCard').then((m) => ({ default: m.TodayObjectHoverCard }))
 )
+const TodayProductHoverCard = lazyWithRetry(() =>
+    import('./TodayProductHoverCard').then((m) => ({ default: m.TodayProductHoverCard }))
+)
 const TodaySessionHoverCard = lazyWithRetry(() =>
     import('./TodaySessionHoverCard').then((m) => ({ default: m.TodaySessionHoverCard }))
 )
@@ -50,6 +53,8 @@ export function TodayPreviewCardProvider({
     const [open, setOpen] = useState(false)
     // A ref, so a hover that lands while a menu is open is refused on the same event.
     const menuOpen = useRef(false)
+    // A ref for the same reason. Base UI still runs the clicked row's pending hover timer, so its open is refused here.
+    const dismissedTrigger = useRef<Element | null>(null)
     const card = useMemo<TodayPreviewCard>(
         () => ({
             handle,
@@ -57,6 +62,15 @@ export function TodayPreviewCardProvider({
                 menuOpen.current = next
                 if (next) {
                     setOpen(false)
+                }
+            },
+            dismissFor: (trigger) => {
+                dismissedTrigger.current = trigger
+                setOpen(false)
+            },
+            rearm: (trigger) => {
+                if (dismissedTrigger.current === trigger) {
+                    dismissedTrigger.current = null
                 }
             },
         }),
@@ -73,7 +87,9 @@ export function TodayPreviewCardProvider({
                 handle={handle}
                 // A session dialog or the bulk archive confirm keeps the card shut, so the card cannot open over it.
                 open={open && !disabled}
-                onOpenChange={(next) => setOpen(next && !menuOpen.current && !disabled)}
+                onOpenChange={(next, { trigger }) =>
+                    setOpen(next && !menuOpen.current && !disabled && trigger !== dismissedTrigger.current)
+                }
             >
                 {({ payload }) =>
                     payload ? (
@@ -90,6 +106,8 @@ export function TodayPreviewCardProvider({
                                                 <TodayChatHoverCard preview={payload} onAction={close} />
                                             ) : payload.kind === 'object' ? (
                                                 <TodayObjectHoverCard preview={payload} onAction={close} />
+                                            ) : payload.kind === 'product' || payload.kind === 'explainer' ? (
+                                                <TodayProductHoverCard preview={payload} onAction={close} />
                                             ) : (
                                                 <TodaySessionHoverCard preview={payload} onAction={close} />
                                             )}

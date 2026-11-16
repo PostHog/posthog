@@ -105,27 +105,27 @@ def test_resume_value_covers_only_rows_that_cannot_have_later_siblings(
     [
         pytest.param({}, "run-1", None, id="nothing_staged"),
         pytest.param(
-            {"incremental_staged": {"run_uuid": "run-1-a1", "last_value": 50, "resume_value": 40}},
+            {"incremental_staged": {"run_uuid": "run-1-a1", "last_value": 50, "ordered_resume_value": 40}},
             "run-1",
             40,
             id="live_slot_of_this_run",
         ),
         pytest.param(
-            {"incremental_staged": {"run_uuid": "run-1-a1", "last_value": 50, "resume_value": 40}},
+            {"incremental_staged": {"run_uuid": "run-1-a1", "last_value": 50, "ordered_resume_value": 40}},
             "run-2",
             None,
             id="another_workflow_run_never_reads_it",
         ),
         pytest.param(
-            {"incremental_staged": {"run_uuid": "run-1-a1", "last_value": 50, "resume_value": 40}},
+            {"incremental_staged": {"run_uuid": "run-1-a1", "last_value": 50, "ordered_resume_value": 40}},
             None,
             None,
             id="no_workflow_run",
         ),
         pytest.param(
             {
-                "incremental_staged": {"run_uuid": "run-1-a2", "last_value": 90, "resume_value": 80},
-                "incremental_staged_pending": [{"run_uuid": "run-1-a1", "last_value": 50, "resume_value": 40}],
+                "incremental_staged": {"run_uuid": "run-1-a2", "last_value": 90, "ordered_resume_value": 80},
+                "incremental_staged_pending": [{"run_uuid": "run-1-a1", "last_value": 50, "ordered_resume_value": 40}],
             },
             "run-1",
             80,
@@ -133,8 +133,8 @@ def test_resume_value_covers_only_rows_that_cannot_have_later_siblings(
         ),
         pytest.param(
             {
-                "incremental_staged": {"run_uuid": "run-1-a2", "last_value": 50, "resume_value": 40},
-                "incremental_staged_pending": [{"run_uuid": "run-1-a10", "last_value": 90, "resume_value": 80}],
+                "incremental_staged": {"run_uuid": "run-1-a2", "last_value": 50, "ordered_resume_value": 40},
+                "incremental_staged_pending": [{"run_uuid": "run-1-a10", "last_value": 90, "ordered_resume_value": 80}],
             },
             "run-1",
             80,
@@ -144,7 +144,7 @@ def test_resume_value_covers_only_rows_that_cannot_have_later_siblings(
         pytest.param(
             {
                 "incremental_staged": {"run_uuid": "run-1-a2", "last_value": 20},
-                "incremental_staged_pending": [{"run_uuid": "run-1-a1", "last_value": 50, "resume_value": 40}],
+                "incremental_staged_pending": [{"run_uuid": "run-1-a1", "last_value": 50, "ordered_resume_value": 40}],
             },
             "run-1",
             None,
@@ -152,15 +152,15 @@ def test_resume_value_covers_only_rows_that_cannot_have_later_siblings(
         ),
         pytest.param(
             {
-                "incremental_staged": {"run_uuid": "run-1-a2", "resume_value": None},
-                "incremental_staged_pending": [{"run_uuid": "run-1-a1", "last_value": 50, "resume_value": 40}],
+                "incremental_staged": {"run_uuid": "run-1-a2", "ordered_resume_value": None},
+                "incremental_staged_pending": [{"run_uuid": "run-1-a1", "last_value": 50, "ordered_resume_value": 40}],
             },
             "run-1",
             None,
             id="newest_attempt_recorded_that_it_has_no_value",
         ),
         pytest.param(
-            {"incremental_staged": {"run_uuid": "run-10-a1", "last_value": 50, "resume_value": 40}},
+            {"incremental_staged": {"run_uuid": "run-10-a1", "last_value": 50, "ordered_resume_value": 40}},
             "run-1",
             None,
             id="run_id_prefix_of_another_run",

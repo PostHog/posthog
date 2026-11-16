@@ -41,6 +41,7 @@ describe('canvas-size', () => {
             ['the css width changes', { width: 640, height: 400 }, 1, 640, 400],
             ['the css height changes', { width: 800, height: 300 }, 1, 800, 300],
             ['only the device pixel ratio changes', { width: 800, height: 400 }, 2, 1600, 800],
+            ['a tall rect would pass the browser canvas limit', { width: 800, height: 17000 }, 2, 1542, 32767],
         ])('reallocates when %s', (_, rect, dpr, expectedWidth, expectedHeight) => {
             const canvas = document.createElement('canvas')
             syncCanvasSize(canvas, { width: 800, height: 400 }, 1)

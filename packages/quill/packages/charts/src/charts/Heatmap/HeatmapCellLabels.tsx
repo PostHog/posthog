@@ -1,10 +1,17 @@
 import React, { useMemo } from 'react'
 
 import { useChartLayout } from '../../core/chart-context'
-import { mixColors, perceivedLuminance, toSrgbColor } from '../../core/color-utils'
+import { mixColors, prefersLightText, toSrgbColor } from '../../core/color-utils'
 import { FONT_FAMILY, measureLabelWidth } from '../../utils/text-measure'
 import type { HeatmapCellDatum } from './Heatmap'
-import { cellAlpha, cellRect, computeHeatmapLayout, normalizeCount, type HeatmapColorScale } from './heatmap-layout'
+import type { HeatmapResolvedCellStyles } from './heatmap-cells'
+import {
+    cellAlpha,
+    cellRect,
+    computeHeatmapLayout,
+    normalizeCount,
+    type ResolvedHeatmapColorScale,
+} from './heatmap-layout'
 
 /** Returning null or an empty string leaves the cell unlabelled. */
 export type HeatmapCellLabelFormatter = (cell: HeatmapCellDatum) => string | null
@@ -14,8 +21,6 @@ const LABEL_FONT = `500 ${LABEL_FONT_SIZE}px ${FONT_FAMILY}`
 const LABEL_PADDING_X = 4
 // Under this the text touches the cell edges and reads as one smear across rows.
 const MIN_CELL_HEIGHT = LABEL_FONT_SIZE + 4
-// Below this the fill is dark enough for white text; at or above it, dark text stays readable.
-const DARK_FILL_LUMINANCE = 0.55
 // Not `theme.axisColor`: a dark theme makes that light gray, which vanishes on a bright cell.
 const DARK_TEXT = '#111111'
 
@@ -46,7 +51,9 @@ export interface HeatmapCellLabelsProps {
     cells: number[][]
     accent: string
     maxValue: number
-    colorScale: HeatmapColorScale
+    colorScale: ResolvedHeatmapColorScale
+    /** Resolved `config.cellStyle` output, so a label contrasts against the fill its own cell got. */
+    styles: HeatmapResolvedCellStyles
     formatter: HeatmapCellLabelFormatter
 }
 
@@ -59,6 +66,7 @@ export function HeatmapCellLabels({
     accent,
     maxValue,
     colorScale,
+    styles,
     formatter,
 }: HeatmapCellLabelsProps): React.ReactElement | null {
     const { dimensions, theme } = useChartLayout()
@@ -88,9 +96,15 @@ export function HeatmapCellLabels({
                 // The canvas paints the accent at `cellAlpha` over the plot background, and a
                 // linear mix by that alpha is exactly that composite, so the text contrasts
                 // against the color the reader sees instead of the accent at full strength.
+                // An outlined cell has no fill, so it contrasts against the background.
+                const style = styles[row]?.[col]
                 const fill =
-                    value > 0
-                        ? mixColors(background, fillAccent, cellAlpha(normalizeCount(value, maxValue, colorScale)))
+                    (value > 0 || style?.filled) && !style?.outlined
+                        ? mixColors(
+                              background,
+                              style?.color ? toSrgbColor(style.color) : fillAccent,
+                              cellAlpha(normalizeCount(value, maxValue, colorScale))
+                          )
                         : background
                 const rect = cellRect(layout, col, row)
                 out.push({
@@ -98,12 +112,12 @@ export function HeatmapCellLabels({
                     text,
                     x: rect.x + rect.width / 2,
                     y: rect.y + rect.height / 2,
-                    color: perceivedLuminance(fill) < DARK_FILL_LUMINANCE ? '#ffffff' : DARK_TEXT,
+                    color: prefersLightText(fill) ? '#ffffff' : DARK_TEXT,
                 })
             }
         }
         return out
-    }, [dimensions, theme, xLabels, yLabels, cells, accent, maxValue, colorScale, formatter])
+    }, [dimensions, theme, xLabels, yLabels, cells, accent, maxValue, colorScale, styles, formatter])
 
     if (placed.length === 0) {
         return null

@@ -3,13 +3,12 @@ import uuid
 import typing
 import datetime as dt
 
-from posthog.schema import HogQLQueryModifiers, MaterializationMode, PersonsOnEventsMode
-
 from posthog.hogql.constants import HogQLQuerySettings
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.hogql import ast
-from posthog.hogql.parser import parse_expr, parse_select
+from posthog.hogql.metadata import get_table_names
+from posthog.hogql.parser import parse_expr
 from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
 from posthog.hogql.visitor import clone_expr
 
@@ -22,6 +21,7 @@ from posthog.sync import database_sync_to_async
 from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.logger import get_write_only_logger
 
+from products.batch_exports.backend.custom_events_schema import recompile_stored_schema
 from products.batch_exports.backend.hogql_source import (
     DATA_INTERVAL_END_PLACEHOLDER,
     UnsupportedHogQLQueryError,
@@ -31,7 +31,6 @@ from products.batch_exports.backend.hogql_source import (
     load_hogql_modifiers,
     parse_hogql_select_for_batch_export,
     replace_interval_placeholders,
-    serialize_batch_export_query,
     validate_hogql_batch_export_user,
 )
 from products.batch_exports.backend.service import (
@@ -92,7 +91,7 @@ class RecordBatchModel(abc.ABC):
             # A bit of a hack: the query references neither half of this, but both are required:
             # - we need to call `get_log_comment` in order to tag the queries
             # - we need to pass non-empty `values` to `ClickHouseClient.prepare_query` to avoid it returning
-            # early and not resolving the `{{_partition_id}}` and `%%` escapes in the s3 function
+            # early and not resolving the `%%` escapes in the s3 function
             # call.
             values={"log_comment": self.get_log_comment()},
         )
@@ -338,7 +337,7 @@ class SessionsRecordBatchModel(RecordBatchModel):
             stack=[],
         )
 
-        query_settings = "max_execution_time={max_execution_time_seconds}, log_comment={log_comment}"
+        query_settings = "max_execution_time=%(max_execution_time_seconds)s, log_comment=%(log_comment)s"
         if "settings" not in printed.lower():
             printed += f" SETTINGS {query_settings}"
         else:
@@ -393,6 +392,7 @@ class HogQLQueryRecordBatchModel(RecordBatchModel):
         self.hogql_query = hogql_query
         self.hogql_modifiers = load_hogql_modifiers(hogql_modifiers)
         self.parsed_hogql_query = parse_hogql_select_for_batch_export(hogql_query)
+        self.hogql_table_names = tuple(sorted(get_table_names(self.parsed_hogql_query)))
         self.wait_for_data_interval_end = DATA_INTERVAL_END_PLACEHOLDER in find_interval_placeholders(
             self.parsed_hogql_query
         )
@@ -481,20 +481,6 @@ def resolve_batch_exports_model(
             )
 
     if schema is not None and (query := schema.get("hogql_query")) and use_new_events_schema(team_id):
-        context = HogQLContext(
-            team_id=team_id,
-            enable_select_queries=True,
-            limit_top_select=False,
-            modifiers=HogQLQueryModifiers(
-                materializationMode=MaterializationMode.DISABLED,
-                personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS,
-            ),
-        )
-        compiled = serialize_batch_export_query(typing.cast(ast.SelectQuery, parse_select(query)), context)
-        fields = [
-            {"expression": compiled_field["expression"], "alias": stored_field["alias"]}
-            for stored_field, compiled_field in zip(schema["fields"], compiled["fields"], strict=True)
-        ]
-        extra_query_parameters = compiled["values"]
+        fields, extra_query_parameters = recompile_stored_schema(team_id, schema, query)
 
     return model, record_batch_model, model_name, fields, filters, extra_query_parameters

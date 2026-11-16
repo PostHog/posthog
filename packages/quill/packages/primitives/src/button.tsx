@@ -20,6 +20,7 @@ const buttonVariants = cva(
                 destructive: 'quill-button--variant-destructive',
                 'destructive-outline': 'quill-button--variant-destructive-outline',
                 link: 'quill-button--variant-link',
+                'link-foreground': 'quill-button--variant-link-foreground',
                 'link-muted': 'quill-button--variant-link-muted',
             },
             size: {
@@ -46,10 +47,6 @@ const buttonVariants = cva(
                 true: 'quill-button--inert',
                 false: '',
             },
-            elevated: {
-                true: 'quill-button--elevated',
-                false: '',
-            },
         },
         defaultVariants: {
             variant: 'default',
@@ -63,10 +60,12 @@ export type ButtonProps = ButtonPrimitive.Props &
         /** Hides the label under a centered spinner and disables the button. Width stays stable. */
         loading?: boolean
         /**
-         * Chunky raised chrome (heavy edge + bottom ledge) for strong calls to action.
-         * Use with `primary` or `outline`. At most two in a row; any further button is a flat `default`. See AGENTS.md.
+         * A dot on the top-right corner that flags something waiting behind the button, such as unread
+         * items. Say what it means in the `aria-label`. Off the app background, set
+         * `--quill-button-indicator-ring` to the surface behind the button. `warning` and `destructive`
+         * color the dot for a problem rather than news.
          */
-        elevated?: boolean
+        indicator?: 'default' | 'warning' | 'destructive'
         /** Text shown on hover and focus. Icon-only buttons need one, matching their `aria-label`. */
         tooltip?: React.ReactNode
         /**
@@ -122,8 +121,8 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
             size = 'default',
             focusableWhenDisabled = true,
             left = false,
-            elevated = false,
             loading = false,
+            indicator,
             disabled,
             tooltip,
             disabledReason,
@@ -144,6 +143,7 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
                 data-slot="button"
                 data-size={size}
                 data-loading={loading || undefined}
+                data-indicator={indicator || undefined}
                 aria-busy={loading || undefined}
                 disabled={isDisabled}
                 nativeButton={nativeButton ?? !rendersNonButton(renderTarget)}
@@ -156,10 +156,18 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
                 // readers can reach it and announce busy. Activation stays blocked. A disabled
                 // reason needs the same, because its tooltip only opens on hover or focus.
                 focusableWhenDisabled={loading || hasDisabledReason ? true : focusableWhenDisabled}
-                className={cn(buttonVariants({ variant, size, className, focusableWhenDisabled, left, elevated }))}
+                className={cn(buttonVariants({ variant, size, className, focusableWhenDisabled, left }))}
                 {...props}
             >
                 {children}
+                {indicator && (
+                    <span
+                        aria-hidden
+                        data-slot="button-indicator"
+                        data-variant={indicator}
+                        className="quill-button__indicator"
+                    />
+                )}
                 {loading && <Spinner className="quill-button__spinner" />}
             </ButtonPrimitive>
         )

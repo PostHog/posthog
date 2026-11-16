@@ -45,7 +45,9 @@ describe('createCanvasHostMessageRouter', () => {
     test.each([
         ['actionInvoke', false, 'Canvas actions require a user action'],
         ['agentRequest', false, 'Agent requests require a user action'],
+        ['toolCall', false, 'Canvas actions require a user action'],
         ['actionInvoke', true, null],
+        ['toolRead', false, null],
         ['agentRequest', true, null],
         ['query', false, null],
     ])('%s with user activation %s is rejected with %s', async (method, activated, error) => {

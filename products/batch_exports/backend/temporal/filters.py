@@ -20,7 +20,7 @@ from posthog.hogql.visitor import TraversingVisitor
 
 from posthog.models import Team
 
-from products.batch_exports.backend.filters import SUPPORTED_FILTER_TYPES
+from products.batch_exports.backend.facade.enums import SUPPORTED_FILTER_TYPES
 
 
 class UpdatePropertiesToPersonProperties(TraversingVisitor):

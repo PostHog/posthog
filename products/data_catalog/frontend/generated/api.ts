@@ -13,20 +13,28 @@ import type {
     DataCatalogCertificationApi,
     DataCatalogCertificationsListParams,
     DataCatalogMetricApi,
+    DataCatalogMetricApproveRequestApi,
     DataCatalogMetricBulkApproveApi,
+    DataCatalogMetricBulkChangeOwnerApi,
+    DataCatalogMetricBulkChangeOwnerRequestApi,
     DataCatalogMetricBulkDeleteApi,
     DataCatalogMetricBulkNamesRequestApi,
+    DataCatalogMetricCreateApi,
     DataCatalogMetricRunApi,
     DataCatalogMetricRunRequestApi,
     DataCatalogMetricsListParams,
     DataCatalogMetricsRunCreateParams,
     DataCatalogRelationshipProposalApi,
     DataCatalogRelationshipProposalsListParams,
+    MetricUsageApi,
     PaginatedDataCatalogCertificationListApi,
     PaginatedDataCatalogMetricListApi,
     PaginatedDataCatalogRelationshipProposalListApi,
     PatchedDataCatalogMetricApi,
+    PendingReviewCountsApi,
     RelationshipRejectApi,
+    UsageSnapshotApi,
+    UsageSnapshotSummaryApi,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -209,18 +217,18 @@ export const getDataCatalogMetricsCreateUrl = (projectId: string) => {
 }
 
 /**
- * Create a metric, or refine the one already holding this name for the team.
+ * Create a metric. When a live metric already holds the name, returns 409 unless overwrite is true, in which case the existing metric is refined with the fields sent.
  */
 export const dataCatalogMetricsCreate = async (
     projectId: string,
-    dataCatalogMetricApi: NonReadonly<DataCatalogMetricApi>,
+    dataCatalogMetricCreateApi: NonReadonly<DataCatalogMetricCreateApi>,
     options?: RequestInit
 ): Promise<DataCatalogMetricApi> => {
     return apiMutator<DataCatalogMetricApi>(getDataCatalogMetricsCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(dataCatalogMetricApi),
+        body: JSON.stringify(dataCatalogMetricCreateApi),
     })
 }
 
@@ -312,11 +320,14 @@ export const getDataCatalogMetricsApproveCreateUrl = (projectId: string, name: s
 export const dataCatalogMetricsApproveCreate = async (
     projectId: string,
     name: string,
+    dataCatalogMetricApproveRequestApi?: DataCatalogMetricApproveRequestApi,
     options?: RequestInit
 ): Promise<DataCatalogMetricApi> => {
     return apiMutator<DataCatalogMetricApi>(getDataCatalogMetricsApproveCreateUrl(projectId, name), {
         ...options,
         method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(dataCatalogMetricApproveRequestApi),
     })
 }
 
@@ -376,6 +387,44 @@ export const dataCatalogMetricsRunCreate = async (
     })
 }
 
+export const getDataCatalogMetricsUsageRetrieveUrl = (projectId: string, name: string) => {
+    return `/api/projects/${projectId}/data_catalog/metrics/${name}/usage/`
+}
+
+/**
+ * How the metric was used in the latest usage scan: direct runs and agent re-derivations.
+ */
+export const dataCatalogMetricsUsageRetrieve = async (
+    projectId: string,
+    name: string,
+    options?: RequestInit
+): Promise<MetricUsageApi> => {
+    return apiMutator<MetricUsageApi>(getDataCatalogMetricsUsageRetrieveUrl(projectId, name), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getDataCatalogMetricsBulkChangeOwnerCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/data_catalog/metrics/bulk/change_owner/`
+}
+
+/**
+ * Give many metrics one owner, keeping their approvals. Unknown metrics are skipped.
+ */
+export const dataCatalogMetricsBulkChangeOwnerCreate = async (
+    projectId: string,
+    dataCatalogMetricBulkChangeOwnerRequestApi: DataCatalogMetricBulkChangeOwnerRequestApi,
+    options?: RequestInit
+): Promise<DataCatalogMetricBulkChangeOwnerApi> => {
+    return apiMutator<DataCatalogMetricBulkChangeOwnerApi>(getDataCatalogMetricsBulkChangeOwnerCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(dataCatalogMetricBulkChangeOwnerRequestApi),
+    })
+}
+
 export const getDataCatalogMetricsBulkApproveCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/data_catalog/metrics/bulk_approve/`
 }
@@ -413,6 +462,23 @@ export const dataCatalogMetricsBulkDeleteCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(dataCatalogMetricBulkNamesRequestApi),
+    })
+}
+
+export const getDataCatalogPendingReviewRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/data_catalog/pending_review/`
+}
+
+/**
+ * How many items wait in each review queue, counted as the list of that queue shows them to you.
+ */
+export const dataCatalogPendingReviewRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<PendingReviewCountsApi> => {
+    return apiMutator<PendingReviewCountsApi>(getDataCatalogPendingReviewRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
     })
 }
 
@@ -536,4 +602,55 @@ export const dataCatalogRelationshipProposalsRejectCreate = async (
             body: JSON.stringify(relationshipRejectApi),
         }
     )
+}
+
+export const getDataCatalogUsageListUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/data_catalog/usage/`
+}
+
+/**
+ * Up to a year of usage scans for the project, newest first, without payloads.
+ */
+export const dataCatalogUsageList = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<UsageSnapshotSummaryApi[]> => {
+    return apiMutator<UsageSnapshotSummaryApi[]>(getDataCatalogUsageListUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getDataCatalogUsageLatestRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/data_catalog/usage/latest/`
+}
+
+/**
+ * The newest finished usage scan, with its payload.
+ */
+export const dataCatalogUsageLatestRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<UsageSnapshotApi> => {
+    return apiMutator<UsageSnapshotApi>(getDataCatalogUsageLatestRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getDataCatalogUsageRecomputeCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/data_catalog/usage/recompute/`
+}
+
+/**
+ * Start a usage scan now. The new snapshot computes until the scan finishes.
+ */
+export const dataCatalogUsageRecomputeCreate = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<UsageSnapshotSummaryApi> => {
+    return apiMutator<UsageSnapshotSummaryApi>(getDataCatalogUsageRecomputeCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+    })
 }

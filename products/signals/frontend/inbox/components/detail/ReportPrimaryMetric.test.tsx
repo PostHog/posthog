@@ -4,7 +4,7 @@ import '@testing-library/jest-dom'
 
 import { cleanup, render, screen, waitFor, within } from '@testing-library/react'
 
-import { ensureJsdom, getHogChart } from '@posthog/quill-charts/testing'
+import { ensureJsdom, getChart } from '@posthog/quill-charts/testing'
 
 import { useMocks } from '~/mocks/jest'
 import { NodeKind } from '~/queries/schema/schema-general'
@@ -114,7 +114,7 @@ describe('ReportPrimaryMetric', () => {
             return element
         })
         expect(chart).toHaveAttribute('data-chart-type', 'bar')
-        expect(getHogChart(chart).yTicks().filter(Boolean)).toEqual(['0', '1'])
+        expect(getChart(chart).yTicks().filter(Boolean)).toEqual(['0', '1'])
         await waitFor(() =>
             expect(requestedDisplays).toEqual(
                 expect.arrayContaining([ChartDisplayType.BoldNumber, ChartDisplayType.ActionsBar])

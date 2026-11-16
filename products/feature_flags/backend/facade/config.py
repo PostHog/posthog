@@ -93,6 +93,8 @@ class RuleV2:
     rule_type: RuleType
     # None for an experiment rule, whose values sit on its variants.
     value: FlagValue | None
+    # An experiment rule's variant values in stored order, equal values included; empty for other rules.
+    variant_values: tuple[FlagValue, ...] = ()
 
     def __post_init__(self) -> None:
         if self.rule_type not in get_args(RuleType):
@@ -170,4 +172,31 @@ def _rule_v2(rule: Mapping[str, Any]) -> RuleV2:
         ),
         rule_type=rule_type,
         value=None if rule_type == "experiment" else rule["value"],
+        variant_values=tuple(variant["value"] for variant in rule["variants"]) if rule_type == "experiment" else (),
     )
+
+
+def served_string_values(filters: object) -> list[str]:
+    config = decode_config(filters)
+    if isinstance(config, ConfigV1):
+        multivariate = config.filters.get("multivariate")
+        variants = multivariate.get("variants") if isinstance(multivariate, Mapping) else None
+        return [variant["key"] for variant in variants or [] if variant.get("key")]
+    if isinstance(config, ConfigV2) and config.return_type == "string":
+        candidates = [
+            *(value for rule in config.rules for value in (rule.value, *rule.variant_values)),
+            config.default_value,
+        ]
+        return list(dict.fromkeys(value for value in candidates if isinstance(value, str)))
+    return []
+
+
+def served_holdout_values(filters: object) -> list[str]:
+    config = decode_config(filters)
+    holdout = config.filters.get("holdout") if isinstance(config, ConfigV1) else None
+    holdout_id = holdout.get("id") if isinstance(holdout, Mapping) else None
+    return [] if holdout_id is None else [holdout_variant(holdout_id)]
+
+
+def holdout_variant(holdout_id: object) -> str:
+    return f"holdout-{holdout_id}"

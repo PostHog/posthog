@@ -58,7 +58,7 @@ export const getGoSteps = (ctx: OnboardingComponentsContext): StepDefinition[] =
 
                                     func setupLogging(ctx context.Context) (*sdklog.LoggerProvider, error) {
                                         exporter, err := otlploghttp.New(ctx,
-                                            otlploghttp.WithEndpointURL("<ph_client_api_host>/otlp/v1/logs"),
+                                            otlploghttp.WithEndpointURL("<ph_client_api_host>/i/v1/logs"),
                                             otlploghttp.WithHeaders(map[string]string{
                                                 "Authorization": "Bearer <ph_project_token>",
                                             }),
@@ -105,9 +105,9 @@ export const getGoSteps = (ctx: OnboardingComponentsContext): StepDefinition[] =
                                         "context"
                                         "log"
 
-                                        "go.opentelemetry.io/otel/log/global"
-                                        semconv "go.opentelemetry.io/otel/semconv/v1.26.0"
+                                        "go.opentelemetry.io/otel/attribute"
                                         otellog "go.opentelemetry.io/otel/log"
+                                        "go.opentelemetry.io/otel/log/global"
                                     )
 
                                     func main() {
@@ -123,9 +123,9 @@ export const getGoSteps = (ctx: OnboardingComponentsContext): StepDefinition[] =
 
                                         var record otellog.Record
                                         record.SetSeverity(otellog.SeverityInfo)
-                                        record.SetBody(otellog.StringValue("Application started"))
+                                        record.SetBody(attribute.StringValue("Application started"))
                                         record.AddAttributes(
-                                            otellog.Int64("server.port", 8080),
+                                            attribute.Int64("server.port", 8080),
                                         )
                                         logger.Emit(ctx, record)
                                     }

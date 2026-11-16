@@ -4,6 +4,8 @@ import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
+
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
@@ -64,6 +66,29 @@ describe('projectLogic', () => {
         expect(requestedOrganizationIds).toEqual([MOCK_ORGANIZATION_ID])
     })
 
+    it('loadCurrentProject reloads the tab project after another tab changes the current project', async () => {
+        initKeaTests()
+        const logic = projectLogic()
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadCurrentProjectSuccess'])
+        useMocks({
+            get: {
+                '/api/projects/@current': () => [200, { ...MOCK_DEFAULT_PROJECT, id: MOCK_DEFAULT_PROJECT.id + 1 }],
+                '/api/projects/:id': ({ params }) =>
+                    params.id === String(MOCK_DEFAULT_PROJECT.id)
+                        ? [200, { ...MOCK_DEFAULT_PROJECT, name: 'Reloaded project' }]
+                        : [404, {}],
+            },
+        })
+
+        await expectLogic(logic, () => {
+            logic.actions.loadCurrentProject()
+        }).toDispatchActions(['loadCurrentProjectSuccess'])
+
+        expect(logic.values.currentProject?.id).toBe(MOCK_DEFAULT_PROJECT.id)
+        expect(logic.values.currentProject?.name).toBe('Reloaded project')
+    })
+
     it.each([
         ['/project/997/insights', false],
         ['/project/997/my-tickets', true],
@@ -77,5 +102,37 @@ describe('projectLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
 
         expect(router.values.location.pathname === path).toBe(staysOpen)
+    })
+
+    it.each([
+        ['createProject', 'createProjectFailure'],
+        ['updateCurrentProject', 'updateCurrentProjectFailure'],
+    ] as const)('%s toasts a duplicate name 409 and does not report it', async (actionName, failureAction) => {
+        const detail = 'There is already a project called "Taken" in this organization. Choose a different name.'
+        useMocks({
+            post: { '/api/projects/': () => [409, { type: 'validation_error', code: 'conflict', detail }] },
+            patch: { '/api/projects/:id': () => [409, { type: 'validation_error', code: 'conflict', detail }] },
+        })
+        initKeaTests()
+        const logic = projectLogic()
+        logic.mount()
+        logic.actions.loadCurrentProjectSuccess(MOCK_DEFAULT_PROJECT)
+        const toastError = jest.spyOn(lemonToast, 'error').mockReturnValue('' as any)
+        const captureException = jest.spyOn(posthog, 'captureException').mockImplementation(() => undefined as any)
+        try {
+            await expectLogic(logic, () => {
+                if (actionName === 'createProject') {
+                    logic.actions.createProject({ name: 'Taken' })
+                } else {
+                    logic.actions.updateCurrentProject({ name: 'Taken' })
+                }
+            }).toDispatchActions([failureAction])
+
+            expect(toastError).toHaveBeenCalledWith(detail)
+            expect(captureException).not.toHaveBeenCalled()
+        } finally {
+            toastError.mockRestore()
+            captureException.mockRestore()
+        }
     })
 })

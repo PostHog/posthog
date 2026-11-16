@@ -32,6 +32,30 @@ async def test_on_asyncify_pool_uses_the_pool_configured_after_decoration(asynci
     assert (await _thread_name_decorated_at_import()).startswith("asyncify")
 
 
+@pytest.mark.parametrize(
+    "helper,submit_start_end,expect_warning",
+    [
+        ("on_asyncify_pool", (0.0, 0.0, 5.0), False),
+        ("on_asyncify_pool", (0.0, 5.0, 5.0), True),
+        ("asyncify", (0.0, 0.0, 5.0), True),
+        ("asyncify", (0.0, 5.0, 5.0), True),
+    ],
+)
+async def test_slow_call_warning(
+    caplog: pytest.LogCaptureFixture, helper: str, submit_start_end: tuple[float, float, float], expect_warning: bool
+) -> None:
+    def blocking_call() -> None:
+        return None
+
+    wrapped = on_asyncify_pool(blocking_call) if helper == "on_asyncify_pool" else asyncify(blocking_call)
+    clock = mock.Mock(monotonic=mock.Mock(side_effect=submit_start_end))
+
+    with mock.patch.object(utils, "time", clock), caplog.at_level("WARNING"):
+        await ActivityEnvironment().run(wrapped)
+
+    assert any("asyncify_slow" in record.getMessage() for record in caplog.records) is expect_warning
+
+
 async def test_asyncify_runs_on_the_configured_executor(asyncify_executor: ConfigureExecutor) -> None:
     asyncify_executor(2)
 

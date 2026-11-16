@@ -49,7 +49,8 @@ export function TemplateCard({
                         {METHOD_TAGS[template.evaluation_type]}
                     </LemonTag>
                 </div>
-                <p className="m-0 text-xs text-secondary line-clamp-2">{template.description}</p>
+                {/* As a flex item with hidden overflow, the description would shrink in a short card and cut its clamped lines in half. */}
+                <p className="m-0 shrink-0 text-xs text-secondary line-clamp-2">{template.description}</p>
                 <div className="flex items-center justify-between gap-2 mt-auto pt-1">
                     <span className="text-xs text-muted truncate">{templateOutputText(template)}</span>
                     <div className="relative z-10 shrink-0">

@@ -28,9 +28,11 @@ UDFS: dict[str, HogQLFunctionMeta] = {
     ),
 }
 
-# JSONDropKeys is an executable UDF like the funnel UDFs, but it is printer-internal (restricted-property blob
-# stripping), not HogQL-exposed, so it lives outside UDFS. Its deployed name is versioned the same way.
-JSON_DROP_KEYS_CLICKHOUSE_NAME = "JSONDropKeys"
+# JSONDropKeysPool strips restricted keys from a JSON blob. It is printer-internal, not HogQL-exposed, so it lives
+# outside UDFS. It is an executable_pool UDF in UNVERSIONED_FUNCTIONS, so its deployed name has no version suffix.
+# Do not use JSONDropKeys here: it takes the keys as a command-line parameter, which forces the `executable` type,
+# and ClickHouse then starts a new process for every block.
+JSON_DROP_KEYS_CLICKHOUSE_NAME = "JSONDropKeysPool"
 
 # We want CI to fail if there is a breaking change and the version hasn't been incremented
 if is_cloud() or is_ci():
@@ -38,4 +40,3 @@ if is_cloud() or is_ci():
 
     for v in UDFS.values():
         v.clickhouse_name = augment_function_name(v.clickhouse_name)
-    JSON_DROP_KEYS_CLICKHOUSE_NAME = augment_function_name(JSON_DROP_KEYS_CLICKHOUSE_NAME)

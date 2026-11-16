@@ -10,6 +10,39 @@
 import * as zod from 'zod'
 
 /**
+ * Start the setup agent in the cloud on a GitHub repository of this project. It adds PostHog to the code and opens a pull request. Each user can have one setup run active per project at a time.
+ * @summary Start a setup run
+ */
+export const wizardInstallsCreateBodyRepositoryMax = 255
+
+export const wizardInstallsCreateBodyBranchMax = 255
+
+export const wizardInstallsCreateBodyIdempotencyKeyMax = 255
+
+export const WizardInstallsCreateBody = /* @__PURE__ */ zod.object({
+    repository: zod
+        .string()
+        .max(wizardInstallsCreateBodyRepositoryMax)
+        .describe(
+            "GitHub repository to set up, in owner\/name format. The project's GitHub connection must have access to it."
+        ),
+    branch: zod
+        .string()
+        .max(wizardInstallsCreateBodyBranchMax)
+        .optional()
+        .describe(
+            "Branch to start from and to open the pull request against. Defaults to the repository's default branch."
+        ),
+    idempotency_key: zod
+        .string()
+        .max(wizardInstallsCreateBodyIdempotencyKeyMax)
+        .optional()
+        .describe(
+            'Unique key for this request. A retry with the same key returns the same run instead of starting another.'
+        ),
+})
+
+/**
  * Create a local or cloud Wizard run for a project workspace.
  */
 export const wizardRunsCreateBodyProgramIdRegExp = new RegExp('^[a-z0-9]+(?:-[a-z0-9]+)\*$')

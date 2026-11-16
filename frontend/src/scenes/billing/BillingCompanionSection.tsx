@@ -3,6 +3,8 @@ import { useActions, useValues } from 'kea'
 import { IconChevronDown, IconChevronRight } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
+import { billingLogic } from 'lib/logic/billing/billingLogic'
+import { billingProductDisplayName, billingProductRowDisplayName } from 'lib/logic/billing/billingProductDisplayName'
 import { humanFriendlyCurrency } from 'lib/utils/numbers'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
 
@@ -10,8 +12,6 @@ import { BillingProductV2Type } from '~/types'
 
 import { createGaugeItems, isBillingLimitShown } from './billing-utils'
 import { BillingGauge } from './BillingGauge'
-import { billingLogic } from './billingLogic'
-import { billingProductDisplayName, billingProductRowDisplayName } from './billingProductDisplayName'
 import { billingProductLogic } from './billingProductLogic'
 import { BillingProductPricingTable } from './BillingProductPricingTable'
 

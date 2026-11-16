@@ -11,6 +11,51 @@ use rdkafka::message::Message;
 use rdkafka::types::RDKafkaErrorCode;
 use rdkafka::{Offset, TopicPartitionList};
 
+pub fn base_config(kafka_hosts: &str) -> ClientConfig {
+    let mut cfg = ClientConfig::new();
+    cfg.set("bootstrap.servers", kafka_hosts);
+    cfg
+}
+
+/// Whether `group` has committed on any partition of `topic`.
+pub async fn group_has_committed_offsets(
+    kafka_hosts: &str,
+    group: &str,
+    topic: &str,
+) -> Result<bool> {
+    let (base, group, topic) = (
+        base_config(kafka_hosts),
+        group.to_string(),
+        topic.to_string(),
+    );
+    tokio::task::spawn_blocking(move || -> Result<bool> {
+        let timeout = Duration::from_secs(5);
+        let consumer: BaseConsumer = base
+            .clone()
+            .set("group.id", &group)
+            .set("enable.auto.commit", "false")
+            .create()?;
+        let metadata = consumer.fetch_metadata(Some(&topic), timeout)?;
+        let partitions = metadata
+            .topics()
+            .iter()
+            .find(|t| t.name() == topic)
+            .map_or(0, |t| t.partitions().len());
+        let mut tpl = TopicPartitionList::new();
+        for partition in 0..partitions {
+            tpl.add_partition(&topic, partition as i32);
+        }
+        let committed = consumer.committed_offsets(tpl, timeout)?;
+        Ok(committed
+            .elements()
+            .iter()
+            .any(|e| matches!(e.offset(), Offset::Offset(_))))
+    })
+    .await
+    .context("offsets task panicked")?
+    .context("fetching committed offsets")
+}
+
 fn admin_client(kafka_hosts: &str) -> Result<AdminClient<DefaultClientContext>> {
     ClientConfig::new()
         .set("bootstrap.servers", kafka_hosts)
@@ -19,7 +64,7 @@ fn admin_client(kafka_hosts: &str) -> Result<AdminClient<DefaultClientContext>> 
 }
 
 /// Create a per-run topic with exactly `partitions` partitions. For the
-/// changelog the count must match `total_partitions` in etcd — a mismatch
+/// changelog the count must match `config/changelog` in etcd — a mismatch
 /// is a silent mis-shard — so an existing topic with a different count is
 /// an error rather than something to adopt.
 pub async fn create_topic(kafka_hosts: &str, topic: &str, partitions: u32) -> Result<()> {
@@ -164,6 +209,12 @@ fn read_to_end_blocking(
             Some(Err(KafkaError::PartitionEOF(partition))) => {
                 remaining.remove(&partition);
             }
+            // librdkafka reports a refused broker address and then reconnects on its own,
+            // for example when `localhost` resolves to `::1` first. The deadline bounds a
+            // broker that stays down.
+            Some(Err(KafkaError::MessageConsumption(
+                RDKafkaErrorCode::BrokerTransportFailure | RDKafkaErrorCode::AllBrokersDown,
+            ))) => {}
             Some(Err(e)) => bail!("reading {topic}: {e}"),
             Some(Ok(message)) => {
                 let partition = message.partition();
@@ -185,4 +236,41 @@ fn read_to_end_blocking(
         }
     }
     Ok(records)
+}
+
+#[cfg(test)]
+mod tests {
+    use rdkafka::producer::{BaseProducer, BaseRecord, Producer};
+    use uuid::Uuid;
+
+    use super::*;
+
+    /// Needs the CI gate's Kafka; run explicitly with `--ignored`.
+    #[tokio::test(flavor = "multi_thread")]
+    #[ignore = "needs a local Kafka"]
+    async fn read_to_end_survives_a_refused_bootstrap_address() {
+        // The broker listens on IPv4 only, so `localhost` also resolves to a refused `::1`.
+        let direct = "127.0.0.1:9092";
+        let topic = format!("personhog_harness_reader_{}", Uuid::new_v4().simple());
+        create_topic(direct, &topic, 4).await.unwrap();
+        let producer: BaseProducer = base_config(direct).create().unwrap();
+        for i in 0..100 {
+            let key = i.to_string();
+            producer
+                .send(BaseRecord::to(&topic).key(&key).payload("v"))
+                .unwrap();
+        }
+        producer.flush(Duration::from_secs(10)).unwrap();
+
+        // Each fresh reader picks an address at random, so repeat to hit `::1` first.
+        let mut failures = Vec::new();
+        for _ in 0..20 {
+            match read_to_end("localhost:9092", &topic, Duration::from_secs(20)).await {
+                Ok(records) => assert_eq!(records.len(), 100),
+                Err(e) => failures.push(e.to_string()),
+            }
+        }
+        delete_topic(direct, &topic).await.unwrap();
+        assert!(failures.is_empty(), "reads failed: {failures:?}");
+    }
 }

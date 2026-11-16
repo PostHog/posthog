@@ -9,9 +9,9 @@ import React from 'react'
 import { IconTrending } from '@posthog/icons'
 import { LemonRow, Link } from '@posthog/lemon-ui'
 
+import { formatAggregationAxisValue } from 'lib/insights/aggregationAxisFormat'
 import { IconFlare, IconTrendingDown, IconTrendingFlat } from 'lib/lemon-ui/icons'
 import { percentage } from 'lib/utils/numbers'
-import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { InsightEmptyState } from 'scenes/insights/EmptyStates'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
@@ -273,7 +273,7 @@ function BoldNumberComparison({
 }
 
 export function HogQLBoldNumber(): JSX.Element {
-    const { response, responseLoading, tabularData } = useValues(dataVisualizationLogic)
+    const { response, responseLoading, tableRows, getTableCell } = useValues(dataVisualizationLogic)
 
     if (!response || responseLoading) {
         return (
@@ -287,7 +287,7 @@ export function HogQLBoldNumber(): JSX.Element {
         )
     }
 
-    const formattedValue = tabularData[0]?.[0]?.formattedValue ?? null
+    const formattedValue = tableRows.length > 0 ? getTableCell(0, 0).formattedValue : null
     const directValue = Array.isArray(response) ? response[0]?.[0] : undefined
     const resultsValue = 'results' in response ? response.results?.[0]?.[0] : undefined
     const resultValue = 'result' in response ? response.result?.[0]?.[0] : undefined

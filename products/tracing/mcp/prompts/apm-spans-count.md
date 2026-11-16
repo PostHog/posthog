@@ -12,7 +12,7 @@ All parameters go inside `query` — top-level fields are rejected:
 - When the user asks "how many X spans are there?" and you don't need to see individual spans.
 - To check whether a filter combination matches anything at all before committing to a full query.
 
-This counts **spans**, not traces. A single trace contains many spans, so a count of matching spans will exceed the number of matching traces.
+`count` is the number of matching **spans**. `traceCount` is the number of distinct traces whose root span matches. A trace contains many spans, so `count` is usually larger.
 
 If the count would scan too much data (a wide date range with no filters), the tool returns a 400 asking you to narrow the window or add filters — narrow the `dateRange` or add `serviceNames` / `statusCodes` / `filterGroup`, then retry.
 

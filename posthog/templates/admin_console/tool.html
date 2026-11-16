@@ -1,0 +1,35 @@
+{% extends "admin_console/base.html" %}
+{% block title %}{{ tool.title }} · PostHog Admin{% endblock %}
+{% block content %}
+    <nav class="text-xs text-muted-foreground" aria-label="Breadcrumb">
+        Tools › {{ tool.group }}
+    </nav>
+    <div class="flex flex-wrap items-start gap-4 mt-1.5 mb-4">
+        <div class="min-w-0">
+            <h1 class="m-0 text-[22px] font-extrabold">{{ tool.title }}</h1>
+            {% if tool.description %}<p class="m-0 mt-1 text-muted-foreground">{{ tool.description }}</p>{% endif %}
+        </div>
+        <div class="ml-auto flex items-center gap-1.5 text-[11px] text-muted-foreground"
+             title="Owned by {{ tool.owner.name }}">
+            {{ tool.owner.name }}
+            <img class="size-[22px]"
+                 src="/static/admin-console/crests/{{ tool.owner.crest }}.svg"
+                 alt="" />
+        </div>
+    </div>
+    {% if operations %}
+        <section class="quill-card group/card flex flex-col mb-4 max-w-3xl"
+                 data-quill
+                 data-slot="card"
+                 data-size="sm"
+                 aria-labelledby="tool-actions-title">
+            <div class="quill-card__header group/card-header" data-slot="card-header">
+                <h2 id="tool-actions-title"
+                    class="quill-card__title m-0"
+                    data-slot="card-title">Actions</h2>
+            </div>
+            <div class="quill-card__content" data-slot="card-content">{% include "admin_console/_operations.html" %}</div>
+        </section>
+    {% endif %}
+    {% include "admin_console/_blocks.html" %}
+{% endblock %}

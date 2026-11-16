@@ -6,6 +6,7 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { teamLogic } from 'scenes/teamLogic'
 
+import { filterMessageTemplates } from './filterMessageTemplates'
 import { MessageTemplate } from './types'
 
 export type { MessageTemplate }
@@ -16,6 +17,7 @@ export interface messageTemplatesLogicValues {
     createdByFilter: number | null
     filteredTemplates: MessageTemplate[]
     search: string
+    tagsFilter: string[]
     templates: MessageTemplate[]
     templatesLoading: boolean
     transactionalOnly: boolean
@@ -95,8 +97,14 @@ export interface messageTemplatesLogicActions {
     setSearch: (search: string) => {
         search: string
     }
+    setTagsFilter: (tagsFilter: string[]) => {
+        tagsFilter: string[]
+    }
     setTransactionalOnly: (transactionalOnly: boolean) => {
         transactionalOnly: boolean
+    }
+    templateTagsSaved: (template: MessageTemplate) => {
+        template: MessageTemplate
     }
     updateTemplate: ({ templateId, template }: { template: Partial<MessageTemplate>; templateId: string }) => {
         templateId: string
@@ -131,7 +139,8 @@ export interface messageTemplatesLogicMeta {
             templates: MessageTemplate[],
             search: string,
             createdByFilter: number | null,
-            transactionalOnly: boolean
+            transactionalOnly: boolean,
+            tagsFilter: string[]
         ) => MessageTemplate[]
     }
 }
@@ -152,11 +161,21 @@ export const messageTemplatesLogic = kea<messageTemplatesLogicType>([
         setSearch: (search: string) => ({ search }),
         setCreatedByFilter: (createdBy: number | null) => ({ createdBy }),
         setTransactionalOnly: (transactionalOnly: boolean) => ({ transactionalOnly }),
+        setTagsFilter: (tagsFilter: string[]) => ({ tagsFilter }),
+        templateTagsSaved: (template: MessageTemplate) => ({ template }),
     }),
     reducers({
         search: ['' as string, { setSearch: (_, { search }) => search }],
         createdByFilter: [null as number | null, { setCreatedByFilter: (_, { createdBy }) => createdBy }],
         transactionalOnly: [false, { setTransactionalOnly: (_, { transactionalOnly }) => transactionalOnly }],
+        tagsFilter: [[] as string[], { setTagsFilter: (_, { tagsFilter }) => tagsFilter }],
+        templates: [
+            [] as MessageTemplate[],
+            {
+                templateTagsSaved: (state, { template }) =>
+                    state.map((t: MessageTemplate) => (t.id === template.id ? template : t)),
+            },
+        ],
     }),
     loaders(({ values, actions }) => ({
         templates: [
@@ -226,33 +245,30 @@ export const messageTemplatesLogic = kea<messageTemplatesLogicType>([
     })),
     selectors({
         filteredTemplates: [
-            (s) => [s.templates, s.search, s.createdByFilter, s.transactionalOnly],
+            (s) => [s.templates, s.search, s.createdByFilter, s.transactionalOnly, s.tagsFilter],
             (
                 templates: MessageTemplate[],
                 search: string,
                 createdByFilter: number | null,
-                transactionalOnly: boolean
-            ): MessageTemplate[] => {
-                let filtered = templates
-                if (search) {
-                    const lowerSearch = search.toLowerCase()
-                    filtered = filtered.filter(
-                        (t) =>
-                            (t.name ?? '').toLowerCase().includes(lowerSearch) ||
-                            (t.description ?? '').toLowerCase().includes(lowerSearch)
-                    )
-                }
-                if (createdByFilter !== null) {
-                    filtered = filtered.filter((t) => t.created_by?.id === createdByFilter)
-                }
-                if (transactionalOnly) {
-                    filtered = filtered.filter((t) => !!t.transactional_hog_flow_id)
-                }
-                return filtered
-            },
+                transactionalOnly: boolean,
+                tagsFilter: string[]
+            ): MessageTemplate[] =>
+                filterMessageTemplates(templates, {
+                    search,
+                    tags: tagsFilter,
+                    createdBy: createdByFilter,
+                    transactionalOnly,
+                }),
         ],
     }),
     afterMount(({ actions }) => {
         actions.loadTemplates()
     }),
 ])
+
+// A plain function rather than a listener, because the caller awaits it to keep its editor open on
+// a rejection, and a kea listener that rethrows raises an unhandled rejection on the way out.
+export async function saveTemplateTags(template: MessageTemplate, tags: string[]): Promise<void> {
+    const updated = await api.messaging.updateTemplate(template.id, { tags })
+    messageTemplatesLogic.findMounted()?.actions.templateTagsSaved(updated)
+}
