@@ -1966,7 +1966,6 @@ export const billingLogic = kea<billingLogicType>([
             actions.resetUsageLimitApproachingKey()
 
             // Reading the lazy value starts its only load, whose success runs this listener again.
-            // Billing answers without calling Stripe for orgs that never had a Stripe customer.
             const unpaidInvoices =
                 values.canAccessBilling && !values.billing.has_active_subscription && !values.isExternallyBilled
                     ? values.uncollectibleInvoices
@@ -1979,7 +1978,6 @@ export const billingLogic = kea<billingLogicType>([
                         ...alert.action,
                         onClick: () => actions.reportBillingAlertActionClicked(alert),
                     },
-                    // No dismissKey, so closing it lasts until the next page load.
                     onClose: () => actions.setBillingAlert(null),
                 })
                 return
