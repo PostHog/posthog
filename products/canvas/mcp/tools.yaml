@@ -10,6 +10,7 @@ tools:
     canvas-builds-retrieve:
         operation: canvases_builds_retrieve
         enabled: true
+        feature_flag: today-rail-nav
         scopes:
             - canvas:read
         annotations:
@@ -30,6 +31,7 @@ tools:
     canvas-comments-list:
         operation: canvases_comments_list
         enabled: true
+        feature_flag: today-rail-nav
         scopes:
             - canvas:read
             - comment:read
@@ -51,6 +53,7 @@ tools:
     canvas-comments-retrieve:
         operation: canvases_comments_retrieve
         enabled: true
+        feature_flag: today-rail-nav
         scopes:
             - canvas:read
             - comment:read
@@ -73,6 +76,7 @@ tools:
     canvas-connectors-retrieve:
         operation: canvases_connectors_retrieve
         enabled: true
+        feature_flag: today-rail-nav
         scopes:
             - canvas:read
         annotations:
@@ -91,6 +95,7 @@ tools:
     canvas-create:
         operation: canvases_create
         enabled: true
+        feature_flag: today-rail-nav
         scopes:
             - canvas:write
         annotations:
@@ -122,6 +127,7 @@ tools:
     canvas-draft-create:
         operation: canvases_draft_create
         enabled: true
+        feature_flag: today-rail-nav
         scopes:
             - canvas:write
         annotations:
@@ -151,6 +157,7 @@ tools:
     canvas-drafts-retrieve:
         operation: canvases_drafts_retrieve
         enabled: true
+        feature_flag: today-rail-nav
         scopes:
             - canvas:read
         annotations:
@@ -169,6 +176,7 @@ tools:
     canvas-edit-create:
         operation: canvases_edit_create
         enabled: true
+        feature_flag: today-rail-nav
         scopes:
             - canvas:write
         annotations:
@@ -206,6 +214,7 @@ tools:
     canvas-layout-get:
         operation: canvases_layout_retrieve
         enabled: true
+        feature_flag: today-rail-nav
         scopes:
             - canvas:read
         annotations:
@@ -227,6 +236,7 @@ tools:
     canvas-layout-patch:
         operation: canvases_layout_patch_create
         enabled: true
+        feature_flag: today-rail-nav
         scopes:
             - canvas:write
         annotations:
@@ -254,6 +264,7 @@ tools:
     canvas-layout-publish:
         operation: canvases_layout_publish_create
         enabled: true
+        feature_flag: today-rail-nav
         scopes:
             - canvas:write
         annotations:
@@ -285,6 +296,7 @@ tools:
     canvas-list:
         operation: canvases_list
         enabled: true
+        feature_flag: today-rail-nav
         scopes:
             - canvas:read
         annotations:
@@ -310,6 +322,7 @@ tools:
     canvas-move:
         operation: canvases_partial_update
         enabled: true
+        feature_flag: today-rail-nav
         scopes:
             - canvas:write
         annotations:
@@ -332,6 +345,7 @@ tools:
     canvas-promote-create:
         operation: canvases_promote_create
         enabled: true
+        feature_flag: today-rail-nav
         scopes:
             - canvas:write
         annotations:
@@ -355,6 +369,7 @@ tools:
     canvas-publish-create:
         operation: canvases_publish_create
         enabled: true
+        feature_flag: today-rail-nav
         scopes:
             - canvas:write
         annotations:
@@ -389,6 +404,7 @@ tools:
     canvas-publish-current-version:
         operation: canvases_publish_current_version_create
         enabled: true
+        feature_flag: today-rail-nav
         scopes:
             - canvas:write
         annotations:
@@ -403,6 +419,7 @@ tools:
     canvas-source-retrieve:
         operation: canvases_source_retrieve
         enabled: true
+        feature_flag: today-rail-nav
         scopes:
             - canvas:read
         annotations:
@@ -421,6 +438,7 @@ tools:
     canvas-state-retrieve:
         operation: canvases_state_retrieve
         enabled: true
+        feature_flag: today-rail-nav
         scopes:
             - canvas:read
         annotations:
@@ -444,6 +462,7 @@ tools:
     canvas-state-set:
         operation: canvases_state_set
         enabled: true
+        feature_flag: today-rail-nav
         scopes:
             - canvas:write
         annotations:
@@ -459,6 +478,7 @@ tools:
     canvas-state-value-retrieve:
         operation: canvases_state_value_retrieve
         enabled: true
+        feature_flag: today-rail-nav
         scopes:
             - canvas:read
         annotations:
@@ -477,6 +497,7 @@ tools:
     canvas-validate-create:
         operation: canvases_validate_create
         enabled: true
+        feature_flag: today-rail-nav
         scopes:
             - canvas:read
         annotations:
