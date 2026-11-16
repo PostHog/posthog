@@ -15,6 +15,7 @@ from django.contrib.auth import (
     logout as auth_logout,
 )
 from django.contrib.auth.password_validation import validate_password
+from django.contrib.auth.signals import user_login_failed
 from django.contrib.auth.tokens import PasswordResetTokenGenerator as DefaultPasswordResetTokenGenerator
 from django.contrib.auth.views import redirect_to_login
 from django.core.exceptions import ValidationError
@@ -108,7 +109,13 @@ from posthog.utils import (
     get_short_user_agent,
     get_trusted_client_ip,
 )
-from posthog.workos_radar import RadarAction, RadarAuthMethod, evaluate_auth_attempt, radar_client_id_for_login
+from posthog.workos_radar import (
+    RadarAction,
+    RadarAuthMethod,
+    SuspiciousAttemptBlocked,
+    evaluate_auth_attempt,
+    radar_client_id_for_login,
+)
 
 from products.security.backend.facade.api import (
     REFUSAL_CODE as SECURITY_REFUSAL_CODE,
@@ -416,16 +423,24 @@ class LoginSerializer(serializers.Serializer):
         # A re-auth comes from a signed-in session, so Radar has nothing to add to it. The login
         # form cannot show a Turnstile challenge, so only a block verdict refuses the login.
         if not was_authenticated_before_login_attempt:
-            evaluate_auth_attempt(
-                request=request._request,
-                email=validated_data["email"],
-                action=RadarAction.SIGNIN,
-                auth_method=RadarAuthMethod.PASSWORD,
-                user_id=str(existing_user.distinct_id) if existing_user else None,
-                challenge_allowed=False,
-                call_site="login",
-                signals_id=str(validated_data.get("radar_signals_id") or ""),
-            )
+            try:
+                evaluate_auth_attempt(
+                    request=request._request,
+                    email=validated_data["email"],
+                    action=RadarAction.SIGNIN,
+                    auth_method=RadarAuthMethod.PASSWORD,
+                    user_id=str(existing_user.distinct_id) if existing_user else None,
+                    challenge_allowed=False,
+                    call_site="login",
+                    signals_id=str(validated_data.get("radar_signals_id") or ""),
+                    account_id=str(existing_user.uuid) if existing_user else None,
+                )
+            except SuspiciousAttemptBlocked:
+                # Counts toward the lockout above, so a repeating caller stops costing Radar calls
+                user_login_failed.send(
+                    sender=__name__, credentials={"email": validated_data["email"]}, request=axes_request
+                )
+                raise
 
         user = cast(
             User | None,
@@ -560,8 +575,7 @@ class LoginPrecheckSerializer(serializers.Serializer):
             "webauthn_credentials": webauthn_credentials,
             **self._available_local_methods(email, saml_available=saml_available, oidc_available=oidc_available),
         }
-        # The ID depends on the address alone, so it says nothing about whether the account exists
-        if radar_client_id := radar_client_id_for_login(email):
+        if radar_client_id := radar_client_id_for_login(email, str(user.uuid) if user else None):
             response["radar_client_id"] = radar_client_id
         return response
 

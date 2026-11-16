@@ -36,7 +36,7 @@ logger = structlog.get_logger(__name__)
 
 WORKOS_RADAR_API_URL = "https://api.workos.com/radar/attempts"
 WORKOS_RADAR_TIMEOUT = 5.0
-# A person waits on every login, so a slow Radar costs less time there than at signup
+# Every login waits on this call, so login gets a shorter timeout than signup
 WORKOS_RADAR_LOGIN_TIMEOUT = 2.0
 
 
@@ -66,6 +66,11 @@ class RadarAction(StrEnum):
     SIGNIN = "login"
 
 
+# The Attempts API documents `sign-in`. Signup keeps the value production already sends, and
+# the analytics event keeps the enum values.
+_ATTEMPTS_API_ACTION = {RadarAction.SIGNUP: "signup", RadarAction.SIGNIN: "sign-in"}
+
+
 class RadarAuthMethod(StrEnum):
     PASSWORD = "Password"
     PASSKEY = "Passkey"
@@ -86,8 +91,7 @@ class RadarMode(StrEnum):
     ENFORCE = "enforce"
 
 
-# The browser script's token goes to WorkOS as is, so anything outside this shape is dropped
-# rather than sent.
+# The browser sends this token, so a value outside this shape is dropped rather than sent to WorkOS
 _SIGNALS_ID_PATTERN = re.compile(r"[A-Za-z0-9_.:-]{1,512}")
 
 
@@ -108,23 +112,27 @@ def get_radar_login_mode() -> RadarMode:
         return RadarMode.OFF
 
 
-def _is_sampled_for_login(email: str) -> bool:
-    # The bucket comes from the address, not from chance, so a sampled account sends Radar every
-    # login. Radar needs that whole history to recognise the account's devices and locations.
+def _sample_key(email: str, account_id: Optional[str]) -> str:
+    # The account ID, when there is one, puts every spelling of its address in the same bucket
+    return account_id or email.strip().lower()
+
+
+def _is_sampled_for_login(sample_key: str) -> bool:
+    # A fixed bucket gives Radar every login of a sampled account, so it learns the account's devices
     percent = int(get_instance_setting("WORKOS_RADAR_LOGIN_SAMPLE_PERCENT"))
     if percent >= 100:
         return True
     if percent <= 0:
         return False
-    bucket = int(hashlib.sha256(email.strip().lower().encode()).hexdigest()[:8], 16) % 100
+    bucket = int(hashlib.sha256(sample_key.encode()).hexdigest()[:8], 16) % 100
     return bucket < percent
 
 
-def _login_mode_for(email: str) -> RadarMode:
-    """Radar mode for a password login with this address. A settings error turns Radar off."""
+def _login_mode_for(sample_key: str) -> RadarMode:
+    """Radar mode for a password login. A settings error turns Radar off."""
     try:
         mode = get_radar_login_mode()
-        if mode == RadarMode.OFF or not _is_sampled_for_login(email):
+        if mode == RadarMode.OFF or not _is_sampled_for_login(sample_key):
             return RadarMode.OFF
         return mode
     except Exception:
@@ -132,20 +140,20 @@ def _login_mode_for(email: str) -> RadarMode:
         return RadarMode.OFF
 
 
-def _radar_mode_for(action: RadarAction, auth_method: RadarAuthMethod, email: str) -> RadarMode:
+def _radar_mode_for(action: RadarAction, auth_method: RadarAuthMethod, sample_key: str) -> RadarMode:
     if action == RadarAction.SIGNUP:
         return RadarMode.ENFORCE
     # Credential stuffing tries leaked passwords, so a passkey login gains nothing from the check
     if action == RadarAction.SIGNIN and auth_method == RadarAuthMethod.PASSWORD:
-        return _login_mode_for(email)
+        return _login_mode_for(sample_key)
     return RadarMode.OFF
 
 
-def radar_client_id_for_login(email: str) -> str:
-    """WorkOS client ID for the login page's Radar browser script, or "" when Radar skips this address."""
+def radar_client_id_for_login(email: str, account_id: Optional[str] = None) -> str:
+    """WorkOS client ID for the login page's Radar browser script, or "" when Radar skips this login."""
     if not settings.WORKOS_RADAR_CLIENT_ID or not _is_radar_configured():
         return ""
-    if _login_mode_for(email) == RadarMode.OFF:
+    if _login_mode_for(_sample_key(email, account_id)) == RadarMode.OFF:
         return ""
     return settings.WORKOS_RADAR_CLIENT_ID
 
@@ -170,6 +178,7 @@ def evaluate_auth_attempt(
     challenge_allowed: bool = True,
     call_site: Optional[str] = None,
     signals_id: str = "",
+    account_id: Optional[str] = None,
 ) -> Optional[RadarVerdict]:
     """
     Evaluate an authentication attempt using the WorkOS Radar Attempts API.
@@ -183,7 +192,8 @@ def evaluate_auth_attempt(
     refuses the login.
 
     ``signals_id`` is the token from the WorkOS Radar browser script. It links the
-    device signals that the browser collected to this attempt.
+    device signals that the browser collected to this attempt. ``account_id`` is the
+    ID of the account the address resolves to, and it decides the login sample.
 
     Raises:
         SuspiciousAttemptBlocked: When verdict is BLOCK, the mode enforces it, and
@@ -194,7 +204,7 @@ def evaluate_auth_attempt(
     if not _is_radar_configured():
         return None
 
-    mode = _radar_mode_for(action, auth_method, email)
+    mode = _radar_mode_for(action, auth_method, _sample_key(email, account_id))
     if mode == RadarMode.OFF:
         return None
 
@@ -342,7 +352,7 @@ def _call_radar_api(
             "email": email,
             "ip_address": ip_address,
             "user_agent": user_agent,
-            "action": action.value,
+            "action": _ATTEMPTS_API_ACTION[action],
             "auth_method": auth_method.value,
         }
         if signals_id:

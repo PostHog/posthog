@@ -88,8 +88,10 @@ function precheckFallback(email: string): PrecheckResponseType {
 // Matches the backend's CodeBasedVerificationResendThrottle (1/minute), which also counts the first send
 export const CODE_RESEND_COOLDOWN_MS = 60_000
 
-// The signals module and its package load only when the server asks for them, so the login page
-// downloads nothing extra while Radar is off.
+// The longest a login waits for the Radar token, chunk download included, before it goes without one
+const RADAR_SIGNALS_WAIT_MS = 3000
+
+// Loaded only when precheck asks for it, so the login page downloads nothing extra while Radar is off
 function startRadarSignalsFor(precheckResponse: PrecheckResponseType): void {
     const clientId = precheckResponse.radar_client_id
     if (!clientId) {
@@ -104,12 +106,26 @@ async function radarSignalsIdFor(precheckResponse: PrecheckResponseType): Promis
     if (!precheckResponse.radar_client_id) {
         return ''
     }
+    const lookup = import('scenes/authentication/shared/radarSignals')
+        .then(({ getRadarSignalsId }) => getRadarSignalsId())
+        .catch(() => '')
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const deadline = new Promise<string>((resolve) => {
+        timer = setTimeout(() => resolve(''), RADAR_SIGNALS_WAIT_MS)
+    })
     try {
-        const { getRadarSignalsId } = await import('scenes/authentication/shared/radarSignals')
-        return await getRadarSignalsId()
-    } catch {
-        return ''
+        return await Promise.race([lookup, deadline])
+    } finally {
+        clearTimeout(timer)
     }
+}
+
+async function loginRequestBody(
+    login: LoginForm,
+    precheckResponse: PrecheckResponseType
+): Promise<Record<string, string>> {
+    const radarSignalsId = await radarSignalsIdFor(precheckResponse)
+    return radarSignalsId ? { ...login, radar_signals_id: radarSignalsId } : { ...login }
 }
 
 function resendFailureMessage(code: string | undefined, detail: string | undefined): string {
@@ -604,13 +620,9 @@ export const loginLogic = kea<loginLogicType>([
                 // Clear any previous passkey errors when submitting with password
                 actions.clearGeneralError()
                 try {
-                    const radarSignalsId = await radarSignalsIdFor(values.precheckResponse)
+                    const body = await loginRequestBody({ email, password }, values.precheckResponse)
                     // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
-                    return await api.create<any>('api/login', {
-                        email,
-                        password,
-                        ...(radarSignalsId ? { radar_signals_id: radarSignalsId } : {}),
-                    })
+                    return await api.create<any>('api/login', body)
                 } catch (e) {
                     const { code, detail } = e as Record<string, any>
                     if (code === '2fa_required') {

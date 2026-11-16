@@ -7,7 +7,7 @@ import api from 'lib/api'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { handleLoginRedirect, redirectAfterLogin } from 'lib/utils/loginRedirect'
 import { passkeyLogic } from 'scenes/authentication/shared/passkeyLogic'
-import { startRadarSignals } from 'scenes/authentication/shared/radarSignals'
+import { getRadarSignalsId, startRadarSignals } from 'scenes/authentication/shared/radarSignals'
 
 import { initKea } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
@@ -369,6 +369,34 @@ describe('loginLogic', () => {
             const loginBody = createSpy.mock.calls.find(([url]) => url === 'api/login')?.[1]
             expect(jest.mocked(startRadarSignals).mock.calls).toEqual(expectedStartCalls)
             expect(loginBody).toEqual({ email: 'user@example.com', password: 'a-password', ...expectedTokenField })
+        })
+
+        it('sends the login without a token when the token never arrives', async () => {
+            setVendor(WEBKIT_VENDOR) // skip passkey auto-trigger
+            jest.mocked(getRadarSignalsId).mockReturnValueOnce(new Promise(() => {}))
+            useMocks({
+                post: {
+                    '/api/login/precheck': () => [200, { saml_available: false, radar_client_id: 'client_123' }],
+                    '/api/login': () => [400, { code: 'invalid_credentials', detail: 'Invalid email or password.' }],
+                },
+            })
+            initKeaTests()
+            router.actions.push('/login')
+            logic = loginLogic()
+            logic.mount()
+            logic.actions.precheck({ email: 'user@example.com' })
+            await expectLogic(logic).toDispatchActions(['precheckSuccess']).toFinishAllListeners()
+            const createSpy = jest.spyOn(api, 'create')
+            jest.useFakeTimers({ doNotFake: ['nextTick', 'setImmediate', 'queueMicrotask'] })
+
+            logic.actions.setLoginValues({ email: 'user@example.com', password: 'a-password' })
+            logic.actions.submitLogin()
+            await jest.advanceTimersByTimeAsync(3000)
+            jest.useRealTimers()
+            await expectLogic(logic).toDispatchActions(['submitLoginFailure'])
+
+            const loginBody = createSpy.mock.calls.find(([url]) => url === 'api/login')?.[1]
+            expect(loginBody).toEqual({ email: 'user@example.com', password: 'a-password' })
         })
     })
 

@@ -813,6 +813,22 @@ class TestLoginRadar(APIBaseTest):
         assert self.client.get("/api/users/@me/").status_code == status.HTTP_401_UNAUTHORIZED
 
     @patch("posthog.workos_radar._call_radar_api", return_value=RadarVerdict.BLOCK)
+    def test_enforced_blocks_count_toward_the_lockout(self, mock_call_api):
+        credentials = {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD}
+
+        with (
+            self.settings(AXES_ENABLED=True, AXES_FAILURE_LIMIT=2),
+            override_instance_config("WORKOS_RADAR_LOGIN_MODE", "enforce"),
+        ):
+            codes = [
+                self.client.post("/api/login", credentials, REMOTE_ADDR="3.3.3.3").json()["code"] for _ in range(3)
+            ]
+
+        # The attempt that reaches the limit gets the lockout response, as a wrong password does
+        assert codes == ["suspicious_attempt_blocked", "too_many_failed_attempts", "too_many_failed_attempts"]
+        assert mock_call_api.call_count == 2
+
+    @patch("posthog.workos_radar._call_radar_api", return_value=RadarVerdict.BLOCK)
     def test_reauth_from_a_signed_in_session_skips_radar(self, mock_call_api):
         self.client.force_login(self.user)
 

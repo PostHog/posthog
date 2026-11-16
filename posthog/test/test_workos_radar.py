@@ -23,6 +23,7 @@ from posthog.workos_radar import (
     _hash_email,
     _is_sampled_for_login,
     _log_radar_event,
+    _sample_key,
     evaluate_auth_attempt,
 )
 
@@ -49,10 +50,15 @@ class TestLoginSample(SimpleTestCase):
         emails = [f"user{i}@example.com" for i in range(2000)]
 
         with patch("posthog.workos_radar.get_instance_setting", return_value=30):
-            sampled = [email for email in emails if _is_sampled_for_login(email)]
-            assert all(_is_sampled_for_login(f" {email.upper()} ") for email in sampled)
+            sampled = [email for email in emails if _is_sampled_for_login(_sample_key(email, None))]
+            assert all(_is_sampled_for_login(_sample_key(f" {email.upper()} ", None)) for email in sampled)
 
         assert 0.25 < len(sampled) / len(emails) < 0.35
+
+    def test_an_existing_account_is_sampled_by_its_id_whatever_the_spelling(self):
+        spellings = ["iiii@example.com", "\u0130iii@example.com", "IIII@EXAMPLE.COM"]
+
+        assert {_sample_key(email, "account-1") for email in spellings} == {"account-1"}
 
 
 class TestRadarApiCall(SimpleTestCase):
@@ -77,6 +83,7 @@ class TestRadarApiCall(SimpleTestCase):
         call_args = mock_post.call_args
         assert call_args[0][0] == WORKOS_RADAR_API_URL
         assert "Bearer test_api_key" in str(call_args[1]["headers"])
+        assert call_args[1]["json"]["action"] == "sign-in"
 
     @patch("posthog.workos_radar.requests.post")
     @override_settings(WORKOS_RADAR_API_KEY="test_api_key")

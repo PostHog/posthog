@@ -348,10 +348,8 @@ class CSPMiddleware:
                 # defeat it. The cost is that a version bump which moves the file needs this line
                 # updated, or the editor stops loading.
                 #
-                # The login page loads the WorkOS Radar device-signals script from js.workos.com, and
-                # that script posts its signals to api.workos.com from our page, so connect-src names
-                # that host too. WorkOS serves the script itself, because the collector changes
-                # without a package release.
+                # The login page loads the WorkOS Radar signals script, which posts to api.workos.com
+                # (see connect-src). WorkOS serves it, because the collector changes without a release.
                 f"script-src 'self' 'nonce-{nonce}' 'wasm-unsafe-eval'{report_sample} {resource_url} https://*.i.posthog.com https://js.stripe.com https://challenges.cloudflare.com https://editor.unlayer.com/embed.js https://js.workos.com/radar/",
                 # A data: font cannot execute script, and this directive governs font loading only,
                 # so the token widens nothing else. It also carries nothing out: a data: URL makes
