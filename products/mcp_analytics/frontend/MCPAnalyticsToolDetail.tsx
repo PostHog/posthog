@@ -32,12 +32,13 @@ import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { formatPercentage } from 'lib/utils/numbers'
+import { sceneConfigurations } from 'scenes/scenes'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import type { MCPToolFailureOccurrenceItem } from '~/queries/schema/schema-general'
-import { SceneExport } from '~/scenes/sceneTypes'
+import { Scene, SceneExport } from '~/scenes/sceneTypes'
 
 import { PersonDisplay } from 'products/persons/frontend/components/PersonDisplay'
 
@@ -577,7 +578,7 @@ export function MCPAnalyticsToolDetail(): JSX.Element {
                 description={null}
                 resourceType={{ type: 'mcp_analytics' }}
                 forceBackTo={{
-                    name: 'Tool quality',
+                    name: sceneConfigurations[Scene.MCPAnalytics].name,
                     path: mcpToolQualityUrlWithDates(dateFilter, pinnedInterval),
                     key: 'mcp-analytics-tool-quality',
                 }}
