@@ -18,7 +18,7 @@ PENDING_DOMAIN = "pending.example.com"
 class TestSesSenderHealth(EmailDomainApiTestCase):
     def setUp(self) -> None:
         super().setUp()
-        self.rolled_out = True
+        self.rolled_out: bool | None = True
         flag_client = posthoganalytics.feature_enabled
 
         def feature_enabled(key: str, *args: Any, **kwargs: Any) -> bool | None:
@@ -74,13 +74,21 @@ class TestSesSenderHealth(EmailDomainApiTestCase):
 
         assert not self.sending_stopped(sender)
 
-    def test_switching_the_rollout_off_clears_the_warning_on_the_next_check(self) -> None:
+    @parameterized.expand(
+        [
+            ("switching_the_rollout_off_clears_it", False, False),
+            ("a_flag_evaluation_outage_keeps_it", None, True),
+        ]
+    )
+    def test_the_rollout_decides_whether_a_warning_stays(
+        self, _name: str, rollout: bool | None, still_stopped: bool
+    ) -> None:
         sender = self.verified_sender(f"hello@{DOMAIN}")
         self.world.ses.identities[DOMAIN].forced_verification_status = "Failed"
         check_ses_sender_health()
         assert self.sending_stopped(sender)
-        self.rolled_out = False
+        self.rolled_out = rollout
 
         check_ses_sender_health()
 
-        assert not self.sending_stopped(sender)
+        assert self.sending_stopped(sender) is still_stopped

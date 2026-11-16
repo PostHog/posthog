@@ -1,10 +1,11 @@
 from collections.abc import Iterable, Iterator, Mapping
 from functools import cache
 
+import posthoganalytics
+
 from posthog.integrations import CrossTeamFilter, IntegrationManager, IntegrationPatch, IntegrationRecord, UpdatedRows
 from posthog.models.integration.email import SES_SENDING_FAILED, SES_SENDING_STATUS_KEY
 from posthog.models.team import Team
-from posthog.ph_client import feature_enabled_or_false
 
 SES_SENDER_HEALTH_FLAG = "workflows-ses-sender-health"
 
@@ -18,21 +19,22 @@ def record_ses_sending_status(failed_domains: Iterable[str]) -> None:
     """Mark the verified senders of the domains SES stopped sending from, and unmark every other marked sender.
 
     Only projects in the rollout get marks, so switching the flag off clears them on the next check.
+    A check that cannot evaluate the flag for a project keeps that project's marks as they are.
     """
     failed = tuple(sorted({domain.lower() for domain in failed_domains}))
     rolled_out = cache(_rolled_out)
     for sender in _one_sender_per_project_domain(where_in={"domain": failed}):
-        if rolled_out(sender.team_id):
+        if rolled_out(sender.team_id) is True:
             _patch_domain(sender, _MARK)
     for sender in _one_sender_per_project_domain(where={SES_SENDING_STATUS_KEY: SES_SENDING_FAILED}):
-        if sender.config["domain"] not in failed or not rolled_out(sender.team_id):
+        if sender.config["domain"] not in failed or rolled_out(sender.team_id) is False:
             _patch_domain(sender, _UNMARK)
 
 
-def _rolled_out(team_id: int) -> bool:
+def _rolled_out(team_id: int) -> bool | None:
     team = Team.objects.only("uuid", "organization_id").get(id=team_id)
     organization_id = str(team.organization_id)
-    return feature_enabled_or_false(
+    return posthoganalytics.feature_enabled(
         SES_SENDER_HEALTH_FLAG,
         str(team.uuid),
         groups={"organization": organization_id, "project": str(team_id)},
