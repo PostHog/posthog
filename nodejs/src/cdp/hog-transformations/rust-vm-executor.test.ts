@@ -210,8 +210,7 @@ describe('RustVmExecutor', () => {
         it.each(['executeRegisteredBatch', 'executeBatch'] as const)(
             'fans the batch out over the native thread pool through %s',
             async (binding) => {
-                // Parallelism changes only which threads run the batch, never its results, so the
-                // options the binding received are the only observable of it.
+                // Parallelism changes threads, never results, so these options are its only observable.
                 const run = async (): Promise<void> => {
                     await executor.executeBatched(createExampleInvocation(), [])
                 }
