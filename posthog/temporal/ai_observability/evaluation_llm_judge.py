@@ -51,7 +51,19 @@ from posthog.temporal.ai_observability.retries import is_last_attempt
 from posthog.temporal.common.errors import NonReportableApplicationError, NonReportableError
 from posthog.temporal.common.utils import close_db_connections
 
-from products.ai_observability.backend.facade.evaluation_runtime import extract_event_io, format_tool_definitions
+from products.ai_observability.backend.facade.evaluation_runtime import (
+    BooleanEvalResult,
+    BooleanWithNAEvalResult,
+    CategoricalEvalResult,
+    CategoricalWithNAEvalResult,
+    NumericEvalResult,
+    NumericWithNAEvalResult,
+    build_system_prompt,
+    build_user_prompt,
+    extract_event_io,
+    format_tool_definitions,
+    get_output_type_config,
+)
 from products.ai_observability.backend.llm import DEFAULT_MODEL_BY_PROVIDER, Client, CompletionRequest, Usage
 from products.ai_observability.backend.llm.attachments import AttachmentPart
 from products.ai_observability.backend.llm.decisions import (
@@ -82,17 +94,6 @@ from products.ai_observability.backend.llm.providers.openai import OPENAI_DECISI
 from products.ai_observability.backend.llm.providers.openai_decisions import OpenAIDecisionAdapter
 from products.ai_observability.backend.llm.providers.openrouter import OPENROUTER_DECISIONS_BASE_URL
 from products.ai_observability.backend.llm.types import CompletionResponse
-from products.ai_observability.backend.logic.evaluations.judge_prompts import (
-    BooleanEvalResult,
-    BooleanWithNAEvalResult,
-    CategoricalEvalResult,
-    CategoricalWithNAEvalResult,
-    NumericEvalResult,
-    NumericWithNAEvalResult,
-    build_system_prompt,
-    build_user_prompt,
-    get_output_type_config,
-)
 from products.ai_observability.backend.models.evaluation_configs import (
     BooleanOutputConfig,
     CategoricalOutputConfig,
