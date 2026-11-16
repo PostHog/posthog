@@ -66,21 +66,25 @@ describe('connection-level retry log', () => {
         mockFetch.mockReset()
     })
 
-    it('logs the origin of the URL and never its path or query', async () => {
+    it('logs and returns the origin of the URL and never its path or query', async () => {
         const warn = jest.spyOn(logger, 'warn').mockImplementation(() => undefined)
         const socketError = Object.assign(new Error(`other side closed while sending to ${url}`), {
             code: 'UND_ERR_SOCKET',
         })
         mockFetch.mockRejectedValueOnce(socketError).mockRejectedValueOnce(socketError)
 
-        await cdpTrackedFetch({ url, fetchParams: { method: 'POST' }, templateId: 'template-discord' })
+        const { fetchError } = await cdpTrackedFetch({
+            url,
+            fetchParams: { method: 'POST' },
+            templateId: 'template-discord',
+        })
 
         const retryLog = warn.mock.calls.find(([, message]) => String(message).includes('Connection-level error'))
         expect(retryLog?.[2]).toMatchObject({
             origin: 'https://discord.example.com:8443',
             error: { code: 'UND_ERR_SOCKET' },
         })
-        const logged = JSON.stringify(warn.mock.calls)
+        const logged = JSON.stringify(warn.mock.calls) + fetchError?.message + fetchError?.stack
         expect(logged).not.toContain('/api/webhooks')
         expect(logged).not.toContain('secret-token')
         expect(logged).not.toContain('wait=true')
