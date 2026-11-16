@@ -4,6 +4,8 @@ import { Linking, useColorScheme } from 'react-native'
 import { ApiError } from '@/api/client'
 import { type InsightApi, readInsight } from '@/api/insights'
 import { runQuery } from '@/api/query'
+import { viewsQueue } from '@/features/views/refreshQueue'
+import { abortError } from '@/lib/abort'
 import { darkColors } from '@/ui/theme'
 import { ChatMarkdown } from './ChatMarkdown'
 import { MermaidDiagram } from './MermaidDiagram'
@@ -52,10 +54,16 @@ describe('reply object rendering', () => {
     })
     beforeEach(() => {
         jest.clearAllMocks()
-        query.mockImplementation(() => new Promise(() => undefined))
+        query.mockImplementation(
+            (_query, options) =>
+                new Promise((_resolve, reject) => {
+                    options?.signal?.addEventListener('abort', () => reject(abortError()), { once: true })
+                })
+        )
         client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity } } })
     })
     afterEach(() => {
+        viewsQueue.reset()
         client.clear()
         jest.restoreAllMocks()
         jest.mocked(useColorScheme).mockReturnValue('light')
