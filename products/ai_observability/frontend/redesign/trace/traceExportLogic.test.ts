@@ -1,5 +1,4 @@
 import { expectLogic } from 'kea-test-utils'
-import { HttpResponse } from 'msw'
 import posthog from 'posthog-js'
 
 import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
@@ -72,7 +71,7 @@ describe('traceExportLogic', () => {
                 [EXPORT_CONTENT_URL]: ({ request }) => {
                     if (contentNetworkFailures > 0) {
                         contentNetworkFailures -= 1
-                        return HttpResponse.error()
+                        return Response.error()
                     }
                     contentPurposes.push(new URL(request.url).searchParams.get('purpose'))
                     return [200, exportFile]
