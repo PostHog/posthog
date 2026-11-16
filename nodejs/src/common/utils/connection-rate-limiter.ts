@@ -5,10 +5,9 @@ import { RedisV2 } from '~/common/redis/redis-v2'
 export type ConnectionRateLimiterOptions = {
     perSecond: number
     burst: number
+    // A slow Redis must not hold up new connections, so past this every connection goes through.
+    redisDeadlineMs?: number
 }
-
-// A slow Redis must not hold up new connections, so past this every connection goes through.
-const REDIS_DEADLINE_MS = 50
 
 const unavailableCounter = new Counter({
     name: 'node_request_connection_rate_limiter_unavailable_total',
@@ -27,13 +26,13 @@ export class ConnectionRateLimiter {
     ) {}
 
     async tryTake(keys: string[]): Promise<boolean[]> {
-        const { perSecond, burst } = this.options
+        const { perSecond, burst, redisDeadlineMs = 50 } = this.options
         const now = Math.round(Date.now() / 1000)
         const ttlSeconds = Math.ceil(burst / perSecond) + 60
         // failOpen does not cover a pool that cannot hand out a client in time, so that error is caught here.
         const res = await this.redis
             .usePipeline(
-                { name: 'connection-rate-limiter', failOpen: true, deadlineMs: REDIS_DEADLINE_MS },
+                { name: 'connection-rate-limiter', failOpen: true, deadlineMs: redisDeadlineMs },
                 (pipeline) => {
                     for (const key of keys) {
                         pipeline.checkRateLimitV2(
@@ -48,13 +47,14 @@ export class ConnectionRateLimiter {
                 }
             )
             .catch(() => null)
-        if (res === null) {
-            unavailableCounter.inc(keys.length)
-        }
         // The script returns -1 when the bucket could not pay, and 0 when it paid its last token.
         return keys.map((_, index) => {
             const [error, result] = res?.[index] ?? [null, null]
-            return error !== null || result === null || Number(result[1]) >= 0
+            if (error !== null || result === null) {
+                unavailableCounter.inc()
+                return true
+            }
+            return Number(result[1]) >= 0
         })
     }
 }

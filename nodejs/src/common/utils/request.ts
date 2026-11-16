@@ -364,13 +364,14 @@ async function staticLookupAsync(hostname: string): Promise<LookupAddress[]> {
 let connectionRateLimiter: ConnectionRateLimiter | null = null
 
 /** Turns on the new connection limit when it is configured. Its budget lives in this Redis, shared by every pod. */
-export function limitNewConnectionsWith(redis: RedisV2 | null): void {
+export function limitNewConnectionsWith(redis: RedisV2 | null, redisDeadlineMs?: number): void {
     const perSecond = requestConfig.EXTERNAL_REQUEST_NEW_CONNECTIONS_PER_IP_PER_SECOND
     connectionRateLimiter =
         redis && perSecond > 0
             ? new ConnectionRateLimiter(redis, {
                   perSecond,
                   burst: requestConfig.EXTERNAL_REQUEST_NEW_CONNECTIONS_PER_IP_BURST,
+                  redisDeadlineMs,
               })
             : null
 }

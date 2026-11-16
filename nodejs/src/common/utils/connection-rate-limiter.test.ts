@@ -22,7 +22,7 @@ describe('ConnectionRateLimiter', () => {
     })
 
     it('shares one budget per address across pods, then refills at the configured rate', async () => {
-        const options = { perSecond: 2, burst: 3 }
+        const options = { perSecond: 2, burst: 3, redisDeadlineMs: 5_000 }
         const [podA, podB] = [new ConnectionRateLimiter(redis, options), new ConnectionRateLimiter(redis, options)]
 
         expect(await podA.tryTake(['limiter-test:1.1.1.1', 'limiter-test:2.2.2.2'])).toEqual([true, true])
