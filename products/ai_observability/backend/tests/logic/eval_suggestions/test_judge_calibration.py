@@ -1,6 +1,7 @@
 import re
 import json
 import time
+from operator import attrgetter
 from typing import Any
 
 import pytest
@@ -10,6 +11,8 @@ import httpx
 import openai
 import anthropic
 from anthropic.types import ToolUseBlock, Usage
+from google import genai
+from google.genai import errors as genai_errors
 from parameterized import parameterized
 
 from products.ai_observability.backend.llm import DEFAULT_MODEL_BY_PROVIDER
@@ -127,14 +130,28 @@ def _openai_reply(verdict: str) -> MagicMock:
     )
 
 
+def _gemini_reply(verdict: str) -> MagicMock:
+    return MagicMock(
+        text=json.dumps({"reasoning": "r", "verdict": verdict}),
+        usage_metadata=MagicMock(prompt_token_count=1000, candidates_token_count=30, thoughts_token_count=20),
+    )
+
+
 @parameterized.expand(
     [
-        ("anthropic", anthropic.Anthropic, _anthropic_reply, anthropic.APIConnectionError(request=REQUEST)),
-        ("openai", openai.OpenAI, _openai_reply, openai.APIConnectionError(request=REQUEST)),
+        (
+            "anthropic",
+            anthropic.Anthropic,
+            "messages.create",
+            _anthropic_reply,
+            anthropic.APIConnectionError(request=REQUEST),
+        ),
+        ("openai", openai.OpenAI, "chat.completions.create", _openai_reply, openai.APIConnectionError(request=REQUEST)),
+        ("gemini", genai.Client, "models.generate_content", _gemini_reply, httpx.ConnectError("Connection reset")),
     ]
 )
 def test_the_judge_grades_the_review_calls_on_the_team_model(
-    provider: str, sdk: type, reply: Any, connection_reset: Exception
+    provider: str, sdk: type, method: str, reply: Any, connection_reset: Exception
 ) -> None:
     card, rendering = _card_and_rendering()
     model = DEFAULT_MODEL_BY_PROVIDER[provider]
@@ -143,7 +160,7 @@ def test_the_judge_grades_the_review_calls_on_the_team_model(
     prompts: list[str] = []
 
     def answer(**kwargs: Any) -> MagicMock:
-        prompt = kwargs["messages"][-1]["content"]
+        prompt = kwargs["contents"] if provider == "gemini" else kwargs["messages"][-1]["content"]
         prompts.append(prompt)
         match = re.search(r'<call number="(\d+)"', prompt)
         assert match is not None
@@ -153,8 +170,7 @@ def test_the_judge_grades_the_review_calls_on_the_team_model(
         return reply("fail" if number in (1, 2, 4, 6) else "na" if number == 40 else "pass")
 
     client = MagicMock(spec=sdk)
-    create = client.messages.create if provider == "anthropic" else client.chat.completions.create
-    create.side_effect = answer
+    attrgetter(method)(client).side_effect = answer
 
     with patch.object(call_review, "RETRY_BACKOFF_SECONDS", 0):
         calls = judge_calibration.judge_all(client, requests, deadline=None)
@@ -186,6 +202,33 @@ def test_the_judge_grades_the_review_calls_on_the_team_model(
     assert sum(call.cost_usd for call in calls if call) == pytest.approx(
         39 * served + judge_calibration.max_cost_usd([requests[2]])
     )
+
+
+@parameterized.expand(
+    [
+        ("server_error", genai_errors.ServerError(503, {}), True, True),
+        ("rate_limited", genai_errors.ClientError(429, {}), True, False),
+        ("cancelled", genai_errors.ClientError(499, {}), True, True),
+        ("bad_request", genai_errors.ClientError(400, {}), False, True),
+    ]
+)
+def test_a_gemini_call_retries_only_errors_a_retry_can_get_past(
+    _name: str, error: Exception, retried: bool, billed: bool
+) -> None:
+    card, rendering = _card_and_rendering()
+    model = DEFAULT_MODEL_BY_PROVIDER["gemini"]
+    request = judge_calibration.judge_request(card, rendering, 1, model)
+    client = MagicMock(spec=genai.Client)
+    client.models.generate_content.side_effect = [error, _gemini_reply("fail")]
+
+    with patch.object(call_review, "RETRY_BACKOFF_SECONDS", 0):
+        call = judge_calibration.judge(client, request)
+
+    price = MODEL_PRICES[model]
+    served = 1000 * price.input_per_token + 50 * price.output_per_token
+    unsettled = judge_calibration.max_cost_usd([request]) / call_review.ATTEMPTS if billed else 0.0
+    assert call.verdict == ("fail" if retried else None)
+    assert call.cost_usd == pytest.approx((served if retried else 0.0) + unsettled)
 
 
 def test_a_request_that_could_end_past_the_deadline_never_starts() -> None:
