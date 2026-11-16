@@ -13568,15 +13568,15 @@ Today (7): `contacts`, `documents`, `labels`, `signature_requests`, `signers`, `
 
 Diffed against: <https://developers.yousign.com/reference/get-contacts-1>
 
-- [ ] `templates (GET /templates)` — lookup resolving the template a signature request was created from (high)
+- [x] `templates (GET /templates)` — lookup resolving the template a signature request was created from (high)
 - [ ] `consumptions (GET /consumptions, GET /consumptions/detail)` — the vendor's usage metering per period, the natural volume metric for a signing workload (medium)
 - [ ] `consumption records (GET /consumptions/records/invited_signers, /identifications, /electronic_seals)` — line-item detail behind each consumption period (medium)
 - [ ] `custom properties (GET /custom_properties)` — lookup naming the custom property ids attached to signature requests (medium)
 - [ ] `identity verifications (GET /verifications/identity_documents, /companies, /bank_accounts, /proofs_of_address, /identity_videos, /watchlists)` — KYC verification outcomes per signer, an entire product surface with no coverage (medium)
-- [ ] `workflow sessions (GET /workflow_sessions)` — identity/onboarding workflow runs and their state (medium)
-- [ ] `workflow session applicants (GET /workflow_sessions/{id}/applicants)` — per-applicant outcome inside a workflow session (medium)
+- [x] `workflow sessions (GET /workflow_sessions)` — identity/onboarding workflow runs and their state (medium)
+- [x] `workflow session applicants (GET /workflow_sessions/{id}/applicants)` — per-applicant outcome inside a workflow session (medium)
 - [x] `approvers (GET /signature_requests/{signatureRequestId}/approvers)` — full approver details and approval status per signature request, alongside the signers we already sync (medium)
-- [ ] `followers (GET /signature_requests/{signatureRequestId}/followers)` — who is CC'd on a request, alongside the signers we already sync (medium)
+- [x] `followers (GET /signature_requests/{signatureRequestId}/followers)` — who is CC'd on a request, alongside the signers we already sync (medium)
 - [ ] `document analyses (GET /document_analyses)` — automated document checks and their verdicts (low)
 - [ ] `consent requests (GET /signature_requests/{signatureRequestId}/consent_requests)` — per-signer consent steps within a request (low)
 - [ ] `workflow templates (GET /workflow_templates)` — lookup resolving the template behind a workflow session (low)
