@@ -57,15 +57,33 @@ export const SignalsActivitySummaryMembersSearchParams = () => zod.object({
         ),
 })
 
+export const signalsActivitySummaryMembersSearchQueryActiveSinceDaysMax = 365
+
 export const signalsActivitySummaryMembersSearchQueryIncludeProfileDefault = false
 export const signalsActivitySummaryMembersSearchQueryLimitDefault = 10
 export const signalsActivitySummaryMembersSearchQueryLimitMax = 25
 
+export const signalsActivitySummaryMembersSearchQueryObjectIdMax = 64
+
+export const signalsActivitySummaryMembersSearchQueryObjectRelationDefault = `any`
+export const signalsActivitySummaryMembersSearchQueryObjectTypeMax = 64
+
+export const signalsActivitySummaryMembersSearchQueryOffsetDefault = 0
+export const signalsActivitySummaryMembersSearchQueryOffsetMin = 0
+export const signalsActivitySummaryMembersSearchQueryOffsetMax = 500
+
 export const signalsActivitySummaryMembersSearchQueryQueryMax = 500
 
 export const signalsActivitySummaryMembersSearchQuerySearchModeDefault = `hybrid`
+export const signalsActivitySummaryMembersSearchQueryUserUuidsMax = 25
 
 export const SignalsActivitySummaryMembersSearchQueryParams = () => zod.object({
+    active_since_days: zod
+        .number()
+        .min(1)
+        .max(signalsActivitySummaryMembersSearchQueryActiveSinceDaysMax)
+        .optional()
+        .describe('Only members with a theme or an object seen in this many days.'),
     exclude_user_uuids: zod
         .array(zod.string())
         .optional()
@@ -80,6 +98,40 @@ export const SignalsActivitySummaryMembersSearchQueryParams = () => zod.object({
         .max(signalsActivitySummaryMembersSearchQueryLimitMax)
         .default(signalsActivitySummaryMembersSearchQueryLimitDefault)
         .describe('The most results to return, best match first.'),
+    mode: zod
+        .enum(['building', 'analyzing', 'monitoring', 'investigating', 'operating', 'experimenting'])
+        .optional()
+        .describe(
+            'Only members who work in this mode, overall or on one of their themes.\n\n\* `building` - Building\n\* `analyzing` - Analyzing\n\* `monitoring` - Monitoring\n\* `investigating` - Investigating\n\* `operating` - Operating\n\* `experimenting` - Experimenting'
+        ),
+    object_id: zod
+        .string()
+        .min(1)
+        .max(signalsActivitySummaryMembersSearchQueryObjectIdMax)
+        .optional()
+        .describe(
+            'Only members who changed or often open this object. Requires `object_type`. Use the short id for an insight, a notebook or a replay playlist (the id in its URL, such as `aBc123Xy`), and the numeric or UUID primary key for every other type.'
+        ),
+    object_relation: zod
+        .enum(['any', 'owned', 'watched'])
+        .default(signalsActivitySummaryMembersSearchQueryObjectRelationDefault)
+        .describe(
+            'With `object_type` or `object_id`: `owned` matches members who changed the object, `watched` members who opened it on many days, and `any` both.\n\n\* `any` - Any\n\* `owned` - Owned\n\* `watched` - Watched'
+        ),
+    object_type: zod
+        .string()
+        .min(1)
+        .max(signalsActivitySummaryMembersSearchQueryObjectTypeMax)
+        .optional()
+        .describe(
+            'Only members who changed or often open an object of this type, such as `insight`, `dashboard`, `feature_flag`, `experiment`, `notebook` or `hog_function`. Combine with `object_id` for one object.'
+        ),
+    offset: zod
+        .number()
+        .min(signalsActivitySummaryMembersSearchQueryOffsetMin)
+        .max(signalsActivitySummaryMembersSearchQueryOffsetMax)
+        .default(signalsActivitySummaryMembersSearchQueryOffsetDefault)
+        .describe('The number of results to skip, for the next page. Compare with `total`.'),
     product: zod
         .enum([
             'product_analytics',
@@ -128,6 +180,11 @@ export const SignalsActivitySummaryMembersSearchQueryParams = () => zod.object({
         .describe(
             '`hybrid` merges the keyword and semantic rankings. `semantic` ranks by meaning only, and returns 503 when the vector search fails. `keyword` matches query terms in the profile, the headline, the theme labels and the names of owned and watched objects.\n\n\* `hybrid` - Hybrid\n\* `semantic` - Semantic\n\* `keyword` - Keyword'
         ),
+    user_uuids: zod
+        .array(zod.string())
+        .max(signalsActivitySummaryMembersSearchQueryUserUuidsMax)
+        .optional()
+        .describe('Only these members. With no query, this reads their summaries directly.'),
 })
 
 /**
@@ -528,13 +585,13 @@ export const SignalsReportsListQueryParams = () => zod.object({
         .string()
         .optional()
         .describe(
-            'Comma-separated <outcome>:<lift> pairs, e.g. fix:2,open:1.5. Keeps reports whose served ranking lift is at least the value for every named outcome. Outcomes: open, action, fix. Read inbox-ranking-outcomes-list for what each outcome means. Unscored and stale reports never match. Needs staff or the inbox model sort rollout: other users get a 400.'
+            'Comma-separated <outcome>:<lift> pairs, e.g. fix:2,open:1.5. Keeps reports whose served ranking lift is at least the value for every named outcome. Outcomes: open, action, fix. Read inbox-ranking-outcomes-list for what each outcome means. A report edited after its last score matches on that score. Unscored reports never match. Needs staff or the inbox model sort rollout: other users get a 400.'
         ),
     ranking_min_probability: zod
         .string()
         .optional()
         .describe(
-            'Comma-separated <outcome>:<probability> pairs, e.g. fix:0.3. Keeps reports whose served ranking probability is at least the value for every named outcome. Outcomes: open, action, fix. Read inbox-ranking-outcomes-list for what each outcome means. Unscored and stale reports never match. Needs staff or the inbox model sort rollout: other users get a 400.'
+            'Comma-separated <outcome>:<probability> pairs, e.g. fix:0.3. Keeps reports whose served ranking probability is at least the value for every named outcome. Outcomes: open, action, fix. Read inbox-ranking-outcomes-list for what each outcome means. A report edited after its last score matches on that score. Unscored reports never match. Needs staff or the inbox model sort rollout: other users get a 400.'
         ),
     scope: zod
         .string()
@@ -557,7 +614,7 @@ export const SignalsReportsListQueryParams = () => zod.object({
         .string()
         .optional()
         .describe(
-            "Inbox sort preset: priority, recommended, personal, last_updated, newest, or oldest. Ignored when ordering is supplied. recommended resolves per user to a ranker: the priority order, or the open, action or fix outcome of the served ranking model, highest score first, with unscored and stale reports in priority order after the scored ones, or your stored personal ranking, as personal gives it, then the priority order. The response's ranker field names the one used, and its ranking_pill field says whether to show score pills. personal puts the reports of a stored personal ranking first, by rank, then the reports it folded, then every other report in your recommended order. With scope=teammate it reads the teammate's stored ranking, else yours. It only reads the stored ranking and never starts a build. With no stored personal ranking, or a teammate outside the organization, it is the recommended order, or the priority order when recommended gives you the personal ranking."
+            "Inbox sort preset: priority, recommended, personal, last_updated, newest, or oldest. Ignored when ordering is supplied. recommended resolves per user to a ranker: the priority order, or the open, action or fix outcome of the served ranking model, highest score first, with unscored reports in priority order after the scored ones, or your stored personal ranking, as personal gives it, then the priority order. The response's ranker field names the one used, and its ranking_pill field says whether to show score pills. personal puts the reports of a stored personal ranking first, by rank, then the reports it folded, then every other report in your recommended order. With scope=teammate it reads the teammate's stored ranking, else yours. It only reads the stored ranking and never starts a build. With no stored personal ranking, or a teammate outside the organization, it is the recommended order, or the priority order when recommended gives you the personal ranking."
         ),
     source_id: zod
         .string()
@@ -926,7 +983,7 @@ export const SignalsReportsPartialUpdateBody = () => zod
     )
 
 /**
- * List the actions on this report that start an agent run, read from the report's current state. `get_it_merged` is available only while the report has an open, approved pull request. `make_it_green` is available only while CI fails on the report's open pull request. `suggested_prompt` has one entry per prompt the report suggests. Start one with the run endpoint.
+ * List the actions on this report that start an agent run, read from the report's current state. `get_it_merged` is available only while the report has an open, approved pull request. `make_it_green` is available only while CI fails on the report's open pull request, or while it conflicts with its base branch. `resolve_conflicts` is available only while the report's open pull request conflicts with its base branch. `suggested_prompt` has one entry per prompt the report suggests. Start one with the run endpoint.
  * @summary List the report actions that start an agent run
  */
 export const SignalsReportsActionsListParams = () => zod.object({
@@ -957,12 +1014,12 @@ export const signalsReportsActionsRunCreateBodyMessageMax = 2000
 
 export const SignalsReportsActionsRunCreateBody = () => zod.object({
     action: zod
-        .enum(['get_it_merged', 'make_it_green', 'suggested_prompt', 'ask'])
+        .enum(['get_it_merged', 'make_it_green', 'resolve_conflicts', 'suggested_prompt', 'ask'])
         .describe(
-            '\* `get_it_merged` - Get it merged\n\* `make_it_green` - Make it green\n\* `suggested_prompt` - Suggested prompt\n\* `ask` - Ask'
+            '\* `get_it_merged` - Get it merged\n\* `make_it_green` - Make it green\n\* `resolve_conflicts` - Resolve conflicts\n\* `suggested_prompt` - Suggested prompt\n\* `ask` - Ask'
         )
         .describe(
-            'The action to run. Use a value from the actions list, or `ask` to send your own `message`.\n\n\* `get_it_merged` - Get it merged\n\* `make_it_green` - Make it green\n\* `suggested_prompt` - Suggested prompt\n\* `ask` - Ask'
+            'The action to run. Use a value from the actions list, or `ask` to send your own `message`.\n\n\* `get_it_merged` - Get it merged\n\* `make_it_green` - Make it green\n\* `resolve_conflicts` - Resolve conflicts\n\* `suggested_prompt` - Suggested prompt\n\* `ask` - Ask'
         ),
     suggested_prompt_index: zod
         .number()
@@ -974,7 +1031,7 @@ export const SignalsReportsActionsRunCreateBody = () => zod.object({
         .max(signalsReportsActionsRunCreateBodyMessageMax)
         .optional()
         .describe(
-            "Your own request for the run. Required for `ask`, where it is the question or the work you want done on the report. Optional for `get_it_merged` and `make_it_green`, where it replaces the action's fixed request and keeps its instructions and gates: pass it when you know something the report does not, such as a merge order, a failure that is already on the base branch, or an expected conflict. Not accepted for `suggested_prompt`."
+            "Your own request for the run. Required for `ask`, where it is the question or the work you want done on the report. Optional for `get_it_merged`, `make_it_green`, and `resolve_conflicts`, where it replaces the action's fixed request and keeps its instructions and gates: pass it when you know something the report does not, such as a merge order, a failure that is already on the base branch, or an expected conflict. Not accepted for `suggested_prompt`."
         ),
 })
 

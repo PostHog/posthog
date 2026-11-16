@@ -26,7 +26,6 @@ from posthog.models.user import User
 from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.models import SignalFirstReportNotification, SignalReport, SignalReportArtefact
 from products.signals.backend.ranking.cache import refresh_report_ranking_cache
-from products.signals.backend.ranking.staleness import EDIT_ARTEFACT_TYPES
 from products.signals.backend.report_embeddings import (
     emit_report_embeddings,
     emit_report_tombstone,
@@ -877,7 +876,7 @@ def _sync_report_latest_actionability(instance: SignalReportArtefact) -> None:
 def _sync_report_inbox_sort_cache(instance: SignalReportArtefact) -> None:
     if instance.type == SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT:
         refresh_report_priority_rank(team_id=instance.team_id, report_id=instance.report_id)
-    elif instance.type == SignalReportArtefact.ArtefactType.RANKING_SCORE or instance.type in EDIT_ARTEFACT_TYPES:
+    elif instance.type == SignalReportArtefact.ArtefactType.RANKING_SCORE:
         refresh_report_ranking_cache(team_id=instance.team_id, report_id=instance.report_id)
 
 

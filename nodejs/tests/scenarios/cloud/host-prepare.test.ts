@@ -139,7 +139,10 @@ describe('host-prepare.sh', () => {
             `postgres://posthog:posthog@localhost:5432/${database}`
         )
         expect(
-            residentBacklogIntact.check({ journal: [], truth: [], fetchRetries: 0, resident }, undefined)
+            residentBacklogIntact.check(
+                { journal: [], truth: [], fetchRetries: 0, resident, janitorResets: 0 },
+                undefined
+            )
         ).toMatchObject({ passed: true })
 
         const { applied, seeded } = await onPostgres(
