@@ -2,11 +2,13 @@ import { MakeLogicType, connect, kea, path, props } from 'kea'
 import { forms } from 'kea-forms'
 import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from 'kea-forms'
 
-import api from 'lib/api'
+import { ApiConfig } from 'lib/api'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 
 import { IntegrationType } from '~/types'
+
+import { integrationsCreate } from 'products/integrations/frontend/generated/api'
 
 export interface MotherDuckSetupModalLogicProps {
     isOpen: boolean
@@ -100,7 +102,7 @@ export const motherDuckSetupModalLogic = kea<motherDuckSetupModalLogicType>([
             submit: async () => {
                 const { name, access_token } = values.motherDuckIntegration
                 try {
-                    const integration = await api.integrations.create({
+                    const integration = await integrationsCreate(String(ApiConfig.getCurrentProjectId()), {
                         kind: 'motherduck',
                         config: { name: name.trim(), access_token: access_token.trim() },
                     })
