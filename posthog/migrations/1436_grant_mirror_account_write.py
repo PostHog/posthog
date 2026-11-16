@@ -59,6 +59,10 @@ def grant_mirror_account_write(apps, schema_editor):
 
 
 class Migration(migrations.Migration):
+    # Each batch commits on its own: live auth touches these rows (last_used_at), and one
+    # transaction would hold every updated row's lock until the whole team scan finishes.
+    atomic = False
+
     dependencies = [("posthog", "1435_ema_issuer_management")]
 
     operations = [
