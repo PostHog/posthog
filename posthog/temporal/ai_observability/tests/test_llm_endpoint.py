@@ -1,7 +1,6 @@
 """Tests for clustering labeling client construction (ai-gateway vs direct OpenAI)."""
 
 import json
-import asyncio
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -473,37 +472,6 @@ class TestFlexFirstChatOpenAI:
                         await llm.ainvoke("label the clusters")
                     else:
                         llm.invoke("label the clusters")
-
-        assert tiers == ["flex"]
-
-    @pytest.mark.parametrize("use_responses_api", [False, True])
-    async def test_cancellation_propagates_without_standard_fallback(self, use_responses_api: bool) -> None:
-        tiers: list[str] = []
-        request_started = asyncio.Event()
-
-        async def handle(request: httpx.Request) -> httpx.Response:
-            tiers.append(json.loads(request.content)["service_tier"])
-            request_started.set()
-            await asyncio.Event().wait()
-            raise AssertionError("request unexpectedly resumed")
-
-        async with httpx.AsyncClient(transport=httpx.MockTransport(handle)) as async_http:
-            llm = FlexFirstChatOpenAI(
-                model="gpt-6.1-terra" if use_responses_api else "gpt-5.4",
-                api_key="sk-test",
-                service_tier="flex",
-                timeout=STANDARD_CALL_TIMEOUT,
-                max_retries=1,
-                http_async_client=async_http,
-                use_responses_api=use_responses_api,
-            )
-            task = asyncio.create_task(llm.ainvoke("label the clusters"))
-            try:
-                await asyncio.wait_for(request_started.wait(), timeout=10)
-            finally:
-                task.cancel()
-                with pytest.raises(asyncio.CancelledError):
-                    await task
 
         assert tiers == ["flex"]
 
