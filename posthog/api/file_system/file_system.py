@@ -109,8 +109,6 @@ logger = logging.getLogger(__name__)
 
 DELETE_PREVIEW_ENTRY_LIMIT = 200
 
-UNFILED_WORKFLOW_FOLDERS = ("Unfiled/Workflows", "Unfiled/Email templates")
-
 # One message for every reason a restore is refused (missing, already live, or off-limits), so the
 # endpoint can't be used to learn which refs exist.
 # The file system rows whose objects carry tags, with the model field the row's `ref` names.
@@ -933,21 +931,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def _visible_files(self, queryset: QuerySet) -> QuerySet:
         if self._workflow_files_enabled:
             return queryset
-        # Each check matches a constant path prefix, so Postgres runs it at most once per statement. A prefix built
-        # from the outer row's path cannot use an index and scans the project once per row.
-        files = self._scope_by_project(FileSystem.objects.all())
-        only_workflow_files = Q()
-        for folder in ("Unfiled", *UNFILED_WORKFLOW_FOLDERS):
-            under = files.filter(path__startswith=f"{folder}/")
-            other_files = under.exclude(type__in=WORKFLOW_FILE_SYSTEM_TYPES).exclude(
-                type="folder", path__in=UNFILED_WORKFLOW_FOLDERS
-            )
-            only_workflow_files |= (
-                Q(type="folder", path=folder)
-                & Exists(under.filter(type__in=WORKFLOW_FILE_SYSTEM_TYPES))
-                & ~Exists(other_files)
-            )
-        return queryset.exclude(type__in=WORKFLOW_FILE_SYSTEM_TYPES).exclude(only_workflow_files)
+        return queryset.exclude(type__in=WORKFLOW_FILE_SYSTEM_TYPES)
 
     def _filter_queryset_by_parents_lookups(self, queryset):
         return self._scope_by_project(queryset)
