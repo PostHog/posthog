@@ -12889,15 +12889,15 @@ Note: The v2 public API is small; the llms.txt index lists every operation. Cove
 
 ## Upstash — gaps
 
-Today (5): `audit_logs`, `redis_databases`, `redis_stats`, `teams`, `vector_indexes`
+Today (9): `audit_logs`, `qstash_stats`, `redis_databases`, `redis_stats`, `search_indexes`, `team_members`, `teams`, `vector_index_stats`, `vector_indexes`
 
 Diffed against: <https://upstash.com/docs/llms.txt>
 
-- [ ] `GET /v2/teams/{team_id} (Get Team Members)` — membership rows resolving which users belong to each team we already sync (high)
-- [ ] `GET /v2/vector/index/stats (Get Vector Stats)` — per-index query/usage metrics — the vector equivalent of redis_stats, which we do sync (high)
-- [ ] `GET /v2/search (List Search Indexes)` — Upstash Search is a first-class product with no table at all today (medium)
+- [x] `GET /v2/teams/{team_id} (Get Team Members)` — membership rows resolving which users belong to each team we already sync (high)
+- [x] `GET /v2/vector/index/stats (Get Vector Stats)` — per-index query/usage metrics — the vector equivalent of redis_stats, which we do sync (high) — synced as `vector_index_stats` from the per-index `GET /v2/vector/index/{id}/stats`; the listed endpoint is one account-wide total with no id
+- [x] `GET /v2/search (List Search Indexes)` — Upstash Search is a first-class product with no table at all today (medium)
 - [ ] `GET /v2/qstash (List QStash Users)` — QStash is the third product line and is entirely unrepresented (medium)
-- [ ] `GET /v2/qstash/stats/{id} (Get QStash Stats)` — daily request/bandwidth/billing time series for QStash usage analysis (medium)
+- [x] `GET /v2/qstash/stats/{id} (Get QStash Stats)` — daily request/bandwidth/billing time series for QStash usage analysis (medium)
 - [ ] `GET /v2/redis/list-backup/{id} (List Backup)` — backup inventory per Redis database for retention/compliance reporting (low)
 
 Note: Diffed against the Developer API inventory in the docs llms.txt; individual endpoint paths confirmed by fetching the per-endpoint .md pages (each embeds the OpenAPI operation, e.g. `get /teams/{team\_id}`, `get /vector/index/stats`, `get /search`, `get /qstash/stats/{id}`). Source already fans out redis_stats per database, so the same fan-out shape would work for vector/search stats.
