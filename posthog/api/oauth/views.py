@@ -71,7 +71,6 @@ from posthog.api.oauth.device import (
     token_server_kwargs,
 )
 from posthog.api.oauth.ema_issuer import (
-    EMA_ISSUER_MANAGE_SCOPE,
     EMA_SETUP_TOKEN_EXPIRES_SECONDS,
     EmaSetupError,
     client_may_manage_ema_issuer,
@@ -114,6 +113,7 @@ from posthog.models.oauth import (
 from posthog.permissions import TimeSensitiveActionPermission
 from posthog.scopes import (
     ALWAYS_ALLOWED_SCOPES,
+    EMA_ISSUER_MANAGE_SCOPE,
     clamp_scopes_to_ceiling,
     downgrade_scopes_to_read_only,
     effective_ceiling,

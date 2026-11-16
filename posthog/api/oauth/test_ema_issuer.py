@@ -15,7 +15,6 @@ from django.utils import timezone
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.api.oauth.ema_issuer import EMA_ISSUER_MANAGE_SCOPE
 from posthog.api.oauth.metadata import (
     authorization_server_metadata,
     openid_provider_metadata,
@@ -27,6 +26,7 @@ from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthApplic
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.organization_ip_restrictions import OrganizationIPRestrictions
+from posthog.scopes import EMA_ISSUER_MANAGE_SCOPE
 
 CLIENT_ID = "ema-test-client"
 CLIENT_SECRET = "ema-test-secret"

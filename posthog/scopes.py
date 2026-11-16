@@ -436,7 +436,28 @@ def downgrade_scopes_to_read_only(scope_str: str) -> str:
     return " ".join(deduped)
 
 
-# OIDC scopes published in OAuth server metadata alongside the resource scopes.
+## OAuth scope surfaces
+#
+# Each class of scope reaches a different set of OAuth surfaces. A scope string belongs to
+# exactly one class:
+#
+# | Class                     | Defined by                         | OAuth grant                        | AS metadata | Other discovery |
+# | ------------------------- | ---------------------------------- | ---------------------------------- | ----------- | --------------- |
+# | Internal                  | `INTERNAL_API_SCOPE_OBJECTS`       | Never. Minted server-side only     | No          | No              |
+# | Hidden                    | `OAUTH_SCOPES_HIDDEN`              | Only on an admin-set app ceiling   | No          | No              |
+# | Privileged                | `PRIVILEGED_SCOPES`                | Only on an admin-set app ceiling   | No          | No              |
+# | Authorization server only | `AUTHORIZATION_SERVER_ONLY_SCOPES` | Only to staff-marked apps, alone   | Yes         | No              |
+# | Identity                  | `ALWAYS_ALLOWED_SCOPES`            | Always, whatever the app ceiling   | Yes         | Yes             |
+# | Resource                  | `UNPRIVILEGED_SCOPES`              | Within the app's ceiling           | Yes         | Yes             |
+#
+# "AS metadata" is the RFC 8414 document at `/.well-known/oauth-authorization-server`, which
+# lists `AUTHORIZATION_SERVER_SCOPES_SUPPORTED`. "Other discovery" is every other place a client
+# reads scopes from, which all list `OAUTH_SCOPES_SUPPORTED`: the protected resource metadata
+# (Django and the MCP server), the OpenID discovery document and the auth.md manifest.
+#
+# Personal API keys and the scope pickers are separate surfaces: `get_scope_descriptions()` and
+# `EXPOSED_SCOPE_OBJECTS` above decide what they offer.
+
 # These match what django-oauth-toolkit's OIDC layer accepts at the /authorize
 # endpoint. Duplicating the list as plain tuple (rather than importing from
 # oauth_toolkit) keeps `posthog.scopes` importable without Django setup, which
@@ -448,6 +469,54 @@ OIDC_SCOPES: tuple[str, ...] = ("openid", "profile", "email")
 # they are identity / token-management scopes, not resource permissions. Mirrors
 # `OAuthValidator._ALWAYS_ALLOWED_SCOPES` in `posthog/api/oauth/views.py`.
 ALWAYS_ALLOWED_SCOPES: frozenset[str] = frozenset(OIDC_SCOPES) | {"introspection"}
+
+# Registers an OAuth client's ID-JAG issuer as trusted for one organization. See
+# `posthog/api/oauth/ema_issuer.py` for the flow and the checks.
+EMA_ISSUER_MANAGE_SCOPE = "ema_issuer:manage"
+
+
+def _build_oauth_scopes_supported() -> tuple[str, ...]:
+    # `OIDC_SCOPES` keeps its declared order at the head of the list. The other identity scopes
+    # and the resource scopes follow in a fixed order, so the generated MCP artifact stays
+    # byte-stable.
+    other_identity = sorted(ALWAYS_ALLOWED_SCOPES - set(OIDC_SCOPES))
+    resource = [
+        f"{obj}:{action}"
+        for obj in API_SCOPE_OBJECTS
+        for action in API_SCOPE_ACTIONS
+        if f"{obj}:{action}" in UNPRIVILEGED_SCOPES
+    ]
+    return (*OIDC_SCOPES, *other_identity, *resource)
+
+
+# The identity and resource scopes, which any OAuth client may request. Every discovery document
+# lists these, and the scopes a self-serve client can be granted stay within them.
+#
+# The identity scopes are listed although every token carries them anyway. A client that requests
+# one and cannot find it here reads that as consent granted only in part, and warns the user.
+#
+# The internal, hidden and privileged classes stay out because a client could not obtain them
+# self-serve. Internal scopes matter most: listing one would let any OAuth client ask a person to
+# consent to it. `signal_scout_internal:write` is an example. Its token is minted by a direct
+# `OAuthAccessToken` insert (`posthog/temporal/oauth.py`), and the scratchpad it writes is read
+# verbatim into the prompt of every later run, so a consented grant would be a durable prompt
+# injection.
+OAUTH_SCOPES_SUPPORTED: tuple[str, ...] = _build_oauth_scopes_supported()
+
+# Scopes that only the authorization server metadata lists. A client that offers the matching
+# feature looks for the scope there before it shows the feature, and only applications that PostHog
+# staff marked can be granted it.
+#
+# The protected resource metadata and the `WWW-Authenticate` challenge never list these. MCP clients
+# request every scope those name, so every MCP sign-in would ask for a scope that almost no app can
+# get. Generic OAuth clients can still copy the authorization server's whole list into `/authorize`,
+# so the authorization server starts one of these flows only when the scope comes alone or with
+# identity scopes (see `requests_ema_issuer`). Mixed with resource scopes, it is dropped like any
+# other scope outside the app's ceiling.
+AUTHORIZATION_SERVER_ONLY_SCOPES: tuple[str, ...] = (EMA_ISSUER_MANAGE_SCOPE,)
+
+# `scopes_supported` in the RFC 8414 authorization server metadata.
+AUTHORIZATION_SERVER_SCOPES_SUPPORTED: tuple[str, ...] = (*OAUTH_SCOPES_SUPPORTED, *AUTHORIZATION_SERVER_ONLY_SCOPES)
 
 
 def filter_to_unprivileged_scopes(scopes: Iterable[object]) -> list[str]:
@@ -786,45 +855,3 @@ def narrow_scopes_to_ceiling(original: Iterable[str], app_scopes: Iterable[str])
     if not narrowed and original_set:
         return None
     return sorted(narrowed)
-
-
-def get_oauth_scopes_supported() -> list[str]:
-    """Full `scopes_supported` list published in OAuth metadata.
-
-    Used by the authorization server's `/.well-known/oauth-authorization-server`
-    endpoint and by the MCP server's `/.well-known/oauth-protected-resource`
-    (the latter generated at build time via `posthog/scopes_projection.py` so
-    the protected resource cannot drift out of subset of the AS). The
-    authorization server document also lists `ema_issuer:manage`, which this
-    list leaves out (see `posthog/api/oauth/ema_issuer.py`).
-
-    Resource scopes are built from `UNPRIVILEGED_SCOPES`, so the list excludes
-    all three non-advertised classes: `INTERNAL_API_SCOPE_OBJECTS`
-    (server-mint-only, e.g. `signal_scout_internal` — never user-grantable),
-    `OAUTH_SCOPES_HIDDEN` (alpha / PAT-only), and `PRIVILEGED_SCOPES`
-    (`llm_gateway:*`, admin-granted only). Discovery metadata shouldn't advertise
-    scopes an OAuth client can't obtain self-serve. PAT validation uses
-    `get_scope_descriptions()` directly and is unaffected.
-
-    Every `ALWAYS_ALLOWED_SCOPES` member is advertised too, because those ride on
-    every token we issue whether the client asks for them or not. A client that
-    requests one and cannot find it here reads that as consent granted only in
-    part, and warns the user at the moment of install.
-
-    The Signals scout harness sandbox token carries `signal_scout_internal:write`,
-    but it is minted by directly inserting an `OAuthAccessToken` row (see
-    `posthog/temporal/oauth.py:create_oauth_access_token_for_user`) and never passes
-    through `/authorize`, so the scope needs neither advertising here nor a place in
-    `OAUTH2_PROVIDER["SCOPES"]`. Advertising it would let any OAuth client request it
-    via user consent — a durable prompt-injection vector (scratchpad rows are read
-    verbatim into every subsequent run's prompt).
-    """
-    visible = UNPRIVILEGED_SCOPES
-    ordered = [
-        f"{obj}:{action}" for obj in API_SCOPE_OBJECTS for action in API_SCOPE_ACTIONS if f"{obj}:{action}" in visible
-    ]
-    # `OIDC_SCOPES` keeps its declared order at the head of the list, so only the
-    # remaining always-allowed scopes are appended (sorted to keep the generated
-    # MCP artifact byte-stable).
-    other_always_allowed = sorted(ALWAYS_ALLOWED_SCOPES - set(OIDC_SCOPES))
-    return list(OIDC_SCOPES) + other_always_allowed + ordered

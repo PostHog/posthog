@@ -37,13 +37,10 @@ turn it off by deleting it. Only applications that PostHog staff marked with
 ID-JAG exchange reject every issuer the application registered, without deleting the
 configurations.
 
-The authorization server metadata lists the scope in `scopes_supported`, because MCP clients that
-offer automated EMA setup look for it there before they show the option. It stays out of the
-protected resource metadata, the OpenID discovery document and the scope pickers: MCP clients
-request every scope the protected resource metadata lists, and generic OAuth clients often copy
-the whole `scopes_supported` list into `/authorize`. A request is an EMA setup only when the
-scope comes alone or with identity scopes (`requests_ema_issuer`). A request that mixes it with
-resource scopes is an ordinary authorization: the scope is dropped and the sign-in goes ahead.
+The scope is in `AUTHORIZATION_SERVER_ONLY_SCOPES`, so the authorization server metadata lists it
+and no other discovery document does. `posthog/scopes.py` explains that class. Because a client can
+copy the whole list into `/authorize`, `requests_ema_issuer` counts a request as an EMA setup only
+when the scope comes alone or with identity scopes.
 """
 
 import html
@@ -72,12 +69,10 @@ from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthApplic
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.user import User
-from posthog.scopes import ALWAYS_ALLOWED_SCOPES
+from posthog.scopes import ALWAYS_ALLOWED_SCOPES, EMA_ISSUER_MANAGE_SCOPE
 from posthog.utils import absolute_uri
 
 logger = structlog.get_logger(__name__)
-
-EMA_ISSUER_MANAGE_SCOPE = "ema_issuer:manage"
 
 # The token only has to last from the token response to the setup call that follows it.
 EMA_SETUP_TOKEN_EXPIRES_SECONDS = 300

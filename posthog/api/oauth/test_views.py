@@ -30,7 +30,6 @@ from rest_framework import status
 from posthog.api.oauth import OAuthAuthorizationSerializer
 from posthog.api.oauth.cimd import CIMD_SUPPORTED_AUTH_METHODS, refresh_cimd_metadata_task
 from posthog.api.oauth.client_assertion import CLIENT_ASSERTION_TYPE_JWT_BEARER
-from posthog.api.oauth.ema_issuer import EMA_ISSUER_MANAGE_SCOPE
 from posthog.api.oauth.metadata import authorization_server_metadata, openid_provider_metadata
 from posthog.api.oauth.views import OAuthTokenView, OAuthValidator, _token_error_code
 from posthog.constants import AvailableFeature
@@ -53,7 +52,13 @@ from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.organization_ip_restrictions import OrganizationIPRestrictions
 from posthog.models.team.team import Team
 from posthog.models.user import User
-from posthog.scopes import ALL_SCOPES, ALWAYS_ALLOWED_SCOPES, MIN_SCOPES_BEFORE_TRUNCATION, get_oauth_scopes_supported
+from posthog.scopes import (
+    ALL_SCOPES,
+    ALWAYS_ALLOWED_SCOPES,
+    EMA_ISSUER_MANAGE_SCOPE,
+    MIN_SCOPES_BEFORE_TRUNCATION,
+    OAUTH_SCOPES_SUPPORTED,
+)
 from posthog.settings.utils import generate_rsa_private_key_pem
 from posthog.utils import absolute_uri
 
@@ -6178,7 +6183,7 @@ class TestOAuthClientManifest(APIBaseTest):
         response = self.client.get("/auth.md")
         body = response.content.decode()
 
-        for scope in get_oauth_scopes_supported():
+        for scope in OAUTH_SCOPES_SUPPORTED:
             with self.subTest(scope=scope):
                 self.assertIn(f"`{scope}`", body)
                 # A scope with no description falls back to its own name, so an
