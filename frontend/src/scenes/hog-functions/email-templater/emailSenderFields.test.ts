@@ -126,6 +126,6 @@ describe('emailSenderFields', () => {
         const stopped = { ...otherDomain, config: { ...otherDomain.config, ses_sending_status: 'failed' } }
 
         expect(sendingStoppedWarning([withDomain, otherDomain])).toBeNull()
-        expect(sendingStoppedWarning([withDomain, stopped])).toContain('Emails from example.org are failing')
+        expect(sendingStoppedWarning([withDomain, stopped])).toContain('Sending stopped for example.org')
     })
 })

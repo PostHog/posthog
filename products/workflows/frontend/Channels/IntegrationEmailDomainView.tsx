@@ -45,7 +45,7 @@ function VerificationTag({ verified }: { verified: boolean }): JSX.Element {
 
 function SendingStoppedTag(): JSX.Element {
     return (
-        <Tooltip title="Emails from this domain are failing because its DNS records are missing. Add the records back with your DNS provider, then open Configure and verify the domain again.">
+        <Tooltip title="The DNS records of this domain can no longer be verified, so every email from it fails. Fix the records with your DNS provider, then open Configure and verify the domain again.">
             <LemonTag type="danger" data-attr="email-domain-sending-stopped-tag">
                 Sending stopped
             </LemonTag>

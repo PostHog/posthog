@@ -27,7 +27,7 @@ export function sendingStoppedWarning(senders: EmailSender[]): string | null {
     if (domains.length === 0) {
         return null
     }
-    return `Emails from ${domains.join(', ')} are failing because the domain's DNS records are missing. Add the records back with your DNS provider, then verify the domain in Channels.`
+    return `Sending stopped for ${domains.join(', ')}: the DNS records can no longer be verified, so every email fails. Fix the records with your DNS provider, then verify the domain again in Channels.`
 }
 
 export function isSendingStopped(sender: EmailSender): boolean {
