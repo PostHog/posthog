@@ -14,8 +14,9 @@ from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 # Ciphertext for the payloads the stored change holds as the sentinel. The apply path writes it to the flag.
 ENCRYPTED_PAYLOADS_KEY = "encrypted_payloads"
-# Whether the stored change's payloads are secret, recorded beside the change so an apply never writes it.
-PAYLOADS_ENCRYPTED_KEY = "payloads_encrypted"
+# Whether the stored change's payloads are secret. It sits outside `full_request_data`, so the apply path never
+# sends it to `FeatureFlagSerializer`.
+PAYLOADS_ARE_SECRET_KEY = "payloads_are_secret"
 
 
 def withhold_encrypted_payloads(intent: dict[str, Any], flag: Optional[FeatureFlag]) -> dict[str, Any]:
@@ -29,7 +30,7 @@ def withhold_encrypted_payloads(intent: dict[str, Any], flag: Optional[FeatureFl
         return intent
 
     encrypted = bool(change.get("has_encrypted_payloads", flag.has_encrypted_payloads if flag is not None else False))
-    intent = {**intent, PAYLOADS_ENCRYPTED_KEY: encrypted}
+    intent = {**intent, PAYLOADS_ARE_SECRET_KEY: encrypted}
     if not encrypted:
         return intent
 
@@ -70,8 +71,8 @@ def _payloads_are_secret(change_request: ChangeRequest, data: dict[str, Any]) ->
         return False
 
     intent = change_request.intent or {}
-    if PAYLOADS_ENCRYPTED_KEY in intent:
-        return intent[PAYLOADS_ENCRYPTED_KEY] is not False
+    if PAYLOADS_ARE_SECRET_KEY in intent:
+        return intent[PAYLOADS_ARE_SECRET_KEY] is not False
 
     # A change request stored before the gate recorded its answer. The flag's current setting cannot answer for it,
     # because turning encryption off later would reveal a payload that was secret when it was stored. So it is

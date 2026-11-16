@@ -13,7 +13,7 @@ from posthog.constants import AvailableFeature
 
 from products.approvals.backend.models import ApprovalPolicy, ChangeRequest, ChangeRequestState
 from products.approvals.backend.services import apply_change_request
-from products.feature_flags.backend.encrypted_flag_payloads import flag_payload_codec
+from products.feature_flags.backend.encrypted_flag_payloads import REDACTED_PAYLOAD_VALUE, flag_payload_codec
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 SECRET = '"rotated-secret"'
@@ -76,19 +76,45 @@ class _ApprovalsTestBase(APIBaseTest):
 class TestGatedWritesWithholdEncryptedPayloads(_ApprovalsTestBase):
     @parameterized.expand(
         [
-            ("update_on_an_encrypted_flag", "feature_flag.update", True, True, {}),
-            ("enable_on_an_encrypted_flag", "feature_flag.enable", True, False, {"active": True}),
-            ("update_on_a_plain_flag", "feature_flag.update", False, True, {}),
+            ("update_on_an_encrypted_flag", "feature_flag.update", True, {}, SECRET, True, SECRET),
+            ("enable_on_an_encrypted_flag", "feature_flag.enable", True, {"active": True}, SECRET, True, SECRET),
+            ("update_on_a_plain_flag", "feature_flag.update", False, {}, SECRET, False, SECRET),
+            (
+                "update_that_turns_encryption_on",
+                "feature_flag.update",
+                False,
+                {"has_encrypted_payloads": True},
+                SECRET,
+                True,
+                SECRET,
+            ),
+            (
+                "update_that_echoes_the_placeholder",
+                "feature_flag.update",
+                True,
+                {},
+                REDACTED_PAYLOAD_VALUE,
+                True,
+                '"previous"',
+            ),
         ]
     )
     def test_a_gated_write_stores_and_serves_a_secret_payload_only_as_ciphertext(
-        self, _mock_enabled, _name: str, action_key: str, encrypted: bool, active: bool, extra: dict[str, Any]
+        self,
+        _mock_enabled,
+        _name: str,
+        action_key: str,
+        flag_encrypted: bool,
+        extra: dict[str, Any],
+        sent: str,
+        secret: bool,
+        applied: str,
     ) -> None:
         self._policy(action_key)
-        flag = self._flag(encrypted=encrypted, active=active)
+        flag = self._flag(encrypted=flag_encrypted, active="active" not in extra)
         body = {
             **extra,
-            "filters": {"groups": [{"properties": [], "rollout_percentage": 100}], "payloads": {"true": SECRET}},
+            "filters": {"groups": [{"properties": [], "rollout_percentage": 100}], "payloads": {"true": sent}},
         }
 
         response = self.client.patch(f"/api/projects/{self.team.id}/feature_flags/{flag.id}/", body, format="json")
@@ -97,15 +123,15 @@ class TestGatedWritesWithholdEncryptedPayloads(_ApprovalsTestBase):
         change_request = ChangeRequest.objects.get(id=response.json()["change_request_id"])
         stored = json.dumps([change_request.intent, change_request.intent_display])
         served = self._served(change_request)
-        assert ("rotated-secret" in stored) is not encrypted
-        assert all(("rotated-secret" in text) is not encrypted for text in served)
-        assert not any("encrypted_payloads" in text for text in served)
+        assert ("rotated-secret" in stored) is not secret
+        assert all(("rotated-secret" in text) is not secret for text in served)
+        assert not any('"encrypted_payloads"' in text for text in served)
 
         apply_change_request(change_request)
 
         flag.refresh_from_db()
         payload = flag.filters["payloads"]["true"]
-        assert (_decrypt(payload) if encrypted else payload) == SECRET
+        assert (_decrypt(payload) if secret else payload) == applied
 
     def test_a_gated_create_of_an_encrypted_flag_withholds_its_payload(self, _mock_enabled) -> None:
         self._policy("feature_flag.enable")

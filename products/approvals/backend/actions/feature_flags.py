@@ -15,7 +15,7 @@ from posthog.models.activity_logging.activity_log import Trigger
 
 from products.approvals.backend.actions.base import BaseAction
 from products.approvals.backend.exceptions import ApplyFailed, PreconditionFailed
-from products.approvals.backend.flag_payloads import withhold_encrypted_payloads
+from products.approvals.backend.flag_payloads import ENCRYPTED_PAYLOADS_KEY, withhold_encrypted_payloads
 from products.approvals.backend.ownership import OWNER_KIND_UNOWNED, owner_in_scope, owner_kind_changed
 from products.feature_flags.backend.api.feature_flag import FeatureFlagSerializer, flag_version_conflict_message
 from products.feature_flags.backend.api.filters_schema import FEATURE_FLAG_OPERATOR_ALIASES
@@ -222,7 +222,7 @@ def _apply_create(validated_intent: dict[str, Any], context: Optional[dict[str, 
         "approval_apply": True,
         # A change request can hold its flag payload as ciphertext, separate from the
         # change being replayed. The serializer swaps it in after validation.
-        "approval_encrypted_payloads": validated_intent.get("encrypted_payloads") or {},
+        "approval_encrypted_payloads": validated_intent.get(ENCRYPTED_PAYLOADS_KEY) or {},
     }
     if "request" in context:
         serializer_context["request"] = context["request"]
@@ -521,21 +521,17 @@ class FeatureFlagActionBase(BaseAction):
 
         if flag is None:
             # Create: no row yet — baseline is a disabled flag and the payload is the create body.
-            return withhold_encrypted_payloads(
-                {
-                    "flag_id": None,
-                    "flag_key": change.get("key"),
-                    "current_state": {"active": False},
-                    "gated_changes": gated_changes,
-                    "full_request_data": dict(change),
-                    "preconditions": {"version": None, "updated_at": None},
-                    "skip_opportunistic_filter_cleanup": skip_cleanup,
-                },
-                None,
-            )
-
-        return withhold_encrypted_payloads(
-            {
+            intent = {
+                "flag_id": None,
+                "flag_key": change.get("key"),
+                "current_state": {"active": False},
+                "gated_changes": gated_changes,
+                "full_request_data": dict(change),
+                "preconditions": {"version": None, "updated_at": None},
+                "skip_opportunistic_filter_cleanup": skip_cleanup,
+            }
+        else:
+            intent = {
                 "flag_id": flag.id,
                 "flag_key": flag.key,
                 "current_state": {"active": flag.active},
@@ -546,9 +542,9 @@ class FeatureFlagActionBase(BaseAction):
                     "updated_at": flag.updated_at.isoformat() if flag.updated_at else None,
                 },
                 "skip_opportunistic_filter_cleanup": skip_cleanup,
-            },
-            flag,
-        )
+            }
+
+        return withhold_encrypted_payloads(intent, flag)
 
     @classmethod
     def apply(cls, validated_intent: dict[str, Any], user, context: Optional[dict[str, Any]] = None) -> FeatureFlag:
@@ -577,7 +573,7 @@ class FeatureFlagActionBase(BaseAction):
                 "approval_apply": True,
                 # A change request can hold its flag payload as ciphertext, separate from the
                 # change being replayed. The serializer swaps it in after validation.
-                "approval_encrypted_payloads": validated_intent.get("encrypted_payloads") or {},
+                "approval_encrypted_payloads": validated_intent.get(ENCRYPTED_PAYLOADS_KEY) or {},
             }
 
             if context and "request" in context:
@@ -926,7 +922,7 @@ class UpdateFeatureFlagAction(BaseAction):
                 "approval_apply": True,
                 # A change request can hold its flag payload as ciphertext, separate from the
                 # change being replayed. The serializer swaps it in after validation.
-                "approval_encrypted_payloads": validated_intent.get("encrypted_payloads") or {},
+                "approval_encrypted_payloads": validated_intent.get(ENCRYPTED_PAYLOADS_KEY) or {},
             }
 
             if context and "request" in context:
