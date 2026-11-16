@@ -4633,7 +4633,7 @@ export class AgentServer {
    * Products such as the Slack app and the Self-driving inbox auto-publish by
    * default, and manual runs auto-publish when the user opted in (Settings → Advanced, sent as
    * autoPublish). Every other run is review-first unless the user explicitly
-   * asks, and createPr=false always disables publishing.
+   * asks, and createPr=false never auto-publishes: the agent opens no pull request itself.
    */
   private shouldAutoPublishCloudChanges(): boolean {
     return (

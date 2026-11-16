@@ -189,7 +189,8 @@ def check_merge(inputs: MergeCheckInputs, *, is_final_attempt: bool) -> Finished
         report = (
             None
             if change is None
-            else judged_report(change, deadline_github, deadline, is_final_attempt=is_final_attempt)
+            else deferred_report(inputs)
+            or judged_report(change, deadline_github, deadline, is_final_attempt=is_final_attempt)
         )
     except MERGE_CHECK_RETRYABLE_ERRORS as error:
         if not is_final_attempt:
@@ -201,7 +202,13 @@ def check_merge(inputs: MergeCheckInputs, *, is_final_attempt: bool) -> Finished
         return record_merge_check_failed(inputs, MergeCheckFailure.PULL_REQUEST_NOT_MERGED)
     if report is None:
         return record_merge_check_failed(inputs, MergeCheckFailure.JUDGE_CLIENT_UNAVAILABLE)
-    return submit_verdict(inputs, RepoMergeAdapter().assess(report, inputs))
+    try:
+        return submit_verdict(inputs, RepoMergeAdapter().assess(report, inputs))
+    except intake.WriterLaunchDeferred:
+        if not is_final_attempt:
+            defer_report(inputs, report)
+            refund(merge_check_budget_key(inputs.team_id), MERGE_CHECK_BUDGET)
+        raise
 
 
 def landed_change_for(inputs: MergeCheckInputs, pull_request_number: int, github: GitHubReader) -> LandedChange | None:
@@ -221,30 +228,46 @@ def reused_report_key(change: LandedChange) -> str:
 def judged_report(
     change: LandedChange, github: GitHubReader, deadline: CheckDeadline, *, is_final_attempt: bool
 ) -> MergeCheckReport | None:
-    reused_report = cached_report(change)
+    reused_report = cached_report(reused_report_key(change))
     if reused_report is not None:
         return reused_report
     report = fresh_judged_report(change, github, deadline, is_final_attempt=is_final_attempt)
     if report is not None and is_reusable(report):
-        cache_report(change, report)
+        cache_report(reused_report_key(change), report)
     return report
+
+
+def deferred_report_key(check_id: str) -> str:
+    return f"knowledge_writer:merge_check_deferred_report:{check_id}"
+
+
+def deferred_report(inputs: MergeCheckInputs) -> MergeCheckReport | None:
+    if inputs.check_id is None:
+        return None
+    return cached_report(deferred_report_key(inputs.check_id))
+
+
+def defer_report(inputs: MergeCheckInputs, report: MergeCheckReport) -> None:
+    if inputs.check_id is None:
+        return
+    cache_report(deferred_report_key(inputs.check_id), report)
 
 
 def is_reusable(report: MergeCheckReport) -> bool:
     return not report.low_confidence and report.reason not in UNDECIDED_REASONS
 
 
-def cached_report(change: LandedChange) -> MergeCheckReport | None:
+def cached_report(key: str) -> MergeCheckReport | None:
     try:
-        return cache.get(reused_report_key(change))
+        return cache.get(key)
     except (ConnectionInterrupted, RedisError):
         logger.warning("knowledge_writer_reused_report_unavailable", exc_info=True)
         return None
 
 
-def cache_report(change: LandedChange, report: MergeCheckReport) -> None:
+def cache_report(key: str, report: MergeCheckReport) -> None:
     try:
-        cache.set(reused_report_key(change), report, timeout=REUSED_REPORT_TTL.total_seconds())
+        cache.set(key, report, timeout=REUSED_REPORT_TTL.total_seconds())
     except (ConnectionInterrupted, RedisError):
         logger.warning("knowledge_writer_reused_report_unavailable", exc_info=True)
 

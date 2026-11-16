@@ -41,7 +41,7 @@ from products.knowledge_writer.backend.logic.records import (
 from products.knowledge_writer.backend.logic.routing import docs_section
 from products.knowledge_writer.backend.settings import writer_settings
 from products.knowledge_writer.backend.task_profiles import WRITER
-from products.knowledge_writer.backend.temporal.merge_workflow import MergeCheckInputs
+from products.knowledge_writer.backend.temporal.merge_workflow import MergeCheckInputs, check_merge
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.models import Task, TaskRun
 
@@ -60,6 +60,7 @@ START_WORKFLOW = "products.tasks.backend.logic.services.workflow_dispatch.enqueu
 WRITER_APP_LOGIN = "posthog-app[bot]"
 CAPTURE_VERDICT = "products.knowledge_writer.backend.logic.intake.capture_verdict"
 KNOWLEDGE_WRITER_ENABLED = "products.knowledge_writer.backend.settings.is_writer_enabled"
+MERGE_WORKFLOW_MODULE = "products.knowledge_writer.backend.temporal.merge_workflow"
 START_PUBLISH = "products.knowledge_writer.backend.temporal.client.start_publish"
 CAPTURE_DRAFT = "products.knowledge_writer.backend.logic.pull_requests.ph_scoped_capture"
 
@@ -134,14 +135,10 @@ def _changed_on_branch(*changed_files: str | dict[str, str], status_code: int = 
     )
 
 
-def _verdict(
-    pull_request_number: int = 123,
-    suggested_page_urls: tuple[str, ...] = (),
-    *,
-    commit_sha: str = "a" * 40,
-    note: str = "Document the new retention option.",
-):
-    report = MergeCheckReport(
+def _needs_docs_report(
+    pull_request_number: int = 123, suggested_page_urls: tuple[str, ...] = (), *, commit_sha: str = "a" * 40
+) -> MergeCheckReport:
+    return MergeCheckReport(
         commit_sha=commit_sha,
         commit_url=f"https://github.com/PostHog/posthog/commit/{commit_sha}",
         title="Add a retention option to session replay",
@@ -155,6 +152,16 @@ def _verdict(
         page_urls=suggested_page_urls,
         evidence=f"https://github.com/PostHog/posthog/pull/{pull_request_number}",
     )
+
+
+def _verdict(
+    pull_request_number: int = 123,
+    suggested_page_urls: tuple[str, ...] = (),
+    *,
+    commit_sha: str = "a" * 40,
+    note: str = "Document the new retention option.",
+):
+    report = _needs_docs_report(pull_request_number, suggested_page_urls, commit_sha=commit_sha)
     inputs = MergeCheckInputs(
         commit_sha=None,
         team_id=0,
@@ -653,6 +660,47 @@ def test_no_agent_starts_past_a_cap_and_the_cap_raises_an_alert(team, writer_env
     assert outcome.status == "capped"
     start_workflow.assert_not_called()
     assert capture_alert.call_args.kwargs["additional_properties"]["cap"] == cap
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("failing_lookup", ["open_pull_request_listing", "open_pull_requests_flag"])
+def test_a_launch_lookup_failure_retries_the_merge_check_on_the_same_report_and_joins_the_open_pull_request(
+    team, writer_env, failing_lookup
+) -> None:
+    section = docs_section(SECTION_PAGE)
+    assert section is not None
+    healthy_github = _open_on_github((9, f"{LINK_BACK_START}\n{section_marker(section)}"))
+
+    def failing_github(method: str, path: str, **kwargs: object) -> MagicMock:
+        if failing_lookup == "open_pull_request_listing" and path.endswith("/pulls"):
+            return MagicMock(status_code=502)
+        return healthy_github(method, path, **kwargs)
+
+    def unreadable_flag(flag: str, *args: object, **kwargs: object) -> bool:
+        if failing_lookup == "open_pull_requests_flag" and flag == OPEN_PULL_REQUESTS_FLAG:
+            raise RuntimeError("flag service unavailable")
+        return True
+
+    uncached_report = dataclasses.replace(
+        _needs_docs_report(suggested_page_urls=(SECTION_PAGE,)), low_confidence=True, reason="page_check_unavailable"
+    )
+    inputs = MergeCheckInputs(
+        commit_sha="a" * 40, team_id=team.id, pull_request_number=123, check_id=f"merge-check-{failing_lookup}"
+    )
+    with (
+        patch(f"{MERGE_WORKFLOW_MODULE}.docs_github", return_value=MagicMock()),
+        patch(f"{MERGE_WORKFLOW_MODULE}.judge_client", return_value=MagicMock()),
+        patch(f"{MERGE_WORKFLOW_MODULE}.run_merge_check", return_value=uncached_report) as run_merge_check,
+        patch(START_WORKFLOW) as start_workflow,
+    ):
+        with patch(LIST_PULL_REQUESTS, side_effect=failing_github), patch(FLAG_CHECK, side_effect=unreadable_flag):
+            with pytest.raises(intake.WriterLaunchDeferred):
+                check_merge(inputs, is_final_attempt=False)
+        with patch(LIST_PULL_REQUESTS, side_effect=healthy_github), patch(FLAG_CHECK, return_value=True):
+            retried = check_merge(inputs, is_final_attempt=True)
+
+    assert (retried.status, run_merge_check.call_count) == ("joined", 1)
+    start_workflow.assert_called_once()
 
 
 @pytest.mark.django_db

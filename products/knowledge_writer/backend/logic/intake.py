@@ -59,6 +59,10 @@ def submit(payload: object, *, team_id: int) -> IntakeOutcome:
     return outcome
 
 
+class WriterLaunchDeferred(Exception):
+    pass
+
+
 def intake_outcome(verdict: AdapterVerdict, *, team_id: int) -> IntakeOutcome:
     writer = writer_settings()
     if writer is None or writer.team_id != team_id:
@@ -90,12 +94,11 @@ def launch_request(request: DocsRequest, *, writer: WriterSettings) -> IntakeOut
         return IntakeOutcome(status="section_busy")
     open_pull_requests = open_writer_pull_requests(writer)
     if open_pull_requests is None:
-        alert_cap_reached("open_pull_request_lookup", team_id=team_id, dedupe_id=request.dedupe_id)
-        return IntakeOutcome(status="capped")
+        raise WriterLaunchDeferred("open writer pull requests could not be listed")
     joinable = pull_request_to_join(open_pull_requests, routing.section)
     is_opening_pull_requests = open_pull_requests_flag_state(team)
     if joinable is not None and is_opening_pull_requests is None:
-        return IntakeOutcome(status="section_busy")
+        raise WriterLaunchDeferred("the open pull requests flag could not be read")
     joining = joinable if is_opening_pull_requests else None
     if joining is None and len(open_pull_requests) + in_flight.unpublished_runs >= OPEN_PULL_REQUEST_CAP:
         alert_cap_reached("open_pull_request", team_id=team_id, dedupe_id=request.dedupe_id)
