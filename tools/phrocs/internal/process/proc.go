@@ -15,6 +15,7 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/charmbracelet/x/vt"
 	"github.com/creack/pty"
 	gops "github.com/shirou/gopsutil/v4/process"
@@ -26,8 +27,6 @@ const metricsSampleInterval = 1 * time.Second
 const flushInterval = 16 * time.Millisecond
 const stopGracePeriod = 3 * time.Second
 const defaultShell = "/bin/bash"
-
-var eraseScrollbackSeq = []byte("\x1b[3J")
 
 // Autorestart backoff: when a proc with autorestart crashes, it's restarted
 // after an exponential delay that grows with each consecutive rapid crash, so a
@@ -171,16 +170,14 @@ func NewProcess(name string, cfg config.ProcConfig, scrollback int, globalShell 
 	if shell == "" {
 		shell = defaultShell
 	}
-	em := vt.NewSafeEmulator(80, 24)
-	em.SetScrollbackSize(scrollback)
 	p := &Process{
 		Name:     name,
 		Cfg:      cfg,
 		shellBin: shell,
 		maxLines: scrollback,
-		emulator: em,
 		status:   StatusStopped,
 	}
+	p.emulator = p.newEmulator(80, 24)
 	if cfg.ReadyPattern != "" {
 		if re, err := regexp.Compile(cfg.ReadyPattern); err == nil {
 			p.readyPattern = re
@@ -314,11 +311,24 @@ func trimRowPadding(line string) string {
 	return strings.TrimRight(line, " ")
 }
 
+func (p *Process) newEmulator(w, h int) *vt.SafeEmulator {
+	em := vt.NewSafeEmulator(w, h)
+	em.SetScrollbackSize(p.maxLines)
+	// ED 3 in the emulator cannot reach lines already in p.history. Returning
+	// false lets the default handler run too. Writes to the emulator hold p.mu.
+	em.RegisterCsiHandler('J', func(params ansi.Params) bool {
+		if n, _, _ := params.Param(0, 0); n == 3 && !em.Emulator.IsAltScreen() {
+			p.history = nil
+		}
+		return false
+	})
+	return em
+}
+
 // resetEmulatorLocked replaces the emulator with a fresh instance at the given
 // dimensions. Must be called with p.mu held.
 func (p *Process) resetEmulatorLocked(w, h int) {
-	p.emulator = vt.NewSafeEmulator(w, h)
-	p.emulator.SetScrollbackSize(p.maxLines)
+	p.emulator = p.newEmulator(w, h)
 	p.history = nil
 }
 
@@ -920,10 +930,6 @@ func (p *Process) readLoop(r io.Reader, outChannel chan tea.Msg) {
 			p.mu.Lock()
 			if p.emulator != nil {
 				_, _ = p.emulator.Write(data)
-			}
-			// ED 3 in the emulator cannot reach lines already in p.history.
-			if bytes.Contains(data, eraseScrollbackSeq) {
-				p.history = nil
 			}
 			logFile := p.logFile
 			// Detect interactive prompts: if the chunk doesn't end with \n,

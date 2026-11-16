@@ -824,7 +824,9 @@ func TestReadLoop_eraseScrollbackClearsHistory(t *testing.T) {
 	runReadLoop(t, p, "old 1\r\nold 2\r\nold 3\r\nold 4\r\n")
 	_ = p.Lines()
 
-	runReadLoop(t, p, "\x1b[H\x1b[2J\x1b[3Jnew\r\n")
+	// Split ESC[3J across two reads, as a PTY read boundary can.
+	runReadLoop(t, p, "\x1b[H\x1b[2J\x1b[")
+	runReadLoop(t, p, "3Jnew\r\n")
 
 	if got := p.Lines(); !slices.Equal(got, []string{"new"}) {
 		t.Errorf("Lines() after ESC[3J: got %q, want [\"new\"]", got)
