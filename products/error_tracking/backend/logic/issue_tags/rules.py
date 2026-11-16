@@ -13,7 +13,8 @@ from products.error_tracking.backend.logic.rules import (
     ErrorTrackingInvalidBytecodeError,
     _parse_rule_id,
     _reorder_rules,
-    _rule_bytecode,
+    compile_filter_bytecode,
+    has_filter_values,
 )
 from products.error_tracking.backend.models import ErrorTrackingIssueTag, ErrorTrackingIssueTagRule
 
@@ -113,8 +114,10 @@ def reorder_issue_tag_rules(team_id: int, orders: dict[str, int]) -> None:
 
 def _compile(team_id: int, filters: dict) -> list[Any]:
     _require_event_property_filters(filters)
+    if not has_filter_values(filters):
+        raise IssueTagRuleFiltersError("A tag rule needs at least one event property filter.")
     try:
-        bytecode = _rule_bytecode(team_id, filters)
+        bytecode = compile_filter_bytecode(team_id, filters)
     except (ErrorTrackingInvalidBytecodeError, BaseHogQLError, ValueError) as err:
         raise IssueTagRuleFiltersError(str(err)) from err
     # The tagger disables a rule above this limit, so reject it here instead.

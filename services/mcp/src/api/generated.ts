@@ -45148,7 +45148,7 @@ export namespace Schemas {
       label: string;
       /** What the label means. Shown with the label. */
       description: string;
-      /** Property-group filters on event properties, evaluated against the first event of each new issue. Person, cohort, HogQL and other filter types are rejected. */
+      /** Property-group filters on event properties, evaluated against the first event of each new issue. At least one filter is required. Person, cohort, HogQL and other filter types are rejected. */
       filters: ErrorTrackingIssueTagRuleFilters;
       /** Starts at 1, and goes up by one each time the filters change. */
       readonly version: number;
@@ -45173,7 +45173,7 @@ export namespace Schemas {
       label: string;
       /** What the label means. Shown with the label. Defaults to empty. */
       description?: string;
-      /** Property-group filters on event properties, evaluated against the first event of each new issue. Person, cohort, HogQL and other filter types are rejected. */
+      /** Property-group filters on event properties, evaluated against the first event of each new issue. At least one filter is required. Person, cohort, HogQL and other filter types are rejected. */
       filters: ErrorTrackingIssueTagRuleFilters;
       /** Position in the list of tag rules. Lower values come first. Defaults to 0. */
       order_key?: number;
@@ -45192,7 +45192,7 @@ export namespace Schemas {
       label?: string;
       /** Replacement description. Omit to keep the existing description. */
       description?: string;
-      /** Replacement event property filters. Omit to keep the existing filters. New filters apply only to issues created after the update, and existing labels stay. */
+      /** Replacement event property filters, with at least one filter. Omit to keep the existing filters. New filters apply only to issues created after the update, and existing labels stay. */
       filters?: ErrorTrackingIssueTagRuleFilters;
     }
 
@@ -90964,7 +90964,7 @@ export namespace Schemas {
       label?: string;
       /** Replacement description. Omit to keep the existing description. */
       description?: string;
-      /** Replacement event property filters. Omit to keep the existing filters. New filters apply only to issues created after the update, and existing labels stay. */
+      /** Replacement event property filters, with at least one filter. Omit to keep the existing filters. New filters apply only to issues created after the update, and existing labels stay. */
       filters?: ErrorTrackingIssueTagRuleFilters;
     }
 

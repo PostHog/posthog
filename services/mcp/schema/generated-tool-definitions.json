@@ -6357,7 +6357,7 @@
         }
     },
     "error-tracking-tag-rules-create": {
-        "description": "Create a tag rule for the current project. Provide a `label` and the event property `filters`. When the first event of a new issue matches the filters, the issue gets the label. Every matching rule applies its own label. Filters can use event properties only. Rules do not change existing issues. The call fails with \"Issue tags are off for this project.\" when the project does not have issue tags.",
+        "description": "Create a tag rule for the current project. Provide a `label` and at least one event property filter in `filters`. When the first event of a new issue matches the filters, the issue gets the label. Every matching rule applies its own label. Filters can use event properties only. Rules do not change existing issues. The call fails with \"Issue tags are off for this project.\" when the project does not have issue tags.",
         "category": "Error tracking",
         "feature": "error_tracking",
         "summary": "Create error tracking tag rule",

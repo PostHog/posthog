@@ -7,7 +7,7 @@
             "type": "string"
         },
         "filters": {
-            "description": "Property-group filters on event properties, evaluated against the first event of each new issue. Person, cohort, HogQL and other filter types are rejected.",
+            "description": "Property-group filters on event properties, evaluated against the first event of each new issue. At least one filter is required. Person, cohort, HogQL and other filter types are rejected.",
             "properties": {
                 "type": {
                     "enum": ["AND", "OR"],

@@ -20,7 +20,7 @@ ISSUE_TAGS_OFF = "Issue tags are off for this project."
 
 FILTERS_HELP_TEXT = (
     "Property-group filters on event properties, evaluated against the first event of each new issue. "
-    "Person, cohort, HogQL and other filter types are rejected."
+    "At least one filter is required. Person, cohort, HogQL and other filter types are rejected."
 )
 LABEL_HELP_TEXT = "Label applied to each new issue whose first event matches the filters."
 DESCRIPTION_HELP_TEXT = "What the label means. Shown with the label."
@@ -119,8 +119,8 @@ class ErrorTrackingIssueTagRuleUpdateRequestSerializer(serializers.Serializer):
     )
     filters = ErrorTrackingIssueTagRuleFiltersField(
         required=False,
-        help_text="Replacement event property filters. Omit to keep the existing filters. New filters apply only to "
-        "issues created after the update, and existing labels stay.",
+        help_text="Replacement event property filters, with at least one filter. Omit to keep the existing filters. "
+        "New filters apply only to issues created after the update, and existing labels stay.",
     )
 
 

@@ -75,14 +75,23 @@ class TestIssueTagRuleAPI(APIBaseTest):
             ("compile_error", _event_filter("plan", "(", operator="regex")),
             ("oversized_bytecode", _event_filter("plan", [f"plan-{i}" for i in range(5_000)])),
             ("not_a_filter_group", {"not": "valid"}),
+            ("no_filters", {"type": "AND", "values": [{"type": "AND", "values": []}]}),
         ]
     )
-    def test_create_rejects_filters_a_rule_cannot_run(self, _name: str, filters: dict[str, Any]) -> None:
-        response = self.client.post(self._url(), data={"label": "Enterprise", "filters": filters}, format="json")
+    def test_create_and_edit_reject_filters_a_rule_cannot_run(self, _name: str, filters: dict[str, Any]) -> None:
+        rule = ErrorTrackingIssueTagRule.objects.for_team(self.team.id).create(
+            team=self.team, label="Enterprise", filters=ENTERPRISE_PLAN, bytecode=[], order_key=0
+        )
 
-        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
-        assert response.json()["attr"] == "filters"
-        assert not ErrorTrackingIssueTagRule.objects.unscoped().exists()
+        created = self.client.post(self._url(), data={"label": "Enterprise", "filters": filters}, format="json")
+        edited = self.client.patch(self._url(str(rule.id)), data={"filters": filters}, format="json")
+
+        for response in (created, edited):
+            assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+            assert response.json()["attr"] == "filters"
+        assert list(ErrorTrackingIssueTagRule.objects.unscoped().values_list("id", "filters")) == [
+            (rule.id, ENTERPRISE_PLAN)
+        ]
 
     @parameterized.expand(
         [

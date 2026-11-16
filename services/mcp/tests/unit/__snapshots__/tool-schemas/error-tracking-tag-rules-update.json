@@ -6,7 +6,7 @@
             "type": "string"
         },
         "filters": {
-            "description": "Replacement event property filters. Omit to keep the existing filters. New filters apply only to issues created after the update, and existing labels stay.",
+            "description": "Replacement event property filters, with at least one filter. Omit to keep the existing filters. New filters apply only to issues created after the update, and existing labels stay.",
             "properties": {
                 "type": {
                     "enum": ["AND", "OR"],
