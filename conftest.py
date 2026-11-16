@@ -255,22 +255,62 @@ def pytest_configure(config) -> None:
 
 def pytest_collection_finish() -> None:
     _end_gc_boot_window()
+    # Collection imports temporalio only when a collected test touches Temporal, so other runs skip the import cost.
+    if "temporalio" in sys.modules:
+        from posthog.test import temporal_test_servers  # noqa: PLC0415 — only runs that use Temporal import it
+
+        temporal_test_servers.install()
 
 
-def pytest_runtest_setup(item: pytest.Item) -> None:
+def _fail_on_caught_peer_lazy_loads() -> None:
+    from posthog.models.scoping import peer_lazy_loads  # noqa: PLC0415
+
+    # A blocked lazy load that app code caught still fails the test phase that made it.
+    if blocked := peer_lazy_loads.finish_test():
+        pytest.fail("\n".join(["Caught FieldFetchBlocked:", *blocked]))
+
+
+@pytest.hookimpl(wrapper=True)
+def pytest_runtest_setup(item: pytest.Item) -> Generator[None]:
+    from posthog.models.scoping import peer_lazy_loads  # noqa: PLC0415
     from posthog.test import authentication_checks  # noqa: PLC0415
 
     marker = item.get_closest_marker("covers_authentication")
     authentication_checks.start_test(marker.args if marker else ())
+    peer_lazy_loads.start_test()
+    try:
+        result = yield
+    except (pytest.skip.Exception, pytest.xfail.Exception):
+        # A skip or xfail must not hide a blocked load caught before it.
+        _fail_on_caught_peer_lazy_loads()
+        raise
+    _fail_on_caught_peer_lazy_loads()
+    return result
 
 
 @pytest.hookimpl(wrapper=True)
 def pytest_runtest_call(item: pytest.Item) -> Generator[None]:
     from posthog.test import authentication_checks  # noqa: PLC0415
 
-    result = yield
+    try:
+        result = yield
+    except (pytest.skip.Exception, pytest.xfail.Exception):
+        _fail_on_caught_peer_lazy_loads()
+        raise
     if problems := authentication_checks.finish_test():
         pytest.fail("\n".join(problems))
+    _fail_on_caught_peer_lazy_loads()
+    return result
+
+
+@pytest.hookimpl(wrapper=True)
+def pytest_runtest_teardown(item: pytest.Item, nextitem: pytest.Item | None) -> Generator[None]:
+    from posthog.models.scoping import peer_lazy_loads  # noqa: PLC0415
+
+    # Drop what a failed call left, so teardown reports only its own loads.
+    peer_lazy_loads.start_test()
+    result = yield
+    _fail_on_caught_peer_lazy_loads()
     return result
 
 

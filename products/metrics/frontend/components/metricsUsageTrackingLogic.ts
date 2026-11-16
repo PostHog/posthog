@@ -71,11 +71,11 @@ export interface metricsUsageTrackingLogicActions {
         dashboardId: number
     } // metricsDashboardImportLogic
     loadSamplesSuccess: (
-        samples: _MetricEventSampleApi[],
+        samples: import('./metricsSamplesMerge').MetricsSampleRow[],
         payload?: any
     ) => {
         payload?: any
-        samples: _MetricEventSampleApi[]
+        samples: import('./metricsSamplesMerge').MetricsSampleRow[]
     } // metricsSamplesLogic
     samplesPanelTabChanged: (activeTab: MetricsPanelTab) => {
         activeTab: MetricsPanelTab

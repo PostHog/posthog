@@ -75,6 +75,21 @@ def save_file_to_uploaded_media(
     """Persist a file to object storage via UploadedMedia.
 
     Returns the absolute URL on success, None on failure.
+    """
+    uploaded_media = save_uploaded_media(team, file_name, content_type, content, validate_images=validate_images)
+    return uploaded_media.get_absolute_url() if uploaded_media else None
+
+
+def save_uploaded_media(
+    team: Team,
+    file_name: str,
+    content_type: str,
+    content: bytes,
+    *,
+    validate_images: bool = True,
+) -> UploadedMedia | None:
+    """Persist a file to object storage via UploadedMedia, or return None on failure.
+
     Unless validate_images is False, stores the type that resolve_attachment_content_type
     returns, and rejects bytes that it finds invalid.
     """
@@ -117,7 +132,7 @@ def save_file_to_uploaded_media(
         content_type=content_type,
         bytes_size=len(content),
     )
-    return uploaded_media.get_absolute_url()
+    return uploaded_media
 
 
 def attachment_link_label(attachment: dict[str, Any]) -> str:

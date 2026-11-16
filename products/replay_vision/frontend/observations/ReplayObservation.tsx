@@ -5,9 +5,9 @@ import { Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { IconArrowLeft, IconArrowRight } from '@posthog/icons'
 import { LemonButton, LemonCard, LemonTabs, Link, Spinner } from '@posthog/lemon-ui'
 
-import { KeyboardShortcut } from 'lib/components/KeyboardShortcut/KeyboardShortcut'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
+import { KeyboardShortcut } from 'lib/lemon-ui/KeyboardShortcut/KeyboardShortcut'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { lazyWithRetry } from 'lib/utils/retryImport'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -31,6 +31,7 @@ import { ObservationDetails } from './ObservationDetails'
 import { ObservationFacts } from './ObservationFacts'
 import { ObservationHeadline } from './ObservationHeadline'
 import { ObservationLabelControl } from './ObservationLabelControl'
+import { ObservationNotesButton } from './ObservationNotesButton'
 import { ObservationPinnedProperties } from './ObservationPinnedProperties'
 import { ObservationReasoning } from './ObservationReasoning'
 import { ObservationRecordingUnavailable } from './ObservationRecordingUnavailable'
@@ -90,7 +91,7 @@ export function ReplayObservationSceneComponent(): JSX.Element {
     // navigation (and the server-computed neighbor ids) stay within the filtered list.
     const neighborParams = neighborFilterParams(searchParams)
     const neighborsFiltered = Object.keys(neighborParams).some((key) => key !== 'order_by')
-    // Prev/next keeps the return params too, so back still lands on the list view (or the watch feed)
+    // Prev/next keeps the return params too, so back still lands on the list view (or the highlight feed)
     // the reader came from.
     const observationUrl = (id: string): string =>
         observationDetailUrl(id, {
@@ -220,6 +221,7 @@ export function ReplayObservationSceneComponent(): JSX.Element {
                             >
                                 Next
                             </LemonButton>
+                            <ObservationNotesButton />
                             <ObservationShareButton
                                 observationId={observation.id}
                                 sessionRecordingId={observation.session_id}

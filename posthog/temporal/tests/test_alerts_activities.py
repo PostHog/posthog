@@ -9,7 +9,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 import time_machine
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import AsyncMock, MagicMock, call, patch
 
 from django.core.exceptions import ValidationError
 from django.db import OperationalError, connection, transaction
@@ -30,6 +30,8 @@ from posthog.schema import (
     TrendsQuery,
 )
 
+from posthog.hogql.errors import TableAccessDeniedError
+
 from posthog.clickhouse.query_tagging import get_query_tags
 from posthog.constants import AvailableFeature
 from posthog.errors import CHQueryErrorQueryWasCancelled
@@ -38,7 +40,7 @@ from posthog.exceptions import (
     ClickHouseClusterMemoryLimitExceeded,
     ClickHouseQueryMemoryLimitExceeded,
 )
-from posthog.models import Team, User
+from posthog.models import OrganizationMembership, Team, User
 from posthog.redis import get_client
 from posthog.slo.types import SloOperation, SloOutcome
 from posthog.tasks.alerts.utils import (
@@ -51,6 +53,7 @@ from posthog.temporal.alerts.activities import (
     _load_alert_for_evaluation,
     _lock_evaluation_alert,
     cleanup_alert_checks,
+    emit_alert_firing_signal,
     evaluate_alert,
     notify_alert,
     prepare_alert,
@@ -65,8 +68,9 @@ from posthog.temporal.alerts.admission import (
     inflight_alert_ids,
 )
 from posthog.temporal.alerts.investigation import MAX_INVESTIGATIONS_PER_EPISODE
-from posthog.temporal.alerts.retry_policy import SlotLease, alert_timeouts
+from posthog.temporal.alerts.retry_policy import ALERT_SIGNAL_SCHEDULE_TO_CLOSE, SlotLease, alert_timeouts
 from posthog.temporal.alerts.types import (
+    EmitAlertFiringSignalActivityInputs,
     EvaluateAlertActivityInputs,
     NotifyAlertActivityInputs,
     PrepareAction,
@@ -75,18 +79,27 @@ from posthog.temporal.alerts.types import (
     SkipReason,
 )
 
-from products.alerts.backend.evaluation.contract import AlertDataUnavailableError, AlertExtractionError
+from products.access_control.backend.models.access_control import AccessControl
+from products.alerts.backend.evaluation.contract import (
+    CREATOR_LEFT_DISABLE_REASON,
+    CREATOR_LOST_ACCESS_DISABLE_REASON,
+    AlertDataUnavailableError,
+    AlertExtractionError,
+)
 from products.alerts.backend.evaluation.validation import THRESHOLD_BOUNDS_REQUIRED_MESSAGE
 from products.alerts.backend.facade.api import (
+    LLM_DETECTOR_PAUSED_ERROR_CODE,
     LLM_DETECTOR_UNAVAILABLE_ERROR_CODE,
     LLM_DETECTOR_UNAVAILABLE_MESSAGE,
     LLMDetectorMisconfiguredError,
+    LLMDetectorPausedError,
     LLMDetectorUnavailableError,
 )
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, InvestigationStatus, Threshold
 from products.alerts_platform.backend.facade.contracts import AlertDelivery
 from products.alerts_platform.backend.facade.enums import PlatformAlertOwner
 from products.product_analytics.backend.facade.models import Insight
+from products.signals.backend.facade.source_configs import SignalSourceConfigSnapshot
 
 
 def _email_delivery(target: str, at: str = "2026-08-11T00:00:00+00:00") -> AlertDelivery:
@@ -144,9 +157,14 @@ async def _create_alert(
     insight_deleted: bool = False,
     state: str = AlertState.NOT_FIRING,
     detector_config: dict | None = None,
+    created_by: User | None = None,
 ) -> AlertConfiguration:
     @sync_to_async
     def _create() -> AlertConfiguration:
+        # Production always writes an owner, and an alert with none counts as one whose owner was deleted.
+        owner = created_by or User.objects.create_and_join(
+            ateam.organization, f"alert-owner-{uuid.uuid4().hex[:6]}@posthog.com", None
+        )
         insight = Insight.objects.create(
             team=ateam,
             name="insight",
@@ -174,6 +192,7 @@ async def _create_alert(
             schedule_start_time=schedule_start_time,
             state=state,
             detector_config=detector_config,
+            created_by=owner,
         )
         return alert
 
@@ -1006,19 +1025,93 @@ class TestEvaluateAlert:
         assert inflight_alert_ids() == set()
 
     async def test_evaluate_firing_with_breaches(self, alert) -> None:
-        with patch(
-            "posthog.temporal.alerts.activities.check_alert_for_insight",
-            return_value=AlertEvaluationResult(value=100.0, breaches=["value above threshold"]),
+        emit = AsyncMock(return_value=True)
+        with (
+            patch(
+                "posthog.temporal.alerts.activities.check_alert_for_insight",
+                return_value=AlertEvaluationResult(value=100.0, breaches=["value above threshold"]),
+            ),
+            patch("posthog.temporal.alerts.alert_firing_signal.emit_signal", emit),
         ):
-            env = ActivityEnvironment()
-            result = await env.run(evaluate_alert, EvaluateAlertActivityInputs(alert_id=str(alert.id)))
+            result = await ActivityEnvironment().run(
+                evaluate_alert, EvaluateAlertActivityInputs(alert_id=str(alert.id))
+            )
 
+        # The signal goes out in a later workflow phase, so a slow send cannot delay the notification.
+        emit.assert_not_awaited()
+        assert result.signal_candidate is True
+        assert result.previous_state == AlertState.NOT_FIRING
         assert result.new_state == AlertState.FIRING
         assert result.should_notify is True
 
         check = await sync_to_async(AlertCheck.objects.get)(pk=result.alert_check_id)
         assert check.state == AlertState.FIRING
         assert check.targets_notified == {}
+
+    @pytest.mark.parametrize(
+        "alert_change,signal_error,expect_emit",
+        [
+            (None, None, True),
+            (None, RuntimeError("signals unavailable"), True),
+            ("deleted", None, False),
+            ("disabled", None, False),
+        ],
+    )
+    async def test_emit_alert_firing_signal(
+        self, alert, alert_change: str | None, signal_error: Exception | None, expect_emit: bool
+    ) -> None:
+        check = await _create_alert_check(alert, state=AlertState.FIRING)
+        if alert_change == "deleted":
+            await sync_to_async(AlertConfiguration.objects.filter(id=alert.id).delete)()
+        elif alert_change == "disabled":
+            await sync_to_async(AlertConfiguration.objects.filter(id=alert.id).update)(enabled=False)
+        reached_default_executor = False
+
+        async def _emit(**_kwargs) -> bool:
+            nonlocal reached_default_executor
+            # emit_signal runs sync work on the default executor. A thread that waits for the
+            # emission holds the only worker, so this would time out.
+            await asyncio.wait_for(sync_to_async(lambda: None, thread_sensitive=False)(), timeout=5)
+            reached_default_executor = True
+            if signal_error is not None:
+                raise signal_error
+            return True
+
+        emit = AsyncMock(side_effect=_emit)
+        loop = asyncio.get_running_loop()
+        loop.set_default_executor(ThreadPoolExecutor(max_workers=1))
+        try:
+            with (
+                patch("posthog.temporal.alerts.alert_firing_signal.emit_signal", emit),
+                patch(
+                    "posthog.temporal.alerts.alert_firing_signal.get_source_config",
+                    return_value=SignalSourceConfigSnapshot(enabled=True, created_by_id=None, config={}),
+                ),
+                patch(
+                    "posthog.temporal.alerts.alert_firing_signal.get_analytics_alert_scope",
+                    return_value="all_firing_alerts",
+                ),
+            ):
+                await ActivityEnvironment().run(
+                    emit_alert_firing_signal,
+                    EmitAlertFiringSignalActivityInputs(
+                        alert_id=str(alert.id),
+                        alert_check_id=str(check.id),
+                        team_id=alert.team_id,
+                        previous_state=AlertState.NOT_FIRING,
+                        breaches=["value above threshold"],
+                    ),
+                )
+        finally:
+            loop.set_default_executor(ThreadPoolExecutor())
+
+        assert reached_default_executor is expect_emit
+        if expect_emit:
+            emit.assert_awaited_once()
+            assert emit.await_args is not None
+            assert emit.await_args.kwargs["source_id"] == f"{alert.id}:{check.id}"
+        else:
+            emit.assert_not_awaited()
 
     @pytest.mark.parametrize(
         "investigated,previous_verdict,owner,expect_investigation,expect_notify,expect_held",
@@ -1262,6 +1355,79 @@ class TestEvaluateAlert:
         assert second.kwargs["template_context"]["alert_error"] == "Alert configuration is invalid"
         await sync_to_async(check.refresh_from_db)()
         assert check.targets_notified
+
+    async def test_a_paused_ai_detector_errors_once_and_leaves_the_alert_enabled(self, alert_with_user) -> None:
+        message = "The AI detector is not enabled for your account."
+        with (
+            patch(
+                "posthog.temporal.alerts.activities.check_alert_for_insight",
+                side_effect=LLMDetectorPausedError(message),
+            ),
+            patch("posthog.temporal.alerts.activities.capture_exception") as mock_capture,
+        ):
+            env = ActivityEnvironment()
+            first = await env.run(evaluate_alert, EvaluateAlertActivityInputs(alert_id=str(alert_with_user.id)))
+            repeated = await env.run(evaluate_alert, EvaluateAlertActivityInputs(alert_id=str(alert_with_user.id)))
+
+        assert (first.new_state, first.should_notify, repeated.should_notify) == (AlertState.ERRORED, True, False)
+        mock_capture.assert_not_called()
+        check = await sync_to_async(AlertCheck.objects.get)(pk=first.alert_check_id)
+        assert check.error == {"code": LLM_DETECTOR_PAUSED_ERROR_CODE, "message": message}
+        refreshed = await sync_to_async(AlertConfiguration.objects.get)(pk=alert_with_user.pk)
+        assert refreshed.enabled is True
+
+    @pytest.mark.parametrize(
+        "owner_change, expected_message",
+        [
+            ("left_organization", CREATOR_LEFT_DISABLE_REASON),
+            ("lost_table_access", CREATOR_LOST_ACCESS_DISABLE_REASON),
+            ("lost_insight_access", CREATOR_LOST_ACCESS_DISABLE_REASON),
+        ],
+    )
+    async def test_evaluate_auto_disables_when_the_owner_can_no_longer_run_the_query(
+        self, alert_with_user, aorganization, owner_change, expected_message
+    ) -> None:
+        owner = await sync_to_async(lambda: alert_with_user.subscribed_users.get())()
+        alert_with_user.created_by = owner
+        await sync_to_async(alert_with_user.save)(update_fields=["created_by"])
+        if owner_change == "left_organization":
+            await sync_to_async(
+                OrganizationMembership.objects.filter(organization_id=aorganization.id, user=owner).delete
+            )()
+        if owner_change == "lost_insight_access":
+            # The owner is a plain member, so a no-access rule on the insight applies to them.
+            aorganization.available_product_features = [
+                {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+            ]
+            await sync_to_async(aorganization.save)()
+            await sync_to_async(AccessControl.objects.create)(
+                team=alert_with_user.team,
+                resource="insight",
+                resource_id=str(alert_with_user.insight_id),
+                access_level="none",
+            )
+
+        with (
+            # Patched under the real `check_alert_for_insight`, which turns the denial into the owner reason.
+            patch(
+                "products.alerts.backend.evaluation.dispatcher._check_alert_for_insight",
+                side_effect=TableAccessDeniedError("revenue"),
+            ) as mock_check,
+            patch("posthog.temporal.alerts.activities.capture_exception") as mock_capture,
+        ):
+            result = await ActivityEnvironment().run(
+                evaluate_alert, EvaluateAlertActivityInputs(alert_id=str(alert_with_user.id))
+            )
+
+        assert result.new_state == AlertState.ERRORED
+        mock_capture.assert_not_called()
+        # A departed owner's alert must stop even when its query would still run.
+        assert mock_check.called is (owner_change == "lost_table_access")
+        check = await sync_to_async(AlertCheck.objects.get)(pk=result.alert_check_id)
+        # The shared code routes the check to the "alert disabled" email, in-app notice and banner.
+        assert check.error == {"message": expected_message, "code": "invalid_configuration"}
+        refreshed = await sync_to_async(AlertConfiguration.objects.get)(pk=alert_with_user.pk)
+        assert refreshed.enabled is False
 
     # Transient CH errors bubble up so Temporal's retry policy handles them.
     # Capacity errors (codes 202/439) surface as ClickHouseAtCapacity, so that's what we simulate.
@@ -1721,21 +1887,29 @@ class TestNotifyAlert:
         assert mock_send_alert_email.call_args.kwargs["template_context"]["next_check_at"] == next_check_at
 
     @pytest.mark.parametrize(
-        "error,detector_unavailable",
+        "error,detector_unavailable,detector_paused",
         [
-            ({"message": "boom"}, False),
-            ({"message": "boom", "code": "invalid_configuration"}, False),
-            ({"message": LLM_DETECTOR_UNAVAILABLE_MESSAGE, "code": LLM_DETECTOR_UNAVAILABLE_ERROR_CODE}, True),
+            ({"message": "boom"}, False, False),
+            ({"message": "boom", "code": "invalid_configuration"}, False, False),
+            (
+                {"message": LLM_DETECTOR_UNAVAILABLE_MESSAGE, "code": LLM_DETECTOR_UNAVAILABLE_ERROR_CODE},
+                True,
+                False,
+            ),
+            ({"message": "No AI credits left.", "code": LLM_DETECTOR_PAUSED_ERROR_CODE}, False, True),
         ],
     )
     async def test_error_email_marks_an_unavailable_detector(
-        self, alert_with_user, error, detector_unavailable
+        self, alert_with_user, error, detector_unavailable, detector_paused
     ) -> None:
         with patch("posthog.tasks.alerts.utils.send_alert_email") as mock_send_alert_email:
             await sync_to_async(send_notifications_for_errors)(alert_with_user, error, "notification-key")
 
         template_context = mock_send_alert_email.call_args.kwargs["template_context"]
-        assert template_context["detector_unavailable"] is detector_unavailable
+        assert (template_context["detector_unavailable"], template_context["detector_paused"]) == (
+            detector_unavailable,
+            detector_paused,
+        )
 
     async def test_error_notification_does_not_include_an_unsubscribed_creator(self, alert, auser) -> None:
         await sync_to_async(AlertConfiguration.objects.filter(pk=alert.id).update)(created_by_id=auser.id)
@@ -1941,7 +2115,12 @@ def test_alert_timeouts_never_restart_a_live_attempt(calculation_interval) -> No
     # The retried attempt must take the slot over before it lapses, or the scheduler fills it in between.
     slot = timeouts.evaluation_slot_lease
     assert slot.lease - slot.refresh > timeouts.heartbeat_timeout
-    activities = timeouts.prepare_start_to_close + timeouts.activity_schedule_to_close + timeouts.notify_start_to_close
+    activities = (
+        timeouts.prepare_start_to_close
+        + timeouts.activity_schedule_to_close
+        + timeouts.notify_start_to_close
+        + ALERT_SIGNAL_SCHEDULE_TO_CLOSE
+    )
     assert timeouts.workflow_execution >= activities
 
 

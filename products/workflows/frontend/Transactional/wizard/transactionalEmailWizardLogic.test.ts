@@ -13,10 +13,14 @@ jest.mock('lib/lemon-ui/LemonToast', () => ({ lemonToast: { success: jest.fn(), 
 describe('transactionalEmailWizardLogic', () => {
     let logic: ReturnType<typeof transactionalEmailWizardLogic.build>
     let createTemplate: jest.Mock
+    let createTemplateBody: Record<string, any> | undefined
     let makeTransactional: jest.Mock
 
     beforeEach(() => {
-        createTemplate = jest.fn(() => [201, { id: 'created-id' }])
+        createTemplate = jest.fn(async ({ request }) => {
+            createTemplateBody = await request.json()
+            return [201, { id: 'created-id' }]
+        })
         makeTransactional = jest.fn(() => [200, { id: 'created-id', transactional_hog_flow_id: 'flow-id' }])
         useMocks({
             get: {
@@ -65,5 +69,22 @@ describe('transactionalEmailWizardLogic', () => {
         expect(makeTransactional).toHaveBeenCalledTimes(expectedCalls)
         expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(expectedPath)
         expect(logic.values.currentStep).toEqual(expectedStep)
+    })
+
+    it('leaves out the design that a text-only template clears, since the API rejects a null design', async () => {
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.updateDraft({ name: 'Plain receipt' })
+        logic.actions.updateEmail({
+            from: { integrationId: 7 },
+            subject: 'Your receipt',
+            text: 'Thanks for your order.',
+            html: '',
+            design: null,
+        })
+
+        await expectLogic(logic, () => logic.actions.createTransactionalEmail()).toFinishAllListeners()
+
+        expect(createTemplateBody?.content.email).toEqual(expect.objectContaining({ text: 'Thanks for your order.' }))
+        expect(createTemplateBody?.content.email).not.toHaveProperty('design')
     })
 })

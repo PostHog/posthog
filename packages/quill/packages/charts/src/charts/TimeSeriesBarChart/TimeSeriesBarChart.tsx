@@ -1,6 +1,7 @@
 import React, { useMemo } from 'react'
 
 import { ChartLegend } from '../../components/Legend/ChartLegend'
+import { useResolvedChartTheme } from '../../core/theme'
 import type {
     AxisLinesConfig,
     BarChartConfig,
@@ -51,7 +52,7 @@ export interface TimeSeriesBarChartConfig {
     showAxisLines?: AxisLinesConfig
     /** Draw short tick marks next to each visible axis label. Pairs with `showAxisLines`. */
     showTickMarks?: boolean
-    /** Tooltip behaviour (pinning, placement). Tooltip *content* is the `tooltip` render prop. */
+    /** Tooltip behaviour and built-in content options. A `tooltip` render prop replaces the content. */
     tooltip?: TooltipConfig
     /** Stacked layout only — stack negatives below the zero baseline (d3.stackOffsetDiverging). */
     divergingStack?: boolean
@@ -77,7 +78,8 @@ export interface TimeSeriesBarChartConfig {
 export interface TimeSeriesBarChartProps<Meta = unknown> {
     series: Series<Meta>[]
     labels: string[]
-    theme: ChartTheme
+    /** Defaults to the nearest `ChartThemeProvider`, then the quill CSS vars. */
+    theme?: ChartTheme
     config?: TimeSeriesBarChartConfig
     tooltip?: (ctx: TooltipContext<Meta>) => React.ReactNode
     onPointClick?: (data: PointClickData<Meta>) => void
@@ -96,7 +98,7 @@ export interface TimeSeriesBarChartProps<Meta = unknown> {
 export function TimeSeriesBarChart<Meta = unknown>({
     series,
     labels,
-    theme,
+    theme: themeProp,
     config,
     tooltip,
     onPointClick,
@@ -108,6 +110,7 @@ export function TimeSeriesBarChart<Meta = unknown>({
     children,
     onError,
 }: TimeSeriesBarChartProps<Meta>): React.ReactElement {
+    const theme = useResolvedChartTheme(themeProp)
     const {
         xAxis,
         yAxis,

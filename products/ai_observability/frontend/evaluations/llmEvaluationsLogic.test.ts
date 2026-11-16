@@ -1,8 +1,6 @@
 import { combineUrl, router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -309,47 +307,7 @@ describe('llmEvaluationsLogic', () => {
         })
     })
 
-    describe('filteredEvaluations', () => {
-        const enabledEval = evaluationWithKey('eval-enabled', null)
-        const disabledEval = { ...evaluationWithKey('eval-disabled', null), enabled: false }
-
-        it('includes disabled evaluations by default and excludes them when hidden', async () => {
-            logic.actions.loadEvaluationsSuccess([enabledEval, disabledEval])
-
-            await expectLogic(logic).toMatchValues({
-                filteredEvaluations: [enabledEval, disabledEval],
-            })
-
-            logic.actions.setShowDisabledEvaluations(false)
-
-            await expectLogic(logic).toMatchValues({
-                filteredEvaluations: [enabledEval],
-            })
-        })
-
-        it('scopes the list to a directory but searches across all directories', async () => {
-            const rootEvaluation = evaluationWithKey('root', null)
-            const directoryEvaluation = evaluationWithKey('inside', null, 'directory-a')
-
-            router.actions.push(
-                combineUrl(urls.aiObservabilityEvaluations(), {
-                    directory: 'directory-a',
-                }).url
-            )
-            logic.actions.loadEvaluationsSuccess([rootEvaluation, directoryEvaluation])
-
-            await expectLogic(logic).toMatchValues({
-                selectedDirectoryId: 'directory-a',
-                displayedEvaluations: [directoryEvaluation],
-            })
-
-            logic.actions.setEvaluationsFilter('root')
-
-            await expectLogic(logic).toMatchValues({
-                displayedEvaluations: [rootEvaluation],
-            })
-        })
-
+    describe('selected directory', () => {
         it('does not reload evaluations when the selected directory changes', async () => {
             const evaluation = evaluationWithKey('local-state', null)
             await expectLogic(logic).toFinishAllListeners()
@@ -381,13 +339,9 @@ describe('llmEvaluationsLogic', () => {
 
     describe('default date range', () => {
         it.each([
-            { flagOn: true, dateFrom: undefined, expected: '-7d' },
-            { flagOn: false, dateFrom: undefined, expected: '-24h' },
-            { flagOn: true, dateFrom: '-30d', expected: '-30d' },
-        ])('flag on $flagOn with date_from $dateFrom starts at $expected', async ({ flagOn, dateFrom, expected }) => {
-            const flag = FEATURE_FLAGS.AI_OBSERVABILITY_EVALUATIONS_OVERVIEW
-            featureFlagLogic.actions.setFeatureFlags(flagOn ? [flag] : [], { [flag]: flagOn })
-
+            { dateFrom: undefined, expected: '-7d' },
+            { dateFrom: '-30d', expected: '-30d' },
+        ])('date_from $dateFrom starts at $expected', async ({ dateFrom, expected }) => {
             router.actions.push(combineUrl(urls.aiObservabilityEvaluations(), { date_from: dateFrom }).url)
             await expectLogic(logic).toFinishAllListeners()
 

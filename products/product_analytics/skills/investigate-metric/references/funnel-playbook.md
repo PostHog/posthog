@@ -56,3 +56,7 @@ console warning elsewhere usually can't.
 
 `posthog:query-paths` with `endPoint` set to the failing step. Paths that don't reach
 that endpoint show where users bail.
+
+## Next
+
+Return to SKILL.md for Step 4 (cross-check) and Step 5 (write findings), in the format you chose in Step 1.

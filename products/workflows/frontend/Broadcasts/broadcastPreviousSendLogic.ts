@@ -108,7 +108,8 @@ export const broadcastPreviousSendLogic = kea<broadcastPreviousSendLogicType>([
                     let pending: PreviousSend | null = null
                     for (const flow of (page.results ?? []).filter((flow) => flow.status !== 'draft')) {
                         const jobs = await hogFlowsBatchJobsList(projectId, flow.id)
-                        const sent = jobs.find((job) => job.status === 'completed')
+                        // A partly failed run still reached some people, so it counts as a send.
+                        const sent = jobs.find((job) => job.status === 'completed' || job.status === 'partially_failed')
                         if (sent) {
                             return { broadcastId: flow.id, state: 'sent', job: sent }
                         }

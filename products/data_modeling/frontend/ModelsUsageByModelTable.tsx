@@ -1,7 +1,11 @@
 import { useActions, useValues } from 'kea'
 
+import { IconSort } from '@posthog/icons'
+
+import { IconArrowDown, IconArrowUp } from 'lib/lemon-ui/icons'
 import { LinkPrimitive } from 'lib/lemon-ui/Link/Link'
 import {
+    Button,
     Card,
     CardContent,
     CardDescription,
@@ -30,7 +34,7 @@ import { pluralize } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
 import { DataModelingUsageListEngine, type ModelUsageRowApi } from './generated/api.schemas'
-import { modelsUsageLogic } from './modelsUsageLogic'
+import { modelsUsageLogic, type ModelsUsageSortBy } from './modelsUsageLogic'
 import { UsageNotAvailable } from './UsageNotAvailable'
 
 const PAGE_SIZE = 20
@@ -44,8 +48,9 @@ export function ModelsUsageByModelTable({
 }: {
     savedQueryIdToNodeId: Record<string, string>
 }): JSX.Element | null {
-    const { usage, usageLoading, page, managedWarehouseEnabled, selectedEngine } = useValues(modelsUsageLogic)
-    const { setPage, openModel } = useActions(modelsUsageLogic)
+    const { usage, usageLoading, page, managedWarehouseEnabled, selectedEngine, sortBy, sortDirection } =
+        useValues(modelsUsageLogic)
+    const { setPage, openModel, sortModels } = useActions(modelsUsageLogic)
 
     if (!usage || usage.overview.runs === 0) {
         return null
@@ -58,6 +63,18 @@ export function ModelsUsageByModelTable({
     const lastRow = Math.min(firstRow + usage.models.length - 1, usage.count)
     const showEngineColumns = managedWarehouseEnabled && selectedEngine === DataModelingUsageListEngine.All
 
+    const columns: { key: ModelsUsageSortBy; label: string; className?: string }[] = [
+        { key: 'name', label: 'Model' },
+        ...(showEngineColumns
+            ? [
+                  { key: 'clickhouse_read_bytes' as ModelsUsageSortBy, label: 'ClickHouse bytes' },
+                  { key: 'managed_warehouse_read_bytes' as ModelsUsageSortBy, label: 'Managed warehouse bytes' },
+              ]
+            : [{ key: 'read_bytes' as ModelsUsageSortBy, label: 'Bytes read' }]),
+        { key: 'cpu_microseconds', label: 'CPU time', className: 'hidden @min-[48rem]/main-content:table-cell' },
+        { key: 'runs', label: 'Runs' },
+    ]
+
     return (
         <Card size="sm" className="min-w-0 gap-0">
             <CardHeader className="border-b border-border pb-3">
@@ -65,26 +82,47 @@ export function ModelsUsageByModelTable({
                     Usage by model
                 </CardTitle>
                 <CardDescription>
-                    Highest bytes read first. Review refresh schedules and query filters for models with high usage.
+                    Review refresh schedules and query filters for models with high usage.
                 </CardDescription>
             </CardHeader>
             <CardContent className="overflow-x-auto p-0">
                 <Table fullWidth aria-busy={usageLoading}>
                     <TableHeader>
                         <TableRow>
-                            <TableHead expand>Model</TableHead>
-                            {showEngineColumns ? (
-                                <>
-                                    <TableHead align="right">ClickHouse bytes</TableHead>
-                                    <TableHead align="right">Managed warehouse bytes</TableHead>
-                                </>
-                            ) : (
-                                <TableHead align="right">Bytes read</TableHead>
-                            )}
-                            <TableHead align="right" className="hidden @min-[48rem]/main-content:table-cell">
-                                CPU time
-                            </TableHead>
-                            <TableHead align="right">Runs</TableHead>
+                            {columns.map((column) => (
+                                <TableHead
+                                    key={column.key}
+                                    expand={column.key === 'name'}
+                                    align={column.key === 'name' ? 'left' : 'right'}
+                                    className={column.className}
+                                    aria-sort={
+                                        sortBy === column.key
+                                            ? sortDirection === 'asc'
+                                                ? 'ascending'
+                                                : 'descending'
+                                            : 'none'
+                                    }
+                                >
+                                    <Button
+                                        size="sm"
+                                        className="h-auto gap-1.5 whitespace-normal"
+                                        disabled={usageLoading}
+                                        onClick={() => sortModels(column.key)}
+                                        data-attr={`models-usage-sort-${column.key}`}
+                                    >
+                                        <span>{column.label}</span>
+                                        {sortBy === column.key ? (
+                                            sortDirection === 'asc' ? (
+                                                <IconArrowUp className="size-3" />
+                                            ) : (
+                                                <IconArrowDown className="size-3" />
+                                            )
+                                        ) : (
+                                            <IconSort className="size-3 opacity-50" />
+                                        )}
+                                    </Button>
+                                </TableHead>
+                            ))}
                         </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -92,7 +130,10 @@ export function ModelsUsageByModelTable({
                             const nodeId = row.saved_query_id ? savedQueryIdToNodeId[row.saved_query_id] : undefined
                             return (
                                 <TableRow key={row.saved_query_id ?? 'deleted'}>
-                                    <TableCell expand className="min-w-40 max-w-96 break-all">
+                                    <TableCell
+                                        expand
+                                        className="min-w-32 max-w-96 break-all @min-[48rem]/main-content:min-w-40"
+                                    >
                                         {row.deleted || !nodeId ? (
                                             <Text variant="muted" render={<span />}>
                                                 {row.name}

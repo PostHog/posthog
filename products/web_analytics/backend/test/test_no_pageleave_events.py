@@ -19,7 +19,7 @@ from products.web_analytics.backend.temporal.health_checks.no_pageleave_events i
 def test_detect_no_pageleave_events(mock_query: MagicMock, mock_rows: list, expected_teams: set) -> None:
     mock_query.return_value = mock_rows
 
-    result = NoPageleaveEventsCheck().detect([1, 2, 3, 42])
+    result = NoPageleaveEventsCheck().detect_from_events([1, 2, 3, 42])
 
     assert set(result.keys()) == expected_teams
     for team_id in expected_teams:

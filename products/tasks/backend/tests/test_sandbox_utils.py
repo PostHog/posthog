@@ -148,19 +148,23 @@ def test_repository_snapshot_reuse_is_refused_for_read_only_runs(
 
 @parameterized.expand(
     [
-        ("repo_less", None, False),
-        ("repo_backed", "acme/repo", True),
+        ("repo_less", None, False, True),
+        ("repo_backed", "acme/repo", True, True),
+        ("mint_unavailable", None, False, False),
     ]
 )
 @patch("products.tasks.backend.temporal.process_task.activities.provision_sandbox.emit_agent_log")
+@patch("products.tasks.backend.temporal.process_task.activities.provision_sandbox.TaskRun.update_state_atomic")
 @patch("products.tasks.backend.temporal.process_task.activities.provision_sandbox.get_sandbox_github_token")
 @patch("products.tasks.backend.temporal.process_task.activities.provision_sandbox.get_readonly_github_token")
 def test_readonly_request_takes_priority_over_full_credential_path(
     _name: str,
     repository: str | None,
     has_repo: bool,
+    token_available: bool,
     mock_readonly: MagicMock,
     mock_full: MagicMock,
+    mock_state: MagicMock,
     _mock_log: MagicMock,
 ) -> None:
     # Task creation attaches the team's GitHub integration to every task, so a run on a
@@ -175,7 +179,7 @@ def test_readonly_request_takes_priority_over_full_credential_path(
         _resolve_sandbox_github_token,
     )
 
-    mock_readonly.return_value = "READONLY_TOKEN"
+    mock_readonly.return_value = "READONLY_TOKEN" if token_available else None
     ctx = TaskProcessingContext(
         task_id="t",
         run_id="r",
@@ -193,7 +197,8 @@ def test_readonly_request_takes_priority_over_full_credential_path(
     )
 
     mock_readonly.assert_called_once_with(ctx.team_id, repositories=ctx.repositories)
-    assert token == "READONLY_TOKEN"
+    assert token == ("READONLY_TOKEN" if token_available else "")
+    mock_state.assert_called_once_with(ctx.run_id, updates={"github_read_access_available": token_available})
     mock_full.assert_not_called()
 
 

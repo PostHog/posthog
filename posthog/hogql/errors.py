@@ -4,6 +4,9 @@ from typing import TYPE_CHECKING, Optional
 if TYPE_CHECKING:
     from .ast import Expr
 
+UNRESOLVED_FIELD_MESSAGE = "Unable to resolve field"
+FIELD_NOT_FOUND_MESSAGE = "Field not found"
+
 # Base
 
 

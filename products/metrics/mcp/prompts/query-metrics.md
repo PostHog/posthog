@@ -6,10 +6,13 @@ All parameters go inside `query` — top-level fields are rejected:
 { "query": { "metricName": "m", "aggregation": "rate", "dateFrom": "2026-01-01T00:00:00Z" } }
 ```
 
-Two request forms:
+Three request forms:
 
 - **Single metric (shorthand):** set `metricName` (+ `aggregation`, `filters`, `groupBy`).
 - **Multi-clause / formula:** set `clauses: [{name, metricName, aggregation, quantile?, filters?, groupBy?}, ...]` and optionally `formula` (e.g. `"(a - b) / a"` over clause names; `+ - * /` and parentheses; division by zero yields 0). With a formula set, only the formula result series are returned.
+- **PromQL:** set `promql` to a PromQL expression, e.g. `{ "query": { "promql": "sum by (job) (rate(http_requests_total[5m]))", "dateFrom": "-3h" } }`. It runs as a range query on the same time grid. Put selectors, grouping and functions in the expression; `filters`, `groupBy`, `formula` and `metricType` are rejected with it. Unreported buckets are `null`, not zero. If the response says PromQL is not enabled for this project, use the builder forms.
+
+When you already have a PromQL expression (an alert rule, a runbook, a Grafana panel), send it as `promql` as written. Do not translate it into builder fields.
 
 # Workflow — follow this order every time
 

@@ -46,6 +46,12 @@ pub struct Event {
     pub source: Option<u8>,
     /// The event carries `cv` [`CV_VERSION`]: parts of its data are gzip or zstd stored as latin-1 codepoints.
     pub compressed: bool,
+    /// `data` has a top-level `href` or `payload`, where `hrefFrom` in `rrweb-types.ts` looks for a page URL on any
+    /// event, so that an inspector reads a large `data` again only when it can hold one.
+    pub may_carry_page_url: bool,
+    /// Where `data.positions` starts in [`Message::inner`]. The reader passes it on its way to `source`, so that an
+    /// inspector reads a mouse move's positions without scanning its `data` again.
+    pub positions_start: Option<u32>,
     /// The compressed strings decoded, once per event by [`Message::decode_compressed`]. `None` until then.
     pub expansion: Option<Expansion>,
 }
@@ -191,6 +197,14 @@ fn read_inner(inner: Vec<u8>, max_events: usize) -> Result<Message, ReadError> {
     {
         return Err(ReadError::Malformed("$window_id is too long"));
     }
+    // Each moment in an index row repeats the ID, and JSON writes a control character as six bytes. Without them, the
+    // longest ID keeps a row under the producer's message limit.
+    if window_id
+        .as_ref()
+        .is_some_and(|id| id.bytes().any(|byte| byte < b' '))
+    {
+        return Err(ReadError::Malformed("$window_id has a control character"));
+    }
     let mut events = Vec::new();
     for item in scan::array_items(&inner, items)? {
         if events.len() >= max_events {
@@ -219,6 +233,8 @@ fn read_event(inner: &[u8], span: Span) -> Result<Event, ReadError> {
         data: None,
         source: None,
         compressed: false,
+        may_carry_page_url: false,
+        positions_start: None,
         expansion: None,
     };
     for entry in scan::object_entries(inner, span)? {
@@ -243,8 +259,14 @@ fn read_event(inner: &[u8], span: Span) -> Result<Event, ReadError> {
     if let Some(data) = event.data.filter(|&d| scan::is_object(inner, d)) {
         for entry in scan::object_entries(inner, data)? {
             let entry = entry?;
-            if !entry.key_escaped && &inner[entry.key.0..entry.key.1] == b"source" {
-                event.source = small_uint(inner, entry.value);
+            if entry.key_escaped {
+                continue;
+            }
+            match &inner[entry.key.0..entry.key.1] {
+                b"source" => event.source = small_uint(inner, entry.value),
+                b"href" | b"payload" => event.may_carry_page_url = true,
+                b"positions" => event.positions_start = u32::try_from(entry.value.0).ok(),
+                _ => {}
             }
         }
     }
@@ -359,6 +381,10 @@ mod tests {
         assert_eq!(
             read("w".repeat(MAX_WINDOW_ID_BYTES + 1)).unwrap_err(),
             ReadError::Malformed("$window_id is too long")
+        );
+        assert_eq!(
+            read("w\u{1}".to_owned()).unwrap_err(),
+            ReadError::Malformed("$window_id has a control character")
         );
     }
 

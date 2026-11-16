@@ -139,7 +139,9 @@ def _mock_cleanup(_input) -> None:
     pass
 
 
-pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
+# A timed-out test leaves its coroutine pending on a shared loop, and it would keep writing to the
+# module-level recorders while the next test runs. A loop per test cancels it at teardown.
+pytestmark = [pytest.mark.asyncio(loop_scope="function"), pytest.mark.django_db]
 
 
 class TestFollowupDeliveryFailure:
@@ -291,7 +293,6 @@ def _mock_get_context_configurable(_input) -> TaskProcessingContext:
         pr_loop_enabled=_ci_context_overrides.get("pr_loop_enabled", True),
         ci_prompt=_ci_context_overrides.get("ci_prompt"),
         use_modal_resume_snapshots=_ci_context_overrides.get("use_modal_resume_snapshots", False),
-        use_modal_directory_resume_snapshots=_ci_context_overrides.get("use_modal_directory_resume_snapshots", False),
         state=_ci_context_overrides.get("state"),
     )
 
@@ -312,7 +313,6 @@ def _mock_create_resume_snapshot(input: CreateResumeSnapshotInput) -> CreateResu
         return CreateResumeSnapshotOutput(external_id=None, error="snapshot failed", duration_ms=10)
     return CreateResumeSnapshotOutput(
         external_id=f"snapshot-{len(_snapshot_events)}",
-        snapshot_kind="directory",
         snapshot_mount_path="/tmp/workspace",
         duration_ms=10,
     )
@@ -444,7 +444,6 @@ class TestCIFollowUpLoop:
         global _snapshot_failures_remaining
         _ci_context_overrides["state"] = {"mode": "interactive"}
         _ci_context_overrides["use_modal_resume_snapshots"] = True
-        _ci_context_overrides["use_modal_directory_resume_snapshots"] = True
         _pr_context_overrides["behavior"] = "unchanged"
         _snapshot_failures_remaining = 1
 
@@ -471,7 +470,6 @@ class TestCIFollowUpLoop:
     async def test_refreshes_ci_snapshot_after_follow_up(self):
         _ci_context_overrides["state"] = {"mode": "interactive"}
         _ci_context_overrides["use_modal_resume_snapshots"] = True
-        _ci_context_overrides["use_modal_directory_resume_snapshots"] = True
         _pr_context_overrides["behavior"] = "unchanged"
 
         async with await WorkflowEnvironment.start_time_skipping() as env:

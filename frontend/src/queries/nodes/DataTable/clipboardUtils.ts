@@ -5,14 +5,9 @@ import { lemonToast } from '@posthog/lemon-ui'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
 import { extractExpressionComment, removeExpressionComment } from '~/queries/nodes/DataTable/utils'
+import { isActorsQuery, isHogQLQuery, isPersonsNode } from '~/queries/schema/node-guards'
 import { DataTableNode } from '~/queries/schema/schema-general'
-import {
-    isActorsQuery,
-    isEventsQuery,
-    isHogQLQuery,
-    isMarketingAnalyticsTableQuery,
-    isPersonsNode,
-} from '~/queries/utils'
+import { isEventsQuery, isMarketingAnalyticsTableQuery } from '~/queries/utils'
 
 import { asDisplay } from 'products/persons/frontend/person-utils'
 

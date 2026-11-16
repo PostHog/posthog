@@ -1,0 +1,8 @@
+{
+    "schemaVersion": 1,
+    "id": "ota-180-20261102",
+    "kind": "ota",
+    "runtimeVersion": "1.8.0",
+    "previousRelease": "native-180",
+    "notes": "Publish the JavaScript and assets from the 1.8.0 native release to the production update channel. Verify cold-start update delivery, report charts, Android verdict scrolling, inbox refresh and pagination, and chats on iOS and Android."
+}

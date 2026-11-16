@@ -501,28 +501,28 @@ mod test {
         );
 
         let hermes_map_fetcher = ChunkIdFetcher::new(
-            HermesMapProvider {},
+            HermesMapProvider::new(&config),
             client.clone(),
             db.clone(),
             config.object_storage_bucket.clone(),
         );
 
         let pgp = ChunkIdFetcher::new(
-            ProguardProvider {},
+            ProguardProvider::new(&config),
             client.clone(),
             db.clone(),
             config.object_storage_bucket.clone(),
         );
 
         let apple = ChunkIdFetcher::new(
-            AppleProvider {},
+            AppleProvider::new(&config),
             client.clone(),
             db.clone(),
             config.object_storage_bucket.clone(),
         );
 
         let native = ChunkIdFetcher::new(
-            NativeProvider {},
+            NativeProvider::new(&config),
             client.clone(),
             db.clone(),
             config.object_storage_bucket.clone(),

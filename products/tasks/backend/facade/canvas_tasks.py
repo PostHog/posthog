@@ -6,6 +6,7 @@ from django.db import transaction
 from products.tasks.backend.facade import api
 from products.tasks.backend.facade.contracts import TaskRunDTO
 from products.tasks.backend.models import Channel, Task
+from products.tasks.backend.task_sources import idempotency_key_q
 
 
 def create_and_run_channel_task(
@@ -32,7 +33,7 @@ def create_and_run_channel_task(
             raise ValueError("Space not found.")
 
         origin_key = f"canvas:{canvas_id}:{user_id}:{idempotency_key}"
-        existing = Task.objects.filter(team_id=team_id, origin_key=origin_key).first()
+        existing = Task.objects.filter(idempotency_key_q(origin_key), team_id=team_id).first()
         if existing is not None:
             if existing.deleted or existing.channel_id != channel.id or existing.created_by_id != user_id:
                 raise ValueError("The previous task is no longer available. Start a new request.")

@@ -20,8 +20,6 @@ from posthog.schema import (
     ExperimentMeanMetric,
     ExperimentQueryResponse,
     ExperimentStatsBaseValidated,
-    ExperimentVariantResultBayesian,
-    ExperimentVariantResultFrequentist,
 )
 
 from posthog.dataclasses import frozen
@@ -32,6 +30,7 @@ from products.experiments.backend.hogql_queries.utils import (
     metric_variant_to_cuped_data,
     metric_variant_to_statistic,
 )
+from products.experiments.backend.logic.result_stats import VariantResult
 from products.experiments.backend.metric_calculation.config import (
     MetricCalculationConfig,
     build_primary_calculation_configs,
@@ -55,8 +54,6 @@ from products.experiments.stats.shared.statistics import (
     StatisticError,
 )
 from products.feature_flags.backend.facade.edits import Split, parse_variants
-
-VariantResult = ExperimentVariantResultBayesian | ExperimentVariantResultFrequentist
 
 # A funnel's stored stats carry sample sessions per step, which can be large, and the target never reads them.
 _STATS_FIELDS = set(ExperimentStatsBaseValidated.model_fields) - {"step_sessions"}

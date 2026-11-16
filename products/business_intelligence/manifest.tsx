@@ -88,6 +88,7 @@ export const manifest: ProductManifest = {
             ],
             href: urls.businessIntelligence(),
             searchKeywords: ['bi', 'pivot table', 'chart builder'],
+            tags: ['beta'],
             flag: FEATURE_FLAGS.SQL_EDITOR_BI_MODE,
             sceneKey: 'BusinessIntelligence',
         },

@@ -1,7 +1,6 @@
 import json
 from collections.abc import Iterator
 from contextlib import nullcontext
-from ipaddress import ip_address
 from typing import Literal
 
 import pytest
@@ -12,6 +11,7 @@ from django.test import override_settings
 import httpx
 
 from posthog.llm.system_one import NoulAnswer, NoulQuestion, ScoreAnswer, ScoreQuestion
+from posthog.test.anti_ssrf import mock_anti_ssrf_dns_lookup
 
 from products.ai_observability.backend.llm.client import Client
 from products.ai_observability.backend.llm.decisions import (
@@ -41,7 +41,7 @@ def _response(status: int, body: dict[str, object] | str = "") -> httpx.Response
 @pytest.fixture(autouse=True)
 def public_endpoint_dns() -> Iterator[None]:
     with (
-        patch("posthog.security.url_validation.resolve_host_ips", return_value={ip_address("8.8.8.8")}),
+        mock_anti_ssrf_dns_lookup(resolves_to=["8.8.8.8"]),
     ):
         yield
 
@@ -302,9 +302,7 @@ def test_endpoint_resolution_errors(
 ) -> None:
     with (
         override_settings(DEBUG=False, TEST=False),
-        patch(
-            "posthog.security.url_validation.resolve_host_ips", return_value={ip_address(address)} if address else set()
-        ),
+        mock_anti_ssrf_dns_lookup(resolves_to=[address] if address else []),
         patch("httpx.AsyncHTTPTransport.handle_async_request") as request,
         pytest.raises(error_type),
     ):
@@ -397,7 +395,7 @@ def test_invalid_endpoint_is_rejected_before_sending_credentials(base_url: str) 
 def test_private_endpoint_is_blocked(base_url: str) -> None:
     with (
         override_settings(DEBUG=False, TEST=False),
-        patch("posthog.security.url_validation.resolve_host_ips", return_value={ip_address("127.0.0.1")}),
+        mock_anti_ssrf_dns_lookup(resolves_to=["127.0.0.1"]),
         patch("httpx.AsyncHTTPTransport.handle_async_request") as request,
     ):
         state, _ = DecisionClient.validate_key("example-token", base_url=base_url, model="custom-model")

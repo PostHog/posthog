@@ -23,6 +23,7 @@ from ..facade.enums import WarehouseSuggestionKind, WarehouseSuggestionStatus, W
 from ..models import WarehouseSuggestion
 from .access import CATALOG_KINDS, can_take
 from .candidates.base import CandidateContext
+from .flags import is_warehouse_suggestions_enabled
 from .payloads import payload_from_json
 
 if TYPE_CHECKING:
@@ -100,6 +101,8 @@ def _assignable_user(team: "Team", suggestion: WarehouseSuggestion, assignee_id:
 
 
 def notify_surfaced(team: "Team", assigned: Assignments, run_id: str) -> None:
+    if not is_warehouse_suggestions_enabled(team):
+        return
     for assignee, rows in assigned.items():
         _notify(
             team,

@@ -241,7 +241,7 @@ class OfflineExperimentViewSet(OfflineExperimentReadViewSet):
     @validated_request(
         UploadSubmissionSerializer,
         parameters=[EXPERIMENT_ID_PARAMETER],
-        responses={200: UploadReceiptSerializer, **ERROR_RESPONSES},
+        responses={200: UploadReceiptSerializer, 402: OfflineEvaluationErrorSerializer, **ERROR_RESPONSES},
     )
     @action(detail=True, methods=["post"])
     @llma_track_latency("aio_offline_experiment_upload")

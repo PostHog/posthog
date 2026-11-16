@@ -5,24 +5,39 @@ result lands in the inbox only. Nobody watching the issue hears anything, so a m
 outside contributor can start on work we already research. This comments a link to the report back
 on the issue, which closes that loop. Opt-in per team, because the comment is public on the issue
 thread.
+
+A scout that files a report about an issue records it as a `source_issue` artefact instead of a
+signal, so the writeback reads both (see `source_issues.py`). Anyone who files a report can name any
+URL, so a source issue gets a comment only once the team's GitHub source has ingested that issue as a
+signal. That keeps the comment on the issues the pipeline actually picked up.
 """
 
 from __future__ import annotations
 
+from collections.abc import Collection, Sequence
 from datetime import timedelta
 
 from django.utils import timezone
 
 import structlog
 
+from posthog.hogql import ast
+from posthog.hogql.query import execute_hogql_query
+
+from posthog.clickhouse.client.connection import ClickHouseUser
+from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
+from posthog.clickhouse.workload import Workload
 from posthog.egress.limiter.policies import Priority
 from posthog.models import Team
 from posthog.models.github_integration_base import GitHubIntegrationBase, PullRequestRef
 from posthog.models.integration import GitHubIntegration
 
+from products.signals.backend.artefact_schemas import SourceIssue
 from products.signals.backend.enums import SignalSourceProduct, SignalSourceType
 from products.signals.backend.models import SignalReport, SignalReportGithubComment, SignalTeamConfig
 from products.signals.backend.report_urls import ReportLinkSource, build_report_url
+from products.signals.backend.signal_metadata import EMBEDDING_MODEL, _deduped_signals_subquery, _signals_query_context
+from products.signals.backend.source_issues import source_issues_by_report
 
 logger = structlog.get_logger(__name__)
 
@@ -44,11 +59,43 @@ def _comment_body(report_url: str, marker: str) -> str:
     )
 
 
-def _issue_refs(signals: list[dict]) -> list[PullRequestRef]:
-    """The open GitHub issues among a report's signals, each one once.
+def _ingested_issue_urls(team: Team, urls: Collection[str]) -> set[str]:
+    """The issue URLs, of those given, that the team's GitHub source has ingested as a signal."""
+    if not urls:
+        return set()
+    issue_filter = (
+        "JSONExtractString(metadata, 'source_product') = 'github' "
+        "AND JSONExtractString(metadata, 'source_type') = 'issue' "
+        "AND lower(JSONExtractString(metadata, 'extra', 'html_url')) IN {urls}"
+    )
+    query = f"""
+        SELECT DISTINCT lower(JSONExtractString(metadata, 'extra', 'html_url'))
+        FROM ({_deduped_signals_subquery(include_content=False, candidate_document_filter=issue_filter)})
+        WHERE NOT JSONExtractBool(metadata, 'deleted')
+          AND {issue_filter}
+    """
+    tag_queries(product=Product.SIGNALS, feature=Feature.QUERY)
+    result = execute_hogql_query(
+        ch_user=ClickHouseUser.SIGNALS,
+        workload=Workload.OFFLINE,
+        query_type="SignalsGithubWritebackIngestedIssues",
+        query=query,
+        team=team,
+        placeholders={
+            "model_name": ast.Constant(value=EMBEDDING_MODEL.value),
+            "urls": ast.Tuple(exprs=[ast.Constant(value=url) for url in urls]),
+        },
+        context=_signals_query_context(team),
+    )
+    return {str(row[0]) for row in result.results or []}
+
+
+def _issue_refs(signals: list[dict], source_issues: Sequence[SourceIssue] = ()) -> list[PullRequestRef]:
+    """The open GitHub issues among a report's signals and its recorded source issues, each one once.
 
     A closed issue is answered already, and a locked one refuses comments, so neither is worth a
-    call.
+    call. A source issue carries no state of its own, so `_post_to_issue` reads it from GitHub
+    before it comments.
     """
     refs: dict[tuple[str, int], PullRequestRef] = {}
     for signal in signals:
@@ -63,6 +110,9 @@ def _issue_refs(signals: list[dict]) -> list[PullRequestRef]:
         ref = GitHubIntegrationBase.parse_issue_url(str(extra.get("html_url") or ""))
         if ref is not None:
             refs.setdefault((ref.repository.lower(), ref.number), ref)
+    for issue in source_issues:
+        owner, repo = issue.repository.split("/", 1)
+        refs.setdefault((issue.repository, issue.number), PullRequestRef(owner=owner, repo=repo, number=issue.number))
     return list(refs.values())
 
 
@@ -187,7 +237,8 @@ def _post_to_issue(
 
 
 def post_report_link_to_github_issues(team: Team, report_id: str, signals: list[dict]) -> int:
-    """Comment a link to a ready report on each GitHub issue that contributed to it.
+    """Comment a link to a ready report on each GitHub issue that contributed to it, or that the
+    report names as a `source_issue`.
 
     Returns the number of comments posted. Best-effort: a failure here must not fail the report's
     notification flow, so per-issue errors are logged rather than raised.
@@ -195,7 +246,11 @@ def post_report_link_to_github_issues(team: Team, report_id: str, signals: list[
     if not SignalTeamConfig.objects.filter(team_id=team.pk, github_issue_writeback_enabled=True).exists():
         return 0
 
-    refs = _issue_refs(signals)
+    source_issues = source_issues_by_report(team_id=team.pk, report_ids=[report_id]).get(report_id, [])
+    if source_issues:
+        ingested = _ingested_issue_urls(team, {issue.url for issue in source_issues})
+        source_issues = [issue for issue in source_issues if issue.url in ingested]
+    refs = _issue_refs(signals, source_issues)
     if not refs:
         return 0
 

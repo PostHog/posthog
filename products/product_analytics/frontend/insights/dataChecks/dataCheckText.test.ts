@@ -43,6 +43,13 @@ describe('dataCheckText', () => {
             'Almost none (about 1,234 events)',
         ],
         [
+            'a passed localhost check where nearly every event is local',
+            { key: 'local_development', method: 'counted', events: 950, share: 0.95 },
+            false,
+            false,
+            '95% of these events, so they come from your app',
+        ],
+        [
             'internal users on an insight that filters them out',
             { key: 'internal_users', method: 'counted' },
             true,

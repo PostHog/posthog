@@ -1,4 +1,7 @@
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
+
+import { lemonToast } from '@posthog/lemon-ui'
 
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 
@@ -7,6 +10,7 @@ import { initKeaTests } from '~/test/init'
 
 import { sourcesDataLogic } from 'products/data_warehouse/frontend/shared/logics/sourcesDataLogic'
 
+import { INBOX_EVENTS } from '../inboxAnalytics'
 import { signalSourcesLogic } from '../signalSourcesLogic'
 import { SignalSourceConfig, SignalSourceProduct, SignalSourceType } from '../types'
 import { linearTeamsModalLogic } from './linearTeamsModalLogic'
@@ -26,9 +30,15 @@ const existingConfig: SignalSourceConfig = {
 describe('linearTeamsModalLogic', () => {
     let requests: { method: string; body: Record<string, any> }[]
     let onClose: jest.Mock
+    let saveFails: boolean
+    let captureSpy: jest.SpyInstance
+    let toastSpy: jest.SpyInstance
 
     beforeEach(() => {
         requests = []
+        saveFails = false
+        captureSpy = jest.spyOn(posthog, 'capture')
+        toastSpy = jest.spyOn(lemonToast, 'success')
         useMocks({
             get: {
                 '/api/projects/:team_id/signals/source_configs/': () => [
@@ -47,7 +57,9 @@ describe('linearTeamsModalLogic', () => {
                 '/api/projects/:team_id/signals/source_configs/:id/': async ({ request }) => {
                     const body = (await request.json()) as Record<string, any>
                     requests.push({ method: 'PATCH', body })
-                    return [200, { ...existingConfig, ...body }]
+                    return saveFails
+                        ? [500, { detail: 'Unable to save source settings.' }]
+                        : [200, { ...existingConfig, ...body }]
                 },
             },
         })
@@ -59,37 +71,54 @@ describe('linearTeamsModalLogic', () => {
         // The modal logic mounts integrationsLogic, whose mount-time load must settle here, or its
         // response lands in the next test's context.
         await expectLogic(integrationsLogic).toFinishAllListeners()
+        captureSpy.mockRestore()
+        toastSpy.mockRestore()
     })
 
     it.each([
         {
             name: 'a pick from Filters keeps the other keys and leaves enabled alone',
+            message: 'Linear reads 2 teams from the next sync.',
             props: { config: existingConfig, enableOnSave: false },
             form: { scope: 'selected' as const, teamIds: ['team-1', 'team-2'] },
             expected: {
                 method: 'PATCH',
-                body: { enabled: false, config: { steering: 'Skip chores', linear_team_ids: ['team-1', 'team-2'] } },
+                body: { enabled: false, config_set: { linear_team_ids: ['team-1', 'team-2'] } },
             },
         },
         {
             name: 'reading all teams writes an empty list',
+            message: 'Linear reads all teams from the next sync.',
             props: { config: existingConfig, enableOnSave: false },
             form: { scope: 'all' as const, teamIds: ['team-1'] },
             expected: {
                 method: 'PATCH',
-                body: { enabled: false, config: { steering: 'Skip chores', linear_team_ids: [] } },
+                body: { enabled: false, config_set: { linear_team_ids: [] } },
             },
         },
         {
             name: 'the enable flow turns the source on with the pick',
+            message: 'Linear reads 1 team from the next sync.',
             props: { config: existingConfig, enableOnSave: true },
             form: { scope: 'selected' as const, teamIds: ['team-2'] },
             expected: {
                 method: 'PATCH',
-                body: { enabled: true, config: { steering: 'Skip chores', linear_team_ids: ['team-2'] } },
+                body: { enabled: true, config_set: { linear_team_ids: ['team-2'] } },
             },
         },
-    ])('$name', async ({ props, form, expected }) => {
+        {
+            name: 'a failed save records the attempted team selection',
+            message: null,
+            succeeds: false,
+            props: { config: existingConfig, enableOnSave: false },
+            form: { scope: 'selected' as const, teamIds: ['team-1', 'team-2'] },
+            expected: {
+                method: 'PATCH',
+                body: { enabled: false, config_set: { linear_team_ids: ['team-1', 'team-2'] } },
+            },
+        },
+    ])('$name', async ({ props, form, expected, message, succeeds = true }) => {
+        saveFails = !succeeds
         const sourcesLogic = signalSourcesLogic()
         sourcesLogic.mount()
         await expectLogic(sourcesLogic, () => sourcesLogic.actions.loadSourceConfigs()).toDispatchActions([
@@ -101,11 +130,23 @@ describe('linearTeamsModalLogic', () => {
         logic.actions.setLinearTeamsValues(form)
         await expectLogic(logic, () => logic.actions.submitLinearTeams()).toDispatchActions([
             'submitLinearTeamsSuccess',
-            'toggleSignalSourceSuccess',
+            succeeds ? 'toggleSignalSourceSuccess' : 'toggleSignalSourceFailure',
         ])
 
         expect(requests).toEqual([expected])
-        expect(onClose).toHaveBeenCalledTimes(1)
+        expect(onClose).toHaveBeenCalledTimes(succeeds ? 1 : 0)
+        if (succeeds) {
+            expect(toastSpy).toHaveBeenCalledWith(message)
+        }
+        expect(captureSpy).toHaveBeenCalledWith(
+            INBOX_EVENTS.SOURCE_FILTERS_CHANGED,
+            expect.objectContaining({
+                selected_count: form.scope === 'all' ? 0 : form.teamIds.length,
+                reads_everything: form.scope === 'all',
+                success: succeeds,
+            }),
+            undefined
+        )
     })
 
     it.each([
