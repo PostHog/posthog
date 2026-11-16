@@ -198,10 +198,6 @@ Check current rates on the provider's pricing page before quoting.
 
 These change the verdict and are easy to miss:
 
-- **Identified events.**
-  Quick builds usually handle anonymous events only.
-  If most of their volume is identified, the build has to merge anonymous and identified users and keep person profiles.
-  Don't let an anonymous-only demo lower the build headcount.
 - **Migration cost.**
   Count the one-off work: re-instrumenting or redirecting SDKs, rebuilding the dashboards and insights people use, backfilling history, and running both systems side by side until the numbers match.
 - **Who asks for features next.**
