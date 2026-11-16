@@ -48,6 +48,15 @@ def revoke_dev_tokens_for_ineligible_owner(user_id: int) -> int:
     return logic.revoke_for_ineligible_owner(user_id)
 
 
+def revoke_dev_token_hashes(token_hashes: list[str]) -> None:
+    """Raises `contracts.DevTokenRefused` when the gateway fails."""
+    logic.revoke_hashes(token_hashes)
+
+
+def sweep_ineligible_dev_token_owners() -> int:
+    return logic.sweep_ineligible_owners()
+
+
 def authorize_cli(user: User, code_challenge: str, request: contracts.DevTokenRequest | None = None) -> str:
     return logic.authorize_cli(user, code_challenge, request)
 

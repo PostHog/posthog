@@ -333,6 +333,11 @@ def mint(user: User, client: DevTokenClient, request: DevTokenRequest | None = N
                 Change(type="DevGatewayToken", action="created", field="expires_at", after=row.expires_at.isoformat()),
             ],
         )
+        # A deactivation that lands while the gateway call is in flight finds no hash to revoke, so the
+        # mint checks again now that the hash is stored.
+        if ineligible_owner(user.pk) is not None:
+            revoke(user, str(row.id), by_system=True)
+            raise DevTokenRefused("not_staff", "Developer mode is only available to PostHog staff.", 403)
     logger.info("ai_gateway_dev_token_minted", user_id=user.pk, token_id=str(row.id), client=client.value)
     assert row.expires_at is not None
     return MintedDevToken(
@@ -568,13 +573,71 @@ def _spent_usd(row: DevGatewayToken, remaining: dict[str, Decimal]) -> Decimal |
     return max(Decimal("0"), row.cap_usd - left)
 
 
+def ineligible_owner(user_id: int) -> User | None:
+    """The user, read from the primary, when they no longer qualify to hold tokens."""
+    user = User.objects.using("default").filter(pk=user_id).first()
+    if user is None:
+        return None
+    refusal = eligibility_refusal(user)
+    return user if refusal is not None and refusal.code == "not_staff" else None
+
+
 def revoke_for_ineligible_owner(user_id: int) -> int:
-    """Revokes every live token of a user who was deactivated or lost staff, logged as a system action.
+    """Revokes every live token of a user who no longer qualifies, logged as a system action.
     Raises DevTokenRefused when the gateway fails, so the caller can retry."""
-    user = User.objects.filter(pk=user_id).first()
-    if user is None or not configured() or (user.is_active and user.is_staff):
+    if not configured():
         return 0
-    return revoke(user, None, by_system=True)
+    user = ineligible_owner(user_id)
+    return 0 if user is None else revoke(user, None, by_system=True)
+
+
+def live_token_hashes(user_id: int) -> list[str]:
+    with team_scope(settings.DEV_GATEWAY_TEAM_ID):
+        return [
+            token_hash
+            for token_hash in DevGatewayToken.objects.filter(
+                user_id=user_id, token_hash__isnull=False, revoked_at__isnull=True, expires_at__gt=timezone.now()
+            ).values_list("token_hash", flat=True)
+            if token_hash
+        ]
+
+
+def revoke_hashes(token_hashes: list[str]) -> None:
+    """Revokes tokens whose rows are gone, such as a deleted user's. Raises DevTokenRefused so the caller can retry."""
+    if not token_hashes or not configured():
+        return
+    try:
+        response = _gateway_post("/v1/tokens/revoke", {"token_hashes": token_hashes})
+    except requests.RequestException as e:
+        logger.warning("ai_gateway_dev_revoke_hashes_unreachable", exc_info=True)
+        raise DevTokenRefused("revoke_failed", "Couldn't reach the AI gateway.", 503) from e
+    if response.status_code != 200:
+        logger.warning("ai_gateway_dev_revoke_hashes_refused", status=response.status_code)
+        raise DevTokenRefused(
+            "revoke_failed", f"The AI gateway rejected the revoke (HTTP {response.status_code}).", 503
+        )
+    logger.info("ai_gateway_dev_token_hashes_revoked", count=len(token_hashes))
+
+
+def sweep_ineligible_owners() -> int:
+    """Backstop for revokes the user save hook missed: a lost broker message, a race, or an email moved off
+    the staff domain. Returns how many owners it revoked for."""
+    if not configured():
+        return 0
+    with team_scope(settings.DEV_GATEWAY_TEAM_ID):
+        owner_ids = set(
+            DevGatewayToken.objects.filter(
+                token_hash__isnull=False, revoked_at__isnull=True, expires_at__gt=timezone.now()
+            ).values_list("user_id", flat=True)
+        )
+    revoked_for = 0
+    for owner_id in owner_ids:
+        try:
+            if revoke_for_ineligible_owner(owner_id):
+                revoked_for += 1
+        except DevTokenRefused:
+            logger.warning("ai_gateway_dev_sweep_revoke_failed", user_id=owner_id)
+    return revoked_for
 
 
 def revoke(user: User, token_id: str | None, *, by_system: bool = False) -> int:

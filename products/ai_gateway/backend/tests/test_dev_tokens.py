@@ -26,6 +26,7 @@ from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.organization import Organization
 from posthog.models.user import User
 
+from products.ai_gateway.backend.facade.api import sweep_ineligible_dev_token_owners
 from products.ai_gateway.backend.models import DevGatewayToken
 
 _POST = "products.ai_gateway.backend.logic.requests.post"
@@ -637,6 +638,71 @@ class TestDevTokens(_DevGatewaySettings):
         assert self._rows(pk=row.pk).get().revoked_at is not None
         entry = ActivityLog.objects.get(scope="DevGatewayToken", item_id=str(row.id), activity="revoked")
         assert entry.user_id is None
+
+    def test_revoke_is_queued_only_after_the_deactivation_is_written(self):
+        self._live_token()
+        seen_active: list[bool] = []
+
+        def record(user_id):
+            seen_active.append(User.objects.filter(pk=user_id).values_list("is_active", flat=True).get())
+
+        # Runs on_commit callbacks at once, as autocommit does outside a transaction.
+        with (
+            patch("products.ai_gateway.backend.receivers.transaction.on_commit", lambda func, robust=False: func()),
+            patch("products.ai_gateway.backend.tasks.tasks.revoke_dev_tokens_for_ineligible_owner.delay", record),
+        ):
+            self.user.is_active = False
+            self.user.save()
+
+        assert seen_active == [False]
+
+    def test_mint_that_lands_after_deactivation_is_revoked_and_refused(self):
+        def gateway(url, **kwargs):
+            if url.endswith("/v1/tokens"):
+                User.objects.filter(pk=self.user.pk).update(is_active=False)
+                return _minted("phe_late")
+            return _revoked("phe_late", "25")
+
+        with patch(_POST, side_effect=gateway) as post:
+            response = self.client.post(URL)
+
+        assert response.status_code == 403
+        assert response.json()["code"] == "not_staff"
+        assert post.call_args.args[0] == "https://ai-gateway.test/v1/tokens/revoke"
+        assert self._rows(user=self.user).get().revoked_at is not None
+
+    def test_deleting_a_user_revokes_their_live_tokens_by_hash(self):
+        row = self._live_token()
+
+        with (
+            self.settings(CELERY_TASK_ALWAYS_EAGER=True),
+            patch(_POST, return_value=_response(200, {"revoked_count": 1})) as post,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            self.user.delete()
+
+        assert post.call_args.args[0] == "https://ai-gateway.test/v1/tokens/revoke"
+        assert post.call_args.kwargs["json"] == {"token_hashes": [row.token_hash]}
+
+    def test_sweep_revokes_owners_who_no_longer_qualify(self):
+        moved = User.objects.create_and_join(self.organization, "moved@posthog.com", None, is_staff=True)
+        moved_row = self._rows().create(
+            team=self.team,
+            user=moved,
+            client="web",
+            cap_usd=Decimal("25"),
+            token_hash="f" * 64,
+            expires_at=timezone.now() + timedelta(days=3),
+        )
+        kept_row = self._live_token()
+        User.objects.filter(pk=moved.pk).update(email="moved@example.com")
+
+        with patch(_POST, return_value=_revoked("unused", "25")) as post:
+            assert sweep_ineligible_dev_token_owners() == 1
+
+        assert post.call_args.kwargs["json"] == {"token_hashes": [moved_row.token_hash]}
+        assert self._rows(pk=moved_row.pk).get().revoked_at is not None
+        assert self._rows(pk=kept_row.pk).get().revoked_at is None
 
     def test_saves_that_keep_eligibility_or_were_never_eligible_revoke_nothing(self):
         self._live_token()
