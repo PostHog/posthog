@@ -73,6 +73,7 @@ type Stack = {
         Resources: Record<string, { Type: string; Condition?: string; Properties: Record<string, unknown> }>
     }
     resources: Resource[]
+    deniedHost?: boolean
 }
 
 const DELETED_STATES = new Set(['gone', 'terminated', 'deleted'])
@@ -85,6 +86,7 @@ const EXIT_INVALID = 2
 const INVOCATION_LAG_MS = 20_000
 const SYSTEMD_STOP_TIMEOUT_MS = 90_000
 const DEFAULT_DELIVERY_TIMEOUT_S = 3600
+const HOST_LAUNCH_TEMPLATE = { id: 'lt-0000000000000000a', version: '1' }
 const FAILOVER_CARD = 'cyclotron-failover-under-load'
 const FAILOVER_AFTER_MS = 15 * MINUTE_MS
 const STATUSES = ['passed', 'failed', 'invalid', 'passed']
@@ -397,6 +399,10 @@ export class FakeCloud implements Aws {
                     seeded: this.backlogSeeded(),
                 })
             } else if (Type === 'AWS::EC2::Instance') {
+                if (!this.serviceRoleAllowsHost(Properties, stack.parameters)) {
+                    stack.deniedHost = true
+                    continue
+                }
                 const instanceId = `i-${randomUUID().replace(/-/g, '').slice(0, 17)}`
                 const volumeId = `vol-${randomUUID().replace(/-/g, '').slice(0, 17)}`
                 created.push(
@@ -715,7 +721,7 @@ export class FakeCloud implements Aws {
             return
         }
         stack.settlesAt = Infinity
-        if (stack.status === 'CREATE_IN_PROGRESS' && this.options.rollsBack === 'create') {
+        if (stack.status === 'CREATE_IN_PROGRESS' && (this.options.rollsBack === 'create' || stack.deniedHost)) {
             this.removeResources(stack, ({ type }) => !(this.options.outlives ?? []).includes(type))
             this.stacks.delete(name)
         } else if (stack.status === 'CREATE_IN_PROGRESS') {
@@ -760,6 +766,23 @@ export class FakeCloud implements Aws {
             }
             this.stacks.delete(name)
         }
+    }
+
+    private serviceRoleAllowsHost(properties: Record<string, unknown>, parameters: Record<string, string>): boolean {
+        const resolved = (value: unknown): unknown =>
+            typeof value === 'object' && value !== null && 'Ref' in value
+                ? parameters[(value as { Ref: string }).Ref]
+                : value
+        const template = (properties.LaunchTemplate ?? {}) as Record<string, unknown>
+        const metadata = (properties.MetadataOptions ?? {}) as Record<string, unknown>
+        return (
+            resolved(template.LaunchTemplateId) === HOST_LAUNCH_TEMPLATE.id &&
+            resolved(template.Version) === HOST_LAUNCH_TEMPLATE.version &&
+            properties.BlockDeviceMappings === undefined &&
+            properties.Volumes === undefined &&
+            metadata.HttpTokens === 'required' &&
+            metadata.HttpPutResponseHopLimit === 1
+        )
     }
 
     private removeResources(stack: Stack, removed: (resource: Resource) => boolean): void {
