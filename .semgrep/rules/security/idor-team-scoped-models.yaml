@@ -1390,7 +1390,6 @@ rules:
                         |TeamDefaultEvaluationContext
                         |TeamEventsPlanDeletion
                         |TeamEventsRetentionConfig
-                        |TeamEventsTableConfig
                         |TeamEventVolume
                         |TeamExperimentsConfig
                         |TeamFeatureFlagDefaultsConfig
