@@ -309,6 +309,16 @@ class TestCustomizeSourceDestination(BaseTest):
         with self.assertRaises(AlertDestinationValidationError):
             self._reset(hog_function_ids)
 
+    def test_reset_is_refused_for_a_hog_function_that_never_receives_the_alert(self) -> None:
+        hog_function_ids = self._hog_functions(DestinationType.WEBHOOK)
+        planted = HogFunction.objects.get(id=hog_function_ids[0])
+        planted.filters = {key: value for key, value in (planted.filters or {}).items() if key != "source"}
+        planted.save(update_fields=["filters"])
+
+        with self.assertRaises(AlertDestinationValidationError):
+            self._reset(hog_function_ids)
+        assert HogFunction.objects.filter(id__in=hog_function_ids, deleted=False).count() == 2
+
         assert self._senders() == ["hog_functions:webhook"]
 
     def test_reset_sends_a_secret_header_over_an_added_one_of_the_same_name(self) -> None:
