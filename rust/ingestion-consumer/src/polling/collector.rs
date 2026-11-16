@@ -2,12 +2,14 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
-use common_kafka_consumer::{Charge, Partition, TopicPartition};
+use common_kafka_consumer::{Charge, Offset, Partition, TopicPartition};
 use metrics::counter;
 use rdkafka::message::{Headers, Message};
 use tokio::time::Instant;
+use tracing::warn;
 
 use super::poll::{BatchStats, CollectedBatch, Delivery, PartitionDeliveries};
+use super::redelivery::RedeliveryFilter;
 use crate::types::{Accumulator, SerializedKafkaMessage};
 
 #[derive(Debug, Clone, Copy)]
@@ -26,6 +28,7 @@ pub(crate) struct Collector {
     stats: BatchStats,
     started_ms: i64,
     current_topic: Option<Arc<str>>,
+    redeliveries: RedeliveryFilter,
 }
 
 impl Collector {
@@ -38,21 +41,39 @@ impl Collector {
             stats: BatchStats::default(),
             started_ms: 0,
             current_topic: None,
+            redeliveries: RedeliveryFilter::default(),
         }
     }
 
     /// The first message of a poll starts its batch timeout.
     pub(crate) fn add(&mut self, message: &impl Message, now: Instant) {
-        if self.deadline.is_none() {
-            self.deadline = Some(now + self.limits.batch_timeout);
-            self.started_ms = current_time_ms();
-        }
         if self.current_topic.as_deref() != Some(message.topic()) {
             self.current_topic = Some(Arc::from(message.topic()));
         }
         let topic = Arc::clone(self.current_topic.as_ref().expect("set above"));
         let partition = message.partition();
         let offset = message.offset();
+        let key = TopicPartition::new(topic.to_string(), partition);
+        if !self.redeliveries.admit(&key, Offset(offset)) {
+            let partition_label: Arc<str> = Arc::from(partition.to_string());
+            counter!(
+                "ingestion_consumer_redelivered_messages_total",
+                "topic" => Arc::clone(&topic),
+                "partition" => partition_label,
+            )
+            .increment(1);
+            warn!(
+                topic = %topic,
+                partition,
+                offset,
+                "Dropped a message Kafka delivered twice"
+            );
+            return;
+        }
+        if self.deadline.is_none() {
+            self.deadline = Some(now + self.limits.batch_timeout);
+            self.started_ms = current_time_ms();
+        }
         let kafka_ts = message.timestamp().to_millis().unwrap_or(0);
 
         let payload_bytes = message.payload().map(|v| v.len()).unwrap_or(0);
@@ -85,7 +106,6 @@ impl Collector {
             kafka_ts,
             lag_ms,
         };
-        let key = TopicPartition::new(topic.to_string(), partition);
         match self.partitions.get_mut(&key) {
             Some(deliveries) => deliveries.record(&delivery),
             None => {
@@ -136,6 +156,7 @@ impl Collector {
     pub(crate) fn remove_partitions(&mut self, topic_partitions: &[TopicPartition]) -> usize {
         let mut removed = 0;
         for topic_partition in topic_partitions {
+            self.redeliveries.forget(topic_partition);
             let Some(deliveries) = self.partitions.remove(topic_partition) else {
                 continue;
             };

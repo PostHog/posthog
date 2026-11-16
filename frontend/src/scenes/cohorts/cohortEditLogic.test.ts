@@ -234,11 +234,15 @@ describe('cohortEditLogic', () => {
             state: 'building',
             ready_at: null,
             build: { phase: 'scanning', percent_complete: 40, updated_at: '2026-09-15T10:00:00Z' },
+            reason: null,
+            history_limit_days: null,
         }
         const readyRealtime: CohortRealtimeReadinessApi = {
             state: 'ready',
             ready_at: '2026-09-15T10:20:00Z',
             build: null,
+            reason: null,
+            history_limit_days: null,
         }
         const criteriaGroupKeys = (): (string | undefined)[] =>
             logic.values.cohort.filters.properties.values.map((group) => (group as CohortCriteriaGroupFilter).sort_key)
@@ -275,6 +279,42 @@ describe('cohortEditLogic', () => {
                     }),
                 })
             expect(criteriaGroupKeys()).toEqual(keysBeforePoll)
+        })
+
+        it('merges a turn-on without discarding unsaved criteria', async () => {
+            let nextKey = 0
+            ;(uuidv4 as jest.Mock).mockImplementation(() => `criteria-key-${nextKey++}`)
+            const offRealtime: CohortRealtimeReadinessApi = { ...readyRealtime, state: 'off', ready_at: null }
+            useMocks({
+                get: { '/api/projects/:team_id/cohorts/:id/': { ...mockCohort, realtime: offRealtime } },
+                post: {
+                    '/api/projects/:team_id/cohorts/:id/realtime/': {
+                        ...mockCohort,
+                        realtime_enabled: true,
+                        realtime: buildingRealtime,
+                    },
+                },
+            })
+            await initCohortLogic({ id: 1 })
+            await expectLogic(logic, () => {
+                logic.actions.setCohort({ ...mockCohort, realtime: offRealtime })
+                logic.actions.setOuterGroupsType(FilterLogicalOperator.And)
+            }).toMatchValues({ realtimeSwitchAction: 'turn_on' })
+            const keysBeforeTurnOn = criteriaGroupKeys()
+
+            await expectLogic(logic, () => {
+                logic.actions.switchRealtime(true)
+            })
+                .toFinishAllListeners()
+                .toMatchValues({
+                    cohort: partial({
+                        realtime_enabled: true,
+                        realtime: buildingRealtime,
+                        filters: partial({ properties: partial({ type: FilterLogicalOperator.And }) }),
+                    }),
+                    realtimeSwitchAction: 'turn_off',
+                })
+            expect(criteriaGroupKeys()).toEqual(keysBeforeTurnOn)
         })
 
         it('drops a readiness the save it crossed has already replaced', async () => {
@@ -367,7 +407,13 @@ describe('cohortEditLogic', () => {
             try {
                 logic.actions.armRealtimeReadinessPoll()
 
-                served = { state: 'needs_attention', ready_at: null, build: null }
+                served = {
+                    state: 'needs_attention',
+                    ready_at: null,
+                    build: null,
+                    reason: null,
+                    history_limit_days: null,
+                }
                 await jest.advanceTimersByTimeAsync(REALTIME_POLL_INTERVAL_MS)
                 expect(detailFetches).toBe(afterMount + 1)
 
@@ -1242,6 +1288,79 @@ describe('cohortEditLogic', () => {
                 fallbackErrorMessage:
                     'There was an error submitting this cohort. Make sure the cohort filters are correct.',
             })
+        })
+    })
+
+    describe('CSV upload', () => {
+        const savedCohort = {
+            ...mockCohort,
+            id: 1,
+            name: 'Saved name',
+            description: 'Saved description',
+            is_static: true,
+        }
+
+        it('uploads only the CSV, preserves unsaved cohort details and closes the modal', async () => {
+            await initCohortLogic({ id: 1 })
+            const updateSpy = jest.spyOn(api.cohorts, 'update').mockResolvedValue(savedCohort)
+            const csv = new File(['person@example.com'], 'people.csv', { type: 'text/csv' })
+
+            await expectLogic(logic, () => {
+                logic.actions.setCohort({
+                    ...savedCohort,
+                    name: 'Unsaved name',
+                    description: 'Unsaved description',
+                    csv,
+                })
+                logic.actions.setCsvUploadModalOpen(true)
+                logic.actions.uploadCohortCsv()
+            }).toDispatchActions(['setCohort', 'uploadCohortCsv', 'saveCohort', 'saveCohortSuccess'])
+
+            expect(updateSpy).toHaveBeenCalledTimes(1)
+            const formData = updateSpy.mock.calls[0][1] as FormData
+            expect([...formData.keys()]).toEqual(['csv'])
+            expect(formData.get('csv')).toBe(csv)
+            expect(logic.values.cohort.name).toBe('Unsaved name')
+            expect(logic.values.cohort.description).toBe('Unsaved description')
+            expect(logic.values.csvUploadModalOpen).toBe(false)
+
+            updateSpy.mockRestore()
+        })
+
+        it('keeps the modal open when the upload fails', async () => {
+            await initCohortLogic({ id: 1 })
+            const updateSpy = jest.spyOn(api.cohorts, 'update').mockRejectedValue({ detail: 'Upload failed' })
+            const csv = new File(['person@example.com'], 'people.csv', { type: 'text/csv' })
+
+            await expectLogic(logic, () => {
+                logic.actions.setCohort({ ...savedCohort, csv })
+                logic.actions.setCsvUploadModalOpen(true)
+                logic.actions.uploadCohortCsv()
+            }).toDispatchActions(['uploadCohortCsv', 'saveCohort', 'saveCohortSuccess'])
+
+            // The loader catch path keeps the csv on the cohort, which keeps the modal open for a retry.
+            expect(logic.values.csvUploadModalOpen).toBe(true)
+            expect(logic.values.cohort.csv).toBe(csv)
+
+            updateSpy.mockRestore()
+        })
+
+        it('does not start the upload when the CSV exceeds the size limit', async () => {
+            await initCohortLogic({ id: 1 })
+            const updateSpy = jest.spyOn(api.cohorts, 'update').mockResolvedValue(savedCohort)
+            const csv = new File(['person@example.com'], 'people.csv', { type: 'text/csv' })
+            Object.defineProperty(csv, 'size', { value: logic.values.csvMaxBytes + 1 })
+
+            await expectLogic(logic, () => {
+                logic.actions.setCohort({ ...savedCohort, csv })
+                logic.actions.setCsvUploadModalOpen(true)
+                logic.actions.uploadCohortCsv()
+            }).toDispatchActions(['uploadCohortCsv'])
+
+            expect(updateSpy).not.toHaveBeenCalled()
+            expect(logic.values.csvUploadModalOpen).toBe(true)
+
+            updateSpy.mockRestore()
         })
     })
 

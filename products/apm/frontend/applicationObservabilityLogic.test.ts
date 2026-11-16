@@ -10,8 +10,14 @@ import {
     APPLICATION_OBSERVABILITY_PATH,
     applicationObservabilityLogic,
     drillDownParams,
+    metricsDrillDownUrl,
 } from './applicationObservabilityLogic'
-import type { ServicesHealthResponseApi } from './generated/api.schemas'
+import type {
+    EndpointsHealthResponseApi,
+    ServiceMapResponseApi,
+    ServicesHealthResponseApi,
+    ServiceUsageResponseApi,
+} from './generated/api.schemas'
 
 const row = (service_name: string, status: 'good' | 'warning' | 'serious' | 'critical'): any => ({
     service_name,
@@ -29,17 +35,70 @@ const RESPONSE: ServicesHealthResponseApi = {
     date_to: '2026-06-02T08:00:00Z',
 }
 
+const ENDPOINTS_RESPONSE: EndpointsHealthResponseApi = {
+    results: [
+        {
+            service_name: 'queue',
+            endpoint: 'orders process',
+            environment: 'prod',
+            status: 'serious',
+            health: { request_rate: 1, error_rate: 0.5, p95_ms: 10, span_count: 2, error_count: 1 },
+        },
+    ],
+    environment: 'prod',
+    service: null,
+    date_from: '2026-06-02T07:00:00Z',
+    date_to: '2026-06-02T08:00:00Z',
+}
+
+const MAP_RESPONSE: ServiceMapResponseApi = {
+    edges: [{ caller: 'web', callee: 'queue', calls: 10, error_count: 1, p95_ms: 5 }],
+    trace_count: 10,
+    environment: 'prod',
+    date_from: '2026-06-02T07:00:00Z',
+    date_to: '2026-06-02T08:00:00Z',
+}
+
+const USAGE_RESPONSE: ServiceUsageResponseApi = {
+    results: [
+        { service_name: 'proxy', log_records: 2, log_bytes: 10000, spans: 0, metric_points: 0, metric_series: 0 },
+        { service_name: 'api', log_records: 0, log_bytes: 0, spans: 7, metric_points: 12, metric_series: 3 },
+    ],
+    totals: { log_records: 2, log_bytes: 10000, spans: 7, metric_points: 12, metric_series: 3 },
+    unavailable_signals: [],
+    date_from: '2026-06-02T07:00:00Z',
+    date_to: '2026-06-02T08:00:00Z',
+}
+
 describe('applicationObservabilityLogic', () => {
     let logic: ReturnType<typeof applicationObservabilityLogic.build>
     let requests: string[]
+    let endpointRequests: string[]
+    let mapRequests: string[]
+    let usageRequests: string[]
 
     beforeEach(async () => {
         requests = []
+        endpointRequests = []
+        mapRequests = []
+        usageRequests = []
         useMocks({
             get: {
                 '/api/projects/:team_id/apm/services/': ({ request }) => {
                     requests.push(new URL(request.url).search)
                     return [200, RESPONSE]
+                },
+                '/api/projects/:team_id/apm/endpoints/': ({ request }) => {
+                    endpointRequests.push(new URL(request.url).search)
+                    return [200, ENDPOINTS_RESPONSE]
+                },
+                '/api/projects/:team_id/apm/service_map/': ({ request }) => {
+                    mapRequests.push(new URL(request.url).search)
+                    return [200, MAP_RESPONSE]
+                },
+                '/api/projects/:team_id/apm/usage/': ({ request }) => {
+                    usageRequests.push(new URL(request.url).search)
+                    return [200, USAGE_RESPONSE]
                 },
             },
         })
@@ -123,5 +182,153 @@ describe('applicationObservabilityLogic', () => {
     it('keeps a service name with a comma as one service in drill-down links', () => {
         const params = new URLSearchParams(drillDownParams('checkout,v2', '-1h'))
         expect(parseTagsFilter(params.get('serviceNames'))).toEqual(['checkout,v2'])
+    })
+
+    it('keeps a service name with quotes and commas as one metrics filter value', () => {
+        const url = new URL(metricsDrillDownUrl('checkout,"v2"', '-24h'), 'http://localhost')
+        const filterGroup = JSON.parse(url.searchParams.get('filterGroup') ?? '{}')
+        expect(filterGroup.values[0].values[0]).toMatchObject({ key: 'service_name', value: ['checkout,"v2"'] })
+        expect(url.searchParams.get('dateFrom')).toBe('-24h')
+    })
+
+    describe('tabs', () => {
+        it('opens on the services tab and does not load other tabs until they are open', async () => {
+            await expectLogic(logic).toDispatchActions(['loadServicesHealthSuccess'])
+            expect(logic.values.tab).toBe('services')
+            expect(endpointRequests).toHaveLength(0)
+            expect(mapRequests).toHaveLength(0)
+            expect(usageRequests).toHaveLength(0)
+        })
+
+        it('loads usage for every environment when the usage tab opens from the URL', async () => {
+            router.actions.push(APPLICATION_OBSERVABILITY_PATH, { tab: 'usage', environment: 'staging' })
+            await expectLogic(logic).toDispatchActions(['loadServiceUsageSuccess'])
+            expect(logic.values.usageRows.map((row) => row.service_name)).toEqual(['proxy', 'api'])
+            expect(usageRequests).toHaveLength(1)
+            expect(usageRequests[0]).toContain('date_from=')
+            expect(usageRequests[0]).not.toContain('environment=')
+        })
+
+        it('skips service health while usage is open and loads it when a health tab opens', async () => {
+            router.actions.push(APPLICATION_OBSERVABILITY_PATH, { tab: 'usage' })
+            await expectLogic(logic).toDispatchActions(['loadServiceUsageSuccess'])
+            requests.length = 0
+
+            logic.actions.setTimeRange('-24h')
+            await expectLogic(logic).toDispatchActions(['loadServiceUsageSuccess'])
+            expect(requests).toHaveLength(0)
+
+            logic.actions.setTab('services')
+            await expectLogic(logic).toDispatchActions(['loadServicesHealthSuccess'])
+            expect(requests).toHaveLength(1)
+        })
+
+        it('keeps the last usage rows and flags the failure when a usage refresh fails', async () => {
+            router.actions.push(APPLICATION_OBSERVABILITY_PATH, { tab: 'usage' })
+            await expectLogic(logic).toDispatchActions(['loadServiceUsageSuccess'])
+            expect(logic.values.usageLoadError).toBe(false)
+
+            useMocks({ get: { '/api/projects/:team_id/apm/usage/': () => [500, { detail: 'boom' }] } })
+            logic.actions.loadServiceUsage()
+            await expectLogic(logic).toDispatchActions(['loadServiceUsageFailure'])
+
+            expect(logic.values.usageLoadError).toBe(true)
+            expect(logic.values.usageRows).toHaveLength(2)
+        })
+
+        it('ignores an unknown tab in the URL', async () => {
+            router.actions.push(APPLICATION_OBSERVABILITY_PATH, { tab: 'toString' })
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.tab).toBe('services')
+        })
+
+        it('loads endpoints for the environment and window when the endpoints tab opens from the URL', async () => {
+            router.actions.push(APPLICATION_OBSERVABILITY_PATH, { tab: 'endpoints', environment: 'staging' })
+            await expectLogic(logic).toDispatchActions(['loadEndpointsHealthSuccess'])
+            expect(logic.values.tab).toBe('endpoints')
+            expect(logic.values.endpoints).toHaveLength(1)
+            expect(endpointRequests).toHaveLength(1)
+            expect(endpointRequests[0]).toContain('environment=staging')
+            expect(endpointRequests[0]).toContain('date_from=')
+            expect(endpointRequests[0]).not.toContain('service=')
+        })
+
+        it('writes the tab to the URL and loads endpoints once', async () => {
+            await expectLogic(logic).toDispatchActions(['loadServicesHealthSuccess'])
+            logic.actions.setTab('endpoints')
+            await expectLogic(logic).toDispatchActions(['loadEndpointsHealthSuccess'])
+            expect(router.values.searchParams).toMatchObject({ tab: 'endpoints' })
+            expect(endpointRequests).toHaveLength(1)
+
+            logic.actions.setTab('services')
+            expect(router.values.searchParams.tab).toBeUndefined()
+        })
+
+        it('shows the endpoints of one service from a services row', async () => {
+            await expectLogic(logic).toDispatchActions(['loadServicesHealthSuccess'])
+            const servicesRequestsBefore = requests.length
+            logic.actions.showServiceEndpoints('web')
+            await expectLogic(logic).toDispatchActions(['loadEndpointsHealthSuccess'])
+            expect(router.values.searchParams).toMatchObject({ tab: 'endpoints', service: 'web' })
+            expect(endpointRequests[endpointRequests.length - 1]).toContain('service=web')
+
+            logic.actions.setEndpointsService(null)
+            await expectLogic(logic).toDispatchActions(['loadEndpointsHealthSuccess'])
+            expect(router.values.searchParams.service).toBeUndefined()
+            expect(endpointRequests[endpointRequests.length - 1]).not.toContain('service=')
+            // The service filter only narrows endpoints, so service health must not reload with it.
+            expect(requests.length).toBe(servicesRequestsBefore)
+        })
+
+        it('loads the map for the environment and lays out every service node', async () => {
+            router.actions.push(APPLICATION_OBSERVABILITY_PATH, { tab: 'map', environment: 'staging' })
+            await expectLogic(logic).toDispatchActions(['loadServiceMapSuccess', 'layoutServiceMapSuccess'])
+            await expectLogic(logic).toFinishAllListeners()
+            expect(mapRequests).toHaveLength(1)
+            expect(mapRequests[0]).toContain('environment=staging')
+            expect(logic.values.serviceMap?.trace_count).toBe(10)
+            const nodes = logic.values.serviceMapLayout?.nodes ?? []
+            expect(nodes.map((node) => node.id).sort()).toEqual(['api', 'queue', 'web'])
+            for (const node of nodes) {
+                expect(Number.isFinite(node.position.x)).toBe(true)
+                expect(Number.isFinite(node.position.y)).toBe(true)
+            }
+        })
+
+        it('drops health from map nodes when the health refresh for a new environment fails', async () => {
+            router.actions.push(APPLICATION_OBSERVABILITY_PATH, { tab: 'map' })
+            await expectLogic(logic).toDispatchActions(['layoutServiceMapSuccess'])
+            await expectLogic(logic).toFinishAllListeners()
+            const nodeHealth = (): Record<string, string | null> =>
+                Object.fromEntries(
+                    (logic.values.serviceMapLayout?.nodes ?? []).map((node) => [
+                        node.id,
+                        node.data.service?.status ?? null,
+                    ])
+                )
+            expect(nodeHealth().queue).toBe('serious')
+
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/apm/services/': () => [500, { detail: 'boom' }],
+                    '/api/projects/:team_id/apm/service_map/': () => [200, MAP_RESPONSE],
+                },
+            })
+            logic.actions.setEnvironment('staging')
+            await expectLogic(logic).toDispatchActions(['loadServicesHealthFailure'])
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(nodeHealth()).toEqual({ queue: null, web: null })
+            expect(logic.values.serviceMapWarning).toBe('health')
+        })
+
+        it('reports a layout failure instead of an empty map', async () => {
+            router.actions.push(APPLICATION_OBSERVABILITY_PATH, { tab: 'map' })
+            await expectLogic(logic).toDispatchActions(['layoutServiceMapSuccess'])
+            expect(logic.values.serviceMapWarning).toBeNull()
+
+            logic.actions.layoutServiceMapFailure('elk failed')
+            expect(logic.values.serviceMapWarning).toBe('layout')
+        })
     })
 })

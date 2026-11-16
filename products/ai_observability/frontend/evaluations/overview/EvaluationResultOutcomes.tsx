@@ -56,11 +56,11 @@ export function EvaluationResultOutcomes({
                     </span>
                 ))}
             </div>
-            <div className="text-xs text-secondary">
-                {outside.length > 0
-                    ? `Not in the rate: ${outside.map(([label, count]) => `${humanFriendlyNumber(count)} ${label}`).join(' · ')}`
-                    : 'Every graded run counts toward the rate.'}
-            </div>
+            {outside.length > 0 && (
+                <div className="text-xs text-secondary">
+                    {`Not in the rate: ${outside.map(([label, count]) => `${humanFriendlyNumber(count)} ${label}`).join(' · ')}`}
+                </div>
+            )}
         </>
     )
 }

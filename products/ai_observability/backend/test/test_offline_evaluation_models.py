@@ -16,6 +16,7 @@ from products.ai_observability.backend.models.datasets import Dataset, DatasetIt
 from products.ai_observability.backend.models.offline_evaluations import (
     OfflineEvaluationResult,
     OfflineEvaluationResultPayload,
+    OfflineEvaluationUsageLedger,
     OfflineExperiment,
     OfflineExperimentItem,
     OfflineExperimentItemPayload,
@@ -29,6 +30,7 @@ type OfflineModel = (
     | OfflineEvaluationResult
     | OfflineExperimentItemPayload
     | OfflineEvaluationResultPayload
+    | OfflineEvaluationUsageLedger
 )
 
 
@@ -40,6 +42,7 @@ class TestOfflineEvaluationModels(TestCase):
     scorer: ScoreDefinition
     scorer_version: ScoreDefinitionVersion
     result: OfflineEvaluationResult
+    ledger: OfflineEvaluationUsageLedger
 
     @classmethod
     def setUpTestData(cls) -> None:
@@ -84,6 +87,30 @@ class TestOfflineEvaluationModels(TestCase):
         OfflineEvaluationResultPayload.objects.for_team(cls.team.id).create(
             team=cls.team, result=cls.result, data={"reasoning": "The answer addresses the question."}
         )
+        cls.ledger = OfflineEvaluationUsageLedger.objects.for_team(cls.team.id).create(
+            team_id=cls.team.id,
+            organization_id=cls.organization.id,
+            experiment_id=cls.experiment.id,
+            accepted_at=now,
+            quantity=1,
+        )
+
+    @parameterized.expand([(0,), (-1,)])
+    def test_usage_quantity_must_be_positive(self, quantity: int) -> None:
+        with self.assertRaises(IntegrityError), transaction.atomic():
+            OfflineEvaluationUsageLedger.objects.for_team(self.team.id).create(
+                team_id=self.team.id,
+                organization_id=self.organization.id,
+                experiment_id=self.experiment.id,
+                quantity=quantity,
+            )
+
+    def test_deleting_a_result_preserves_usage(self) -> None:
+        self.result.delete()
+
+        self.ledger.refresh_from_db()
+        self.assertEqual(self.ledger.quantity, 1)
+        self.assertEqual(self.ledger.experiment_id, self.experiment.id)
 
     @parameterized.expand(
         [
@@ -223,6 +250,7 @@ class TestOfflineEvaluationModels(TestCase):
             ("result", OfflineEvaluationResult),
             ("item_payload", OfflineExperimentItemPayload),
             ("result_payload", OfflineEvaluationResultPayload),
+            ("usage_ledger", OfflineEvaluationUsageLedger),
         ]
     )
     def test_reads_fail_closed_and_stay_within_the_team(self, _name: str, model: type[OfflineModel]) -> None:
@@ -449,6 +477,8 @@ class TestOfflineEvaluationModels(TestCase):
             "organization": self.organization,
         }
         team_id = self.team.id
+        organization_id = self.organization.id
+        experiment_id = self.experiment.id
         parents[target].delete()
 
         for model in (
@@ -462,3 +492,8 @@ class TestOfflineEvaluationModels(TestCase):
         self.assertEqual(
             ScoreDefinitionVersion.objects.filter(pk=self.scorer_version.pk).exists(), target == "experiment"
         )
+        ledger = OfflineEvaluationUsageLedger.objects.for_team(team_id).get()
+        self.assertEqual(ledger.organization_id, organization_id)
+        self.assertEqual(ledger.experiment_id, experiment_id)
+        self.assertEqual(ledger.accepted_at, self.ledger.accepted_at)
+        self.assertEqual(ledger.quantity, 1)

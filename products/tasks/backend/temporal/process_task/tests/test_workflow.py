@@ -3,6 +3,7 @@ import json
 import uuid
 import random
 import asyncio
+import logging
 import dataclasses
 from collections.abc import Awaitable, Callable
 from concurrent.futures import ThreadPoolExecutor
@@ -21,7 +22,13 @@ from parameterized import parameterized
 from temporalio import activity
 from temporalio.client import WorkflowFailureError
 from temporalio.common import RetryPolicy
-from temporalio.exceptions import ActivityError, ApplicationError, RetryState
+from temporalio.exceptions import (
+    ActivityError,
+    ApplicationError,
+    RetryState,
+    TimeoutError as ActivityTimeoutError,
+    TimeoutType,
+)
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
@@ -573,9 +580,7 @@ class TestSandboxRotation:
         return cast("asyncio.Task[None]", name)
 
     def _snapshot(self, external_id: str | None = "snap-1") -> CreateResumeSnapshotOutput:
-        return CreateResumeSnapshotOutput(
-            external_id=external_id, snapshot_kind="directory", snapshot_mount_path="/mnt/work"
-        )
+        return CreateResumeSnapshotOutput(external_id=external_id, snapshot_mount_path="/mnt/work")
 
     def _replacement(self, used_snapshot: bool = True) -> GetSandboxForRepositoryOutput:
         return GetSandboxForRepositoryOutput(
@@ -1300,14 +1305,14 @@ class TestProcessTaskFollowupDispatch:
 
 
 class TestFollowupDeliveryFailureBookkeeping:
-    def _workflow(self, monkeypatch, *, mode: str):
+    def _workflow(self, monkeypatch, *, mode: str, delivery_error: Exception | None = None):
         workflow = ProcessTaskWorkflow()
         workflow._context = _build_context(github_integration_id=123, state={"mode": mode})
         emitted: list[EmitProgressInput] = []
 
         async def fake_execute_activity(_activity, activity_input, **_kwargs):
             if isinstance(activity_input, SendFollowupToSandboxInput):
-                raise RuntimeError("delivery failed")
+                raise delivery_error or RuntimeError("delivery failed")
             if isinstance(activity_input, EmitProgressInput):
                 emitted.append(activity_input)
             return None
@@ -1342,6 +1347,34 @@ class TestFollowupDeliveryFailureBookkeeping:
         assert workflow._completion_status == "failed"
         assert workflow._completion_error_type == "followup_delivery_failed"
         assert emitted == []
+
+    @pytest.mark.parametrize("mode", ["interactive", "background"])
+    async def test_active_session_cap_on_delivery_fails_the_run(self, monkeypatch, mode: str) -> None:
+        delivery_error = ActivityError(
+            "Activity task failed",
+            scheduled_event_id=10,
+            started_event_id=11,
+            identity="worker-1",
+            activity_type="send_followup_to_sandbox",
+            activity_id="activity-1",
+            retry_state=RetryState.NON_RETRYABLE_FAILURE,
+        )
+        delivery_error.__cause__ = ApplicationError(
+            "You already have 2 cloud sandboxes running.", type="ActiveSessionCapError"
+        )
+        workflow, emitted = self._workflow(monkeypatch, mode=mode, delivery_error=delivery_error)
+        await workflow.send_followup_message("try this", [], "msg-1")
+        assert any(key.endswith(":msg-1") for key in workflow._accepted_message_ids)
+
+        result = await workflow._send_followup_to_sandbox("try this", [], message_id="msg-1")
+
+        assert result is None
+        assert workflow._task_completed is True
+        assert workflow._completion_status == "failed"
+        assert workflow._completion_error_type == "ActiveSessionCapError"
+        assert workflow._completion_error == "You already have 2 cloud sandboxes running."
+        assert emitted == []
+        assert not any(key.endswith(":msg-1") for key in workflow._accepted_message_ids)
 
 
 async def test_agent_shadow_result_is_reported_separately(monkeypatch):
@@ -1520,6 +1553,43 @@ async def test_boot_milestone_contains_only_timing_and_runtime_dimensions(
     )
 
 
+@pytest.mark.timeout(5)
+@pytest.mark.parametrize("scheduled_during_flush", [False, True])
+async def test_flush_boot_telemetry_drains_finished_and_late_milestones(monkeypatch, scheduled_during_flush):
+    workflow_instance = ProcessTaskWorkflow()
+    workflow_instance._context = _build_context(github_integration_id=123)
+    workflow_instance._sandbox_id_for_cleanup = "sandbox-123"
+    workflow_instance._chain_started_at = datetime(2026, 8, 28, 10, 0, tzinfo=UTC)
+    workflow_instance._agent_ready_at = datetime(2026, 8, 28, 10, 0, 20, tzinfo=UTC)
+    tracked: list[str] = []
+
+    async def track(event_name: str, properties: dict[str, Any]) -> None:
+        tracked.append(event_name)
+        if scheduled_during_flush and event_name == "agent_first_command_dispatched":
+            workflow_instance._schedule_boot_milestone("agent_first_activity_observed")
+
+    monkeypatch.setattr(workflow_instance, "_track_boot_milestone", track)
+    monkeypatch.setattr(process_task_workflow_module, "record_agent_boot_milestone_ms", Mock())
+    monkeypatch.setattr(
+        process_task_workflow_module.workflow,
+        "now",
+        Mock(return_value=datetime(2026, 8, 28, 10, 0, 21, tzinfo=UTC)),
+    )
+
+    workflow_instance._schedule_boot_milestone("agent_first_command_dispatched")
+    if not scheduled_during_flush:
+        (task,) = workflow_instance._boot_telemetry_tasks
+        while not task.done():
+            await asyncio.sleep(0)
+    await workflow_instance._flush_boot_telemetry_tasks()
+
+    assert workflow_instance._boot_telemetry_tasks == []
+    expected = ["agent_first_command_dispatched"]
+    if scheduled_during_flush:
+        expected.append("agent_first_activity_observed")
+    assert tracked == expected
+
+
 @pytest.mark.parametrize("timing_enabled", [False, True])
 @pytest.mark.parametrize(
     ("same_run_resume", "requested_at"),
@@ -1646,6 +1716,7 @@ async def test_sandbox_started_carries_run_attribution(origin_product, team_id, 
         "_track_workflow_event",
         AsyncMock(side_effect=lambda event, props: tracked.append((event, props))),
     )
+    monkeypatch.setattr(process_task_workflow_module.workflow, "patched", Mock(return_value=True))
 
     await workflow_instance._provision_and_start_agent(ProcessTaskInput(run_id="run-id"), "run-id")
 
@@ -1656,15 +1727,133 @@ async def test_sandbox_started_carries_run_attribution(origin_product, team_id, 
     assert sandbox_started["agent_launcher_to_process_ms"] == 7
 
 
+@pytest.mark.parametrize(
+    ("sandbox_fails", "status_fails", "expected_error", "expected_events"),
+    [
+        (True, False, "sandbox failed", ["status:in_progress", "sandbox", "slack"]),
+        (False, True, "status write failed", ["status:in_progress"]),
+    ],
+)
+async def test_background_slack_and_track_gates_provisioning_on_the_status_write(
+    sandbox_fails, status_fails, expected_error, expected_events, monkeypatch
+):
+    workflow_instance = ProcessTaskWorkflow()
+    workflow_instance._context = _build_context(github_integration_id=123)
+    events: list[str] = []
+
+    async def update_status(status: str) -> None:
+        events.append(f"status:{status}")
+        if status_fails:
+            raise ApplicationError("status write failed")
+
+    async def get_sandbox() -> Mock:
+        events.append("sandbox")
+        if sandbox_fails:
+            raise ApplicationError("sandbox failed")
+        return Mock()
+
+    async def post_slack_update() -> None:
+        await asyncio.sleep(0)
+        events.append("slack")
+
+    monkeypatch.setattr(workflow_instance, "_update_task_run_status", update_status)
+    monkeypatch.setattr(workflow_instance, "_get_sandbox_for_repository", get_sandbox)
+    monkeypatch.setattr(workflow_instance, "_emit_progress", AsyncMock())
+    monkeypatch.setattr(workflow_instance, "_post_slack_update", post_slack_update)
+    monkeypatch.setattr(workflow_instance, "_track_workflow_event", AsyncMock())
+    monkeypatch.setattr(process_task_workflow_module.workflow, "patched", Mock(return_value=True))
+
+    with pytest.raises(ApplicationError, match=expected_error):
+        await workflow_instance._provision_and_start_agent(ProcessTaskInput(run_id="run-id"), "run-id")
+
+    assert events == expected_events
+
+
+async def test_background_slack_and_track_cancellation_does_not_wait_on_stalled_startup_steps(monkeypatch):
+    workflow_instance = ProcessTaskWorkflow()
+    workflow_instance._context = _build_context(github_integration_id=123)
+    stalled = asyncio.Event()
+
+    async def stalled_slack_post() -> None:
+        await stalled.wait()
+
+    async def cancelled_sandbox() -> Mock:
+        raise asyncio.CancelledError
+
+    monkeypatch.setattr(workflow_instance, "_update_task_run_status", AsyncMock())
+    monkeypatch.setattr(workflow_instance, "_get_sandbox_for_repository", cancelled_sandbox)
+    monkeypatch.setattr(workflow_instance, "_emit_progress", AsyncMock())
+    monkeypatch.setattr(workflow_instance, "_post_slack_update", stalled_slack_post)
+    monkeypatch.setattr(workflow_instance, "_track_workflow_event", AsyncMock())
+
+    with pytest.raises(asyncio.CancelledError):
+        await asyncio.wait_for(workflow_instance._get_sandbox_alongside_pre_provision_steps("run-id"), timeout=1)
+
+
+async def test_background_slack_and_track_holds_slack_setup_steps_until_the_relay_starts(monkeypatch):
+    workflow_instance = ProcessTaskWorkflow()
+    workflow_instance._context = _build_context(github_integration_id=123)
+    workflow_instance._slack_thread_context = {"channel": "C1"}
+    events: list[str] = []
+
+    async def update_status(status: str) -> None:
+        await asyncio.sleep(0)
+        events.append("status")
+
+    async def start_relay(*args: Any, **kwargs: Any) -> None:
+        await asyncio.sleep(0)
+        workflow_instance._current_slack_relay_workflow_id = "relay-id"
+        events.append("relay")
+
+    async def get_sandbox() -> Mock:
+        workflow_instance._forward_slack_setup_step("sandbox", "completed", "Sandbox ready")
+        return Mock()
+
+    handle = Mock(signal=AsyncMock(side_effect=lambda *args: events.append("signal")))
+    monkeypatch.setattr(workflow_instance, "_update_task_run_status", update_status)
+    monkeypatch.setattr(workflow_instance, "_start_slack_agent_design_relay", start_relay)
+    monkeypatch.setattr(workflow_instance, "_resolve_agent_design_flag", AsyncMock(return_value=True))
+    monkeypatch.setattr(workflow_instance, "_get_sandbox_for_repository", get_sandbox)
+    monkeypatch.setattr(workflow_instance, "_emit_progress", AsyncMock())
+    monkeypatch.setattr(workflow_instance, "_track_workflow_event", AsyncMock())
+    monkeypatch.setattr(
+        process_task_workflow_module.workflow, "get_external_workflow_handle", Mock(return_value=handle)
+    )
+
+    await workflow_instance._get_sandbox_alongside_pre_provision_steps("run-id")
+    setup_chain = workflow_instance._slack_setup_chain
+    assert setup_chain is not None
+    await setup_chain
+
+    assert events == ["status", "relay", "signal"]
+
+
 @pytest.mark.django_db
 class TestProcessTaskWorkflowUnit:
-    def test_quota_recheck_not_scheduled_for_non_pr_runs(self):
-        # Research / repo-selection sessions run as SIGNAL_REPORT-origin tasks with
-        # create_pr=False; scheduling the recheck for them would let the quota gate cancel
-        # in-flight research.
+    @pytest.fixture(autouse=True)
+    def _workflow_patches_applied(self, monkeypatch):
+        monkeypatch.setattr(process_task_workflow_module.workflow, "patched", Mock(return_value=True))
+
+    @pytest.mark.parametrize("origin", ["signals_scout", "signal_report", "signals_chat", "scout_suggestions"])
+    @pytest.mark.parametrize("patched", [False, True])
+    def test_trial_quota_rechecks_cover_non_pr_work_with_replay_gate(
+        self, origin: str, patched: bool, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         wf = ProcessTaskWorkflow()
         wf._context = dataclasses.replace(
-            _build_context(github_integration_id=None), origin_product="signal_report", create_pr=False
+            _build_context(github_integration_id=None),
+            origin_product=origin,
+            create_pr=False,
+            state={"self_driving_funding": {"funding": "trial"}},
+        )
+        monkeypatch.setattr(process_task_workflow_module.workflow, "patched", lambda name: patched)
+        assert wf._self_driving_quota_recheck_scheduled() is patched
+
+    @pytest.mark.parametrize("create_pr, state", [(False, {}), (True, {"billing_product": "posthog_ai"})])
+    def test_quota_recheck_not_scheduled_outside_automatic_implementation(self, create_pr, state):
+        wf = ProcessTaskWorkflow()
+        wf._context = dataclasses.replace(
+            _build_context(github_integration_id=None), origin_product="signal_report", create_pr=create_pr, state=state
         )
         assert wf._self_driving_quota_recheck_scheduled() is False
 
@@ -2395,18 +2584,31 @@ class TestProcessTaskWorkflowUnit:
             run_id="run-id", stream_generation="resumed-generation"
         )
 
-    async def test_run_persists_activity_failure_cause_not_the_wrapper(self, monkeypatch):
+    @pytest.mark.parametrize(
+        "activity_type, error_type, message",
+        [
+            ("inject_fresh_tokens_on_resume", "SandboxNotRunningError", "Sandbox not in running state."),
+            (
+                "create_sandbox_for_repository",
+                "ActiveSessionCapError",
+                "You already have 10 cloud sandboxes running. Wait for one to finish or stop one, then try again.",
+            ),
+        ],
+    )
+    async def test_run_persists_activity_failure_cause_not_the_wrapper(
+        self, monkeypatch, activity_type: str, error_type: str, message: str
+    ):
         workflow = ProcessTaskWorkflow()
         error = ActivityError(
             "Activity task failed",
             scheduled_event_id=10,
             started_event_id=11,
             identity="worker-1",
-            activity_type="inject_fresh_tokens_on_resume",
+            activity_type=activity_type,
             activity_id="activity-1",
             retry_state=RetryState.MAXIMUM_ATTEMPTS_REACHED,
         )
-        error.__cause__ = ApplicationError("Sandbox not in running state.", type="SandboxNotRunningError")
+        error.__cause__ = ApplicationError(message, type=error_type)
         update_task_run_status_mock = AsyncMock()
 
         monkeypatch.setattr(
@@ -2421,12 +2623,12 @@ class TestProcessTaskWorkflowUnit:
         result = await workflow.run(ProcessTaskInput(run_id="run-id"))
 
         assert result.success is False
-        assert result.error == "Sandbox not in running state."
+        assert result.error == message
         update_task_run_status_mock.assert_awaited_with(
             "failed",
-            error_message="Sandbox not in running state.",
+            error_message=message,
             run_id="run-id",
-            error_type="SandboxNotRunningError",
+            error_type=error_type,
         )
 
     async def test_run_skips_relay_when_sandbox_event_ingest_is_enabled(self, monkeypatch):
@@ -2484,7 +2686,10 @@ class TestProcessTaskWorkflowUnit:
         assert result.success is True
         relay_sandbox_events_mock.assert_not_awaited()
 
-    async def test_run_relays_agent_design_signals_when_ingest_and_agent_design_enabled(self, monkeypatch):
+    @pytest.mark.parametrize("background_slack_and_track", [True, False])
+    async def test_run_relays_agent_design_signals_when_ingest_and_agent_design_enabled(
+        self, background_slack_and_track, monkeypatch
+    ):
         workflow = ProcessTaskWorkflow()
         context = _build_context(github_integration_id=123, sandbox_event_ingest_enabled=True)
         relay_sandbox_events_mock = AsyncMock()
@@ -2530,7 +2735,16 @@ class TestProcessTaskWorkflowUnit:
         monkeypatch.setattr(workflow, "_relay_agent_design_signals", relay_agent_design_signals_mock)
         start_slack_relay_mock = AsyncMock()
         monkeypatch.setattr(workflow, "_start_slack_agent_design_relay", start_slack_relay_mock)
-        monkeypatch.setattr(process_task_workflow_module.workflow, "patched", Mock(return_value=True))
+        monkeypatch.setattr(
+            process_task_workflow_module.workflow,
+            "patched",
+            Mock(
+                side_effect=lambda patch_id: (
+                    background_slack_and_track
+                    or patch_id != process_task_workflow_module._PATCH_ID_BACKGROUND_SLACK_AND_TRACK
+                )
+            ),
+        )
         monkeypatch.setattr(process_task_workflow_module.workflow, "now", Mock(return_value=datetime.now(UTC)))
 
         result = await workflow.run(
@@ -2591,40 +2805,57 @@ class TestProcessTaskWorkflowUnit:
         assert forward_mock.called is forwarded
 
     @pytest.mark.parametrize(
-        "origin_product, pr_progress_emitted, ci_repetitions, end_of_turn_received, expected_status",
+        "origin_product, billing_product, pr_progress_emitted, ci_repetitions, end_of_turn_received, expected_status, spend_fails, cleanup_fails",
         [
-            (None, False, 1, None, "completed"),
-            (None, False, 1, True, "completed"),
+            (None, None, False, 1, None, "completed", False, False),
+            (None, None, False, 1, True, "completed", False, False),
             # The agent was mid-turn when the sandbox vanished, so the workflow step waiting on
             # this run has no work to continue from.
-            ("workflow", False, 1, False, "failed"),
+            ("workflow", None, False, 1, False, "failed", False, False),
             # Every other origin keeps completing: the run is the snapshot its reader or its resume
             # flow picks up, and a red run in the task list would report breakage that never was.
-            (None, False, 1, False, "completed"),
-            ("slack", False, 1, False, "completed"),
-            ("user_created", False, 1, None, "completed"),
-            ("signal_report", False, 1, None, "completed"),
-            ("signals_scout", False, 1, None, "completed"),
+            (None, None, False, 1, False, "completed", False, False),
+            ("slack", None, False, 1, False, "completed", False, False),
+            ("user_created", None, False, 1, None, "completed", False, False),
+            ("signal_report", None, False, 1, None, "completed", False, False),
+            ("signal_report", "posthog_ai", False, 1, None, "completed", False, False),
+            ("signals_scout", None, False, 1, None, "completed", False, False),
+            ("signal_report", None, False, 1, None, "completed", True, False),
+            ("signals_scout", None, False, 1, None, "completed", True, False),
+            ("signals_scout", None, False, 1, None, "completed", False, True),
             # Onboarding runs are one-shot, so a vanished sandbox is a failed setup rather than a
             # resumable snapshot.
-            ("onboarding", False, 1, None, "failed"),
+            ("onboarding", None, False, 1, None, "failed", False, False),
             # Unless the PR is already open: the wizard reads the terminal status, so a downgrade
             # would report a failed install over a PR the user can merge.
-            ("onboarding", True, 1, None, "completed"),
+            ("onboarding", None, True, 1, None, "completed", False, False),
             # No follow-up round ever ran, so the empty PR latch is unobserved rather than evidence
             # of no PR. Downgrading here would fail a run whose PR the loop never got to look at.
-            ("onboarding", False, 0, None, "completed"),
+            ("onboarding", None, False, 0, None, "completed", False, False),
         ],
     )
     async def test_run_completes_when_credential_refresh_detects_sandbox_gone(
-        self, monkeypatch, origin_product, pr_progress_emitted, ci_repetitions, end_of_turn_received, expected_status
+        self,
+        monkeypatch,
+        origin_product,
+        billing_product,
+        pr_progress_emitted,
+        ci_repetitions,
+        end_of_turn_received,
+        expected_status,
+        spend_fails,
+        cleanup_fails,
+        caplog,
     ):
         workflow = ProcessTaskWorkflow()
         workflow._pr_progress_emitted = pr_progress_emitted
         workflow._ci_repetitions = ci_repetitions
-        context = _build_context(github_integration_id=123, origin_product=origin_product)
+        context = dataclasses.replace(
+            _build_context(github_integration_id=123, origin_product=origin_product),
+            state={"billing_product": billing_product} if billing_product else {},
+        )
         update_task_run_status_mock = AsyncMock()
-        cleanup_sandbox_mock = AsyncMock()
+        cleanup_sandbox_mock = AsyncMock(side_effect=RuntimeError("cleanup failed") if cleanup_fails else None)
 
         monkeypatch.setattr(workflow, "_get_task_processing_context", AsyncMock(return_value=context))
         monkeypatch.setattr(workflow, "_update_task_run_status", update_task_run_status_mock)
@@ -2667,7 +2898,6 @@ class TestProcessTaskWorkflowUnit:
             return process_task_workflow_module.TaskEvent.SANDBOX_GONE
 
         monkeypatch.setattr(workflow, "_wait_for_event", wait_for_event)
-        monkeypatch.setattr(process_task_workflow_module.workflow, "patched", Mock(return_value=True))
         monkeypatch.setattr(process_task_workflow_module.workflow, "now", Mock(return_value=datetime.now(UTC)))
 
         # run() awaits the permission-response drainer on the completion path; outside a
@@ -2677,18 +2907,38 @@ class TestProcessTaskWorkflowUnit:
                 await asyncio.sleep(0)
 
         monkeypatch.setattr(process_task_workflow_module.workflow, "wait_condition", fake_wait_condition)
+        monkeypatch.setattr(process_task_workflow_module.workflow, "logger", logging.getLogger("temporalio.workflow"))
 
         async def finish_spend(activity_fn, run_id, **kwargs):
             assert activity_fn is process_task_workflow_module.complete_signal_spend
             assert run_id == "run-id"
             cleanup_sandbox_mock.assert_awaited_once()
+            if spend_fails:
+                raise ActivityError(
+                    "Task usage is not settled",
+                    scheduled_event_id=1,
+                    started_event_id=2,
+                    identity="test",
+                    activity_type="complete_signal_spend",
+                    activity_id="billing",
+                    retry_state=RetryState.TIMEOUT,
+                )
 
         finish_spend_mock = AsyncMock(side_effect=finish_spend)
         monkeypatch.setattr(process_task_workflow_module.workflow, "execute_activity", finish_spend_mock)
+        if cleanup_fails:
+            with pytest.raises(RuntimeError, match="cleanup failed"):
+                await workflow.run(ProcessTaskInput(run_id="run-id"))
+            finish_spend_mock.assert_awaited_once()
+            return
         result = await workflow.run(ProcessTaskInput(run_id="run-id"))
-        assert finish_spend_mock.await_count == (1 if origin_product in {"signal_report", "signals_scout"} else 0)
+        assert finish_spend_mock.await_count == (
+            1 if origin_product in {"signal_report", "signals_scout"} and billing_product != "posthog_ai" else 0
+        )
 
         assert result.success is True
+        if spend_fails:
+            assert "signals.spend.accounting_failed" in caplog.text
         assert workflow._completion_status == expected_status
         update_task_run_status_mock.assert_any_await(
             expected_status,
@@ -2882,16 +3132,18 @@ class TestProcessTaskWorkflowUnit:
             return event
 
         monkeypatch.setattr(workflow, "_wait_for_event", wait_for_event)
-        monkeypatch.setattr(process_task_workflow_module.workflow, "patched", Mock(return_value=True))
         monkeypatch.setattr(process_task_workflow_module.workflow, "now", Mock(return_value=datetime.now(UTC)))
         # workflow.logger resolves the replay flag off the workflow event loop, which this
         # loop-free unit test doesn't have.
         monkeypatch.setattr(process_task_workflow_module.workflow, "logger", Mock())
 
+        finish_spend = AsyncMock()
+        monkeypatch.setattr(process_task_workflow_module.workflow, "execute_activity", finish_spend)
         result = await workflow.run(ProcessTaskInput(run_id="run-id"))
 
         assert result.success is True
         update_task_run_status_mock.assert_any_await(expected_status, **expected_kwargs)
+        assert finish_spend.await_count == (1 if origin_product == "signal_report" else 0)
 
     @pytest.mark.parametrize(
         "create_pr, pr_progress_emitted, ci_repetitions, expected",
@@ -3277,14 +3529,14 @@ class TestProcessTaskWorkflowUnit:
             raise AssertionError(f"Unexpected activity call: {activity_fn}")
 
         monkeypatch.setattr(process_task_workflow_module.workflow, "execute_activity", fake_execute_activity)
-        monkeypatch.setattr(process_task_workflow_module.workflow, "patched", Mock(return_value=True))
 
         result = await workflow._get_sandbox_for_repository()
 
         assert cloned == ["posthog/posthog", "posthog/code"]
         for repository in ("posthog/posthog", "posthog/code"):
             assert clone_options[repository]["start_to_close_timeout"] == timedelta(minutes=5)
-            assert clone_options[repository]["retry_policy"].maximum_attempts == 3
+            assert clone_options[repository]["schedule_to_close_timeout"] == timedelta(minutes=5)
+            assert clone_options[repository]["retry_policy"].maximum_attempts == 6
         assert result.clone_ms is None
 
     async def test_overlap_releases_agent_after_primary_clone_and_materializes_failed_secondary(self, monkeypatch):
@@ -3346,7 +3598,6 @@ class TestProcessTaskWorkflowUnit:
             raise AssertionError(f"Unexpected activity call: {activity_fn}")
 
         monkeypatch.setattr(process_task_workflow_module.workflow, "execute_activity", fake_execute_activity)
-        monkeypatch.setattr(process_task_workflow_module.workflow, "patched", Mock(return_value=True))
         monkeypatch.setattr(process_task_workflow_module.workflow, "logger", Mock())
 
         result = await workflow._get_sandbox_for_repository()
@@ -3360,7 +3611,24 @@ class TestProcessTaskWorkflowUnit:
         assert ready_inputs[1].release_barrier is False
 
     @pytest.mark.parametrize("fail_on_primary_clone_failure", [True, False])
-    async def test_overlap_primary_clone_failure(self, monkeypatch, fail_on_primary_clone_failure):
+    @pytest.mark.parametrize("clone_times_out", [True, False])
+    async def test_overlap_primary_clone_failure(
+        self, monkeypatch: pytest.MonkeyPatch, fail_on_primary_clone_failure: bool, clone_times_out: bool
+    ) -> None:
+        clone_error: Exception = RuntimeError("clone timed out")
+        if clone_times_out:
+            clone_error = ActivityError(
+                "clone timed out",
+                scheduled_event_id=1,
+                started_event_id=2,
+                identity="test-worker",
+                activity_type="clone_repository_in_sandbox",
+                activity_id="clone",
+                retry_state=RetryState.TIMEOUT,
+            )
+            clone_error.__cause__ = ActivityTimeoutError(
+                "clone deadline exceeded", type=TimeoutType.SCHEDULE_TO_CLOSE, last_heartbeat_details=[]
+            )
         workflow = ProcessTaskWorkflow()
         workflow._context = _build_context(
             github_integration_id=123,
@@ -3399,7 +3667,8 @@ class TestProcessTaskWorkflowUnit:
             if activity_fn is launch_agent_server:
                 return StartAgentServerOutput(sandbox_url=created.sandbox_url)
             if activity_fn is clone_repository_in_sandbox:
-                raise RuntimeError("clone timed out")
+                assert kwargs["retry_policy"].maximum_attempts == 6
+                raise clone_error
             if activity_fn is mark_repo_ready:
                 ready_inputs.append(args[0])
                 return None
@@ -3420,7 +3689,7 @@ class TestProcessTaskWorkflowUnit:
         monkeypatch.setattr(process_task_workflow_module.workflow, "logger", Mock())
 
         if fail_on_primary_clone_failure:
-            with pytest.raises(RuntimeError, match="clone timed out"):
+            with pytest.raises(type(clone_error), match="clone timed out"):
                 await workflow._get_sandbox_for_repository()
             assert mark_repo_ready not in calls
             assert checkout_branch_in_sandbox not in calls
@@ -3478,7 +3747,6 @@ class TestProcessTaskWorkflowUnit:
             raise AssertionError(f"Unexpected activity call: {activity_fn}")
 
         monkeypatch.setattr(process_task_workflow_module.workflow, "execute_activity", fake_execute_activity)
-        monkeypatch.setattr(process_task_workflow_module.workflow, "patched", Mock(return_value=True))
 
         with pytest.raises(ApplicationError, match="sandbox disappeared"):
             await workflow._get_sandbox_for_repository()
@@ -3553,7 +3821,6 @@ class TestProcessTaskWorkflowUnit:
 
         monkeypatch.setattr(process_task_workflow_module.workflow, "execute_activity", fake_execute_activity)
         monkeypatch.setattr(process_task_workflow_module.workflow, "logger", Mock())
-        monkeypatch.setattr(process_task_workflow_module.workflow, "patched", Mock(return_value=True))
 
         result = await workflow._get_sandbox_for_repository()
 

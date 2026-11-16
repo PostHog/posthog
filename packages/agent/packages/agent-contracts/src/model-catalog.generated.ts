@@ -343,6 +343,19 @@ export const MODELS: readonly CatalogModel[] = [
     supports1MContext: true,
   },
   {
+    id: "claude-fable-5-2",
+    runtimeAdapter: "claude",
+    reasoningEfforts: ["low", "medium", "high", "xhigh", "max", "ultracode"],
+    label: "Claude Fable 5.2",
+    cost: {
+      inputPerMtok: 8,
+      outputPerMtok: 40,
+    },
+    costMultiplier: "4×",
+    costSummary: "Input $8 · Output $40 per 1M tokens",
+    supports1MContext: true,
+  },
+  {
     id: "claude-sonnet-5-5",
     runtimeAdapter: "claude",
     reasoningEfforts: ["low", "medium", "high", "xhigh", "max", "ultracode"],
@@ -477,6 +490,25 @@ export const MODELS: readonly CatalogModel[] = [
     costMultiplier: "1× base",
     costSummary:
       "Per 1M tokens: $2 input/$10 output to 272K; $4 input/$15 output above",
+  },
+  {
+    id: "gpt-6.1-terra",
+    runtimeAdapter: "codex",
+    reasoningEfforts: ["low", "medium", "high", "xhigh", "max"],
+    label: "GPT-6.1 Terra",
+    cost: {
+      inputPerMtok: 1,
+      outputPerMtok: 5,
+      longContext: {
+        aboveInputTokens: 272000,
+        inputPerMtok: 2,
+        outputPerMtok: 7.5,
+      },
+    },
+    costMultiplier: "0.5× base",
+    costSummary:
+      "Per 1M tokens: $1 input/$5 output to 272K; $2 input/$7.50 output above",
+    retired: true,
   },
   {
     id: "gpt-6-luna",

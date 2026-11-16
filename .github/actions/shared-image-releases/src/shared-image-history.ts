@@ -7,6 +7,7 @@ export interface HistoryBudgets {
   fetchMs: number
   comparisonMs: number
   maxBuffer: number
+  retryDelaysMs: readonly [number, number]
 }
 
 export interface Comparison {
@@ -45,29 +46,41 @@ export class SourceHistory {
     return base === revision ? 'equal' : newer === base ? 'older' : 'newer'
   }
 
-  private async fetch(objects: string[], filter: string | undefined, deadline: number): Promise<void> {
+  private async fetch(objects: string[], deadline: number): Promise<void> {
     if (!objects.length) return
-    await this.git([
-      'fetch', '--no-tags', '--no-recurse-submodules', '--no-write-fetch-head', '--no-auto-maintenance',
-      ...(filter ? [`--filter=${filter}`] : []), 'origin', '--stdin'
-    ], deadline, [...new Set(objects)].join('\n') + '\n')
+    const failures: string[] = []
+    const attempts = this.budgets.retryDelaysMs.length + 1
+    for (let attempt = 0; attempt < attempts; attempt++) {
+      if (attempt > 0) {
+        const delay = this.budgets.retryDelaysMs[attempt - 1]
+        if (Math.min(deadline, this.deadline) - Date.now() < delay + 3000) {
+          failures.push('retries skipped: fetch budget exhausted')
+          break
+        }
+        await new Promise<void>(resolve => setTimeout(resolve, delay))
+      }
+      try {
+        await this.git([
+          'fetch', '--no-tags', '--no-recurse-submodules', '--no-write-fetch-head', '--no-auto-maintenance',
+          'origin', '--stdin'
+        ], deadline, [...new Set(objects)].join('\n') + '\n')
+        return
+      } catch (error) {
+        failures.push(`attempt ${attempt + 1} of ${attempts}: ${String(error)}`)
+      }
+    }
+    throw new Error(failures.join('; '))
   }
 
   private async trees(revisions: string[], fetchDeadline: number): Promise<void> {
     const trees = [...new Set((await this.git([
       'rev-list', '--no-walk', '--no-commit-header', '--format=%T', '--stdin'
     ], fetchDeadline, revisions.join('\n') + '\n')).split('\n').filter(Boolean))]
-    const missing = async (): Promise<boolean> => {
-      const roots = await this.git(['cat-file', '--batch-check=%(objectname) %(objecttype)'], fetchDeadline, trees.join('\n') + '\n')
-      if (roots.split('\n').some(line => line.endsWith(' missing'))) return true
-      const output = await this.git(['rev-list', '--objects', '--missing=print', '--filter=blob:none', '--stdin'], fetchDeadline, trees.join('\n') + '\n')
-      return output.split('\n').some(line => line.startsWith('?'))
-    }
-    if (await missing()) {
-      const failures: unknown[] = []
-      try { await this.fetch(trees, 'blob:none', fetchDeadline) } catch (error) { failures.push(error) }
-      const available = await missing().then(result => !result, error => { failures.push(error); return false })
-      if (!available) throw new Error(`Interval trees remain unavailable after bounded fetch${failures.length ? `: ${failures.map(String).join('; ')}` : ''}`)
+    const roots = await this.git(['cat-file', '--batch-check=%(objectname) %(objecttype)'], fetchDeadline, trees.join('\n') + '\n')
+    if (roots.split('\n').some(line => line.endsWith(' missing')) ||
+      (await this.git(['rev-list', '--objects', '--missing=print', '--filter=blob:none', '--stdin'], fetchDeadline, trees.join('\n') + '\n'))
+        .split('\n').some(line => line.startsWith('?'))) {
+      throw new Error('The checkout must provide full history with trees')
     }
   }
 
@@ -85,7 +98,7 @@ export class SourceHistory {
       if (!blob) continue
       try { await this.git(['cat-file', '-e', blob], fetchDeadline) } catch { missing.push(blob) }
     }
-    await this.fetch(missing, undefined, fetchDeadline)
+    await this.fetch(missing, fetchDeadline)
     const policies: (Policy | undefined)[] = []
     for (const blob of blobs) {
       if (!blob) { policies.push(undefined); continue }

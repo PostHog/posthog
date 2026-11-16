@@ -3,7 +3,7 @@
 Vendored from [depot/skills](https://github.com/depot/skills) — used by PostHog workflows pinning `depot-ubuntu-*` runners.
 
 - Source: `skills/depot-github-runners/SKILL.md`
-- Commit: [`71f008d`](https://github.com/depot/skills/tree/71f008de4dbfa8625ece3df85019bc914b9399a0/skills/depot-github-runners) (2026-10-15)
+- Commit: [`34871e1`](https://github.com/depot/skills/tree/34871e14c57f322e87debbe17e73f0a3b4e2e4f1/skills/depot-github-runners) (2026-10-30)
 - License: none in upstream at this commit; README documents `cp SKILL.md` install.
 
 ## Local additions

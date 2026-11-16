@@ -6,6 +6,7 @@ import type { Series, TimeSeriesComboChartConfig, TooltipContext } from '@postho
 import { useChartTheme } from 'lib/charts/hooks'
 import { getColorVar } from 'lib/colors'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
+import { midEllipsis } from 'lib/utils/strings'
 
 import type { EvaluationResultApi } from '../../generated/api.schemas'
 import {
@@ -17,6 +18,10 @@ import {
     trackedCategory,
 } from './evaluationOverviewDisplay'
 
+// The volume axis is hidden, so the chart needs no room for labels on the right.
+const CHART_MARGINS = { right: 16 }
+// Fits max-w-60 and cuts in the middle, so the end that tells similar labels apart stays visible.
+const LABEL_CHARS = 28
 const VOLUME_KEY = 'volume'
 const PASSED_KEY = 'passed'
 const FAILED_KEY = 'failed'
@@ -164,6 +169,7 @@ export function EvaluationResultTrendChart({
                 { id: VOLUME_KEY, position: 'right', hide: true },
             ],
             valueDomain: isScore ? (scale ? { min: scale.min, max: scale.max } : undefined) : { min: floor, max: 100 },
+            margins: CHART_MARGINS,
         }
     }, [isScore, summary, values, timezone, interval, breakdown])
 
@@ -178,7 +184,7 @@ export function EvaluationResultTrendChart({
                         Number.isFinite(entry.values[ctx.dataIndex]) ? (
                             <div key={entry.key} className="flex items-center gap-2 mt-1">
                                 <TooltipSwatch color={breakdownColor(theme.colors, index)} />
-                                <span className="truncate max-w-60">{entry.label}</span>
+                                <span className="truncate max-w-60">{midEllipsis(entry.label, LABEL_CHARS)}</span>
                                 <strong className="ml-auto tabular-nums">
                                     {isScore
                                         ? entry.values[ctx.dataIndex].toFixed(2)
@@ -259,7 +265,9 @@ export function EvaluationResultTrendChart({
                                 // eslint-disable-next-line react/forbid-dom-props
                                 style={{ backgroundColor: breakdownColor(theme.colors, index) }}
                             />
-                            <span className="truncate max-w-60">{entry.label}</span>
+                            <span className="truncate max-w-60" title={entry.label}>
+                                {midEllipsis(entry.label, LABEL_CHARS)}
+                            </span>
                         </span>
                     ))}
                 </div>

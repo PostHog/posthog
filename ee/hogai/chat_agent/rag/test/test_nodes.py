@@ -12,7 +12,7 @@ from posthog.schema import MaxActionContext, MaxUIContext, TeamTaxonomyQuery
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models.ai.utils import PgEmbeddingRow, bulk_create_pg_embeddings
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.testing import create_action
 
 from ee.hogai.chat_agent.rag.nodes import InsightRagContextNode
 from ee.hogai.utils.types import AssistantState
@@ -36,7 +36,7 @@ from ee.hogai.utils.types import AssistantState
 class TestInsightRagContextNode(ClickhouseTestMixin, BaseTest):
     def setUp(self):
         super().setUp()
-        self.action = Action.objects.create(
+        self.action = create_action(
             team=self.team,
             name="Action",
             description="Description",
@@ -85,7 +85,7 @@ class TestInsightRagContextNode(ClickhouseTestMixin, BaseTest):
     @patch.object(InsightRagContextNode, "context_manager", new_callable=lambda: MagicMock())
     def test_injects_actions_from_context(self, mock_context_manager, cohere_mock, embed_mock):
         # Create a second action that will come from UI context
-        context_action = Action.objects.create(
+        context_action = create_action(
             team=self.team,
             name="Context Action",
             description="From UI Context",
@@ -117,7 +117,7 @@ class TestInsightRagContextNode(ClickhouseTestMixin, BaseTest):
         # Make embedding fail
         embed_mock.side_effect = ValueError("Embedding failed")
 
-        context_action = Action.objects.create(
+        context_action = create_action(
             team=self.team,
             name="Context Only Action",
             description="Only from context",

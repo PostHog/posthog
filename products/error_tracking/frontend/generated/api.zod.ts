@@ -330,6 +330,13 @@ export const ErrorTrackingAssignmentRulesReorderPartialUpdateBody = /* @__PURE__
         .describe('Mapping from assignment rule UUID to its new evaluation order.'),
 })
 
+export const ErrorTrackingBuiltInFiltersPartialUpdateBody = /* @__PURE__ */ zod.object({
+    enabled: zod
+        .boolean()
+        .optional()
+        .describe('`true` drops matching exceptions for this project. `false` stops dropping them.'),
+})
+
 export const ErrorTrackingBypassRulesCreateBody = /* @__PURE__ */ zod.object({
     filters: zod
         .record(zod.string(), zod.unknown())
@@ -535,6 +542,22 @@ export const ErrorTrackingIssuesSplitCreateBody = /* @__PURE__ */ zod.object({
         )
         .optional()
         .describe('Fingerprints to split into new issues. Each fingerprint becomes its own new issue.'),
+})
+
+export const errorTrackingIssuesTagPartialUpdateBodyKeyMax = 64
+
+export const ErrorTrackingIssuesTagPartialUpdateBody = /* @__PURE__ */ zod.object({
+    key: zod
+        .string()
+        .max(errorTrackingIssuesTagPartialUpdateBodyKeyMax)
+        .optional()
+        .describe(
+            'Key of the tag to apply or remove. The tag definitions endpoint lists the tags enabled for the project.'
+        ),
+    applied: zod
+        .boolean()
+        .optional()
+        .describe('True applies the tag. False removes it and stops automatic taggers from applying it again.'),
 })
 
 export const ErrorTrackingIssuesBulkCreateBody = /* @__PURE__ */ zod.object({
@@ -828,6 +851,12 @@ export const errorTrackingQueryIssuesListCreateBodyUrlMax = 1000
 export const errorTrackingQueryIssuesListCreateBodyFilePathMax = 1000
 
 export const ErrorTrackingQueryIssuesListCreateBody = /* @__PURE__ */ zod.object({
+    firstSeenAfter: zod
+        .string()
+        .optional()
+        .describe(
+            'Only include issues first seen strictly after this ISO timestamp or relative date, such as -24h or -7d. Independent of dateRange, which filters occurrences.'
+        ),
     dateRange: zod
         .object({
             date_from: zod
@@ -1081,6 +1110,10 @@ export const ErrorTrackingReleasesPartialUpdateBody = /* @__PURE__ */ zod.object
 })
 
 export const ErrorTrackingSettingsUpdateSettingsPartialUpdateBody = /* @__PURE__ */ zod.object({
+    adaptive_ingestion_enabled: zod
+        .boolean()
+        .optional()
+        .describe('Project preference for adaptive ingestion. Turning this on does not currently change ingestion.'),
     project_rate_limit_value: zod
         .number()
         .min(1)

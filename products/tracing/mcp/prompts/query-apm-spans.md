@@ -10,12 +10,14 @@ Use 'apm-attributes-list' and 'apm-attribute-values-list' to discover available 
 
 # Return shape
 
-Results are **grouped by trace**, not a flat list of matching spans. For each trace that contains at least one span matching your filters, the response includes spans from that trace (up to `prefetchSpans` per trace, root span first). Two fields tell you which spans actually matched:
+By default (`rootSpans: true`) you get **one row per matching trace: its root span**, and a trace matches only when its **root span** matches your filters. A filter on a child span (a child's `name`, `db.statement`, `code.filepath`, ...) therefore misses every trace where only a child matches: set `rootSpans: false` to select traces where any span matches, or `flatSpans: true` to get the matching spans themselves.
+
+With `rootSpans: false`, results are **grouped by trace**, not a flat list of matching spans. For each trace that contains at least one span matching your filters, the response includes spans from that trace (up to `prefetchSpans` per trace, root span first). Two fields tell you which spans actually matched:
 
 - `matched_filter` — `1` if **this span** satisfies your `filterGroup`/`serviceNames`/`statusCodes`, `0` if it's only included because it shares a trace with a match (e.g. a prefetched sibling or the trace's root). When you filter by a child span's name, the matching child has `matched_filter: 1` and its root/siblings have `matched_filter: 0`.
 - `is_root_span` — `true` for the trace's entry span.
 
-To collapse each matching trace to a **single row — its root span**, set `rootSpans: true` — see below. (The row is the trace's entry span, which may itself carry `matched_filter: 0` when the match was on a child.) To inspect a single trace's full tree, take a `trace_id` from the results and call `apm-trace-get`.
+To inspect one trace, take a `trace_id` from the results and call `apm-trace-get`, which returns a compact summary of the whole trace (critical path, top self time, repeated spans, errors).
 
 CRITICAL: Be minimalist. Only include filters and settings that are essential to answer the user's specific question. Default settings are usually sufficient unless the user explicitly requests customization.
 
@@ -43,6 +45,8 @@ Supported operators:
 
 The `value` field accepts a string, number, or array of strings depending on the operator. Omit `value` for `is_set`/`is_not_set`.
 
+An attribute filter (`span_attribute` or `span_resource_attribute`) matches only spans that have the attribute, also for negated operators such as `is_not` and `not_icontains`. To find spans without the attribute, use `is_not_set`.
+
 ## Time period
 
 Use the `query.dateRange` field to control the time window. If the question doesn't mention time, the default is the last hour (`-1h`). Examples of relative dates: `-1h`, `-6h`, `-1d`, `-7d`, `-30d`.
@@ -59,7 +63,7 @@ Filter by OTel span status codes (list of integers: `0` Unset, `1` OK, `2` Error
 
 ## query.orderBy
 
-Sort by timestamp: `latest` (default) or `earliest`.
+Column to sort traces by: `timestamp` (default, the trace's start) or `duration` (to find the slowest traces). Set `query.orderDirection` to `DESC` (default: newest or slowest first) or `ASC`. Timestamp order pages with `after`; duration order pages with `offset`.
 
 ## query.filterGroup
 
@@ -78,7 +82,7 @@ Filter to a specific trace ID (hex string). Use this when you already know the t
 
 ## query.rootSpans
 
-Set `true` to return **only root spans** — one entry span per matching trace, which collapses each trace to a single row. Useful for "list the traces matching X" without sifting through `matched_filter`. Leave unset (or `false`) to get all spans of matching traces, where you read `matched_filter` to find the ones that matched. The frontend leaves this unset.
+Defaults to `true`: traces are selected by their **root span** matching your filters, and each trace comes back as a single row, its root span (raise `prefetchSpans` to also get its other spans). Set `false` to select traces where **any** span matches — needed whenever you filter on a child span — and read `matched_filter` to find the spans that matched.
 
 ## query.flatSpans
 
@@ -94,7 +98,7 @@ Cursor for pagination. Use the `nextCursor` value from the previous response.
 
 ## query.prefetchSpans
 
-Number of spans to return per matching trace (1-100), root span first. Useful to preview trace structure without a separate `apm-trace-get`. With the default (1) you get one span per trace (the root); raise it to also pull the matching children and their siblings (check `matched_filter` to tell them apart). Ignored when `rootSpans: true`, which always returns just the root.
+Number of spans to return per matching trace (1-100), root span first. With the default (1) you get one span per trace (the root); raise it to also pull the matching children and their siblings (check `matched_filter` to tell them apart). To see where a trace's time went, prefer `apm-trace-get`, whose summary covers the whole trace.
 
 ## query.excludeAttributes
 
@@ -102,12 +106,28 @@ Set `true` to drop the per-span `attributes` map from results (the map stays pre
 
 # Examples
 
-## List recent error spans
+## List recent error spans (any span, not just roots)
 
 ```json
 {
   "query": {
-    "statusCodes": [2]
+    "statusCodes": [2],
+    "flatSpans": true
+  }
+}
+```
+
+## Find traces with a child span over 1 s (filter on a child, so `rootSpans: false`)
+
+```json
+{
+  "query": {
+    "rootSpans": false,
+    "filterGroup": [
+      { "key": "name", "operator": "exact", "type": "span", "value": "clickhouse.query" },
+      { "key": "duration", "operator": "gt", "type": "span", "value": "1000" }
+    ],
+    "dateRange": { "date_from": "-1d" }
   }
 }
 ```
@@ -134,7 +154,7 @@ Set `true` to drop the per-span `attributes` map from results (the map stays pre
 }
 ```
 
-## Find slow spans
+## Find slow traces (root span over 1 s)
 
 ```json
 {

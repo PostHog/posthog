@@ -102,6 +102,7 @@ CREATE TABLE posthog.logs34 (
   _record_count UInt64,
   pattern String,
   pattern_version UInt8,
+  internal_source LowCardinality(String) DEFAULT '',
   INDEX idx_severity_text_set severity_text TYPE set(10) GRANULARITY 1,
   INDEX idx_attributes_str_keys mapKeys(attributes_map_str) TYPE bloom_filter(0.01) GRANULARITY 1,
   INDEX idx_attributes_str_values mapValues(attributes_map_str) TYPE bloom_filter(0.001) GRANULARITY 1,
@@ -170,7 +171,8 @@ CREATE TABLE posthog.logs_distributed (
   _bytes_compressed UInt64,
   _record_count UInt64,
   pattern String,
-  pattern_version UInt8
+  pattern_version UInt8,
+  internal_source LowCardinality(String) DEFAULT ''
 ) ENGINE = Distributed('logs', 'posthog', 'logs34');
 CREATE TABLE posthog.logs_kafka_metrics (
   _partition UInt32,
@@ -199,9 +201,10 @@ CREATE TABLE posthog.logs_pattern_buckets (
   severity_text LowCardinality(String),
   pattern_version UInt8,
   pattern String,
+  internal_source LowCardinality(String),
   retention_days SimpleAggregateFunction(max, UInt16),
   log_count SimpleAggregateFunction(sum, UInt64)
-) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/noshard/posthog.logs_pattern_buckets', '{replica}-{shard}') PRIMARY KEY (team_id, time_bucket, service_name, namespace, environment, severity_text, pattern_version) ORDER BY (team_id, time_bucket, service_name, namespace, environment, severity_text, pattern_version, pattern) PARTITION BY toDate(time_bucket) TTL time_bucket + toIntervalDay(greatest(42, retention_days)) SETTINGS index_granularity = 8192, ttl_only_drop_parts = 0;
+) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/noshard/posthog.logs_pattern_buckets', '{replica}-{shard}') PRIMARY KEY (team_id, time_bucket, service_name, namespace, environment, severity_text, pattern_version) ORDER BY (team_id, time_bucket, service_name, namespace, environment, severity_text, pattern_version, pattern, internal_source) PARTITION BY toDate(time_bucket) TTL time_bucket + toIntervalDay(greatest(42, retention_days)) SETTINGS index_granularity = 8192, ttl_only_drop_parts = 0;
 CREATE TABLE posthog.logs_pattern_buckets_distributed (
   team_id Int32,
   time_bucket DateTime('UTC') CODEC(DoubleDelta, ZSTD(1)),
@@ -211,6 +214,7 @@ CREATE TABLE posthog.logs_pattern_buckets_distributed (
   severity_text LowCardinality(String),
   pattern_version UInt8,
   pattern String,
+  internal_source LowCardinality(String),
   retention_days SimpleAggregateFunction(max, UInt16),
   log_count SimpleAggregateFunction(sum, UInt64)
 ) ENGINE = Distributed('logs', 'posthog', 'logs_pattern_buckets');
@@ -221,9 +225,10 @@ CREATE TABLE posthog.logs_volume_buckets (
   namespace LowCardinality(String),
   environment LowCardinality(String),
   severity_text LowCardinality(String),
+  internal_source LowCardinality(String),
   retention_days SimpleAggregateFunction(max, UInt16),
   log_count SimpleAggregateFunction(sum, UInt64)
-) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/noshard/posthog.logs_volume_buckets', '{replica}-{shard}') ORDER BY (team_id, time_bucket, service_name, namespace, environment, severity_text) PARTITION BY toDate(time_bucket) TTL time_bucket + toIntervalDay(greatest(42, retention_days)) SETTINGS index_granularity = 8192, ttl_only_drop_parts = 0;
+) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/noshard/posthog.logs_volume_buckets', '{replica}-{shard}') PRIMARY KEY (team_id, time_bucket, service_name, namespace, environment, severity_text) ORDER BY (team_id, time_bucket, service_name, namespace, environment, severity_text, internal_source) PARTITION BY toDate(time_bucket) TTL time_bucket + toIntervalDay(greatest(42, retention_days)) SETTINGS index_granularity = 8192, ttl_only_drop_parts = 0;
 CREATE TABLE posthog.logs_volume_buckets_distributed (
   team_id Int32,
   time_bucket DateTime('UTC') CODEC(DoubleDelta, ZSTD(1)),
@@ -231,69 +236,10 @@ CREATE TABLE posthog.logs_volume_buckets_distributed (
   namespace LowCardinality(String),
   environment LowCardinality(String),
   severity_text LowCardinality(String),
+  internal_source LowCardinality(String),
   retention_days SimpleAggregateFunction(max, UInt16),
   log_count SimpleAggregateFunction(sum, UInt64)
 ) ENGINE = Distributed('logs', 'posthog', 'logs_volume_buckets');
-CREATE TABLE posthog.metric_attributes (
-  team_id Int32,
-  time_bucket DateTime64(0),
-  service_name LowCardinality(String),
-  resource_fingerprint UInt64 DEFAULT 0,
-  attribute_key LowCardinality(String),
-  attribute_value String,
-  attribute_count SimpleAggregateFunction(sum, UInt64),
-  attribute_type LowCardinality(String),
-  INDEX idx_attribute_key attribute_key TYPE bloom_filter(0.01) GRANULARITY 1,
-  INDEX idx_attribute_value attribute_value TYPE bloom_filter(0.01) GRANULARITY 1,
-  INDEX idx_attribute_key_n3 attribute_key TYPE ngrambf_v1(3, 32768, 3, 0) GRANULARITY 1,
-  INDEX idx_attribute_value_n3 attribute_value TYPE ngrambf_v1(3, 32768, 3, 0) GRANULARITY 1
-) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/logs/{shard}/posthog.metric_attributes', '{replica}') ORDER BY (team_id, attribute_type, time_bucket, resource_fingerprint, attribute_key, attribute_value) PARTITION BY toDate(time_bucket) SETTINGS deduplicate_merge_projection_mode = 'drop', index_granularity = 8192;
-CREATE TABLE posthog.metric_attributes2 (
-  team_id Int32,
-  time_bucket DateTime64(0),
-  original_expiry_time_bucket DateTime64(0),
-  service_name LowCardinality(String),
-  attribute_key LowCardinality(String),
-  attribute_value String,
-  attribute_type LowCardinality(String),
-  attribute_count SimpleAggregateFunction(sum, UInt64),
-  INDEX idx_attribute_key attribute_key TYPE bloom_filter(0.01) GRANULARITY 1,
-  INDEX idx_attribute_value attribute_value TYPE bloom_filter(0.01) GRANULARITY 1,
-  INDEX idx_attribute_key_n3 attribute_key TYPE ngrambf_v1(3, 32768, 3, 0) GRANULARITY 1,
-  INDEX idx_attribute_value_n3 attribute_value TYPE ngrambf_v1(3, 32768, 3, 0) GRANULARITY 1
-) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/noshard/posthog.metric_attributes2', '{replica}-{shard}') ORDER BY (team_id, attribute_type, time_bucket, attribute_key, attribute_value) PARTITION BY toDate(original_expiry_time_bucket) TTL original_expiry_time_bucket SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
-CREATE TABLE posthog.metric_attributes3 (
-  team_id Int32,
-  metric_name LowCardinality(String),
-  time_bucket DateTime64(0),
-  original_expiry_time_bucket DateTime64(0),
-  service_name LowCardinality(String),
-  attribute_key LowCardinality(String),
-  attribute_value String,
-  attribute_type LowCardinality(String),
-  attribute_count SimpleAggregateFunction(sum, UInt64),
-  INDEX idx_attribute_key attribute_key TYPE bloom_filter(0.01) GRANULARITY 1,
-  INDEX idx_attribute_value attribute_value TYPE bloom_filter(0.01) GRANULARITY 1,
-  INDEX idx_attribute_key_n3 attribute_key TYPE ngrambf_v1(3, 32768, 3, 0) GRANULARITY 1,
-  INDEX idx_attribute_value_n3 attribute_value TYPE ngrambf_v1(3, 32768, 3, 0) GRANULARITY 1
-) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/noshard/posthog.metric_attributes3', '{replica}-{shard}') ORDER BY (team_id, metric_name, attribute_type, time_bucket, attribute_key, attribute_value, service_name, original_expiry_time_bucket) PARTITION BY toDate(original_expiry_time_bucket) TTL original_expiry_time_bucket SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
-CREATE TABLE posthog.metric_attributes_distributed (
-  team_id Int32,
-  time_bucket DateTime64(0),
-  original_expiry_time_bucket DateTime64(0),
-  service_name LowCardinality(String),
-  attribute_key LowCardinality(String),
-  attribute_value String,
-  attribute_type LowCardinality(String),
-  attribute_count SimpleAggregateFunction(sum, UInt64)
-) ENGINE = Distributed('logs', 'posthog', 'metric_attributes2');
-CREATE TABLE posthog.metric_names3 (
-  team_id Int32,
-  metric_name LowCardinality(String),
-  time_bucket DateTime64(0),
-  original_expiry_time_bucket DateTime64(0),
-  original_expiry_timestamp SimpleAggregateFunction(max, DateTime64(6))
-) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/noshard/posthog.metric_names3', '{replica}-{shard}') ORDER BY (team_id, time_bucket, metric_name, original_expiry_time_bucket) PARTITION BY toDate(original_expiry_time_bucket) TTL original_expiry_timestamp SETTINGS index_granularity = 8192;
 CREATE TABLE posthog.metric_samples1 (
   team_id Int32,
   metric_name LowCardinality(String),
@@ -324,287 +270,6 @@ CREATE TABLE posthog.metric_series1 (
   INDEX idx_attr_keys mapKeys(attributes) TYPE bloom_filter(0.01) GRANULARITY 1,
   INDEX idx_attr_values mapValues(attributes) TYPE bloom_filter(0.01) GRANULARITY 1
 ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/noshard/posthog.metric_series1', '{replica}-{shard}', last_seen) ORDER BY (team_id, metric_name, series_fingerprint) TTL toDateTime(last_seen) + toIntervalDay(90) SETTINGS index_granularity = 8192;
-CREATE TABLE posthog.metric_series2 (
-  team_id Int32,
-  metric_name LowCardinality(String),
-  series_fingerprint UInt64 CODEC(Delta(8), Default),
-  metric_type LowCardinality(String),
-  unit LowCardinality(String),
-  aggregation_temporality LowCardinality(String),
-  is_monotonic Bool DEFAULT false,
-  service_name LowCardinality(String),
-  instrumentation_scope String,
-  resource_attributes Map(LowCardinality(String), String),
-  resource_fingerprint UInt64 MATERIALIZED cityHash64(resource_attributes),
-  attributes Map(LowCardinality(String), String),
-  last_seen DateTime64(6),
-  original_expiry_timestamp DateTime64(6),
-  INDEX idx_service_set service_name TYPE set(1000) GRANULARITY 1,
-  INDEX idx_resource_fingerprint resource_fingerprint TYPE bloom_filter(0.01) GRANULARITY 1,
-  INDEX idx_attr_keys mapKeys(attributes) TYPE bloom_filter(0.01) GRANULARITY 1,
-  INDEX idx_attr_values mapValues(attributes) TYPE bloom_filter(0.01) GRANULARITY 1,
-  INDEX idx_last_seen_minmax last_seen TYPE minmax GRANULARITY 1
-) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/noshard/posthog.metric_series2', '{replica}-{shard}', last_seen) ORDER BY (team_id, metric_name, series_fingerprint) TTL original_expiry_timestamp SETTINGS index_granularity = 8192;
-CREATE TABLE posthog.metric_series3 (
-  team_id Int32,
-  metric_name LowCardinality(String),
-  series_fingerprint UInt64 CODEC(Delta(8), Default),
-  metric_type LowCardinality(String),
-  unit LowCardinality(String),
-  aggregation_temporality LowCardinality(String),
-  is_monotonic Bool DEFAULT false,
-  service_name LowCardinality(String),
-  instrumentation_scope String,
-  resource_attributes Map(LowCardinality(String), String),
-  resource_fingerprint UInt64 MATERIALIZED cityHash64(resource_attributes),
-  attributes Map(LowCardinality(String), String),
-  last_seen DateTime64(6),
-  original_expiry_timestamp DateTime64(6),
-  INDEX idx_service_set service_name TYPE set(1000) GRANULARITY 1,
-  INDEX idx_resource_fingerprint resource_fingerprint TYPE bloom_filter(0.01) GRANULARITY 1,
-  INDEX idx_attr_keys mapKeys(attributes) TYPE bloom_filter(0.01) GRANULARITY 1,
-  INDEX idx_attr_values mapValues(attributes) TYPE bloom_filter(0.01) GRANULARITY 1,
-  INDEX idx_last_seen_minmax last_seen TYPE minmax GRANULARITY 1
-) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/noshard/posthog.metric_series3', '{replica}-{shard}', last_seen) ORDER BY (team_id, metric_name, series_fingerprint) PARTITION BY toDate(original_expiry_timestamp) TTL original_expiry_timestamp SETTINGS index_granularity = 8192;
-CREATE TABLE posthog.metric_series_distributed (
-  team_id Int32,
-  metric_name LowCardinality(String),
-  series_fingerprint UInt64 CODEC(Delta(8), Default),
-  metric_type LowCardinality(String),
-  unit LowCardinality(String),
-  aggregation_temporality LowCardinality(String),
-  is_monotonic Bool DEFAULT false,
-  service_name LowCardinality(String),
-  instrumentation_scope String,
-  resource_attributes Map(LowCardinality(String), String),
-  resource_fingerprint UInt64 MATERIALIZED cityHash64(resource_attributes),
-  attributes Map(LowCardinality(String), String),
-  last_seen DateTime64(6),
-  original_expiry_timestamp DateTime64(6)
-) ENGINE = Distributed('logs', 'posthog', 'metric_series2');
-CREATE TABLE posthog.metrics1 (
-  time_bucket DateTime MATERIALIZED toStartOfDay(timestamp),
-  uuid String,
-  team_id Int32,
-  trace_id String,
-  span_id String,
-  trace_flags Int32,
-  timestamp DateTime64(6),
-  observed_timestamp DateTime64(6),
-  created_at DateTime64(6) MATERIALIZED now(),
-  service_name LowCardinality(String),
-  metric_name LowCardinality(String),
-  metric_type LowCardinality(String),
-  value Float64 CODEC(Gorilla(8)),
-  count UInt64 DEFAULT 1 CODEC(T64),
-  histogram_bounds Array(Float64),
-  histogram_counts Array(UInt64),
-  unit LowCardinality(String),
-  aggregation_temporality LowCardinality(String),
-  is_monotonic Bool DEFAULT false,
-  resource_attributes Map(LowCardinality(String), String),
-  resource_fingerprint UInt64 MATERIALIZED cityHash64(resource_attributes),
-  instrumentation_scope String,
-  attributes_map_str Map(LowCardinality(String), String),
-  attributes_map_float Map(LowCardinality(String), Float64),
-  time_minute DateTime ALIAS toStartOfMinute(timestamp),
-  attributes Map(String, String) ALIAS mapApply((k, v) -> (left(k, -5), v), attributes_map_str),
-  INDEX idx_metric_name_set metric_name TYPE set(100) GRANULARITY 1,
-  INDEX idx_metric_type_set metric_type TYPE set(10) GRANULARITY 1,
-  INDEX idx_attributes_str_keys mapKeys(attributes_map_str) TYPE bloom_filter(0.01) GRANULARITY 1,
-  INDEX idx_attributes_str_values mapValues(attributes_map_str) TYPE bloom_filter(0.001) GRANULARITY 1,
-  INDEX idx_observed_minmax observed_timestamp TYPE minmax GRANULARITY 1,
-  PROJECTION projection_aggregate_counts (SELECT
-  team_id,
-  time_bucket,
-  toStartOfMinute(timestamp),
-  service_name,
-  metric_name,
-  metric_type,
-  resource_fingerprint,
-  count() AS event_count,
-  sum(value) AS total_value,
-  min(value) AS min_value,
-  max(value) AS max_value
-GROUP BY
-  team_id, time_bucket, toStartOfMinute(timestamp), service_name, metric_name, metric_type, resource_fingerprint)
-) ENGINE = ReplicatedMergeTree('/clickhouse/tables/logs/{shard}/posthog.metrics1', '{replica}') ORDER BY (team_id, time_bucket, service_name, metric_name, resource_fingerprint, timestamp) PARTITION BY toDate(timestamp) SETTINGS index_granularity = 8192, index_granularity_bytes = 104857600, ttl_only_drop_parts = 1;
-CREATE TABLE posthog.metrics2 (
-  team_id Int32,
-  metric_name LowCardinality(String),
-  time_bucket DateTime MATERIALIZED toStartOfHour(timestamp),
-  series_fingerprint UInt64 CODEC(Delta(8), Default),
-  resource_fingerprint UInt64 DEFAULT 0,
-  timestamp DateTime64(6) CODEC(DoubleDelta),
-  observed_timestamp DateTime64(6),
-  original_expiry_timestamp DateTime64(6),
-  created_at DateTime64(6) MATERIALIZED now(),
-  service_name LowCardinality(String),
-  metric_type LowCardinality(String),
-  value Float64 CODEC(Gorilla(8)),
-  count UInt64 DEFAULT 1 CODEC(T64),
-  histogram_bounds Array(Float64),
-  histogram_counts Array(UInt64),
-  trace_id String,
-  span_id String,
-  trace_flags Int32,
-  has_labels Bool DEFAULT false,
-  unit LowCardinality(String),
-  aggregation_temporality LowCardinality(String),
-  is_monotonic Bool DEFAULT false,
-  instrumentation_scope String,
-  _partition UInt32,
-  _topic String,
-  _offset UInt64,
-  INDEX idx_metric_type_set metric_type TYPE set(10) GRANULARITY 1,
-  INDEX idx_service_set service_name TYPE set(1000) GRANULARITY 1,
-  INDEX idx_trace_id_bf trace_id TYPE bloom_filter(0.01) GRANULARITY 1,
-  INDEX idx_resource_fingerprint resource_fingerprint TYPE bloom_filter(0.01) GRANULARITY 1,
-  INDEX idx_observed_minmax observed_timestamp TYPE minmax GRANULARITY 1,
-  INDEX idx_timestamp_minmax timestamp TYPE minmax GRANULARITY 1,
-  PROJECTION projection_series_activity (SELECT
-  team_id,
-  service_name,
-  metric_name,
-  metric_type,
-  resource_fingerprint,
-  series_fingerprint,
-  toStartOfHour(timestamp) AS hour,
-  count() AS sample_count,
-  max(timestamp) AS last_seen
-GROUP BY
-  team_id, service_name, metric_name, metric_type, resource_fingerprint, series_fingerprint, hour)
-) ENGINE = ReplicatedMergeTree('/clickhouse/tables/noshard/posthog.metrics2', '{replica}-{shard}') ORDER BY (team_id, metric_name, time_bucket, series_fingerprint, timestamp) PARTITION BY toDate(original_expiry_timestamp) TTL original_expiry_timestamp SETTINGS index_granularity = 8192, index_granularity_bytes = 104857600, ttl_only_drop_parts = 1;
-CREATE TABLE posthog.metrics4_attributes (
-  team_id Int32,
-  metric_name LowCardinality(String),
-  time_bucket DateTime64(0),
-  original_expiry_time_bucket DateTime64(0),
-  service_name LowCardinality(String),
-  attribute_key LowCardinality(String),
-  attribute_value String,
-  attribute_type LowCardinality(String),
-  attribute_count SimpleAggregateFunction(sum, UInt64),
-  INDEX idx_attribute_key attribute_key TYPE bloom_filter(0.01) GRANULARITY 1,
-  INDEX idx_attribute_value attribute_value TYPE bloom_filter(0.01) GRANULARITY 1,
-  INDEX idx_attribute_key_n3 attribute_key TYPE ngrambf_v1(3, 32768, 3, 0) GRANULARITY 1,
-  INDEX idx_attribute_value_n3 attribute_value TYPE ngrambf_v1(3, 32768, 3, 0) GRANULARITY 1,
-  INDEX idx_time_bucket_minmax time_bucket TYPE minmax GRANULARITY 1
-) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/noshard/posthog.metrics4_attributes', '{replica}-{shard}') ORDER BY (team_id, metric_name, attribute_type, time_bucket, attribute_key, attribute_value, service_name, original_expiry_time_bucket) PARTITION BY toDate(original_expiry_time_bucket) TTL original_expiry_time_bucket SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
-CREATE TABLE posthog.metrics4_names (
-  team_id Int32,
-  metric_name LowCardinality(String),
-  time_bucket DateTime64(0),
-  original_expiry_time_bucket DateTime64(0),
-  original_expiry_timestamp SimpleAggregateFunction(max, DateTime64(6)),
-  service_name LowCardinality(String),
-  metric_types SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
-  metric_type String ALIAS metric_types[1]
-) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/noshard/posthog.metrics4_names', '{replica}-{shard}') ORDER BY (team_id, time_bucket, metric_name, original_expiry_time_bucket, service_name) PARTITION BY toDate(original_expiry_time_bucket) TTL original_expiry_timestamp SETTINGS index_granularity = 8192;
-CREATE TABLE posthog.metrics4_samples (
-  team_id Int32,
-  metric_name LowCardinality(String),
-  time_bucket DateTime,
-  series_fingerprint UInt64 CODEC(Delta(8), Default),
-  original_expiry_date Date32,
-  resource_fingerprint SimpleAggregateFunction(any, UInt64),
-  service_name SimpleAggregateFunction(any, LowCardinality(String)),
-  metric_type SimpleAggregateFunction(any, LowCardinality(String)),
-  unit SimpleAggregateFunction(any, LowCardinality(String)),
-  aggregation_temporality SimpleAggregateFunction(any, LowCardinality(String)),
-  is_monotonic SimpleAggregateFunction(max, UInt8),
-  has_labels SimpleAggregateFunction(max, UInt8),
-  instrumentation_scope SimpleAggregateFunction(any, String),
-  histogram_bounds SimpleAggregateFunction(anyLast, Array(Float64)),
-  _topic SimpleAggregateFunction(any, LowCardinality(String)),
-  timestamp_arr SimpleAggregateFunction(groupArrayArray(10000), Array(DateTime64(6))) CODEC(DoubleDelta, Default),
-  observed_timestamp_arr SimpleAggregateFunction(groupArrayArray(10000), Array(DateTime64(6))) CODEC(DoubleDelta, Default),
-  value_arr SimpleAggregateFunction(groupArrayArray(10000), Array(Float64)) CODEC(Gorilla(8), Default),
-  count_arr SimpleAggregateFunction(groupArrayArray(10000), Array(UInt64)) CODEC(T64, Default),
-  histogram_counts_arr SimpleAggregateFunction(groupArrayArray(10000), Array(Array(UInt64))) CODEC(T64, Default),
-  trace_id_arr SimpleAggregateFunction(groupArrayArray(10000), Array(String)),
-  span_id_arr SimpleAggregateFunction(groupArrayArray(10000), Array(String)),
-  trace_flags_arr SimpleAggregateFunction(groupArrayArray(10000), Array(Int32)),
-  timestamp_min DateTime64(6) ALIAS arrayMin(timestamp_arr),
-  timestamp_max DateTime64(6) ALIAS arrayMax(timestamp_arr),
-  INDEX idx_metric_type_set metric_type TYPE set(10) GRANULARITY 1,
-  INDEX idx_time_bucket_minmax time_bucket TYPE minmax GRANULARITY 1,
-  INDEX idx_trace_id_bf trace_id_arr TYPE bloom_filter(0.01) GRANULARITY 1,
-  INDEX idx_timestamp_min_minmax timestamp_min TYPE minmax GRANULARITY 1,
-  INDEX idx_timestamp_max_minmax timestamp_max TYPE minmax GRANULARITY 1,
-  PROJECTION service_freshness_by_hour (SELECT team_id, time_bucket, service_name, max(arrayMax(timestamp_arr))
-GROUP BY
-  team_id, time_bucket, service_name)
-) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/noshard/posthog.metrics4_samples', '{replica}-{shard}') ORDER BY (team_id, metric_name, time_bucket, series_fingerprint) PARTITION BY original_expiry_date TTL original_expiry_date SETTINGS deduplicate_merge_projection_mode = 'rebuild', index_granularity = 128, ttl_only_drop_parts = 1;
-CREATE TABLE posthog.metrics4_series (
-  team_id Int32,
-  metric_name LowCardinality(String),
-  series_fingerprint UInt64 CODEC(Delta(8), Default),
-  metric_type LowCardinality(String),
-  unit LowCardinality(String),
-  aggregation_temporality LowCardinality(String),
-  is_monotonic Bool DEFAULT false,
-  service_name LowCardinality(String),
-  instrumentation_scope String,
-  resource_attributes Map(LowCardinality(String), String),
-  resource_fingerprint UInt64 MATERIALIZED cityHash64(resource_attributes),
-  attributes Map(LowCardinality(String), String),
-  timestamp DateTime64(6),
-  time_bucket DateTime MATERIALIZED toStartOfHour(timestamp),
-  original_expiry_timestamp DateTime64(6),
-  INDEX idx_service_set service_name TYPE set(1000) GRANULARITY 1,
-  INDEX idx_resource_fingerprint resource_fingerprint TYPE bloom_filter(0.01) GRANULARITY 1,
-  INDEX idx_attr_keys mapKeys(attributes) TYPE bloom_filter(0.01) GRANULARITY 1,
-  INDEX idx_attr_values mapValues(attributes) TYPE bloom_filter(0.01) GRANULARITY 1,
-  INDEX idx_timestamp_minmax timestamp TYPE minmax GRANULARITY 1,
-  INDEX idx_time_bucket_minmax time_bucket TYPE minmax GRANULARITY 1,
-  PROJECTION services_by_hour (SELECT
-  team_id,
-  time_bucket,
-  service_name,
-  uniqExact(metric_name),
-  uniq(series_fingerprint),
-  max(timestamp)
-GROUP BY
-  team_id, time_bucket, service_name)
-) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/noshard/posthog.metrics4_series', '{replica}-{shard}', timestamp) ORDER BY (team_id, metric_name, series_fingerprint, time_bucket) PARTITION BY toStartOfWeek(original_expiry_timestamp) TTL original_expiry_timestamp SETTINGS deduplicate_merge_projection_mode = 'rebuild', index_granularity = 1024, ttl_only_drop_parts = 1;
-CREATE TABLE posthog.metrics_distributed (
-  team_id Int32,
-  metric_name LowCardinality(String),
-  time_bucket DateTime MATERIALIZED toStartOfHour(timestamp),
-  series_fingerprint UInt64 CODEC(Delta(8), Default),
-  resource_fingerprint UInt64 DEFAULT 0,
-  timestamp DateTime64(6) CODEC(DoubleDelta),
-  observed_timestamp DateTime64(6),
-  original_expiry_timestamp DateTime64(6),
-  created_at DateTime64(6) MATERIALIZED now(),
-  service_name LowCardinality(String),
-  metric_type LowCardinality(String),
-  value Float64 CODEC(Gorilla(8)),
-  count UInt64 DEFAULT 1 CODEC(T64),
-  histogram_bounds Array(Float64),
-  histogram_counts Array(UInt64),
-  trace_id String,
-  span_id String,
-  trace_flags Int32,
-  has_labels Bool DEFAULT false,
-  unit LowCardinality(String),
-  aggregation_temporality LowCardinality(String),
-  is_monotonic Bool DEFAULT false,
-  instrumentation_scope String,
-  _partition UInt32,
-  _topic String,
-  _offset UInt64
-) ENGINE = Distributed('logs', 'posthog', 'metrics2');
-CREATE TABLE posthog.metrics_kafka_metrics (
-  _partition UInt32,
-  _topic String,
-  max_offset SimpleAggregateFunction(max, UInt64),
-  max_observed_timestamp SimpleAggregateFunction(max, DateTime64(9)),
-  max_timestamp SimpleAggregateFunction(max, DateTime64(9)),
-  max_created_at SimpleAggregateFunction(max, DateTime64(9)),
-  max_lag SimpleAggregateFunction(max, UInt64)
-) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/logs/{shard}/posthog.metrics_kafka_metrics', '{replica}') ORDER BY (_topic, _partition) SETTINGS index_granularity = 8192;
 CREATE TABLE posthog.query_log_archive (
   initial_query_start_time DateTime64(6, 'UTC'),
   team_id Int64,
@@ -894,7 +559,7 @@ CREATE TABLE posthog.trace_spans_kafka_metrics (
   max_timestamp SimpleAggregateFunction(max, DateTime64(9)),
   max_created_at SimpleAggregateFunction(max, DateTime64(9)),
   max_lag SimpleAggregateFunction(max, UInt64)
-) ENGINE = ReplicatedMergeTree('/clickhouse/tables/noshard/posthog.trace_spans_kafka_metrics', '{replica}-{shard}') ORDER BY (_topic, _partition) SETTINGS index_granularity = 8192;
+) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/noshard/posthog.trace_spans_kafka_metrics', '{replica}-{shard}') ORDER BY (_topic, _partition) SETTINGS index_granularity = 8192;
 CREATE TABLE posthog.writable_query_log_archive_v3 (
   initial_query_start_time DateTime64(6, 'UTC'),
   team_id Int64,
@@ -1112,7 +777,7 @@ FROM
     GROUP BY
       team_id, time_bucket, original_expiry_time_bucket, service_name, resource_fingerprint, severity_text, attributes
   );
-CREATE MATERIALIZED VIEW posthog.logs34_to_pattern_buckets TO posthog.logs_pattern_buckets (team_id Int32, time_bucket DateTime('UTC'), service_name LowCardinality(String), namespace LowCardinality(String), environment LowCardinality(String), severity_text LowCardinality(String), pattern_version UInt8, pattern String, retention_days SimpleAggregateFunction(max, UInt16), log_count SimpleAggregateFunction(sum, UInt64)) AS SELECT
+CREATE MATERIALIZED VIEW posthog.logs34_to_pattern_buckets TO posthog.logs_pattern_buckets (team_id Int32, time_bucket DateTime('UTC'), service_name LowCardinality(String), namespace LowCardinality(String), environment LowCardinality(String), severity_text LowCardinality(String), pattern_version UInt8, pattern String, internal_source LowCardinality(String), retention_days SimpleAggregateFunction(max, UInt16), log_count SimpleAggregateFunction(sum, UInt64)) AS SELECT
   team_id,
   time_bucket,
   service_name,
@@ -1121,6 +786,7 @@ CREATE MATERIALIZED VIEW posthog.logs34_to_pattern_buckets TO posthog.logs_patte
   severity_text,
   pattern_version,
   pattern,
+  internal_source,
   maxSimpleState(retention_days) AS retention_days,
   sumSimpleState(1) AS log_count
 FROM
@@ -1146,6 +812,7 @@ FROM
       lower(severity_text) AS severity_text,
       pattern_version,
       pattern,
+      internal_source,
       toUInt16(
         least(
           intDiv(
@@ -1160,7 +827,7 @@ FROM
     WHERE pattern_version != 0
   )
 GROUP BY
-  team_id, time_bucket, service_name, namespace, environment, severity_text, pattern_version, pattern;
+  team_id, time_bucket, service_name, namespace, environment, severity_text, pattern_version, pattern, internal_source;
 CREATE MATERIALIZED VIEW posthog.logs34_to_resource_attributes3 TO posthog.log_attributes3 (team_id Int32, time_bucket DateTime64(0), original_expiry_time_bucket DateTime64(0), service_name LowCardinality(String), resource_fingerprint UInt64, attribute_key LowCardinality(String), attribute_value String, attribute_type LowCardinality(String), severity_text LowCardinality(String), attribute_count SimpleAggregateFunction(sum, UInt64)) AS SELECT
   team_id,
   time_bucket,
@@ -1190,13 +857,14 @@ FROM
     GROUP BY
       team_id, time_bucket, original_expiry_time_bucket, service_name, resource_fingerprint, severity_text, resource_attributes
   );
-CREATE MATERIALIZED VIEW posthog.logs34_to_volume_buckets TO posthog.logs_volume_buckets (team_id Int32, time_bucket DateTime('UTC'), service_name LowCardinality(String), namespace LowCardinality(String), environment LowCardinality(String), severity_text LowCardinality(String), retention_days SimpleAggregateFunction(max, UInt16), log_count SimpleAggregateFunction(sum, UInt64)) AS SELECT
+CREATE MATERIALIZED VIEW posthog.logs34_to_volume_buckets TO posthog.logs_volume_buckets (team_id Int32, time_bucket DateTime('UTC'), service_name LowCardinality(String), namespace LowCardinality(String), environment LowCardinality(String), severity_text LowCardinality(String), internal_source LowCardinality(String), retention_days SimpleAggregateFunction(max, UInt16), log_count SimpleAggregateFunction(sum, UInt64)) AS SELECT
   team_id,
   time_bucket,
   service_name,
   namespace,
   environment,
   severity_text,
+  internal_source,
   maxSimpleState(retention_days) AS retention_days,
   sumSimpleState(1) AS log_count
 FROM
@@ -1220,6 +888,7 @@ FROM
         )
       ) AS environment,
       lower(severity_text) AS severity_text,
+      internal_source,
       toUInt16(
         least(
           intDiv(
@@ -1233,7 +902,7 @@ FROM
     FROM posthog.logs34
   )
 GROUP BY
-  team_id, time_bucket, service_name, namespace, environment, severity_text;
+  team_id, time_bucket, service_name, namespace, environment, severity_text, internal_source;
 CREATE MATERIALIZED VIEW posthog.ops_query_log_archive_v3_mv TO posthog.writable_query_log_archive_v3 (initial_query_start_time DateTime64(6, 'UTC'), team_id Int64, initial_query_id String, is_initial_query SimpleAggregateFunction(max, UInt8), hostname SimpleAggregateFunction(max, LowCardinality(String)), user SimpleAggregateFunction(max, LowCardinality(String)), type SimpleAggregateFunction(max, Enum8('QueryStart'=1, 'QueryFinish'=2, 'ExceptionBeforeStart'=3, 'ExceptionWhileProcessing'=4)), event_time_microseconds SimpleAggregateFunction(max, DateTime64(6, 'UTC')), query_duration_ms SimpleAggregateFunction(max, UInt64), read_rows SimpleAggregateFunction(sum, UInt64), read_bytes SimpleAggregateFunction(sum, UInt64), written_rows SimpleAggregateFunction(sum, UInt64), written_bytes SimpleAggregateFunction(sum, UInt64), result_rows SimpleAggregateFunction(sum, UInt64), result_bytes SimpleAggregateFunction(sum, UInt64), memory_usage SimpleAggregateFunction(max, UInt64), memory_usage_sum SimpleAggregateFunction(sum, UInt64), peak_threads_usage SimpleAggregateFunction(sum, UInt64), execution_count SimpleAggregateFunction(sum, UInt64), current_database SimpleAggregateFunction(max, LowCardinality(String)), query SimpleAggregateFunction(max, String), normalized_query_hash SimpleAggregateFunction(max, UInt64), query_kind_by_root SimpleAggregateFunction(max, Tuple(UInt8, String)), tables SimpleAggregateFunction(max, Array(String)), exception_code SimpleAggregateFunction(max, Int32), exception SimpleAggregateFunction(max, String), stack_trace SimpleAggregateFunction(max, String), ProfileEvents_SelectedRows SimpleAggregateFunction(sum, UInt64), ProfileEvents_SelectedBytes SimpleAggregateFunction(sum, UInt64), ProfileEvents_RealTimeMicroseconds SimpleAggregateFunction(sum, UInt64), ProfileEvents_OSCPUVirtualTimeMicroseconds SimpleAggregateFunction(sum, UInt64), ProfileEvents_UserTimeMicroseconds SimpleAggregateFunction(sum, UInt64), ProfileEvents_SystemTimeMicroseconds SimpleAggregateFunction(sum, UInt64), ProfileEvents_SelectedParts SimpleAggregateFunction(sum, UInt64), ProfileEvents_SelectedMarks SimpleAggregateFunction(sum, UInt64), ProfileEvents_NetworkReceiveBytes SimpleAggregateFunction(sum, UInt64), ProfileEvents_NetworkSendBytes SimpleAggregateFunction(sum, UInt64), ProfileEvents_ReadBufferFromFileDescriptorReadBytes SimpleAggregateFunction(sum, UInt64), ProfileEvents_WriteBufferFromFileDescriptorWriteBytes SimpleAggregateFunction(sum, UInt64), ProfileEvents_S3Clients SimpleAggregateFunction(sum, UInt64), ProfileEvents_S3DeleteObjects SimpleAggregateFunction(sum, UInt64), ProfileEvents_S3CopyObject SimpleAggregateFunction(sum, UInt64), ProfileEvents_S3ListObjects SimpleAggregateFunction(sum, UInt64), ProfileEvents_S3HeadObject SimpleAggregateFunction(sum, UInt64), ProfileEvents_S3GetObjectAttributes SimpleAggregateFunction(sum, UInt64), ProfileEvents_S3CreateMultipartUpload SimpleAggregateFunction(sum, UInt64), ProfileEvents_S3UploadPartCopy SimpleAggregateFunction(sum, UInt64), ProfileEvents_S3UploadPart SimpleAggregateFunction(sum, UInt64), ProfileEvents_S3AbortMultipartUpload SimpleAggregateFunction(sum, UInt64), ProfileEvents_S3CompleteMultipartUpload SimpleAggregateFunction(sum, UInt64), ProfileEvents_S3PutObject SimpleAggregateFunction(sum, UInt64), ProfileEvents_S3GetObject SimpleAggregateFunction(sum, UInt64), ProfileEvents_ReadBufferFromS3Bytes SimpleAggregateFunction(sum, UInt64), ProfileEvents_WriteBufferFromS3Bytes SimpleAggregateFunction(sum, UInt64), lc_org_id SimpleAggregateFunction(max, String), lc_user_id SimpleAggregateFunction(max, Int64), lc_session_id SimpleAggregateFunction(max, String), lc_is_impersonated SimpleAggregateFunction(max, Bool), lc_workflow SimpleAggregateFunction(max, LowCardinality(String)), lc_kind SimpleAggregateFunction(max, LowCardinality(String)), lc_id SimpleAggregateFunction(max, String), lc_route_id SimpleAggregateFunction(max, String), lc_access_method SimpleAggregateFunction(max, LowCardinality(String)), lc_api_key_label SimpleAggregateFunction(max, String), lc_api_key_mask SimpleAggregateFunction(max, String), lc_query_type SimpleAggregateFunction(max, LowCardinality(String)), lc_product SimpleAggregateFunction(max, LowCardinality(String)), lc_chargeable SimpleAggregateFunction(max, Bool), lc_name SimpleAggregateFunction(max, String), lc_request_name SimpleAggregateFunction(max, String), lc_client_query_id SimpleAggregateFunction(max, String), lc_dashboard_id SimpleAggregateFunction(max, Int64), lc_insight_id SimpleAggregateFunction(max, Int64), lc_cohort_id SimpleAggregateFunction(max, Int64), lc_batch_export_id SimpleAggregateFunction(max, String), lc_experiment_id SimpleAggregateFunction(max, Int64), lc_experiment_feature_flag_key SimpleAggregateFunction(max, String), lc_alert_config_id SimpleAggregateFunction(max, String), lc_feature SimpleAggregateFunction(max, LowCardinality(String)), lc_table_id SimpleAggregateFunction(max, String), lc_warehouse_query SimpleAggregateFunction(max, Bool), lc_person_on_events_mode SimpleAggregateFunction(max, LowCardinality(String)), lc_service_name SimpleAggregateFunction(max, LowCardinality(String)), lc_workload SimpleAggregateFunction(max, LowCardinality(String)), lc_query__kind SimpleAggregateFunction(max, LowCardinality(String)), lc_query__query SimpleAggregateFunction(max, String), lc_query SimpleAggregateFunction(max, String), lc_modifiers SimpleAggregateFunction(max, String), lc_temporal__workflow_namespace SimpleAggregateFunction(max, LowCardinality(String)), lc_temporal__workflow_type SimpleAggregateFunction(max, LowCardinality(String)), lc_temporal__workflow_id SimpleAggregateFunction(max, String), lc_temporal__workflow_run_id SimpleAggregateFunction(max, String), lc_temporal__activity_type SimpleAggregateFunction(max, LowCardinality(String)), lc_temporal__activity_id SimpleAggregateFunction(max, String), lc_temporal__attempt SimpleAggregateFunction(max, Int64), lc_dagster__job_name SimpleAggregateFunction(max, LowCardinality(String)), lc_dagster__run_id SimpleAggregateFunction(max, String), lc_dagster__owner SimpleAggregateFunction(max, LowCardinality(String)), lc_experiment_name SimpleAggregateFunction(max, String), lc_experiment_metric_name SimpleAggregateFunction(max, String), lc_experiment_execution_path SimpleAggregateFunction(max, LowCardinality(String)), lc_experiment_metric_type SimpleAggregateFunction(max, LowCardinality(String)), lc_experiment_funnel_order_type SimpleAggregateFunction(max, LowCardinality(String)), lc_experiment_exposures_path SimpleAggregateFunction(max, LowCardinality(String)), lc_experiment_metric_events_path SimpleAggregateFunction(max, LowCardinality(String)), lc_experiment_query_surface SimpleAggregateFunction(max, LowCardinality(String)), lc_experiment_precompute_table SimpleAggregateFunction(max, String), lc_experiment_query_group_id SimpleAggregateFunction(max, String), lc_experiment_precompute_skip_reason SimpleAggregateFunction(max, LowCardinality(String)), lc_experiment_scan_date_from SimpleAggregateFunction(max, String), lc_experiment_scan_date_to SimpleAggregateFunction(max, String), lc_precompute_window_start SimpleAggregateFunction(max, String), lc_precompute_window_end SimpleAggregateFunction(max, String), lc_plan_fingerprint SimpleAggregateFunction(max, String), lc_estimated_rows SimpleAggregateFunction(max, Int64), lc_estimated_bytes SimpleAggregateFunction(max, Int64)) AS WITH
   JSONExtract(ql.log_comment, 'Tuple(team_id Int64, org_id String, user_id Int64, session_id String, is_impersonated Bool, workflow String, kind String, id String, route_id String, access_method String, api_key_label String, api_key_mask String, query_type String, product String, chargeable Bool, name String, request_name String, client_query_id String, dashboard_id Int64, insight_id Int64, cohort_id Int64, batch_export_id String, experiment_id Int64, experiment_feature_flag_key String, alert_config_id String, feature String, table_id String, warehouse_query Bool, person_on_events_mode String, service_name String, workload String, experiment_name String, experiment_metric_name String, experiment_execution_path String, experiment_metric_type String, experiment_funnel_order_type String, experiment_exposures_path String, experiment_metric_events_path String, experiment_query_surface String, experiment_precompute_table String, experiment_query_group_id String, experiment_precompute_skip_reason String, experiment_scan_date_from String, experiment_scan_date_to String, precompute_window_start String, precompute_window_end String, plan_fingerprint String, estimated_rows Int64, estimated_bytes Int64, temporal Tuple(workflow_namespace String, workflow_type String, workflow_id String, workflow_run_id String, activity_type String, activity_id String, attempt Int64), dagster Tuple(job_name String, run_id String, tags Tuple(owner String)), query Tuple(kind String, query String, source Tuple(kind String, query String)))') AS lc
 SELECT
@@ -1630,65 +1299,6 @@ CREATE VIEW posthog.custom_metrics_test AS SELECT
   1 AS value,
   'Test to check that the metric endpoint is working' AS help,
   'gauge' AS type;
-CREATE VIEW posthog.metrics4_view AS SELECT
-  team_id,
-  metric_name,
-  time_bucket,
-  series_fingerprint,
-  resource_fingerprint,
-  timestamp,
-  observed_timestamp,
-  original_expiry_timestamp,
-  service_name,
-  metric_type,
-  value,
-  count,
-  histogram_bounds,
-  histogram_counts,
-  trace_id,
-  span_id,
-  trace_flags,
-  has_labels,
-  unit,
-  aggregation_temporality,
-  is_monotonic,
-  instrumentation_scope
-FROM posthog.metrics2
-WHERE
-  (time_bucket > toDateTime('2026-08-25 00:00:00'))
-AND
-  (time_bucket < toDateTime('2026-09-14 00:00:00'))
-AND
-  (timestamp > toDateTime('2026-08-25 00:00:00'))
-AND
-  (timestamp < toDateTime('2026-09-14 00:00:00'))
-UNION ALL
-SELECT
-  team_id,
-  metric_name,
-  time_bucket,
-  series_fingerprint,
-  resource_fingerprint,
-  point_timestamp AS timestamp,
-  point_observed_timestamp AS observed_timestamp,
-  toDateTime64(original_expiry_date, 6) AS original_expiry_timestamp,
-  service_name,
-  metric_type,
-  point_value AS value,
-  point_count AS count,
-  histogram_bounds,
-  point_histogram_counts AS histogram_counts,
-  point_trace_id AS trace_id,
-  point_span_id AS span_id,
-  point_trace_flags AS trace_flags,
-  toBool(has_labels) AS has_labels,
-  unit,
-  aggregation_temporality,
-  toBool(is_monotonic) AS is_monotonic,
-  instrumentation_scope
-FROM
-  posthog.metrics4_samples ARRAY JOIN timestamp_arr AS point_timestamp, observed_timestamp_arr AS point_observed_timestamp, value_arr AS point_value, count_arr AS point_count, histogram_counts_arr AS point_histogram_counts, trace_id_arr AS point_trace_id, span_id_arr AS point_span_id, trace_flags_arr AS point_trace_flags
-WHERE time_bucket >= toDateTime('2026-09-14 00:00:00');
 CREATE TABLE posthog.metric_samples (
   team_id Int32,
   metric_name LowCardinality(String),
@@ -1715,34 +1325,6 @@ CREATE TABLE posthog.metric_series (
   attributes Map(LowCardinality(String), String),
   last_seen DateTime64(6) CODEC(DoubleDelta)
 ) ENGINE = Distributed('logs', 'posthog', 'metric_series1');
-CREATE TABLE posthog.metrics (
-  time_bucket DateTime MATERIALIZED toStartOfDay(timestamp),
-  uuid String,
-  team_id Int32,
-  trace_id String,
-  span_id String,
-  trace_flags Int32,
-  timestamp DateTime64(6),
-  observed_timestamp DateTime64(6),
-  created_at DateTime64(6) MATERIALIZED now(),
-  service_name LowCardinality(String),
-  metric_name LowCardinality(String),
-  metric_type LowCardinality(String),
-  value Float64 CODEC(Gorilla(8)),
-  count UInt64 DEFAULT 1 CODEC(T64),
-  histogram_bounds Array(Float64),
-  histogram_counts Array(UInt64),
-  unit LowCardinality(String),
-  aggregation_temporality LowCardinality(String),
-  is_monotonic Bool DEFAULT false,
-  resource_attributes Map(LowCardinality(String), String),
-  resource_fingerprint UInt64 MATERIALIZED cityHash64(resource_attributes),
-  instrumentation_scope String,
-  attributes_map_str Map(LowCardinality(String), String),
-  attributes_map_float Map(LowCardinality(String), Float64),
-  time_minute DateTime ALIAS toStartOfMinute(timestamp),
-  attributes Map(String, String) ALIAS mapApply((k, v) -> (left(k, -5), v), attributes_map_str)
-) ENGINE = Distributed('logs', 'posthog', 'metrics1');
 CREATE VIEW posthog.custom_metrics AS SELECT * REPLACE(toFloat64(value) AS value)
 FROM posthog.custom_metrics_test
 UNION ALL

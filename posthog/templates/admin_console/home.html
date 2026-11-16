@@ -1,0 +1,145 @@
+{% extends "admin_console/base.html" %}
+{% block header_search %}{% endblock %}
+{% block content %}
+    <div class="flex flex-col gap-6 max-w-5xl">
+        <div>
+            <h1 class="m-0 text-[22px] font-extrabold">
+                <label for="team-search">Look up a team</label>
+            </h1>
+            <p class="m-0 mt-1 text-muted-foreground">
+                See a team's state and run staff actions on it. Reports across all teams are under Tools.
+            </p>
+        </div>
+        <section class="quill-card group/card flex flex-col"
+                 data-quill
+                 data-slot="card"
+                 data-size="default">
+            <div class="quill-card__content" data-slot="card-content">
+                <form method="get"
+                      action="{% url 'admin_console_home' %}"
+                      class="flex flex-wrap gap-2">
+                    <input class="quill-input flex-1 min-w-[240px]"
+                           id="team-search"
+                           type="search"
+                           name="q"
+                           value="{{ query|default:'' }}"
+                           placeholder="Team ID or UUID, organization ID, project API token, user email, or team or organization name"
+                           aria-describedby="team-search-hint"
+                           autofocus />
+                    <button type="submit"
+                            class="quill-button quill-button--variant-primary quill-button--size-default group/button inline-flex shrink-0 items-center justify-center whitespace-nowrap self-stretch h-auto">
+                        Look up
+                    </button>
+                </form>
+                <p id="team-search-hint" class="m-0 mt-2 text-xs text-muted-foreground">
+                    A team ID or UUID, an API token or a name with one match opens the team right away. An organization ID opens the organization, and a user's email opens the user. Press / on any page to jump here.
+                </p>
+            </div>
+        </section>
+        {% if query %}
+            {% if teams %}
+                <section class="quill-card group/card flex flex-col"
+                         data-quill
+                         data-slot="card"
+                         data-size="sm">
+                    <div class="quill-card__header group/card-header" data-slot="card-header">
+                        <h2 class="quill-card__title m-0" data-slot="card-title">Teams matching "{{ query }}"</h2>
+                    </div>
+                    <div class="quill-card__content" data-slot="card-content">{% include "admin_console/_team_list.html" %}</div>
+                </section>
+            {% else %}
+                <div class="quill-empty flex w-full min-w-0 flex-col items-center justify-center gap-4 py-10"
+                     data-slot="empty">
+                    <div class="quill-empty__media quill-empty__media--variant-default flex shrink-0 items-center justify-center">
+                        <img class="w-28" src="/static/admin-console/hoggies/asleep.png" alt="" />
+                    </div>
+                    <div class="quill-empty__content flex flex-col items-center gap-1">
+                        <div class="quill-empty__title" data-slot="empty-title">No teams match "{{ query }}"</div>
+                        <div class="quill-empty__description" data-slot="empty-description">
+                            Try a team ID or UUID, an organization ID, the full project API token, or a shorter part of the name.
+                        </div>
+                    </div>
+                </div>
+            {% endif %}
+        {% else %}
+            <div class="@container">
+                <div class="grid gap-4 @3xl:grid-cols-2 items-start">
+                    <section class="quill-card group/card flex flex-col"
+                             data-quill
+                             data-slot="card"
+                             data-size="sm">
+                        <div class="quill-card__header group/card-header" data-slot="card-header">
+                            <h2 class="quill-card__title m-0" data-slot="card-title">Recently opened</h2>
+                        </div>
+                        <div class="quill-card__content" data-slot="card-content">
+                            {% if recent_teams %}
+                                {% include "admin_console/_team_list.html" with teams=recent_teams %}
+                            {% else %}
+                                <div class="flex items-center gap-3">
+                                    <img class="w-16"
+                                         src="/static/admin-console/hoggies/desk-wizard.png"
+                                         alt="" />
+                                    <p class="m-0 text-muted-foreground">Teams you open show up here, so you can get back to them quickly.</p>
+                                </div>
+                            {% endif %}
+                        </div>
+                    </section>
+                    <section class="quill-card group/card flex flex-col"
+                             data-quill
+                             data-slot="card"
+                             data-size="sm">
+                        <div class="quill-card__header group/card-header" data-slot="card-header">
+                            <h2 class="quill-card__title m-0" data-slot="card-title">On a team page</h2>
+                        </div>
+                        <div class="quill-card__content flex flex-col gap-2"
+                             data-slot="card-content">
+                            <p class="m-0 text-muted-foreground">Every team page shows these sections. Each team that owns one keeps it up to date.</p>
+                            <ul class="m-0 p-0 list-none flex flex-col gap-1.5">
+                                {% for panel in team_panels %}
+                                    <li class="flex items-center gap-2">
+                                        <img class="size-[18px]"
+                                             src="/static/admin-console/crests/{{ panel.owner.crest }}.svg"
+                                             alt="" />
+                                        <span class="font-semibold">{{ panel.title }}</span>
+                                        <span class="text-xs text-muted-foreground">{{ panel.owner.name }}</span>
+                                    </li>
+                                {% endfor %}
+                            </ul>
+                        </div>
+                    </section>
+                </div>
+            </div>
+            {% if tools %}
+                <section class="flex flex-col gap-2">
+                    <h2 class="m-0 text-[15px] font-extrabold">Tools</h2>
+                    <div class="@container">
+                        <div class="grid gap-4 @3xl:grid-cols-2">
+                            {% for tool in tools %}
+                                <a class="quill-card group/card flex flex-col no-underline text-foreground hover:border-primary"
+                                   data-quill
+                                   data-slot="card"
+                                   data-size="sm"
+                                   href="{% url 'admin_console_tool' tool_key=tool.key %}">
+                                    <div class="quill-card__header group/card-header" data-slot="card-header">
+                                        <h3 class="quill-card__title m-0" data-slot="card-title">{{ tool.title }}</h3>
+                                        <div class="quill-card__action flex items-center gap-1.5 text-[11px] text-muted-foreground"
+                                             data-slot="card-action">
+                                            {{ tool.group }}
+                                            <img class="size-[18px]"
+                                                 src="/static/admin-console/crests/{{ tool.owner.crest }}.svg"
+                                                 alt="" />
+                                        </div>
+                                    </div>
+                                    {% if tool.description %}
+                                        <div class="quill-card__content text-muted-foreground"
+                                             data-slot="card-content">{{ tool.description }}</div>
+                                    {% endif %}
+                                </a>
+                            {% endfor %}
+                        </div>
+                    </div>
+                </section>
+            {% endif %}
+        {% endif %}
+    </div>
+{% endblock %}

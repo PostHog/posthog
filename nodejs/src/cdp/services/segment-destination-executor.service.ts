@@ -16,7 +16,13 @@ import {
     redactError,
     redactSensitiveValues,
 } from '../utils'
-import { CdpFetchConfig, cdpTrackedFetch, getNextRetryTime, isFetchResponseRetriable } from '../utils/cdp-fetch'
+import {
+    CdpFetchConfig,
+    cdpTrackedFetch,
+    getNextRetryTime,
+    isFetchResponseRetriable,
+    readFetchResponseText,
+} from '../utils/cdp-fetch'
 import { createInvocationResult } from '../utils/invocation-utils'
 
 const pluginExecutionDuration = new Histogram({
@@ -310,7 +316,7 @@ export class SegmentDestinationExecutorService {
                         hogFunctionId: invocation.hogFunction.id,
                     })
 
-                    const fetchResponseText = (await fetchResponse?.text()) ?? 'unknown'
+                    const fetchResponseText = await readFetchResponseText(fetchResponse)
 
                     if (fetchError || !fetchResponse || fetchResponse.status >= 400) {
                         if (

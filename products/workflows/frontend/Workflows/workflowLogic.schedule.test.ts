@@ -1,10 +1,11 @@
 import { expectLogic } from 'kea-test-utils'
 
+import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import { DEFAULT_STATE, ONE_TIME_RRULE } from './hogflows/steps/components/rrule-helpers'
+import { DEFAULT_STATE, ONE_TIME_RRULE, parseRRuleToState } from './hogflows/steps/components/rrule-helpers'
 import { HogFlowSchedule } from './hogflows/types'
-import { workflowLogic } from './workflowLogic'
+import { NEW_WORKFLOW, workflowLogic } from './workflowLogic'
 
 const WEEKLY_MONDAY_RRULE = 'FREQ=WEEKLY;INTERVAL=1;BYDAY=MO'
 const STARTS_AT = '2026-04-10T09:00:00.000Z'
@@ -346,6 +347,204 @@ describe('workflowLogic schedule reducers', () => {
                 isScheduleRepeating: false,
                 pendingSchedule: false,
             })
+        })
+    })
+
+    describe('removing one of several schedules', () => {
+        const FLOW_ID = 'wf-schedule-list'
+        let deleted: string[]
+
+        beforeEach(() => {
+            deleted = []
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/hog_flows/:id/': { id: FLOW_ID, name: 'Listed', actions: [] },
+                    '/api/projects/:team_id/hog_function_templates/': { results: [], count: 0 },
+                },
+                delete: {
+                    '/api/projects/:project_id/hog_flows/:id/schedules/:schedule_id/': (req: any) => {
+                        deleted.push(req.params.schedule_id as string)
+                        return [204, {}]
+                    },
+                },
+            })
+            logic.unmount()
+            logic = workflowLogic({ id: FLOW_ID })
+            logic.mount()
+        })
+
+        it('drops only the schedule that was removed', async () => {
+            logic.actions.setSchedules([makeSchedule(), makeSchedule({ id: 'schedule-2', rrule: ONE_TIME_RRULE })])
+
+            await expectLogic(logic, () => {
+                logic.actions.deleteSchedule('schedule-2')
+            }).toFinishAllListeners()
+
+            expect(deleted).toEqual(['schedule-2'])
+            expect(logic.values.schedules.map((s) => s.id)).toEqual(['schedule-1'])
+        })
+
+        it('edits the schedule the author picks, not the first one', async () => {
+            const second = makeSchedule({ id: 'schedule-2', rrule: 'FREQ=DAILY;INTERVAL=3' })
+            logic.actions.setSchedules([makeSchedule(), second])
+
+            await expectLogic(logic, () => {
+                logic.actions.selectSchedule(second)
+            }).toMatchValues({
+                selectedScheduleId: 'schedule-2',
+                scheduleState: expect.objectContaining({ frequency: 'daily', interval: 3 }),
+            })
+
+            expect(logic.values.currentSchedule?.id).toBe('schedule-2')
+        })
+
+        it('keeps editing the picked schedule when the list reloads', async () => {
+            const second = makeSchedule({ id: 'schedule-2', rrule: 'FREQ=DAILY;INTERVAL=3' })
+            logic.actions.setSchedules([makeSchedule(), second])
+            logic.actions.selectSchedule(second)
+
+            await expectLogic(logic, () => {
+                logic.actions.setSchedules([makeSchedule(), second])
+            }).toFinishAllListeners()
+
+            expect(logic.values.currentSchedule?.id).toBe('schedule-2')
+            expect(logic.values.scheduleState).toEqual(expect.objectContaining({ frequency: 'daily', interval: 3 }))
+        })
+
+        it('adds a schedule and moves the editor onto it', async () => {
+            useMocks({
+                post: {
+                    '/api/projects/:project_id/hog_flows/:id/schedules/': () => [
+                        201,
+                        { id: 'schedule-new', rrule: WEEKLY_MONDAY_RRULE, starts_at: STARTS_AT, timezone: 'UTC' },
+                    ],
+                },
+            })
+            logic.actions.setSchedules([makeSchedule()])
+
+            await expectLogic(logic, () => {
+                logic.actions.addSchedule()
+            }).toFinishAllListeners()
+
+            expect(logic.values.schedules.map((s) => s.id)).toEqual(['schedule-1', 'schedule-new'])
+            expect(logic.values.currentSchedule?.id).toBe('schedule-new')
+        })
+
+        it('keeps unsaved picker edits when a different schedule is removed', async () => {
+            logic.actions.setSchedules([makeSchedule(), makeSchedule({ id: 'schedule-2' })])
+            logic.actions.setScheduleState({ ...DEFAULT_STATE, frequency: 'daily', interval: 4 })
+
+            await expectLogic(logic, () => {
+                logic.actions.deleteSchedule('schedule-2')
+            }).toFinishAllListeners()
+
+            expect(logic.values.scheduleState).toEqual(expect.objectContaining({ frequency: 'daily', interval: 4 }))
+            expect(logic.values.pendingSchedule).not.toBe(false)
+        })
+
+        it('stages no edits against the schedule picked while the removal was in flight', async () => {
+            const second = makeSchedule({ id: 'schedule-2' })
+            logic.actions.setSchedules([makeSchedule(), second, makeSchedule({ id: 'schedule-3' })])
+            logic.actions.setScheduleState({ ...DEFAULT_STATE, frequency: 'daily', interval: 4 })
+
+            await expectLogic(logic, () => {
+                logic.actions.deleteSchedule('schedule-3')
+                logic.actions.selectSchedule(second)
+            }).toFinishAllListeners()
+
+            expect(logic.values.currentSchedule?.id).toBe('schedule-2')
+            expect(logic.values.scheduleState).toEqual(parseRRuleToState(WEEKLY_MONDAY_RRULE))
+        })
+
+        it('ignores a second add while the first is still in flight', async () => {
+            let creates = 0
+            useMocks({
+                post: {
+                    '/api/projects/:project_id/hog_flows/:id/schedules/': () => {
+                        creates += 1
+                        return [
+                            201,
+                            {
+                                id: `schedule-new-${creates}`,
+                                rrule: WEEKLY_MONDAY_RRULE,
+                                starts_at: STARTS_AT,
+                                timezone: 'UTC',
+                            },
+                        ]
+                    },
+                },
+            })
+            logic.actions.setSchedules([makeSchedule()])
+
+            await expectLogic(logic, () => {
+                logic.actions.addSchedule()
+                logic.actions.addSchedule()
+            }).toFinishAllListeners()
+
+            expect(creates).toBe(1)
+        })
+
+        it('keeps the schedule listed when the delete fails', async () => {
+            useMocks({
+                delete: { '/api/projects/:project_id/hog_flows/:id/schedules/:schedule_id/': () => [500, {}] },
+            })
+            logic.actions.setSchedules([makeSchedule(), makeSchedule({ id: 'schedule-2' })])
+
+            await expectLogic(logic, () => {
+                logic.actions.deleteSchedule('schedule-2')
+            }).toFinishAllListeners()
+
+            expect(logic.values.schedules.map((s) => s.id)).toEqual(['schedule-1', 'schedule-2'])
+        })
+    })
+
+    describe('loading a workflow', () => {
+        it('loads a schedule left behind when the trigger is no longer a schedule', async () => {
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/hog_flows/:id/': {
+                        id: 'wf-manual',
+                        name: 'Switched to manual',
+                        actions: [],
+                        trigger: { type: 'manual' },
+                    },
+                    '/api/environments/:team_id/hog_flows/:id/schedules/': [makeSchedule()],
+                    '/api/projects/:team_id/hog_function_templates/': { results: [], count: 0 },
+                },
+            })
+            logic.unmount()
+            logic = workflowLogic({ id: 'wf-manual' })
+            logic.mount()
+
+            await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess', 'setSchedules']).toFinishAllListeners()
+
+            expect(logic.values.currentSchedule?.id).toBe('schedule-1')
+            expect(logic.values.pendingSchedule).toBe(false)
+        })
+
+        it.each([
+            { case: 'a blank new workflow', props: { id: 'new' } },
+            { case: 'a template being edited', props: { id: 'new', editTemplateId: 'template-1' } },
+        ])('asks for no schedules while $case is still unsaved', async ({ props }) => {
+            const scheduleRequests: string[] = []
+            const notFound = (req: { params: { id?: unknown } }): [number, Record<string, string>] => {
+                scheduleRequests.push(String(req.params.id))
+                return [404, { detail: 'Not found.' }]
+            }
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/hog_flows/:id/schedules/': notFound,
+                    '/api/projects/:team_id/hog_flow_templates/:id/': { ...NEW_WORKFLOW, id: 'template-1' },
+                    '/api/projects/:team_id/hog_function_templates/': { results: [], count: 0 },
+                },
+            })
+            logic.unmount()
+            logic = workflowLogic(props)
+            logic.mount()
+
+            await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess']).toFinishAllListeners()
+
+            expect(scheduleRequests).toEqual([])
         })
     })
 })

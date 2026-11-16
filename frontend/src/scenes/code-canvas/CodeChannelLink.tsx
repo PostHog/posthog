@@ -2,12 +2,11 @@ import { useValues } from 'kea'
 import { router } from 'kea-router'
 import { useEffect } from 'react'
 
-import { BridgePage } from 'lib/components/BridgePage/BridgePage'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { DesktopBridgeBody } from './DesktopBridgeBody'
+import { DesktopBridgePage } from './DesktopBridgePage'
 import { DESKTOP_SCHEME } from './desktopScheme'
 import { webPath } from './webPath'
 
@@ -54,11 +53,7 @@ export function CodeChannelLink({ channelId, taskId }: CodeChannelLinkProps): JS
         }
     }, [deepLink])
 
-    return (
-        <BridgePage view="code-channel-link">
-            <DesktopBridgeBody subject={`This ${target}`} deepLink={deepLink} webUrl={webUrl} />
-        </BridgePage>
-    )
+    return <DesktopBridgePage subject={`This ${target}`} deepLink={deepLink} webUrl={webUrl} />
 }
 
 export default CodeChannelLink

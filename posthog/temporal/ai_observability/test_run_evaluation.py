@@ -1,3 +1,4 @@
+import sys
 import json
 import uuid
 import dataclasses
@@ -9,7 +10,6 @@ from typing import Any, Literal, cast
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from django.core.cache import cache
 from django.test import override_settings
 
 import httpx
@@ -28,13 +28,17 @@ from temporalio.worker import Replayer, UnsandboxedWorkflowRunner, Worker
 from posthog.api.capture import CaptureInternalError
 from posthog.constants import AvailableFeature
 from posthog.models import Organization, OrganizationMembership, Team, User
+from posthog.temporal.ai_observability.judge_attachments import AttachmentPrompt, JudgeAttachments
 from posthog.temporal.ai_observability.sentiment.extraction import truncate_to_head_tail
 from posthog.temporal.ai_observability.sentiment.schema import SentimentResult
 from posthog.temporal.common.errors import NonReportableError
 from posthog.temporal.common.posthog_client import is_expected_activity_failure
+from posthog.test.anti_ssrf import mock_anti_ssrf_dns_lookup
 
 from products.access_control.backend.models.access_control import AccessControl
+from products.ai_observability.backend.llm.attachments import AttachmentPart
 from products.ai_observability.backend.llm.errors import (
+    RESPONSE_LIMIT_MESSAGE,
     AuthenticationError,
     ClaudeDeploymentOnAzureOpenAIError,
     ContentFilteredError,
@@ -43,21 +47,18 @@ from products.ai_observability.backend.llm.errors import (
     ModelPermissionError,
     OutputTokenLimitError,
     ProviderConnectionError,
+    ProviderRequestRejectedError,
     QuotaExceededError,
     RateLimitError,
     StructuredOutputParseError,
     UnsupportedModelError,
-)
-from products.ai_observability.backend.llm.providers.openai import OpenAIAdapter
-from products.ai_observability.backend.llm.providers.openrouter import (
-    MODEL_MODALITIES_CACHE_KEY,
-    MODEL_MODALITIES_LAST_GOOD_CACHE_KEY,
 )
 from products.ai_observability.backend.models.evaluation_config import EvaluationConfig
 from products.ai_observability.backend.models.evaluation_directories import EvaluationDirectory
 from products.ai_observability.backend.models.evaluations import Evaluation
 from products.ai_observability.backend.models.provider_keys import LLMProviderKey
 from products.ai_observability.backend.text_repr.formatters import EVENT_TEXT_MAX_CHARS
+from products.ai_observability.backend.text_repr.formatters.media_blocks import MediaBlock
 
 from . import run_evaluation as run_evaluation_module
 from .evaluation_errors import (
@@ -66,16 +67,16 @@ from .evaluation_errors import (
     status_reason_detail_for_terminal_user_error,
     terminal_user_error_result_from_application_error,
 )
-from .evaluation_event_io import GENERATION_NOT_FOUND_RETRY_DELAY, GenerationNotFoundError, hydrate_event_reference
+from .evaluation_event_io import GenerationNotFoundError, hydrate_event_reference
 from .evaluation_llm_judge import (
     BACKFILL_ACTIVITY_RETRY_POLICY,
     NumericWithNAEvalResult,
     TransientJudgeError,
     _build_errored_trace_result,
     _build_output_limit_skip_result,
-    _execute_llm_judge_activity,
     call_llm_judge,
     get_output_type_config,
+    run_generation_llm_judge,
 )
 from .evaluation_types import GENERATION_NOT_FOUND, build_generation_not_found_result, build_skipped_evaluation_result
 from .evaluation_workflow_activities import (
@@ -312,18 +313,14 @@ def _mock_config_with_active_key(provider: str = "openai") -> MagicMock:
     return MagicMock(active_provider_key=key)
 
 
-@pytest.mark.parametrize("flag", [True, False, None])
 @pytest.mark.parametrize("judge_method", [None, "llm"])
-def test_openrouter_catalogue_outage_only_affects_projects_with_decisions_enabled(
-    flag: bool | None, judge_method: str | None
-) -> None:
+def test_openrouter_catalogue_outage_only_affects_automatic_routing(judge_method: str | None) -> None:
     key = MagicMock(provider="openrouter", encrypted_config={"api_key": "example-token"})
     with (
         patch("posthog.temporal.ai_observability.evaluation_llm_judge.model_spec") as spec,
         patch(
             "products.ai_observability.backend.llm.providers.openrouter._model_output_modalities", return_value=None
         ) as catalogue,
-        patch("posthog.temporal.ai_observability.evaluation_llm_judge.decision_evaluations_enabled", return_value=flag),
         patch("posthog.temporal.ai_observability.evaluation_llm_judge.Client.complete") as complete,
         patch("posthog.temporal.ai_observability.evaluation_llm_judge.DecisionClient.evaluate") as decide,
     ):
@@ -333,7 +330,7 @@ def test_openrouter_catalogue_outage_only_affects_projects_with_decisions_enable
         complete.return_value = MagicMock(parsed=BooleanEvalResult(verdict=True, reasoning="Polite"), usage=None)
         with (
             pytest.raises(TransientJudgeError, match="OpenRouter model capabilities")
-            if flag and judge_method is None
+            if judge_method is None
             else nullcontext()
         ):
             result = call_llm_judge(
@@ -348,22 +345,18 @@ def test_openrouter_catalogue_outage_only_affects_projects_with_decisions_enable
                 user_prompt="Hello!",
                 allows_na=False,
             )
-    if flag and judge_method is None:
+    if judge_method is None:
         complete.assert_not_called()
     else:
         assert result["verdict"] is True
-        if judge_method is None:
-            catalogue.assert_called_once_with(refresh=False)
-        else:
-            catalogue.assert_not_called()
+        catalogue.assert_not_called()
     decide.assert_not_called()
 
 
 @pytest.mark.parametrize("provider,model", [("openrouter", "example/dual-model"), ("openai", "gpt-6-luna")])
-@pytest.mark.parametrize("flag", [True, False, None])
 @pytest.mark.parametrize("judge_method", [None, "llm"])
 def test_legacy_and_explicit_llm_methods_use_chat_for_a_dual_capability_model(
-    provider: str, model: str, flag: bool | None, judge_method: str | None
+    provider: str, model: str, judge_method: str | None
 ) -> None:
     key = MagicMock(provider=provider, encrypted_config={"api_key": "example-token"})
     with (
@@ -372,7 +365,6 @@ def test_legacy_and_explicit_llm_methods_use_chat_for_a_dual_capability_model(
             "products.ai_observability.backend.llm.providers.openrouter._model_output_modalities",
             return_value={"example/dual-model": ["text", "decisions"]},
         ),
-        patch("posthog.temporal.ai_observability.evaluation_llm_judge.decision_evaluations_enabled", return_value=flag),
         patch("posthog.temporal.ai_observability.evaluation_llm_judge.Client.complete") as complete,
         patch("posthog.temporal.ai_observability.evaluation_llm_judge.DecisionClient.evaluate") as decide,
         patch("posthog.temporal.ai_observability.evaluation_llm_judge.OpenAIDecisionAdapter.evaluate") as native_decide,
@@ -388,6 +380,7 @@ def test_legacy_and_explicit_llm_methods_use_chat_for_a_dual_capability_model(
                 "team_id": 1,
                 "evaluation_config": {
                     "prompt": "Check the response.",
+                    "reasoning_level": "high",
                     **({"judge_method": judge_method} if judge_method else {}),
                 },
             },
@@ -396,6 +389,7 @@ def test_legacy_and_explicit_llm_methods_use_chat_for_a_dual_capability_model(
             allows_na=False,
         )
     complete.assert_called_once()
+    assert complete.call_args.args[0].reasoning_level == "high"
     decide.assert_not_called()
     native_decide.assert_not_called()
     assert result["verdict"] is True
@@ -475,7 +469,6 @@ def test_legacy_and_explicit_llm_methods_use_chat_for_a_dual_capability_model(
 def test_openai_native_decisions_use_shared_result_semantics(
     applicable: bool, output_type: str, output_config: dict, answers: list[dict], expected: dict
 ) -> None:
-    team = Team(id=1, organization_id=uuid.uuid4(), uuid=uuid.uuid4())
     evaluation = {
         "id": "example-evaluation",
         "name": "Response quality",
@@ -498,13 +491,10 @@ def test_openai_native_decisions_use_shared_result_semantics(
         stream=httpx.ByteStream(json.dumps(payload).encode()),
     )
     with (
-        patch("posthog.security.url_validation.resolve_host_ips", return_value={ip_address("8.8.8.8")}),
+        mock_anti_ssrf_dns_lookup(resolves_to=["8.8.8.8"]),
         patch("posthog.temporal.ai_observability.evaluation_llm_judge.model_spec") as spec,
-        patch("products.ai_observability.backend.llm.decisions.Team.objects.only") as teams,
-        patch("products.ai_observability.backend.llm.decisions.get_feature_flag_or_none", return_value=True),
         patch("httpx.AsyncHTTPTransport.handle_async_request", return_value=response) as transport,
     ):
-        teams.return_value.get.return_value = team
         spec.return_value.resolve.return_value = MagicMock(
             provider="openai",
             model="gpt-6-luna",
@@ -536,72 +526,6 @@ def test_openai_native_decisions_use_shared_result_semantics(
             assert result["score"] < 4.9
     if output_type != "boolean":
         assert "probability" not in result
-
-
-@pytest.mark.parametrize("flag", [False, None])
-def test_openai_decisions_disabled_flag_skips_without_invalidating_key(flag: bool | None) -> None:
-    with (
-        patch("posthog.temporal.ai_observability.evaluation_llm_judge.model_spec") as spec,
-        patch("posthog.temporal.ai_observability.evaluation_llm_judge.decision_evaluations_enabled", return_value=flag),
-        patch("httpx.AsyncHTTPTransport.handle_async_request") as transport,
-    ):
-        spec.return_value.resolve.return_value = MagicMock(
-            provider="openai",
-            model="gpt-6-luna",
-            is_byok=True,
-            provider_key=MagicMock(encrypted_config={"api_key": "example-token"}),
-        )
-        result = call_llm_judge(
-            evaluation={"team_id": 1, "evaluation_config": {"prompt": "Check the reply.", "judge_method": "decision"}},
-            system_prompt="",
-            user_prompt="Example reply.",
-            allows_na=False,
-        )
-    assert result["skip_reason"] == "system_one_unavailable"
-    assert "terminal_user_error" not in result
-    assert "provider_key_state" not in result
-    transport.assert_not_called()
-
-
-@pytest.mark.parametrize("flag", [False, None])
-@pytest.mark.parametrize("cached", [True, False])
-def test_openrouter_decision_model_with_disabled_flag_skips_without_disabling(flag: bool | None, cached: bool) -> None:
-    cache.delete_many([MODEL_MODALITIES_CACHE_KEY, MODEL_MODALITIES_LAST_GOOD_CACHE_KEY])
-    model = "example/decision"
-    if cached:
-        cache.set(MODEL_MODALITIES_LAST_GOOD_CACHE_KEY, {model: ["decisions"]}, timeout=None)
-    key = MagicMock(provider="openrouter", encrypted_config={"api_key": "example-token"})
-    try:
-        with (
-            patch("posthog.temporal.ai_observability.evaluation_llm_judge.model_spec") as spec,
-            patch(
-                "posthog.temporal.ai_observability.evaluation_llm_judge.decision_evaluations_enabled", return_value=flag
-            ),
-            patch.object(OpenAIAdapter, "complete", side_effect=ModelNotFoundError(model)) as complete,
-            patch("posthog.temporal.ai_observability.evaluation_llm_judge.DecisionClient.evaluate") as decide,
-            patch("products.ai_observability.backend.llm.providers.openrouter.httpx.get") as catalogue,
-        ):
-            spec.return_value.resolve.return_value = MagicMock(
-                provider="openrouter", model=model, provider_key=key, is_byok=True
-            )
-            catalogue.return_value.json.return_value = {
-                "data": [{"id": model, "architecture": {"output_modalities": ["decisions"]}}]
-            }
-            result = call_llm_judge(
-                evaluation={"team_id": 1, "evaluation_config": {"prompt": "Is the response polite?"}},
-                system_prompt="",
-                user_prompt="Hello!",
-                allows_na=False,
-            )
-        assert result["skipped"] is True
-        assert result["skip_reason"] == "system_one_unavailable"
-        assert "terminal_user_error" not in result
-        assert "provider_key_state" not in result
-        assert complete.call_count == (0 if cached else 1)
-        assert catalogue.call_count == (0 if cached else 1)
-        decide.assert_not_called()
-    finally:
-        cache.delete_many([MODEL_MODALITIES_CACHE_KEY, MODEL_MODALITIES_LAST_GOOD_CACHE_KEY])
 
 
 @pytest.mark.parametrize(
@@ -696,13 +620,10 @@ def test_system_one_judge_emits_boolean_probability_without_reasoning(
             "products.ai_observability.backend.llm.providers.openrouter._model_output_modalities",
             return_value={"typesafe/jev-1.13": ["decisions"]},
         ),
-        patch("posthog.security.url_validation.resolve_host_ips", return_value={ip_address("8.8.8.8")}),
+        mock_anti_ssrf_dns_lookup(resolves_to=["8.8.8.8"]),
         patch("posthog.temporal.ai_observability.evaluation_llm_judge.model_spec") as spec,
-        patch("products.ai_observability.backend.llm.decisions.Team.objects.only") as teams,
-        patch("products.ai_observability.backend.llm.decisions.get_feature_flag_or_none", return_value=True),
         patch("httpx.AsyncHTTPTransport.handle_async_request", return_value=response) as request,
     ):
-        teams.return_value.get.return_value = Team(id=1, organization_id=uuid.uuid4(), uuid=uuid.uuid4())
         spec.return_value.resolve.return_value = resolved
         result = call_llm_judge(
             evaluation=evaluation,
@@ -793,9 +714,8 @@ def test_system_one_categorical_results_use_category_keys_without_boolean_probab
             "products.ai_observability.backend.llm.providers.openrouter._model_output_modalities",
             return_value={"typesafe/jev-1.13": ["decisions"]},
         ),
-        patch("posthog.security.url_validation.resolve_host_ips", return_value={ip_address("8.8.8.8")}),
+        mock_anti_ssrf_dns_lookup(resolves_to=["8.8.8.8"]),
         patch("posthog.temporal.ai_observability.evaluation_llm_judge.model_spec") as spec,
-        patch("posthog.temporal.ai_observability.evaluation_llm_judge.decision_evaluations_enabled", return_value=True),
         patch("httpx.AsyncHTTPTransport.handle_async_request") as request,
     ):
         spec.return_value.resolve.return_value = MagicMock(
@@ -876,9 +796,8 @@ def test_decision_numeric_scores_use_configured_bounds(
             "products.ai_observability.backend.llm.providers.openrouter._model_output_modalities",
             return_value={"typesafe/jev-1.13": ["decisions"]},
         ),
-        patch("posthog.security.url_validation.resolve_host_ips", return_value={ip_address("8.8.8.8")}),
+        mock_anti_ssrf_dns_lookup(resolves_to=["8.8.8.8"]),
         patch("posthog.temporal.ai_observability.evaluation_llm_judge.model_spec") as spec,
-        patch("posthog.temporal.ai_observability.evaluation_llm_judge.decision_evaluations_enabled", return_value=True),
         patch(
             "httpx.AsyncHTTPTransport.handle_async_request",
             return_value=httpx.Response(
@@ -922,9 +841,8 @@ def test_decision_numeric_scores_use_configured_bounds(
 @pytest.mark.parametrize("output_config", [{}, {"min": 0}, {"max": 10}, {"min": 1, "max": 1}])
 def test_system_one_numeric_requires_a_score_range(output_config: dict[str, float]) -> None:
     with (
-        patch("posthog.security.url_validation.resolve_host_ips", return_value={ip_address("8.8.8.8")}),
+        mock_anti_ssrf_dns_lookup(resolves_to=["8.8.8.8"]),
         patch("posthog.temporal.ai_observability.evaluation_llm_judge.model_spec") as spec,
-        patch("posthog.temporal.ai_observability.evaluation_llm_judge.decision_evaluations_enabled", return_value=True),
         patch("httpx.AsyncHTTPTransport.handle_async_request") as request,
     ):
         spec.return_value.resolve.return_value = MagicMock(
@@ -938,43 +856,6 @@ def test_system_one_numeric_requires_a_score_range(output_config: dict[str, floa
                 "output_config": output_config,
                 "evaluation_config": {"prompt": "Score quality."},
             },
-            system_prompt="",
-            user_prompt="Hello!",
-            allows_na=False,
-        )
-    assert result["skipped"] is True
-    request.assert_not_called()
-
-
-@pytest.mark.parametrize(
-    "provider,base_url,flag",
-    [
-        ("system_one", "https://decisions.example.com/v1", False),
-        ("system_one", "https://ai-gateway.us.posthog.com/v1", False),
-        ("system_one", "https://api.typesafe.ai/v1", True),
-    ],
-)
-def test_system_one_restricted_connection_does_not_send_evaluation_data(
-    provider: str, base_url: str, flag: bool
-) -> None:
-    with (
-        override_settings(POSTHOG_INTERNAL_ORG_IDS=[]),
-        patch("posthog.temporal.ai_observability.evaluation_llm_judge.model_spec") as spec,
-        patch("products.ai_observability.backend.llm.decisions.Team.objects.only") as teams,
-        patch("products.ai_observability.backend.llm.decisions.get_feature_flag_or_none", return_value=flag),
-        patch("httpx.AsyncHTTPTransport.handle_async_request") as request,
-    ):
-        teams.return_value.get.return_value = Team(id=1, organization_id=uuid.uuid4(), uuid=uuid.uuid4())
-        spec.return_value.resolve.return_value = MagicMock(
-            provider=provider,
-            model="custom-model",
-            provider_key=MagicMock(
-                provider=provider, encrypted_config={"base_url": base_url, "api_key": "example-token"}
-            ),
-            is_byok=True,
-        )
-        result = call_llm_judge(
-            evaluation={"team_id": 1, "evaluation_config": {"prompt": "Is this a greeting?"}},
             system_prompt="",
             user_prompt="Hello!",
             allows_na=False,
@@ -1014,9 +895,8 @@ def test_provider_rejections_distinguish_blocked_endpoints_from_bad_inputs(
             "products.ai_observability.backend.llm.providers.openrouter._model_output_modalities",
             return_value={"example-judge-v1": ["decisions"]},
         ),
-        patch("posthog.security.url_validation.resolve_host_ips", return_value={ip_address("8.8.8.8")}),
+        mock_anti_ssrf_dns_lookup(resolves_to=["8.8.8.8"]),
         patch("posthog.temporal.ai_observability.evaluation_llm_judge.model_spec") as spec,
-        patch("posthog.temporal.ai_observability.evaluation_llm_judge.decision_evaluations_enabled", return_value=True),
         patch("httpx.AsyncHTTPTransport.handle_async_request", return_value=response) as request,
     ):
         spec.return_value.resolve.return_value = MagicMock(
@@ -1062,7 +942,7 @@ def _call_openai_compatible_judge(
         encrypted_config={"api_key": "example-token", "base_url": "https://decisions.example.com/v1"},
     )
     with (
-        patch("posthog.security.url_validation.resolve_host_ips", return_value=resolved_ips),
+        mock_anti_ssrf_dns_lookup(resolves_to=resolved_ips),
         patch("posthog.temporal.ai_observability.evaluation_llm_judge.model_spec") as spec,
     ):
         spec.return_value.resolve.return_value = MagicMock(
@@ -1191,9 +1071,8 @@ def test_custom_provider_rate_limit_retries_without_disabling_the_evaluation(
         encrypted_config={"api_key": "example-token", "base_url": "https://decisions.example.com/v1"},
     )
     with (
-        patch("posthog.security.url_validation.resolve_host_ips", return_value={ip_address("8.8.8.8")}),
+        mock_anti_ssrf_dns_lookup(resolves_to=["8.8.8.8"]),
         patch("posthog.temporal.ai_observability.evaluation_llm_judge.model_spec") as spec,
-        patch("posthog.temporal.ai_observability.evaluation_llm_judge.decision_evaluations_enabled", return_value=True),
         patch(
             "httpx.AsyncHTTPTransport.handle_async_request",
             side_effect=[
@@ -1210,6 +1089,7 @@ def test_custom_provider_rate_limit_retries_without_disabling_the_evaluation(
             ],
         ) as transport,
         patch("posthog.temporal.ai_observability.evaluation_llm_judge.increment_user_errors") as user_errors,
+        patch("posthog.temporal.ai_observability.evaluation_llm_judge.increment_errors") as system_errors,
     ):
         spec.return_value.resolve.return_value = MagicMock(
             provider=provider,
@@ -1247,6 +1127,9 @@ def test_custom_provider_rate_limit_retries_without_disabling_the_evaluation(
         assert [call.args[0] for call in user_errors.call_args_list] == (
             ["rate_limit_retries_exhausted"] if expected == "skipped" else []
         )
+        assert [call.args[0] for call in system_errors.call_args_list] == (
+            [] if is_byok and status == 429 else ["rate_limit"]
+        )
 
         result = call_llm_judge(
             evaluation=evaluation,
@@ -1263,6 +1146,75 @@ def test_custom_provider_rate_limit_retries_without_disabling_the_evaluation(
 def _openai_status_error(status: int, message: str) -> openai.APIStatusError:
     response = httpx.Response(status, request=httpx.Request("POST", "https://llm.example.com/v1/chat/completions"))
     return openai.APIStatusError(f"Error code: {status}", response=response, body={"error": {"message": message}})
+
+
+def _adapter_rejection(cause: Exception | None) -> ProviderRequestRejectedError:
+    error = ProviderRequestRejectedError(RESPONSE_LIMIT_MESSAGE if cause is None else "The provider rejected it.")
+    error.__cause__ = cause
+    return error
+
+
+@pytest.mark.parametrize(
+    ("error", "presigned_url", "retries"),
+    [
+        pytest.param(
+            _adapter_rejection(_openai_status_error(400, "Image input is not supported.")),
+            "https://signed",
+            True,
+            id="adapter_wrapped_400",
+        ),
+        pytest.param(
+            _openai_status_error(400, "Error while downloading https://signed."), "https://signed", True, id="raw_400"
+        ),
+        pytest.param(_adapter_rejection(None), "https://signed", False, id="unreadable_response"),
+        pytest.param(_openai_status_error(401, "Invalid API key."), "https://signed", False, id="auth_error"),
+        pytest.param(_openai_status_error(400, "Bad request."), None, False, id="no_image_attached"),
+    ],
+)
+def test_judge_falls_back_to_the_plain_prompt_only_when_an_attached_image_is_rejected(
+    error: Exception, presigned_url: str | None, retries: bool
+) -> None:
+    images = JudgeAttachments(team_id=1)
+    pointer = MediaBlock(modality="image", url=f"phaiblob://v1/sha256/{'a' * 64}?mime=image%2Fpng&size=1")
+    attachment_prompt = AttachmentPrompt(text=f"user: {images.marker(pointer)} Polite?", attachments=images)
+
+    with (
+        patch("posthog.temporal.ai_observability.evaluation_llm_judge.model_spec") as spec,
+        patch("posthog.temporal.ai_observability.evaluation_llm_judge.Client") as client_class,
+        patch(
+            "products.ai_observability.backend.ai_blobs.object_storage.get_presigned_url", return_value=presigned_url
+        ),
+        patch("posthog.temporal.ai_observability.evaluation_llm_judge.capture_exception") as capture,
+    ):
+        # Only a PostHog key reports the fallback. On BYOK a rejection ends as a skip instead of raising.
+        spec.return_value.resolve.return_value = MagicMock(
+            provider="openai", model="gpt-5.5", provider_key=MagicMock(), is_byok=not retries
+        )
+        # The provider error can quote the link, so nothing may log or chain it while the fallback runs.
+        active_errors: list[BaseException | None] = []
+        capture.side_effect = lambda *_: active_errors.append(sys.exc_info()[1])
+        client = client_class.return_value
+        client.complete.side_effect = [
+            error,
+            MagicMock(parsed=BooleanEvalResult(verdict=True, reasoning="ok"), usage=None),
+        ]
+        result = call_llm_judge(
+            evaluation={"id": "test-evaluation", "team_id": 1, "evaluation_config": {"prompt": "Polite?"}},
+            system_prompt="",
+            user_prompt="user: Polite?",
+            allows_na=False,
+            attachment_prompt=attachment_prompt,
+        )
+
+    if retries:
+        assert result["verdict"] is True
+        retry_content = client.complete.call_args_list[1].args[0].messages[0]["content"]
+        assert retry_content.startswith("The model provider rejected the attachments")
+        assert retry_content.endswith("user: Polite?")
+        assert "https://signed" not in str(capture.call_args)
+        assert active_errors == [None]
+    else:
+        assert client.complete.call_count == 1
 
 
 @pytest.mark.parametrize(
@@ -1461,7 +1413,7 @@ class TestRunEvaluationWorkflow:
                 "verdict": True,
                 "reasoning": "The answer is grounded.",
                 "allows_na": False,
-                "model": "gpt-4.1-mini",
+                "model": "gpt-6-luna",
                 "provider": "openai",
             }
 
@@ -1626,6 +1578,78 @@ class TestRunEvaluationWorkflow:
             assert result["verdict"] is True
             assert result["reasoning"] == "The answer is correct"
             mock_client.complete.assert_called_once()
+
+    @pytest.mark.parametrize(
+        ("evaluation_config", "attaches_image"),
+        [
+            pytest.param({"prompt": "Is the chart described correctly?"}, True, id="default"),
+            pytest.param(
+                {"prompt": "Is the chart described correctly?", "include_media": False}, False, id="eval_opts_out"
+            ),
+        ],
+    )
+    @pytest.mark.django_db(transaction=True)
+    def test_execute_llm_judge_activity_attaches_images_when_enabled(
+        self, evaluation_config, attaches_image, setup_data, active_key_config
+    ):
+        team = setup_data["team"]
+        evaluation = {
+            "id": str(setup_data["evaluation"].id),
+            "name": "Test Evaluation",
+            "evaluation_type": "llm_judge",
+            "evaluation_config": evaluation_config,
+            "output_type": "boolean",
+            "output_config": {},
+            "team_id": team.id,
+        }
+        pointer = f"phaiblob://v1/sha256/{'a' * 64}?mime=image%2Fjpeg&size=63357"
+        event_data = create_mock_event_data(
+            team.id,
+            properties={
+                "$ai_input": [
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "image_url", "image_url": {"url": pointer}},
+                            {"type": "text", "text": "What does this chart show?"},
+                        ],
+                    }
+                ],
+                "$ai_output_choices": [
+                    {
+                        "role": "assistant",
+                        "content": [
+                            {"type": "image_url", "image_url": {"url": pointer.replace("a" * 64, "b" * 64)}},
+                            {"type": "text", "text": "Sales rose in March."},
+                        ],
+                    }
+                ],
+            },
+        )
+
+        with (
+            patch("posthog.temporal.ai_observability.evaluation_llm_judge.Client") as mock_client_class,
+            patch(
+                "products.ai_observability.backend.ai_blobs.object_storage.get_presigned_url",
+                return_value="https://signed",
+            ),
+        ):
+            mock_client = mock_client_class.return_value
+            mock_client.complete.return_value = MagicMock(
+                parsed=BooleanEvalResult(verdict=True, reasoning="ok"),
+                usage=MagicMock(input_tokens=1, output_tokens=1, total_tokens=1),
+            )
+            execute_llm_judge_activity(ExecuteLLMJudgeInputs(evaluation=evaluation, event_data=event_data))
+
+        content = mock_client.complete.call_args.args[0].messages[0]["content"]
+        if attaches_image:
+            assert AttachmentPart(mime_type="image/jpeg", url="https://signed") in content
+            assert "user: [image 1] What does this chart show?" in content[-1]["text"]
+            assert "assistant: [image 2] Sales rose in March." in content[-1]["text"]
+        else:
+            assert isinstance(content, str)
+            assert "[image" not in content
+            assert "What does this chart show?" in content
 
     @pytest.mark.parametrize(
         "oversized_input",
@@ -2302,7 +2326,7 @@ class TestRunEvaluationWorkflow:
             ),
         ):
             with pytest.raises(AssertionError, match="stop after hydration"):
-                _execute_llm_judge_activity(
+                run_generation_llm_judge(
                     ExecuteLLMJudgeInputs(
                         evaluation=_local_evaluation(
                             evaluation_type="llm_judge", evaluation_config={"prompt": "grade it"}
@@ -2315,15 +2339,15 @@ class TestRunEvaluationWorkflow:
 
     @pytest.mark.parametrize("live", [pytest.param(True, id="live"), pytest.param(False, id="backfill")])
     @pytest.mark.parametrize(
-        "attempt,retryable",
+        "attempt,retryable,live_delay",
         [
-            pytest.param(1, True, id="first attempt"),
-            pytest.param(2, True, id="second attempt"),
-            pytest.param(3, False, id="last attempt"),
+            pytest.param(1, True, timedelta(seconds=30), id="first attempt"),
+            pytest.param(2, True, timedelta(seconds=90), id="second attempt"),
+            pytest.param(3, False, None, id="last attempt"),
         ],
     )
     def test_a_missing_generation_gets_two_retries_before_it_fails_the_run(
-        self, attempt: int, retryable: bool, live: bool
+        self, attempt: int, retryable: bool, live_delay: timedelta | None, live: bool
     ):
         reference = {**THIN_REFERENCE, "awaiting_ingestion": True} if live else dict(THIN_REFERENCE)
         env = ActivityEnvironment()
@@ -2336,8 +2360,7 @@ class TestRunEvaluationWorkflow:
         assert raised.value.non_retryable is not retryable
         assert is_expected_activity_failure(raised.value) is (retryable or not live)
         assert isinstance(raised.value, GenerationNotFoundError) is (not retryable and not live)
-        expected_delay = GENERATION_NOT_FOUND_RETRY_DELAY if retryable and live else None
-        assert raised.value.next_retry_delay == expected_delay
+        assert raised.value.next_retry_delay == (live_delay if live else None)
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
@@ -2369,7 +2392,7 @@ class TestRunEvaluationWorkflow:
             patch("posthog.temporal.ai_observability.evaluation_llm_judge.call_llm_judge") as call_judge,
         ):
             if evaluation_type == "llm_judge":
-                result = _execute_llm_judge_activity(
+                result = run_generation_llm_judge(
                     ExecuteLLMJudgeInputs(evaluation=evaluation, event_data=dict(THIN_REFERENCE))
                 )
             else:
@@ -2517,7 +2540,7 @@ class TestRunEvaluationWorkflow:
                 "verdict": True,
                 "reasoning": "ok",
                 "allows_na": False,
-                "model": "gpt-4.1-mini",
+                "model": "gpt-6-luna",
                 "provider": "openai",
             }
 
@@ -4116,7 +4139,7 @@ class TestEvalResultModels:
                 parsed=schema.model_validate({"reasoning": "Resolution", "categories": categories}),
                 usage=MagicMock(input_tokens=100, output_tokens=20, total_tokens=120),
             )
-            result = _execute_llm_judge_activity(
+            result = run_generation_llm_judge(
                 ExecuteLLMJudgeInputs(evaluation=evaluation, event_data=create_mock_event_data(1))
             )
         assert result["result_type"] == "categorical"
@@ -4166,7 +4189,7 @@ class TestEvalResultModels:
                 usage=MagicMock(input_tokens=100, output_tokens=20, total_tokens=120),
             )
             inputs = ExecuteLLMJudgeInputs(evaluation=evaluation, event_data=create_mock_event_data(1))
-            result = _execute_llm_judge_activity(inputs)
+            result = run_generation_llm_judge(inputs)
             increment_errors.assert_not_called()
         assert result["result_type"] == "numeric"
         assert "verdict" not in result
@@ -4642,6 +4665,7 @@ class TestJudgePromptAssembly:
             "evaluation_type": "llm_judge",
             "evaluation_config": {"prompt": "Is this correct?"},
             "output_type": "boolean",
+            "team_id": 1,
         }
         event_data = create_mock_event_data(
             1,
@@ -4667,6 +4691,7 @@ class TestJudgePromptAssembly:
             "evaluation_type": "llm_judge",
             "evaluation_config": {"prompt": "Is this correct?"},
             "output_type": output_type,
+            "team_id": 1,
             "output_config": {
                 "allows_na": allows_na,
                 **({"options": [{"key": "correct", "label": "Correct"}]} if output_type == "categorical" else {}),
@@ -4690,6 +4715,32 @@ class TestJudgePromptAssembly:
             reasoning="Generation output exceeded the judge's text limit; evaluation skipped.",
             skip_reason="generation_output_too_long",
         )
+
+    def test_inline_images_that_overflow_the_plain_prompt_are_still_judged(self) -> None:
+        evaluation = {
+            "evaluation_type": "llm_judge",
+            "evaluation_config": {"prompt": "Is this correct?"},
+            "output_type": "boolean",
+            "team_id": 1,
+            "output_config": {},
+        }
+        image = {"type": "image_url", "image_url": {"url": "data:image/png;base64," + "A" * 20_000}}
+        event_data = create_mock_event_data(
+            1,
+            properties={
+                "$ai_input": "Draw eight charts.",
+                "$ai_output_choices": [{"role": "assistant", "content": [image] * 8}],
+            },
+        )
+
+        with patch("posthog.temporal.ai_observability.evaluation_llm_judge.call_llm_judge") as judge:
+            execute_llm_judge_activity(ExecuteLLMJudgeInputs(evaluation=evaluation, event_data=event_data))
+
+        attachment_prompt = judge.call_args.kwargs["attachment_prompt"]
+        assert attachment_prompt is not None
+        # Decision judges and the text-only retry use this prompt, and they send no images.
+        assert judge.call_args.kwargs["user_prompt"] == attachment_prompt.unnumbered_text()
+        assert "[image 1]" not in judge.call_args.kwargs["user_prompt"]
 
     @pytest.mark.parametrize(
         "text,expected_text",

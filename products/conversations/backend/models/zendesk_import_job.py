@@ -4,13 +4,11 @@ from posthog.helpers.encrypted_fields import EncryptedJSONField
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.utils import UUIDModel
 
+from .import_job_base import ImportJobLifecycleFields, ImportJobStatus
 
-class ZendeskImportJob(TeamScopedRootMixin, UUIDModel):
-    class Status(models.TextChoices):
-        PENDING = "pending", "Pending"
-        RUNNING = "running", "Running"
-        COMPLETED = "completed", "Completed"
-        FAILED = "failed", "Failed"
+
+class ZendeskImportJob(TeamScopedRootMixin, UUIDModel, ImportJobLifecycleFields):
+    Status = ImportJobStatus
 
     # db_constraint=False: a real FK constraint would take SHARE ROW EXCLUSIVE on the
     # hot posthog_team table on CreateModel. App-level enforcement is enough here.
@@ -23,20 +21,8 @@ class ZendeskImportJob(TeamScopedRootMixin, UUIDModel):
     skipped_tickets = models.BigIntegerField(default=0)
     failed_tickets = models.BigIntegerField(default=0)
 
-    export_cursor = models.TextField(null=True, blank=True)
-
-    started_at = models.DateTimeField(null=True, blank=True)
-    finished_at = models.DateTimeField(null=True, blank=True)
-
-    workflow_id = models.CharField(max_length=400, null=True, blank=True)
-    workflow_run_id = models.CharField(max_length=400, null=True, blank=True)
-    latest_error = models.TextField(null=True, blank=True)
-
     # Encrypted: subdomain, email_address, api_token
     job_inputs = EncryptedJSONField(null=True, blank=True)
-
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         app_label = "conversations"

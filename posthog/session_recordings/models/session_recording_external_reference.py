@@ -1,5 +1,7 @@
 from django.db import models
 
+from posthog.integrations import IntegrationRecord
+from posthog.integrations.lifecycle import register_delete_hook
 from posthog.models.integration import Integration
 from posthog.models.utils import UUIDModel
 
@@ -31,3 +33,11 @@ class SessionRecordingExternalReference(UUIDModel):
 
     class Meta:
         db_table = "posthog_sessionrecordingexternalreference"
+
+
+def delete_external_references_of_integration(row: IntegrationRecord) -> None:
+    # Does the work of the CASCADE foreign key, which goes away when the rows leave this database.
+    SessionRecordingExternalReference.objects.filter(integration_id=row.id).delete()
+
+
+register_delete_hook(delete_external_references_of_integration)

@@ -16,6 +16,7 @@ from posthog.helpers.impersonation import is_impersonated
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.user import User
 
+from products.cdp.backend.internal_events import INTERNAL_EVENT_READ_SCOPES
 from products.cdp.backend.models.hog_functions.utils import humanize_hog_function_type
 
 
@@ -104,26 +105,6 @@ def _dashboard_post_restore(context: RestoreContext, dashboard: Any) -> None:
         item_id=dashboard.id,
         name=_first_non_blank(getattr(dashboard, "name", None)) or "Untitled dashboard",
         object_type="dashboard",
-    )
-
-
-def _experiment_post_restore(context: RestoreContext, experiment: Any) -> None:
-    _log_restore_activity(
-        context,
-        scope="Experiment",
-        item_id=experiment.id,
-        name=_first_non_blank(getattr(experiment, "name", None)) or "Untitled experiment",
-        object_type="experiment",
-    )
-
-
-def _experiment_post_delete(context: DeletionContext, experiment: Any) -> None:
-    _log_deletion_activity(
-        context,
-        scope="Experiment",
-        item_id=experiment.id,
-        name=_first_non_blank(getattr(experiment, "name", None)) or "Untitled experiment",
-        object_type="experiment",
     )
 
 
@@ -277,7 +258,11 @@ def _hog_function_pre_delete(context: DeletionContext, hog_function: Any) -> Non
 
 
 def _hog_function_pre_restore(context: RestoreContext, hog_function: Any) -> None:
-    hog_function.enabled = True
+    # A destination on a read-guarded internal event comes back disabled, so turning it on again goes through
+    # the destinations API, which checks the event's read access. This path checks only the destination.
+    events = (hog_function.filters or {}).get("events") or []
+    event_ids = {event.get("id") for event in events if isinstance(event, dict)}
+    hog_function.enabled = not (event_ids & INTERNAL_EVENT_READ_SCOPES.keys())
 
 
 def _hog_function_post_delete(context: DeletionContext, hog_function: Any) -> None:
@@ -360,15 +345,6 @@ def register_core_file_system_types() -> None:
     register_post_delete_hook("feature_flag", _feature_flag_post_delete)
     register_pre_restore_hook("feature_flag", _feature_flag_pre_restore)
     register_post_restore_hook("feature_flag", _feature_flag_post_restore)
-
-    register_file_system_type(
-        "experiment",
-        "experiments",
-        "Experiment",
-        undo_message="Send PATCH /api/projects/@current/experiments/{id} with deleted=false.",
-    )
-    register_post_delete_hook("experiment", _experiment_post_delete)
-    register_post_restore_hook("experiment", _experiment_post_restore)
 
     register_file_system_type(
         "insight",

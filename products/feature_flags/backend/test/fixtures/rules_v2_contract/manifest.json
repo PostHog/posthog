@@ -1,7 +1,7 @@
 {
   "contract": {
     "name": "feature_flag_rules_v2",
-    "version": "6.0.0",
+    "version": "7.0.0",
     "config_version": 2
   },
   "artifacts": [
@@ -445,11 +445,11 @@
       "kind": "schema"
     },
     {
-      "path": "schemas/flags_response_v3.schema.json",
+      "path": "schemas/flags_response_v4.schema.json",
       "kind": "schema"
     },
     {
-      "path": "schemas/flags_response_v3_presence.schema.json",
+      "path": "schemas/flags_response_v4_presence.schema.json",
       "kind": "schema"
     },
     {

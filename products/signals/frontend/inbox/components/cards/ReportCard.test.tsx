@@ -224,14 +224,10 @@ describe('ReportCard', () => {
     })
 
     it.each([
-        ['hides', 'a report without a pull request', null, 'control', false],
-        ['shows', 'a pull request in the control variant', 'https://github.com/example/repo/pull/123', 'control', true],
-        ['hides', 'a pull request in the test variant', 'https://github.com/example/repo/pull/123', 'test', false],
-    ])('%s a conventional commit tag for %s', (_verb, _name, implementationPrUrl, titleVariant, showsTag) => {
+        ['a report without a pull request', null],
+        ['a pull request', 'https://github.com/example/repo/pull/123'],
+    ])('shows a plain title without a conventional commit tag for %s', (_name, implementationPrUrl) => {
         cleanup()
-        featureFlagLogic.actions.setFeatureFlags([], {
-            [FEATURE_FLAGS.SIGNALS_PLAIN_REPORT_TITLES]: titleVariant,
-        })
         render(
             <ReportCard
                 report={makeReport('r-2', {
@@ -242,7 +238,7 @@ describe('ReportCard', () => {
         )
 
         expect(screen.getByText('Example report title')).toBeInTheDocument()
-        expect(screen.queryByText('note(example)') !== null).toBe(showsTag)
+        expect(screen.queryByText('note(example)')).not.toBeInTheDocument()
     })
 
     test.each([
@@ -286,6 +282,11 @@ describe('ReportCard', () => {
             action: 'unassign',
             hold: () => jest.spyOn(api, 'delete').mockReturnValue(new Promise<never>(() => {})),
             start: () => logic.actions.bulkUnassignMe(['r-1']),
+        },
+        {
+            action: 'claim',
+            hold: () => jest.spyOn(api, 'create').mockReturnValue(new Promise<never>(() => {})),
+            start: () => logic.actions.bulkClaim(['r-1']),
         },
     ])('locks the selection while a bulk $action is running', ({ hold, start }) => {
         const pending = hold()
@@ -475,7 +476,7 @@ describe('ReportCard', () => {
         expect(impactMetric?.contains(tag) ?? false).toBe(false)
     })
 
-    it('marks an unscored report under a model sort and adds no tag under a time sort', () => {
+    it('marks an unscored report under a model sort, shows a stale score, and adds no tag under a time sort', () => {
         // The harness renders a card for every test; these assert against their own.
         cleanup()
         enableImpactColumn()
@@ -491,11 +492,49 @@ describe('ReportCard', () => {
             },
         })
         rerender(<ReportCard report={stale} rankingSortField="ranking_fix" />)
-        expect(screen.getByText('Score out of date')).toBeInTheDocument()
-        expect(screen.queryByText('2.7x more likely')).not.toBeInTheDocument()
+        expect(screen.getByText('2.7x more likely')).toBeInTheDocument()
+        expect(screen.queryByText('Not scored yet')).not.toBeInTheDocument()
 
         rerender(<ReportCard report={makeReport('r-2')} />)
         expect(screen.queryByText('Not scored yet')).not.toBeInTheDocument()
+    })
+
+    it('shows the three-score pill only when the Recommended list asks for it, and keeps the tags elsewhere', () => {
+        // The harness renders a card for every test; these assert against their own.
+        cleanup()
+        enableImpactColumn()
+        const scored = makeReport('r-2', {
+            ranking: {
+                status: 'scored',
+                model: 'report_embeddings@2026-09-30',
+                scored_at: '2026-09-30T12:00:00Z',
+                predictions: [
+                    { outcome: 'open', probability: 0.8, lift: 2.9, readable: true },
+                    { outcome: 'action', probability: 0.3, lift: 0.04, readable: true },
+                    { outcome: 'fix', probability: 0.41, lift: 2.7, readable: true },
+                ],
+            },
+        })
+        const { container, rerender } = render(<ReportCard report={scored} rankingPill />)
+        const pill = container.querySelector('[data-attr="inbox-ranking-pill"]')
+        expect(pill?.textContent).toBe('Open2.9xAction<0.1xFix2.7x')
+        // The card is a link, so a click that reaches it would open the report.
+        expect(fireEvent.click(pill as Element)).toBe(false)
+        ;(pill as HTMLElement).focus()
+        expect(document.activeElement).toBe(pill)
+
+        rerender(<ReportCard report={scored} rankingPill rankingSortField="ranking_fix" />)
+        expect(container.querySelector('[data-attr="inbox-ranking-pill"]')).toBeNull()
+        expect(screen.getByText('2.7x more likely')).toBeInTheDocument()
+
+        rerender(<ReportCard report={{ ...scored, ranking: { ...scored.ranking!, status: 'stale' } }} rankingPill />)
+        expect(container.querySelector('[data-attr="inbox-ranking-pill"]')?.textContent).toBe(
+            'Open2.9xAction<0.1xFix2.7x'
+        )
+
+        rerender(<ReportCard report={scored} />)
+        expect(container.querySelector('[data-attr="inbox-ranking-pill"]')).toBeNull()
+        expect(container.querySelector('[data-attr="inbox-ranking-tag"]')).toBeNull()
     })
 
     it('does not show a list metric without a stored snapshot or with the metrics flag off', () => {

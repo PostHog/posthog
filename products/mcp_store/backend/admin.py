@@ -3,10 +3,13 @@ from typing import Any
 
 from django import forms
 from django.contrib import admin, messages
+from django.db.models import QuerySet
 from django.http import HttpRequest
 from django.utils.html import format_html
 
-from products.mcp_store.backend.models import MCPServerTemplate
+from posthog.models.scoping import team_scope
+
+from products.mcp_store.backend.models import MCPGatewayServer, MCPServerTemplate
 from products.mcp_store.backend.oauth import discover_oauth_metadata
 from products.mcp_store.backend.oauth_credentials import oauth_credentials_source_is_configured
 
@@ -152,3 +155,57 @@ class MCPServerTemplateAdmin(admin.ModelAdmin):
             messages.success(request, f"Discovered metadata for {ok} template(s)")
         if failed:
             messages.error(request, f"Discovery failed for {failed} template(s) — paste oauth_metadata manually")
+
+
+class MCPGatewayServerAdminForm(forms.ModelForm):
+    def _post_clean(self) -> None:
+        # The (team, url) unique check reads through the fail-closed default manager, so it needs the row's team.
+        with team_scope(self.instance.team_id):
+            super()._post_clean()  # type: ignore[misc]
+
+
+@admin.register(MCPGatewayServer)
+class MCPGatewayServerAdmin(admin.ModelAdmin):
+    form = MCPGatewayServerAdminForm
+    list_display = ("name", "team", "url", "template", "is_team_enabled", "updated_at")
+    list_select_related = ("team", "template")
+    list_filter = ("category", "is_team_enabled")
+    search_fields = ("name", "url", "=team__id")
+    fields = (
+        "name",
+        "description",
+        "category",
+        "team",
+        "url",
+        "template",
+        "auth_type",
+        "is_team_enabled",
+        "created_by",
+        "created_at",
+        "updated_at",
+    )
+    # The team, URL and template identify the registration, and is_team_enabled controls who can call the server.
+    # Staff edit only the text that the server page shows, so a fix of a label cannot change access.
+    readonly_fields = (
+        "team",
+        "url",
+        "template",
+        "auth_type",
+        "is_team_enabled",
+        "created_by",
+        "created_at",
+        "updated_at",
+    )
+    ordering = ("-updated_at",)
+
+    def has_add_permission(self, request: HttpRequest) -> bool:
+        return False
+
+    # A delete cascades to the team's revocations, agent grants and tool policies, and a team that turned the server
+    # off gets it back through its default posture. The gateway API removes a server safely instead.
+    def has_delete_permission(self, request: HttpRequest, obj: MCPGatewayServer | None = None) -> bool:
+        return False
+
+    def get_queryset(self, request: HttpRequest) -> QuerySet[MCPGatewayServer]:
+        # Admin has no team context; MCPGatewayServer's default manager is fail-closed.
+        return MCPGatewayServer.objects.unscoped().select_related("team", "template")

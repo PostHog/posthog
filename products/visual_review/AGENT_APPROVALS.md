@@ -1,7 +1,7 @@
 ---
 stamphog:
   size_gate:
-    max_files: 50
+    max_files: 75
 ---
 
 Visual review PRs are often mechanical and wide: snapshot churn, per-story updates, and bulk screenshot regeneration routinely touch many files at once.

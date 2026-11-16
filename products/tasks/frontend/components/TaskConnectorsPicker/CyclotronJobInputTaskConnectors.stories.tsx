@@ -67,6 +67,7 @@ function resolvedTool(toolName: string, policyState: MCPToolApprovalStateEnumApi
         description: `${toolName} tool`,
         input_schema: {},
         is_destructive: policyState === 'do_not_use',
+        is_read_only: false,
         policy_state: policyState,
         team_state: null,
         locked: false,

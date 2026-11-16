@@ -7,6 +7,7 @@ query is bounded `[{labels_epoch}, {snapshot_end})` so a partition is reproducib
 day.
 """
 
+import json
 import uuid
 import datetime
 from collections.abc import Mapping
@@ -24,6 +25,7 @@ from posthog.clickhouse.client.connection import ClickHouseUser, Workload
 from posthog.cloud_utils import is_cloud
 from posthog.models import Team
 
+from products.signals.backend.ranking.sinks import REPORT_FACTS_EVENT
 from products.signals.dags.inbox_ranking.common import (
     FIXED_DISMISSAL_REASONS,
     HUMAN_ACTOR_KINDS,
@@ -104,6 +106,44 @@ def hogql_rows(sql: str, *, team: Team, query_type: str, snapshot_end: datetime.
         ch_user=ClickHouseUser.SIGNALS,
     )
     return [tuple(row) for row in response.results or []]
+
+
+# The facts events the sweep in this deployment captured during one day. The report filter runs in
+# Python, because a day's newborn ids would make an inline tuple too long for one query.
+REPORT_FACTS_SQL = f"""
+SELECT timestamp, properties
+FROM events
+WHERE event = '{REPORT_FACTS_EVENT}'
+  AND timestamp >= toDateTime({{window_start}}) AND timestamp < toDateTime({{window_end}})
+  AND ifNull(toString(properties.environment), '') = {{environment}}
+"""
+
+
+def report_facts_events(
+    team: Team, *, window_start: datetime.datetime, window_end: datetime.datetime, environment: str
+) -> list[tuple[datetime.datetime, dict[str, Any]]]:
+    """Every `inbox_ranking_report_facts_recorded` event of this deployment inside the window, as
+    `(timestamp, properties)` rows."""
+    response = execute_hogql_query(
+        query=REPORT_FACTS_SQL,
+        team=team,
+        query_type="inbox_ranking_report_facts_events",
+        placeholders={
+            "window_start": ast.Constant(value=utc_bound(window_start)),
+            "window_end": ast.Constant(value=utc_bound(window_end)),
+            "environment": ast.Constant(value=environment),
+        },
+        limit_context=LimitContext.SAVED_QUERY,
+        workload=etl_workload(),
+        settings=HogQLGlobalSettings(max_execution_time=600),
+        # The dag runs without a user; the read is a trusted internal ETL over the dogfood project.
+        bypass_warehouse_access_control=True,
+        ch_user=ClickHouseUser.SIGNALS,
+    )
+    return [
+        (timestamp, json.loads(properties) if isinstance(properties, str) else dict(properties or {}))
+        for timestamp, properties in response.results or []
+    ]
 
 
 def canonical_report_uuid(report_id: str | None) -> str | None:
@@ -211,8 +251,16 @@ WHERE product = %(product)s
   AND rendering = %(rendering)s
   AND team_id IN %(team_ids)s
   AND inserted_at < %(snapshot_end)s
+  AND modulo(cityHash64(team_id, document_id), %(page_count)s) = %(page)s
 GROUP BY team_id, document_id
 """
+
+# The snapshot is read in this many pages, so the dag holds one page of rows as Python objects at a
+# time rather than the whole fleet's. A page is a hash bucket of the GROUP BY key: every version of a
+# report lands in the same page, so the argMax per page is the argMax over the table. The bucket
+# filter reads only the small key columns, so each page reads the wide embedding column for its own
+# rows only, and the extra cost of a page is one more scan of those small columns.
+REPORT_EMBEDDINGS_PAGES = 8
 
 # Signal documents: the grouping pipeline's own rows in the same table, one per signal, carrying the
 # report they grouped into in the metadata JSON. Read incrementally by inserted_at rather than as a
@@ -273,6 +321,38 @@ WHERE product = %(product)s
   AND team_id IN %(team_ids)s
   AND inserted_at >= %(window_start)s
   AND inserted_at < %(window_end)s
+"""
+
+# Activity summary documents: one vector per (team, user, generated day), with document_id
+# "{user_id}:{date}" and timestamp = the summary's generated_at. The window is on timestamp, not on
+# inserted_at, so a partition holds the vectors generated during D whatever the embedding lag. The
+# sort key leads with (team_id, toDate(timestamp)), so this reads one day of the consenting teams.
+# A rebuild of the same day re-emits under the same document_id, and argMax keeps the newest version
+# when a merge has not removed the older one yet. The summary text (`content`) is never selected.
+ACTIVITY_SUMMARY_VECTORS_QUERY_SETTINGS: dict[str, int] = {
+    "max_execution_time": 600,
+    "max_memory_usage": 10 * 1024**3,
+}
+
+ACTIVITY_SUMMARY_VECTORS_SQL = f"""
+SELECT
+    team_id,
+    document_id,
+    argMax(timestamp, inserted_at) AS generated_at,
+    argMax(embedding, inserted_at) AS embedding,
+    max(inserted_at) AS embedding_inserted_at,
+    nullIf(argMax(JSONExtractInt(metadata, 'prompt_version'), inserted_at), 0) AS prompt_version,
+    nullIf(argMax(JSONExtractInt(metadata, 'render_version'), inserted_at), 0) AS render_version,
+    nullIf(argMax(JSONExtractString(metadata, 'model'), inserted_at), '') AS model,
+    argMax(if(JSONExtractString(metadata, 'source') = 'backfill', 'backfill', 'live'), inserted_at) AS source
+FROM {EMBEDDINGS_TABLE}
+WHERE product = %(product)s
+  AND document_type IN %(document_types)s
+  AND rendering = %(rendering)s
+  AND team_id IN %(team_ids)s
+  AND timestamp >= %(window_start)s
+  AND timestamp < %(window_end)s
+GROUP BY team_id, document_id
 """
 
 IMPRESSIONS_COLUMNS = (

@@ -102,14 +102,20 @@ class TestRewriteEmailAssetUrl(BaseTest):
         assert NEW in json.dumps(good.actions)
         assert OLD in json.dumps(bad.actions)
 
-    def test_rewrites_only_the_named_team(self) -> None:
+    def test_rewrites_and_reloads_only_the_named_team(self) -> None:
         mine = self._flow(self.team, "mine")
         theirs = self._flow(self.other_team, "theirs")
         content = {"email": {"html": f'<img src="{OLD}?w=960px" />'}}
         my_template = create_message_template_for_test(team_id=self.team.id, name="mine", content=content)
         their_template = create_message_template_for_test(team_id=self.other_team.id, name="theirs", content=content)
 
-        call_command("rewrite_email_asset_url", "--from-url", OLD, "--to-url", NEW, "--team-id", str(self.team.id))
+        with (
+            patch("posthog.plugins.plugin_server_api.publish_message") as publish,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            call_command("rewrite_email_asset_url", "--from-url", OLD, "--to-url", NEW, "--team-id", str(self.team.id))
+
+        publish.assert_called_once_with("reload-hog-flows", {"teamId": self.team.id, "hogFlowIds": [str(mine.id)]})
 
         mine.refresh_from_db()
         theirs.refresh_from_db()

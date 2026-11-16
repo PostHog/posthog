@@ -8,9 +8,11 @@ from enum import StrEnum
 import psycopg
 from psycopg import errors as pg_errors
 
-from posthog.models.integration import Integration, PostgreSQLIntegration
+from posthog.integrations import IntegrationRecord
+from posthog.models.integration import MotherDuckIntegration, PostgreSQLIntegration
 from posthog.models.integration.postgres import MISSING_CERT_PATH
 
+from products.warehouse_sources.backend.facade.destinations import probe_motherduck_destination
 from products.warehouse_sources.backend.facade.source_management import HostNotAllowedError, pinned_host_kwargs
 
 CONNECT_TIMEOUT_SECONDS = 5
@@ -24,6 +26,7 @@ class CheckFailure(StrEnum):
     AUTHENTICATION = "authentication"
     UNKNOWN_DATABASE = "unknown_database"
     MISSING_PRIVILEGE = "missing_privilege"
+    BUSY = "busy"
 
 
 # The messages never include the driver's error text, because that text can echo the user name,
@@ -39,6 +42,7 @@ FAILURE_MESSAGES: dict[CheckFailure, str] = {
         "The user cannot create tables in the schema. Grant the CREATE privilege on the schema, or "
         "on the database if the schema does not exist yet, and try again."
     ),
+    CheckFailure.BUSY: "PostHog is already running several connection checks. Wait a minute and try again.",
 }
 
 
@@ -47,8 +51,8 @@ CONFIG_FAILURES = frozenset({CheckFailure.UNKNOWN_DATABASE, CheckFailure.MISSING
 
 
 class DestinationConnectionCheckError(Exception):
-    def __init__(self, failure: CheckFailure) -> None:
-        super().__init__(FAILURE_MESSAGES[failure])
+    def __init__(self, failure: CheckFailure, message: str | None = None) -> None:
+        super().__init__(message or FAILURE_MESSAGES[failure])
         self.failure = failure
 
 
@@ -89,7 +93,7 @@ def _query_deadline(connection: psycopg.Connection, timeout_seconds: float) -> I
         timer.join()
 
 
-def check_postgres_destination(integration: Integration, config: dict[str, str] | None) -> None:
+def check_postgres_destination(integration: IntegrationRecord, config: dict[str, str] | None) -> None:
     """Connect to the destination with a short timeout and check that a writer can create tables.
 
     Raises `DestinationConnectionCheckError`. The writer runs `CREATE SCHEMA IF NOT EXISTS`, so a
@@ -145,3 +149,46 @@ def check_postgres_destination(integration: Integration, config: dict[str, str] 
         raise DestinationConnectionCheckError(CheckFailure.MISSING_PRIVILEGE) from error
     except (psycopg.Error, HostNotAllowedError) as error:
         raise DestinationConnectionCheckError(CheckFailure.UNREACHABLE) from error
+
+
+MOTHERDUCK_CONNECT_TIMEOUT_SECONDS = 15
+
+# Like the Postgres messages, these never include the driver's text.
+MOTHERDUCK_FAILURE_MESSAGES: dict[CheckFailure, str] = {
+    CheckFailure.UNREACHABLE: "PostHog could not connect to MotherDuck. Check the access token and try again.",
+    CheckFailure.AUTHENTICATION: (
+        "MotherDuck rejected the access token. Create a new access token in MotherDuck and try again."
+    ),
+    CheckFailure.UNKNOWN_DATABASE: (
+        "The database does not exist in this MotherDuck account. Check the database name and try again."
+    ),
+    CheckFailure.MISSING_PRIVILEGE: (
+        "PostHog cannot create tables in this database. Use a read-write access token and a database you own, "
+        "not a share, and try again."
+    ),
+    CheckFailure.BUSY: "PostHog is already running several connection checks. Wait a minute and try again.",
+}
+
+
+def _motherduck_failure(failure: CheckFailure) -> DestinationConnectionCheckError:
+    return DestinationConnectionCheckError(failure, MOTHERDUCK_FAILURE_MESSAGES[failure])
+
+
+def check_motherduck_destination(integration: IntegrationRecord, config: dict[str, str] | None) -> None:
+    """Connect to the destination's MotherDuck database and check that a writer can create tables.
+
+    Raises `DestinationConnectionCheckError`.
+    """
+    config = config or {}
+    token = MotherDuckIntegration(integration).access_token
+    if not token:
+        raise _motherduck_failure(CheckFailure.AUTHENTICATION)
+
+    failure = probe_motherduck_destination(
+        token,
+        str(config.get("database") or "").strip(),
+        str(config.get("schema") or "").strip(),
+        timeout_seconds=MOTHERDUCK_CONNECT_TIMEOUT_SECONDS,
+    )
+    if failure is not None:
+        raise _motherduck_failure(CheckFailure(failure))

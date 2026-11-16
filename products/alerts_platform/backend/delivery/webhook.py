@@ -29,6 +29,7 @@ WEBHOOK_VERSION: Final = "2"
 _NOT_ENDED: Final = "0001-01-01T00:00:00Z"
 
 _BREACH_KINDS: Final = (AlertEventKind.FIRING, AlertEventKind.RESOLVED)
+_ENDED_KINDS: Final = (AlertEventKind.RESOLVED, AlertEventKind.VERDICT_CHANGED)
 
 
 def _fingerprint(configuration_id: str, transition: AnnouncedTransition) -> str:
@@ -40,29 +41,35 @@ def _fingerprint(configuration_id: str, transition: AnnouncedTransition) -> str:
 
 
 def _annotations(message: AlertMessage) -> dict[str, str]:
-    annotations = {"summary": message.headline}
+    platform = {"summary": message.headline}
     if message.details:
-        annotations["description"] = "\n".join(f"{detail.label}: {detail.value}" for detail in message.details)
+        platform["description"] = "\n".join(f"{detail.label}: {detail.value}" for detail in message.details)
+    facts: dict[str, str] = {}
     if message.transition.value is not None:
-        annotations["value"] = f"{message.transition.value:g}"
+        facts["value"] = f"{message.transition.value:g}"
     if message.transition.error_message:
-        annotations["error"] = message.transition.error_message
-    return annotations
+        facts["error"] = message.transition.error_message
+    # A rule may set its own summary and description, as an Alertmanager receiver expects, but not
+    # the value the check measured or the error that stopped it. No rule can set the reserved
+    # prefix, so the platform's own text always survives the merge.
+    reserved = {f"posthog_{name}": text for name, text in platform.items()}
+    return {**platform, **message.annotations, **facts, **reserved}
 
 
 def alertmanager_body(message: AlertMessage) -> dict[str, Any]:
     transition = message.transition
     configuration_id = message.configuration_id
     # Alertmanager has only these two statuses. A failed or a turned-off check goes out as
-    # firing, and `posthog_event_kind` is what tells it apart from a breach.
-    status = "resolved" if transition.kind == AlertEventKind.RESOLVED else "firing"
+    # firing, and `posthog_event_kind` is what tells it apart from a breach. A follow-up goes out
+    # already ended under its own fingerprint, so it can neither open nor reopen anything.
+    status = "resolved" if transition.kind in _ENDED_KINDS else "firing"
     group_labels = {
         "alertname": message.alert_name,
         "posthog_configuration_id": configuration_id,
         "posthog_source_kind": message.source.value,
     }
     # The platform's own labels come last, so a source label with the same name cannot replace them.
-    labels = {**transition.labels, **group_labels, "posthog_event_kind": transition.kind.value}
+    labels = {**message.labels, **group_labels, "posthog_event_kind": transition.kind.value}
     annotations = _annotations(message)
     return {
         "version": "4",

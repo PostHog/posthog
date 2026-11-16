@@ -21,11 +21,9 @@ import { Editor, EmailEditorProps, EditorRef as _EditorRef } from 'react-email-e
 import { LemonDialog } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
-import { featureFlagLogic, FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { objectsEqual } from 'lib/utils/objects'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { PreflightStatus, PropertyDefinition, PropertyDefinitionType, Realm } from '~/types'
@@ -33,6 +31,7 @@ import { PreflightStatus, PropertyDefinition, PropertyDefinitionType, Realm } fr
 import { MessageTemplate } from 'products/workflows/frontend/TemplateLibrary/types'
 
 import { registerEmailMediaLibrary } from './emailMediaLibrary'
+import { senderFrom } from './emailSenderFields'
 import type { EmailFieldErrors, EmailTemplate } from './types'
 
 export type { EmailTemplate }
@@ -50,6 +49,7 @@ export type EmailTemplaterType =
     | 'native_email'
     | 'native_email_template'
     | 'native_email_transactional_template'
+    | 'native_email_sandbox'
 export type EmailMetaFieldKey = 'from' | 'to' | 'replyTo' | 'cc' | 'bcc' | 'subject' | 'preheader'
 export type EmailMetaField = {
     key: EmailMetaFieldKey
@@ -107,6 +107,12 @@ export const EMAIL_TYPE_SUPPORTED_FIELDS: Record<EmailTemplaterType, EmailMetaFi
     native_email_template: [EMAIL_META_FIELDS.SUBJECT, EMAIL_META_FIELDS.PREHEADER],
     // The sender and reply-to are edited from the sender summary above these fields.
     native_email_transactional_template: [EMAIL_META_FIELDS.SUBJECT, EMAIL_META_FIELDS.PREHEADER],
+    native_email_sandbox: [
+        EMAIL_META_FIELDS.FROM,
+        EMAIL_META_FIELDS.TO,
+        EMAIL_META_FIELDS.SUBJECT,
+        EMAIL_META_FIELDS.PREHEADER,
+    ],
 }
 
 // Helping kea-typegen navigate the exported type
@@ -171,9 +177,108 @@ export function buildHtmlWrapDesign(html: string): JSONTemplate {
     } as unknown as JSONTemplate
 }
 
+const UNLAYER_BODY_CLASS = /\bu_body\b/
+const UNLAYER_LAYOUT_TAGS = new Set(['!doctype', 'html', 'body', 'table', 'tbody', 'tr', 'td', 'div'])
+const TAG_NAME = /<\/?\s*([a-z!][a-z0-9]*)/y
+const SKIPPED_ELEMENT_ENDS = new Map([
+    ['head', '</head>'],
+    ['style', '</style>'],
+])
+
+function tagNameAt(html: string, position: number): string | null {
+    TAG_NAME.lastIndex = position
+    return TAG_NAME.exec(html)?.[1] ?? null
+}
+
+const CONDITIONAL_COMMENT_START = '<!--[if'
+const CONDITIONAL_COMMENT_MARKERS = ['<![endif]-->', '<!-->']
+
+// Outlook renders what a conditional comment holds, so the scan skips only its markers.
+function positionAfterConditionalMarker(html: string, position: number): number | null {
+    if (html.startsWith(CONDITIONAL_COMMENT_START, position)) {
+        const end = html.indexOf(']>', position + CONDITIONAL_COMMENT_START.length)
+        return end === -1 ? -1 : end + 2
+    }
+    const marker = CONDITIONAL_COMMENT_MARKERS.find((candidate) => html.startsWith(candidate, position))
+    return marker === undefined ? null : position + marker.length
+}
+
+function positionAfterLayoutMarkup(html: string, position: number): number {
+    const afterMarker = positionAfterConditionalMarker(html, position)
+    if (afterMarker !== null) {
+        return afterMarker
+    }
+    if (html.startsWith('<!--', position)) {
+        const end = html.indexOf('-->', position + 4)
+        return end === -1 ? -1 : end + 3
+    }
+    const tag = tagNameAt(html, position)
+    const end = html.indexOf('>', position)
+    if (tag === null || end === -1) {
+        return -1
+    }
+    const closing = SKIPPED_ELEMENT_ENDS.get(tag)
+    if (closing !== undefined) {
+        const closingAt = html.indexOf(closing, end)
+        return closingAt === -1 ? -1 : closingAt + closing.length
+    }
+    return UNLAYER_LAYOUT_TAGS.has(tag) ? end + 1 : -1
+}
+
+function isOnlyUnlayerLayout(markup: string): boolean {
+    const html = markup.toLowerCase()
+    let position = 0
+    while (position < html.length) {
+        if (html[position] === '<') {
+            position = positionAfterLayoutMarkup(html, position)
+            if (position === -1) {
+                return false
+            }
+        } else if (html.startsWith('&nbsp;', position)) {
+            position += 6
+        } else if (/\s/.test(html[position])) {
+            position += 1
+        } else {
+            return false
+        }
+    }
+    return true
+}
+
+function isUnlayerRenderOf(html: string, blockHtml: string): boolean {
+    const start = html.indexOf(blockHtml)
+    if (start === -1) {
+        return false
+    }
+    const aroundBlock = html.slice(0, start) + html.slice(start + blockHtml.length)
+    return UNLAYER_BODY_CLASS.test(aroundBlock) && isOnlyUnlayerLayout(aroundBlock)
+}
+
+export function editorDesignForEmail(value: Pick<EmailTemplate, 'html' | 'design'>): JSONTemplate | null {
+    const { html, design } = value
+    if (!design) {
+        return html ? buildHtmlWrapDesign(html) : null
+    }
+    const wrappedHtml = design.body?.rows?.[0]?.columns?.[0]?.contents?.[0]?.values?.html
+    if (
+        html &&
+        typeof wrappedHtml === 'string' &&
+        wrappedHtml !== html &&
+        objectsEqual(design, buildHtmlWrapDesign(wrappedHtml)) &&
+        !isUnlayerRenderOf(html, wrappedHtml)
+    ) {
+        return buildHtmlWrapDesign(html)
+    }
+    return design
+}
+
 // URL reflection for the fullscreen editor (?editor=email), so back, Escape, and deep links work.
 const EMAIL_EDITOR_URL_PARAM = 'editor'
 const EMAIL_EDITOR_URL_VALUE = 'email'
+
+export function withEmailEditorOpen(searchParams: Record<string, any>): Record<string, any> {
+    return { ...searchParams, [EMAIL_EDITOR_URL_PARAM]: EMAIL_EDITOR_URL_VALUE }
+}
 
 // A property name reads back as `person.properties.foo` only when it is a bare identifier. Anything
 // else (spaces, a leading $, punctuation) needs bracket access. Use single quotes, never double: a
@@ -188,6 +293,46 @@ export function buildPersonPropertyMergeValue(name: string): string {
     }
     const escaped = name.replace(/\\/g, '\\\\').replace(/'/g, "\\'")
     return `{{person.properties['${escaped}']}}`
+}
+
+/** The merge tags the visual editor offers. A transactional email gets its own variables instead of person properties. */
+export function buildMergeTags(
+    personPropertyDefinitions: PropertyDefinition[],
+    type: EmailTemplaterType,
+    variables: Record<string, any> | undefined
+): UnlayerMergeTags {
+    const tags: UnlayerMergeTags = {
+        unsubscribe_url: {
+            name: 'Unsubscribe URL',
+            value: '{{unsubscribe_url}}',
+            sample: 'https://example.com/unsubscribe/12345',
+        },
+        unsubscribe_url_one_click: {
+            name: 'One-Click Unsubscribe URL',
+            value: '{{unsubscribe_url_one_click}}',
+            sample: 'https://example.com/unsubscribe/12345?one_click_unsubscribe=1',
+        },
+    }
+
+    // A transactional email can't read person properties. It reads what the API call passes in
+    // `message_data`, which the caller lists under `variables.variables`.
+    if (type === 'native_email_transactional_template') {
+        Object.keys(variables?.variables ?? {}).forEach((name) => {
+            tags[`variables.${name}`] = { name, value: `{{ variables.${name} }}`, sample: name }
+        })
+        return tags
+    }
+
+    // Add person properties as merge tags
+    personPropertyDefinitions.forEach((property: PropertyDefinition) => {
+        tags[property.name] = {
+            name: property.name,
+            value: buildPersonPropertyMergeValue(property.name),
+            sample: property.example || `Sample ${property.name}`,
+        }
+    })
+
+    return tags
 }
 
 export interface EmailTemplaterLogicProps {
@@ -236,7 +381,6 @@ function autoRevealAdvancedFields(
 
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface emailTemplaterLogicValues {
-    featureFlags: FeatureFlagsSet // featureFlagLogic
     preflight: PreflightStatus | null // preflightLogic
     currentProjectId: number | string // teamLogic
     activeContentTab: 'plaintext' | 'visual'
@@ -282,6 +426,9 @@ export interface emailTemplaterLogicActions {
     applyTemplate: (template: MessageTemplate) => {
         template: MessageTemplate
     }
+    clearCustomSender: () => {
+        value: true
+    }
     closeWithConfirmation: () => {
         value: true
     }
@@ -289,6 +436,9 @@ export interface emailTemplaterLogicActions {
         value: true
     }
     designUpdated: () => {
+        value: true
+    }
+    flushPendingDesignEdit: () => {
         value: true
     }
     hideAdvancedField: (key: EmailMetaFieldKey) => {
@@ -396,13 +546,13 @@ export interface emailTemplaterLogicActions {
 export interface emailTemplaterLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         logicProps: (arg: any) => EmailTemplaterLogicProps
-        mergeTags: (personPropertyDefinitions: PropertyDefinition[]) => UnlayerMergeTags
-        unlayerEditorProjectId: (preflight: PreflightStatus | null) => 275430 | undefined
-        emailMediaLibraryEnabled: (
+        mergeTags: (
+            personPropertyDefinitions: PropertyDefinition[],
             arg: EmailTemplaterType,
-            unlayerEditorProjectId: 275430 | undefined,
-            featureFlags: FeatureFlagsSet
-        ) => boolean
+            arg2: Record<string, any> | undefined
+        ) => UnlayerMergeTags
+        unlayerEditorProjectId: (preflight: PreflightStatus | null) => 275430 | undefined
+        emailMediaLibraryEnabled: (arg: EmailTemplaterType, unlayerEditorProjectId: 275430 | undefined) => boolean
         unlayerEditorUser: (
             emailMediaLibraryEnabled: boolean,
             currentProjectId: number | string
@@ -427,7 +577,7 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
     props({} as EmailTemplaterLogicProps),
     path(['scenes', 'hog-functions', 'email-templater', 'emailTemplaterLogic']),
     connect(() => ({
-        values: [preflightLogic, ['preflight'], featureFlagLogic, ['featureFlags'], teamLogic, ['currentProjectId']],
+        values: [preflightLogic, ['preflight'], teamLogic, ['currentProjectId']],
     })),
     actions({
         setEmailEditorRef: (emailEditorRef: EditorRef | null) => ({ emailEditorRef }),
@@ -439,6 +589,8 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
         designLoaded: true,
         applyTemplate: (template: MessageTemplate) => ({ template }),
         closeWithConfirmation: true,
+        flushPendingDesignEdit: true,
+        clearCustomSender: true,
         setTemplatingEngine: (templating: 'hog' | 'liquid') => ({ templating }),
         saveAsTemplate: (name: string, description: string) => ({ name, description }),
         setActiveContentTab: (tab: 'visual' | 'plaintext') => ({ tab }),
@@ -540,32 +692,16 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
     selectors({
         logicProps: [() => [(_, props) => props], (props: EmailTemplaterLogicProps) => props],
         mergeTags: [
-            (s) => [s.personPropertyDefinitions],
-            (personPropertyDefinitions: PropertyDefinition[]): UnlayerMergeTags => {
-                const tags: UnlayerMergeTags = {
-                    unsubscribe_url: {
-                        name: 'Unsubscribe URL',
-                        value: '{{unsubscribe_url}}',
-                        sample: 'https://example.com/unsubscribe/12345',
-                    },
-                    unsubscribe_url_one_click: {
-                        name: 'One-Click Unsubscribe URL',
-                        value: '{{unsubscribe_url_one_click}}',
-                        sample: 'https://example.com/unsubscribe/12345?one_click_unsubscribe=1',
-                    },
-                }
-
-                // Add person properties as merge tags
-                personPropertyDefinitions.forEach((property: PropertyDefinition) => {
-                    tags[property.name] = {
-                        name: property.name,
-                        value: buildPersonPropertyMergeValue(property.name),
-                        sample: property.example || `Sample ${property.name}`,
-                    }
-                })
-
-                return tags
-            },
+            (s) => [
+                s.personPropertyDefinitions,
+                (_, props: EmailTemplaterLogicProps) => props.type,
+                (_, props: EmailTemplaterLogicProps) => props.variables,
+            ],
+            (
+                personPropertyDefinitions: PropertyDefinition[],
+                type: EmailTemplaterType,
+                variables: Record<string, any> | undefined
+            ): UnlayerMergeTags => buildMergeTags(personPropertyDefinitions, type, variables),
         ],
         unlayerEditorProjectId: [
             (s) => [s.preflight],
@@ -576,12 +712,10 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
             },
         ],
         emailMediaLibraryEnabled: [
-            (s) => [(_, props: EmailTemplaterLogicProps) => props.type, s.unlayerEditorProjectId, s.featureFlags],
-            (type: EmailTemplaterType, unlayerEditorProjectId: number | undefined, featureFlags: FeatureFlagsSet) =>
+            (s) => [(_, props: EmailTemplaterLogicProps) => props.type, s.unlayerEditorProjectId],
+            (type: EmailTemplaterType, unlayerEditorProjectId: number | undefined) =>
                 // The Uploads tab needs a paid Unlayer project, and only the native editor loads one.
-                type !== 'email' &&
-                !!unlayerEditorProjectId &&
-                !!featureFlags[FEATURE_FLAGS.WORKFLOWS_EMAIL_MEDIA_LIBRARY],
+                type !== 'email' && !!unlayerEditorProjectId,
         ],
         unlayerEditorUser: [
             (s) => [s.emailMediaLibraryEnabled, s.currentProjectId],
@@ -657,7 +791,15 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
         },
     })),
 
-    listeners(({ props, values, actions, cache }) => ({
+    listeners(({ props, values, actions, asyncActions, cache }) => ({
+        // Person properties load after the editor starts, and the editor only reads its options once.
+        loadPersonPropertyDefinitionsSuccess: () => {
+            const mergeTags = buildMergeTags(values.personPropertyDefinitions, props.type, props.variables)
+            if (values.isEmailEditorReady && !objectsEqual(mergeTags, cache.lastMergeTags)) {
+                cache.lastMergeTags = mergeTags
+                values.emailEditorRef?.editor?.setMergeTags?.(mergeTags)
+            }
+        },
         onEmailEditorReady: () => {
             const editor = values.emailEditorRef?.editor
             if (editor && values.emailMediaLibraryEnabled) {
@@ -671,13 +813,13 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
             // Both layouts rebaseline on load: the modal submit compares its export against the
             // baseline to tell a no-op save from a real edit.
             values.emailEditorRef?.editor?.addEventListener('design:loaded', () => actions.designLoaded())
-            if (props.value?.design) {
-                cache.lastEditorDesign = props.value.design
-                values.emailEditorRef?.editor?.loadDesign(props.value.design)
-            } else if (props.value?.html) {
-                const wrapped = buildHtmlWrapDesign(props.value.html)
-                cache.lastEditorDesign = wrapped
-                values.emailEditorRef?.editor?.loadDesign(wrapped)
+            // The editor read its merge tags when it started, so any added since then are pushed in.
+            cache.lastMergeTags = buildMergeTags(values.personPropertyDefinitions, props.type, props.variables)
+            values.emailEditorRef?.editor?.setMergeTags?.(cache.lastMergeTags)
+            const design = props.value ? editorDesignForEmail(props.value) : null
+            if (design) {
+                cache.lastEditorDesign = design
+                values.emailEditorRef?.editor?.loadDesign(design)
             }
         },
 
@@ -701,7 +843,11 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
             // While this is pending, the canvas may hold an edit the parent hasn't seen yet, so
             // propsChanged must not load an external design over it (the flag below guards that).
             cache.pendingDesignEdit = true
+            cache.designEdits = (cache.designEdits ?? 0) + 1
             await breakpoint(500)
+            if (!cache.pendingDesignEdit) {
+                return
+            }
 
             const editor = values.emailEditorRef?.editor
             if (!editor || !values.isEmailEditorReady) {
@@ -761,6 +907,18 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
             } as EmailTemplate)
         },
 
+        clearCustomSender: () => {
+            const from = { ...senderFrom(values.emailTemplate ?? {}), name: undefined, email: undefined }
+            if (values.isModalOpen && !props.liveChanges) {
+                // The modal keeps edits in the form until save.
+                actions.setEmailTemplateValue('from', from)
+                actions.setEmailTemplateValue('replyTo', '')
+                return
+            }
+            // One update: two setEmailTemplateValue calls each merge into the same stale props.value, so the second undoes the first.
+            actions.setEmailTemplateValues({ from, replyTo: '' })
+        },
+
         setIsModalOpen: ({ isModalOpen }) => {
             if (isModalOpen && props.value) {
                 // Plain text only when the email is genuinely text-only; a blank email starts visual.
@@ -773,12 +931,19 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
             // A transactional template's sender and reply-to belong to its own sends, so applying it keeps the
             // email's current ones.
             const { from: _from, replyTo: _replyTo, ...emailTemplateContent } = template.content.email
-            actions.setEmailTemplateValues(emailTemplateContent)
+            // The values merge into the current email, so a body field the template omits is cleared to keep the
+            // previous email's html or design from being sent.
+            actions.setEmailTemplateValues({
+                ...emailTemplateContent,
+                html: emailTemplateContent.html ?? '',
+                text: emailTemplateContent.text ?? '',
+                design: emailTemplateContent.design ?? null,
+            })
 
-            // Load the design into the editor if it's ready and has a design
-            if (values.isEmailEditorReady && emailTemplateContent.design) {
-                cache.lastEditorDesign = emailTemplateContent.design
-                values.emailEditorRef?.editor?.loadDesign(emailTemplateContent.design)
+            const design = editorDesignForEmail(emailTemplateContent)
+            if (values.isEmailEditorReady && design) {
+                cache.lastEditorDesign = design
+                values.emailEditorRef?.editor?.loadDesign(design)
             }
         },
 
@@ -801,32 +966,37 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
                 })
                 return
             }
-            // A canvas edit made in the last 500ms is still inside designUpdated's debounce; closing
-            // unmounts the editor before it exports, silently dropping that edit. Flush it now,
-            // while the editor is still mounted. The debounced continuation then no-ops (or never
-            // resolves post-unmount), since lastEditorDesign already matches.
-            if (props.liveChanges && cache.pendingDesignEdit && values.isEmailEditorReady) {
-                const editor = values.emailEditorRef?.editor
-                if (editor) {
-                    const [htmlData, textData]: [{ html: string; design: JSONTemplate }, { text: string }] =
-                        await Promise.all([
-                            exportEditorHtml(editor),
-                            new Promise<any>((res) => editor.exportPlainText(res)),
-                        ])
-                    cache.pendingDesignEdit = false
-                    if (!objectsEqual(htmlData.design, cache.lastEditorDesign)) {
-                        cache.lastEditorDesign = htmlData.design
-                        cache.lastLoadedExternalDesign = null
-                        props.onChange({
-                            ...values.emailTemplate,
-                            html: props.type !== 'email' ? htmlData.html : escapeHTMLStringCurlies(htmlData.html),
-                            text: textData.text,
-                            design: htmlData.design,
-                        })
-                    }
+            await asyncActions.flushPendingDesignEdit()
+            actions.setIsModalOpen(false)
+        },
+
+        flushPendingDesignEdit: async () => {
+            const editor = values.emailEditorRef?.editor
+            if (!props.liveChanges || !values.isEmailEditorReady || !editor) {
+                return
+            }
+            while (cache.pendingDesignEdit) {
+                const editsBeforeExport = cache.designEdits
+                const [htmlData, textData]: [{ html: string; design: JSONTemplate }, { text: string }] =
+                    await Promise.all([
+                        exportEditorHtml(editor),
+                        new Promise<any>((res) => editor.exportPlainText(res)),
+                    ])
+                if (cache.designEdits !== editsBeforeExport) {
+                    continue
+                }
+                cache.pendingDesignEdit = false
+                if (!objectsEqual(htmlData.design, cache.lastEditorDesign)) {
+                    cache.lastEditorDesign = htmlData.design
+                    cache.lastLoadedExternalDesign = null
+                    props.onChange({
+                        ...values.emailTemplate,
+                        html: props.type !== 'email' ? htmlData.html : escapeHTMLStringCurlies(htmlData.html),
+                        text: textData.text,
+                        design: htmlData.design,
+                    })
                 }
             }
-            actions.setIsModalOpen(false)
         },
 
         saveAsTemplate: async ({ name, description }) => {
@@ -925,6 +1095,13 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
     })),
 
     propsChanged(({ actions, props, values, cache }, oldProps) => {
+        // A transactional email's merge tags follow the variables it uses, so the open editor gets new ones.
+        // Built from the new props here: a selector would still return its cached value until the store changes.
+        const mergeTags = buildMergeTags(values.personPropertyDefinitions, props.type, props.variables)
+        if (values.isEmailEditorReady && !objectsEqual(mergeTags, cache.lastMergeTags)) {
+            cache.lastMergeTags = mergeTags
+            values.emailEditorRef?.editor?.setMergeTags?.(mergeTags)
+        }
         if (props.value && !objectsEqual(props.value, oldProps.value)) {
             actions.resetEmailTemplate(props.value)
             autoRevealAdvancedFields(actions, props)
@@ -940,7 +1117,7 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
                 values.isEmailEditorReady &&
                 !cache.pendingDesignEdit
             ) {
-                const design = props.value.design ?? (props.value.html ? buildHtmlWrapDesign(props.value.html) : null)
+                const design = editorDesignForEmail(props.value)
                 if (
                     design &&
                     !objectsEqual(design, cache.lastEditorDesign) &&

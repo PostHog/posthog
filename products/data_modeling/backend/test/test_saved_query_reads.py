@@ -14,10 +14,16 @@ from products.data_modeling.backend.facade import api
 from products.data_modeling.backend.facade.contracts import SavedQueryDefinition, UpstreamTableRef
 from products.data_modeling.backend.logic.saved_query_reads import POSTHOG_TABLE_ORIGIN
 from products.data_modeling.backend.models.dag import DAG
+from products.data_modeling.backend.models.data_modeling_job import (
+    DataModelingJob,
+    DataModelingJobEngine,
+    DataModelingJobStatus,
+)
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.data_modeling.backend.models.edge import Edge
 from products.data_modeling.backend.models.node import Node, NodeType
 from products.data_modeling.backend.test.helpers import saved_query_node, table_node
+from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
 
 class TestSavedQueryReads(BaseTest):
@@ -181,3 +187,50 @@ class TestSavedQueryReads(BaseTest):
                 UpstreamTableRef(name="legacy_orders"),
             }
         )
+
+    def test_unbuilt_upstream_saved_query_ids_needs_a_completed_build_on_that_engine(self) -> None:
+        dag = DAG.objects.create(team=self.team, name="Default")
+        events = table_node(self.team, dag, "events", {"origin": POSTHOG_TABLE_ORIGIN})
+        built = saved_query_node(self.team, dag, "built", NodeType.TABLE)
+        built_elsewhere = saved_query_node(self.team, dag, "built_elsewhere", NodeType.TABLE)
+        failed = saved_query_node(self.team, dag, "failed", NodeType.TABLE)
+        target = saved_query_node(self.team, dag, "target", NodeType.VIEW)
+        for source in [events, built, built_elsewhere, failed]:
+            Edge.objects.create(team=self.team, dag=dag, source=source, target=target)
+        for node, engine, status in [
+            (built, DataModelingJobEngine.MANAGED_WAREHOUSE, DataModelingJobStatus.FAILED),
+            (built, DataModelingJobEngine.MANAGED_WAREHOUSE, DataModelingJobStatus.COMPLETED),
+            (built_elsewhere, DataModelingJobEngine.CLICKHOUSE, DataModelingJobStatus.COMPLETED),
+            (failed, DataModelingJobEngine.MANAGED_WAREHOUSE, DataModelingJobStatus.FAILED),
+        ]:
+            DataModelingJob.objects.create(team=self.team, saved_query=node.saved_query, engine=engine, status=status)
+
+        assert api.unbuilt_upstream_saved_query_ids(
+            self.team.id, target.saved_query_id, engine=DataModelingJobEngine.MANAGED_WAREHOUSE
+        ) == frozenset({built_elsewhere.saved_query_id, failed.saved_query_id})
+
+    def test_renaming_a_materialized_view_keeps_its_table_location(self) -> None:
+        saved_query = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="revenue",
+            query={"kind": "HogQLQuery", "query": "SELECT 1"},
+            is_materialized=True,
+        )
+        saved_query.table = DataWarehouseTable.objects.create(
+            team=self.team,
+            name=saved_query.name,
+            format=DataWarehouseTable.TableFormat.DeltaS3Wrapper,
+            url_pattern=saved_query.url_pattern,
+            created_via=DataWarehouseTable.CreatedVia.MATERIALIZED_VIEW,
+        )
+        saved_query.save(update_fields=["table"])
+        uri_before = api.get_materialized_table_uri(self.team.id, saved_query.id)
+        url_pattern_before = saved_query.url_pattern
+
+        saved_query.name = "marts_revenue"
+        saved_query.save(update_fields=["name"])
+        renamed = DataWarehouseSavedQuery.objects.get(id=saved_query.id, team=self.team)
+
+        assert uri_before is not None and uri_before.endswith("/modeling/revenue")
+        assert api.get_materialized_table_uri(self.team.id, renamed.id) == uri_before
+        assert renamed.url_pattern == url_pattern_before

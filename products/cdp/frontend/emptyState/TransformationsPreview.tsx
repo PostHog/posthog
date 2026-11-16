@@ -2,7 +2,7 @@ import './TransformationsPreview.scss'
 
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { cn } from 'lib/utils/css-classes'
-import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
+import { inStorybook } from 'lib/utils/dom'
 
 // Hand-authored 24-hour series of events that passed through the pipeline.
 const LINE = 'M 0 24 L 14 22 L 28 25 L 42 17 L 56 19 L 70 13 L 84 11 L 100 7'
@@ -19,7 +19,7 @@ function areaPath(line: string): string {
  * property lines occupy their rows in both states and only fade in, so nothing moves.
  */
 export function TransformationsPreview(): JSX.Element {
-    const isStatic = inStorybook() || inStorybookTestRunner()
+    const isStatic = inStorybook()
 
     return (
         <div className={cn('TransformationsPreview', isStatic && 'TransformationsPreview--static')}>

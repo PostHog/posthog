@@ -5,7 +5,7 @@ from prometheus_client import Counter, Gauge
 
 from posthog.metrics import pushed_metrics_registry
 
-AiDetectorCheckOutcome = Literal["evaluated", "unavailable", "misconfigured"]
+AiDetectorCheckOutcome = Literal["evaluated", "unavailable", "paused", "misconfigured"]
 
 # Nothing else separates an AI detector check that reached a verdict from one whose provider
 # was out of reach: both land as an errored check, and only the worker logs say which.
@@ -18,6 +18,18 @@ _AI_DETECTOR_CHECK_COUNTER = Counter(
 
 def record_ai_detector_check_outcome(outcome: AiDetectorCheckOutcome) -> None:
     _AI_DETECTOR_CHECK_COUNTER.labels(outcome=outcome).inc()
+
+
+# No team label, to bound cardinality. The `alert firing signal skipped` event carries the team for cap drops.
+_ALERT_FIRING_SIGNAL_COUNTER = Counter(
+    "posthog_insight_alerts_firing_signals_total",
+    "Insight alert firing signals that passed the episode gates, by outcome",
+    labelnames=["outcome"],
+)
+
+
+def record_alert_firing_signal_outcome(outcome: str) -> None:
+    _ALERT_FIRING_SIGNAL_COUNTER.labels(outcome=outcome).inc()
 
 
 def record_due_insight_alert_metrics(due_count: int, oldest_due_at: datetime | None, polled_at: datetime) -> None:

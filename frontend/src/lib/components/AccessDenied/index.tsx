@@ -17,9 +17,10 @@ export interface AccessDeniedProps {
     /** Custom explanation of *why* access is denied. Rendered in place of the default first sentence; the support-link tail stays. */
     reason?: ReactNode
     inline?: boolean
+    children?: ReactNode
 }
 
-export function AccessDenied({ object, reason, inline = false }: AccessDeniedProps): JSX.Element {
+export function AccessDenied({ object, reason, inline = false, children }: AccessDeniedProps): JSX.Element {
     const { openSupportForm } = useActions(supportLogic)
 
     const handleClickSupport = (): void => {
@@ -49,6 +50,7 @@ export function AccessDenied({ object, reason, inline = false }: AccessDeniedPro
                     <Link onClick={handleClickSupport}>support</Link> if you think this is a mistake.
                 </p>
             )}
+            {children}
         </div>
     )
 }

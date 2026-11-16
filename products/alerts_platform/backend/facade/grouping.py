@@ -49,8 +49,8 @@ def is_hashed_grouping_key(key: str) -> bool:
 
 
 # PostgreSQL text and JSONB reject NUL, and UTF-8 cannot encode a surrogate. Either one aborts the
-# transaction that records the whole batch.
-_UNSTORABLE: Final = re.compile("[\x00\ud800-\udfff]")
+# transaction that records the whole batch. Stdlib `re`, because re2 cannot see a lone surrogate.
+UNSTORABLE: Final = re.compile("[\x00\ud800-\udfff]")
 
 
 def bounded_grouping_key(key: str) -> str:
@@ -60,7 +60,7 @@ def bounded_grouping_key(key: str) -> str:
     Every other key is hashed. A literal key in the hash namespace is hashed too, because otherwise
     it would share a row with the long key whose digest it spells.
     """
-    if len(key) <= MAX_GROUPING_KEY_LENGTH and not is_hashed_grouping_key(key) and not _UNSTORABLE.search(key):
+    if len(key) <= MAX_GROUPING_KEY_LENGTH and not is_hashed_grouping_key(key) and not UNSTORABLE.search(key):
         return key
     return f"{_HASHED_PREFIX}{hashlib.sha256(key.encode('utf-8', 'surrogatepass')).hexdigest()}"
 
@@ -76,20 +76,24 @@ _TRUNCATED: Final = "…"
 
 def _bounded_label(value: str) -> str:
     # A label is display only, so a character the database cannot store shows as a replacement.
-    value = _UNSTORABLE.sub("\ufffd", value)
-    if _encoded_length(value) <= MAX_LABEL_BYTES:
+    return clipped_to(UNSTORABLE.sub("\ufffd", value), MAX_LABEL_BYTES)
+
+
+def clipped_to(value: str, max_bytes: int) -> str:
+    """`value` cut to at most `max_bytes` of encoded JSON, with a marker where it was cut."""
+    if encoded_length(value) <= max_bytes:
         return value
-    budget = MAX_LABEL_BYTES - _encoded_length(_TRUNCATED)
+    budget = max_bytes - encoded_length(_TRUNCATED)
     kept: list[str] = []
     for char in value:
-        budget -= _encoded_length(char)
+        budget -= encoded_length(char)
         if budget < 0:
             break
         kept.append(char)
     return "".join(kept) + _TRUNCATED
 
 
-def _encoded_length(value: str) -> int:
+def encoded_length(value: str) -> int:
     return len(json.dumps(value)) - 2
 
 

@@ -30,7 +30,13 @@ export interface LocalToolCtx {
   requestFinish?: (
     status: "completed" | "failed",
     message?: string,
+    report?: string,
   ) => Promise<void>;
+  /**
+   * A later workflow step reads this run's final message, so `finish` refuses to
+   * end the run without a report. Set from `isFinishReportRequired(meta)`.
+   */
+  finishReportRequired?: boolean;
 }
 
 /** Minimal session-meta shape needed to gate tools (e.g. cloud-only). */
@@ -46,13 +52,6 @@ export interface LocalToolGateMeta {
    * human ends.
    */
   background?: boolean;
-  /**
-   * Agent peer messaging is enabled for this run (backend flag + runtime check,
-   * surfaced as POSTHOG_AGENT_PEER_MESSAGING at agent-server launch): enables
-   * the `list_agents`/`send_agent_message` tools. Exposure only — the peers
-   * endpoints re-check authorization server-side on every call.
-   */
-  peerMessaging?: boolean;
   taskOriginProduct?: string;
   /**
    * Workflow-action opt-in (run state `end_run_when_done`): exposes the `finish`
@@ -61,6 +60,7 @@ export interface LocalToolGateMeta {
    * relay and thread replies still reach the agent.
    */
   endRunWhenDone?: boolean;
+  callerEndsRun?: boolean;
 }
 
 /**

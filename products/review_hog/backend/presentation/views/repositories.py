@@ -2,22 +2,15 @@ import re
 from typing import Any, cast
 from uuid import UUID
 
-from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import (
-    OpenApiParameter,
-    OpenApiResponse,
-    extend_schema,
-    extend_schema_field,
-    extend_schema_view,
-)
+from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_field, extend_schema_view
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import NotFound, ValidationError
+from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 from rest_framework.permissions import SAFE_METHODS, BasePermission
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.routing import PathParameter, TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.models.organization import OrganizationMembership
 from posthog.models.scoping.manager import resolve_effective_team_id
@@ -42,6 +35,7 @@ from products.review_hog.backend.facade.api import (
 )
 from products.review_hog.backend.facade.contracts import (
     UNSET,
+    AdminOnlyChangeError,
     AutomaticReviewDecision,
     OwnershipConflict,
     PersonNotActiveMemberError,
@@ -95,23 +89,6 @@ def not_active_member_error(error: PersonNotActiveMemberError) -> ValidationErro
 
 def no_such_list_entry_response() -> Response:
     return Response({"error": "No such list entry.", "conflicting_project": None}, status=status.HTTP_404_NOT_FOUND)
-
-
-def path_uuid(value: str) -> UUID:
-    """The UUID of a detail URL. Any other value names no object, so the answer is 404."""
-    try:
-        return UUID(value)
-    except ValueError:
-        raise NotFound()
-
-
-def uuid_path_parameter(object_name: str) -> OpenApiParameter:
-    return OpenApiParameter(
-        "id",
-        OpenApiTypes.UUID,
-        OpenApiParameter.PATH,
-        description=f"A UUID string identifying this {object_name}.",
-    )
 
 
 def decision_data(decision: AutomaticReviewDecision) -> dict[str, Any]:
@@ -184,6 +161,10 @@ class ReviewRepositorySerializer(serializers.Serializer):
         help_text="The repository exception: 'everyone', 'listed', or 'off' (opt-in only). Null when the "
         "repository follows the project rule.",
     )
+    review_drafts = serializers.BooleanField(
+        read_only=True,
+        help_text="Whether draft pull requests in this repository get their automatic review when they open.",
+    )
     people = serializers.SerializerMethodField(
         help_text="The people on the exception's two lists. Only the list that matches flash_for has an effect."
     )
@@ -216,6 +197,11 @@ class ReviewRepositoryWriteSerializer(serializers.Serializer):
         allow_null=True,
         help_text="The repository exception: 'everyone', 'listed', or 'off'. Null clears it, so the repository "
         "follows the project rule again. Omit it to keep the current value.",
+    )
+    review_drafts = serializers.BooleanField(
+        required=False,
+        help_text="True lets draft pull requests in this repository get their automatic review when they open. "
+        "False waits until they are ready for review. Omit it to keep the current value.",
     )
 
     def validate_full_name(self, value: str) -> str:
@@ -394,30 +380,50 @@ class EffectiveTeamStrictManagementPermission(EffectiveTeamMemberPermission):
         return request.method in SAFE_METHODS or view.is_effective_team_admin()
 
 
+class EffectiveTeamRaiseOnlyPermission(EffectiveTeamMemberPermission):
+    """Members read and may run the view's `member_write_actions`. Every other write needs an admin.
+
+    Those actions turn reviews only up for a member, and refuse anything else themselves.
+    """
+
+    message = "You don't have sufficient permissions in the project."
+
+    def has_permission(self, request: Request, view: Any) -> bool:
+        if not super().has_permission(request, view):
+            return False
+        if request.method in SAFE_METHODS or view.is_effective_team_admin():
+            return True
+        return view.action in view.member_write_actions
+
+
 @extend_schema_view(
     destroy=extend_schema(
         summary="Remove a repository's settings",
         description="Remove the repository from this project and clear its exception and lists. With an 'all "
         "repositories' claim the repository stays in the project and follows the project rule.",
-        parameters=[uuid_path_parameter("review repository")],
     ),
 )
 class ReviewRepositoryViewSet(ReviewHogProjectViewSetMixin, viewsets.GenericViewSet):
     """The repositories this project has settings for: selected repositories and repository exceptions.
 
-    Project members can read them. Only project admins can change them, and every change goes to the
-    activity log. A repository has settings in one project at most.
+    Project members can read them and turn a repository's reviews up. Only project admins can turn them
+    down or remove them. Every change goes to the activity log. A repository has settings in one project
+    at most.
     """
 
     scope_object = "review_hog"
-    permission_classes = [PostHogFeatureFlagPermission, EffectiveTeamStrictManagementPermission]
+    permission_classes = [PostHogFeatureFlagPermission, EffectiveTeamRaiseOnlyPermission]
+    member_write_actions = ("create", "add_person")
     posthog_feature_flag = "review-hog"
     serializer_class = ReviewRepositorySerializer
+    path_parameters = {
+        "pk": PathParameter(type=UUID, description="A UUID string identifying this review repository."),
+        "person_id": PathParameter(type=UUID, description="Id of the list entry."),
+    }
     pagination_class = None
 
     def _repository_or_404(self) -> ReviewRepositorySettings:
-        repository_id = path_uuid(self.kwargs["pk"])
-        repository = get_review_repository(self.effective_team_id, self.acting_user_id, repository_id)
+        repository = get_review_repository(self.effective_team_id, self.acting_user_id, self.kwargs["pk"])
         if repository is None:
             raise NotFound()
         return repository
@@ -431,8 +437,7 @@ class ReviewRepositoryViewSet(ReviewHogProjectViewSetMixin, viewsets.GenericView
         return Response(ReviewRepositorySerializer(repositories, many=True).data)
 
     def destroy(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        repository_id = path_uuid(self.kwargs["pk"])
-        if not delete_review_repository(self.effective_team_id, self.acting_user_id, repository_id):
+        if not delete_review_repository(self.effective_team_id, self.acting_user_id, self.kwargs["pk"]):
             raise NotFound()
         return Response(status=status.HTTP_204_NO_CONTENT)
 
@@ -441,15 +446,18 @@ class ReviewRepositoryViewSet(ReviewHogProjectViewSetMixin, viewsets.GenericView
         responses={
             200: OpenApiResponse(response=ReviewRepositoryWriteResponseSerializer, description="The saved settings."),
             400: OpenApiResponse(response=ReviewHogSettingsErrorSerializer, description="The rules forbid the write."),
+            403: OpenApiResponse(description="A project member asked to turn the repository's reviews down."),
             409: OpenApiResponse(
                 response=ReviewHogSettingsErrorSerializer,
                 description="Another project already has settings for the repository.",
             ),
         },
         summary="Save a repository's settings",
-        description="Include a repository into this project, remove it, or set or clear its exception. Only the "
+        description="Include a repository into this project, remove it, set or clear its exception, or turn its "
+        "draft reviews on or off. Only the "
         "provided fields change. Including a repository that another project's 'all repositories' claim covers "
-        "takes it from that project; the response names it.",
+        "takes it from that project; the response names it. Project members can only turn reviews up: include "
+        "a repository, raise its exception, or turn draft reviews on. Everything else needs a project admin.",
     )
     def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         serializer = ReviewRepositoryWriteSerializer(data=request.data)
@@ -467,7 +475,11 @@ class ReviewRepositoryViewSet(ReviewHogProjectViewSetMixin, viewsets.GenericView
                 github_repo_id=data.get("github_repo_id"),
                 selected=data.get("selected"),
                 flash_for=flash_for,
+                review_drafts=data.get("review_drafts"),
+                raise_only=not self.is_effective_team_admin(),
             )
+        except AdminOnlyChangeError as error:
+            raise PermissionDenied(str(error))
         except OwnershipConflict as error:
             return conflict_response(error)
         except RepositorySettingsError as error:
@@ -478,15 +490,16 @@ class ReviewRepositoryViewSet(ReviewHogProjectViewSetMixin, viewsets.GenericView
         return Response(response.data)
 
     @extend_schema(
-        parameters=[uuid_path_parameter("review repository")],
         request=ReviewRepositoryPersonRequestSerializer,
         responses={
             200: OpenApiResponse(response=ReviewRepositorySerializer, description="The person was already on it."),
             201: OpenApiResponse(response=ReviewRepositorySerializer, description="The person was added."),
             400: OpenApiResponse(description="The user is not an active member of this project's organization."),
+            403: OpenApiResponse(description="A project member asked to add someone else, or to the 'excepted' list."),
         },
         summary="Add a person to a repository exception list",
-        description="Add a project member to the 'listed' or 'excepted' list of the repository exception.",
+        description="Add a project member to the 'listed' or 'excepted' list of the repository exception. A "
+        "project member who is not an admin can only add themselves to the 'listed' list.",
     )
     @action(detail=True, methods=["POST"], url_path="people", required_scopes=["review_hog:write"])
     def add_person(self, request: Request, **kwargs: Any) -> Response:
@@ -500,7 +513,10 @@ class ReviewRepositoryViewSet(ReviewHogProjectViewSetMixin, viewsets.GenericView
                 repository.id,
                 person_user_id=serializer.validated_data["user_id"],
                 kind=ReviewRepositoryPersonKind(serializer.validated_data["kind"]),
+                raise_only=not self.is_effective_team_admin(),
             )
+        except AdminOnlyChangeError as error:
+            raise PermissionDenied(str(error))
         except PersonNotActiveMemberError as error:
             raise not_active_member_error(error)
         except RepositoryNotFoundError:
@@ -508,10 +524,6 @@ class ReviewRepositoryViewSet(ReviewHogProjectViewSetMixin, viewsets.GenericView
         return self._repository_response(repository.id, status.HTTP_201_CREATED if created else status.HTTP_200_OK)
 
     @extend_schema(
-        parameters=[
-            uuid_path_parameter("review repository"),
-            OpenApiParameter("person_id", str, OpenApiParameter.PATH, description="Id of the list entry."),
-        ],
         responses={
             200: OpenApiResponse(response=ReviewRepositorySerializer, description="The person was removed."),
             404: OpenApiResponse(response=ReviewHogSettingsErrorSerializer, description="No such list entry."),
@@ -525,11 +537,9 @@ class ReviewRepositoryViewSet(ReviewHogProjectViewSetMixin, viewsets.GenericView
         url_path=rf"people/(?P<person_id>{UUID_PATH_PATTERN})",
         required_scopes=["review_hog:write"],
     )
-    def remove_person(self, request: Request, person_id: str, **kwargs: Any) -> Response:
+    def remove_person(self, request: Request, person_id: UUID, **kwargs: Any) -> Response:
         repository = self._repository_or_404()
-        if not remove_review_repository_person(
-            self.effective_team_id, self.acting_user_id, repository.id, UUID(person_id)
-        ):
+        if not remove_review_repository_person(self.effective_team_id, self.acting_user_id, repository.id, person_id):
             return no_such_list_entry_response()
         return self._repository_response(repository.id)
 
@@ -546,10 +556,13 @@ class ReviewInstallationClaimViewSet(ReviewHogProjectViewSetMixin, viewsets.Gene
     permission_classes = [PostHogFeatureFlagPermission, EffectiveTeamStrictManagementPermission]
     posthog_feature_flag = "review-hog"
     serializer_class = ReviewInstallationClaimSerializer
+    path_parameters = {
+        "pk": PathParameter(type=UUID, description="A UUID string identifying this review installation claim.")
+    }
     pagination_class = None
 
     def _claim_id_or_404(self) -> UUID:
-        claim_id = path_uuid(self.kwargs["pk"])
+        claim_id = self.kwargs["pk"]
         if get_review_installation_claim(self.effective_team_id, self.acting_user_id, claim_id) is None:
             raise NotFound()
         return claim_id
@@ -588,7 +601,6 @@ class ReviewInstallationClaimViewSet(ReviewHogProjectViewSetMixin, viewsets.Gene
         return Response(ReviewInstallationClaimSerializer(claim).data, status=status.HTTP_201_CREATED)
 
     @extend_schema(
-        parameters=[uuid_path_parameter("review installation claim")],
         request=ReviewInstallationClaimUpdateSerializer,
         responses={
             200: OpenApiResponse(response=ReviewInstallationClaimSerializer, description="The claim was changed."),
@@ -619,7 +631,6 @@ class ReviewInstallationClaimViewSet(ReviewHogProjectViewSetMixin, viewsets.Gene
         return Response(ReviewInstallationClaimSerializer(claim).data)
 
     @extend_schema(
-        parameters=[uuid_path_parameter("review installation claim")],
         responses={
             204: OpenApiResponse(description="The claim and this project's repository settings there are gone.")
         },
@@ -628,8 +639,7 @@ class ReviewInstallationClaimViewSet(ReviewHogProjectViewSetMixin, viewsets.Gene
         "repositories and exceptions there are removed too. Personal choices stay.",
     )
     def destroy(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        claim_id = path_uuid(self.kwargs["pk"])
-        if not delete_review_installation_claim(self.effective_team_id, self.acting_user_id, claim_id):
+        if not delete_review_installation_claim(self.effective_team_id, self.acting_user_id, self.kwargs["pk"]):
             raise NotFound()
         return Response(status=status.HTTP_204_NO_CONTENT)
 
@@ -638,7 +648,6 @@ class ReviewInstallationClaimViewSet(ReviewHogProjectViewSetMixin, viewsets.Gene
     destroy=extend_schema(
         summary="Clear my choice for a repository",
         description="Clear the requesting user's own choice for one repository, so their default applies again.",
-        parameters=[uuid_path_parameter("review user repository choice")],
     ),
 )
 class ReviewRepositoryChoiceViewSet(ReviewHogProjectViewSetMixin, viewsets.GenericViewSet):
@@ -652,6 +661,9 @@ class ReviewRepositoryChoiceViewSet(ReviewHogProjectViewSetMixin, viewsets.Gener
     permission_classes = [PostHogFeatureFlagPermission, EffectiveTeamMemberPermission]
     posthog_feature_flag = "review-hog"
     serializer_class = ReviewRepositoryChoiceSerializer
+    path_parameters = {
+        "pk": PathParameter(type=UUID, description="A UUID string identifying this review user repository choice.")
+    }
     pagination_class = None
 
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
@@ -659,8 +671,7 @@ class ReviewRepositoryChoiceViewSet(ReviewHogProjectViewSetMixin, viewsets.Gener
         return Response(ReviewRepositoryChoiceSerializer(choices, many=True).data)
 
     def destroy(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        choice_id = path_uuid(self.kwargs["pk"])
-        if not delete_review_repository_choice(self.effective_team_id, self.acting_user_id, choice_id):
+        if not delete_review_repository_choice(self.effective_team_id, self.acting_user_id, self.kwargs["pk"]):
             raise NotFound()
         return Response(status=status.HTTP_204_NO_CONTENT)
 

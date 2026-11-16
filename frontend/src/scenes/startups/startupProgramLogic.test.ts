@@ -5,7 +5,7 @@ import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
 import { OrganizationMembershipLevel } from 'lib/constants'
-import { billingLogic } from 'scenes/billing/billingLogic'
+import { billingLogic } from 'lib/logic/billing/billingLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { billingJson } from '~/mocks/fixtures/_billing'
@@ -181,6 +181,30 @@ describe('startupProgramLogic', () => {
             const logic = await mountStartupProgramLogic({ email: 'founder@posthog.com' })
 
             expect(logic.values.startupProgramValidationErrors.yc_verification_url).toBeUndefined()
+        })
+    })
+
+    describe('referrer', () => {
+        it('requires a referrer on the plain startup form', async () => {
+            const logic = await mountStartupProgramLogic({ email: 'founder@posthog.com' })
+
+            expect(logic.values.startupProgramValidationErrors.referrer).toEqual(
+                'Please tell us how you heard about the startup program'
+            )
+
+            logic.actions.setStartupProgramValue('referrer', '   ')
+            expect(logic.values.startupProgramValidationErrors.referrer).toEqual(
+                'Please tell us how you heard about the startup program'
+            )
+
+            logic.actions.setStartupProgramValue('referrer', 'GetProven')
+            expect(logic.values.startupProgramValidationErrors.referrer).toBeUndefined()
+        })
+
+        it.each(['yc', 'stripe-atlas'])('does not ask for a referrer on the /startups/%s page', async (referrer) => {
+            const logic = await mountStartupProgramLogic({ email: 'founder@posthog.com', referrer })
+
+            expect(logic.values.startupProgramValidationErrors.referrer).toBeUndefined()
         })
     })
 })

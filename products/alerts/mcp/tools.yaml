@@ -30,9 +30,17 @@ tools:
             history it reads follows the insight interval, and it also sees the points that its earlier checks fired on,
             so instructions can refer to earlier alerts. It cannot be an ensemble member, cannot use preprocessing,
             cannot run on the real_time cadence, is not available on breakdown insights, is capped per project, and is
-            only available where the AI detector is enabled for the organization. Always send detector_config.type
-            explicitly: a config with no type is read as a z-score detector, and any llm-only field you sent with it is
-            dropped without an error. Requires an insight ID and at least one subscribed user.
+            only available where the AI detector is enabled for the organization. Every scheduled check of an llm alert
+            uses the organization's AI credits. Always send detector_config.type explicitly: a config with no type is
+            read as a z-score detector, and any llm-only field you sent with it is dropped without an error. Requires an
+            insight ID and at least one subscribed user.
+
+            Choosing a detector: prefer a threshold when a fixed bound or a percentage change describes the problem, and
+            a statistical detector (zscore, mad) when a stable series only needs "far from normal". Pick llm when the
+            series is noisy or low-count, has strong seasonality, or when what counts as unusual is easier to describe
+            in words than as a bound (put that in instructions). Before you create an llm alert, run alert-simulate with
+            the same detector_config to show the user one verdict and its rationale, tell the user that each check uses
+            AI credits, and prefer a daily or hourly cadence.
 
             The config type must match the insight kind. Trends insights: TrendsAlertConfig (series_index,
             check_ongoing_interval). SQL/HogQL insights: HogQLAlertConfig — column picks which result column to evaluate
@@ -134,10 +142,14 @@ tools:
         description: >
             Get a specific alert by ID. Returns the full alert configuration including check results, threshold
             settings, detector_config (for anomaly detection alerts), and subscribed users. Check results include
-            anomaly_scores, triggered_points, and triggered_dates for detector-based alerts. By default returns the last
-            5 checks. Use checks_date_from and checks_date_to (e.g. '-24h', '-7d') to get checks within a time window,
-            and checks_limit to control the maximum returned (default 5, max 500). When date filters are provided
-            without checks_limit, up to 500 checks are returned. Check history is retained for 14 days.
+            anomaly_scores, triggered_points, and triggered_dates for statistical detector alerts. A check of an llm
+            (AI) detector alert has no per-point scores: anomaly_scores is null, triggered_points holds only the latest
+            point when the model said it is anomalous, and the model's verdict is in triggered_metadata.rationale (one
+            or two sentences about the latest point) and triggered_metadata.kind (spike, drop, flatline, trend_break,
+            level_shift, pattern_change, or none). Report the rationale to the user instead of scores. By default
+            returns the last 5 checks. Use checks_date_from and checks_date_to (e.g. '-24h', '-7d') to get checks within
+            a time window, and checks_limit to control the maximum returned (default 5, max 500). When date filters are
+            provided without checks_limit, up to 500 checks are returned. Check history is retained for 14 days.
     alert-simulate:
         operation: alerts_simulate_create
         enabled: true
@@ -158,13 +170,14 @@ tools:
             ensemble, or llm). Always send the type explicitly: a config with no type is read as a z-score detector, and
             any llm-only field you sent with it is dropped without an error. A statistical detector only reads, so
             alert:read and insight:read are enough for it. The llm type makes one real model call per simulation, so
-            that type also needs the alert:write scope; it is rate limited per project, and takes the same instructions
-            as an llm alert. It runs one live check of the latest point, not a scan of the history: it returns the
-            verdict (the latest point in triggered_indices when it fires), the model's rationale and kind, and null
-            scores. Pass alert with a saved alert's ID to give the model the points that alert's earlier checks fired
-            on. Optionally specify date_from (e.g. '-48h', '-30d') to control how far back to simulate, and series_index
-            to pick which series to analyze. Returns data values, anomaly scores per point, triggered indices and dates,
-            and for ensemble detectors, per-sub-detector score breakdowns.
+            that type also needs the alert:write scope. Each llm simulation uses the organization's AI credits, is rate
+            limited per project, and takes the same instructions as an llm alert. It runs one live check of the latest
+            point, not a scan of the history: it returns the verdict (the latest point in triggered_indices when it
+            fires), the model's rationale and kind, and null scores. Pass alert with a saved alert's ID to give the
+            model the points that alert's earlier checks fired on. Optionally specify date_from (e.g. '-48h', '-30d') to
+            control how far back to simulate, and series_index to pick which series to analyze. Returns data values,
+            anomaly scores per point, triggered indices and dates, and for ensemble detectors, per-sub-detector score
+            breakdowns.
     alert-update:
         operation: alerts_partial_update
         enabled: true
@@ -219,4 +232,5 @@ tools:
             configuration, timing information, and firing check history. Supports filtering by insight ID
             (`insight_id`), fuzzy name search (`search`), and creator (`created_by` user UUID). Alerts can use either
             threshold-based conditions (absolute_value, relative_increase, relative_decrease) or anomaly detection via
-            detector_config (zscore, mad, iqr, isolation_forest, knn, etc.).
+            detector_config (zscore, mad, iqr, isolation_forest, knn, etc., or llm for an AI judgment of the latest
+            point).

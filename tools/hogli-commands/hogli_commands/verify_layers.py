@@ -110,7 +110,7 @@ FALLBACK_RULE = KindRule(kind=ChangeKind.PURE_LOGIC, globs=("*",), sufficient=Co
 
 COMPLEXITY_LAYERS: dict[ComplexityLayer, str] = {
     ComplexityLayer.OPENAPI: "Start the services with `hogli up -d`, run `hogli build:openapi`, and commit the generated types.",
-    ComplexityLayer.STORYBOOK: "Render the affected stories with `pnpm storybook` and compare them before and after.",
+    ComplexityLayer.STORYBOOK: "Render the affected stories with `STORYBOOK_STORIES=<dir> pnpm storybook` and compare them before and after.",
     ComplexityLayer.STACK: "Start the stack with `hogli up -d` and `hogli wait`, then exercise the change in the app.",
     ComplexityLayer.END_TO_END: "Run the changed Playwright specs with `hogli test <spec>` against a running stack.",
 }

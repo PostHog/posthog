@@ -1,0 +1,11 @@
+.CountCell {
+    display: block;
+    flex: none;
+    font-size: 13px;
+    font-weight: 600;
+
+    &--small,
+    &--xsmall {
+        font-size: 12px;
+    }
+}

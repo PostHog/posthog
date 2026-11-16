@@ -28,7 +28,9 @@ _traces_mv = KAFKA_TRACE_SPANS_AVRO_MV(to_table="writable_trace_spans") if _is_d
 
 operations = [
     run_sql_with_exceptions(f"DROP TABLE IF EXISTS {DB}.kafka_logs34_avro_mv", node_roles=[_logs_role]),
-    run_sql_with_exceptions(KAFKA_LOGS34_AVRO_MV(to_table="writable_logs34"), node_roles=[_logs_role]),
+    run_sql_with_exceptions(
+        KAFKA_LOGS34_AVRO_MV(to_table="writable_logs34", internal_source=False), node_roles=[_logs_role]
+    ),
     run_sql_with_exceptions(f"DROP TABLE IF EXISTS {DB}.kafka_trace_spans_avro_mv", node_roles=[_traces_role]),
     run_sql_with_exceptions(_traces_mv, node_roles=[_traces_role]),
 ]

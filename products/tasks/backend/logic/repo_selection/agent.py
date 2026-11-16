@@ -3,14 +3,16 @@ from __future__ import annotations
 import re
 import json
 import logging
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Callable, Collection, Iterable, Mapping
 from typing import TYPE_CHECKING
 
-from django.db.models import Case, IntegerField, Q, Value, When
+from django.db.models import Case, IntegerField, Value, When
 
+from posthog.dataclasses import frozen
 from posthog.egress.limiter.policies import Priority
+from posthog.integrations import IntegrationManager, IntegrationRecord
 from posthog.models.github_integration_base import INSTALLATION_UNAVAILABLE_SINCE_CONFIG_KEY, GitHubIntegrationBase
-from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED, GitHubIntegration, Integration
+from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED, GitHubIntegration
 from posthog.models.integration_repository_cache import GitHubRepositoryFullCache
 from posthog.models.organization import OrganizationMembership
 from posthog.models.repo_routing_rule import RepoRoutingRule
@@ -18,11 +20,20 @@ from posthog.models.team.team import Team
 from posthog.models.user_integration import UserGitHubIntegration, UserIntegration
 from posthog.sync import database_sync_to_async
 
+from products.tasks.backend.facade.profiles import TaskProfile, TaskSource
+from products.tasks.backend.logic.repo_selection.activity import (
+    ACTIVITY_PROMPT_GUIDE,
+    RepositoryFigures,
+    describe_figures,
+    load_candidate_figures,
+    order_by_activity,
+    same_tree_sources,
+)
 from products.tasks.backend.logic.repo_selection.types import RepoSelectionResult
 from products.tasks.backend.logic.services.custom_prompt_internals import CustomPromptSandboxContext
 from products.tasks.backend.logic.services.custom_prompt_multi_turn_runner import MultiTurnSession
 from products.tasks.backend.logic.services.sandbox import SandboxResources
-from products.tasks.backend.models import Task
+from products.tasks.backend.models import TaskRun
 
 if TYPE_CHECKING:
     from products.tasks.backend.logic.services.custom_prompt_internals import OutputFn
@@ -34,6 +45,13 @@ logger = logging.getLogger(__name__)
 REPO_SELECTION_DUMMY_REPOSITORY = "PostHog/.github"
 
 _MAX_GITHUB_REPOS = 1000
+
+# Applied when a caller names no model, so the selector does not follow the agent server's
+# default model. No service tier is set, because the flex tier queues requests and Slack users
+# wait in the thread for the answer.
+DEFAULT_REPO_SELECTION_RUNTIME_ADAPTER = "codex"
+DEFAULT_REPO_SELECTION_MODEL = "gpt-6-luna"
+DEFAULT_REPO_SELECTION_REASONING_EFFORT = "medium"
 
 # The prompt-injection guard shared by every optional guidance section rendered from stored,
 # member-written text. Keep it one definition so an edit cannot weaken one section silently.
@@ -86,6 +104,14 @@ class RepoSelectionUsageLimitError(Exception):
         super().__init__(message)
 
 
+# Sent once when the agent ends its first turn with prose, often a progress note about a cache
+# query it started, instead of the selection JSON.
+REPO_SELECTION_JSON_RETRY_PROMPT = (
+    "Your last reply did not contain the JSON object the task asks for. "
+    "If a cache query or another step is still running, wait for it and finish your checks first. "
+    "Then reply with only that JSON object, matching the schema above. Do not add prose or code fences."
+)
+
 # The agent prints a refused model call as `API Error: <status> <body>`. The gateway answers a
 # team with no credits left with a 402.
 _USAGE_LIMIT_REPLY = re.compile(r"\s*API Error: 402\b")
@@ -118,8 +144,18 @@ def _first_user_github_integration(user_ids: Iterable[int]) -> UserIntegration |
     )
 
 
+def _account_type_sort_key(row: IntegrationRecord) -> tuple[bool, str]:
+    account_type = (row.config.get("account") or {}).get("type")
+    return (account_type is None, account_type or "")
+
+
 def resolve_team_github_integration(
-    team_id: int, team: Team | None = None, requester_user_id: int | None = None, team_only: bool = False
+    team_id: int,
+    team: Team | None = None,
+    requester_user_id: int | None = None,
+    team_only: bool = False,
+    *,
+    include_unavailable: bool = False,
 ) -> GitHubIntegrationBase | None:
     """Resolve the GitHub source the agent should use for this team.
 
@@ -141,21 +177,36 @@ def resolve_team_github_integration(
     source's repository names are shown to other team members, or when the work runs under the
     team installation's bot identity — a personal connection is a cross-account leak there.
     """
-    integration = (
-        Integration.objects.filter(team_id=team_id, kind="github")
-        # Skip integrations whose installation has been synced and confirmed empty (0 repos)
-        .exclude(repository_cache=[], repository_cache_updated_at__isnull=False)
-        # Skip installs whose token refresh is permanently failing (uninstalled/suspended on
-        # GitHub's side): re-selecting one makes repo discovery storm GitHub with doomed refreshes.
-        .exclude(errors=ERROR_TOKEN_REFRESH_FAILED)
-        .exclude(config__has_key=INSTALLATION_UNAVAILABLE_SINCE_CONFIG_KEY)
-        # Prioritize orgs vs users (alphabetically), then oldest first
-        .order_by("config__account__type", "created_at", "id")
-        .first()
+    candidates = sorted(
+        (
+            row
+            for row in IntegrationManager.github.oauth.list(team_id)
+            # Skip installs whose token refresh is permanently failing (uninstalled/suspended on
+            # GitHub's side): re-selecting one makes repo discovery storm GitHub with doomed refreshes.
+            if include_unavailable
+            or (
+                row.errors != ERROR_TOKEN_REFRESH_FAILED and INSTALLATION_UNAVAILABLE_SINCE_CONFIG_KEY not in row.config
+            )
+        ),
+        # Prioritize orgs vs users (alphabetically), then oldest first. `list` is already oldest
+        # first and `sorted` is stable.
+        key=_account_type_sort_key,
+    )
+    # Skip integrations whose installation has been synced and confirmed empty (0 repos). The SDK
+    # defers the repository cache, so check it only until the first match.
+    github = next(
+        (
+            adapter
+            for adapter in (
+                GitHubIntegration(row, source="repo_selection", priority=Priority.CRITICAL) for row in candidates
+            )
+            if not adapter.repository_cache_confirmed_empty()
+        ),
+        None,
     )
     # Prefer the first GitHub integration from the team
-    if integration is not None:
-        return GitHubIntegration(integration, source="repo_selection", priority=Priority.CRITICAL)
+    if github is not None:
+        return github
 
     if team_only:
         return None
@@ -181,10 +232,9 @@ def resolve_team_github_integration(
 
 
 async def _github_reconnect_required(team_id: int) -> bool:
-    if (
-        await Integration.objects.filter(team_id=team_id, kind="github")
-        .filter(Q(errors=ERROR_TOKEN_REFRESH_FAILED) | Q(config__has_key=INSTALLATION_UNAVAILABLE_SINCE_CONFIG_KEY))
-        .aexists()
+    if any(
+        row.errors == ERROR_TOKEN_REFRESH_FAILED or INSTALLATION_UNAVAILABLE_SINCE_CONFIG_KEY in row.config
+        for row in await IntegrationManager.github.oauth.alist(team_id)
     ):
         return True
 
@@ -248,11 +298,57 @@ def list_team_connected_repositories(team_id: int) -> list[str]:
     return _list_candidate_repos(github, team_id, allow_refresh=False, exclude_archived=True)
 
 
+def team_repository_names(
+    team_id: int, *, team: Team | None = None, refresh_stale_snapshot: bool = True
+) -> dict[str, str] | None:
+    """The repositories the team's own GitHub installation can reach, keyed by lowercased `owner/repo`.
+
+    Each value keeps GitHub's casing, for display. Returns None when the team has no GitHub installation.
+    `team_only` because callers show these names to any project member and run work as the installation's
+    bot, so a member's personal connection must not answer for the team. Callers apply their own precedence
+    to pick one repository from the result.
+
+    With `refresh_stale_snapshot=False`, a stale snapshot is used as it is, and GitHub is called only when no
+    snapshot exists yet. A refresh lists every page of the installation inside the request.
+    """
+    github = resolve_team_github_integration(team_id, team=team, team_only=True)
+    if github is None:
+        return None
+    repositories = (
+        None if refresh_stale_snapshot else github.list_all_cached_repositories(max_repos=1000, allow_refresh=False)
+    ) or github.list_all_cached_repositories(max_repos=1000)
+    return {full_name.lower(): full_name for repo in repositories if (full_name := repo.get("full_name"))}
+
+
 def _list_eligible_full_names(github: GitHubIntegrationBase, team_id: int) -> set[str]:
     """Repos the agent can reason about: present in the heavy cache and not archived.
     Anything else is dropped from the candidate list (no SQL evidence, or unfixable code)."""
     qs = github.integration.repository_cache_entries.filter(team_id=team_id, archived=False)
     return set(qs.values_list("full_name", flat=True))
+
+
+@frozen
+class _SelectorRuntime:
+    model: str | None
+    runtime_adapter: str | None
+    reasoning_effort: str | None
+
+
+def _resolve_repo_selection_runtime(
+    model: str | None, runtime_adapter: str | None, reasoning_effort: str | None
+) -> _SelectorRuntime:
+    """The caller's runtime, or the selector default when it names no model.
+
+    The default replaces the model and the adapter together, because the agent server derives the
+    provider from the adapter and a Codex model on the Claude adapter cannot be routed.
+    """
+    if model is not None or runtime_adapter is not None:
+        return _SelectorRuntime(model=model, runtime_adapter=runtime_adapter, reasoning_effort=reasoning_effort)
+    return _SelectorRuntime(
+        model=DEFAULT_REPO_SELECTION_MODEL,
+        runtime_adapter=DEFAULT_REPO_SELECTION_RUNTIME_ADAPTER,
+        reasoning_effort=reasoning_effort or DEFAULT_REPO_SELECTION_REASONING_EFFORT,
+    )
 
 
 def _routing_rules_block(team_id: int, candidate_repos: list[str]) -> str | None:
@@ -286,8 +382,15 @@ def _visibility_label(private: bool | None) -> str:
     return "private" if private else "public"
 
 
-def _candidate_visibility(github: GitHubIntegrationBase, candidate_repos: list[str]) -> dict[str, bool | None]:
-    """The `private` flag of each candidate from the light cache, or None when the cached entry lacks it.
+def _candidate_line(
+    number: int, repo: str, private: bool | None, figures: RepositoryFigures | None, same_files_as: str | None
+) -> str:
+    details = [_visibility_label(private), *describe_figures(figures, same_files_as)]
+    return f"{number}. `{repo}` ({'; '.join(details)})"
+
+
+def _candidate_visibility(github: GitHubIntegrationBase, repositories: list[str]) -> dict[str, bool | None]:
+    """The `private` flag of each requested repository, including an ineligible source, from the light cache.
 
     A pure cache read: `_list_candidate_repos` already refreshed the cache when it was stale, so a
     second refresh would only cost another GitHub round trip. Entries synced before the flag was
@@ -300,7 +403,53 @@ def _candidate_visibility(github: GitHubIntegrationBase, candidate_repos: list[s
             continue
         private = repo.get("private")
         cached[full_name.lower()] = private if isinstance(private, bool) else None
-    return {repo: cached.get(repo) for repo in candidate_repos}
+    return {repo: cached.get(repo) for repo in repositories}
+
+
+def _filter_candidates_by_source_visibility(
+    source_repository: str | None, candidate_repos: list[str], visibility: Mapping[str, bool | None]
+) -> list[str]:
+    """Unknown source visibility cannot justify moving issue content to a public repository."""
+    if source_repository is None or visibility.get(source_repository) is False:
+        return candidate_repos
+    return [repo for repo in candidate_repos if repo == source_repository or visibility.get(repo) is True]
+
+
+def _filter_repository_sources(
+    candidate_repos: list[str],
+    source_repositories: Collection[str],
+    visibility: Mapping[str, bool | None],
+    require_private_destination: bool,
+) -> list[str]:
+    allowed = candidate_repos
+    for source in source_repositories:
+        allowed = _filter_candidates_by_source_visibility(source, allowed, visibility)
+    if require_private_destination:
+        allowed = [repository for repository in allowed if visibility.get(repository) is True]
+    return allowed
+
+
+def filter_repository_candidates_for_sources(
+    team_id: int,
+    candidate_repos: list[str],
+    source_repositories: Collection[str],
+    require_private_destination: bool = False,
+) -> list[str]:
+    github = resolve_team_github_integration(team_id)
+    if github is None:
+        return []
+    sources = {repository.strip().lower() for repository in source_repositories}
+    normalized = {repository: repository.strip().lower() for repository in candidate_repos}
+    if github.repository_cache_is_stale():
+        try:
+            github.sync_repository_cache(priority=Priority.BATCH)
+        except Exception:
+            logger.warning("repo_selection.visibility_refresh_failed", exc_info=True)
+    visibility = (
+        {} if github.repository_cache_is_stale() else _candidate_visibility(github, [*normalized.values(), *sources])
+    )
+    allowed = _filter_repository_sources(list(normalized.values()), sources, visibility, require_private_destination)
+    return [repository for repository, name in normalized.items() if name in allowed]
 
 
 def _build_repo_selection_prompt(
@@ -310,6 +459,8 @@ def _build_repo_selection_prompt(
     past_corrections: str | None = None,
     routing_rules: str | None = None,
     visibility: Mapping[str, bool | None] | None = None,
+    source_repository: str | None = None,
+    figures: Mapping[str, RepositoryFigures] | None = None,
 ) -> str:
     """Build the prompt for the sandbox agent to select the most relevant repository.
 
@@ -330,6 +481,13 @@ def _build_repo_selection_prompt(
     `visibility` maps each candidate to its GitHub `private` flag (see `_candidate_visibility`).
     A candidate missing from it, or the whole argument left None, renders as unknown visibility,
     which the source privacy rule treats as unconfirmed.
+
+    `source_repository` is a candidate the request was filed against (e.g. a GitHub issue's
+    repository). It is the default answer, not the only one: an issue filed in one repository
+    often asks for a change in another, such as an SDK.
+
+    `figures` maps candidates to their stored size and activity figures (see `load_candidate_figures`).
+    The list is ordered by activity, and a candidate missing from it renders with its visibility only.
     """
     schema = RepoSelectionResult.model_json_schema()
     # `task_id` is system-set after the run — keep it out of the agent's output contract.
@@ -337,10 +495,32 @@ def _build_repo_selection_prompt(
     # So is `autostart_eligible`: it records how the repo was chosen, which is the caller's fact,
     # not the model's. Offering it would let untrusted context talk the model into vetoing autostart.
     schema.get("properties", {}).pop("autostart_eligible", None)
+    schema.get("properties", {}).pop("research_context", None)
+    schema.get("$defs", {}).pop("ReportResearchContext", None)
     schema_json = json.dumps(schema, indent=2)
     visibility = visibility or {}
+    figures = figures or {}
+    same_files_as = same_tree_sources(candidate_repos, figures)
     repo_list = "\n".join(
-        f"{i + 1}. `{repo}` ({_visibility_label(visibility.get(repo))})" for i, repo in enumerate(candidate_repos)
+        _candidate_line(i, repo, visibility.get(repo), figures.get(repo), same_files_as.get(repo))
+        for i, repo in enumerate(order_by_activity(candidate_repos, figures), start=1)
+    )
+
+    source_section = (
+        f"""
+## Source repository
+
+The request was filed as an issue in `{source_repository}`. Select it by default. Select a different
+candidate only on specific evidence that the code the request describes lives there: cache paths
+or README content, a matching team routing rule, or a past correction below. An issue filed in one
+repository often asks for a change in an SDK or another sibling repository. When the evidence
+otherwise leaves two candidates equally plausible, prefer `{source_repository}`. Matching file
+paths alone do not establish equal ownership: distinguish canonical code from vendored or mirrored
+copies. Applicable routing rules, past corrections, and specific ownership evidence override the
+source default.
+"""
+        if source_repository
+        else ""
     )
 
     rules_section = (
@@ -400,10 +580,12 @@ If no relevant private candidate exists, or the relevant candidate's visibility 
 
 {context_block}
 
-## Candidate repositories (lowercased; full_name format is `owner/repo`; visibility in parentheses)
+## Candidate repositories (lowercased; full_name format is `owner/repo`)
+
+{ACTIVITY_PROMPT_GUIDE}
 
 {repo_list}
-{rules_section}{corrections_section}
+{source_section}{rules_section}{corrections_section}
 ## The cache (your source of truth — query it before answering)
 
 A Postgres-backed cache of every candidate repo's README, full file-tree paths, and metadata lives
@@ -456,7 +638,8 @@ that explicitly in `reason`.
 you MUST query the cache to disambiguate. Reasoning from prior knowledge — "this repo is more
 actively refactored," "this is the canonical one," "the other is a downstream mirror" — is **not
 acceptable evidence**. Only specific path matches or README/description content from the cache
-count. If you find yourself reaching for that kind of justification, run a query first.
+count, and so do the figures in the candidate list; prior knowledge still does not. If you find
+yourself reaching for that kind of justification, run a query first.
 
 **`gh` CLI as fallback.** When SQL alone is inconclusive (e.g. matching paths in two repos and
 you need to read the file to know which is the real subject), use
@@ -539,65 +722,29 @@ context and repo names alone.
 </jsonschema>"""
 
 
-def _names_repository(text: str, repo: str) -> bool:
-    # A longer name that starts with `repo` (`acme/api-client` for `acme/api`) is another repository.
-    # A dot that ends a sentence also ends the name, but a dot before a word (`acme/api.js`) does not.
-    return re.search(rf"(?<![\w.-]){re.escape(repo)}(?![\w-]|\.\w)", text, re.IGNORECASE) is not None
-
-
 def _salvage_repo_selection(text: str, candidate_repos: list[str]) -> RepoSelectionResult:
-    """Read a selection out of an end turn that did not validate against `RepoSelectionResult`.
-
-    A failure here costs the caller its automatic selection, so a reply that names exactly one
-    candidate is still worth keeping. Two or more named candidates leave the conclusion ambiguous:
-    raise instead, because the runner then fails the turn the way it did before this salvage, and
-    the caller keeps its own fallback. Never answer "no repository" from here — callers read that
-    as a decision the agent made.
-
-    A reply that got as far as its `repository` field has stated its choice, so only that value
-    counts. Its `reason` must cite the repositories the agent checked, so a cut-off
-    `{"repository": null, "reason": "checked acme/b...` names a candidate the agent rejected.
-    """
-    stated = re.findall(r'"repository"\s*:\s*(?:null|"([^"]*)")', text)
-    if stated:
-        # The answer comes last, after any tool call or error object that also holds the key.
-        choice = stated[-1].strip().lower()
-        named = {choice} if choice in candidate_repos else set()
-    else:
-        named = {repo for repo in candidate_repos if _names_repository(text, repo)}
-    if len(named) != 1:
-        raise ValueError(f"End-turn text names {len(named)} candidate repositories, so no selection can be read")
-    repository = named.pop()
+    """Recover an explicit leading JSON selection, never a repository mentioned in prose."""
+    if len(re.findall(r'"repository"\s*:', text)) != 1:
+        raise ValueError("End-turn text contains missing or competing repository decisions")
+    stated = re.match(r'\s*(?:```(?:json)?\s*)?\{\s*"repository"\s*:\s*"([^"\\]*)"', text)
+    choice = stated.group(1).strip().lower() if stated else None
+    if choice not in candidate_repos:
+        raise ValueError("End-turn text does not explicitly select a candidate repository")
     return RepoSelectionResult(
-        repository=repository,
-        reason=f"The agent's answer was not readable, but its reply named only {repository}.",
+        repository=choice,
+        reason="The agent explicitly selected this repository, but its full JSON answer was not readable.",
     )
 
 
-# Tells a pinned pick from an agent's pick when reading a stored `repo_selection` artefact.
-PINNED_REPOSITORY_REASON = "The request names this repository as its source."
+def _eligible_source_repository(source_repository: str | None, candidate_repos: list[str]) -> str | None:
+    """The source repository when it is a candidate, lowercased like the candidates, else None.
 
-
-def _pinned_selection(pinned_repository: str, candidate_repos: list[str]) -> RepoSelectionResult:
-    """Honor a repository the request names, or refuse to select a different one.
-
-    Matched against the eligible candidates rather than the raw connected list, so the pin and the
-    agent agree on what is reachable: a repository the agent could not have picked is not one a pin
-    may reach either. That is what puts this check after the cache hydration above, whose result the
-    pinned path otherwise does not need. Candidates are lowercased, so the pin is too.
+    A default the agent may not select would only steer it toward a rejected answer.
     """
-    pinned = pinned_repository.strip().lower()
-    if pinned in candidate_repos:
-        return RepoSelectionResult(repository=pinned, reason=PINNED_REPOSITORY_REASON)
-    logger.info("repo_selection.pinned_repository_unavailable", extra={"pinned": pinned})
-    return RepoSelectionResult(
-        repository=None,
-        reason=(
-            f"This report comes from `{pinned}`, which this project's GitHub installation cannot "
-            "reach. Connect that repository, or pick one yourself. No other repository is a "
-            "substitute for the one the report names."
-        ),
-    )
+    if source_repository is None:
+        return None
+    source = source_repository.strip().lower()
+    return source if source in candidate_repos else None
 
 
 async def select_repository(
@@ -605,12 +752,13 @@ async def select_repository(
     user_id: int,
     context: str,
     *,
-    origin_product: Task.OriginProduct,
+    profile: TaskProfile,
     priority: Priority,
+    source: TaskSource | None = None,
     github: GitHubIntegrationBase | None = None,
     candidate_repos: list[str] | None = None,
     step_name: str = "repo_selection",
-    signal_report_id: str | None = None,
+    spend_signal_id: str | None = None,
     sandbox_environment_id: str | None = None,
     verbose: bool = False,
     output_fn: OutputFn = None,
@@ -620,7 +768,9 @@ async def select_repository(
     reasoning_effort: str | None = None,
     service_tier: str | None = None,
     past_corrections: str | None = None,
-    pinned_repository: str | None = None,
+    source_repository: str | None = None,
+    source_repositories: Collection[str] = (),
+    require_private_destination: bool = False,
 ) -> RepoSelectionResult:
     """Select the most relevant repository for a free-form request context.
 
@@ -630,11 +780,11 @@ async def select_repository(
     `past_corrections` is an optional pre-rendered block of the caller's previous selections
     that a reviewer marked wrong; see `_build_repo_selection_prompt`.
 
-    `pinned_repository` is a repository the request itself names — a GitHub issue says which
-    repository it was filed against, and that is the answer, not a question for the agent. When it
-    is an eligible candidate it is returned as-is. When it is not, the result is `repository=None`
-    carrying the mismatch: the agent would otherwise pick a similar-looking repository and send the
-    work somewhere the request never pointed at.
+    `source_repository` is a repository the request itself names — a GitHub issue says which
+    repository it was filed against. When it is an eligible candidate the prompt makes it the
+    default, and the agent still decides: the code an issue describes can live in another
+    repository. Its visibility constrains destinations even when it is not an eligible candidate:
+    a source that is not confirmed public can only stay in place or move to a confirmed private repo.
 
     Callers that have already resolved the integration and candidate list (e.g. to run their
     own cheap early-exit first) may pass `github` and `candidate_repos` to skip the redundant
@@ -682,8 +832,23 @@ async def select_repository(
         raise RepoSelectionUnavailableError(
             "No connected GitHub repositories are eligible (archived or missing cache data)."
         )
-    if pinned_repository is not None:
-        return _pinned_selection(pinned_repository, candidate_repos)
+
+    source_repository = (source_repository or "").strip().lower() or None
+    sources = {repository.lower() for repository in source_repositories}
+    if source_repository:
+        sources.add(source_repository)
+    visibility = await database_sync_to_async(_candidate_visibility, thread_sensitive=False)(
+        github, [*candidate_repos, *sources]
+    )
+    candidate_repos = _filter_repository_sources(candidate_repos, sources, visibility, require_private_destination)
+    if not candidate_repos:
+        return RepoSelectionResult(
+            repository=None,
+            reason=(
+                "The source repository is private or its visibility is unknown, "
+                "and no eligible private destination is available."
+            ),
+        )
     if len(candidate_repos) == 1:
         return RepoSelectionResult(
             repository=candidate_repos[0],
@@ -693,14 +858,19 @@ async def select_repository(
     if output_fn:
         output_fn(f"Selecting repository from {len(candidate_repos)} candidates...")
     routing_rules = await database_sync_to_async(_routing_rules_block, thread_sensitive=False)(team_id, candidate_repos)
-    visibility = await database_sync_to_async(_candidate_visibility, thread_sensitive=False)(github, candidate_repos)
+    figures = await database_sync_to_async(load_candidate_figures, thread_sensitive=False)(
+        github, team_id, candidate_repos
+    )
     prompt = _build_repo_selection_prompt(
         context,
         candidate_repos,
         past_corrections=past_corrections,
         routing_rules=routing_rules,
         visibility=visibility,
+        source_repository=_eligible_source_repository(source_repository, candidate_repos),
+        figures=figures,
     )
+    runtime = _resolve_repo_selection_runtime(model, runtime_adapter, reasoning_effort)
     sandbox_context = CustomPromptSandboxContext(
         team_id=team_id,
         user_id=user_id,
@@ -708,12 +878,13 @@ async def select_repository(
         sandbox_environment_id=sandbox_environment_id,
         # Read-only PostHog scopes so the agent can call `execute-sql` against `system.integration_repository_cache`.
         posthog_mcp_scopes="read_only",
+        github_read_access=True,
+        disable_skills=True,
         sandbox_resources=SandboxResources(cpu_cores=2, memory_gb=8),
-        # Optional agent runtime/model override (e.g. the Codex runtime + gpt-5.5). All-None keeps
-        # the agent-server default; threaded through from the caller's per-step resolution.
-        model=model,
-        runtime_adapter=runtime_adapter,
-        reasoning_effort=reasoning_effort,
+        # The caller's per-step runtime/model override, or the selector default when it names none.
+        model=runtime.model,
+        runtime_adapter=runtime.runtime_adapter,
+        reasoning_effort=runtime.reasoning_effort,
         service_tier=service_tier,
     )
 
@@ -727,6 +898,10 @@ async def select_repository(
             raise ValueError("The end turn is a usage limit refusal, not a selection")
         return _salvage_repo_selection(text, candidate_repos)
 
+    async def _session_created(task_run: TaskRun) -> None:
+        if on_research_session is not None:
+            on_research_session(str(task_run.task_id), str(task_run.id))
+
     try:
         session, result = await MultiTurnSession.start(
             prompt=prompt,
@@ -735,27 +910,25 @@ async def select_repository(
             step_name=step_name,
             verbose=verbose,
             output_fn=output_fn,
-            origin_product=origin_product,
-            signal_report_id=signal_report_id,
+            profile=profile,
+            source=source,
+            spend_signal_id=spend_signal_id,
             ai_stage="repo_selection",
-            internal=True,
-            # An unreadable end turn used to fail the whole selection, and the caller then dropped the
-            # user into a manual repository picker. Read the pick out of the raw reply instead.
+            on_task_run_created=_session_created,
             fallback_from_text=_salvage,
+            json_retry_prompt=REPO_SELECTION_JSON_RETRY_PROMPT,
         )
     except Exception as e:
         if usage_limit_reply is not None:
             raise RepoSelectionUsageLimitError(usage_limit_reply) from e
         raise
-    # Track repo discovery execution (for example, for Slack)
-    if on_research_session is not None:
-        on_research_session(str(session.task.id), str(session.task_run.id))
     # Stamp the producing task onto the result (overwriting anything the LLM may have emitted)
     # so downstream persistence can attribute the selection to it.
     result.task_id = str(session.task.id)
     # A selection this agent made is a candidate-list pick for a caller that asked for one, so it
     # carries full autostart authority no matter what the model emitted.
     result.autostart_eligible = True
+    result.research_context = None
     try:
         if result.repository is not None:
             result.repository = result.repository.strip().lower()
@@ -767,7 +940,12 @@ async def select_repository(
             raise RepoSelectionRejectedError(result.repository, result.reason)
         logger.info(
             "repo selection completed",
-            extra={"repository": result.repository, "reason": result.reason, "candidates": len(candidate_repos)},
+            extra={
+                "repository": result.repository,
+                "reason": result.reason,
+                "candidates": len(candidate_repos),
+                "candidates_with_figures": len(figures),
+            },
         )
         return result
     finally:

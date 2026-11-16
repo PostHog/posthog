@@ -1,3 +1,4 @@
+import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
 import { NodeKind } from '~/queries/schema/schema-general'
@@ -14,21 +15,16 @@ import {
     BaseMathType,
     BehavioralEventType,
     ChartDisplayType,
-    type DashboardTile,
-    type DashboardType,
     FilterLogicalOperator,
     FunnelVizType,
+    InsightModel,
     PropertyFilterType,
     StepOrderValue,
 } from '~/types'
 
-import {
-    dashboardViewedProperties,
-    eventUsageLogic,
-    getEventPropertiesForMetric,
-    sanitizeDashboard,
-    sanitizeQuery,
-} from './eventUsageLogic'
+import { DEFAULT_BI_CONFIG } from 'products/business_intelligence/frontend/biEditorTypes'
+
+import { eventUsageLogic, getEventPropertiesForMetric, sanitizeQuery } from './eventUsageLogic'
 
 describe('eventUsageLogic', () => {
     describe('experiments list viewed', () => {
@@ -51,6 +47,50 @@ describe('eventUsageLogic', () => {
                     { experiments_shown: 2, status_filter: 'running', page: 2, has_search: true, archived: true },
                 ],
             ])
+            capture.mockRestore()
+        })
+    })
+
+    describe('saved insight to dashboard', () => {
+        const biQuery = {
+            kind: NodeKind.BIVisualizationNode,
+            source: { kind: NodeKind.HogQLQuery, query: 'select 1' },
+            config: DEFAULT_BI_CONFIG,
+        }
+
+        afterEach(() => {
+            jest.dontMock('products/business_intelligence/frontend/biEditorAnalytics')
+        })
+
+        it.each([
+            ['a BI insight', biQuery, false, ['saved insight to dashboard', 'bi-worksheet-action']],
+            [
+                'a BI insight when the BI chunk fails',
+                biQuery,
+                true,
+                ['saved insight to dashboard', 'bi-worksheet-action'],
+            ],
+            [
+                'a trends insight',
+                { kind: NodeKind.InsightVizNode, source: { kind: NodeKind.TrendsQuery, series: [] } },
+                false,
+                ['saved insight to dashboard'],
+            ],
+        ])('captures the dashboard events for %s', async (_, query, chunkFails, expectedEvents) => {
+            if (chunkFails) {
+                jest.doMock('products/business_intelligence/frontend/biEditorAnalytics', () => {
+                    throw new Error('chunk failed to load')
+                })
+            }
+            initKeaTests()
+            eventUsageLogic.mount()
+            const capture = jest.spyOn(posthog, 'capture').mockImplementation()
+
+            await expectLogic(eventUsageLogic, () => {
+                eventUsageLogic.actions.reportSavedInsightToDashboard({ id: 1, query } as Partial<InsightModel>, 2)
+            }).toFinishAllListeners()
+
+            expect(capture.mock.calls.map(([event]) => event)).toEqual(expectedEvents)
             capture.mockRestore()
         })
     })
@@ -374,91 +414,6 @@ describe('eventUsageLogic', () => {
 
         it.each(cases)('describes %s without its filter values', (_, query, expected) => {
             expect(sanitizeQuery(query as Node | null)).toEqual(expected)
-        })
-    })
-
-    it('keeps metric variable definitions out of a sanitized dashboard', () => {
-        const metricVariables = [{ name: 'env', source: 'sql', query: 'SELECT private_value' }]
-        const tile = { id: 1, insight: { id: 2, filter_override_context: { dashboard: { metricVariables } } } }
-        const dashboard = { id: 7, tiles: [tile], filters: { metricVariables }, persisted_filters: { metricVariables } }
-
-        const sanitized = sanitizeDashboard(dashboard as unknown as DashboardType)
-
-        expect(JSON.stringify(sanitized)).not.toContain('private_value')
-    })
-
-    describe('dashboardViewedProperties', () => {
-        const dashboard = (tiles: Partial<DashboardTile>[]): DashboardType =>
-            ({
-                id: 7,
-                created_at: '2026-01-01T00:00:00Z',
-                is_shared: false,
-                pinned: true,
-                creation_mode: 'default',
-                created_by: { uuid: 'creator' },
-                tiles,
-            }) as unknown as DashboardType
-
-        const insightTile = (query: unknown, is_sample = false): Partial<DashboardTile> =>
-            ({ insight: { query, is_sample } }) as unknown as Partial<DashboardTile>
-
-        const cases: [string, Partial<DashboardTile>[], Record<string, unknown>][] = [
-            ['no tiles', [], { item_count: 0, sample_items_count: 0 }],
-            [
-                'an insight tile with a query',
-                [insightTile({ kind: NodeKind.InsightVizNode, source: { kind: NodeKind.TrendsQuery, series: [] } })],
-                { item_count: 1, text_count: 1, uses_data_warehouse_source: false, data_warehouse_tiles_count: 0 },
-            ],
-            ['an insight tile without a query', [insightTile(null)], { item_count: 1, empty_count: 1 }],
-            [
-                'a sample insight tile that reads the warehouse',
-                [insightTile({ kind: NodeKind.TrendsQuery, series: [{ kind: NodeKind.DataWarehouseNode }] }, true)],
-                {
-                    item_count: 1,
-                    text_count: 1,
-                    sample_items_count: 1,
-                    uses_data_warehouse_source: true,
-                    data_warehouse_tiles_count: 1,
-                },
-            ],
-            [
-                'text and widget tiles',
-                [{ text: { body: 'hi' } }, { text: { body: 'there' } }, { widget: {} }] as Partial<DashboardTile>[],
-                { item_count: 3, text_tiles_count: 2, widget_tiles_count: 1 },
-            ],
-        ]
-
-        it.each(cases)('counts %s', (_, tiles, expected) => {
-            expect(dashboardViewedProperties(dashboard(tiles), null, 'viewer')).toEqual({
-                created_at: '2026-01-01T00:00:00Z',
-                is_shared: false,
-                pinned: true,
-                creation_mode: 'default',
-                viewer_is_creator: false,
-                created_by_system: false,
-                dashboard_id: 7,
-                lastRefreshed: undefined,
-                refreshAge: undefined,
-                sample_items_count: 0,
-                uses_data_warehouse_source: false,
-                data_warehouse_tiles_count: 0,
-                ...expected,
-            })
-        })
-
-        const viewerCases: [string, { uuid: string } | null, string | undefined, boolean | undefined][] = [
-            ['the creator views it', { uuid: 'creator' }, 'creator', true],
-            ['another user views it', { uuid: 'creator' }, 'viewer', false],
-            ['the viewer is unknown', { uuid: 'creator' }, undefined, undefined],
-            ['the system created it', null, 'viewer', undefined],
-        ]
-
-        it.each(viewerCases)('reports viewer_is_creator when %s', (_, created_by, viewerUuid, expected) => {
-            const withCreator = { ...dashboard([]), created_by } as unknown as DashboardType
-            expect(dashboardViewedProperties(withCreator, null, viewerUuid)).toMatchObject({
-                viewer_is_creator: expected,
-                created_by_system: created_by === null,
-            })
         })
     })
 

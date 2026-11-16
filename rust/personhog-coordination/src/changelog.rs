@@ -10,24 +10,46 @@ use tokio_util::sync::CancellationToken;
 
 use crate::error::{Error, Result};
 use crate::store::PersonhogStore;
-use crate::types::ChangelogConfig;
+use crate::types::{ChangelogConfig, ClusterEndpoint};
 use crate::util;
 
+/// Whether boot keeps polling through `err`: any etcd error, since there is
+/// nothing to do before the config loads, but not a malformed config value.
+fn waits_at_boot(err: &Error) -> bool {
+    err.etcd_error().is_some()
+}
+
 /// Polls until `config/changelog` is seeded; it is the only source of the topic and count.
+/// Keeps polling through etcd being unreachable, and returns `None` once `shutdown` fires.
 pub async fn load_changelog_config(
     store: &PersonhogStore,
     poll_interval: Duration,
-) -> Result<ChangelogConfig> {
+    shutdown: &CancellationToken,
+) -> Result<Option<ChangelogConfig>> {
     let mut polls: u64 = 0;
     loop {
-        if let Some(config) = store.get_changelog_config().await? {
-            return Ok(config);
-        }
-        if polls.is_multiple_of(10) {
-            tracing::warn!("config/changelog is not seeded; waiting for the control plane");
+        let read = tokio::select! {
+            _ = shutdown.cancelled() => return Ok(None),
+            read = store.get_changelog_config() => read,
+        };
+        match read {
+            Ok(Some(config)) => return Ok(Some(config)),
+            Ok(None) if polls.is_multiple_of(10) => {
+                tracing::warn!("config/changelog is not seeded; waiting for the control plane");
+            }
+            Err(e) if waits_at_boot(&e) => {
+                if polls.is_multiple_of(10) {
+                    tracing::warn!(error = %e, "etcd is unreachable; waiting to load config/changelog");
+                }
+            }
+            Err(e) => return Err(e),
+            Ok(None) => {}
         }
         polls += 1;
-        tokio::time::sleep(poll_interval).await;
+        tokio::select! {
+            _ = shutdown.cancelled() => return Ok(None),
+            _ = tokio::time::sleep(poll_interval) => {}
+        }
     }
 }
 
@@ -133,14 +155,16 @@ pub struct KeyFilter {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WarmSource {
     pub topic: Arc<str>,
+    pub cluster: Option<ClusterEndpoint>,
     pub partition: u32,
     pub keep: Option<KeyFilter>,
 }
 
 impl WarmSource {
-    pub fn live(topic: &str, partition: u32) -> Self {
+    pub fn live(topic: &str, cluster: Option<&ClusterEndpoint>, partition: u32) -> Self {
         Self {
             topic: Arc::from(topic),
+            cluster: cluster.cloned(),
             partition,
             keep: None,
         }
@@ -167,6 +191,7 @@ pub fn warm_sources(config: &ChangelogConfig, partition: u32) -> Vec<WarmSource>
         for q in (0..generation.partitions).filter(|q| q % g == partition % g) {
             sources.push(WarmSource {
                 topic: Arc::from(generation.topic.as_str()),
+                cluster: generation.cluster.clone(),
                 partition: q,
                 keep: Some(KeyFilter {
                     modulus: config.partitions,
@@ -175,7 +200,11 @@ pub fn warm_sources(config: &ChangelogConfig, partition: u32) -> Vec<WarmSource>
             });
         }
     }
-    sources.push(WarmSource::live(&config.topic, partition));
+    sources.push(WarmSource::live(
+        &config.topic,
+        config.cluster.as_ref(),
+        partition,
+    ));
     sources
 }
 
@@ -363,8 +392,20 @@ mod tests {
     use super::*;
     use crate::types::Generation;
 
+    #[test]
+    fn boot_waits_through_any_etcd_error_but_not_a_malformed_config() {
+        let not_member_level: Error =
+            etcd_client::Error::WatchError("member stopping".to_string()).into();
+        assert!(waits_at_boot(&not_member_level));
+        let malformed: Error = serde_json::from_str::<ChangelogConfig>("{")
+            .unwrap_err()
+            .into();
+        assert!(!waits_at_boot(&malformed));
+    }
+
     fn config(partitions: u32, draining: Vec<(u32, u64)>) -> ChangelogConfig {
         ChangelogConfig {
+            cluster: None,
             topic: "new".to_string(),
             partitions,
             epoch: 9,
@@ -373,6 +414,7 @@ mod tests {
             draining: draining
                 .into_iter()
                 .map(|(partitions, epoch)| Generation {
+                    cluster: None,
                     topic: format!("old{epoch}"),
                     partitions,
                     epoch,
@@ -477,6 +519,17 @@ mod tests {
         let live = sources.last().unwrap();
         assert!(live.keep.is_none());
         assert_eq!(live.partition, 1);
+        let mut moved = config(8, vec![(4, 2)]);
+        let dedicated = ClusterEndpoint {
+            name: "dedicated".to_string(),
+            hosts: "dedicated:9092".to_string(),
+            tls: false,
+        };
+        moved.cluster = Some(dedicated.clone());
+        let moved_sources = warm_sources(&moved, 1);
+        let clusters: Vec<Option<&ClusterEndpoint>> =
+            moved_sources.iter().map(|s| s.cluster.as_ref()).collect();
+        assert_eq!(clusters, vec![None, Some(&dedicated)]);
         assert!(sources[0]
             .keep
             .as_ref()

@@ -168,6 +168,7 @@ _DEEPSEEK_V4_1_FLASH_FAST_COST = ModelCost(0.6, 2.4)
 _OPUS_COST = ModelCost(5, 25)
 _OPUS_5_5_COST = ModelCost(4, 20)
 _FABLE_COST = ModelCost(10, 50)
+_FABLE_5_2_COST = ModelCost(8, 40)
 _SONNET_COST = ModelCost(2, 10)
 _SONNET_4_COST = ModelCost(3, 15)
 _GPT_PRO_COST = ModelCost(5, 30)
@@ -179,6 +180,11 @@ _GPT_6_1_SOL_COST = ModelCost(
     2,
     10,
     long_context=LongContextCost(above_input_tokens=272_000, input_per_mtok=4, output_per_mtok=15),
+)
+_GPT_6_1_TERRA_COST = ModelCost(
+    1,
+    5,
+    long_context=LongContextCost(above_input_tokens=272_000, input_per_mtok=2, output_per_mtok=7.5),
 )
 _GPT_6_LUNA_COST = ModelCost(0.1, 0.5)
 
@@ -242,6 +248,7 @@ MODELS: tuple[CatalogModel, ...] = (
     ),
     CatalogModel("claude-fable-5", CLAUDE, _EXTENDED, cost=_FABLE_COST, supports_1m_context=True),
     CatalogModel("claude-fable-5-1", CLAUDE, _EXTENDED, cost=_FABLE_COST, supports_1m_context=True),
+    CatalogModel("claude-fable-5-2", CLAUDE, _EXTENDED, cost=_FABLE_5_2_COST, supports_1m_context=True),
     CatalogModel("claude-sonnet-5-5", CLAUDE, _EXTENDED, cost=_SONNET_COST, supports_1m_context=True),
     CatalogModel("claude-sonnet-5", CLAUDE, _EXTENDED, cost=_SONNET_COST, supports_1m_context=True),
     CatalogModel(
@@ -262,6 +269,9 @@ MODELS: tuple[CatalogModel, ...] = (
     CatalogModel("gpt-6-astra", CODEX, _THROUGH_MAX, cost=_GPT_FRONTIER_COST),
     CatalogModel("gpt-6-sol", CODEX, _THROUGH_MAX, cost=_GPT_6_SOL_COST),
     CatalogModel("gpt-6.1-sol", CODEX, _THROUGH_MAX, cost=_GPT_6_1_SOL_COST),
+    # Only ReviewHog's arm-set trial pins it. `retired` is the catalog's state for a model no picker offers
+    # that still runs when pinned, which keeps it out of the Slack picker too, since that picker ignores access flags.
+    CatalogModel("gpt-6.1-terra", CODEX, _THROUGH_MAX, cost=_GPT_6_1_TERRA_COST, retired=True),
     CatalogModel("gpt-6-luna", CODEX, _THROUGH_MAX, cost=_GPT_6_LUNA_COST),
 )
 
@@ -382,6 +392,11 @@ def normalize_model_id(model_id: str) -> str:
         if normalized.startswith(prefix):
             return normalized[len(prefix) :]
     return normalized
+
+
+def is_anthropic_served_model(model_id: str | None) -> bool:
+    """Whether Anthropic's API may serve this model, so its server can run the auto mode classifier checks."""
+    return normalize_model_id(model_id or "").startswith("claude-")
 
 
 def access_flag_for_model(model_id: str) -> str | None:
