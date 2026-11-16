@@ -561,7 +561,6 @@ export const productRedirects: Record<
     '/data-warehouse/sources/:id': ({ id }) => urls.dataWarehouseSource(id, 'schemas'),
     '/data-warehouse/sources/:id/:tab': ({ id, tab }) => urls.dataWarehouseSource(id, tab as SourceSceneTab),
     '/data-management/sources/:id': ({ id }) => urls.dataWarehouseSource(id, 'schemas'),
-    '/elt': (_params, searchParams, hashParams) => combineUrl(urls.etlOverview(), searchParams, hashParams).url,
     '/engineering-analytics': (_params, searchParams, hashParams): string =>
         combineUrl(urls.engineeringAnalytics(), searchParams, hashParams).url,
     '/engineering-analytics/test-health': (_params, searchParams, hashParams): string =>
@@ -627,6 +626,7 @@ export const productRedirects: Record<
         combineUrl(urls.visualReviewRuns(), searchParams, hashParams).url,
     '/visual_review/*': ({ _ }, searchParams, hashParams): string =>
         combineUrl(`/visual-review/${_}`, searchParams, hashParams).url,
+    '/elt': (_params, searchParams, hashParams) => combineUrl(urls.etlOverview(), searchParams, hashParams).url,
     '/web/content-autopilot': (_, searchParams) => combineUrl(urls.webAnalyticsContentAutopilot(), searchParams).url,
     '/web/content-autopilot/prompts/:promptId': ({ promptId }, searchParams) =>
         combineUrl(urls.webAnalyticsContentAutopilotPrompt(promptId ?? ''), searchParams).url,
