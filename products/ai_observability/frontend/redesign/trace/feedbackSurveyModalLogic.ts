@@ -92,8 +92,7 @@ export interface feedbackSurveyModalLogicActions {
 
 export type feedbackSurveyModalLogicType = MakeLogicType<
     feedbackSurveyModalLogicValues,
-    feedbackSurveyModalLogicActions,
-    Record<string, any>
+    feedbackSurveyModalLogicActions
 >
 
 /** Creates a thumbs up/down feedback survey from a trace's Feedback tab. */
