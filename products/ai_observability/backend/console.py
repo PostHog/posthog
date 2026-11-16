@@ -210,9 +210,12 @@ def _examples(card: ReviewCard) -> Cell:
         return Cell(text="None", muted=True)
     first = card.examples[0]
     count = len(card.examples)
+    # Encoded twice like urls.aiObservabilityTrace, because the router decodes the path once and the trace page
+    # decodes the ID again.
+    trace = quote(quote(first.trace_id, safe=""), safe="")
     return Cell(
         text=f"{count} trace{'s' if count != 1 else ''}",
-        href=f"{settings.SITE_URL}/project/{card.team_id}/ai-observability/traces/{quote(first.trace_id, safe='')}",
+        href=f"{settings.SITE_URL}/project/{card.team_id}/ai-observability/traces/{trace}",
         detail=_short(first.reason),
     )
 

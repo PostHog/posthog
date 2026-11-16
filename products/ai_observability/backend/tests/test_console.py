@@ -84,7 +84,7 @@ class TestEvalSuggestionReviewTool(BaseTest):
                 headline=headline,
                 outcome=f"Checks the {key} rule.",
                 reason=f"Measured the {key} rule.",
-                evidence=[{"trace_id": "trace/1?step=2#end", "reason": "Example reason"}],
+                evidence=[{"trace_id": "trace/1?step=2#end%2F", "reason": "Example reason"}],
                 review_verdict=verdict,
             )
             for key, headline, verdict in (
@@ -101,7 +101,7 @@ class TestEvalSuggestionReviewTool(BaseTest):
         content = response.content.decode()
         assert "Card waiting for a label" in content
         assert "Checks the check:b rule." in content and "Measured the check:b rule." in content
-        assert "/ai-observability/traces/trace%2F1%3Fstep%3D2%23end" in content
+        assert "/ai-observability/traces/trace%252F1%253Fstep%253D2%2523end%25252F" in content
         assert ("Already labeled card" in content) is shows_labeled
 
     @parameterized.expand([("known_card", True, 302), ("unknown_card", False, 404)])
