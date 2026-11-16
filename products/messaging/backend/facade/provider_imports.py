@@ -4,6 +4,7 @@ Each run executes in Temporal, so a long provider list does not hit the request 
 Customer.io import in `customerio.py` stays available next to it.
 """
 
+from dataclasses import field
 from datetime import datetime
 from typing import Any
 from uuid import UUID
@@ -60,9 +61,10 @@ class ImportProviderOption:
     label: str
     steps: tuple[ImportStepOption, ...]
     retains_credentials: bool
-    api_key_label: str
-    api_key_help: str
-    api_key_url: str | None
+    # Copy about the key, not the key, but the secret field check reads the names.
+    api_key_label: str = field(repr=False)
+    api_key_help: str = field(repr=False)
+    api_key_url: str | None = field(repr=False)
     not_imported: str
     next_steps: tuple[str, ...]
 
