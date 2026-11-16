@@ -809,6 +809,15 @@ class TestListActiveAlertDestinations(AlertDestinationTestCase):
                 alert_id="alert-1",
                 properties=[{"key": "alert_id", "value": "alert-1", "operator": "exact"}, contradicting],
             )
+        self._make_hog_function(
+            template_id=template_id,
+            alert_id="alert-1",
+            name="Alerts — Signups (firing) → Not alert 2",
+            properties=[
+                {"key": "alert_id", "value": "alert-1", "operator": "exact"},
+                {"key": "alert_id", "value": "alert-2", "operator": "is_not"},
+            ],
+        )
 
         destinations = list_active_alert_destinations(
             team_id=self.team.id, alert_id="alert-1", allowed_event_ids=("$logs_alert_firing",)
@@ -817,13 +826,14 @@ class TestListActiveAlertDestinations(AlertDestinationTestCase):
 
         assert ("Engineering", destination_type) in names_and_types
         assert ("Slack #alerts", "slack") in names_and_types
+        assert ("Not alert 2", destination_type) in names_and_types
         assert all(isinstance(d.id, str) for d in destinations)
-        assert len(destinations) == 2
+        assert len(destinations) == 3
         assert (
             count_active_alert_destinations(
                 team_id=self.team.id, alert_id="alert-1", allowed_event_ids=("$logs_alert_firing",)
             )
-            == 2
+            == 3
         )
 
     @parameterized.expand(

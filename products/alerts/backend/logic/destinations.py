@@ -231,12 +231,14 @@ def _active_alert_destinations_qs(
         )
         .annotate(
             # The consumer ANDs every property filter, so a second alert_id condition that this
-            # alert fails (another id, or `is_not` this one) means the function never runs for it.
+            # alert fails (exact on another id, or `is_not` this one) means the function never
+            # runs for it. Conditions this alert passes, such as `is_not` another id, are kept.
             contradicts_alert_binding=Func(
                 F("filters"),
                 Value(
-                    '$.properties[*] ? (@.key == "alert_id" && !(@.value.type() == "string" && @.value == $alert_id'
-                    ' && (!(exists(@.operator)) || @.operator == "exact")))'
+                    '$.properties[*] ? (@.key == "alert_id" && @.value.type() == "string"'
+                    ' && (((!(exists(@.operator)) || @.operator == "exact") && @.value != $alert_id)'
+                    ' || (@.operator == "is_not" && @.value == $alert_id)))'
                 ),
                 Value({"alert_id": alert_id}, output_field=JSONField()),
                 function="jsonb_path_exists",
