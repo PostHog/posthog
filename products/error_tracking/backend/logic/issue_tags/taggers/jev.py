@@ -31,7 +31,7 @@ class JevTagger:
         stacktrace = render_stacktrace(context.event_properties, TAG_STATE_MAX_TOKENS)
         if not stacktrace:
             return {}
-        configs = {definition.key: _jev_config(definition) for definition in definitions}
+        configs = {definition.key: definition.tagger_config(JevTaggerConfig) for definition in definitions}
         result = ml_inference.decide_when_available(
             DecisionRequest(
                 team_id=context.issue.team_id,
@@ -65,10 +65,3 @@ class JevTagger:
                 set_by=None,
             )
         return answers
-
-
-def _jev_config(definition: IssueTagDefinition) -> JevTaggerConfig:
-    for tagger in definition.taggers:
-        if isinstance(tagger, JevTaggerConfig):
-            return tagger
-    raise ValueError(f"the issue tag {definition.key!r} has no Jev tagger")

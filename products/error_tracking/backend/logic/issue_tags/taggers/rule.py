@@ -49,7 +49,7 @@ class RuleTagger:
         deadline = time.monotonic() + self.issue_budget.total_seconds()
         answers: dict[str, TagAnswer] = {}
         for index, definition in enumerate(definitions):
-            config = _rule_config(definition)
+            config = definition.tagger_config(RuleTaggerConfig)
             remaining = timedelta(seconds=deadline - time.monotonic())
             if remaining <= timedelta(0):
                 _log_budget_exhausted(context, skipped=len(definitions) - index)
@@ -57,14 +57,11 @@ class RuleTagger:
             timeout = min(self.rule_timeout, remaining)
             try:
                 matched = _matches(config, rule_input, timeout)
-            except HogVMRuntimeExceededException as error:
-                if timeout < self.rule_timeout:
+            except Exception as error:
+                if isinstance(error, HogVMRuntimeExceededException) and timeout < self.rule_timeout:
                     # The issue's budget ran out during this rule, so the rule itself is not at fault.
                     _log_budget_exhausted(context, skipped=len(definitions) - index)
                     break
-                _disable(context, definition, config, error)
-                continue
-            except Exception as error:
                 _disable(context, definition, config, error)
                 continue
             if matched:
@@ -76,13 +73,6 @@ class RuleTagger:
                     set_by=None,
                 )
         return answers
-
-
-def _rule_config(definition: IssueTagDefinition) -> RuleTaggerConfig:
-    for tagger in definition.taggers:
-        if isinstance(tagger, RuleTaggerConfig):
-            return tagger
-    raise ValueError(f"the issue tag {definition.key!r} has no rule")
 
 
 def _matches(config: RuleTaggerConfig, rule_input: dict[str, object], timeout: timedelta) -> bool:
