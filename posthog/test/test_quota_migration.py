@@ -261,7 +261,11 @@ class TestQuotaMigration(SimpleTestCase):
         assert self.secondary.zscore(self.key, "new") is None
 
     def test_outage_cooldown_and_recovery(self) -> None:
-        labels = {"operation": "add", "resource": self.key}
+        def count(result: str) -> float:
+            labels = {"operation": "add", "result": result}
+            return REGISTRY.get_sample_value("billing_quota_secondary_operations_total", labels) or 0
+
+        before = {result: count(result) for result in ("failure", "cooldown", "success")}
         sensitive_message = "redis://user:secret@quota-secondary.test/0 member=private-token"
         with (
             capture_logs() as logs,
@@ -271,7 +275,7 @@ class TestQuotaMigration(SimpleTestCase):
             add_limited_team_tokens(self.resource, {"first": 1900000100}, self.cache)
             add_limited_team_tokens(self.resource, {"second": 1900000100}, self.cache)
             assert write.call_count == 1
-            assert REGISTRY.get_sample_value("billing_quota_secondary_operation_failed", labels) == 1
+            assert count("failure") == before["failure"] + 1
         assert logs == [
             {
                 "event": "quota_secondary_operation_failed",
@@ -281,23 +285,12 @@ class TestQuotaMigration(SimpleTestCase):
                 "log_level": "warning",
             }
         ]
-        with patch("posthog.quota_migration.monotonic", return_value=1000):
-            assert REGISTRY.get_sample_value("billing_quota_secondary_operation_failed", labels) == 1
+        assert count("cooldown") == before["cooldown"] + 1
         with patch("posthog.quota_migration.monotonic", return_value=131):
             add_limited_team_tokens(self.resource, {"recovered": 1900000100}, self.cache)
-        assert REGISTRY.get_sample_value("billing_quota_secondary_operation_failed", labels) == 0
+        assert count("success") == before["success"] + 1
         assert self.shared.zcard(self.key) == 3
         assert self.secondary.zrange(self.key, 0, -1) == [b"recovered"]
-
-    def test_success_for_another_resource_does_not_clear_a_failed_write(self) -> None:
-        labels = {"operation": "add", "resource": self.key}
-        with patch.object(self.secondary, "zadd", side_effect=RedisTimeoutError("unavailable")):
-            add_limited_team_tokens(self.resource, {"limited": 1900000100}, self.cache)
-        _retry_after.clear()
-        add_limited_team_tokens(QuotaResource.RECORDINGS, {"recording": 1900000100}, self.cache)
-        assert REGISTRY.get_sample_value("billing_quota_secondary_operation_failed", labels) == 1
-        add_limited_team_tokens(self.resource, {"limited": 1900000100}, self.cache)
-        assert REGISTRY.get_sample_value("billing_quota_secondary_operation_failed", labels) == 0
 
     def test_reconciliation_uses_each_stores_snapshot(self) -> None:
         self.shared.zadd(self.key, {"shared-stale": 1900000000, "protected": 1900000000})

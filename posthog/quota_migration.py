@@ -17,12 +17,6 @@ logger = structlog.get_logger(__name__)
 QUOTA_SECONDARY_OPERATIONS = Counter(
     "billing_quota_secondary_operations_total", "Optional quota Redis operations", ["operation", "result"]
 )
-QUOTA_SECONDARY_OPERATION_FAILED = Gauge(
-    "billing_quota_secondary_operation_failed",
-    "Whether the last optional quota operation failed or was skipped during cooldown",
-    ["operation", "resource"],
-    multiprocess_mode="livemax",
-)
 SECONDARY_RETRY_DELAY_SECONDS = 30
 _retry_after: dict[str, float] = {}
 
@@ -60,7 +54,6 @@ def run_secondary_quota_operation[T](
         return None
     if monotonic() < _retry_after.get(url, 0):
         QUOTA_SECONDARY_OPERATIONS.labels(operation=operation, result="cooldown").inc()
-        QUOTA_SECONDARY_OPERATION_FAILED.labels(operation=operation, resource=resource).set(1)
         return None
     try:
         client = get_secondary_quota_redis_client(maintenance=maintenance)
@@ -72,13 +65,11 @@ def run_secondary_quota_operation[T](
         # leave shared Redis authoritative. A dead store costs one timeout per cooldown.
         _retry_after[url] = monotonic() + SECONDARY_RETRY_DELAY_SECONDS
         QUOTA_SECONDARY_OPERATIONS.labels(operation=operation, result="failure").inc()
-        QUOTA_SECONDARY_OPERATION_FAILED.labels(operation=operation, resource=resource).set(1)
         logger.warning(
             "quota_secondary_operation_failed", operation=operation, resource=resource, error_type=type(error).__name__
         )
         return None
     QUOTA_SECONDARY_OPERATIONS.labels(operation=operation, result="success").inc()
-    QUOTA_SECONDARY_OPERATION_FAILED.labels(operation=operation, resource=resource).set(0)
     return result
 
 
