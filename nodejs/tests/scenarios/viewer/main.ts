@@ -31,7 +31,7 @@ export function main(argv: string[], env: NodeJS.ProcessEnv = process.env): void
     const server = createViewerServer({ stateDir, cardsDir: CARDS_DIR })
     server.on('error', (error) => {
         process.stderr.write(`The viewer cannot listen on ${values.host}:${port}: ${error.message}\n`)
-        process.exit(1)
+        process.exitCode = 1
     })
     server.listen(port, values.host, () => {
         process.stdout.write(`Scenario viewer on http://${values.host}:${values.port}, reading runs from ${stateDir}\n`)

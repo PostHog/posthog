@@ -32,6 +32,7 @@ type Reading = { key?: string; value: number; passed: boolean } | { unread: stri
 export type BarDefinition = Definition & {
     unit: string
     needsRunHost?: true
+    limitOf(params: unknown): number
     read(evidence: BarEvidence, window: Window, params: unknown): Reading
 }
 
@@ -55,6 +56,7 @@ const writerCpuUnder: BarDefinition = {
     params: WriterCpuParams,
     unit: '%',
     needsRunHost: true,
+    limitOf: (params) => WriterCpuParams.parse(params).percent,
     read: ({ writerCpu }, { from, to }, params) => {
         if ('unread' in writerCpu) {
             return writerCpu
@@ -139,6 +141,7 @@ const pickupP99Under: BarDefinition = {
     name: 'pickup_p99_under',
     params: PickupParams,
     unit: 's',
+    limitOf: (params) => PickupParams.parse(params).seconds,
     read: ({ samples }, { from, to, last }, params) => {
         const { seconds, queues } = PickupParams.parse(params)
         const until = last ? Math.max(to, ...samples.map(({ at }) => at)) : to

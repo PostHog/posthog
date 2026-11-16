@@ -17,7 +17,7 @@ export type CardValve = {
     forMs: number
 }
 
-export type CardBar = { name: string; params: Record<string, unknown>; unit: string }
+export type CardBar = { name: string; limit: number; unit: string }
 
 export type BrokenCard = { ok: false; id: string; file: string; problems: string[] }
 
@@ -49,9 +49,13 @@ const rateOf = (traffic: Record<string, unknown>, name: string): number | null =
     return typeof rate === 'number' ? rate : null
 }
 
-const valveNeedsRunHost = (name: string): boolean => VALVES.some((valve) => valve.name === name && valve.needsRunHost)
-
-const barOf = (name: string): (typeof BARS)[number] | undefined => BARS.find((bar) => bar.name === name)
+const byName = <T extends { name: string }>(registry: readonly T[], name: string): T => {
+    const entry = registry.find((candidate) => candidate.name === name)
+    if (!entry) {
+        throw new Error(`${name} is not registered`)
+    }
+    return entry
+}
 
 export function cardViewOf(file: string): CardView {
     const id = path.basename(file, '.yaml')
@@ -91,10 +95,13 @@ export function cardViewOf(file: string): CardView {
         })),
         invariants: card.invariants.map(({ name }) => ({ name, gate: card.gates[name] ?? null })),
         measure: card.measure.map(({ name }) => name),
-        bars: card.bars.map(({ name, params }) => ({ name, params, unit: barOf(name)?.unit ?? '' })),
+        bars: card.bars.map(({ name, params }) => {
+            const bar = byName(BARS, name)
+            return { name, limit: bar.limitOf(params), unit: bar.unit }
+        }),
         runHostOnly:
-            card.valves.some(({ valve }) => valveNeedsRunHost(valve)) ||
-            card.bars.some(({ name }) => barOf(name)?.needsRunHost === true),
+            card.valves.some(({ valve }) => byName(VALVES, valve).needsRunHost === true) ||
+            card.bars.some(({ name }) => byName(BARS, name).needsRunHost === true),
     }
 }
 

@@ -12,7 +12,7 @@ import type { QueueCounts } from '../probe/cyclotron-probe'
 import type { WriterSample } from '../probe/writer-probe'
 import type { TruthRecord } from '../provider-edge'
 import type { ValveTimelineEntry } from '../valves/valves'
-import { deliveryKey } from './invariants'
+import { deliveryKey, isAccepted } from './invariants'
 import type { JudgeEvidence } from './invariants'
 import type { JournalEntry } from './judge'
 
@@ -136,7 +136,7 @@ export function deliveryLatenciesOf({ journal, truth }: LatencyEvidence): Delive
     const firstAccepted = new Map<string, number>()
     for (const { unitId, actionId, status, at } of [...truth].sort((a, b) => a.seq - b.seq)) {
         const key = unitId !== undefined && actionId !== undefined ? deliveryKey(unitId, actionId) : undefined
-        if (key !== undefined && status >= 200 && status < 300 && !firstAccepted.has(key)) {
+        if (key !== undefined && isAccepted(status) && !firstAccepted.has(key)) {
             firstAccepted.set(key, Date.parse(at))
         }
     }

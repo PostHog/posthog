@@ -26,7 +26,7 @@ export const deliveryKey = (unitId: string, actionId: string): string => `${unit
 
 const ERROR_TYPES_THE_EMAIL_SERVICE_RETRIES = ['TooManyRequestsException', 'ThrottlingException']
 
-const isAccepted = (status: number): boolean => status >= 200 && status < 300
+export const isAccepted = (status: number): boolean => status >= 200 && status < 300
 
 const isNotRetriedByTheEmailService = ({ status, detail }: TruthRecord): boolean =>
     status >= 400 && status < 500 && !ERROR_TYPES_THE_EMAIL_SERVICE_RETRIES.includes(detail.errorType ?? '')
