@@ -485,10 +485,15 @@ def intersect_target_bounds(bounds: Iterable[TargetBounds]) -> TargetBounds:
     per_dag = list(bounds)
     floors = [bound.floor for bound in per_dag if bound.floor is not None]
     ceilings = [bound.ceiling for bound in per_dag if bound.ceiling is not None]
-    return _bounds_from(
+    merged = _bounds_from(
         floor=max(floors, key=_bound_sort_key) if floors else Bound(value=STREAMING, blocker=None),
         ceiling=min(ceilings, key=_bound_sort_key) if ceilings else None,
     )
+    blocked_in_some_dag = {option.value: option for bound in per_dag for option in bound.options if not option.allowed}
+    options = tuple(
+        blocked_in_some_dag.get(option.value, option) if option.allowed else option for option in merged.options
+    )
+    return TargetBounds(options=options, floor=merged.floor, ceiling=merged.ceiling)
 
 
 def _describe(node_id: str | None, names: Mapping[str, str] | None, fallback: str) -> str:

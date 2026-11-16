@@ -359,6 +359,12 @@ class TestIntersectTargetBounds(TestCase):
         self.assertEqual(bounds.floor.blocker, "src")
         self.assertFalse(options[M15].allowed)
 
+    def test_a_cadence_one_dag_relaxes_to_stays_blocked_by_another(self):
+        bounds, _ = self._fold(
+            ([("src", "a"), ("a", "ep")], {"ep": M15}, {"src": H6}), ([("slow", "a")], {}, {"slow": H12})
+        )
+        self.assertFalse(bounds.satisfiable)
+
     def test_no_bounds_anywhere_allows_everything(self):
         bounds, options = self._fold(([("free", "a")], {}, {"free": STREAMING}))
         self.assertIsNone(bounds.floor)
