@@ -547,6 +547,7 @@ export const Table = (props: TableProps): JSX.Element => {
             )}
             <LemonTable
                 className={cn('DataVisualizationTable', !props.embedded && '[&>.ScrollableShadows]:max-h-[70vh]')}
+                stickyHeader
                 rowKey="rowIndex"
                 dataSource={tableRows}
                 columns={tableColumns}

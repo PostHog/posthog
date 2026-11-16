@@ -63,3 +63,4 @@ signals.0230_monitoring_research_delivery_indexes
 # Reads AI notes in batches and commits each batch alone. Re-running adds nothing: the insert
 # ignores rows the unique constraint already holds.
 business_knowledge.0029_backfill_knowledge_run_citations
+skills.0012_backfill_skill_search_vectors

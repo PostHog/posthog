@@ -4,6 +4,7 @@ from django.db import models
 
 # The Node `EmailSuppressionService` holds a global entry for at most this long after its last bounce.
 GLOBAL_HARD_BOUNCE_MAX_HOLD = timedelta(days=14)
+GLOBAL_HARD_BOUNCE_COPY_DIAGNOSTIC = "This address doesn't exist. An earlier email to it hard-bounced."
 
 
 class EmailHardBounce(models.Model):
