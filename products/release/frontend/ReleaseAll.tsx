@@ -1,7 +1,7 @@
 import type { ColumnDef } from '@tanstack/react-table'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { useCallback, useEffect, useRef } from 'react'
+import { useCallback, useEffect, useMemo, useRef } from 'react'
 
 import { IconList } from '@posthog/icons'
 import { Badge, Button, Card, DataTable, Input, Skeleton, Text } from '@posthog/quill'
@@ -25,6 +25,8 @@ export const scene: SceneExport = {
 }
 
 const LOOKAHEAD = '600px'
+
+const rowId = (row: ReleaseAllRow): string => row.key
 
 const TYPE_LABEL: Record<ReleaseAllType, string> = {
     release: 'Release',
@@ -125,6 +127,16 @@ function ReleaseAllContent(): JSX.Element {
     const { displayRows, filter, search, hasMore, loading, showSkeleton, failedTypes } = useValues(releaseAllLogic)
     const { setFilter, setSearch, loadMore, retry } = useActions(releaseAllLogic)
     const sentinel = useLoadMoreSentinel(loadMore, loading)
+    const searching = !!search.trim()
+    const openRow = useCallback((row: ReleaseAllRow) => router.actions.push(row.href), [])
+    const empty = useMemo(
+        () => (
+            <Text size="xs" variant="muted">
+                {searching ? 'Nothing matches that search.' : 'Nothing here yet.'}
+            </Text>
+        ),
+        [searching]
+    )
 
     return (
         <SceneContent>
@@ -178,13 +190,9 @@ function ReleaseAllContent(): JSX.Element {
                             data={displayRows}
                             fullWidth
                             size="sm"
-                            getRowId={(row) => row.key}
-                            onRowClick={(row) => router.actions.push(row.href)}
-                            empty={
-                                <Text size="xs" variant="muted">
-                                    {search.trim() ? 'Nothing matches that search.' : 'Nothing here yet.'}
-                                </Text>
-                            }
+                            getRowId={rowId}
+                            onRowClick={openRow}
+                            empty={empty}
                         />
                         {hasMore && <div ref={sentinel} />}
                         {loading && displayRows.length > 0 && <Skeleton className="m-2 h-9" />}

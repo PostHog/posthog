@@ -87,6 +87,23 @@ describe('releaseAllLogic', () => {
         expect(logic.values.hasMore).toBe(false)
     })
 
+    it('holds back older rows while early access is still scanning pages without search matches', async () => {
+        jest.mocked(earlyAccessFeatureList).mockResolvedValue({
+            results: [{ id: 'a', name: 'Unrelated', stage: 'beta', created_at: '2026-11-11T00:00:00Z' }],
+            count: 2,
+            next: 'more',
+        } as never)
+        jest.mocked(releasesCatalogFlagsRetrieve).mockResolvedValue({
+            results: [flag(1, 12), flag(2, 8)],
+            has_more: false,
+        } as never)
+
+        logic.actions.setAppliedSearch('flag')
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.visibleRows.map((row) => row.name)).toEqual(['flag-1'])
+    })
+
     it('drops a page that answers a search the user already changed, even after returning to the same text', async () => {
         let answer: (page: unknown) => void = () => {}
         jest.mocked(releasesCatalogFlagsRetrieve).mockImplementationOnce(
