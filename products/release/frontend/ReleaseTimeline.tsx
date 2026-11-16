@@ -1,10 +1,11 @@
 import { CellContext, ColumnDef } from '@tanstack/react-table'
 import { useActions, useValues } from 'kea'
-import { createContext, memo, useContext, useEffect, useMemo } from 'react'
+import { createContext, memo, useContext, useEffect, useMemo, useState } from 'react'
 
 import { IconChevronRight } from '@posthog/icons'
 import { DataTable, Text, cn } from '@posthog/quill'
 
+import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 
@@ -20,28 +21,45 @@ import { ReleaseTrackGrid } from './ReleaseTrackGrid'
 import { ReleaseTrackLabel } from './ReleaseTrackLabel'
 import { ReleaseTrackLane } from './ReleaseTrackLane'
 import { ReleaseTrackMarkers } from './ReleaseTrackMarkers'
-import { CALENDAR_SCALE, LANE, SPAN_LOOK, Track, TrackRelated, buildTrack, mergeOverlapping } from './releaseTracks'
+import {
+    CALENDAR_SCALE,
+    LANE,
+    Lane,
+    SPAN_LOOK,
+    Track,
+    TrackRelated,
+    buildTrack,
+    mergeOverlapping,
+} from './releaseTracks'
 import { ReleaseTrackSpan } from './ReleaseTrackSpan'
-import { CALENDAR_DAYS_AFTER, ReleaseRow, STAGE_COLOR, STAGE_COLOR_VARS } from './releaseUtils'
+import { CALENDAR_DAYS_AFTER, ReleaseRow, ReleaseSpan, STAGE_COLOR, STAGE_COLOR_VARS } from './releaseUtils'
+import { useInfiniteRows } from './useInfiniteRows'
 import { useRefreshChangedFlagHistory } from './useRefreshChangedFlagHistory'
 import { useRolloutStepsByFlag } from './useRolloutStepsByFlag'
+import { useScrollToToday } from './useScrollToToday'
+import { useStickyColumnWidth } from './useStickyColumnWidth'
 
 const NAME = 300
+const NAME_NARROW = 148
+const NARROW_WIDTH = 640
 const SUMMARY = 60
 const SUMMARY_OPEN = 36
-const ACTIVITY_ROWS = 40
-const PAGE_SIZE = 50
 
 function TrackHeader({ track, open }: { track: Track; open: boolean }): JSX.Element {
     const { row, lanes } = track
+    const { nameWidth } = useContext(CalendarStateContext)
+    const narrow = nameWidth < NAME
     return (
-        <div className="flex flex-col" style={{ width: NAME - 12 }}>
-            <div className="flex items-center gap-2" style={{ height: open ? SUMMARY_OPEN : SUMMARY }}>
+        <div className="flex flex-col" style={{ width: nameWidth - 12 }}>
+            <div
+                className={cn('flex items-center', narrow ? 'gap-1.5' : 'gap-2')}
+                style={{ height: open ? SUMMARY_OPEN : SUMMARY }}
+            >
                 <IconChevronRight
                     className={cn('size-3.5 shrink-0 text-muted-foreground transition-transform', open && 'rotate-90')}
                 />
                 <ReleaseStageDot stage={row.stage} />
-                <span className={cn('flex min-w-0 flex-1', open ? 'items-baseline gap-1.5' : 'flex-col')}>
+                <span className={cn('flex min-w-0 flex-1', open && !narrow ? 'items-baseline gap-1.5' : 'flex-col')}>
                     <LinkPrimitive
                         to={urls.release(row.id)}
                         data-attr="release-timeline-release"
@@ -49,9 +67,11 @@ function TrackHeader({ track, open }: { track: Track; open: boolean }): JSX.Elem
                     >
                         {row.name}
                     </LinkPrimitive>
-                    <Text size="xs" variant="muted" className="truncate">
-                        {row.status}
-                    </Text>
+                    {!(open && narrow) && (
+                        <Text size="xs" variant="muted" className="truncate">
+                            {row.status}
+                        </Text>
+                    )}
                 </span>
             </div>
             {open &&
@@ -69,11 +89,21 @@ function TrackHeader({ track, open }: { track: Track; open: boolean }): JSX.Elem
     )
 }
 
-function TrackLanesContent({ track, open }: { track: Track; open: boolean }): JSX.Element {
+function TrackLanesContent({
+    track,
+    open,
+    stickyOffset,
+}: {
+    track: Track
+    open: boolean
+    stickyOffset: number
+}): JSX.Element {
     const scale = CALENDAR_SCALE()
     const { row, steps, lanes } = track
     const summarySpans = open ? [] : mergeOverlapping(row.spans.filter((span) => span.kind !== 'flag' || !steps.length))
     const hasExperiment = summarySpans.some((span) => span.kind.startsWith('experiment'))
+    const laneFor = (span: ReleaseSpan): Lane | undefined =>
+        (span.count ?? 1) > 1 ? undefined : lanes.find((lane) => lane.kind !== 'broadcast' && lane.href === span.href)
     return (
         <div className="relative" style={{ width: scale.days * scale.day }}>
             <ReleaseTrackGrid scale={scale} />
@@ -85,11 +115,22 @@ function TrackLanesContent({ track, open }: { track: Track; open: boolean }): JS
                         color={STAGE_COLOR[row.stage]}
                         top={26}
                         height={20}
+                        stickyOffset={stickyOffset}
+                        lane={lanes.find((lane) => lane.kind === 'flag')}
                     />
                 )}
                 {summarySpans.map((span) =>
                     span.kind === 'early_access' && hasExperiment ? (
-                        <ReleaseTrackSpan key={span.key} span={span} scale={scale} top={18} height={6} thin />
+                        <ReleaseTrackSpan
+                            key={span.key}
+                            span={span}
+                            scale={scale}
+                            top={18}
+                            height={6}
+                            thin
+                            stickyOffset={stickyOffset}
+                            lane={laneFor(span)}
+                        />
                     ) : (
                         <ReleaseTrackSpan
                             key={span.key}
@@ -97,6 +138,8 @@ function TrackLanesContent({ track, open }: { track: Track; open: boolean }): JS
                             scale={scale}
                             top={SPAN_LOOK[span.kind].top}
                             height={SPAN_LOOK[span.kind].height}
+                            stickyOffset={stickyOffset}
+                            lane={laneFor(span)}
                         />
                     )
                 )}
@@ -112,7 +155,13 @@ function TrackLanesContent({ track, open }: { track: Track; open: boolean }): JS
             </div>
             {open &&
                 lanes.map((lane) => (
-                    <ReleaseTrackLane key={lane.key} lane={lane} color={STAGE_COLOR[row.stage]} scale={scale} />
+                    <ReleaseTrackLane
+                        key={lane.key}
+                        lane={lane}
+                        color={STAGE_COLOR[row.stage]}
+                        scale={scale}
+                        stickyOffset={stickyOffset}
+                    />
                 ))}
             {open && !lanes.length && <div className="border-t border-border/60" style={{ height: LANE }} />}
         </div>
@@ -128,6 +177,7 @@ const TrackLanes = memo(
     TrackLanesContent,
     (previous, next) =>
         previous.open === next.open &&
+        previous.stickyOffset === next.stickyOffset &&
         previous.track.row === next.track.row &&
         previous.track.steps === next.track.steps &&
         laneKeys(previous.track) === laneKeys(next.track) &&
@@ -135,12 +185,26 @@ const TrackLanes = memo(
 )
 
 interface CalendarState {
+    nameWidth: number
+    stickyOffset: number
+    lastRowId: string | undefined
+    sentinel: (node: Element | null) => void
+    loadFlagActivity: (flagIds: number[]) => void
     expanded: Record<string, true>
     stepsByFlag: Map<number, RolloutStep[]>
     related: Record<string, TrackRelated>
 }
 
-const CalendarStateContext = createContext<CalendarState>({ expanded: {}, stepsByFlag: new Map(), related: {} })
+const CalendarStateContext = createContext<CalendarState>({
+    nameWidth: NAME,
+    stickyOffset: NAME,
+    lastRowId: undefined,
+    sentinel: () => {},
+    loadFlagActivity: () => {},
+    expanded: {},
+    stepsByFlag: new Map(),
+    related: {},
+})
 
 function ReleaseCell({ row }: CellContext<ReleaseRow, unknown>): JSX.Element {
     const { expanded, stepsByFlag, related } = useContext(CalendarStateContext)
@@ -153,38 +217,50 @@ function ReleaseCell({ row }: CellContext<ReleaseRow, unknown>): JSX.Element {
 }
 
 function TimelineCell({ row }: CellContext<ReleaseRow, unknown>): JSX.Element {
-    const { expanded, stepsByFlag, related } = useContext(CalendarStateContext)
+    const { expanded, stepsByFlag, related, lastRowId, sentinel, loadFlagActivity, stickyOffset } =
+        useContext(CalendarStateContext)
+    const firstFlagId = row.original.flags[0]?.id
+    useEffect(() => {
+        if (firstFlagId !== undefined) {
+            loadFlagActivity([firstFlagId])
+        }
+    }, [firstFlagId, loadFlagActivity])
     return (
-        <TrackLanes
-            track={buildTrack(row.original, stepsByFlag, related[row.original.id])}
-            open={!!expanded[row.original.id]}
-        />
+        <>
+            <TrackLanes
+                track={buildTrack(row.original, stepsByFlag, related[row.original.id])}
+                open={!!expanded[row.original.id]}
+                stickyOffset={stickyOffset}
+            />
+            {row.original.id === lastRowId && <div ref={sentinel} />}
+        </>
     )
 }
 
 function TimelineHeader(): JSX.Element {
-    return <ReleaseTimelineAxis scale={CALENDAR_SCALE()} />
+    const { stickyOffset } = useContext(CalendarStateContext)
+    return <ReleaseTimelineAxis scale={CALENDAR_SCALE()} stickyOffset={stickyOffset} />
 }
 
-const COLUMNS: ColumnDef<ReleaseRow>[] = [
-    { id: 'release', header: 'Release', size: NAME, enableSorting: false, meta: { sticky: 'left' }, cell: ReleaseCell },
-    { id: 'timeline', header: TimelineHeader, enableSorting: false, cell: TimelineCell },
-]
+function calendarColumns(nameWidth: number): ColumnDef<ReleaseRow>[] {
+    return [
+        {
+            id: 'release',
+            header: 'Release',
+            size: nameWidth,
+            enableSorting: false,
+            meta: { sticky: 'left' },
+            cell: ReleaseCell,
+        },
+        { id: 'timeline', header: TimelineHeader, enableSorting: false, cell: TimelineCell },
+    ]
+}
 
 export function ReleaseTimeline(): JSX.Element {
     const { filteredRows, dataLoading, releases, flags } = useValues(releaseLogic)
     const { expanded } = useValues(releaseCalendarLogic)
     const { relatedByRelease } = useValues(releaseRelatedLogic)
     const { toggleExpanded, loadFlagActivity } = useActions(releaseCalendarLogic)
-
-    useEffect(() => {
-        const ids = [
-            ...new Set(filteredRows.slice(0, ACTIVITY_ROWS).flatMap((row) => (row.flags[0] ? [row.flags[0].id] : []))),
-        ]
-        if (ids.length) {
-            loadFlagActivity(ids)
-        }
-    }, [filteredRows, loadFlagActivity])
 
     useEffect(() => {
         const ids = filteredRows.filter((row) => expanded[row.id]).flatMap((row) => row.flags.map((flag) => flag.id))
@@ -197,13 +273,33 @@ export function ReleaseTimeline(): JSX.Element {
 
     useRefreshChangedFlagHistory(flags)
 
+    const { visible, sentinel } = useInfiniteRows(filteredRows.length)
+    const rows = useMemo(() => filteredRows.slice(0, visible), [filteredRows, visible])
+    const lastRowId = visible < filteredRows.length ? rows[rows.length - 1]?.id : undefined
+    const [container, setContainer] = useState<HTMLDivElement | null>(null)
+    const { width = 0 } = useResizeObserver<HTMLDivElement>({ ref: container })
+    const nameWidth = width > 0 && width < NARROW_WIDTH ? NAME_NARROW : NAME
+    const stickyOffset = useStickyColumnWidth(container, nameWidth)
+    useScrollToToday(container, CALENDAR_SCALE(), true, width > 0 && rows.length > 0)
+    const columns = useMemo(() => calendarColumns(nameWidth), [nameWidth])
+
     const state = useMemo(
-        () => ({ expanded, stepsByFlag, related: relatedByRelease }),
-        [expanded, stepsByFlag, relatedByRelease]
+        () => ({
+            nameWidth,
+            stickyOffset,
+            lastRowId,
+            sentinel,
+            loadFlagActivity,
+            expanded,
+            stepsByFlag,
+            related: relatedByRelease,
+        }),
+        [nameWidth, stickyOffset, lastRowId, sentinel, loadFlagActivity, expanded, stepsByFlag, relatedByRelease]
     )
 
     return (
         <div
+            ref={setContainer}
             className={`overflow-hidden rounded-lg border border-border bg-background ${STAGE_COLOR_VARS} [--quill-table-sticky-bg:var(--background)] [&_td]:py-0 [&_td]:align-top [&_td+td]:p-0 [&_th+th]:p-0`}
             data-attr="release-timeline"
         >
@@ -212,13 +308,11 @@ export function ReleaseTimeline(): JSX.Element {
             ) : (
                 <CalendarStateContext.Provider value={state}>
                     <DataTable
-                        key={filteredRows.length > PAGE_SIZE ? 'paged' : 'single'}
-                        columns={COLUMNS}
-                        data={filteredRows}
+                        columns={columns}
+                        data={rows}
                         size="sm"
                         stickyHeader
                         className="max-h-[75vh]"
-                        pageSize={filteredRows.length > PAGE_SIZE ? PAGE_SIZE : undefined}
                         getRowId={(row) => row.id}
                         onRowClick={(row) => toggleExpanded(row.id)}
                         rowClassName={(row) => (expanded[row.id] ? 'bg-fill-hover/40' : undefined)}

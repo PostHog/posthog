@@ -21,6 +21,8 @@ from rest_framework.response import Response
 
 from posthog.schema import LogsAlertFilters
 
+from posthog.hogql.errors import QueryError
+
 from posthog.api.fields import RepeatedOrCommaSeparatedListField
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
@@ -140,6 +142,7 @@ from products.logs.backend.facade.platform_ownership import (
     owned_copy_views,
     update_native,
 )
+from products.logs.backend.facade.queries import validate_nested_filter_groups
 from products.logs.backend.models import MAX_EVALUATION_PERIODS, LogsAlertConfiguration, LogsAlertEvent
 
 MAX_SIMULATE_LOOKBACK_DAYS = 30
@@ -213,11 +216,16 @@ class LogsAlertFiltersField(serializers.JSONField):
         if not isinstance(value, dict):
             raise serializers.ValidationError("Must be a JSON object.")
         try:
-            LogsAlertFilters.model_validate(value)
+            filters = LogsAlertFilters.model_validate(value)
         except PydanticValidationError as e:
             first = e.errors()[0]
             location = ".".join(str(p) for p in first["loc"]) or "filters"
             raise serializers.ValidationError(f"Invalid filters shape at `{location}`: {first['msg']}") from e
+        if filters.filterGroup is not None:
+            try:
+                validate_nested_filter_groups(filters.filterGroup)
+            except QueryError as e:
+                raise serializers.ValidationError(str(e)) from e
         return value
 
 

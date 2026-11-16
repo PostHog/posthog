@@ -3,7 +3,13 @@ import { asRecord } from '@/lib/records'
 import { cacheable, isReadCacheKey, projectedData } from '@/model/adapters/readCache'
 import { ApiError } from './client'
 import { inboxCacheKey } from './readCacheKeys'
-import { boundedEntries, type ReadCacheEntry, type ReadCacheScope, type ReadCacheStore } from './readCacheStore'
+import {
+    boundedEntries,
+    READ_CACHE_TTL_MS,
+    type ReadCacheEntry,
+    type ReadCacheScope,
+    type ReadCacheStore,
+} from './readCacheStore'
 
 export function deniedRead(error: unknown): boolean {
     return error instanceof ApiError && [401, 403, 404].includes(error.status)
@@ -33,6 +39,7 @@ export function persistReadCache(
 } {
     // Saved inbox queries cannot refetch, so retain them before hydration creates inactive queries.
     client.setQueryDefaults(['read-inbox'], { gcTime: Infinity })
+    client.setQueryDefaults(['views', scope.host, scope.projectId, 'live'], { gcTime: READ_CACHE_TTL_MS })
     let stopped = false
     let loading = false
     let hydrated = false

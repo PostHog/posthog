@@ -1,3 +1,5 @@
+from datetime import UTC, datetime
+
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_person, flush_persons_and_events
 
 from django.test import override_settings
@@ -24,6 +26,7 @@ from products.workflows.backend.services.batch_audience import (
 from products.workflows.backend.services.blast_radius import get_audience_size
 
 FILTERS = {"properties": [{"key": "subscribed", "type": "person", "value": ["true"], "operator": "exact"}]}
+_ON = datetime(2026, 1, 1, tzinfo=UTC)
 
 
 def _uuid(index: int) -> str:
@@ -130,10 +133,12 @@ class TestBatchAudience(ClickhouseTestMixin, BaseTest):
             ),
             # The cohorts product reports this one as person_properties, which the response doesn't declare.
             ("person_property_cohort_on_a_behavioral_cohort", "person_on_behavioral", "all", False, "building"),
+            # A stale debounce key must not make a cohort nobody turned on read as building.
+            ("realtime_off", "behavioral", "all", True, "needs_attention", None, None),
         ]
     )
     def test_realtime_cohort_audience_size_estimates_from_the_cohort_count(
-        self, _name, shape, allowlist, build_queued, expected_state, access_level=None
+        self, _name, shape, allowlist, build_queued, expected_state, access_level=None, realtime_enabled_at=_ON
     ):
         # The send reads realtime membership from a Postgres database Django can't reach, so the
         # preview estimates from the cohort's periodic count and reports no email dedupe.
@@ -152,6 +157,7 @@ class TestBatchAudience(ClickhouseTestMixin, BaseTest):
                 team=self.team,
                 name="inner",
                 cohort_type=CohortType.REALTIME,
+                realtime_enabled_at=_ON,
                 filters={"properties": {"type": "AND", "values": [behavioral_leaf]}},
             )
             leaves = [
@@ -162,6 +168,7 @@ class TestBatchAudience(ClickhouseTestMixin, BaseTest):
             team=self.team,
             name="c",
             cohort_type=CohortType.REALTIME,
+            realtime_enabled_at=realtime_enabled_at,
             count=2,
             filters={"properties": {"type": "AND", "values": leaves}},
         )
