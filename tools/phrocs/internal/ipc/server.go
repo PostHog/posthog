@@ -20,6 +20,7 @@
 //	{"cmd":"remove-proc","process":"my-proc"}
 //	{"cmd":"focus","process":"web"}
 //	{"cmd":"toggle-proc","process":"web"}
+//	{"cmd":"restart","process":"web"}
 //	{"cmd":"quit"}
 //
 // Responses (one JSON object per line):
@@ -306,6 +307,18 @@ func dispatch(req request, mgr *process.Manager) any {
 		} else if send := mgr.Send(); send != nil {
 			go func() { _ = p.Start(send) }()
 		}
+		return map[string]any{"ok": true}
+
+	case "restart":
+		p, ok := mgr.Get(req.Process)
+		if !ok {
+			return map[string]any{"ok": false, "error": "process not found: " + req.Process}
+		}
+		send := mgr.Send()
+		if send == nil {
+			return map[string]any{"ok": false, "error": "phrocs is still starting"}
+		}
+		go p.Restart(send)
 		return map[string]any{"ok": true}
 
 	case "quit":
