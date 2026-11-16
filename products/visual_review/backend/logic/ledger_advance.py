@@ -359,7 +359,7 @@ class _LedgerAdvancer:
             .values_list("pr_number", "run_type")
             .distinct()
         )
-        return set(runs)
+        return {(pr_number, run_type) for pr_number, run_type in runs if pr_number is not None}
 
     def _publish_for_landed_identifiers(self) -> None:
         """Publish again for the pull requests with an open approval of an identifier this transaction landed,
