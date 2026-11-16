@@ -197,9 +197,9 @@ Each card is drawn from a failure class on the delivery path.
 | Card                            | Traffic                                               | Valves                                                                                                                                          | Invariants                                                                                  | Failure class                                |
 | ------------------------------- | ----------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- | -------------------------------------------- |
 | `smoke`                         | `event_email`, `event_webhook`, `transactional_email` | none                                                                                                                                            | `at_least_once`, `duplicate_sends` (gate 0), `refused_at_intake` (gate 0)                   | Baseline: proves the judging loop            |
-| `email-worker-killed`           | `event_email`, `transactional_email`                  | `role.kill` on the email worker, `when` 1 job runs on `email`                                                                                   | `at_least_once`, `duplicate_sends` (gate 3), `refused_at_intake`                            | A worker dying mid-batch                     |
-| `hogflow-worker-frozen`         | `event_email`, `event_webhook`                        | `role.freeze` on the hogflow worker for 60 seconds, `when` 1 job runs on `hogflow`                                                              | `at_least_once`, `duplicate_sends` (gate 4), `refused_at_intake`                            | A frozen pod losing sends                    |
-| `pg-connections-dropped`        | `event_email`, `event_webhook`                        | `pg.drop_connections` share 1 for 5 seconds, `when` 1 job runs on `hogflow`                                                                     | `at_least_once`, `duplicate_sends` (gate 4), `refused_at_intake`                            | A dropped Postgres connection stranding jobs |
+| `email-worker-killed`           | `event_email`, `transactional_email`                  | `role.kill` on the email worker, `when` 1 job runs on `email`                                                                                   | `at_least_once`, `duplicate_sends` (gate 0), `refused_at_intake`                            | A worker dying mid-batch                     |
+| `hogflow-worker-frozen`         | `event_email`, `event_webhook`                        | `role.freeze` on the hogflow worker for 60 seconds, `when` 1 job runs on `hogflow`                                                              | `at_least_once`, `duplicate_sends` (gate 0), `refused_at_intake`                            | A frozen pod losing sends                    |
+| `pg-connections-dropped`        | `event_email`, `event_webhook`                        | `pg.drop_connections` share 1 for 5 seconds, `when` 1 job runs on `hogflow`                                                                     | `at_least_once`, `duplicate_sends` (gate 0), `refused_at_intake`                            | A dropped Postgres connection stranding jobs |
 | `destination-errors`            | `event_webhook`                                       | `dest.status` 503 share 0.5, then 429 share 0.5, then 400 count 5, each for 10 seconds, 21 seconds apart                                        | `at_least_once`, `duplicate_sends` (gate 0), `refused_at_intake`                            | Destination 429 and 503 retry storms         |
 | `ses-throttled`                 | `event_email`, `transactional_email`                  | `ses.throttle` 1 per second for 60 seconds                                                                                                      | `at_least_once`, `duplicate_sends` (gate 0), `refused_at_intake`                            | SES throttling                               |
 | `ses-bounce-suppresses`         | `bounce_followup`                                     | `ses.reject` with type `bounce` on every send, for 2 minutes                                                                                    | `at_least_once`, `duplicate_sends` (gate 0), `refused_at_intake`, `bounced_suppressed`      | Dropped SES feedback, so no suppression      |
@@ -451,7 +451,7 @@ invariants:
   - name: duplicate_sends
   - name: refused_at_intake
 gates:
-  duplicate_sends: 3
+  duplicate_sends: 0
   refused_at_intake: 0
 measure:
   - name: role_cpu_seconds
@@ -697,7 +697,7 @@ export interface Judge {
   open(seed: Pick<SeedState, 'teamIds'>): Promise<void>
   record(unit: JournalEntry): void // synchronous; never blocks the generator
   converge(withinMs: number, signal: AbortSignal): Promise<Convergence>
-  check(invariants: Named[], gates: Record<string, number>): Promise<InvariantResult[]>
+  check(invariants: Named[], gates: Record<string, number>, run: { janitorResets: number }): Promise<InvariantResult[]>
   evidence(): { journal: JournalEntry[]; truth: TruthRecord[]; fetchRetries: number } // journal.json and truth.json
 }
 
@@ -720,7 +720,9 @@ export type InvariantResult = {
 
     A retried SES code that answers every attempt still counts as missed.
 
-  - `duplicate_sends`: 2xx answers per unit and action beyond one, at or under `gates.duplicate_sends`. Rejected attempts are evidence, not duplicates.
+  - `duplicate_sends`: 2xx answers per unit and action beyond one, at or under the jobs the janitor reset during the run plus `gates.duplicate_sends`. Rejected attempts are evidence, not duplicates.
+    A lease queue replays a job whose holder stalled after its send landed, so each reset allows one resend. One unit can take more than one: a job can be reset again, and an email unit passes through a hogflow job and an email job.
+    The runner reads the resets from the janitor's `cdp_cyclotron_v2_janitor_stalled` counter in the sampled metrics, summed over its replicas and restarts, and passes them to the Judge as `janitorResets`. The counter also counts jobs that stalled before they sent, so the bound is loose on a card that stalls many jobs; the scorecard's `janitor_resets` shows how loose.
   - `bounced_suppressed`: every unit whose send the `ses.reject` fault bounced has a follow-up that cdp-api refused with 422 `recipient_suppressed`. A follow-up that was not sent, was accepted, could not reach cdp-api or got another answer fails it, and so does a bounced unit with no follow-up.
     It also fails a unit whose follow-up was not sent though its send did not bounce. Two cases are let off: the fault refused the send outright, or the edge took the send without a fault after the run's last bounce, which needs a bounce earlier in the run.
   - `refused_at_intake`: refusals and transport errors the unit did not expect, at or under `gates.refused_at_intake`.
@@ -815,6 +817,7 @@ The versions are tree hashes at `HEAD`, so nobody bumps them by hand; `head_dirt
 | `units_offered`     | number or null  | Role intake calls whatever and whenever they answered, and events Kafka acknowledged before the drive ended                                                                                                                                |
 | `converged`         | boolean or null | Whether the stack converged within `convergeWithin`                                                                                                                                                                                        |
 | `unfinished_jobs`   | number or null  | Jobs still unfinished when convergence ended                                                                                                                                                                                               |
+| `janitor_resets`    | number or null  | Jobs the janitor reset while the run was sampled; `duplicate_sends` allows one resend for each, `null` when the run stopped first                                                                                                          |
 | `valve_timeline`    | array           | One entry per valve: valve, target, and requested, applied, observed and released times, or an error                                                                                                                                       |
 | `bars`              | array           | One entry per bar: its name, unit and whether it passed, with the breaking point (the step's scale and start, units offered per second with events counted once Kafka acknowledged them, the queue and the value) or why it was not judged |
 | `evidence_dir`      | string          | The evidence directory on the box that ran the card                                                                                                                                                                                        |
