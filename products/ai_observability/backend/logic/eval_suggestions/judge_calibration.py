@@ -32,14 +32,14 @@ from posthog.llm.gateway_client import (
     build_openai_client,
     team_distinct_id,
 )
-from posthog.temporal.ai_observability.evaluation_llm_judge import (
+
+from products.ai_observability.backend.llm import DEFAULT_MODEL_BY_PROVIDER
+from products.ai_observability.backend.llm.providers.gemini import GeminiConfig
+from products.ai_observability.backend.logic.evaluations.judge_prompts import (
     BooleanWithNAEvalResult,
     build_system_prompt,
     build_user_prompt,
 )
-
-from products.ai_observability.backend.llm import DEFAULT_MODEL_BY_PROVIDER
-from products.ai_observability.backend.llm.providers.gemini import GeminiConfig
 from products.ai_observability.backend.logic.message_utils import format_tool_definitions
 
 from . import call_review
@@ -187,7 +187,9 @@ def judge_request(card: ReviewCard, rendering: Rendering, number: int, model: st
     """The request the accepted evaluation will send for this call: the draft is a boolean judge that allows N/A,
     and the call is rendered by the runtime judge's own prompt builder."""
     row = rendering.calls[number].row
-    tools = format_tool_definitions(_parsed(row.tools)) if row.tools else ""
+    # A catalog cut by the calls query's cap no longer parses, so it is left out rather than shown in pieces.
+    catalog = _parsed(row.tools)
+    tools = format_tool_definitions(catalog) if isinstance(catalog, list | dict) else ""
     prompt = build_user_prompt(_parsed(row.input), _parsed(row.output), tools)
     return JudgeRequest(
         model=model,
@@ -198,10 +200,13 @@ def judge_request(card: ReviewCard, rendering: Rendering, number: int, model: st
 
 
 def _parsed(text: str) -> Any:
+    """The JSON messages in `text`, or `text` itself. The runtime builder reads only messages and strings, and a
+    bare number or null would make it raise."""
     try:
-        return json.loads(text)
+        value = json.loads(text)
     except (ValueError, RecursionError):
         return text
+    return value if isinstance(value, list | dict | str) else text
 
 
 def _verdict(answer: Any) -> Verdict | None:

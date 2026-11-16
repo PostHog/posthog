@@ -21,7 +21,8 @@ CALL_TYPE_INPUT_CHARS = 1200
 CANDIDATES_PER_CALL_TYPE = 60
 MAX_INPUT_CHARS = 65536
 MAX_OUTPUT_CHARS = 16384
-MAX_TOOLS_CHARS = 16384
+# Agent tool catalogs often run to around 100 KB, and the runtime judge formats the whole catalog.
+MAX_TOOLS_CHARS = 262_144
 # A longer input keeps its first message, which holds the system prompt, and its last few messages, each within a cap.
 MAX_FIRST_MESSAGE_CHARS = 49152
 MAX_LAST_MESSAGE_CHARS = 16384
