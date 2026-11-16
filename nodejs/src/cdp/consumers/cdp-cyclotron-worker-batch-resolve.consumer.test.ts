@@ -725,7 +725,9 @@ describe('CdpCyclotronWorkerBatchResolve', () => {
                     quotaLimiting: { isTeamQuotaLimited: jest.fn().mockResolvedValue(true) },
                 },
                 hogFlowManager: {
-                    getHogFlowCheckingPrimaryOnMiss: jest.fn().mockResolvedValue({ ...hogFlow, billable_action_types: ['function_email'] }),
+                    getHogFlowCheckingPrimaryOnMiss: jest
+                        .fn()
+                        .mockResolvedValue({ ...hogFlow, billable_action_types: ['function_email'] }),
                 },
                 hogFunctionMonitoringService: {
                     queueAppMetric: jest.fn(),
