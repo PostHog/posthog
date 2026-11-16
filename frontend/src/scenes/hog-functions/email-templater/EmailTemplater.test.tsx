@@ -54,4 +54,33 @@ describe('NativeEmailIntegrationChoice', () => {
         expect(screen.getByTestId(expectedPicker)).toBeInTheDocument()
         expect(screen.getByText('Custom sender')).toBeInTheDocument()
     })
+
+    it.each([false, true])(
+        'warns that the selected sender stopped sending when the rotation flag is %s',
+        (flagEnabled) => {
+            mockSenderRotationEnabled = flagEnabled
+            jest.mocked(useValues).mockReturnValue({
+                integrationsLoading: false,
+                integrations: [
+                    {
+                        id: 1,
+                        kind: 'email',
+                        display_name: 'Alice <alice@example.com>',
+                        config: { domain: 'example.com', ses_sending_status: 'failed' },
+                    },
+                    {
+                        id: 2,
+                        kind: 'email',
+                        display_name: 'Bob <bob@example.org>',
+                        config: { domain: 'example.org', ses_sending_status: 'failed' },
+                    },
+                ],
+            })
+
+            render(<NativeEmailIntegrationChoice label="From" value={{ integrationId: 1 }} onChange={jest.fn()} />)
+
+            expect(screen.getByText(/^Sending stopped for example\.com:/)).toBeInTheDocument()
+            expect(screen.queryByText(/example\.org/)).not.toBeInTheDocument()
+        }
+    )
 })
