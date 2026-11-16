@@ -5828,6 +5828,7 @@ export const IntegrationKindApi = {
     AwsRedshift: 'aws-redshift',
     S3Compatible: 's3-compatible',
     Snowflake: 'snowflake',
+    Motherduck: 'motherduck',
     YoutubeAnalytics: 'youtube-analytics',
     TwitterAds: 'twitter-ads',
 } as const

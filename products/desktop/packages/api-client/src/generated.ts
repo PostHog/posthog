@@ -7510,6 +7510,7 @@ export namespace Schemas {
         | "aws-redshift"
         | "s3-compatible"
         | "snowflake"
+        | "motherduck"
         | "youtube-analytics"
         | "twitter-ads";
     export type ErrorTrackingExternalReferenceIntegration = {
