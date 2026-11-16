@@ -16,10 +16,10 @@ MANAGERS = {"objects", "_default_manager", "_base_manager"}
 TYPE_ONLY_CALLS = {"isinstance", "issubclass", "cast"}
 # Reverse accessors and the foreign key from AlertCheck, AlertSubscription and investigations.
 RELATED_ATTRIBUTES = {"alertconfiguration_set", "alert_configurations", "alert_configuration"}
-LOOKUP = re.compile(r"(?:^|__)(?:alert_configuration__|alertconfiguration__|alertconfiguration_set(?:__|$))")
+LOOKUP = re.compile(r"(?:^|__)(?:alert_configurations?__|alertconfiguration__|alertconfiguration_set(?:__|$))")
 LEGACY_STRING = re.compile(
     r"\b(posthog_alertconfiguration|logs_logsalertconfiguration)\b"
-    r"|^(alerts\.AlertConfiguration|logs\.LogsAlertConfiguration|alert_configuration)$"
+    r"|^(alerts\.AlertConfiguration|logs\.LogsAlertConfiguration)$"
 )
 SOURCE_MARKERS = ("AlertConfiguration", "alert_configuration", "alertconfiguration")
 SCOPE_NODES = (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)
@@ -138,12 +138,19 @@ class _Reader:
     def __init__(self, tree: ast.AST) -> None:
         self.parents = {child: parent for parent in ast.walk(tree) for child in ast.iter_child_nodes(parent)}
         self.annotations = {id(node) for annotation in _annotations(tree) for node in ast.walk(annotation)}
+        self.models = LEGACY_MODELS | {
+            alias.asname
+            for node in ast.walk(tree)
+            if isinstance(node, ast.ImportFrom)
+            for alias in node.names
+            if alias.name in LEGACY_MODELS and alias.asname
+        }
 
     def is_read(self, node: ast.AST) -> bool:
         if id(node) in self.annotations:
             return False
         parent = self.parents.get(node)
-        if isinstance(node, ast.Name) and node.id in LEGACY_MODELS:
+        if isinstance(node, ast.Name) and node.id in self.models:
             return self._model_is_read(node, parent)
         if isinstance(node, ast.Attribute) and node.attr in LEGACY_MODELS:
             return self._model_is_read(node, parent)
@@ -154,7 +161,7 @@ class _Reader:
         if isinstance(node, ast.Constant) and isinstance(node.value, str):
             if isinstance(parent, ast.Expr):
                 return False
-            if node.value == "alert_configuration":
+            if node.value in {"alert_configuration", "alert_configurations"}:
                 return self._names_a_relation(parent)
             return bool(LEGACY_STRING.search(node.value) or LOOKUP.search(node.value))
         return False
@@ -197,24 +204,22 @@ def legacy_reads(tree: ast.AST) -> list[str]:
     found: list[str] = []
 
     def visit(scope: ast.AST, label: str) -> None:
-        for node in ast.iter_child_nodes(scope):
+        for node in _own_descendants(scope):
             if isinstance(node, SCOPE_NODES):
                 visit(node, f"{label}.{node.name}" if label else node.name)
-                continue
-            for inner in [node, *_own_descendants(node)]:
-                if reader.is_read(inner):
-                    found.append(label or "<module>")
+            elif reader.is_read(node):
+                found.append(label or "<module>")
 
     visit(tree, "")
     return found
 
 
 def _own_descendants(node: ast.AST) -> Iterator[ast.AST]:
+    # A nested function or class is yielded, so the caller can give it its own label, but not entered.
     for child in ast.iter_child_nodes(node):
-        if isinstance(child, SCOPE_NODES):
-            continue
         yield child
-        yield from _own_descendants(child)
+        if not isinstance(child, SCOPE_NODES):
+            yield from _own_descendants(child)
 
 
 def _scan(scope: ScanScope) -> set[str]:
@@ -281,6 +286,14 @@ def test_legacy_alert_configurations_are_read_only_by_listed_code() -> None:
         ("AlertCheck.objects.filter(alert_configuration__team_id=1)", ["<module>"]),
         ("AlertCheck.objects.select_related('alert_configuration')", ["<module>"]),
         ("check.alert_configuration.name", ["<module>"]),
+        ("if enabled:\n    def f():\n        return AlertConfiguration.objects.all()", ["f"]),
+        (
+            "try:\n    class C:\n        def m(self):\n            AlertConfiguration.objects.all()\nexcept E:\n    pass",
+            ["C.m"],
+        ),
+        ("from m import AlertConfiguration as LegacyAlert\nLegacyAlert.objects.all()", ["<module>"]),
+        ("User.objects.prefetch_related('alert_configurations')", ["<module>"]),
+        ("User.objects.filter(alert_configurations__enabled=True)", ["<module>"]),
         ("Prefetch('insight__alertconfiguration_set')", ["<module>"]),
         ("class S:\n    class Meta:\n        model = AlertConfiguration", ["S.Meta"]),
         ("LogsAlertConfiguration(team_id=1, name='x')", ["<module>"]),
