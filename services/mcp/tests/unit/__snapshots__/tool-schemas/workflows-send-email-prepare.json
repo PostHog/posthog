@@ -23,6 +23,23 @@
             "maxLength": 1024,
             "type": "string"
         },
+        "headers": {
+            "additionalProperties": false,
+            "description": "Unsubscribe headers for the email your code rendered. Takes only `List-Unsubscribe` and `List-Unsubscribe-Post`, in any case, and sends them under those names. Without them, a code send carries no unsubscribe headers. Doesn't apply to a send with `template_id`, which refuses this field.",
+            "properties": {
+                "List-Unsubscribe": {
+                    "description": "One https URL in angle brackets, such as `<https://example.com/unsubscribe?u=1>`.",
+                    "maxLength": 870,
+                    "type": "string"
+                },
+                "List-Unsubscribe-Post": {
+                    "description": "Turns on one-click unsubscribe. Needs `List-Unsubscribe`.",
+                    "enum": ["List-Unsubscribe=One-Click"],
+                    "type": "string"
+                }
+            },
+            "type": "object"
+        },
         "html": {
             "description": "HTML body of the email, exactly as the recipient should see it. Through this tool the whole request as JSON, html and text included, must stay under 1 MiB, and quotes and line breaks count twice. A larger email can't be sent here.",
             "type": "string"
