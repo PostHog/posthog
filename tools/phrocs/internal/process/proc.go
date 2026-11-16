@@ -294,10 +294,7 @@ func (p *Process) Lines() []string {
 	return result
 }
 
-// drainScrollbackLocked moves scrolled-off lines into p.history so each one
-// is rendered once. The emulator scrollback has the same cap as p.history, so
-// a line lost between two calls would have fallen out of p.history anyway.
-// Must be called with p.mu held.
+// drainScrollbackLocked renders each scrolled-off line once. Caller holds p.mu.
 func (p *Process) drainScrollbackLocked() {
 	sb := p.emulator.Scrollback()
 	if sb == nil || sb.Len() == 0 {
@@ -352,8 +349,6 @@ func (p *Process) Snapshot() Snapshot {
 	return Snapshots([]*Process{p})[0]
 }
 
-// Snapshots returns a snapshot of each process in order, sharing one read of
-// the host process table.
 func Snapshots(procs []*Process) []Snapshot {
 	var tree processTree
 	for _, p := range procs {
@@ -370,9 +365,7 @@ func Snapshots(procs []*Process) []Snapshot {
 	return snaps
 }
 
-// LastSnapshot returns a view of the process with the metrics the background
-// sampler stored last. It never reads the host process table, so the TUI can
-// call it on its update loop.
+// LastSnapshot skips the host process table read, so the TUI update loop can call it.
 func (p *Process) LastSnapshot() Snapshot {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -486,8 +479,6 @@ func (p *Process) buildCmd() *exec.Cmd {
 	return cmd
 }
 
-// Start is a no-op while the process is pending or running, so concurrent
-// calls start at most one child.
 func (p *Process) Start(send func(tea.Msg)) error {
 	return p.startInternal(send, false)
 }
@@ -499,8 +490,7 @@ func (p *Process) Start(send func(tea.Msg)) error {
 // race with a concurrent manual start.
 func (p *Process) startInternal(send func(tea.Msg), isAutoRestart bool) error {
 	p.mu.Lock()
-	// A second start while pending would replace p.cmd and orphan the first
-	// child, which then keeps its ports after phrocs quits.
+	// A second start while pending would orphan the first child and its ports.
 	if p.status.IsRunning() {
 		p.mu.Unlock()
 		return nil
@@ -551,8 +541,7 @@ func (p *Process) startInternal(send func(tea.Msg), isAutoRestart bool) error {
 
 	ptmx, err := pty.Start(cmd)
 	if err != nil {
-		// pty.Start can fail inside cmd.Start, and an exec.Cmd cannot be
-		// started twice, so the pipe fallback needs a fresh command.
+		// pty.Start may have called cmd.Start, and an exec.Cmd cannot start twice.
 		pipeCmd := p.buildCmd()
 		pipeCmd.Env = cmd.Env
 		if pipeErr := p.startWithPipe(pipeCmd, send, gen); pipeErr != nil {
@@ -730,8 +719,7 @@ func (p *Process) startWithPipe(cmd *exec.Cmd, send func(tea.Msg), gen int) erro
 	return nil
 }
 
-// failStart writes the spawn error into the output, because the TUI and IPC
-// callers run Start in a goroutine and drop its error.
+// failStart shows the spawn error in the output, because callers drop it.
 func (p *Process) failStart(err error, send func(tea.Msg), gen int) {
 	p.mu.Lock()
 	if p.startGen != gen {
@@ -751,9 +739,7 @@ func (p *Process) failStart(err error, send func(tea.Msg), gen int) {
 	send(StatusMsg{Name: p.Name, Status: finalStatus})
 }
 
-// abandonChild kills a child whose start was replaced by a newer one while it
-// spawned. A Stop followed by a quick Start can run during pty.Start, and
-// without this the older child would run on outside of p.cmd.
+// abandonChild kills a child that a newer Start replaced while it spawned.
 func abandonChild(cmd *exec.Cmd, files ...*os.File) {
 	_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
 	for _, f := range files {
@@ -935,8 +921,7 @@ func (p *Process) readLoop(r io.Reader, outChannel chan tea.Msg) {
 			if p.emulator != nil {
 				_, _ = p.emulator.Write(data)
 			}
-			// The emulator clears its own scrollback on ED 3, but lines
-			// already moved to p.history are outside its reach.
+			// ED 3 in the emulator cannot reach lines already in p.history.
 			if bytes.Contains(data, eraseScrollbackSeq) {
 				p.history = nil
 			}

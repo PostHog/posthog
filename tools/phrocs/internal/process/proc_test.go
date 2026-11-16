@@ -693,8 +693,6 @@ func TestVT_scrollbackEviction(t *testing.T) {
 
 	for i := range 8 {
 		_, _ = fmt.Fprintf(p.emulator, "line %d\r\n", i)
-		// Reading between writes moves scrollback lines into the history,
-		// which must evict on the same cap as the emulator did.
 		if i == 3 {
 			_ = p.Lines()
 		}

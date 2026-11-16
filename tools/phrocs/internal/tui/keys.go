@@ -562,8 +562,7 @@ func (m Model) handleNormalKey(msg tea.KeyPressMsg, cmds []tea.Cmd) (tea.Model, 
 	case key.Matches(msg, m.keys.Stop):
 		if p := m.activeProc(); p != nil && p.IsRunning() {
 			m.dbg("stop: proc=%s", p.Name)
-			// Stop waits up to the grace period for the process to exit, which
-			// would freeze the TUI if it ran in Update.
+			// Stop waits for the process to exit, so it must not run in Update.
 			go p.Stop()
 		}
 
