@@ -17,6 +17,7 @@ import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { registerHogQLFormattingProvider } from 'lib/monaco/hogQLFormattingProvider'
 import { cn } from 'lib/utils/css-classes'
+import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { SQLEditorMode } from 'scenes/data-warehouse/editor/sqlEditorModes'
 import { urls } from 'scenes/urls'
 
@@ -27,6 +28,7 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { VimrcModal } from 'products/data_warehouse/frontend/shared/components/VimrcModal'
 import { sqlEditorVimLogic } from 'products/data_warehouse/frontend/shared/logics/sqlEditorVimLogic'
+import { registerSqlTableHover } from 'products/data_warehouse/frontend/shared/sqlTableHover'
 import { viewEngine } from 'products/data_warehouse/frontend/shared/viewEngine'
 import { useAttachedContext, useMcpToolApplyBack } from 'products/posthog_ai/frontend/api/logics'
 
@@ -416,6 +418,12 @@ export function QueryWindow({
                         },
                         onMount: (editor, monaco) => {
                             registerHogQLFormattingProvider(monaco)
+                            registerSqlTableHover(monaco, editor, () => {
+                                const schema = databaseTableListLogic.findMounted()
+                                return schema?.values.connectionId === (logic.values.selectedSchemaConnectionId ?? null)
+                                    ? schema.values.allTablesMap
+                                    : {}
+                            })
                             onSetMonacoAndEditor(monaco, editor)
                         },
                         onPressCmdEnter: (value, selectionType) => {
