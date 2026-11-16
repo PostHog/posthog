@@ -617,6 +617,12 @@ export class PluginServer implements NodeServer {
 
         const personRepository = new PersonHogPersonReadRepository(personhogClient, clientLabel)
         const groupRepository = new PersonHogGroupReadRepository(personhogClient, clientLabel)
+        // Its own client name keeps the connection metrics of the two routers apart.
+        const leaderLabel = `${clientLabel}-leader`
+        const personhogLeaderClient = createPersonHogClient(this.config, {
+            addr: this.config.PERSONHOG_LEADER_ADDR,
+            clientName: leaderLabel,
+        })
 
         const encryptedFields = new EncryptedFields(this.config.ENCRYPTION_SALT_KEYS)
         const integrationManager = new IntegrationManagerService(
@@ -628,7 +634,9 @@ export class PluginServer implements NodeServer {
         return {
             geoipService,
             personRepository,
-            consistentPersonReader: this.config.CDP_PERSON_CONSISTENT_READS_ENABLED ? personRepository : undefined,
+            consistentPersonReader: personhogLeaderClient
+                ? new PersonHogPersonReadRepository(personhogLeaderClient, leaderLabel)
+                : undefined,
             groupRepository,
             encryptedFields,
             integrationManager,
