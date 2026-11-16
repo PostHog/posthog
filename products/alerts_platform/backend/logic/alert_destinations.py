@@ -396,11 +396,13 @@ def source_destinations_without_hog_functions(*, team_id: int, public_id: UUID) 
     """The alert's rows that no live HogFunction stands behind, so they would send nothing once its source
     owns it again. Delivery's skip rule decides what counts as standing behind: any live HogFunction the
     row copies, disabled ones included. Subscriber rows are left out, because the source sends to its
-    subscribers from its own record."""
+    subscribers from its own record. Call it in a transaction: the rows stay locked until it ends, so a
+    destination deleted meanwhile waits for the rebuild and then takes its new HogFunctions with it."""
     rows = [
         row
         for row in AlertDestination.objects.for_team(team_id)
         .filter(configuration__in=_configurations_by_public_id(team_id, public_id))
+        .select_for_update(of=("self",))
         .order_by("created_at", "id")
         if not _names_subscribers(row)
     ]
@@ -412,10 +414,15 @@ def source_destinations_without_hog_functions(*, team_id: int, public_id: UUID) 
 
 def link_source_destination(*, team_id: int, destination_id: UUID, hog_function_ids: Collection[UUID]) -> None:
     """Makes the row copy these HogFunctions, so delivery skips it while they exist. The ids replace the
-    old ones, which name HogFunctions that are gone."""
-    AlertDestination.objects.for_team(team_id).filter(id=destination_id).update(
-        legacy_hog_function_ids=list(hog_function_ids)
+    old ones, which name HogFunctions that are gone. Raises `AlertDestinationValidationError` when the row is
+    gone, because the HogFunctions would then send for a destination nobody has."""
+    linked = (
+        AlertDestination.objects.for_team(team_id)
+        .filter(id=destination_id)
+        .update(legacy_hog_function_ids=list(hog_function_ids))
     )
+    if not linked:
+        raise AlertDestinationValidationError("This destination was deleted.")
 
 
 def delete_source_destination_rows(
