@@ -33,8 +33,7 @@ _USER_AGENT = "posthog-data-imports-writer"
 _REQUEST_TIMEOUT_SECONDS = 60.0
 _TRANSIENT_ATTEMPTS = 4
 _TRANSIENT_BACKOFF_SECONDS = 1.0
-# The S3 session cannot be renewed while a copy runs, so credentials are renewed while they still have enough time
-# left for a copy started on them.
+# A copy cannot renew its S3 session, so credentials are renewed while a copy started on them has this long to run.
 _CREDENTIAL_RENEWAL_MARGIN_SECONDS = 300.0
 
 
@@ -107,7 +106,6 @@ class GigahogFile:
     footer_size: int
 
     def to_wire(self) -> dict[str, Any]:
-        # Without column_stats the server registers the file with pending stats and fills them from the footer.
         return {
             "path": self.path,
             "record_count": self.record_count,
@@ -133,9 +131,8 @@ class GigahogError(Exception):
 
     @property
     def retryable(self) -> bool:
-        # 409 is a concurrent change and 410 an expired read snapshot, which a fresh read fixes. 429 and 5xx are the
-        # server's own trouble. Every other 4xx refuses the request itself, so a repeat fails the same way.
-        # hogtower answers `invalid_target` for a team it does not know yet, which its team sync fixes.
+        # A fresh read fixes a 409 or 410, and hogtower's team sync fixes `invalid_target`. 429 and 5xx are the server's
+        # own trouble. Every other 4xx refuses the request itself, so a repeat fails the same way.
         return self.status_code in (409, 410, 429) or self.status_code >= 500 or self.code == "invalid_target"
 
     @property
@@ -153,8 +150,7 @@ class GigahogTokenError(GigahogError):
         return False
 
 
-# Shared by every client in the process, so syncs of one team reuse its credentials until they near expiry. Each team
-# has its own lock, so a slow exchange for one team does not hold up the others.
+# Per process and per team, so a team's syncs reuse its credentials, and one team's slow exchange blocks no other.
 _team_credentials: dict[tuple[str, str, int], _TeamCredentials] = {}
 _team_locks: dict[tuple[str, str, int], threading.Lock] = {}
 _team_locks_lock = threading.Lock()
@@ -310,7 +306,6 @@ class GigahogClient:
         renewed = False
         ambiguous = False
         while True:
-            # A token can expire between the check and the request, so the first 401 renews it.
             token = _team_credentials_for(self._config, self._team_id, self._session, renew=renewed).access_token
             response, ambiguous_send = _send_repeating_transient_failures(
                 partial(

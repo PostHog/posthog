@@ -132,8 +132,7 @@ def gigahog_team_filesystem(client: GigahogClient, *, fresh: bool = False) -> s3
         secret=storage.secret_access_key,
         token=storage.session_token,
         client_kwargs={"region_name": storage.region} if storage.region else {},
-        # botocore checks a ranged read, such as a Parquet footer, against the whole object's checksum and fails, so
-        # checksums are used only where a request requires one, as in get_s3_client.
+        # A ranged read, such as a Parquet footer, fails botocore's whole-object checksum check, as in get_s3_client.
         config_kwargs={
             "request_checksum_calculation": "when_required",
             "response_checksum_validation": "when_required",

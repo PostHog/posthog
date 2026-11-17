@@ -93,10 +93,9 @@ HOGTOWER_INTERNAL_SECRET: str | None = get_from_env("HOGTOWER_INTERNAL_SECRET", 
 # exchanged at. HOGLAKE_OAUTH_TOKEN_URL unset turns hoglake credentials off (501).
 HOGLAKE_PUBLIC_URL: str | None = get_from_env("HOGLAKE_PUBLIC_URL", optional=True)
 HOGLAKE_OAUTH_TOKEN_URL: str | None = get_from_env("HOGLAKE_OAUTH_TOKEN_URL", optional=True)
-# Gigahog, PostHog's multi-tenant hoglake, holds each team's data imports in namespace `team_<id>` of the imports
-# catalog, with files under the `s3://` data path. For each team, the writer exchanges its hogtower `hlw_` credential
-# at GIGAHOG_IMPORTS_TOKEN_URL for a Gigahog token and an S3 session that cover only that team. Only organizations
-# with the `managed-warehouse-gigahog-imports` flag write there.
+# Gigahog holds each team's data imports in namespace `team_<id>` of the imports catalog, under the data path. The
+# writer exchanges its hogtower `hlw_` credential at the token URL for a token and an S3 session that cover one team.
+# Only organizations with the `managed-warehouse-gigahog-imports` flag write there.
 GIGAHOG_URL: str | None = get_from_env("GIGAHOG_URL", optional=True)
 GIGAHOG_IMPORTS_CATALOG: str | None = get_from_env("GIGAHOG_IMPORTS_CATALOG", optional=True)
 GIGAHOG_IMPORTS_DATA_PATH: str | None = get_from_env("GIGAHOG_IMPORTS_DATA_PATH", optional=True)
