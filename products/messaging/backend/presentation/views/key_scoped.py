@@ -1,7 +1,4 @@
-"""The transactional email API at /api/messaging/, for project secret API keys.
-
-These routes serve the same viewsets as /api/projects/:project_id/messaging/, without a project in the path.
-"""
+"""The transactional email viewsets at /api/messaging/, with the project taken from the project secret API key."""
 
 from typing import Literal, Optional
 

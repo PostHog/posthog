@@ -69,8 +69,6 @@ def register_routes(routers: RouterRegistry) -> None:
     routers.projects.register(
         r"transactional_email_log", TransactionalEmailLogViewSet, "project_transactional_email_log", ["team_id"]
     )
-    # A project secret API key names its project, so the key-scoped copies of the transactional email routes take
-    # none in the path.
     routers.root.register(r"messaging/send", KeyScopedMessagingSendViewSet, "messaging_send")
     routers.root.register(r"messaging/attachments", KeyScopedMessagingAttachmentsViewSet, "messaging_attachments")
     routers.root.register(r"messaging/emails", KeyScopedMessagingEmailsViewSet, "messaging_emails")
