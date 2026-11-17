@@ -5117,13 +5117,12 @@ email@example.org,
             data={"name": "flag callers", "groups": [{"event_id": "$feature_flag_called", "days": 30}]},
         )
 
-        self.assertEqual(response.status_code, 400, response.json())
-        # The legacy group saves as a realtime cohort. The native JSON events table holds no flag calls, so its teams
-        # get the realtime refusal that mode 2 gets.
-        expected_refusal = (
-            _FLAG_CALL_REALTIME_REFUSAL if use_new_events_schema(self.team.id) else _FLAG_CALL_KEY_REFUSAL
-        )
-        self.assertIn(expected_refusal, response.json()["detail"])
+        if use_new_events_schema(self.team.id):
+            # The native JSON events table reads every flag call through the union, which needs no flag key.
+            self.assertEqual(response.status_code, 201, response.json())
+        else:
+            self.assertEqual(response.status_code, 400, response.json())
+            self.assertIn(_FLAG_CALL_KEY_REFUSAL, response.json()["detail"])
 
     @parameterized.expand(
         [
