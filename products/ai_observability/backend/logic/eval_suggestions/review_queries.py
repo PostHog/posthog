@@ -86,30 +86,6 @@ def load_review_cards(*, since: datetime, team_id: int | None, unlabeled_only: b
     ]
 
 
-@frozen
-class LabelTarget:
-    """What the label form shows about one card: its text, and its current label."""
-
-    headline: str
-    outcome: str
-    reason: str
-    verdict: str | None
-    note: str
-
-
-def label_target(team_id: int, suggestion_id: UUID) -> LabelTarget | None:
-    card = EvalSuggestion.objects.for_team(team_id).filter(id=suggestion_id).first()
-    if card is None:
-        return None
-    return LabelTarget(
-        headline=card.headline,
-        outcome=card.outcome,
-        reason=card.reason,
-        verdict=card.review_verdict,
-        note=card.review_note,
-    )
-
-
 def label_card(
     team_id: int, suggestion_id: UUID, *, verdict: EvalSuggestionReviewVerdict, note: str, reviewer_id: int
 ) -> bool:

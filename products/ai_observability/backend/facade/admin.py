@@ -6,10 +6,8 @@ from products.ai_observability.backend.admin import (
 )
 from products.ai_observability.backend.dataset_retention import dataset_retention_enabled as dataset_retention_enabled
 from products.ai_observability.backend.logic.eval_suggestions.review_queries import (
-    LabelTarget as LabelTarget,
     ReviewCard as ReviewCard,
     label_card as label_card,
-    label_target as label_target,
     load_review_cards as load_review_cards,
 )
 from products.ai_observability.backend.models.eval_suggestions import (

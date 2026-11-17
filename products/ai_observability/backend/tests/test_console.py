@@ -75,6 +75,7 @@ class TestEvalSuggestionReviewTool(BaseTest):
         run = EvalSuggestionRun.objects.for_team(self.team.pk).create(
             team=self.team, trigger="manual", status=EvalSuggestionRunStatus.COMPLETED, completed_at=timezone.now()
         )
+        # The higher score comes first.
         self.labeled, self.unlabeled = (
             EvalSuggestion.objects.for_team(self.team.pk).create(
                 team=self.team,
@@ -86,48 +87,54 @@ class TestEvalSuggestionReviewTool(BaseTest):
                 reason=f"Measured the {key} rule.",
                 evidence=[{"trace_id": "trace/1?step=2#end%2F", "reason": "Example reason"}],
                 review_verdict=verdict,
+                review_note=note,
+                score=score,
             )
-            for key, headline, verdict in (
-                ("check:a", "Already labeled card", EvalSuggestionReviewVerdict.BAD),
-                ("check:b", "Card waiting for a label", None),
+            for key, headline, verdict, note, score in (
+                ("check:a", "Already labeled card", EvalSuggestionReviewVerdict.BAD, "Examples are summaries", 2.0),
+                ("check:b", "Card waiting for a label", None, "", 1.0),
             )
         )
 
-    @parameterized.expand([("all_cards", "", True), ("only_unlabeled", "?unlabeled=on", False)])
-    def test_page_lists_published_cards(self, _name: str, query: str, shows_labeled: bool) -> None:
+    @parameterized.expand(
+        [
+            # The first visit shows only unlabeled cards, and a label leaves the next one in the same place.
+            ("first_visit", "", "check:b", "Card waiting for a label", "card=1&unlabeled=on", None),
+            ("every_card", "?days=30", "check:a", "Already labeled card", "card=2", "Examples are summaries"),
+        ]
+    )
+    def test_the_page_shows_one_card_with_buttons_that_label_it(
+        self, _name: str, query: str, key: str, headline: str, after_label: str, note: str | None
+    ) -> None:
         response = self.client.get(f"/admin/console/tools/eval-suggestion-review/{query}")
 
         assert response.status_code == 200
         content = response.content.decode()
-        assert "Card waiting for a label" in content
-        assert "Checks the check:b rule." in content and "Measured the check:b rule." in content
+        assert headline in content and f"Checks the {key} rule." in content and f"Measured the {key} rule." in content
+        assert ("Already labeled card" in content) is (key == "check:a")
+        assert ("Card waiting for a label" in content) is (key == "check:b")
         assert "/ai-observability/traces/trace%252F1%253Fstep%253D2%2523end%25252F" in content
-        assert ("Already labeled card" in content) is shows_labeled
+        form = re.search(r'action="/admin/console/tools/eval-suggestion-review/label/\?([^"]*)"', content)
+        assert form is not None and form.group(1).endswith(after_label.replace("&", "&amp;"))
+        assert 'data-console-key="ArrowRight"' in content and 'data-console-key="ArrowLeft"' in content
+        # Staff label from the card, so the page has no form that asks for a suggestion ID.
+        assert "tool-actions-title" not in content
+        if note is not None:
+            assert note in content
 
     @parameterized.expand([("known_card", True, 302), ("unknown_card", False, 404)])
     def test_labeling_saves_the_verdict_and_note(self, _name: str, known: bool, expected_status: int) -> None:
         suggestion_id = self.unlabeled.id if known else uuid.uuid4()
 
         response = self.client.post(
-            "/admin/console/tools/eval-suggestion-review/label/",
+            "/admin/console/tools/eval-suggestion-review/label/?days=30&card=2",
             {"team": self.team.pk, "suggestion": str(suggestion_id), "verdict": "good", "note": "Real failures"},
         )
 
         assert response.status_code == expected_status
+        if known:
+            assert response["Location"] == "/admin/console/tools/eval-suggestion-review/?days=30&card=2"
         self.unlabeled.refresh_from_db()
         assert (self.unlabeled.review_verdict, self.unlabeled.review_note, self.unlabeled.reviewed_by_id) == (
             ("good", "Real failures", self.user.pk) if known else (None, "", None)
         )
-
-    def test_the_label_form_opens_with_the_cards_current_label(self) -> None:
-        self.labeled.review_note = "Examples are summaries"
-        self.labeled.save()
-
-        response = self.client.get(
-            f"/admin/console/tools/eval-suggestion-review/label/?team={self.team.pk}&suggestion={self.labeled.id}"
-        )
-
-        content = response.content.decode()
-        assert re.search(r'<option value="bad"\s+selected>', content)
-        assert "Examples are summaries" in content
-        assert "Checks the check:a rule." in content and "Measured the check:a rule." in content

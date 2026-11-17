@@ -1,5 +1,5 @@
 from datetime import timedelta
-from typing import cast
+from typing import Any, cast
 from urllib.parse import quote, urlencode
 
 from django import forms
@@ -11,8 +11,11 @@ from django.utils import timezone
 from posthog.admin.console.panels import Owner, ReasonForm, Tone
 from posthog.admin.console.registry import console
 from posthog.admin.console.tools import (
+    Block,
     Cell,
+    Choice,
     ConsoleTool,
+    Decision,
     FieldGroup,
     Filters,
     Notice,
@@ -28,12 +31,10 @@ from posthog.models.user import User
 
 from products.ai_observability.backend.facade.admin import (
     EvalSuggestionReviewVerdict,
-    LabelTarget,
     ReviewCard,
     UsageReportRefused,
     dataset_retention_enabled,
     label_card,
-    label_target,
     load_review_cards,
     queue_usage_report,
     set_dataset_retention_enabled,
@@ -147,9 +148,9 @@ console.register_moved_page(
 
 REVIEW_TOOL_URL = "/admin/console/tools/eval-suggestion-review/"
 REVIEW_NOTICE = (
-    "Cards the eval suggestions pipeline published, newest run first. Label each one good when you would want it on "
-    "your own evals page, and bad otherwise, with a note on what is wrong. Customers never see the labels. The "
-    "examples link to traces in the customer's project."
+    "Cards the eval suggestions pipeline published, one at a time, newest run first. Label a card good when you "
+    "would want it on your own evals page, and bad otherwise, with a note on what is wrong. Press the right arrow "
+    "for good, the left arrow for bad and the down arrow to skip. Customers never see the labels."
 )
 
 
@@ -162,12 +163,12 @@ class ReviewFilterForm(forms.Form):
         initial=30,
         required=False,
     )
-    unlabeled = forms.BooleanField(label="Only cards without a label", required=False)
+    unlabeled = forms.BooleanField(label="Only cards without a label", required=False, initial=True)
 
 
 class LabelSuggestionForm(forms.Form):
-    team = forms.IntegerField(label="Team ID", min_value=1)
-    suggestion = forms.UUIDField(label="Suggestion ID")
+    team = forms.IntegerField(min_value=1, widget=forms.HiddenInput)
+    suggestion = forms.UUIDField(widget=forms.HiddenInput)
     verdict = forms.ChoiceField(label="Label", choices=EvalSuggestionReviewVerdict.choices)
     note = forms.CharField(
         label="What is right or wrong with it", required=False, widget=forms.Textarea, max_length=2000
@@ -184,81 +185,71 @@ def label_suggestion(request: HttpRequest, form: forms.Form | None) -> HttpRespo
     ):
         messages.error(request, "This team has no suggestion with this ID.")
         return HttpResponse(status=404)
-    messages.success(request, f"Labeled the suggestion {verdict.label.lower()}.")
+    messages.success(request, f"Labeled the card {verdict.label.lower()}.")
     return None
 
 
-def _short(text: str, limit: int = 28) -> str:
-    return text if len(text) <= limit else f"{text[: limit - 1]}…"
+def _query(filters: dict[str, Any], card: int) -> str:
+    params: dict[str, object] = {"days": filters["days"], "card": card}
+    if filters["team"] is not None:
+        params["team"] = filters["team"]
+    if filters["unlabeled"]:
+        params["unlabeled"] = "on"
+    return urlencode(params)
 
 
-def _measured(card: ReviewCard) -> Cell:
-    if card.measured_failure_rate is None or card.sample_size is None:
-        return Cell(text="Not measured", muted=True)
-    return Cell(text=f"{card.measured_failure_rate:.1%}", detail=f"of {card.sample_size} sampled traces")
+def _position(request: HttpRequest, count: int) -> int:
+    try:
+        wanted = int(request.GET.get("card", "1"))
+    except ValueError:
+        wanted = 1
+    return min(max(wanted, 1), count)
 
 
-def _runs(card: ReviewCard) -> Cell:
-    if card.estimated_weekly_runs is None:
-        return Cell(text="-", muted=True)
-    cost = f", about ${card.estimated_weekly_cost_usd:,.2f}" if card.estimated_weekly_cost_usd is not None else ""
-    return Cell(text=f"{card.estimated_weekly_runs:,}", detail=f"at {card.rollout_percentage:g}% rollout{cost}")
-
-
-def _examples(card: ReviewCard) -> Cell:
-    if not card.examples:
-        return Cell(text="None", muted=True)
-    first = card.examples[0]
-    count = len(card.examples)
+def _trace_url(team_id: int, trace_id: str) -> str:
     # Encoded twice like urls.aiObservabilityTrace, because the router decodes the path once and the trace page
     # decodes the ID again.
-    trace = quote(quote(first.trace_id, safe=""), safe="")
-    return Cell(
-        text=f"{count} trace{'s' if count != 1 else ''}",
-        href=f"{settings.SITE_URL}/project/{card.team_id}/ai-observability/traces/{trace}",
-        detail=_short(first.reason),
-    )
+    return f"{settings.SITE_URL}/project/{team_id}/ai-observability/traces/{quote(quote(trace_id, safe=''), safe='')}"
 
 
-def _label(card: ReviewCard) -> Cell:
-    href = f"{REVIEW_TOOL_URL}label/?{urlencode({'team': card.team_id, 'suggestion': str(card.id)})}"
-    if card.review_verdict is None:
-        return Cell(text="Label", href=href)
-    tone = Tone.SUCCESS if card.review_verdict == EvalSuggestionReviewVerdict.GOOD else Tone.DESTRUCTIVE
-    return Cell(
-        text=EvalSuggestionReviewVerdict(card.review_verdict).label,
-        href=href,
-        tone=tone,
-        detail=_short(card.review_note),
-    )
-
-
-def _review_row(card: ReviewCard) -> Row:
-    completed = card.run_completed_at.strftime("%Y-%m-%d") if card.run_completed_at else "-"
-    return Row(
-        cells=(
-            Cell(text=str(card.team_id), mono=True, detail=f"{completed}, {card.trigger}"),
-            Cell(text=card.headline, detail=f"{card.dedupe_key} · {card.status}"),
-            Cell(text=f"{card.outcome}\n{card.reason}"),
-            _measured(card),
-            _runs(card),
-            _examples(card),
-            _label(card),
+def _card_stats(card: ReviewCard) -> Stats:
+    items = []
+    if card.measured_failure_rate is not None and card.sample_size is not None:
+        items.append(
+            Stat(label=f"Failure rate in {card.sample_size} traces", value=f"{card.measured_failure_rate:.1%}")
         )
+    if card.estimated_weekly_runs is not None:
+        items.append(
+            Stat(label=f"Runs a week at {card.rollout_percentage:g}% rollout", value=f"{card.estimated_weekly_runs:,}")
+        )
+    if card.estimated_weekly_cost_usd is not None:
+        items.append(Stat(label="Cost a week", value=f"${card.estimated_weekly_cost_usd:,.2f}"))
+    return Stats(items=tuple(items))
+
+
+def _decision(card: ReviewCard, position: int, count: int, filters: dict[str, Any]) -> Decision:
+    completed = card.run_completed_at.strftime("%Y-%m-%d") if card.run_completed_at else "not finished"
+    label = f" · labeled {card.review_verdict}" if card.review_verdict else ""
+    # A labeled card leaves a list of unlabeled cards, so the next one moves into its place.
+    after_label = position if filters["unlabeled"] else position + 1
+    return Decision(
+        title=card.headline,
+        text=f"{card.outcome}\n\n{card.reason}",
+        detail=f"Card {position} of {count} · team {card.team_id} · {completed}, {card.trigger} · {card.status}{label}",
+        operation_key="label",
+        field="verdict",
+        choices=(
+            Choice(label="← Bad", value=EvalSuggestionReviewVerdict.BAD, tone=Tone.DESTRUCTIVE, key="ArrowLeft"),
+            Choice(label="Good →", value=EvalSuggestionReviewVerdict.GOOD, tone=Tone.SUCCESS, key="ArrowRight"),
+        ),
+        values={"team": str(card.team_id), "suggestion": str(card.id)},
+        note_field="note",
+        note_label="What is right or wrong with it",
+        note=card.review_note,
+        query=_query(filters, after_label),
+        skip_href=f"{REVIEW_TOOL_URL}?{_query(filters, position + 1)}" if position < count else None,
+        skip_key="ArrowDown",
     )
-
-
-def _label_form(request: HttpRequest) -> tuple[dict[str, object], LabelTarget | None]:
-    """The form's initial values and the card the link points at. The card's current label fills the form, so
-    submitting it unchanged keeps the label."""
-    initial: dict[str, object] = {"team": request.GET.get("team", ""), "suggestion": request.GET.get("suggestion", "")}
-    form = LabelSuggestionForm({**initial, "verdict": EvalSuggestionReviewVerdict.GOOD})
-    if not form.is_valid():
-        return initial, None
-    target = label_target(form.cleaned_data["team"], form.cleaned_data["suggestion"])
-    if target is not None and target.verdict is not None:
-        initial.update(verdict=target.verdict, note=target.note)
-    return initial, target
 
 
 @console.register_tool
@@ -270,59 +261,59 @@ class EvalSuggestionReviewTool(ConsoleTool):
     description = "Labels the eval suggestion cards the pipeline publishes, to tune which ones it shows."
 
     def page(self, request: HttpRequest) -> Page:
+        # The first visit shows the cards that still need a label.
         form = ReviewFilterForm(request.GET or None)
-        filters = form.cleaned_data if form.is_valid() else {}
-        days = filters.get("days") or 30
+        cleaned = form.cleaned_data if form.is_valid() else {}
+        filters = {
+            "team": cleaned.get("team"),
+            "days": cleaned.get("days") or 30,
+            "unlabeled": bool(cleaned.get("unlabeled")) if request.GET else True,
+        }
         cards = load_review_cards(
-            since=timezone.now() - timedelta(days=days),
-            team_id=filters.get("team"),
-            unlabeled_only=bool(filters.get("unlabeled")),
+            since=timezone.now() - timedelta(days=filters["days"]),
+            team_id=filters["team"],
+            unlabeled_only=filters["unlabeled"],
         )
-        good = sum(card.review_verdict == EvalSuggestionReviewVerdict.GOOD for card in cards)
-        bad = sum(card.review_verdict == EvalSuggestionReviewVerdict.BAD for card in cards)
-        return Page(
-            blocks=(
-                Notice(text=REVIEW_NOTICE),
-                Filters(
-                    form=form,
-                    groups=(FieldGroup(title="Cards", field_names=("team", "days", "unlabeled")),),
-                    submit_label="Show cards",
-                ),
-                Stats(
-                    items=(
-                        Stat(label="Cards", value=str(len(cards))),
-                        Stat(label="Good", value=str(good)),
-                        Stat(label="Bad", value=str(bad)),
-                        Stat(label="Not labeled", value=str(len(cards) - good - bad)),
-                    )
-                ),
+        blocks: list[Block] = [
+            Notice(text=REVIEW_NOTICE),
+            Filters(
+                form=form,
+                groups=(FieldGroup(title="Cards", field_names=("team", "days", "unlabeled")),),
+                submit_label="Show cards",
+                compact=True,
+            ),
+        ]
+        if not cards:
+            return Page(blocks=(*blocks, Notice(text="No cards match these filters.")))
+        position = _position(request, len(cards))
+        card = cards[position - 1]
+        blocks += [_decision(card, position, len(cards), filters), _card_stats(card)]
+        if card.examples:
+            blocks.append(
                 Table(
-                    columns=(
-                        "Team",
-                        "Card",
-                        "What it checks, and why",
-                        "Failure rate",
-                        "Runs a week",
-                        "Examples",
-                        "Label",
+                    title="Examples",
+                    columns=("Trace", "What went wrong"),
+                    rows=tuple(
+                        Row(
+                            cells=(
+                                Cell(text=example.trace_id, href=_trace_url(card.team_id, example.trace_id), mono=True),
+                                Cell(text=example.reason),
+                            )
+                        )
+                        for example in card.examples
                     ),
-                    rows=tuple(_review_row(card) for card in cards),
-                    empty_text="No cards match these filters.",
-                    scrolls=True,
-                ),
+                )
             )
-        )
+        return Page(blocks=tuple(blocks))
 
     def operations(self, request: HttpRequest) -> list[ToolOperation]:
-        initial, target = _label_form(request)
-        card = f"{target.headline}: {target.outcome} {target.reason} " if target is not None else ""
         return [
             ToolOperation(
                 key="label",
-                label="Label a suggestion",
+                label="Label a card",
                 handler=label_suggestion,
                 form_class=LabelSuggestionForm,
-                form_initial=initial,
-                description=f"{card}Saves a staff label on one card. The customer sees nothing.",
+                description="Saves a staff label on one card. The customer sees nothing.",
+                listed=False,
             )
         ]
