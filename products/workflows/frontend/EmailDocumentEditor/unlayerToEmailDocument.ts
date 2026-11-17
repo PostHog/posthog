@@ -626,17 +626,18 @@ function socialIconsHtml(values: Record<string, any>): string {
     const iconType = String(values.icons?.iconType ?? 'circle-black').replace(/[^a-z-]/gi, '')
     const size = parsePx(values.iconSize) ?? 32
     const spacing = parsePx(values.spacing) ?? 5
-    const cells = (values.icons?.icons ?? [])
-        .map((icon: { name?: string; url?: string }) => {
+    const icons: { name?: string; url?: string }[] = values.icons?.icons ?? []
+    const cells = icons
+        .map((icon, index) => {
             const name = String(icon.name ?? '')
             const file = name.toLowerCase().replace(/[^a-z0-9]/g, '')
             const url = String(icon.url ?? '')
             const href = (name === 'Email' && !/^mailto:/i.test(url) ? `mailto:${url}` : url).replace(/"/g, '&quot;')
-            return `<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="display:inline-table;vertical-align:top;margin:0 ${spacing / 2}px"><tr><td><a href="${href}" target="_blank"><img src="https://cdn.tools.unlayer.com/social/icons/${iconType}/${file}.png" alt="${name.replace(/"/g, '&quot;')}" width="${size}" height="${size}" style="display:block;border:0" /></a></td></tr></table>`
+            return `<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="display:inline-table;vertical-align:top;margin:0 ${index === icons.length - 1 ? 0 : spacing}px 0 0"><tr><td><a href="${href}" target="_blank"><img src="https://cdn.tools.unlayer.com/social/icons/${iconType}/${file}.png" alt="${name.replace(/"/g, '&quot;')}" width="${size}" height="${size}" style="display:block;border:0" /></a></td></tr></table>`
         })
         // Each icon is its own inline table so they wrap on a narrow screen, as in the old editor. Outlook on Windows
         // ignores inline tables, so it gets one row of cells.
-        .join('<!--[if mso]></td><td><![endif]-->')
+        .join(`<!--[if mso]></td><td style="padding-left:${spacing}px"><![endif]-->`)
     const side = align(values.align) ?? 'center'
     return `<div style="text-align:${side};font-size:0;line-height:0"><!--[if mso]><table role="presentation" align="${side}" cellpadding="0" cellspacing="0" border="0"><tr><td><![endif]-->${cells}<!--[if mso]></td></tr></table><![endif]--></div>`
 }
