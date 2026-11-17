@@ -67,10 +67,13 @@ from posthog.api.team.team_config import (
     drop_cached_workflows_config,
 )
 from posthog.api.team.team_serializer import (
+    REALTIME_COHORTS_FIELD_SCHEMA,
     EvaluationContextSuggestionRequestSerializer,
     EvaluationContextSuggestionResponseSerializer,
     TeamSerializer,
+    flag_evaluations_read_mode_for,
     hide_team_secrets_from_workload_tokens,
+    realtime_cohorts_for_request,
 )
 from posthog.api.team.viewsets import EventIngestionRestrictionSerializer, team_event_ingestion_restrictions_view
 from posthog.api.utils import validate_authorized_url_wildcards
@@ -123,7 +126,7 @@ from posthog.permissions import (
     get_authenticator_scoped_organization_ids,
     get_organization_from_view,
 )
-from posthog.scopes import APIScopeObjectOrNotSupported
+from posthog.scopes.catalog import APIScopeObjectOrNotSupported
 from posthog.session_recordings.data_retention import (
     VALID_RETENTION_PERIODS,
     parse_feature_to_entitlement,
@@ -145,7 +148,7 @@ from products.access_control.backend.presentation.access_control import (
 from products.access_control.backend.presentation.access_control_settings import AccessControlSettingsViewSetMixin
 from products.dashboards.backend.models import Dashboard
 from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
-from products.feature_flags.backend.facade.flags import get_flag_evaluations_read_mode
+from products.feature_flags.backend.facade.flags import flag_calls_only_in_flag_evaluations
 from products.feature_flags.backend.models import TeamFeatureFlagDefaultsConfig
 from products.feature_flags.backend.models.evaluation_context import (
     EvaluationContext,
@@ -636,10 +639,17 @@ class ProjectBackwardCompatSerializer(
     product_intents = serializers.SerializerMethodField()  # Compat with TeamSerializer
     available_setup_task_ids = serializers.SerializerMethodField()  # Compat with TeamSerializer
     managed_viewsets = serializers.SerializerMethodField()  # Compat with TeamSerializer
+    realtime_cohorts = serializers.SerializerMethodField()  # Compat with TeamSerializer
     flag_evaluations_mode = serializers.SerializerMethodField(  # Compat with TeamSerializer
         help_text=(
             "Which table this project's feature flag usage data is read from. PostHog sets it for the "
             "whole organization. 0 reads the events table. 1 and 2 read the flag_evaluations table."
+        )
+    )
+    flag_calls_only_in_flag_evaluations = serializers.SerializerMethodField(  # Compat with TeamSerializer
+        help_text=(
+            "Whether this project's events table holds none of its new $feature_flag_called events, so "
+            "they can only be read from the flag_evaluations table."
         )
     )
     # These are @property attrs on Team, not Django model fields — declare explicitly so drf-spectacular can resolve them
@@ -820,7 +830,9 @@ class ProjectBackwardCompatSerializer(
             "project_id",  # Compat with TeamSerializer
             "user_access_level",  # Compat with TeamSerializer
             "managed_viewsets",  # Compat with TeamSerializer
+            "realtime_cohorts",  # Compat with TeamSerializer
             "flag_evaluations_mode",  # Compat with TeamSerializer
+            "flag_calls_only_in_flag_evaluations",  # Compat with TeamSerializer
             "api_host",  # Compat with TeamSerializer
             "revenue_analytics_config",  # Compat with TeamSerializer
             "marketing_analytics_config",  # Compat with TeamSerializer
@@ -863,7 +875,9 @@ class ProjectBackwardCompatSerializer(
             "project_id",
             "user_access_level",
             "managed_viewsets",
+            "realtime_cohorts",
             "flag_evaluations_mode",
+            "flag_calls_only_in_flag_evaluations",
             "api_host",
         )
 
@@ -1048,7 +1062,15 @@ class ProjectBackwardCompatSerializer(
 
     @extend_schema_field(serializers.ChoiceField(choices=FlagEvaluationsMode.choices))
     def get_flag_evaluations_mode(self, obj: Project) -> int:
-        return get_flag_evaluations_read_mode(obj.organization_id)
+        return flag_evaluations_read_mode_for(self.context, obj.organization_id)
+
+    def get_flag_calls_only_in_flag_evaluations(self, obj: Project) -> bool:
+        read_mode = flag_evaluations_read_mode_for(self.context, obj.organization_id)
+        return flag_calls_only_in_flag_evaluations(obj.passthrough_team, read_mode)
+
+    @extend_schema_field(REALTIME_COHORTS_FIELD_SCHEMA)
+    def get_realtime_cohorts(self, obj: Project) -> dict[str, str | int | None]:
+        return realtime_cohorts_for_request(self.context.get("request"), obj.passthrough_team)
 
     @staticmethod
     def validate_revenue_analytics_config(value):

@@ -569,7 +569,7 @@ export interface HogQLQueryModifiers {
     materializedColumnsOptimizationMode?: 'disabled' | 'optimized'
     propertyGroupsMode?: 'enabled' | 'disabled' | 'optimized'
     useMaterializedViews?: boolean
-    /** Read events from the native JSON events table (`true`) or the legacy events table (`false`). When unset, a staff person's `ph_new_events_schema` cookie applies, then the project's listing in the `CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS` instance setting, then the `CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA` instance setting. This is an internal rollout switch, and the project settings API ignores it. */
+    /** Read events from the native JSON events table (`true`) or the legacy events table (`false`). When unset, a staff person's tab switch or `ph_new_events_schema` cookie applies, then the project. A project reads the native table once PostHog has moved it there. Before that, it can opt in early by storing `true` here in its project settings. A stored `false` is ignored. */
     useNewEventsSchema?: boolean
     customChannelTypeRules?: CustomChannelRule[]
     customBotDefinitions?: CustomBotRule[]
@@ -845,7 +845,6 @@ export const VALID_RECORDING_ORDERS = [
     'mouse_activity_count',
     'activity_score',
     'recording_ttl',
-    'surfacing_score',
 ] as const
 
 export interface MatchingEventsResponse {
@@ -888,8 +887,6 @@ export interface RecordingsQuery extends DataNode<RecordingsQueryResponse> {
     having_predicates?: AnyPropertyFilter[] // duration and snapshot_source filters
     comment_text?: RecordingPropertyFilter // search comments by text content
     filter_test_accounts?: boolean
-    /** Restrict results to recordings above the replay relevance threshold. */
-    recommended_only?: boolean
     /**
      * @default "AND"
      * */
@@ -1557,6 +1554,7 @@ export enum HeatmapSortOrder {
 
 export interface HeatmapSettings {
     xAxisColumn?: string
+    xAxisSortOrder?: HeatmapSortOrder
     yAxisColumn?: string
     valueColumn?: string
     xAxisLabel?: string
@@ -4937,7 +4935,12 @@ export interface ErrorTrackingQuery extends DataNode<ErrorTrackingQueryResponse>
     filterTestAccounts?: boolean
     /** Free-text search across exception type, message, and stack frames. */
     searchQuery?: string
-    volumeResolution: integer
+    /**
+     * @asType integer
+     * @minimum 0
+     * @maximum 200
+     */
+    volumeResolution: number
     withAggregations?: boolean
     withFirstEvent?: boolean
     withLastEvent?: boolean

@@ -34,14 +34,14 @@ class TestMcpResourceScopes(SimpleTestCase):
         self.assertFalse(is_trusted_posthog_mcp_resource("http://localhost:8787/mcp"))
 
     @patch(
-        "posthog.api.oauth.mcp_resource_scopes.get_oauth_scopes_supported",
-        return_value=["openid", "profile", "notebook:read", "notebook:write", "webhook:write"],
+        "posthog.api.oauth.mcp_resource_scopes.OAUTH_SCOPES_SUPPORTED",
+        ("openid", "profile", "notebook:read", "notebook:write", "webhook:write"),
     )
     @patch(
         "posthog.api.oauth.mcp_resource_scopes.mcp_tool_required_scopes",
         return_value=frozenset({"notebook:read", "notebook:write"}),
     )
-    def test_advertised_scopes_keeps_identity_and_tool_required_only(self, _mock_required, _mock_supported):
+    def test_advertised_scopes_keeps_identity_and_tool_required_only(self, _mock_required):
         # Identity scopes (no `:`) always ride; resource scopes only if a tool needs them.
         # `webhook:write` is grantable but exercised by no tool, so it must not be advertised.
         self.assertEqual(
