@@ -10,6 +10,8 @@ from django.core.cache import cache
 from django.core.exceptions import ValidationError
 from django.db import models
 from django.db.models import F, QuerySet
+from django.db.models.signals import pre_delete
+from django.dispatch import receiver
 from django.utils import timezone
 
 from posthog.dataclasses import frozen
@@ -1488,6 +1490,17 @@ def unfinished_property_removals() -> QuerySet[DataDeletionRequest]:
     return DataDeletionRequest.objects.filter(
         request_type=RequestType.PROPERTY_REMOVAL, property_removal_marker__isnull=False
     ).exclude(status=RequestStatus.COMPLETED)
+
+
+@receiver(pre_delete, sender=DataDeletionRequest)
+def refuse_to_delete_an_unfinished_property_removal(sender, instance: DataDeletionRequest, **kwargs) -> None:
+    # Deleting the row would let another property removal on the team start while this run may still
+    # restore its staged copy. Django sends this signal for each row of a queryset delete too.
+    if unfinished_property_removals().filter(pk=instance.pk).exists():
+        raise ValidationError(
+            "This property removal's run started and did not complete. Retry it until it completes before you "
+            "delete it."
+        )
 
 
 # An event removal below this many events is cheap enough that a dedicated ClickHouse Team review buys

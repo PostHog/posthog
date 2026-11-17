@@ -371,8 +371,39 @@ class TestDeletionRequestConsole(BaseTest):
         obj.refresh_from_db()
         assert obj.status == expected
 
-    def test_verify_does_not_complete_a_property_removal_whose_run_started(self) -> None:
+    @parameterized.expand(
+        [
+            ("its_own_run", RequestType.PROPERTY_REMOVAL, True, "Retry it until it completes."),
+            ("another_removal", RequestType.PROPERTY_REMOVAL, False, "Verify again after it completes."),
+            ("an_event_removal", RequestType.EVENT_REMOVAL, False, "Verify again after it completes."),
+        ]
+    )
+    def test_verify_does_not_complete_while_a_property_removal_on_the_team_is_unfinished(
+        self, _name: str, request_type: RequestType, own_run: bool, message: str
+    ) -> None:
         # The run may hold the team's rows only in its staged files, which the count does not read.
+        obj = self._request(
+            request_type=request_type,
+            properties=["secret"] if request_type == RequestType.PROPERTY_REMOVAL else [],
+            status=RequestStatus.FAILED,
+            property_removal_marker=timezone.now() if own_run else None,
+        )
+        if not own_run:
+            self._request(
+                request_type=RequestType.PROPERTY_REMOVAL,
+                properties=["email"],
+                status=RequestStatus.FAILED,
+                property_removal_marker=timezone.now(),
+            )
+
+        with patch(f"{PANELS}.count_remaining_for_request", return_value=0):
+            response = self.client.post(self._url(obj, "workflow", "verify"), follow=True)
+
+        assert message in response.content.decode()
+        obj.refresh_from_db()
+        assert obj.status == RequestStatus.FAILED
+
+    def test_django_admin_does_not_offer_to_delete_a_started_unfinished_property_removal(self) -> None:
         obj = self._request(
             request_type=RequestType.PROPERTY_REMOVAL,
             properties=["secret"],
@@ -380,12 +411,9 @@ class TestDeletionRequestConsole(BaseTest):
             property_removal_marker=timezone.now(),
         )
 
-        with patch(f"{PANELS}.count_remaining_for_request", return_value=0):
-            response = self.client.post(self._url(obj, "workflow", "verify"), follow=True)
+        response = self.client.get(f"/admin/posthog/datadeletionrequest/{obj.pk}/delete/")
 
-        assert "run started and did not complete. Retry it until it completes." in response.content.decode()
-        obj.refresh_from_db()
-        assert obj.status == RequestStatus.FAILED
+        assert response.status_code == 403
 
     def test_verify_does_not_complete_criteria_edited_while_it_counted(self) -> None:
         obj = self._request(status=RequestStatus.FAILED)
@@ -555,13 +583,23 @@ class TestDeletionRequestConsole(BaseTest):
         obj.refresh_from_db()
         assert obj.request_type == RequestType.EVENT_REMOVAL
 
-    def test_verify_does_not_complete_a_property_removal_whose_run_starts_during_the_count(self) -> None:
+    @parameterized.expand([("its_own_run", True), ("another_removal", False)])
+    def test_verify_does_not_complete_when_a_property_removal_run_starts_during_the_count(
+        self, _name: str, own_run: bool
+    ) -> None:
         obj = self._request(
             request_type=RequestType.PROPERTY_REMOVAL, properties=["$ip"], status=RequestStatus.APPROVED
         )
+        starting = (
+            obj
+            if own_run
+            else self._request(
+                request_type=RequestType.PROPERTY_REMOVAL, properties=["email"], status=RequestStatus.APPROVED
+            )
+        )
 
         def count_while_the_run_starts(request: DataDeletionRequest) -> int:
-            DataDeletionRequest.objects.filter(pk=request.pk).update(
+            DataDeletionRequest.objects.filter(pk=starting.pk).update(
                 status=RequestStatus.IN_PROGRESS, property_removal_marker=timezone.now()
             )
             return 0
@@ -570,7 +608,7 @@ class TestDeletionRequestConsole(BaseTest):
             self.client.post(self._url(obj, "workflow", "verify"))
 
         obj.refresh_from_db()
-        assert obj.status == RequestStatus.IN_PROGRESS
+        assert obj.status == (RequestStatus.IN_PROGRESS if own_run else RequestStatus.APPROVED)
 
     def test_criteria_of_a_property_removal_whose_run_started_stay_fixed(self) -> None:
         # The edit would clear the marker, which lets another removal on the team start while this run may
