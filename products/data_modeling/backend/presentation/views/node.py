@@ -943,17 +943,20 @@ class NodeViewSet(
         downstream_ids = _get_downstream_nodes(node, hidden_types=hidden_types)
         all_ids = upstream_ids | downstream_ids | {str(node.id)}
 
-        nodes = self._exclude_hidden_nodes(
-            _node_queryset_with_latest_job().filter(id__in=all_ids, team_id=self.team_id)
+        nodes = list(
+            self._exclude_hidden_nodes(_node_queryset_with_latest_job().filter(id__in=all_ids, team_id=self.team_id))
         )
         edges = self._exclude_hidden_edges(
             Edge.objects.select_related("source", "target", "dag").filter(
                 team_id=self.team_id, source_id__in=all_ids, target_id__in=all_ids
             )
         )
+        counts = node_lineage_counts(self.team_id, [str(n.id) for n in nodes], hidden_types=hidden_types)
 
         return response.Response(
-            LineageResponseSerializer({"nodes": nodes, "edges": edges}, context=self.get_serializer_context()).data
+            LineageResponseSerializer(
+                {"nodes": nodes, "edges": edges}, context={**self.get_serializer_context(), "node_counts": counts}
+            ).data
         )
 
     @extend_schema(responses={200: NodeAttentionCountSerializer})
