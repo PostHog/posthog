@@ -6,6 +6,7 @@ from contextlib import contextmanager
 from enum import StrEnum
 
 import psycopg
+import structlog
 from psycopg import errors as pg_errors
 
 from posthog.integrations import IntegrationRecord
@@ -14,6 +15,8 @@ from posthog.models.integration.postgres import MISSING_CERT_PATH
 
 from products.warehouse_sources.backend.facade.destinations import probe_motherduck_destination
 from products.warehouse_sources.backend.facade.source_management import HostNotAllowedError, pinned_host_kwargs
+
+logger = structlog.get_logger(__name__)
 
 CONNECT_TIMEOUT_SECONDS = 5
 STATEMENT_TIMEOUT_MILLISECONDS = 5_000
@@ -152,6 +155,13 @@ def check_postgres_destination(integration: IntegrationRecord, config: dict[str,
     except pg_errors.InsufficientPrivilege as error:
         raise DestinationConnectionCheckError(CheckFailure.MISSING_PRIVILEGE) from error
     except (psycopg.Error, HostNotAllowedError) as error:
+        # The user sees one generic message, so the driver's reason is only in this log.
+        logger.warning(
+            "postgres_destination_check_unreachable",
+            team_id=integration.team_id,
+            error_type=type(error).__name__,
+            error=str(error),
+        )
         raise DestinationConnectionCheckError(CheckFailure.UNREACHABLE) from error
 
 

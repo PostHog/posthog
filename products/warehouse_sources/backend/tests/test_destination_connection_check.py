@@ -1,3 +1,4 @@
+import os
 import socket
 import threading
 from contextlib import contextmanager
@@ -205,10 +206,11 @@ class TestCheckPostgresDestination:
     def test_an_unreadable_home_directory_does_not_stop_the_tls_handshake(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        # Web pods run as `nobody` with HOME=/root, so libpq cannot stat its default client certificate.
         home = tmp_path / "home"
         (home / ".postgresql").mkdir(parents=True)
         (home / ".postgresql").chmod(0)
+        if os.access(home / ".postgresql", os.R_OK):
+            pytest.skip("running as root, so directory permissions are not enforced")
         monkeypatch.setenv("HOME", str(home))
 
         server = socket.create_server(("127.0.0.1", 0))
@@ -237,7 +239,7 @@ class TestCheckPostgresDestination:
             server.close()
 
         # 0x16 opens a TLS handshake record, so the client sent its ClientHello.
-        assert received["after_ssl_accepted"] == b"\x16"
+        assert received.get("after_ssl_accepted") == b"\x16"
 
 
 MOTHERDUCK_WRITER = "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.destinations_load.writers.motherduck"
