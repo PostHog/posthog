@@ -1251,7 +1251,7 @@ class BillingManager:
 
         Raises:
             ValueError: If billing_provider is specified but the organization doesn't have the integration
-            BillingManagedByPartnerError: If a partner pays for the organization and it has no Stripe customer
+            BillingManagedByPartnerError: If a partner pays for the organization
         """
         raise_if_billing_managed_by_partner(organization)
 
