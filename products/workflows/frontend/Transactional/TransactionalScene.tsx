@@ -18,6 +18,8 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { EmailSuspensionBanner } from '../EmailSuspensionBanner'
 import { MessagingTabActions } from '../MessagingTabActions'
+import { EmailJourneyPrototype } from './log/emailJourneyPrototype/EmailJourneyPrototype'
+import { useEmailJourneyPrototype } from './log/emailJourneyPrototype/useEmailJourneyPrototype'
 import { TransactionalRoute, transactionalRouteFor } from './transactionalRoute'
 import { TransactionalTabs } from './TransactionalTabs'
 import { TransactionalEmailWizard } from './wizard/TransactionalEmailWizard'
@@ -36,6 +38,12 @@ export function TransactionalScene(): JSX.Element {
     const lastRoute = useRef<TransactionalRoute>(route ?? 'transactional')
     lastRoute.current = route ?? lastRoute.current
     const currentTab = lastRoute.current === 'webhooks' && !showWebhooks ? 'transactional' : lastRoute.current
+
+    // PROTOTYPE (ticket #385): ?variant= renders invented data in a PROTOTYPE=1 build.
+    const prototype = useEmailJourneyPrototype()
+    if (prototype.surface === 'list' && currentTab === 'transactional') {
+        return <EmailJourneyPrototype />
+    }
 
     if (!showTransactional) {
         return <NotFound object="page" />

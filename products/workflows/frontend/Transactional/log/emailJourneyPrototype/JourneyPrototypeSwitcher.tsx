@@ -62,9 +62,13 @@ export function JourneyPrototypeSwitcher(): JSX.Element | null {
                     <button type="button" className="text-white p-1 cursor-pointer" onClick={() => cycle(-1)}>
                         <IconChevronLeft className="text-lg" />
                     </button>
-                    <span className="font-semibold text-sm whitespace-nowrap">
-                        {current.surface === 'email' ? 'Email page' : 'Send detail'} ·{' '}
-                        {current.key === 'today' ? 'Today' : current.key} ({current.name})
+                    <span className="font-semibold text-sm text-center max-w-[60vw]">
+                        {current.surface === 'list'
+                            ? 'List'
+                            : current.surface === 'email'
+                              ? 'Email page'
+                              : 'Send detail'}{' '}
+                        · {current.key === 'today' ? 'Today' : current.key} ({current.name})
                     </span>
                     <button type="button" className="text-white p-1 cursor-pointer" onClick={() => cycle(1)}>
                         <IconChevronRight className="text-lg" />
@@ -80,6 +84,7 @@ export function JourneyPrototypeSwitcher(): JSX.Element | null {
                     />
                     <span className="text-secondary">|</span>
                     <span className="font-semibold">Entry</span>
+                    <Link to={journeyUrl('L1')}>List</Link>
                     <Link to={journeyUrl('D')}>Email page</Link>
                     <Link to={journeyUrl('A')}>Send detail</Link>
                     <Link to={`${journeyUrl('A', null, urls.personByUUID(DEMO_PERSON_UUID))}#activeTab=emails`}>

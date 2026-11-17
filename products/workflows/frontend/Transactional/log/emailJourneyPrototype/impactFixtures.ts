@@ -69,8 +69,6 @@ export interface ImpactData {
     runTagOn: boolean
 }
 
-export const GOAL_OPTIONS = ['plan upgraded', 'file shared', 'invite sent']
-
 function session(
     id: string,
     landing: string,
@@ -252,8 +250,35 @@ function base(): ImpactData {
     }
 }
 
-export function impactData(journeyCase: JourneyCase): ImpactData {
-    const data = base()
+/** Invented, but stable per event, so picking another event visibly rebuilds the funnel. */
+function goalFactor(event: string): number {
+    if (event === 'plan upgraded') {
+        return 1
+    }
+    const hash = [...event].reduce((sum, char) => (sum * 31 + char.charCodeAt(0)) % 997, 7)
+    return 0.15 + (hash / 997) * 2.6
+}
+
+function withGoal(data: ImpactData, event: string): ImpactData {
+    const factor = goalFactor(event)
+    const scale = (value: number | null, cap: number): number | null =>
+        value === null ? null : Math.min(cap, Math.round(value * factor))
+    data.goal = { event, windowDays: 7 }
+    data.converted = scale(data.converted, data.clicked ?? data.delivered)
+    data.convertedWithoutClick = data.convertedWithoutClick && {
+        ...data.convertedWithoutClick,
+        people: scale(data.convertedWithoutClick.people, data.convertedWithoutClick.of)!,
+    }
+    data.links = data.links.map((link) => ({ ...link, converted: scale(link.converted, link.clickedPeople) }))
+    return data
+}
+
+export function impactData(journeyCase: JourneyCase, goal?: string | null): ImpactData {
+    const data = shapeCase(base(), journeyCase)
+    return data.goal && goal ? withGoal(data, goal) : data
+}
+
+function shapeCase(data: ImpactData, journeyCase: JourneyCase): ImpactData {
     switch (journeyCase) {
         case 'no-scanner':
             data.scanner = null

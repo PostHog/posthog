@@ -1,5 +1,6 @@
-// PROTOTYPE (ticket #385), throwaway. Mounted by the code email scene and the send detail scene when ?variant= is
-// set in a PROTOTYPE=1 build. Renders the email page (variants D, E, F) or the send detail page (today, A).
+// PROTOTYPE (ticket #385), throwaway. Mounted by the transactional list, the code email scene and the send detail
+// scene when ?variant= is set in a PROTOTYPE=1 build. Renders the list (L1 to L3), the email page (D) or the send
+// detail page (today, A).
 import { useState } from 'react'
 
 import { LemonButton, LemonTag } from '@posthog/lemon-ui'
@@ -12,19 +13,60 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { impactData } from './impactFixtures'
 import { journeyData } from './journeyFixtures'
 import { JourneyPrototypeSwitcher } from './JourneyPrototypeSwitcher'
+import { listData } from './listFixtures'
 import { journeyUrl, useEmailJourneyPrototype } from './useEmailJourneyPrototype'
 import { VariantClickTimeline } from './VariantClickTimeline'
-import { VariantImpactFindings } from './VariantImpactFindings'
 import { VariantImpactFunnel } from './VariantImpactFunnel'
-import { VariantImpactHeatmap } from './VariantImpactHeatmap'
+import { VariantListColumns } from './VariantListColumns'
+import { VariantListHighlights } from './VariantListHighlights'
+import { VariantListPreview } from './VariantListPreview'
 import { VariantToday } from './VariantToday'
 
-const UNCHANGED = <p className="text-sm text-secondary m-0">Unchanged in this prototype. Go back to Impact.</p>
+const UNCHANGED = <p className="text-sm text-secondary m-0">Unchanged in this prototype.</p>
+
+function ListPage(): JSX.Element {
+    const { variant, journeyCase } = useEmailJourneyPrototype()
+    const [tab, setTab] = useState('emails')
+    const emails = listData(journeyCase)
+    return (
+        <SceneContent>
+            <SceneTitleSection
+                name="Transactional"
+                description="Send emails from your code with one API call"
+                resourceType={{ type: 'transactional' }}
+            />
+            <LemonTabs
+                activeKey={tab}
+                onChange={setTab}
+                tabs={[
+                    {
+                        key: 'emails',
+                        label: 'Emails',
+                        content: (
+                            <div className="@container">
+                                {variant === 'L2' ? (
+                                    <VariantListPreview emails={emails} />
+                                ) : variant === 'L3' ? (
+                                    <VariantListHighlights emails={emails} />
+                                ) : (
+                                    <VariantListColumns emails={emails} />
+                                )}
+                            </div>
+                        ),
+                    },
+                    { key: 'log', label: 'Sends', content: UNCHANGED },
+                    { key: 'metrics', label: 'Metrics', content: UNCHANGED },
+                ]}
+            />
+            <JourneyPrototypeSwitcher />
+        </SceneContent>
+    )
+}
 
 function EmailPage(): JSX.Element {
-    const { variant, journeyCase } = useEmailJourneyPrototype()
+    const { journeyCase, goal } = useEmailJourneyPrototype()
     const [tab, setTab] = useState('impact')
-    const data = impactData(journeyCase)
+    const data = impactData(journeyCase, goal)
     return (
         <SceneContent>
             <SceneTitleSection
@@ -45,13 +87,7 @@ function EmailPage(): JSX.Element {
                         ),
                         content: (
                             <div className="@container">
-                                {variant === 'E' ? (
-                                    <VariantImpactFindings data={data} />
-                                ) : variant === 'F' ? (
-                                    <VariantImpactHeatmap data={data} />
-                                ) : (
-                                    <VariantImpactFunnel data={data} />
-                                )}
+                                <VariantImpactFunnel data={data} />
                             </div>
                         ),
                     },
@@ -89,5 +125,5 @@ function SendPage(): JSX.Element {
 
 export function EmailJourneyPrototype(): JSX.Element {
     const { surface } = useEmailJourneyPrototype()
-    return surface === 'email' ? <EmailPage /> : <SendPage />
+    return surface === 'list' ? <ListPage /> : surface === 'email' ? <EmailPage /> : <SendPage />
 }

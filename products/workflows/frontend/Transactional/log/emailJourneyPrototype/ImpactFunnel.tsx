@@ -1,9 +1,12 @@
-// PROTOTYPE (ticket #385), throwaway. The path from sent to the conversion event, for one email across all its sends.
-import { LemonSelect, Tooltip } from '@posthog/lemon-ui'
+// PROTOTYPE (ticket #385), throwaway. The path from sent to the conversion event, for one email across all its sends,
+// drawn as a funnel. Any event can be the conversion; the funnel rebuilds around it.
+import { Tooltip } from '@posthog/lemon-ui'
 
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { TaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 
-import { GOAL_OPTIONS, ImpactData, percent } from './impactFixtures'
+import { ImpactData, percent } from './impactFixtures'
 import { useEmailJourneyPrototype } from './useEmailJourneyPrototype'
 
 interface Step {
@@ -36,26 +39,29 @@ export function impactSteps(data: ImpactData): Step[] {
             label: data.goal ? data.goal.event : 'Converted',
             value: data.converted,
             missing: 'Pick an event',
-            of: 3,
+            of: notTracked ? 1 : 3,
         },
     ]
 }
 
+/** The conversion event leads the page: pick any event, and the funnel ends with it. */
 export function GoalPicker({ data }: { data: ImpactData }): JSX.Element {
     const { set } = useEmailJourneyPrototype()
     return (
-        <span className="flex items-center gap-2 text-sm">
-            <span className="text-secondary">Counts as converted</span>
-            <LemonSelect
+        <span className="flex flex-wrap items-center gap-2">
+            <span className="font-semibold">Counts as converted</span>
+            <TaxonomicPopover<string>
                 size="small"
-                placeholder="Pick an event"
+                type="secondary"
+                groupType={TaxonomicFilterGroupType.Events}
+                groupTypes={[TaxonomicFilterGroupType.CustomEvents, TaxonomicFilterGroupType.Events]}
                 value={data.goal?.event ?? null}
-                onChange={() => set({ case: null })}
-                options={GOAL_OPTIONS.map((event) => ({ value: event, label: event }))}
+                placeholder="Pick any event"
+                onChange={(value) => set({ goal: value ? String(value) : null, case: null })}
                 data-attr="prototype-impact-goal"
             />
             {data.goal && (
-                <span className="text-secondary">
+                <span className="text-secondary text-sm">
                     within {data.goal.windowDays} days of the {data.clicked === null ? 'send' : 'click'}
                 </span>
             )}
@@ -95,62 +101,33 @@ export function ImpactLift({ data }: { data: ImpactData }): JSX.Element | null {
     )
 }
 
-export function ImpactFunnel({ data, layout }: { data: ImpactData; layout: 'bars' | 'list' | 'strip' }): JSX.Element {
+/** Columns that shrink from sent to the conversion event, like a funnel insight. */
+export function ImpactFunnel({ data }: { data: ImpactData }): JSX.Element {
     const steps = impactSteps(data)
-    const values = (index: number): number | null => steps[index].value
-
-    if (layout === 'strip') {
-        return (
-            <div className="flex flex-wrap items-stretch border rounded bg-surface-primary divide-x">
-                {steps.map((step, index) => {
-                    const of = step.of ?? index - 1
-                    return (
-                        <div key={step.label} className="flex-1 min-w-32 px-4 py-2 flex flex-col">
-                            <span className="text-xs text-secondary">{step.label}</span>
-                            <StepValue step={step} />
-                            {step.value !== null && index > 0 && values(of) && (
-                                <span className="text-xs text-secondary">
-                                    {percent(step.value, values(of)!)} of {steps[of].label.toLowerCase()}
-                                </span>
+    return (
+        <ol className="m-0 p-0 list-none grid grid-cols-6 gap-2" data-attr="prototype-impact-funnel">
+            {steps.map((step, index) => {
+                const base = index > 0 ? steps[step.of ?? index - 1] : null
+                return (
+                    <li key={step.label} className="flex flex-col gap-1 min-w-0">
+                        <div className="h-28 rounded bg-surface-secondary flex items-end overflow-hidden">
+                            {step.value !== null && (
+                                <div
+                                    className={`w-full ${index === steps.length - 1 ? 'bg-success' : 'bg-accent'}`}
+                                    style={{ height: `${Math.max(2, (step.value / data.sent) * 100)}%` }}
+                                />
                             )}
                         </div>
-                    )
-                })}
-            </div>
-        )
-    }
-
-    return (
-        <ol className="m-0 p-0 list-none flex flex-col gap-2">
-            {steps.map((step, index) => {
-                const previous = index > 0 ? values(step.of ?? index - 1) : null
-                return (
-                    <li
-                        key={step.label}
-                        className={
-                            layout === 'bars' ? 'grid grid-cols-[10rem_1fr_7rem] items-center gap-3' : 'flex flex-col'
-                        }
-                    >
-                        <span className="text-sm">{step.label}</span>
-                        {layout === 'bars' && (
-                            <div className="h-6 rounded bg-surface-secondary overflow-hidden">
-                                {step.value !== null && (
-                                    <div
-                                        className="h-full rounded bg-accent"
-                                        style={{ width: `${Math.max(1, (step.value / data.sent) * 100)}%` }}
-                                    />
-                                )}
-                            </div>
-                        )}
-                        <span className={layout === 'bars' ? 'text-right' : 'flex items-baseline gap-2'}>
-                            <StepValue step={step} />
-                            {step.value !== null && previous ? (
-                                <span className="text-xs text-secondary block">
-                                    {percent(step.value, previous)}
-                                    {step.of !== undefined ? ` of ${steps[step.of].label.toLowerCase()}` : ''}
-                                </span>
-                            ) : null}
+                        <span className="text-xs text-secondary truncate" title={step.label}>
+                            {step.label}
                         </span>
+                        <StepValue step={step} />
+                        {step.value !== null && base?.value ? (
+                            <span className="text-xs text-secondary">
+                                {percent(step.value, base.value)}
+                                {step.of !== undefined ? ` of ${base.label.toLowerCase()}` : ''}
+                            </span>
+                        ) : null}
                     </li>
                 )
             })}
@@ -162,7 +139,7 @@ function StepValue({ step }: { step: Step }): JSX.Element {
     if (step.value !== null) {
         return <span className="font-semibold text-base">{humanFriendlyNumber(step.value)}</span>
     }
-    const missing = <span className="text-sm text-secondary">{step.missing}</span>
+    const missing = <span className="text-xs text-secondary">{step.missing}</span>
     return step.missingDetail ? (
         <Tooltip title={step.missingDetail}>
             <span className="underline decoration-dotted cursor-help">{missing}</span>

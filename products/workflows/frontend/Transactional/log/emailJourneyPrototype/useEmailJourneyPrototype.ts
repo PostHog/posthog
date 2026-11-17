@@ -1,7 +1,7 @@
 // PROTOTYPE (ticket #385), throwaway: what one transactional email leads to in the product.
-// Round 2: the email's own page gains an Impact tab across all its sends (variants D, E, F), and the send detail page
-// keeps variant A from round 1 with today's delivery header. Switch with ?variant=, simulate cases with ?case=.
-// All data is invented.
+// Round 3: the transactional list shows each email's impact (variants L1 to L3), the email page keeps variant D (the
+// impact funnel) with any event as the conversion, and the send detail page keeps variant A (the click timeline).
+// Switch with ?variant=, simulate cases with ?case=, pick the conversion event with ?goal=. All data is invented.
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
@@ -9,24 +9,19 @@ import { urls } from 'scenes/urls'
 
 export const PROTOTYPE_ENABLED = process.env.PROTOTYPE === '1'
 
-export type JourneySurface = 'email' | 'send'
-export type JourneyVariant = 'D' | 'E' | 'F' | 'today' | 'A'
+export type JourneySurface = 'list' | 'email' | 'send'
+export type JourneyVariant = 'L1' | 'L2' | 'L3' | 'D' | 'today' | 'A'
+
+const LIST_FLAGS = 'muscle memory: home to email page · known pain: transactional home · agent contract: emails list'
 
 export const JOURNEY_VARIANTS: { key: JourneyVariant; surface: JourneySurface; name: string }[] = [
+    { key: 'L1', surface: 'list', name: `Impact columns · ${LIST_FLAGS}` },
+    { key: 'L2', surface: 'list', name: `Row opens a preview · ${LIST_FLAGS}` },
+    { key: 'L3', surface: 'list', name: `Highlights above the list · ${LIST_FLAGS}` },
     {
         key: 'D',
         surface: 'email',
         name: 'Impact funnel · low use: email page · agent contract: email stats · muscle memory: default Metrics view · known pain: template page',
-    },
-    {
-        key: 'E',
-        surface: 'email',
-        name: 'Findings first · low use: email page · agent contract: email stats · muscle memory: default Metrics view · known pain: template page',
-    },
-    {
-        key: 'F',
-        surface: 'email',
-        name: 'The email as a heatmap · low use: email page · agent contract: email stats · muscle memory: default Metrics view · known pain: template page',
     },
     { key: 'today', surface: 'send', name: "today's send detail, for comparison" },
     { key: 'A', surface: 'send', name: 'Click timeline · low use: Watch · agent contract: activity' },
@@ -35,6 +30,7 @@ export const JOURNEY_VARIANTS: { key: JourneyVariant; surface: JourneySurface; n
 /** A demo person in the preview's demo project, to open the Emails tab entry point. */
 export const DEMO_PERSON_UUID = '01a1c547-38c8-002b-21e7-9d46b0e4c201'
 
+export type ListCase = 'full' | 'no-landing' | 'no-recording'
 export type EmailCase = 'full' | 'no-scanner' | 'scanning' | 'no-goal' | 'no-landing' | 'no-recording' | 'not-tracked'
 export type SendCase =
     | 'full'
@@ -45,9 +41,14 @@ export type SendCase =
     | 'no-clicks'
     | 'not-tracked'
     | 'events-off'
-export type JourneyCase = EmailCase | SendCase
+export type JourneyCase = ListCase | EmailCase | SendCase
 
 export const JOURNEY_CASES: Record<JourneySurface, { key: JourneyCase; label: string }[]> = {
+    list: [
+        { key: 'full', label: 'Link tag and replay on' },
+        { key: 'no-landing', label: 'Link tag not on yet' },
+        { key: 'no-recording', label: 'Session replay off' },
+    ],
     email: [
         { key: 'full', label: 'Scanner on, findings in' },
         { key: 'no-scanner', label: 'No scanner yet' },
@@ -71,15 +72,21 @@ export const JOURNEY_CASES: Record<JourneySurface, { key: JourneyCase; label: st
 
 /** The page each surface lives on. The scenes' own loaders ask for this ID and get a 404, which the prototype ignores. */
 export function surfacePath(surface: JourneySurface): string {
-    return surface === 'email' ? urls.transactionalCodeEmail('prototype') : urls.transactionalEmailLogEntry('prototype')
+    return surface === 'list'
+        ? urls.transactional()
+        : surface === 'email'
+          ? urls.transactionalCodeEmail('prototype')
+          : urls.transactionalEmailLogEntry('prototype')
 }
 
 export interface JourneyPrototypeState {
     variant: JourneyVariant | null
     surface: JourneySurface | null
     journeyCase: JourneyCase
-    /** The link a variant focuses on, such as the selected link in F. */
+    /** The link a variant focuses on. */
     link: string | null
+    /** The event that counts as converted, picked on the email page. */
+    goal: string | null
 }
 
 export function journeyUrl(variant: JourneyVariant, journeyCase?: JourneyCase | null, path?: string): string {
@@ -92,7 +99,7 @@ export function journeyUrl(variant: JourneyVariant, journeyCase?: JourneyCase | 
 }
 
 export function useEmailJourneyPrototype(): JourneyPrototypeState & {
-    set: (changes: Partial<Record<'variant' | 'case' | 'link', string | null>>) => void
+    set: (changes: Partial<Record<'variant' | 'case' | 'link' | 'goal', string | null>>) => void
     withParams: (url: string) => string
 } {
     const { searchParams, location, hashParams } = useValues(router)
@@ -111,6 +118,7 @@ export function useEmailJourneyPrototype(): JourneyPrototypeState & {
         surface,
         journeyCase,
         link: searchParams.link ?? null,
+        goal: typeof searchParams.goal === 'string' ? searchParams.goal : null,
         set: (changes) => {
             const next: Record<string, any> = { ...searchParams }
             for (const [key, value] of Object.entries(changes)) {

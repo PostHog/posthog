@@ -1,5 +1,5 @@
-// PROTOTYPE (ticket #385), throwaway. Variant D: numbers first. The funnel from sent to the conversion event, then
-// each link, then what Replay vision found in the sessions the email started.
+// PROTOTYPE (ticket #385), throwaway. Variant D, round 3: the conversion event leads, a compact funnel sits beside the
+// links, and what Replay vision found in the sessions the email started follows right below.
 import { useState } from 'react'
 
 import { LemonTag } from '@posthog/lemon-ui'
@@ -15,21 +15,23 @@ export function VariantImpactFunnel({ data }: { data: ImpactData }): JSX.Element
     const [watching, setWatching] = useState<JourneySession | null>(null)
     return (
         <div className="flex flex-col gap-4">
-            <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex flex-wrap items-center justify-between gap-2 border rounded bg-surface-primary px-4 py-2">
                 <GoalPicker data={data} />
                 <LemonTag type="muted">{data.period}</LemonTag>
             </div>
-            <section className="border rounded bg-surface-primary p-4 flex flex-col gap-3">
-                <h3 className="text-base font-semibold m-0">
-                    From send to {data.goal ? `"${data.goal.event}"` : 'conversion'}
-                </h3>
-                <ImpactFunnel data={data} layout="bars" />
-                <ImpactLift data={data} />
-            </section>
-            <section className="border rounded bg-surface-primary p-4 flex flex-col gap-3">
-                <h3 className="text-base font-semibold m-0">Links</h3>
-                <ImpactLinkTable data={data} />
-            </section>
+            <div className="flex flex-col @4xl:flex-row gap-4 items-stretch">
+                <section className="@4xl:flex-[3] min-w-0 border rounded bg-surface-primary p-4 flex flex-col gap-3">
+                    <h3 className="text-base font-semibold m-0">
+                        From send to {data.goal ? `"${data.goal.event}"` : 'conversion'}
+                    </h3>
+                    <ImpactFunnel data={data} />
+                    <ImpactLift data={data} />
+                </section>
+                <section className="@4xl:flex-[2] min-w-0 border rounded bg-surface-primary p-4 flex flex-col gap-1">
+                    <h3 className="text-base font-semibold m-0">Links</h3>
+                    <ImpactLinkTable data={data} />
+                </section>
+            </div>
             <section className="border rounded bg-surface-primary p-4 flex flex-col gap-3">
                 <h3 className="text-base font-semibold m-0">What people did after clicking</h3>
                 {data.scanner ? (

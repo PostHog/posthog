@@ -2,8 +2,16 @@
 // started, its findings with excerpts and recordings, and the setup card when there is no scanner yet.
 import { useState } from 'react'
 
-import { IconCheckCircle, IconPlayFilled, IconSparkles, IconWarning } from '@posthog/icons'
-import { LemonButton, LemonSelect, LemonTag, LemonTextArea, Link } from '@posthog/lemon-ui'
+import {
+    IconCheckCircle,
+    IconNotebook,
+    IconPlayFilled,
+    IconSparkles,
+    IconTarget,
+    IconThumbsDown,
+    IconWarning,
+} from '@posthog/icons'
+import { LemonButton, LemonTag, LemonTextArea, Link } from '@posthog/lemon-ui'
 
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
@@ -115,20 +123,22 @@ export function ScannerStatus({ data }: { data: ImpactData }): JSX.Element | nul
     )
 }
 
-const SETUP_TYPES = [
-    { value: 'classifier', label: 'Categorize' },
-    { value: 'summarizer', label: 'Summarize' },
-    { value: 'monitor', label: 'Ask a question' },
+/** Replay vision's goal starters (scannerGoalStarters.tsx), copied so the prototype stays inside workflows. */
+export const SCANNER_SUGGESTIONS: { key: string; question: string; icon: JSX.Element }[] = [
+    {
+        key: 'session_outcome',
+        question: 'Do people finish what this email asked them to do?',
+        icon: <IconCheckCircle />,
+    },
+    { key: 'dead_end', question: 'Where do people get stuck after clicking?', icon: <IconWarning /> },
+    { key: 'frustration_score', question: 'Where do people get frustrated after clicking?', icon: <IconThumbsDown /> },
+    { key: 'user_intent', question: 'What are people trying to do when they land?', icon: <IconTarget /> },
+    { key: 'session_summary', question: 'What happens in each session this email starts?', icon: <IconNotebook /> },
 ]
 
-export function ScannerSetup({ data }: { data: ImpactData }): JSX.Element {
+export function ScannerSetup({ data, compact = false }: { data: ImpactData; compact?: boolean }): JSX.Element {
     const { set } = useEmailJourneyPrototype()
-    const [type, setType] = useState('classifier')
-    const [prompt, setPrompt] = useState(
-        data.goal
-            ? `What did the person do after landing from this email, and what stopped them from doing "${data.goal.event}"?`
-            : 'What did the person do after landing from this email, and what stopped them?'
-    )
+    const [ownQuestion, setOwnQuestion] = useState<string | null>(null)
     const blocked = scannerBlocked(data)
 
     return (
@@ -138,8 +148,11 @@ export function ScannerSetup({ data }: { data: ImpactData }): JSX.Element {
                 <div className="flex flex-col gap-0.5">
                     <span className="font-semibold">See what people do after they click</span>
                     <span className="text-sm text-secondary">
-                        A Replay vision scanner watches only the sessions this email starts and groups what happened, so
-                        you don't have to watch them one by one.
+                        Replay vision watches only the sessions this email starts
+                        {data.landed
+                            ? ` (about ${humanFriendlyNumber(data.landed)} in the ${data.period.toLowerCase()})`
+                            : ''}{' '}
+                        and groups what happened. Pick a question to start.
                     </span>
                 </div>
             </div>
@@ -147,26 +160,43 @@ export function ScannerSetup({ data }: { data: ImpactData }): JSX.Element {
                 <p className="text-sm text-secondary m-0">{blocked}</p>
             ) : (
                 <>
-                    <div className="flex flex-wrap items-center gap-2">
-                        <LemonSelect size="small" value={type} onChange={setType} options={SETUP_TYPES} />
-                        <span className="text-xs text-secondary">
-                            About {humanFriendlyNumber(data.landed ?? 0)} sessions in the {data.period.toLowerCase()}
-                        </span>
-                    </div>
-                    <LemonTextArea value={prompt} onChange={setPrompt} minRows={2} />
-                    <div className="flex gap-2">
-                        <LemonButton
-                            type="primary"
-                            size="small"
-                            onClick={() => set({ case: 'scanning' })}
-                            data-attr="prototype-impact-start-scanner"
-                        >
-                            Start scanner
-                        </LemonButton>
-                        <LemonButton type="secondary" size="small" to={urls.replayVision()}>
-                            Use a saved scanner
+                    <div className={`grid gap-2 ${compact ? 'grid-cols-1' : 'grid-cols-1 @3xl:grid-cols-2'}`}>
+                        {SCANNER_SUGGESTIONS.map((suggestion) => (
+                            <LemonButton
+                                key={suggestion.key}
+                                type="secondary"
+                                size="small"
+                                icon={suggestion.icon}
+                                fullWidth
+                                onClick={() => set({ case: 'scanning' })}
+                                data-attr={`prototype-impact-scanner-suggestion-${suggestion.key}`}
+                            >
+                                {suggestion.question}
+                            </LemonButton>
+                        ))}
+                        <LemonButton type="tertiary" size="small" fullWidth onClick={() => setOwnQuestion('')}>
+                            Ask your own question
                         </LemonButton>
                     </div>
+                    {ownQuestion !== null && (
+                        <div className="flex flex-col gap-2">
+                            <LemonTextArea
+                                value={ownQuestion}
+                                onChange={setOwnQuestion}
+                                minRows={2}
+                                placeholder={`What stopped people from doing "${data.goal?.event ?? 'the thing this email asks'}"?`}
+                            />
+                            <LemonButton
+                                type="primary"
+                                size="small"
+                                className="self-start"
+                                onClick={() => set({ case: 'scanning' })}
+                                data-attr="prototype-impact-start-scanner"
+                            >
+                                Start scanner
+                            </LemonButton>
+                        </div>
+                    )}
                 </>
             )}
         </div>
