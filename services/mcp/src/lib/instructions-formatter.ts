@@ -44,6 +44,7 @@ import NOTEBOOK_SQL from '@/templates/sections/notebook-sql.md'
 import PROJECT_SCOPE from '@/templates/sections/project-scope.md'
 import RETRIEVING_DATA from '@/templates/sections/retrieving-data.md'
 import SCHEMA_WORKFLOW from '@/templates/sections/schema-workflow.md'
+import SKILLS_FIRST_TOOLS from '@/templates/sections/skills-first-tools.md'
 import SKILLS_FIRST from '@/templates/sections/skills-first.md'
 import TOOL_SEARCH from '@/templates/sections/tool-search.md'
 import URL_PATTERNS from '@/templates/sections/url-patterns.md'
@@ -93,6 +94,7 @@ export interface InstructionsContext {
     /** Read-only connections lack `inbox-reports-claim`, so they get no pull-request line. */
     inboxClaimEnabled?: boolean | undefined
     metricCatalog?: MetricCatalogContent | undefined
+    learnToolEnabled?: boolean | undefined
 }
 
 const REPLAY_VISION_TOOLS = ['vision-scanners-inline-scan', 'vision-requests-create', 'vision-requests-get']
@@ -287,6 +289,7 @@ export class InstructionsFormatter {
         return this.compose(
             [
                 PROJECT_SCOPE,
+                ...(ctx.learnToolEnabled ? [SKILLS_FIRST_TOOLS] : []),
                 BASIC_FUNCTIONALITY,
                 ...this.knowledgeFirstSections(ctx),
                 ...this.inboxFirstSections(ctx, false),

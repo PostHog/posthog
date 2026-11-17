@@ -13,8 +13,9 @@ import type { SkillCatalog } from '@/skills/skill-catalog'
 import EXECUTE_SQL_PROMPT from '@/templates/execute-sql-prompt.md'
 import CATALOG_TRUST_DISCOVERY from '@/templates/sections/catalog-trust-discovery.md'
 import SCHEMA_DISCOVERY from '@/templates/sections/schema-discovery.md'
+import SKILLS_FIRST_TOOLS from '@/templates/sections/skills-first-tools.md'
 import { EXEC_TOOL_ANNOTATIONS } from '@/tools/exec'
-import { ExecLearnCatalog } from '@/tools/exec-learn'
+import { ExecLearnCatalog, LEARN_TOOL_NAME, learnSkillCommands } from '@/tools/exec-learn'
 import {
     getRenderableToolNames,
     makeRenderUiSchema,
@@ -93,7 +94,7 @@ export class InstructionsBuilder {
         if (state.useSingleExec) {
             return this.formatter.buildExecInstructions(ctx)
         }
-        return this.formatter.buildToolsInstructions(ctx)
+        return this.formatter.buildToolsInstructions({ ...ctx, learnToolEnabled: this.isLearnToolEnabled(state) })
     }
 
     buildContext(state: ExecToolState): InstructionsContext {
@@ -136,6 +137,26 @@ export class InstructionsBuilder {
             description: this.buildExecToolDescription(state),
             inputSchema: { type: 'object', properties: ExecSchema, required: ['command'] },
             annotations: { ...EXEC_TOOL_ANNOTATIONS },
+        }
+    }
+
+    isLearnToolEnabled(state: ResolvedState): boolean {
+        return !state.useSingleExec && !state.viaMcpStore && this.getExecLearnCapabilities(state).skillsEnabled
+    }
+
+    buildLearnToolEntry(): McpTool {
+        return {
+            name: LEARN_TOOL_NAME,
+            title: 'Load PostHog skills',
+            description: SKILLS_FIRST_TOOLS.trim(),
+            inputSchema: {
+                type: 'object',
+                properties: {
+                    command: { type: 'string', description: `One of:\n${learnSkillCommands().join('\n')}` },
+                },
+                required: ['command'],
+            },
+            annotations: { ...EXEC_TOOL_ANNOTATIONS, readOnlyHint: true },
         }
     }
 
