@@ -106,8 +106,7 @@ class ActivitySummaryConfig:
     rebuild_budget_share: float = 0.3
     # The share of a tick kept for the first summary of pairs that opened the Inbox. The other passes get the unused part.
     inbox_visit_budget_share: float = 0.2
-    # The largest share of a tick that overdue pairs can take: a summary at least twice its tier's target age, with
-    # new input below `min_score`. Zero stops these updates.
+    # The largest share of a tick that overdue pairs can take. Zero stops overdue updates.
     overdue_budget_share: float = 0.2
     # An outdated summary older than this is due as stale, inside `rebuild_budget_share`. Null means never.
     outdated_rebuild_after_days: float | None = None

@@ -106,8 +106,7 @@ FEED_LAG = datetime.timedelta(minutes=5)
 MAX_FEED_STEP = datetime.timedelta(hours=6)
 TIER_PAYING = "paying"
 TIER_FREE = "free"
-# A summary younger than this many target intervals counts as fresh on the tick event. A summary at least this
-# old is overdue, so new input below `min_score` makes it due.
+# A summary younger than this many target intervals counts as fresh on the tick event.
 _FRESH_STALENESS = 2
 # One tick drains at most this many members of the MCP dirty set. The other members wait for the next tick.
 MAX_MCP_FEED_PAIRS = 2_000
@@ -160,8 +159,7 @@ class ActivitySummaryTierStats:
     # The share of pairs with activity in the window whose summary is younger than twice the tier's target interval,
     # or has no new input after its watermark.
     fresh_share: float | None = None
-    # The share of pairs with activity in the window whose summary is younger than twice the tier's target interval,
-    # with or without new input. This was `fresh_share` before input counted, so a chart can compare the two.
+    # Like `fresh_share`, but a summary with no new input still counts by age only.
     recent_share: float | None = None
     due_overdue: int = 0
 
@@ -1001,7 +999,6 @@ def _tier_stats(
         .values("paying")
         .annotate(
             active=Count("id"),
-            # A summary with no new input is as current as it can be, however old it is.
             fresh=Count(
                 "id", filter=Q(summarized_at__isnull=False) & (Q(staleness__lt=_FRESH_STALENESS) | ~_new_input())
             ),
