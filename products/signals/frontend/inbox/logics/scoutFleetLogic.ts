@@ -1674,7 +1674,8 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                 })
             try {
                 const run = await signalsScoutConfigStop(String(teamId), configId)
-                if (normalizeRunStatus(run.status) === 'running' || normalizeRunStatus(run.status) === 'queued') {
+                const status = normalizeRunStatus(run.status)
+                if (status === 'running' || status === 'queued') {
                     captureStop('stopping')
                     actions.stopScoutRunAccepted(configId, run.run_id)
                     cache.disposables.add(() => {
