@@ -24,7 +24,7 @@ from posthog.models.team import Team
 
 from products.ai_observability.backend.logic.eval_suggestions import call_review, pipeline, runs
 from products.ai_observability.backend.logic.eval_suggestions.call_review import REVIEW_TEMPLATE_KEY
-from products.ai_observability.backend.logic.eval_suggestions.call_review_queries import CallTypeRow
+from products.ai_observability.backend.logic.eval_suggestions.call_review_queries import CallTypeRow, SnippetMatches
 from products.ai_observability.backend.logic.eval_suggestions.config import SuggestionSettings
 from products.ai_observability.backend.logic.eval_suggestions.coverage import (
     Coverage,
@@ -808,7 +808,17 @@ def test_a_less_confident_match_that_covers_the_scope_still_drops_the_candidate(
     assert dedupe([AUTH_GAP], coverage, {AUTH_GAP.dedupe_key: [(narrow, 0.95), (wide, 0.7)]}, {}) == []
 
 
-def test_a_failed_snippet_count_leaves_unnamed_call_types_without_a_filter() -> None:
+@parameterized.expand(
+    [
+        ("count_runs", False, None, {"input:1": "You answer refund questions for Example Shop"}),
+        ("count_fails", False, RuntimeError("Memory limit exceeded"), {}),
+        # The snippet would reach members who may not read $ai_input through the accepted evaluation's conditions.
+        ("team_has_property_access_rules", True, None, {}),
+    ]
+)
+def test_an_unnamed_call_type_gets_a_prompt_text_filter_only_when_safe_to_count(
+    _name: str, has_rules: bool, error: Exception | None, expected: dict[str, str]
+) -> None:
     system = {"role": "system", "content": "You answer refund questions for Example Shop"}
     call_type = CallTypeRow(source="input", name="1", calls=10, model="m", example_input=json.dumps([system]))
     card = call_review.ReviewCard(
@@ -822,8 +832,12 @@ def test_a_failed_snippet_count_leaves_unnamed_call_types_without_a_filter() -> 
         examples=[],
         judge_prompt="j",
     )
+    counts = {"1": [SnippetMatches(matched=10, in_call_type=10)] * 5}
 
-    with patch.object(pipeline, "snippet_matches", side_effect=RuntimeError("Memory limit exceeded")):
+    with (
+        patch.object(pipeline, "team_has_property_access_rules", return_value=has_rules),
+        patch.object(pipeline, "snippet_matches", return_value=counts, side_effect=error),
+    ):
         snippets = pipeline._prompt_snippets(MagicMock(pk=1), MagicMock(), 1000, [call_type], [card], None)
 
-    assert snippets == {}
+    assert snippets == expected

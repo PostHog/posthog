@@ -26,6 +26,7 @@ from posthog.llm.gateway_client import GatewayNotConfiguredError
 from posthog.llm.system_one import SystemOneNotConfigured, SystemOneRequestFailed
 from posthog.models.team import Team
 
+from products.access_control.backend.facade.api import team_has_property_access_rules
 from products.ai_observability.backend.llm import DEFAULT_MODEL_BY_PROVIDER
 from products.ai_observability.backend.logic.eval_suggestions.profile_queries import ProfileWindow
 from products.ai_observability.backend.models.eval_suggestions import (
@@ -304,6 +305,10 @@ def _prompt_snippets(
     counted on the day's generations, and a call type whose candidates all match other generations gets none.
     Without time left for the count, or when the count fails, no call type gets one, and the run leaves their cards
     out while it keeps the cards that a prompt or span name scopes."""
+    # A snippet is prompt text, and an accepted card copies it into evaluation conditions that every member who reads
+    # evaluations sees. A team with property access rules can have members who may not read $ai_input.
+    if team_has_property_access_rules(team_id=team.pk):
+        return {}
     unnamed = {c.name: c for card in cards for c in card.call_types if c.source == "input"}
     candidates = {
         name: ranking.prompt_snippets(call_type, [c for c in call_types if c.key != call_type.key])
