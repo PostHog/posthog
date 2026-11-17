@@ -12,7 +12,12 @@ import {
 } from '~/common/personhog/identity'
 import { errorClassLabel } from '~/common/personhog/metrics'
 import { PersonHogPersonWriteRepository } from '~/common/personhog/personhog-person-write-repository'
-import { PersonIdentity, PersonhogFencedError, PersonhogPropertiesSizeError } from '~/common/personhog/persons'
+import {
+    PersonIdentity,
+    PersonhogFencedError,
+    PersonhogPropertiesDepthError,
+    PersonhogPropertiesSizeError,
+} from '~/common/personhog/persons'
 import { personResolveKeysPerCallHistogram } from '~/common/persons/metrics'
 import { PersonMessage } from '~/common/persons/person-message'
 import { PersonClaimedByLifecycleOpError } from '~/common/persons/repositories/person-repository'
@@ -1419,6 +1424,18 @@ export class PersonhogPersonsStore implements PersonsStore {
                         // the leader's per-team-throttled customer warning.
                         personhogStoreFlushCounter.inc({ outcome: 'size_violation' })
                         logger.warn('🤔', 'leader refused a write on properties size; the ops are discarded', {
+                            team_id: entry.teamId,
+                            person_id: entry.personId,
+                            distinct_id: entry.distinctId,
+                        })
+                        entry.segments.shift()
+                        progress.remaining -= 1
+                        continue
+                    }
+                    if (error instanceof PersonhogPropertiesDepthError) {
+                        // As above: the segment can never succeed.
+                        personhogStoreFlushCounter.inc({ outcome: 'depth_violation' })
+                        logger.warn('🤔', 'leader refused a write on properties nesting; the ops are discarded', {
                             team_id: entry.teamId,
                             person_id: entry.personId,
                             distinct_id: entry.distinctId,

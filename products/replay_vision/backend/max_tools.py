@@ -17,7 +17,7 @@ from posthog.exceptions import QuotaLimitExceeded
 from posthog.models.scoping import team_scope
 from posthog.models.team import Team
 from posthog.models.user import User
-from posthog.scopes import APIScopeObject
+from posthog.scopes.catalog import APIScopeObject
 from posthog.session_recordings.playlist_filters import convert_filters_to_recordings_query
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
 from posthog.sync import database_sync_to_async
@@ -1959,7 +1959,6 @@ class EstimateReplayVisionScannerTool(ReplayVisionGatesMixin, MaxTool):
                     query=scanner.targeted_recordings_query(),
                     # The exposure filter's access check runs as whoever is asking Max.
                     user=self._user,
-                    sampling_mode=scanner.sampling_mode,
                     ch_user=ClickHouseUser.REPLAY_VISION,
                     budget=PREVIEW_ESTIMATE_BUDGET,
                 )

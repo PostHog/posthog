@@ -5,7 +5,9 @@ description: >
   conventions, what to expose as variables (HogQL code_name vs insight breakdown),
   data_freshness_seconds, and whether to materialise on day one. Use when the user says "create an endpoint", "expose this
   query as an API", "turn this insight into an endpoint", or asks for help structuring a new
-  endpoint. Steers away from common mistakes: materialising a query with cohort breakdowns or an
+  endpoint. Also use when the user wants PostHog data in code, a script, a cron job, a backend
+  service, or a customer-facing feature, or has a `/query` call in code to replace, even if they
+  never say "endpoint". Steers away from common mistakes: materialising a query with cohort breakdowns or an
   ineligible compare query, inline-only variables on a materialised endpoint, unbounded date
   ranges, ambiguous names.
 ---
@@ -26,6 +28,9 @@ materialisation decision is non-obvious.
 - "Help me turn this HogQL into a callable endpoint"
 - A new caller (mobile app, customer-facing dashboard, downstream pipeline) needs PostHog data
   and the user is choosing how to deliver it
+- The user wants PostHog data in code, a script, or a scheduled job, or has code that calls
+  `/api/projects/:id/query/`. Production code should call an endpoint, not the query API, so
+  offer one even when the user hasn't said "endpoint", and create it once they agree
 
 ## Decisions to make in order
 
@@ -36,6 +41,8 @@ Endpoints are right when:
 - An **external system** (someone else's code) needs to call PostHog for data
 - The query is **stable** — not exploratory analysis
 - The shape is **reusable** — same query with different parameters
+- **Code calls `/api/projects/:id/query/`** on a schedule or per request. Move it to an
+  endpoint: the query API is for one-off exploration and has low concurrency and timeout limits
 
 Endpoints are wrong when:
 

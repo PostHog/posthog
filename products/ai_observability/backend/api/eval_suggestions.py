@@ -55,7 +55,9 @@ class EvalSuggestionSerializer(serializers.Serializer):
         read_only=True,
         help_text=(
             "new_hog: a Hog check, measured on a sample. new_llm_judge: an LLM judge that possibly applies, "
-            "with examples. fix_eval: an existing evaluation that matches nothing or gives inconsistent results."
+            "with examples. fix_eval: an existing evaluation that matches nothing or gives inconsistent results. "
+            "fix_prompt: a rule the prompt sets that most sampled calls break, which a prompt change fixes and an "
+            "evaluation cannot; it has no evaluation to accept."
         ),
     )
     status = serializers.ChoiceField(
@@ -94,7 +96,8 @@ class EvalSuggestionSerializer(serializers.Serializer):
             "For new_hog and new_llm_judge: the evaluation create input (name, description, evaluation_type, "
             "evaluation_config, output_type, output_config, target), without conditions, which accept builds from "
             "`filters` and `rollout_percentage`. For fix_eval: the update body apply_fix applies to the target "
-            "evaluation, or {} when the evaluation needs a manual fix."
+            "evaluation, or {} when the evaluation needs a manual fix. For fix_prompt: the check's name and "
+            "description, and prompt_name when one managed prompt holds the rule."
         ),
     )
     filters = EvalSuggestionFilterSerializer(
@@ -108,12 +111,12 @@ class EvalSuggestionSerializer(serializers.Serializer):
     measured_failure_rate = serializers.FloatField(
         read_only=True,
         allow_null=True,
-        help_text="Share (0-1) of sampled traces that fail the check. Only Hog checks are measured; null otherwise.",
+        help_text="Share (0-1) of sampled traces or generations, per the draft's target, that fail the check. Null when nothing measured it.",
     )
     sample_size = serializers.IntegerField(
         read_only=True,
         allow_null=True,
-        help_text="Traces the failure rate was measured on. Null when there is no rate.",
+        help_text="Traces or generations, per the draft's target, that the failure rate was measured on. Null when there is no rate.",
     )
     evidence = EvalSuggestionEvidenceSerializer(
         many=True, read_only=True, help_text="Up to 5 example traces, each with a one-line reason."

@@ -18,7 +18,8 @@ from django.db.models.functions import Coalesce
 from django.urls import URLResolver, get_resolver
 
 from posthog.exceptions_capture import capture_exception
-from posthog.scopes import INTERNAL_API_SCOPE_OBJECTS, APIScopeObject
+from posthog.scopes.catalog import APIScopeObject
+from posthog.scopes.exposure import INTERNAL_API_SCOPE_OBJECTS
 
 
 @dataclass(frozen=True, kw_only=True)

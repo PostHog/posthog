@@ -2,8 +2,12 @@ import { LemonTable, LemonTag } from '@posthog/lemon-ui'
 
 import { percentage } from 'lib/utils/numbers'
 
-import type { AEOKeywordModifierApi } from 'products/web_analytics/frontend/generated/api.schemas'
+import type {
+    AEOKeywordModifierApi,
+    BrandedSegmentEnumApi,
+} from 'products/web_analytics/frontend/generated/api.schemas'
 
+import { ContentAutopilotCitationsLink } from './ContentAutopilotCitationsLink'
 import { isCitationGap } from './keywordsReport'
 import { engineLabel } from './utils'
 
@@ -11,8 +15,13 @@ import { engineLabel } from './utils'
 export const ContentAutopilotKeywordModifierTerms = ({
     modifiers,
     baselineCitedRate,
+    days,
+    branded,
 }: {
     modifiers: AEOKeywordModifierApi[]
+    /** The window and branded split of the report, so a search opens the same answers the report counted. */
+    days: number
+    branded: BrandedSegmentEnumApi
     baselineCitedRate: number | null
 }): JSX.Element => (
     <LemonTable<AEOKeywordModifierApi>
@@ -72,8 +81,15 @@ export const ContentAutopilotKeywordModifierTerms = ({
                 render: (_, modifier) => (
                     <ul className="m-0 flex flex-col gap-0.5 max-w-120">
                         {modifier.example_searches.map((search) => (
-                            <li key={search} className="truncate text-xs" title={search}>
-                                {search}
+                            <li key={search} className="flex min-w-0 text-xs">
+                                <ContentAutopilotCitationsLink
+                                    lookup={{ kind: 'search', value: search, days, branded }}
+                                    source="keyword-modifier-searches"
+                                    className="block truncate"
+                                    title={search}
+                                >
+                                    {search}
+                                </ContentAutopilotCitationsLink>
                             </li>
                         ))}
                     </ul>

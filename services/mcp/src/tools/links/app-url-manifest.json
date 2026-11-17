@@ -364,6 +364,11 @@
         "params": ["id"],
         "scope": "project"
     },
+    "businessKnowledgeUsage": {
+        "template": "/business-knowledge/usage",
+        "params": [],
+        "scope": "project"
+    },
     "canvas": {
         "template": "/canvas",
         "params": [],
@@ -606,6 +611,11 @@
     },
     "dataCatalogNewMetric": {
         "template": "/data-catalog/new-metric",
+        "params": [],
+        "scope": "project"
+    },
+    "dataDeletionRequestNew": {
+        "template": "/settings/environment-danger-zone/data-deletion/new",
         "params": [],
         "scope": "project"
     },
@@ -1199,6 +1209,11 @@
         "params": [],
         "scope": "project"
     },
+    "logsSavedView": {
+        "template": "/logs",
+        "params": [],
+        "scope": "project"
+    },
     "managedMigration": {
         "template": "/managed_migrations",
         "params": [],
@@ -1499,6 +1514,11 @@
         "params": ["id"],
         "scope": "project"
     },
+    "releaseCalendar": {
+        "template": "/releases/calendar",
+        "params": [],
+        "scope": "project"
+    },
     "releaseList": {
         "template": "/releases/list",
         "params": [],
@@ -1696,6 +1716,11 @@
     },
     "stamphog": {
         "template": "/stamphog",
+        "params": [],
+        "scope": "project"
+    },
+    "stamphogArea": {
+        "template": "/stamphog/area",
         "params": [],
         "scope": "project"
     },

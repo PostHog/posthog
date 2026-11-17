@@ -93,6 +93,12 @@ export interface AnalyticsItem {
     entry?: FileSystemEntry
 }
 
+export function analyticsItemTarget(
+    item: AnalyticsItem
+): Pick<AnalyticsItem, 'type' | 'name' | 'href' | 'tags'> & { ref: string } {
+    return { type: item.type, ref: item.id, name: item.name, href: item.href, tags: item.tags }
+}
+
 export const ANALYTICS_BACK_NAME = 'Analytics'
 
 /** The item's page, told where the person came from so its back control returns there rather than to the type's own list. */
@@ -248,3 +254,6 @@ export function fromPostHogItems(featureFlags: FeatureFlagsSet): FromPostHogItem
 
 /** Scopes the Analytics list's drag ids and drop targets apart from the project tree's own. */
 export const ANALYTICS_DRAG_SCOPE = 'analytics-list'
+
+export const ROW_HOVER_REVEAL =
+    'opacity-0 transition-opacity motion-reduce:transition-none group-hover/row:opacity-100 focus-visible:opacity-100'

@@ -106,8 +106,8 @@ const RESOURCE_PLURALS: Partial<Record<APIScopeObject, string>> = {
     [AccessControlResourceType.Metrics]: 'metrics',
     [AccessControlResourceType.Tracing]: 'tracing',
     [AccessControlResourceType.SharingConfiguration]: 'sharing',
-    // Product name, so it does not take a plural
-    [AccessControlResourceType.Stamphog]: 'stamphog',
+    // A feature name, not a collection of objects, so it takes no plural
+    [AccessControlResourceType.CodeReviewApproval]: 'code review auto-approval',
     [AccessControlResourceType.Toolbar]: 'toolbar',
     [AccessControlResourceType.LlmPlayground]: 'LLM playground',
     [AccessControlResourceType.Workflow]: 'workflows',
@@ -186,9 +186,8 @@ export const resourceTypeToString = (resourceType: AccessControlResourceType): s
         return 'MCP analytic'
     } else if (resourceType === AccessControlResourceType.ReplayScanner) {
         return 'replay vision resource'
-    } else if (resourceType === AccessControlResourceType.Stamphog) {
-        // Proper noun, so it stays capitalized inside "...permissions for this Stamphog resource."
-        return 'Stamphog resource'
+    } else if (resourceType === AccessControlResourceType.CodeReviewApproval) {
+        return 'code review auto-approval resource'
     }
 
     return resourceType.replace(/_/g, ' ')

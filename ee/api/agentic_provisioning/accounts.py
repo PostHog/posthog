@@ -25,7 +25,7 @@ from posthog.models.organization_provisioning import OrganizationProvisioning, g
 from posthog.models.team.team import Team
 from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
 from posthog.models.user import OnboardingSkippedReason, User
-from posthog.scopes import scopes_within_ceiling
+from posthog.scopes.ceilings import scopes_within_ceiling
 from posthog.tasks.email import send_provisioning_welcome
 from posthog.workos_radar import RadarAction, RadarAuthMethod, SuspiciousAttemptBlocked, evaluate_auth_attempt
 

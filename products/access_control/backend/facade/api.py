@@ -40,7 +40,8 @@ from posthog.models.activity_logging.activity_log import LogActivityEntry, bulk_
 from posthog.models.activity_logging.model_activity import get_current_user, get_was_impersonated
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.user import User
-from posthog.scopes import API_SCOPE_OBJECTS, INTERNAL_API_SCOPE_OBJECTS, APIScopeObject
+from posthog.scopes.catalog import API_SCOPE_OBJECTS, APIScopeObject
+from posthog.scopes.exposure import INTERNAL_API_SCOPE_OBJECTS
 
 from products.access_control.backend.activity_logging import get_access_control_log_entry
 from products.access_control.backend.models.role import Role, RoleMembership
@@ -717,6 +718,11 @@ def role_belongs_to_organization(*, role_id: str | UUID, organization_id: UUID) 
     another organization.
     """
     return Role.objects.filter(id=role_id, organization_id=organization_id).exists()
+
+
+def organization_role_names(*, organization_id: UUID, role_ids: Collection[UUID]) -> dict[UUID, str]:
+    """Names of the given roles, keyed by id. A role of another organization is left out."""
+    return dict(Role.objects.filter(organization_id=organization_id, id__in=role_ids).values_list("id", "name"))
 
 
 def valid_role_member_user_ids(*, role_id: str | UUID) -> list[int]:

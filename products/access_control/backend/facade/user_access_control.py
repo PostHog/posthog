@@ -18,7 +18,8 @@ from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Organization, OrganizationMembership, Team, User
 from posthog.organization_caching import get_cached_organization_membership
-from posthog.scopes import API_SCOPE_OBJECTS, INTERNAL_API_SCOPE_OBJECTS, APIScopeObject
+from posthog.scopes.catalog import API_SCOPE_OBJECTS, APIScopeObject
+from posthog.scopes.exposure import INTERNAL_API_SCOPE_OBJECTS
 from posthog.settings import EE_AVAILABLE
 
 if TYPE_CHECKING:
@@ -89,7 +90,7 @@ ACCESS_CONTROL_RESOURCES: tuple[APIScopeObject, ...] = (
     "revenue_analytics",
     "session_recording",
     "sharing_configuration",
-    "stamphog",
+    "code_review_approval",
     "survey",
     "ticket",
     "web_analytics",
@@ -222,9 +223,9 @@ def resource_to_display_name(resource: APIScopeObject) -> str:
     if resource == "canvas":
         # Ends in "s" but is singular, so the rule below would leave it as "canvas"
         return "canvases"
-    if resource == "stamphog":
-        # Product name: a proper noun, and it does not take a plural
-        return "Stamphog"
+    if resource == "code_review_approval":
+        # A feature name, not a collection of objects, so it takes no plural
+        return "code review auto-approval"
 
     name = resource.replace("_", " ")
     # Names such as "marketing analytics", "logs" and "metrics" are already plural
