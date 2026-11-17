@@ -254,3 +254,26 @@ class TestDeliverRoutes(APIBaseTest):
             self._deliver()
 
         assert isinstance(raised.value, RefusedEverywhere) is permanent
+
+    def test_a_refused_trigger_still_lets_the_resolve_of_another_group_through(self) -> None:
+        self._route("P-infra", [{"label": "team", "op": "=", "value": "infra"}], 3, PAGERDUTY)
+        real_deliver = routing.deliver
+
+        def deliver(**kwargs: Any) -> Any:
+            if kwargs["incident_action"] == IncidentAction.TRIGGER:
+                raise DestinationRefused("PagerDuty refused the event with status 400.")
+            return real_deliver(**kwargs)
+
+        with patch(f"{_MODULE}.deliver", side_effect=deliver), pytest.raises(RefusedEverywhere):
+            self._deliver(
+                transitions=(
+                    _transition(AlertEventKind.FIRING, "checkout"),
+                    _transition(AlertEventKind.RESOLVED, "search"),
+                ),
+                sends_messages=False,
+                incident_actions={"checkout": IncidentAction.TRIGGER, "search": IncidentAction.RESOLVE},
+            )
+
+        assert [(target, message.incident_action) for target, message in RecordingTransport.sends] == [
+            ("P-infra", IncidentAction.RESOLVE)
+        ]
