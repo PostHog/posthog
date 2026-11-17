@@ -25,6 +25,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.obj
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.discovery import (
     TableDefinition,
+    explain_no_tables,
     group_tables,
     resolve_file_format,
     resolve_table_files,
@@ -35,7 +36,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.obj
     DELTA_UNSUPPORTED_ERROR,
     FILE_PARSE_ERROR,
     INVALID_CONFIG_ERROR,
-    NO_IMPORTABLE_FILES_ERROR,
     NO_SUCH_BUCKET_ERROR,
     NO_TABLE_FILES_ERROR,
     TOO_MANY_FILES_ERROR,
@@ -76,13 +76,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 from products.warehouse_sources.backend.types import ExternalDataSchemaSyncType, IncrementalFieldType
 
 
-def _raise_translated(error: Exception, location: str) -> NoReturn:
-    translated = translate_storage_error(error, location)
-    if translated is error:
-        raise error
-    raise translated from error
-
-
 def _http_status(error: BaseException) -> int | None:
     """The HTTP status of the botocore error behind an s3fs error, if there is one."""
     current: BaseException | None = error
@@ -93,6 +86,19 @@ def _http_status(error: BaseException) -> int | None:
                 return status
         current = current.__cause__
     return None
+
+
+def _raise_translated(error: Exception, location: str) -> NoReturn:
+    to_translate = error
+    if type(error) is OSError and _http_status(error) in (401, 403):
+        # As in `validate_credentials` and `describe_pinned_schema`: s3fs gives a bare 401 or 403 (an
+        # error code it doesn't recognize, such as a provider's non-standard "Unauthorized") as a
+        # plain OSError instead of PermissionError.
+        to_translate = PermissionError()
+    translated = translate_storage_error(to_translate, location)
+    if translated is error:
+        raise error
+    raise translated from error
 
 
 def validate_store_location(config: StoreConfig) -> None:
@@ -190,12 +196,26 @@ class ObjectStorageSource(SimpleSource[ConfigType], CursorSource[ObjectStorageDe
         self, store: ObjectStore, config: ConfigType, logger: FilteringBoundLogger | None = None
     ) -> list[TableDefinition]:
         store_config = self.object_store_config(config)
+        return self._group(self._list_objects(store, store_config, logger), store_config, config, logger)
+
+    def _list_objects(
+        self, store: ObjectStore, store_config: StoreConfig, logger: FilteringBoundLogger | None = None
+    ) -> list[StoredObject]:
         try:
             objects = store.list_objects(store_config.listing_prefix, MAX_DISCOVERY_OBJECTS)
         except Exception as e:
             _raise_translated(e, store_config.display_location)
         if len(objects) >= MAX_DISCOVERY_OBJECTS and logger is not None:
             logger.warning("Reached the object storage listing limit; later objects are ignored")
+        return objects
+
+    def _group(
+        self,
+        objects: list[StoredObject],
+        store_config: StoreConfig,
+        config: ConfigType,
+        logger: FilteringBoundLogger | None = None,
+    ) -> list[TableDefinition]:
         root_name = store_config.prefix.rsplit("/", 1)[-1] if store_config.prefix else store_config.root_name
         return group_tables(
             objects,
@@ -220,7 +240,8 @@ class ObjectStorageSource(SimpleSource[ConfigType], CursorSource[ObjectStorageDe
     ) -> tuple[bool, str | None]:
         try:
             store_config = self.object_store_config(config)
-            tables = self._discover(self.open_store(store_config), config)
+            objects = self._list_objects(self.open_store(store_config), store_config)
+            tables = self._group(objects, store_config, config)
         except ObjectStorageError as e:
             return False, self._validation_message(str(e))
         except OSError as e:
@@ -234,10 +255,7 @@ class ObjectStorageSource(SimpleSource[ConfigType], CursorSource[ObjectStorageDe
                 raise
             return False, message
         if not tables:
-            return False, (
-                f"{NO_IMPORTABLE_FILES_ERROR} in '{store_config.display_location}'. PostHog can read the bucket but "
-                "found nothing to import there. Check the URL and the file format."
-            )
+            return False, explain_no_tables(objects, self.discovery_options(config), store_config.pattern)
         return True, None
 
     def get_schemas(

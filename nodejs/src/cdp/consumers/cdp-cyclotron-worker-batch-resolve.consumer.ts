@@ -414,7 +414,7 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
     private async processOnePage(job: CyclotronV2DequeuedJob, state: BatchResolverState): Promise<void> {
         const [team, hogFlow] = await Promise.all([
             this.deps.teamManager.getTeam(state.teamId),
-            this.hogFlowManager.getHogFlow(state.hogFlowId),
+            this.hogFlowManager.getHogFlowCheckingPrimaryOnMiss(state.hogFlowId),
         ])
 
         if (!team || !hogFlow) {

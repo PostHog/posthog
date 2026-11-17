@@ -10,6 +10,7 @@ import {
     writeFileSync,
 } from 'fs'
 import type { ProducerGlobalConfig } from 'node-rdkafka'
+import os from 'os'
 import path from 'path'
 import { pipeline } from 'stream/promises'
 import { setTimeout as sleep } from 'timers/promises'
@@ -46,6 +47,7 @@ import {
     Sampled,
     Sampler,
     baselineOf,
+    janitorResetsOf,
     measure,
     startSampler,
 } from '../judge/measurements'
@@ -55,10 +57,12 @@ import { WriterProbe, WriterSample, createWriterProbe } from '../probe/writer-pr
 import { provenanceOf } from '../scorecard/provenance'
 import { scorecardOf } from '../scorecard/scorecard'
 import { publish } from '../scorecard/write'
+import { reportToStore } from '../store/client'
 import { ValveTimelineEntry, createValves } from '../valves/valves'
+import { SAVED_RUN_FILE, SavedRun } from './saved-run'
 import { Admission, Status, admissionsOf, statusOf } from './status'
 
-export type RunVerdict = Omit<RunResult, 'recorded' | 'captured' | 'scorecardError'>
+export type RunVerdict = Omit<RunResult, 'recorded' | 'captured' | 'scorecardError' | 'stored' | 'storeError'>
 
 export type RunResult = {
     runId: string
@@ -67,12 +71,15 @@ export type RunResult = {
     recorded: boolean
     captured?: true
     scorecardError?: string
+    stored?: true
+    storeError?: string
     cardId: string
     cardHash: string
     profileHash: string
     origin: 'local-agent'
     units?: DriveSummary
     convergence?: Convergence
+    janitorResets?: number
     invariants: InvariantResult[]
     measurements: Measurement[]
     admissions: Admission[]
@@ -99,7 +106,15 @@ const PROBED_QUEUES: Queue[] = ['hogflow', 'email']
 
 type Outcome = Pick<
     RunResult,
-    'status' | 'statusReason' | 'units' | 'convergence' | 'invariants' | 'measurements' | 'admissions' | 'bars'
+    | 'status'
+    | 'statusReason'
+    | 'units'
+    | 'convergence'
+    | 'janitorResets'
+    | 'invariants'
+    | 'measurements'
+    | 'admissions'
+    | 'bars'
 >
 
 type Probes = { commits(): readonly WriterSample[]; stop(): Promise<Probed> }
@@ -436,24 +451,26 @@ export function createRunner(
                 probed = await probes.stop()
                 sampled = await sampler.stop()
                 const down = await stopHealth()
-                const invariants = await judge.check(card.invariants, card.gates)
+                const janitorResets = janitorResetsOf({ ...sampled, sampledFrom: sampler.sampledFrom })
+                const invariants = await judge.check(card.invariants, card.gates, { janitorResets })
+                const steps = stepsOf(card.drive)
                 const evidence = {
                     ...judge.evidence(),
                     ...sampled,
                     ...probed,
                     sampledFrom: sampler.sampledFrom,
                     drive: driveWindow,
+                    steps,
                     timeline: valves.timeline(),
                 }
                 const measurements = measure(card.measure, evidence)
-                const steps = stepsOf(card.drive)
                 const admissions = admissionsOf(
                     profile,
                     baselineOf({ ...evidence, drive: firstStepOf(driveWindow, steps) })
                 )
                 const bars = judgeBars(card.bars, {
                     ...evidence,
-                    steps,
+                    hostCpuCeiling: profile.host?.cpuCeiling,
                     writerCpu: await writerCpuFor(card.bars, driveWindow, signal),
                 })
                 const verdict = statusOf({
@@ -469,7 +486,7 @@ export function createRunner(
                     drive: driveWindow,
                     bars,
                 })
-                outcome = { ...verdict, units, convergence, invariants, measurements, admissions, bars }
+                outcome = { ...verdict, units, convergence, janitorResets, invariants, measurements, admissions, bars }
                 if (signal.aborted) {
                     outcome = { ...outcome, status: 'invalid', statusReason: 'the run was interrupted' }
                 }
@@ -511,6 +528,7 @@ export function createRunner(
                 evidenceDir,
             }
             const provenance = provenanceOf()
+            const host = os.hostname()
             const evidenceError = await errorOf(async () => {
                 await writeLogTails(evidenceDir)
                 const { journal, truth } = judge.evidence()
@@ -518,18 +536,23 @@ export function createRunner(
                 writeJson(evidenceDir, 'truth.json', truth)
                 writeJson(evidenceDir, 'metrics.json', sampled)
                 writeJson(evidenceDir, 'probes.json', { drive: driven ?? null, ...probed })
-                writeJson(evidenceDir, 'scorecard.json', {
+                writeJson(evidenceDir, SAVED_RUN_FILE, {
                     ...verdict,
+                    host,
                     event: scorecardOf(verdict, loaded, provenance),
-                })
+                } satisfies SavedRun)
             })
             const judged = withEvidenceError(verdict, evidenceError)
-            const written = await publish(scorecardOf(judged, loaded, provenance), env, signal)
+            const scorecard = scorecardOf(judged, loaded, provenance)
+            const written = await publish(scorecard, env, signal)
+            const reported = await reportToStore({ scorecard, host }, env)
             return {
                 ...judged,
                 recorded: written.recorded,
                 captured: written.captured,
                 scorecardError: written.problem,
+                stored: reported.stored || undefined,
+                storeError: reported.problem,
             }
         },
 

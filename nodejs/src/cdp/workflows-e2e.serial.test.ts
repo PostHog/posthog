@@ -56,7 +56,7 @@ import {
     insertHogFunctionTemplate,
     insertIntegration,
 } from './_tests/fixtures'
-import { insertHogFlow } from './_tests/fixtures-hogflows'
+import { hideHogFlowsFromReplica, insertHogFlow } from './_tests/fixtures-hogflows'
 import { CdpApi } from './cdp-api'
 import { CdpCyclotronWorkerBatchResolve } from './consumers/cdp-cyclotron-worker-batch-resolve.consumer'
 import { CdpCyclotronWorkerEmailSandbox } from './consumers/cdp-cyclotron-worker-email-sandbox.consumer'
@@ -5389,6 +5389,55 @@ describe('Workflows E2E: batch resolver dispatch via cdp-api', () => {
             [parentRunId]
         )
         expect(children.rows).toHaveLength(0)
+    })
+
+    it('a workflow the read replica has not caught up on yet still runs instead of failing as deleted', async () => {
+        const flow = await insertActiveBatchFlow()
+        const parentRunId = new UUIDT().toString()
+        const personIds = [new UUIDT().toString(), new UUIDT().toString()]
+        const statusPuts: Array<{ status: string }> = []
+
+        mockInternalFetch.mockImplementation((url: string, opts: any) => {
+            const body = url.includes('/user_blast_radius_persons')
+                ? JSON.stringify({ users_affected: personIds, cursor: null, has_more: false })
+                : '{}'
+            if (url.includes('/batch_jobs/') && url.endsWith('/status')) {
+                statusPuts.push(parseJSON(opts.body) as { status: string })
+            } else if (!url.includes('/user_blast_radius_persons')) {
+                return Promise.reject(new Error(`Unexpected internalFetch call to ${url}`))
+            }
+            return Promise.resolve({
+                status: 200,
+                headers: {},
+                json: () => Promise.resolve({}),
+                text: () => Promise.resolve(body),
+                dump: () => Promise.resolve(),
+            })
+        })
+
+        await supertest(app)
+            .post(`/api/projects/${team.id}/hog_flows/${flow.id}/batch_invocations/${parentRunId}`)
+            .send({ filters: { filter_test_accounts: false }, max_audience_size: 1000 })
+            .expect(200)
+
+        const replicaHidden = hideHogFlowsFromReplica(hub.postgres, [flow.id])
+        try {
+            resolverWorker = buildResolverConsumer()
+            await resolverWorker.start()
+
+            await waitForExpect(() => {
+                expect(statusPuts).toHaveLength(1)
+            }, 20000)
+        } finally {
+            replicaHidden.mockRestore()
+        }
+
+        expect(statusPuts[0]).toEqual({ status: 'completed' })
+        const children = await cyclotronPool.query(
+            `SELECT id FROM cyclotron_jobs WHERE queue_name = 'hogflow' AND parent_run_id = $1`,
+            [parentRunId]
+        )
+        expect(children.rows).toHaveLength(personIds.length)
     })
 
     it('Django down: resolver retries the terminal PUT instead of acking', async () => {

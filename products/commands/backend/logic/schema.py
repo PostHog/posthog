@@ -27,7 +27,7 @@ from collections.abc import Collection, Mapping
 from typing import Any, Literal, Union, get_args, get_origin, get_type_hints
 
 from posthog.dataclasses import frozen
-from posthog.scopes import APIScopeObject
+from posthog.scopes.catalog import APIScopeObject
 
 from .commands import SUBJECT_NAMES, SubjectKind
 
