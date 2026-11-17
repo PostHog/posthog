@@ -1,10 +1,9 @@
 import { useActions, useValues } from 'kea'
 
-import { Card, CardContent } from '@posthog/quill-primitives'
+import { Card, CardContent, Skeleton } from '@posthog/quill-primitives'
 
 import { cn } from 'lib/utils/css-classes'
 
-import { MIN_KPI_SESSIONS } from './clusterRanking'
 import { type ClusterFilter, type RouteShapeCounts, mcpClusteringLogic } from './mcpClusteringLogic'
 
 interface Scorecard {
@@ -48,38 +47,38 @@ const SCORECARDS: Scorecard[] = [
  * to exactly those. The counts and the filters share one predicate in the logic, so a
  * card can't report one number and show another.
  */
-export function ClusterScorecards(): JSX.Element {
-    const { routeShapeCounts, clusterFilter, searchedClusters } = useValues(mcpClusteringLogic)
+export function ClusterScorecards({ loading }: { loading: boolean }): JSX.Element {
+    const { routeShapeCounts, clusterFilter } = useValues(mcpClusteringLogic)
     const { setClusterFilter } = useActions(mcpClusteringLogic)
 
-    const smallClusterCount = searchedClusters.length - routeShapeCounts.total
-
     return (
-        <div className="flex flex-col gap-1">
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
-                {SCORECARDS.map((card) => {
-                    const isActive = clusterFilter === card.filter
-                    const count = card.count(routeShapeCounts)
-                    return (
-                        <button
-                            key={card.filter}
-                            type="button"
-                            data-attr={`mcp-clustering-scorecard-${card.filter}`}
-                            aria-pressed={isActive}
-                            onClick={() => setClusterFilter(isActive ? 'all' : card.filter)}
-                            className="w-full text-left"
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
+            {SCORECARDS.map((card) => {
+                const isActive = clusterFilter === card.filter
+                const count = card.count(routeShapeCounts)
+                return (
+                    <button
+                        key={card.filter}
+                        type="button"
+                        data-attr={`mcp-clustering-scorecard-${card.filter}`}
+                        aria-pressed={isActive}
+                        onClick={() => setClusterFilter(isActive ? 'all' : card.filter)}
+                        className="w-full text-left"
+                    >
+                        <Card
+                            size="sm"
+                            className={cn(
+                                'h-full transition-colors',
+                                isActive
+                                    ? 'border-accent bg-accent-highlight-secondary'
+                                    : 'hover:bg-accent-highlight-secondary'
+                            )}
                         >
-                            <Card
-                                size="sm"
-                                className={cn(
-                                    'h-full transition-colors',
-                                    isActive
-                                        ? 'border-accent bg-accent-highlight-secondary'
-                                        : 'hover:bg-accent-highlight-secondary'
-                                )}
-                            >
-                                <CardContent className="flex flex-col items-start">
-                                    <span className="text-muted text-xs font-medium uppercase">{card.label}</span>
+                            <CardContent className="flex flex-col items-start">
+                                <span className="text-muted text-xs font-medium uppercase">{card.label}</span>
+                                {loading ? (
+                                    <Skeleton className="mt-1 h-8 w-16" />
+                                ) : (
                                     <span className="mt-1 flex items-baseline gap-1">
                                         <span
                                             className={cn(
@@ -91,19 +90,13 @@ export function ClusterScorecards(): JSX.Element {
                                         </span>
                                         <span className="text-muted text-sm">of {routeShapeCounts.total}</span>
                                     </span>
-                                    <span className="text-muted mt-1 text-xs">{card.description}</span>
-                                </CardContent>
-                            </Card>
-                        </button>
-                    )
-                })}
-            </div>
-            {smallClusterCount > 0 ? (
-                <span className="text-xs text-muted" data-attr="mcp-clustering-scorecards-threshold">
-                    Counts intent groups with at least {MIN_KPI_SESSIONS} sessions. {smallClusterCount} smaller group
-                    {smallClusterCount === 1 ? ' is' : 's are'} still listed below.
-                </span>
-            ) : null}
+                                )}
+                                <span className="text-muted mt-1 text-xs">{card.description}</span>
+                            </CardContent>
+                        </Card>
+                    </button>
+                )
+            })}
         </div>
     )
 }
