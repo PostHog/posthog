@@ -70,7 +70,7 @@ export function LegacyExperimentView(): JSX.Element {
     const { setActiveTabKey } = useActions(experimentSceneLogic)
 
     const tabs: LemonTab<ExperimentTab>[] = [
-        { key: 'metrics', label: 'Metrics', content: <MetricsTab /> },
+        { key: 'metrics', label: 'Overview', content: <MetricsTab /> },
         { key: 'variants', label: 'Variants', content: <VariantsTab /> },
     ]
 

@@ -165,7 +165,7 @@ export function ExperimentView(): JSX.Element {
     // the URL, and the tracked tab stay in agreement.
     const tabs: LemonTab<ExperimentTab>[] = (
         [
-            { key: 'metrics', label: 'Metrics', content: <MetricsTab /> },
+            { key: 'metrics', label: 'Overview', content: <MetricsTab /> },
             {
                 key: 'health',
                 label: (
