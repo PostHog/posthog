@@ -6,6 +6,7 @@ import hashlib
 import dataclasses
 from collections.abc import Mapping
 from datetime import UTC
+from types import SimpleNamespace
 
 import pytest
 from unittest.mock import MagicMock, patch
@@ -21,6 +22,7 @@ from products.knowledge_writer.backend.facade.contracts import MergeCheckReport
 from products.knowledge_writer.backend.facade.enums import DocsChangeKind, DocsRequestSource
 from products.knowledge_writer.backend.feature_flags import AGENT_LAUNCH_FLAG, OPEN_PULL_REQUESTS_FLAG
 from products.knowledge_writer.backend.logic import caps, intake
+from products.knowledge_writer.backend.logic.grounding import GroundingReply, LineSupport
 from products.knowledge_writer.backend.logic.launch import WRITER_IDLE_TIMEOUT_SECONDS
 from products.knowledge_writer.backend.logic.pull_requests import (
     DRAFT_EVENT,
@@ -95,6 +97,16 @@ CAPTURE_VERDICT = "products.knowledge_writer.backend.logic.intake.capture_verdic
 KNOWLEDGE_WRITER_ENABLED = "products.knowledge_writer.backend.settings.is_writer_enabled"
 START_PUBLISH = "products.knowledge_writer.backend.temporal.client.start_publish"
 CAPTURE_DRAFT = "products.knowledge_writer.backend.logic.pull_requests.ph_scoped_capture"
+GROUNDING_GATEWAY = "products.knowledge_writer.backend.logic.grounding.build_ai_gateway_anthropic_client"
+SHARING_PAGE_PATH = "contents/docs/session-replay/sharing.mdx"
+NEW_PAGE_HEADING = "# Retention presets"
+NEW_PAGE_LINE = "Pick a preset to keep recordings for 90 days."
+SOURCE_DIFF = (
+    "diff --git a/posthog/session_recordings/retention.py b/posthog/session_recordings/retention.py\n"
+    '+    """Retention presets keep recordings for 90 days."""\n'
+)
+GROUNDING_DID_NOT_RUN = "Grounding did not run"
+SUPPORTED_QUOTES = {NEW_PAGE_HEADING: "Retention presets keep", NEW_PAGE_LINE: "keep recordings for 90 days"}
 
 COMMIT_URL = f"https://github.com/PostHog/posthog/commit/{'a' * 40}"
 UPLOADED_ARTIFACTS: dict[str, bytes] = {}
@@ -117,13 +129,12 @@ def _change(written: Mapping[str, str] | None = None, deleted: tuple[str, ...] =
 
 
 DOCS_CHANGE = _change({DOCS_PAGE_PATH: "Retention lasts 90 days.\n"})
-NEW_PAGE_CHANGE = _change(
-    {
-        NEW_PAGE_PATH: "# Retention presets\n",
-        NAV_PATH: _nav(NEW_PAGE_NAV_LINE),
-        "vercel.json": json.dumps({**VERCEL_BASE, "redirects": [NEW_PAGE_REDIRECT]}),
-    }
-)
+NEW_PAGE_FILES = {
+    NEW_PAGE_PATH: f"{NEW_PAGE_HEADING}\n{NEW_PAGE_LINE}\n",
+    NAV_PATH: _nav(NEW_PAGE_NAV_LINE),
+    "vercel.json": json.dumps({**VERCEL_BASE, "redirects": [NEW_PAGE_REDIRECT]}),
+}
+NEW_PAGE_AND_UNROUTED_PAGE_FILES = {**NEW_PAGE_FILES, SHARING_PAGE_PATH: f"{NEW_PAGE_LINE}\n"}
 
 
 class DocsGitHub:
@@ -203,6 +214,8 @@ class DocsGitHub:
             self.created_branches.append(kwargs["json_body"])
             self.branch_tip = kwargs["json_body"]["sha"]
             return MagicMock(status_code=201)
+        if path.startswith("/repos/PostHog/posthog/commits/"):
+            return MagicMock(status_code=200, text=SOURCE_DIFF)
         if "/contents/docs/published/docs/" in path:
             if self.lookup_error is not None:
                 raise self.lookup_error
@@ -256,6 +269,23 @@ class DocsGitHub:
         return {"name": name, "mode": mode, "oid": "0" * 40}
 
 
+def _grounding_gateway(quote_by_line: Mapping[str, str] | None):
+    def parse(*, messages: list[dict], **_request: object) -> object:
+        if quote_by_line is None:
+            raise ConnectionError("AI gateway unreachable")
+        content = messages[0]["content"]
+        numbered_lines = content.split("<lines>\n", 1)[1].removesuffix("\n</lines>").split("\n")
+        supports = [
+            LineSupport(line_id=int(line_id), quote=quote_by_line.get(line))
+            for line_id, line in (numbered_line.split(": ", 1) for numbered_line in numbered_lines)
+        ]
+        return SimpleNamespace(stop_reason="end_turn", parsed_output=GroundingReply(lines=supports))
+
+    client = SimpleNamespace(messages=SimpleNamespace(parse=parse))
+    client.with_options = lambda **_options: client
+    return lambda **_client_options: client
+
+
 def _blob_oid(path: str) -> str:
     return hashlib.sha1(path.encode()).hexdigest()
 
@@ -296,6 +326,7 @@ def writer_env(team, user):
         patch(GITHUB_REQUEST, side_effect=DocsGitHub()),
         patch(READ_ARTIFACT, side_effect=_read_uploaded_artifact),
         patch(FLAG_CHECK, side_effect=lambda flag, *args, **kwargs: flag == OPEN_PULL_REQUESTS_FLAG),
+        patch(GROUNDING_GATEWAY, side_effect=_grounding_gateway(None)),
     ):
         yield
 
@@ -570,13 +601,56 @@ REFUSED_CHANGES: tuple[tuple[bytes, dict, str], ...] = (
 
 
 @pytest.mark.parametrize(
-    "author_login, review_status_code, review_interruptions, expected_review",
+    "author_login, review_status_code, review_interruptions, expected_review, published_files, quotes, "
+    "expected_draft, expected_body_flags, expected_event_flags",
     [
-        pytest.param("octo-person", 201, 0, ("octo-person", None, None), id="human_author_is_asked_to_review"),
-        pytest.param(None, 201, 0, (None, "no_human_author", None), id="bot_author_is_asked_nothing"),
-        pytest.param("octo-person", 422, 0, (None, "review_request_failed", 422), id="failed_request_is_recorded"),
         pytest.param(
-            "octo-person", 201, 1, ("octo-person", None, None), id="worker_killed_mid_review_is_asked_once_on_retry"
+            "octo-person",
+            201,
+            0,
+            ("octo-person", None, None),
+            NEW_PAGE_FILES,
+            SUPPORTED_QUOTES,
+            False,
+            [],
+            (True, [], []),
+            id="human_author_is_asked_to_review_a_grounded_change_ready_for_review",
+        ),
+        pytest.param(
+            None,
+            201,
+            0,
+            (None, "no_human_author", None),
+            NEW_PAGE_FILES,
+            None,
+            True,
+            [GROUNDING_DID_NOT_RUN],
+            (False, [], []),
+            id="bot_author_is_asked_nothing_and_a_failed_grounding_call_opens_a_draft",
+        ),
+        pytest.param(
+            "octo-person",
+            422,
+            0,
+            (None, "review_request_failed", 422),
+            NEW_PAGE_AND_UNROUTED_PAGE_FILES,
+            {NEW_PAGE_HEADING: "Retention presets last forever", NEW_PAGE_LINE: "github.com/PostHog/posthog/pull"},
+            True,
+            [NEW_PAGE_HEADING, NEW_PAGE_LINE, SHARING_PAGE_PATH],
+            (True, [NEW_PAGE_HEADING, NEW_PAGE_LINE], [SHARING_PAGE_PATH]),
+            id="failed_request_is_recorded_and_unquoted_lines_and_an_unrouted_page_open_a_draft",
+        ),
+        pytest.param(
+            "octo-person",
+            201,
+            1,
+            ("octo-person", None, None),
+            NEW_PAGE_AND_UNROUTED_PAGE_FILES,
+            SUPPORTED_QUOTES,
+            True,
+            [SHARING_PAGE_PATH],
+            (None, None, None),
+            id="worker_killed_mid_review_is_asked_once_on_retry_and_an_unrouted_page_opens_a_draft",
         ),
     ],
 )
@@ -590,8 +664,14 @@ def test_a_finished_writer_run_commits_only_a_gated_change_and_opens_one_linked_
     review_status_code: int,
     review_interruptions: int,
     expected_review: tuple[str | None, str | None, int | None],
+    published_files: Mapping[str, str],
+    quotes: Mapping[str, str] | None,
+    expected_draft: bool,
+    expected_body_flags: list[str],
+    expected_event_flags: tuple[bool | None, list[str] | None, list[str] | None],
 ) -> None:
     monkeypatch.setattr(KNOWLEDGE_WRITER_ENABLED, lambda team_id: True)
+    monkeypatch.setattr(GROUNDING_GATEWAY, _grounding_gateway(quotes))
     monkeypatch.setattr(START_PUBLISH, _run_publish_workflow_inline)
     monkeypatch.setenv("KNOWLEDGE_WRITER_DOCS_PATHS", "contents/docs")
     opened = {"success": True, "pr_url": "https://github.com/PostHog/posthog.com/pull/9", "pr_number": 9}
@@ -620,10 +700,15 @@ def test_a_finished_writer_run_commits_only_a_gated_change_and_opens_one_linked_
         assert (refused.created_branches, bool(refused.commits)) == ([], refusal == "branch_moved")
         assert tasks_facade.read_task_state_entry(started.task_id, team.id, PULL_REQUEST_FAILURE_STATE_KEY) == refusal
     docs_github = DocsGitHub(
-        graphql_text_limit=40, review_status_code=review_status_code, review_interruptions=review_interruptions
+        graphql_text_limit=40,
+        review_status_code=review_status_code,
+        review_interruptions=review_interruptions,
+        base_files={**BASE_FILES, SHARING_PAGE_PATH: "Share a recording.\n"},
     )
     with patch(CREATE_PULL_REQUEST, side_effect=ConnectionError("GitHub unreachable")) as create_for_new_page:
-        _finish_run(started.task_id, django_capture_on_commit_callbacks, change=NEW_PAGE_CHANGE, github=docs_github)
+        _finish_run(
+            started.task_id, django_capture_on_commit_callbacks, change=_change(published_files), github=docs_github
+        )
     create_for_new_page.assert_called_once()
     with (
         patch(GITHUB_REQUEST, side_effect=docs_github),
@@ -644,7 +729,7 @@ def test_a_finished_writer_run_commits_only_a_gated_change_and_opens_one_linked_
     assert docs_github.created_branches == [{"ref": f"refs/heads/{issued_branch}", "sha": commit_sha}]
     tree = docs_github.trees[0]
     assert tree["base_tree"] == BASE_TREE_SHA
-    assert [entry["path"] for entry in tree["tree"]] == sorted((NEW_PAGE_PATH, NAV_PATH, "vercel.json"))
+    assert [entry["path"] for entry in tree["tree"]] == sorted(published_files)
     commit = docs_github.commits[0]
     run_created_at = TaskRun.objects.get(task_id=started.task_id).created_at
     assert commit["parents"] == [BASE_SHA]
@@ -660,9 +745,12 @@ def test_a_finished_writer_run_commits_only_a_gated_change_and_opens_one_linked_
     create_pull_request.assert_called_once()
     assert create_pull_request.call_args.args == ("posthog.com",)
     assert create_pull_request.call_args.kwargs["head_branch"] == issued_branch
-    assert create_pull_request.call_args.kwargs["draft"] is True
-    assert LINK_BACK_START in create_pull_request.call_args.kwargs["body"]
-    assert COMMIT_URL in create_pull_request.call_args.kwargs["body"]
+    body = create_pull_request.call_args.kwargs["body"]
+    assert create_pull_request.call_args.kwargs["draft"] is expected_draft
+    assert LINK_BACK_START in body
+    assert COMMIT_URL in body
+    flaggable = (GROUNDING_DID_NOT_RUN, NEW_PAGE_HEADING, NEW_PAGE_LINE, SHARING_PAGE_PATH)
+    assert [flag for flag in flaggable if flag in body] == expected_body_flags
     stored = tasks_facade.read_task_state_entry(started.task_id, team.id, PULL_REQUEST_STATE_KEY)
     assert isinstance(stored, dict)
     assert stored["number"] == 9
@@ -673,6 +761,11 @@ def test_a_finished_writer_run_commits_only_a_gated_change_and_opens_one_linked_
         if captured.args[0] == DRAFT_EVENT
     ]
     assert draft_properties["outcome"] == "opened"
+    assert (
+        draft_properties["grounding_ran"],
+        draft_properties["unsupported_lines"],
+        draft_properties["extra_pages"],
+    ) == expected_event_flags
     assert (
         draft_properties["review_requested"],
         draft_properties["review_request_skipped"],

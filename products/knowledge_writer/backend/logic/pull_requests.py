@@ -1,3 +1,4 @@
+import re
 import uuid
 import difflib
 from collections.abc import Mapping
@@ -23,7 +24,14 @@ from products.tasks.backend.facade.contracts import TaskRunDTO
 from ..facade.contracts import DocsRequest
 from ..feature_flags import open_pull_requests_flag_state
 from ..settings import DEFAULT_DOCS_PATHS, WriterSettings, docs_source_for, writer_settings
-from .docs_pages import DOCS_SOURCE_EXTENSIONS, are_only_page_redirects_changed, docs_page_key, is_nav_line
+from .docs_pages import (
+    DOCS_SOURCE_EXTENSIONS,
+    are_only_page_redirects_changed,
+    docs_page_key,
+    is_nav_line,
+    route_segments,
+)
+from .grounding import MAX_GROUNDED_LINES, GroundingResult, ground_draft
 from .launch import replace_entry_with
 from .records import (
     BASE_SHA_STATE_KEY,
@@ -33,12 +41,13 @@ from .records import (
     PULL_REQUEST_STATE_KEY,
     REQUEST_STATE_KEY,
     SOURCE_CHANGE_STATE_KEY,
+    SourceChange,
     WriterPullRequest,
     pull_request_json,
     stored_request,
     stored_source_change,
 )
-from .routing import SOURCE_REPOSITORY
+from .routing import SOURCE_REPOSITORY, page_location
 from .server_commit import (
     DIRECTORY_MODE,
     REGULAR_FILE_MODE,
@@ -67,6 +76,8 @@ NO_HUMAN_AUTHOR = "no_human_author"
 REVIEW_REQUEST_FAILED = "review_request_failed"
 REVIEW_REQUEST_REJECTED = "review_request_rejected"
 DraftOutcome = Literal["refused", "logged", "opened", "failed"]
+MAX_LISTED_UNSUPPORTED_LINES = 50
+MAX_LISTED_LINE_CHARACTERS = 300
 
 
 def link_back_block(source_urls: list[str]) -> str:
@@ -74,9 +85,53 @@ def link_back_block(source_urls: list[str]) -> str:
     return "\n".join([LINK_BACK_START, *lines, LINK_BACK_END])
 
 
-def pull_request_body(request: DocsRequest) -> str:
+@dataclass(frozen=True)
+class DraftFlags:
+    grounding: GroundingResult
+    extra_pages: tuple[str, ...]
+
+    @property
+    def is_ready_for_review(self) -> bool:
+        return self.grounding.ran and not self.grounding.unsupported_lines and not self.extra_pages
+
+
+def pull_request_body(request: DocsRequest, flags: DraftFlags) -> str:
     requester = f" for {request.requested_by}" if request.requested_by else ""
-    return f"The knowledge writer opened this{requester}.\n\n{link_back_block([request.source_url])}"
+    return "\n\n".join(
+        [f"The knowledge writer opened this{requester}.", *flag_sections(flags), link_back_block([request.source_url])]
+    )
+
+
+def flag_sections(flags: DraftFlags) -> list[str]:
+    if flags.is_ready_for_review:
+        return []
+    sections = ["This is a draft. Check what is listed below before you mark it ready for review."]
+    if not flags.grounding.ran:
+        sections.append("Grounding did not run, so no added line was checked against the source change.")
+    unsupported_lines = flags.grounding.unsupported_lines
+    if unsupported_lines:
+        listed_lines = tuple(listed_line(line) for line in unsupported_lines[:MAX_LISTED_UNSUPPORTED_LINES])
+        unlisted_count = len(unsupported_lines) - len(listed_lines)
+        sections.append("These added lines have no supporting quote in the source change:")
+        sections.append(fenced_block(listed_lines))
+        if unlisted_count:
+            sections.append(f"{unlisted_count} more unsupported lines are not listed.")
+    if flags.extra_pages:
+        sections.append("These existing pages changed but were not routed to this request:")
+        sections.append("\n".join(f"- {page_path}" for page_path in flags.extra_pages))
+    return sections
+
+
+def listed_line(line: str) -> str:
+    if len(line) <= MAX_LISTED_LINE_CHARACTERS:
+        return line
+    return f"{line[:MAX_LISTED_LINE_CHARACTERS]}..."
+
+
+def fenced_block(lines: tuple[str, ...]) -> str:
+    longest_backtick_run = max((len(run) for line in lines for run in re.findall(r"`+", line)), default=0)
+    fence = "`" * max(3, longest_backtick_run + 1)
+    return "\n".join([f"{fence}text", *lines, fence])
 
 
 def docs_github(team_id: int, docs_owner: str, *, priority: Priority) -> GitHubIntegration | None:
@@ -88,6 +143,12 @@ def docs_github(team_id: int, docs_owner: str, *, priority: Priority) -> GitHubI
 
 def source_repository_github(team_id: int) -> GitHubIntegration | None:
     return docs_github(team_id, SOURCE_REPOSITORY.split("/", 1)[0], priority=Priority.NORMAL)
+
+
+def source_github(team_id: int, source: SourceChange) -> GitHubIntegration | None:
+    if source.repository is None:
+        return None
+    return docs_github(team_id, source.repository.split("/", 1)[0], priority=Priority.NORMAL)
 
 
 def github_app_login() -> str | None:
@@ -199,6 +260,7 @@ class DraftAttempt:
     task_run_id: UUID
     team_id: int
     changed_files: list[dict] = field(default_factory=list)
+    flags: DraftFlags | None = None
 
 
 def finish_published_pull_request(
@@ -256,6 +318,7 @@ def publish_change(run: TaskRunDTO, team_id: int, writer: WriterSettings) -> str
         logger.warning("knowledge_writer_no_docs_github_integration", team_id=team_id, task_run_id=str(task_run_id))
         record_pull_request_failure(task_id, team_id, "no_github_integration")
         return None
+    source_change = stored_source_change(tasks_facade.read_task_state_entry(task_id, team_id, SOURCE_CHANGE_STATE_KEY))
     draft = DraftAttempt(request=request, task_id=task_id, task_run_id=task_run_id, team_id=team_id)
     base_sha = tasks_facade.read_task_state_entry(task_id, team_id, BASE_SHA_STATE_KEY)
     head_branch = tasks_facade.read_task_state_entry(task_id, team_id, HEAD_BRANCH_STATE_KEY)
@@ -281,9 +344,10 @@ def publish_change(run: TaskRunDTO, team_id: int, writer: WriterSettings) -> str
     draft = DraftAttempt(
         request=request, task_id=task_id, task_run_id=task_run_id, team_id=team_id, changed_files=changed_files
     )
+    docs_folders = docs_folders_for(writer, task_id, team_id)
     refusal = publication_refusal(
         changed_files,
-        docs_folders_for(writer, task_id, team_id),
+        docs_folders,
         writer.docs_repository,
         tree.texts,
         head_texts(change),
@@ -291,6 +355,13 @@ def publish_change(run: TaskRunDTO, team_id: int, writer: WriterSettings) -> str
     if refusal is not None:
         refuse_draft(draft, refusal)
         return None
+    flags = DraftFlags(
+        grounding=ground_draft(source_github(team_id, source_change), source_change, changed_files),
+        extra_pages=extra_pages(
+            changed_files, docs_folders, routed_page_keys(writer.docs_repository, request, team_id)
+        ),
+    )
+    draft = replace(draft, flags=flags)
     is_opening_pull_requests = open_pull_requests_flag_state(Team.objects.get(id=team_id))
     if is_opening_pull_requests is None:
         raise WriterPullRequestFailed("knowledge writer could not read the open pull requests flag")
@@ -317,7 +388,7 @@ def publish_change(run: TaskRunDTO, team_id: int, writer: WriterSettings) -> str
     if not publish_ref(github, writer.docs_repository, head_branch, commit_sha):
         refuse_draft(draft, "branch_moved")
         return None
-    pull_request = open_pull_request(github, docs_name, request, head_branch)
+    pull_request = open_pull_request(github, docs_name, request, head_branch, flags)
     if isinstance(pull_request, GitHubStepFailed):
         capture_draft(draft, outcome="failed", refusal=pull_request.step)
         raise reported_step_failure(pull_request, team_id, task_run_id)
@@ -446,6 +517,7 @@ def capture_draft(
     pull_request_url: str | None = None,
     review: AuthorReview | None = None,
 ) -> None:
+    flags = draft.flags
     capture_writer_event(
         DRAFT_EVENT,
         team_id=draft.team_id,
@@ -465,6 +537,11 @@ def capture_draft(
             "review_request_skipped": review.skip_reason if review is not None else None,
             "review_request_status_code": review.status_code if review is not None else None,
             "files": drafted_files(draft.changed_files),
+            "extra_pages": list(flags.extra_pages) if flags is not None else None,
+            "unsupported_lines": list(flags.grounding.unsupported_lines[:MAX_GROUNDED_LINES])
+            if flags is not None
+            else None,
+            "grounding_ran": flags.grounding.ran if flags is not None else None,
             "team_id": draft.team_id,
         },
     )
@@ -596,6 +673,45 @@ def is_listed_companion(changed_file: dict) -> bool:
     )
 
 
+def routed_page_keys(docs_repository: str, request: DocsRequest, team_id: int) -> frozenset[str]:
+    if not request.suggested_page_urls:
+        return frozenset()
+    docs_url_path = urlparse(docs_source_for(docs_repository).docs_url_prefix).path
+    github = source_repository_github(team_id)
+    return frozenset(
+        page_key
+        for page_url in request.suggested_page_urls
+        if page_location(github, page_url) != "source_repository"
+        and (page_key := routed_page_key(page_url, docs_url_path)) is not None
+    )
+
+
+def routed_page_key(page_url: str, docs_url_path: str) -> str | None:
+    page_path = urlparse(page_url).path
+    if not page_path.startswith(docs_url_path):
+        return None
+    return "/".join(route_segments(page_path.removeprefix(docs_url_path))) or None
+
+
+def extra_pages(
+    changed_files: list[dict], docs_folders: tuple[str, ...], routed_keys: frozenset[str]
+) -> tuple[str, ...]:
+    if not routed_keys:
+        return ()
+    return tuple(
+        changed_file["filename"]
+        for changed_file in changed_files
+        if changed_file.get("status") == "modified"
+        and (page_key := docs_folder_page_key(changed_file["filename"], docs_folders)) is not None
+        and page_key not in routed_keys
+    )
+
+
+def docs_folder_page_key(path: str, docs_folders: tuple[str, ...]) -> str | None:
+    page_keys = (docs_page_key(path, docs_folder) for docs_folder in docs_folders)
+    return next((page_key for page_key in page_keys if page_key is not None), None)
+
+
 def changed_lines(patch: str) -> list[str]:
     return [line[1:] for line in patch.split("\n") if line[:1] in ("+", "-")]
 
@@ -635,14 +751,14 @@ def record_pull_request_failure(task_id: UUID, team_id: int, reason: str) -> Non
 
 
 def open_pull_request(
-    github: GitHubIntegration, docs_name: str, request: DocsRequest, head_branch: str
+    github: GitHubIntegration, docs_name: str, request: DocsRequest, head_branch: str, flags: DraftFlags
 ) -> WriterPullRequest | GitHubStepFailed:
     created = github.create_pull_request(
         docs_name,
         title=f"docs: update for {request.source_url}"[:255],
-        body=pull_request_body(request),
+        body=pull_request_body(request, flags),
         head_branch=head_branch,
-        draft=True,
+        draft=not flags.is_ready_for_review,
     )
     if not created.get("success"):
         return github_step_failed("create_pull_request", created)

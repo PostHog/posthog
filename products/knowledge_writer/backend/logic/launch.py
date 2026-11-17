@@ -91,7 +91,10 @@ def build_writer_prompt(request: DocsRequest, routing: PageRouting, *, base_sha:
         "you changed before you write the change file. Do not assume either exists, and do not add one.",
     ]
     if routing.page_urls:
-        sections.append("Pages likely affected:\n" + "\n".join(routing.page_urls))
+        sections.append(
+            "Pages likely affected:\n" + "\n".join(routing.page_urls) + "\n\n"
+            "Of the pages that already exist, change only these. You may add or remove pages when the change needs it."
+        )
     if request.trigger_instructions:
         requester = request.requested_by or "The requester"
         sections.append(
