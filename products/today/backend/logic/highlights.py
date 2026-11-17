@@ -61,7 +61,6 @@ START_LOCK_SECONDS = 30
 MAX_ITEMS = 6
 ROW_TILES = 4
 KEY_METRICS_SOURCE = key_metrics_source.SOURCE.name
-PRODUCT_REASONS = frozenset({HighlightMetricReason.EXPERIMENT, HighlightMetricReason.EVALUATION})
 MAX_PER_FAMILY = 2
 MIN_SCORE = 0.2
 URGENT_RISK_SCORE = 0.75
@@ -296,11 +295,12 @@ def _with_fallbacks(
 ) -> list[contracts.HighlightMetric]:
     fallback_reasons = (HighlightMetricReason.KEY_METRIC, HighlightMetricReason.POPULAR)
     others = [metric for metric in suggested if metric.reason not in fallback_reasons]
-    own = chosen or any(metric.reason not in PRODUCT_REASONS for metric in others)
-    key_metrics = [] if own else [m for m in suggested if m.reason == HighlightMetricReason.KEY_METRIC]
-    popular = [metric for metric in suggested if metric.reason == HighlightMetricReason.POPULAR]
-    room = max(0, ROW_TILES - len(chosen) - len(others) - len(key_metrics))
-    return [*chosen, *others, *key_metrics, *popular[:room]]
+    if chosen or others:
+        return [*chosen, *others]
+    key_metrics = [metric for metric in suggested if metric.reason == HighlightMetricReason.KEY_METRIC]
+    if key_metrics:
+        return key_metrics
+    return [metric for metric in suggested if metric.reason == HighlightMetricReason.POPULAR][:ROW_TILES]
 
 
 def _key_metrics_without_own_numbers(
@@ -308,14 +308,7 @@ def _key_metrics_without_own_numbers(
 ) -> list[contracts.PulseSlot]:
     own = any(
         slot.status != PulseSlotStatus.ERROR
-        and (
-            slot.key in pinned
-            or (
-                slot.key not in key_metrics
-                and slot.reason not in PRODUCT_REASONS
-                and slot.reason != HighlightMetricReason.POPULAR
-            )
-        )
+        and (slot.key in pinned or (slot.key not in key_metrics and slot.reason != HighlightMetricReason.POPULAR))
         for slot in slots
     )
     if not own:
@@ -330,7 +323,7 @@ def _popular_within_row(slots: list[contracts.PulseSlot], pinned: set[str]) -> l
     )
     others = [slot for slot in slots if slot.reason != HighlightMetricReason.POPULAR]
     live = sum(slot.status != PulseSlotStatus.ERROR for slot in others)
-    shown = {slot.key for slot in popular[: max(0, ROW_TILES - live)]}
+    shown = {slot.key for slot in popular[:ROW_TILES]} if live == 0 else set()
     released = [slot.key for slot in others if slot.status == PulseSlotStatus.ERROR and slot.key not in pinned]
     overflow = min(len(shown), len(others) + len(shown) - ROW_TILES)
     dropped = set(released[::-1][: max(0, overflow)])

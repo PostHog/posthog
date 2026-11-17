@@ -101,6 +101,19 @@ class TestHomeTiles(SimpleTestCase):
         [
             ("fewer failures is good news", DROP, "payment failed", False, ["Chrome"], None),
             (
+                "long insight names remain complete",
+                DROP,
+                "signed up",
+                False,
+                ["Chrome"],
+                (
+                    "‘Weekly sign-ups from returning visitors across all production workspaces’ decreased by 45% last week",
+                    "7,000 → 3,850",
+                ),
+                None,
+                "Weekly sign-ups from returning visitors across all production workspaces",
+            ),
+            (
                 "fewer sign-ups is bad news",
                 DROP,
                 "signed up",
@@ -184,12 +197,14 @@ class TestHomeTiles(SimpleTestCase):
         labels: list[str],
         expected: tuple[str, str] | None,
         value_format: str | None = None,
+        insight_name: str = "By browser",
     ) -> None:
         found_insight = insight(
             {name: [(day, value / (index + 1)) for day, value in points] for index, name in enumerate(labels)},
             averaged_series=labels if averaged else [],
             event_name=event_name,
             value_format=value_format,
+            name=insight_name,
         )
         context = cast(
             Context,
@@ -268,8 +283,14 @@ class TestRoutineInsights(BaseTest):
             )
         )
 
+    @parameterized.expand(
+        [
+            ("Files opened",),
+            ("Weekly reports opened by returning users across all workspaces",),
+        ]
+    )
     @time_machine.travel("2026-10-13T12:00:00Z", tick=False)
-    def test_an_insight_opened_most_days_shows_its_last_week_in_the_pulse(self) -> None:
+    def test_an_insight_opened_most_days_shows_its_last_week_in_the_pulse(self, name: str) -> None:
         FileSystemViewLog.objects.create(
             team=self.team,
             user=self.user,
@@ -280,7 +301,7 @@ class TestRoutineInsights(BaseTest):
         points = [(TODAY - timedelta(days=d), 2.0 if d <= 7 else 1.0) for d in range(14, 0, -1)]
         found_insight = insight(
             {"exported_report": points, "$pageview": [(day, value / 2) for day, value in points]},
-            name="Files opened",
+            name=name,
             value_format="currency",
         )
 
@@ -306,7 +327,7 @@ class TestRoutineInsights(BaseTest):
             ],
             [
                 (
-                    "Files opened (Exported report)",
+                    name,
                     14.0,
                     100.0,
                     "day",
@@ -483,18 +504,18 @@ class TestRoutineInsights(BaseTest):
     @parameterized.expand(
         [
             ("a person without habits", [], [], ["team_fav", "runner_up", "third"]),
-            ("a habit that is already popular", ["team_fav"], [], ["runner_up", "third"]),
-            ("habits that fill the row", ["h1", "h2", "h3", "h4"], [], []),
-            ("a dashboard habit takes one place", ["dashboard:7"], [], ["team_fav", "runner_up", "third"]),
-            ("a habit without data frees its place", ["h1", "h2", "broken"], [], ["team_fav", "runner_up"]),
-            ("key metrics keep no place beside habits", ["h1", "h2"], [5.0, 5.0], ["team_fav", "runner_up"]),
-            ("active key metrics keep places without habits", [], [5.0, 5.0], ["team_fav", "runner_up"]),
-            ("a key metric without activity keeps no place", [], [0.0], ["team_fav", "runner_up", "third"]),
-            ("key metrics still computing keep their places", [], None, ["team_fav", "runner_up"]),
+            ("a habit that is already popular", ["team_fav"], [], []),
+            ("one habit", ["h1"], [], []),
+            ("a habit without data", ["broken"], [], ["team_fav", "runner_up", "third"]),
+            ("a habit whose query fails", ["failing"], [], ["team_fav", "runner_up", "third"]),
+            ("a dashboard habit", ["dashboard:7"], [], []),
+            ("active key metrics", [], [5.0, 5.0], []),
+            ("a key metric without activity", [], [0.0], ["team_fav", "runner_up", "third"]),
+            ("key metrics still computing", [], None, []),
         ]
     )
     @time_machine.travel("2026-10-13T12:00:00Z", tick=False)
-    def test_popular_insights_fill_only_the_places_a_persons_own_habits_leave(
+    def test_popular_insights_fill_the_row_only_when_nothing_else_would_show(
         self, _name: str, habits: list[str], key_metric_weeks: list[float] | None, expected: list[str]
     ) -> None:
         viewers = [User.objects.create_and_join(self.organization, f"viewer{i}@example.com", None) for i in range(3)]
@@ -537,6 +558,8 @@ class TestRoutineInsights(BaseTest):
         def series(**kwargs: Any) -> InsightSeries | None:
             if kwargs["short_id"] == "broken":
                 return None
+            if kwargs["short_id"] == "failing":
+                raise RuntimeError("query failed")
             return insight({"opened": points}, short_id=kwargs["short_id"], name="Opened")
 
         with (
