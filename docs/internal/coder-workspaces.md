@@ -64,6 +64,8 @@ hogli devbox:share bob-box --list           # see who has access
 ```
 
 Once shared, the teammate can target your workspace with `@user[/label]` syntax (e.g. `hogli devbox:ssh @bob/bob-box`).
+A teammate you share with gets a shell on the box as you, so they can also use your Claude Code login there.
+When the box is running and logged in, `devbox:share` offers to log out of Claude Code first.
 
 **Editing locally while running on the devbox** —
 Mirror your local PostHog checkout to a devbox with `hogli devbox:sync`. Local is the source of truth (one-way-safe); remote-only files like the AMI's prewarmed `node_modules` and `.venv` are left untouched. Useful for agentic loops or when you want to keep using your normal local editor without pushing every iteration:
@@ -122,11 +124,41 @@ This does the host-side setup only:
   - The Coder SSH entries read the login stored on disk, so a program that doesn't inherit `CODER_SESSION_TOKEN`, such as an editor or a mutagen daemon started from another shell, can't connect. When only the variable holds the login, setup prints the command that stores it: `coder login --use-token-as-session <url>`. Store it again after the token changes
 - configures `~/.ssh/config` with Coder workspace entries (use `--skip-configure-ssh` to skip)
 - shows a compact "Currently configured:" status block with your saved settings
-- prompts for Git identity, an optional dotfiles repo, a preferred region, and an optional Claude OAuth token (stored as a Coder user secret)
+- prompts for Git identity, an optional dotfiles repo, a preferred region, and how devboxes use Claude Code (see [Claude Code on a devbox](#claude-code-on-a-devbox))
 
 A Y/n confirmation gate appears before the configuration prompts. It is automatically bypassed when stdin is non-TTY (scripts/CI) or when any explicit `--configure-*` or `--skip-configure-*` flag is passed.
 
-To reconfigure individual settings later, pass `--configure-git-identity`, `--configure-dotfiles`, `--configure-region`, or `--configure-claude`. The `--configure-claude` flag manages the `CLAUDE_CODE_OAUTH_TOKEN` Coder user secret and will offer to migrate any existing macOS Keychain token.
+To reconfigure individual settings later, pass `--configure-git-identity`, `--configure-dotfiles`, `--configure-region`, or `--configure-claude`.
+
+When your global git config signs with a Secure Enclave key (`hogli git:signing-key`), the forwarded SSH agent can't sign with it on a devbox.
+Setup then looks for a key that your forwarded agent holds and that GitHub lists as one of your signing keys, and offers to use it for devbox commits.
+That key isn't in the Secure Enclave, so use it only until devboxes support Secure Enclave signing.
+
+## Claude Code on a devbox
+
+Every devbox has Claude Code installed. Log in on the box itself:
+
+```bash
+hogli devbox:claude:login     # run `claude auth login` on the box; run it again to switch accounts
+hogli devbox:claude:status    # show the account, auth method and plan, never a credential
+hogli devbox:claude:logout    # run `claude auth logout` on the box
+```
+
+Add `-n <label>` to target a labeled box.
+The login stays in `~/.claude/.credentials.json` on the box, so it survives stops, starts and updates, and each box has its own login.
+`devbox:claude:logout` deletes the login from the box.
+`devbox:destroy` logs out of Claude Code on a running box before it deletes the box and its disk.
+To end a login after an incident or when you leave, run `devbox:claude:logout` on each box that has one.
+
+`devbox:setup` asks how devboxes use Claude Code:
+
+- **login** (default): log in on each box with `devbox:claude:login` after it starts. hogli stores nothing.
+- **token**: store a token from `claude setup-token` as the `CLAUDE_CODE_OAUTH_TOKEN` Coder user secret, for unattended use. The token can only make model requests, so Remote Control and usage checks don't work with it. Every box you own gets it, and it overrides a login on the box.
+- **skip**: choose later with `hogli devbox:setup --configure-claude`.
+
+`devbox:claude:login` offers to delete the token secret when it exists. Restart a running box after you delete it, so the box drops the token from its environment.
+
+hogli never turns on Remote Control. It gives another way into the box, so turn it on only when you need it, and don't combine it with skipped permission prompts.
 
 ## Managing devbox configuration
 
@@ -142,7 +174,7 @@ Clear specific saved settings with `devbox:config:rm`:
 hogli devbox:config:rm git-identity   # clear saved Git name/email
 hogli devbox:config:rm git-signing    # remove Git signing key from Coder user secrets
 hogli devbox:config:rm dotfiles       # clear dotfiles URI for new workspaces
-hogli devbox:config:rm claude         # remove Claude OAuth token from Coder user secrets
+hogli devbox:config:rm claude         # remove the Claude setup token from Coder user secrets
 hogli devbox:config:rm region          # clear saved region preference (new workspaces use the built-in default)
 hogli devbox:config:rm --all          # clear everything
 ```
@@ -184,6 +216,6 @@ Common secrets include `CLAUDE_CODE_OAUTH_TOKEN` and `GH_TOKEN`.
 - Laptop to workspace access uses `coder ssh` and `coder config-ssh` (configured automatically during setup)
 - SSH to a stopped devbox fails with "workspace must be started" instead of starting it. Run `hogli devbox:start` first. Tools that reconnect in the background, such as Herdr and editors, would otherwise queue a new build on every retry.
 - Git inside the workspace should use HTTPS via Coder external auth — do not set up SSH Git inside the workspace
-- Claude auth is stored as a Coder user secret named `CLAUDE_CODE_OAUTH_TOKEN` (requires Coder 2.33+). Run `hogli devbox:setup --configure-claude` to set or replace it.
+- Claude Code logs in on each box with `hogli devbox:claude:login`. The optional `CLAUDE_CODE_OAUTH_TOKEN` Coder user secret (requires Coder 2.33+) overrides that login on every box. See [Claude Code on a devbox](#claude-code-on-a-devbox).
 
 `go/coder` is a convenient shortcut for humans, but the canonical deployment URL is `https://coder.dev.posthog.dev`.
