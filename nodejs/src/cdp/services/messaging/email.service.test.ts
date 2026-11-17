@@ -4002,6 +4002,23 @@ describe('EmailService', () => {
                 }
             )
 
+            it('sends with untagged links when the link tag lookup fails', async () => {
+                const taggingService = createService({ workflowRunLinkTagTeams: String(team.id) })
+                jest.spyOn(
+                    (taggingService as any).teamWorkflowsConfigService,
+                    'tagsEmailLinksWithWorkflowRun'
+                ).mockRejectedValue(new Error('db down'))
+                invocation.hogFunction.metadata = { tracking_enabled: true, sensitive: false }
+                invocation.queueParameters = createEmailParams({
+                    from: { integrationId: 1 },
+                    html: '<a href="https://example.com/">b</a>',
+                })
+                const result = await taggingService.executeSendEmail(invocation)
+                expect(result.error).toBeUndefined()
+                expect(ses.sent).toHaveLength(1)
+                expect(ses.sent[0].html).not.toContain('ph_workflow_run')
+            })
+
             it('records an email_untracked app metric for untracked sends but not for test sends', async () => {
                 invocation.state.renderedWorkflowVersion = 3
                 const normal = await service.executeSendEmail(invocation)
