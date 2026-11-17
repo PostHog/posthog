@@ -1,6 +1,8 @@
 import re
 import math
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterator, Sequence
+from contextlib import contextmanager
+from contextvars import ContextVar
 from typing import Literal, Optional, TypeGuard, cast
 
 from django.db import models
@@ -581,6 +583,56 @@ def _resolve_date_value(value: ValueT, team: Team) -> ValueT:
     return value
 
 
+# Real-time filters compile once, when they are saved, and then run for every event. A relative date
+# folded into a constant at compile time would compare against the save time, not the run time.
+_relative_dates_at_run_time: ContextVar[bool] = ContextVar("relative_dates_at_run_time", default=False)
+
+RUN_TIME_RELATIVE_DATES_FLAG = "realtime-filter-relative-dates"
+
+_SIGNED_RELATIVE_DATE = re.compile(r"^([-+])([0-9]+)([hdwmqyMs])$")
+# Only the units that dateAdd accepts in every hog VM. The Rust VM has no week or year.
+_RELATIVE_DATE_INTERVALS: dict[str, tuple[str, int]] = {
+    "s": ("second", 1),
+    "M": ("minute", 1),
+    "h": ("hour", 1),
+    "d": ("day", 1),
+    "w": ("day", 7),
+    "m": ("month", 1),
+    "q": ("month", 3),
+    "y": ("month", 12),
+}
+
+
+@contextmanager
+def relative_dates_resolved_at_run_time() -> Iterator[None]:
+    """Compile IS_DATE_BEFORE / IS_DATE_AFTER relative values such as ``-7d`` against ``now()``.
+
+    Only for expressions that a hog VM evaluates later. Queries keep the constant, because they run
+    once and right away.
+    """
+    token = _relative_dates_at_run_time.set(True)
+    try:
+        yield
+    finally:
+        _relative_dates_at_run_time.reset(token)
+
+
+def _date_bound(value: ValueT, team: Team) -> ast.Expr:
+    relative = (
+        _SIGNED_RELATIVE_DATE.match(value) if _relative_dates_at_run_time.get() and isinstance(value, str) else None
+    )
+    if relative is None or not _is_team_flag_enabled(RUN_TIME_RELATIVE_DATES_FLAG, team):
+        return _force_datetime(ast.Constant(value=_resolve_date_value(value, team)))
+
+    sign, amount, kind = relative.groups()
+    unit, multiplier = _RELATIVE_DATE_INTERVALS[kind]
+    offset = int(amount) * multiplier * (1 if sign == "+" else -1)
+    return ast.Call(
+        name="dateAdd",
+        args=[ast.Constant(value=unit), ast.Constant(value=offset), ast.Call(name="now", args=[])],
+    )
+
+
 def _force_datetime(expr: ast.Expr) -> ast.Expr:
     """Coerce ``expr`` to DateTime for chronological IS_DATE_* comparison.
 
@@ -910,7 +962,7 @@ def _expr_to_compare_op(
         return ast.CompareOperation(
             op=ast.CompareOperationOp.Lt,
             left=_force_datetime(expr),
-            right=_force_datetime(ast.Constant(value=_resolve_date_value(value, team))),
+            right=_date_bound(value, team),
         )
     elif operator == PropertyOperator.GT:
         left, bound = _coerce_ordered_bound(expr, value, property, team)
@@ -920,7 +972,7 @@ def _expr_to_compare_op(
         return ast.CompareOperation(
             op=ast.CompareOperationOp.Gt,
             left=_force_datetime(expr),
-            right=_force_datetime(ast.Constant(value=_resolve_date_value(value, team))),
+            right=_date_bound(value, team),
         )
     elif operator == PropertyOperator.LTE or operator == PropertyOperator.MAX:
         left, bound = _coerce_ordered_bound(expr, value, property, team)
@@ -1094,12 +1146,16 @@ BEHAVIORAL_PROPERTY_FILTER_FLAG = "behavioral-property-filter"
 
 
 def _is_behavioral_property_filter_enabled(team: Team) -> bool:
+    return _is_team_flag_enabled(BEHAVIORAL_PROPERTY_FILTER_FLAG, team)
+
+
+def _is_team_flag_enabled(flag: str, team: Team) -> bool:
     # Fails closed: this runs on the query compile path, so an inconclusive local evaluation must
     # mean "off" rather than an HTTP call, and a flag-service error must not open the gate.
     try:
         return bool(
             posthoganalytics.feature_enabled(
-                BEHAVIORAL_PROPERTY_FILTER_FLAG,
+                flag,
                 str(team.uuid),
                 groups={"organization": str(team.organization_id), "project": str(team.id)},
                 group_properties={

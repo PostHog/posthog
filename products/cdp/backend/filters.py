@@ -8,7 +8,7 @@ from django.conf import settings
 from posthog.hogql.compiler.bytecode import create_bytecode
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.parser import parse_expr
-from posthog.hogql.property import action_to_expr, ast, property_to_expr
+from posthog.hogql.property import action_to_expr, ast, property_to_expr, relative_dates_resolved_at_run_time
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor, clone_expr
 
 from posthog.dataclasses import frozen
@@ -656,6 +656,7 @@ def _resolve_warehouse_columns(
     )
 
 
+@relative_dates_resolved_at_run_time()
 def compile_filters_bytecode(
     filters: Optional[dict],
     team: Team,

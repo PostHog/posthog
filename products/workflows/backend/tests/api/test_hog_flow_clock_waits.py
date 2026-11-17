@@ -1,6 +1,9 @@
 from posthog.test.base import APIBaseTest
+from unittest.mock import patch
 
 from parameterized import parameterized
+
+from posthog.hogql.property import RUN_TIME_RELATIVE_DATES_FLAG
 
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
@@ -95,6 +98,23 @@ class TestUnwakeableWaitRejection(APIBaseTest):
         # Nothing notifies the matcher when time passes, so these can only advance on a re-check.
         # Each shape has to be caught wherever the clock call sits, not just at the top level.
         status, body = self._post(wait_on(hogql))
+
+        assert status == 400, body
+        assert "depends on the current time" in str(body)
+
+    def test_rejects_a_wait_on_a_relative_date(self):
+        # Real-time filters compare a relative date against the time they run, so this condition
+        # turns true as time passes, with nothing for the matcher to wake it on.
+        wait = wait_on("true")
+        wait["config"]["condition"]["filters"]["properties"] = [
+            {"key": "signed_up_at", "type": "person", "operator": "is_date_before", "value": "-7d"}
+        ]
+
+        with patch(
+            "posthog.hogql.property.posthoganalytics.feature_enabled",
+            side_effect=lambda flag, *args, **kwargs: flag == RUN_TIME_RELATIVE_DATES_FLAG,
+        ):
+            status, body = self._post(wait)
 
         assert status == 400, body
         assert "depends on the current time" in str(body)

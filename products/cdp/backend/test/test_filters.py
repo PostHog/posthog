@@ -1,11 +1,15 @@
 import re
 import json
+from datetime import UTC, datetime, timedelta
 
+import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest
+from unittest.mock import patch
 
 from parameterized import parameterized
 
 from posthog.hogql.compiler.bytecode import create_bytecode
+from posthog.hogql.property import RUN_TIME_RELATIVE_DATES_FLAG
 
 from products.actions.backend.facade.contracts import Action
 from products.actions.backend.facade.testing import create_action
@@ -855,6 +859,47 @@ class TestHogFunctionFilters(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest
     def test_dotted_property_key_resolution(self, _name: str, filters: dict, hog_globals: dict, expected: bool):
         bytecode = self.filters_to_bytecode(filters=filters)
         assert execute_bytecode(bytecode, hog_globals).result is expected
+
+    @parameterized.expand(
+        [
+            ("before_7_days_ago_matches_older", "is_date_before", "-7d", timedelta(days=-8), True),
+            ("before_7_days_ago_skips_newer", "is_date_before", "-7d", timedelta(days=-6), False),
+            ("after_7_days_ago_skips_older", "is_date_after", "-7d", timedelta(days=-20), False),
+            ("after_in_3_days_matches_later", "is_date_after", "+3d", timedelta(days=5), True),
+            ("before_2_weeks_ago_matches_older", "is_date_before", "-2w", timedelta(days=-15), True),
+            ("before_1_month_ago_matches_older", "is_date_before", "-1m", timedelta(days=-40), True),
+            ("before_24_hours_ago_matches_older", "is_date_before", "-24h", timedelta(hours=-25), True),
+            # With the flag off the value is still resolved when the filter is saved.
+            ("flag_off_keeps_the_save_time", "is_date_before", "-7d", timedelta(days=-8), False, False),
+        ]
+    )
+    def test_relative_date_filter_follows_the_time_the_filter_runs(
+        self,
+        _name: str,
+        operator: str,
+        value: str,
+        signed_up_relative_to_run: timedelta,
+        expected: bool,
+        flag_on: bool = True,
+    ):
+        saved_at = datetime(2026, 1, 1, 12, tzinfo=UTC)
+        runs_at = saved_at + timedelta(days=30)
+        filters = {"properties": [{"key": "signed_up_at", "type": "person", "operator": operator, "value": value}]}
+
+        with (
+            time_machine.travel(saved_at, tick=False),
+            patch(
+                "posthog.hogql.property.posthoganalytics.feature_enabled",
+                side_effect=lambda flag, *args, **kwargs: flag_on and flag == RUN_TIME_RELATIVE_DATES_FLAG,
+            ),
+        ):
+            compiled = compile_filters_bytecode(filters, self.team)
+        assert compiled.get("bytecode_error") is None
+
+        signed_up_at = (runs_at + signed_up_relative_to_run).isoformat()
+        with time_machine.travel(runs_at, tick=False):
+            result = execute_bytecode(compiled["bytecode"], {"person": {"properties": {"signed_up_at": signed_up_at}}})
+        assert result.result is expected
 
 
 class TestCohortExprHelpers(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):

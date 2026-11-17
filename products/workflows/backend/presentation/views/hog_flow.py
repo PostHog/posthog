@@ -39,6 +39,7 @@ from posthog.schema import ProductKey
 from posthog.hogql.compiler.bytecode import create_bytecode
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.parser import parse_expr
+from posthog.hogql.property import relative_dates_resolved_at_run_time
 
 from posthog.api.app_metrics2 import (
     AppMetricResponseSerializer,
@@ -577,7 +578,9 @@ def _reject_clock_based_wait(config: dict, team: Team) -> None:
         return
 
     try:
-        expr = compile_filters_expr(filters, team)
+        # Compiled the way the stored bytecode is, so a relative date shows up as the clock read it is.
+        with relative_dates_resolved_at_run_time():
+            expr = compile_filters_expr(filters, team)
     except Exception as e:
         # Fail closed. Nothing else inspects a wait's condition at save time, so swallowing this would
         # let an unwakeable wait through whenever compilation trips on something the shape serializer
