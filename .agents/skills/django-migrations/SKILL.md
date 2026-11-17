@@ -83,7 +83,7 @@ Do not apply this rule to migration tooling, migration safety checks, reusable b
 
 A data migration runs in the deploy hook, and every Django deploy in every region waits for it.
 
-- Count the rows of every table the migration touches, in US and in EU (`/querying-production-databases`), before you choose the design. Put the counts in the PR description.
+- Count the rows of every table the migration touches, in US and in EU (`/querying-production-databases`), before you choose the design. The counts are private scale: the PR description says only "small" or "large", never the numbers.
 - A large table, or one you could not count, gets a management command run after deploy, not a migration.
 - First ask whether you need the data change at all. If the new code can read the old value (translation at read time, a fallback map), skip the backfill. If review turns the change into expand-only, ask the question again.
 - Page by primary key, never by the filter. See [Count the rows first](../../../docs/published/handbook/engineering/safe-django-migrations.md#count-the-rows-first) and Pattern 2 under it.
