@@ -6,6 +6,7 @@ use axum::{
     response::IntoResponse,
 };
 
+use common_ingestion_response::{ItemResult, ItemResults};
 use reqwest::StatusCode;
 use uuid::Uuid;
 
@@ -20,7 +21,11 @@ use crate::{
         PROCESS_REQUEST_DURATION_MS,
     },
     stages::http_pipeline::HttpEventPipeline,
-    types::{batch::Batch, event::AnyEvent, stage::Stage},
+    types::{
+        batch::Batch,
+        event::{AnyEvent, ProcessOutcome},
+        stage::Stage,
+    },
 };
 
 struct ProcessInFlightGuard;
@@ -83,12 +88,79 @@ impl IntoResponse for Batch<Option<AnyEvent>> {
     }
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Route {
+    /// `POST /process`. A slot is the event or `null`, so one failed event fails the request.
+    V1,
+    V2,
+}
+
+impl Route {
+    fn label(self) -> &'static str {
+        match self {
+            Route::V1 => "v1",
+            Route::V2 => "v2",
+        }
+    }
+}
+
+fn first_failure(batch: &Batch<ProcessOutcome>) -> Option<(usize, String)> {
+    let failures = batch
+        .inner_ref()
+        .iter()
+        .filter_map(|outcome| match outcome {
+            ProcessOutcome::Failed { message, .. } => Some(message),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    failures
+        .first()
+        .map(|error| (failures.len(), error.to_string()))
+}
+
 #[axum::debug_handler]
 pub async fn process_events(
     State(ctx): State<Arc<AppContext>>,
     headers: HeaderMap,
     Json(events): Json<Vec<AnyEvent>>,
 ) -> Result<Batch<Option<AnyEvent>>, ProcessEventsError> {
+    let batch = run_pipeline(ctx, headers, events, Route::V1).await?;
+    // `run_pipeline` turns a failed event into a 500 on this route, so no slot is `Failed`.
+    Ok(batch.map(
+        |outcome, ()| match outcome {
+            ProcessOutcome::Ok(event) => Some(event),
+            ProcessOutcome::Dropped(_) | ProcessOutcome::Failed { .. } => None,
+        },
+        &mut (),
+    ))
+}
+
+#[axum::debug_handler]
+pub async fn process_events_v2(
+    State(ctx): State<Arc<AppContext>>,
+    headers: HeaderMap,
+    Json(events): Json<Vec<AnyEvent>>,
+) -> Result<ItemResults<AnyEvent>, ProcessEventsError> {
+    let request_items = events.len();
+    let results = Vec::from(run_pipeline(ctx, headers, events, Route::V2).await?)
+        .into_iter()
+        .map(|outcome| match outcome {
+            ProcessOutcome::Ok(event) => ItemResult::ok(event),
+            ProcessOutcome::Dropped(reason) => ItemResult::drop(reason),
+            ProcessOutcome::Failed { code, message } => ItemResult::fail(code, message),
+        })
+        .collect();
+    ItemResults::new(request_items, results).map_err(|err| {
+        ProcessEventsError::Unhandled(Arc::new(UnhandledError::Other(err.to_string())))
+    })
+}
+
+async fn run_pipeline(
+    ctx: Arc<AppContext>,
+    headers: HeaderMap,
+    events: Vec<AnyEvent>,
+    route: Route,
+) -> Result<Batch<ProcessOutcome>, ProcessEventsError> {
     let _in_flight = ProcessInFlightGuard::start();
     let request_id = get_request_id(&headers);
     let started_at = Instant::now();
@@ -118,7 +190,8 @@ pub async fn process_events(
             metrics::counter!(
                 PROCESS_REQUESTS_TOTAL,
                 "outcome" => "error",
-                "status_class" => "4xx"
+                "status_class" => "4xx",
+                "route" => route.label()
             )
             .increment(1);
             warn!(
@@ -131,9 +204,15 @@ pub async fn process_events(
         })?;
 
     let slow_log_threshold_ms = ctx.config.process_slow_log_threshold_ms;
-    let pipeline = HttpEventPipeline::new(ctx.clone());
+    let pipeline = HttpEventPipeline::new(ctx.clone(), route == Route::V2);
     let input = Batch::from(events);
     let output = pipeline.process(input).await;
+
+    let failure = output.as_ref().ok().and_then(first_failure);
+    let output = match (route, &failure) {
+        (Route::V1, Some((_, error))) => Err(UnhandledError::Other(error.clone())),
+        _ => output,
+    };
 
     let duration = started_at.elapsed();
     let duration_ms = duration.as_millis() as u64;
@@ -141,23 +220,46 @@ pub async fn process_events(
 
     metrics::histogram!(PROCESS_REQUEST_DURATION_MS).record(duration.as_secs_f64() * 1000.0);
 
-    match &output {
+    let capture_context = [
+        ("request_id", json!(request_id)),
+        ("batch_event_count", json!(batch_event_count)),
+        ("team_count", json!(team_count)),
+    ];
+
+    match output {
         Ok(batch) => {
             let suppressed_event_count = batch
                 .inner_ref()
                 .iter()
-                .filter(|item| item.is_none())
+                .filter(|item| matches!(item, ProcessOutcome::Dropped(_)))
                 .count();
-            let output_event_count = batch_event_count.saturating_sub(suppressed_event_count);
+            let failed_event_count = failure.as_ref().map_or(0, |(count, _)| *count);
+            let output_event_count =
+                batch_event_count.saturating_sub(suppressed_event_count + failed_event_count);
 
             metrics::counter!(
                 PROCESS_REQUESTS_TOTAL,
                 "outcome" => "success",
-                "status_class" => "2xx"
+                "status_class" => "2xx",
+                "route" => route.label()
             )
             .increment(1);
 
-            if is_slow {
+            if let Some((_, first_error)) = failure {
+                error!(
+                    request_id = %request_id,
+                    error = %first_error,
+                    duration_ms,
+                    batch_event_count,
+                    failed_event_count,
+                    team_count,
+                    "Completed /process request with failed events"
+                );
+                common_posthog::capture_exception(
+                    Arc::new(UnhandledError::Other(first_error)),
+                    capture_context,
+                );
+            } else if is_slow {
                 warn!(
                     request_id = %request_id,
                     duration_ms,
@@ -178,12 +280,14 @@ pub async fn process_events(
                     "Completed /process request"
                 );
             }
+            Ok(batch)
         }
         Err(err) => {
             metrics::counter!(
                 PROCESS_REQUESTS_TOTAL,
                 "outcome" => "error",
-                "status_class" => "5xx"
+                "status_class" => "5xx",
+                "route" => route.label()
             )
             .increment(1);
 
@@ -195,21 +299,9 @@ pub async fn process_events(
                 team_count,
                 "Failed /process request"
             );
-        }
-    }
 
-    match output {
-        Ok(batch) => Ok(batch),
-        Err(err) => {
             let err = Arc::new(err);
-            common_posthog::capture_exception(
-                err.clone(),
-                [
-                    ("request_id", json!(request_id)),
-                    ("batch_event_count", json!(batch_event_count)),
-                    ("team_count", json!(team_count)),
-                ],
-            );
+            common_posthog::capture_exception(err.clone(), capture_context);
             Err(ProcessEventsError::Unhandled(err))
         }
     }

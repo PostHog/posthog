@@ -124,6 +124,7 @@ pub const PROCESS_REQUESTS_TOTAL: &str = "cymbal_process_requests_total";
 pub const PROCESS_REQUEST_DURATION_MS: &str = "cymbal_process_request_duration_ms";
 pub const PROCESS_BATCH_EVENTS: &str = "cymbal_process_batch_events";
 pub const PROCESS_IN_FLIGHT: &str = "cymbal_process_in_flight";
+pub const EVENT_PROCESSING_FAILURES: &str = "cymbal_event_processing_failures";
 
 // Spike detection metrics
 pub const SPIKE_INCREMENT_ISSUE_BUCKETS_TIME: &str = "cymbal_spike_increment_issue_buckets_time";

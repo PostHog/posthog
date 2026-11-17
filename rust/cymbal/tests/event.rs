@@ -2,19 +2,23 @@ use std::{collections::HashMap, fs, sync::Arc};
 
 use axum::{body::Body, http::Request};
 use chrono::{DateTime, Utc};
+use common_redis::MockRedisClient;
 use common_types::error_tracking::FrameId;
 use cymbal::{
+    app_context::AppContext,
     core::code_variables::REDACTED,
     error::UnhandledError,
     fingerprinting::{Fingerprint, FingerprintVersion},
     frames::Frame,
     modes::processing::ProcessingConfig,
+    router::get_router,
     symbolication::symbol_store::saving::SymbolSetRecord,
     types::{
         event::AnyEvent, Exception, ExceptionList, Mechanism, ProcessedExceptionProperties,
         Stacktrace,
     },
 };
+use cymbal_proto::cymbal::resolution::v1::ErrorKind;
 use insta::assert_json_snapshot;
 use mockall::predicate;
 use posthog_symbol_data::{write_symbol_data, SourceAndMap};
@@ -22,6 +26,7 @@ use reqwest::StatusCode;
 use serde::{de::DeserializeOwned, Deserialize};
 use serde_json::{json, Value as JsonValue};
 use sqlx::PgPool;
+use tower::ServiceExt;
 use uuid::Uuid;
 
 use crate::utils::MockS3Client;
@@ -223,6 +228,29 @@ impl TestHarness {
                 config.remote_resolution_subscribe_tick_hint_ms = 25;
                 config.remote_resolution_dns_refresh_secs = 3600;
             },
+        )
+        .await
+    }
+
+    async fn post_events_to<T: DeserializeOwned>(
+        &self,
+        uri: &str,
+        events: Vec<AnyEvent>,
+        configure: impl FnOnce(&mut ProcessingConfig),
+    ) -> (StatusCode, T) {
+        utils::get_response_with_config(
+            self.db.clone(),
+            STORAGE_BUCKET.to_string(),
+            || {
+                Request::builder()
+                    .method("POST")
+                    .header("content-type", "application/json")
+                    .uri(uri)
+                    .body(Body::from(serde_json::to_vec(&events).unwrap()))
+                    .unwrap()
+            },
+            Arc::new(Self::create_s3_mock()),
+            configure,
         )
         .await
     }
@@ -701,6 +729,113 @@ async fn suppressed_issue_returns_suppressed_response(db: PgPool) {
         body.first_event().is_none(),
         "Suppressed event should not be present"
     );
+}
+
+#[sqlx::test(migrations = "./tests/test_migrations")]
+async fn v2_reports_why_an_event_was_suppressed(db: PgPool) {
+    let harness = TestHarness::new(db);
+    let input = make_event(vec![make_exception("SuppressedError", "will suppress")]);
+
+    let (_, created): (_, SuccessResponse) = harness.post_event(&input).await;
+    harness
+        .suppress_issue(created.take_properties().issue_id())
+        .await;
+
+    let (status, body): (_, JsonValue) = harness
+        .post_events_to("/v2/process", vec![input], |_| {})
+        .await;
+
+    assert!(status.is_success());
+    assert_eq!(
+        body,
+        json!({ "results": [{ "result": "drop", "reason": "suppressed" }] })
+    );
+}
+
+fn use_resolution_stub(addr: std::net::SocketAddr) -> impl FnOnce(&mut ProcessingConfig) {
+    move |config| {
+        config.remote_resolution_host = "127.0.0.1".to_string();
+        config.remote_resolution_port = addr.port();
+        config.resolver.internal_api_secret = "test-secret".to_string();
+        config.remote_resolution_max_retries = 3;
+        config.remote_resolution_retry_backoff_ms = 25;
+        config.remote_resolution_retry_max_backoff_ms = 100;
+        config.remote_resolution_subscribe_tick_hint_ms = 25;
+        config.remote_resolution_dns_refresh_secs = 3600;
+    }
+}
+
+#[sqlx::test(migrations = "./tests/test_migrations")]
+async fn poison_event_fails_the_request_on_v1_and_fails_alone_on_v2(db: PgPool) {
+    let harness = TestHarness::new(db);
+    let events = vec![
+        load_static_event("javascript_chunk_id"),
+        load_static_event("javascript_chunk_id_2"),
+    ];
+    let uuids = events.iter().map(|event| event.uuid).collect::<Vec<_>>();
+    let poison_after_first = || common::ServerBehavior::ErrorAfterFirst {
+        kind: ErrorKind::Poison,
+    };
+
+    // The caller of `/process` retries the whole batch, so the healthy event must not create
+    // its issue before the request fails.
+    let (addr, _) = common::spawn_stub_server(poison_after_first()).await;
+    let (status, _): (_, JsonValue) = harness
+        .post_events_to("/process", events.clone(), use_resolution_stub(addr))
+        .await;
+    assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
+    let (issues,): (i64,) = sqlx::query_as("SELECT count(*) FROM posthog_errortrackingissue")
+        .fetch_one(&harness.db)
+        .await
+        .unwrap();
+    assert_eq!(issues, 0);
+
+    let (addr, _) = common::spawn_stub_server(poison_after_first()).await;
+    let (status, body): (_, JsonValue) = harness
+        .post_events_to("/v2/process", events, use_resolution_stub(addr))
+        .await;
+
+    assert!(status.is_success(), "Expected success, got {status:?}");
+    // The two items reach the stub in either order, so only the split is fixed.
+    let mut results = Vec::new();
+    for (slot, uuid) in body["results"].as_array().unwrap().iter().zip(&uuids) {
+        match slot["result"].as_str() {
+            Some("ok") => assert_eq!(slot["value"]["uuid"], json!(uuid)),
+            Some("fail") => assert_eq!(slot["error"]["code"], json!("invalid_input")),
+            other => panic!("unexpected result {other:?}: {slot}"),
+        }
+        results.push(slot["result"].as_str().unwrap().to_string());
+    }
+    results.sort();
+    assert_eq!(results, ["fail", "ok"]);
+}
+
+#[sqlx::test(migrations = "./tests/test_migrations")]
+async fn v2_fails_the_whole_request_on_a_dependency_failure(db: PgPool) {
+    let (addr, _) = common::spawn_stub_server(common::ServerBehavior::Happy).await;
+    let mut config = ProcessingConfig::init_with_defaults().unwrap();
+    use_resolution_stub(addr)(&mut config);
+    let app_ctx = AppContext::new(&config, db.clone(), Arc::new(MockRedisClient::new()))
+        .await
+        .unwrap();
+    let router = get_router(Arc::new(app_ctx));
+    let event = make_event(vec![make_exception("Error", "boom")]);
+
+    db.close().await;
+
+    let response = router
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .header("content-type", "application/json")
+                .uri("/v2/process")
+                .body(Body::from(serde_json::to_vec(&vec![&event]).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
 }
 
 #[sqlx::test(migrations = "./tests/test_migrations")]

@@ -337,14 +337,17 @@ fn classify_outcome(
                 .increment(1);
             match kind {
                 ErrorKind::Overloaded => Ok(ItemDecision::Overloaded(err.message)),
-                ErrorKind::Poison => Err(terminal_item_error(
-                    work_item.token,
-                    format!(
-                        "remote resolution returned poison item; failing batch under all-or-nothing policy until DLQ plumbing is added: {}",
+                ErrorKind::Poison | ErrorKind::InvalidPayload => {
+                    metrics::counter!(REMOTE_RESOLUTION_REQUESTS, "outcome" => "items_failed")
+                        .increment(1);
+                    Err(UnhandledError::Poison(format!(
+                        "remote resolution item {} returned {}: {}",
+                        work_item.token,
+                        kind.as_str_name(),
                         err.message
-                    ),
-                )),
-                ErrorKind::InvalidPayload | ErrorKind::Unhandled => Err(terminal_item_error(
+                    )))
+                }
+                ErrorKind::Unhandled => Err(terminal_item_error(
                     work_item.token,
                     format!(
                         "remote resolution returned terminal item error {}: {}",
@@ -371,7 +374,7 @@ fn classify_outcome(
 fn terminal_item_error(token: u64, message: String) -> UnhandledError {
     metrics::counter!(REMOTE_RESOLUTION_REQUESTS, "outcome" => "items_failed").increment(1);
     UnhandledError::Other(format!(
-        "remote resolution item {token} failed terminally; failing batch ({message})"
+        "remote resolution item {token} failed terminally ({message})"
     ))
 }
 
@@ -520,21 +523,21 @@ mod tests {
     }
 
     #[test]
-    fn classify_outcome_treats_poison_as_terminal_all_or_nothing() {
+    fn classify_outcome_marks_only_input_errors_as_item_failures() {
         let work_item = work_item(7);
-        let err = classify_outcome(&work_item, error_outcome(ErrorKind::Poison, "bad symbols"))
-            .unwrap_err();
-        assert!(err.to_string().contains("DLQ plumbing"));
-        assert!(err.to_string().contains("all-or-nothing"));
-    }
-
-    #[test]
-    fn classify_outcome_treats_invalid_payload_and_unhandled_as_terminal() {
-        let work_item = work_item(7);
-        for kind in [ErrorKind::InvalidPayload, ErrorKind::Unhandled] {
+        for (kind, item_failure) in [
+            (ErrorKind::Poison, true),
+            (ErrorKind::InvalidPayload, true),
+            (ErrorKind::Unhandled, false),
+        ] {
             let err = classify_outcome(&work_item, error_outcome(kind, "boom")).unwrap_err();
             assert!(err.to_string().contains(kind.as_str_name()));
-            assert!(err.to_string().contains("failing batch"));
+            assert_eq!(
+                err.is_item_failure(),
+                item_failure,
+                "{}",
+                kind.as_str_name()
+            );
         }
     }
 

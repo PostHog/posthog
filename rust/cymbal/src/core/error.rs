@@ -2,6 +2,7 @@ use std::error::Error as _;
 use std::sync::Arc;
 
 use aws_sdk_s3::primitives::ByteStreamError;
+use common_ingestion_response::codes;
 use common_kafka::kafka_producer::KafkaProduceError;
 use common_redis::CustomRedisError;
 use common_types::ClickHouseEvent;
@@ -10,6 +11,8 @@ use rdkafka::error::KafkaError;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use uuid::Uuid;
+
+use crate::metric_consts::EVENT_PROCESSING_FAILURES;
 
 #[derive(Debug, Error)]
 pub enum ResolveError {
@@ -52,8 +55,18 @@ pub enum UnhandledError {
     SerdeError(#[from] serde_json::Error),
     #[error("Unhandled redis error: {0}")]
     RedisError(#[from] CustomRedisError),
+    #[error("Poison item: {0}")]
+    Poison(String),
     #[error("Unhandled error: {0}")]
     Other(String),
+}
+
+impl UnhandledError {
+    /// True when the event's own data caused the failure. Every other failure can come from
+    /// a dependency, and the response contract reports those for the whole request.
+    pub fn is_item_failure(&self) -> bool {
+        matches!(self, Self::Poison(_) | Self::SerdeError(_))
+    }
 }
 
 // These are errors that occur during frame resolution. This excludes e.g. network errors,
@@ -236,6 +249,28 @@ pub enum EventError {
     RateLimitedPerIssue(Uuid),
     #[error("Rate limited (project): team {0}")]
     RateLimitedProject(i32),
+    #[error("Processing failed ({code}): {message}")]
+    ProcessingFailed { code: &'static str, message: String },
+}
+
+/// Keeps a failure on the event whose data caused it, so that one bad event does not fail
+/// the batch. A failure that can come from a dependency still fails the batch.
+pub fn contain_failure<T>(
+    operator: &'static str,
+    result: Result<T, UnhandledError>,
+) -> Result<Result<T, EventError>, UnhandledError> {
+    match result {
+        Ok(value) => Ok(Ok(value)),
+        Err(err) if err.is_item_failure() => {
+            metrics::counter!(EVENT_PROCESSING_FAILURES, "operator" => operator).increment(1);
+            tracing::warn!(operator, error = %err, "event processing failed");
+            Ok(Err(EventError::ProcessingFailed {
+                code: codes::INVALID_INPUT,
+                message: err.to_string(),
+            }))
+        }
+        Err(err) => Err(err),
+    }
 }
 
 impl JsResolveErr {
