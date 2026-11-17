@@ -25,6 +25,7 @@ from posthog.permissions import is_service_auth
 
 from products.access_control.backend.facade.user_access_control import access_level_satisfied_for_resource
 from products.data_warehouse.backend.facade.api import get_direct_query_engine, get_namespaced_resource_adapter
+from products.warehouse_sources.backend.facade.added_tables import added_table_access_refusal
 from products.warehouse_sources.backend.facade.column_sensitivity import classify_column_sensitivity
 from products.warehouse_sources.backend.facade.contracts import AddedTableLocationError
 from products.warehouse_sources.backend.facade.incremental_field_model import (
@@ -543,6 +544,8 @@ class ExternalDataSourceSchemaOperationsMixin(base.ExternalDataSourceViewSetBase
         source_inputs = SourceInputsStore.load(instance)
         if not source_inputs:
             raise ValidationError("Source has no configuration.")
+        if (refusal := added_table_access_refusal(instance)) is not None:
+            raise PermissionDenied(refusal)
         self._refuse_taken_table_name(instance, name)
 
         # The storage requests run before the row lock, so a slow bucket can't hold the source row.

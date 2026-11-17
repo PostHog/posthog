@@ -1855,14 +1855,14 @@ class TestDefineAddedTable:
                 "events/2026/*.parquet",
                 "infer",
                 ["events/2026/a.parquet", "events/2026/b.csv", "events/2026/x/c.parquet", "events/a.parquet"],
-                ("files", "all", "events/2026", "events/2026/*.parquet", "parquet", ["events/2026/a.parquet"]),
+                ("files", "glob", "events/2026", "events/2026/*.parquet", "infer", ["events/2026/a.parquet"]),
             ),
             (
                 "glob_ending_at_a_folder",
                 "events/*/",
                 "infer",
                 ["events/2025/a.csv", "events/2026/x/b.csv", "events/c.csv"],
-                ("files", "all", "events", "events/*/**", "csv", ["events/2025/a.csv", "events/2026/x/b.csv"]),
+                ("files", "glob", "events", "events/*/**", "infer", ["events/2025/a.csv", "events/2026/x/b.csv"]),
             ),
             (
                 "mixed_formats",
@@ -1890,7 +1890,7 @@ class TestDefineAddedTable:
                 "https://example-bucket.s3.eu-west-1.amazonaws.com/exports/events/*.csv",
                 "infer",
                 ["events/a.csv", "events/b.json"],
-                ("files", "all", "events", "events/*.csv", "csv", ["events/a.csv"]),
+                ("files", "glob", "events", "events/*.csv", "infer", ["events/a.csv"]),
             ),
             (
                 "empty_path_reads_the_whole_folder",
@@ -1947,6 +1947,25 @@ class TestDefineAddedTable:
             table, files=()
         )
 
+    def test_an_inferred_delta_folder_is_found_without_listing_its_data_files(self, tmp_path: Path) -> None:
+        write_deltalake(str(tmp_path / "events"), pa.table({"id": [1]}))
+        store = local_store(tmp_path)
+        listed: list[str] = []
+        list_objects = type(store).list_objects
+
+        def list_only_the_log(self: ObjectStore, prefix: str, max_objects: int) -> list[StoredObject]:
+            listed.append(prefix)
+            if not prefix.endswith("_delta_log"):
+                return [stored(f"events/part-{index}.parquet") for index in range(MAX_TABLE_OBJECTS + 1)]
+            return list_objects(self, prefix, max_objects)
+
+        with patch.object(type(store), "list_objects", list_only_the_log):
+            table = _source_with_store(store).define_added_table(
+                EXPORTS_ROOT_CONFIG, "events", "events/", "infer", allow_double_quotes=True
+            )
+
+        assert (table.kind, table.path, listed) == ("delta", "events", ["events/_delta_log"])
+
     def test_a_folder_without_a_delta_log_is_not_a_delta_table(self, tmp_path: Path) -> None:
         _write_files(tmp_path, ["events/a.parquet"])
 
@@ -1977,6 +1996,9 @@ class TestDefineAddedTable:
                 "This path is outside example-bucket/exports",
             ),
             ("parent_folder", "events/../secrets/a.csv", "infer", "can't contain '.' or '..' folders"),
+            ("encoded_parent_folder", "%2e%2e/finance/ledger", "delta", "can't contain '.' or '..' folders"),
+            ("partly_encoded_parent_folder", "events/.%2E/ledger", "delta", "can't contain '.' or '..' folders"),
+            ("encoded_current_folder", "%2E/events/a.csv", "infer", "can't contain '.' or '..' folders"),
             ("empty_folder", "events//a.csv", "infer", "can't contain an empty folder"),
             ("control_character", "events/\na.csv", "infer", "can't contain control characters"),
             ("delta_glob", "events/*", "delta", "can't contain wildcards"),
@@ -2015,22 +2037,38 @@ class TestDefineAddedTable:
 
     def test_a_location_with_more_files_than_a_sync_reads_is_refused(self) -> None:
         store = MagicMock()
-        store.list_objects.return_value = [stored(f"events/{index}.csv") for index in range(MAX_TABLE_OBJECTS + 1)]
+        store.list_objects.side_effect = lambda prefix, _max: (
+            []
+            if prefix.endswith("_delta_log")
+            else [stored(f"events/{index}.csv") for index in range(MAX_TABLE_OBJECTS + 1)]
+        )
 
         with pytest.raises(ObjectStorageError, match=f"^{TOO_MANY_FILES_ERROR}"):
             _source_with_store(store).define_added_table(
                 EXPORTS_ROOT_CONFIG, "events", "events/", "infer", allow_double_quotes=True
             )
 
-    def test_reads_only_the_location_with_a_key_scoped_to_it(self) -> None:
-        client = PrefixScopedS3Client(ORDERS_KEYS, allowed_prefix="tables/orders/")
+    @pytest.mark.parametrize(
+        "location, allowed_prefix",
+        [
+            pytest.param("tables/orders/", "tables/orders/", id="folder"),
+            pytest.param("tables/orders/2024-*.csv", "tables/orders/2024-", id="glob_with_a_key_prefix"),
+        ],
+    )
+    def test_reads_only_the_location_with_a_key_scoped_to_it(self, location: str, allowed_prefix: str) -> None:
+        client = PrefixScopedS3Client(ORDERS_KEYS, allowed_prefix=allowed_prefix)
+        store = bucket_root_store(client)
 
-        table = _source_with_store(bucket_root_store(client)).define_added_table(
-            BUCKET_ROOT_CONFIG, "orders", "tables/orders/", "infer", allow_double_quotes=True
+        table = _source_with_store(store).define_added_table(
+            BUCKET_ROOT_CONFIG, "orders", location, "infer", allow_double_quotes=True
         )
+        rebuilt = TableDefinition.from_schema_metadata(table.name, table.schema_metadata())
+        assert rebuilt is not None
+        resolved = resolve_table_files(store, rebuilt)
 
-        assert [f.path for f in table.files] == ["tables/orders/2024-01.csv", "tables/orders/2024-02.csv"]
-        assert client.listed_prefixes == ["tables/orders/"]
+        expected = ["tables/orders/2024-01.csv", "tables/orders/2024-02.csv"]
+        assert ([f.path for f in table.files], [f.path for f in resolved.files]) == (expected, expected)
+        assert all(prefix.startswith(allowed_prefix) for prefix in client.listed_prefixes)
 
     @pytest.mark.parametrize(
         "override, expected",

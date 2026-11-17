@@ -518,7 +518,11 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
     def get_table_root(self, instance: ExternalDataSource) -> str | None:
         if not supports_adding_tables(instance.source_type):
             return None
-        return added_table_root(instance.source_type, self._source_inputs(instance))
+        try:
+            source_inputs = self._source_inputs(instance)
+        except UnreadableSourceInputsError:
+            return None
+        return added_table_root(instance.source_type, source_inputs)
 
     @extend_schema_field(serializers.BooleanField())
     def get_supports_table_discovery(self, instance: ExternalDataSource) -> bool:

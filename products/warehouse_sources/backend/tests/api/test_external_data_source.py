@@ -16853,6 +16853,30 @@ class TestAddTableByPath(APIBaseTest):
         assert response.json()["attr"] == "path"
         assert "is empty or doesn't exist" in response.json()["detail"]
 
+    @parameterized.expand(
+        [
+            ("hidden_table_of_the_source", False),
+            ("hidden_source_for_the_same_bucket", True),
+        ]
+    )
+    def test_refuses_a_table_that_would_show_files_another_table_hides(self, _name: str, sibling: bool) -> None:
+        migration = {MIGRATION_MARKER_KEY: {"group_key": "s3/us-east-1/example-bucket"}}
+        source = self._source(connection_metadata=migration)
+        holder = self._source(connection_metadata=migration) if sibling else source
+        payroll = DataWarehouseTable.objects.create(name="payroll", team=self.team, external_data_source=holder)
+        ExternalDataSchema.objects.create(team=self.team, source=holder, name="payroll", table=payroll)
+        AccessControl.objects.create(
+            team=self.team, resource="warehouse_table", resource_id=str(payroll.id), access_level="none"
+        )
+        store = MagicMock()
+
+        response = self._add_table(source, store, name="payroll_copy", path="tables/payroll/")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
+        assert "access rules that a new table in this source would not keep" in response.json()["detail"]
+        store.list_objects.assert_not_called()
+        assert not ExternalDataSchema.objects.filter(source=source, name="payroll_copy").exists()
+
     def test_a_source_that_is_not_object_storage_can_not_add_a_table(self) -> None:
         response = self._add_table(self._source("Stripe"), MagicMock())
 
@@ -16882,9 +16906,10 @@ class TestAddTableByPath(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("object_storage_source", "AmazonS3", {}, True, True, "example-bucket/"),
-            ("migrated_bucket_source", "AmazonS3", {MIGRATION_MARKER_KEY: {}}, True, False, "example-bucket/"),
-            ("api_source", "Stripe", {}, False, True, None),
+            ("object_storage_source", "AmazonS3", {}, True, True, "example-bucket/", False),
+            ("migrated_bucket_source", "AmazonS3", {MIGRATION_MARKER_KEY: {}}, True, False, "example-bucket/", False),
+            ("api_source", "Stripe", {}, False, True, None, False),
+            ("unreadable_inputs", "AmazonS3", {}, True, True, None, True),
         ]
     )
     def test_source_says_how_it_gets_new_tables(
@@ -16895,8 +16920,11 @@ class TestAddTableByPath(APIBaseTest):
         supports_adding_tables: bool,
         supports_table_discovery: bool,
         table_root: str | None,
+        unreadable_inputs: bool,
     ) -> None:
         source = self._source(source_type, connection_metadata)
+        if unreadable_inputs:
+            ExternalDataSource.objects.filter(pk=source.pk).update(job_inputs="not json")
 
         response = self.client.get(f"/api/projects/{self.team.pk}/external_data_sources/{source.pk}/")
 

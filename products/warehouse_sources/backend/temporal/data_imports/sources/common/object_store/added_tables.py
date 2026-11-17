@@ -7,6 +7,7 @@ full URL into the same bucket.
 
 import re
 import dataclasses
+from urllib.parse import unquote
 
 from posthog.dataclasses import frozen
 
@@ -18,10 +19,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.obj
     StoreConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.discovery import (
-    DELTA_LOG_DIRECTORY,
     TableDefinition,
     explain_no_tables,
     group_tables,
+    resolve_file_format,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.errors import (
     ObjectStorageError,
@@ -108,7 +109,8 @@ def parse_added_location(relative: str, file_format: FileFormatChoice) -> AddedL
     if _CONTROL_CHARACTERS.search(path):
         raise ObjectStorageError("The path can't contain control characters.")
     segments = path.split("/")
-    if any(segment in (".", "..") for segment in segments):
+    # A Delta read parses the path as a URL, which resolves an encoded `%2e%2e` folder as `..`.
+    if any(segment in (".", "..") or unquote(segment) in (".", "..") for segment in segments):
         raise ObjectStorageError("The path can't contain '.' or '..' folders.")
     if "" in segments[:-1]:
         raise ObjectStorageError("The path can't contain an empty folder ('//').")
@@ -135,18 +137,10 @@ def delta_table(name: str, location: AddedLocation, file_format: FileFormatChoic
     )
 
 
-def holds_delta_log(objects: list[StoredObject], location: AddedLocation) -> bool:
-    """Whether the listed folder is itself a Delta table."""
-    if location.pattern is not None:
-        return False
-    log_prefix = f"{location.path}/{DELTA_LOG_DIRECTORY}/" if location.path else f"{DELTA_LOG_DIRECTORY}/"
-    return any(stored.path.startswith(log_prefix) for stored in objects)
-
-
 def files_table(
     objects: list[StoredObject], name: str, location: AddedLocation, options: DiscoveryOptions
 ) -> TableDefinition:
-    """One table of every file the location selects, defined as `resolve_table_files` finds it again at sync."""
+    """One table of every file under a folder, or of one file, defined as `resolve_table_files` finds it again at sync."""
     combined = dataclasses.replace(options, combined_table_name=name)
     for table in group_tables(
         objects,
@@ -159,3 +153,30 @@ def files_table(
         if table.scope == "all":
             return dataclasses.replace(table, name=name)
     raise ObjectStorageError(explain_no_tables(objects, combined, location.pattern))
+
+
+def glob_table(
+    objects: list[StoredObject], name: str, location: AddedLocation, options: DiscoveryOptions
+) -> TableDefinition:
+    """One table of the files a wildcard path matches.
+
+    The sync lists only the literal key prefix of the pattern, so a key scoped to that prefix can read the table.
+    """
+    pattern = location.pattern or ""
+    glob = compile_clickhouse_glob(pattern)
+    files = tuple(stored for stored in objects if glob.matches(stored.path))
+    if not any(resolve_file_format(stored.path, options.file_format) is not None for stored in files):
+        raise ObjectStorageError(explain_no_tables(objects, options, pattern))
+    return TableDefinition(
+        name=name,
+        kind="files",
+        path=location.path,
+        scope="glob",
+        file_format=options.file_format,
+        csv=CsvOptions(
+            has_header=options.file_format != "csv_no_header", allow_double_quotes=options.allow_double_quotes
+        ),
+        pattern=pattern,
+        source_format=options.file_format,
+        files=files,
+    )

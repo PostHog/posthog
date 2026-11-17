@@ -5677,10 +5677,12 @@ class TestExternalDataSchemaRetrieveSource(APIBaseTest):
 
     @parameterized.expand(
         [
-            # source_type, expected supports_column_selection, expected supports_row_filters, direct_query_enabled.
+            # source_type, expected supports_column_selection, expected supports_row_filters, direct_query_enabled,
+            # whether the self-managed table migration made the source.
             # Stripe is a managed-schema source (no column selection); row filters are SQL-only.
-            (ExternalDataSourceType.STRIPE, False, False, False),
-            (ExternalDataSourceType.POSTGRES, True, True, True),
+            (ExternalDataSourceType.STRIPE, False, False, False, False),
+            (ExternalDataSourceType.POSTGRES, True, True, True, False),
+            (ExternalDataSourceType.AMAZONS3, False, False, False, True),
         ]
     )
     def test_retrieve_includes_source_summary(
@@ -5689,8 +5691,12 @@ class TestExternalDataSchemaRetrieveSource(APIBaseTest):
         expected_column_selection: bool,
         expected_row_filters: bool,
         direct_query_enabled: bool,
+        migrated: bool,
     ):
         source, schema = self._create(source_type=source_type, direct_query_enabled=direct_query_enabled)
+        if migrated:
+            source.connection_metadata = {"self_managed_migration": {"group_key": "s3/us-east-1/example-bucket"}}
+            source.save(update_fields=["connection_metadata"])
         response = self.client.get(f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}/")
         assert response.status_code == 200, response.json()
         summary = response.json()["source"]
@@ -5701,6 +5707,8 @@ class TestExternalDataSchemaRetrieveSource(APIBaseTest):
         assert summary["supports_column_selection"] is expected_column_selection
         assert summary["supports_row_filters"] is expected_row_filters
         assert summary["direct_query_enabled"] is direct_query_enabled
+        # The schema page hides "Pull new schemas" on a source that reads a whole bucket.
+        assert summary["supports_table_discovery"] is not migrated
         assert "user_access_level" in summary
 
     @parameterized.expand(

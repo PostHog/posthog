@@ -6794,6 +6794,8 @@ export interface ExternalDataSchemaSourceSummary {
     api_version?: string | null
     /** Vendor API versions the source type supports — the schema override picker's options */
     supported_api_versions?: string[]
+    /** False when the source reads a whole bucket, so there is nothing to discover. */
+    supports_table_discovery?: boolean
 }
 
 export interface ExternalDataSchemaWithSource extends ExternalDataSourceSchema {

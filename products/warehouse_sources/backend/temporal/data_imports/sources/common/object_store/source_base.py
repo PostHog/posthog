@@ -17,7 +17,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.obj
     delta_table,
     display_root,
     files_table,
-    holds_delta_log,
+    glob_table,
     is_full_url,
     parse_added_location,
     relative_key,
@@ -40,6 +40,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.obj
     TableDefinition,
     explain_no_tables,
     group_tables,
+    list_glob_objects,
     list_table_objects,
     resolve_file_format,
     resolve_table_files,
@@ -351,22 +352,39 @@ class ObjectStorageSource(SimpleSource[ConfigType], CursorSource[ObjectStorageDe
                 relative = relative_key(store_config, url_config)
             added = parse_added_location(relative, file_format)
             store = self.open_store(store_config)
-            if file_format != "delta":
-                try:
-                    objects = list_table_objects(store, added.path)
-                except Exception as e:
-                    _raise_translated(e, store.path(added.path))
-                if file_format != "infer" or not holds_delta_log(objects, added):
-                    options = DiscoveryOptions(file_format=file_format, allow_double_quotes=allow_double_quotes)
-                    return files_table(objects, name, added, options)
-            table = delta_table(name, added, file_format)
-            self._check_added_delta_table(store, table)
-            return table
+            location = store.path(added.path)
+            try:
+                is_delta = file_format == "delta" or (
+                    file_format == "infer" and added.pattern is None and self._holds_delta_log(store, added.path)
+                )
+                if not is_delta:
+                    objects = (
+                        list_table_objects(store, added.path)
+                        if added.pattern is None
+                        else list_glob_objects(store, added.pattern)
+                    )
+            except ObjectStorageError:
+                raise
+            except Exception as e:
+                _raise_translated(e, location)
+            if is_delta:
+                table = delta_table(name, added, file_format)
+                self._check_added_delta_table(store, table)
+                return table
+            options = DiscoveryOptions(file_format=file_format, allow_double_quotes=allow_double_quotes)
+            if added.pattern is not None:
+                return glob_table(objects, name, added, options)
+            return files_table(objects, name, added, options)
         except ObjectStorageError as e:
             message = self._validation_message(str(e))
             if message == str(e):
                 raise
             raise ObjectStorageError(message) from e
+
+    def _holds_delta_log(self, store: ObjectStore, path: str) -> bool:
+        """Whether the folder is a Delta table. Only its log is listed, so a large table is not walked."""
+        log = f"{path}/{DELTA_LOG_DIRECTORY}" if path else DELTA_LOG_DIRECTORY
+        return bool(store.list_objects(log, 1))
 
     def _check_added_delta_table(self, store: ObjectStore, table: TableDefinition) -> None:
         try:

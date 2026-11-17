@@ -24,7 +24,7 @@ import json
 import hashlib
 import itertools
 from collections import defaultdict
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from typing import Literal
 from uuid import UUID
 
@@ -32,8 +32,13 @@ from posthog.dataclasses import frozen
 
 from products.access_control.backend.facade.api import access_rules, replace_object_access_rules
 from products.access_control.backend.facade.contracts import AccessRule, ObjectAccessRuleInput
+from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema, self_managed_table_ref
 from products.warehouse_sources.backend.models.external_data_source import MIGRATION_MARKER_KEY, ExternalDataSource
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.self_managed import (
+    UnmappableTableError,
+    parse_self_managed_url,
+)
 
 TABLE_RESOURCE = "warehouse_table"
 WAREHOUSE_RESOURCE = "warehouse_objects"
@@ -58,6 +63,14 @@ _Subject = Literal["member", "role", "default"]
 _SUBJECTS: tuple[_Subject, ...] = ("member", "role", "default")
 _Scope = Literal["table", "warehouse", "sources", "source"]
 _SCOPES: tuple[_Scope, ...] = ("table", "warehouse", "sources", "source")
+# The scopes that decide access to an existing table and to a new table added to another source.
+_ADDED_TABLE_SCOPES: tuple[str, ...] = ("table", "warehouse", "sources", "source", "added_source")
+
+ADDED_TABLE_ACCESS_REFUSAL = (
+    "Some tables that read this bucket have access rules that a new table in this source would not keep, so "
+    "PostHog can't add a table here. An organization admin can give this source the same access rules as "
+    "those tables."
+)
 
 
 @frozen
@@ -214,6 +227,57 @@ class TeamAccessRules:
         """The rules on a source as they are now, in the order a plan lists them."""
         return self._objects.get((SOURCE_RESOURCE, source_id), ())
 
+    def table_rules(self, table_id: str) -> tuple[SourceRule, ...]:
+        """The rules on a table as they are now."""
+        return self._objects.get((TABLE_RESOURCE, table_id), ())
+
+    def added_table_widens_access(self, table_id: str, table_source_id: str | None, source_id: str) -> bool:
+        """Whether a new table of the source, with no rules of its own, gives a member more access than the table.
+
+        A new table that reads the files of `table_id` must not show its data to a member the table hides it
+        from. `table_source_id` is the source of the table, or None for a self-managed table. Checked for each
+        kind of member with each combination of roles, under both resolution orders, as `_keeps_access` does.
+        """
+        scopes: dict[str, tuple[SourceRule, ...]] = {
+            "table": self.table_rules(table_id),
+            "warehouse": self._warehouse,
+            "sources": self._sources,
+            "source": self.source_rules(table_source_id) if table_source_id is not None else (),
+            "added_source": self.source_rules(source_id),
+        }
+        if any(rule.access_level not in LEVELS for rules in scopes.values() for rule in rules):
+            return True
+        defaults = {
+            scope: [_Row(level=rule.access_level, subject="default") for rule in rules if rule.subject == "default"]
+            for scope, rules in scopes.items()
+        }
+        empty = (None,) * len(_ADDED_TABLE_SCOPES)
+        role_profiles = [p for p in _profiles(scopes, "role", _ADDED_TABLE_SCOPES) if p != empty]
+        if len(role_profiles) > _MAX_ROLE_PROFILES:
+            return True
+        for member_profile in _profiles(scopes, "member", _ADDED_TABLE_SCOPES):
+            for count in range(len(role_profiles) + 1):
+                for roles in itertools.combinations(role_profiles, count):
+                    rows = {
+                        scope: [
+                            *defaults[scope],
+                            *([_Row(level=level, subject="member")] if (level := member_profile[i]) else []),
+                            *(_Row(level=level, subject="role") for role in roles if (level := role[i]) is not None),
+                        ]
+                        for i, scope in enumerate(_ADDED_TABLE_SCOPES)
+                    }
+                    for resolve in (_legacy_level, _most_specific_level):
+                        table = resolve(
+                            rows["table"],
+                            rows["source"] if table_source_id is not None else None,
+                            rows["warehouse"],
+                            rows["sources"],
+                        )
+                        added = resolve((), rows["added_source"], rows["warehouse"], rows["sources"])
+                        if _rank(added) > _rank(table):
+                            return True
+        return False
+
     def plan_for(self, table_id: str) -> SourceAccessPlan | str:
         """The rules a source needs for the table to keep its access, or the reason no rules can."""
         table_rules = self._objects.get((TABLE_RESOURCE, table_id), ())
@@ -305,21 +369,25 @@ _Profile = tuple[str | None, ...]
 _EMPTY_PROFILE: _Profile = (None, None, None, None)
 
 
-def _profiles(scopes: dict[_Scope, tuple[SourceRule, ...]], subject: Literal["member", "role"]) -> list[_Profile]:
+def _profiles(
+    scopes: Mapping[str, tuple[SourceRule, ...]],
+    subject: Literal["member", "role"],
+    order: tuple[str, ...] = _SCOPES,
+) -> list[_Profile]:
     """The level each subject of one kind has in each scope, once per distinct set of levels.
 
     Subjects with the same levels resolve the same, so each set is checked once. The empty set stands
     for a member that no rule names, or for having no role.
     """
-    levels: dict[str, dict[_Scope, str]] = defaultdict(dict)
+    levels: dict[str, dict[str, str]] = defaultdict(dict)
     for scope, rules in scopes.items():
         for rule in rules:
             if rule.subject == subject:
                 subject_id = rule.organization_member_id if subject == "member" else rule.role_id
                 assert subject_id is not None
                 levels[subject_id][scope] = rule.access_level
-    profiles = {tuple(by_scope.get(scope) for scope in _SCOPES) for by_scope in levels.values()}
-    profiles.add(_EMPTY_PROFILE)
+    profiles = {tuple(by_scope.get(scope) for scope in order) for by_scope in levels.values()}
+    profiles.add((None,) * len(order))
     return sorted(profiles, key=repr)
 
 
@@ -407,3 +475,64 @@ def assert_adoption_keeps_access(table: DataWarehouseTable, source: ExternalData
     error = adoption_access_error(table, source)
     if error is not None:
         raise AdoptionAccessError(error)
+
+
+def _bucket_tables(source: ExternalDataSource) -> dict[str, str | None]:
+    """The tables whose files a new table of the source could read, each with its source id, or None when self-managed.
+
+    These are the tables of the source. A migration source is rooted at a whole bucket, so they also include the
+    tables of the other migration sources and the self-managed tables of that bucket.
+    """
+    sources = [source]
+    group_key = (source.connection_metadata or {}).get(MIGRATION_MARKER_KEY, {}).get("group_key")
+    if source.is_self_managed_migration and group_key:
+        sources += list(
+            ExternalDataSource.objects.filter(
+                team_id=source.team_id, connection_metadata__self_managed_migration__group_key=group_key
+            )
+            .exclude(pk=source.pk)
+            .exclude(deleted=True)
+        )
+    tables: dict[str, str | None] = {}
+    for schema in ExternalDataSchema.objects.filter(team_id=source.team_id, source__in=sources).exclude(deleted=True):
+        if schema.table_id is not None:
+            tables[str(schema.table_id)] = str(schema.source_id)
+        elif (ref := self_managed_table_ref(schema)) is not None:
+            tables.setdefault(ref.table_id, None)
+    if source.is_self_managed_migration and group_key:
+        self_managed = (
+            DataWarehouseTable.objects.filter(
+                team_id=source.team_id, external_data_source__isnull=True, credential__isnull=False
+            )
+            .exclude(deleted=True)
+            .only("id", "url_pattern")
+        )
+        for table in self_managed:
+            try:
+                in_bucket = parse_self_managed_url(table.url_pattern).group_key == group_key
+            except UnmappableTableError:
+                continue
+            if in_bucket:
+                tables.setdefault(str(table.id), None)
+    return tables
+
+
+def added_table_access_refusal(source: ExternalDataSource) -> str | None:
+    """Why no table may be added to the source by its path, or None when one may.
+
+    A table added by path has no rules of its own, so access to it falls back to the source. It must not show
+    anybody the files of a table whose rules hide them, so every table that shares the source's files is checked.
+    """
+    rules = TeamAccessRules(source.team_id)
+    checked: set[tuple[tuple[SourceRule, ...], tuple[SourceRule, ...]]] = set()
+    for table_id, table_source_id in _bucket_tables(source).items():
+        key = (
+            rules.table_rules(table_id),
+            rules.source_rules(table_source_id) if table_source_id is not None else (),
+        )
+        if key in checked:
+            continue
+        checked.add(key)
+        if rules.added_table_widens_access(table_id, table_source_id, str(source.pk)):
+            return ADDED_TABLE_ACCESS_REFUSAL
+    return None

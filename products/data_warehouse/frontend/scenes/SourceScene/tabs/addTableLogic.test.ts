@@ -5,7 +5,10 @@ import { ApiError } from 'lib/api-error'
 import { initKeaTests } from '~/test/init'
 import { ExternalDataSourceSchema } from '~/types'
 
-import { externalDataSourcesAddTableCreate } from 'products/warehouse_sources/frontend/generated/api'
+import {
+    externalDataSourcesAddTableCreate,
+    externalDataSourcesBulkUpdateSchemasPartialUpdate,
+} from 'products/warehouse_sources/frontend/generated/api'
 
 import { addTableFormErrors, addTableLogic, tableNameFromPath } from './addTableLogic'
 import { sourceSettingsLogic } from './sourceSettingsLogic'
@@ -13,9 +16,11 @@ import { sourceSettingsLogic } from './sourceSettingsLogic'
 jest.mock('products/warehouse_sources/frontend/generated/api', () => ({
     ...jest.requireActual('products/warehouse_sources/frontend/generated/api'),
     externalDataSourcesAddTableCreate: jest.fn(),
+    externalDataSourcesBulkUpdateSchemasPartialUpdate: jest.fn(),
 }))
 
 const mockAddTable = externalDataSourcesAddTableCreate as jest.Mock
+const mockBulkUpdate = externalDataSourcesBulkUpdateSchemasPartialUpdate as jest.Mock
 
 const CREATED_SCHEMA = { id: 'schema-1', name: 'events', should_sync: false } as ExternalDataSourceSchema
 
@@ -60,15 +65,14 @@ describe('addTableLogic', () => {
     let logic: ReturnType<typeof addTableLogic.build>
     let settingsLogic: ReturnType<typeof sourceSettingsLogic.build>
     let loadSource: jest.SpyInstance
-    let updateSchema: jest.SpyInstance
 
     beforeEach(() => {
         initKeaTests()
         settingsLogic = sourceSettingsLogic({ id: 'source-1' })
         settingsLogic.mount()
         loadSource = jest.spyOn(settingsLogic.actions, 'loadSource').mockImplementation((() => ({})) as any)
-        updateSchema = jest.spyOn(settingsLogic.actions, 'updateSchema').mockImplementation((() => ({})) as any)
         mockAddTable.mockResolvedValue(CREATED_SCHEMA)
+        mockBulkUpdate.mockResolvedValue([])
         logic = addTableLogic({ sourceId: 'source-1' })
         logic.mount()
         logic.actions.openAddTable()
@@ -120,29 +124,45 @@ describe('addTableLogic', () => {
     })
 
     it.each([
-        { startSyncing: true, expectedUpdateCalls: [[{ ...CREATED_SCHEMA, should_sync: true }]] },
-        { startSyncing: false, expectedUpdateCalls: [] },
-    ])('adds the table (start syncing: $startSyncing)', async ({ startSyncing, expectedUpdateCalls }) => {
-        logic.actions.setAddTableValue('path', 'events/*.csv')
-        logic.actions.setAddTableValues({
-            file_format: 'csv',
-            csv_allow_double_quotes: false,
-            start_syncing: startSyncing,
-        })
-        expect(logic.values.addTable.name).toBe('events')
+        { startSyncing: true, sourcePageOpen: true, expectedSyncCalls: 1 },
+        { startSyncing: false, sourcePageOpen: true, expectedSyncCalls: 0 },
+        { startSyncing: true, sourcePageOpen: false, expectedSyncCalls: 1 },
+    ])(
+        'adds the table (start syncing: $startSyncing, source page open: $sourcePageOpen)',
+        async ({ startSyncing, sourcePageOpen, expectedSyncCalls }) => {
+            if (!sourcePageOpen) {
+                settingsLogic.unmount()
+            }
+            logic.actions.setAddTableValue('path', 'events/*.csv')
+            logic.actions.setAddTableValues({
+                file_format: 'csv',
+                csv_allow_double_quotes: false,
+                start_syncing: startSyncing,
+            })
+            expect(logic.values.addTable.name).toBe('events')
 
-        await expectLogic(logic, () => logic.actions.submitAddTable()).toDispatchActions(['submitAddTableSuccess'])
+            await expectLogic(logic, () => logic.actions.submitAddTable()).toDispatchActions(['submitAddTableSuccess'])
 
-        expect(mockAddTable).toHaveBeenCalledWith(expect.any(String), 'source-1', {
-            name: 'events',
-            path: 'events/*.csv',
-            file_format: 'csv',
-            csv_allow_double_quotes: false,
-        })
-        expect(logic.values.isAddTableOpen).toBe(false)
-        expect(loadSource).toHaveBeenCalledTimes(1)
-        expect(updateSchema.mock.calls).toEqual(expectedUpdateCalls)
-    })
+            expect(mockAddTable).toHaveBeenCalledWith(expect.any(String), 'source-1', {
+                name: 'events',
+                path: 'events/*.csv',
+                file_format: 'csv',
+                csv_allow_double_quotes: false,
+            })
+            expect(logic.values.isAddTableOpen).toBe(false)
+            expect(loadSource).toHaveBeenCalledTimes(sourcePageOpen ? 1 : 0)
+            expect(mockBulkUpdate.mock.calls).toEqual(
+                Array(expectedSyncCalls).fill([
+                    expect.any(String),
+                    'source-1',
+                    { schemas: [{ id: 'schema-1', should_sync: true }] },
+                ])
+            )
+            if (!sourcePageOpen) {
+                settingsLogic.mount()
+            }
+        }
+    )
 
     it.each(['name', 'path'])('sets the %s field error from the API', async (attr) => {
         mockAddTable.mockRejectedValue(new ApiError('Bad request', 400, undefined, { attr, detail: 'Nope' }))

@@ -427,6 +427,14 @@ def list_table_objects(store: ObjectStore, path: str, max_objects: int = MAX_TAB
     return objects
 
 
+def list_glob_objects(store: ObjectStore, pattern: str, max_objects: int = MAX_TABLE_OBJECTS) -> list[StoredObject]:
+    """List the keys under the literal prefix of a glob, and refuse a table with more files than a sync reads."""
+    key_prefix = glob_key_prefix(pattern)
+    objects = store.list_key_prefix(key_prefix, max_objects + 1)
+    _check_object_count(objects, max_objects, key_prefix)
+    return objects
+
+
 def resolve_table_files(
     store: ObjectStore,
     table: TableDefinition,
@@ -441,10 +449,7 @@ def resolve_table_files(
     if table.kind != "files":
         return table
     if table.scope == "glob":
-        listing_prefix = glob_key_prefix(table.pattern or "")
-        objects = store.list_key_prefix(listing_prefix, max_objects + 1)
-        _check_object_count(objects, max_objects, listing_prefix)
-        return _resolve_glob_files(objects, table)
+        return _resolve_glob_files(list_glob_objects(store, table.pattern or "", max_objects), table)
     objects = list_table_objects(store, table.path, max_objects)
     options = DiscoveryOptions(
         file_format=table.source_format,

@@ -10,7 +10,10 @@ import { ApiError, readableErrorMessage } from 'lib/api-error'
 
 import { ExternalDataSourceSchema } from '~/types'
 
-import { externalDataSourcesAddTableCreate } from 'products/warehouse_sources/frontend/generated/api'
+import {
+    externalDataSourcesAddTableCreate,
+    externalDataSourcesBulkUpdateSchemasPartialUpdate,
+} from 'products/warehouse_sources/frontend/generated/api'
 import type {
     AddTableRequestApi,
     ObjectStorageTableFileFormatEnumApi,
@@ -41,6 +44,12 @@ export async function addTableToSource(sourceId: string, body: AddTableRequestAp
     const schema = await externalDataSourcesAddTableCreate(String(ApiConfig.getCurrentProjectId()), sourceId, body)
     // The endpoint returns the same serializer as the entries of `source.schemas`.
     return schema as unknown as ExternalDataSourceSchema
+}
+
+export async function startSyncing(sourceId: string, schemaId: string): Promise<void> {
+    await externalDataSourcesBulkUpdateSchemasPartialUpdate(String(ApiConfig.getCurrentProjectId()), sourceId, {
+        schemas: [{ id: schemaId, should_sync: true }],
+    })
 }
 
 /** A table name from the last part of a path that has no wildcard: the folder name, or the file name without extensions. */
@@ -209,19 +218,31 @@ export const addTableLogic = kea<addTableLogicType>([
                     return
                 }
 
+                // Awaited here and not queued on the source page, so the sync still starts when the page closes.
+                let syncError: string | null = null
+                if (start_syncing) {
+                    try {
+                        await startSyncing(props.sourceId, schema.id)
+                    } catch (e: any) {
+                        syncError = readableErrorMessage(e) ?? 'Unknown error'
+                    }
+                }
+
                 const sourceSettings = sourceSettingsLogic.findMounted({ id: props.sourceId })
                 // pinned: analytics event names, renaming breaks dashboards
                 posthog.capture('warehouse table added', {
                     source_type: sourceSettings?.values.source?.source_type,
                     file_format: payload.file_format,
+                    start_syncing,
                 })
-                lemonToast.success('Table added')
+                if (syncError) {
+                    lemonToast.error(`The table was added, but its sync didn't start: ${syncError}`)
+                } else {
+                    lemonToast.success('Table added')
+                }
                 actions.closeAddTable()
                 actions.resetAddTable()
                 sourceSettings?.actions.loadSource()
-                if (start_syncing) {
-                    sourceSettings?.actions.updateSchema({ ...schema, should_sync: true })
-                }
             },
         },
     })),
