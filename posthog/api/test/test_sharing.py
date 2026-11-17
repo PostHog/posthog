@@ -2395,6 +2395,93 @@ class TestSharedLinkWarehouseExecution(APIBaseTest):
         assert not results["wh"].get("error")
 
 
+class TestSharingBlockedForInsightsWithoutViewAccess(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+        ]
+        self.organization.save()
+        OrganizationMembership.objects.filter(user=self.user, organization=self.organization).update(
+            level=OrganizationMembership.Level.MEMBER
+        )
+        creator = User.objects.create_and_join(self.organization, "creator@example.com", "password")
+        query = {"kind": "DataTableNode", "source": {"kind": "EventsQuery", "select": ["event"]}}
+        self.restricted = Insight.objects.create(team=self.team, name="Restricted", query=query, created_by=creator)
+        self.visible = Insight.objects.create(team=self.team, name="Visible", query=query, created_by=creator)
+        AccessControl.objects.create(
+            team=self.team, resource="insight", resource_id=str(self.restricted.id), access_level="none"
+        )
+
+    def _notebook_content(self, *insights: Insight) -> dict:
+        return {
+            "type": "doc",
+            "content": [
+                {
+                    "type": "ph-query",
+                    "attrs": {
+                        "nodeId": f"n{insight.id}",
+                        "query": {"kind": "SavedInsightNode", "shortId": insight.short_id},
+                    },
+                }
+                for insight in insights
+            ],
+        }
+
+    @parameterized.expand([("dashboard",), ("notebook",)])
+    def test_enabling_sharing_is_blocked_when_it_exposes_an_insight_the_user_cannot_view(self, artifact: str):
+        if artifact == "dashboard":
+            dashboard = Dashboard.objects.create(team=self.team, created_by=self.user)
+            DashboardTile.objects.create(dashboard=dashboard, insight=self.restricted)
+            DashboardTile.objects.create(dashboard=dashboard, insight=self.visible)
+            url = f"/api/projects/{self.team.id}/dashboards/{dashboard.id}/sharing"
+        else:
+            notebook = Notebook.objects.create(
+                team=self.team, created_by=self.user, content=self._notebook_content(self.restricted, self.visible)
+            )
+            url = f"/api/projects/{self.team.id}/notebooks/{notebook.short_id}/sharing"
+
+        response = self.client.patch(url, {"enabled": True})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert response.json()["detail"] == (
+            "Can't enable sharing: this uses 1 insight, which you don't have access to. "
+            "Ask an admin for access, or remove them first."
+        )
+        assert not SharingConfiguration.objects.filter(team=self.team, enabled=True).exists()
+
+    def test_restoring_a_tile_the_editor_cannot_view_on_a_shared_dashboard_is_blocked(self):
+        dashboard = Dashboard.objects.create(team=self.team, created_by=self.user)
+        tile = DashboardTile.objects.create(dashboard=dashboard, insight=self.restricted, deleted=True)
+        SharingConfiguration.objects.create(team=self.team, dashboard=dashboard, enabled=True)
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard.id}/",
+            {"tiles": [{"id": tile.id, "deleted": False}]},
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert "Can't add this insight: you don't have access to this insight" in str(response.json())
+        tile.refresh_from_db()
+        assert tile.deleted is True
+
+    def test_embedding_an_insight_the_editor_cannot_view_in_a_shared_notebook_is_blocked(self):
+        notebook = Notebook.objects.create(
+            team=self.team, created_by=self.user, content=self._notebook_content(), version=1
+        )
+        SharingConfiguration.objects.create(team=self.team, notebook=notebook, enabled=True)
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/notebooks/{notebook.short_id}/",
+            {"content": self._notebook_content(self.restricted, self.visible), "version": notebook.version},
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert response.json()["detail"] == (
+            "Can't save: you don't have access to 1 insight you added, and this notebook is publicly shared."
+        )
+
+
 @patch("posthoganalytics.feature_enabled", new=Mock(return_value=True))
 class TestSharingPublishGate(APIBaseTest):
     def setUp(self):
@@ -2469,11 +2556,11 @@ class TestSharingPublishGate(APIBaseTest):
 
     @patch("posthog.api.sharing.export_asset_for_opengraph")
     @patch("posthog.models.sharing_configuration.SharingConfiguration.lock_resource")
-    @patch("posthog.api.sharing.denied_resources_in_share")
+    @patch("posthog.api.sharing.share_access_error")
     def test_publish_validation_runs_before_resource_lock(self, check: Mock, lock: Mock, _export: Mock) -> None:
-        def validate(*args: Any) -> list[str]:
+        def validate(*args: Any) -> str | None:
             lock.assert_not_called()
-            return []
+            return None
 
         check.side_effect = validate
         response = self._enable_sharing("dashboard")
@@ -2482,13 +2569,13 @@ class TestSharingPublishGate(APIBaseTest):
         check.assert_called_once()
         lock.assert_called_once()
 
-    @patch("posthog.api.sharing.denied_resources_in_share")
+    @patch("posthog.api.sharing.share_access_error")
     def test_enable_checks_current_state_after_concurrent_disable(self, check: Mock) -> None:
         configuration = SharingConfiguration.objects.create(team=self.team, insight=self.insight, enabled=True)
 
-        def validate(*args: Any) -> list[str]:
+        def validate(*args: Any) -> str | None:
             SharingConfiguration.objects.filter(team=self.team, pk=configuration.pk).update(enabled=False)
-            return ["governed_view"]
+            return "Can't enable sharing"
 
         check.side_effect = validate
         response = self._enable_sharing("insight")

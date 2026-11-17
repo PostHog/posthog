@@ -40,7 +40,7 @@ from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.pagination import offset_page_links
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
-from posthog.api.sharing_publish_gate import denied_resources_in_notebook_edit, is_publicly_shared
+from posthog.api.sharing_publish_gate import is_publicly_shared, notebook_edit_access_error
 from posthog.api.streaming import sse_streaming_response
 from posthog.api.utils import action
 from posthog.auth import SessionAuthentication
@@ -487,15 +487,10 @@ class NotebookSerializer(NotebookMinimalSerializer):
                         and not (self.user_access_control and self.user_access_control.is_organization_admin)
                         and is_publicly_shared(locked_instance)
                     ):
-                        denied_resources = denied_resources_in_notebook_edit(
+                        if message := notebook_edit_access_error(
                             self.context["request"].user, locked_instance, validated_data.get("content")
-                        )
-                        if denied_resources:
-                            denied_names = ", ".join(f"`{name}`" for name in denied_resources)
-                            raise serializers.ValidationError(
-                                f"Can't save: you don't have access to {denied_names}, "
-                                "and this notebook is publicly shared."
-                            )
+                        ):
+                            raise serializers.ValidationError(message)
 
                     update_diff = markdown_collab.build_markdown_update_diff(
                         locked_instance.content, validated_data.get("content")
@@ -2532,12 +2527,8 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             and not self.user_access_control.is_organization_admin
             and is_publicly_shared(notebook)
         ):
-            denied_resources = denied_resources_in_notebook_edit(user, notebook, data.get("content"))
-            if denied_resources:
-                denied_names = ", ".join(f"`{name}`" for name in denied_resources)
-                raise serializers.ValidationError(
-                    f"Can't save: you don't have access to {denied_names}, and this notebook is publicly shared."
-                )
+            if message := notebook_edit_access_error(user, notebook, data.get("content")):
+                raise serializers.ValidationError(message)
 
         result = submit_steps(
             team_id=notebook.team_id,
@@ -2634,12 +2625,8 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             and not self.user_access_control.is_organization_admin
             and is_publicly_shared(notebook)
         ):
-            denied_resources = denied_resources_in_notebook_edit(user, notebook, submitted_content)
-            if denied_resources:
-                denied_names = ", ".join(f"`{name}`" for name in denied_resources)
-                raise serializers.ValidationError(
-                    f"Can't save: you don't have access to {denied_names}, and this notebook is publicly shared."
-                )
+            if message := notebook_edit_access_error(user, notebook, submitted_content):
+                raise serializers.ValidationError(message)
 
         notebook_before: Notebook | None = None
         with transaction.atomic():

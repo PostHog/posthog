@@ -496,7 +496,9 @@ class UpsertDashboardTool(MaxTool):
                 if created:
                     created_insights.append((artifact, insight))
 
-            check_can_add_insight_to_dashboard(self._user, dashboard, insight.query, self.user_access_control)
+            check_can_add_insight_to_dashboard(
+                self._user, dashboard, insight.query, self.user_access_control, insight_id=insight.id
+            )
 
             tile, created = DashboardTile.objects_including_soft_deleted.get_or_create(
                 dashboard=dashboard,
@@ -568,7 +570,9 @@ class UpsertDashboardTool(MaxTool):
             existing_tile = short_id_to_tile.get(insight_id)
             becomes_live = existing_tile is None or existing_tile.deleted
             if becomes_live:
-                check_can_add_insight_to_dashboard(self._user, dashboard, insight.query, self.user_access_control)
+                check_can_add_insight_to_dashboard(
+                    self._user, dashboard, insight.query, self.user_access_control, insight_id=insight.id
+                )
 
             if existing_tile:
                 # Restore if soft deleted

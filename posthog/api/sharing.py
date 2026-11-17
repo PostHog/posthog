@@ -32,7 +32,7 @@ from posthog.api.data_color_theme import DataColorTheme, PublicDataColorThemeSer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.services.query import process_query_dict
 from posthog.api.shared import TeamPublicSerializer
-from posthog.api.sharing_publish_gate import denied_resources_in_share
+from posthog.api.sharing_publish_gate import share_access_error
 from posthog.auth import (
     SharingAccessTokenAuthentication,
     SharingPasswordProtectedAuthentication,
@@ -539,13 +539,15 @@ class SharingConfigurationViewSet(
         # Publishing is the access decision for shared links (queries on the public page execute
         # without warehouse access control), so gate the enable transition: the publisher must have
         # access to everything the artifact queries, or sharing becomes an escalation channel.
-        denied_resources: list[str] = []
+        share_denied_message: str | None = None
         if (
             request.data.get("enabled")
             and self.team.organization.is_feature_available(AvailableFeature.ACCESS_CONTROL)
             and not self.user_access_control.is_organization_admin
         ):
-            denied_resources = denied_resources_in_share(cast(User, request.user), self.team, instance)
+            share_denied_message = share_access_error(
+                cast(User, request.user), self.team, instance, self.user_access_control
+            )
         serializer = self.get_serializer(instance, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
 
@@ -557,12 +559,8 @@ class SharingConfigurationViewSet(
 
             instance.lock_resource()
             instance = self._get_sharing_configuration(context, dedupe=True)
-            if denied_resources and not instance.enabled:
-                denied_names = ", ".join(f"`{name}`" for name in denied_resources)
-                raise ValidationError(
-                    f"Can't enable sharing: you don't have access to {denied_names}, "
-                    "which the shared queries use. Ask an admin for access, or remove those queries first."
-                )
+            if share_denied_message and not instance.enabled:
+                raise ValidationError(share_denied_message)
             serializer.instance = instance
             was_enabled = instance.enabled
             serializer.save(**({"shared_by": request.user} if serializer.validated_data.get("enabled") else {}))

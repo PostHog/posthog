@@ -2,14 +2,15 @@
 
 Shared links execute without warehouse access control (the publish act is the access
 decision - see SharedLinkUser), so the gate moves to the moment of publishing: the member
-enabling a share must be able to run every query it exposes. Otherwise sharing would be an
-escalation channel - save a query over a restricted table, publish, read it through the
-public link.
+enabling a share must be able to run every query it exposes and view every insight it shows.
+Otherwise sharing would be an escalation channel - publish a restricted table or insight, then
+read it through the public link.
 """
 
-from typing import Any, Protocol
+from collections.abc import Iterable, Sequence
+from typing import Any, Protocol, cast
 
-from django.db.models import Q
+from django.db.models import Model, Q
 
 from rest_framework import serializers
 
@@ -108,12 +109,15 @@ def check_can_add_insight_to_dashboard(
     dashboard: GatedDashboard,
     query: Any,
     user_access_control: UserAccessControl | None = None,
+    *,
+    insight_id: int | None = None,
 ) -> None:
     """Raise if binding an insight with this query to the dashboard would expose, through the
     dashboard's public link or a subscription that delivers it in full, a query the editor can't
-    run themselves. No-op when the dashboard reaches no such reader, the org lacks the access
-    control entitlement, or the editor is an org admin."""
-    if not isinstance(query, dict):
+    run themselves, or an existing insight (`insight_id`) the editor can't view. No-op when the
+    dashboard reaches no such reader, the org lacks the access control entitlement, or the editor
+    is an org admin."""
+    if not isinstance(query, dict) and insight_id is None:
         return
     team = _dashboard_team(dashboard)
     if not team.organization.is_feature_available(AvailableFeature.ACCESS_CONTROL):
@@ -125,22 +129,30 @@ def check_can_add_insight_to_dashboard(
     exposure = dashboard_shared_or_subscribed(dashboard)
     if exposure is None:
         return
-    denied_resources = denied_query_resources(user, team, [query])
-    if denied_resources:
-        denied_names = ", ".join(f"`{name}`" for name in denied_resources)
+    denied_resources = denied_query_resources(user, team, [query]) if isinstance(query, dict) else []
+    insight_denied = insight_id is not None and bool(
+        insights_denied_to(uac, Insight.objects.filter(team__project_id=team.project_id, id=insight_id))
+    )
+    if denied_resources or insight_denied:
+        denied = _describe_denied(denied_resources, "this insight" if insight_denied else None)
         raise serializers.ValidationError(
-            f"Can't add this insight: you don't have access to {denied_names}, and this dashboard is {exposure}."
+            f"Can't add this insight: you don't have access to {denied}, and this dashboard is {exposure}."
         )
 
 
-def denied_resources_in_share(user: User, team: Team, config: SharingConfiguration) -> list[str]:
+def share_access_error(
+    user: User, team: Team, config: SharingConfiguration, user_access_control: UserAccessControl | None = None
+) -> str | None:
+    """The message that stops the user from enabling this share, or None when they may enable it.
+
+    A shared link runs its queries without warehouse access control and shows every insight it
+    holds to anyone with the link, so enabling one is an access decision. The user must be able to
+    run every query the share exposes, compiled (resolved, not executed) as the user with the same
+    resolution the read path uses, and must be able to view every insight in it. Non-access compile
+    errors don't block.
     """
-    Tables and runner-level resources that stop the publisher from running the shared
-    artifact's queries. Each query is compiled (resolved, not executed) as the publisher,
-    the same resolution the read path uses. Non-access compile errors don't gate.
-    Empty list = safe to publish.
-    """
-    denied_resources = denied_query_resources(user, team, _queries_exposed_by(config))
+    connected_insights = list(Insight.objects.filter(team_id=config.team_id, id__in=config.get_connected_insight_ids()))
+    denied_resources = denied_query_resources(user, team, _queries_exposed_by(config, connected_insights))
     # A dashboard's own filters and tile overrides run inside every tile, and they could have
     # been saved before the dashboard was shared, when the save-time check did not apply.
     if config.dashboard is not None:
@@ -149,7 +161,37 @@ def denied_resources_in_share(user: User, team: Team, config: SharingConfigurati
             leaves += dashboard_filter_leaves(overrides)
         if (table := table_blocking_property_filters(user, team, leaves)) and table not in denied_resources:
             denied_resources = sorted([*denied_resources, table])
-    return denied_resources
+    denied_insights = insights_denied_to(
+        user_access_control or UserAccessControl(user=user, team=team), connected_insights
+    )
+    if not denied_resources and not denied_insights:
+        return None
+    denied = _describe_denied(denied_resources, _count_insights(len(denied_insights)))
+    return (
+        f"Can't enable sharing: this uses {denied}, which you don't have access to. "
+        "Ask an admin for access, or remove them first."
+    )
+
+
+def insights_denied_to(user_access_control: UserAccessControl, insights: Iterable[Insight]) -> list[Insight]:
+    """The insights the user can't view at `viewer` level."""
+    insights = list(insights)
+    user_access_control.preload_object_access_controls(cast(list[Model], insights))
+    return [insight for insight in insights if not user_access_control.check_access_level_for_object(insight, "viewer")]
+
+
+def _count_insights(count: int, qualifier: str = "") -> str | None:
+    """A count, not names, because a member without access to an insight can't see its name anywhere else."""
+    if not count:
+        return None
+    return f"{count} insight{'' if count == 1 else 's'}{qualifier}"
+
+
+def _describe_denied(tables: Sequence[str], insights: str | None) -> str:
+    parts = [insights] if insights else []
+    if tables:
+        parts.append(", ".join(f"`{name}`" for name in tables))
+    return " and ".join(parts)
 
 
 def dashboard_filter_leaves(filters: Any) -> list[dict[str, Any]]:
@@ -199,15 +241,8 @@ def _breakdown_as_hogql(breakdown_type: str, key: str) -> str | None:
     return ".".join("`" + "".join(backquote_escape_chars_map.get(c, c) for c in part) + "`" for part in chain)
 
 
-def _queries_exposed_by(config: SharingConfiguration) -> list[dict[str, Any]]:
-    queries: list[dict[str, Any]] = []
-    insight_ids = config.get_connected_insight_ids()
-    if insight_ids:
-        queries.extend(
-            q
-            for q in Insight.objects.filter(team_id=config.team_id, id__in=insight_ids).values_list("query", flat=True)
-            if isinstance(q, dict)
-        )
+def _queries_exposed_by(config: SharingConfiguration, connected_insights: Iterable[Insight]) -> list[dict[str, Any]]:
+    queries: list[dict[str, Any]] = [insight.query for insight in connected_insights if isinstance(insight.query, dict)]
     if config.notebook:
         queries.extend(query for _node_id, query in extract_inline_query_nodes(config.notebook.content))
     return queries
@@ -244,9 +279,10 @@ def is_publicly_shared(artifact: GatedDashboard | Notebook | Insight) -> bool:
     ).exists()
 
 
-def denied_resources_in_notebook_edit(user: User, notebook: Any, new_content: dict[str, Any] | None) -> list[str]:
-    """Only queries the edit adds or changes are checked,
-    so untouched content (and anything mid-typing that doesn't resolve) never gates."""
+def notebook_edit_access_error(user: User, notebook: Any, new_content: dict[str, Any] | None) -> str | None:
+    """The message that stops saving this edit to a publicly shared notebook, or None when the save
+    may go ahead. Only queries and insights the edit adds or changes are checked, so untouched
+    content (and anything mid-typing that doesn't resolve) never gates."""
     old_content = notebook.content or {}
     old_inline = dict(extract_inline_query_nodes(old_content))
     changed_queries = [
@@ -256,12 +292,17 @@ def denied_resources_in_notebook_edit(user: User, notebook: Any, new_content: di
     added_short_ids = set(extract_referenced_insight_short_ids(new_content or {})) - set(
         extract_referenced_insight_short_ids(old_content)
     )
-    if added_short_ids:
-        changed_queries.extend(
-            q
-            for q in Insight.objects.filter(
-                team_id=notebook.team_id, short_id__in=added_short_ids, deleted=False
-            ).values_list("query", flat=True)
-            if isinstance(q, dict)
-        )
-    return denied_query_resources(user, notebook.team, changed_queries)
+    added_insights = (
+        list(Insight.objects.filter(team_id=notebook.team_id, short_id__in=added_short_ids, deleted=False))
+        if added_short_ids
+        else []
+    )
+    changed_queries.extend(insight.query for insight in added_insights if isinstance(insight.query, dict))
+    denied_resources = denied_query_resources(user, notebook.team, changed_queries)
+    denied_insights = (
+        insights_denied_to(UserAccessControl(user=user, team=notebook.team), added_insights) if added_insights else []
+    )
+    if not denied_resources and not denied_insights:
+        return None
+    denied = _describe_denied(denied_resources, _count_insights(len(denied_insights), " you added"))
+    return f"Can't save: you don't have access to {denied}, and this notebook is publicly shared."

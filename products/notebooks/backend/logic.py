@@ -35,8 +35,8 @@ if TYPE_CHECKING:
 
 def _validate_shared_notebook_edit(user: "User", notebook: Notebook, content: dict[str, Any]) -> None:
     from posthog.api.sharing_publish_gate import (  # noqa: PLC0415 — keep query runners off the facade import path
-        denied_resources_in_notebook_edit,
         is_publicly_shared,
+        notebook_edit_access_error,
     )
 
     if not notebook.team.organization.is_feature_available(AvailableFeature.ACCESS_CONTROL):
@@ -45,12 +45,8 @@ def _validate_shared_notebook_edit(user: "User", notebook: Notebook, content: di
         return
     if not is_publicly_shared(notebook):
         return
-    denied_resources = denied_resources_in_notebook_edit(user, notebook, content)
-    if denied_resources:
-        denied_names = ", ".join(f"`{name}`" for name in denied_resources)
-        raise NotebookContentEditNotAllowed(
-            f"Can't save: you don't have access to {denied_names}, and this notebook is publicly shared."
-        )
+    if message := notebook_edit_access_error(user, notebook, content):
+        raise NotebookContentEditNotAllowed(message)
 
 
 def _base_queryset(team_id: int, *, include_deleted: bool = False) -> Any:
