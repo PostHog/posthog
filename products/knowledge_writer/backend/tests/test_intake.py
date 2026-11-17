@@ -1,5 +1,6 @@
 import os
 import json
+import asyncio
 import dataclasses
 from collections.abc import Callable
 
@@ -42,6 +43,7 @@ from products.knowledge_writer.backend.logic.records import (
 from products.knowledge_writer.backend.logic.routing import docs_section
 from products.knowledge_writer.backend.settings import writer_settings
 from products.knowledge_writer.backend.task_profiles import WRITER
+from products.knowledge_writer.backend.temporal import client as temporal_client
 from products.knowledge_writer.backend.temporal.merge_workflow import MergeCheckInputs, check_merge
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.models import Task, TaskRun
@@ -571,11 +573,46 @@ def test_a_finished_writer_run_opens_one_linked_docs_pull_request_and_a_same_sec
     assert stored["number"] == 9
 
 
+async def _temporal_that_hangs_on_connect():
+    await asyncio.sleep(10)
+
+
+def _temporal_whose_start(start_workflow: Callable):
+    async def connect():
+        return MagicMock(start_workflow=start_workflow)
+
+    return connect
+
+
+async def _start_that_hangs(*args, **kwargs):
+    await asyncio.sleep(10)
+
+
+async def _start_that_is_refused(*args, **kwargs):
+    raise RuntimeError("Temporal refused the start")
+
+
 @pytest.mark.django_db
-def test_a_finished_writer_run_that_cannot_start_its_publish_workflow_records_why_and_calls_no_github(
-    team, writer_env, django_capture_on_commit_callbacks, monkeypatch
+@pytest.mark.parametrize(
+    "temporal_connect, recorded_failure, keeps_section_busy",
+    [
+        (_temporal_whose_start(_start_that_is_refused), "publish_not_started", False),
+        (_temporal_that_hangs_on_connect, "publish_not_started", False),
+        (_temporal_whose_start(_start_that_hangs), None, True),
+    ],
+    ids=["start_refused", "connect_timed_out", "start_timed_out"],
+)
+def test_a_finished_writer_run_that_cannot_start_its_publish_workflow_calls_no_github_and_keeps_an_unconfirmed_claim(
+    team,
+    writer_env,
+    django_capture_on_commit_callbacks,
+    monkeypatch,
+    temporal_connect,
+    recorded_failure,
+    keeps_section_busy,
 ) -> None:
     monkeypatch.setattr(KNOWLEDGE_WRITER_ENABLED, lambda team_id: True)
+    monkeypatch.setattr(temporal_client, "START_TIMEOUT_SECONDS", 0.05)
     with (
         patch(FLAG_CHECK, return_value=True),
         patch(LIST_PULL_REQUESTS, side_effect=_open_on_github()),
@@ -584,16 +621,22 @@ def test_a_finished_writer_run_that_cannot_start_its_publish_workflow_records_wh
         started = intake.submit(_verdict(suggested_page_urls=(SECTION_PAGE,)), team_id=team.id)
     assert started.task_id is not None
     with (
-        patch(START_PUBLISH, side_effect=TimeoutError("Temporal unreachable")),
+        patch.object(temporal_client, "async_connect", temporal_connect),
+        patch(START_HELD_REQUESTS) as start_held_requests_workflow,
         patch(LIST_PULL_REQUESTS) as github_request,
         patch(CREATE_PULL_REQUEST) as create_pull_request,
     ):
         _finish_run(started.task_id, django_capture_on_commit_callbacks)
+    writer = writer_settings()
+    assert writer is not None
 
     github_request.assert_not_called()
     create_pull_request.assert_not_called()
-    failure = tasks_facade.read_task_state_entry(started.task_id, team.id, PULL_REQUEST_FAILURE_STATE_KEY)
-    assert failure == "publish_not_started"
+    assert (
+        tasks_facade.read_task_state_entry(started.task_id, team.id, PULL_REQUEST_FAILURE_STATE_KEY) == recorded_failure
+    )
+    assert bool(caps.in_flight_writer_runs(writer).busy_task_id_by_section) is keeps_section_busy
+    assert start_held_requests_workflow.called is not keeps_section_busy
 
 
 @pytest.mark.django_db
@@ -705,6 +748,35 @@ def test_a_failed_writer_run_saves_without_draining_and_hands_held_requests_to_a
 
     assert [request.dedupe_id for request in intake.held_requests(started.task_id, team.id)] == [held.request.dedupe_id]
     start_held_requests_workflow.assert_called_once_with(run.id)
+
+
+@pytest.mark.django_db
+def test_a_request_held_on_its_own_failed_task_reruns_it_and_keeps_the_requests_behind_it(
+    team, writer_env, django_capture_on_commit_callbacks, monkeypatch
+) -> None:
+    monkeypatch.setattr(KNOWLEDGE_WRITER_ENABLED, lambda team_id: True)
+    own = _verdict(suggested_page_urls=(SECTION_PAGE,))
+    behind = _verdict(456, suggested_page_urls=(SECTION_PAGE,))
+    assert own.request is not None and behind.request is not None
+    with (
+        patch(FLAG_CHECK, return_value=True),
+        patch(LIST_PULL_REQUESTS, side_effect=_open_on_github()),
+        patch(START_WORKFLOW),
+    ):
+        started = intake.submit(own, team_id=team.id)
+        assert started.task_id is not None
+        run = TaskRun.objects.get(task_id=started.task_id)
+        with patch(START_HELD_REQUESTS), django_capture_on_commit_callbacks(execute=True):
+            run.status = TaskRun.Status.FAILED
+            run.save(update_fields=["status"])
+        intake.hold_request(started.task_id, own.request, team.id)
+        intake.hold_request(started.task_id, behind.request, team.id)
+        intake.sweep_held_requests()
+
+    assert TaskRun.objects.filter(task_id=started.task_id).count() == 2
+    assert [request.dedupe_id for request in intake.held_requests(started.task_id, team.id)] == [
+        behind.request.dedupe_id
+    ]
 
 
 @pytest.mark.django_db

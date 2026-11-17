@@ -187,6 +187,8 @@ def remove_held_request(task_id: UUID, dedupe_id: str, team_id: int) -> None:
 
 
 def move_held_requests(from_task_id: UUID, to_task_id: UUID, team_id: int) -> None:
+    if from_task_id == to_task_id:
+        return
     for request in held_requests(from_task_id, team_id):
         hold_request(to_task_id, request, team_id)
         remove_held_request(from_task_id, request.dedupe_id, team_id)

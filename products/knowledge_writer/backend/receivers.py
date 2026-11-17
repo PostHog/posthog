@@ -59,6 +59,9 @@ def start_publish_or_record_failure(task_run_id: UUID, task_id: UUID, team_id: i
     pull_requests.claim_publication(task_id, team_id, task_run_id)
     try:
         temporal_client.start_publish(task_run_id, team_id=team_id)
+    except temporal_client.PublishStartUnconfirmed as error:
+        logger.warning("knowledge_writer_publish_start_unconfirmed", task_run_id=str(task_run_id), team_id=team_id)
+        capture_exception(error, {"team_id": team_id, "task_run_id": str(task_run_id)})
     except Exception as error:
         logger.warning(
             "knowledge_writer_publish_not_started",

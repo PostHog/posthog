@@ -33,25 +33,33 @@ def run_with_start_timeout(start: Coroutine[Any, Any, None]) -> None:
     asyncio.run(asyncio.wait_for(start, START_TIMEOUT_SECONDS))
 
 
+class PublishStartUnconfirmed(Exception):
+    pass
+
+
 def start_publish(task_run_id: UUID, *, team_id: int) -> None:
-    run_with_start_timeout(start_publish_workflow(task_run_id, team_id=team_id))
+    asyncio.run(start_publish_workflow(task_run_id, team_id=team_id))
 
 
 async def start_publish_workflow(task_run_id: UUID, *, team_id: int) -> None:
-    client = await async_connect()
+    async with asyncio.timeout(START_TIMEOUT_SECONDS) as connect_deadline:
+        client = await async_connect()
     log_context = {"task_run_id": str(task_run_id), "team_id": team_id}
     try:
-        await client.start_workflow(
-            PublishWorkflow.run,
-            PublishInputs(task_run_id=str(task_run_id), team_id=team_id),
-            id=publish_workflow_id(task_run_id),
-            task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
-            id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
-            id_conflict_policy=WorkflowIDConflictPolicy.USE_EXISTING,
-        )
+        async with asyncio.timeout_at(connect_deadline.when()):
+            await client.start_workflow(
+                PublishWorkflow.run,
+                PublishInputs(task_run_id=str(task_run_id), team_id=team_id),
+                id=publish_workflow_id(task_run_id),
+                task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
+                id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
+                id_conflict_policy=WorkflowIDConflictPolicy.USE_EXISTING,
+            )
     except WorkflowAlreadyStartedError:
         logger.info("knowledge_writer_publish_already_ran", **log_context)
         return
+    except TimeoutError as error:
+        raise PublishStartUnconfirmed(str(task_run_id)) from error
     logger.info("knowledge_writer_publish_requested", **log_context)
 
 
