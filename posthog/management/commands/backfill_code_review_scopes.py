@@ -4,6 +4,7 @@ from collections.abc import Iterator
 from django.core.management.base import BaseCommand
 from django.db import connections
 
+from posthog.dataclasses import frozen
 from posthog.scopes.catalog import RENAMED_OAUTH_SCOPE_OBJECTS
 
 RENAMED_SCOPES: dict[str, str] = {
@@ -32,10 +33,19 @@ def _missing_text_scopes(column: str) -> str:
     ), '')"""
 
 
-def _array_column_update(column: str) -> tuple[str, str]:
+@frozen
+class ArrayColumnUpdate:
+    set_clause: str
+    needs_update: str
+
+
+def _array_column_update(column: str) -> ArrayColumnUpdate:
     missing = _missing_array_scopes(column)
     needs = f"cardinality({missing}) > 0"
-    return f"{column} = CASE WHEN {needs} THEN {column} || {missing} ELSE {column} END", needs
+    return ArrayColumnUpdate(
+        set_clause=f"{column} = CASE WHEN {needs} THEN {column} || {missing} ELSE {column} END",
+        needs_update=needs,
+    )
 
 
 class Command(BaseCommand):
@@ -71,13 +81,14 @@ class Command(BaseCommand):
     def backfill_applications(self) -> None:
         # No filter in the SELECT, so the planner cannot pick a scope index and sort every match per
         # batch. The UPDATE re-checks each row, so a concurrently changed row is skipped.
-        set_scopes, needs_scopes = _array_column_update("scopes")
-        set_optional, needs_optional = _array_column_update("optional_scopes")
+        scopes = _array_column_update("scopes")
+        optional = _array_column_update("optional_scopes")
+        needs = f"({scopes.needs_update} OR {optional.needs_update})"
         update_sql = f"""
-            UPDATE posthog_oauthapplication SET {set_scopes}, {set_optional}
-            WHERE id = ANY(%(ids)s) AND ({needs_scopes} OR {needs_optional})
+            UPDATE posthog_oauthapplication SET {scopes.set_clause}, {optional.set_clause}
+            WHERE id = ANY(%(ids)s) AND {needs}
         """
-        count_sql = f"SELECT count(*) FROM posthog_oauthapplication WHERE id = ANY(%(ids)s) AND ({needs_scopes} OR {needs_optional})"
+        count_sql = f"SELECT count(*) FROM posthog_oauthapplication WHERE id = ANY(%(ids)s) AND {needs}"
 
         totals = {"scanned": 0, "updated": 0}
         started = time.monotonic()
