@@ -3,7 +3,7 @@ import './Exporter.scss'
 
 import clsx from 'clsx'
 import { BindLogic, useValues } from 'kea'
-import { Suspense, useEffect, useSyncExternalStore } from 'react'
+import { CSSProperties, Suspense, useEffect, useSyncExternalStore } from 'react'
 
 import { DashboardLoadingState } from '@posthog/products-dashboards/frontend/components/DashboardLoadingState/DashboardLoadingState'
 
@@ -24,6 +24,18 @@ import { useThemedHtml } from '~/layout/useThemedHtml'
 import { isMetricInsightQuery } from '~/queries/utils'
 
 import { exporterViewLogic } from './exporterViewLogic'
+
+function sharedPageStyle(type: ExportType): CSSProperties | undefined {
+    if (type !== ExportType.Scene && type !== ExportType.Embed) {
+        return
+    }
+    const size = imageSizeFromParams(new URLSearchParams(window.location.search))
+    return {
+        width: size.width ?? undefined,
+        height: size.height ?? undefined,
+        ...(size.height != null ? { minHeight: 0, overflow: 'auto' } : {}),
+    }
+}
 
 const LazyDashboardScene = lazyWithRetry(() => import('./scenes/ExporterDashboardScene'))
 const LazyHeatmapScene = lazyWithRetry(() => import('./scenes/ExporterHeatmapScene'))
@@ -90,10 +102,6 @@ export function Exporter(props: ExportedData): JSX.Element {
         exportToken,
         ...exportOptions
     } = props
-    const linkSize =
-        type === ExportType.Scene || type === ExportType.Embed
-            ? imageSizeFromParams(new URLSearchParams(window.location.search))
-            : {}
     const { whitelabel, showInspector = false } = exportOptions
     const forcedTheme = useResolvedForcedTheme(exportOptions.theme)
 
@@ -146,12 +154,7 @@ export function Exporter(props: ExportedData): JSX.Element {
                     'Exporter--heatmap': type === ExportType.Heatmap,
                 })}
                 ref={elementRef}
-                style={{
-                    width: linkSize.width ?? undefined,
-                    height: linkSize.height ?? undefined,
-                    minHeight: linkSize.height != null ? 0 : undefined,
-                    overflow: linkSize.height != null ? 'auto' : undefined,
-                }}
+                style={sharedPageStyle(type)}
             >
                 {dashboard ? (
                     type === ExportType.Scene ? (

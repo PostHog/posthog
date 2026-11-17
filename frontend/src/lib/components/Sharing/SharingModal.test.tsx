@@ -151,6 +151,8 @@ describe('SharingModal (dashboard)', () => {
         expect(logic.values.embedCode).toContain('width="1200"')
         expect(logic.values.embedCode).toContain('height="630"')
         await userEvent.click(screen.getByText('Reset to automatic'))
+        expect(screen.getByLabelText(/Width/)).toHaveValue(null)
+        expect(screen.getByLabelText(/Height/)).toHaveValue(null)
         expect(logic.values.shareLink).not.toContain('width=')
         expect(logic.values.iframeProperties.width).toBe('100%')
     })

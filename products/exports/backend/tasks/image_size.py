@@ -15,6 +15,6 @@ def fit_image_to_size(path: str, width: int | None, height: int | None) -> None:
         if height is None:
             height = max(1, min(5000, round(image.height * width / image.width)))
         fitted = ImageOps.contain(image, (width, height), Image.Resampling.LANCZOS)
-        output = Image.new("RGBA", (width, height), image.convert("RGBA").getpixel((0, 0)))
+        output = Image.new("RGBA", (width, height), image.crop((0, 0, 1, 1)).convert("RGBA").getpixel((0, 0)))
         output.paste(fitted, ((width - fitted.width) // 2, (height - fitted.height) // 2))
         output.save(path, format="PNG")

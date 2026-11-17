@@ -32,7 +32,7 @@ export function ImageSize({
                                         <span>{dimension === 'width' ? 'Width' : 'Height'}</span>
                                         <LemonInput
                                             type="number"
-                                            value={value[dimension] ?? undefined}
+                                            value={value[dimension] ?? NaN}
                                             placeholder="Auto"
                                             min={dimension === 'width' ? 320 : 200}
                                             max={dimension === 'width' ? 4000 : 5000}

@@ -1,11 +1,13 @@
 import { MakeLogicType, actions, kea, listeners, path, reducers } from 'kea'
 import posthog from 'posthog-js'
 
+import { loadImageExportDialog } from 'lib/components/ImageSize/loadImageExportDialog'
 import { takeScreenshotLogic } from 'lib/components/TakeScreenshot/takeScreenshotLogic'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { ToastButton } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { captureElementAsPng, copyElementImageToClipboard } from 'lib/utils/copyImageToClipboard'
 import { downloadFile } from 'lib/utils/dom'
+import { retryImport } from 'lib/utils/retryImport'
 import { slugify } from 'lib/utils/strings'
 
 import type { ImageSizeApi } from 'products/subscriptions/frontend/generated/api.schemas'
@@ -127,8 +129,7 @@ export const captureImageLogic = kea<captureImageLogicType>([
 
         downloadImage: async ({ target, size }) => {
             if (size === undefined) {
-                const { openImageExportDialog } = await import('lib/components/ImageSize/openImageExportDialog')
-                openImageExportDialog((imageSize) => actions.downloadImage(target, imageSize))
+                await loadImageExportDialog((imageSize) => actions.downloadImage(target, imageSize))
                 return
             }
             const element = findTarget(target.selector)
@@ -139,7 +140,7 @@ export const captureImageLogic = kea<captureImageLogicType>([
             actions.setIsCapturing(true)
             try {
                 const captured = await captureElementAsPng(element, target.excludeSelector)
-                const { resizeImageBlob } = await import('lib/components/ImageSize/resizeImageBlob')
+                const { resizeImageBlob } = await retryImport(() => import('lib/components/ImageSize/resizeImageBlob'))
                 const blob = await resizeImageBlob(captured, size)
                 downloadFile(toFile(target, blob))
                 lemonToast.success('Image downloaded', { button: editImageButton(target, blob) })

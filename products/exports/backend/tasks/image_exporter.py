@@ -457,6 +457,7 @@ def _export_to_png(
                 page_load_timeout,
                 read_site_style,
                 fixed_width=image_size.get("width"),
+                device_scale_factor=1 if any(image_size.values()) else 2,
             )
             fit_image_to_size(image_path, image_size.get("width"), image_size.get("height"))
         except Exception as e:
@@ -580,6 +581,7 @@ def _screenshot_asset_browserless(
     page_load_timeout: int = 40,
     read_site_style: bool = False,
     fixed_width: int | None = None,
+    device_scale_factor: int = 2,
 ) -> Optional[dict]:
     endpoint = _build_cdp_endpoint(
         settings.BROWSERLESS_CDP_URL, settings.BROWSERLESS_TOKEN, settings.BROWSERLESS_SESSION_TIMEOUT_MS
@@ -600,7 +602,7 @@ def _screenshot_asset_browserless(
         page = None
         try:
             context = browser.new_context(
-                device_scale_factor=2,
+                device_scale_factor=device_scale_factor,
                 viewport={"width": screenshot_width, "height": screenshot_height},
             )
             page = context.new_page()
