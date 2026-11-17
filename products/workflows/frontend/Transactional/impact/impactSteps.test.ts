@@ -109,11 +109,15 @@ describe('impactSteps', () => {
             { ...impact, without_click: { sends: 72, converted: 1 } },
             'Counted over 16 of 20 clicked sends:',
         ],
-        ['both groups fall short', impact, 'Counted over 16 of 20 clicked sends and 50 of 72 sends nobody clicked:'],
+        [
+            'both groups fall short',
+            impact,
+            'Counted over 16 of 20 clicked sends and 50 of 72 sends with no recorded click:',
+        ],
         [
             'every send went out untracked and some unclicked sends fall short',
             { ...untracked, without_click: { sends: 50, converted: 1 } },
-            'Counted over 50 of 90 sends nobody clicked:',
+            'Counted over 50 of 90 sends with no recorded click:',
         ],
     ])('names the sends the lift counts when %s', (_, data, start) => {
         const note = followedSendsNote(data)

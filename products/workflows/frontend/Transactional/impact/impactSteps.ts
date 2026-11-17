@@ -117,7 +117,7 @@ export function followedSendsNote(impact: TransactionalEmailImpactApi): string |
     }
     if (impact.without_click && impact.without_click.sends < impact.not_clicked) {
         parts.push(
-            `${humanFriendlyNumber(impact.without_click.sends)} of ${humanFriendlyNumber(impact.not_clicked)} sends nobody clicked`
+            `${humanFriendlyNumber(impact.without_click.sends)} of ${humanFriendlyNumber(impact.not_clicked)} sends with no recorded click`
         )
     }
     return parts.length > 0
