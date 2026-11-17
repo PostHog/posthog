@@ -90,6 +90,7 @@ class TestIssueTagRuleAPI(APIBaseTest):
             ("not_a_filter_group", {"not": "valid"}),
             ("no_filters", {"type": "AND", "values": [{"type": "AND", "values": []}]}),
             ("empty_property_key", _event_filter("", "4", operator="icontains")),
+            ("empty_filter_beside_an_event_filter", {"type": "OR", "values": [{}, ENTERPRISE_PLAN]}),
         ]
     )
     def test_create_and_edit_reject_filters_a_rule_cannot_run(self, _name: str, filters: dict[str, Any]) -> None:

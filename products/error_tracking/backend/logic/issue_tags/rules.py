@@ -204,9 +204,9 @@ def _normalized_group(group: PropertyGroupFilterValue) -> dict:
         if isinstance(value, PropertyGroupFilterValue):
             values.append(_normalized_group(value))
         elif isinstance(value, EmptyPropertyFilter):
-            # An empty filter matches every event, so dropping it keeps the result. The access check would count
-            # it as a restricted property.
-            continue
+            # An empty filter compiles to true, which turns an OR group into match-all and reads no property the
+            # access check can see.
+            raise IssueTagRuleFiltersError("Each tag rule filter needs a property name.")
         elif not isinstance(value, EventPropertyFilter):
             # A rule reads only the properties of the issue's first event, so a person, cohort or HogQL filter can
             # never match.
