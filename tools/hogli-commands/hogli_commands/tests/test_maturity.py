@@ -35,9 +35,9 @@ LEDGER = (
 )
 
 
-def _write_turbo(product_dir: Path, tasks: dict) -> None:
+def _write_product_yaml(product_dir: Path, extra: str) -> None:
     product_dir.mkdir(parents=True)
-    (product_dir / "turbo.json").write_text(json.dumps({"extends": ["//"], "tasks": tasks}))
+    (product_dir / "product.yaml").write_text(f"name: Harbor\nowners:\n  - team-harbor\n{extra}")
 
 
 def _fake_query(monkeypatch: pytest.MonkeyPatch, returncode: int, stdout: str, stderr: str) -> None:
@@ -49,21 +49,22 @@ def _fake_query(monkeypatch: pytest.MonkeyPatch, returncode: int, stdout: str, s
 
 class TestClaimsIsolated:
     @pytest.mark.parametrize(
-        "tasks, expected",
+        "extra, expected",
         [
-            ({"backend:contract-check": {"inputs": ["backend/facade/**"], "outputs": []}}, True),
-            ({"backend:contract-check": {"outputs": []}}, False),
-            ({"backend:test": {"dependsOn": ["backend:contract-check"]}}, False),
+            ("isolated: true\n", True),
+            ("isolated: false\n", False),
+            ("isolated: 'true'\n", False),
+            ("", False),
             (None, False),
         ],
-        ids=["narrowed_inputs", "task_without_inputs", "task_named_only_in_another_task", "no_turbo_json"],
+        ids=["claims", "says_false", "string_is_no_claim", "no_key", "no_product_yaml"],
     )
-    def test_claims_only_a_narrowed_contract_check(self, tmp_path: Path, tasks: dict | None, expected: bool) -> None:
+    def test_claims_only_isolated_true(self, tmp_path: Path, extra: str | None, expected: bool) -> None:
         product_dir = tmp_path / "harbor"
-        if tasks is None:
+        if extra is None:
             product_dir.mkdir()
         else:
-            _write_turbo(product_dir, tasks)
+            _write_product_yaml(product_dir, extra)
 
         assert claims_isolated(product_dir) is expected
 
@@ -85,9 +86,8 @@ class TestIsolatedLevel:
     ) -> None:
         if write_ledger:
             (tmp_path / "hoglint.ledger").write_text(LEDGER)
-        tasks = {"backend:contract-check": {"inputs": ["backend/facade/**"]}} if claims else {}
         product_dir = tmp_path / "products" / product
-        _write_turbo(product_dir, tasks)
+        _write_product_yaml(product_dir, "isolated: true\n" if claims else "")
 
         level = IsolatedLevel.of(product, product_dir, IsolatedPasses.read(tmp_path))
 
