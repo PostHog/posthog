@@ -19,6 +19,7 @@ from rest_framework import status
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.constants import SUBSCRIPTION_AI_PROMPT_FEATURE_FLAG_KEY, AvailableFeature
+from posthog.event_usage import EventSource
 from posthog.integrations import SOURCE_MARKER_CONFIG_KEY
 from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog
@@ -1235,7 +1236,7 @@ class TestSubscriptionTemporal(APILicensedTest):
                 owner=self.user,
                 viewer=UserAccessControl(user=self.user, team=self.team),
                 subscription_id=subscription.id,
-                analytics_props={"source": "backend"},
+                analytics_props={"source": EventSource.WEB},
             )
 
         assert changed
