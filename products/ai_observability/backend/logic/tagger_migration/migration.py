@@ -4,10 +4,14 @@ from functools import partial
 from types import SimpleNamespace
 from typing import Any
 
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import transaction
 
+from pydantic import ValidationError as PydanticValidationError
+from rest_framework.exceptions import ValidationError as DRFValidationError
+
 from posthog.dataclasses import frozen
-from posthog.models import Team, User
+from posthog.models import Team
 from posthog.plugins.plugin_server_api import reload_taggers_on_workers
 
 from products.ai_observability.backend.api.evaluations import EvaluationSerializer
@@ -67,8 +71,8 @@ def _pending_taggers(team: Team) -> list[Tagger]:
 
 
 def _model_configuration(tagger: Tagger, team: Team) -> dict[str, Any] | None:
-    """The tagger's model, or for a tagger without one the default model of the team's active key, which is what the
-    tagger runtime resolves to."""
+    """The tagger's model, or for a tagger without one the default model of the team's active key. Without a pinned
+    key the evaluation keeps following the active key, as the tagger did."""
     config = tagger.model_configuration
     if config is not None:
         return {
@@ -81,7 +85,7 @@ def _model_configuration(tagger: Tagger, team: Team) -> dict[str, Any] | None:
     model = DEFAULT_MODEL_BY_PROVIDER.get(key.provider) if key else None
     if key is None or model is None:
         return None
-    return {"provider": key.provider, "model": model, "provider_key_id": str(key.id)}
+    return {"provider": key.provider, "model": model, "provider_key_id": None}
 
 
 def _error_text(detail: Any) -> str:
@@ -92,7 +96,7 @@ def _error_text(detail: Any) -> str:
     return str(detail)
 
 
-def _plan(tagger: Tagger, team: Team, recent_tags: int, acting_user: User | None) -> _Planned:
+def _plan(tagger: Tagger, team: Team, recent_tags: int) -> _Planned:
     def step(action: MigrationAction, reason: str, keys: tuple[str, ...] = ()) -> TaggerMigrationStep:
         return TaggerMigrationStep(
             tagger_id=str(tagger.id),
@@ -112,20 +116,23 @@ def _plan(tagger: Tagger, team: Team, recent_tags: int, acting_user: User | None
         )
 
     model_configuration: dict[str, Any] | None = None
-    if tagger.tagger_type == TaggerType.HOG:
-        hog_config = HogTaggerConfig.model_validate(tagger.tagger_config)
-        if not hog_config.tags:
-            return _Planned(
-                step=step(MigrationAction.SKIP, "Hog tagger without a tag list. It needs one to become categories.")
-            )
-        payload = hog_payload(hog_config)
-    else:
-        payload = llm_judge_payload(LLMTaggerConfig.model_validate(tagger.tagger_config))
-        model_configuration = _model_configuration(tagger, team)
-        if model_configuration is None:
-            return _Planned(
-                step=step(MigrationAction.SKIP, "No model on the tagger and no active provider key to pick one.")
-            )
+    try:
+        if tagger.tagger_type == TaggerType.HOG:
+            hog_config = HogTaggerConfig.model_validate(tagger.tagger_config)
+            if not hog_config.tags:
+                return _Planned(
+                    step=step(MigrationAction.SKIP, "Hog tagger without a tag list. It needs one to become categories.")
+                )
+            payload = hog_payload(hog_config)
+        else:
+            payload = llm_judge_payload(LLMTaggerConfig.model_validate(tagger.tagger_config))
+            model_configuration = _model_configuration(tagger, team)
+            if model_configuration is None:
+                return _Planned(
+                    step=step(MigrationAction.SKIP, "No model on the tagger and no active provider key to pick one.")
+                )
+    except PydanticValidationError as error:
+        return _Planned(step=step(MigrationAction.SKIP, f"Its saved config is no longer valid: {error}"))
 
     serializer = EvaluationSerializer(
         data={
@@ -137,8 +144,8 @@ def _plan(tagger: Tagger, team: Team, recent_tags: int, acting_user: User | None
             "model_configuration": model_configuration,
             **payload,
         },
-        # The evaluation belongs to whoever made the tagger, not to the staff member who migrates it.
-        context={"request": SimpleNamespace(user=tagger.created_by or acting_user), "get_team": lambda: team},
+        # The evaluation belongs to whoever made the tagger, never to the staff member who migrates it.
+        context={"request": SimpleNamespace(user=tagger.created_by), "get_team": lambda: team},
     )
     keys = tuple(option["key"] for option in payload["output_config"]["options"])
     if not serializer.is_valid():
@@ -150,40 +157,49 @@ def _plan(tagger: Tagger, team: Team, recent_tags: int, acting_user: User | None
     return _Planned(step=step(MigrationAction.MIGRATE, f"{kind}, {choice}{na}.", keys), serializer=serializer)
 
 
-def _plan_team(team: Team, acting_user: User | None) -> list[_Planned]:
+def _plan_team(team: Team) -> list[_Planned]:
     taggers = _pending_taggers(team)
     counts = load_recent_tag_counts(team, [str(tagger.id) for tagger in taggers])
-    return [_plan(tagger, team, counts.get(str(tagger.id), 0), acting_user) for tagger in taggers]
+    return [_plan(tagger, team, counts.get(str(tagger.id), 0)) for tagger in taggers]
 
 
 def plan_tagger_migration(team: Team) -> list[TaggerMigrationStep]:
     """What `migrate_taggers` would do to each switched-on tagger of the team. Writes nothing."""
-    return [planned.step for planned in _plan_team(team, acting_user=None)]
+    return [planned.step for planned in _plan_team(team)]
 
 
-def migrate_taggers(team: Team, *, acting_user: User) -> list[TaggerMigrationStep]:
+def migrate_taggers(team: Team) -> list[TaggerMigrationStep]:
     """Replaces each switched-on tagger with an enabled categorical evaluation and switches the tagger off, or only
     switches it off when it sent no tags recently. Each tagger moves in its own transaction, so one refusal does not
     undo the others, and a second run skips taggers that already moved."""
     results: list[TaggerMigrationStep] = []
-    for planned in _plan_team(team, acting_user):
+    for planned in _plan_team(team):
         step = planned.step
         if step.action == MigrationAction.SKIP:
             results.append(step)
             continue
-        with transaction.atomic():
-            # The row lock makes two concurrent runs create one evaluation, not two.
-            still_pending = Tagger.objects.select_for_update().filter(
-                team=team, pk=step.tagger_id, enabled=True, deleted=False, migrated_to_evaluation_id__isnull=True
+        evaluation_id: str | None = None
+        try:
+            with transaction.atomic():
+                # The row lock makes two concurrent runs create one evaluation, not two.
+                still_pending = Tagger.objects.select_for_update().filter(
+                    team=team, pk=step.tagger_id, enabled=True, deleted=False, migrated_to_evaluation_id__isnull=True
+                )
+                if not still_pending.exists():
+                    continue
+                if planned.serializer is not None:
+                    evaluation_id = str(planned.serializer.save().id)
+                # A queryset update skips Tagger.save(), which would re-validate and recompile a config that is
+                # about to stop running. So the reload the save signal sends goes out here.
+                still_pending.update(enabled=False, migrated_to_evaluation_id=evaluation_id)
+                transaction.on_commit(partial(reload_taggers_on_workers, team_id=team.pk, tagger_ids=[step.tagger_id]))
+        except (DjangoValidationError, DRFValidationError) as error:
+            detail = error.detail if isinstance(error, DRFValidationError) else error.messages
+            results.append(
+                replace(
+                    step, action=MigrationAction.SKIP, reason=f"Saving the evaluation failed: {_error_text(detail)}"
+                )
             )
-            if not still_pending.exists():
-                continue
-            evaluation_id: str | None = None
-            if planned.serializer is not None:
-                evaluation_id = str(planned.serializer.save().id)
-            # A queryset update skips Tagger.save(), which would re-validate and recompile a config that is about to
-            # stop running. So the reload the save signal sends goes out here.
-            still_pending.update(enabled=False, migrated_to_evaluation_id=evaluation_id)
-            transaction.on_commit(partial(reload_taggers_on_workers, team_id=team.pk, tagger_ids=[step.tagger_id]))
+            continue
         results.append(replace(step, evaluation_id=evaluation_id))
     return results

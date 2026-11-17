@@ -97,7 +97,8 @@ def hog_source(config: HogTaggerConfig) -> str:
         for name, key in zip(names, option_keys(names), strict=True)
     )
     return HOG_WRAPPER.format(
-        tags="[" + ", ".join(escape_hogql_string(name) for name in names) + "]",
+        # The tagger runtime passed the tag names sorted, and code may index into the list.
+        tags="[" + ", ".join(escape_hogql_string(name) for name in sorted(names)) + "]",
         source=config.source,
         tag_keys="{" + tag_keys + "}",
     )

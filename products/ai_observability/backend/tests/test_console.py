@@ -179,6 +179,8 @@ class TestTaggersPanel(BaseTest):
             tagger_type="hog",
             tagger_config={"source": "return length(output) > 10 ? ['Long'] : []", "tags": [{"name": "Long"}]},
         )
+        self.legacy = Tagger.objects.create(team=self.team, name="Legacy", enabled=True, tagger_config=llm_config)
+        Tagger.objects.filter(pk=self.legacy.pk).update(tagger_config={**llm_config, "prompt": ""})
         self.url = f"/admin/console/teams/{self.team.pk}/ai-observability-taggers/migrate-taggers/"
 
     @patch("products.ai_observability.backend.logic.tagger_migration.migration.reload_taggers_on_workers")
@@ -186,19 +188,25 @@ class TestTaggersPanel(BaseTest):
     def test_migrating_moves_active_taggers_to_evaluations_and_switches_off_silent_ones(
         self, load_counts: MagicMock, reload_taggers: MagicMock
     ) -> None:
-        load_counts.return_value = {str(self.active.id): 120, str(self.untagged_hog.id): 40, str(self.hog.id): 7}
+        load_counts.return_value = {
+            str(self.active.id): 120,
+            str(self.untagged_hog.id): 40,
+            str(self.hog.id): 7,
+            str(self.legacy.id): 3,
+        }
 
         preview = self.client.post(self.url, {"reason": "Taggers are deprecated"})
         assert preview.status_code == 200
         assert Evaluation.objects.filter(team=self.team).count() == 0
         with self.captureOnCommitCallbacks(execute=True):
             response = self.client.post(self.url, {"confirm_token": preview.context["confirm_token"]})
-            second_run = migrate_taggers(self.team, acting_user=self.user)
+            second_run = migrate_taggers(self.team)
 
         assert response.status_code == 302
         evaluation = Evaluation.objects.get(team=self.team, evaluation_type="llm_judge")
         hog_evaluation = Evaluation.objects.get(team=self.team, evaluation_type="hog")
         assert hog_evaluation.enabled
+        assert hog_evaluation.created_by is None
         assert hog_evaluation.output_config["options"] == [{"key": "long", "label": "Long"}]
         assert hog_evaluation.evaluation_config["bytecode"]
         assert (evaluation.name, evaluation.enabled, evaluation.output_type, evaluation.created_by) == (
@@ -221,8 +229,9 @@ class TestTaggersPanel(BaseTest):
             "Sentiment": (False, None),
             "Free-form Hog": (True, None),
             "Long answers": (False, hog_evaluation.id),
+            "Legacy": (True, None),
         }
         assert sorted(call.kwargs["tagger_ids"][0] for call in reload_taggers.call_args_list) == sorted(
             [str(self.active.id), str(self.silent.id), str(self.hog.id)]
         )
-        assert [step.action for step in second_run] == [MigrationAction.SKIP]
+        assert [step.action for step in second_run] == [MigrationAction.SKIP, MigrationAction.SKIP]

@@ -113,6 +113,7 @@ class TestTaggerEvaluationPayload(SimpleTestCase):
                 "let out := []\nfor (let tag in tags) { if (tag == 'Other') { out := arrayPushBack(out, tag) } }\nreturn out",
                 ["other"],
             ),
+            ("indexes_the_sorted_tags_like_the_tagger_runtime", "return [tags[1]]", ["billing_issue"]),
             ("own_function_and_quotes", "fun pick(x) { return x }\nreturn [pick('it\\'s \"new\"')]", ["it_s_new"]),
         ]
     )
@@ -120,7 +121,7 @@ class TestTaggerEvaluationPayload(SimpleTestCase):
         self, _name: str, source: str, expected: list[str]
     ) -> None:
         payload: dict[str, Any] = hog_payload(
-            HogTaggerConfig(source=source, tags=[{"name": "Billing issue"}, {"name": "Other"}, {"name": 'it\'s "new"'}])
+            HogTaggerConfig(source=source, tags=[{"name": "Other"}, {"name": "Billing issue"}, {"name": 'it\'s "new"'}])
         )
 
         result = run_hog_eval(

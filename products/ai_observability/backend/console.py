@@ -382,7 +382,7 @@ def preview_tagger_migration(request: HttpRequest, obj: Model, form: forms.Form)
 
 
 def run_tagger_migration(request: HttpRequest, obj: Model, form: forms.Form | None) -> Page:
-    steps = migrate_taggers(cast(Team, obj), acting_user=cast(User, request.user))
+    steps = migrate_taggers(cast(Team, obj))
     moved = sum(step.action == MigrationAction.MIGRATE for step in steps)
     switched_off = sum(step.action == MigrationAction.SWITCH_OFF for step in steps)
     skipped = len(steps) - moved - switched_off
