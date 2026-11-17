@@ -39,23 +39,23 @@ from products.feature_flags.backend.flag_windows.query import ConditionMatch, Wa
 
 @frozen
 class ScoreParameters:
-    # Level 1 compares only the people in the watched conditions that this source finds. None compares everyone with
-    # the flag.
+    """`condition_match` picks the people that level 1 compares: only those in the watched conditions that this source
+    finds, or everyone with the flag when None. An hour is an error rise when its excess over the baseline is at least
+    `rise_z` standard deviations, and level 5 has full strength at `full_strength_z`. Level 4 counts a rise in exposure
+    share from one hour to the next as a step from `min_share_step`. The proximity falls to 1/e when the error rise is
+    `decay` away from the exposure rise. Below `min_exposed` and `min_with_errors`, variation is noise. A group flag
+    counts groups, so one large customer can't meet them alone."""
+
     condition_match: ConditionMatch | None
     alpha: float
     weight_level_2: float
     weight_level_4: float
     weight_level_5: float
-    # An hour is an error rise when its excess over the baseline is at least this many standard deviations.
     rise_z: float
-    # Level 5 has full strength at this many standard deviations.
     full_strength_z: float
-    # The smallest rise in exposure share from one hour to the next that level 4 counts as a step.
     min_share_step: float
-    # The proximity falls to 1/e when the error rise is this far from the exposure rise.
     decay: timedelta
     threshold: float
-    # Below these counts, variation is noise. A group flag counts groups, so one large customer can't meet them alone.
     min_exposed: int
     min_with_errors: int
 
@@ -79,15 +79,14 @@ WEB_PARAMETERS = ScoreParameters(
 
 @frozen
 class WindowScore:
-    # None when the test can't run: too few people in a group, or only one outcome in each.
+    """Levels 2, 4 and 5 and the proximity are in [0, 1]. Level 1 is None when the test can't run: too few people in a
+    group, or only one outcome in each. Level 2 is None without the counts by last value, when nobody is exposed, or
+    when everyone with the flag is. Level 4 is None with fewer than two exposure steps."""
+
     level_1: ProportionTestResult | None
-    # In [0, 1]. None without the counts by last value, when nobody is exposed, or when everyone with the flag is.
     level_2: float | None
-    # In [0, 1]. None with fewer than two exposure steps.
     level_4: float | None
-    # In [0, 1].
     level_5: float
-    # In [0, 1].
     proximity: float
     score: float
     suspicious: bool
@@ -101,7 +100,8 @@ class _Groups:
 
 @frozen
 class _Excess:
-    # The error rate of the hour minus the mean rate of the same hour in earlier weeks.
+    """`rate` is the error rate of the hour minus the mean rate of the same hour in earlier weeks."""
+
     rate: float
     z: float
 
@@ -154,7 +154,6 @@ def score_window(
         and with_errors is not None
         and _enough(exposed.exposed, with_errors.with_errors, parameters)
     )
-    # Level 1 can compare only the people in the watched conditions, so the minimum volume applies to them.
     confirmed = (
         level_1_groups is not None
         and _enough(
@@ -197,9 +196,8 @@ def _groups(
         return None
     exposed_with_errors = errors.exposed_with_errors if errors else 0
     unexposed_with_errors = errors.unexposed_with_errors if errors else 0
-    # A person whose value changed counts only as exposed, but their errors before the change count as unexposed. So
-    # the unexposed group can show more people with errors than people, and its rate runs high, which hides a
-    # difference rather than inventing one.
+    # A person whose value changed counts only as exposed, but their earlier errors count as unexposed. The unexposed
+    # rate runs high, which hides a difference rather than inventing one.
     return _Groups(
         exposed=Proportion(trials=exposed, successes=min(exposed_with_errors, exposed)),
         unexposed=Proportion(trials=unexposed, successes=min(unexposed_with_errors, unexposed)),
