@@ -92,10 +92,13 @@ export function ReleaseSidebar(): JSX.Element {
         },
     ].filter((item) => matches(item.label))
 
-    const pinned = shortcutData.filter((entry) => RELEASE_TYPES.includes(entry.type ?? '') && matches(entryName(entry)))
+    const pinned = shortcutData.filter(
+        (entry) => !!entry.ref && RELEASE_TYPES.includes(entry.type ?? '') && matches(entryName(entry))
+    )
     const recent = newestByName(
         recents.filter(
             (entry) =>
+                !!entry.ref &&
                 RELEASE_TYPES.includes(entry.type ?? '') &&
                 matches(entryName(entry)) &&
                 !pinnedShortcutIds.has(`${entry.type}:${entry.ref}`)
