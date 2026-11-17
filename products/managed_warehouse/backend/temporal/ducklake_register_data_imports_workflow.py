@@ -35,11 +35,10 @@ from posthog.temporal.common.metrics import ExecutionTimeRecorder
 
 from products.data_warehouse.backend.facade.api import get_s3_client
 from products.managed_warehouse.backend.backfill_trino import (
-    data_imports_through_hoglake,
+    data_imports_register_in_hoglake,
     data_imports_through_trino,
     data_imports_trino_flag,
     hoglake_schema,
-    trino_backend_for,
 )
 from products.managed_warehouse.backend.client import make_duckgres_conninfo
 from products.managed_warehouse.backend.common import (
@@ -392,15 +391,8 @@ async def _trino_target_ready(team_id: int, organization_id: str, logger: typing
 
 
 def _registers_in_hoglake(organization_id: str) -> bool:
-    """Whether the organization's data imports register in its hoglake catalog.
-
-    Only an organization with the hoglake flag asks the control plane for its backend, so every other organization
-    keeps its path without an extra request.
-    """
-    if not data_imports_through_hoglake(organization_id):
-        return False
     try:
-        return trino_backend_for(organization_id, use_cache=True) == "hoglake"
+        return data_imports_register_in_hoglake(organization_id)
     except CPUnavailableError as error:
         raise ApplicationError(str(error), non_retryable=False) from error
 
