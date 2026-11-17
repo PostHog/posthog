@@ -3,6 +3,7 @@ import { useActions, useValues } from 'kea'
 import { LemonButton, Spinner } from '@posthog/lemon-ui'
 
 import { TraceDrawerHost } from '../../redesign/trace/TraceDrawerHost'
+import { EvaluationNoticeCard } from './EvaluationNoticeCard'
 import { EvaluationSuggestionCard } from './EvaluationSuggestionCard'
 import { SUGGESTION_EXAMPLES_LIST, evaluationSuggestionsLogic } from './evaluationSuggestionsLogic'
 import { JudgeSuggestionConfirmModal } from './JudgeSuggestionConfirmModal'
@@ -43,9 +44,13 @@ export function EvaluationSuggestions(): JSX.Element | null {
         <section className="@container/suggestions flex flex-col gap-2" data-attr="eval-suggestions">
             <h3 className="m-0 text-base font-semibold">Suggested evals</h3>
             <div className="grid grid-cols-1 gap-2 @min-[40rem]/suggestions:grid-cols-2 @min-[64rem]/suggestions:grid-cols-3">
-                {suggestionList.results.map((suggestion) => (
-                    <EvaluationSuggestionCard key={suggestion.id} suggestion={suggestion} />
-                ))}
+                {suggestionList.results.map((suggestion) =>
+                    suggestion.kind === 'fix_eval' ? (
+                        <EvaluationNoticeCard key={suggestion.id} suggestion={suggestion} />
+                    ) : (
+                        <EvaluationSuggestionCard key={suggestion.id} suggestion={suggestion} />
+                    )
+                )}
             </div>
             <JudgeSuggestionConfirmModal />
             <TraceDrawerHost listId={SUGGESTION_EXAMPLES_LIST} />

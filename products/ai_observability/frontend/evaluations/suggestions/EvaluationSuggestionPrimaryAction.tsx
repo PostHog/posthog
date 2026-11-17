@@ -1,5 +1,3 @@
-import { combineUrl } from 'kea-router'
-
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { urls } from 'scenes/urls'
@@ -30,28 +28,6 @@ export function EvaluationSuggestionPrimaryAction({
                 Open prompt
             </LemonButton>
         ) : null
-    }
-    if (suggestion.kind === 'fix_eval') {
-        if (!suggestion.target_evaluation) {
-            return null
-        }
-        const hasPatch = Object.keys(suggestion.draft).length > 0
-        // The evaluation page shows the proposed change, and the suggestion closes once it is saved there.
-        return (
-            <LemonButton
-                type="primary"
-                size="small"
-                to={
-                    combineUrl(urls.aiObservabilityEvaluation(suggestion.target_evaluation), {
-                        evaluation_tab: 'configuration',
-                        suggestion: suggestion.id,
-                    }).url
-                }
-                data-attr={hasPatch ? 'eval-suggestion-review-fix' : 'eval-suggestion-open-eval'}
-            >
-                {hasPatch ? 'Review fix' : 'Open eval'}
-            </LemonButton>
-        )
     }
     return (
         <LemonButton

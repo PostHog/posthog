@@ -52,6 +52,8 @@ const FIX: EvalSuggestionApi = {
     headline: 'Your "Scout findings are grounded" eval stopped running',
     outcome: 'Its filter looks for ai_product = signals, which your traffic stopped sending.',
     reason: '',
+    observation: '',
+    observation_scope: '',
     draft: { conditions: conditions('signals_scout') },
     filters: [],
     rollout_percentage: 100,
