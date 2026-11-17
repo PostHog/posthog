@@ -23,6 +23,7 @@ from django.db import transaction
 from posthog.dataclasses import frozen
 
 from products.alerts.backend.facade.destinations import (
+    choose_delivery_path,
     classify_alert_destinations,
     configured_destination_template_ids,
     customized_alert_destination_ids,
@@ -42,8 +43,10 @@ from products.alerts_platform.backend.facade.contracts import (
     AlertDestinationData,
     AlertDestinationGroup,
     AlertDestinationValidationError,
+    DestinationType,
+    SourceKind,
 )
-from products.alerts_platform.backend.facade.enums import PlatformAlertOwner, PlatformAlertState
+from products.alerts_platform.backend.facade.enums import DeliveryPath, PlatformAlertOwner, PlatformAlertState
 from products.logs.backend.alert_destinations import EVENT_KIND_CONFIG, LOGS_ALERT_EVENT_IDS, EventKind, row_event_kinds
 from products.logs.backend.models import LogsAlertConfiguration
 
@@ -110,7 +113,21 @@ def _convert_alert(alert_id: UUID, *, apply: bool) -> list[GroupConversion]:
                     for group, _ in candidates
                 ]
             groups = [group for group, _ in candidates]
-            return [_convert_group(alert, group, facts, groups) for group, facts in candidates]
+            # On the HogFunction path the stock webhook template sends the legacy body, which a row on a
+            # team the webhook body flags moved to Alertmanager would not. Read before any group moves.
+            sends_legacy_body = (
+                choose_delivery_path(
+                    source=SourceKind.LOGS,
+                    team_id=alert.team_id,
+                    alert_id=str(alert.id),
+                    allowed_event_ids=LOGS_ALERT_EVENT_IDS,
+                )
+                == DeliveryPath.HOG_FUNCTION
+            )
+            return [
+                _convert_group(alert, group, facts, groups, sends_legacy_body=sends_legacy_body)
+                for group, facts in candidates
+            ]
         finally:
             # After the last query, because a block marked for rollback refuses queries.
             if not apply:
@@ -183,6 +200,8 @@ def _convert_group(
     group: AlertDestinationGroup,
     facts: _GroupFacts,
     groups: Sequence[AlertDestinationGroup],
+    *,
+    sends_legacy_body: bool,
 ) -> GroupConversion:
     def result(outcome: GroupOutcome, detail: str = "") -> GroupConversion:
         return GroupConversion(
@@ -212,6 +231,7 @@ def _convert_group(
                 # Every group, so a second group that sends to the same place keeps both on HogFunctions.
                 hog_function_groups=groups,
                 enabled=facts.enabled_count > 0,
+                keeps_legacy_webhook_body=sends_legacy_body and facts.data["type"] == DestinationType.WEBHOOK,
             )
             if recorded is None:
                 raise _NoSourceDestinations

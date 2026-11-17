@@ -110,6 +110,8 @@ tools:
             recent` for the newest flagged bucket first. Pass `search` to keep only insights whose name contains the
             text. When `has_more` is true, read the next page with `offset` set to `offset + limit`. A 404 means anomaly
             search is not available for this project.
+        exclude_params:
+            - include_points
         feature_flag: anomalies-search
     inbox-my-settings-get:
         operation: users_signal_autonomy_retrieve
@@ -961,6 +963,21 @@ tools:
         description: >
             Replace an inbox source config by ID. `enabled` and `config` keep their current values when omitted. Prefer
             `inbox-source-configs-partial-update` to flip `enabled` or change part of `config`.
+    inbox-source-filter-catalogs-list:
+        operation: signals_source_configs_filter_catalogs_retrieve
+        enabled: true
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: List inbox source filter catalogs
+        description: >
+            List the inbox sources whose records this project can filter, each with the fields a filter expression can
+            use, their types and meanings, and example expressions. A filter is a boolean expression over these fields,
+            saved in a source config's `config.hogql_filter` with `inbox-source-configs-partial-update` and
+            `config_set`. Records that fail it never reach AI processing. An empty list means no source takes a filter
+            yet.
+        feature_flag: signals-source-filters
     inbox-steering-instructions-get:
         operation: signals_config_list
         enabled: true

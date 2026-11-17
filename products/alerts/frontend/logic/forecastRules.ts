@@ -12,7 +12,7 @@ export const FORECAST_LEVELS: Record<ForecastSide, number[]> = {
     below: [0.01, 0.05, 0.1, 0.15, 0.2, 0.25, 0.3, 0.35, 0.4, 0.45],
 }
 
-export const DEFAULT_FORECAST_LEVELS: Record<ForecastSide, number> = { above: 0.95, below: 0.05 }
+export const DEFAULT_FORECAST_LEVELS: Record<ForecastSide, number> = { above: 0.99, below: 0.01 }
 
 export function getDefaultForecastDetectorConfig(): ForecastDetectorConfig {
     return {
