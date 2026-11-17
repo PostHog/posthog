@@ -221,7 +221,6 @@ def migrate_taggers(team: Team) -> list[TaggerMigrationStep]:
     undo the others, and a second run skips taggers that already moved."""
     taggers = _pending_taggers(team)
     counts = load_recent_tag_counts(team, [str(tagger.id) for tagger in taggers])
-    rules = _access_rules(team)
     results: list[TaggerMigrationStep] = []
     for pending in taggers:
         recent_tags = counts.get(str(pending.id), 0)
@@ -235,7 +234,8 @@ def migrate_taggers(team: Team) -> list[TaggerMigrationStep]:
                 tagger = still_pending.select_related("model_configuration", "created_by").first()
                 if tagger is None:
                     continue
-                planned = _plan(tagger, team, recent_tags, rules)
+                # Access rules are read under the lock too, so a restriction added during the run still holds.
+                planned = _plan(tagger, team, recent_tags, _access_rules(team))
                 step = planned.step
                 if step.action == MigrationAction.SKIP:
                     results.append(step)
