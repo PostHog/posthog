@@ -53,6 +53,7 @@ MERGE_CHECK_RETRY_INTERVAL = timedelta(minutes=1)
 ADD_DOCS_CHECK_WAITER_SIGNAL = "add_docs_check_waiter"
 DOCS_CHECK_WAITERS_PER_TELL = 50
 REUSED_REPORT_TTL = timedelta(hours=6)
+REUSED_REPORT_KEY_PREFIX = "knowledge_writer:merge_check_report:v2"
 GITHUB_READ_ERRORS = (
     requests.RequestException,
     GitHubIntegrationError,
@@ -213,9 +214,7 @@ def landed_change_for(inputs: MergeCheckInputs, pull_request_number: int, github
 
 
 def reused_report_key(change: LandedChange) -> str:
-    return (
-        f"knowledge_writer:merge_check_report:{change.repository.lower()}:{change.pull_request_number}:{change.after}"
-    )
+    return f"{REUSED_REPORT_KEY_PREFIX}:{change.repository.lower()}:{change.pull_request_number}:{change.after}"
 
 
 def judged_report(

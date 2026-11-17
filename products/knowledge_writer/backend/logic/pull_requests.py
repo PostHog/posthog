@@ -1,7 +1,7 @@
 import uuid
 import difflib
 from collections.abc import Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Literal
 from urllib.parse import urlparse
 from uuid import UUID
@@ -32,9 +32,11 @@ from .records import (
     PULL_REQUEST_FAILURE_STATE_KEY,
     PULL_REQUEST_STATE_KEY,
     REQUEST_STATE_KEY,
+    SOURCE_CHANGE_STATE_KEY,
     WriterPullRequest,
     pull_request_json,
     stored_request,
+    stored_source_change,
 )
 from .routing import SOURCE_REPOSITORY
 from .server_commit import (
@@ -61,6 +63,9 @@ DRAFT_EVENT = "knowledge_writer draft"
 DRAFT_FILE_PATCH_CHARACTERS = 4_000
 DRAFT_PATCH_BUDGET_CHARACTERS = 60_000
 OPEN_PULL_REQUESTS_OFF = "open_pull_requests_off"
+NO_HUMAN_AUTHOR = "no_human_author"
+REVIEW_REQUEST_FAILED = "review_request_failed"
+REVIEW_REQUEST_REJECTED = "review_request_rejected"
 DraftOutcome = Literal["refused", "logged", "opened", "failed"]
 
 
@@ -171,8 +176,7 @@ def open_pull_request_for_run(task_run_id: UUID, *, team_id: int) -> str | None:
         return None
     published = tasks_facade.read_task_state_entry(run.task_id, team_id, PULL_REQUEST_STATE_KEY)
     if isinstance(published, dict):
-        log_skipped_publication(task_run_id, team_id, "already_published")
-        return pull_request_json.validate_python(published).url
+        return finish_published_pull_request(run, team_id, writer, pull_request_json.validate_python(published))
     return publish_change(run, team_id, writer)
 
 
@@ -195,6 +199,52 @@ class DraftAttempt:
     task_run_id: UUID
     team_id: int
     changed_files: list[dict] = field(default_factory=list)
+
+
+def finish_published_pull_request(
+    run: TaskRunDTO, team_id: int, writer: WriterSettings, pull_request: WriterPullRequest
+) -> str:
+    if not pull_request.is_review_pending:
+        log_skipped_publication(run.id, team_id, "already_published")
+        return pull_request.url
+    github = docs_github(team_id, writer.docs_repository.split("/", 1)[0], priority=Priority.CRITICAL)
+    if github is None:
+        raise WriterPullRequestFailed("knowledge writer lost its docs GitHub integration before requesting review")
+    draft = DraftAttempt(
+        request=stored_request(tasks_facade.read_task_state_entry(run.task_id, team_id, REQUEST_STATE_KEY)),
+        task_id=run.task_id,
+        task_run_id=run.id,
+        team_id=team_id,
+        changed_files=published_changed_files(run, team_id, github, writer.docs_repository),
+    )
+    request_review_and_capture_opened(github, writer, draft, pull_request)
+    return pull_request.url
+
+
+def published_changed_files(
+    run: TaskRunDTO, team_id: int, github: GitHubIntegration, docs_repository: str
+) -> list[dict]:
+    base_sha = tasks_facade.read_task_state_entry(run.task_id, team_id, BASE_SHA_STATE_KEY)
+    change = read_writer_change(run, team_id)
+    if not isinstance(base_sha, str) or change is None:
+        return []
+    return changed_files_for(change, base_tree(github, docs_repository, base_sha, change.paths)) or []
+
+
+def store_pull_request(task_id: UUID, team_id: int, pull_request: WriterPullRequest) -> None:
+    stored = pull_request_json.dump_python(pull_request, mode="json")
+    tasks_facade.update_task_state_entry(task_id, team_id, PULL_REQUEST_STATE_KEY, replace_entry_with(stored))
+
+
+def request_review_and_capture_opened(
+    github: GitHubIntegration, writer: WriterSettings, draft: DraftAttempt, pull_request: WriterPullRequest
+) -> None:
+    source = stored_source_change(
+        tasks_facade.read_task_state_entry(draft.task_id, draft.team_id, SOURCE_CHANGE_STATE_KEY)
+    )
+    review = request_author_review(github, writer.docs_repository, pull_request.number, source.author_login)
+    capture_draft(draft, outcome="opened", pull_request_url=pull_request.url, review=review)
+    store_pull_request(draft.task_id, draft.team_id, replace(pull_request, is_review_pending=False))
 
 
 def publish_change(run: TaskRunDTO, team_id: int, writer: WriterSettings) -> str | None:
@@ -271,10 +321,9 @@ def publish_change(run: TaskRunDTO, team_id: int, writer: WriterSettings) -> str
     if isinstance(pull_request, GitHubStepFailed):
         capture_draft(draft, outcome="failed", refusal=pull_request.step)
         raise reported_step_failure(pull_request, team_id, task_run_id)
-    capture_draft(draft, outcome="opened", pull_request_url=pull_request.url)
-    stored = pull_request_json.dump_python(pull_request, mode="json")
-    tasks_facade.update_task_state_entry(task_id, team_id, PULL_REQUEST_STATE_KEY, replace_entry_with(stored))
+    store_pull_request(task_id, team_id, replace(pull_request, is_review_pending=True))
     tasks_facade.update_task_state_entry(task_id, team_id, PULL_REQUEST_FAILURE_STATE_KEY, replace_entry_with(None))
+    request_review_and_capture_opened(github, writer, draft, pull_request)
     logger.info(
         "knowledge_writer_pull_request_published",
         task_id=str(task_id),
@@ -283,6 +332,36 @@ def publish_change(run: TaskRunDTO, team_id: int, writer: WriterSettings) -> str
         pull_request_number=pull_request.number,
     )
     return pull_request.url
+
+
+@dataclass(frozen=True)
+class AuthorReview:
+    requested_login: str | None
+    skip_reason: str | None = None
+    status_code: int | None = None
+
+
+def request_author_review(
+    github: GitHubIntegration, docs_repository: str, pull_request_number: int, author_login: str | None
+) -> AuthorReview:
+    if author_login is None or author_login.lower() == github_app_login():
+        return AuthorReview(requested_login=None, skip_reason=NO_HUMAN_AUTHOR)
+    try:
+        requested = github.request_pull_request_reviews(docs_repository, pull_request_number, [author_login])
+    except Exception:
+        logger.warning("knowledge_writer_review_request_raised", pull_request_number=pull_request_number, exc_info=True)
+        return AuthorReview(requested_login=None, skip_reason=REVIEW_REQUEST_FAILED)
+    if not requested.get("success"):
+        status_code = requested.get("status_code")
+        return AuthorReview(
+            requested_login=None,
+            skip_reason=REVIEW_REQUEST_FAILED,
+            status_code=status_code if isinstance(status_code, int) else None,
+        )
+    requested_logins = {str(login).lower() for login in requested.get("requested_reviewers") or []}
+    if author_login.lower() not in requested_logins:
+        return AuthorReview(requested_login=None, skip_reason=REVIEW_REQUEST_REJECTED)
+    return AuthorReview(requested_login=author_login)
 
 
 def read_writer_change(run: TaskRunDTO, team_id: int) -> WriterChange | None:
@@ -365,6 +444,7 @@ def capture_draft(
     outcome: DraftOutcome,
     refusal: str | None = None,
     pull_request_url: str | None = None,
+    review: AuthorReview | None = None,
 ) -> None:
     capture_writer_event(
         DRAFT_EVENT,
@@ -381,6 +461,9 @@ def capture_draft(
             "outcome": outcome,
             "refusal": refusal,
             "pull_request_url": pull_request_url,
+            "review_requested": review.requested_login if review is not None else None,
+            "review_request_skipped": review.skip_reason if review is not None else None,
+            "review_request_status_code": review.status_code if review is not None else None,
             "files": drafted_files(draft.changed_files),
             "team_id": draft.team_id,
         },

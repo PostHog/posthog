@@ -78,6 +78,7 @@ class FakePostHogGitHub:
         docs_pull_request_comments: tuple[str, ...] = (),
         page_text_by_path: dict[str, str] | None = None,
         sheds_batch_reads: bool = False,
+        merged_by: dict[str, str] | None = None,
     ) -> None:
         self.commit_sha = commit_sha
         self.merged_commit_sha = merged_commit_sha or commit_sha
@@ -89,6 +90,7 @@ class FakePostHogGitHub:
         self.docs_pull_request_comments = docs_pull_request_comments
         self.page_text_by_path = page_text_by_path or {}
         self.sheds_batch_reads = sheds_batch_reads
+        self.merged_by = merged_by or {"login": "octo-person", "type": "User"}
 
     def merged_pull_request(self) -> dict[str, object]:
         return {
@@ -97,6 +99,7 @@ class FakePostHogGitHub:
             "html_url": "https://github.com/PostHog/posthog/pull/7",
             "merge_commit_sha": self.merged_commit_sha,
             "merged_at": "2026-10-27T00:00:00Z",
+            "user": self.merged_by,
             "base": {"ref": "stack/parent-branch", "repo": {"default_branch": "master"}},
         }
 
@@ -261,7 +264,16 @@ def judge_returning_malformed_output() -> Anthropic:
     return judge_with_parse(parse)
 
 
-def test_merge_judged_on_non_generated_diff_yields_every_listed_sitemap_page_once() -> None:
+@pytest.mark.parametrize(
+    "merged_by, expected_author_login",
+    [
+        pytest.param({"login": "octo-person", "type": "User"}, "octo-person", id="human_author"),
+        pytest.param({"login": "renovate[bot]", "type": "Bot"}, None, id="bot_author"),
+    ],
+)
+def test_merge_judged_on_non_generated_diff_yields_every_listed_sitemap_page_once(
+    merged_by: dict[str, str], expected_author_login: str | None
+) -> None:
     commit_sha = "a" * 40
     judge_requests: list[dict] = []
     verdict = JudgeVerdict(
@@ -271,7 +283,9 @@ def test_merge_judged_on_non_generated_diff_yields_every_listed_sitemap_page_onc
         reason="new option",
     )
 
-    report = check_merge(commit_sha, FakePostHogGitHub(commit_sha), judge_recording(verdict, judge_requests))
+    report = check_merge(
+        commit_sha, FakePostHogGitHub(commit_sha, merged_by=merged_by), judge_recording(verdict, judge_requests)
+    )
 
     judge_content = judge_requests[0]["messages"][0]["content"]
     assert judge_requests[0]["system"][1] == {
@@ -284,6 +298,7 @@ def test_merge_judged_on_non_generated_diff_yields_every_listed_sitemap_page_onc
     assert report.page_urls == (FLAGS_PAGES[-1], *FLAGS_PAGES[:3])
     assert report.docs_content_root == "contents/docs/"
     assert (report.repository, report.pull_request_number) == ("PostHog/posthog", 7)
+    assert report.author_login == expected_author_login
     assert [(row.criterion, row.value) for row in report.criteria] == [
         ("code_changed", "true"),
         ("knowledge_writer_docs_pr", "false"),

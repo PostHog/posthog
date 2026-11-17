@@ -18,7 +18,11 @@ from .records import (
     DOCS_CONTENT_ROOT_STATE_KEY,
     HEAD_BRANCH_STATE_KEY,
     REQUEST_STATE_KEY,
+    SOURCE_CHANGE_FIELDS,
+    SOURCE_CHANGE_STATE_KEY,
     request_json,
+    source_change_json,
+    source_change_of,
 )
 from .routing import PageRouting
 
@@ -117,8 +121,11 @@ def start_writer(
     start_workflow: bool = True,
 ) -> UUID:
     state_entries = {
-        REQUEST_STATE_KEY: request_json.dump_python(request, mode="json", exclude={"docs_content_root"}),
+        REQUEST_STATE_KEY: request_json.dump_python(
+            request, mode="json", exclude={"docs_content_root", *SOURCE_CHANGE_FIELDS}
+        ),
         DOCS_CONTENT_ROOT_STATE_KEY: request.docs_content_root,
+        SOURCE_CHANGE_STATE_KEY: source_change_json.dump_python(source_change_of(request), mode="json"),
         HEAD_BRANCH_STATE_KEY: f"{HEAD_BRANCH_PREFIX}{secrets.token_hex(6)}",
         BASE_SHA_STATE_KEY: base_sha,
     }

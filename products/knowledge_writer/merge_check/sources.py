@@ -27,6 +27,7 @@ class MergedPullRequest:
     number: int
     title: str
     url: str
+    author_login: str | None
 
 
 @dataclass(frozen=True)
@@ -156,7 +157,16 @@ def merged_pull_request(listed: Mapping[str, Any], commit_sha: str) -> MergedPul
         number=listed["number"],
         title=listed["title"],
         url=listed["html_url"],
+        author_login=human_author_login(listed),
     )
+
+
+def human_author_login(listed: Mapping[str, Any]) -> str | None:
+    author = listed.get("user") or {}
+    login = author.get("login")
+    if author.get("type") == "Bot" or not isinstance(login, str) or not login:
+        return None
+    return login
 
 
 def read_pull_request(github: GitHubReader, repository: str, pull_request_number: int) -> dict[str, Any]:

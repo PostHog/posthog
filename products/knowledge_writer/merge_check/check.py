@@ -154,7 +154,12 @@ def merge_reports_by_variant(
             else decide_with_judge(anthropic_client, evidence, page_text_by_key=page_text_by_key, deadline=deadline)
         )
         report_by_variant[variant] = decided_report(
-            evidence, decision, facts=facts, gate_rows=gate_rows, low_confidence=low_confidence
+            evidence,
+            decision,
+            facts=facts,
+            gate_rows=gate_rows,
+            low_confidence=low_confidence,
+            author_login=pull_request.author_login,
         )
     return report_by_variant
 
@@ -166,6 +171,7 @@ def decided_report(
     facts: MergeFacts | None,
     gate_rows: tuple[CriterionResult, ...],
     low_confidence: bool,
+    author_login: str | None,
 ) -> MergeCheckReport:
     change = evidence.change
     criteria = (*gate_rows, *decision.rows)
@@ -189,6 +195,7 @@ def decided_report(
         page_urls=tuple(page_by_key[key].url for key in decision.page_keys if key in page_by_key),
         evidence="\n".join([evidence.url, *finding_lines(page_by_key, facts, decision)]),
         docs_content_root=docs_content_root(evidence.editable_pages),
+        author_login=author_login,
     )
     return with_existing_docs_pull_requests(report, evidence)
 

@@ -100,6 +100,10 @@ COMMIT_URL = f"https://github.com/PostHog/posthog/commit/{'a' * 40}"
 UPLOADED_ARTIFACTS: dict[str, bytes] = {}
 
 
+class WorkerKilled(BaseException):
+    pass
+
+
 def _nav(*added_lines: str, replaced: Mapping[str, str] | None = None) -> str:
     lines = NAV_BASE.splitlines(keepends=True)
     for old, new in (replaced or {}).items():
@@ -135,6 +139,8 @@ class DocsGitHub:
         graphql_status_code: int = 200,
         graphql_text_limit: int | None = None,
         graphql_failing_paths: frozenset[str] = frozenset(),
+        review_status_code: int = 201,
+        review_interruptions: int = 0,
     ) -> None:
         self.listed = [
             {
@@ -154,6 +160,9 @@ class DocsGitHub:
         self.graphql_status_code = graphql_status_code
         self.graphql_text_limit = graphql_text_limit
         self.graphql_failing_paths = graphql_failing_paths
+        self.review_status_code = review_status_code
+        self.review_requests: list[dict] = []
+        self.review_interruptions = review_interruptions
         self.trees: list[dict] = []
         self.commits: list[dict] = []
         self.commit_shas: list[str] = []
@@ -162,6 +171,17 @@ class DocsGitHub:
     def __call__(self, method: str, path: str, **kwargs) -> MagicMock:
         if path == "/graphql":
             return self.graphql(kwargs["json_body"])
+        if path.endswith("/requested_reviewers") and self.review_interruptions:
+            self.review_interruptions -= 1
+            raise WorkerKilled
+        if path.endswith("/requested_reviewers"):
+            self.review_requests.append(kwargs["json_body"])
+            requested = [{"login": login} for login in kwargs["json_body"]["reviewers"]]
+            return MagicMock(
+                status_code=self.review_status_code,
+                text="Reviews may only be requested from collaborators.",
+                json=MagicMock(return_value={"requested_reviewers": requested}),
+            )
         if "/git/blobs/" in path:
             text = next(text for file_path, text in self.base_files.items() if _blob_oid(file_path) in path)
             return _replied({"content": base64.encodebytes(text.encode()).decode(), "encoding": "base64"})
@@ -287,6 +307,7 @@ def _verdict(
     commit_sha: str = "a" * 40,
     note: str = "Document the new retention option.",
     docs_content_root: str | None = None,
+    author_login: str | None = None,
 ):
     report = MergeCheckReport(
         commit_sha=commit_sha,
@@ -302,6 +323,7 @@ def _verdict(
         page_urls=suggested_page_urls,
         evidence=f"https://github.com/PostHog/posthog/pull/{pull_request_number}",
         docs_content_root=docs_content_root,
+        author_login=author_login,
     )
     inputs = MergeCheckInputs(
         commit_sha=None,
@@ -547,9 +569,27 @@ REFUSED_CHANGES: tuple[tuple[bytes, dict, str], ...] = (
 )
 
 
+@pytest.mark.parametrize(
+    "author_login, review_status_code, review_interruptions, expected_review",
+    [
+        pytest.param("octo-person", 201, 0, ("octo-person", None, None), id="human_author_is_asked_to_review"),
+        pytest.param(None, 201, 0, (None, "no_human_author", None), id="bot_author_is_asked_nothing"),
+        pytest.param("octo-person", 422, 0, (None, "review_request_failed", 422), id="failed_request_is_recorded"),
+        pytest.param(
+            "octo-person", 201, 1, ("octo-person", None, None), id="worker_killed_mid_review_is_asked_once_on_retry"
+        ),
+    ],
+)
 @pytest.mark.django_db
 def test_a_finished_writer_run_commits_only_a_gated_change_and_opens_one_linked_docs_pull_request(
-    team, writer_env, django_capture_on_commit_callbacks, monkeypatch
+    team,
+    writer_env,
+    django_capture_on_commit_callbacks,
+    monkeypatch,
+    author_login: str | None,
+    review_status_code: int,
+    review_interruptions: int,
+    expected_review: tuple[str | None, str | None, int | None],
 ) -> None:
     monkeypatch.setattr(KNOWLEDGE_WRITER_ENABLED, lambda team_id: True)
     monkeypatch.setattr(START_PUBLISH, _run_publish_workflow_inline)
@@ -559,7 +599,9 @@ def test_a_finished_writer_run_commits_only_a_gated_change_and_opens_one_linked_
         patch(FLAG_CHECK, return_value=True),
         patch(START_WORKFLOW),
     ):
-        started = intake.submit(_verdict(suggested_page_urls=(RETENTION_PAGE,)), team_id=team.id)
+        started = intake.submit(
+            _verdict(suggested_page_urls=(RETENTION_PAGE,), author_login=author_login), team_id=team.id
+        )
     assert started.task_id is not None
     for unreadable_base in (
         DocsGitHub(graphql_status_code=502),
@@ -577,14 +619,20 @@ def test_a_finished_writer_run_commits_only_a_gated_change_and_opens_one_linked_
         create_for_refused_change.assert_not_called()
         assert (refused.created_branches, bool(refused.commits)) == ([], refusal == "branch_moved")
         assert tasks_facade.read_task_state_entry(started.task_id, team.id, PULL_REQUEST_FAILURE_STATE_KEY) == refusal
-    docs_github = DocsGitHub(graphql_text_limit=40)
+    docs_github = DocsGitHub(
+        graphql_text_limit=40, review_status_code=review_status_code, review_interruptions=review_interruptions
+    )
     with patch(CREATE_PULL_REQUEST, side_effect=ConnectionError("GitHub unreachable")) as create_for_new_page:
         _finish_run(started.task_id, django_capture_on_commit_callbacks, change=NEW_PAGE_CHANGE, github=docs_github)
     create_for_new_page.assert_called_once()
     with (
         patch(GITHUB_REQUEST, side_effect=docs_github),
         patch(CREATE_PULL_REQUEST, return_value=opened) as create_pull_request,
+        patch(CAPTURE_DRAFT) as scoped_capture,
     ):
+        for _ in range(review_interruptions):
+            with pytest.raises(WorkerKilled), django_capture_on_commit_callbacks(execute=True):
+                TaskRun.objects.get(task_id=started.task_id).save(update_fields=["output"])
         for _ in range(2):
             with django_capture_on_commit_callbacks(execute=True):
                 TaskRun.objects.get(task_id=started.task_id).save(update_fields=["output"])
@@ -618,6 +666,18 @@ def test_a_finished_writer_run_commits_only_a_gated_change_and_opens_one_linked_
     stored = tasks_facade.read_task_state_entry(started.task_id, team.id, PULL_REQUEST_STATE_KEY)
     assert isinstance(stored, dict)
     assert stored["number"] == 9
+    assert docs_github.review_requests == ([{"reviewers": [author_login]}] if author_login else [])
+    [draft_properties] = [
+        captured.kwargs["properties"]
+        for captured in scoped_capture.return_value.__enter__.return_value.call_args_list
+        if captured.args[0] == DRAFT_EVENT
+    ]
+    assert draft_properties["outcome"] == "opened"
+    assert (
+        draft_properties["review_requested"],
+        draft_properties["review_request_skipped"],
+        draft_properties["review_request_status_code"],
+    ) == expected_review
 
 
 @pytest.mark.django_db
