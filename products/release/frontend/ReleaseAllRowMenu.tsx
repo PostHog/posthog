@@ -13,6 +13,7 @@ import {
     anchoredToast,
 } from '@posthog/quill'
 
+import { addProjectIdIfMissing } from 'lib/utils/kea-router'
 import { navigateToHref } from 'lib/utils/navigateToHref'
 import { newInternalTab } from 'lib/utils/newInternalTab'
 import { writeToClipboard } from 'lib/utils/writeToClipboard'
@@ -29,7 +30,7 @@ export function ReleaseAllRowMenu({ row }: { row: ReleaseAllRow }): JSX.Element 
     const pinned = pinnedShortcutIds.has(pinTargetKey(target))
 
     const copyLink = async (): Promise<void> => {
-        const outcome = await writeToClipboard(new URL(row.href, window.location.origin).href)
+        const outcome = await writeToClipboard(new URL(addProjectIdIfMissing(row.href), window.location.origin).href)
         if (triggerRef.current) {
             anchoredToast({
                 description: outcome === 'copied' ? 'Link copied' : 'Couldn’t copy the link',

@@ -52,6 +52,7 @@ def list_catalog_releases(
             "owner__first_name",
             "owner__last_name",
             "owner__email",
+            "owner__is_active",
         )
         .order_by(*order)
     )

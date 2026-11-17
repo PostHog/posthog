@@ -365,7 +365,6 @@ export interface releaseAllLogicMeta {
             firstLoad: boolean,
             hasMore: boolean,
             failedTypes: ReleaseAllType[],
-            activeTypes: ReleaseAllType[],
             filters: ReleaseAllFilters
         ) => ReleaseAllListState
     }
@@ -522,23 +521,22 @@ export const releaseAllLogic = kea<releaseAllLogicType>([
             (filters: ReleaseAllFilters): boolean => filters.types.length > 0 || filters.owners.length > 0,
         ],
         listState: [
-            (s) => [s.displayRows, s.firstLoad, s.hasMore, s.failedTypes, s.activeTypes, s.filters],
+            (s) => [s.displayRows, s.firstLoad, s.hasMore, s.failedTypes, s.filters],
             (
                 displayRows: ReleaseAllRow[],
                 firstLoad: boolean,
                 hasMore: boolean,
                 failedTypes: ReleaseAllType[],
-                activeTypes: ReleaseAllType[],
                 filters: ReleaseAllFilters
             ): ReleaseAllListState => {
                 if (displayRows.length) {
                     return 'ready'
                 }
-                if (failedTypes.length === activeTypes.length) {
-                    return 'error'
-                }
                 if (firstLoad || hasMore) {
                     return 'loading'
+                }
+                if (failedTypes.length) {
+                    return 'error'
                 }
                 return filters.search || filters.types.length || filters.owners.length ? 'no-matches' : 'empty'
             },
@@ -646,7 +644,6 @@ export const releaseAllLogic = kea<releaseAllLogicType>([
         },
     })),
     afterMount(({ actions }) => {
-        requestGeneration++
         actions.loadMore()
     }),
     beforeUnmount(() => {

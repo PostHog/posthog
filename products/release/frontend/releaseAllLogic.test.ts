@@ -142,6 +142,17 @@ describe('releaseAllLogic', () => {
         expect(logic.values.visibleRows.map((row) => row.name)).not.toContain('flag-9')
     })
 
+    it('shows the error screen when one source fails and the others find nothing', async () => {
+        jest.mocked(releasesCatalogFlagsRetrieve).mockRejectedValue(new Error('down'))
+        jest.mocked(experimentsList).mockResolvedValue({ results: [], count: 0, next: null } as never)
+        jest.mocked(releasesCatalogReleasesRetrieve).mockResolvedValue({ results: [], next_cursor: null } as never)
+
+        logic.actions.setFilters({ search: 'nothing' })
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.listState).toBe('error')
+    })
+
     it.each([
         [{}, {}],
         [

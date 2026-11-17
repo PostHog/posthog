@@ -57,10 +57,10 @@ function ReleaseAllContent(): JSX.Element {
     const columns = useMemo(() => releaseAllColumns({ sortable: true }), [])
 
     useEffect(() => {
-        if (nearEnd && hasMore && !loading && !stale) {
+        if (nearEnd && hasMore && !loading && !stale && !showAutoImport) {
             loadMore()
         }
-    }, [nearEnd, hasMore, loading, stale, displayRows.length, loadMore])
+    }, [nearEnd, hasMore, loading, stale, showAutoImport, displayRows.length, loadMore])
 
     const renderBody = (): JSX.Element => {
         if (showAutoImport) {
