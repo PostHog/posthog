@@ -1,6 +1,13 @@
 import type { TransactionalEmailImpactApi } from 'products/messaging/frontend/generated/api.schemas'
 
-import { followedSendsNote, impactFunnelState, impactLift, impactSteps, untrackedSendsNote } from './impactSteps'
+import {
+    emptyPeriodMessage,
+    followedSendsNote,
+    impactFunnelState,
+    impactLift,
+    impactSteps,
+    untrackedSendsNote,
+} from './impactSteps'
 
 const impact: TransactionalEmailImpactApi = {
     sent: 100,
@@ -50,7 +57,7 @@ describe('impactSteps', () => {
         ['nothing has answered yet', null, false, null, 'loading'],
         ['the request failed', impact, false, 'Server error', 'error'],
         ['nothing was sent in the period', { ...impact, sent: 0 }, false, null, 'empty'],
-        ['only untracked sends were counted in the period', { ...impact, sent: 0, untracked: 3 }, false, null, 'ready'],
+        ['only untracked sends were counted in the period', { ...impact, sent: 0, untracked: 3 }, false, null, 'empty'],
         ['sends answered', impact, false, null, 'ready'],
     ] as const)('shows the funnel as %s', (_, data, loading, error, expected) => {
         expect(impactFunnelState(data, loading, error)).toBe(expected)
@@ -80,10 +87,25 @@ describe('impactSteps', () => {
         expect(steps[3]).toMatchObject({ value: 20, share: 20 / 90, shareOf: 'delivered' })
     })
 
-    it('compares clicks to sent when they outnumber deliveries still waiting on a webhook', () => {
-        const steps = impactSteps({ ...impact, delivered: 15, opened: 10 }, 'plan upgraded')
+    it.each([
+        ['deliveries still waiting on a webhook', { ...impact, delivered: 15, opened: 10 }],
+        ['sends still queued', { ...impact, sent: 1, delivered: 0, opened: 0, clicked: 2 }],
+    ])('shows clicks without a share when they outnumber %s', (_, data) => {
+        const steps = impactSteps(data, 'plan upgraded')
 
-        expect(steps[3]).toMatchObject({ value: 20, share: 20 / 100, shareOf: 'sent' })
+        expect(steps[3]).toMatchObject({ value: data.clicked, share: null })
+        expect(steps[3].shareOf).toBeUndefined()
+    })
+
+    it.each([
+        ['nothing was queued or sent untracked', { ...impact, sent: 0 }, 'Nobody was sent this email in this period.'],
+        [
+            'only untracked sends went out',
+            { ...impact, sent: 0, untracked: 3 },
+            'No sends of this email were queued in this period.',
+        ],
+    ])('says why the period is empty when %s', (_, data, expected) => {
+        expect(emptyPeriodMessage(data)).toBe(expected)
     })
 
     it('asks for an event until one is picked', () => {
@@ -119,12 +141,12 @@ describe('impactSteps', () => {
         [
             'both groups fall short',
             impact,
-            'Counted over 16 of 20 clicked sends and 50 of 72 sends with no recorded click:',
+            'Counted over 16 of 20 clicked sends and 50 of 72 delivered sends with no recorded click:',
         ],
         [
             'every send went out untracked and some unclicked sends fall short',
             { ...untracked, without_click: { sends: 50, converted: 1 } },
-            'Counted over 50 of 90 sends with no recorded click:',
+            'Counted over 50 of 90 delivered sends with no recorded click:',
         ],
     ])('names the sends the lift counts when %s', (_, data, start) => {
         const note = followedSendsNote(data)

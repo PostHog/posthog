@@ -5,6 +5,7 @@ import { LemonBanner, LemonCard, LemonSkeleton } from '@posthog/lemon-ui'
 import { emailImpactLogic } from './emailImpactLogic'
 import { ImpactFunnel } from './ImpactFunnel'
 import { ImpactLiftLine } from './ImpactLiftLine'
+import { emptyPeriodMessage } from './impactSteps'
 
 export function ImpactFunnelCard(): JSX.Element {
     const { event } = useValues(emailImpactLogic)
@@ -20,7 +21,7 @@ export function ImpactFunnelCard(): JSX.Element {
 }
 
 function FunnelBody(): JSX.Element {
-    const { funnelState, impactError, steps, untrackedNote } = useValues(emailImpactLogic)
+    const { funnelState, impact, impactError, steps, untrackedNote } = useValues(emailImpactLogic)
     const { loadImpact } = useActions(emailImpactLogic)
 
     if (funnelState === 'error') {
@@ -33,8 +34,13 @@ function FunnelBody(): JSX.Element {
             </LemonBanner>
         )
     }
-    if (funnelState === 'empty') {
-        return <p className="text-secondary text-sm m-0">Nobody was sent this email in this period.</p>
+    if (funnelState === 'empty' && impact) {
+        return (
+            <>
+                <p className="text-secondary text-sm m-0">{emptyPeriodMessage(impact)}</p>
+                {untrackedNote && <p className="text-secondary text-sm m-0">{untrackedNote}</p>}
+            </>
+        )
     }
     if (funnelState === 'loading' || !steps) {
         return <LemonSkeleton className="h-44" />

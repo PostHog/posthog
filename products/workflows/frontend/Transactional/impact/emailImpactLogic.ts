@@ -108,6 +108,9 @@ function impactErrorMessage(error: { status?: number; detail?: string | null } |
     if (error?.status === 403 && error.detail) {
         return error.detail
     }
+    if (error?.status === 429) {
+        return 'Too many queries are running for this project. Wait a minute, then try again.'
+    }
     return !error?.status || error.status >= 500
         ? "This email's impact couldn't load. Try again, or pick a shorter period."
         : "This email's impact couldn't load. Try again, and if it keeps failing, contact support."

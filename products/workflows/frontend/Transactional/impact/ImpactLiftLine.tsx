@@ -39,11 +39,11 @@ function ClickedLift({
             <span>{days}</span> days of the click
             {notClicked !== null && (
                 <span>
-                    , against <strong>{percentage(notClicked, 1)}</strong> of sends with no recorded click
+                    , against <strong>{percentage(notClicked, 1)}</strong> of delivered sends with no recorded click
                 </span>
             )}
             .{' '}
-            <Tooltip title="People who click are often more likely to convert anyway, so the email may not be what caused it. Sends with no recorded click count from the send.">
+            <Tooltip title="People who click are often more likely to convert anyway, so the email may not be what caused it. Delivered sends with no recorded click count from the send.">
                 <span tabIndex={0} className="text-secondary underline decoration-dotted cursor-help">
                     How to read this
                 </span>
@@ -63,7 +63,7 @@ function NotClickedLift({
     return (
         <p className="text-sm m-0">
             <NoClickToFollow clicks={clicks} />
-            <strong>{percentage(notClicked, 1)}</strong> of sends with no recorded click were followed by{' '}
+            <strong>{percentage(notClicked, 1)}</strong> of delivered sends with no recorded click were followed by{' '}
             <strong>{event}</strong> within <span>{days}</span> days of the send.
             <FollowedNote note={note} />
         </p>

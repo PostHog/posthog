@@ -51,7 +51,13 @@ export function impactFunnelState(
     if (!impact) {
         return 'loading'
     }
-    return impact.sent === 0 && impact.untracked === 0 ? 'empty' : 'ready'
+    return impact.sent === 0 ? 'empty' : 'ready'
+}
+
+export function emptyPeriodMessage(impact: TransactionalEmailImpactApi): string {
+    return impact.untracked > 0
+        ? 'No sends of this email were queued in this period.'
+        : 'Nobody was sent this email in this period.'
 }
 
 export function impactSteps(impact: TransactionalEmailImpactApi, event: string | null): ImpactStep[] {
@@ -88,7 +94,7 @@ function clickedStep(impact: TransactionalEmailImpactApi): ImpactStep {
     }
     return impact.clicked <= impact.delivered
         ? { ...step, share: share(impact.clicked, impact.delivered), shareOf: 'delivered' }
-        : { ...step, share: share(impact.clicked, impact.sent), shareOf: 'sent' }
+        : { ...step, share: null }
 }
 
 function conversionBase(followed: number, of: number): Pick<ImpactStep, 'shareOf' | 'shareDetail'> {
@@ -120,7 +126,7 @@ export function followedSendsNote(impact: TransactionalEmailImpactApi): string |
     }
     if (impact.without_click && impact.without_click.sends < impact.not_clicked) {
         parts.push(
-            `${humanFriendlyNumber(impact.without_click.sends)} of ${humanFriendlyNumber(impact.not_clicked)} sends with no recorded click`
+            `${humanFriendlyNumber(impact.without_click.sends)} of ${humanFriendlyNumber(impact.not_clicked)} delivered sends with no recorded click`
         )
     }
     return parts.length > 0

@@ -3,6 +3,7 @@ import { MOCK_DEFAULT_TEAM, MOCK_TEAM_ID } from 'lib/api.mock'
 import { expectLogic } from 'kea-test-utils'
 
 import { dayjs } from 'lib/dayjs'
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { useMocks } from '~/mocks/jest'
@@ -117,12 +118,18 @@ describe('emailImpactLogic', () => {
             "This email's impact couldn't load. Try again, or pick a shorter period.",
         ],
         [
+            'a query limit with the wait hint',
+            [429, { detail: 'Request was throttled.' }],
+            'Too many queries are running for this project. Wait a minute, then try again.',
+        ],
+        [
             'a request failure without the shorter-period hint',
             [404, { detail: 'Not found.' }],
             "This email's impact couldn't load. Try again, and if it keeps failing, contact support.",
         ],
     ])('explains %s, and clears it once a retry answers', async (_, response, message) => {
         answer = response as [number, unknown]
+        const toast = jest.spyOn(lemonToast, 'error')
         initKeaTests(true, ENVIRONMENT)
         logic = emailImpactLogic({ workflowId: 'workflow-1' })
         logic.mount()
@@ -130,6 +137,7 @@ describe('emailImpactLogic', () => {
 
         expect(logic.values.impactError).toBe(message)
         expect(logic.values.funnelState).toBe('error')
+        expect(toast).not.toHaveBeenCalled()
 
         answer = [200, IMPACT]
         logic.actions.loadImpact()
