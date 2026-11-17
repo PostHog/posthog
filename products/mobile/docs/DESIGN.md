@@ -325,7 +325,7 @@ Optional recovery actions sit below the message and wrap on narrow screens.
   badge; the 22pt headline with the exception type in orange; a clock byline with first and last seen; the owner chip
   (dashed orange "Assign" when nobody owns it). Impact: the 24h and 7d segment, three tiles (users, sessions,
   occurrences in compact counts with a mono "last 24h"; zero sessions show "–" over "not recorded", and a failed read
-  shows "–" in every tile), and a card "Occurrences per hour" (or "per 6 hours") with the trend in a neutral
+  shows "–" in every tile), and a card "Occurrences" with the trend in a neutral
   `DeltaPill`-style pill ("↑ 45%", "Steady") and the window's `SparkBars`, orange from the spike or the first
   occurrence. Release: version, short commit, branch and library, with "First seen in this release" when the
   first and latest releases match. Where it breaks: the dark trace card from the report (exception, innermost in-app

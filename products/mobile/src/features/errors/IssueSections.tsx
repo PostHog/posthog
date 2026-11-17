@@ -36,10 +36,6 @@ import {
 
 const WINDOWS: readonly ErrorsWindow[] = ['24h', '7d']
 const WINDOW_SHORT: Record<ErrorsWindow, string> = { '24h': 'last 24h', '7d': 'last 7d' }
-const CHART_LABEL: Record<ErrorsWindow, string> = {
-    '24h': 'Occurrences per hour',
-    '7d': 'Occurrences per 6 hours',
-}
 const CHART_HEIGHT = 72
 const CHART_START: Record<ErrorsWindow, string> = { '24h': '24h ago', '7d': '7d ago' }
 
@@ -263,7 +259,7 @@ export function ImpactSection({
             {volume.length > 1 ? (
                 <View style={styles.card} testID="issue-volume">
                     <View style={styles.cardHead}>
-                        <Text style={styles.cardLabel}>{CHART_LABEL[window]}</Text>
+                        <Text style={styles.cardLabel}>Occurrences</Text>
                         {caption ? (
                             <ChangePill
                                 direction={caption.arrow}
