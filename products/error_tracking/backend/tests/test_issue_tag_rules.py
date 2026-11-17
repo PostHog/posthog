@@ -3,7 +3,7 @@ from datetime import timedelta
 from typing import Any
 
 from posthog.test.base import BaseTest
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from parameterized import parameterized
 
@@ -38,6 +38,10 @@ def _program(source: str) -> list[Any]:
     return create_bytecode(parse_program(source)).bytecode
 
 
+def _no_event_read(team: Team) -> dict[str, object]:
+    raise AssertionError("the event must not be read")
+
+
 def _event_filter(key: str, operator: str, value: Any) -> dict[str, Any]:
     leaf = {"key": key, "type": "event", "operator": operator, "value": value}
     return {"type": "AND", "values": [{"type": "AND", "values": [leaf]}]}
@@ -66,10 +70,9 @@ class TestIssueTagRules(BaseTest):
     ) -> None:
         issue = ErrorTrackingIssue.objects.create(team=self.team)
 
-        with patch(DECIDE) as decide:
+        with patch(DECIDE, side_effect=AssertionError("no model call")):
             result = run_issue_taggers(self.team.id, issue.id, lambda team: event_properties)
 
-        decide.assert_not_called()
         assert result == (TaggerRun(source=Source.RULE), TaggerRun(source=Source.JEV))
         rows = ErrorTrackingIssueTag.objects.for_team(self.team.id).filter(issue=issue)
         rules = [getattr(self, name) for name in matching_rules]
@@ -170,6 +173,14 @@ class TestIssueTagRules(BaseTest):
                 False,
             ),
             (
+                "not_hogvm_bytecode",
+                lambda team_id: ["not bytecode"],
+                timedelta(seconds=60),
+                timedelta(seconds=60),
+                "Rule bytecode is not HogVM bytecode",
+                True,
+            ),
+            (
                 "bytecode_over_the_size_limit",
                 lambda team_id: ["_H", 1, *([None] * MAX_SEVERITY_RULE_BYTECODE_OPS)],
                 timedelta(seconds=60),
@@ -207,14 +218,12 @@ class TestIssueTagRules(BaseTest):
 
     def test_reads_no_rules_while_issue_tags_are_off(self) -> None:
         issue = ErrorTrackingIssue.objects.create(team=self.team)
-        load_event_properties = MagicMock(return_value=BIG_UNHANDLED_ORDER)
 
         with patch.object(team_flags, "feature_enabled_or_false", return_value=False), self.assertNumQueries(0):
             definitions = enabled_issue_tag_definitions(self.team.id, self.user)
-            result = run_issue_taggers(self.team.id, issue.id, load_event_properties)
+            result = run_issue_taggers(self.team.id, issue.id, _no_event_read)
 
         assert (definitions, result) == ((), IssueTaggingSkipReason.DISABLED)
-        load_event_properties.assert_not_called()
 
     def _restrict_revenue_for_the_member(self) -> None:
         self.organization.available_product_features = [

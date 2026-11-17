@@ -24,7 +24,6 @@ class TagAnswer:
 @frozen
 class TagContext:
     issue: ErrorTrackingIssue
-    # The properties of the issue's first exception event, as cymbal stored them.
     event_properties: dict[str, object]
 
 

@@ -577,12 +577,10 @@ def _issue_tag_rule_key() -> str:
 class ErrorTrackingIssueTagRule(TeamScopedRootMixin, UUIDModel):
     """A team's issue tag. Its label applies to a new issue when `bytecode` matches the issue's first event."""
 
-    # The unique constraint leads with team, so it serves the per-team rules read and the default foreign key
-    # index is redundant.
+    # The unique constraint leads with team, so it serves the per-team rules read without a separate team index.
     team = models.ForeignKey(
         "posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+", db_index=False
     )
-    # The tag key that ErrorTrackingIssueTag rows store for this rule's label.
     key = models.CharField(max_length=64, default=_issue_tag_rule_key)
     label = models.CharField(max_length=128)
     description = models.TextField(blank=True, default="")

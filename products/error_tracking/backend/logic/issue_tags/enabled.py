@@ -112,8 +112,7 @@ def _reads_restricted_property(filters: object, restricted: RestrictedPropertyNa
 
 
 def _enabled_code_definitions(team_id: int) -> tuple[IssueTagDefinition, ...]:
-    # Check each flag once. The issue list and issue detail call this on every request, and a flag that the SDK
-    # cannot evaluate locally costs an HTTP call to the flags service.
+    # Check each flag once, because every issue request calls this and a remote flag check is an HTTP call.
     tag_flags = {definition.enabled_flag for definition in registry.ISSUE_TAG_DEFINITIONS} - {ISSUE_TAGS_FLAG}
     enabled_flags = {ISSUE_TAGS_FLAG} | {flag for flag in tag_flags if team_flag_enabled(flag, team_id)}
     return tuple(
