@@ -38,8 +38,7 @@ import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { humanFriendlyDuration } from 'lib/utils/durations'
-import { sceneConfigurations } from 'scenes/scenes'
-import { Scene, SceneExport } from 'scenes/sceneTypes'
+import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -51,6 +50,7 @@ import { JSONEditor } from '../components/JSONEditor'
 import { MetadataHeader } from '../ConversationDisplay/MetadataHeader'
 import { getModelPickerFooterActions, ModelPicker, parsePlaygroundProviderKeyId } from '../ModelPicker'
 import { modelPickerLogic } from '../modelPickerLogic'
+import { PromptsTabs } from '../prompts/PromptsTabs'
 import { AddKeyModal } from '../settings/AddKeyModal'
 import { llmProviderKeysLogic } from '../settings/llmProviderKeysLogic'
 import { CollapsibleChevronIcon } from './CollapsibleChevronIcon'
@@ -120,13 +120,12 @@ export function AIObservabilityPlaygroundScene(): JSX.Element {
                 <BindLogic logic={llmPlaygroundRunLogic} props={{}}>
                     <SceneContent className="h-full">
                         <SceneTitleSection
-                            name={sceneConfigurations[Scene.AIObservabilityPlayground].name}
+                            name="Prompts"
                             description="Test and experiment with LLM prompts in a sandbox environment."
-                            resourceType={{
-                                type: sceneConfigurations[Scene.AIObservabilityPlayground].iconType || 'llm_analytics',
-                            }}
+                            resourceType={{ type: 'llm_prompts' }}
                             actions={<PlaygroundHeaderActions />}
                         />
+                        <PromptsTabs activeTab="playground" />
                         <div className="flex h-full flex-1 flex-col min-h-0">
                             <PlaygroundLayout />
                         </div>
