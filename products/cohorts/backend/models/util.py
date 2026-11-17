@@ -1662,9 +1662,11 @@ def _copy_static_cohort_rows_to_pg(
     def insert_batch(batch: list[str]) -> None:
         nonlocal any_counted_resolved
         resolved = cohort._insert_batch_via_personhog(batch, insert_in_clickhouse=False, team_id=team_id)
-        if resolved and on_pg_write is not None:
+        # Only this attempt's counted rows have no other ClickHouse row, so kept adds alone do not block cleanup.
+        counted_resolved = resolved & counted_in_batch
+        if counted_resolved and on_pg_write is not None:
             on_pg_write()
-        if not any_counted_resolved and resolved & counted_in_batch:
+        if not any_counted_resolved and counted_resolved:
             any_counted_resolved = True
 
     batch_iterator = CursorBatchIterator(
