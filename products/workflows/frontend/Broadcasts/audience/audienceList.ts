@@ -23,10 +23,6 @@ export function defaultListCohortName(broadcastName: string, date: string): stri
 
 type MaybeNegatedFilter = AnyPropertyFilter & { negation?: boolean }
 
-/**
- * Whether a condition excludes a cohort's members. A saved audience can spell that as `negation: true` with the
- * `in` operator, and the send excludes those members too, so both spellings count.
- */
 function isCohortExclusion(filter: AnyPropertyFilter): boolean {
     return (
         filter.type === PropertyFilterType.Cohort &&
@@ -39,10 +35,6 @@ export function isCohortInclusion(filter: AnyPropertyFilter): boolean {
     return filter.type === PropertyFilterType.Cohort && !isCohortExclusion(filter)
 }
 
-/**
- * The condition with an excluded cohort spelled as `not_in`, because the query schema refuses `negation` and the
- * filter labels read only the operator.
- */
 export function withCohortExclusionOperator(filter: AnyPropertyFilter): AnyPropertyFilter {
     if (!isCohortExclusion(filter)) {
         return filter

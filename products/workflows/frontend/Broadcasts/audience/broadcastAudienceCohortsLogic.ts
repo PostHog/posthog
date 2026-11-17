@@ -106,7 +106,6 @@ export const broadcastAudienceCohortsLogic = kea<broadcastAudienceCohortsLogicTy
             (audienceProperties: AnyPropertyFilter[]): AnyPropertyFilter[] =>
                 audienceProperties.filter((filter) => !isCohortInclusion(filter)).map(withCohortExclusionOperator),
         ],
-        // The condition editor reads only the operator, so an exclusion saved as negation would show as "in".
         editableAudience: [
             (s) => [s.audienceProperties],
             (audienceProperties: AnyPropertyFilter[]): AnyPropertyFilter[] =>
