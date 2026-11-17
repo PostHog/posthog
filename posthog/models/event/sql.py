@@ -18,6 +18,7 @@ from posthog.clickhouse.events_json import (
     EVENTS_JSON_RECENT_TABLE,
     EVENTS_PROPERTIES_JSON_MAX_DYNAMIC_PATHS,
     EVENTS_PROPERTIES_JSON_SUBCOLUMNS,
+    KAFKA_EVENTS_JSON_RECENT_TABLE,
     KAFKA_EVENTS_NATIVE_JSON_TABLE,
     PERSON_PROPERTIES_JSON_MAX_DYNAMIC_PATHS,
     PERSON_PROPERTIES_JSON_SUBCOLUMNS,
@@ -31,6 +32,7 @@ from posthog.clickhouse.indexes import index_by_kafka_timestamp
 from posthog.clickhouse.kafka_engine import (
     CONSUMER_GROUP_EVENTS_JSON,
     CONSUMER_GROUP_EVENTS_JSON_NATIVE_JSON,
+    CONSUMER_GROUP_EVENTS_JSON_RECENT,
     CONSUMER_GROUP_EVENTS_JSON_WS,
     KAFKA_COLUMNS,
     STORAGE_POLICY,
@@ -387,20 +389,26 @@ def KAFKA_EVENTS_TABLE_JSON_SQL():
     )
 
 
-def KAFKA_EVENTS_NATIVE_JSON_TABLE_SQL(on_cluster: bool = False) -> str:
+def _kafka_events_native_json_table_sql(table_name: str, group: str, on_cluster: bool) -> str:
     return (
         EVENTS_TABLE_BASE_SQL
         + """
     SETTINGS kafka_skip_broken_messages = 100
 """
     ).format(
-        table_name=KAFKA_EVENTS_NATIVE_JSON_TABLE,
+        table_name=table_name,
         on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
-        engine=kafka_engine(topic=KAFKA_EVENTS_JSON, group=CONSUMER_GROUP_EVENTS_JSON_NATIVE_JSON),
+        engine=kafka_engine(topic=KAFKA_EVENTS_JSON, group=group),
         extra_fields=", captured_at Nullable(DateTime64(6, 'UTC'))",
         dynamically_materialized_columns=EVENTS_TABLE_DYNAMICALLY_MATERIALIZED_COLUMNS(),
         materialized_columns="",
         indexes="",
+    )
+
+
+def KAFKA_EVENTS_NATIVE_JSON_TABLE_SQL(on_cluster: bool = False) -> str:
+    return _kafka_events_native_json_table_sql(
+        KAFKA_EVENTS_NATIVE_JSON_TABLE, CONSUMER_GROUP_EVENTS_JSON_NATIVE_JSON, on_cluster
     )
 
 
@@ -494,20 +502,8 @@ def _cast_temporary_properties(field: str) -> str:
     )
 
 
-def EVENTS_JSON_TABLE_MV_SQL(
-    mv_name="events_json_table_mv",
-    kafka_table=KAFKA_EVENTS_NATIVE_JSON_TABLE,
-    target_table=None,
-    on_cluster=True,
-):
-    if target_table is None:
-        target_table = WRITABLE_EVENTS_JSON_TABLE
-
-    return """
-CREATE MATERIALIZED VIEW IF NOT EXISTS {mv_name} {on_cluster_clause}
-TO {database}.{target_table}
-AS
-SELECT
+def _events_json_rows_sql(kafka_table: str, where_clause: str = "") -> str:
+    return """SELECT
 *,
 accurateCast(byteSize(*) + byteSize(toUInt32(0)), 'UInt32') AS total_event_size
 FROM
@@ -562,16 +558,12 @@ arrayMap(
 ) AS consumer_breadcrumbs,
 {cleaner}(properties, person_properties) AS {cleaned}
 FROM {database}.{kafka_table}
-) AS source
+{where_clause}) AS source
 )
-SETTINGS {insert_settings}
 """.format(
-        mv_name=mv_name,
         kafka_table=kafka_table,
-        target_table=target_table,
-        on_cluster_clause=f"ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'" if on_cluster else "",
+        where_clause=where_clause,
         database=settings.CLICKHOUSE_DATABASE,
-        insert_settings=EVENTS_JSON_INSERT_SETTINGS,
         cleaner=EVENTS_JSON_CLEANER,
         cleaned=EVENTS_JSON_CLEANED_ALIAS,
         temporary_properties_expr=_cast_temporary_properties("temporary_properties"),
@@ -580,6 +572,23 @@ SETTINGS {insert_settings}
             "person_properties", "source.person_properties", PERSON_PROPERTIES_JSON_TYPE()
         ),
     )
+
+
+def EVENTS_JSON_TABLE_MV_SQL(
+    mv_name="events_json_table_mv",
+    kafka_table=KAFKA_EVENTS_NATIVE_JSON_TABLE,
+    target_table=None,
+    on_cluster=True,
+):
+    if target_table is None:
+        target_table = WRITABLE_EVENTS_JSON_TABLE
+    on_cluster_clause = f"ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'" if on_cluster else ""
+    return f"""
+CREATE MATERIALIZED VIEW IF NOT EXISTS {mv_name} {on_cluster_clause}
+TO {settings.CLICKHOUSE_DATABASE}.{target_table}
+AS
+{_events_json_rows_sql(kafka_table)}SETTINGS {EVENTS_JSON_INSERT_SETTINGS}
+"""
 
 
 # WarpStream Kafka engine tables (coexist alongside MSK tables, same target)
@@ -808,19 +817,31 @@ def EVENTS_JSON_RECENT_TABLE_SQL() -> str:
     )
 
 
-def EVENTS_JSON_RECENT_MV_SQL(source_table: str = WRITABLE_EVENTS_JSON_TABLE) -> str:
-    # Reads the rows events_json receives, not the Kafka table, so both tables hold the same deduplicated rows
-    # with the same inserted_at.
+def KAFKA_EVENTS_JSON_RECENT_TABLE_SQL() -> str:
+    # Its own consumer group, so events_json_recent and events_json keep ingesting when the other one fails.
+    return _kafka_events_native_json_table_sql(
+        KAFKA_EVENTS_JSON_RECENT_TABLE, CONSUMER_GROUP_EVENTS_JSON_RECENT, on_cluster=False
+    )
+
+
+def EVENTS_JSON_RECENT_MV_SQL(
+    mv_name: str = EVENTS_JSON_RECENT_MV, kafka_table: str = KAFKA_EVENTS_JSON_RECENT_TABLE
+) -> str:
+    # The rows are cast to the events_json types and printed back, so the stored text is the same as toJSONString
+    # on an events_json row. events_json drops $feature_flag_called in production, so this table drops it too.
+    rows = _events_json_rows_sql(kafka_table, where_clause="WHERE event != '$feature_flag_called'\n")
     return f"""
-CREATE MATERIALIZED VIEW IF NOT EXISTS {EVENTS_JSON_RECENT_MV}
+CREATE MATERIALIZED VIEW IF NOT EXISTS {mv_name}
 TO {settings.CLICKHOUSE_DATABASE}.{WRITABLE_EVENTS_JSON_RECENT_TABLE}
-AS SELECT * REPLACE (
+AS
+SELECT * REPLACE (
     toJSONString(properties) AS properties,
     toJSONString(temporary_properties) AS temporary_properties,
     toJSONString(person_properties) AS person_properties
 )
-FROM {settings.CLICKHOUSE_DATABASE}.{source_table}
-SETTINGS json_type_escape_dots_in_keys = 1, output_format_json_escape_forward_slashes = 0
+FROM (
+{rows})
+SETTINGS {EVENTS_JSON_INSERT_SETTINGS}, output_format_json_escape_forward_slashes = 0
 """
 
 
