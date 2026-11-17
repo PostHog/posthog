@@ -517,10 +517,12 @@ describe('transactional send sealing', () => {
     })
     const sanitizer = (sealing: boolean) =>
         createInvocationSanitizer(
-            { CDP_CYCLOTRON_STRIP_PERSON_FROM_STATE_TEAMS: '', ENCRYPTION_SALT_KEYS },
-            { isEnabled: () => false },
-            keys,
-            { isEnabled: () => sealing }
+            {
+                CDP_CYCLOTRON_STRIP_PERSON_FROM_STATE_TEAMS: '',
+                CDP_SEAL_TRANSACTIONAL_EMAIL_STATE: sealing,
+                ENCRYPTION_SALT_KEYS,
+            },
+            { isEnabled: () => false }
         )
 
     it.each([

@@ -2,7 +2,6 @@ import { Counter, Gauge, Histogram } from 'prom-client'
 
 import type { CommonConfig } from '~/common/config'
 import { buildIntegerMatcher } from '~/common/config/config'
-import { isFeatureFlagEnabled } from '~/common/utils/posthog'
 
 import { ValueMatcher } from '../../../types'
 import { CdpConfig } from '../../config'
@@ -15,13 +14,12 @@ import {
 } from '../../types'
 import { EncryptedFields } from '../../utils/encryption-utils'
 import {
-    FLAG_DISTINCT_ID,
     IntegrationInputRefsRollout,
     IntegrationRefSigner,
     replaceIntegrationInputsWithRefs,
     signIntegrationRef,
 } from '../../utils/integration-input-refs'
-import { StateSealer, sealInvocation } from '../cyclotron-v2/job-codec'
+import { sealInvocation } from '../cyclotron-v2/job-codec'
 import { TRANSACTIONAL_EMAIL_EVENT } from '../hogflows/hogflow-sensitivity'
 
 export const cdpJobSizeKb = new Histogram({
@@ -164,25 +162,23 @@ function sanitizeGlobals(
  * Call once at construction time, use the returned functions on every queue operation.
  */
 export function createInvocationSanitizer(
-    config: Pick<CdpConfig, 'CDP_CYCLOTRON_STRIP_PERSON_FROM_STATE_TEAMS'> & Pick<CommonConfig, 'ENCRYPTION_SALT_KEYS'>,
+    config: Pick<CdpConfig, 'CDP_CYCLOTRON_STRIP_PERSON_FROM_STATE_TEAMS'> &
+        Partial<Pick<CdpConfig, 'CDP_SEAL_TRANSACTIONAL_EMAIL_STATE'>> &
+        Pick<CommonConfig, 'ENCRYPTION_SALT_KEYS'>,
     integrationRefsRollout: Pick<IntegrationInputRefsRollout, 'isEnabled'> = new IntegrationInputRefsRollout(),
-    integrationRefSigner: IntegrationRefSigner = new EncryptedFields(config.ENCRYPTION_SALT_KEYS),
-    sealRollout: Pick<IntegrationInputRefsRollout, 'isEnabled'> = new IntegrationInputRefsRollout(() =>
-        isFeatureFlagEnabled('cdp-seal-transactional-email-state', FLAG_DISTINCT_ID)
-    ),
-    sealer: StateSealer = new EncryptedFields(config.ENCRYPTION_SALT_KEYS)
+    integrationRefSigner: IntegrationRefSigner = new EncryptedFields(config.ENCRYPTION_SALT_KEYS)
 ) {
     const stripPersonMatcher: ValueMatcher<number> = buildIntegerMatcher(
         config.CDP_CYCLOTRON_STRIP_PERSON_FROM_STATE_TEAMS,
         true
     )
 
-    // The first check only starts the flag fetch and reads off, so start it now rather than on the first send.
-    sealRollout.isEnabled()
+    const sealer = new EncryptedFields(config.ENCRYPTION_SALT_KEYS)
 
-    // Only transactional sends carry login codes and reset links, so only they are stored encrypted.
+    // Only transactional sends carry login codes and reset links, so only they are stored encrypted. The setting is read
+    // at boot rather than from a flag, because a flag that fails to load would store them in plaintext.
     const seal = (inv: CyclotronJobInvocation): CyclotronJobInvocation =>
-        inv.state?.event?.event === TRANSACTIONAL_EMAIL_EVENT && sealRollout.isEnabled()
+        config.CDP_SEAL_TRANSACTIONAL_EMAIL_STATE && inv.state?.event?.event === TRANSACTIONAL_EMAIL_EVENT
             ? sealInvocation(inv, sealer)
             : inv
 
