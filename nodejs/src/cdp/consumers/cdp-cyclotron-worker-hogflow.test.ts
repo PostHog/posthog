@@ -630,7 +630,7 @@ describe('CdpCyclotronWorkerHogFlow', () => {
                         error: 'The run state could not be decrypted',
                         invocation: expect.objectContaining({
                             id: unreadableInvocation.id,
-                            hogFlow: expect.anything(),
+                            hogFlow: expect.objectContaining({ id: lateFlow.id }),
                         }),
                     }),
                 ])
