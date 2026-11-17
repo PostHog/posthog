@@ -804,7 +804,7 @@ const ProjectSettingsUpdateSchema = () => {
             id: z.preprocess(
                 castStringToInt,
                 OrganizationsProjectsPartialUpdateParams.shape['id'].describe(
-                    "Project ID, or `@current` to target the caller's active project."
+                    "Numeric ID of the project to update. Call project-get to read the active project's ID."
                 )
             ),
         })

@@ -375,7 +375,7 @@ tools:
             - organization
         param_overrides:
             id:
-                description: Project ID, or `@current` to target the caller's active project.
+                description: Numeric ID of the project to update. Call project-get to read the active project's ID.
                 cast: string-int
         response:
             exclude:
