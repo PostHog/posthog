@@ -1134,6 +1134,31 @@ jobs:
                   quarantine: true
                   previous-step-outcome: ${{ steps.playwright-tests.outcome }}
                   token: ${{ secrets.TRUNK_API_TOKEN }}
+            # Trunk quarantines a test, not a failure, so a quarantined test also hides a change that breaks it.
+            # This step reruns each test that failed every attempt, with two more retries. A flake passes at least
+            # one of the three attempts and stays masked. A test that fails all three is treated as broken and reds the job.
+            # --output and --reporter keep the rerun from overwriting test-results/, the junit file, and the html report.
+            # The quarantine reporter stays in the list so that a `mode: "run"` entry in .test_quarantine.json still applies.
+            # Without failed test ids, --last-failed runs the whole suite, so the step skips when .last-run.json lists none.
+            - name: Rerun failures the quarantine masked
+              if: ${{ !cancelled() && steps.playwright-tests.outcome == 'failure' && vars.TRUNK_QUARANTINE_ENABLED == 'true' && steps.quarantine_gate.outcome == 'success' }}
+              timeout-minutes: 15
+              shell: bash
+              run: |
+                  last_run=playwright/test-results/.last-run.json
+                  failed=$(jq '.failedTests | length' "$last_run" 2>/dev/null || echo 0)
+                  if [ "$failed" -eq 0 ]; then
+                      echo "No failed test in $last_run, so there is nothing to rerun."
+                      exit 0
+                  fi
+                  mkdir -p playwright/test-results-quarantine-rerun
+                  cp "$last_run" playwright/test-results-quarantine-rerun/.last-run.json
+                  if ! pnpm --filter=@posthog/playwright exec playwright test --last-failed --retries=2 \
+                      --output=test-results-quarantine-rerun --reporter=line,./playwright.quarantine.reporter.ts \
+                      --workers=2 --update-snapshots; then
+                      echo "::error::A test that Trunk quarantined failed every rerun. The quarantine covers flakes, so this failure is treated as a real break. The rerun output above names the test."
+                      exit 1
+                  fi
             # Verdict: red a real failure the gate didn't clear as a quarantined flake. != 'success'
             # also covers the skipped gate on fork/Dependabot.
             - name: Fail on Playwright failure
