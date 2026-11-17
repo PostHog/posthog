@@ -62,7 +62,6 @@ export interface traceDialogLogicValues {
     traceViewMode: TraceViewMode // tracingConfigLogic
     configuredDistinctIdKeys: string[] | undefined // tracingCorrelationConfigLogic
     configuredSessionIdKeys: string[] | undefined // tracingCorrelationConfigLogic
-    correlationLinksEnabled: boolean // tracingCorrelationConfigLogic
     sessionErrorBadgesEnabled: boolean // tracingCorrelationConfigLogic
     inspectorOpen: boolean
     isFullscreen: boolean
@@ -186,8 +185,7 @@ export interface traceDialogLogicMeta {
         traceIdentity: (
             traceSpans: TraceSpanPages | null,
             configuredDistinctIdKeys: string[] | undefined,
-            configuredSessionIdKeys: string[] | undefined,
-            correlationLinksEnabled: boolean
+            configuredSessionIdKeys: string[] | undefined
         ) => TraceIdentity
         traceSessionId: (
             traceSpans: TraceSpanPages | null,
@@ -233,12 +231,7 @@ export const traceDialogLogic = kea<traceDialogLogicType>([
             traceDialogOpenLogic,
             ['isOpen', 'trace', 'openedFrom', 'entryPoint'],
             tracingCorrelationConfigLogic,
-            [
-                'configuredDistinctIdKeys',
-                'configuredSessionIdKeys',
-                'correlationLinksEnabled',
-                'sessionErrorBadgesEnabled',
-            ],
+            ['configuredDistinctIdKeys', 'configuredSessionIdKeys', 'sessionErrorBadgesEnabled'],
             tracingConfigLogic,
             ['traceViewMode'],
         ],
@@ -288,14 +281,13 @@ export const traceDialogLogic = kea<traceDialogLogicType>([
         // A truncated trace may hold a second, conflicting person on a page the dialog never
         // loaded, so it names no one rather than risk naming the wrong one.
         traceIdentity: [
-            (s) => [s.traceSpans, s.configuredDistinctIdKeys, s.configuredSessionIdKeys, s.correlationLinksEnabled],
+            (s) => [s.traceSpans, s.configuredDistinctIdKeys, s.configuredSessionIdKeys],
             (
                 traceSpans: TraceSpanPages | null,
                 distinctIdKeys: string[] | undefined,
-                sessionIdKeys: string[] | undefined,
-                linksEnabled: boolean
+                sessionIdKeys: string[] | undefined
             ): TraceIdentity =>
-                linksEnabled && traceSpans && !traceSpans.truncated
+                traceSpans && !traceSpans.truncated
                     ? resolveTraceIdentity(traceSpans.spans, distinctIdKeys, sessionIdKeys)
                     : EMPTY_TRACE_IDENTITY,
         ],
