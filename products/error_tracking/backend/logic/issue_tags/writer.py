@@ -105,9 +105,11 @@ def carry_issue_tags_on_merge(target: ErrorTrackingIssue, source_issue_ids: list
             updated_at = tags.create(team=team, issue=target, key=key, **fields).updated_at
         else:
             before, updated_at = _replace_tag(tags, current, fields)
-        after: dict[str, object] = {"key": key, "value": True, "source": label.source}
-        # strict=False defers the activity insert and its internal event until the merge releases its row locks.
-        _log_tag_change(target, user=None, was_impersonated=False, before=before, after=after, strict=False)
+        # The activity log holds no rule answer, for the reason in set_issue_tag.
+        if label.source != ErrorTrackingIssueTag.Source.RULE:
+            after: dict[str, object] = {"key": key, "value": True, "source": label.source}
+            # strict=False defers the activity insert and its internal event until the merge releases its row locks.
+            _log_tag_change(target, user=None, was_impersonated=False, before=before, after=after, strict=False)
         _sync_tag_on_commit(target, key, True, updated_at)
 
 

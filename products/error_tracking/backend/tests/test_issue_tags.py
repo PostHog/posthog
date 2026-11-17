@@ -269,6 +269,45 @@ class TestCarryIssueTagsOnMerge(BaseTest):
         assert self._target_answer(target) == expected
         assert _issue_activity(target).count() == int(expected != on_target)
 
+    @parameterized.expand(
+        [
+            ("rule_label_from_a_source", None, Source.RULE, []),
+            (
+                "manual_label_over_a_rule_label",
+                Source.RULE,
+                Source.MANUAL,
+                [
+                    {
+                        "type": "ErrorTrackingIssue",
+                        "action": "created",
+                        "field": "tag",
+                        "before": None,
+                        "after": {"key": "blocks_checkout", "value": True, "source": "manual"},
+                    }
+                ],
+            ),
+        ]
+    )
+    def test_the_activity_log_holds_no_rule_answer_that_a_merge_carries_or_replaces(
+        self,
+        _name: str,
+        on_target: ErrorTrackingIssueTag.Source | None,
+        on_source: ErrorTrackingIssueTag.Source,
+        logged: list[dict[str, object]],
+    ) -> None:
+        target = ErrorTrackingIssue.objects.create(team=self.team)
+        if on_target is not None:
+            self._tag(target, on_target, True)
+        source = ErrorTrackingIssue.objects.create(team=self.team)
+        self._tag(source, on_source, True)
+
+        target.merge([source.id])
+
+        assert self._target_answer(target) == (on_source, True)
+        assert [
+            change for entry in _issue_activity(target) for change in (entry.detail or {}).get("changes", [])
+        ] == logged
+
     def test_a_carried_label_is_logged_on_the_target_and_reaches_clickhouse(self) -> None:
         target = ErrorTrackingIssue.objects.create(team=self.team, name="TypeError: cart is undefined")
         source = ErrorTrackingIssue.objects.create(team=self.team)
