@@ -11,10 +11,9 @@ import structlog
 from posthog.dataclasses import frozen
 from posthog.models import Team
 
-from products.alerts_platform.backend.facade.api import list_configurations
+from products.alerts_platform.backend.facade.api import list_configurations, owned_copies_by_legacy_id
 from products.alerts_platform.backend.facade.contracts import PlatformAlertConfigurationView, SourceKind
 from products.logs.backend.alert_state_machine import NotificationAction
-from products.logs.backend.models import LogsAlertConfiguration
 from products.logs.backend.platform_source_config import filters_of
 from products.signals.backend.facade.api import emit_signal
 
@@ -167,16 +166,6 @@ class _AlertFacts:
     filters: dict
 
     @classmethod
-    def of_logs_alert(cls, alert: LogsAlertConfiguration) -> _AlertFacts:
-        return cls(
-            name=alert.name,
-            threshold_count=alert.threshold_count,
-            threshold_operator=alert.threshold_operator,
-            window_minutes=alert.window_minutes,
-            filters=alert.filters,
-        )
-
-    @classmethod
     def of_configuration(cls, configuration: PlatformAlertConfigurationView) -> _AlertFacts:
         condition = configuration.source_config["condition"]
         return cls(
@@ -189,12 +178,14 @@ class _AlertFacts:
 
 
 def _facts_by_alert_id(team_id: int, alert_ids: set[str]) -> dict[str, _AlertFacts]:
-    """What a signal says about each alert: from its logs row, or from the platform configuration
-    when the platform created the alert without one."""
-    facts = {
-        str(alert.id): _AlertFacts.of_logs_alert(alert)
-        for alert in LogsAlertConfiguration.objects.filter(team_id=team_id, id__in=alert_ids)
-    }
+    """What a signal says about each alert, from its platform configuration. A signal names a copy by
+    its logs row's id, and an alert the platform created without a row by the configuration's own."""
+    copies = owned_copies_by_legacy_id(
+        team_id=team_id,
+        source_kind=SourceKind.LOGS,
+        legacy_configuration_ids=[UUID(alert_id) for alert_id in alert_ids],
+    )
+    facts = {str(legacy_id): _AlertFacts.of_configuration(copy) for legacy_id, copy in copies.items()}
     missing = [UUID(alert_id) for alert_id in alert_ids - facts.keys()]
     if missing:
         page = list_configurations(
@@ -214,10 +205,7 @@ def _facts_by_alert_id(team_id: int, alert_ids: set[str]) -> dict[str, _AlertFac
 
 
 def notified_alerts_for_platform(team_id: int, signals: list[PlatformAlertSignal]) -> list[NotifiedAlert]:
-    """The signal facts for alerts the platform announced.
-
-    A copy whose logs row is gone gets no signal, the way the logs stack sends none for it.
-    """
+    """The signal facts for alerts the platform announced. An alert the platform no longer holds gets no signal."""
     facts_by_id = _facts_by_alert_id(team_id, {signal.alert_id for signal in signals})
     notified: list[NotifiedAlert] = []
     for signal in signals:
