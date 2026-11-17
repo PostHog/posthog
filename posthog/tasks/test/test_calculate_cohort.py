@@ -2203,6 +2203,94 @@ class TestCohortCalculationTasks(APIBaseTest):
         }
         self.assertEqual(ch_stamps, {str(kept.uuid): (1, marker), str(new.uuid): (1, marker)})
 
+    def test_replace_pins_membership_queries_to_data_cluster_when_team_uses_new_events_schema(self) -> None:
+        from posthog.clickhouse.client.connection import Workload, get_kwargs_for_client
+        from posthog.models.event.new_events_schema import use_new_events_schema
+        from posthog.models.instance_setting import override_instance_config
+
+        kept, stale, manual = (
+            create_person(team=self.team, distinct_ids=[name], properties={"tag": tag}, uuid=uuid4())
+            for name, tag in (("kept", "in"), ("stale", "out"), ("manual", "out"))
+        )
+        flush_persons_and_events()
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="new-events-schema replace",
+            is_static=True,
+            query={"kind": "HogQLQuery", "query": "SELECT id FROM persons WHERE properties.tag = 'in'"},
+        )
+        start = timezone.now().replace(microsecond=0)
+        cohort.insert_users_list_by_uuid([str(kept.uuid), str(stale.uuid)], team_id=self.team.pk)
+
+        recorded: list[tuple[str, str | None, int | None, dict[str, Any]]] = []
+        real_sync_execute = sync_execute
+
+        def spy_sync_execute(query: str, *args: Any, **kwargs: Any) -> Any:
+            workload = kwargs.get("workload", Workload.DEFAULT)
+            call_team_id = kwargs.get("team_id")
+            with override_settings(
+                CLICKHOUSE_EVENTS_OFFLINE_HOST="events-offline.invalid",
+                CLICKHOUSE_OFFLINE_CLUSTER_HOST="data-offline.invalid",
+            ):
+                host = get_kwargs_for_client(workload=workload, team_id=call_team_id).get("host")
+            recorded.append((query, host, call_team_id, dict(kwargs.get("settings") or {})))
+            return real_sync_execute(query, *args, **kwargs)
+
+        from products.cohorts.backend.models import util as cohort_util
+
+        real_copy = cohort_util._copy_static_cohort_rows_to_pg
+        manual_added = False
+
+        def copy_after_manual_add(*args: Any, **kwargs: Any) -> int:
+            nonlocal manual_added
+            if not manual_added:
+                manual_added = True
+                cohort.insert_users_list_by_uuid([str(manual.uuid)], team_id=self.team.pk, save_state=False)
+            return real_copy(*args, **kwargs)
+
+        with (
+            time_machine.travel(start + timedelta(seconds=10), tick=False) as clock,
+            override_instance_config("CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS", str(self.team.pk)),
+            patch("products.cohorts.backend.models.util.sync_execute", side_effect=spy_sync_execute),
+            patch(
+                "products.cohorts.backend.models.util._copy_static_cohort_rows_to_pg", side_effect=copy_after_manual_add
+            ),
+        ):
+            self.assertTrue(use_new_events_schema(self.team.pk))
+            Cohort.objects.filter(pk=cohort.pk).update(
+                is_calculating=True,
+                pending_population_mode=CohortPopulationMode.REPLACE,
+                population_claimed_at=timezone.now().replace(microsecond=0),
+            )
+            clock.shift(10)
+            insert_cohort_from_query(cohort.id, self.team.pk)
+
+        mint_calls = [c for c in recorded if "max(_timestamp)" in c[0]]
+        copy_calls = [c for c in recorded if "ORDER BY person_id LIMIT" in c[0]]
+        membership_calls = [c for c in recorded if "SELECT DISTINCT person_id" in c[0]]
+        prune_calls = [c for c in recorded if c[0].lstrip().startswith("DELETE FROM")]
+        insert_calls = [c for c in recorded if "INSERT INTO" in c[0] and "SELECT" in c[0]]
+
+        self.assertTrue(mint_calls and copy_calls and membership_calls and prune_calls and insert_calls)
+        for calls in (mint_calls, copy_calls, membership_calls, prune_calls):
+            for _sql, host, call_team_id, _call_settings in calls:
+                self.assertEqual(host, "data-offline.invalid")
+                self.assertEqual(call_team_id, self.team.pk)
+
+        self.assertEqual(insert_calls[0][1], "events-offline.invalid")
+        self.assertEqual(insert_calls[0][2], self.team.pk)
+        self.assertEqual(insert_calls[0][3].get("insert_distributed_sync"), 1)
+
+        self.assertEqual(set(list_cohort_member_ids(team_id=self.team.pk, cohort_id=cohort.pk)), {kept.id, manual.id})
+        ch_uuids = {
+            str(row[0])
+            for row in sync_execute(
+                "SELECT DISTINCT person_id FROM person_static_cohort WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s",
+                {"team_id": self.team.pk, "cohort_id": cohort.pk},
+            )
+        }
+        self.assertEqual(ch_uuids, {str(kept.uuid), str(manual.uuid)})
+
     @parameterized.expand(
         [
             ("query_flipped_to_dynamic", insert_cohort_from_query, QUERY_CH_INSERT_PATH, {"is_static": False}),

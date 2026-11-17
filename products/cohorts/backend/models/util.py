@@ -6,6 +6,7 @@ import uuid
 import functools
 import dataclasses
 from collections.abc import Callable, Iterator, Sequence
+from contextlib import AbstractContextManager
 from datetime import UTC, datetime
 from enum import StrEnum
 from typing import TYPE_CHECKING, Any, Optional, cast
@@ -19,6 +20,8 @@ from clickhouse_driver.errors import SocketTimeoutError
 from dateutil import parser
 from pydantic import ValidationError as PydanticValidationError
 from rest_framework.exceptions import ValidationError
+
+from posthog.schema import HogQLQueryModifiers
 
 from posthog.hogql import ast
 from posthog.hogql.constants import (
@@ -47,7 +50,7 @@ from posthog.exceptions import (
 )
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
-from posthog.models.event.new_events_schema import events_read_settings
+from posthog.models.event.new_events_schema import events_read_settings, events_route_scope
 from posthog.models.person.sql import (
     DELETE_PERSON_FROM_STATIC_COHORT,
     DELETE_STATIC_COHORT_ROWS_BEFORE_MARKER,
@@ -1431,7 +1434,8 @@ def insert_actors_into_cohort_by_query(
             # A SELECT compiled from cohort filters arrives without its SETTINGS clause (hogql_cohort_subquery_sql
             # trims it so the query can be embedded), so the native read settings travel on the INSERT.
             **events_read_settings(context.uses_new_events_schema()),
-            **(REPLACE_INSERT_QUORUM_SETTINGS if replace_marker is not None else {}),
+            # Flush Distributed writes from a satellite cluster synchronously so quorum reads on data see every row.
+            **({**REPLACE_INSERT_QUORUM_SETTINGS, "insert_distributed_sync": 1} if replace_marker is not None else {}),
         },
         workload=Workload.OFFLINE,
         ch_user=ClickHouseUser.COHORTS,
@@ -1578,24 +1582,25 @@ def _copy_static_cohort_rows_to_pg(
         # Tagged per page, because the batch writer between pages may retag.
         tag_queries(product=ProductKey.COHORTS, feature=Feature.COHORT, query_type="static_cohort_sync_page")
         # nosemgrep: clickhouse-fstring-param-audit - table name from constant, values parameterized
-        rows = sync_execute(
-            f"SELECT person_id, {kept}, {counted} FROM {PERSON_STATIC_COHORT_TABLE} WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s AND person_id >= %(cursor)s ORDER BY person_id LIMIT %(limit)s",
-            {
-                "cohort_id": cohort.pk,
-                "team_id": team_id,
-                "cursor": cursor,
-                "limit": batch_size,
-                "counted_since": counted_since,
-                "marker": keep_marker,
-                "floor": keep_floor,
-                "replace_offset": REPLACE_ROW_OFFSET,
-            },
-            settings=read_settings,
-            # The cluster the population insert writes to, so a read never lands on another one.
-            workload=Workload.OFFLINE,
-            ch_user=ClickHouseUser.COHORTS,
-            team_id=team_id,
-        )
+        with _static_cohort_data_route():
+            rows = sync_execute(
+                f"SELECT person_id, {kept}, {counted} FROM {PERSON_STATIC_COHORT_TABLE} WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s AND person_id >= %(cursor)s ORDER BY person_id LIMIT %(limit)s",
+                {
+                    "cohort_id": cohort.pk,
+                    "team_id": team_id,
+                    "cursor": cursor,
+                    "limit": batch_size,
+                    "counted_since": counted_since,
+                    "marker": keep_marker,
+                    "floor": keep_floor,
+                    "replace_offset": REPLACE_ROW_OFFSET,
+                },
+                settings=read_settings,
+                # Pinned to the data cluster while keeping team_id so settings, query tags, and kill switches still apply.
+                workload=Workload.OFFLINE,
+                ch_user=ClickHouseUser.COHORTS,
+                team_id=team_id,
+            )
         if not rows:
             exhausted = True
             return [], cursor
@@ -1688,6 +1693,11 @@ def require_current_population_marker(cohort_id: int, marker: datetime) -> None:
         raise PopulationSuperseded(cohort_id)
 
 
+def _static_cohort_data_route() -> AbstractContextManager[None]:
+    """Pin ``person_static_cohort`` operations to the data cluster without dropping ``team_id``."""
+    return events_route_scope(HogQLQueryModifiers(useNewEventsSchema=False))
+
+
 def mint_population_marker(cohort: Cohort, *, team_id: int) -> datetime | None:
     """Store a new replace marker on the cohort and return it, or None when another attempt changed the stored marker first.
 
@@ -1698,14 +1708,15 @@ def mint_population_marker(cohort: Cohort, *, team_id: int) -> datetime | None:
     stored = cohort.population_marker
     tag_queries(product=ProductKey.COHORTS, feature=Feature.COHORT, query_type="static_cohort_replace_mint_marker")
     # nosemgrep: clickhouse-fstring-param-audit - table name from constant, values parameterized
-    rows = sync_execute(
-        f"SELECT max(_timestamp) FROM {PERSON_STATIC_COHORT_TABLE} WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s",
-        {"team_id": team_id, "cohort_id": cohort.pk},
-        settings=REPLACE_READ_SETTINGS,
-        workload=Workload.OFFLINE,
-        ch_user=ClickHouseUser.COHORTS,
-        team_id=team_id,
-    )
+    with _static_cohort_data_route():
+        rows = sync_execute(
+            f"SELECT max(_timestamp) FROM {PERSON_STATIC_COHORT_TABLE} WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s",
+            {"team_id": team_id, "cohort_id": cohort.pk},
+            settings=REPLACE_READ_SETTINGS,
+            workload=Workload.OFFLINE,
+            ch_user=ClickHouseUser.COHORTS,
+            team_id=team_id,
+        )
     floor = _as_utc(rows[0][0]) if rows and rows[0][0] is not None else None
     if stored is not None:
         floor = max(floor, _as_utc(stored)) if floor is not None else _as_utc(stored)
@@ -1834,21 +1845,22 @@ def _uuids_present_at_marker(
         return set()
     tag_queries(product=ProductKey.COHORTS, feature=Feature.COHORT, query_type="static_cohort_replace_membership")
     # nosemgrep: clickhouse-fstring-param-audit - table name from constant, values parameterized
-    rows = sync_execute(
-        f"SELECT DISTINCT person_id FROM {PERSON_STATIC_COHORT_TABLE} WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s AND {REPLACE_KEEPS_ROW} AND person_id IN %(person_uuids)s",
-        {
-            "team_id": team_id,
-            "cohort_id": cohort_id,
-            "marker": marker,
-            "floor": floor or marker,
-            "replace_offset": REPLACE_ROW_OFFSET,
-            "person_uuids": person_uuids,
-        },
-        settings=REPLACE_READ_SETTINGS,
-        workload=Workload.OFFLINE,
-        ch_user=ClickHouseUser.COHORTS,
-        team_id=team_id,
-    )
+    with _static_cohort_data_route():
+        rows = sync_execute(
+            f"SELECT DISTINCT person_id FROM {PERSON_STATIC_COHORT_TABLE} WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s AND {REPLACE_KEEPS_ROW} AND person_id IN %(person_uuids)s",
+            {
+                "team_id": team_id,
+                "cohort_id": cohort_id,
+                "marker": marker,
+                "floor": floor or marker,
+                "replace_offset": REPLACE_ROW_OFFSET,
+                "person_uuids": person_uuids,
+            },
+            settings=REPLACE_READ_SETTINGS,
+            workload=Workload.OFFLINE,
+            ch_user=ClickHouseUser.COHORTS,
+            team_id=team_id,
+        )
     return {str(row[0]) for row in rows}
 
 
@@ -1969,19 +1981,20 @@ def prune_static_cohort_rows_before_marker(
     )
     # The default user, as the manual remove uses: the cohorts user's grants live outside this repo, so its
     # right to delete can't be checked here.
-    sync_execute(
-        DELETE_STATIC_COHORT_ROWS_BEFORE_MARKER,
-        {
-            "team_id": team_id,
-            "cohort_id": cohort_id,
-            "marker": marker,
-            "floor": floor or marker,
-            "replace_offset": REPLACE_ROW_OFFSET,
-        },
-        settings=_static_cohort_delete_settings(),
-        workload=Workload.OFFLINE,
-        team_id=team_id,
-    )
+    with _static_cohort_data_route():
+        sync_execute(
+            DELETE_STATIC_COHORT_ROWS_BEFORE_MARKER,
+            {
+                "team_id": team_id,
+                "cohort_id": cohort_id,
+                "marker": marker,
+                "floor": floor or marker,
+                "replace_offset": REPLACE_ROW_OFFSET,
+            },
+            settings=_static_cohort_delete_settings(),
+            workload=Workload.OFFLINE,
+            team_id=team_id,
+        )
 
 
 # ── Cohort membership operations (Postgres / personhog) ───────────────
