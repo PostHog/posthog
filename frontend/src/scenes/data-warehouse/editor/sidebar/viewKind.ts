@@ -39,7 +39,9 @@ export function getTableKindLabel(record: Record<string, any> | undefined): stri
     }
 }
 
+// `sync_frequency` is the declared target. A downstream view can make the scheduler refresh sooner, so the
+// tooltip says "set to" instead of claiming the effective cadence.
 export function getMaterializedViewTooltip(syncFrequency: string | undefined): string {
     const cadence = syncFrequency ? CADENCE_LABELS[syncFrequency as DataModelingSyncInterval] : undefined
-    return cadence ? `Materialized view - refreshes every ${cadence}` : 'Materialized view'
+    return cadence ? `Materialized view - set to refresh every ${cadence}` : 'Materialized view'
 }
