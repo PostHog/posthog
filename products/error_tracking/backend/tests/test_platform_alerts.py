@@ -81,6 +81,7 @@ class TestErrorTrackingAlertCreate(APIBaseTest):
             # It would compile to a constant true, so the alert would match every issue.
             ("without_a_value", {"key": "environment", "type": "event", "operator": "exact"}),
             # A change's snapshot has no description, so the filter would read it as unset.
+            ("key_not_a_string", {"key": [], "type": "event", "operator": "exact", "value": "x"}),
             ("not_in_the_snapshot", {"key": "description", "type": "event", "operator": "icontains", "value": "x"}),
         ]
     )

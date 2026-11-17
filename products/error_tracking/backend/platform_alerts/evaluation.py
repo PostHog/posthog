@@ -71,7 +71,10 @@ from products.error_tracking.backend.temporal.alerts.filter_evaluation import (
     filters_are_configured,
 )
 from products.error_tracking.backend.temporal.alerts.types import AlertDeliveryWorkflowInputs
-from products.error_tracking.backend.temporal.lifecycle.event_properties import fetch_event_properties
+from products.error_tracking.backend.temporal.lifecycle.event_properties import (
+    IssueCreatedEventNotFoundError,
+    fetch_event_properties,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -85,7 +88,7 @@ POLICY: Final = replace(PLATFORM_DEFAULT_ALERT_POLICY, notify_resolve=False, ren
 SETTLE: Final = timedelta(seconds=60)
 # How far back a check that ran late reads. Older changes are no longer news.
 MAX_WINDOW: Final = timedelta(hours=24)
-# Issues one check reads. A check that finds more reports what it read and says the results were cut.
+# Changes one check reads, newest first. A check that finds more reports what it read and logs the cut.
 MAX_CHANGES_PER_CHECK: Final = 1_000
 # The batch's read time, which `EVALUATE_START_TO_CLOSE` in the workflow sits above. A check the
 # budget has no room for records nothing, so it keeps its due time and a later tick reads its window.
@@ -234,7 +237,6 @@ def _observe_changes(
     matches_trigger = Q()
     for wanted in triggers:
         matches_trigger |= _TRIGGER_ROWS[wanted]
-    # The newest change of each issue, so the row limit counts issues, which the group cap also counts.
     rows = list(
         ErrorTrackingIssueChange.objects.for_team(team.id)
         .filter(
@@ -244,14 +246,15 @@ def _observe_changes(
             # A bulk action over many issues would announce each one, so only single changes announce.
             bulk=False,
         )
-        .order_by("issue_id", "-created_at")
-        .distinct("issue_id")[: MAX_CHANGES_PER_CHECK + 1]
+        .order_by("-created_at")[: MAX_CHANGES_PER_CHECK + 1]
     )
     cut = len(rows) > MAX_CHANGES_PER_CHECK
     observed: dict[str, GroupObservation] = {}
     for row in rows[:MAX_CHANGES_PER_CHECK]:
+        key = bounded_grouping_key(str(row.issue_id))
         trigger = _trigger_of(row)
-        if trigger is None or trigger not in triggers:
+        # Filters run before an issue is counted once, so an older change that matches still fires it.
+        if key in observed or trigger is None or trigger not in triggers:
             continue
         inputs = _filter_inputs(team.id, row, trigger)
         if filters is not None:
@@ -259,7 +262,6 @@ def _observe_changes(
                 raise _OutOfTime
             if not _passes(team, filters, inputs, row):
                 continue
-        key = bounded_grouping_key(str(row.issue_id))
         observed[key] = GroupObservation(
             grouping_key=key,
             current_breached=True,
@@ -320,7 +322,7 @@ def _passes(
     # A manual change has no exception, so a filter that needs one fails closed in the evaluator.
     exception_properties = None
     if inputs.event_uuid and inputs.event_timestamp:
-        exception_properties = fetch_event_properties(
+        exception_properties = _exception_properties(
             team,
             _ExceptionRef(
                 team_id=team.id,
@@ -333,6 +335,19 @@ def _passes(
         filters, inputs, exception_properties, log_context={"change_id": str(row.id), "source": "platform_alert"}
     )
     return outcome == LifecycleFilterOutcome.MATCH
+
+
+def _exception_properties(team: Team, ref: "_ExceptionRef") -> dict[str, object] | None:
+    """The exception's properties, or None when retrying cannot find them.
+
+    A missing or malformed event fails closed for this change alone, so a filter on the issue still
+    decides it and the rest of the check goes on. Any other error propagates, and the check is read again.
+    """
+    try:
+        return fetch_event_properties(team, ref)
+    except (IssueCreatedEventNotFoundError, ValueError, TypeError):
+        logger.warning("Error tracking alert change has no readable exception", event_uuid=ref.event_uuid)
+        return None
 
 
 def _in_quiet_hours(check: PlatformAlertCheckInput, now: datetime, tz_name: str) -> bool:
