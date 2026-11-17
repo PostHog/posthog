@@ -390,7 +390,10 @@ One pod at a time exports: it holds `pg_try_advisory_lock`, and it selects batch
 A failed send keeps the rows for the next pass. The row id is the event `uuid`, so a repeat send does not create a second event.
 The distinct id is always `credentials-service`, with `$process_person_profile` off. The user id is an event property.
 An event carries key names in `fields`, never values. It carries no `details` and no `jti`.
-The request uses plain `fetch`, so it goes direct unless Node itself is set to use the proxy environment.
+Every event has an `environment` property. Its value is `CREDENTIALS_SERVICE_ENV` (`dev`, `prod-us` or `prod-eu`), so one project can receive events from all environments.
+By default the request goes direct, because Node's `fetch` ignores `HTTP_PROXY` and `HTTPS_PROXY`. Use this for an in-cluster capture host.
+For an external capture host, such as PostHog US cloud, set `CREDENTIALS_SERVICE_AUDIT_CAPTURE_VIA_PROXY=true`.
+The request then goes through the egress proxy in the pod's `HTTPS_PROXY`. Boot fails if `HTTPS_PROXY` is missing or the capture host is not `https`. `NO_PROXY` is not used.
 
 The runtime role has `UPDATE (exported_at)` on `audit_log` and no other update right. The exporter marks rows by primary key `(id, occurred_at)`, with the values it read in its select.
 
@@ -544,7 +547,7 @@ The mount must keep `__PROVIDER_` entries for the registry in the exchange and r
 
 Every provider HTTP call goes through smokescreen. The chart sets `NODE_USE_ENV_PROXY=1` and an egress NetworkPolicy.
 The exchange and refresh PR must use the proxy-aware `fetch`, and must not open its own connection.
-KMS and the internal capture host are the only direct egress.
+KMS and an in-cluster capture host are the only direct egress. An external capture host goes through smokescreen (`CREDENTIALS_SERVICE_AUDIT_CAPTURE_VIA_PROXY=true`).
 
 ## Local development
 
@@ -579,7 +582,7 @@ mount.
 The `aws` provider makes one attempt and two retries, each limited to 2s.
 It connects to KMS directly and ignores `HTTP_PROXY` and `HTTPS_PROXY`, unless `CREDENTIALS_SERVICE_KMS_PROXY_URL` is set.
 KMS traffic uses the AWS KMS VPC endpoint (`CREDENTIALS_SERVICE_KMS_ENDPOINT`) and does not use the HTTP proxy.
-This is the only direct egress of the service, besides the internal capture host.
+This is the only direct egress of the service, besides an in-cluster capture host.
 The `local` provider wraps data keys with AES-256-GCM under keys from config, for dev, CI and hobby.
 Its wrapped keys go into the same columns. The service refuses it when `CREDENTIALS_SERVICE_ENV` contains `prod`, in any case.
 

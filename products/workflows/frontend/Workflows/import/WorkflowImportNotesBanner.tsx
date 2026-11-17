@@ -13,6 +13,11 @@ const LEVEL_HEADINGS: Record<WorkflowImportNoteApi['level'], string> = {
     unsupported: 'Left out',
 }
 const LEVEL_ORDER: WorkflowImportNoteApi['level'][] = ['needs_input', 'approximated', 'unsupported']
+const SOURCE_LABELS: Record<string, string> = { customerio: 'Customer.io', resend: 'Resend' }
+
+function sourceLabel(source: string): string {
+    return SOURCE_LABELS[source] ?? source
+}
 
 export function WorkflowImportNotesBanner({ id }: { id: string }): JSX.Element | null {
     const { importRecord, loadFailed } = useValues(workflowImportNotesLogic({ id }))
@@ -30,7 +35,7 @@ export function WorkflowImportNotesBanner({ id }: { id: string }): JSX.Element |
                         'data-attr': 'workflow-import-notes-retry',
                     }}
                 >
-                    The import notes for this workflow didn't load. If it was imported from Customer.io, check them
+                    The import notes for this workflow didn't load. If it was imported from another tool, check them
                     before you enable it.
                 </LemonBanner>
             </div>
@@ -61,7 +66,8 @@ export function WorkflowImportNotesBanner({ id }: { id: string }): JSX.Element |
                         : undefined
                 }
             >
-                Imported from Customer.io ({importRecord.source_name || importRecord.source_id}). {summary}
+                Imported from {sourceLabel(importRecord.source)} ({importRecord.source_name || importRecord.source_id}).{' '}
+                {summary}
                 {expanded && (
                     <div className="mt-2 flex flex-col gap-2">
                         {LEVEL_ORDER.map((level) => {

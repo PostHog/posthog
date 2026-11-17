@@ -9,20 +9,25 @@ import { parseJSON } from '~/common/utils/json-parse'
 import { UUIDT } from '~/common/utils/utils'
 
 import { CdpOutputs } from '../cdp-services'
-import { CDP_INTAKE_DLQ_OUTPUT, EMAIL_STATUS_OUTPUT } from '../outputs/outputs'
+import { CDP_INTAKE_DLQ_OUTPUT, CDP_INTAKE_TRANSACTIONAL_EMAIL_OUTPUT, EMAIL_STATUS_OUTPUT } from '../outputs/outputs'
 import { CyclotronV2Manager } from '../services/cyclotron-v2/manager'
 import { CdpDeadLetterService } from '../services/dead-letter/cdp-dead-letter.service'
+import { createInvocationSanitizer } from '../services/job-queue/shared'
 import { EmailStatusService } from '../services/messaging/email-status.service'
 import {
     HogInvocationResultsService,
     HogInvocationResultsServiceOutput,
 } from '../services/monitoring/hog-invocation-results.service'
+import { CyclotronJobInvocation } from '../types'
+import { EncryptedFields } from '../utils/encryption-utils'
 import { IntakeBatchServices, SHADOW_COPY_MAX_AGE_MS, insertIntakeBatch } from './intake-batch'
+import { IntakeOutput, IntakeProducer } from './intake-producer'
 import { encodeIntakeMessage } from './message'
 import { keyedRunId } from './run-intake'
 
 const DB_URL = 'postgres://posthog:posthog@localhost:5432/test_cyclotron_node'
 const FLOW_ID = '0193a7b2-0000-7000-8000-000000000001'
+const ENCRYPTION_SALT_KEYS = '00beef0000beef0000beef0000beef00'
 const OPTIONS = { kind: 'transactional-email', claimRetry: { initialDelayMs: 0, maxElapsedMs: 0 } } as const
 
 type Recorded = { output: string; message: IngestionOutputMessage }
@@ -156,6 +161,7 @@ describe('insertIntakeBatch', () => {
                 { HOG_INVOCATION_RESULTS_ENABLED: true }
             ),
             emailStatus: new EmailStatusService(outputs, { EMAIL_STATUS_ENABLED: true }),
+            stateOpener: new EncryptedFields(ENCRYPTION_SALT_KEYS),
         }
     })
 
@@ -184,6 +190,53 @@ describe('insertIntakeBatch', () => {
                 headers: expect.objectContaining({ dlq_step: 'parse', dlq_reason: 'schema_invalid' }),
             }),
         ])
+    })
+
+    it('carries an encrypted send from the producer to Postgres, and still writes its recipient', async () => {
+        const code = 'fake-login-code-482913'
+        const sealing = createInvocationSanitizer({
+            CDP_CYCLOTRON_STRIP_PERSON_FROM_STATE_TEAMS: '',
+            CDP_SEAL_TRANSACTIONAL_EMAIL_STATE: true,
+            ENCRYPTION_SALT_KEYS,
+        })
+        let produced: Buffer | undefined
+        const topic = new IngestionOutputs({
+            [CDP_INTAKE_TRANSACTIONAL_EMAIL_OUTPUT]: {
+                ...recorder(CDP_INTAKE_TRANSACTIONAL_EMAIL_OUTPUT),
+                produce: (message) => {
+                    produced = message.value as Buffer
+                    return Promise.resolve()
+                },
+            },
+        })
+        const run = {
+            id: new UUIDT().toString(),
+            teamId: 7,
+            functionId: FLOW_ID,
+            queue: 'email',
+            queuePriority: 0,
+            state: {
+                event: {
+                    uuid: new UUIDT().toString(),
+                    event: '$transactional_email',
+                    properties: { to: 'ada@example.com' },
+                },
+                variables: { code },
+                actionStepCount: 0,
+            },
+        } as CyclotronJobInvocation
+
+        await new IntakeProducer(topic as IngestionOutputs<IntakeOutput>, undefined, sealing.seal).produce(
+            { kind: 'transactional-email', invocation: run, fingerprint: 'fingerprint-a' },
+            'async'
+        )
+        await insertIntakeBatch([kafkaMessage(produced!)], services, OPTIONS)
+
+        expect(produced!.toString()).not.toContain(code)
+        const [job] = await storedJobs([run.id])
+        expect(JSON.stringify(job.state)).not.toContain(code)
+        expect(job.state.sealed).toEqual(expect.any(String))
+        expect(emailStatuses()).toEqual([expect.objectContaining({ message_id: run.id, recipient: 'ada@example.com' })])
     })
 
     it('writes the queued status of a keyed send, dated by its trigger event', async () => {

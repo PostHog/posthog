@@ -63,7 +63,7 @@ class UsageCommand(SlashCommand):
                 else 0
             )
 
-            free_tier_credits = get_ai_free_tier_credits(self._team.id)
+            free_tier_credits = await database_sync_to_async(get_ai_free_tier_credits)(self._team)
 
             usage_message = format_usage_message(
                 conversation_credits=conversation_credits,
