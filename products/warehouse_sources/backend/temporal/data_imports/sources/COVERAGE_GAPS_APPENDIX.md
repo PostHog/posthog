@@ -312,13 +312,13 @@ Note: Fetched the combined official OpenAPI spec and inspected all GET paths. Th
 
 ## Airbrake — gaps
 
-Today (4): `deploys`, `groups`, `notices`, `projects`
+Today (7): `activities`, `deploys`, `group_stats`, `groups`, `notices`, `project_stats`, `projects`
 
 Diffed against: <https://docs.airbrake.io/docs/devops-tools/api/>
 
-- [ ] `project activities (GET /api/v4/projects/{project_id}/activities)` — per-project activity/change log complementing the error groups already synced (medium)
-- [ ] `group statistics (GET /api/v4/projects/{project_id}/groups/{group_id}/stats)` — time-bucketed occurrence counts per error group - the trend metric behind each group (medium)
-- [ ] `project statistics (GET /api/v4/projects/{project_id}/stats)` — project-level error volume over time for quota and regression tracking (medium)
+- [x] `project activities (GET /api/v4/projects/{project_id}/activities)` — per-project activity/change log complementing the error groups already synced (medium)
+- [x] `group statistics (GET /api/v4/projects/{project_id}/groups/{group_id}/stats)` — time-bucketed occurrence counts per error group - the trend metric behind each group (medium)
+- [x] `project statistics (GET /api/v4/projects/{project_id}/stats)` — project-level error volume over time for quota and regression tracking (medium)
 
 Note: Airbrake's readable v4 surface is small and coverage is close to complete: projects, deploys, groups and notices are all synced. The Performance Monitoring endpoints (routes-stats, routes-breakdowns, queries, queues) are PUT-only ingestion, not queryable, so they are not a warehouse gap. Source maps and iOS crash report upload are plumbing and excluded.
 
