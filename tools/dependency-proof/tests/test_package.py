@@ -1,9 +1,11 @@
+import re
 import ast
 from pathlib import Path
 
 import pytest
 
-from dependency_proof.prove import PROVER_FILES
+import yaml
+from dependency_proof.core import issuer
 
 PACKAGE_ROOT = Path(__file__).resolve().parent.parent
 REPO_ROOT = PACKAGE_ROOT.parent.parent
@@ -31,13 +33,36 @@ def test_the_core_imports_no_side_effecting_module_and_no_shell_module(source: P
             assert name.startswith("dependency_proof.core"), f"{source.name} imports the shell module {name}"
 
 
-def test_every_file_the_workflows_run_from_is_pinned() -> None:
-    package_files = [
-        *(PACKAGE_ROOT / "dependency_proof").rglob("*.py"),
-        PACKAGE_ROOT / "pyproject.toml",
-        PACKAGE_ROOT / "uv.lock",
-    ]
-    unpinned = {str(path.relative_to(REPO_ROOT)) for path in package_files} - set(PROVER_FILES)
-    missing = [path for path in PROVER_FILES if not (REPO_ROOT / path).is_file()]
-    assert not unpinned
+def workflow_inputs(workflow: Path) -> set[str]:
+    """The workflow itself and every path its jobs check out or run from the default branch."""
+    inputs = {str(workflow.relative_to(REPO_ROOT))}
+    jobs = yaml.safe_load(workflow.read_text()).get("jobs") or {}
+    for job in jobs.values():
+        for step in job.get("steps") or []:
+            uses, given = step.get("uses", ""), step.get("with") or {}
+            if uses.startswith("./"):
+                inputs.add(uses.removeprefix("./").rstrip("/") + "/")
+            inputs.update(line.strip() for line in given.get("sparse-checkout", "").splitlines() if line.strip())
+            if "node-version-file" in given:
+                inputs.add(given["node-version-file"])
+            for project in re.findall(r"--project (\S+)", step.get("run", "")):
+                inputs.add(project.rstrip("/") + "/")
+    return inputs
+
+
+def test_the_issuer_manifest_covers_every_path_the_workflows_run_from() -> None:
+    paths = issuer.parse_manifest((REPO_ROOT / issuer.MANIFEST_PATH).read_bytes(), issuer.MANIFEST_PATH)
+    workflows = sorted((REPO_ROOT / ".github" / "workflows").glob("dependency-proof*.yml"))
+    assert workflows
+    needed = set().union(*(workflow_inputs(workflow) for workflow in workflows))
+    # A sparse-checkout entry is a directory or a file, so either form of it may cover it.
+    uncovered = {
+        path
+        for path in needed
+        if not any(issuer.covers(entry, path) or entry == path.rstrip("/") + "/" for entry in paths)
+    }
+    missing = [path for path in paths if not (REPO_ROOT / path).exists()]
+    wrong_kind = [path for path in paths if (REPO_ROOT / path).is_dir() != issuer.is_directory(path)]
+    assert not uncovered
     assert not missing
+    assert not wrong_kind

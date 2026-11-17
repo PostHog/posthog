@@ -20,32 +20,13 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from dependency_proof.core import identity, policy
+from dependency_proof.core import identity, issuer, policy
 from dependency_proof.core.lockfile_yaml import comparable, load_yaml
 from dependency_proof.core.policy import LOCKFILE, MANIFEST, WORKSPACE_FILE, join
 from dependency_proof.core.replay import replay_commands
 
 REGISTRY = "https://registry.npmjs.org/"
 PAGE_SIZE = 100
-PROVER_FILES = (
-    ".github/actions/setup-uv/action.yml",
-    ".github/workflows/dependency-proof-trigger.yml",
-    ".github/workflows/dependency-proof.yml",
-    ".nvmrc",
-    "tools/dependency-proof/dependency_proof/__init__.py",
-    "tools/dependency-proof/dependency_proof/__main__.py",
-    "tools/dependency-proof/dependency_proof/cli.py",
-    "tools/dependency-proof/dependency_proof/core/__init__.py",
-    "tools/dependency-proof/dependency_proof/core/conclusion.py",
-    "tools/dependency-proof/dependency_proof/core/identity.py",
-    "tools/dependency-proof/dependency_proof/core/lockfile_yaml.py",
-    "tools/dependency-proof/dependency_proof/core/policy.py",
-    "tools/dependency-proof/dependency_proof/core/replay.py",
-    "tools/dependency-proof/dependency_proof/prove.py",
-    "tools/dependency-proof/dependency_proof/scan.py",
-    "tools/dependency-proof/pyproject.toml",
-    "tools/dependency-proof/uv.lock",
-)
 # Every file pnpm reads to write a lockfile without installing.
 REPLAY_FILES = (MANIFEST, LOCKFILE, WORKSPACE_FILE, ".npmrc", "*.patch")
 Runner = Callable[[list[str], Path], None]
@@ -98,6 +79,16 @@ class Git:
             return None
         mode, kind, oid = line.split("\t", 1)[0].split()
         policy.check_regular_file(path, mode, kind)
+        return oid
+
+    def tree(self, ref: str, path: str) -> str | None:
+        """The tree id of the directory at ref:path, or None when absent."""
+        line = self.run("ls-tree", ref, "--", path.removesuffix("/")).decode()
+        if not line:
+            return None
+        _mode, kind, oid = line.split("\t", 1)[0].split()
+        if kind != "tree":
+            raise issuer.InvalidIssuerManifest(f"{path} is not a directory")
         return oid
 
     def show(self, ref: str, path: str) -> bytes | None:
@@ -230,6 +221,24 @@ def identify(request: IdentifyRequest, github: GitHub) -> Identified | None:
     return Identified(pr["number"], github.merge_base(request.base_branch, head))
 
 
+def issuer_pins(git: Git, workflow_sha: str) -> dict[str, str]:
+    """Each path of the issuer manifest at the workflow commit, pinned to its tree or blob id.
+
+    The manifest is read from the object database rather than the working tree, so the pins
+    describe the commit the workflow runs from.
+    """
+    text = git.show(workflow_sha, issuer.MANIFEST_PATH)
+    if text is None:
+        raise issuer.InvalidIssuerManifest(f"{issuer.MANIFEST_PATH} is missing")
+    pins: dict[str, str] = {}
+    for path in issuer.parse_manifest(text, issuer.MANIFEST_PATH):
+        oid = git.tree(workflow_sha, path) if issuer.is_directory(path) else git.blob(workflow_sha, path)
+        if oid is None:
+            raise issuer.InvalidIssuerManifest(f"{issuer.MANIFEST_PATH} names {path}, which is missing")
+        pins[path] = oid
+    return pins
+
+
 def lockfile_groups(files: list[str], git: Git, merge_base: str) -> dict[str, list[str]]:
     """Changed manifests keyed by the directory of the nearest lockfile at or above them."""
     groups: dict[str, list[str]] = {}
@@ -326,6 +335,7 @@ def prove(
     head, workflow_sha, merge_base = request.head_sha, request.workflow_sha, request.merge_base
 
     git.fetch(merge_base, head)
+    pins = issuer_pins(git, workflow_sha)
     files = policy.eligible_paths(git.changed_files(merge_base, head))
     groups = lockfile_groups(files, git, merge_base)
     worktree = request.merge_base_dir
@@ -338,9 +348,9 @@ def prove(
         since_head = (now - committed).total_seconds() + time.monotonic() - started
         return int(since_head // 60) + 1 + policy.MINIMUM_RELEASE_AGE_MINUTES
 
-    pinned = set(PROVER_FILES)
+    settings: set[str] = set()
     for directory, manifests in groups.items():
-        pinned |= prove_group(
+        settings |= prove_group(
             git,
             registry,
             run,
@@ -353,4 +363,6 @@ def prove(
             manifests,
             release_age_minutes,
         )
-    return Proof(files, {path: git.blob(workflow_sha, path) for path in sorted(pinned)})
+    # A settings file may be absent, and its null pin then says the default branch had none.
+    blobs = {**{path: git.blob(workflow_sha, path) for path in settings}, **pins}
+    return Proof(files, dict(sorted(blobs.items())))

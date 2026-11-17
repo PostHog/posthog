@@ -19,6 +19,7 @@ from dependency_proof import (
     cli,
     prove as prover,
 )
+from dependency_proof.core.issuer import InvalidIssuerManifest
 from dependency_proof.core.policy import RENOVATE_BOT_USER_ID, ChangedFile, Refused
 
 REPOSITORY = "PostHog/posthog"
@@ -26,6 +27,8 @@ HEAD, MERGE_BASE, WORKFLOW_SHA = "a" * 40, "b" * 40, "c" * 40
 NOW = datetime(2026, 11, 9, 12, tzinfo=UTC)
 WORKSPACE = b"packages:\n    - '.'\nminimumReleaseAge: 10080\nminimumReleaseAgeExclude:\n    - posthog-js\n    - '@posthog/*'\n    - left-pad@1.3.0\nallowBuilds:\n    esbuild: true\n"
 PROVER = "tools/dependency-proof/dependency_proof/prove.py"
+ISSUER = "tools/dependency-proof/issuer.yml"
+ISSUER_TEXT = b"paths:\n  - tools/dependency-proof/\n  - .nvmrc\n"
 REPLAY_FLAGS = ["--lockfile-only", "--recursive", "--ignore-scripts", "--ignore-pnpmfile"]
 
 
@@ -71,7 +74,8 @@ def trees(name: str = "left-pad", head_range: str = "^1.3.1", head_version: str 
         "package.json": manifest(name, head_range),
         "pnpm-lock.yaml": lockfile(name, head_range, head_version),
     }
-    return {WORKFLOW_SHA: base, MERGE_BASE: base, HEAD: {**head, **head_extra}}
+    publisher = {ISSUER: ISSUER_TEXT, ".nvmrc": b"24\n"}
+    return {WORKFLOW_SHA: {**base, **publisher}, MERGE_BASE: base, HEAD: {**head, **head_extra}}
 
 
 def catalog_trees(head_catalog: str = "^1.3.1", head_version: str = "1.3.1") -> dict:
@@ -88,7 +92,7 @@ def catalog_trees(head_catalog: str = "^1.3.1", head_version: str = "1.3.1") -> 
         "pnpm-workspace.yaml": workspace(head_catalog),
         "pnpm-lock.yaml": lockfile("left-pad", "catalog:", head_version, catalog=head_catalog),
     }
-    return {WORKFLOW_SHA: base, MERGE_BASE: base, HEAD: head}
+    return {WORKFLOW_SHA: {**base, ISSUER: ISSUER_TEXT, ".nvmrc": b"24\n"}, MERGE_BASE: base, HEAD: head}
 
 
 def every_tree(**files: bytes | None) -> dict:
@@ -108,6 +112,10 @@ class FakeGit:
     def blob(self, ref: str, path: str) -> str | None:
         text = self.trees[ref].get(path)
         return None if text is None else _fake_blob_sha(text)
+
+    def tree(self, ref: str, path: str) -> str | None:
+        inside = sorted((name, text) for name, text in self.trees[ref].items() if name.startswith(path))
+        return _fake_blob_sha(repr(inside).encode()) if inside else None
 
     def show(self, ref: str, path: str) -> bytes | None:
         return self.trees[ref].get(path)
@@ -229,24 +237,9 @@ def test_an_eligible_update_is_attested_after_a_frozen_replay_of_renovates_comma
     assert proof == prover.Proof(
         files,
         {
-            ".github/actions/setup-uv/action.yml": None,
-            ".github/workflows/dependency-proof-trigger.yml": None,
-            ".github/workflows/dependency-proof.yml": None,
-            "tools/dependency-proof/dependency_proof/__init__.py": None,
-            "tools/dependency-proof/dependency_proof/__main__.py": None,
-            "tools/dependency-proof/dependency_proof/cli.py": None,
-            "tools/dependency-proof/dependency_proof/core/__init__.py": None,
-            "tools/dependency-proof/dependency_proof/core/conclusion.py": None,
-            "tools/dependency-proof/dependency_proof/core/identity.py": None,
-            "tools/dependency-proof/dependency_proof/core/lockfile_yaml.py": None,
-            "tools/dependency-proof/dependency_proof/core/policy.py": None,
-            "tools/dependency-proof/dependency_proof/core/replay.py": None,
-            PROVER: _fake_blob_sha(b"the prover"),
-            "tools/dependency-proof/dependency_proof/scan.py": None,
-            "tools/dependency-proof/pyproject.toml": None,
-            "tools/dependency-proof/uv.lock": None,
+            "tools/dependency-proof/": git.tree(WORKFLOW_SHA, "tools/dependency-proof/"),
             ".npmrc": None,
-            ".nvmrc": None,
+            ".nvmrc": _fake_blob_sha(b"24\n"),
             ".pnpmfile.cjs": None,
             "pnpm-workspace.yaml": _fake_blob_sha(update[WORKFLOW_SHA]["pnpm-workspace.yaml"]),
             "pnpmfile.cjs": None,
@@ -314,6 +307,22 @@ def stray(path: str, base: bytes, head: bytes) -> dict:
 def test_refusals(tmp_path: Path, github: FakeGitHub | None, update: dict, replayed: bytes | None, reason: str) -> None:
     with pytest.raises(Refused, match=reason):
         prove(environment(tmp_path), github or FakeGitHub(pull()), FakeGit(update), registry, FakePnpm(replayed or b""))
+
+
+@pytest.mark.parametrize(
+    ("publisher", "reason"),
+    [
+        ({ISSUER: None}, "issuer.yml is missing"),
+        ({".nvmrc": None}, "names .nvmrc, which is missing"),
+        ({ISSUER: b"paths:\n  - .nvmrc\n"}, "does not cover itself"),
+    ],
+)
+def test_a_proof_needs_a_valid_issuer_manifest(tmp_path: Path, publisher: dict, reason: str) -> None:
+    update = trees()
+    workflow = {path: text for path, text in {**update[WORKFLOW_SHA], **publisher}.items() if text is not None}
+    git = FakeGit({**update, WORKFLOW_SHA: workflow})
+    with pytest.raises(InvalidIssuerManifest, match=reason):
+        prove(environment(tmp_path), FakeGitHub(pull()), git, registry, FakePnpm(b""))
 
 
 def test_a_head_commit_dated_in_the_future_is_refused(tmp_path: Path) -> None:
@@ -437,6 +446,8 @@ def test_git_reads_trees_without_running_hooks(tmp_path: Path) -> None:
     base = git("rev-parse", "HEAD").strip()
     (repo / "package.json").write_bytes(b'{"a": 1}')
     (repo / "renovate.json5").symlink_to("package.json")
+    (repo / "sub").mkdir()
+    (repo / "sub" / "file").write_bytes(b"x")
     git("add", ".")
     git("commit", "-q", "-m", "head")
     head = git("rev-parse", "HEAD").strip()
@@ -451,9 +462,14 @@ def test_git_reads_trees_without_running_hooks(tmp_path: Path) -> None:
     assert reader.changed_files(base, head) == [
         ChangedFile("M", "package.json"),
         ChangedFile("A", "renovate.json5"),
+        ChangedFile("A", "sub/file"),
     ]
     assert reader.show(head, "package.json") == b'{"a": 1}'
     assert reader.blob(head, "missing.json") is None
+    assert reader.tree(head, "sub/") == git("rev-parse", f"{head}:sub").strip()
+    assert reader.tree(head, "gone/") is None
+    with pytest.raises(InvalidIssuerManifest, match="not a directory"):
+        reader.tree(head, "package.json/")
     with pytest.raises(Refused, match="not a regular file"):
         reader.blob(head, "renovate.json5")
     assert reader.commit_time(head).tzinfo is UTC
