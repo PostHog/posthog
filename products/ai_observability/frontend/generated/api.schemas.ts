@@ -2306,6 +2306,7 @@ export const CodeEnumApi = {
  * * `datasets` - datasets
  * * `dataset_items` - dataset_items
  * * `dataset_item_versions` - dataset_item_versions
+ * * `project_dataset_item_versions` - project_dataset_item_versions
  */
 export type DatasetConflictResponseResourceEnumApi =
     (typeof DatasetConflictResponseResourceEnumApi)[keyof typeof DatasetConflictResponseResourceEnumApi]
@@ -2314,6 +2315,7 @@ export const DatasetConflictResponseResourceEnumApi = {
     Datasets: 'datasets',
     DatasetItems: 'dataset_items',
     DatasetItemVersions: 'dataset_item_versions',
+    ProjectDatasetItemVersions: 'project_dataset_item_versions',
 } as const
 
 export interface DatasetConflictResponseApi {
@@ -2343,7 +2345,8 @@ export interface DatasetConflictResponseApi {
      *
      * * `datasets` - datasets
      * * `dataset_items` - dataset_items
-     * * `dataset_item_versions` - dataset_item_versions */
+     * * `dataset_item_versions` - dataset_item_versions
+     * * `project_dataset_item_versions` - project_dataset_item_versions */
     resource?: DatasetConflictResponseResourceEnumApi
     /** Number of resources that already exist. */
     current_count?: number

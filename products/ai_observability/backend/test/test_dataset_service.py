@@ -1,15 +1,24 @@
 import json
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 
 from unittest.mock import patch
 
-from django.test import SimpleTestCase
+from django.db import OperationalError, connection, transaction
+from django.test import SimpleTestCase, TransactionTestCase
 
 from parameterized import parameterized
 
-from posthog.models import Team, User
+from posthog.models import Organization, Team, User
 
-from products.ai_observability.backend.dataset_service import MAX_DATASETS_PER_TEAM, max_datasets_for_team
+from products.ai_observability.backend.dataset_service import (
+    MAX_DATASETS_PER_TEAM,
+    DatasetLimitExceeded,
+    create_dataset,
+    create_dataset_item,
+    max_datasets_for_team,
+)
+from products.ai_observability.backend.models.datasets import Dataset
 
 TEAM_ID = 42
 GET_PAYLOAD = "products.ai_observability.backend.dataset_service.posthoganalytics.get_feature_flag_payload"
@@ -54,3 +63,32 @@ class TestMaxDatasetsForTeam(SimpleTestCase):
         with patch(GET_PAYLOAD) as get_payload:
             self.assertEqual(max_datasets_for_team(team=self.team, user=None), MAX_DATASETS_PER_TEAM)
         get_payload.assert_not_called()
+
+
+class TestProjectVersionAllocation(TransactionTestCase):
+    @patch("products.ai_observability.backend.dataset_service.MAX_RETAINED_VERSIONS_PER_TEAM", 1)
+    def test_concurrent_datasets_share_the_last_slot_only_within_their_project(self) -> None:
+        _, _, team = Organization.objects.bootstrap(None)
+        _, _, other_team = Organization.objects.bootstrap(None)
+        first = create_dataset(team=team, created_by=None, name="First")
+        second = create_dataset(team=team, created_by=None, name="Second")
+        unrelated = create_dataset(team=other_team, created_by=None, name="Unrelated")
+
+        def write(dataset: Dataset) -> None:
+            try:
+                with transaction.atomic():
+                    with connection.cursor() as cursor:
+                        cursor.execute("SET LOCAL lock_timeout = '500ms'")
+                    create_dataset_item(team_id=dataset.team_id, dataset_id=dataset.id, created_by=None, input="test")
+            finally:
+                connection.close()
+
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            with transaction.atomic():
+                create_dataset_item(team_id=team.id, dataset_id=first.id, created_by=None, input="test")
+                executor.submit(write, unrelated).result(timeout=10)
+                with self.assertRaisesRegex(OperationalError, "lock timeout"):
+                    executor.submit(write, second).result(timeout=10)
+            with self.assertRaises(DatasetLimitExceeded) as error:
+                executor.submit(write, second).result(timeout=10)
+        self.assertEqual(error.exception.resource, "project_dataset_item_versions")
