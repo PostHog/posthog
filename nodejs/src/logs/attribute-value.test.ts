@@ -22,12 +22,21 @@ describe('decodeLogAttributeValue', () => {
         expect(decodeLogAttributeValue(input)).toBe(expected)
     })
 
-    it('matches JSON.parse semantics on quoted strings', () => {
-        const cases = ['"error"', '"3"', '"a\\nb"', '"\\u0041"', '"say \\"hi\\""', '"a\\\\b"', '""']
-        for (const input of cases) {
-            // oxlint-disable-next-line eslint-js/no-restricted-syntax
-            expect(decodeLogAttributeValue(input)).toBe(JSON.parse(input))
+    it('decodes every valid JSON encoding of every UTF-16 code unit back to that unit', () => {
+        const mismatches: string[] = []
+        for (let unit = 0; unit <= 0xffff; unit++) {
+            const char = String.fromCharCode(unit)
+            const encodings = [JSON.stringify(char), `"\\u${unit.toString(16).padStart(4, '0')}"`]
+            if (unit >= 0x20 && char !== '"' && char !== '\\') {
+                encodings.push(`"${char}"`)
+            }
+            for (const encoded of encodings) {
+                if (decodeLogAttributeValue(encoded) !== char) {
+                    mismatches.push(encoded)
+                }
+            }
         }
+        expect(mismatches).toEqual([])
     })
 })
 
