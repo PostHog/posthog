@@ -702,10 +702,11 @@ class TestTrinoIncrementalMaterialization(BaseTest):
 
     @parameterized.expand(
         [
-            # Schema, table check, output type read, stage build, duplicate check, column read, merge and watermark read.
-            ("merge_succeeds", False, 8),
+            # Schema, table check, stored column read, output type read, stage build, duplicate check, column read,
+            # merge and watermark read.
+            ("merge_succeeds", False, 9),
             # The run stops at the duplicate check, and its statements still count.
-            ("duplicate_keys_fail_the_merge", True, 5),
+            ("duplicate_keys_fail_the_merge", True, 6),
         ]
     )
     def test_reports_usage_by_every_statement(self, _name: str, duplicate: bool, statements: int) -> None:
@@ -731,4 +732,4 @@ class TestTrinoIncrementalMaterialization(BaseTest):
         result, _, _ = self.run_build(cursor, self.since, TrinoQueryControl(on_processed_bytes=processed.append))
 
         assert isinstance(result, ConnectionError)
-        assert processed == [100] * 6
+        assert processed == [100] * 7
