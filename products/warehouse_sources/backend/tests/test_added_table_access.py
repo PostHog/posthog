@@ -4,7 +4,7 @@ import pytest
 from unittest.mock import patch
 
 from products.access_control.backend.facade.contracts import AccessRule
-from products.warehouse_sources.backend.self_managed_access import TeamAccessRules
+from products.warehouse_sources.backend.self_managed_access import LEVELS, TeamAccessRules
 
 TABLE_ID = "11111111-1111-1111-1111-111111111111"
 TABLE_SOURCE_ID = "22222222-2222-2222-2222-222222222222"
@@ -81,9 +81,42 @@ def test_an_added_table_must_not_show_more_than_the_table_whose_files_it_reads(
     assert team_rules.added_table_widens_access(TABLE_ID, table_source_id, ADDED_SOURCE_ID) is widens
 
 
-def test_too_many_roles_to_check_is_refused() -> None:
-    rules = [_rule("table", "viewer", role=uuid4()) for _ in range(11)]
+def _hidden_in_added_source(count: int, member: bool) -> list[AccessRule]:
+    """Subjects with distinct levels, each hidden from the added source, so no subject gets more access from it."""
+    rules: list[AccessRule] = []
+    for index in range(count):
+        subject = {"member": uuid4()} if member else {"role": uuid4()}
+        rules += [
+            _rule("table", LEVELS[index % 4], **subject),
+            _rule("table_source", LEVELS[(index // 4) % 4], **subject),
+            _rule("warehouse", LEVELS[(index // 16) % 4], **subject),
+            _rule("added_source", "none", **subject),
+        ]
+    return rules
+
+
+@pytest.mark.parametrize(
+    "rules, budget_spent",
+    [
+        pytest.param(_hidden_in_added_source(11, member=False), False, id="more_role_profiles_than_the_cap"),
+        pytest.param(
+            [*_hidden_in_added_source(10, member=False), *_hidden_in_added_source(40, member=True)],
+            True,
+            id="more_combinations_than_the_budget",
+        ),
+    ],
+)
+def test_rules_too_many_to_check_are_refused(rules: list[AccessRule], budget_spent: bool) -> None:
     with patch("products.warehouse_sources.backend.self_managed_access.access_rules", return_value=rules):
         team_rules = TeamAccessRules(team_id=1)
 
     assert team_rules.added_table_widens_access(TABLE_ID, TABLE_SOURCE_ID, ADDED_SOURCE_ID) is True
+    assert team_rules.added_table_budget_spent is budget_spent
+
+
+def test_rules_under_the_limits_that_hide_the_added_source_are_allowed() -> None:
+    rules = [*_hidden_in_added_source(10, member=False), *_hidden_in_added_source(5, member=True)]
+    with patch("products.warehouse_sources.backend.self_managed_access.access_rules", return_value=rules):
+        team_rules = TeamAccessRules(team_id=1)
+
+    assert team_rules.added_table_widens_access(TABLE_ID, TABLE_SOURCE_ID, ADDED_SOURCE_ID) is False

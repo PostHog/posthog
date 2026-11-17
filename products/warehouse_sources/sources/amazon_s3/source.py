@@ -68,6 +68,10 @@ class AmazonS3Source(ObjectStorageSource[AmazonS3SourceConfig]):
             secret_access_key=config.secret_access_key.strip(),
         )
 
+    def storage_identity(self, config: AmazonS3SourceConfig) -> tuple[str | None, ...]:
+        # As in `table_root`: the bucket needs no region lookup.
+        return (str(ObjectStoreProvider.S3), parse_s3_url(config.url_pattern).bucket, None, None)
+
     def table_root(self, config: AmazonS3SourceConfig) -> str:
         # `object_store_config` looks up the region of a URL without one, and the root needs no region.
         return table_root_of_url(parse_s3_url(config.url_pattern))

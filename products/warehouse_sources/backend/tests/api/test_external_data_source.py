@@ -16692,11 +16692,19 @@ def _stored_files(*paths: str) -> list[StoredObject]:
     return [StoredObject(path=path, size=10, modified_at=timezone.now()) for path in paths]
 
 
+def _store_with_files(*paths: str) -> MagicMock:
+    store = MagicMock()
+    store.list_objects.side_effect = lambda prefix, _max: [] if prefix.endswith("_delta_log") else _stored_files(*paths)
+    return store
+
+
 class TestAddTableByPath(APIBaseTest):
-    def _source(self, source_type: str = "AmazonS3", connection_metadata: dict | None = None) -> ExternalDataSource:
+    def _source(
+        self, source_type: str = "AmazonS3", connection_metadata: dict | None = None, bucket: str = "example-bucket"
+    ) -> ExternalDataSource:
         job_inputs = (
             {
-                "url_pattern": "https://s3.us-east-1.amazonaws.com/example-bucket/",
+                "url_pattern": f"https://s3.us-east-1.amazonaws.com/{bucket}/",
                 "access_key_id": "AKIAEXAMPLE",
                 "secret_access_key": "c2VjcmV0",
                 "file_format": "infer",
@@ -16731,8 +16739,7 @@ class TestAddTableByPath(APIBaseTest):
     )
     def test_creates_a_pinned_table_that_is_turned_off(self, _name: str, path: str) -> None:
         source = self._source()
-        store = MagicMock()
-        store.list_objects.return_value = _stored_files("tables/orders/a.csv", "tables/orders/b.csv")
+        store = _store_with_files("tables/orders/a.csv", "tables/orders/b.csv")
 
         with patch(
             "products.warehouse_sources.sources.amazon_s3.source.lookup_s3_bucket_region",
@@ -16755,7 +16762,7 @@ class TestAddTableByPath(APIBaseTest):
             "tables/orders",
             False,
         )
-        store.list_objects.assert_called_once()
+        assert [c.args[0] for c in store.list_objects.call_args_list] == ["tables/orders/_delta_log", "tables/orders"]
 
     @parameterized.expand(
         [
@@ -16812,8 +16819,7 @@ class TestAddTableByPath(APIBaseTest):
     def test_a_deleted_table_does_not_hold_its_name(self) -> None:
         source = self._source()
         ExternalDataSchema.objects.create(name="orders", team_id=self.team.pk, source=source, deleted=True)
-        store = MagicMock()
-        store.list_objects.return_value = _stored_files("tables/orders/a.csv")
+        store = _store_with_files("tables/orders/a.csv")
 
         response = self._add_table(source, store)
 
@@ -16855,27 +16861,42 @@ class TestAddTableByPath(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("hidden_table_of_the_source", False),
-            ("hidden_source_for_the_same_bucket", True),
+            ("hidden_table_of_the_source", "self", None, status.HTTP_403_FORBIDDEN),
+            ("hidden_table_of_a_migration_source_for_the_bucket", "migration_sibling", None, status.HTTP_403_FORBIDDEN),
+            (
+                "hidden_table_of_another_source_for_the_bucket",
+                "plain_source",
+                "example-bucket",
+                status.HTTP_403_FORBIDDEN,
+            ),
+            ("hidden_table_of_a_source_for_another_bucket", "plain_source", "other-bucket", status.HTTP_201_CREATED),
         ]
     )
-    def test_refuses_a_table_that_would_show_files_another_table_hides(self, _name: str, sibling: bool) -> None:
+    def test_refuses_a_table_that_would_show_files_another_table_hides(
+        self, _name: str, holder_kind: str, holder_bucket: str | None, expected_status: int
+    ) -> None:
         migration = {MIGRATION_MARKER_KEY: {"group_key": "s3/us-east-1/example-bucket"}}
         source = self._source(connection_metadata=migration)
-        holder = self._source(connection_metadata=migration) if sibling else source
+        holder = {
+            "self": lambda: source,
+            "migration_sibling": lambda: self._source(connection_metadata=migration),
+            "plain_source": lambda: self._source(bucket=holder_bucket or "example-bucket"),
+        }[holder_kind]()
         payroll = DataWarehouseTable.objects.create(name="payroll", team=self.team, external_data_source=holder)
         ExternalDataSchema.objects.create(team=self.team, source=holder, name="payroll", table=payroll)
         AccessControl.objects.create(
             team=self.team, resource="warehouse_table", resource_id=str(payroll.id), access_level="none"
         )
-        store = MagicMock()
+        store = _store_with_files("tables/payroll/a.csv")
 
         response = self._add_table(source, store, name="payroll_copy", path="tables/payroll/")
 
-        assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
-        assert "access rules that a new table in this source would not keep" in response.json()["detail"]
-        store.list_objects.assert_not_called()
-        assert not ExternalDataSchema.objects.filter(source=source, name="payroll_copy").exists()
+        assert response.status_code == expected_status, response.content
+        added = ExternalDataSchema.objects.filter(source=source, name="payroll_copy").exists()
+        assert added is (expected_status == status.HTTP_201_CREATED)
+        if expected_status == status.HTTP_403_FORBIDDEN:
+            assert "access rules that a new table in this source would not keep" in response.json()["detail"]
+            store.list_objects.assert_not_called()
 
     def test_a_source_that_is_not_object_storage_can_not_add_a_table(self) -> None:
         response = self._add_table(self._source("Stripe"), MagicMock())

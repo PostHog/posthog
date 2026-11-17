@@ -21,6 +21,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.obj
     is_full_url,
     parse_added_location,
     relative_key,
+    store_identity,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.config import (
     DiscoveryOptions,
@@ -320,6 +321,13 @@ class ObjectStorageSource(SimpleSource[ConfigType], CursorSource[ObjectStorageDe
             _raise_translated(e, location)
         return _source_schema(table)
 
+    def storage_identity(self, config: ConfigType) -> tuple[str | None, ...]:
+        """The bucket the source reads, as `store_identity` names it.
+
+        A source whose config parsing makes a network call overrides this to read only the URL.
+        """
+        return store_identity(self.object_store_config(config))
+
     def table_root(self, config: ConfigType) -> str:
         """The folder that `define_added_table` resolves relative paths against, as `<bucket>/<prefix>/`.
 
@@ -382,9 +390,16 @@ class ObjectStorageSource(SimpleSource[ConfigType], CursorSource[ObjectStorageDe
             raise ObjectStorageError(message) from e
 
     def _holds_delta_log(self, store: ObjectStore, path: str) -> bool:
-        """Whether the folder is a Delta table. Only its log is listed, so a large table is not walked."""
+        """Whether the folder is a Delta table. Only its log is listed, so a large table is not walked.
+
+        A key may be allowed to list the folder but not the log folder, so a failed probe means "not Delta",
+        and the folder listing that follows reports any real error.
+        """
         log = f"{path}/{DELTA_LOG_DIRECTORY}" if path else DELTA_LOG_DIRECTORY
-        return bool(store.list_objects(log, 1))
+        try:
+            return bool(store.list_objects(log, 1))
+        except Exception:
+            return False
 
     def _check_added_delta_table(self, store: ObjectStore, table: TableDefinition) -> None:
         try:
@@ -523,6 +538,24 @@ def added_table_root(source_type: str, job_inputs: dict[str, Any]) -> str | None
         return source.table_root(source.parse_config(job_inputs))
     except Exception:
         return None
+
+
+def source_storage_identity(source_type: str, job_inputs: dict[str, Any]) -> tuple[str | None, ...] | None:
+    """The bucket an object storage source reads, or None when the source is no such source or its inputs can't be read."""
+    source = _object_storage_source(source_type)
+    if source is None:
+        return None
+    try:
+        return source.storage_identity(source.parse_config(job_inputs))
+    except Exception:
+        return None
+
+
+def self_managed_storage_identity(location: SelfManagedLocation) -> tuple[str | None, ...]:
+    """The bucket a self-managed table reads, in the form `store_identity` gives a source."""
+    if location.service == "azure":
+        return ("azure", location.account, location.bucket)
+    return (location.service, location.bucket, location.account, location.jurisdiction)
 
 
 def define_added_table_metadata(

@@ -2049,14 +2049,17 @@ class TestDefineAddedTable:
             )
 
     @pytest.mark.parametrize(
-        "location, allowed_prefix",
+        "location, allowed_prefix, exact",
         [
-            pytest.param("tables/orders/", "tables/orders/", id="folder"),
-            pytest.param("tables/orders/2024-*.csv", "tables/orders/2024-", id="glob_with_a_key_prefix"),
+            pytest.param("tables/orders/", "tables/orders/", False, id="folder"),
+            pytest.param("tables/orders/", "tables/orders/", True, id="folder_with_a_key_for_that_prefix_only"),
+            pytest.param("tables/orders/2024-*.csv", "tables/orders/2024-", False, id="glob_with_a_key_prefix"),
         ],
     )
-    def test_reads_only_the_location_with_a_key_scoped_to_it(self, location: str, allowed_prefix: str) -> None:
-        client = PrefixScopedS3Client(ORDERS_KEYS, allowed_prefix=allowed_prefix)
+    def test_reads_only_the_location_with_a_key_scoped_to_it(
+        self, location: str, allowed_prefix: str, exact: bool
+    ) -> None:
+        client = PrefixScopedS3Client(ORDERS_KEYS, allowed_prefix=allowed_prefix, exact=exact)
         store = bucket_root_store(client)
 
         table = _source_with_store(store).define_added_table(

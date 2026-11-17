@@ -55,7 +55,8 @@ def is_full_url(location: str) -> bool:
     return "://" in location
 
 
-def _store_identity(config: StoreConfig) -> tuple[str | None, ...]:
+def store_identity(config: StoreConfig) -> tuple[str | None, ...]:
+    """The bucket a store reads, with its account. Two sources with the same identity read the same keys."""
     # A bucket name is unique per provider (per account and jurisdiction for R2), so the region is
     # left out. A URL with another region for the same bucket still names the same keys.
     if isinstance(config, AzureBlobConfig):
@@ -84,7 +85,7 @@ def display_root(config: StoreConfig) -> str:
 
 def relative_key(source_config: StoreConfig, url_config: StoreConfig) -> str:
     """The key a full URL names, relative to the source's store root."""
-    if _store_identity(url_config) != _store_identity(source_config):
+    if store_identity(url_config) != store_identity(source_config):
         raise ObjectStorageError("This path is in another bucket. Add a new source for that bucket.")
     key = _url_key(url_config)
     root = source_config.prefix

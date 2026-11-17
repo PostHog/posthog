@@ -110,9 +110,11 @@ class FakeObjectStorageSource(ObjectStorageSource[FakeObjectStorageConfig]):
 class PrefixScopedS3Client:
     """A boto3 S3 client for a key that may list only keys under one prefix, as a prefix-scoped IAM policy allows."""
 
-    def __init__(self, keys: list[str], allowed_prefix: str) -> None:
+    def __init__(self, keys: list[str], allowed_prefix: str, exact: bool = False) -> None:
         self.keys = keys
         self.allowed_prefix = allowed_prefix
+        # A policy with `StringEquals` on `s3:prefix` allows that one prefix and not the keys under it.
+        self.exact = exact
         self.listed_prefixes: list[str] = []
 
     def get_paginator(self, operation: str) -> "PrefixScopedS3Client":
@@ -121,7 +123,7 @@ class PrefixScopedS3Client:
 
     def paginate(self, Bucket: str, Prefix: str, PaginationConfig: dict[str, Any]) -> Iterator[dict[str, Any]]:
         self.listed_prefixes.append(Prefix)
-        if not Prefix.startswith(self.allowed_prefix):
+        if not Prefix.startswith(self.allowed_prefix) or (self.exact and Prefix != self.allowed_prefix):
             raise ClientError(
                 cast(
                     Any,
