@@ -38,6 +38,7 @@ from posthog.models.oauth_provisioning_review import (
     ProvisioningReviewStatus,
 )
 from posthog.models.user import User
+from posthog.redis import get_client
 
 POSTHOG_WORKSPACE = "T_POSTHOG"
 REVIEW_CHANNEL = "C_REVIEWS"
@@ -113,7 +114,13 @@ class TestProvisioningReviewSlack(APIBaseTest):
         assert reply["thread_ts"] == "1700000000.000100"
         assert reply["text"] == "Needs staff review → Rejected: Staff: Malicious usage"
 
-    def test_a_retry_reuses_a_post_the_database_missed(self, _send_email) -> None:
+    @parameterized.expand(
+        [
+            ("same_decision_retried", ProvisioningReviewStatus.NEEDS_HUMAN, False),
+            ("later_decision", ProvisioningReviewStatus.REJECTED, True),
+        ]
+    )
+    def test_a_post_the_database_missed_is_reused(self, _send_email, _name, next_status, replies) -> None:
         client = _slack_client()
 
         with patch("posthog.api.oauth.provisioning_review_slack.SlackWebClient", return_value=client):
@@ -126,16 +133,22 @@ class TestProvisioningReviewSlack(APIBaseTest):
                         reason="",
                     )
             _sync_review_slack_thread(
-                str(self.review.pk), status=ProvisioningReviewStatus.NEEDS_HUMAN, previous_status=None, reason=""
+                str(self.review.pk),
+                status=next_status,
+                previous_status=ProvisioningReviewStatus.NEEDS_HUMAN,
+                reason="Staff: Malicious usage",
             )
 
-        client.chat_postMessage.assert_called_once()
         self.review.refresh_from_db()
         assert self.review.slack_message_ts == "1700000000.000100"
+        assert client.chat_update.called is replies
+        thread_replies = [c for c in client.chat_postMessage.call_args_list if "thread_ts" in c.kwargs]
+        assert len(thread_replies) == (1 if replies else 0)
+        assert client.chat_postMessage.call_count - len(thread_replies) == 1
 
     def test_a_held_thread_lock_defers_the_post(self, _send_email) -> None:
         client = _slack_client()
-        cache.add(f"{THREAD_LOCK_PREFIX}:{self.review.pk}", True, 60)
+        get_client().lock(f"{THREAD_LOCK_PREFIX}:{self.review.pk}", timeout=60).acquire(blocking=False)
 
         with (
             patch("posthog.api.oauth.provisioning_review_slack.SlackWebClient", return_value=client),

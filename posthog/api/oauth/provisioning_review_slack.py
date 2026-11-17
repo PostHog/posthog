@@ -12,6 +12,7 @@ block id and calls `handle_interaction`.
 
 import json
 from collections.abc import Mapping
+from contextlib import suppress
 from typing import Any
 
 from django.conf import settings
@@ -20,12 +21,14 @@ from django.db import transaction
 
 import structlog
 from celery import Task, shared_task
+from redis.exceptions import LockError, RedisError
 from slack_sdk.errors import SlackApiError
 
 from posthog.egress.slack.client import SlackWebClient
 from posthog.ingress.contracts import DeliveryOwnership
 from posthog.models.oauth_provisioning_review import CIMDProvisioningReview, ProvisioningReviewStatus
 from posthog.models.user import User
+from posthog.redis import get_client
 from posthog.slack.identity import resolve_slack_user
 from posthog.utils import get_instance_region
 
@@ -44,9 +47,11 @@ BLOCK_MODAL_REASON_INPUT = "reason"
 BLOCK_ID_PREFIX = "cimd_review"
 WORKSPACE_CACHE_KEY = "cimd_review_slack_workspace_id"
 THREAD_LOCK_PREFIX = "cimd_review_slack_thread"
-THREAD_LOCK_SECONDS = 60
+# Above the three Slack calls a sync makes at their 30-second client timeout.
+THREAD_LOCK_SECONDS = 120
 THREAD_RETRY_SECONDS = 5
-THREAD_MAX_RETRIES = 5
+# Contention backs off for about five minutes in total, past the lock's lease.
+THREAD_MAX_RETRIES = 6
 THREAD_POSTED_SECONDS = 60 * 60 * 24
 WORKSPACE_CACHE_SECONDS = 60 * 60
 
@@ -148,17 +153,23 @@ def sync_review_slack_thread(
     already have replaced."""
     if not slack_thread_configured():
         return
-    lock_key = f"{THREAD_LOCK_PREFIX}:{review_id}"
-    # One task per review talks to Slack at a time, so two first decisions can't post two threads. The
-    # backoff outlasts the lock's lease, so a lock a dead worker left behind can't use up every retry.
-    if not cache.add(lock_key, True, THREAD_LOCK_SECONDS):
+    # One task per review talks to Slack at a time, so two first decisions can't post two threads. The lock
+    # is owned by a token, so a task whose work outlasted the lease can't release the next task's lock, and the
+    # backoff outlasts the lease, so a lock a dead worker left behind can't use up every retry.
+    lock = get_client().lock(f"{THREAD_LOCK_PREFIX}:{review_id}", timeout=THREAD_LOCK_SECONDS)
+    try:
+        acquired = lock.acquire(blocking=False)
+    except RedisError as error:
+        raise self.retry(exc=error, countdown=_retry_countdown(error, self.request.retries))
+    if not acquired:
         raise self.retry(countdown=THREAD_RETRY_SECONDS * 2**self.request.retries)
     try:
         _sync_review_slack_thread(review_id, status=status, previous_status=previous_status, reason=reason)
     except Exception as error:
         raise self.retry(exc=error, countdown=_retry_countdown(error, self.request.retries))
     finally:
-        cache.delete(lock_key)
+        with suppress(LockError):
+            lock.release()
 
 
 def _sync_review_slack_thread(review_id: str, *, status: str, previous_status: str | None, reason: str) -> None:
@@ -169,19 +180,23 @@ def _sync_review_slack_thread(review_id: str, *, status: str, previous_status: s
     text, blocks = render_review_message(review)
 
     if not review.slack_message_ts:
-        # A retry after a post that Slack accepted but the database never recorded reuses that post.
+        # A post that Slack accepted but the database never recorded is reused rather than posted again.
         posted_key = f"{THREAD_LOCK_PREFIX}:posted:{review.pk}"
         posted = cache.get(posted_key)
         if posted is None:
             response = client.chat_postMessage(
                 channel=settings.PROVISIONING_REVIEW_SLACK_CHANNEL, text=text, blocks=blocks, unfurl_links=False
             )
-            posted = (response["channel"], response["ts"])
+            posted = (response["channel"], response["ts"], status)
             cache.set(posted_key, posted, THREAD_POSTED_SECONDS)
+        channel_id, message_ts, posted_status = posted
         CIMDProvisioningReview.objects.filter(pk=review.pk).update(
-            slack_channel_id=posted[0], slack_message_ts=posted[1]
+            slack_channel_id=channel_id, slack_message_ts=message_ts
         )
-        return
+        # The post already shows the decision that made it. A later decision still updates it and replies.
+        if posted_status == status:
+            return
+        review.slack_channel_id, review.slack_message_ts = channel_id, message_ts
 
     client.chat_update(channel=review.slack_channel_id, ts=review.slack_message_ts, text=text, blocks=blocks)
     change = ProvisioningReviewStatus(status).label
