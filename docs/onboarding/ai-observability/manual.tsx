@@ -190,7 +190,10 @@ export const getManualSteps = (ctx: OnboardingComponentsContext): StepDefinition
                                         {l.key === 'Ruby' && (
                                             <>
                                                 <Markdown>### 1. Install</Markdown>
-                                                <CodeBlock language="bash" code="gem install posthog-ruby" />
+                                                <CodeBlock
+                                                    language="bash"
+                                                    code="gem install posthog-ruby -v '~> 3.0'"
+                                                />
 
                                                 <Markdown>### 2. Initialize PostHog</Markdown>
                                                 <CodeBlock
