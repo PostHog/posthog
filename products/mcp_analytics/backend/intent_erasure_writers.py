@@ -37,21 +37,35 @@ def _complete_writer(run: MCPIntentClusteringRun) -> None:
 
 
 @contextmanager
-def registered_intent_writer(team: Team, *, purpose: str) -> Iterator[None]:
+def registered_intent_writer(
+    team: Team, *, purpose: str, no_write_errors: tuple[type[Exception], ...] = ()
+) -> Iterator[None]:
     """Enter before source reads; leave only after all writes and child work have joined.
 
     A failed or cancelled caller can leave remote writes in flight, so its registration
     remains pending until those writes are reconciled. It must never expire by age.
+    ``no_write_errors`` names exceptions the caller raises only before any write is dispatched,
+    such as a refused LLM call. Those complete the registration, so they cannot block erasure.
     """
     run = _register_writer(team, purpose=purpose)
-    yield
+    try:
+        yield
+    except no_write_errors:
+        _complete_writer(run)
+        raise
     _complete_writer(run)
 
 
 @asynccontextmanager
-async def registered_intent_writer_async(team: Team, *, purpose: str) -> AsyncIterator[None]:
+async def registered_intent_writer_async(
+    team: Team, *, purpose: str, no_write_errors: tuple[type[Exception], ...] = ()
+) -> AsyncIterator[None]:
     run = await database_sync_to_async(_register_writer)(team, purpose=purpose)
-    yield
+    try:
+        yield
+    except no_write_errors:
+        await database_sync_to_async(_complete_writer)(run)
+        raise
     await database_sync_to_async(_complete_writer)(run)
 
 
