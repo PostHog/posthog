@@ -791,7 +791,7 @@ class TestSpanTree:
         alertable = [s for s in spans if s.parent is None or s.kind in (SpanKind.SERVER, SpanKind.CONSUMER)]
         assert [s.name for s in alertable if s.status.status_code.name == "ERROR"] == ["build"]
 
-    def test_a_failed_job_reports_one_alertable_error_span_on_its_branch(self) -> None:
+    def test_a_failed_job_reports_one_alertable_error_span_on_its_branch(self, monkeypatch: pytest.MonkeyPatch) -> None:
         # The run is cancelled right after, so only the job may count as an error, and an alert scoped to
         # queue branches must match it.
         env = {
@@ -804,9 +804,12 @@ class TestSpanTree:
             "FAILED_JOB_BRANCH": "trunk-merge/pr-1/uuid",
             "FAILED_JOB_EVENT": "pull_request",
         }
-        run = reporter.failed_job_run(env, RUN_START)
+        for var, value in {**env, "POSTHOG_DEVEX_PROJECT_API_TOKEN": "token"}.items():
+            monkeypatch.setenv(var, value)
+        monkeypatch.delenv("POSTHOG_CI_TRACES_EXTRA_TOKEN", raising=False)
         exporter = InMemorySpanExporter()
-        reporter.emit_trace(run, "http://unused", "token", exporter=exporter, entry_jobs=True)
+        monkeypatch.setattr(reporter, "OTLPSpanExporter", lambda **_: exporter)
+        assert reporter.main(["--failed-job"]) == reporter.EXIT_OK
         spans = exporter.get_finished_spans()
         alertable = [s for s in spans if s.parent is None or s.kind in (SpanKind.SERVER, SpanKind.CONSUMER)]
         assert [s.name for s in alertable if s.status.status_code.name == "ERROR"] == [env["FAILED_JOB_NAME"]]
