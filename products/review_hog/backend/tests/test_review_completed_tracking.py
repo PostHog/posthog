@@ -256,7 +256,15 @@ class TestTrackReviewCompleted(BaseTest):
             must_fix_on_change=1,
             must_fix_off_change=2,
         )
-        sessions = FlashSessionStats(lens_failures=1, lens_timeouts=1, slowest_session_seconds=412.5, arm_fallbacks=2)
+        sessions = FlashSessionStats(
+            lens_failures=1,
+            lens_timeouts=1,
+            slowest_session_seconds=412.5,
+            arm_fallbacks=2,
+            devex_failed=False,
+            devex_timed_out=True,
+            devex_session_seconds=600.0,
+        )
         trial = SingleAgentArms(main=replace(SINGLE_AGENT_FLASH_ARM, model="gpt-6-luna"), lens=SINGLE_AGENT_FLASH_ARM)
 
         with (
@@ -296,6 +304,9 @@ class TestTrackReviewCompleted(BaseTest):
             "flash_slowest_session_seconds": 412.5,
             "flash_coordinator": False,
             "flash_arm_fallbacks": 2,
+            "flash_devex_failed": False,
+            "flash_devex_timed_out": True,
+            "flash_devex_session_seconds": 600.0,
         }
         assert not [key for key in pipeline if key.startswith("flash_")]
         assert (single_agent["single_agent_arm_set"], single_agent["review_model"]) == ("trial", "gpt-6-luna")
