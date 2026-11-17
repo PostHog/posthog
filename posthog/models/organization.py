@@ -877,37 +877,35 @@ class OrganizationMembership(ModelActivityMixin, UUIDTModel):
             if new_level is not None:
                 raise exceptions.PermissionDenied("You can't change your own access level.")
             return
-        level = self._level_held()
+        can_edit, can_manage_owners = self._can_in_organization(Action.EDIT, Action.MANAGE_OWNERS)
         if new_level is not None:
             if new_level == OrganizationMembership.Level.OWNER:
-                if level != OrganizationMembership.Level.OWNER:
+                if not can_manage_owners:
                     raise exceptions.PermissionDenied(
                         "You can only make another member owner if you're this organization's owner."
                     )
                 self.save()
-            elif new_level > level:
+            elif new_level == OrganizationMembership.Level.ADMIN and not can_edit:
                 raise exceptions.PermissionDenied(
                     "You can only change access level of others to lower or equal to your current one."
                 )
         if membership_being_updated.organization_id != self.organization_id:
             raise exceptions.PermissionDenied("You both need to belong to the same organization.")
-        if level < OrganizationMembership.Level.ADMIN:
+        if not can_edit:
             raise exceptions.PermissionDenied("You can only edit others if you are an admin.")
-        if membership_being_updated.level > level:
+        if membership_being_updated.level == OrganizationMembership.Level.OWNER and not can_manage_owners:
             raise exceptions.PermissionDenied("You can only edit others with level lower or equal to you.")
 
-    def _level_held(self) -> int:
-        """The highest level the SDK allows this member in the organization, or 0 when it allows none."""
+    def _can_in_organization(self, *actions: Action) -> list[bool]:
+        """Whether the SDK allows this member each action on the organization, in order."""
         # The facade imports `posthog.models`, which imports this module.
         from products.authorization.backend.facade import api as authorization  # noqa: PLC0415
 
         resource = Resource(type=ResourceType.ORGANIZATION, id=str(self.organization_id))
         subject = Subject(user_id=self.user_id)
-        levels = {self.Level.MEMBER: Action.VIEW, self.Level.ADMIN: Action.EDIT, self.Level.OWNER: Action.MANAGE_OWNERS}
-        allowed = authorization.check(
-            [CheckRequest(resource=resource, action=action, subject=subject) for action in levels.values()]
+        return authorization.check(
+            [CheckRequest(resource=resource, action=action, subject=subject) for action in actions]
         )
-        return max((level for level, ok in zip(levels, allowed, strict=True) if ok), default=0)
 
     def get_scoped_api_keys(self):
         """
