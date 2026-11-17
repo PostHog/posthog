@@ -30,6 +30,20 @@ describe('surveySiteSnapshotLogic', () => {
         jest.useRealTimers()
     })
 
+    it.each([10_000, 25_000, 60_000])('shows a render that finishes after %ims within 4s', async (renderMs) => {
+        const startedAt = Date.now()
+        mockRetrieve.mockImplementation(async () =>
+            Date.now() - startedAt >= renderMs ? { ...RENDERING, status: 'ready' } : RENDERING
+        )
+        const logic = surveySiteSnapshotLogic({ surveyId: 'survey-id', device: 'desktop', urlCondition: ':' })
+        logic.mount()
+
+        await jest.advanceTimersByTimeAsync(renderMs + 4_000)
+
+        expect(logic.values.siteSnapshot?.status).toBe('ready')
+        logic.unmount()
+    })
+
     it.each([
         ['a render that never finishes', () => mockRetrieve.mockResolvedValue(RENDERING)],
         ['a request that keeps failing', () => mockRetrieve.mockRejectedValue(new Error('offline'))],

@@ -5285,6 +5285,33 @@ export const SignalsSourceConfigsAlertPatternPreviewCreateBody = /* @__PURE__ */
 })
 
 /**
+ * Check a filter expression before saving it, and see what it does to the source's records created in the last 7 days: how many pass and how many it excludes, with the newest of each. Reads the records emission would read, with the source's saved team allowlist, and runs with your own warehouse access. Records that pass can still be skipped later by guidance or deduplication. Saves nothing and calls no AI.
+ * @summary Preview a source filter
+ */
+export const signalsSourceConfigsFilterPreviewCreateBodySourceProductMax = 100
+
+export const signalsSourceConfigsFilterPreviewCreateBodySourceTypeMax = 100
+
+export const signalsSourceConfigsFilterPreviewCreateBodyExpressionMax = 16384
+
+export const SignalsSourceConfigsFilterPreviewCreateBody = /* @__PURE__ */ zod.object({
+    source_product: zod
+        .string()
+        .max(signalsSourceConfigsFilterPreviewCreateBodySourceProductMax)
+        .describe('Source product of the filter to preview, as listed by `inbox-source-filter-catalogs-list`.'),
+    source_type: zod
+        .string()
+        .max(signalsSourceConfigsFilterPreviewCreateBodySourceTypeMax)
+        .describe('Source type of the filter to preview, as listed by `inbox-source-filter-catalogs-list`.'),
+    expression: zod
+        .string()
+        .max(signalsSourceConfigsFilterPreviewCreateBodyExpressionMax)
+        .describe(
+            "Filter expression to try, as it would be saved in `config.hogql_filter`: a boolean expression over the fields `inbox-source-filter-catalogs-list` returns, for example `project_name = 'Core' AND assignee_id IS NULL`. An empty expression lets every record through."
+        ),
+})
+
+/**
  * Per-user signal autonomy config (singleton keyed by user).
  *
  * GET    /api/users/<id>/signal_autonomy/ → current config (or 404)
