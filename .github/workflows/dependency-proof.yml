@@ -4,7 +4,7 @@ name: Dependency proof
 # request head. Everything here runs from the default branch: the triggering run only names a
 # head SHA, the pull request is looked up through the API, settings come from this commit, and
 # pnpm runs in the merge-base tree. Nothing from the pull request tree is executed.
-# The prover is tools/dependency-proof, and the trigger is dependency-proof-trigger.yml.
+# The prover is tools/change-prover, and the trigger is dependency-proof-trigger.yml.
 
 on:
     workflow_run:
@@ -42,7 +42,7 @@ jobs:
               with:
                   persist-credentials: false
                   sparse-checkout: |
-                      tools/dependency-proof
+                      tools/change-prover
                       .github/actions/setup-uv
                   sparse-checkout-cone-mode: false
 
@@ -57,7 +57,7 @@ jobs:
                   REPOSITORY: ${{ github.repository }}
                   BASE_BRANCH: ${{ github.event.repository.default_branch }}
                   HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
-              run: uv run --frozen --project tools/dependency-proof python -I tools/dependency-proof/dependency_proof/__main__.py identify
+              run: uv run --frozen --project tools/change-prover python -I tools/change-prover/change_prover/__main__.py identify
 
     # pnpm resolves packages here, so this job holds no permission and no step is given a token.
     prove:
@@ -78,7 +78,7 @@ jobs:
               with:
                   persist-credentials: false
                   sparse-checkout: |
-                      tools/dependency-proof
+                      tools/change-prover
                       .github/actions/setup-uv
                       .nvmrc
                   sparse-checkout-cone-mode: false
@@ -99,7 +99,7 @@ jobs:
                   MERGE_BASE_DIR: ${{ runner.temp }}/merge-base
                   PULL_REQUEST: ${{ needs.identify.outputs.pr }}
                   MERGE_BASE: ${{ needs.identify.outputs.merge_base }}
-              run: uv run --frozen --project tools/dependency-proof python -I tools/dependency-proof/dependency_proof/__main__.py prove
+              run: uv run --frozen --project tools/change-prover python -I tools/change-prover/change_prover/__main__.py prove
 
     scan:
         name: Scan the added packages
@@ -115,7 +115,7 @@ jobs:
               with:
                   persist-credentials: false
                   sparse-checkout: |
-                      tools/dependency-proof
+                      tools/change-prover
                       .github/actions/setup-uv
                   sparse-checkout-cone-mode: false
 
@@ -128,10 +128,10 @@ jobs:
               env:
                   HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
                   MERGE_BASE: ${{ needs.identify.outputs.merge_base }}
-              run: uv run --frozen --project tools/dependency-proof --group scan python -I tools/dependency-proof/dependency_proof/__main__.py scan-gate
+              run: uv run --frozen --project tools/change-prover --group scan python -I tools/change-prover/change_prover/__main__.py scan-gate
 
     # stamphog waits for a completed check on every pull request that changes a dependency file, so
-    # every run posts one. The `conclude` command in dependency_proof/core/conclusion.py decides the
+    # every run posts one. The `conclude` command in change_prover/core/conclusion.py decides the
     # check run and whether the run fails.
     publish:
         name: Publish the Dependency proof check
@@ -149,7 +149,7 @@ jobs:
               with:
                   persist-credentials: false
                   sparse-checkout: |
-                      tools/dependency-proof
+                      tools/change-prover
                       .github/actions/setup-uv
                   sparse-checkout-cone-mode: false
 
@@ -194,8 +194,8 @@ jobs:
                   # Empty output means the command itself broke, so nothing is posted. It runs
                   # without the App token, which only `gh` needs.
                   unproved=0
-                  check_run="$(env -u GH_TOKEN uv run --frozen --project tools/dependency-proof \
-                      python -I tools/dependency-proof/dependency_proof/__main__.py conclude)" || unproved=$?
+                  check_run="$(env -u GH_TOKEN uv run --frozen --project tools/change-prover \
+                      python -I tools/change-prover/change_prover/__main__.py conclude)" || unproved=$?
                   if [[ -z "$check_run" ]]; then
                       exit 1
                   fi

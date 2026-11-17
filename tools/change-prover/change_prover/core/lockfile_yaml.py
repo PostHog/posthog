@@ -8,7 +8,7 @@ from typing import Any
 
 import yaml
 
-from dependency_proof.core.policy import Refused
+from change_prover.core.policy import Refused
 
 YAML_LOADER = getattr(yaml, "CSafeLoader", yaml.SafeLoader)
 

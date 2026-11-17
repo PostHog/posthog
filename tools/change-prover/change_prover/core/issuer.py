@@ -10,10 +10,10 @@ from __future__ import annotations
 
 import re
 
-from dependency_proof.core.lockfile_yaml import load_yaml
-from dependency_proof.core.policy import Refused
+from change_prover.core.lockfile_yaml import load_yaml
+from change_prover.core.policy import Refused
 
-MANIFEST_PATH = "tools/dependency-proof/issuer.yml"
+MANIFEST_PATH = "tools/change-prover/issuer.yml"
 MAX_BYTES = 16 * 1024
 MAX_PATHS = 32
 GLOB_CHARACTERS = re.compile(r"[*?\[\]{}\\]")

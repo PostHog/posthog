@@ -397,7 +397,7 @@ A deny category can be lifted by a CI check that the policy names under `attesta
 Each entry pins a check name to the GitHub App that publishes it, the categories it may lift, the paths it may lift them for, and optionally companion `sibling_files`.
 The check name and App identify the publisher, and the categories and paths are what the policy lets it lift.
 An entry may also say what the publisher runs from, in one of two ways, never both.
-`issuer` names a manifest the publisher owns, such as `tools/dependency-proof/issuer.yml`, whose single `paths` key lists the default-branch paths it runs from.
+`issuer` names a manifest the publisher owns, such as `tools/change-prover/issuer.yml`, whose single `paths` key lists the default-branch paths it runs from.
 A path that ends in `/` is a directory, pinned by its git tree id, and any other path is a file, pinned by its blob id.
 The manifest must cover itself, hold at most 32 unique plain paths, and stay under 16 KiB. A missing or invalid manifest makes the entry lift nothing.
 `publisher_files` lists those paths in the policy itself instead.

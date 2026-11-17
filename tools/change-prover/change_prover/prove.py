@@ -1,7 +1,7 @@
 """Prove one pull request's dependency update from the default branch and the merge base.
 
 This is the shell: it reads git, the GitHub API and the registry, and runs pnpm. Every refusal
-is decided in `dependency_proof.core`.
+is decided in `change_prover.core`.
 """
 
 from __future__ import annotations
@@ -20,10 +20,10 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from dependency_proof.core import identity, issuer, policy
-from dependency_proof.core.lockfile_yaml import comparable, load_yaml
-from dependency_proof.core.policy import LOCKFILE, MANIFEST, WORKSPACE_FILE, join
-from dependency_proof.core.replay import replay_commands
+from change_prover.core import identity, issuer, policy
+from change_prover.core.lockfile_yaml import comparable, load_yaml
+from change_prover.core.policy import LOCKFILE, MANIFEST, WORKSPACE_FILE, join
+from change_prover.core.replay import replay_commands
 
 REGISTRY = "https://registry.npmjs.org/"
 PAGE_SIZE = 100

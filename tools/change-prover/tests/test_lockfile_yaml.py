@@ -1,7 +1,7 @@
 import pytest
 
-from dependency_proof.core.lockfile_yaml import comparable
-from dependency_proof.core.policy import Refused
+from change_prover.core.lockfile_yaml import comparable
+from change_prover.core.policy import Refused
 
 
 def lockfile(

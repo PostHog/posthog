@@ -4,7 +4,7 @@ from dataclasses import replace
 
 import pytest
 
-from dependency_proof.core.conclusion import PublishInputs, conclude
+from change_prover.core.conclusion import PublishInputs, conclude
 
 HEAD, MERGE_BASE, WORKFLOW_SHA, BLOB = "a" * 40, "b" * 40, "c" * 40, "d" * 40
 RUN_URL = "https://github.com/PostHog/posthog/actions/runs/1"

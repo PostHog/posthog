@@ -15,9 +15,9 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
-from dependency_proof import prove, scan
-from dependency_proof.core import conclusion, identity
-from dependency_proof.core.policy import Refused
+from change_prover import prove, scan
+from change_prover.core import conclusion, identity
+from change_prover.core.policy import Refused
 
 
 @dataclass(frozen=True)

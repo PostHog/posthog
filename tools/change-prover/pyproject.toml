@@ -1,7 +1,7 @@
 # A standalone uv project, not a member of the root workspace. The Dependency proof workflow pins
 # every file it runs from, so the proof must not install from the root pyproject.toml and uv.lock.
 [project]
-name = "dependency-proof"
+name = "change-prover"
 version = "0.0.0"
 description = "Proves a bot's npm dependency update for the Dependency proof check, and scans added packages with GuardDog"
 requires-python = "==3.12.*"

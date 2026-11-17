@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from dependency_proof.core.policy import ALLOWED_AUTHOR_IDS, Refused
+from change_prover.core.policy import ALLOWED_AUTHOR_IDS, Refused
 
 COMMIT_SHA = re.compile(r"[0-9a-f]{40}")
 PULL_REQUEST_NUMBER = re.compile(r"[1-9][0-9]*")

@@ -7,9 +7,9 @@ on:
             - '**/uv.lock'
             - '**/Cargo.lock'
             - '**/go.mod'
-            - tools/dependency-proof/dependency_proof/scan.py
-            - tools/dependency-proof/pyproject.toml
-            - tools/dependency-proof/uv.lock
+            - tools/change-prover/change_prover/scan.py
+            - tools/change-prover/pyproject.toml
+            - tools/change-prover/uv.lock
             - .github/scripts/post-dependency-scan-section.mjs
             - .github/workflows/dependency-scan.yml
 
@@ -32,7 +32,7 @@ jobs:
                   fetch-depth: 2
                   filter: blob:none
                   sparse-checkout: |
-                      tools/dependency-proof
+                      tools/change-prover
                       .github/actions/setup-uv
                   sparse-checkout-cone-mode: false
 
@@ -46,7 +46,7 @@ jobs:
                   FINDINGS_FILE: dependency-scan/findings.json
               run: |
                   mkdir -p dependency-scan
-                  uv run --frozen --project tools/dependency-proof --group scan python -I tools/dependency-proof/dependency_proof/__main__.py scan-report
+                  uv run --frozen --project tools/change-prover --group scan python -I tools/change-prover/change_prover/__main__.py scan-report
 
             - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               if: ${{ !cancelled() }}

@@ -34,7 +34,7 @@ on:
             - tools/test_manage_diagnostics.py
             # The deploy requirements contract test runs the Rust manifest writer.
             - tools/deploy-requirements/**
-            - tools/dependency-proof/**
+            - tools/change-prover/**
             - rust/bin/write-deploy-requirements
             - manage.py
             # test_tach_map.py holds tach_map.py's pin to the locked tach version,
@@ -142,7 +142,7 @@ jobs:
             # The dependency proof is its own uv project, so its tests run with its own locked
             # dependencies and its own pytest settings rather than the shared venv above.
             - name: Dependency proof tests
-              run: uv run --frozen --project tools/dependency-proof --group test python -m pytest tools/dependency-proof
+              run: uv run --frozen --project tools/change-prover --group test python -m pytest tools/change-prover
 
             # schema-impact.test.js shells out to schema_usage_scan.py via the same
             # preinstalled python3.

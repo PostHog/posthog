@@ -199,7 +199,7 @@ The next delivery skips and dismisses the standing approval, and the engine refu
 
 An attestation entry splits who the publisher is from what it may do.
 `check` and `app_id` identify the publisher, and `paths` and `lifts` say what it may lift.
-The default-branch paths the publisher runs from are its own description, kept in one place: an `issuer` manifest that the publisher owns, such as `tools/dependency-proof/issuer.yml`, which holds only `paths`.
+The default-branch paths the publisher runs from are its own description, kept in one place: an `issuer` manifest that the publisher owns, such as `tools/change-prover/issuer.yml`, which holds only `paths`.
 A key ending in `/` is a directory, which the marker pins by its git tree id, so a file added under it changes the pin too. Any other key is a file pinned by its blob id.
 The manifest must cover its own path, so an edit to it changes a pin as well.
 The policy only names the manifest. It never copies the list, so the two cannot drift apart.

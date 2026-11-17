@@ -1,16 +1,16 @@
 import pytest
 
-from dependency_proof.core import issuer
-from dependency_proof.core.issuer import InvalidIssuerManifest
+from change_prover.core import issuer
+from change_prover.core.issuer import InvalidIssuerManifest
 
-OWN = "tools/dependency-proof/issuer.yml"
+OWN = "tools/change-prover/issuer.yml"
 
 
 @pytest.mark.parametrize(
     ("text", "expected", "reason"),
     [
-        (b"paths:\n  - tools/dependency-proof/\n  - .nvmrc\n", ("tools/dependency-proof/", ".nvmrc"), None),
-        (b"paths:\n  - tools/dependency-proof/issuer.yml\n", ("tools/dependency-proof/issuer.yml",), None),
+        (b"paths:\n  - tools/change-prover/\n  - .nvmrc\n", ("tools/change-prover/", ".nvmrc"), None),
+        (b"paths:\n  - tools/change-prover/issuer.yml\n", ("tools/change-prover/issuer.yml",), None),
         (b"paths:\n  - .nvmrc\n", None, "does not cover itself"),
         (b"paths:\n  - tools/\n  - tools/\n", None, "twice"),
         (b"paths: []\n", None, "non-empty list"),

@@ -15,20 +15,20 @@ from typing import Any
 
 import pytest
 
-from dependency_proof import (
+from change_prover import (
     cli,
     prove as prover,
 )
-from dependency_proof.core.issuer import InvalidIssuerManifest
-from dependency_proof.core.policy import RENOVATE_BOT_USER_ID, ChangedFile, Refused
+from change_prover.core.issuer import InvalidIssuerManifest
+from change_prover.core.policy import RENOVATE_BOT_USER_ID, ChangedFile, Refused
 
 REPOSITORY = "PostHog/posthog"
 HEAD, MERGE_BASE, WORKFLOW_SHA = "a" * 40, "b" * 40, "c" * 40
 NOW = datetime(2026, 11, 9, 12, tzinfo=UTC)
 WORKSPACE = b"packages:\n    - '.'\nminimumReleaseAge: 10080\nminimumReleaseAgeExclude:\n    - posthog-js\n    - '@posthog/*'\n    - left-pad@1.3.0\nallowBuilds:\n    esbuild: true\n"
-PROVER = "tools/dependency-proof/dependency_proof/prove.py"
-ISSUER = "tools/dependency-proof/issuer.yml"
-ISSUER_TEXT = b"paths:\n  - tools/dependency-proof/\n  - .nvmrc\n"
+PROVER = "tools/change-prover/change_prover/prove.py"
+ISSUER = "tools/change-prover/issuer.yml"
+ISSUER_TEXT = b"paths:\n  - tools/change-prover/\n  - .nvmrc\n"
 REPLAY_FLAGS = ["--lockfile-only", "--recursive", "--ignore-scripts", "--ignore-pnpmfile"]
 
 
@@ -237,7 +237,7 @@ def test_an_eligible_update_is_attested_after_a_frozen_replay_of_renovates_comma
     assert proof == prover.Proof(
         files,
         {
-            "tools/dependency-proof/": git.tree(WORKFLOW_SHA, "tools/dependency-proof/"),
+            "tools/change-prover/": git.tree(WORKFLOW_SHA, "tools/change-prover/"),
             ".npmrc": None,
             ".nvmrc": _fake_blob_sha(b"24\n"),
             ".pnpmfile.cjs": None,

@@ -1,4 +1,4 @@
-# Dependency proof
+# Change prover
 
 ## What the prover proves
 
@@ -49,7 +49,7 @@ A proof made by an older prover, or under older settings, therefore lifts nothin
 `tests/test_package.py` fails when a path the workflows check out or run is not covered by `issuer.yml`.
 
 Every decision lives in a pure core.
-`dependency_proof/core/` holds pure functions over plain values, and every refusal is raised there.
+`change_prover/core/` holds pure functions over plain values, and every refusal is raised there.
 `prove.py`, `scan.py` and `cli.py` are the shell: they read git, the GitHub API and the registry, and they run pnpm.
 The shell may interleave reads and checks, but it never decides.
 `tests/test_package.py` keeps side-effecting modules out of the core.
