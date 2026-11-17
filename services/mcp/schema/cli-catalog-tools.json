@@ -39946,7 +39946,7 @@
             "list": false,
             "filter": {
                 "kind": "pick",
-                "fields": ["results"],
+                "fields": ["results", "hasMore", "nextCursor"],
                 "selectable": false
             },
             "stripNulls": false,
