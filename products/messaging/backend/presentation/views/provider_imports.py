@@ -17,7 +17,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.event_usage import report_user_action
 from posthog.exceptions import Conflict
 from posthog.permissions import get_authenticator_scopes
-from posthog.scopes import scopes_not_covered
+from posthog.scopes.checks import scopes_not_covered
 
 from products.messaging.backend.facade.provider_imports import (
     IMPORT_PROVIDER_CHOICES,
