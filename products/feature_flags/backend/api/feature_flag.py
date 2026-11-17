@@ -137,7 +137,11 @@ from products.feature_flags.backend.api.filters_schema import (
     FinitePercentageField,
 )
 from products.feature_flags.backend.api.remote_config_shadow import shadow_compare_remote_config
-from products.feature_flags.backend.dependency_formats import DependencyConfigFormatError, validate_dependency_formats
+from products.feature_flags.backend.dependency_formats import (
+    DependencyConfigFormatError,
+    dependency_ids as flag_dependency_ids,
+    validate_dependency_formats,
+)
 from products.feature_flags.backend.encrypted_flag_payloads import (
     REDACTED_PAYLOAD_VALUE,
     apply_approved_encrypted_payloads,
@@ -671,17 +675,6 @@ def _runtime_supports_dependency(dependent_runtime: str | None, dependency_runti
     # as false. The dependency must therefore evaluate everywhere the dependent does.
     dependency = _runtime(dependency_runtime)
     return dependency == "all" or dependency == _runtime(dependent_runtime)
-
-
-def _flag_dependency_ids(filters: Any) -> set[int]:
-    groups = filters.get("groups") if isinstance(filters, dict) else None
-    ids = set()
-    for located in _iter_flag_filter_properties(groups):
-        if located.prop.get("type") == PropertyFilterType.FLAG:
-            flag_id = safe_int(located.prop.get("key"))
-            if flag_id is not None:
-                ids.add(flag_id)
-    return ids
 
 
 def find_dependent_flags_batch(
@@ -1924,7 +1917,7 @@ class FeatureFlagSerializer(
         return attrs
 
     def _validate_dependency_runtimes(self, attrs: dict) -> None:
-        # Only dependencies that this write adds, or that a runtime change affects, are checked.
+        # The check reads only the dependencies this write adds, or all of them when the write changes the runtime.
         # An edit to a flag that already holds a mismatched dependency therefore still saves.
         if self._v2_write:
             return
@@ -1932,7 +1925,7 @@ class FeatureFlagSerializer(
         runtime = attrs.get("evaluation_runtime", stored_runtime)
         runtime_changed = self.instance is not None and _runtime(runtime) != _runtime(stored_runtime)
 
-        if runtime_changed:
+        if self.instance is not None and runtime_changed:
             broken_dependents = [
                 dependent
                 for dependent in find_dependent_flags(self.instance)
@@ -1944,22 +1937,22 @@ class FeatureFlagSerializer(
                         "evaluation_runtime": ErrorDetail(
                             f"Cannot make this flag evaluate {_describe_runtime(runtime)} because flags that "
                             f"evaluate elsewhere depend on it: {_describe_flags(broken_dependents)}. Remove the "
-                            f"dependency from those flags, or set this flag to evaluate {_describe_runtime('all')}.",
+                            f"dependency from those flags, or set this flag to evaluate {_RUNTIME_DESCRIPTIONS['all']}.",
                             code=DEPENDENCY_RUNTIME_MISMATCH,
                         )
                     }
                 )
 
-        stored_filters = self.instance.filters if self.instance is not None else None
-        stored_dependency_ids = _flag_dependency_ids(stored_filters) if self.instance is not None else set()
-        dependency_ids = _flag_dependency_ids(attrs.get("get_filters", stored_filters))
+        stored_filters = (self.instance.filters if self.instance is not None else None) or {}
+        stored_dependency_ids = set(flag_dependency_ids(stored_filters))
+        checked_ids = set(flag_dependency_ids(attrs.get("get_filters", stored_filters) or {}))
         if not runtime_changed:
-            dependency_ids -= stored_dependency_ids
-        if not dependency_ids:
+            checked_ids -= stored_dependency_ids
+        if not checked_ids:
             return
 
         dependencies = (
-            FeatureFlag.objects.filter(id__in=dependency_ids, team__project_id=self.context["project_id"])
+            FeatureFlag.objects.filter(id__in=checked_ids, team__project_id=self.context["project_id"])
             .only("id", "key", "evaluation_runtime")
             .order_by("key")
         )
@@ -1975,7 +1968,7 @@ class FeatureFlagSerializer(
                         f"Cannot depend on flag '{dependency.key}' (ID: {dependency.id}) because it evaluates "
                         f"{dependency_runtime} and this flag evaluates {_describe_runtime(runtime)}. Where "
                         f"'{dependency.key}' doesn't evaluate, this flag reads it as false. Set '{dependency.key}' "
-                        f"to evaluate {_describe_runtime('all')}, or set this flag to evaluate {dependency_runtime}.",
+                        f"to evaluate {_RUNTIME_DESCRIPTIONS['all']}, or set this flag to evaluate {dependency_runtime}.",
                         code=DEPENDENCY_RUNTIME_MISMATCH,
                     )
                 }
@@ -3121,11 +3114,8 @@ class FeatureFlagSerializer(
             # Check if this flag depends on any disabled flags
             disabled_dependencies = self._find_disabled_dependencies(instance)
             if disabled_dependencies:
-                disabled_flag_names = [f"{flag.key} (ID: {flag.id})" for flag in disabled_dependencies[:5]]
-                if len(disabled_dependencies) > 5:
-                    disabled_flag_names.append(f"and {len(disabled_dependencies) - 5} more")
                 raise exceptions.ValidationError(
-                    f"Cannot enable this feature flag because it depends on disabled flags: {', '.join(disabled_flag_names)}. "
+                    f"Cannot enable this feature flag because it depends on disabled flags: {_describe_flags(disabled_dependencies)}. "
                     f"Please enable the dependency flags first."
                 )
 
