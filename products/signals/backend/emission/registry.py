@@ -209,6 +209,7 @@ def _register_all_emitters() -> None:
     from products.signals.backend.emission.etsy_reviews import ETSY_CONFIG
     from products.signals.backend.emission.featurebase_posts import FEATUREBASE_CONFIG
     from products.signals.backend.emission.featurebase_survey_responses import FEATUREBASE_SURVEY_CONFIG
+    from products.signals.backend.emission.firehydrant_alerts import FIREHYDRANT_ALERTS_CONFIG
     from products.signals.backend.emission.firehydrant_incidents import FIREHYDRANT_CONFIG
     from products.signals.backend.emission.formbricks_responses import FORMBRICKS_CONFIG
     from products.signals.backend.emission.freshdesk_tickets import FRESHDESK_CONFIG
@@ -229,11 +230,13 @@ def _register_all_emitters() -> None:
     )
     from products.signals.backend.emission.google_search_console_opportunities import GOOGLE_SEARCH_CONSOLE_CONFIG
     from products.signals.backend.emission.gorgias_tickets import GORGIAS_CONFIG
+    from products.signals.backend.emission.grafana_irm_alert_groups import GRAFANA_IRM_ALERT_GROUPS_CONFIG
     from products.signals.backend.emission.grafana_irm_incidents import GRAFANA_IRM_CONFIG
     from products.signals.backend.emission.gumroad_product_reviews import GUMROAD_CONFIG
     from products.signals.backend.emission.helpscout_conversations import HELPSCOUT_CONFIG
     from products.signals.backend.emission.honeybadger_faults import HONEYBADGER_CONFIG
     from products.signals.backend.emission.hubspot_tickets import HUBSPOT_CONFIG
+    from products.signals.backend.emission.incident_io_alerts import INCIDENT_IO_ALERTS_CONFIG
     from products.signals.backend.emission.incident_io_incidents import INCIDENT_IO_CONFIG
     from products.signals.backend.emission.infisical_secret_scanning_findings import INFISICAL_CONFIG
     from products.signals.backend.emission.instatus_incidents import INSTATUS_CONFIG
@@ -276,6 +279,8 @@ def _register_all_emitters() -> None:
     from products.signals.backend.emission.retently_feedback import RETENTLY_CONFIG
     from products.signals.backend.emission.roark_issues import ROARK_CONFIG
     from products.signals.backend.emission.rollbar_items import ROLLBAR_CONFIG
+    from products.signals.backend.emission.rootly_alerts import ROOTLY_ALERTS_CONFIG
+    from products.signals.backend.emission.rootly_incidents import ROOTLY_INCIDENTS_CONFIG
     from products.signals.backend.emission.semgrep_sast_findings import SEMGREP_CONFIG
     from products.signals.backend.emission.semgrep_sca_findings import SEMGREP_SCA_CONFIG
     from products.signals.backend.emission.semrush_site_audit_issue_details import (
@@ -290,6 +295,7 @@ def _register_all_emitters() -> None:
     from products.signals.backend.emission.solarwinds_service_desk_incidents import SOLARWINDS_SERVICE_DESK_CONFIG
     from products.signals.backend.emission.sonarcloud_issues import SONARCLOUD_CONFIG
     from products.signals.backend.emission.sonarqube_issues import SONARQUBE_CONFIG
+    from products.signals.backend.emission.splunk_observability_cloud_incidents import SPLUNK_OBSERVABILITY_CLOUD_CONFIG
     from products.signals.backend.emission.sprig_responses import SPRIG_CONFIG
     from products.signals.backend.emission.squadcast_incidents import SQUADCAST_CONFIG
     from products.signals.backend.emission.statuspage_incidents import STATUSPAGE_CONFIG
@@ -304,6 +310,7 @@ def _register_all_emitters() -> None:
     from products.signals.backend.emission.trustpilot_product_reviews import TRUSTPILOT_PRODUCT_REVIEWS_CONFIG
     from products.signals.backend.emission.trustpilot_service_reviews import TRUSTPILOT_CONFIG
     from products.signals.backend.emission.typeform_responses import TYPEFORM_CONFIG
+    from products.signals.backend.emission.uptimerobot_incidents import UPTIMEROBOT_CONFIG
     from products.signals.backend.emission.usersnap_feedbacks import USERSNAP_CONFIG
     from products.signals.backend.emission.uservoice_nps_ratings import USERVOICE_NPS_CONFIG
     from products.signals.backend.emission.uservoice_suggestions import USERVOICE_CONFIG
@@ -316,6 +323,7 @@ def _register_all_emitters() -> None:
     from products.signals.backend.emission.xmatters_incidents import XMATTERS_CONFIG
     from products.signals.backend.emission.yotpo_reviews import YOTPO_CONFIG
     from products.signals.backend.emission.zendesk_tickets import ZENDESK_TICKETS_CONFIG
+    from products.signals.backend.emission.zenduty_incidents import ZENDUTY_CONFIG
     from products.signals.backend.emission.zoho_crm_cases import ZOHO_CRM_CONFIG
 
     register_signal_source(ExternalDataSourceType.ZENDESK, "tickets", ZENDESK_TICKETS_CONFIG)
@@ -413,6 +421,17 @@ def _register_all_emitters() -> None:
     register_signal_source(ExternalDataSourceType.STATUSPAGE, "incidents", STATUSPAGE_CONFIG)
     register_signal_source(ExternalDataSourceType.CRONITOR, "issues", CRONITOR_CONFIG)
     register_signal_source(ExternalDataSourceType.INSTATUS, "incidents", INSTATUS_CONFIG)
+    register_signal_source(ExternalDataSourceType.ROOTLY, "incidents", ROOTLY_INCIDENTS_CONFIG)
+    register_signal_source(ExternalDataSourceType.ZENDUTY, "incidents", ZENDUTY_CONFIG)
+    register_signal_source(
+        ExternalDataSourceType.SPLUNKOBSERVABILITYCLOUD, "incidents", SPLUNK_OBSERVABILITY_CLOUD_CONFIG
+    )
+    register_signal_source(ExternalDataSourceType.UPTIMEROBOT, "incidents", UPTIMEROBOT_CONFIG)
+    # On-call alert tables have their own toggle, apart from the vendor's incident toggle (record kind: incident)
+    register_signal_source(ExternalDataSourceType.ROOTLY, "alerts", ROOTLY_ALERTS_CONFIG)
+    register_signal_source(ExternalDataSourceType.INCIDENTIO, "alerts", INCIDENT_IO_ALERTS_CONFIG)
+    register_signal_source(ExternalDataSourceType.FIREHYDRANT, "alerts", FIREHYDRANT_ALERTS_CONFIG)
+    register_signal_source(ExternalDataSourceType.GRAFANAIRM, "alert_groups", GRAFANA_IRM_ALERT_GROUPS_CONFIG)
     # Work trackers (record kind: issue)
     register_signal_source(ExternalDataSourceType.ASANA, "tasks", ASANA_CONFIG)
     register_signal_source(ExternalDataSourceType.MONDAY, "items", MONDAY_CONFIG)

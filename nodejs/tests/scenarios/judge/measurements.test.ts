@@ -14,6 +14,7 @@ import {
     MissedScrape,
     QueueSample,
     baselineOf,
+    janitorResetsOf,
     measure,
     phasesOf,
     sampleOf,
@@ -34,6 +35,7 @@ const sample = (atS: number, startedAtS: number, cpuSeconds: number, rssBytes = 
     processed: {},
     pgClientErrors: 0,
     consumerLoopErrors: 0,
+    janitorStalled: 0,
     lateness: {},
 })
 
@@ -67,6 +69,7 @@ const evidence = (partial: Partial<MeasureEvidence>): MeasureEvidence => ({
     queue: [],
     sampledFrom: FROM,
     drive: { startedAt: FROM, endedAt: FROM + 60_000 },
+    steps: [],
     timeline: [],
     ...partial,
 })
@@ -230,6 +233,7 @@ describe('measurements', () => {
                 processed: {},
                 pgClientErrors: 0,
                 consumerLoopErrors: 0,
+                janitorStalled: 0,
                 lateness: {},
             })
             expect(samples.at(-1)!.rssBytes).toBeGreaterThan(0)
@@ -318,37 +322,43 @@ describe('measurements', () => {
         }
     })
 
-    it.each<[string, string[], Pick<MetricSample, 'processed' | 'pgClientErrors' | 'consumerLoopErrors' | 'lateness'>]>(
+    it.each<
         [
-            [
-                'a worker with Cyclotron claims on two queues, errors in two pools and pickups of both waits',
-                [
-                    'cdp_cyclotron_jobs_processed{queue="email",source="postgres-v2"} 7',
-                    'cdp_cyclotron_jobs_processed{queue="hogflow",source="postgres-v2"} 3',
-                    'cdp_cyclotron_jobs_processed{queue="hogflow",source="kafka"} 100',
-                    'cdp_cyclotron_v2_pg_client_errors_total{pool="worker"} 2',
-                    'cdp_cyclotron_v2_pg_client_errors_total{pool="janitor"} 1',
-                    'cdp_cyclotron_v2_consumer_loop_errors_total{queue="email"} 4',
-                    'cdp_cyclotron_job_lateness_seconds_bucket{le="5",queue="email",wait="scheduled"} 6',
-                    'cdp_cyclotron_job_lateness_seconds_bucket{le="+Inf",queue="email",wait="scheduled"} 7',
-                    'cdp_cyclotron_job_lateness_seconds_bucket{le="5",queue="email",wait="deferred"} 1',
-                    'cdp_cyclotron_job_lateness_seconds_bucket{le="+Inf",queue="email",wait="deferred"} 2',
-                    'cdp_cyclotron_job_lateness_seconds_count{queue="email",wait="scheduled"} 7',
-                ],
-                {
-                    processed: { email: 7, hogflow: 3 },
-                    pgClientErrors: 3,
-                    consumerLoopErrors: 4,
-                    lateness: { email: { '5': 7, '+Inf': 9 } },
-                },
-            ],
-            [
-                'a role whose labelled counters never moved',
-                [],
-                { processed: {}, pgClientErrors: 0, consumerLoopErrors: 0, lateness: {} },
-            ],
+            string,
+            string[],
+            Pick<MetricSample, 'processed' | 'pgClientErrors' | 'consumerLoopErrors' | 'janitorStalled' | 'lateness'>,
         ]
-    )('samples the Cyclotron counters of %s', (_story, lines, counters) => {
+    >([
+        [
+            'a worker with Cyclotron claims on two queues, errors in two pools and pickups of both waits',
+            [
+                'cdp_cyclotron_jobs_processed{queue="email",source="postgres-v2"} 7',
+                'cdp_cyclotron_jobs_processed{queue="hogflow",source="postgres-v2"} 3',
+                'cdp_cyclotron_jobs_processed{queue="hogflow",source="kafka"} 100',
+                'cdp_cyclotron_v2_pg_client_errors_total{pool="worker"} 2',
+                'cdp_cyclotron_v2_pg_client_errors_total{pool="janitor"} 1',
+                'cdp_cyclotron_v2_consumer_loop_errors_total{queue="email"} 4',
+                'cdp_cyclotron_v2_janitor_stalled 5',
+                'cdp_cyclotron_job_lateness_seconds_bucket{le="5",queue="email",wait="scheduled"} 6',
+                'cdp_cyclotron_job_lateness_seconds_bucket{le="+Inf",queue="email",wait="scheduled"} 7',
+                'cdp_cyclotron_job_lateness_seconds_bucket{le="5",queue="email",wait="deferred"} 1',
+                'cdp_cyclotron_job_lateness_seconds_bucket{le="+Inf",queue="email",wait="deferred"} 2',
+                'cdp_cyclotron_job_lateness_seconds_count{queue="email",wait="scheduled"} 7',
+            ],
+            {
+                processed: { email: 7, hogflow: 3 },
+                pgClientErrors: 3,
+                consumerLoopErrors: 4,
+                janitorStalled: 5,
+                lateness: { email: { '5': 7, '+Inf': 9 } },
+            },
+        ],
+        [
+            'a role whose labelled counters never moved',
+            [],
+            { processed: {}, pgClientErrors: 0, consumerLoopErrors: 0, janitorStalled: 0, lateness: {} },
+        ],
+    ])('samples the Cyclotron counters of %s', (_story, lines, counters) => {
         const text = [METRICS, '# HELP cdp_cyclotron_jobs_processed The number of jobs', ...lines].join('\n')
 
         expect(sampleOf({ role: ROLE, replica: 0, metricsUrl: '' }, FROM, text)).toEqual({
@@ -591,6 +601,31 @@ describe('measurements', () => {
         ])
     })
 
+    const janitor = (atS: number, startedAtS: number, janitorStalled: number, replica = 0): MetricSample => ({
+        ...sample(atS, startedAtS, 1, 100, replica),
+        role: 'cdp-cyclotron-v2-janitor',
+        janitorStalled,
+    })
+
+    it.each<[string, MetricSample[], number]>([
+        [
+            'sums the jobs each janitor replica reset across a restart, and ignores other roles',
+            [
+                janitor(0, -60, 4),
+                janitor(5, -60, 6),
+                janitor(10, 7, 1),
+                janitor(15, 7, 3),
+                janitor(0, -60, 0, 1),
+                janitor(15, -60, 2, 1),
+                { ...sample(15, -60, 1), janitorStalled: 9 },
+            ],
+            7,
+        ],
+        ['counts none without a janitor sample', [sample(0, -60, 1), sample(5, -60, 1)], 0],
+    ])('%s', (_story, samples, resets) => {
+        expect(janitorResetsOf({ samples, sampledFrom: FROM })).toBe(resets)
+    })
+
     it.each<[string, ValveTimelineEntry[], ReturnType<typeof phasesOf>]>([
         [
             'spans the valve phase from the earliest applied valve to the last release, whatever the timeline order',
@@ -631,7 +666,7 @@ describe('measurements', () => {
         expect(phasesOf(DRIVE, timeline)).toEqual(phases)
     })
 
-    it('rates the baseline claims per queue, new jobs and host CPU from the drive start to the valve intent', () => {
+    it('rates the baseline claims per queue, new jobs and host CPU up to the valve intent, and claims per step', () => {
         const claims = (atSecond: number, processed: Record<string, number>, replica = 0): MetricSample => ({
             ...sample(atSecond, -60, 1, 100, replica),
             processed,
@@ -648,7 +683,17 @@ describe('measurements', () => {
             { at: atS(695), busyTicks: 3800, totalTicks: 17_000 },
             { at: atS(800), busyTicks: 17_000, totalTicks: 17_100 },
         ]
-        const recorded = evidence({ samples, host, queue: probedQueue(() => QUIET), drive: DRIVE, timeline: [VALVE] })
+        const recorded = evidence({
+            samples,
+            host,
+            queue: probedQueue(() => QUIET),
+            drive: DRIVE,
+            steps: [
+                { scale: 1, fromMs: 0, toMs: 700_000 },
+                { scale: 10, fromMs: 700_000, toMs: 1_500_000 },
+            ],
+            timeline: [VALVE],
+        })
 
         expect({
             baseline: baselineOf(recorded),
@@ -673,6 +718,51 @@ describe('measurements', () => {
                 { name: 'baseline_new_jobs_per_second', unit: 'jobs/s', value: 0.5 },
             ],
         })
+    })
+
+    it('rates claims per step from the samples inside each step, and marks a step a replica missed, left a gap in or restarted in', () => {
+        const every5s = (
+            fromS: number,
+            toS: number,
+            replica: number,
+            processed: (atS: number) => Record<string, number>
+        ) =>
+            Array.from({ length: (toS - fromS) / 5 + 1 }, (_, i) => fromS + i * 5).map((at) => ({
+                ...sample(at, -60, 1, 100, replica),
+                processed: processed(at),
+            }))
+        const hogflowAt = (at: number): number => Math.min(at, 60) + 10 * Math.max(at - 60, 0)
+        const recorded = evidence({
+            samples: [
+                ...every5s(0, 115, 0, (at) => ({ hogflow: hogflowAt(at) })),
+                ...every5s(0, 50, 1, (at) => ({ email: 2 * at })),
+                ...every5s(0, 115, 2, () => ({ hogflow: 0 })).filter(({ at }) => at <= atS(20) || at >= atS(45)),
+                ...every5s(0, 115, 3, (at) => ({ fetch: at < 90 ? at : at - 87 })).map((restarting) =>
+                    restarting.at >= atS(90) ? { ...restarting, startedAt: FROM / 1000 + 87 } : restarting
+                ),
+                ...every5s(0, 115, 4, (at) => ({ fanout: at < 60 ? at : at - 61 }))
+                    .filter(({ at }) => at !== atS(60))
+                    .map((restarting) =>
+                        restarting.at > atS(60) ? { ...restarting, startedAt: FROM / 1000 + 61 } : restarting
+                    ),
+            ],
+            drive: { startedAt: atS(0), endedAt: atS(120) },
+            steps: [
+                { scale: 1, fromMs: 0, toMs: 60_000 },
+                { scale: 10, fromMs: 60_000, toMs: 120_000 },
+            ],
+        })
+
+        expect(measure([{ name: 'step_claims_per_second', params: {} }], recorded)).toEqual([
+            { name: 'step_claims_per_second', key: 'hogflow_1x', unit: 'jobs/s', value: 1, incomplete: true },
+            { name: 'step_claims_per_second', key: 'email_1x', unit: 'jobs/s', value: 2 },
+            { name: 'step_claims_per_second', key: 'fetch_1x', unit: 'jobs/s', value: 1 },
+            { name: 'step_claims_per_second', key: 'fanout_1x', unit: 'jobs/s', value: 1 },
+            { name: 'step_claims_per_second', key: 'hogflow_10x', unit: 'jobs/s', value: 10 },
+            { name: 'step_claims_per_second', key: 'email_10x', unit: 'jobs/s', value: 0, incomplete: true },
+            { name: 'step_claims_per_second', key: 'fetch_10x', unit: 'jobs/s', value: 53 / 55, incomplete: true },
+            { name: 'step_claims_per_second', key: 'fanout_10x', unit: 'jobs/s', value: 1, incomplete: true },
+        ])
     })
 
     it('rates no claims when the role metrics stop early in the baseline', () => {

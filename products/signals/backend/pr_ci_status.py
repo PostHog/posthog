@@ -1,4 +1,5 @@
-"""Coarse CI state of the pull requests reports opened, read from GitHub's status check rollup.
+"""Coarse CI state of the pull requests reports opened, read from GitHub's status check rollup,
+with whether each one conflicts with its base branch.
 
 A caller asks about many pull requests at once, so the answers are cached briefly and shared across
 callers. A pull request GitHub cannot answer for is left out instead of raising.
@@ -13,7 +14,7 @@ import structlog
 
 from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubRateLimitError
 from posthog.egress.limiter.policies import Priority
-from posthog.models.github_integration_base import PullRequestRef
+from posthog.models.github_integration_base import PullRequestCiStatus, PullRequestRef
 from posthog.models.integration import GitHubIntegration
 
 logger = structlog.get_logger(__name__)
@@ -29,18 +30,21 @@ PR_CI_STATUS_UNREADABLE_CACHE_SECONDS = 300
 _PR_CI_STATUS_UNREADABLE = "unreadable"
 
 
-def pr_ci_statuses_for_references(team_id: int, references: Iterable[PullRequestRef]) -> dict[PullRequestRef, str]:
-    """CI rollup per pull request, from the shared cache where it is warm and one batched GitHub
-    call per integration for the rest. A pull request GitHub cannot answer for is absent from the
-    result: this paints a glyph onto a list, so it degrades to no glyph rather than to an error."""
-    resolved: dict[PullRequestRef, str] = {}
+def pr_ci_statuses_for_references(
+    team_id: int, references: Iterable[PullRequestRef]
+) -> dict[PullRequestRef, PullRequestCiStatus]:
+    """CI rollup and conflict state per pull request, from the shared cache where it is warm and one
+    batched GitHub call per integration for the rest. A pull request GitHub cannot answer for is
+    absent from the result: this paints a glyph onto a list, so it degrades to no glyph rather than
+    to an error."""
+    resolved: dict[PullRequestRef, PullRequestCiStatus] = {}
     misses_by_repository: dict[str, list[PullRequestRef]] = defaultdict(list)
     for reference in dict.fromkeys(references):
         cached = cache.get(_pr_ci_status_cache_key(team_id, reference))
         if cached == _PR_CI_STATUS_UNREADABLE:
             continue
-        if isinstance(cached, str):
-            resolved[reference] = cached
+        if (cached_status := _from_cache(cached)) is not None:
+            resolved[reference] = cached_status
         else:
             misses_by_repository[reference.repository].append(reference)
 
@@ -88,12 +92,28 @@ def pr_ci_statuses_for_references(team_id: int, references: Iterable[PullRequest
                 logger.warning("signals.reports.pr_ci_statuses.fetch_failed", pr_count=len(batch), exc_info=True)
                 break
             for reference, ci_status in fetched.items():
-                cache.set(_pr_ci_status_cache_key(team_id, reference), ci_status, timeout=PR_CI_STATUS_CACHE_SECONDS)
+                cache.set(
+                    _pr_ci_status_cache_key(team_id, reference),
+                    {"ci_status": ci_status.ci_status, "has_conflict": ci_status.has_conflict},
+                    timeout=PR_CI_STATUS_CACHE_SECONDS,
+                )
                 resolved[reference] = ci_status
             # GitHub answered the batch but left this pull request out, so the installation cannot
             # read it (deleted, transferred, or access revoked). That is stable enough to remember.
             _remember_unreadable_pr_ci_statuses(team_id, [ref for ref in batch if ref not in fetched])
     return resolved
+
+
+def _from_cache(cached: object) -> PullRequestCiStatus | None:
+    """The cached status, or None for a miss. The cache holds a plain dict rather than the dataclass,
+    so a process that runs another version of this module never fails to unpickle the value. A bare
+    string is the earlier format, which has no conflict state, so it reads as a miss."""
+    if not isinstance(cached, dict):
+        return None
+    ci_status, has_conflict = cached.get("ci_status"), cached.get("has_conflict")
+    if not isinstance(ci_status, str) or not isinstance(has_conflict, bool):
+        return None
+    return PullRequestCiStatus(ci_status=ci_status, has_conflict=has_conflict)
 
 
 def _remember_unreadable_pr_ci_statuses(team_id: int, references: Iterable[PullRequestRef]) -> None:
@@ -115,10 +135,12 @@ def _pr_ci_status_cache_key(team_id: int, reference: PullRequestRef) -> str:
     return f"signals:pr-ci-status:{team_id}:{reference.repository}:{reference.number}"
 
 
-def rollup_ci_status(references: Collection[PullRequestRef], statuses: Mapping[PullRequestRef, str]) -> str | None:
+def rollup_ci_status(
+    references: Collection[PullRequestRef], statuses: Mapping[PullRequestRef, PullRequestCiStatus]
+) -> str | None:
     """One state for several pull requests. A failure anywhere wins, because it is enough to act on.
     Otherwise None when a pull request has no known state, so a caller does not claim a state it lacks."""
-    known = {statuses[ref] for ref in references if ref in statuses}
+    known = {statuses[ref].ci_status for ref in references if ref in statuses}
     if "failing" in known:
         return "failing"
     if not references or any(ref not in statuses for ref in references):
@@ -126,3 +148,11 @@ def rollup_ci_status(references: Collection[PullRequestRef], statuses: Mapping[P
     if "pending" in known:
         return "pending"
     return "passing" if known == {"passing"} else "none"
+
+
+def any_conflicting(
+    references: Collection[PullRequestRef], statuses: Mapping[PullRequestRef, PullRequestCiStatus]
+) -> bool:
+    """Whether GitHub reports a conflict on any of the pull requests. A pull request with no known
+    state does not count, so a caller does not claim a conflict it cannot see."""
+    return any(statuses[ref].has_conflict for ref in references if ref in statuses)

@@ -4,7 +4,7 @@ from django.db.models import QuerySet
 
 from drf_spectacular.utils import extend_schema, extend_schema_view
 
-from posthog.scopes import APIScopeObjectOrNotSupported
+from posthog.scopes.catalog import APIScopeObjectOrNotSupported
 
 from products.logs.backend.facade.retention_views import LogsRetentionRuleSerializer, LogsRetentionRuleViewSet
 from products.tracing.backend.facade.retention import TracesRetentionRule

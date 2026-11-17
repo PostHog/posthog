@@ -1,5 +1,5 @@
 import { createHash } from 'crypto'
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs'
 import os from 'os'
 import path from 'path'
 import { stringify } from 'yaml'
@@ -8,6 +8,8 @@ import { parseJSON } from '~/common/utils/json-parse'
 
 import { FAILOVER_RELEASE_WITHIN_MS } from '../environment/failover'
 import { FakeProjectApi, startFakeProjectApi } from '../scorecard/fake-project-api'
+import { storeTokenPathOf } from '../store/client'
+import { TestStore, UNREACHABLE_STORE, startTestStore, storeEnvOf } from '../store/test-store'
 import { FakeCloud, FakeCloudOptions, ReaderMinute } from './fake-cloud'
 import { PROFILE } from './fixtures'
 import { STOP_TIMEOUT_S, STOP_WAIT_MS } from './host'
@@ -336,6 +338,11 @@ describe('cloud controller', () => {
             'runnerProfile',
         ],
         [
+            'a launch template version CloudFormation does not resolve',
+            { profile: (p) => ({ ...p, baseline: { ...p.baseline, hostLaunchTemplateVersion: '$Latest' } }) },
+            'baseline.hostLaunchTemplateVersion',
+        ],
+        [
             'a pooler image not pinned by digest',
             { profile: (p) => ({ ...p, pooler: { ...p.pooler, image: 'registry.example.com/pgbouncer:1' } }) },
             'pooler.image',
@@ -595,6 +602,11 @@ describe('cloud controller', () => {
             'only its teardown allowance',
         ],
         ['the stack rolls back its creation', { cloud: { rollsBack: 'create' } }, 'not CREATE_COMPLETE'],
+        [
+            'the baseline denies a host from another launch template',
+            { profile: (p) => ({ ...p, baseline: { ...p.baseline, hostLaunchTemplateId: 'lt-0000000000000000b' } }) },
+            'not CREATE_COMPLETE',
+        ],
         ['the stack rolls back the reader', { cloud: { rollsBack: 'update' } }, 'not UPDATE_COMPLETE'],
         ['the seed refuses its footprint', { cloud: { seed: { exitCode: 1 } } }, 'host/prepare.log'],
         ['the seed outlasts the lease', { cloud: { seed: { takesMs: 10 * HOUR_MS } } }, 'TimedOut'],
@@ -1250,6 +1262,51 @@ describe('cloud controller', () => {
         expect(parseJSON(cloud.objects.get(key)!)).toMatchObject({ origin: 'cloud-manual', status: 'passed' })
         expect(out.join('\n')).toContain(`s3://test-evidence/${key}`)
         expect(api.captured).toEqual([])
+    })
+
+    describe('reporting to the run store', () => {
+        let store: TestStore
+
+        beforeAll(async () => {
+            store = await startTestStore('cloud')
+        })
+
+        afterAll(() => store.close())
+
+        it('stores the scorecard it publishes as a Workflows run', async () => {
+            const { controller } = prepare({ env: { ...api.credentials, ...store.envOf(dir) } })
+
+            await expect(main(['run', profilePath(), FAILOVER_CARD], controller)).resolves.toBe(0)
+
+            expect(await store.read(leasedRunId())).toMatchObject({
+                scorecard: published(),
+                adapters: ['workflows'],
+                owners: [],
+                target: 'cloud',
+            })
+            expect(out).toContain('Reported the run to the run store.')
+        })
+
+        it.each<[string, (home: string) => NodeJS.ProcessEnv, RegExp]>([
+            ['the run store is down', (home) => storeEnvOf(home, UNREACHABLE_STORE), /the run store did not answer/],
+            [
+                'the run token cannot be read',
+                (home) => {
+                    const env = storeEnvOf(home, UNREACHABLE_STORE)
+                    const tokenPath = storeTokenPathOf(env)
+                    rmSync(tokenPath)
+                    mkdirSync(tokenPath)
+                    return env
+                },
+                /the run token could not be read: EISDIR/,
+            ],
+        ])('keeps its exit code and warns when %s', async (_story, envOf, said) => {
+            const { controller } = prepare({ env: envOf(dir) })
+
+            await expect(main(['run', profilePath(), FAILOVER_CARD], controller)).resolves.toBe(0)
+
+            expect(err.join('\n')).toMatch(new RegExp(`Could not report the run to the run store: ${said.source}`))
+        })
     })
 
     it('deletes the stack by schedule when the controller dies after creating it', async () => {

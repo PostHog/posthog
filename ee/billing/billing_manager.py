@@ -61,6 +61,8 @@ BILLING_PROVIDER_WEBHOOK_SIGNATURE_HEADER = "X-PostHog-Billing-Provider-Signatur
 BILLING_PROVIDER_WEBHOOK_TIMESTAMP_HEADER = "X-PostHog-Billing-Provider-Timestamp"
 BILLING_PROVIDER_WEBHOOK_SIGNATURE_VERSION = "sha256"
 BILLING_TIMESERIES_REQUEST_TIMEOUT = (5, 30)
+# The unpaid invoice banner lists invoices on page load, so a stalled billing service must not hold a worker.
+BILLING_INVOICES_REQUEST_TIMEOUT = (5, 15)
 # An export covers every project rather than the chart's top few, so it reads more and is
 # allowed longer. The person is waiting for a file, which tolerates a longer wait than a chart.
 BILLING_EXPORT_REQUEST_TIMEOUT = (5, 120)
@@ -1094,6 +1096,7 @@ class BillingManager:
             f"{BILLING_SERVICE_URL}/api/billing/get_invoices",
             params={"status": status},
             headers=self.get_auth_headers(organization),
+            timeout=BILLING_INVOICES_REQUEST_TIMEOUT,
         )
 
         handle_billing_service_error(res)

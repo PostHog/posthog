@@ -175,7 +175,7 @@ Django must be up at that moment.
 > manifest must declare them first. Slack refuses an authorize request for an undeclared scope. With the
 > `slack-app-slack-mcp` flag on and the Slack MCP available to the team in the MCP store, the link asks for exactly
 > the Slack MCP template's scopes instead, and the same token connects the person's Slack MCP.
-> The token must hold every scope in the template, so a person who clears an optional private search scope on the consent screen is linked but not connected to the Slack MCP.
+> The token must hold nothing outside the template's scopes. A person who clears an optional private search scope on the consent screen is still connected, without that search.
 > Drop those if you don't want either feature
 > locally. Neither is behind a feature flag: the App Home tab renders for every install, and the
 > identity link appears only when the install holds the `users:read` and `users:read.email` scopes.
@@ -320,49 +320,6 @@ when the repo-discovery agent has to choose among repos (a no-repo prompt skips 
 
 Follow-ups — reply in-thread with another `@mention` — are forwarded to the running sandbox and
 should react 👀 → 🦔 (or ❌ if the sandbox is gone). Expected from the code; not verified in our run.
-
-## Use a development Slack app from production Desktop
-
-This setup lets selected projects connect to Slack through the MCP store with a development Slack app.
-It does not move bot events to production or change the production Slack app's credentials.
-
-1. Add `https://us.posthog.com/api/mcp_store/oauth_redirect/` to the development app's OAuth redirect URLs for US production.
-   Keep its existing dev redirect URLs and event callbacks.
-   For another region, use that region's PostHog origin instead.
-2. Provision the existing development app's client ID and client secret as the `SLACK_DEV_APP_CLIENT_ID` and `SLACK_DEV_APP_CLIENT_SECRET` instance settings in the target region.
-   Do not replace `SLACK_APP_CLIENT_ID`, `SLACK_APP_CLIENT_SECRET`, or `SLACK_APP_SIGNING_SECRET`.
-3. Set `MCP_STORE_SLACK_DEV_ALLOWED_TEAM_IDS` to a comma-separated list of permitted project IDs in that region's server configuration.
-   The default is empty, which blocks access.
-   Use `*` to permit all projects in the region, for example on the dev region where every user is internal.
-   Do not use `*` in a production region.
-   Apply the same configuration to the web processes and workers.
-   Production deployments must also add these variables to `posthog/charts` and provision their values through `posthog/secrets`.
-   Adding the settings in this repository does not configure production.
-4. Enable the `mcp-slack-dev` feature flag for PostHog users.
-   Target users whose email ends with `@posthog.com`.
-   Use that email condition, not a cohort or an early access list.
-   The check evaluates the flag locally and treats targeting it cannot resolve as off.
-   For local testing, add `mcp-slack-dev` to `POSTHOG_FEATURE_FLAGS_FORCE_ENABLED` and restart Django.
-5. Run `python manage.py sync_mcp_server_templates` in that environment.
-   The existing Slack MCP entry becomes **Slack via PostHog (dev)** and uses the separate credentials.
-   It activates only after the shared-client probe passes.
-   Existing Slack MCP installations block a change of OAuth app; do not disconnect them without their owners' approval.
-6. In an allowed project, connect **Slack via PostHog (dev)** from the MCP store, finish Slack authorization, and confirm that a channel search returns results and an accessible canvas can be read.
-   Confirm that another project cannot list or authorize this entry.
-
-Reconnect an installation that was authorized before a new reviewed scope was synced. Existing OAuth tokens do not gain the new scope automatically.
-
-The connection keeps the catalog's reviewed MCP scopes; it does not request all scopes available to the bot.
-The project restriction applies to authorization, token exchange, token refresh, and upstream requests.
-Removing a project from the allowlist blocks its existing connection, even before catalog sync runs.
-
-While a region has a non-empty allowlist or development-app installations, its Slack MCP entry stays on the development app for every project, so the production **Slack** entry is not available there.
-To retire this setup, empty the allowlist and run catalog sync to deactivate the entry.
-Disconnect the development-app MCP installations, then run catalog sync again to restore the `slack_app` credential source.
-The entry then activates on the production Slack app after its shared-client probe passes.
-Remove the separate development credentials and the added production redirect URL if nothing else uses them.
-After the production catalog suspension is removed, run catalog sync and reconnect through the production app.
-Tokens from the development app cannot be transferred to the production app.
 
 ## Debugging
 
