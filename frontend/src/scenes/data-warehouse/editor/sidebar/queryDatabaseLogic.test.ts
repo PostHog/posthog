@@ -21,6 +21,7 @@ import { dataCatalogMetricsList } from 'products/data_catalog/frontend/generated
 import type { DataCatalogMetricApi } from 'products/data_catalog/frontend/generated/api.schemas'
 import { metricsLogic } from 'products/data_catalog/frontend/metricsLogic'
 import { groupDirectConnectionTableNodesBySchema } from 'products/data_warehouse/frontend/shared/connectionTableTree'
+import { groupModelsByNamespace } from 'products/data_warehouse/frontend/shared/modelNamespaceTree'
 import { getSidebarPropertyDefinitionTarget } from 'products/data_warehouse/frontend/shared/propertyDefinitionTarget'
 
 import { dataWarehouseViewsLogic } from '../../saved_queries/dataWarehouseViewsLogic'
@@ -1086,10 +1087,13 @@ describe('queryDatabaseLogic', () => {
                     joins: [],
                 })
                 dbLogic.actions.setDatabaseFieldsComplete(false)
-                const findView = (): any =>
-                    logic.values.treeData
-                        .find((item) => item.id === 'views')
-                        ?.children?.find((item) => item.id === 'view-saved-view')
+                const findView = (): any => {
+                    const views = logic.values.treeData.find((item) => item.id === 'views')?.children ?? []
+                    // A `models.` name sits inside the `models` namespace group.
+                    return [...views, ...views.flatMap((item) => item.children ?? [])].find(
+                        (item) => item.id === 'view-saved-view'
+                    )
+                }
                 expect(findView()?.name).toBe(listedName)
                 expect(findView()?.children?.[0]?.record?.pendingTableName).toBe(listedName)
                 expect(performQuery).not.toHaveBeenCalled()
@@ -1145,6 +1149,127 @@ describe('queryDatabaseLogic', () => {
 
             const errorNode = findTableNode()?.children?.[0]
             expect(errorNode?.record?.type).toEqual('fields-load-error')
+        })
+    })
+
+    describe('model namespace groups', () => {
+        let logic: ReturnType<typeof queryDatabaseLogic.build>
+
+        const savedQuery = (id: string, name: string, folderId: string | null = null): DataWarehouseSavedQuery =>
+            ({
+                id,
+                name,
+                status: 'Completed',
+                columns: [],
+                managed_viewset_kind: null,
+                is_materialized: false,
+                folder_id: folderId,
+            }) as unknown as DataWarehouseSavedQuery
+
+        const viewNode = (name: string): TreeDataItem => ({
+            id: `view-${name}`,
+            name,
+            type: 'node',
+            record: { type: 'view' },
+        })
+
+        const shape = (items: TreeDataItem[] | undefined): any[] =>
+            (items ?? [])
+                .filter((item) => item.record?.type !== 'column' && item.record?.type !== 'pending-fields')
+                .map((item) =>
+                    item.record?.type === 'model-namespace' || item.record?.type === 'folder'
+                        ? { [item.name]: shape(item.children) }
+                        : (item.displayName ?? item.name)
+                )
+
+        const findViews = (items: TreeDataItem[]): TreeDataItem | undefined =>
+            items.find((item) => item.record?.type === 'views')
+
+        beforeEach(async () => {
+            initKeaTests()
+            localStorage.clear()
+            ;(performQuery as jest.Mock).mockResolvedValue({ tables: {}, joins: [] })
+            logic = queryDatabaseLogic()
+            logic.mount()
+            const dbLogic = databaseTableListLogic.findMounted()! as ReturnType<typeof databaseTableListLogic.build>
+            const viewsLogic = dataWarehouseViewsLogic.findMounted()!
+            await expectLogic(dbLogic).toFinishAllListeners()
+            await expectLogic(viewsLogic).toFinishAllListeners()
+
+            // `revenue` is a legacy bare row the schema lists as `models.revenue`.
+            const views = [
+                savedQuery('legacy', 'revenue'),
+                savedQuery('orders', 'models.marts.orders'),
+                savedQuery('marts-revenue', 'models.marts.revenue'),
+                savedQuery('filed', 'models.finance.arr', 'folder-1'),
+                savedQuery('plain', 'scratchpad'),
+            ]
+            const listedNames: Record<string, string> = { legacy: 'models.revenue' }
+            viewsLogic.actions.loadDataWarehouseSavedQueriesSuccess(views)
+            viewsLogic.actions.loadDataWarehouseSavedQueryFoldersSuccess([{ id: 'folder-1', name: 'Finance' }])
+            dbLogic.actions.loadDatabaseSuccess({
+                tables: Object.fromEntries(
+                    views.map((view) => {
+                        const name = listedNames[view.id] ?? view.name
+                        return [name, { id: view.id, name, type: 'view', fields: {} }]
+                    })
+                ),
+                joins: [],
+            } as any)
+        })
+
+        afterEach(() => {
+            logic.unmount()
+            jest.clearAllMocks()
+        })
+
+        it('nests models by namespace segment and shows the leaf name', () => {
+            const { items } = groupModelsByNamespace(
+                [
+                    viewNode('models.marts.revenue'),
+                    viewNode('scratchpad'),
+                    viewNode('models.revenue'),
+                    viewNode('models.marts.orders'),
+                ],
+                false
+            )
+
+            expect(shape(items)).toEqual([{ models: [{ marts: ['orders', 'revenue'] }, 'revenue'] }, 'scratchpad'])
+            const leaves = items[0].children!.flatMap((child) => child.children ?? [child])
+            expect(leaves.map((leaf) => leaf.name)).toEqual([
+                'models.marts.orders',
+                'models.marts.revenue',
+                'models.revenue',
+            ])
+        })
+
+        it('groups a legacy bare row by its listed name and keeps user folders as they are', () => {
+            const views = findViews(logic.values.treeData)
+
+            expect(shape(views?.children)).toEqual([
+                { Finance: ['models.finance.arr'] },
+                { models: [{ marts: ['orders', 'revenue'] }, 'revenue'] },
+                'scratchpad',
+            ])
+            const legacy = views?.children?.find((item) => item.name === 'models')?.children?.[1]
+            expect(legacy?.record?.view?.name).toEqual('revenue')
+        })
+
+        it('finds a model inside a group when searching and opens the groups above it', () => {
+            jest.useFakeTimers()
+            try {
+                logic.actions.setSearchTerm('orders')
+                const views = findViews(logic.values.searchTreeData)
+                expect(shape(views?.children)).toEqual([{ models: [{ marts: ['orders'] }] }])
+
+                // The search tree opens its matching groups on the next tick.
+                jest.runOnlyPendingTimers()
+                expect(logic.values.expandedSearchFolders).toEqual(
+                    expect.arrayContaining(['search-model-namespace-models', 'search-model-namespace-models.marts'])
+                )
+            } finally {
+                jest.useRealTimers()
+            }
         })
     })
 
@@ -1342,8 +1467,8 @@ describe('queryDatabaseLogic', () => {
                 schemaFails: true,
                 expectedViews: ['trino_hogql_view', 'trino_view'],
             },
-            { scope: 'source-id', schemaFails: false, expectedViews: ['connection_view'] },
-            { scope: 'source-id', schemaFails: true, expectedViews: ['connection_view'] },
+            { scope: 'source-id', schemaFails: false, expectedViews: ['models.connection_view'] },
+            { scope: 'source-id', schemaFails: true, expectedViews: ['models.connection_view'] },
             { scope: 'another-source', schemaFails: false, expectedViews: [] },
             { scope: null, schemaFails: false, search: 'trino', expectedViews: [] },
             { scope: null, schemaFails: false, onlyTrino: true, expectedViews: [] },
@@ -1375,7 +1500,8 @@ describe('queryDatabaseLogic', () => {
                             engine: { target: 'clickhouse', dialect: 'hogql', capabilities: capabilities(true) },
                         },
                         {
-                            name: 'connection_view',
+                            // A `models.` name checks that a namespace group still flattens into the connection's views.
+                            name: 'models.connection_view',
                             engine: {
                                 target: 'connection',
                                 dialect: 'hogql',
