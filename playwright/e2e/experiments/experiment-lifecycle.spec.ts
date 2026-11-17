@@ -105,7 +105,7 @@ test.describe('Experiment lifecycle', () => {
                 await page.getByRole('tab', { name: 'Variants' }).click()
                 await expect(page.getByText('70%')).toBeVisible()
                 await expect(page.getByText('30%')).toBeVisible()
-                await page.getByRole('tab', { name: 'Overview' }).click()
+                await page.getByRole('tab', { name: 'Metrics' }).click()
             })
 
             await test.step('add primary metric', async () => {

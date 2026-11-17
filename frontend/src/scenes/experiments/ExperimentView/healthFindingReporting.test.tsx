@@ -19,6 +19,7 @@ import { ExperimentHealthTab } from 'products/experiments/frontend/health/Experi
 
 import { experimentLogic } from '../experimentLogic'
 import { experimentSceneLogic } from '../experimentSceneLogic'
+import { ClassicExposures } from './ClassicExposures'
 import { ExperimentWarningBanner } from './ExperimentWarningBanners'
 import { Exposures } from './Exposures'
 import { MultiVariantBiasWarning } from './MultiVariantBiasWarning'
@@ -78,7 +79,10 @@ describe('health finding reporting', () => {
             ])
 
     // A running experiment whose flag is off, so the flag-state banner renders with its flag link.
-    const renderWarnings = (exposures: Record<string, unknown>): void => {
+    const renderWarnings = (
+        exposures: Record<string, unknown>,
+        ExposuresCard: () => JSX.Element = ClassicExposures
+    ): void => {
         logic.actions.setExperiment({
             ...NEW_EXPERIMENT,
             id: EXPERIMENT_ID,
@@ -91,7 +95,7 @@ describe('health finding reporting', () => {
             <Provider>
                 <BindLogic logic={experimentLogic} props={{ experimentId: EXPERIMENT_ID }}>
                     <ExperimentWarningBanner />
-                    <Exposures />
+                    <ExposuresCard />
                     <MultiVariantBiasWarning />
                 </BindLogic>
             </Provider>
@@ -207,6 +211,7 @@ describe('health finding reporting', () => {
         },
         { control: 'First seen', step: 'opened', code: 'bias_risk_multiple_excluded', kind: 'docs' },
         { control: 'checkout-flag', step: 'acted on', code: 'flag_off_while_running', kind: 'open_feature_flag' },
+        { control: 'Exposures', step: 'opened', code: 'srm', kind: 'evidence' },
     ])('reports $code as $step with $kind when a person uses "$control"', async ({ control, step, code, kind }) => {
         renderWarnings(UNEVEN_EXPOSURES)
         captureSpy.mockClear()
@@ -327,8 +332,20 @@ describe('health finding reporting', () => {
         }
     )
 
-    it('reports zero exposures as shown, and the edit as acted on', async () => {
+    it('reports zero exposures only from the open panel, as shown and then as opened', async () => {
         renderWarnings(NO_EXPOSURES)
+        expect(findingEvents()).toEqual([['experiment health finding shown', 'flag_off_while_running', undefined]])
+        captureSpy.mockClear()
+
+        await userEvent.click(screen.getByText('Exposures'))
+        expect(findingEvents()).toEqual([
+            ['experiment health finding shown', 'zero_exposures', undefined],
+            ['experiment health finding opened', 'zero_exposures', 'evidence'],
+        ])
+    })
+
+    it('reports zero exposures from the redesigned card as shown, and the edit as acted on', async () => {
+        renderWarnings(NO_EXPOSURES, Exposures)
         expect(findingEvents()).toEqual([
             ['experiment health finding shown', 'flag_off_while_running', undefined],
             ['experiment health finding shown', 'zero_exposures', undefined],

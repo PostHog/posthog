@@ -1,5 +1,6 @@
 import { Meta, StoryObj } from '@storybook/react'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { makeDelay } from 'lib/utils/async'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
@@ -35,6 +36,7 @@ const meta: Meta = {
         viewMode: 'story',
         mockDate: '2025-01-27',
         pageUrl: urls.experiment(EXPERIMENT.id),
+        featureFlags: [FEATURE_FLAGS.EXPERIMENTS_RESULTS_REDESIGN],
     },
     decorators: [
         mswDecorator({

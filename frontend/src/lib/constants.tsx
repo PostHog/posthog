@@ -346,6 +346,7 @@ export const FEATURE_FLAGS = {
     EXPERIMENTS_METRIC_VALUE_FORMAT: 'experiments-metric-value-format', // owner: @andehen #team-experiments, offers the value format setting when creating or editing a metric
     EXPERIMENTS_QUANTILE_METRICS: 'experiments-quantile-metrics', // owner: @andehen #team-experiments, offers the percentile metric type when creating or editing a metric
     EXPERIMENTS_RECALCULATION_RATE_LIMIT: 'experiment-metric-recalculation-rate-limit', // owner: @rodrigoi #team-experiments, five-minute window between manual metric reloads
+    EXPERIMENTS_RESULTS_REDESIGN: 'experiments-results-redesign', // owner: #team-experiments, staff only: the redesigned experiment page, with hypothesis and exposures side by side, settings in the hypothesis panel, and a menu per variant
     EXPERIMENTS_SHOW_SQL: 'experiments-show-sql', // owner: @jurajmajerik #team-experiments
     EXPERIMENTS_SYNC_QUERIES: 'experiments-sync-queries', // owner: @andehen #team-experiments
     EXPLAIN_CHART: 'explain-chart', // owner: @sampennington #team-product-analytics, gates "Explain this chart" on trends insights, which walks a person through what stands out on the chart

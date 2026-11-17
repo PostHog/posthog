@@ -3,7 +3,7 @@ import posthog from 'posthog-js'
 import { useMemo } from 'react'
 
 import { IconSparkles } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonButton, Tooltip } from '@posthog/lemon-ui'
 
 import { addProductIntent } from 'lib/utils/product-intents'
 import { experimentLogic, getSectionMetricUuids } from 'scenes/experiments/experimentLogic'
@@ -82,12 +82,33 @@ function useExperimentSummaryMaxTool(): ReturnType<typeof useMaxTool> {
     return maxToolResult
 }
 
-export function SummarizeExperimentButton(): JSX.Element | null {
+export function SummarizeExperimentButton({ iconOnly = false }: { iconOnly?: boolean }): JSX.Element | null {
     const { openMax } = useExperimentSummaryMaxTool()
     const { experiment, hasMinimumExposureForResults, exposures } = useValues(experimentLogic)
     const { reportExperimentAiSummaryRequested } = useActions(experimentLogic)
     if (!openMax) {
         return null
+    }
+
+    const summarize = (): void => {
+        reportExperimentAiSummaryRequested(experiment)
+        openMax()
+    }
+
+    if (iconOnly) {
+        return (
+            <Tooltip title="Summarize results with PostHog AI" placement="top-end" delayMs={0}>
+                <button
+                    type="button"
+                    aria-label="Summarize results with PostHog AI"
+                    data-attr="experiment-summarize-results"
+                    className="size-6 shrink-0 cursor-pointer rounded-md border border-dashed border-ai bg-ai/08 backdrop-blur-[2px] transition duration-50 hover:scale-110 dark:bg-ai/20"
+                    onClick={summarize}
+                >
+                    <IconSparkles className="relative size-full p-1 text-ai dark:text-white" />
+                </button>
+            </Tooltip>
+        )
     }
 
     const totalExposures = getTotalExposures(exposures)
@@ -103,10 +124,7 @@ export function SummarizeExperimentButton(): JSX.Element | null {
                     ? undefined
                     : `Summaries need at least ${EXPERIMENT_MIN_EXPOSURES_FOR_RESULTS} exposures. This experiment has ${totalExposures}.`
             }
-            onClick={() => {
-                reportExperimentAiSummaryRequested(experiment)
-                openMax()
-            }}
+            onClick={summarize}
         >
             Summarize with PostHog AI
         </LemonButton>

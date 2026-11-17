@@ -3,6 +3,7 @@ import { useMountedLogic, useValues } from 'kea'
 import { IconInfo } from '@posthog/icons'
 import { LemonBanner, Tooltip } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconAreaChart } from 'lib/lemon-ui/icons'
 
 import type { ExperimentMetric } from '~/queries/schema/schema-general'
@@ -12,6 +13,7 @@ import { AddMetricButton } from '~/scenes/experiments/Metrics/AddMetricButton'
 import { getExperimentVariants, isSavedExperiment, metricResults } from '~/scenes/experiments/utils'
 import { Experiment } from '~/types'
 
+import { SummarizeExperimentButton } from 'products/experiments/frontend/components/SummarizeExperimentButton'
 import { experimentExposuresWindowLogic } from 'products/experiments/frontend/exposures/experimentExposuresWindowLogic'
 import { METRIC_CONTEXTS } from 'products/experiments/frontend/modals/ExperimentMetricModal/experimentMetricModalLogic'
 
@@ -34,6 +36,7 @@ export function Metrics({ isSecondary }: { isSecondary?: boolean }): JSX.Element
 function MetricsContent({ experiment, isSecondary }: { experiment: Experiment; isSecondary?: boolean }): JSX.Element {
     useMountedLogic(experimentExposuresWindowLogic({ experiment }))
     const { hasMinimumExposureForResults } = useValues(experimentLogic)
+    const resultsRedesign = useFeatureFlag('EXPERIMENTS_RESULTS_REDESIGN')
     const {
         primaryMetricsResults,
         primaryMetricsResultsErrors,
@@ -72,6 +75,9 @@ function MetricsContent({ experiment, isSecondary }: { experiment: Experiment; i
                             <Tooltip title="Secondary metrics capture additional outcomes or behaviors affected by your experiment. They help you understand broader impacts and potential side effects beyond the primary goal.">
                                 <IconInfo className="text-secondary text-lg" />
                             </Tooltip>
+                        )}
+                        {!isSecondary && !resultsRedesign && hasMinimumExposureForResults && (
+                            <SummarizeExperimentButton iconOnly />
                         )}
                         {hasSomeResults && !isSecondary && <HowToReadTooltip />}
                     </div>
