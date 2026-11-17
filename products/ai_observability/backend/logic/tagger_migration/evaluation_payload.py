@@ -11,7 +11,7 @@ MAX_OPTION_KEY_LENGTH = 128
 
 # The tagger runtime gave Hog code a `tags` list and dropped returned names that were not in it. The wrapper keeps
 # that contract and turns tag names into option keys. A tagger error only failed that run, while an evaluation error
-# switches the evaluation off, so the wrapper catches it and the run gets no categories.
+# switches the evaluation off, so the wrapper catches it and records the run as N/A with the error as its reasoning.
 HOG_WRAPPER = """let tags := {tags}
 fun tagger_result() {{
 {source}
@@ -22,7 +22,7 @@ try {{
     returned := tagger_result()
 }} catch (error) {{
     print(f'Tagger code failed: {{error.message}}')
-    return []
+    return null
 }}
 if (typeof(returned) == 'string') {{
     returned := [returned]
@@ -117,7 +117,8 @@ def hog_payload(config: HogTaggerConfig) -> dict[str, Any]:
         "evaluation_type": EvaluationType.HOG.value,
         "evaluation_config": {"source": hog_source(config)},
         "output_type": OutputType.CATEGORICAL.value,
-        "output_config": {"options": _options(config.tags), "selection_mode": "multiple", "allows_na": False},
+        # N/A marks a run whose code failed, so it reads apart from a run that found no tags.
+        "output_config": {"options": _options(config.tags), "selection_mode": "multiple", "allows_na": True},
     }
 
 

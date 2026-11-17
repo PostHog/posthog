@@ -103,7 +103,7 @@ class TestTaggerEvaluationPayload(SimpleTestCase):
             ("null", "return null", []),
             ("no_return", "print('nothing to tag')", []),
             ("not_a_list", "return 5", []),
-            ("throws", "throw Error('bad input')", []),
+            ("throws", "throw Error('bad input')", None),
             (
                 "reads_the_input",
                 "if (input ilike '%invoice%') { return ['Billing issue'] }\nreturn []",
@@ -119,7 +119,7 @@ class TestTaggerEvaluationPayload(SimpleTestCase):
         ]
     )
     def test_hog_tagger_code_returns_the_same_tags_as_category_keys(
-        self, _name: str, source: str, expected: list[str]
+        self, _name: str, source: str, expected: list[str] | None
     ) -> None:
         payload: dict[str, Any] = hog_payload(
             HogTaggerConfig(source=source, tags=[{"name": "Other"}, {"name": "Billing issue"}, {"name": 'it\'s "new"'}])
@@ -128,9 +128,11 @@ class TestTaggerEvaluationPayload(SimpleTestCase):
         result = run_hog_eval(
             compile_ai_observability_hog(payload["evaluation_config"]["source"], "destination"),
             GENERATION,
+            allows_na=payload["output_config"]["allows_na"],
             output_type="categorical",
             output_config=payload["output_config"],
         )
 
         assert result["error"] is None
-        assert result["categories"] == expected
+        assert result.get("categories") == expected
+        assert result["applicable"] is (expected is not None)
