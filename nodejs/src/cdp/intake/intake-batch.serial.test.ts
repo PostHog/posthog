@@ -1,6 +1,6 @@
 import { Message } from 'node-rdkafka'
 import { Pool } from 'pg'
-import { register } from 'prom-client'
+import { MetricValueWithName, register } from 'prom-client'
 
 import { HOG_INVOCATION_RESULTS_OUTPUT } from '~/common/outputs'
 import { IngestionOutput } from '~/common/outputs/ingestion-output'
@@ -230,7 +230,8 @@ describe('insertIntakeBatch', () => {
 
     it('records how long an async run waited before its first claim, and nothing for a redelivery or a shadow copy', async () => {
         const claimDelay = async (): Promise<{ count: number; sum: number }> => {
-            const { values } = await register.getSingleMetric('cdp_intake_claim_delay_ms')!.get()
+            const values = (await register.getSingleMetric('cdp_intake_claim_delay_ms')!.get())
+                .values as MetricValueWithName<string>[]
             const of = (name: string): number =>
                 values.find((v) => v.metricName === name && v.labels.kind === 'transactional-email')?.value ?? 0
             return { count: of('cdp_intake_claim_delay_ms_count'), sum: of('cdp_intake_claim_delay_ms_sum') }
