@@ -44,7 +44,6 @@ import NOTEBOOK_SQL from '@/templates/sections/notebook-sql.md'
 import PROJECT_SCOPE from '@/templates/sections/project-scope.md'
 import RETRIEVING_DATA from '@/templates/sections/retrieving-data.md'
 import SCHEMA_WORKFLOW from '@/templates/sections/schema-workflow.md'
-import SKILLS_FIRST_TOOLS from '@/templates/sections/skills-first-tools.md'
 import SKILLS_FIRST from '@/templates/sections/skills-first.md'
 import TOOL_SEARCH from '@/templates/sections/tool-search.md'
 import URL_PATTERNS from '@/templates/sections/url-patterns.md'
@@ -264,6 +263,21 @@ export class InstructionsFormatter {
         ]
     }
 
+    buildLearnToolDescription(): string {
+        return this.skillsFirstSection(false)
+    }
+
+    private skillsFirstSection(execSyntax: boolean): string {
+        return formatPrompt(SKILLS_FIRST, {
+            learn_call: execSyntax
+                ? 'run `learn -s "<task keywords>"` here'
+                : 'call the `learn` tool with `learn -s "<task keywords>"`',
+            skill_store_note: execSyntax
+                ? ''
+                : ' Find and load skills with `learn`, not with `skill-list` or `skill-get`: those manage the skills your team stores and do not hold the built-in PostHog skills.',
+        })
+    }
+
     /** Artifact-choice guidance: notebook vs dashboard vs insight, plus the
      *  SQL-and-Python-go-in-cells rules when the notebook cell tools are available, and
      *  the refresh-a-notebook rule when the run tool is. */
@@ -299,7 +313,7 @@ export class InstructionsFormatter {
         return this.compose(
             [
                 PROJECT_SCOPE,
-                ...(ctx.learnToolEnabled ? [SKILLS_FIRST_TOOLS] : []),
+                ...(ctx.learnToolEnabled ? [this.skillsFirstSection(false)] : []),
                 BASIC_FUNCTIONALITY,
                 ...this.knowledgeFirstSections(ctx),
                 ...this.inboxFirstSections(ctx, false),
@@ -365,7 +379,7 @@ export class InstructionsFormatter {
         const hasMandate = opts.skillsEnabled || knowledgeSections.length > 0
         return [
             PROJECT_SCOPE,
-            ...(opts.skillsEnabled ? [SKILLS_FIRST] : []),
+            ...(opts.skillsEnabled ? [this.skillsFirstSection(true)] : []),
             ...knowledgeSections,
             hasMandate ? EXEC_TOOL_BLURB_COMPACT : EXEC_TOOL_BLURB,
         ]

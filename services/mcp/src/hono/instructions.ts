@@ -13,7 +13,6 @@ import type { SkillCatalog } from '@/skills/skill-catalog'
 import EXECUTE_SQL_PROMPT from '@/templates/execute-sql-prompt.md'
 import CATALOG_TRUST_DISCOVERY from '@/templates/sections/catalog-trust-discovery.md'
 import SCHEMA_DISCOVERY from '@/templates/sections/schema-discovery.md'
-import SKILLS_FIRST_TOOLS from '@/templates/sections/skills-first-tools.md'
 import { EXEC_TOOL_ANNOTATIONS } from '@/tools/exec'
 import { ExecLearnCatalog, LEARN_TOOL_NAME, learnSkillCommands } from '@/tools/exec-learn'
 import {
@@ -148,7 +147,7 @@ export class InstructionsBuilder {
         return {
             name: LEARN_TOOL_NAME,
             title: 'Load PostHog skills',
-            description: SKILLS_FIRST_TOOLS.trim(),
+            description: this.formatter.buildLearnToolDescription(),
             inputSchema: {
                 type: 'object',
                 properties: {

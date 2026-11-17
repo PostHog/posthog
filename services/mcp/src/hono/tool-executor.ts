@@ -349,6 +349,8 @@ export class ToolExecutor {
             return this.callExecTool(callParams, state, analyticsMeta)
         }
 
+        // Tools mode has no `exec` tool, so it lists `learn` as a tool of its own (Cursor is the main
+        // tools-mode client). The call runs the `exec learn` path so that both modes serve one skill catalog.
         if (toolName === LEARN_TOOL_NAME && this.instructionsBuilder.isLearnToolEnabled(state)) {
             const command = String((callParams.arguments as Record<string, unknown> | undefined)?.command ?? '').trim()
             return this.callExecTool(
