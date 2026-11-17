@@ -109,7 +109,6 @@ export function impactLift(impact: TransactionalEmailImpactApi): ImpactLift | nu
     }
 }
 
-/** Says which sends the lift counts when some couldn't be followed to a person, or null when all were. */
 export function followedSendsNote(impact: TransactionalEmailImpactApi): string | null {
     const tracked = clicksTracked(impact)
     const parts: string[] = []

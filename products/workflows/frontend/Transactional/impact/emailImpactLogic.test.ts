@@ -20,8 +20,8 @@ const IMPACT: TransactionalEmailImpactApi = {
     opened: 5,
     clicked: 2,
     window_days: 7,
-    after_click: null,
-    without_click: null,
+    after_click: { sends: 1, converted: 0 },
+    without_click: { sends: 7, converted: 1 },
 }
 
 describe('emailImpactLogic', () => {
@@ -44,7 +44,7 @@ describe('emailImpactLogic', () => {
 
     afterEach(() => logic.unmount())
 
-    it('asks the environment the email belongs to, not its project', async () => {
+    it('asks the environment the email belongs to, and says which sends it could follow', async () => {
         initKeaTests(true, ENVIRONMENT)
         logic = emailImpactLogic({ workflowId: 'workflow-1' })
         logic.mount()
@@ -52,6 +52,7 @@ describe('emailImpactLogic', () => {
 
         expect(requestedFrom).toEqual([String(ENVIRONMENT.id)])
         expect(logic.values.impact).toEqual(IMPACT)
+        expect(logic.values.followedNote).toMatch(/^Counted over 1 of 2 clicked sends:/)
     })
 
     it('loads once the team arrives when the tab mounts first', async () => {
