@@ -15,13 +15,15 @@ from products.cohorts.backend.realtime_join import JoinFacts, RealtimeCohortsJoi
 NOW = datetime(2026, 11, 17, 12, 0, tzinfo=UTC)
 
 
-def _request(state: RealtimeCohortRequestState, *, age: timedelta) -> RealtimeCohortRequest:
+def _request(
+    state: RealtimeCohortRequestState, *, age: timedelta, started_age: timedelta | None = None
+) -> RealtimeCohortRequest:
     at = NOW - age
     return RealtimeCohortRequest(
         kind=RealtimeCohortRequestKind.ENABLE,
         state=state,
         created_at=at,
-        started_at=None if state == RealtimeCohortRequestState.QUEUED else at,
+        started_at=None if state == RealtimeCohortRequestState.QUEUED else NOW - (started_age or age),
         finished_at=None if state in UNFINISHED_REQUEST_STATES else at,
     )
 
@@ -45,6 +47,14 @@ class TestDecideJoinState(SimpleTestCase):
                 None,
                 _request(RealtimeCohortRequestState.RUNNING, age=timedelta(minutes=5)),
                 False,
+                False,
+                "setting_up",
+            ),
+            (
+                "running_after_a_long_queue",
+                None,
+                _request(RealtimeCohortRequestState.RUNNING, age=timedelta(hours=3), started_age=timedelta(minutes=5)),
+                True,
                 False,
                 "setting_up",
             ),

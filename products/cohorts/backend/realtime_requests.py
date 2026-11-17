@@ -1,5 +1,5 @@
 """Requests to enable a team for realtime cohorts or to backfill it, carried out by a Celery task. Staff file
-them, and a member who joins the beta files an enable request.
+backfill requests, and only a member who joins the beta files an enable request.
 
 `enable` and a team backfill both run ClickHouse scans that can outlast a web request, so a request
 records what was asked for and the task records how it ended.

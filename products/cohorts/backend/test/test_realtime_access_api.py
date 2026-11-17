@@ -1,7 +1,10 @@
+from datetime import timedelta
+
 from posthog.test.base import APIBaseTest
 from unittest import mock
 
 from django.test import override_settings
+from django.utils import timezone
 
 from parameterized import parameterized
 
@@ -56,6 +59,9 @@ class TestRealtimeCohortsJoinAPI(APIBaseTest):
             else self.team.id
         )
 
+        assert self.client.get(f"/api/projects/{team_id}/realtime_cohorts/join/").json() == {"state": "available"}
+        assert self._requests() == []
+
         first = self._join(team_id)
         repeat = self._join(team_id)
 
@@ -70,6 +76,7 @@ class TestRealtimeCohortsJoinAPI(APIBaseTest):
             # The env list serves the project to the users the rollout flag picks, so a row would change nothing.
             ("env_listed", "refused"),
             ("load_test_row", "refused"),
+            ("serving_beta_row", "serving"),
         ]
     )
     def test_a_join_the_project_cannot_take_files_nothing(self, name: str, state: str) -> None:
@@ -77,6 +84,13 @@ class TestRealtimeCohortsJoinAPI(APIBaseTest):
             self.enterContext(override_instance_config("REALTIME_COHORT_JOIN_OPEN", False))
         elif name == "env_listed":
             self.enterContext(override_settings(REALTIME_COHORT_TEAM_ALLOWLIST=str(self.team.id)))
+        elif name == "serving_beta_row":
+            RealtimeCohortTeamAccess.objects.create(
+                team=self.team, level=RealtimeCohortLevel.SERVING, purpose=RealtimeCohortAccessPurpose.BETA
+            )
+            RealtimeCohortTeamAccess.objects.filter(team=self.team).update(
+                changed_at=timezone.now() - timedelta(minutes=1)
+            )
         else:
             RealtimeCohortTeamAccess.objects.create(
                 team=self.team, level=RealtimeCohortLevel.PROCESSING, purpose=RealtimeCohortAccessPurpose.LOAD_TEST

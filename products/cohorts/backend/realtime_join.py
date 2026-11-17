@@ -24,8 +24,10 @@ from products.cohorts.backend.realtime_enablement import check_enablement
 from products.cohorts.backend.realtime_requests import REQUEST_STALE_AFTER, submit_enablement
 from products.cohorts.backend.realtime_teams import ACCESS_SNAPSHOT_TTL
 
-# The frontend asks again on every page load of a member who opted in. A refusal held for a week lets a project
-# that changed, or a check staff relaxed, take effect with no staff step, at the cost of one resave a week.
+# After a refused request, the project reads `refused` and a join files no new request for a week. After a failed
+# one, it reads `failed` for an hour. Without the hold, the join that the frontend asks for on every page load of a
+# member who opted in would file the same request again each time. A refusal that expires lets a project that
+# changed, or a check staff relaxed, take effect with no staff step, at the cost of one resave a week.
 REFUSAL_HELD_FOR = timedelta(days=7)
 FAILURE_HELD_FOR = timedelta(hours=1)
 
