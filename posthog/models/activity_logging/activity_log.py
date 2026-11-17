@@ -1,9 +1,6 @@
 import json
 import dataclasses
-from collections.abc import Callable, Iterator
-from importlib import import_module
-from importlib.util import find_spec
-from types import ModuleType
+from collections.abc import Callable
 from typing import TYPE_CHECKING, Any, Literal, Optional, Required, TypedDict, Union, cast
 from uuid import UUID
 
@@ -25,7 +22,7 @@ from prometheus_client import Counter
 
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
-from posthog.models import oauth_activity_log_config as _oauth_activity_log_config
+from posthog.models.activity_logging import activity_log_configs
 from posthog.models.activity_logging.utils import (
     ACTIVITY_LOG_CLIENT_MAX_LENGTH,
     ACTIVITY_LOG_CREDENTIAL_ID_MAX_LENGTH,
@@ -1224,54 +1221,24 @@ field_exclusions: dict[AuditableScope, list[str]] = {
     "SandboxCustomImage": sandbox_custom_image_machine_fields,
 }
 
+
 # A scope's tuning lives next to the model it configures, in a data-only module, so the team that
-# owns the model owns its tuning. Core keeps the scopes whose model has no product owner.
-#
-# A product opts in by adding `<app>.activity_log_config` to its own tree and editing nothing here,
-# so a new one needs no review from the activity log's owners. This list is for config with no app of
-# its own to be found under, such as a core model's module.
-_SCOPE_CONFIG_MODULES: tuple[ModuleType, ...] = (_oauth_activity_log_config,)
+# owns the model owns its tuning. `activity_log_configs` merges those modules, and this merges the
+# result into the registries above, which keep the scopes whose model has no product owner.
+def _merge_scope_config(target: dict[Any, Any], incoming: dict[str, Any], attribute: str) -> None:
+    for scope, value in incoming.items():
+        if scope in target:
+            raise RuntimeError(f"{attribute}: {scope} is tuned in both core and a scope config module")
+        target[scope] = value
 
 
-def _discovered_scope_config_modules() -> Iterator[ModuleType]:
-    """Every installed app that ships an `activity_log_config` module beside its `apps.py`.
-
-    Read from `settings.INSTALLED_APPS` rather than the app registry, which is not ready when this
-    module loads. `find_spec` keeps the misses cheap: importing every app's candidate would raise a
-    `ModuleNotFoundError` for each one that has no config.
-    """
-    for app_path in settings.INSTALLED_APPS:
-        package, separator, _ = app_path.rpartition(".apps.")
-        if not separator:
-            continue
-        module_name = f"{package}.activity_log_config"
-        if find_spec(module_name) is not None:
-            yield import_module(module_name)
-
-
-def scope_config_modules() -> tuple[ModuleType, ...]:
-    """Every module that tunes an activity scope, discovered ones included."""
-    found: dict[str, ModuleType] = {module.__name__: module for module in _SCOPE_CONFIG_MODULES}
-    for module in _discovered_scope_config_modules():
-        found.setdefault(module.__name__, module)
-    return tuple(found.values())
-
-
-def _merge_scope_config(target: dict[Any, Any], attribute: str) -> None:
-    for module in scope_config_modules():
-        for scope, value in getattr(module, attribute, {}).items():
-            if scope in target:
-                raise RuntimeError(f"{attribute}: {scope} is tuned in both core and {module.__name__}")
-            target[scope] = value
-
-
-for _target, _attribute in (
-    (field_exclusions, "FIELD_EXCLUSIONS"),
-    (field_name_overrides, "FIELD_NAME_OVERRIDES"),
-    (field_with_masked_contents, "FIELD_WITH_MASKED_CONTENTS"),
-    (signal_exclusions, "SIGNAL_EXCLUSIONS"),
+for _target, _attribute, _incoming in (
+    (field_exclusions, "FIELD_EXCLUSIONS", activity_log_configs.FIELD_EXCLUSIONS),
+    (field_name_overrides, "FIELD_NAME_OVERRIDES", activity_log_configs.FIELD_NAME_OVERRIDES),
+    (field_with_masked_contents, "FIELD_WITH_MASKED_CONTENTS", activity_log_configs.FIELD_WITH_MASKED_CONTENTS),
+    (signal_exclusions, "SIGNAL_EXCLUSIONS", activity_log_configs.SIGNAL_EXCLUSIONS),
 ):
-    _merge_scope_config(_target, _attribute)
+    _merge_scope_config(_target, _incoming, _attribute)
 
 
 def describe_change(m: Any) -> Union[str, dict]:

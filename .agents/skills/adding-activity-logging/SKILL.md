@@ -91,10 +91,9 @@ Put them in a data only module next to the model, so the team that owns the mode
 FIELD_EXCLUSIONS = {"Thing": ["bookkeeping_field"]}
 ```
 
-Name it `<app>.activity_log_config` inside the app package and nothing else needs editing: discovery reads it from `INSTALLED_APPS`, so no change lands in a file the activity log's owners review.
-The one exception is a module with no app to be found under, such as a core model's:
-`posthog/models/oauth_activity_log_config.py` sits next to the model, takes its owner from the `owners.yaml` walk through the `/oauth.py` rule, and is registered by hand in `_SCOPE_CONFIG_MODULES`.
-For a flat module in a mixed-owner directory, add the new filename to that rule's `match` list.
+Put it at `products/<name>/backend/activity_log_config.py`, or next to a core model as `posthog/models/oauth_activity_log_config.py` (owned through that model's `owners.yaml` rule, which a flat module in a mixed-owner directory needs in its `match` list).
+Register it with one import and one entry in `MODULES` in `posthog/models/activity_logging/activity_log_configs.py`.
+That registry file has no owner on purpose, so registering your own tuning never waits on the activity log team.
 A config module holds no imports: `activity_log.py` merges it at `django.setup()`.
 Scopes whose model has no product owner keep their tuning in the registries in `activity_log.py`.
 `posthog/test/repo_invariants/test_activity_log_config_ownership.py` checks that every config module in the tree is merged and that it resolves to the same team as its model.

@@ -5,6 +5,11 @@ rules:
       owners: team-product-analytics
     - match: '/activity_logging/'
       owners: team-platform-features
+    # Registering an activity-log tuning module is mechanical, and the activity log's owners
+    # reviewing every product's registration would put them back in the path of every tuning
+    # change. The repo invariant test beside this file is what keeps the list honest.
+    - match: '/activity_logging/activity_log_configs.py'
+      owners: null
     - match: '/ai/'
       owners: team-self-driving
     - match: '/ai_events/'

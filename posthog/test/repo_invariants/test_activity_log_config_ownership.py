@@ -4,6 +4,10 @@ Tuning lives next to the model in a data-only module (`activity_log_config.py`) 
 `posthog/models/activity_logging/activity_log.py` merges. That placement is what gives the owning
 product team review rights over its own diff config, so a module dropped into another team's tree
 would silently hand those rights to the wrong people.
+
+Registering a module in `activity_log_configs.py` is mechanical, so that file is deliberately
+unowned and a product adding one needs no review from the activity log's owners. This guard is what
+makes that safe.
 """
 
 import inspect
@@ -15,7 +19,7 @@ from django.test import SimpleTestCase
 
 from owners_yaml import OwnersResolver
 
-from posthog.models.activity_logging import activity_log
+from posthog.models.activity_logging import activity_log_configs
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 CONFIG_ATTRIBUTES = (
@@ -24,8 +28,8 @@ CONFIG_ATTRIBUTES = (
     "FIELD_WITH_MASKED_CONTENTS",
     "SIGNAL_EXCLUSIONS",
 )
-# The two locations a config module is allowed to take: an app's package, where discovery finds it,
-# and a core model's directory, where it is registered explicitly in `activity_log.py`.
+# The two locations a tuning module is allowed to take: an app's package, and a core model's
+# directory for a model that has no app of its own.
 CONFIG_FILE_GLOBS = ("products/*/backend/activity_log_config.py", "posthog/models/*activity_log_config.py")
 
 
@@ -34,15 +38,21 @@ def _repo_path(obj: Any) -> str:
 
 
 class TestActivityLogConfigOwnership(SimpleTestCase):
-    def test_every_config_file_in_the_tree_is_merged(self) -> None:
-        merged = {_repo_path(module) for module in activity_log.scope_config_modules()}
+    def test_every_config_file_in_the_tree_is_registered(self) -> None:
+        registered = {_repo_path(module) for module in activity_log_configs.MODULES}
         tree_files = {
             path.relative_to(REPO_ROOT).as_posix() for glob in CONFIG_FILE_GLOBS for path in REPO_ROOT.glob(glob)
         }
-        assert merged == tree_files, (
-            f"A config module is not merged: {sorted(tree_files - merged)}. Name it "
-            "`<app>.activity_log_config` so discovery finds it, or register it in "
-            "`_SCOPE_CONFIG_MODULES` when it tunes a core model, but not both."
+        assert registered == tree_files, (
+            f"A tuning module is not registered: {sorted(tree_files - registered)}. Import it in "
+            "posthog/models/activity_logging/activity_log_configs.py and add it to MODULES."
+        )
+
+    def test_the_registry_file_is_unowned(self) -> None:
+        resolution = OwnersResolver(repo_root=REPO_ROOT).resolve(_repo_path(activity_log_configs))
+        assert resolution.unowned_by_design, (
+            f"{_repo_path(activity_log_configs)} resolves to {resolution.owners}. Mark it `owners: null` in "
+            "posthog/models/owners.yaml: a product registering its own tuning must not need that team's review."
         )
 
     def test_a_scope_is_tuned_by_the_team_that_owns_its_model(self) -> None:
@@ -50,7 +60,7 @@ class TestActivityLogConfigOwnership(SimpleTestCase):
         model_by_scope = {model.__name__: model for model in apps.get_models()}
         checked = 0
 
-        for module in activity_log.scope_config_modules():
+        for module in activity_log_configs.MODULES:
             config_path = _repo_path(module)
             config_owners = set(resolver.resolve(config_path).owners or [])
             assert config_owners, f"{config_path} has no owner, so nobody reviews its tuning"
