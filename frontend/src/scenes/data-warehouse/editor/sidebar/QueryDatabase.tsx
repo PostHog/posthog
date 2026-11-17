@@ -75,7 +75,7 @@ import { PropertyDefinitionFilter } from './PropertyDefinitionFilter'
 import { isJoined, queryDatabaseLogic } from './queryDatabaseLogic'
 import { LineageTarget, SeeLineageMenuItem } from './SeeLineageMenuItem'
 import { TreeRowOverflowText } from './TreeRowOverflowText'
-import { getRefreshScheduleLabel, getTableKindLabel } from './viewKind'
+import { getMaterializedViewTooltip, getTableKindLabel } from './viewKind'
 
 export function getSidebarAddJoinSourceTableName(
     recordType: string | undefined,
@@ -1390,16 +1390,7 @@ export const QueryDatabase = ({
                         !!item.children?.length &&
                         !expandedItemIds.includes(item.id)
                     if (item.record?.type === 'view' && item.record.isSavedQuery && item.record.view?.is_materialized) {
-                        const refreshScheduleLabel = getRefreshScheduleLabel(item.record.view.sync_frequency)
-                        return (
-                            <div className="flex flex-col gap-1">
-                                <span className="font-semibold">Materialized view</span>
-                                {refreshScheduleLabel ? <span>{refreshScheduleLabel}</span> : null}
-                                {showExpandHint ? (
-                                    <span className="text-xs opacity-75">Click to show columns</span>
-                                ) : null}
-                            </div>
-                        )
+                        return getMaterializedViewTooltip(item.record.view.sync_frequency)
                     }
                     if (!description && !showExpandHint) {
                         return label

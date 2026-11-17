@@ -1,4 +1,4 @@
-import { getRefreshScheduleLabel, getTableKindLabel } from './viewKind'
+import { getMaterializedViewTooltip, getTableKindLabel } from './viewKind'
 
 describe('viewKind', () => {
     describe('getTableKindLabel', () => {
@@ -28,14 +28,14 @@ describe('viewKind', () => {
         })
     })
 
-    describe('getRefreshScheduleLabel', () => {
+    describe('getMaterializedViewTooltip', () => {
         test.each([
-            ['names a known cadence', '6hour', 'Refreshes every 6 hours'],
-            ['names a daily cadence', '24hour', 'Refreshes every 1 day'],
-            ['says nothing when the view never refreshes', 'never', null],
-            ['says nothing when the view has no frequency', undefined, null],
+            ['names a known cadence', '6hour', 'Materialized view - refreshes every 6 hours'],
+            ['names a daily cadence', '24hour', 'Materialized view - refreshes every 1 day'],
+            ['names only the kind when the view never refreshes', 'never', 'Materialized view'],
+            ['names only the kind when the view has no frequency', undefined, 'Materialized view'],
         ])('%s', (_name, syncFrequency, expected) => {
-            expect(getRefreshScheduleLabel(syncFrequency)).toEqual(expected)
+            expect(getMaterializedViewTooltip(syncFrequency)).toEqual(expected)
         })
     })
 })

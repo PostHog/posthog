@@ -39,7 +39,7 @@ export function getTableKindLabel(record: Record<string, any> | undefined): stri
     }
 }
 
-export function getRefreshScheduleLabel(syncFrequency: string | undefined): string | null {
+export function getMaterializedViewTooltip(syncFrequency: string | undefined): string {
     const cadence = syncFrequency ? CADENCE_LABELS[syncFrequency as DataModelingSyncInterval] : undefined
-    return cadence ? `Refreshes every ${cadence}` : null
+    return cadence ? `Materialized view - refreshes every ${cadence}` : 'Materialized view'
 }
