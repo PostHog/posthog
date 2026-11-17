@@ -36,18 +36,6 @@ fi
 EOF
 chmod +x "$fake_bin/gh"
 
-# Advance time only when the waiter sleeps so a slow poll cannot consume the test's timeout.
-cat >"$fake_bin/date" <<'EOF'
-#!/usr/bin/env bash
-cat "$GH_FIXTURE_DIR/clock"
-EOF
-cat >"$fake_bin/sleep" <<'EOF'
-#!/usr/bin/env bash
-now=$(cat "$GH_FIXTURE_DIR/clock")
-echo "$((now + $1))" >"$GH_FIXTURE_DIR/clock"
-EOF
-chmod +x "$fake_bin/date" "$fake_bin/sleep"
-
 # A linear master: c1 is the oldest commit and c4 the newest. The waiter asks
 # whether a deployment contains c2.
 c1=1111111111111111111111111111111111111111
@@ -90,7 +78,6 @@ register_page() {
 assert_result() {
     local name="$1" fixtures="$2" expected_status="$3" needle="$4" output status
     cp "$compares"/* "$fixtures"/
-    echo 0 >"$fixtures/clock"
     set +e
     output=$(PATH="$fake_bin:$PATH" GH_FIXTURE_DIR="$fixtures" \
         REPOSITORY="PostHog/posthog" COMMIT_SHA="$c2" \
