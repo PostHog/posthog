@@ -26,6 +26,7 @@ from products.mcp_analytics.backend import intent_generation
 from products.mcp_analytics.backend.facade.api import custom_harness_rules
 from products.mcp_analytics.backend.facade.contracts import CustomHarnessRule
 from products.mcp_analytics.backend.hogql_queries.harness_breakdown import MCPHarnessBreakdownQueryRunner
+from products.mcp_analytics.backend.logic import STALE_COMPUTING_THRESHOLD
 from products.mcp_analytics.backend.models import (
     MCPAnalyticsSubmission,
     MCPCustomHarness,
@@ -527,7 +528,7 @@ class TestMCPAnalyticsPresentation(_MCPAnalyticsTeamScopedTestMixin, APIBaseTest
             # A fresh COMPUTING run owns the snapshot: don't stack a duplicate workflow.
             ("fresh_computing_skips_dispatch", timedelta(minutes=1), 0),
             # A run stuck past the stale threshold is presumed dead: allow the retry through.
-            ("stale_computing_dispatches_again", timedelta(minutes=11), 1),
+            ("stale_computing_dispatches_again", STALE_COMPUTING_THRESHOLD + timedelta(minutes=1), 1),
         ]
     )
     def test_intent_clusters_recompute_throttles_while_computing(
