@@ -128,11 +128,11 @@ def _is_sampled_for_login(sample_key: str) -> bool:
     return bucket < percent
 
 
-def _login_mode_for(sample_key: str) -> RadarMode:
-    """Radar mode for a password login. A settings error turns Radar off."""
+def _login_mode_for(sample_key: Optional[str]) -> RadarMode:
+    """Radar mode for a password login, or for any login when ``sample_key`` is None. A settings error turns Radar off."""
     try:
         mode = get_radar_login_mode()
-        if mode == RadarMode.OFF or not _is_sampled_for_login(sample_key):
+        if mode == RadarMode.OFF or (sample_key is not None and not _is_sampled_for_login(sample_key)):
             return RadarMode.OFF
         return mode
     except Exception:
@@ -149,11 +149,13 @@ def _radar_mode_for(action: RadarAction, auth_method: RadarAuthMethod, sample_ke
     return RadarMode.OFF
 
 
-def radar_client_id_for_login(email: str, account_id: Optional[str] = None) -> str:
-    """WorkOS client ID for the login page's Radar browser script, or "" when Radar skips this login."""
+def radar_client_id_for_login() -> str:
+    """WorkOS client ID for the login page's Radar browser script, or "" while Radar checks no logins."""
     if not settings.WORKOS_RADAR_CLIENT_ID or not _is_radar_configured():
         return ""
-    if _login_mode_for(_sample_key(email, account_id)) == RadarMode.OFF:
+    # The precheck needs no authentication, so every address gets the same answer and the
+    # response does not show which accounts are outside the sample
+    if _login_mode_for(None) == RadarMode.OFF:
         return ""
     return settings.WORKOS_RADAR_CLIENT_ID
 

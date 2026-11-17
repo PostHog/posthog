@@ -851,10 +851,11 @@ class TestLoginRadar(APIBaseTest):
         [
             ("off", "off", 100, None),
             ("shadow", "shadow", 100, "client_123"),
-            ("shadow_outside_sample", "shadow", 0, None),
+            # An unauthenticated caller must not learn which accounts are outside the sample
+            ("shadow_outside_sample", "shadow", 0, "client_123"),
         ]
     )
-    def test_precheck_names_the_radar_client_only_while_radar_checks_the_address(
+    def test_precheck_names_the_radar_client_for_every_address_while_radar_checks_logins(
         self, _name, mode, sample_percent, expected
     ):
         with (

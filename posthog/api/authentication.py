@@ -575,7 +575,7 @@ class LoginPrecheckSerializer(serializers.Serializer):
             "webauthn_credentials": webauthn_credentials,
             **self._available_local_methods(email, saml_available=saml_available, oidc_available=oidc_available),
         }
-        if radar_client_id := radar_client_id_for_login(email, str(user.uuid) if user else None):
+        if radar_client_id := radar_client_id_for_login():
             response["radar_client_id"] = radar_client_id
         return response
 

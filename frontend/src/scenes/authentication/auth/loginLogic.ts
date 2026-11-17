@@ -68,7 +68,7 @@ export interface PrecheckResponseType {
      * rest of the page session.
      */
     precheckFailed?: boolean
-    // WorkOS client ID for the Radar browser script. Present only when Radar checks this address's password logins.
+    // WorkOS client ID for the Radar browser script. Present while Radar checks password logins.
     radar_client_id?: string
 }
 
