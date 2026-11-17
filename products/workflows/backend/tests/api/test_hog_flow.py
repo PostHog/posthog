@@ -2944,6 +2944,24 @@ class TestHogFlowAPI(APIBaseTest):
                 {"properties": {"type": "OR", "values": [{"type": "AND", "values": [{"type": "OR", "values": []}]}]}},
             ),
             (
+                "empty_value_filter_in_an_or_group",
+                {
+                    "properties": {
+                        "type": "OR",
+                        "values": [
+                            {
+                                "type": "AND",
+                                "values": [{"key": "plan", "value": "pro", "operator": "exact", "type": "person"}],
+                            },
+                            {
+                                "type": "AND",
+                                "values": [{"key": "country", "value": [], "operator": "exact", "type": "person"}],
+                            },
+                        ],
+                    }
+                },
+            ),
+            (
                 "incomplete_filter_in_an_or_group",
                 {
                     "properties": {

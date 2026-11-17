@@ -276,8 +276,8 @@ def _property_group_to_expr(group: dict, team: Team, as_row: bool) -> ast.Expr |
     """None for a group with no filters in it.
 
     The editor stores a group the person added but has not filled in yet. Such a group is skipped, because
-    compiling it to true would make an OR around it match everyone. A filter that does not parse raises for
-    the same reason, where a flat list compiles it to true and ANDs it away.
+    compiling it to true would make an OR around it match everyone. For the same reason a filter that does not
+    parse, or that compiles to true (such as an empty value list), raises, where a flat list ANDs it away.
     """
     exprs: list[ast.Expr] = []
     for value in group.get("values") or []:
@@ -286,7 +286,10 @@ def _property_group_to_expr(group: dict, team: Team, as_row: bool) -> ast.Expr |
             if expr is not None:
                 exprs.append(expr)
         else:
-            exprs.append(property_to_expr(_as_row_property(value) if as_row else value, team, strict=True))
+            expr = property_to_expr(_as_row_property(value) if as_row else value, team, strict=True)
+            if isinstance(expr, ast.Constant) and expr.value in (True, 1):
+                raise ValueError("A filter inside a filter group is incomplete. Fill it in or remove it.")
+            exprs.append(expr)
     if not exprs:
         return None
     if len(exprs) == 1:
