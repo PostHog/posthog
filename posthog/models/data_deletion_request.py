@@ -192,7 +192,7 @@ class _PredicateOnly:
 
 
 def _reads_alike_on_both_tables(value: object) -> bool:
-    """Whether a string column and the raw JSON read compare equal to ``value`` for the same rows.
+    """Whether comparing a string column and the raw JSON read to ``value`` gives the same result on any row.
 
     The two reads differ only for a stored ``""`` or ``"null"``, which the column reads as NULL, and for a value
     that starts or ends with an escaped quote, which older column definitions strip differently. Such a value
@@ -221,25 +221,30 @@ def _is_exact_match(expr, properties: Collection[str]) -> bool:
 
 
 def _without_exact_matches(expr, properties: Collection[str]):
-    """``expr`` with each exact match on ``properties`` that only AND and OR enclose replaced by ``true``.
+    """``expr`` with each exact match on ``properties`` that only AND and OR enclose removed, or None if nothing is left.
 
     A match under NOT is kept. A missing property reads as NULL from raw JSON and as an empty string from the
     column, so ``NOT IN`` is NULL on one table and true on the other.
+
+    The result only shows which columns the rest of the predicate reads, so it does not need the original meaning.
+    A match is removed rather than replaced by ``true``, because the ClickHouse printer folds ``or(..., 1, ...)``
+    to ``1``, which would drop every other read in that OR.
     """
     from posthog.hogql import ast
 
     if isinstance(expr, ast.And | ast.Or):
-        return type(expr)(exprs=[_without_exact_matches(e, properties) for e in expr.exprs])
+        exprs = [e for e in (_without_exact_matches(e, properties) for e in expr.exprs) if e is not None]
+        return type(expr)(exprs=exprs) if exprs else None
     if _is_exact_match(expr, properties):
-        return ast.Constant(value=True)
+        return None
     return expr
 
 
 def _materialized_columns_read_inexactly(obj, events_sql: str) -> list[str]:
     """The materialized columns that events reads for ``obj``'s predicate, other than through exact matches.
 
-    An exact match on a non-nullable string column selects the same rows as the raw JSON read on
-    ``posthog.flag_evaluations``. A nullable or typed column decodes JSON escapes, so it never counts as exact.
+    An exact match on a non-nullable string column evaluates the same on a row's properties as the raw JSON read
+    on ``posthog.flag_evaluations``. A nullable or typed column decodes JSON escapes, so it never counts as exact.
     """
     from posthog.hogql.parser import parse_expr
 
@@ -256,6 +261,8 @@ def _materialized_columns_read_inexactly(obj, events_sql: str) -> list[str]:
     if not exact_properties:
         return columns
     remainder = _without_exact_matches(parse_expr(_hogql_predicate_text(obj)), exact_properties)
+    if remainder is None:
+        return []
     remainder_sql, _ = compile_hogql_predicate(
         _PredicateOnly(team_id=obj.team_id, hogql_predicate=remainder.to_hogql())
     )
@@ -463,8 +470,9 @@ def uncopied_rows_predicate(obj, target: "DeletionTarget") -> UncopiedRowsPredic
     ``propertyGroupsMode`` set to ``optimized``, events also compares a map value as a string for
     ``=``, ``!=`` and ``IN``, where a raw JSON read casts a typed property to its defined type. A
     materialized column reads an empty string and the string ``"null"`` as NULL, and a nullable one
-    decodes JSON escapes. So the two tables could match different rows. A materialized column read only
-    through an exact match (``_is_exact_match``) selects the same rows on both tables, so it is allowed.
+    decodes JSON escapes. So the predicate could evaluate differently on the same properties in the two tables.
+    A materialized column read only through an exact match (``_is_exact_match``) evaluates the same in both, so it
+    is allowed.
     """
     if target.uncopied_rows_hogql_table is None:
         return UncopiedRowsPredicate(compiled=None, error="This table has no HogQL table to compile it against.")
@@ -474,22 +482,23 @@ def uncopied_rows_predicate(obj, target: "DeletionTarget") -> UncopiedRowsPredic
             return UncopiedRowsPredicate(
                 compiled=None,
                 error=f"Events reads it from {', '.join(element_columns)}. {target.uncopied_rows_hogql_table} stores "
-                "no elements and reads them as empty, so the two can match different rows.",
+                "no elements and reads them as empty, so the predicate can evaluate differently on the same row.",
             )
         if map_columns := _property_group_columns_read(events_sql):
             return UncopiedRowsPredicate(
                 compiled=None,
                 error=f"Events reads it from the property-group map {', '.join(map_columns)}, which decodes JSON "
                 f"escapes and compares typed values as strings. {target.uncopied_rows_hogql_table} reads the raw "
-                "JSON, so the two can match different rows.",
+                "JSON, so the predicate can evaluate differently on the same row.",
             )
         if materialized_columns := _materialized_columns_read_inexactly(obj, events_sql):
             return UncopiedRowsPredicate(
                 compiled=None,
                 error=f"Events reads it from the materialized column {', '.join(materialized_columns)}, which "
                 f"reads an empty string and the string 'null' as NULL. {target.uncopied_rows_hogql_table} reads "
-                "the raw JSON, so the two can match different rows. Only = and IN on that property, outside NOT, "
-                "with values that are not empty, not 'null', and have no quote or backslash, read the same on both.",
+                "the raw JSON, so the predicate can evaluate differently on the same row. Only = and IN on that "
+                "property, outside NOT, with values that are not empty, not 'null', and have no quote or backslash, "
+                "evaluate the same on both tables.",
             )
         return UncopiedRowsPredicate(
             compiled=compile_hogql_predicate(obj, hogql_table=target.uncopied_rows_hogql_table)

@@ -453,6 +453,11 @@ def test_compile_hogql_predicate_against_flag_evaluations_reads_its_own_columns(
         ("properties.$browser = 'null'", "materialized column mat_$browser"),
         ("properties.$browser = 'a\"b'", "materialized column mat_$browser"),
         ("properties.$browser = 'Chrome' AND properties.$browser IS NULL", "materialized column mat_$browser"),
+        ("properties.$browser = 'Chrome' OR properties.$browser IS NULL", "materialized column mat_$browser"),
+        (
+            "(properties.$browser = 'Chrome' AND properties.$browser = 'Firefox') OR properties.$browser IS NULL",
+            "materialized column mat_$browser",
+        ),
         # A nullable column decodes JSON escapes, so even an exact match can differ from the raw JSON read.
         ("properties.$os = 'Mac OS X'", "materialized column mat_$os"),
         # The built-in $group_0 column scrubs the same way, with no mat_ prefix.
@@ -475,6 +480,8 @@ def test_compile_hogql_predicate_against_flag_evaluations_reads_its_own_columns(
         "materialized_property_equals_null_string",
         "materialized_property_equals_escaped_quote",
         "materialized_property_exact_match_and_is_null",
+        "materialized_property_exact_match_or_is_null",
+        "materialized_property_exact_matches_nested_or_is_null",
         "nullable_materialized_property_equals",
         "builtin_group_column_is_null",
         "dynamic_slot_is_null",

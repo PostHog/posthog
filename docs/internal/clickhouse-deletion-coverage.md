@@ -370,9 +370,10 @@ On cloud, events reads some `$` properties from `mat_` or `dmat_string_` columns
 So with `$browser` materialized, `properties.$browser = ''` excludes a row that stores `""` on events and matches it on `flag_evaluations`.
 The compile therefore refuses a predicate whenever the events compile of it reads a property-group map or a materialized column.
 Every other property the compile accepts reads raw JSON on both tables.
-One shape of materialized-column read is allowed, because it selects the same rows on both tables: `=` or `IN` on a non-nullable string column, with only `AND` and `OR` around it, against values that are not empty, are not `'null'`, and have no quote or backslash.
+One shape of materialized-column read is allowed, because it evaluates the same on a row's properties in either table: `=` or `IN` on a non-nullable string column, with only `AND` and `OR` around it, against values that are not empty, are not `'null'`, and have no quote or backslash.
 The two reads differ only for a stored `""`, a stored `"null"`, and a value that starts or ends with an escaped quote, which older column definitions strip differently.
 None of those can equal such a value.
+The two tables need not hold the same rows, because ingestion can store a flag call in only one of them, so the guarantee is per row: on the same properties, the predicate gives the same result in either table.
 Under `NOT` the reads still differ, because a missing property is NULL in raw JSON and an empty string in the column, so `NOT IN` is NULL on one table and true on the other.
 So `properties.$host IN ('a.example.com', 'b.example.com')` compiles for `flag_evaluations`, and `properties.$host = ''`, `IS NULL`, `NOT IN` and any read of a nullable or typed column are refused.
 It also refuses one that needs a join, such as `person_id`, because the fragment is spliced into a bare WHERE that has no join.
