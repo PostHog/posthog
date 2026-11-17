@@ -1,5 +1,4 @@
 import json
-from html.parser import HTMLParser
 from typing import Any
 
 from posthog.test.base import APIBaseTest, BaseTest
@@ -9,6 +8,7 @@ from django.test import Client, override_settings
 from django.urls import reverse
 
 import responses
+from bs4 import BeautifulSoup
 from parameterized import parameterized
 from requests import PreparedRequest, Response
 from rest_framework import status
@@ -40,25 +40,6 @@ SEND_CLAIMS = {
 STYLESHEET_LINK = '<link rel="stylesheet" href="/static/message-preferences.css" />'
 
 DELETED_TEAM_ID = 999_999_999
-
-
-class RenderedPage(HTMLParser):
-    def __init__(self, html: str) -> None:
-        super().__init__()
-        self.elements: list[dict[str, str | None]] = []
-        self.feed(html)
-
-    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
-        self.elements.append({"tag": tag, **dict(attrs)})
-
-    def toggles(self) -> list[dict[str, str | None]]:
-        return [element for element in self.elements if element.get("type") == "checkbox"]
-
-    def toggle(self, element_id: str) -> dict[str, str | None]:
-        return next(toggle for toggle in self.toggles() if toggle["id"] == element_id)
-
-    def element(self, element_id: str) -> dict[str, str | None]:
-        return next(element for element in self.elements if element.get("id") == element_id)
 
 
 def mock_response(status_code: int, response_json: dict):
@@ -189,7 +170,7 @@ class TestMessagePreferencesViews(BaseTest):
         self.assertEqual(response.context["recipient"].identifier, self.recipient.identifier)
         self.assertEqual(response.context["token"], self.token)
         self.assertEqual(
-            [toggle["id"] for toggle in RenderedPage(response.content.decode()).toggles()],
+            [toggle["id"] for toggle in BeautifulSoup(response.content, "html.parser").select("input[type=checkbox]")],
             [
                 str(self.category.id),
                 str(self.category2.id),
@@ -227,22 +208,22 @@ class TestMessagePreferencesViews(BaseTest):
             200, {"valid": True, "team_id": self.team.id, "identifier": self.recipient.identifier}
         )
 
-        page = RenderedPage(
-            self.client.get(reverse("message_preferences", kwargs={"token": self.token})).content.decode()
+        page = BeautifulSoup(
+            self.client.get(reverse("message_preferences", kwargs={"token": self.token})).content, "html.parser"
         )
 
-        newsletter = page.toggle(str(self.category.id))
-        product_updates = page.toggle(str(self.category2.id))
+        def toggle_state(toggle_id: str) -> tuple[bool, bool, str | None]:
+            toggle = page.find(id=toggle_id)
+            return toggle.has_attr("checked"), toggle.has_attr("disabled"), toggle.get("aria-describedby")
+
+        off_note = "all-marketing-off-note" if topics_disabled else None
         self.assertEqual(
-            [
-                ("checked" in newsletter, "disabled" in newsletter),
-                ("checked" in product_updates, "disabled" in product_updates),
-            ],
-            [(newsletter_checked, topics_disabled), (product_updates_checked, topics_disabled)],
+            [toggle_state(str(self.category.id)), toggle_state(str(self.category2.id))],
+            [(newsletter_checked, topics_disabled, off_note), (product_updates_checked, topics_disabled, off_note)],
         )
-        self.assertNotIn("disabled", page.toggle(ALL_MESSAGE_PREFERENCE_CATEGORY_ID))
-        self.assertNotIn("disabled", page.toggle("email-tracking-toggle"))
-        self.assertEqual("hidden" not in page.element("all-marketing-off-note"), topics_disabled)
+        self.assertFalse(page.find(id=ALL_MESSAGE_PREFERENCE_CATEGORY_ID).has_attr("disabled"))
+        self.assertFalse(page.find(id="email-tracking-toggle").has_attr("disabled"))
+        self.assertEqual(not page.find(id="all-marketing-off-note").has_attr("hidden"), topics_disabled)
 
     @patch("products.messaging.backend.presentation.views.recipient_preferences.validate_messaging_preferences_token")
     def test_preferences_page_one_click_unsubscribe_get(self, mock_validate_messaging_preferences_token):

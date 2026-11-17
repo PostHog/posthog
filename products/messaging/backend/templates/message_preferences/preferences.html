@@ -21,7 +21,7 @@
                                 <p id="all-marketing-off-note"
                                    class="text-sm text-gray-600"
                                    {% if not all_marketing_opted_out %}hidden{% endif %}>
-                                    These topics are off because all marketing emails are turned off. Turn on all marketing communications below to choose topics again.
+                                    These topics are off because all marketing communications are off. Turn all marketing communications back on below to switch every topic on again.
                                 </p>
                             {% endif %}
                             {% for category in categories %}
@@ -68,6 +68,7 @@
                 const allMarketingToggle = document.getElementById('{{ all_marketing.id }}')
                 const topicToggles = document.querySelectorAll('[data-topic]')
                 const allMarketingOffNote = document.getElementById('all-marketing-off-note')
+                let saveInFlight = false
 
                 function updateStatusLabel(toggle, text, colorClass) {
                     const statusLabel = document.querySelector('[data-status-for="' + toggle.name + '"]')
@@ -87,7 +88,7 @@
                     updateStatusLabel(toggle, statusLabelText(toggle), toggle.checked ? 'text-green-700' : 'text-gray-500')
                 }
 
-                function applyAllMarketing({ switchTopicsOn }) {
+                function showTopicsForAllMarketing() {
                     const allOff = !allMarketingToggle.checked
                     form.toggleAttribute('data-all-off', allOff)
                     if (allMarketingOffNote) {
@@ -95,11 +96,21 @@
                     }
                     topicToggles.forEach((topic) => {
                         topic.disabled = allOff
-                        if (allOff || switchTopicsOn) {
-                            topic.checked = !allOff
+                        if (allOff) {
+                            topic.checked = false
+                            topic.setAttribute('aria-describedby', allMarketingOffNote.id)
+                        } else {
+                            topic.removeAttribute('aria-describedby')
                         }
-                        showSavedStatus(topic)
                     })
+                }
+
+                // A topic shown off only because all marketing is off keeps its saved choice, so the save
+                // neither overwrites it nor reports it as a new unsubscribe
+                function submittedChoice(toggle) {
+                    return toggle.hasAttribute('data-topic') && !allMarketingToggle.checked
+                        ? String(toggle.dataset.savedStatus !== 'OPTED_OUT')
+                        : String(toggle.checked)
                 }
 
                 function showToast(message, isError) {
@@ -120,7 +131,13 @@
                 }
 
                 async function savePreferences(changedToggle) {
-                    updateStatusLabel(changedToggle, 'Saving…', 'text-amber-600')
+                    saveInFlight = true
+                    form.setAttribute('aria-busy', 'true')
+                    toggles.forEach((toggle) => {
+                        if (toggle === changedToggle || toggle.checked !== toggle.defaultChecked) {
+                            updateStatusLabel(toggle, 'Saving…', 'text-amber-600')
+                        }
+                    })
 
                     const formData = new FormData()
                     formData.append('token', document.querySelector('input[name="token"]').value)
@@ -131,7 +148,7 @@
                         if (toggle.name === '$email_tracking' && toggle !== changedToggle) {
                             return
                         }
-                        formData.append('preferences[]', `${toggle.name}:${toggle.checked}`)
+                        formData.append('preferences[]', `${toggle.name}:${submittedChoice(toggle)}`)
                     })
 
                     try {
@@ -149,15 +166,29 @@
                         }
 
                         toggles.forEach(t => { t.defaultChecked = t.checked })
-                        showSavedStatus(changedToggle)
+                        if (allMarketingToggle.checked) {
+                            topicToggles.forEach(t => { t.dataset.savedStatus = t.checked ? 'OPTED_IN' : 'OPTED_OUT' })
+                        }
+                        toggles.forEach(showSavedStatus)
                         showToast('Preferences updated successfully', false)
                     } catch (error) {
                         toggles.forEach(t => { t.checked = t.defaultChecked })
-                        applyAllMarketing({ switchTopicsOn: false })
+                        showTopicsForAllMarketing()
                         toggles.forEach(showSavedStatus)
                         showToast(error.message || 'Failed to update preferences', true)
+                    } finally {
+                        saveInFlight = false
+                        form.removeAttribute('aria-busy')
                     }
                 }
+
+                // One save at a time: a later change would otherwise race an earlier save, and the
+                // rollback of whichever fails first would show values that differ from the stored ones
+                form.addEventListener('click', (event) => {
+                    if (saveInFlight && event.target.classList.contains('toggle-checkbox')) {
+                        event.preventDefault()
+                    }
+                })
 
                 toggles.forEach((toggle) => {
                     toggle.addEventListener('change', function () {
@@ -166,7 +197,8 @@
                         setTimeout(() => { card.style.transform = 'scale(1)' }, 200)
 
                         if (this === allMarketingToggle) {
-                            applyAllMarketing({ switchTopicsOn: true })
+                            topicToggles.forEach((topic) => { topic.checked = allMarketingToggle.checked })
+                            showTopicsForAllMarketing()
                         }
                         savePreferences(this)
                     })

@@ -10,8 +10,8 @@
                        name="{{ category.id }}"
                        id="{{ category.id }}"
                        aria-labelledby="{{ category.id }}-name"
-                       {% if is_topic %}data-topic{% endif %}
-                       {% if is_topic and all_marketing_opted_out %}disabled{% elif category.status != "OPTED_OUT" %}checked{% endif %}
+                       {% if is_topic %}data-topic data-saved-status="{{ category.status }}"{% endif %}
+                       {% if is_topic and all_marketing_opted_out %}disabled aria-describedby="all-marketing-off-note"{% elif category.status != "OPTED_OUT" %}checked{% endif %}
                        class="toggle-checkbox peer absolute block w-6 h-6 rounded-full bg-white border-4 appearance-none cursor-pointer transition-transform duration-200 ease-in-out checked:translate-x-full checked:bg-blue-500 disabled:cursor-not-allowed" />
                 <label for="{{ category.id }}"
                        class="toggle-label block overflow-hidden h-6 rounded-full bg-gray-300 cursor-pointer peer-disabled:cursor-not-allowed">
