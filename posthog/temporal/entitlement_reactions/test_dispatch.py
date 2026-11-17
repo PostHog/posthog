@@ -27,6 +27,7 @@ from posthog.temporal.entitlement_reactions.activities import (
 from posthog.temporal.entitlement_reactions.test_workflow import (
     TestTimeouts,
     persisted,
+    set_source,
     setup_organization,
     temporal_environment as temporal_environment,
     wait_event,
@@ -200,6 +201,18 @@ async def test_no_work_acknowledges_without_temporal(integration, monkeypatch, c
     assert not connect.called
     assert instance.sqs.delete_message.called
     assert integration["seen"] == []
+
+
+async def test_unchanged_write_with_behind_checkpoint_starts_workflow(integration) -> None:
+    organization_id = await setup_organization(baseline=True)
+    await set_source(organization_id, 2)
+    instance = consumer()
+    connect = AsyncMock()
+    with patch("posthog.entitlements.dispatch.async_connect", connect):
+        await process(instance, message(organization_id, [{"key": "fixture", "limit": 2}]))
+    start_workflow = connect.return_value.start_workflow
+    assert start_workflow.call_count == 1
+    assert start_workflow.call_args.kwargs["id"] == f"entitlement-reactions-{organization_id}"
 
 
 async def test_dispatch_waits_for_caller_commit(temporal_environment, integration) -> None:
