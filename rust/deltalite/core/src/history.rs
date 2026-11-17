@@ -593,6 +593,8 @@ struct SourcePlan {
     /// Source rows dropped because an earlier source row of the key has their
     /// `dedupe_column` value.
     rows_redelivered: usize,
+    /// The source-size guard's estimate for this source.
+    footprint_bytes: usize,
 }
 
 impl SourcePlan {
@@ -796,6 +798,7 @@ impl SourcePlan {
             first_key_has_null,
             rows_in,
             rows_redelivered,
+            footprint_bytes: footprint.total(),
         })
     }
 
@@ -1343,15 +1346,17 @@ struct FileProbe {
     newer: bool,
 }
 
-/// Keep `e` in `seen` only if it has the lowest order value of the candidates in `slot`.
+/// Keep `e` in `seen` only if it comes first among the candidates in `slot`, in the chain
+/// order of [`SourcePlan::decide_with_closed`]: order value, then `valid_to`.
 fn keep_lowest(
     seen: &mut Vec<Existing>,
     slots: &mut HashMap<(u32, u32), usize>,
     slot: (u32, u32),
     e: Existing,
 ) {
+    let chain = |e: &Existing| (e.order.clone(), e.valid_to.clone());
     match slots.get(&slot) {
-        Some(&at) if seen[at].order <= e.order => {}
+        Some(&at) if chain(&seen[at]) <= chain(&e) => {}
         Some(&at) => seen[at] = e,
         None => {
             slots.insert(slot, seen.len());
@@ -1591,6 +1596,18 @@ struct Probed {
     next_after: HashMap<(u32, u32), usize>,
     /// Files that kept their footer for the rewrite.
     footers: usize,
+    /// Estimated resident bytes of `existing`.
+    bytes: usize,
+}
+
+impl Existing {
+    fn resident_bytes(&self) -> usize {
+        size_of::<Self>()
+            + self.order.len()
+            + self.valid_from.len()
+            + self.valid_to.as_ref().map_or(0, |v| v.len())
+            + self.dedupe.as_ref().map_or(0, |v| v.len())
+    }
 }
 
 /// Probe `files` of `partition` and add what they hold to `probed`. Up to one reader wave
@@ -1628,6 +1645,7 @@ async fn probe_files(
         for (at, mut e) in probe.seen.into_iter().enumerate() {
             e.file = index;
             groups.push(e.group);
+            probed.bytes += e.resident_bytes();
             match slot_of.remove(&at) {
                 None => probed.existing.push(e),
                 Some(slot) => keep_lowest(&mut probed.existing, &mut probed.next_after, slot, e),
@@ -1640,6 +1658,21 @@ async fn probe_files(
             partition: partition.to_string(),
             groups,
         });
+        // The versions read count against the source guard, since they stay until the
+        // decision. Splitting the source by key bucket lowers both.
+        if let Some(max) = resolve_max_source_bytes(opts.max_source_bytes) {
+            let total = plan.footprint_bytes.saturating_add(probed.bytes);
+            if total > max {
+                return Err(Error::SourceTooLarge(format!(
+                    "history upsert is too large: ~{} MB of source plus ~{} MB of existing \
+                     versions read for its keys exceeds the {} MB ceiling. Split the source \
+                     by key_buckets, or raise max_source_bytes.",
+                    plan.footprint_bytes >> 20,
+                    probed.bytes >> 20,
+                    max >> 20
+                )));
+            }
+        }
     }
     Ok(())
 }

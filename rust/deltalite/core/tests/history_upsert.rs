@@ -1298,3 +1298,37 @@ async fn late_rows_years_apart_read_only_their_own_months() {
         "the 2020-03 and 2026-03 files, not b's 2023-03 file: {stats:?}"
     );
 }
+
+#[tokio::test]
+async fn existing_versions_read_for_a_replay_count_against_the_source_guard() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut h = create(dir.path(), &["p"]).await;
+    let ids: Vec<String> = (0..5000).map(|i| format!("e{i}")).collect();
+    let rows: Vec<Src> = ids
+        .iter()
+        .enumerate()
+        .map(|(i, id)| (Some("k"), 1, "2026-10-10T00:00:00Z", id.as_str(), i as i64))
+        .collect();
+    let first = apply_with(&mut h, &rows, late()).await.unwrap();
+    assert_eq!(first.chain_rows_closed, 4999, "{first:?}");
+
+    let replay = [(Some("k"), 1, "2026-10-10T00:00:00Z", "e0", 9999)];
+    let err = apply_with(
+        &mut h,
+        &replay,
+        HistoryUpsertOptions {
+            max_source_bytes: Some(300 << 10),
+            ..late()
+        },
+    )
+    .await
+    .unwrap_err();
+    assert!(matches!(err, Error::SourceTooLarge(_)), "{err}");
+
+    let again = apply_with(&mut h, &replay, late()).await.unwrap();
+    assert_eq!(
+        (again.committed, again.rows_redelivered),
+        (false, 1),
+        "{again:?}"
+    );
+}

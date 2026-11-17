@@ -179,6 +179,7 @@ A re-run of the same input is a no-op: every row is a redelivery or a re-read.
 With either argument, the call also reads, for each key that needs them, the month partitions from the month of its oldest source `valid_from_column` to the month of its open row's `valid_from_column`, pruned by key statistics as in the current partition.
 That holds every closed version a late row or a redelivery can touch, because such a version ends at or after the source row's `valid_from_column`.
 Of those versions the call keeps only the ones that cover a source `valid_from_column` value, plus the first version after each value, so its memory does not grow with the key's history.
+The versions it keeps count against `max_source_bytes` with the source, and a call over the ceiling raises `DeltaLiteSourceTooLargeError`; split it with `key_buckets`.
 It requires `valid_from_column` not to decrease as the order value grows, as when the first order column is the change time; a row that breaks this raises `DeltaLiteError` and nothing is written.
 A late row or a redelivery rewrites the month files that hold the versions it touches.
 
