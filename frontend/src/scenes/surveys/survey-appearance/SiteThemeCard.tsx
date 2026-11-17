@@ -41,7 +41,7 @@ const UNSUGGESTED_COPY: Record<Exclude<SiteThemeOutcome, 'suggested'>, string> =
 
 function readingCopy(siteSnapshot: SiteSnapshotApi | null, elapsedSeconds: number): string {
     if (!siteSnapshot) {
-        return 'Finding a recent visit to this page'
+        return 'Finding a recent visit'
     }
     return elapsedSeconds < SLOW_RENDER_SECONDS ? "Reading your site's colors" : 'Taking longer than usual'
 }
