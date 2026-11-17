@@ -29318,7 +29318,7 @@ export namespace Schemas {
     }
 
     export interface CodeReviewApprovalRoutingPullRequest {
-      /** The pull request title, as stamphog last saw it. */
+      /** The pull request title, as auto-approval last saw it. */
       title: string;
       /** The GitHub login of the pull request author. */
       author: string;
@@ -29330,22 +29330,22 @@ export namespace Schemas {
          */
       merged_at?: string | null;
       /**
-         * Added lines. Null until the pull request merges, because stamphog stores the size at merge.
+         * Added lines. Null until the pull request merges, because auto-approval stores the size at merge.
          * @nullable
          */
       additions?: number | null;
       /**
-         * Deleted lines. Null until the pull request merges, because stamphog stores the size at merge.
+         * Deleted lines. Null until the pull request merges, because auto-approval stores the size at merge.
          * @nullable
          */
       deletions?: number | null;
       /**
-         * Changed files. Null until the pull request merges, because stamphog stores the size at merge.
+         * Changed files. Null until the pull request merges, because auto-approval stores the size at merge.
          * @nullable
          */
       changed_files?: number | null;
       /**
-         * The stamphog reviewer's one sentence about the whole change, from the newest completed review of the pull request that wrote one, at any head. Null when no review wrote one.
+         * The auto-approval reviewer's one sentence about the whole change, from the newest completed review of the pull request that wrote one, at any head. Null when no review wrote one.
          * @nullable
          */
       summary?: string | null;
@@ -29454,7 +29454,7 @@ export namespace Schemas {
       /** Changed files this owner owns. */
       file_count?: number;
       /**
-         * The stamphog reviewer's clause about this owner's part of the change. Set only when the reviewer wrote one clause per owning team, which it does when several teams own changed files.
+         * The auto-approval reviewer's clause about this owner's part of the change. Set only when the reviewer wrote one clause per owning team, which it does when several teams own changed files.
          * @nullable
          */
       summary?: string | null;
@@ -29467,7 +29467,7 @@ export namespace Schemas {
       repository: string;
       /** Pull request number. */
       pr_number: number;
-      /** The pull request the run routed, as stamphog last saw it rather than as it was at the run. */
+      /** The pull request the run routed, as auto-approval last saw it rather than as it was at the run. */
       readonly pull_request: CodeReviewApprovalRoutingPullRequest;
       /** The head commit the run routed. */
       head_sha: string;
@@ -29551,7 +29551,7 @@ export namespace Schemas {
       /** Changed files this owner owns. */
       file_count?: number;
       /**
-         * The stamphog reviewer's clause about this owner's part of the change. Set only when the reviewer wrote one clause per owning team, which it does when several teams own changed files.
+         * The auto-approval reviewer's clause about this owner's part of the change. Set only when the reviewer wrote one clause per owning team, which it does when several teams own changed files.
          * @nullable
          */
       summary?: string | null;
@@ -29564,7 +29564,7 @@ export namespace Schemas {
       repository: string;
       /** Pull request number. */
       pr_number: number;
-      /** The pull request the run routed, as stamphog last saw it rather than as it was at the run. */
+      /** The pull request the run routed, as auto-approval last saw it rather than as it was at the run. */
       readonly pull_request: CodeReviewApprovalRoutingPullRequest;
       /** The head commit the run routed. */
       head_sha: string;
@@ -135345,7 +135345,7 @@ export namespace Schemas {
      */
     limit?: number;
     /**
-     * true keeps runs of merged pull requests. false keeps runs of pull requests that are not merged: open ones and ones closed without merging, because stamphog does not record a close. Omit for both.
+     * true keeps runs of merged pull requests. false keeps runs of pull requests that are not merged: open ones and ones closed without merging, because auto-approval does not record a close. Omit for both.
      * @nullable
      */
     merged?: boolean | null;

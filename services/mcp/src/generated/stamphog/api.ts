@@ -214,7 +214,7 @@ export const CodeReviewApprovalsReviewerRoutingListQueryParams = () => zod.objec
         .boolean()
         .nullish()
         .describe(
-            'true keeps runs of merged pull requests. false keeps runs of pull requests that are not merged: open ones and ones closed without merging, because stamphog does not record a close. Omit for both.'
+            'true keeps runs of merged pull requests. false keeps runs of pull requests that are not merged: open ones and ones closed without merging, because auto-approval does not record a close. Omit for both.'
         ),
     merged_after: zod.iso
         .datetime({ offset: true })

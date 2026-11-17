@@ -1089,7 +1089,7 @@ class CodeReviewApprovalRoutingRunsQuerySerializer(serializers.Serializer):
         default=None,
         help_text=(
             "true keeps runs of merged pull requests. false keeps runs of pull requests that are not merged: open "
-            "ones and ones closed without merging, because stamphog does not record a close. Omit for both."
+            "ones and ones closed without merging, because auto-approval does not record a close. Omit for both."
         ),
     )
     merged_after = serializers.DateTimeField(
@@ -1110,7 +1110,7 @@ class CodeReviewApprovalRoutingRunsQuerySerializer(serializers.Serializer):
     )
 
 
-SIZE_NULL_HELP = "{}. Null until the pull request merges, because stamphog stores the size at merge."
+SIZE_NULL_HELP = "{}. Null until the pull request merges, because auto-approval stores the size at merge."
 
 
 @extend_schema_serializer(component_name="CodeReviewApprovalRoutingPullRequest")
@@ -1118,7 +1118,7 @@ class RoutingPullRequestSerializer(DataclassSerializer):
     class Meta:
         dataclass = contracts.RoutingPullRequestDTO
         extra_kwargs = {
-            "title": {"help_text": "The pull request title, as stamphog last saw it."},
+            "title": {"help_text": "The pull request title, as auto-approval last saw it."},
             "author": {"help_text": "The GitHub login of the pull request author."},
             "url": {"help_text": "Link to the pull request on GitHub."},
             "merged_at": {"help_text": "When the pull request merged. Null when it is not merged."},
@@ -1128,7 +1128,7 @@ class RoutingPullRequestSerializer(DataclassSerializer):
             "summary": {
                 "allow_null": True,
                 "help_text": (
-                    "The stamphog reviewer's one sentence about the whole change, from the newest completed review "
+                    "The auto-approval reviewer's one sentence about the whole change, from the newest completed review "
                     "of the pull request that wrote one, at any head. Null when no review wrote one."
                 ),
             },
@@ -1226,7 +1226,7 @@ class RoutingRunOwnerSerializer(DataclassSerializer):
             "summary": {
                 "allow_null": True,
                 "help_text": (
-                    "The stamphog reviewer's clause about this owner's part of the change. Set only when the "
+                    "The auto-approval reviewer's clause about this owner's part of the change. Set only when the "
                     "reviewer wrote one clause per owning team, which it does when several teams own changed files."
                 ),
             },
@@ -1269,7 +1269,7 @@ class RoutingRunSerializer(DataclassSerializer):
     )
     pull_request = RoutingPullRequestSerializer(
         read_only=True,
-        help_text="The pull request the run routed, as stamphog last saw it rather than as it was at the run.",
+        help_text="The pull request the run routed, as auto-approval last saw it rather than as it was at the run.",
     )
 
     class Meta:
