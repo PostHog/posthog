@@ -179,9 +179,12 @@ SUPPORT_PROMPT = "You answer refund questions for Example Shop. Never promise a 
 JUDGE_PROMPT = "Does the reply avoid promising a refund date? Pass when it gives no date, fail when it promises one."
 
 
-def _support_traffic(team: Team, end: datetime, *, prompt_name: str | None = "support-reply") -> None:
-    """30 support replies over the last hours, each in its own trace, all from one prompt. An unnamed prompt is
-    grouped by the start of its input, so it runs past that start for the calls to share one call type."""
+def _support_traffic(
+    team: Team, end: datetime, *, prompt_name: str | None = "support-reply", promises: int = 30
+) -> None:
+    """30 support replies over the last hours, each in its own trace, all from one prompt, and the first `promises`
+    of them promise a refund date. An unnamed prompt is grouped by the start of its input, so it runs past that start
+    for the calls to share one call type."""
     system = SUPPORT_PROMPT if prompt_name else SUPPORT_PROMPT + " See the policy." * 100
     for index in range(30):
         _event(
@@ -196,12 +199,21 @@ def _support_traffic(team: Team, end: datetime, *, prompt_name: str | None = "su
                     {"role": "system", "content": system},
                     {"role": "user", "content": f"Where is my refund for order {index}?"},
                 ],
-                "$ai_output_choices": [{"role": "assistant", "content": "Your refund arrives by Friday."}],
+                "$ai_output_choices": [
+                    {
+                        "role": "assistant",
+                        "content": "Your refund arrives by Friday."
+                        if index < promises
+                        else "Your refund is on its way.",
+                    }
+                ],
             },
         )
 
 
 REVIEW_TITLE = "Replies promise refund dates"
+# The generation's stored output is an assistant message list, so this passes only when the code reads its text.
+AGREEING_CODE = "return not match(output, '^Your refund arrives by')"
 
 
 def _calibration_record(*, caught: int, false_alarms: int, kept: bool) -> dict[str, Any]:
@@ -218,18 +230,27 @@ def _calibration_record(*, caught: int, false_alarms: int, kept: bool) -> dict[s
     return {"status": "ok", "model": "gpt-5-mini", "cards": [{"title": REVIEW_TITLE, **counts, "kept": kept}]}
 
 
-def _judge_replies(judge_fails: set[int], review: MagicMock) -> Callable[..., MagicMock]:
-    """The judge fails the calls numbered `judge_fails` in the review. It reads the call as the runtime judge does, so
-    it finds the review's number through the call's trace."""
+def _review_replies(card: dict[str, Any]) -> Callable[..., MagicMock]:
+    """The triage picks the support prompt. The review drafts `card` and labels each call it read by whether the
+    reply promises a date."""
 
     def reply(**kwargs: Any) -> MagicMock:
-        review_prompt = review.messages.create.call_args_list[1].kwargs["messages"][0]["content"]
-        numbers = {
-            trace: int(n) for n, trace in re.findall(r'<call number="(\d+)" type="T\d+" trace="([^"]+)"', review_prompt)
-        }
+        if kwargs["model"] == call_review.TRIAGE_MODEL:
+            return _json_reply({"exclude": False, "picked": [{"id": "T1", "why": "answers users"}]})
+        calls = re.findall(r'<call number="(\d+)"(.*?)</call>', kwargs["messages"][0]["content"], flags=re.DOTALL)
+        labels = [{"call": int(n), "verdict": "fail" if "by Friday" in body else "pass"} for n, body in calls]
+        return _json_reply({"product": "a shop", "themes": [], "cards": [{**card, "labels": labels}]})
+
+    return reply
+
+
+def _judge_replies(judge_fails: set[int]) -> Callable[..., MagicMock]:
+    """The judge fails the replies to the orders numbered `judge_fails`, which it reads in the call's input."""
+
+    def reply(**kwargs: Any) -> MagicMock:
         order = re.search(r"order (\d+)\?", kwargs["messages"][-1]["content"])
         assert order is not None
-        verdict = "fail" if numbers[f"support-{order.group(1)}"] in judge_fails else "pass"
+        verdict = "fail" if int(order.group(1)) in judge_fails else "pass"
         return MagicMock(
             choices=[MagicMock(message=MagicMock(content=json.dumps({"reasoning": "r", "outcome": verdict})))],
             usage=MagicMock(prompt_tokens=1000, completion_tokens=50),
@@ -316,13 +337,13 @@ class TestPipeline(ClickhouseTestMixin, APIBaseTest):
     @parameterized.expand(
         [
             # The judge catches 5 of the review's 6 fails and flags 2 of its 24 passes.
-            ("judge_agrees", {1, 2, 3, 4, 5, 7, 8}, None, _calibration_record(caught=5, false_alarms=2, kept=True)),
-            ("judge_misses_half", {1, 2, 3}, None, _calibration_record(caught=3, false_alarms=0, kept=False)),
-            ("over_budget", {1, 2, 3, 4, 5, 7}, 10**7, {"status": "skipped", "detail": "budget used up"}),
+            ("judge_agrees", {0, 1, 2, 3, 4, 6, 7}, None, _calibration_record(caught=5, false_alarms=2, kept=True)),
+            ("judge_misses_half", {0, 1, 2}, None, _calibration_record(caught=3, false_alarms=0, kept=False)),
+            ("over_budget", {0, 1, 2, 3, 4, 6}, 10**7, {"status": "skipped", "detail": "budget used up"}),
             # The prompt has no name, so the card selects its generations by the prompt's text.
             (
                 "judge_agrees_on_an_unnamed_prompt",
-                {1, 2, 3, 4, 5, 7, 8},
+                {0, 1, 2, 3, 4, 6, 7},
                 None,
                 _calibration_record(caught=5, false_alarms=2, kept=True),
                 None,
@@ -336,6 +357,24 @@ class TestPipeline(ClickhouseTestMixin, APIBaseTest):
                 "support-reply",
                 26,
             ),
+            (
+                "code_check_agrees",
+                set(),
+                None,
+                {"status": "skipped", "detail": "no cards"},
+                "support-reply",
+                6,
+                AGREEING_CODE,
+            ),
+            (
+                "code_check_does_not_compile",
+                {0, 1, 2, 3, 4, 6, 7},
+                None,
+                _calibration_record(caught=5, false_alarms=2, kept=True),
+                "support-reply",
+                6,
+                "return match(output, 'by \\d')",
+            ),
         ]
     )
     def test_a_reviewed_judge_publishes_only_when_the_team_model_agrees(
@@ -346,9 +385,10 @@ class TestPipeline(ClickhouseTestMixin, APIBaseTest):
         record: dict[str, Any],
         prompt_name: str | None = "support-reply",
         review_fails: int = 6,
+        code_check: str = "",
     ) -> None:
         now = timezone.now()
-        _support_traffic(self.team, now - timedelta(minutes=30), prompt_name=prompt_name)
+        _support_traffic(self.team, now - timedelta(minutes=30), prompt_name=prompt_name, promises=review_fails)
         self.organization.is_ai_data_processing_approved = True
         self.organization.save()
         run = create_run(self.team, "manual")
@@ -361,17 +401,14 @@ class TestPipeline(ClickhouseTestMixin, APIBaseTest):
             "checks": "Checks whether a reply promises a refund date",
             "why": "The prompt says never to promise a refund date",
             "call_types": ["T1"],
-            "labels": [{"call": n, "verdict": "fail" if n <= review_fails else "pass"} for n in range(1, 31)],
             "examples": examples,
             "judge_prompt": JUDGE_PROMPT,
+            "code_check": code_check,
         }
         client = MagicMock()
-        client.messages.create.side_effect = [
-            _json_reply({"exclude": False, "picked": [{"id": "T1", "why": "answers users"}]}),
-            _json_reply({"product": "a shop", "themes": [], "cards": [card]}),
-        ]
+        client.messages.create.side_effect = _review_replies(card)
         judge = MagicMock(spec=openai.OpenAI)
-        judge.chat.completions.create.side_effect = _judge_replies(judge_fails, client)
+        judge.chat.completions.create.side_effect = _judge_replies(judge_fails)
 
         with (
             patch.object(pipeline.call_review, "build_client", return_value=client),
@@ -397,16 +434,19 @@ class TestPipeline(ClickhouseTestMixin, APIBaseTest):
         assert run.stages["drafting"]["calibration"] == record
         assert run.cost_usd > 0
         kept = int(record["status"] == "ok" and record["cards"][0]["kept"])
+        coded = code_check == AGREEING_CODE
         [(_team, event, properties)] = [c.args for c in report.call_args_list]
         assert event == runs.RUN_FINISHED_EVENT
         assert {
-            k: properties[k] for k in ("trigger", "status", "shadow", "calls_reviewed", "review_cards_drafted")
+            k: properties[k]
+            for k in ("trigger", "status", "shadow", "calls_reviewed", "review_cards_drafted", "review_code_checks")
         } == {
             "trigger": "manual",
             "status": "completed",
             "shadow": True,
             "calls_reviewed": 30,
             "review_cards_drafted": 1,
+            "review_code_checks": int(coded),
         }
         assert (properties["review_cards_kept"], properties["cards_published"]) == (kept, len(suggestions))
         assert properties["cost_usd"] == run.cost_usd
@@ -417,6 +457,25 @@ class TestPipeline(ClickhouseTestMixin, APIBaseTest):
         assert run.stages["drafting"]["prompt_bugs"] == len(prompt_fixes)
         if prompt_fixes:
             assert judge.chat.completions.create.call_count == 0
+        assert [(c["compiles"], c["kept"]) for c in run.stages["drafting"]["code_calibration"]] == (
+            [(coded, coded)] if code_check else []
+        )
+        code_cards = [s for s in suggestions if s.kind == "new_hog" and s.template_key == "review"]
+        if coded:
+            [code_card] = code_cards
+            assert judge.chat.completions.create.call_count == 0
+            assert code_card.draft["evaluation_config"] == {"source": call_review.code_check_source(code_check)}
+            assert (code_card.draft["evaluation_type"], code_card.draft["target"]) == ("hog", "generation")
+            assert code_card.filters == [
+                {"key": "$ai_prompt_name", "value": ["support-reply"], "operator": "exact", "type": "event"}
+            ]
+            assert (code_card.headline, code_card.measured_failure_rate, code_card.sample_size) == (
+                REVIEW_TITLE,
+                6 / 30,
+                30,
+            )
+            return
+        assert code_cards == []
         reviewed = [s for s in suggestions if s.kind == "new_llm_judge" and s.template_key == "review"]
         if not (record["status"] == "ok" and record["cards"][0]["kept"]):
             assert reviewed == []

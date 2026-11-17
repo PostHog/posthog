@@ -386,6 +386,12 @@ def test_sampled_text_and_metadata_cannot_break_out_of_their_tags() -> None:
     assert not re.search(r"^Reviewer", rendering.text, flags=re.MULTILINE)
 
 
+def test_a_card_keeps_its_code_check_without_surrounding_whitespace() -> None:
+    [card] = call_review.parse_cards({"cards": [_card(code_check="\n  return length(output) < 300\n")]}, _rendering())
+
+    assert card.code_check == "return length(output) < 300"
+
+
 def test_the_review_keeps_at_most_two_cards() -> None:
     cards = call_review.parse_cards({"cards": [_card(title=f"Card {i}") for i in range(3)]}, _rendering())
 

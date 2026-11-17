@@ -235,6 +235,7 @@ def report_finished(team_id: int, run_id: Any) -> None:
                 "review_cards_kept": sum(
                     1 for card in (drafting.get("calibration") or {}).get("cards", []) if card.get("kept")
                 ),
+                "review_code_checks": drafting.get("code_checks", 0),
                 "cost_usd": run.cost_usd,
                 "duration_seconds": (run.completed_at - run.created_at).total_seconds() if run.completed_at else None,
             },
