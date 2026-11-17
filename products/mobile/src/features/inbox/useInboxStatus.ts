@@ -1,8 +1,8 @@
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useRef } from 'react'
 
 import { fetchInboxStatus, type InboxStatusApi, inboxStatusKey } from '@/api/inboxStatus'
-import { retryUnlessMissing } from '@/api/reports'
+import { reportKeys, retryUnlessMissing } from '@/api/reports'
 import { useProjectScope } from '@/auth/useProjectScope'
 import { useDataMode } from '@/demo/demoMode'
 import { useConnectivity } from '@/lib/connectivity'
@@ -14,6 +14,7 @@ import { useAppActive } from '../handoff/useTaskRun'
 
 export function useInboxStatus(enabled: boolean): QueryState<InboxStatusApi> {
     const scope = useProjectScope()
+    const queryClient = useQueryClient()
     const mode = useDataMode()
     const appActive = useAppActive()
     const offline = useConnectivity((state) => state.status === 'offline')
@@ -31,6 +32,12 @@ export function useInboxStatus(enabled: boolean): QueryState<InboxStatusApi> {
         refetchInterval: (query) =>
             active && ['pending', 'running'].includes(query.state.data?.first_report_status ?? '') ? 15_000 : false,
     })
+    const hasReport = !!query.data?.has_report_history || query.data?.first_report_status === 'report_created'
+    useEffect(() => {
+        if (active && hasReport) {
+            void queryClient.invalidateQueries({ queryKey: reportKeys.inbox(scope), exact: true })
+        }
+    }, [active, hasReport, scope, queryClient])
     const wasActive = useRef(active)
     useEffect(() => {
         if (active && !wasActive.current) void query.refetch()

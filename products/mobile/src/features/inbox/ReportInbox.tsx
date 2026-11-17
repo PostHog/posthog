@@ -164,7 +164,10 @@ export function ReportInbox({ selectedReportId, active }: { selectedReportId: st
                 refreshControl={
                     <RefreshControl
                         refreshing={query.isRefetching}
-                        onRefresh={() => void query.refetch()}
+                        onRefresh={() => {
+                            void query.refetch()
+                            if (query.totalCount === 0) void setupStatus.refetch()
+                        }}
                         tintColor={colors.tertiary}
                     />
                 }
