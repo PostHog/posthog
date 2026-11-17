@@ -19,6 +19,7 @@ import { optOutCategoriesLogic } from '../../OptOuts/optOutCategoriesLogic'
 import { WORKFLOW_OPERATOR_ALLOWLIST } from '../../Workflows/hogflows/filters/HogFlowFilters'
 import { RealtimeCohortAudienceNotice } from '../../Workflows/hogflows/steps/components/RealtimeCohortAudienceNotice'
 import { BroadcastAudienceCohorts } from '../audience/BroadcastAudienceCohorts'
+import { broadcastAudienceCohortsLogic } from '../audience/broadcastAudienceCohortsLogic'
 import { broadcastAudienceListLogic } from '../audience/broadcastAudienceListLogic'
 import { BroadcastAudienceListModal } from '../audience/BroadcastAudienceListModal'
 import { broadcastWizardLogic, rateLimitedReachSentence } from '../broadcastWizardLogic'
@@ -199,6 +200,7 @@ export function BroadcastRecipientsStep(): JSX.Element {
     const { setAudienceProperties, sendToEveryoneAfterRejectedLink } = useActions(broadcastWizardLogic)
     const { props } = useMountedLogic(broadcastWizardLogic)
     const { openListModal } = useActions(broadcastAudienceListLogic(props))
+    const { editableAudience } = useValues(broadcastAudienceCohortsLogic(props))
     const [audienceListOpen, setAudienceListOpen] = useState(false)
 
     return (
@@ -242,7 +244,7 @@ export function BroadcastRecipientsStep(): JSX.Element {
             <AudienceListModal isOpen={audienceListOpen} onClose={() => setAudienceListOpen(false)} />
             <PropertyFilters
                 pageKey="broadcast-wizard-recipients"
-                propertyFilters={audienceProperties}
+                propertyFilters={editableAudience}
                 addText="Add condition"
                 allowNew={!realtimeCohortAlone}
                 orFiltering

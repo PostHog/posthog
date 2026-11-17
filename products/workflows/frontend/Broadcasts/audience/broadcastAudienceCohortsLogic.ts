@@ -39,6 +39,7 @@ export interface broadcastAudienceCohortsLogicValues {
     currentProjectId: number | null // projectLogic
     audienceCohorts: Record<number, AudienceCohort | null>
     cohortIds: number[]
+    editableAudience: AnyPropertyFilter[]
     includedCohortIds: number[]
     nonCohortAudience: AnyPropertyFilter[]
 }
@@ -64,6 +65,7 @@ export interface broadcastAudienceCohortsLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
         nonCohortAudience: (audienceProperties: AnyPropertyFilter[]) => AnyPropertyFilter[]
+        editableAudience: (audienceProperties: AnyPropertyFilter[]) => AnyPropertyFilter[]
         cohortIds: (audienceProperties: AnyPropertyFilter[]) => number[]
         includedCohortIds: (audienceProperties: AnyPropertyFilter[]) => number[]
     }
@@ -103,6 +105,12 @@ export const broadcastAudienceCohortsLogic = kea<broadcastAudienceCohortsLogicTy
             (s) => [s.audienceProperties],
             (audienceProperties: AnyPropertyFilter[]): AnyPropertyFilter[] =>
                 audienceProperties.filter((filter) => !isCohortInclusion(filter)).map(withCohortExclusionOperator),
+        ],
+        // The condition editor reads only the operator, so an exclusion saved as negation would show as "in".
+        editableAudience: [
+            (s) => [s.audienceProperties],
+            (audienceProperties: AnyPropertyFilter[]): AnyPropertyFilter[] =>
+                audienceProperties.map(withCohortExclusionOperator),
         ],
         // Every cohort, excluded ones too, because an excluded cohort that is still calculating also changes who
         // the send reaches.
