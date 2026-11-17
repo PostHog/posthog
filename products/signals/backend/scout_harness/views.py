@@ -289,6 +289,7 @@ from products.signals.backend.scout_harness.trial_access import (
 )
 from products.signals.backend.scout_harness.trial_views import ScoutTrialConfigMixin
 from products.signals.backend.scout_report import InvalidScoutReportError
+from products.signals.backend.scout_report.judge import SafetyJudgeUnavailableError
 from products.signals.backend.task_attribution import resolve_request_attribution
 from products.signals.backend.tasks import enqueue_project_profile_build
 from products.signals.backend.trial.service import TrialService
@@ -325,6 +326,15 @@ class _StructuredOutputDeliveryFailed(exceptions.APIException):
 
     status_code = status.HTTP_503_SERVICE_UNAVAILABLE
     default_code = "structured_output_delivery_failed"
+
+
+class _SafetyJudgeUnavailable(exceptions.APIException):
+    """503 for a report write the safety judge could not check in time. Nothing was written, and the
+    same call can succeed on a retry, unlike a 400 the agent would read as "fix the report"."""
+
+    status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+    default_detail = "The safety check did not finish, so nothing was written. Try the same call again."
+    default_code = "safety_judge_unavailable"
 
 
 class _LighthouseNotConfigured(exceptions.APIException):
@@ -628,6 +638,8 @@ def emit_report_from_validated_data(*, team: Team, author: ReportAuthor, data: d
         )
     except InvalidScoutReportError as exc:
         raise exceptions.ValidationError({"detail": str(exc)})
+    except SafetyJudgeUnavailableError:
+        raise _SafetyJudgeUnavailable()
 
 
 def emit_report_response_data(result: EmitReportResult) -> dict[str, Any]:
@@ -1342,6 +1354,9 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             ),
             400: OpenApiResponse(description="Invalid report shape (empty title/summary/evidence, bad actionability)."),
             404: OpenApiResponse(description="Run not found for this project."),
+            503: OpenApiResponse(
+                description="The safety check did not finish, so nothing was written. Retry the call."
+            ),
         },
         summary="Author a full report for a run",
         description=(
@@ -1380,6 +1395,9 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             200: OpenApiResponse(response=EditReportResponseSerializer, description="Report edited."),
             400: OpenApiResponse(description="Nothing to edit, empty note, or report not found for this project."),
             404: OpenApiResponse(description="Run not found for this project."),
+            503: OpenApiResponse(
+                description="The safety check did not finish, so nothing was written. Retry the call."
+            ),
         },
         summary="Edit an existing report for a run",
         description=(
@@ -1452,6 +1470,8 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             )
         except (InvalidScoutReportError, ReviewerWriteError, ValueError) as exc:
             raise exceptions.ValidationError({"detail": str(exc)})
+        except SafetyJudgeUnavailableError:
+            raise _SafetyJudgeUnavailable()
         return Response(
             EditReportResponseSerializer(
                 {

@@ -3302,6 +3302,9 @@ class SignalReportViewSet(
                 )
             ),
             429: OpenApiResponse(description="The caller filed the daily maximum of reports for this project."),
+            503: OpenApiResponse(
+                description="The safety check did not finish, so nothing was written. Retry the call."
+            ),
         },
         summary="File an inbox report",
         description=(
