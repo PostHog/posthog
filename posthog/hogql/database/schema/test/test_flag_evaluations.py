@@ -67,7 +67,7 @@ from posthog.models.instance_setting import override_instance_config
 from posthog.models.property import TableColumn
 from posthog.models.utils import uuid7
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
-from posthog.test.persons import create_group_type_mapping, create_person
+from posthog.test.persons import add_distinct_id, create_group_type_mapping, create_person
 
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
 from products.access_control.backend.property_access_control import PropertyAccessLevel
@@ -210,6 +210,10 @@ def _join_refusal(join_name: str, reason: str | None = None) -> str:
     if reason is None:
         reason = re.escape(f"it compares {join_name}.event with $feature_flag_called")
     return re.escape(f"the join {join_name} in this query can't read them there because ") + reason
+
+
+CURRENT_EMAIL = "current@example.com"
+STORED_EMAIL = "probe@example.com"
 
 
 class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
@@ -992,28 +996,64 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
 
     @parameterized.expand(
         [
-            ("joined", PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED, "current@example.com"),
-            ("properties_on_events", PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS, "probe@example.com"),
+            # The two booleans say whether person_id and poe.id read the merged person instead of the stored one.
+            ("joined", PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED, True, False, CURRENT_EMAIL),
+            (
+                "properties_on_events",
+                PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS,
+                True,
+                True,
+                STORED_EMAIL,
+            ),
+            ("no_override", PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS, False, False, STORED_EMAIL),
+            ("disabled", PersonsOnEventsMode.DISABLED, True, False, CURRENT_EMAIL),
+            ("disabled_posthog_events", PersonsOnEventsMode.DISABLED, True, False, CURRENT_EMAIL, "posthog.events"),
         ]
     )
-    def test_swapped_person_properties_come_from_where_the_persons_on_events_mode_reads_them(
-        self, _name: str, persons_on_events_mode: PersonsOnEventsMode, expected_email: str
+    def test_swapped_person_fields_read_as_events_does_under_the_persons_on_events_mode(
+        self,
+        _name: str,
+        persons_on_events_mode: PersonsOnEventsMode,
+        person_id_reads_merge: bool,
+        poe_id_reads_merge: bool,
+        expected_email: str,
+        source: str = "events",
     ):
-        # The person merged into another one after the call. The join must key on the corrected person_id.
+        # The person merged into another one after the call. The squash has not rewritten the stored person_id.
         merged_person_id = uuid.uuid4()
         self._override(merged_person_id, version=1)
-        create_person(team=self.team, uuid=str(self.person_id), properties={"email": "before-merge@example.com"})
-        create_person(team=self.team, uuid=str(merged_person_id), properties={"email": "current@example.com"})
-        flush_persons_and_events()
-
-        response = self._query_events(
-            f"SELECT person.properties.email FROM events WHERE {FLAG_CALL_CONJUNCTS}",
-            modifiers=HogQLQueryModifiers(personsOnEventsMode=persons_on_events_mode),
+        create_person(
+            team=self.team,
+            uuid=str(self.person_id),
+            distinct_ids=["probe-distinct-id"],
+            properties={"email": "before-merge@example.com"},
         )
+        merged_person = create_person(team=self.team, uuid=str(merged_person_id), properties={"email": CURRENT_EMAIL})
+        _create_event(
+            team=self.team,
+            event="$feature_flag_called",
+            distinct_id="probe-distinct-id",
+            timestamp=self.occurred_at,
+            properties={"$feature_flag": "probe-flag"},
+            event_uuid=str(self.row_uuid),
+            person_id=self.person_id,
+            person_properties={"email": STORED_EMAIL},
+        )
+        flush_persons_and_events()
+        add_distinct_id(person=merged_person, distinct_id="probe-distinct-id", version=1)
+        query = (
+            f"SELECT person_id, person.id, poe.id, person.properties.email FROM {source} WHERE {FLAG_CALL_CONJUNCTS}"
+        )
+        modifiers = HogQLQueryModifiers(personsOnEventsMode=persons_on_events_mode)
 
-        assert response.clickhouse is not None
-        assert "FROM flag_evaluations" in response.clickhouse
-        assert response.results == [(expected_email,)]
+        swapped = self._query_events(query, modifiers=modifiers)
+
+        expected_person_id = merged_person_id if person_id_reads_merge else self.person_id
+        expected_poe_id = merged_person_id if poe_id_reads_merge else self.person_id
+        assert swapped.clickhouse is not None
+        assert "FROM flag_evaluations" in swapped.clickhouse
+        assert swapped.results == [(expected_person_id, expected_person_id, expected_poe_id, expected_email)]
+        assert swapped.results == self._query_events(query, rewrite=False, modifiers=modifiers).results
 
     @parameterized.expand(
         [
@@ -1032,30 +1072,6 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
                 "columns_inside_an_expression",
                 f"SELECT tuple(*COLUMNS('^(created|inserted)_at$')) FROM events WHERE {FLAG_CALL_CONJUNCTS}",
                 "a name in it would read a different column",
-            ),
-            (
-                "stored_person_id",
-                f"SELECT person_id FROM events WHERE {FLAG_CALL_CONJUNCTS}",
-                "a name in it would read a different column",
-                PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS,
-            ),
-            (
-                "person_id_through_distinct_ids",
-                f"SELECT person_id FROM events WHERE {FLAG_CALL_CONJUNCTS}",
-                "a name in it would read a different column",
-                PersonsOnEventsMode.DISABLED,
-            ),
-            (
-                "person_properties_through_distinct_ids",
-                f"SELECT person.properties.email FROM events WHERE {FLAG_CALL_CONJUNCTS}",
-                "a name in it would read a different column",
-                PersonsOnEventsMode.DISABLED,
-            ),
-            (
-                "posthog_events_person_id_through_distinct_ids",
-                f"SELECT person_id FROM posthog.events WHERE {FLAG_CALL_CONJUNCTS}",
-                "a name in it would read a different column",
-                PersonsOnEventsMode.DISABLED,
             ),
             (
                 "posthog_events_qualifier_that_a_joined_column_takes",
@@ -1085,9 +1101,8 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
         _name: str,
         query: str,
         error: str,
-        persons_on_events_mode: PersonsOnEventsMode = PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS,
     ):
-        modifiers = HogQLQueryModifiers(personsOnEventsMode=persons_on_events_mode)
+        modifiers = HogQLQueryModifiers(personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS)
         mode = FlagEvaluationsMode.READ_FLAG_EVALUATIONS
         assert (
             self._query_events(query, modifiers=modifiers, mode=mode).clickhouse
@@ -2162,14 +2177,14 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
 
     @parameterized.expand(
         [
-            ("properties_on_events", PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS, True),
-            ("properties_joined", PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED, True),
-            ("no_override", PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS, False),
-            ("disabled", PersonsOnEventsMode.DISABLED, False),
+            ("properties_on_events", PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS),
+            ("properties_joined", PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED),
+            ("no_override", PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS),
+            ("disabled", PersonsOnEventsMode.DISABLED),
         ]
     )
-    def test_lazy_join_pushes_a_pin_through_a_person_id_key_or_raises(
-        self, _name: str, persons_on_events_mode: PersonsOnEventsMode, moves: bool
+    def test_lazy_join_pushes_a_pin_through_a_person_id_key(
+        self, _name: str, persons_on_events_mode: PersonsOnEventsMode
     ):
         self._create_lazy_join_sources()
         create_person(team=self.team, uuid=str(self.person_id), distinct_ids=["probe-distinct-id"])
@@ -2179,12 +2194,4 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
 
         modifiers = HogQLQueryModifiers(personsOnEventsMode=persons_on_events_mode)
 
-        # Without overrides, events.person_id is a stored column and flag_evaluations.person_id reads the overrides.
-        if not moves:
-            with self.assertRaisesRegex(
-                QueryError,
-                _join_refusal("persons.calls_by_person", re.escape("a name in it would read a different column there")),
-            ):
-                self._query_events(query, modifiers=modifiers)
-            return
         assert self._query_events(query, modifiers=modifiers).results == [("probe-distinct-id",)]
