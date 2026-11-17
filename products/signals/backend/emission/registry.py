@@ -161,6 +161,15 @@ def is_signal_emission_registered(source_type: str, schema_name: str) -> bool:
     return _registry_key(source_type, schema_name) in _SIGNAL_TABLE_CONFIGS
 
 
+def warehouse_source_types_for(source_product: str, source_type: str) -> set[str]:
+    """The warehouse source types whose schemas emit records for this signal source."""
+    return {
+        warehouse_source_type
+        for (warehouse_source_type, _), config in _SIGNAL_TABLE_CONFIGS.items()
+        if (config.source_product, config.source_type) == (source_product, source_type)
+    }
+
+
 def get_signal_source_identity(source_type: str, schema_name: str) -> tuple[str, str] | None:
     config = get_signal_config(source_type, schema_name)
     return (config.source_product, config.source_type) if config else None
