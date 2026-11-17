@@ -425,17 +425,41 @@ class TestTransactionalEmail(APIBaseTest):
                     "mcp_intent": None,
                 },
             ),
+            (
+                "personal_api_key_sender",
+                "send_email",
+                {},
+                {"User-Agent": "PostHog-Node/5.9.1 (node v22)"},
+                202,
+                {"client": "posthog-node", "source": "api", "auth_method": "user", "$set": None, "$set_once": None},
+                "personal_api_key",
+            ),
         ]
     )
     def test_records_the_client_and_surface_that_made_the_send(
-        self, mock_post, _flag, capture, _name, route, extra_body, headers, expected_status, expected
+        self,
+        mock_post,
+        _flag,
+        capture,
+        _name,
+        route,
+        extra_body,
+        headers,
+        expected_status,
+        expected,
+        sender="project_secret_api_key",
     ):
         pipeline, analytics = FakeCdpApi(), FakeAnalytics()
         mock_post.side_effect, capture.side_effect = pipeline.post, analytics.capture
+        if sender == "personal_api_key":
+            client = APIClient()
+            client.credentials(
+                HTTP_AUTHORIZATION=f"Bearer {self.create_personal_api_key_with_scopes(['transactional_email:write'])}"
+            )
+        else:
+            client = self._psak_client(["transactional_email:write"])
 
-        response = self._send(
-            self._psak_client(["transactional_email:write"]), route, {**self.body, **extra_body}, headers=headers
-        )
+        response = self._send(client, route, {**self.body, **extra_body}, headers=headers)
 
         assert response.status_code == expected_status, response.json()
         assert [
