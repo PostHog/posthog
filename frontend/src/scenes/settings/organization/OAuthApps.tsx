@@ -10,12 +10,14 @@ import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
 
 import { OrganizationOAuthApplicationApi } from '~/generated/core/api.schemas'
 
+import { OAuthAppDetails } from './OAuthAppDetails'
+import { PROVISIONING_STATUS_LABELS, PROVISIONING_STATUS_TAG_TYPES } from './oauthAppProvisioningStatus'
 import { oauthAppsLogic } from './oauthAppsLogic'
 
 export function OAuthApps(): JSX.Element {
     const { oauthApps, oauthAppsLoading } = useValues(oauthAppsLogic)
 
-    if (oauthAppsLoading && oauthApps.length === 0) {
+    if (oauthApps === null || (oauthAppsLoading && oauthApps.length === 0)) {
         return (
             <div className="space-y-2 mt-4">
                 <LemonSkeleton className="h-12" />
@@ -40,6 +42,9 @@ export function OAuthApps(): JSX.Element {
         <LemonTable
             dataSource={oauthApps}
             className="mt-4"
+            expandable={{
+                expandedRowRender: (app: OrganizationOAuthApplicationApi) => <OAuthAppDetails app={app} />,
+            }}
             columns={[
                 {
                     title: 'Application',
@@ -74,32 +79,16 @@ export function OAuthApps(): JSX.Element {
                     ),
                 },
                 {
-                    title: 'Redirect URIs',
-                    key: 'redirect_uris',
-                    render: (_, app: OrganizationOAuthApplicationApi) => {
-                        const uris = app.redirect_uris_list || []
-                        if (uris.length === 0) {
-                            return <span className="text-muted">None</span>
-                        }
-                        return (
-                            <div className="flex flex-col gap-0.5">
-                                {uris.map((uri, i) => (
-                                    <div key={i} className="flex items-center gap-1">
-                                        <code className="text-xs bg-fill-primary rounded px-1.5 py-0.5 truncate max-w-[250px] block">
-                                            {uri}
-                                        </code>
-                                        <LemonButton
-                                            icon={<IconCopy />}
-                                            size="xsmall"
-                                            noPadding
-                                            tooltip="Copy URI"
-                                            onClick={() => void copyToClipboard(uri, 'redirect URI')}
-                                        />
-                                    </div>
-                                ))}
-                            </div>
-                        )
-                    },
+                    title: 'Provisioning',
+                    key: 'provisioning_status',
+                    render: (_, app: OrganizationOAuthApplicationApi) =>
+                        app.provisioning_status === 'not_a_partner' ? (
+                            <span className="text-muted">-</span>
+                        ) : (
+                            <LemonTag type={PROVISIONING_STATUS_TAG_TYPES[app.provisioning_status]}>
+                                {PROVISIONING_STATUS_LABELS[app.provisioning_status]}
+                            </LemonTag>
+                        ),
                 },
                 {
                     title: 'Connected',
