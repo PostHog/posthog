@@ -182,8 +182,8 @@ class HogQLContext:
     # flag-call subquery in a deletion predicate keeps reading `events` whatever the organization's mode.
     rewrite_flag_calls_to_flag_evaluations: bool = True
     # Backend-only opt-in for a query whose events scans read every event, flag calls among them, without naming
-    # `$feature_flag_called`. When the query's flag calls are only in flag_evaluations, each such scan that the union
-    # can read reads the union. The scans that the union cannot read keep reading events.
+    # `$feature_flag_called`. When the query's flag calls are only in flag_evaluations, every such scan reads the union.
+    # When the union cannot read one of them, the query reads as it would without this opt-in.
     events_scans_read_flag_calls: bool = False
     # Per-query event property definitions that transform loads. The transform runs once for the query and once for
     # each saved view the query inlines, so this loads each property's definition once per query.

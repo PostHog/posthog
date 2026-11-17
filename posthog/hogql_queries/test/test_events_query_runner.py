@@ -1566,6 +1566,7 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         flush_persons_and_events()
         person = get_person_by_distinct_id(self.team.pk, FLAG_EVALUATIONS_DISTINCT_ID)
         other = get_person_by_distinct_id(self.team.pk, "other-user")
+        assert person is not None and other is not None
         self._insert_flag_evaluation(
             FLAG_EVALUATIONS_DISTINCT_ID,
             person.uuid,
@@ -1619,12 +1620,21 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                         " INNER JOIN events e ON e.distinct_id = pdi.distinct_id)"
                     ]
                 },
-                EVERY_EVENT_WITH_FLAG_EVALUATIONS,
+                EVERY_EVENT_FROM_EVENTS,
             ),
             (
                 "flag_evaluations_only_with_a_column_the_union_cannot_read",
                 FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
                 {"select": ["*", "goe_0.properties.industry", "timestamp"]},
+                EVERY_EVENT_FROM_EVENTS,
+            ),
+            (
+                "flag_evaluations_only_with_a_flag_call_subquery_and_a_column_the_union_cannot_read",
+                FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
+                {
+                    "select": ["*", "goe_0.properties.industry", "timestamp"],
+                    "where": ["distinct_id IN (SELECT distinct_id FROM events WHERE event = '$feature_flag_called')"],
+                },
                 EVERY_EVENT_FROM_EVENTS,
             ),
         ]
@@ -1643,6 +1653,7 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self._create_events_and_flag_calls_for_two_people()
         if "personId" in query_fields:
             person = get_person_by_distinct_id(self.team.pk, query_fields["personId"])
+            assert person is not None
             query_fields = {**query_fields, "personId": str(person.uuid)}
         query_fields = {
             "select": [
@@ -1676,6 +1687,7 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.team.save()
         self._create_events_and_flag_calls_for_two_people()
         person = get_person_by_distinct_id(self.team.pk, FLAG_EVALUATIONS_DISTINCT_ID)
+        assert person is not None
 
         with time_machine.travel("2020-01-11T12:01:00Z", tick=False):
             query = EventsQuery(
@@ -1701,7 +1713,16 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             "distinct_id": FLAG_EVALUATIONS_DISTINCT_ID,
         }
 
-    def test_list_without_an_event_filter_pages_across_events_and_flag_evaluations(self):
+    @parameterized.expand(
+        [
+            ("every_column", ["*", "timestamp"], 6),
+            # The union cannot read a select of COLUMNS(...), so the whole list reads events.
+            ("a_columns_matcher", ["uuid", "COLUMNS('^distinct_id$')", "timestamp"], 5),
+        ]
+    )
+    def test_list_without_an_event_filter_pages_across_events_and_flag_evaluations(
+        self, _name: str, select: list[str], expected_count: int
+    ):
         self._set_flag_evaluations_mode(FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY)
         self._create_events_and_flag_calls_for_two_people()
         _create_event(
@@ -1714,7 +1735,7 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         def run(limit: int, cursor: str | None = None) -> CachedEventsQueryResponse:
             runner = EventsQueryRunner(
-                query=EventsQuery(kind="EventsQuery", select=["*", "timestamp"], after="-24h", limit=limit),
+                query=EventsQuery(kind="EventsQuery", select=select, after="-24h", limit=limit),
                 team=self.team,
             )
             if cursor:
@@ -1723,18 +1744,21 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             assert isinstance(response, CachedEventsQueryResponse)
             return response
 
+        def uuid(row: list[Any]) -> str:
+            return row[0]["uuid"] if select[0] == "*" else row[0]
+
         with time_machine.travel("2020-01-11T12:01:00Z", tick=False):
-            everything = [row[0]["uuid"] for row in run(limit=100).results]
+            everything = [uuid(row) for row in run(limit=100).results]
             paged: list[str] = []
             cursor = None
             for _ in range(len(everything)):
                 page = run(limit=2, cursor=cursor)
-                paged.extend(row[0]["uuid"] for row in page.results)
+                paged.extend(uuid(row) for row in page.results)
                 cursor = page.nextCursor
                 if cursor is None:
                     break
 
-        assert len(everything) == 6
+        assert len(everything) == expected_count
         assert paged == everything
 
     def test_moving_to_flag_evaluations_only_skips_a_list_cached_from_events(self):

@@ -247,9 +247,14 @@ def swap_flag_calls(
     if database is None:
         return FlagCallSwap(source=node, resolved=resolve(node))
     node = _flag_called_lists_as_arrays(node)
-    if context.reads_union_for_every_events_scan() or names_flag_called_event(node):
-        swap = _resolve_with_swaps(node, context, resolve, database, scope)
-    else:
+    swap = (
+        _resolve_with_swaps(node, context, resolve, database, scope, every_scan=True)
+        if context.reads_union_for_every_events_scan()
+        else None
+    )
+    if swap is None and names_flag_called_event(node):
+        swap = _resolve_with_swaps(node, context, resolve, database, scope, every_scan=False)
+    if swap is None:
         swap = FlagCallSwap(
             source=node,
             resolved=_without_unreadable_inline_cohort_scans(resolve(node), context, scope),
@@ -271,7 +276,12 @@ def _resolve_with_swaps(
     resolve: Resolve[_T_AST],
     database: "Database",
     scope: FlagCallScope | None,
-) -> FlagCallSwap[_T_AST]:
+    *,
+    every_scan: bool,
+) -> FlagCallSwap[_T_AST] | None:
+    """With `every_scan`, returns None when the union cannot read every `events` scan of the query. The caller then
+    reads the query as if it had not opted in. A scan that stayed on events while another scan reads the union would
+    select different rows, such as the outer scan of a list that pages by `uuid IN (...)` over the inner scan."""
     only_in_flag_evaluations = context.flag_calls_only_in_flag_evaluations()
     # Deferred: flag_calls_union imports this module.
     from posthog.hogql.transforms.flag_calls_union import (  # noqa: PLC0415
@@ -294,7 +304,9 @@ def _resolve_with_swaps(
             database=database,
         )
         swapper.visit(rewritten)
-        union = read_flag_calls_with_union(rewritten, context, compares_as_string)
+        union = read_flag_calls_with_union(rewritten, context, compares_as_string, every_scan=every_scan)
+    if union.left_scan_on_events:
+        return None
     if only_in_flag_evaluations and swapper.refusals:
         raise flag_calls_only_in_flag_evaluations_error(swapper.refusals[0], scope)
     if not only_in_flag_evaluations and (swapper.refusals or union.refusals):
@@ -345,11 +357,13 @@ def _resolve_with_swaps(
             if swapper.swapped:
                 context.flag_calls_read.add("flag_evaluations")
             return FlagCallSwap(source=rewritten, resolved=swapped)
-    if only_in_flag_evaluations and (swapper.swapped or union.renamed_scan_naming_flag_calls):
+    if every_scan:
+        return None
+    if only_in_flag_evaluations:
         # events gets no new flag calls, so the original query would return only calls from before the move.
         raise flag_calls_only_in_flag_evaluations_error(reason, scope)
     logger.info("flag_calls_swap_declined", team_id=context.team_id, reason=reason)
-    return FlagCallSwap(source=node, resolved=_without_unreadable_inline_cohort_scans(original, context, scope))
+    return FlagCallSwap(source=node, resolved=original)
 
 
 def _without_unreadable_inline_cohort_scans(

@@ -114,14 +114,14 @@ class TestFlagCallReadersFollowTheEventsTable(BaseTest):
                 "native_query_on_a_legacy_instance",
                 FlagEvaluationsMode.EVENTS,
                 reads=True,
-                only=False,
+                only=True,
                 query_reads_native=True,
             ),
             param(
                 "legacy_query_on_a_native_instance_forced_to_events",
                 FlagEvaluationsMode.READ_FLAG_EVALUATIONS,
                 reads=False,
-                only=True,
+                only=False,
                 native=True,
                 query_reads_native=False,
                 reads_forced_to_events=True,
@@ -157,4 +157,4 @@ class TestFlagCallReadersFollowTheEventsTable(BaseTest):
             override_instance_config("FLAG_EVALUATIONS_READS_FORCE_EVENTS", reads_forced_to_events),
         ):
             self.assertEqual(reads_flag_calls_from_flag_evaluations(self.team, modifiers), reads)
-            self.assertEqual(flag_calls_only_in_flag_evaluations(self.team), only)
+            self.assertEqual(flag_calls_only_in_flag_evaluations(self.team, modifiers=modifiers), only)
