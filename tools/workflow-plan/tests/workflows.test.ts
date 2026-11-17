@@ -1275,11 +1275,13 @@ describe('CI workflow run plans', () => {
     })
 
     it.each([
-        ['PR', pullRequest(), 'success'],
-        ['merge queue', mergeQueue(), 'success'],
-        ['master push', push(), 'skipped'],
-        ['hourly schedule', schedule(), 'success'],
-    ] as const)('Rust suite on %s', (name, github, result) => {
+        ['PR', pullRequest(), 'success', true],
+        ['fork PR', pullRequest({ fork: true }), 'success', true],
+        ['merge queue', mergeQueue(), 'success', true],
+        ['master push', push(), 'skipped', false],
+        ['hourly schedule', schedule(), 'success', false],
+        ['manual dispatch', workflowDispatch(), 'success', true],
+    ] as const)('Rust suite on %s', (name, github, result, checkoutRuns) => {
         const wf = workflow('ci-rust.yml')
         const plan = planWorkflow(wf, {
             name,
@@ -1293,6 +1295,9 @@ describe('CI workflow run plans', () => {
         for (const job of ['affected', 'build', 'test', 'linting']) {
             expect(plan.jobs[job]?.result).toBe(result)
         }
+        expect(plan.jobs.changes?.steps.find((step) => step.uses?.startsWith('actions/checkout@'))?.runs).toBe(
+            checkoutRuns
+        )
         expect(plan.jobs.rust_tests?.result).toBe('success')
     })
 
