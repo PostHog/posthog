@@ -37,6 +37,7 @@ from ee.api.agentic_provisioning.constants import (
     AUTH_CODE_TTL_SECONDS,
     PENDING_AUTH_CACHE_PREFIX,
     PENDING_AUTH_TTL_SECONDS,
+    WILDCARD_DNS_EMAIL_DOMAINS,
 )
 from ee.api.agentic_provisioning.exceptions import ProvisioningError
 from ee.api.agentic_provisioning.regions import region_to_host
@@ -335,10 +336,19 @@ def apply_provisioned_onboarding_flags(user: User, team: Team) -> None:
         team.save(update_fields=["completed_snippet_onboarding"])
 
 
+def _email_domain_and_parents(email: str) -> set[str]:
+    labels = email.rpartition("@")[2].lower().split(".")
+    return {".".join(labels[i:]) for i in range(len(labels) - 1)}
+
+
 def is_disposable_email(email: str) -> bool:
     """Whether the email domain, or a parent of it, is a known disposable email provider."""
-    labels = email.rpartition("@")[2].lower().split(".")
-    return any(".".join(labels[i:]) in disposable_email_domains for i in range(len(labels) - 1))
+    return not _email_domain_and_parents(email).isdisjoint(disposable_email_domains)
+
+
+def is_wildcard_dns_email(email: str) -> bool:
+    """Whether the email domain, or a parent of it, is a wildcard DNS service."""
+    return not _email_domain_and_parents(email).isdisjoint(WILDCARD_DNS_EMAIL_DOMAINS)
 
 
 def handle_new_user(
@@ -365,6 +375,10 @@ def handle_new_user(
 
     if signup_refused(email, call_site="agentic_provisioning"):
         capture_provisioning_event("account_request", "access_blocked", partner=partner, region=region)
+        raise ProvisioningError(SECURITY_REFUSAL_CODE, SIGNUP_BLOCKED_DETAIL, request_id=request_id, status=403)
+
+    if is_wildcard_dns_email(email):
+        capture_provisioning_event("account_request", "wildcard_dns_email_blocked", partner=partner, region=region)
         raise ProvisioningError(SECURITY_REFUSAL_CODE, SIGNUP_BLOCKED_DETAIL, request_id=request_id, status=403)
 
     if partner.is_verified:

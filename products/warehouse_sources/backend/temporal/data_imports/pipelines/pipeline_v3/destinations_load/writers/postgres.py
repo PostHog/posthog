@@ -666,21 +666,28 @@ class PostgresDestinationWriter:
 
     async def _has_unique_index_on(self, client: PostgreSQLClient, target: str, columns: list[str]) -> bool:
         """Whether some unique index already covers exactly these columns, in any order."""
-        async with client.connection.cursor() as cursor:
-            await cursor.execute(
-                """
-                SELECT array_agg(a.attname::text ORDER BY a.attname)
-                FROM pg_index i
-                JOIN pg_class c ON c.oid = i.indrelid
-                JOIN pg_namespace n ON n.oid = c.relnamespace
-                JOIN pg_attribute a ON a.attrelid = c.oid AND a.attnum = ANY (i.indkey)
-                WHERE i.indisunique AND c.relname = %(table)s AND n.nspname = %(schema)s
-                GROUP BY i.indexrelid
-                """,
-                {"table": target, "schema": self._schema},
-            )
-            wanted = sorted(columns)
-            return any(sorted(row[0] or []) == wanted for row in await cursor.fetchall())
+        # Demarcated like every other query here, unlike a bare cursor: left open, this
+        # probe's own implicit transaction would still be live when the next statement on
+        # this connection opens its own `transaction()`, which then nests as a savepoint
+        # instead of starting clean. Redshift has no savepoints, so that next statement
+        # fails outright with "current transaction is aborted", for a probe that already
+        # finished and had nothing left to protect.
+        async with client.connection.transaction():
+            async with client.connection.cursor() as cursor:
+                await cursor.execute(
+                    """
+                    SELECT array_agg(a.attname::text ORDER BY a.attname)
+                    FROM pg_index i
+                    JOIN pg_class c ON c.oid = i.indrelid
+                    JOIN pg_namespace n ON n.oid = c.relnamespace
+                    JOIN pg_attribute a ON a.attrelid = c.oid AND a.attnum = ANY (i.indkey)
+                    WHERE i.indisunique AND c.relname = %(table)s AND n.nspname = %(schema)s
+                    GROUP BY i.indexrelid
+                    """,
+                    {"table": target, "schema": self._schema},
+                )
+                wanted = sorted(columns)
+                return any(sorted(row[0] or []) == wanted for row in await cursor.fetchall())
 
     async def _mark_owned(self, client: PostgreSQLClient, table: str, schema_id: str) -> None:
         async with self._write_cursor(client) as cursor:
@@ -699,19 +706,22 @@ class PostgresDestinationWriter:
         return is_owned_by(await self._table_comment(client, table), schema_id)
 
     async def _table_comment(self, client: PostgreSQLClient, table: str) -> str | None:
-        async with client.connection.cursor() as cursor:
-            await cursor.execute(
-                """
-                SELECT d.description
-                FROM pg_catalog.pg_description d
-                JOIN pg_catalog.pg_class c ON c.oid = d.objoid AND d.objsubid = 0
-                JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
-                WHERE c.relname = %(table)s AND n.nspname = %(schema)s
-                """,
-                {"table": table, "schema": self._schema},
-            )
-            row = await cursor.fetchone()
-            return row[0] if row else None
+        # See `_has_unique_index_on`: demarcated so this probe's implicit transaction closes
+        # before the next statement on the connection can nest a savepoint into it.
+        async with client.connection.transaction():
+            async with client.connection.cursor() as cursor:
+                await cursor.execute(
+                    """
+                    SELECT d.description
+                    FROM pg_catalog.pg_description d
+                    JOIN pg_catalog.pg_class c ON c.oid = d.objoid AND d.objsubid = 0
+                    JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+                    WHERE c.relname = %(table)s AND n.nspname = %(schema)s
+                    """,
+                    {"table": table, "schema": self._schema},
+                )
+                row = await cursor.fetchone()
+                return row[0] if row else None
 
     async def _already_published(self, client: PostgreSQLClient, ctx: DestinationRunContext) -> bool:
         """Whether this run already swapped its staging table into place."""
