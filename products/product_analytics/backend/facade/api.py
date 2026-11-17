@@ -233,8 +233,12 @@ def insights_in_project(*, project_id: int, insight_ids: Collection[int]) -> lis
     return logic.insights_in_project(project_id=project_id, insight_ids=insight_ids)
 
 
-def live_insights_in_project_by_short_ids(*, project_id: int, short_ids: Collection[str]) -> list[Insight]:
-    return logic.live_insights_in_project_by_short_ids(project_id=project_id, short_ids=short_ids)
+def insights_including_soft_deleted_in_project(*, project_id: int, insight_ids: Collection[int]) -> list[Insight]:
+    return logic.insights_including_soft_deleted_in_project(project_id=project_id, insight_ids=insight_ids)
+
+
+def live_insights_in_team_by_short_ids(*, team_id: int, short_ids: Collection[str]) -> list[Insight]:
+    return logic.live_insights_in_team_by_short_ids(team_id=team_id, short_ids=short_ids)
 
 
 def _visible_insight_rows(

@@ -2477,7 +2477,7 @@ class TestSharingBlockedForInsightsWithoutViewAccess(APIBaseTest):
             assert response.status_code == status.HTTP_200_OK, response.content
         assert SharingConfiguration.objects.filter(team=self.team, enabled=True).exists() is not blocked
 
-    @parameterized.expand([("restore_tile",), ("move_tile",), ("insight_dashboards_patch",)])
+    @parameterized.expand([("restore_tile",), ("restore_dashboard",), ("move_tile",), ("insight_dashboards_patch",)])
     def test_adding_an_insight_the_editor_cannot_view_to_a_shared_dashboard_is_blocked(self, path: str):
         dashboard = Dashboard.objects.create(team=self.team, created_by=self.user)
         SharingConfiguration.objects.create(team=self.team, dashboard=dashboard, enabled=True)
@@ -2488,6 +2488,10 @@ class TestSharingBlockedForInsightsWithoutViewAccess(APIBaseTest):
                 f"/api/projects/{self.team.id}/dashboards/{dashboard.id}/",
                 {"tiles": [{"id": tile.id, "deleted": False}]},
             )
+        elif path == "restore_dashboard":
+            Dashboard.objects.filter(id=dashboard.id).update(deleted=True)
+            DashboardTile.objects.create(dashboard=dashboard, insight=self.restricted, deleted=True)
+            response = self.client.patch(f"/api/projects/{self.team.id}/dashboards/{dashboard.id}/", {"deleted": False})
         elif path == "move_tile":
             source = Dashboard.objects.create(team=self.team, created_by=self.user)
             tile = DashboardTile.objects.create(dashboard=source, insight=self.restricted)
@@ -2505,7 +2509,9 @@ class TestSharingBlockedForInsightsWithoutViewAccess(APIBaseTest):
             status.HTTP_403_FORBIDDEN,
             status.HTTP_404_NOT_FOUND,
         ), response.content
-        if path != "insight_dashboards_patch":
+        if path == "restore_dashboard":
+            assert "Can't restore this dashboard: you don't have access to 1 insight" in str(response.json())
+        elif path != "insight_dashboards_patch":
             assert "Can't add this insight: you don't have access to this insight" in str(response.json())
         assert not DashboardTile.objects.filter(dashboard=dashboard, insight=self.restricted, deleted=False).exists()
 

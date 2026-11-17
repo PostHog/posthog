@@ -25,7 +25,7 @@ from posthog.models.sharing_configuration import SharingConfiguration
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.notebooks.backend.facade.content import extract_inline_query_nodes, extract_referenced_insight_short_ids
 from products.notebooks.backend.models import Notebook
-from products.product_analytics.backend.facade.api import insights_in_project, live_insights_in_project_by_short_ids
+from products.product_analytics.backend.facade.api import insights_in_project, live_insights_in_team_by_short_ids
 from products.product_analytics.backend.facade.models import Insight
 from products.subscriptions.backend.facade.api import (
     dashboard_has_active_full_subscription,
@@ -263,9 +263,12 @@ def is_publicly_shared(artifact: GatedDashboard | Notebook | Insight) -> bool:
     """Whether an active share exposes the artifact. Dashboards and notebooks are covered by
     their own share; an insight also transitively - by a shared dashboard's tile or a shared
     notebook embedding it."""
+    # A share is stored under the team of the URL it was enabled from, which can be a sibling
+    # environment of the artifact's own team, so shares are matched across the whole project.
+    project_id = _dashboard_team(artifact).project_id
     if isinstance(artifact, Insight):
         team_shares = SharingConfiguration.objects.filter(
-            SharingConfiguration.tokens_active_q(), team_id=artifact.team_id
+            SharingConfiguration.tokens_active_q(), team__project_id=project_id
         )
         # Each exposure route is a separate indexed EXISTS scoped to the team. Written as one
         # unscoped OR over the tile join, Postgres left-joins every active share across all teams
@@ -286,7 +289,7 @@ def is_publicly_shared(artifact: GatedDashboard | Notebook | Insight) -> bool:
         )
     shared_artifact = {"notebook": artifact} if isinstance(artifact, Notebook) else {"dashboard_id": artifact.id}
     return SharingConfiguration.objects.filter(
-        SharingConfiguration.tokens_active_q(), team_id=artifact.team_id, **shared_artifact
+        SharingConfiguration.tokens_active_q(), team__project_id=project_id, **shared_artifact
     ).exists()
 
 
@@ -304,7 +307,7 @@ def notebook_edit_access_error(user: User, notebook: Any, new_content: dict[str,
         extract_referenced_insight_short_ids(old_content)
     )
     added_insights = (
-        live_insights_in_project_by_short_ids(project_id=notebook.team.project_id, short_ids=added_short_ids)
+        live_insights_in_team_by_short_ids(team_id=notebook.team_id, short_ids=added_short_ids)
         if added_short_ids
         else []
     )
