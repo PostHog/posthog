@@ -17,7 +17,11 @@ def delete_user_analytics(distinct_id: str) -> None:
     if not settings.POSTHOG_USER_DELETION_API_KEY:
         logger.error("User analytics deletion API key is not configured")
         return
-    url = f"{settings.POSTHOG_HOST.rstrip('/')}/api/projects/{settings.POSTHOG_PROJECT_ID}/persons/bulk_delete/"
+    host = settings.POSTHOG_HOST.rstrip("/")
+    if not host.startswith("https://"):
+        logger.error("User analytics deletion requires an HTTPS POSTHOG_HOST")
+        return
+    url = f"{host}/api/projects/{settings.POSTHOG_PROJECT_ID}/persons/bulk_delete/"
     try:
         response = requests.post(
             url,

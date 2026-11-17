@@ -34,7 +34,7 @@ class TestUserAnalyticsDeletion(TestCase):
         assert User.objects.filter(pk=user.pk).exists()
         assert not responses.calls
 
-    @parameterized.expand([("http",), ("timeout",), ("partial",), ("credentials",)])
+    @parameterized.expand([("http",), ("timeout",), ("partial",), ("credentials",), ("insecure_host",)])
     @responses.activate
     def test_failure_is_logged_without_preventing_account_deletion(self, failure: str) -> None:
         user = User.objects.create(email="deleted@example.com", distinct_id="example-user")
@@ -48,12 +48,13 @@ class TestUserAnalyticsDeletion(TestCase):
                 json={"deletion_errors": [{"step": "profile"}]} if failure == "partial" else {},
             )
         with override_settings(
-            POSTHOG_USER_DELETION_API_KEY="" if failure == "credentials" else "phs_fake_deletion_key"
+            POSTHOG_USER_DELETION_API_KEY="" if failure == "credentials" else "phs_fake_deletion_key",
+            POSTHOG_HOST="http://us.posthog.com" if failure == "insecure_host" else "https://us.posthog.com",
         ):
             with self.assertLogs("posthog.user_analytics_deletion", level="ERROR") as logs:
                 with self.captureOnCommitCallbacks(execute=True):
                     User.objects.filter(pk=user.pk).delete()
         assert not User.objects.filter(pk=user_id).exists()
-        assert len(responses.calls) == (0 if failure == "credentials" else 1)
+        assert len(responses.calls) == (0 if failure in ("credentials", "insecure_host") else 1)
         assert "sensitive request details" not in str(logs.output)
         assert "phs_fake_deletion_key" not in str(logs.output)
