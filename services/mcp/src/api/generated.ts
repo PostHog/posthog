@@ -89244,6 +89244,15 @@ export namespace Schemas {
       readonly group_type_index?: number | null;
     }
 
+    export interface PatchedEnvironmentMappingUpdate {
+      /** ID of the PostHog project that receives the Vercel production environment. */
+      production?: number;
+      /** ID of the PostHog project for the Vercel preview environment. Defaults to the production project. */
+      preview?: number;
+      /** ID of the PostHog project for the Vercel development environment. Defaults to the production project. */
+      development?: number;
+    }
+
     export interface PatchedErrorTrackingAlertUpdateRequest {
       /**
          * Human-readable name of the alert. Omit to keep the current name.
@@ -92593,20 +92602,6 @@ export namespace Schemas {
       sso_enforcement?: string;
       /** @nullable */
       readonly scim_base_url?: string | null;
-    }
-
-    /**
-     * Serializer for organization-level integrations.
-     */
-    export interface PatchedOrganizationIntegration {
-      readonly id?: string;
-      readonly kind?: OrganizationIntegrationKindEnum;
-      /** @nullable */
-      readonly integration_id?: string | null;
-      readonly config?: unknown;
-      readonly created_at?: string;
-      readonly updated_at?: string;
-      readonly created_by?: UserBasic;
     }
 
     export interface PatchedOrganizationMember {
