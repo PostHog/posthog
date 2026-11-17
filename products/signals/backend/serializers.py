@@ -101,6 +101,7 @@ from products.signals.backend.source_filters import (
     SourceFilterPreviewStatus,
     SourceFilterRunState,
     SourceFilterRunStatus,
+    SourceKey,
     compile_source_filter,
     filter_run_statuses,
 )
@@ -384,7 +385,7 @@ class SignalSourceConfigSerializer(serializers.ModelSerializer):
         super().__init__(*args, **kwargs)
         # Absent key means "not read yet", a `None` value means the read failed.
         self._data_import_statuses_by_team: dict[int, dict[_DataImportSchema, set[str]] | None] = {}
-        self._filter_run_statuses_by_team: dict[int, dict[tuple[str, str], SourceFilterRunStatus]] = {}
+        self._filter_run_statuses_by_team: dict[int, dict[SourceKey, SourceFilterRunStatus]] = {}
 
     @extend_schema_field(serializers.ChoiceField(choices=SIGNAL_SOURCE_CONFIG_STATUSES, allow_null=True))
     def get_status(self, obj: SignalSourceConfig) -> str | None:
@@ -416,7 +417,9 @@ class SignalSourceConfigSerializer(serializers.ModelSerializer):
         # DRF reuses one child serializer across a list, so the first row reads every row's state in one query.
         if obj.team_id not in self._filter_run_statuses_by_team:
             self._filter_run_statuses_by_team[obj.team_id] = filter_run_statuses(obj.team_id)
-        run_status = self._filter_run_statuses_by_team[obj.team_id].get((obj.source_product, obj.source_type))
+        run_status = self._filter_run_statuses_by_team[obj.team_id].get(
+            SourceKey(source_product=obj.source_product, source_type=obj.source_type)
+        )
         return SourceFilterRunStatusSerializer(run_status).data if run_status else None
 
     def _data_import_statuses(self, team_id: int) -> dict[_DataImportSchema, set[str]] | None:

@@ -262,6 +262,12 @@ class SourceFilterRunState(TextChoices):
 
 
 @frozen
+class SourceKey:
+    source_product: str
+    source_type: str
+
+
+@frozen
 class SourceFilterRunStatus:
     state: SourceFilterRunState
     error_code: str | None
@@ -272,13 +278,13 @@ class SourceFilterRunStatus:
     malformed_count: int
 
 
-def filter_run_statuses(team_id: int) -> dict[tuple[str, str], SourceFilterRunStatus]:
-    """How emission last went for each filtered source on a team, keyed by `(source_product, source_type)`.
+def filter_run_statuses(team_id: int) -> dict[SourceKey, SourceFilterRunStatus]:
+    """How emission last went for each filtered source on a team.
 
     A source can import several warehouse schemas, each with its own state row. One failing schema makes
     the source failing, so a broken import is never hidden behind its siblings.
     """
-    rows_by_source: defaultdict[tuple[str, str], list[SignalSourceFilterState]] = defaultdict(list)
+    rows_by_source: defaultdict[SourceKey, list[SignalSourceFilterState]] = defaultdict(list)
     for row in SignalSourceFilterState.objects.for_team(team_id).only(
         "source_product",
         "source_type",
@@ -289,9 +295,9 @@ def filter_run_statuses(team_id: int) -> dict[tuple[str, str], SourceFilterRunSt
         "last_success_at",
         "last_malformed_count",
     ):
-        rows_by_source[(row.source_product, row.source_type)].append(row)
+        rows_by_source[SourceKey(source_product=row.source_product, source_type=row.source_type)].append(row)
 
-    statuses: dict[tuple[str, str], SourceFilterRunStatus] = {}
+    statuses: dict[SourceKey, SourceFilterRunStatus] = {}
     for source, rows in rows_by_source.items():
         failing = [row for row in rows if row.last_error_code]
         latest_failure = max(failing, key=lambda row: row.last_error_at or timezone.now()) if failing else None
