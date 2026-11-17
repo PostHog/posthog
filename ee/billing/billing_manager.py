@@ -31,7 +31,7 @@ from posthog.models import Organization
 from posthog.models.events_plan_deletion import apply_events_retention_change
 from posthog.models.oauth import OAuthApplication
 from posthog.models.organization import OrganizationMembership, OrganizationUsageInfo
-from posthog.models.organization_provisioning import get_billing_lock_partner
+from posthog.models.organization_provisioning import get_billing_lock_partner, mark_partner_paid
 from posthog.models.team.event_retention import (
     billed_events_retention_months,
     has_standard_retention,
@@ -799,6 +799,8 @@ class BillingManager:
         data = billing_status["customer"]
 
         if data.get("customer_id") and organization.customer_id != data["customer_id"]:
+            if not organization.customer_id:
+                mark_partner_paid([organization.id])
             organization.customer_id = data["customer_id"]
             org_modified = True
 

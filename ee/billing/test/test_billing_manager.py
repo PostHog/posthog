@@ -25,6 +25,7 @@ from posthog.models.events_plan_deletion import cleanup_date, next_pass_on
 from posthog.models.events_retention_config import TeamEventsRetentionConfig
 from posthog.models.oauth import OAuthApplication
 from posthog.models.organization import Organization, OrganizationMembership
+from posthog.models.organization_provisioning import OrganizationProvisioning, get_billing_lock_partner
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
@@ -1041,6 +1042,44 @@ class TestBillingManager(BaseTest):
             BillingManager(license=None).update_org_details(organization, cast(BillingStatus, billing_status))
         organization.refresh_from_db()
         assert organization.has_active_subscription is expected
+
+    @parameterized.expand(
+        [
+            ("partner_paid_customer_keeps_the_lock", None, True, True),
+            ("customer_from_before_the_partner_paid_stays_unlocked", "cus_own", True, False),
+            ("customer_while_the_partner_did_not_pay_stays_unlocked", None, False, False),
+        ]
+    )
+    def test_update_org_details_keeps_the_partner_lock_only_for_the_partners_customer(
+        self, _name: str, customer_id_before: str | None, partner_pays_at_sync: bool, expect_lock: bool
+    ) -> None:
+        partner = OAuthApplication.objects.create(
+            client_id="example-partner",
+            name="Example Partner",
+            client_secret="",
+            client_type=OAuthApplication.CLIENT_PUBLIC,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://partner.example.com/callback",
+            algorithm="RS256",
+            is_provisioning_partner=True,
+        )
+        partner.update_provisioning(pays_for_customers=partner_pays_at_sync)
+        OrganizationProvisioning.objects.create(
+            organization=self.organization,
+            partner=OrganizationProvisioning.Partner.PROVISIONING_API,
+            application=partner,
+        )
+        self.organization.customer_id = customer_id_before
+        self.organization.save()
+
+        BillingManager(license=None).update_org_details(
+            self.organization, cast(BillingStatus, {"customer": {"customer_id": "cus_synced"}})
+        )
+        partner.update_provisioning(pays_for_customers=True)
+
+        self.organization.refresh_from_db()
+        assert self.organization.customer_id == "cus_synced"
+        assert get_billing_lock_partner(self.organization) == (partner if expect_lock else None)
 
     def _billing_status(
         self,
