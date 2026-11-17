@@ -45,7 +45,7 @@ export const getPythonSteps = (ctx: OnboardingComponentsContext): StepDefinition
                 />
                 <Markdown>
                     {dedent`
-                        We recommend setting up and using [contexts](https://posthog.com/docs/libraries/python#contexts) so that exceptions automatically include distinct IDs, session IDs, and other properties you can set up with tags.
+                        We recommend setting up and using [contexts](https://posthog.com/docs/libraries/python/reference#posthognew_context) so that exceptions automatically include distinct IDs, session IDs, and other properties you can set up with tags.
 
                         You can also enable [code variables capture](https://posthog.com/docs/error-tracking/code-variables/python) to automatically capture the state of local variables when exceptions occur, giving you a debugger-like view of your application.
                     `}
@@ -119,7 +119,7 @@ export const getPythonSteps = (ctx: OnboardingComponentsContext): StepDefinition
                         <Tab.Panel>
                             <Markdown>
                                 {dedent`
-                                    Add the Django middleware to your settings. It wraps each request in a [context](https://posthog.com/docs/libraries/python#contexts) and captures exceptions raised by your views.
+                                    Add the Django middleware to your settings. It wraps each request in a [context](https://posthog.com/docs/libraries/python/reference#posthognew_context) and captures exceptions raised by your views.
 
                                     The middleware sends exceptions through the global \`posthog\` client. When you create your own client with \`Posthog(...)\`, set it as \`POSTHOG_MW_CLIENT\`. Otherwise the middleware sends exceptions to the unconfigured global client, and they don't reach PostHog:
                                 `}
@@ -237,7 +237,7 @@ export const getPythonSteps = (ctx: OnboardingComponentsContext): StepDefinition
                             />
                             <Markdown>
                                 {dedent`
-                                    The middleware still captures an exception that an \`@app.exception_handler(Exception)\` catch-all handles. A handler for a specific exception class, such as \`@app.exception_handler(ValueError)\`, turns that exception into a response before the middleware sees it. To report those exceptions, call \`posthog.capture_exception(exc)\` in the handler. See the [ASGI middleware docs](https://posthog.com/docs/libraries/python#asgi-request-middleware).
+                                    The middleware still captures an exception that an \`@app.exception_handler(Exception)\` catch-all handles. A handler for a specific exception class, such as \`@app.exception_handler(ValueError)\`, turns that exception into a response before the middleware sees it. To report those exceptions, call \`posthog.capture_exception(exc)\` in the handler. See the [ASGI middleware docs](https://posthog.com/docs/libraries/python/reference#posthogintegrationsasgiposthogasgimiddleware).
                                 `}
                             </Markdown>
                         </Tab.Panel>

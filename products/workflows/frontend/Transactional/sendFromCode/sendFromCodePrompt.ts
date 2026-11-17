@@ -30,7 +30,7 @@ export function sendFromCodePrompt({
         '',
         'Steps',
         '1. Find the place in our server code where the first email belongs, such as right after sign-up or a password reset request. If more than one place fits, ask me.',
-        `2. Install posthog-node@^5.62.0 for Node.js or posthog>=7.84.0 for Python. For another language, follow ${DOCS_URL}`,
+        `2. Install posthog-node@6 for Node.js or posthog~=8.0 for Python. For another language, follow ${DOCS_URL}`,
         '3. Create the PostHog client with the project token, the host and the secret key, then call emails.send with the following. Use the field names of the SDK, such as templateKey in Node.js and template_key in Python.',
         '   In Node.js, also pass enableLocalEvaluation: false to the client, because it only sends email and its key cannot read feature flags.',
         '   - a template key that names the email, such as "welcome". Each key shows up in PostHog with its own metrics.',
