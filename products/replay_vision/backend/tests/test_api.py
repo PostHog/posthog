@@ -1739,7 +1739,7 @@ class TestScannerScope(_VisionAPITestCase):
         self.assertEqual(resp.status_code, 200, resp.json())
         self.assertEqual(resp.json()["scope"]["variants"], ["control"])
 
-    def test_a_denied_caller_reads_no_scope_but_still_reads_the_summary(self) -> None:
+    def test_a_denied_caller_reads_no_scope_and_a_summary_without_the_variant_count(self) -> None:
         scanner = self._create_scanner(name="redacted", scope=self.scope)
 
         with patch("products.replay_vision.backend.api.scanners.is_experiment_accessible", return_value=False):
@@ -1747,6 +1747,14 @@ class TestScannerScope(_VisionAPITestCase):
 
         self.assertEqual(resp.status_code, 200, resp.json())
         self.assertIsNone(resp.json()["scope"])
+        self.assertEqual(resp.json()["scope_summary"], "An experiment")
+
+    def test_an_allowed_caller_reads_the_variant_count(self) -> None:
+        scanner = self._create_scanner(name="visible", scope=self.scope)
+
+        resp = self.client.get(f"{self.scanners_url}{scanner.id}/")
+
+        self.assertEqual(resp.status_code, 200, resp.json())
         self.assertEqual(resp.json()["scope_summary"], "An experiment, 2 variants")
 
     def test_a_denied_callers_save_does_not_clear_the_scope(self) -> None:

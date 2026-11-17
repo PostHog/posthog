@@ -1421,10 +1421,17 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
 
         The scope itself redacts to null for that caller, so without this the editor could not say
         why a scanner watches fewer sessions than its filters imply.
+
+        The variant count is withheld from a denied caller. The bare fact that an experiment narrows
+        the scanner is what the editor needs, and it is what `?experiment_id=` already concedes. How
+        many arms that experiment has is structure the caller may not read.
         """
         scope = scope_for(instance)
         if scope is None:
             return None
+        experiment_id = experiment_id_of(instance)
+        if experiment_id is not None and not self._can_view_targeted_experiment({"experiment_id": experiment_id}):
+            return "An experiment"
         variants = scope.settings.variants
         if not variants:
             return "An experiment"
