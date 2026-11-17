@@ -383,7 +383,10 @@ function stepClaimRate(samples: readonly MetricSample[], queue: string, step: Ph
         const window = inside(ofReplica, step)
         const span = spanOf(window)
         const edges = [step.from, ...window.map(({ at }) => at), step.to]
-        incomplete ||= span <= 0 || edges.some((at, i) => i > 0 && at - edges[i - 1] > SCRAPE_GAP_MS)
+        incomplete ||=
+            span <= 0 ||
+            edges.some((at, i) => i > 0 && at - edges[i - 1] > SCRAPE_GAP_MS) ||
+            new Set(window.map(({ startedAt }) => startedAt)).size > 1
         if (span <= 0) {
             continue
         }

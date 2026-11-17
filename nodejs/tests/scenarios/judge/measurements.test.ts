@@ -720,7 +720,7 @@ describe('measurements', () => {
         })
     })
 
-    it('rates claims per step from the samples inside each step, and marks a step a replica missed or left a gap in', () => {
+    it('rates claims per step from the samples inside each step, and marks a step a replica missed, left a gap in or restarted in', () => {
         const every5s = (
             fromS: number,
             toS: number,
@@ -737,6 +737,9 @@ describe('measurements', () => {
                 ...every5s(0, 115, 0, (at) => ({ hogflow: hogflowAt(at) })),
                 ...every5s(0, 50, 1, (at) => ({ email: 2 * at })),
                 ...every5s(0, 115, 2, () => ({ hogflow: 0 })).filter(({ at }) => at <= atS(20) || at >= atS(45)),
+                ...every5s(0, 115, 3, (at) => ({ fetch: at < 90 ? at : at - 87 })).map((restarting) =>
+                    restarting.at >= atS(90) ? { ...restarting, startedAt: FROM / 1000 + 87 } : restarting
+                ),
             ],
             drive: { startedAt: atS(0), endedAt: atS(120) },
             steps: [
@@ -748,8 +751,10 @@ describe('measurements', () => {
         expect(measure([{ name: 'step_claims_per_second', params: {} }], recorded)).toEqual([
             { name: 'step_claims_per_second', key: 'hogflow_1x', unit: 'jobs/s', value: 1, incomplete: true },
             { name: 'step_claims_per_second', key: 'email_1x', unit: 'jobs/s', value: 2 },
+            { name: 'step_claims_per_second', key: 'fetch_1x', unit: 'jobs/s', value: 1 },
             { name: 'step_claims_per_second', key: 'hogflow_10x', unit: 'jobs/s', value: 10 },
             { name: 'step_claims_per_second', key: 'email_10x', unit: 'jobs/s', value: 0, incomplete: true },
+            { name: 'step_claims_per_second', key: 'fetch_10x', unit: 'jobs/s', value: 53 / 55, incomplete: true },
         ])
     })
 
