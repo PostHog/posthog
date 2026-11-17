@@ -35,13 +35,20 @@ const BudgetContext = createContext<BudgetApi | null>(null)
 export function grantSlots(
     slots: ReadonlyMap<string, number>,
     visibleKeys: readonly string[],
-    max: number
+    max: number,
+    prioritizeVisible = false
 ): Set<string> {
     const visibleIndexes = visibleKeys.map((key) => slots.get(key)).filter((index) => index !== undefined)
     const first = visibleIndexes.length > 0 ? Math.min(...visibleIndexes) : 0
     const last = visibleIndexes.length > 0 ? Math.max(...visibleIndexes) : 0
     const distance = (index: number): number => (index < first ? first - index : index > last ? index - last : 0)
-    const ranked = [...slots.entries()].sort(([, a], [, b]) => distance(a) - distance(b) || a - b)
+    const visible = new Set(visibleKeys)
+    const ranked = [...slots.entries()].sort(
+        ([keyA, a], [keyB, b]) =>
+            (prioritizeVisible ? Number(visible.has(keyB)) - Number(visible.has(keyA)) : 0) ||
+            distance(a) - distance(b) ||
+            a - b
+    )
     return new Set(ranked.slice(0, Math.max(0, max)).map(([key]) => key))
 }
 
@@ -56,10 +63,12 @@ function sameSet(a: ReadonlySet<string>, b: ReadonlySet<string>): boolean {
 export function ChartCanvasBudget({
     max = MAX_MOUNTED_CANVASES,
     active = true,
+    prioritizeVisible = false,
     children,
 }: {
     max?: number
     active?: boolean
+    prioritizeVisible?: boolean
     children: ReactNode
 }): ReactElement {
     const api = useMemo<BudgetApi>(() => {
@@ -70,7 +79,7 @@ export function ChartCanvasBudget({
             granted: new Set(),
         }))
         const update = (slots: ReadonlyMap<string, number>, visibleKeys: readonly string[], on: boolean): void => {
-            const granted = on ? grantSlots(slots, visibleKeys, max) : NONE
+            const granted = on ? grantSlots(slots, visibleKeys, max, prioritizeVisible) : NONE
             const previous = store.getState().granted
             store.setState({ slots, visibleKeys, active: on, granted: sameSet(previous, granted) ? previous : granted })
         }
@@ -89,7 +98,7 @@ export function ChartCanvasBudget({
             setVisibleKeys: (keys) => update(store.getState().slots, keys, store.getState().active),
             setActive: (on) => update(store.getState().slots, store.getState().visibleKeys, on),
         }
-    }, [max])
+    }, [max, prioritizeVisible])
     useEffect(() => {
         api.setActive(active)
     }, [api, active])

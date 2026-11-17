@@ -193,6 +193,7 @@ import type {
     SignalsScoutRunsRecentPerScoutParams,
     SignalsScoutScratchpadSearchParams,
     SignalsSourceConfigsListParams,
+    SourceFilterCatalogListApi,
     SourceSpendApi,
     SpendOverviewApi,
     SubmitMonitoringResultRequestApi,
@@ -659,7 +660,7 @@ export const getSignalsReportsActionsListUrl = (projectId: string, id: string) =
 }
 
 /**
- * List the actions on this report that start an agent run, read from the report's current state. `get_it_merged` is available only while the report has an open, approved pull request. `make_it_green` is available only while CI fails on the report's open pull request. `suggested_prompt` has one entry per prompt the report suggests. Start one with the run endpoint.
+ * List the actions on this report that start an agent run, read from the report's current state. `get_it_merged` is available only while the report has an open, approved pull request. `make_it_green` is available only while CI fails on the report's open pull request, or while it conflicts with its base branch. `resolve_conflicts` is available only while the report's open pull request conflicts with its base branch. `suggested_prompt` has one entry per prompt the report suggests. Start one with the run endpoint.
  * @summary List the report actions that start an agent run
  */
 export const signalsReportsActionsList = async (
@@ -3488,6 +3489,24 @@ export const signalsSourceConfigsAlertPatternPreviewCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(alertPatternPreviewRequestApi),
+    })
+}
+
+export const getSignalsSourceConfigsFilterCatalogsRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/source_configs/filter_catalogs/`
+}
+
+/**
+ * List the sources whose filter this project can set, each with the fields a filter expression can use and example expressions. A filter is a boolean expression saved in a source config's `config.hogql_filter`. It excludes records before any AI processing. Available before the source is connected or synced.
+ * @summary List source filter catalogs
+ */
+export const signalsSourceConfigsFilterCatalogsRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<SourceFilterCatalogListApi> => {
+    return apiMutator<SourceFilterCatalogListApi>(getSignalsSourceConfigsFilterCatalogsRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
     })
 }
 

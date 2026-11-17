@@ -59,5 +59,6 @@ class RepoMergeAdapter:
                 dedupe_id=subject_id,
                 requested_by=inputs.requested_by,
                 requested_by_user_id=inputs.requested_by_user_id,
+                docs_content_root=report.docs_content_root,
             ),
         )

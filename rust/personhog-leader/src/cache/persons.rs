@@ -55,6 +55,12 @@ impl CachedPerson {
         }
         serde_json::from_slice(&self.properties)
     }
+
+    /// Identity creates and revives a person with no properties, and the
+    /// first write through the leader sets them.
+    pub fn has_no_properties(&self) -> bool {
+        self.properties.is_empty() || self.properties == b"{}"
+    }
 }
 
 /// Decodes a changelog `Person` record into cache form. The only fallible
@@ -219,6 +225,21 @@ mod tests {
             cached.parse_properties().unwrap(),
             serde_json::Value::Object(serde_json::Map::new())
         );
+    }
+
+    #[test]
+    fn only_an_empty_document_has_no_properties() {
+        for (properties, expected) in [
+            (&b""[..], true),
+            (&b"{}"[..], true),
+            (&br#"{"email":"test@example.com"}"#[..], false),
+        ] {
+            let person = CachedPerson {
+                properties: properties.to_vec(),
+                ..test_person()
+            };
+            assert_eq!(person.has_no_properties(), expected, "{properties:?}");
+        }
     }
 
     fn test_person() -> CachedPerson {

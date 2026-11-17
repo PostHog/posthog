@@ -220,7 +220,7 @@ const Template: StoryFn<StoryArgs> = ({
 
     useEffect(() => {
         if (step === 'Login code') {
-            loginLogic.actions.setCodeVerificationRequired(EMAIL)
+            loginLogic.actions.setCodeVerificationRequired(EMAIL, null)
         }
     }, [step])
 

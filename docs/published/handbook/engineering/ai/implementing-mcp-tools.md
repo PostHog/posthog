@@ -360,6 +360,7 @@ The schema stays the same across accounts; execution checks the tools available 
 The server rejects direct `render-ui` calls without UI support, even if the client has a cached tool list that includes it.
 A `render-ui` call runs the same tool call the app would make for its data, through the normal dispatch path, and returns that data on the app-only `_meta["com.posthog.mcp/app_data"]` key.
 The app draws the first view from that data, so it still renders on hosts that reject an app's own `tools/call`. The app calls the server itself only when the preload failed or took longer than 15 seconds (the app treats a result that takes 20 seconds as lost), and for later actions such as drill-downs.
+Cursor does not pass a result's `_meta` to the app, so for Cursor the result carries that data in `structuredContent["com.posthog.mcp/app_data"]` instead.
 This check does not change mode selection. Cursor still defaults to tools mode, and an explicit mode override still takes precedence.
 
 ## Claude web and desktop exec schema budget
@@ -688,7 +689,9 @@ Product teams own their definitions and control which operations are exposed as 
    name fails generation instead of silently dropping the argument at runtime.
    See "UI apps" in `services/mcp/CONTRIBUTING.md` for the rules.
 
-   A custom UI app can set `resource_domains` when it loads an image, font, script, or stylesheet from an external source. Each value must be a CSP source expression. Declare only the required origin or path.
+   A custom or detail UI app can set `resource_domains` when it loads an image, font, script, or stylesheet from an external source. Each value must be a CSP source expression. Declare only the required origin or path.
+   The `render-ui` app renders the views it dispatches inside its own iframe, so its CSP also includes the `resource_domains` of every view it dispatches.
+   Hosts apply these sources to scripts and styles as well as images, so scope each one to the path that holds the files, such as `https://us-media.posthog.com/uploaded_media/`.
 
    #### Custom input schemas
 

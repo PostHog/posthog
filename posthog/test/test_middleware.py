@@ -1,6 +1,7 @@
 import hmac
 import json
 import hashlib
+from collections.abc import Mapping
 from datetime import datetime, timedelta
 from typing import Any, cast
 
@@ -32,9 +33,10 @@ from prometheus_client import REGISTRY
 from rest_framework import status
 from rest_framework.exceptions import ValidationError
 from social_core.backends.base import BaseAuth
-from social_core.exceptions import AuthCanceled, AuthFailed, AuthMissingParameter
+from social_core.exceptions import AuthCanceled, AuthFailed, AuthMissingParameter, AuthStateForbidden, AuthStateMissing
 from structlog.testing import capture_logs
 
+from posthog.api.current_alias_usage import CURRENT_ALIAS_USED_EVENT, CurrentAliasScope, current_alias_scope
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
 from posthog.clickhouse.query_tagging import get_query_tags
@@ -2914,6 +2916,18 @@ class TestSocialAuthExceptionMiddleware(SimpleTestCase):
                 "/login?error_code=access_blocked",
             ),
             (
+                "oauth_state_missing",
+                "/complete/google-oauth2/",
+                AuthStateMissing(_social_auth_backend(), "state"),
+                "/login?error_code=oauth_state_invalid",
+            ),
+            (
+                "oauth_state_mismatch",
+                "/complete/github/",
+                AuthStateForbidden(_social_auth_backend()),
+                "/login?error_code=oauth_state_invalid",
+            ),
+            (
                 "expired_invite",
                 "/complete/google-oauth2/",
                 InviteExpiredException(),
@@ -3184,6 +3198,11 @@ async def test_chqueries_middleware_tags_http_request_id_under_asgi(header_value
     response = await AsyncClient().get("/api/_http_request_id_probe/", headers={"X-Request-ID": header_value})
 
     assert response.content.decode() == expected_tag
+    if expected_tag == "None":
+        assert "X-Request-ID" not in response.headers
+    else:
+        # Any API response, not only query ones, so frontend failure events can join the backend logs.
+        assert response.headers["X-Request-ID"] == expected_tag
 
 
 @override_settings(ROOT_URLCONF=__name__)
@@ -3669,3 +3688,62 @@ class TestUserLoggingContextMiddleware(APIBaseTest):
         assert "team_id" not in ctx
         assert "posthogDistinctId" not in ctx
         span.set_attribute.assert_not_called()
+
+
+@parameterized.expand(
+    [
+        ("project", "/api/projects/@current/query/", CurrentAliasScope.PROJECT),
+        ("environment", "/api/environments/@current/web_vitals", CurrentAliasScope.PROJECT),
+        ("organization", "/api/organizations/@current/members/", CurrentAliasScope.ORGANIZATION),
+        ("organization_detail", "/api/organizations/@current", CurrentAliasScope.ORGANIZATION),
+        ("personal_api_key", "/api/personal_api_keys/@current/", CurrentAliasScope.PERSONAL_API_KEY),
+        ("numeric_project", "/api/projects/123/query/", None),
+        ("alias_deeper_in_path", "/api/projects/123/feature_flags/@current/", None),
+        ("unknown_collection", "/api/users/@current/", None),
+        ("non_api", "/project/@current/insights", None),
+    ]
+)
+def test_current_alias_scope(_name: str, path: str, expected: CurrentAliasScope | None) -> None:
+    assert current_alias_scope(path) == expected
+
+
+class TestCurrentAliasUsage(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        cache.clear()
+
+    def _alias_events(self, capture: MagicMock) -> list[Mapping[str, Any]]:
+        return [call.kwargs for call in capture.call_args_list if call.kwargs.get("event") == CURRENT_ALIAS_USED_EVENT]
+
+    def test_reports_each_credential_caller_once_per_route(self) -> None:
+        token = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            user=self.user, label="Reporting script", secure_value=hash_key_value(token), scopes=["*"]
+        )
+
+        with patch("posthog.event_usage.posthoganalytics.capture") as capture:
+            self.client.get("/api/projects/@current/")
+            self.client.logout()
+            self.client.get("/api/projects/@current/", HTTP_AUTHORIZATION=f"Bearer {token}")
+            self.client.get("/api/projects/@current/", HTTP_AUTHORIZATION=f"Bearer {token}")
+
+        events = self._alias_events(capture)
+        assert len(events) == 1
+        assert events[0]["distinct_id"] == self.user.distinct_id
+        assert events[0]["groups"]["organization"] == str(self.organization.id)
+        assert {key: events[0]["properties"][key] for key in ("access_method", "route", "scope", "api_key_label")} == {
+            "access_method": "personal_api_key",
+            "route": "api/projects/{id}/",
+            "scope": CurrentAliasScope.PROJECT,
+            "api_key_label": "Reporting script",
+        }
+
+    def test_recording_failure_does_not_fail_the_request(self) -> None:
+        token = generate_random_token_personal()
+        PersonalAPIKey.objects.create(user=self.user, secure_value=hash_key_value(token), scopes=["*"])
+        self.client.logout()
+
+        with patch("posthog.api.current_alias_usage.dedupe_cache.add", side_effect=ConnectionError("redis is down")):
+            response = self.client.get("/api/projects/@current/", HTTP_AUTHORIZATION=f"Bearer {token}")
+
+        assert response.status_code == status.HTTP_200_OK

@@ -489,7 +489,7 @@ export class UrlFetchConsumer {
             kind: 'url',
             key: candidate.originalRef,
             nextFetchAtMs,
-            storageExpiresAtMs: urlHistoryStorageExpiresAtMs(candidate.originalRef, nextFetchAtMs),
+            storageExpiresAtMs: urlHistoryStorageExpiresAtMs(candidate.originalRef, nextFetchAtMs, nowMs),
             outcome,
         }
     }
