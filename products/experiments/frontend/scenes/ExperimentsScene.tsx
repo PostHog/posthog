@@ -92,6 +92,7 @@ import {
     startExperimentSurvey,
     useMatchingExperimentIds,
 } from './experimentsTable'
+import { QuillExperimentsListFilters } from './QuillExperimentsListFilters'
 import { QuillExperimentsTable } from './QuillExperimentsTable'
 
 // "Experiments open feedback" in project 2: https://us.posthog.com/project/2/surveys/01a08364-270e-0000-585b-147d32bf96ed
@@ -520,7 +521,11 @@ const ExperimentsTable = ({
 
     return (
         <SceneContent>
-            <ExperimentsTableFilters filters={filters} onFiltersChange={setExperimentsFilters} />
+            {todayRailNav && resultsRedesign ? (
+                <QuillExperimentsListFilters />
+            ) : (
+                <ExperimentsTableFilters filters={filters} onFiltersChange={setExperimentsFilters} />
+            )}
             {todayRailNav && resultsRedesign ? (
                 <QuillExperimentsTable
                     matching={matching}
