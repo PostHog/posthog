@@ -108,6 +108,15 @@ describe('trendsDataLogic', () => {
             modal.actions.setSeriesPosition(key, 'left')
             modal.actions.closeModal()
             expect(logic.values.getTrendsYAxisPosition(dataset)).toBe('right')
+            modal.actions.openModal('left', rendered)
+            const otherKey = getTrendResultCustomizationKey(assignmentBy, logic.values.indexedResults[1], query)
+            modal.actions.setSeriesPosition(otherKey, 'right')
+            await expectLogic(modal, () => modal.actions.save()).toFinishAllListeners()
+            expect(logic.values.indexedResults.map(logic.values.getTrendsYAxisPosition)).toEqual([
+                'right',
+                'right',
+                'left',
+            ])
             modal.actions.openModal('right', [{ id: String(dataset.id), label: dataset.label, position: 'left' }])
             await expectLogic(modal, () => modal.actions.resetAxes()).toFinishAllListeners()
             expect(logic.values.indexedResults.map(logic.values.getTrendsYAxisPosition)).toEqual([

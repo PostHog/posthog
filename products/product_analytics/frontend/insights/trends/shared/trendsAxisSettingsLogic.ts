@@ -4,7 +4,7 @@ import posthog from 'posthog-js'
 import { keyForInsightLogicProps } from 'lib/insights/sharedUtils'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
-import { getTrendResultCustomizationKey } from 'scenes/insights/utils'
+import { getTrendResultCustomization, getTrendResultCustomizationKey } from 'scenes/insights/utils'
 
 import type {
     FunnelsQuery,
@@ -164,7 +164,18 @@ export const trendsAxisSettingsLogic = kea<trendsAxisSettingsLogicType>([
                 const key = getTrendResultCustomizationKey(values.resultCustomizationBy, result, values.querySource)
                 // Comparison periods share a customization key and must move together.
                 if (rendered && !entries.has(key)) {
-                    entries.set(key, { key, label: rendered.label, position: rendered.position })
+                    const savedPosition = getTrendResultCustomization(
+                        values.resultCustomizationBy,
+                        result,
+                        values.resultCustomizations,
+                        values.querySource
+                    )?.yAxisPosition
+                    entries.set(key, {
+                        key,
+                        label: rendered.label,
+                        position:
+                            savedPosition === 'left' || savedPosition === 'right' ? savedPosition : rendered.position,
+                    })
                 }
             }
             actions.setEntries([...entries.values()])
