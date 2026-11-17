@@ -26,7 +26,7 @@ from products.ai_observability.backend.models.evaluations import Evaluation
 from . import cards, catalog
 from .adapters import AdaptedCheck
 from .call_review import ReviewCard
-from .call_review_queries import CALL_TYPE_INPUT_CHARS, CallTypeRow
+from .call_review_queries import CALL_TYPE_INPUT_CHARS, CallTypeRow, SnippetMatches
 from .coverage import EvalFix, fix_dedupe_key
 from .judge_calibration import Calibration
 from .measure import Measurement, Outcome, SampledTrace, TraceSample
@@ -519,11 +519,10 @@ def prompt_snippets(call_type: CallTypeRow, others: Sequence[CallTypeRow]) -> li
     return snippets
 
 
-def choose_snippet(snippets: Sequence[str], matches: Sequence[tuple[int, int]]) -> str | None:
-    """The first snippet whose matches, as (generations matched, of them in the call type), belong mostly to the
-    call type."""
-    for snippet, (matched, in_call_type) in zip(snippets, matches):
-        if matched and in_call_type / matched >= MIN_SNIPPET_PRECISION:
+def choose_snippet(snippets: Sequence[str], matches: Sequence[SnippetMatches]) -> str | None:
+    """The first snippet whose matches belong mostly to its call type."""
+    for snippet, match in zip(snippets, matches):
+        if match.matched and match.in_call_type / match.matched >= MIN_SNIPPET_PRECISION:
             return snippet
     return None
 

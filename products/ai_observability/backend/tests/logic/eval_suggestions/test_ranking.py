@@ -14,7 +14,7 @@ from posthog.hogql.property import property_to_expr
 from products.ai_observability.backend.llm import DEFAULT_MODEL_BY_PROVIDER
 from products.ai_observability.backend.logic.eval_suggestions import adapters, prices, ranking
 from products.ai_observability.backend.logic.eval_suggestions.call_review import ReviewCard, ReviewExample
-from products.ai_observability.backend.logic.eval_suggestions.call_review_queries import CallTypeRow
+from products.ai_observability.backend.logic.eval_suggestions.call_review_queries import CallTypeRow, SnippetMatches
 from products.ai_observability.backend.logic.eval_suggestions.judge_calibration import Calibration
 from products.ai_observability.backend.logic.eval_suggestions.measure import (
     Measurement,
@@ -530,7 +530,8 @@ def test_a_reviewed_judge_runs_on_the_generations_of_its_call_types(
 def test_a_snippet_is_chosen_only_when_its_matches_are_its_call_type(
     _name: str, matches: list[tuple[int, int]], chosen: str | None
 ) -> None:
-    assert ranking.choose_snippet(["first", "second"], matches) == chosen
+    counts = [SnippetMatches(matched=matched, in_call_type=in_call_type) for matched, in_call_type in matches]
+    assert ranking.choose_snippet(["first", "second"], counts) == chosen
 
 
 @parameterized.expand(

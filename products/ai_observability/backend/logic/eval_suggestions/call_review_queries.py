@@ -168,6 +168,14 @@ class CallTypeRow:
 
 
 @frozen
+class SnippetMatches:
+    # Sampled generations whose input holds the snippet.
+    matched: int
+    # Of those, the ones in the snippet's call type.
+    in_call_type: int
+
+
+@frozen
 class ReviewCallRow:
     event_uuid: str
     trace_id: str
@@ -215,8 +223,8 @@ def load_call_types(team: Team, window: ProfileWindow, per_mille: int) -> list[C
 
 def snippet_matches(
     team: Team, window: ProfileWindow, per_mille: int, call_type: CallTypeRow, snippets: Sequence[str]
-) -> list[tuple[int, int]]:
-    """For each snippet, (generations whose input holds it, of them in `call_type`) in a `per_mille` hash sample."""
+) -> list[SnippetMatches]:
+    """Counts each snippet's matches in a `per_mille` hash sample."""
     patterns = [f"%{snippet}%" for snippet in snippets]
     rows = run_ai_events_query(
         team,
@@ -228,8 +236,8 @@ def snippet_matches(
         },
         "EvalSuggestionsSnippetMatches",
     )
-    found = {str(row[0]): (int(row[1]), int(row[2])) for row in rows}
-    return [found.get(pattern, (0, 0)) for pattern in patterns]
+    found = {str(row[0]): SnippetMatches(matched=int(row[1]), in_call_type=int(row[2])) for row in rows}
+    return [found.get(pattern, SnippetMatches(matched=0, in_call_type=0)) for pattern in patterns]
 
 
 def load_review_calls(

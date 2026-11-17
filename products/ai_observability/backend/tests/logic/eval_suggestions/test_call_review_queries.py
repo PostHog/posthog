@@ -77,7 +77,7 @@ class TestCallReviewQueries(ClickhouseTestMixin, BaseTest):
             self.team, window, 1000, summarizer_type, ["summarize one trace", "You review summaries", "absent text"]
         )
 
-        assert matches == [(5, 3), (2, 0), (0, 0)]
+        assert [(m.matched, m.in_call_type) for m in matches] == [(5, 3), (2, 0), (0, 0)]
 
 
 def test_the_calls_query_runs_its_candidate_subquery_once_across_shards() -> None:
