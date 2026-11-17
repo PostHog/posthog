@@ -3,6 +3,7 @@ import posthog from 'posthog-js'
 
 import { LemonBanner } from '@posthog/lemon-ui'
 
+import { TeamMembershipLevel } from 'lib/constants'
 import { teamLogic } from 'scenes/teamLogic'
 
 export function EngagementEventsBanner(): JSX.Element | null {
@@ -25,16 +26,15 @@ export function EngagementEventsBanner(): JSX.Element | null {
             action={{
                 children: 'Turn off engagement events',
                 loading: currentTeamLoading,
+                disabledReason:
+                    (currentTeam.effective_membership_level ?? -1) < TeamMembershipLevel.Admin
+                        ? 'Only project admins can turn off engagement events'
+                        : undefined,
                 'data-attr': 'workflows-engagement-events-banner-turn-off',
                 onClick: () => {
                     // pinned: analytics event name
                     posthog.capture('workflows engagement events banner turned off')
-                    updateCurrentTeam({
-                        workflows_config: {
-                            ...currentTeam.workflows_config,
-                            capture_workflows_engagement_events: false,
-                        },
-                    })
+                    updateCurrentTeam({ workflows_config: { capture_workflows_engagement_events: false } })
                 },
             }}
         >
