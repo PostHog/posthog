@@ -492,6 +492,9 @@ export type CyclotronJobInvocationHogFlow = CyclotronJobInvocation & {
     // wait step calls it before its first evaluation, where a stale person parks the run for good.
     // It returns the values rather than mutating, so it stays correct on a cloned invocation.
     refreshPerson?: () => Promise<{ person?: CyclotronPerson; filterGlobals: HogFunctionFilterGlobals }>
+    loadPersonProperties?: (
+        keys: string[]
+    ) => Promise<{ person?: CyclotronPerson; filterGlobals: HogFunctionFilterGlobals }>
 }
 
 export type MessageOptOutRecord = {

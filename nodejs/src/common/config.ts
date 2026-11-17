@@ -137,6 +137,8 @@ export type CommonConfig = BaseServerConfig & {
     /** Host and port of the personhog identity server. */
     PERSONHOG_IDENTITY_ADDR: string
     PERSONHOG_ADDR: string
+    /** Host and port of a leader-mode router. CDP sends its consistent person reads there when it is set. */
+    PERSONHOG_LEADER_ADDR: string
     PERSONHOG_GROUPS_ROLLOUT_PERCENTAGE: number
     PERSONHOG_GROUPS_ROLLOUT_TEAM_IDS: string
     PERSONHOG_PERSONS_ROLLOUT_PERCENTAGE: number
@@ -414,6 +416,7 @@ export function getDefaultCommonConfig(): CommonConfig {
         // PersonHog gRPC
         PERSONHOG_ENABLED: false,
         PERSONHOG_ADDR: '',
+        PERSONHOG_LEADER_ADDR: '',
         PERSONS_STORE_MODE: 'pg',
         PERSONHOG_IDENTITY_ADDR: '',
         PERSONHOG_GROUPS_ROLLOUT_PERCENTAGE: 0,
