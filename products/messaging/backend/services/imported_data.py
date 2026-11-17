@@ -17,6 +17,7 @@ from posthog.models.scoping.manager import resolve_effective_team_id
 from products.messaging.backend.models.message_category import MessageCategory, MessageCategoryType
 from products.messaging.backend.models.message_preferences import MessageRecipientPreference, PreferenceStatus
 from products.messaging.backend.models.message_suppression import MessageSuppression, SuppressionSource
+from products.messaging.backend.models.transactional_email_key import TransactionalEmailKey
 
 
 @frozen
@@ -216,4 +217,13 @@ def import_categories(
         ids_by_key={key: str(category_id) for key, category_id in live.values_list("key", "id")},
         created=created,
         already_present=len(by_key) - created,
+    )
+
+
+def code_email_keys(team_id: int, keys: Iterable[str]) -> set[str]:
+    """Keys a code email already sends under. An imported template with one of them would take over those sends."""
+    return set(
+        TransactionalEmailKey.objects.for_team(team_id, canonical=True)
+        .filter(key__in=list(keys))
+        .values_list("key", flat=True)
     )
