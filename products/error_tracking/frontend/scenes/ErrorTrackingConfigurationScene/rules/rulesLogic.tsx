@@ -299,15 +299,15 @@ export const rulesLogic = kea<rulesLogicType>([
                     return newValues.filter((v) => v.id !== id)
                 },
                 deleteSelectedRules: async () => {
-                    await Promise.all(
-                        values.selectedRuleIds.map((id) =>
-                            id === 'new'
-                                ? Promise.resolve()
-                                : props.ruleType === ErrorTrackingRuleType.Tag
-                                  ? destroyTagRule(id)
-                                  : api.errorTracking.deleteRule(props.ruleType, id)
+                    if (props.ruleType === ErrorTrackingRuleType.Tag) {
+                        await Promise.all(values.selectedRuleIds.map((id) => destroyTagRule(id)))
+                    } else {
+                        await Promise.all(
+                            values.selectedRuleIds.map((id) =>
+                                id === 'new' ? Promise.resolve() : api.errorTracking.deleteRule(props.ruleType, id)
+                            )
                         )
-                    )
+                    }
                     return values.rules.filter((rule) => !values.selectedRuleIds.includes(rule.id))
                 },
                 finishReorderingRules: async () => {
