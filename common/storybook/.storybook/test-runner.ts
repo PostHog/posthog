@@ -102,6 +102,31 @@ export default {
                 randomState = RANDOM_SEED
             }
 
+            // A frame can finish loading during play or network idle. Its load event does not bubble.
+            const loadedFrames = new WeakMap<HTMLIFrameElement, Window | null>()
+            const invalidateLoads = (records: MutationRecord[]): void => {
+                for (const { target } of records) {
+                    loadedFrames.delete(target as HTMLIFrameElement)
+                }
+            }
+            const navigationObserver = new MutationObserver(invalidateLoads)
+            document.addEventListener(
+                'load',
+                (event) => {
+                    const frame = event.target
+                    if (frame instanceof HTMLIFrameElement) {
+                        invalidateLoads(navigationObserver.takeRecords())
+                        navigationObserver.observe(frame, { attributes: true, attributeFilter: ['src', 'srcdoc'] })
+                        loadedFrames.set(frame, frame.contentWindow)
+                    }
+                },
+                true
+            )
+            window.__storybookFramesLoaded = () =>
+                Array.from(document.querySelectorAll('iframe')).every(
+                    (frame) => loadedFrames.get(frame) === frame.contentWindow
+                )
+
             const patchedUserAgent = `${navigator.userAgent} StorybookTestRunner`
             Object.defineProperty(navigator, 'userAgent', {
                 get: () => patchedUserAgent,
@@ -365,42 +390,6 @@ async function expectStoryToMatchSnapshot(
     } = storyContext.parameters?.testOptions ?? {}
     await waitForPageReady(page, skipIframeWait)
 
-    // set up iframe load tracking early, before they start loading
-    await page.evaluate(() => {
-        // use MutationObserver to catch iframes as they're added to the DOM
-        const trackIframeLoad = (iframe: HTMLIFrameElement): void => {
-            if (!iframe.hasAttribute('data-load-tracked')) {
-                iframe.setAttribute('data-load-tracked', 'loading')
-                iframe.addEventListener(
-                    'load',
-                    () => {
-                        iframe.setAttribute('data-load-tracked', 'loaded')
-                    },
-                    { once: true }
-                )
-            }
-        }
-
-        // track existing iframes
-        document.querySelectorAll('iframe').forEach(trackIframeLoad)
-
-        // track future iframes
-        const observer = new MutationObserver((mutations) => {
-            mutations.forEach((mutation) => {
-                mutation.addedNodes.forEach((node) => {
-                    if (node instanceof HTMLIFrameElement) {
-                        trackIframeLoad(node)
-                    }
-                    if (node instanceof Element) {
-                        node.querySelectorAll('iframe').forEach(trackIframeLoad)
-                    }
-                })
-            })
-        })
-        observer.observe(document.body, { childList: true, subtree: true })
-        ;(window as Window & { __iframeObserver?: MutationObserver }).__iframeObserver = observer
-    })
-
     // Trigger ResizeObserver callbacks to ensure layout-dependent state (e.g. CardMeta's
     // showControlsLabels) has settled before taking snapshots. ResizeObserver fires
     // asynchronously after render, so without this nudge the observer may not have reported
@@ -630,14 +619,7 @@ async function takeSnapshotWithTheme(
         const iframeCount = await page.locator('iframe').count()
         if (iframeCount > 0) {
             await page
-                .waitForFunction(
-                    () => {
-                        const iframes = Array.from(document.querySelectorAll('iframe'))
-                        return iframes.every((iframe) => iframe.getAttribute('data-load-tracked') === 'loaded')
-                    },
-                    undefined,
-                    { timeout: 8000 }
-                )
+                .waitForFunction(() => window.__storybookFramesLoaded?.(), undefined, { timeout: 8000 })
                 .catch(() => {
                     // if timeout, that's okay - some iframes might not fire load events
                 })

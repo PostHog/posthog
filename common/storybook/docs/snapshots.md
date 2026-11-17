@@ -86,13 +86,13 @@ That gives `my-story-viewports--medium--light` and so on. `frontend/src/scenes/d
 You don't need to add waits for any of this. Knowing the order helps when a story times out or flakes.
 
 1. Before the story renders, it sets the `storybook-test-runner` body class and the class for the story's layout. The body class turns off transitions and animations, pins the end state of a few animations, and hides scrollbars and decorative overlays. It also sets `content-visibility: visible` on every element, so offscreen content renders. A component opts in to more with `.storybook-test-runner &` in its styles. The story renders without scrollbars from the start, because Chromium can keep a scroll container's old height when scrollbars are hidden after layout.
-2. It renders the story and waits for `load`. In CI it also waits for network idle.
+2. It tracks iframe loads from document startup, so a frame that loads during render or play counts as ready. It renders the story and waits for `load`. In CI it also waits for network idle.
 3. It fires a resize and waits 300 ms for resize observers.
 4. It runs the loader wait and `waitForSelector`.
 5. For each theme, it sets `body[theme]` and the color scheme, then:
    - runs the loader wait again;
    - makes lazy images eager, waits until every image has loaded and decoded, and hides GIFs;
-   - waits up to 8 seconds for iframes, plus 1 second;
+   - if the story has iframes, waits up to 8 seconds for pending loads (including changes to `src` or `srcdoc`), then allows 1 second for their content to paint;
    - scrolls the window and the scroll containers back to the top;
    - waits until the body size stops changing, for up to 3 seconds;
    - waits for scene readiness, or 1 more second for stories that explicitly disable it;
