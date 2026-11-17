@@ -35,7 +35,10 @@ from products.messaging.backend.facade.transactional_email_log import (
     transactional_email_stats_over_time,
 )
 from products.messaging.backend.presentation.query_concurrency import query_concurrency_slots
-from products.messaging.backend.presentation.views.message_templates import require_transactional_email_api
+from products.messaging.backend.presentation.views.message_templates import (
+    require_email_impact,
+    require_transactional_email_api,
+)
 from products.workflows.backend.facade.api import get_workflow_view_access
 from products.workflows.backend.facade.contracts import WorkflowViewAccess
 
@@ -527,6 +530,7 @@ class TransactionalEmailLogViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     )
     @action(detail=False, methods=["GET"])
     def impact(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
+        require_email_impact(self.team)
         query = request.validated_query_data
         workflow_id = str(query["workflow_id"])
         if workflow_id not in self._workflow_access().viewable_ids:
