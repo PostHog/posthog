@@ -78,9 +78,10 @@ WEB_PARAMETERS = ScoreParameters(
 @frozen
 class WindowScore:
     """Levels 2, 4 and 5 and the proximity are in [0, 1]. Level 1 is None when the test can't run: no exposure, nobody
-    exposed or everyone with the flag exposed, too few people in a group, only one outcome in each, or a watched
-    condition that this source doesn't find. Level 2 is None in the same cases as level 1, without the counts by last
-    value, or below the minimum volume. Level 4 is None without an error rise or with fewer than two exposure steps.
+    exposed or everyone with the flag exposed, fewer than 5 people in a group, errors for nobody or for everyone in
+    both groups, or a watched condition that this source doesn't find. Level 2 is None without exposure, when nobody
+    or everyone with the flag is exposed, without the counts by last value, or below the minimum volume. Level 4 is
+    None without an error rise or with fewer than two exposure steps.
 
     The window is suspicious when level 1 finds the exposed people significantly worse with enough volume, or when the
     volume is enough and `score` reaches the threshold."""
