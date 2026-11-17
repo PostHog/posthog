@@ -12262,6 +12262,69 @@ export interface AlertPatternPreviewResponseApi {
     has_more: boolean
 }
 
+/**
+ * * `string` - string
+ * * `integer` - integer
+ * * `number` - number
+ * * `boolean` - boolean
+ * * `datetime` - datetime
+ * * `array<string>` - array<string>
+ * * `array<integer>` - array<integer>
+ * * `array<number>` - array<number>
+ * * `array<boolean>` - array<boolean>
+ */
+export type SignalFilterFieldTypeEnumApi =
+    (typeof SignalFilterFieldTypeEnumApi)[keyof typeof SignalFilterFieldTypeEnumApi]
+
+export const SignalFilterFieldTypeEnumApi = {
+    String: 'string',
+    Integer: 'integer',
+    Number: 'number',
+    Boolean: 'boolean',
+    Datetime: 'datetime',
+    ArrayString: 'array<string>',
+    ArrayInteger: 'array<integer>',
+    ArrayNumber: 'array<number>',
+    ArrayBoolean: 'array<boolean>',
+} as const
+
+export interface SourceFilterCatalogFieldApi {
+    /** Name to use for this field in a filter expression. */
+    name: string
+    /** Type of the field's value. Compare it with values of the same type.
+     *
+     * * `string` - string
+     * * `integer` - integer
+     * * `number` - number
+     * * `boolean` - boolean
+     * * `datetime` - datetime
+     * * `array<string>` - array<string>
+     * * `array<integer>` - array<integer>
+     * * `array<number>` - array<number>
+     * * `array<boolean>` - array<boolean> */
+    type: SignalFilterFieldTypeEnumApi
+    /** What the field holds, and its value when the record has none (null, or an empty array). */
+    description: string
+}
+
+export interface SourceFilterCatalogApi {
+    /** Source product the filter applies to, for example `linear`. */
+    source_product: string
+    /** Source type the filter applies to, for example `issue`. */
+    source_type: string
+    /** Catalog version a filter saved now is pinned to. A saved filter keeps the meaning of its version. */
+    catalog_version: number
+    /** Fields a filter expression can use. */
+    filter_fields: SourceFilterCatalogFieldApi[]
+    /** Example expressions that are valid for this source. */
+    starter_expressions: string[]
+}
+
+export interface SourceFilterCatalogListApi {
+    /** One entry per source whose filter this project can set. A source that is missing does not take a filter. */
+    results: SourceFilterCatalogApi[]
+}
+
 export interface SourceSpendApi {
     /** Product that emitted the signals. */
     source_product: string
