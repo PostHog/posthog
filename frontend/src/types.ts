@@ -969,6 +969,8 @@ export interface WorkflowsConfig {
     // Optional so cached team objects from before these fields shipped still typecheck.
     email_utm_tags_enabled?: boolean
     email_utm_params?: Partial<Record<'utm_source' | 'utm_medium' | 'utm_campaign' | 'utm_content', string>>
+    // Optional so cached team objects from before this field shipped still typecheck. Missing means on.
+    email_workflow_run_link_tag_enabled?: boolean
     replay_vision_scan_rate_limit_per_day?: number | null
     replay_vision_scan_team_rate_limit_per_day?: number | null
     default_email_integration_id?: number | null
