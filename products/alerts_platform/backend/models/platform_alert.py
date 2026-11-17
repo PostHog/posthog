@@ -389,6 +389,9 @@ class AlertDestination(TeamScopedRootMixin, UUIDModel):
 
     # The HogFunctions this replaced, so an id issued before the move still finds the destination.
     legacy_hog_function_ids = ArrayField(models.UUIDField(), default=list, blank=True)
+    # A webhook whose receiver got its source's legacy body from the HogFunctions this replaced keeps
+    # that body, whatever the team's webhook body flags say.
+    keeps_legacy_webhook_body = models.BooleanField(default=False, db_default=False)
 
     class Meta:
         db_table = "alerts_platformalertdestination"

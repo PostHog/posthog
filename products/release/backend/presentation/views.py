@@ -22,7 +22,7 @@ from posthog.api.utils import action
 from posthog.event_usage import report_user_action
 from posthog.models import User
 from posthog.permissions import get_authenticator_scopes
-from posthog.scopes import scopes_not_covered
+from posthog.scopes.checks import scopes_not_covered
 
 from products.feature_flags.backend.facade.api import existing_flag_ids
 from products.feature_flags.backend.facade.release_candidates import (

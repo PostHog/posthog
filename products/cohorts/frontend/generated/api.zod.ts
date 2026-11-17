@@ -209,7 +209,7 @@ export const CohortsRealtimeCreateBody = /* @__PURE__ */ zod.object({
     enabled: zod
         .boolean()
         .describe(
-            'True turns realtime on for the cohort and for every realtime cohort it includes as criteria, and starts preparing them from past events. False turns realtime off. PostHog refuses that while a feature flag, an active workflow, or another cohort with realtime on reads the cohort.'
+            "True turns realtime on for the cohort and for every realtime cohort it includes as criteria, and starts preparing them from past events. PostHog refuses that when the project's plan allows no more cohorts with realtime on, or when the criteria look back further than the plan allows. False turns realtime off. PostHog refuses that while a feature flag, an active workflow, or another cohort with realtime on reads the cohort."
         ),
 })
 

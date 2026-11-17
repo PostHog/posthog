@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Literal, Optional
 
 from products.warehouse_sources.sources.sdk import IncrementalField, IncrementalFieldType
 
@@ -21,6 +21,12 @@ class VeracodeEndpointConfig:
     extra_params: dict[str, str] = field(default_factory=dict)
     # Iterate every application and query this endpoint once per application GUID.
     fan_out_over_applications: bool = False
+    # The response is one object per request (no HAL `_embedded` list).
+    single_object: bool = False
+    # Rows come from an asynchronous Reporting API report: submit it, poll until it completes, then
+    # page through it. `path` is the submit endpoint and the report is read from `{path}/{id}`.
+    async_report: bool = False
+    sort_mode: Literal["asc", "desc"] | None = "asc"
 
 
 # Max page size. Veracode's appsec endpoints document up to 500 on some resources, but 100 is the
@@ -77,6 +83,54 @@ VERACODE_ENDPOINTS: dict[str, VeracodeEndpointConfig] = {
         should_sync_default=False,
         extra_params={"scan_type": "SCA"},
         fan_out_over_applications=True,
+    ),
+    # Veracode's headline per-application result for the latest policy scan: compliance status,
+    # Veracode Level and flaw counts by severity. One object per application, keyed by its GUID.
+    "summary_report": VeracodeEndpointConfig(
+        name="summary_report",
+        path="/appsec/v2/applications/{application_guid}/summary_report",
+        embedded_key="",
+        incremental_fields=[],
+        primary_keys=["application_guid"],
+        fan_out_over_applications=True,
+        single_object=True,
+    ),
+    # Lookup tables that resolve the CWE and category ids carried on findings rows.
+    "cwes": VeracodeEndpointConfig(
+        name="cwes",
+        path="/appsec/v1/cwes",
+        embedded_key="cwes",
+        incremental_fields=[],
+        primary_keys=["id"],
+    ),
+    "categories": VeracodeEndpointConfig(
+        name="categories",
+        path="/appsec/v1/categories",
+        embedded_key="categories",
+        incremental_fields=[],
+        primary_keys=["id"],
+    ),
+    # Org-wide scan history from the Reporting API v2 Scans report. The Reporting API must be
+    # enabled for the account by Veracode support, so the table is off by default. The report
+    # order is not documented, so the read makes no sort promise.
+    "scans": VeracodeEndpointConfig(
+        name="scans",
+        path="/analytics/scans/report",
+        embedded_key="scans",
+        partition_key="submitted",
+        incremental_fields=[
+            {
+                "label": "last_updated_date",
+                "type": IncrementalFieldType.Date,
+                "field": "last_updated_date",
+                "field_type": IncrementalFieldType.Date,
+            },
+        ],
+        # The docs do not say that `scan_id` is unique across applications and scan types.
+        primary_keys=["app_id", "scan_id", "scan_type"],
+        should_sync_default=False,
+        async_report=True,
+        sort_mode=None,
     ),
 }
 
