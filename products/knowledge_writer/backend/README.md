@@ -2,9 +2,10 @@
 
 - `adapters/`: one per input, holding its source and the writer's opening sentence; `repo_merge.py` builds every input's verdict from its merge check report, since the docs command runs the same check.
 - `facade/finished_check_hooks.py`: tells products that cannot be imported, such as commands, how a docs command's check ended.
-- `logic/intake.py`: caps, section routing, and the start-or-join decision.
+- `logic/intake.py`: caps, section routing, and the start decision.
 - `logic/launch.py`: creates the writer task.
-- `logic/pull_requests.py`: opens a draft docs pull request, or comments a joined request's source on the open one.
+- `logic/writer_change.py`: parses the `writer-change.json` artifact a run uploads.
+- `logic/pull_requests.py`: gates that change, commits it through `logic/server_commit.py`, and opens a draft docs pull request.
 - `receivers.py`: calls `logic/pull_requests.py` when a writer run finishes.
 - `management/commands/knowledge_writer_pr_smoke.py`: drives the pull request path against a scratch repository.
 
@@ -31,7 +32,7 @@ flox activate -- python manage.py knowledge_writer_pr_smoke \
 
 ## Full run with the agent
 
-`--with-agent` submits two real requests through intake and waits for the sandboxed agent, so the local stack has to be running. Start each process in its own shell inside flox, with the `KNOWLEDGE_WRITER_*` exports above:
+`--with-agent` submits one real request through intake and waits for the sandboxed agent, so the local stack has to be running. Start each process in its own shell inside flox, with the `KNOWLEDGE_WRITER_*` exports above:
 
 - Temporal: `docker compose -p posthog -f docker-compose.dev.yml -f docker-compose.profiles.yml --profile temporal up -d temporal temporal-admin-tools`
 - Web: `bin/start-backend`
@@ -41,12 +42,12 @@ flox activate -- python manage.py knowledge_writer_pr_smoke \
 
 On a Coder workspace `SITE_URL` is the public URL, which the sandbox and self-capture cannot reach, so every process also needs `SELF_CAPTURE_HOST=http://localhost:8010`, `SANDBOX_API_URL=http://localhost:8010` and `SANDBOX_LLM_GATEWAY_URL=http://host.docker.internal:3308`.
 
-Turn the `knowledge-writer-agent-launch` and `knowledge-writer-open-prs` flags on at 100% for the team; otherwise intake runs in shadow mode and the command stops. Pick two merged pull requests whose change the section's docs lack, so the agent has something to write. Then:
+Turn the `knowledge-writer-agent-launch` and `knowledge-writer-open-prs` flags on at 100% for the team; otherwise intake runs in shadow mode and the command stops. Pick a merged pull request whose change the section's docs lack, so the agent has something to write. Then:
 
 ```bash
 flox activate -- python manage.py knowledge_writer_pr_smoke \
   --repo <you>/posthog.com --team-id <team id> \
-  --with-agent <merged pull request url> <merged pull request url>
+  --with-agent <merged pull request url>
 ```
 
-Each run takes 1 to 4 minutes. The 240-minute limit on both (`--agent-timeout-minutes`) only stops a stuck run. When the first run ends without a pull request, the command names the task and run and leaves any branch the agent pushed.
+The run takes 1 to 4 minutes. The 240-minute limit (`--agent-timeout-minutes`) only stops a stuck run. When the run ends without a pull request, the command names the task and run.

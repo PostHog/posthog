@@ -9,7 +9,7 @@ from posthog.sync import database_sync_to_async
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.utils import close_db_connections
 
-from ..logic.pull_requests import open_or_join_pull_request, settle_publication
+from ..logic.pull_requests import open_pull_request_for_run, settle_publication
 from ..logic.records import PUBLICATION_LEASE
 
 PUBLISH_ATTEMPTS = 3
@@ -26,7 +26,7 @@ class PublishInputs:
 @close_db_connections
 async def publish_docs_pull_request_activity(inputs: PublishInputs) -> None:
     async with Heartbeater():
-        await database_sync_to_async(open_or_join_pull_request, thread_sensitive=False)(
+        await database_sync_to_async(open_pull_request_for_run, thread_sensitive=False)(
             UUID(inputs.task_run_id), team_id=inputs.team_id
         )
 

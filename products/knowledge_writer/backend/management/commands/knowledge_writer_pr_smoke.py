@@ -1,3 +1,4 @@
+import json
 import time
 import base64
 import secrets
@@ -23,13 +24,11 @@ from ...facade.contracts import AdapterVerdict, DocsCommandRequest, DocsRequest
 from ...facade.enums import DocsChangeKind
 from ...feature_flags import AGENT_LAUNCH_FLAG, OPEN_PULL_REQUESTS_FLAG, is_team_flag_enabled
 from ...logic import intake
-from ...logic.intake import pull_request_to_join
 from ...logic.launch import start_writer
 from ...logic.pull_requests import (
     LINK_BACK_START,
     docs_github,
     open_writer_pull_requests,
-    reported_docs_branches,
     section_marker,
     source_repository_github,
 )
@@ -43,6 +42,8 @@ from ...logic.records import (
     pull_request_json,
 )
 from ...logic.routing import route_request
+from ...logic.server_commit import docs_branch_head
+from ...logic.writer_change import WRITER_CHANGE_ARTIFACT_NAME, writer_change_artifact
 from ...settings import WriterSettings, writer_settings
 
 PRODUCTION_DOCS_REPOSITORY = "posthog/posthog.com"
@@ -53,11 +54,12 @@ AGENT_POLL_INTERVAL_SECONDS = 15
 SCRATCH_PUBLISH_TIMEOUT_SECONDS = 300
 SMOKE_NOTE = "Knowledge writer smoke test."
 SMOKE_REQUESTER = "knowledge-writer-smoke-test"
-SmokeRequests = tuple[WriterPullRequest, bool, WriterPullRequest, bool]
 
 
 class Command(BaseCommand):
-    help = "Open and join a draft docs pull request on a scratch docs repository, check it, and clean up."
+    help = (
+        "Open a draft docs pull request on a scratch docs repository through the server commit, check it, and clean up."
+    )
 
     def add_arguments(self, parser: CommandParser) -> None:
         parser.add_argument(
@@ -67,12 +69,11 @@ class Command(BaseCommand):
         parser.add_argument(
             "--installation-id", help="GitHub App installation to connect when the team has none for the repo owner"
         )
-        parser.add_argument("--section", default="session-replay", help="Docs section both requests target")
+        parser.add_argument("--section", default="session-replay", help="Docs section the request targets")
         parser.add_argument(
             "--with-agent",
-            nargs=2,
             metavar="SOURCE_PULL_REQUEST_URL",
-            help="Run the real writer agent for two merged pull requests whose change the section's docs lack",
+            help="Run the real writer agent for a merged pull request whose change the section's docs lack",
         )
         parser.add_argument("--agent-timeout-minutes", type=int, default=240)
 
@@ -95,22 +96,18 @@ class Command(BaseCommand):
             raise CommandError(f"Turn the {OPEN_PULL_REQUESTS_FLAG} flag on at 100% for team {team.id}")
         github = connected_github(team.id, repository, options["installation_id"])
         section: str = options["section"]
-        stale = pull_request_to_join(list_writer_pull_requests(writer), section)
-        if stale is not None:
-            raise CommandError(f"Close the open writer pull request for {section} first: {stale.url}")
-
         smoke_id = secrets.token_hex(4)
-        source_urls: list[str] | None = options["with_agent"]
+        source_url: str | None = options["with_agent"]
         branches: list[str] = []
         try:
-            opened, first_joined, joined, second_joined = (
-                run_agent_requests(
-                    github, writer, team, section, source_urls, smoke_id, options["agent_timeout_minutes"], branches
+            opened = (
+                run_agent_request(
+                    github, writer, team, section, source_url, smoke_id, options["agent_timeout_minutes"], branches
                 )
-                if source_urls
-                else run_scratch_requests(github, writer, team, section, smoke_id, branches)
+                if source_url
+                else run_scratch_request(github, writer, team, section, smoke_id, branches)
             )
-            failures = check_pull_request(github, repository, section, opened, first_joined, joined, second_joined)
+            failures = check_pull_request(github, repository, section, opened)
         finally:
             cleanup_problems = clean_up(github, writer, repository, branches)
             for problem in cleanup_problems:
@@ -120,7 +117,7 @@ class Command(BaseCommand):
             self.stderr.write(f"FAIL {failure}")
         if failures:
             raise CommandError(f"{len(failures)} check(s) failed on {opened.url}")
-        self.stdout.write(f"PASS draft pull request {opened.url} opened, joined by comment, closed and cleaned up")
+        self.stdout.write(f"PASS draft pull request {opened.url} opened from a server commit, closed and cleaned up")
 
 
 def connected_github(team_id: int, repository: str, installation_id: str | None) -> GitHubIntegration:
@@ -134,74 +131,49 @@ def connected_github(team_id: int, repository: str, installation_id: str | None)
     return github
 
 
-def list_writer_pull_requests(writer: WriterSettings) -> list[WriterPullRequest]:
-    open_pull_requests = open_writer_pull_requests(writer)
-    if open_pull_requests is None:
-        raise CommandError(f"Could not list open pull requests on {writer.docs_repository}")
-    return open_pull_requests
-
-
-def push_scratch_branch(github: GitHubIntegration, repository: str, branch: str, section: str) -> None:
-    default_branch = github.get_default_branch(repository)
-    base = github.api_request(
-        "GET", f"/repos/{repository}/git/ref/heads/{default_branch}", endpoint="/repos/{owner}/{repo}/git/ref/{ref}"
-    )
-    if base.status_code != 200:
-        raise CommandError(f"Could not read {default_branch} on {repository}: {base.text}")
-    created = github.api_request(
-        "POST",
-        f"/repos/{repository}/git/refs",
-        endpoint="/repos/{owner}/{repo}/git/refs",
-        json_body={"ref": f"refs/heads/{branch}", "sha": base.json()["object"]["sha"]},
-    )
-    if created.status_code != 201:
-        raise CommandError(f"Could not create {branch}: {created.text}")
-    committed = github.api_request(
-        "PUT",
-        f"/repos/{repository}/contents/contents/docs/{section}/{SCRATCH_PAGE_NAME}",
-        endpoint="/repos/{owner}/{repo}/contents/{path}",
-        json_body={
-            "message": "docs: knowledge writer smoke test",
-            "content": base64.b64encode(f"Knowledge writer smoke test on {branch}.\n".encode()).decode(),
-            "branch": branch,
-        },
-    )
-    if committed.status_code != 201:
-        raise CommandError(f"Could not commit to {branch}: {committed.text}")
-
-
-def run_scratch_requests(
+def run_scratch_request(
     github: GitHubIntegration, writer: WriterSettings, team: Team, section: str, smoke_id: str, branches: list[str]
-) -> SmokeRequests:
-    opened, first_joined = run_writer_request(github, writer, team, section, f"{smoke_id}-1", branches)
-    joined, second_joined = run_writer_request(github, writer, team, section, f"{smoke_id}-2", branches)
-    return opened, first_joined, joined, second_joined
-
-
-def run_agent_requests(
-    github: GitHubIntegration,
-    writer: WriterSettings,
-    team: Team,
-    section: str,
-    source_urls: list[str],
-    smoke_id: str,
-    timeout_minutes: int,
-    branches: list[str],
-) -> SmokeRequests:
-    first_source, second_source = (merged_source(github, url, writer.user_id) for url in source_urls)
-    async_to_sync(initialize_self_capture_api_token)()
-    deadline = time.monotonic() + timeout_minutes * 60
-    opened, first_joined = run_agent_request(writer, team, section, first_source, f"{smoke_id}-1", deadline)
-    branches.append(opened.head_branch)
-    joined, second_joined = run_agent_request(writer, team, section, second_source, f"{smoke_id}-2", deadline)
-    return opened, first_joined, joined, second_joined
+) -> WriterPullRequest:
+    request = smoke_request(section, unreachable_source(writer.user_id), smoke_id)
+    routing = route_request(request, team_id=team.id, github=source_repository_github(team.id))
+    base_sha = docs_branch_head(github, writer.docs_repository)
+    if base_sha is None:
+        raise CommandError(f"Could not read the default branch head of {writer.docs_repository}")
+    task_id = start_writer(request, routing, team=team, writer=writer, base_sha=base_sha, start_workflow=False)
+    head_branch = tasks_facade.read_task_state_entry(task_id, team.id, HEAD_BRANCH_STATE_KEY)
+    if not isinstance(head_branch, str):
+        raise CommandError(f"Task {task_id} was issued no docs branch")
+    branches.append(head_branch)
+    page = f"Knowledge writer smoke test on {head_branch}.\n".encode()
+    change = {
+        "written": {f"contents/docs/{section}/{SCRATCH_PAGE_NAME}": base64.b64encode(page).decode()},
+        "deleted": [],
+    }
+    for run_id in tasks_facade.list_task_run_ids(task_id, team.id):
+        tasks_facade.upload_task_run_artifacts(
+            run_id,
+            task_id,
+            team.id,
+            artifacts=[
+                {
+                    "name": WRITER_CHANGE_ARTIFACT_NAME,
+                    "type": "output",
+                    "source": "agent_output",
+                    "content_type": "application/json",
+                    "content_bytes": json.dumps(change).encode(),
+                }
+            ],
+        )
+        tasks_facade.update_task_run(run_id, task_id, team.id, validated_data={"status": "completed"})
+    deadline = time.monotonic() + SCRATCH_PUBLISH_TIMEOUT_SECONDS
+    return wait_for_pull_request(task_id, team.id, deadline)
 
 
 def merged_source(github: GitHubIntegration, source_url: str, requested_by_user_id: int) -> DocsCommandRequest:
     pull_request = github.get_pull_request_from_url(source_url)
     if not pull_request.get("success"):
         raise CommandError(f"Could not read {source_url}: {pull_request.get('error')}")
-    # The agent refuses to push for a source it cannot verify, so an unmerged one burns a full run.
+    # The agent writes no change for a source it cannot verify, so an unmerged one burns a full run.
     if not pull_request.get("merged"):
         raise CommandError(f"{source_url} is not merged")
     return DocsCommandRequest(
@@ -254,20 +226,32 @@ def source_pull_request_url(source: DocsCommandRequest) -> str:
 
 
 def run_agent_request(
-    writer: WriterSettings, team: Team, section: str, source: DocsCommandRequest, smoke_suffix: str, deadline: float
-) -> tuple[WriterPullRequest, bool]:
-    outcome = intake.submit(smoke_verdict(section, source, smoke_suffix), team_id=team.id)
+    github: GitHubIntegration,
+    writer: WriterSettings,
+    team: Team,
+    section: str,
+    source_url: str,
+    smoke_id: str,
+    timeout_minutes: int,
+    branches: list[str],
+) -> WriterPullRequest:
+    source = merged_source(github, source_url, writer.user_id)
+    async_to_sync(initialize_self_capture_api_token)()
+    deadline = time.monotonic() + timeout_minutes * 60
+    outcome = intake.submit(smoke_verdict(section, source, smoke_id), team_id=team.id)
     if outcome.status == "shadow":
         raise CommandError(
             f"Intake ran in shadow mode: turn the {AGENT_LAUNCH_FLAG} flag on at 100% for team {team.id}"
         )
-    if outcome.task_id is None or outcome.status not in ("started", "joined"):
-        raise CommandError(f"Intake answered {outcome.status} for {source_pull_request_url(source)}")
-    pull_request = wait_for_pull_request(outcome.task_id, team.id, writer.docs_repository, deadline)
-    return pull_request, outcome.status == "joined"
+    if outcome.task_id is None or outcome.status != "started":
+        raise CommandError(f"Intake answered {outcome.status} for {source_url}")
+    head_branch = tasks_facade.read_task_state_entry(outcome.task_id, team.id, HEAD_BRANCH_STATE_KEY)
+    if isinstance(head_branch, str):
+        branches.append(head_branch)
+    return wait_for_pull_request(outcome.task_id, team.id, deadline)
 
 
-def wait_for_pull_request(task_id: UUID, team_id: int, docs_repository: str, deadline: float) -> WriterPullRequest:
+def wait_for_pull_request(task_id: UUID, team_id: int, deadline: float) -> WriterPullRequest:
     failure: object = None
     while time.monotonic() < deadline:
         stored = tasks_facade.read_task_state_entry(task_id, team_id, PULL_REQUEST_STATE_KEY)
@@ -281,51 +265,19 @@ def wait_for_pull_request(task_id: UUID, team_id: int, docs_repository: str, dea
             run = tasks_facade.get_task_run(run_id, team_id)
             if run is None:
                 continue
-            problem = ended_run_problem(run, docs_repository)
+            problem = ended_run_problem(run)
             if problem:
                 raise CommandError(f"Writer run {run_id} on task {task_id} {problem}")
         time.sleep(AGENT_POLL_INTERVAL_SECONDS)
     raise CommandError(f"Timed out waiting for task {task_id} to record a pull request; last failure: {failure}")
 
 
-def ended_run_problem(run: TaskRunDTO, docs_repository: str) -> str | None:
+def ended_run_problem(run: TaskRunDTO) -> str | None:
     if run.status in ("failed", "cancelled"):
         return f"ended {run.status}: {run.error_message}"
-    if run.status == "completed" and not reported_docs_branches(run.output, docs_repository):
-        return "completed without pushing a docs branch"
+    if run.status == "completed" and writer_change_artifact(run.artifacts) is None:
+        return f"completed without uploading {WRITER_CHANGE_ARTIFACT_NAME}"
     return None
-
-
-def run_writer_request(
-    github: GitHubIntegration,
-    writer: WriterSettings,
-    team: Team,
-    section: str,
-    smoke_suffix: str,
-    branches: list[str],
-) -> tuple[WriterPullRequest, bool]:
-    request = smoke_request(section, unreachable_source(writer.user_id), smoke_suffix)
-    routing = route_request(request, team_id=team.id, github=source_repository_github(team.id))
-    joining = pull_request_to_join(list_writer_pull_requests(writer), routing.section)
-    task_id = start_writer(request, routing, team=team, writer=writer, joining=joining, start_workflow=False)
-    head_branch = tasks_facade.read_task_state_entry(task_id, team.id, HEAD_BRANCH_STATE_KEY)
-    if not isinstance(head_branch, str):
-        raise CommandError(f"Task {task_id} was issued no docs branch")
-    if joining is None:
-        branches.append(head_branch)
-        push_scratch_branch(github, writer.docs_repository, head_branch, section)
-    for run_id in tasks_facade.list_task_run_ids(task_id, team.id):
-        tasks_facade.update_task_run(
-            run_id,
-            task_id,
-            team.id,
-            validated_data={
-                "status": "completed",
-                "output": {"head_branches": [{"repository": writer.docs_repository, "branch": head_branch}]},
-            },
-        )
-    deadline = time.monotonic() + SCRATCH_PUBLISH_TIMEOUT_SECONDS
-    return wait_for_pull_request(task_id, team.id, writer.docs_repository, deadline), joining is not None
 
 
 def check_pull_request(
@@ -333,26 +285,15 @@ def check_pull_request(
     repository: str,
     section: str,
     opened: WriterPullRequest,
-    first_joined: bool,
-    joined: WriterPullRequest,
-    second_joined: bool,
 ) -> list[str]:
     pull_request = github.api_request(
         "GET", f"/repos/{repository}/pulls/{opened.number}", endpoint="/repos/{owner}/{repo}/pulls/{pull_number}"
     ).json()
-    comments = github.api_request(
-        "GET",
-        f"/repos/{repository}/issues/{opened.number}/comments",
-        endpoint="/repos/{owner}/{repo}/issues/{issue_number}/comments",
-    ).json()
     body = pull_request.get("body") or ""
     checks = {
-        "the first request opened a pull request instead of joining one": not first_joined,
-        "the second request joined the first pull request": second_joined and joined.number == opened.number,
         "the pull request is a draft": pull_request.get("draft") is True,
         "the body has the link-back block": LINK_BACK_START in body,
         "the body has the section marker": section_marker(section) in body,
-        "there is exactly one source comment": len(comments) == 1,
         "the pull request changes files": pull_request.get("changed_files", 0) > 0,
     }
     return [description for description, passed in checks.items() if not passed]

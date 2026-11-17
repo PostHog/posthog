@@ -101,7 +101,6 @@ IntakeStatus = Literal[
     "shadow",
     "docs_in_source_repo",
     "section_busy",
-    "joined",
     "started",
 ]
 

@@ -103,13 +103,6 @@ class TestDocsCheckResult(SimpleTestCase):
     @parameterized.expand(
         [
             ("no_docs", "no_docs", None, None, "found nothing in [acme/widgets#7]"),
-            (
-                "joined",
-                "joined",
-                None,
-                "https://github.com/PostHog/posthog.com/pull/9",
-                "[its docs pull request](https://github.com/PostHog/posthog.com/pull/9)",
-            ),
             ("check_failed", "no_docs", MergeCheckFailure.RETRIES_EXHAUSTED, None, "Try `docs` again"),
             ("writer_not_set_up", "no_docs", MergeCheckFailure.NO_DOCS_GITHUB, None, "isn't fully set up"),
             ("check_capped", "no_docs", MergeCheckFailure.CHECK_CAPPED, None, "hit its docs check limit"),

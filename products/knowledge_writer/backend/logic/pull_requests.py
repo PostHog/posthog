@@ -1,14 +1,15 @@
 import re
-import time
 import uuid
-from dataclasses import dataclass
+import difflib
+from collections.abc import Mapping
+from dataclasses import dataclass, field
 from typing import Literal
-from urllib.parse import quote, urlparse
+from urllib.parse import urlparse
 from uuid import UUID
 
 import structlog
 
-from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubRateLimitError
+from posthog.egress.github.transport import GitHubEgressBudgetExhausted
 from posthog.egress.limiter.policies import Priority
 from posthog.exceptions_capture import capture_exception
 from posthog.integrations import IntegrationManager
@@ -18,16 +19,17 @@ from posthog.models.team import Team
 from posthog.ph_client import ph_scoped_capture
 
 from products.tasks.backend.facade import api as tasks_facade
+from products.tasks.backend.facade.contracts import TaskRunDTO
 
 from ..facade.contracts import DocsRequest
 from ..feature_flags import open_pull_requests_flag_state
 from ..settings import DEFAULT_DOCS_PATHS, WriterSettings, docs_source_for, writer_settings
-from .docs_pages import are_only_page_redirects_changed, docs_page_key, is_nav_line
+from .docs_pages import DOCS_SOURCE_EXTENSIONS, are_only_page_redirects_changed, docs_page_key, is_nav_line
 from .launch import replace_entry_with
 from .records import (
+    BASE_SHA_STATE_KEY,
     DOCS_CONTENT_ROOT_STATE_KEY,
     HEAD_BRANCH_STATE_KEY,
-    JOIN_STATE_KEY,
     PUBLICATION_CLAIM_STATE_KEY,
     PULL_REQUEST_FAILURE_STATE_KEY,
     PULL_REQUEST_STATE_KEY,
@@ -41,6 +43,19 @@ from .records import (
     stored_request,
 )
 from .routing import SOURCE_REPOSITORY
+from .server_commit import (
+    DIRECTORY_MODE,
+    REGULAR_FILE_MODE,
+    BaseEntry,
+    BaseTree,
+    CommitIdentity,
+    DocsCommitFailed,
+    ancestor_directories,
+    base_tree,
+    build_commit,
+    publish_ref,
+)
+from .writer_change import WriterChange, WriterChangeRefused, parse_writer_change, writer_change_artifact
 
 logger = structlog.get_logger(__name__)
 
@@ -50,20 +65,11 @@ SECTION_MARKER_PATTERN = re.compile(r"<!-- knowledge-writer-section: ([a-z0-9-]+
 SECTION_LABEL_PREFIX = "knowledge-writer/"
 PULL_REQUESTS_PER_PAGE = 100
 MAX_PULL_REQUEST_PAGES = 20
-COMPARE_FILE_LIMIT = 300
 DRAFT_EVENT = "knowledge_writer draft"
 DRAFT_FILE_PATCH_CHARACTERS = 4_000
 DRAFT_PATCH_BUDGET_CHARACTERS = 60_000
 OPEN_PULL_REQUESTS_OFF = "open_pull_requests_off"
-DraftOutcome = Literal["refused", "logged", "opened", "joined", "reopened_after_close", "failed"]
-
-
-def reported_docs_branches(output: object, docs_repository: str) -> list[str]:
-    return [
-        head["branch"]
-        for head in tasks_facade.read_head_branches(output)
-        if head["repository"] == docs_repository.lower()
-    ]
+DraftOutcome = Literal["refused", "logged", "opened", "failed"]
 
 
 def link_back_block(source_urls: list[str]) -> str:
@@ -93,18 +99,6 @@ def pull_request_body(request: DocsRequest, *, section: str | None) -> str:
     return f"The knowledge writer opened this{requester}.\n\n{link_back_block([request.source_url])}{marker}"
 
 
-def joined_source_comment(request: DocsRequest) -> str:
-    requester = f" for {request.requested_by}" if request.requested_by else ""
-    return f"The knowledge writer added a source to this pull request{requester}:\n\n- {request.source_url}"
-
-
-def refused_push_comment() -> str:
-    return (
-        "This branch did not pass the knowledge writer's checks after its latest run, so the run's source was not added. "
-        "Review the new commits before you merge."
-    )
-
-
 def docs_github(team_id: int, docs_owner: str, *, priority: Priority) -> GitHubIntegration | None:
     for integration in IntegrationManager.github.oauth.list(team_id):
         if str(integration.config.get("account", {}).get("name", "")).lower() == docs_owner.lower():
@@ -119,6 +113,13 @@ def source_repository_github(team_id: int) -> GitHubIntegration | None:
 def github_app_login() -> str | None:
     slug = get_instance_setting("GITHUB_APP_SLUG")
     return f"{slug}[bot]".lower() if slug else None
+
+
+def writer_commit_identity() -> CommitIdentity | None:
+    slug = get_instance_setting("GITHUB_APP_SLUG")
+    if not slug:
+        return None
+    return CommitIdentity(name=f"{slug}[bot]", email=f"{slug}[bot]@users.noreply.github.com")
 
 
 def writer_pull_request(listed: dict, docs_repository: str, app_login: str | None) -> WriterPullRequest | None:
@@ -176,10 +177,6 @@ def open_writer_pull_requests(writer: WriterSettings) -> list[WriterPullRequest]
     return None
 
 
-REFUSAL_WARNING_ATTEMPTS = 3
-REFUSAL_WARNING_BACKOFF_SECONDS = 2
-
-
 class WriterPullRequestFailed(Exception):
     pass
 
@@ -195,7 +192,7 @@ def github_step_failed(step: str, response: dict) -> GitHubStepFailed:
     return GitHubStepFailed(step=step, status_code=status_code if isinstance(status_code, int) else None)
 
 
-def open_or_join_pull_request(task_run_id: UUID, *, team_id: int) -> str | None:
+def open_pull_request_for_run(task_run_id: UUID, *, team_id: int) -> str | None:
     writer = writer_settings()
     if writer is None or writer.team_id != team_id:
         log_skipped_publication(task_run_id, team_id, "unconfigured")
@@ -203,10 +200,6 @@ def open_or_join_pull_request(task_run_id: UUID, *, team_id: int) -> str | None:
     run = tasks_facade.get_task_run(task_run_id, team_id)
     if run is None or run.task_origin_product != tasks_facade.TaskOriginProduct.KNOWLEDGE_WRITER:
         log_skipped_publication(task_run_id, team_id, "not_a_writer_run")
-        return None
-    reported_branches = reported_docs_branches(run.output, writer.docs_repository)
-    if not reported_branches:
-        log_skipped_publication(task_run_id, team_id, "no_docs_branch")
         return None
     published = tasks_facade.read_task_state_entry(run.task_id, team_id, PULL_REQUEST_STATE_KEY)
     if isinstance(published, dict):
@@ -216,7 +209,7 @@ def open_or_join_pull_request(task_run_id: UUID, *, team_id: int) -> str | None:
         log_skipped_publication(task_run_id, team_id, "claim_held")
         return None
     try:
-        return publish_claimed_pull_request(run.task_id, team_id, task_run_id, writer, reported_branches)
+        return publish_claimed_change(run, team_id, writer)
     except Exception:
         record_pull_request_failure(run.task_id, team_id, "github_request_failed")
         raise
@@ -254,9 +247,17 @@ def release_publication_claim(task_id: UUID, team_id: int, task_run_id: UUID) ->
     tasks_facade.update_task_state_entry(task_id, team_id, PUBLICATION_CLAIM_STATE_KEY, release)
 
 
-def publish_claimed_pull_request(
-    task_id: UUID, team_id: int, task_run_id: UUID, writer: WriterSettings, reported_branches: list[str]
-) -> str | None:
+@dataclass(frozen=True)
+class DraftAttempt:
+    request: DocsRequest
+    task_id: UUID
+    task_run_id: UUID
+    team_id: int
+    changed_files: list[dict] = field(default_factory=list)
+
+
+def publish_claimed_change(run: TaskRunDTO, team_id: int, writer: WriterSettings) -> str | None:
+    task_id, task_run_id = run.task_id, run.id
     request = stored_request(tasks_facade.read_task_state_entry(task_id, team_id, REQUEST_STATE_KEY))
     docs_owner, docs_name = writer.docs_repository.split("/", 1)
     github = docs_github(team_id, docs_owner, priority=Priority.CRITICAL)
@@ -264,28 +265,40 @@ def publish_claimed_pull_request(
         logger.warning("knowledge_writer_no_docs_github_integration", team_id=team_id, task_run_id=str(task_run_id))
         record_pull_request_failure(task_id, team_id, "no_github_integration")
         return None
-    joined = tasks_facade.read_task_state_entry(task_id, team_id, JOIN_STATE_KEY)
-    joined_pull_request = pull_request_json.validate_python(joined) if isinstance(joined, dict) else None
-    issued = tasks_facade.read_task_state_entry(task_id, team_id, HEAD_BRANCH_STATE_KEY)
-    head_branch = issued if isinstance(issued, str) and reported_branches == [issued] else None
-    comparison = (
-        comparison_with_default_branch(github, writer.docs_repository, head_branch) if head_branch is not None else {}
-    )
+    draft = DraftAttempt(request=request, task_id=task_id, task_run_id=task_run_id, team_id=team_id)
+    base_sha = tasks_facade.read_task_state_entry(task_id, team_id, BASE_SHA_STATE_KEY)
+    head_branch = tasks_facade.read_task_state_entry(task_id, team_id, HEAD_BRANCH_STATE_KEY)
+    if not isinstance(base_sha, str) or not isinstance(head_branch, str):
+        refuse_draft(draft, "base_not_recorded")
+        return None
+    try:
+        change = read_writer_change(run, team_id)
+    except WriterChangeRefused as refused:
+        refuse_draft(draft, refused.reason)
+        return None
+    if change is None:
+        log_skipped_publication(task_run_id, team_id, "no_writer_change")
+        return None
+    if not change.paths:
+        refuse_draft(draft, "no_changes")
+        return None
+    tree = base_tree(github, writer.docs_repository, base_sha, change.paths)
+    changed_files = changed_files_for(change, tree)
+    if changed_files is None:
+        refuse_draft(draft, "unsafe_base_entry")
+        return None
     draft = DraftAttempt(
-        request=request, task_id=task_id, task_run_id=task_run_id, team_id=team_id, comparison=comparison
+        request=request, task_id=task_id, task_run_id=task_run_id, team_id=team_id, changed_files=changed_files
     )
-    refusal = (
-        "head_branch_not_issued"
-        if head_branch is None
-        else publication_refusal(
-            comparison, docs_folders_for(writer, task_id, team_id), github, writer.docs_repository, head_branch
-        )
+    refusal = publication_refusal(
+        changed_files,
+        docs_folders_for(writer, task_id, team_id),
+        writer.docs_repository,
+        tree.texts,
+        head_texts(change),
     )
-    if head_branch is None or refusal is not None:
-        capture_draft(draft, outcome="refused", refusal=refusal)
-        refuse_publication(task_id, team_id, task_run_id, refusal or "head_branch_not_issued")
-        if joined_pull_request is not None:
-            warn_on_joined_pull_request(github, docs_name, joined_pull_request, team_id, task_run_id)
+    if refusal is not None:
+        refuse_draft(draft, refusal)
         return None
     is_opening_pull_requests = open_pull_requests_flag_state(Team.objects.get(id=team_id))
     if is_opening_pull_requests is None:
@@ -294,16 +307,30 @@ def publish_claimed_pull_request(
         capture_draft(draft, outcome="logged")
         record_pull_request_failure(task_id, team_id, OPEN_PULL_REQUESTS_OFF)
         return None
-    pull_request = (
-        add_source_to_pull_request(github, docs_name, joined_pull_request, request)
-        if joined_pull_request is not None
-        else open_pull_request(github, docs_name, request, head_branch, section=read_section(task_id, team_id))
+    if run.created_at is None:
+        refuse_draft(draft, "run_not_dated")
+        return None
+    author = writer_commit_identity()
+    if author is None:
+        record_pull_request_failure(task_id, team_id, "no_github_app_slug")
+        return None
+    commit_sha = build_commit(
+        github,
+        writer.docs_repository,
+        change,
+        base_sha,
+        author=author,
+        committed_at=run.created_at,
+        message=f"docs: update for {request.source_url}"[:255],
     )
+    if not publish_ref(github, writer.docs_repository, head_branch, commit_sha):
+        refuse_draft(draft, "branch_moved")
+        return None
+    pull_request = open_pull_request(github, docs_name, request, head_branch, section=read_section(task_id, team_id))
     if isinstance(pull_request, GitHubStepFailed):
         capture_draft(draft, outcome="failed", refusal=pull_request.step)
         raise reported_step_failure(pull_request, team_id, task_run_id)
-    publication = publication_kind(joined_pull_request, pull_request)
-    capture_draft(draft, outcome=publication, pull_request_url=pull_request.url)
+    capture_draft(draft, outcome="opened", pull_request_url=pull_request.url)
     stored = pull_request_json.dump_python(pull_request, mode="json")
     tasks_facade.update_task_state_entry(task_id, team_id, PULL_REQUEST_STATE_KEY, replace_entry_with(stored))
     tasks_facade.update_task_state_entry(task_id, team_id, PULL_REQUEST_FAILURE_STATE_KEY, replace_entry_with(None))
@@ -314,18 +341,82 @@ def publish_claimed_pull_request(
         team_id=team_id,
         pull_request_number=pull_request.number,
         section=pull_request.section,
-        publication=publication,
     )
     return pull_request.url
 
 
-@dataclass(frozen=True)
-class DraftAttempt:
-    request: DocsRequest
-    task_id: UUID
-    task_run_id: UUID
-    team_id: int
-    comparison: dict
+def read_writer_change(run: TaskRunDTO, team_id: int) -> WriterChange | None:
+    artifact = writer_change_artifact(run.artifacts)
+    if artifact is None:
+        return None
+    content, _entry, error = tasks_facade.read_task_run_artifact(
+        run.id, run.task_id, team_id, storage_path=artifact["storage_path"]
+    )
+    if content is None:
+        raise DocsCommitFailed(f"knowledge writer could not read its change artifact: {error}")
+    return parse_writer_change(content)
+
+
+def changed_files_for(change: WriterChange, tree: BaseTree) -> list[dict] | None:
+    ancestors = {directory for path in change.paths for directory in ancestor_directories(path) if directory}
+    if any(not is_absent_or_directory(tree.entries.get(directory)) for directory in ancestors):
+        return None
+    head_by_path = head_texts(change)
+    changed_files: list[dict] = []
+    for path in sorted(change.paths):
+        base_entry = tree.entries.get(path)
+        if base_entry is not None and base_entry.mode != REGULAR_FILE_MODE:
+            return None
+        if base_entry is None and path in change.deleted:
+            return None
+        base_text = tree.texts.get(path) if base_entry is not None else ""
+        head_text = head_by_path.get(path) if path in change.written else ""
+        changed_files.append(
+            {
+                "filename": path,
+                "status": file_status(path, change, is_in_base=base_entry is not None),
+                "patch": text_patch(base_text, head_text),
+            }
+        )
+    return changed_files
+
+
+def is_absent_or_directory(entry: BaseEntry | None) -> bool:
+    return entry is None or entry.mode == DIRECTORY_MODE
+
+
+def file_status(path: str, change: WriterChange, *, is_in_base: bool) -> str:
+    if path in change.deleted:
+        return "removed"
+    return "modified" if is_in_base else "added"
+
+
+def head_texts(change: WriterChange) -> dict[str, str | None]:
+    return {path: decoded_text(content) for path, content in change.written.items()}
+
+
+def decoded_text(content: bytes) -> str | None:
+    try:
+        return content.decode("utf-8")
+    except UnicodeDecodeError:
+        return None
+
+
+def text_patch(base_text: str | None, head_text: str | None) -> str | None:
+    if base_text is None or head_text is None:
+        return None
+    hunks = difflib.unified_diff(git_lines(base_text), git_lines(head_text), lineterm="")
+    return "\n".join(list(hunks)[2:])
+
+
+def git_lines(text: str) -> list[str]:
+    lines = text.split("\n")
+    return lines[:-1] if lines[-1] == "" else lines
+
+
+def refuse_draft(draft: DraftAttempt, refusal: str) -> None:
+    capture_draft(draft, outcome="refused", refusal=refusal)
+    refuse_publication(draft.task_id, draft.team_id, draft.task_run_id, refusal)
 
 
 def capture_draft(
@@ -350,8 +441,7 @@ def capture_draft(
             "outcome": outcome,
             "refusal": refusal,
             "pull_request_url": pull_request_url,
-            "files": drafted_files(draft.comparison),
-            "compare_url": draft.comparison.get("html_url"),
+            "files": drafted_files(draft.changed_files),
             "team_id": draft.team_id,
         },
     )
@@ -370,15 +460,10 @@ def capture_writer_event(event: str, *, team_id: int, event_key: str, failure_lo
         logger.warning(failure_log, team_id=team_id, exc_info=True)
 
 
-def drafted_files(comparison: dict) -> list[dict]:
-    changed_files = comparison.get("files")
-    if not isinstance(changed_files, list):
-        return []
+def drafted_files(changed_files: list[dict]) -> list[dict]:
     drafted: list[dict] = []
     remaining_patch_characters = DRAFT_PATCH_BUDGET_CHARACTERS
     for changed_file in changed_files:
-        if not isinstance(changed_file, dict):
-            continue
         patch = changed_file.get("patch")
         kept_patch = (
             patch[: min(DRAFT_FILE_PATCH_CHARACTERS, remaining_patch_characters)] if isinstance(patch, str) else ""
@@ -395,42 +480,9 @@ def drafted_files(comparison: dict) -> list[dict]:
     return drafted
 
 
-def publication_kind(joined_pull_request: WriterPullRequest | None, published: WriterPullRequest) -> DraftOutcome:
-    if joined_pull_request is None:
-        return "opened"
-    if joined_pull_request.number == published.number:
-        return "joined"
-    return "reopened_after_close"
-
-
-def comparison_with_default_branch(github: GitHubIntegration, docs_repository: str, head_branch: str) -> dict:
-    default_branch = github.get_default_branch(docs_repository)
-    # GitHub lists a comparison's changed files on the first page only, capped at COMPARE_FILE_LIMIT.
-    response = github.api_request(
-        "GET",
-        f"/repos/{docs_repository}/compare/{quote(default_branch, safe='/')}...{quote(head_branch, safe='/')}",
-        endpoint="/repos/{owner}/{repo}/compare/{basehead}",
-        params={"per_page": 1, "page": 1},
-    )
-    if response.status_code != 200:
-        raise WriterPullRequestFailed(f"knowledge writer could not compare its docs branch: {response.status_code}")
-    comparison = response.json()
-    return comparison if isinstance(comparison, dict) else {}
-
-
-PAGE_CHANGING_STATUSES = frozenset({"added", "removed", "renamed"})
+PAGE_CHANGING_STATUSES = frozenset({"added", "removed"})
 COMPANION_PATHS = frozenset({"vercel.json", "src/navs/index.js"})
 MAX_COMPANION_PATCH_CHARACTERS = 16_384
-
-
-def changed_paths(changed_file: dict) -> list[str]:
-    return [
-        path for path in (changed_file.get("filename"), changed_file.get("previous_filename")) if isinstance(path, str)
-    ]
-
-
-def is_readable_changed_file(changed_file: object) -> bool:
-    return isinstance(changed_file, dict) and isinstance(changed_file.get("filename"), str)
 
 
 def docs_folders_for(writer: WriterSettings, task_id: UUID, team_id: int) -> tuple[str, ...]:
@@ -442,26 +494,35 @@ def docs_folders_for(writer: WriterSettings, task_id: UUID, team_id: int) -> tup
 
 
 def publication_refusal(
-    comparison: dict,
+    changed_files: list[dict],
     docs_folders: tuple[str, ...],
-    github: GitHubIntegration,
     docs_repository: str,
-    head_branch: str,
+    base_texts: Mapping[str, str | None],
+    head_texts: Mapping[str, str | None],
 ) -> str | None:
-    changed_files = comparison.get("files")
-    commits_ahead = comparison.get("ahead_by")
-    if not isinstance(changed_files, list) or not isinstance(commits_ahead, int):
-        return "comparison_unreadable"
-    if commits_ahead == 0:
-        return "no_changes"
-    if len(changed_files) >= COMPARE_FILE_LIMIT:
-        return "too_many_changed_files"
-    if not all(is_readable_changed_file(changed_file) for changed_file in changed_files):
-        return "comparison_unreadable"
+    outside_docs_refusal = companion_refusal(changed_files, docs_folders, docs_repository, base_texts, head_texts)
+    if outside_docs_refusal is not None:
+        return outside_docs_refusal
+    if not all(is_page_source_or_companion(changed_file["filename"]) for changed_file in changed_files):
+        return "non_page_file"
+    if any(head_text is None for head_text in head_texts.values()):
+        return "non_text_file"
+    return None
+
+
+def is_page_source_or_companion(path: str) -> bool:
+    return path.endswith(DOCS_SOURCE_EXTENSIONS) or path in COMPANION_PATHS
+
+
+def companion_refusal(
+    changed_files: list[dict],
+    docs_folders: tuple[str, ...],
+    docs_repository: str,
+    base_texts: Mapping[str, str | None],
+    head_texts: Mapping[str, str | None],
+) -> str | None:
     companion_files = [
-        changed_file
-        for changed_file in changed_files
-        if not all(is_docs_path(path, docs_folders) for path in changed_paths(changed_file))
+        changed_file for changed_file in changed_files if not is_docs_path(changed_file["filename"], docs_folders)
     ]
     if not companion_files:
         return None
@@ -475,15 +536,10 @@ def publication_refusal(
         is_nav_line(line, page_paths) for changed_file in nav_files for line in changed_lines(changed_file["patch"])
     ):
         return "changed_paths_outside_docs"
-    if not redirect_files:
-        return None
-    base_sha = (comparison.get("merge_base_commit") or {}).get("sha")
-    if not isinstance(base_sha, str):
-        return "comparison_unreadable"
     if not all(
         are_only_page_redirects_changed(
-            read_file_at(github, docs_repository, changed_file["filename"], base_sha),
-            read_file_at(github, docs_repository, changed_file["filename"], head_branch),
+            base_texts.get(changed_file["filename"]),
+            head_texts.get(changed_file["filename"]),
             page_paths,
             docs_url_path,
         )
@@ -502,9 +558,8 @@ def changed_page_keys(changed_files: list[dict], docs_paths: tuple[str, ...]) ->
         page_key
         for changed_file in changed_files
         if changed_file.get("status") in PAGE_CHANGING_STATUSES
-        for path in changed_paths(changed_file)
         for docs_path in docs_paths
-        if (page_key := docs_page_key(path, docs_path)) is not None
+        if (page_key := docs_page_key(changed_file["filename"], docs_path)) is not None
     )
 
 
@@ -520,57 +575,6 @@ def is_listed_companion(changed_file: dict) -> bool:
 
 def changed_lines(patch: str) -> list[str]:
     return [line[1:] for line in patch.split("\n") if line[:1] in ("+", "-")]
-
-
-def read_file_at(github: GitHubIntegration, docs_repository: str, path: str, commit_sha: str) -> str | None:
-    response = github.api_request(
-        "GET",
-        f"/repos/{docs_repository}/contents/{quote(path)}",
-        endpoint="/repos/{owner}/{repo}/contents/{path}",
-        params={"ref": commit_sha},
-        headers={"Accept": "application/vnd.github.raw"},
-    )
-    if response.status_code == 404:
-        return None
-    if response.status_code != 200:
-        raise WriterPullRequestFailed(f"knowledge writer could not read a changed file: {response.status_code}")
-    return response.text
-
-
-def warn_on_joined_pull_request(
-    github: GitHubIntegration, docs_name: str, pull_request: WriterPullRequest, team_id: int, task_run_id: UUID
-) -> None:
-    for attempt in range(REFUSAL_WARNING_ATTEMPTS):
-        time.sleep(REFUSAL_WARNING_BACKOFF_SECONDS * attempt)
-        try:
-            commented = posted_refusal_warning(github, docs_name, pull_request.number)
-        except Exception as error:
-            logger.warning(
-                "knowledge_writer_refusal_warning_failed",
-                task_run_id=str(task_run_id),
-                team_id=team_id,
-                pull_request_number=pull_request.number,
-                error_type=type(error).__name__,
-            )
-            capture_exception(error, {"team_id": team_id, "task_run_id": str(task_run_id)})
-            return
-        if commented.get("success"):
-            return
-        if not is_comment_failure_retryable(commented):
-            break
-    reported_step_failure(github_step_failed("comment_on_pull_request", commented), team_id, task_run_id)
-
-
-def posted_refusal_warning(github: GitHubIntegration, docs_name: str, pull_request_number: int) -> dict:
-    try:
-        return github.comment_on_pull_request(docs_name, pull_request_number, refused_push_comment())
-    except GitHubRateLimitError:
-        return {"success": False, "status_code": 429}
-
-
-def is_comment_failure_retryable(commented: dict) -> bool:
-    status_code = commented.get("status_code")
-    return isinstance(status_code, int) and (status_code == 429 or status_code >= 500)
 
 
 def reported_step_failure(step_failed: GitHubStepFailed, team_id: int, task_run_id: UUID) -> WriterPullRequestFailed:
@@ -654,17 +658,3 @@ def label_pull_request_section(github: GitHubIntegration, docs_name: str, pr_num
             WriterPullRequestFailed("knowledge writer could not label its docs pull request"),
             {"pr_number": pr_number, "section": section, "status_code": labelled.get("status_code")},
         )
-
-
-def add_source_to_pull_request(
-    github: GitHubIntegration, docs_name: str, pull_request: WriterPullRequest, request: DocsRequest
-) -> WriterPullRequest | GitHubStepFailed:
-    current = github.get_pull_request(docs_name, pull_request.number)
-    if not current.get("success"):
-        return github_step_failed("get_pull_request", current)
-    if current.get("state") != "open":
-        return open_pull_request(github, docs_name, request, pull_request.head_branch, section=pull_request.section)
-    commented = github.comment_on_pull_request(docs_name, pull_request.number, joined_source_comment(request))
-    if not commented.get("success"):
-        return github_step_failed("comment_on_pull_request", commented)
-    return pull_request

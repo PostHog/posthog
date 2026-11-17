@@ -11,7 +11,7 @@ from posthog.exceptions_capture import capture_exception
 from products.tasks.backend.facade import api as tasks_facade
 
 from ..settings import WriterSettings
-from .records import JOIN_STATE_KEY, PUBLICATION_CLAIM_STATE_KEY, SECTION_STATE_KEY, is_publication_claim_live
+from .records import PUBLICATION_CLAIM_STATE_KEY, SECTION_STATE_KEY, is_publication_claim_live
 
 logger = structlog.get_logger(__name__)
 
@@ -24,10 +24,6 @@ class WriterCapReached(Exception):
 
 
 class WriterSectionBusy(Exception):
-    pass
-
-
-class WriterRerunTaken(Exception):
     pass
 
 
@@ -68,15 +64,12 @@ def in_flight_writer_runs(writer: WriterSettings) -> InFlightWriterRuns:
         )
     }
     in_flight_task_ids = running_task_ids | publishing_task_ids
-    unpublished_runs = 0
     busy_sections: set[str] = set()
     for task_id in in_flight_task_ids:
-        if tasks_facade.read_task_state_entry(task_id, writer.team_id, JOIN_STATE_KEY) is None:
-            unpublished_runs += 1
         section = tasks_facade.read_task_state_entry(task_id, writer.team_id, SECTION_STATE_KEY)
         if isinstance(section, str) and section:
             busy_sections.add(section)
-    return InFlightWriterRuns(unpublished_runs=unpublished_runs, busy_sections=frozenset(busy_sections))
+    return InFlightWriterRuns(unpublished_runs=len(in_flight_task_ids), busy_sections=frozenset(busy_sections))
 
 
 def claim_section(writer: WriterSettings, section: str) -> None:

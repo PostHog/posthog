@@ -5,26 +5,25 @@ from django.db import IntegrityError
 import structlog
 from pydantic import TypeAdapter, ValidationError
 
+from posthog.egress.limiter.policies import Priority
 from posthog.models.team import Team
 
 from products.tasks.backend.facade import api as tasks_facade
-from products.tasks.backend.facade.contracts import TaskDetailDTO
 
 from ..facade.contracts import AdapterVerdict, IntakeOutcome, InvalidAdapterVerdict
-from ..feature_flags import is_agent_launch_enabled, open_pull_requests_flag_state
-from ..settings import writer_settings
+from ..feature_flags import is_agent_launch_enabled
+from ..settings import WriterSettings, writer_settings
 from .caps import (
     OPEN_PULL_REQUEST_CAP,
-    WriterRerunTaken,
     WriterSectionBusy,
     alert_cap_reached,
     daily_run_cap_reached,
     in_flight_writer_runs,
 )
 from .launch import start_writer
-from .pull_requests import capture_writer_event, open_writer_pull_requests, source_repository_github
-from .records import WriterPullRequest
+from .pull_requests import capture_writer_event, docs_github, open_writer_pull_requests, source_repository_github
 from .routing import route_request
+from .server_commit import docs_branch_head
 
 logger = structlog.get_logger(__name__)
 
@@ -65,7 +64,7 @@ def intake_outcome(verdict: AdapterVerdict, *, team_id: int) -> IntakeOutcome:
     if request is None:
         return IntakeOutcome(status="no_docs")
     existing_task = tasks_facade.get_task_by_origin_key(team_id, request.dedupe_id)
-    if existing_task is not None and not latest_run_failed(existing_task):
+    if existing_task is not None:
         return IntakeOutcome(status="duplicate", task_id=existing_task.id)
     team = Team.objects.get(id=team_id)
     if not is_agent_launch_enabled(team):
@@ -79,46 +78,30 @@ def intake_outcome(verdict: AdapterVerdict, *, team_id: int) -> IntakeOutcome:
     in_flight = in_flight_writer_runs(writer)
     if routing.section and routing.section in in_flight.busy_sections:
         return IntakeOutcome(status="section_busy")
+    base_sha = docs_base_sha(writer)
+    if base_sha is None:
+        return IntakeOutcome(status="unconfigured")
     open_pull_requests = open_writer_pull_requests(writer)
     if open_pull_requests is None:
         alert_cap_reached("open_pull_request_lookup", team_id=team_id, dedupe_id=request.dedupe_id)
         return IntakeOutcome(status="capped")
-    joinable = pull_request_to_join(open_pull_requests, routing.section)
-    is_opening_pull_requests = open_pull_requests_flag_state(team)
-    if joinable is not None and is_opening_pull_requests is None:
-        return IntakeOutcome(status="section_busy")
-    joining = joinable if is_opening_pull_requests else None
-    if joining is None and len(open_pull_requests) + in_flight.unpublished_runs >= OPEN_PULL_REQUEST_CAP:
+    if len(open_pull_requests) + in_flight.unpublished_runs >= OPEN_PULL_REQUEST_CAP:
         alert_cap_reached("open_pull_request", team_id=team_id, dedupe_id=request.dedupe_id)
         return IntakeOutcome(status="capped")
     try:
-        task_id = start_writer(
-            request,
-            routing,
-            team=team,
-            writer=writer,
-            joining=joining,
-            rerun_task_id=existing_task.id if existing_task is not None else None,
-        )
+        task_id = start_writer(request, routing, team=team, writer=writer, base_sha=base_sha)
     except IntegrityError:
         return IntakeOutcome(status="duplicate")
     except WriterSectionBusy:
         return IntakeOutcome(status="section_busy")
-    except (WriterRerunTaken, tasks_facade.TaskDoneError, tasks_facade.TaskRunAlreadyLiveError):
-        return IntakeOutcome(status="duplicate", task_id=existing_task.id if existing_task is not None else None)
-    if joining is not None:
-        return IntakeOutcome(status="joined", task_id=task_id, pull_request_url=joining.url)
     return IntakeOutcome(status="started", task_id=task_id)
 
 
-def pull_request_to_join(open_pull_requests: list[WriterPullRequest], section: str | None) -> WriterPullRequest | None:
-    if not section:
+def docs_base_sha(writer: WriterSettings) -> str | None:
+    github = docs_github(writer.team_id, writer.docs_repository.split("/", 1)[0], priority=Priority.NORMAL)
+    if github is None:
         return None
-    return next((pull_request for pull_request in open_pull_requests if pull_request.section == section), None)
-
-
-def latest_run_failed(task: TaskDetailDTO) -> bool:
-    return task.latest_run is not None and task.latest_run.status == tasks_facade.TaskRunStatus.FAILED
+    return docs_branch_head(github, writer.docs_repository)
 
 
 def capture_verdict(verdict: AdapterVerdict, *, team_id: int) -> None:
