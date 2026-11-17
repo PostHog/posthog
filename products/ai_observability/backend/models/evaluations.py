@@ -352,7 +352,10 @@ def evaluation_saved(sender, instance, created, **kwargs):
     # Defer publishing to workers until the surrounding transaction commits — otherwise
     # workers can fire before the row is visible, especially now that perform_create wraps
     # the save + EvaluationReport create in transaction.atomic(). In auto-commit mode
-    # on_commit fires synchronously, preserving prior behavior.
+    # on_commit fires synchronously, preserving prior behavior. The save has committed by then and workers also
+    # reload on a timer, so a failed publish is logged instead of raised.
     team_id = instance.team_id
     evaluation_id = str(instance.id)
-    transaction.on_commit(lambda: reload_evaluations_on_workers(team_id=team_id, evaluation_ids=[evaluation_id]))
+    transaction.on_commit(
+        lambda: reload_evaluations_on_workers(team_id=team_id, evaluation_ids=[evaluation_id]), robust=True
+    )

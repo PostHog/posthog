@@ -1588,6 +1588,7 @@ class NewAlertDestination:
     event_kinds: tuple[AlertEventKind, ...]
     enabled: bool = True
     legacy_hog_function_ids: tuple[UUID, ...] = ()
+    keeps_legacy_webhook_body: bool = False
 
 
 @frozen
@@ -1601,6 +1602,7 @@ class StoredAlertDestination:
     enabled: bool
     consecutive_failures: int
     legacy_hog_function_ids: tuple[UUID, ...]
+    keeps_legacy_webhook_body: bool = False
 
 
 @frozen
@@ -1617,6 +1619,9 @@ class SourceDestination:
     hog_function_ids: tuple[UUID, ...]
     data: AlertDestinationData
     enabled: bool
+    # For a row whose HogFunctions are gone, the ids it still copies. A client that recorded the
+    # destination by its HogFunction ids, such as Terraform, finds and deletes it by these.
+    retired_hog_function_ids: tuple[UUID, ...] = ()
 
 
 @frozen

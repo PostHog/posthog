@@ -64,8 +64,8 @@ export function getItemId(item: FileSystemImport | FileSystemEntry, protocol = '
     return item.type === 'folder' ? `${root}://${item.path}` : `${root}/${item.id || item.path}`
 }
 
-// A star of one of these is named after a customer's own record, often their email, so telemetry leaves the name out.
-const CUSTOMER_RECORD_SHORTCUT_TYPES: ReadonlySet<string> = new Set(['person', 'group', 'account', 'ticket'])
+// A star of one of these is named after a customer's own record or request data, which can hold an email, so telemetry leaves the name out.
+const CUSTOMER_RECORD_SHORTCUT_TYPES: ReadonlySet<string> = new Set(['person', 'group', 'account', 'ticket', 'trace'])
 
 export function shortcutTelemetryName(type: string | null | undefined, name: string): string | undefined {
     return type && CUSTOMER_RECORD_SHORTCUT_TYPES.has(type) ? undefined : name

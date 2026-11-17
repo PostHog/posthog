@@ -119,6 +119,10 @@ Create an API token from your Jenkins user page under **Configure > API Token**.
         descriptions = {
             "jobs": "Every job in the instance, recursing into Folders and Multibranch Pipelines. Full refresh — jobs carry no creation timestamp to sync incrementally on.",
             "builds": "Per-job build history (number, result, duration, timestamp). Incrementally synced newest-first on the build start time; a build's result and duration won't update once it drops below the watermark.",
+            "nodes": "Current state of every agent and the built-in node: online or offline, idle, executor count, and labels. Full refresh.",
+            "queue_items": "Items waiting in the build queue at sync time, with the reason each one waits. Full refresh, so the table holds the current queue only.",
+            "build_changes": "SCM commits attached to each build (commit ID, author, message, changed paths). Incrementally synced on the build start time, like builds.",
+            "test_reports": "JUnit test report of each finished build: pass, fail, and skip counts plus per-suite and per-case results. Needs the JUnit plugin. Incrementally synced on the build start time.",
         }
 
         def _build_schema(endpoint: str) -> SourceSchema:

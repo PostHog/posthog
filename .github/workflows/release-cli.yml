@@ -896,6 +896,7 @@ jobs:
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               with:
                   name: artifacts-build-local-${{ join(matrix.targets, '_') }}
+                  compression-level: 0
                   path: |
                       ${{ steps.cargo-dist.outputs.paths }}
                       ${{ env.BUILD_MANIFEST_NAME }}

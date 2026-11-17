@@ -39,6 +39,8 @@ AGILECRM_ENDPOINTS: dict[str, AgileCRMEndpointConfig] = {
     # Tracks and their milestones — the lookup that decodes the `milestone` field on every deal.
     # A small, un-paginated list; the cursor paginator ends after the first (short) page.
     "pipelines": AgileCRMEndpointConfig(name="pipelines", path="milestone/pipelines"),
+    # Marketing campaigns. The API calls them workflows; the Agile CRM app calls them campaigns.
+    "campaigns": AgileCRMEndpointConfig(name="campaigns", path="workflows"),
 }
 
 # Help-desk tickets. Listing goes through `tickets/filter`, which requires a saved-filter id; we
@@ -70,7 +72,7 @@ class AgileCRMFanoutConfig:
 
 
 # Fan-out tables: iterate a parent resource, then read each parent's child list. Agile CRM exposes
-# notes and ticket messages only per parent — there is no account-wide list endpoint for them.
+# notes, documents and ticket messages only per parent — there is no account-wide list endpoint for them.
 AGILECRM_FANOUT_ENDPOINTS: dict[str, AgileCRMFanoutConfig] = {
     # Notes attached to contacts.
     "contact_notes": AgileCRMFanoutConfig(
@@ -89,6 +91,16 @@ AGILECRM_FANOUT_ENDPOINTS: dict[str, AgileCRMFanoutConfig] = {
         child_path_template="opportunity/{parent_id}/notes",
         parent_id_field="deal_id",
         primary_keys=["deal_id", "id"],
+    ),
+    # Documents attached to contacts. One document can be linked to several contacts, so it appears
+    # once per contact.
+    "contact_documents": AgileCRMFanoutConfig(
+        name="contact_documents",
+        parent="contacts",
+        parent_path="contacts",
+        child_path_template="documents/contact/{parent_id}/docs",
+        parent_id_field="contact_id",
+        primary_keys=["contact_id", "id"],
     ),
     # The message/note thread inside each ticket.
     "ticket_notes": AgileCRMFanoutConfig(

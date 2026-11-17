@@ -6,12 +6,20 @@ export type ViewportWidthName = 'narrow' | 'medium' | 'wide' | 'superwide'
 export type SupportedBrowserName = 'chromium' | 'webkit' | 'firefox'
 export type SnapshotTheme = 'light' | 'dark'
 
+declare global {
+    interface Window {
+        __STORYBOOK_SCENE_READINESS__?: { storyId: string; instanceId: number; getReadyVersion: () => number | null }
+    }
+}
+
 declare module 'storybook/internal/types' {
     interface Parameters {
         options?: any
         /** @default 'padded' */
         layout?: 'padded' | 'fullscreen' | 'centered'
         testOptions?: {
+            /** Defaults to true. Set false to retain the fixed settle delay while missing content holds are repaired. */
+            waitForSceneReady?: boolean
             /**
              * Whether we should wait for all loading indicators to disappear before taking a snapshot.
              * @default true

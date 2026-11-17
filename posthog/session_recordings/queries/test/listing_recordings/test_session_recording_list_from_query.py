@@ -132,27 +132,6 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             properties={"$session_id": session_id, "$window_id": "1"},
         )
 
-    def test_filters_recommended_recordings_by_surfacing_score(self) -> None:
-        recommended_session_id = str(uuid7())
-        for session_id, surfacing_score in (
-            (recommended_session_id, 0.8),
-            (str(uuid7()), 0.36),
-            (str(uuid7()), 0.2),
-            (str(uuid7()), None),
-        ):
-            produce_replay_summary(
-                distinct_id="user",
-                session_id=session_id,
-                first_timestamp=self.an_hour_ago,
-                team_id=self.team.id,
-                surfacing_score=surfacing_score,
-            )
-
-        self._assert_query_matches_session_ids(
-            {"recommended_only": True},
-            [recommended_session_id],
-        )
-
     @property
     def an_hour_ago(self):
         return (now() - relativedelta(hours=1)).replace(microsecond=0, second=0)
@@ -248,7 +227,6 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             {
                 "session_id": session_id_two,
                 "activity_score": 40.16,
-                "surfacing_score": 0.36,
                 "team_id": self.team.pk,
                 "distinct_id": user,
                 "click_count": 2,
@@ -271,7 +249,6 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             {
                 "session_id": session_id_one,
                 "activity_score": 61.11,
-                "surfacing_score": 0.36,
                 "team_id": self.team.pk,
                 "distinct_id": user,
                 "click_count": 4,
@@ -526,7 +503,6 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
         assert session_recordings == [
             {
                 "activity_score": 40.16,
-                "surfacing_score": 0.36,
                 "session_id": session_id_two,
                 "team_id": self.team.pk,
                 "distinct_id": user,
@@ -557,7 +533,6 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             {
                 "session_id": session_id_one,
                 "activity_score": 61.11,
-                "surfacing_score": 0.36,
                 "team_id": self.team.pk,
                 "distinct_id": user,
                 "click_count": 4,
@@ -2244,7 +2219,6 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
         assert session_recordings == [
             {
                 "activity_score": 0,
-                "surfacing_score": 0.36,
                 "session_id": session_id,
                 "distinct_id": user,
                 "duration": 60,
@@ -5209,7 +5183,6 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             {
                 "active_seconds": 0.0,
                 "activity_score": 0.28,
-                "surfacing_score": 0.36,
                 "click_count": 10,  # in the bug this value was 10 X number of events in the session
                 "console_error_count": 0,
                 "console_log_count": 0,
