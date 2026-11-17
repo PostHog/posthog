@@ -2,10 +2,12 @@
 
 import json
 from collections.abc import Iterable
+from enum import StrEnum
 from typing import Any
 
 from django.core.cache import cache
 from django.db import transaction
+from django.db.models import QuerySet
 from django.db.models.signals import post_save
 from django.dispatch import receiver
 
@@ -39,9 +41,17 @@ logger = structlog.get_logger(__name__)
 
 # Its JSON payload holds the thresholds, for example {"alert_threshold": 0.5, "block_threshold": 0.9}.
 FLAG = "cdp-abuse-classifier"
+# A kill switch for backfill runs, evaluated without a team. Turning it off stops a run before its next function.
+BACKFILL_FLAG = "cdp-abuse-classifier-backfill"
 EVENT = "cdp abuse classification"
 CLASSIFIED_TYPES = frozenset({HogFunctionType.DESTINATION, HogFunctionType.TRANSFORMATION})
 _HASH_TTL_SECONDS = 30 * 24 * 60 * 60
+
+
+class Trigger(StrEnum):
+    SAVE = "save"
+    BACKFILL = "backfill"
+    EVAL = "eval"
 
 
 @frozen
@@ -91,6 +101,19 @@ def shadow_enabled(team: Team, *, only_evaluate_locally: bool = False) -> bool:
         return False
 
 
+def backfill_enabled() -> bool:
+    try:
+        return (
+            posthoganalytics.feature_enabled(
+                BACKFILL_FLAG, BACKFILL_FLAG, only_evaluate_locally=True, send_feature_flag_events=False
+            )
+            is True
+        )
+    except Exception:
+        logger.warning("cdp_abuse_classifier_backfill_flag_check_failed", exc_info=True)
+        return False
+
+
 def thresholds_for(team: Team) -> Thresholds:
     try:
         payload = posthoganalytics.get_feature_flag_payload(FLAG, str(team.uuid), **_flag_targeting(team))
@@ -111,7 +134,7 @@ def _hash_key(hog_function_id: str) -> str:
 def hog_function_saved(
     sender: type[HogFunction], instance: HogFunction, update_fields: Iterable[str] | None = None, **kwargs: object
 ) -> None:
-    if _is_draft_only_save(update_fields) or instance.deleted or instance.type not in CLASSIFIED_TYPES:
+    if _is_draft_only_save(update_fields) or not is_scorable(instance):
         return
     transaction.on_commit(lambda: _queue_if_enabled(instance))
 
@@ -130,15 +153,33 @@ def _queue_if_enabled(hog_function: HogFunction) -> None:
         logger.exception("cdp_abuse_classifier_queue_failed", hog_function_id=str(hog_function.id))
 
 
+def is_scorable(hog_function: HogFunction) -> bool:
+    """Only functions that run are scored. A disabled one is scored when it is enabled."""
+    return hog_function.enabled and not hog_function.deleted and hog_function.type in CLASSIFIED_TYPES
+
+
+def scorable_hog_functions() -> QuerySet[HogFunction]:
+    return HogFunction.objects.select_related("team__organization").filter(
+        enabled=True, deleted=False, type__in=CLASSIFIED_TYPES
+    )
+
+
 def classify_if_due(hog_function: HogFunction) -> None:
     """Score and report a saved function, unless the flag went off or its content was scored since it was queued."""
-    if not shadow_enabled(hog_function.team):
+    if not is_scorable(hog_function) or not shadow_enabled(hog_function.team):
         return
     content = content_of(hog_function, hog_function.template)
     if cache.get(_hash_key(str(hog_function.id))) == content_hash(content):
         metrics.CLASSIFICATIONS.labels(hog_function.type, "none", "skipped_unchanged").inc()
         return
-    report(hog_function, _score(hog_function, content))
+    report(hog_function, _score(hog_function, content), trigger=Trigger.SAVE)
+
+
+def classify_for_backfill(hog_function: HogFunction, run_id: str) -> None:
+    """Score regardless of the team flag and of an unchanged hash. The hash is still recorded."""
+    if not is_scorable(hog_function) or not backfill_enabled():
+        return
+    report(hog_function, score(hog_function), trigger=Trigger.BACKFILL, backfill_run_id=run_id)
 
 
 def score(hog_function: HogFunction) -> ScoredHogFunction:
@@ -160,13 +201,16 @@ def _score(hog_function: HogFunction, content: HogFunctionContent) -> ScoredHogF
     )
 
 
-def report(hog_function: HogFunction, scored: ScoredHogFunction) -> None:
+def report(
+    hog_function: HogFunction, scored: ScoredHogFunction, *, trigger: Trigger, backfill_run_id: str | None = None
+) -> None:
     function_type = hog_function.type or ""
+    run = {"trigger": trigger.value} | ({"backfill_run_id": backfill_run_id} if backfill_run_id else {})
     if scored.verdict is None:
         reason = scored.failure or FailureReason.GATEWAY_ERROR
         metrics.ERRORS.labels(reason.value).inc()
         metrics.CLASSIFICATIONS.labels(function_type, "none", "error").inc()
-        _capture(hog_function, scored, {"error": reason.value})
+        _capture(hog_function, scored, {**run, "error": reason.value})
         return
 
     verdict = scored.verdict
@@ -178,6 +222,7 @@ def report(hog_function: HogFunction, scored: ScoredHogFunction) -> None:
         hog_function,
         scored,
         {
+            **run,
             **{f"score_{question}": probability for question, probability in verdict.scores.items()},
             "risk_score": verdict.risk_score,
             "would_alert": verdict.would_alert,
