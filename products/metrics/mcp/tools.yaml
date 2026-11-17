@@ -164,8 +164,8 @@ tools:
             - chart
             - plot
             - graph
-        feature_flag: mcp-chart-series-tools
         hooks: metrics/seriesMatrixHooks
+        feature_flag: mcp-chart-series-tools
         response:
             include:
                 - results
