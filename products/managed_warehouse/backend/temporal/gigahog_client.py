@@ -30,8 +30,7 @@ _USER_AGENT = "posthog-data-imports-writer"
 _REQUEST_TIMEOUT_SECONDS = 60.0
 _TRANSIENT_ATTEMPTS = 4
 _TRANSIENT_BACKOFF_SECONDS = 1.0
-# A token is renewed this long before it expires, so a request never reaches Gigahog with a token that expires on
-# the way.
+# Renewing early keeps a token from expiring while its request is on the way to Gigahog.
 _TOKEN_RENEWAL_MARGIN_SECONDS = 60.0
 # A server without this capability ignores the `org` of a containment mark and confines the namespace's files to
 # `data/<namespace>/`, which would refuse every file under the imports layout.
@@ -46,7 +45,6 @@ class GigahogConfig:
     token_url: str
     client_id: str
     client_secret: str = field(repr=False)
-    # Off while the writer's token is a tenant token, which Gigahog refuses on the operator-only containment route.
     mark_namespaces: bool = False
 
 

@@ -2942,15 +2942,13 @@ def test_gigahog_copy_activity_lands_under_the_attempt_and_deletes_unpublished_f
 
     assert copy_and_register_ducklake_data_imports_activity(inputs) is published
 
-    kwargs = register.call_args.kwargs
-    assert kwargs["attempt_token"] == "0123456789abcdef0123456789abcdef"
+    [landed] = fake_s3.copy_destinations
     assert re.fullmatch(
-        rf"{re.escape(landing)}/1234567890_abcdef12/0123456789abcdef0123456789abcdef/[0-9a-f]{{16}}",
-        kwargs["landing_uri"],
+        rf"{re.escape(landing.removeprefix('s3://'))}/1234567890_abcdef12/0123456789abcdef0123456789abcdef/[0-9a-f]{{16}}/.+\.parquet",
+        landed,
     )
     assert (fake_s3.keys == source_keys) is not published
 
-    # The replacement leaves no staging tables, so the cleanup finalizer must not fall through to duckgres.
     monkeypatch.setattr(registration_module, "_connect_to_duckgres_for_team", MagicMock(side_effect=AssertionError))
     registration_module.cleanup_ducklake_registration_tables_activity(
         registration_module.DuckLakeRegisterCleanupInputs(
