@@ -267,7 +267,7 @@ def test_plan_windows_reads_windows_as_utc(
 ) -> None:
     config = GeoipBackfillConfig(windows=[IngestionWindowConfig(start=start, end=end) for start, end in windows])
 
-    planned = plan_windows(config, WINDOWS_NOW)
+    planned = plan_windows(config.windows, WINDOWS_NOW)
 
     assert [(window.start, window.end) for window in planned] == expected
 
@@ -285,7 +285,7 @@ def test_plan_windows_rejects_windows_it_cannot_read(windows: list[tuple[str, st
     config = GeoipBackfillConfig(windows=[IngestionWindowConfig(start=start, end=end) for start, end in windows])
 
     with pytest.raises(dagster.Failure):
-        plan_windows(config, WINDOWS_NOW)
+        plan_windows(config.windows, WINDOWS_NOW)
 
 
 def test_window_slices_and_halves_cover_the_window_without_gaps() -> None:
