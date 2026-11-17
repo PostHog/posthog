@@ -3,6 +3,7 @@
 from collections.abc import Mapping
 from datetime import UTC, datetime
 from typing import cast
+from uuid import UUID
 
 import structlog
 from pydantic import JsonValue
@@ -12,11 +13,12 @@ from posthog.schema import HogQLQueryResponse
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.database import Database, get_data_warehouse_table_name
+from posthog.hogql.database.database import Database
 from posthog.hogql.database.models import DatabaseField
 from posthog.hogql.errors import ExposedHogQLError, TableAccessDeniedError
-from posthog.hogql.parser import parse_select
+from posthog.hogql.parser import parse_expr
 from posthog.hogql.query import execute_hogql_query
+from posthog.hogql.visitor import clone_expr
 
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.clickhouse.workload import Workload
@@ -24,11 +26,7 @@ from posthog.dataclasses import frozen
 from posthog.errors import ExposedCHQueryError
 from posthog.models import Team, User
 
-from products.signals.backend.emission.fetchers.data_warehouse import (
-    FILTER_SOURCE_ALIAS,
-    escape_table_name,
-    scope_ids_from_source_config,
-)
+from products.signals.backend.emission.fetchers.data_warehouse import FILTER_SOURCE_ALIAS, scope_ids_from_source_config
 from products.signals.backend.emission.registry import (
     SignalSourceTableConfig,
     get_signal_config,
@@ -39,7 +37,7 @@ from products.signals.backend.filter_expression import FilterExpression, FilterV
 from products.signals.backend.filter_recipes import WarehouseFilterBindings
 from products.signals.backend.models import SignalSourceConfig
 from products.signals.backend.source_filters import SourceFilterPreviewStatus, WritableSource, writable_source
-from products.warehouse_sources.backend.facade.models import ExternalDataSchema
+from products.warehouse_sources.backend.facade import api as warehouse_sources
 
 logger = structlog.get_logger(__name__)
 
@@ -100,6 +98,12 @@ class SourceFilterPreview:
 
 
 @frozen
+class _EmittingSchema:
+    table_id: UUID | None
+    config: SignalSourceTableConfig
+
+
+@frozen
 class _PreviewTable:
     name: str
     config: SignalSourceTableConfig
@@ -133,10 +137,11 @@ def preview_source_filter(
     schemas = _emitting_schemas(team.pk, source_product, source_type)
     if not schemas:
         return outcome(SourceFilterPreviewStatus.NOT_CONNECTED)
+    table_keys = warehouse_sources.all_queryable_table_keys(team.pk)
     tables = [
-        _PreviewTable(name=get_data_warehouse_table_name(schema.source, schema.table.name), config=config)
-        for schema, config in schemas
-        if schema.table is not None
+        _PreviewTable(name=table_keys[schema.table_id].queryable_key, config=schema.config)
+        for schema in schemas
+        if schema.table_id is not None and schema.table_id in table_keys
     ]
     if not tables:
         return outcome(SourceFilterPreviewStatus.NOT_SYNCED)
@@ -173,26 +178,21 @@ def preview_source_filter(
     return _combine(source, previews)
 
 
-def _emitting_schemas(
-    team_id: int, source_product: str, source_type: str
-) -> list[tuple[ExternalDataSchema, SignalSourceTableConfig]]:
-    """The team's synced schemas whose rows become this source's signals, each with its emission config."""
-    schemas = (
-        ExternalDataSchema.objects.filter(
-            team_id=team_id,
-            should_sync=True,
-            source__source_type__in=warehouse_source_types_for(source_product, source_type),
-        )
-        .exclude(deleted=True)
-        .exclude(source__deleted=True)
-        .select_related("source", "table")
-        .order_by("created_at")
-    )
-    matched: list[tuple[ExternalDataSchema, SignalSourceTableConfig]] = []
-    for schema in schemas:
-        config = get_signal_config(schema.source.source_type, schema.name)
-        if config is not None and (config.source_product, config.source_type) == (source_product, source_type):
-            matched.append((schema, config))
+def _emitting_schemas(team_id: int, source_product: str, source_type: str) -> list[_EmittingSchema]:
+    """The team's syncing schemas whose rows become this source's signals, each with its emission config."""
+    warehouse_source_types = warehouse_source_types_for(source_product, source_type)
+    matched: list[_EmittingSchema] = []
+    for warehouse_source in warehouse_sources.list_sources(team_id):
+        if warehouse_source.source_type not in warehouse_source_types:
+            continue
+        for schema in warehouse_sources.list_schemas_for_source(warehouse_source.id, team_id):
+            config = get_signal_config(warehouse_source.source_type, schema.name)
+            if (
+                schema.should_sync
+                and config is not None
+                and (config.source_product, config.source_type) == (source_product, source_type)
+            ):
+                matched.append(_EmittingSchema(table_id=schema.table_id, config=config))
     return matched
 
 
@@ -215,25 +215,43 @@ def _preview_table(
     malformed: ast.Expr = predicate.malformed if predicate is not None else ast.Constant(value=False)
 
     config = table.config
-    where_parts = [f"{config.partition_expression} > now() - interval {PREVIEW_LOOKBACK_DAYS} day"]
-    placeholders: dict[str, ast.Expr] = {"passes": passes, "malformed": malformed}
+    conditions: list[ast.Expr] = [
+        parse_expr(
+            "{created_at} > now() - toIntervalDay({days})",
+            placeholders={
+                "created_at": parse_expr(config.partition_expression),
+                "days": ast.Constant(value=PREVIEW_LOOKBACK_DAYS),
+            },
+        )
+    ]
     if config.where_clause:
-        where_parts.append(config.where_clause)
+        conditions.append(parse_expr(config.where_clause))
     scope_ids = scope_ids_from_source_config(config, source_config)
-    if scope_ids:
-        where_parts.append(f"{config.scope_field} IN {{scope_ids}}")
-        placeholders["scope_ids"] = ast.Tuple(exprs=[ast.Constant(value=scope_id) for scope_id in scope_ids])
-    from_sql = f"{escape_table_name(table.name)} AS {FILTER_SOURCE_ALIAS} WHERE {' AND '.join(where_parts)}"
+    if scope_ids and config.scope_field:
+        conditions.append(
+            parse_expr(
+                "{scope} IN {scope_ids}",
+                placeholders={
+                    "scope": parse_expr(config.scope_field),
+                    "scope_ids": ast.Tuple(exprs=[ast.Constant(value=scope_id) for scope_id in scope_ids]),
+                },
+            )
+        )
+    where = ast.And(exprs=conditions)
 
-    counts = _execute(
-        team,
-        user,
-        database,
-        parse_select(
-            f"SELECT count(), countIf({{passes}}), countIf({{malformed}}) FROM {from_sql}",
-            placeholders=placeholders,
-        ),
+    def source_table() -> ast.JoinExpr:
+        return ast.JoinExpr(table=ast.Field(chain=table.name.split(".")), alias=FILTER_SOURCE_ALIAS)
+
+    counts_query = ast.SelectQuery(
+        select=[
+            ast.Call(name="count", args=[]),
+            ast.Call(name="countIf", args=[clone_expr(passes)]),
+            ast.Call(name="countIf", args=[clone_expr(malformed)]),
+        ],
+        select_from=source_table(),
+        where=clone_expr(where),
     )
+    counts = _execute(team, user, database, counts_query)
     total, passing, malformed_count = counts.results[0] if counts.results else (0, 0, 0)
 
     field_selects = [
@@ -243,32 +261,30 @@ def _preview_table(
             expr=ast.Call(
                 name="if",
                 args=[
-                    projection.invalid,
+                    clone_expr(projection.invalid),
                     ast.Array(exprs=[]) if projection.field.type == "array<string>" else ast.Constant(value=None),
-                    projection.value,
+                    clone_expr(projection.value),
                 ],
             ),
         )
         for name, projection in bindings.projections.items()
     ]
-    samples_query = parse_select(
-        f"""
-        SELECT
-            toString({record_columns.id}),
-            {record_columns.identifier},
-            {record_columns.title},
-            {record_columns.url},
-            {config.partition_expression} AS {_CREATED_AT},
-            {{passes}} AS {_PASSES},
-            {{malformed}} AS {_MALFORMED}
-        FROM {from_sql}
-        ORDER BY {_CREATED_AT} DESC
-        LIMIT {PREVIEW_SAMPLE_LIMIT} BY {_PASSES}
-        """,
-        placeholders=placeholders,
+    samples_query = ast.SelectQuery(
+        select=[
+            ast.Call(name="toString", args=[ast.Field(chain=[record_columns.id])]),
+            ast.Field(chain=[record_columns.identifier]),
+            ast.Field(chain=[record_columns.title]),
+            ast.Field(chain=[record_columns.url]),
+            ast.Alias(alias=_CREATED_AT, expr=parse_expr(config.partition_expression)),
+            ast.Alias(alias=_PASSES, expr=clone_expr(passes)),
+            ast.Alias(alias=_MALFORMED, expr=clone_expr(malformed)),
+            *field_selects,
+        ],
+        select_from=source_table(),
+        where=clone_expr(where),
+        order_by=[ast.OrderExpr(expr=ast.Field(chain=[_CREATED_AT]), order="DESC")],
+        limit_by=ast.LimitByExpr(n=ast.Constant(value=PREVIEW_SAMPLE_LIMIT), exprs=[ast.Field(chain=[_PASSES])]),
     )
-    assert isinstance(samples_query, ast.SelectQuery)
-    samples_query.select = [*samples_query.select, *field_selects]
     samples = _execute(team, user, database, samples_query)
     field_names = list(bindings.projections)
     records = [_record(row, field_names) for row in samples.results or []]
