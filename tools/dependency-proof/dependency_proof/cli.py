@@ -16,7 +16,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from dependency_proof import prove, scan
-from dependency_proof.core import identity
+from dependency_proof.core import conclusion, identity
 from dependency_proof.core.policy import Refused
 
 
@@ -61,6 +61,32 @@ def scan_gate_request(env: Mapping[str, str]) -> scan.GateRequest:
         output_path=env["GITHUB_OUTPUT"],
         summary_path=env.get("GITHUB_STEP_SUMMARY"),
     )
+
+
+def publish_inputs(env: Mapping[str, str]) -> conclusion.PublishInputs:
+    return conclusion.PublishInputs(
+        head_sha=env["HEAD_SHA"],
+        workflow_sha=env["WORKFLOW_SHA"],
+        details_url=env["RUN_URL"],
+        identify_result=env["IDENTIFY_RESULT"],
+        identify_pr=env["IDENTIFY_PR"],
+        identify_merge_base=env["IDENTIFY_MERGE_BASE"],
+        identify_eligible=env["IDENTIFY_ELIGIBLE"],
+        identify_refused=env["IDENTIFY_REFUSED"],
+        prove_result=env["PROVE_RESULT"],
+        prove_files=env["PROVE_FILES"],
+        prove_blobs=env["PROVE_BLOBS"],
+        prove_refused=env["PROVE_REFUSED"],
+        scan_result=env["SCAN_RESULT"],
+        scan_clean=env["SCAN_CLEAN"],
+    )
+
+
+def run_conclude(env: Mapping[str, str]) -> int:
+    """Prints the check run to post, and exits 1 when the update went unproved."""
+    decided = conclusion.conclude(publish_inputs(env))
+    sys.stdout.write(json.dumps(decided.check_run) + "\n")
+    return 1 if decided.unproved else 0
 
 
 def printable(text: str) -> str:
@@ -117,4 +143,6 @@ def main(argv: list[str], env: Mapping[str, str]) -> int:
         return scan.gate(scan_gate_request(env))
     if command in ("identify", "prove"):
         return run_prover(command, env)
+    if command == "conclude":
+        return run_conclude(env)
     raise SystemExit(f"unknown command: {command}")

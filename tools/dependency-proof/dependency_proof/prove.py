@@ -36,6 +36,7 @@ PROVER_FILES = (
     "tools/dependency-proof/dependency_proof/__main__.py",
     "tools/dependency-proof/dependency_proof/cli.py",
     "tools/dependency-proof/dependency_proof/core/__init__.py",
+    "tools/dependency-proof/dependency_proof/core/conclusion.py",
     "tools/dependency-proof/dependency_proof/core/identity.py",
     "tools/dependency-proof/dependency_proof/core/lockfile_yaml.py",
     "tools/dependency-proof/dependency_proof/core/policy.py",

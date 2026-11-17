@@ -233,6 +233,7 @@ def test_an_eligible_update_is_attested_after_a_frozen_replay_of_renovates_comma
             "tools/dependency-proof/dependency_proof/__main__.py": None,
             "tools/dependency-proof/dependency_proof/cli.py": None,
             "tools/dependency-proof/dependency_proof/core/__init__.py": None,
+            "tools/dependency-proof/dependency_proof/core/conclusion.py": None,
             "tools/dependency-proof/dependency_proof/core/identity.py": None,
             "tools/dependency-proof/dependency_proof/core/lockfile_yaml.py": None,
             "tools/dependency-proof/dependency_proof/core/policy.py": None,

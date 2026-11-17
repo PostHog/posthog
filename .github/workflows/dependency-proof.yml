@@ -131,10 +131,8 @@ jobs:
               run: uv run --frozen --project tools/dependency-proof --group scan python -I tools/dependency-proof/dependency_proof/__main__.py scan-gate
 
     # stamphog waits for a completed check on every pull request that changes a dependency file, so
-    # every run posts one. A head with no eligible pull request gets a success that attests nothing.
-    # A refused update gets a neutral check, and the run passes because a refusal is an answer.
-    # A job that fails gets a neutral check too, and the run fails, so only a broken prover shows
-    # up red in the Actions tab.
+    # every run posts one. The `conclude` command in dependency_proof/core/conclusion.py decides the
+    # check run and whether the run fails.
     publish:
         name: Publish the Dependency proof check
         needs: [identify, prove, scan]
@@ -146,6 +144,20 @@ jobs:
         steps:
             # The private mirror skips `identify`, so this job posts no check there. The guard is
             # on the steps because a required-check gate may not skip itself.
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              if: github.repository == 'PostHog/posthog'
+              with:
+                  persist-credentials: false
+                  sparse-checkout: |
+                      tools/dependency-proof
+                      .github/actions/setup-uv
+                  sparse-checkout-cone-mode: false
+
+            - uses: ./.github/actions/setup-uv
+              if: github.repository == 'PostHog/posthog'
+              with:
+                  enable-cache: false
+
             - uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               id: app-token
               if: github.repository == 'PostHog/posthog'
@@ -178,39 +190,16 @@ jobs:
                   if [[ "$REPOSITORY" != "PostHog/posthog" ]]; then
                       exit 0
                   fi
-                  conclusion=neutral
-                  files='[]'
-                  blobs='{}'
-                  if [[ "$IDENTIFY_REFUSED" == "true" || "$PROVE_REFUSED" == "true" ]]; then
-                      title="The dependency update was refused"
-                  elif [[ "$SCAN_RESULT" == "success" && "$SCAN_CLEAN" != "true" ]]; then
-                      title="The dependency scan flagged an added package"
-                  elif [[ "$IDENTIFY_RESULT" == "success" && "$IDENTIFY_ELIGIBLE" == "false" ]]; then
-                      conclusion=success
-                      title="Nothing to attest"
-                  elif [[ "$IDENTIFY_RESULT" == "success" && "$PROVE_RESULT" == "success" && "$SCAN_RESULT" == "success" ]] \
-                      && proved_files="$(jq -ce 'select(type == "array" and length > 0 and all(.[]; type == "string"))' <<< "$PROVE_FILES")" \
-                      && proved_blobs="$(jq -ce 'select(type == "object" and all(.[]; . == null or (type == "string" and test("^[0-9a-f]{40}$"))))' <<< "$PROVE_BLOBS")"; then
-                      conclusion=success
-                      files="$proved_files"
-                      blobs="$proved_blobs"
-                      title="Attested $(jq length <<< "$files") dependency file(s)"
-                  else
-                      unproved=true
-                      title="The dependency update could not be proved"
+                  # `conclude` prints the check run, and exits 1 when the update went unproved.
+                  # Empty output means the command itself broke, so nothing is posted. It runs
+                  # without the App token, which only `gh` needs.
+                  unproved=0
+                  check_run="$(env -u GH_TOKEN uv run --frozen --project tools/dependency-proof \
+                      python -I tools/dependency-proof/dependency_proof/__main__.py conclude)" || unproved=$?
+                  if [[ -z "$check_run" ]]; then
+                      exit 1
                   fi
-                  pr="$IDENTIFY_PR"
-                  merge_base="$IDENTIFY_MERGE_BASE"
-                  [[ "$pr" =~ ^[0-9]+$ ]] || pr=0
-                  [[ "$merge_base" =~ ^[0-9a-f]{40}$ ]] || merge_base=""
-                  marker="$(jq -cn --argjson files "$files" --argjson blobs "$blobs" --argjson pr "$pr" \
-                      --arg head_sha "$HEAD_SHA" --arg merge_base "$merge_base" --arg workflow_sha "$WORKFLOW_SHA" \
-                      '{files: $files, blobs: $blobs, pr: $pr, head_sha: $head_sha, merge_base: $merge_base, workflow_sha: $workflow_sha}')"
-                  jq -n --arg head_sha "$HEAD_SHA" --arg conclusion "$conclusion" --arg details_url "$RUN_URL" \
-                      --arg title "$title" --arg summary "<!-- stamphog:v1 $marker -->" \
-                      '{name: "Dependency proof", head_sha: $head_sha, status: "completed", conclusion: $conclusion,
-                        details_url: $details_url, output: {title: $title, summary: $summary}}' \
-                      | gh api --method POST "repos/$REPOSITORY/check-runs" --input - > /dev/null
+                  gh api --method POST "repos/$REPOSITORY/check-runs" --input - <<< "$check_run" > /dev/null
 
                   if [[ "$IDENTIFY_RESULT" != "success" ]]; then
                       exit 1
@@ -221,4 +210,4 @@ jobs:
                   if [[ "$SCAN_RESULT" != "success" && "$SCAN_RESULT" != "skipped" ]]; then
                       exit 1
                   fi
-                  [[ "${unproved:-false}" == "false" ]]
+                  exit "$unproved"
