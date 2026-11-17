@@ -36,6 +36,7 @@ from products.messaging.backend.provider_imports.base import (
     ImportProvider,
     ImportProviderUnavailable,
     ImportStepSpec,
+    PassedObjects,
     SavedPage,
     StepCheckpoint,
     UnknownImportStep,
@@ -87,6 +88,15 @@ IMPORT_TAG = "imported-from-resend"
 # The label PostHog uses for a sender's MAIL FROM subdomain unless the person picks another.
 MAIL_FROM_DEFAULT = "feedback"
 
+# The Resend MCP renames these config fields, per step type, when it shows an automation.
+_MCP_CONFIG_FIELDS: dict[str, dict[str, str]] = {
+    "trigger": {"eventName": "event_name"},
+    "send_email": {"replyTo": "reply_to"},
+    "wait_for_event": {"eventName": "event_name", "filterRule": "filter_rule"},
+    "contact_update": {"firstName": "first_name", "lastName": "last_name"},
+    "add_to_segment": {"segmentId": "segment_id"},
+}
+
 _SUPPRESSION_ORIGINS: dict[str, tuple[SuppressionSource, str]] = {
     "bounce": (SuppressionSource.BOUNCE, "Imported from Resend (bounced)"),
     "complaint": (SuppressionSource.COMPLAINT, "Imported from Resend (spam complaint)"),
@@ -99,6 +109,13 @@ class ResendImportProvider(ImportProvider):
     label = ImportProviderKey.RESEND.label
     retains_credentials = False
     resumes_after_failure = True
+    passed_steps = {
+        "topics": ("topics",),
+        "templates": ("templates",),
+        "automations": ("automations", "templates", "segments"),
+        "domains": ("domains",),
+    }
+    passed_object_limits = {"topics": 500, "templates": 200, "automations": 200, "segments": 500, "domains": 100}
     feature_flag = "workflows-resend-import"
     api_key_label = "Resend API key"
     api_key_help = (
@@ -239,6 +256,24 @@ class ResendImportProvider(ImportProvider):
                     yield from _fetch_domains(client, context, checkpoint)
                 case _:
                     raise UnknownImportStep(f"Resend has no import step named {step}.")
+
+    def run_passed_step(self, step: str, context: ImportContext, objects: PassedObjects) -> Iterator[ImportPage]:
+        match step:
+            case "topics":
+                rows = objects["topics"]
+                save = partial(_save_topics, context, rows)
+            case "templates":
+                rows = objects["templates"]
+                save = partial(_save_templates, context, rows)
+            case "automations":
+                rows = objects["automations"]
+                save = partial(_save_passed_automations, context, rows, objects["templates"], objects["segments"])
+            case "domains":
+                rows = objects["domains"]
+                save = partial(_save_domains, context, rows)
+            case _:
+                raise UnknownImportStep(f"Resend reads {step} with an API key.")
+        yield ImportPage(processed=len(rows), save=save)
 
 
 @contextmanager
@@ -711,6 +746,61 @@ def _save_automations(
                 )
             )
     return SavedPage(imported=counts["created"], counts=dict(counts), items=tuple(items))
+
+
+def _save_passed_automations(
+    context: ImportContext,
+    automations: list[dict[str, Any]],
+    templates: list[dict[str, Any]],
+    segments: list[dict[str, Any]],
+) -> SavedPage:
+    """Automations as the Resend API or the Resend MCP shows them, with the templates and segments they name."""
+    rest_automations = [_automation_from_mcp(automation) for automation in automations]
+    # A step names its template by id or by alias.
+    templates_by_reference = {
+        str(reference): template
+        for template in templates
+        for reference in (template.get("id"), template.get("alias"))
+        if reference
+    }
+    segment_names = {
+        str(segment["id"]): str(segment.get("name") or segment["id"]) for segment in segments if segment.get("id")
+    }
+    references = {reference for automation in rest_automations for reference in _template_references(automation)}
+    segment_ids = {segment_id for automation in rest_automations for segment_id in _segment_references(automation)}
+    return _save_automations(
+        context,
+        rest_automations,
+        {reference: templates_by_reference.get(reference) for reference in references},
+        {segment_id: segment_names.get(segment_id) for segment_id in segment_ids},
+    )
+
+
+def _automation_from_mcp(automation: dict[str, Any]) -> dict[str, Any]:
+    """The Resend MCP shows an automation's steps as a `workflow` with `next` and `branches`. This turns it back
+    into the API's `steps` and `connections`, and leaves an automation already in that shape as it is."""
+    workflow = automation.get("workflow")
+    if not isinstance(workflow, dict):
+        return automation
+    steps: list[dict[str, Any]] = []
+    connections: list[dict[str, Any]] = []
+    for step in workflow.get("steps") or []:
+        if not isinstance(step, dict):
+            continue
+        config = step.get("config")
+        if isinstance(config, dict):
+            renames = _MCP_CONFIG_FIELDS.get(str(step.get("type")), {})
+            config = {renames.get(field, field): value for field, value in config.items()}
+        steps.append({"key": step.get("key"), "type": step.get("type"), "config": config or {}})
+        branches = step.get("branches")
+        if isinstance(branches, dict):
+            connections.extend(
+                {"from": step.get("key"), "to": target, "type": branch} for branch, target in branches.items() if target
+            )
+        elif step.get("next"):
+            connections.append({"from": step.get("key"), "to": step["next"], "type": "default"})
+    rest = {field: value for field, value in automation.items() if field != "workflow"}
+    return {**rest, "steps": steps, "connections": connections}
 
 
 def _imported_email(template: dict[str, Any], senders: Mapping[str, IntegrationRecord]) -> ImportedEmail:

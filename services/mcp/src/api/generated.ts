@@ -64112,6 +64112,13 @@ export namespace Schemas {
       Resend: 'resend',
     } as const;
 
+    export interface PassedObjectKind {
+      /** The key to send this kind under in `objects`, for example `templates`. */
+      kind: string;
+      /** The most objects of this kind one import takes. */
+      max_count: number;
+    }
+
     export interface ImportStepOption {
       /** Step key to send in `steps` when starting an import, for example `suppressions`. */
       key: string;
@@ -64119,6 +64126,8 @@ export namespace Schemas {
       label: string;
       /** What the step imports and where it lands in PostHog. */
       description: string;
+      /** What an agent can send in `objects` so this step imports without the API key, the step's own kind first. Empty when PostHog always reads this step with the key. */
+      passed_objects: PassedObjectKind[];
     }
 
     export interface ImportProviderOption {
@@ -64223,6 +64232,8 @@ export namespace Schemas {
       warnings_omitted: number;
       /** How many more objects there were than `items` holds. */
       items_omitted: number;
+      /** Whether the step imported objects an agent read from the provider and sent in `objects`, rather than reading them with the API key. */
+      from_objects: boolean;
     }
 
     /**
@@ -119101,6 +119112,13 @@ export namespace Schemas {
       run: StaffWarmRun | null;
     }
 
+    export type StartProviderImportObjectsItem = { [key: string]: unknown };
+
+    /**
+     * Objects an agent read from the provider itself, by kind, for the steps whose `passed_objects` list them in the `providers` endpoint. A step imports from them in this request when its own kind, the first it lists, is sent; send its other kinds too, as an empty list when there are none. Every other step needs `api_key`. For Resend: `topics` as {id, name, description, default_subscription, visibility}; `templates` as {id, name, alias, status, subject, from, reply_to, variables: [{key, type, fallback_value}], html, text}; `automations` as {id, name, status, workflow} with the `workflow` JSON from the Resend MCP's get-automation unchanged; `segments` as {id, name}; `domains` as {id, name, status, records: [{record, type, name, value, ttl, status, priority}]}. All objects together can be at most 5 MB.
+     */
+    export type StartProviderImportObjects = {[key: string]: StartProviderImportObjectsItem[]};
+
     export interface StartProviderImport {
       /** The provider to import from.
        *
@@ -119114,10 +119132,12 @@ export namespace Schemas {
          */
       steps: string[];
       /**
-         * The provider's API key. For Customer.io, an App API key: leave it out to reuse the stored key. For Resend, a full access key: PostHog deletes it when the run ends, so send it every time.
+         * The provider's API key. For Customer.io, an App API key: leave it out to reuse the stored key. For Resend, a full access key: PostHog deletes it when the run ends, so send it every time. Leave it out when every selected step imports from `objects`.
          * @maxLength 512
          */
       api_key?: string;
+      /** Objects an agent read from the provider itself, by kind, for the steps whose `passed_objects` list them in the `providers` endpoint. A step imports from them in this request when its own kind, the first it lists, is sent; send its other kinds too, as an empty list when there are none. Every other step needs `api_key`. For Resend: `topics` as {id, name, description, default_subscription, visibility}; `templates` as {id, name, alias, status, subject, from, reply_to, variables: [{key, type, fallback_value}], html, text}; `automations` as {id, name, status, workflow} with the `workflow` JSON from the Resend MCP's get-automation unchanged; `segments` as {id, name}; `domains` as {id, name, status, records: [{record, type, name, value, ttl, status, priority}]}. All objects together can be at most 5 MB. */
+      objects?: StartProviderImportObjects;
     }
 
     export interface StartTrainingRequest {

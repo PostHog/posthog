@@ -34,12 +34,21 @@ from products.messaging.backend.facade.provider_imports import (
 )
 
 
+class PassedObjectKindSerializer(serializers.Serializer):
+    kind = serializers.CharField(help_text="The key to send this kind under in `objects`, for example `templates`.")
+    max_count = serializers.IntegerField(help_text="The most objects of this kind one import takes.")
+
+
 class ImportStepOptionSerializer(serializers.Serializer):
     key = serializers.CharField(
         help_text="Step key to send in `steps` when starting an import, for example `suppressions`."
     )
     label = serializers.CharField(help_text="Display name of the step.")  # type: ignore[assignment]  # field named `label` shadows DRF Field.label
     description = serializers.CharField(help_text="What the step imports and where it lands in PostHog.")
+    passed_objects = PassedObjectKindSerializer(
+        many=True,
+        help_text="What an agent can send in `objects` so this step imports without the API key, the step's own kind first. Empty when PostHog always reads this step with the key.",
+    )
 
 
 class ImportProviderOptionSerializer(serializers.Serializer):
@@ -113,6 +122,9 @@ class ImportStepProgressSerializer(serializers.Serializer):
     items = ImportStepItemSerializer(many=True, help_text="The objects the step handled, with anything to review.")
     warnings_omitted = serializers.IntegerField(help_text="How many more warnings there were than `warnings` holds.")
     items_omitted = serializers.IntegerField(help_text="How many more objects there were than `items` holds.")
+    from_objects = serializers.BooleanField(
+        help_text="Whether the step imported objects an agent read from the provider and sent in `objects`, rather than reading them with the API key."
+    )
 
 
 class ProviderImportRunSerializer(serializers.Serializer):
@@ -139,7 +151,22 @@ class StartProviderImportSerializer(serializers.Serializer):
         required=False,
         write_only=True,
         max_length=512,
-        help_text="The provider's API key. For Customer.io, an App API key: leave it out to reuse the stored key. For Resend, a full access key: PostHog deletes it when the run ends, so send it every time.",
+        help_text="The provider's API key. For Customer.io, an App API key: leave it out to reuse the stored key. For Resend, a full access key: PostHog deletes it when the run ends, so send it every time. Leave it out when every selected step imports from `objects`.",
+    )
+    objects = serializers.DictField(
+        child=serializers.ListField(child=serializers.DictField()),
+        required=False,
+        help_text=(
+            "Objects an agent read from the provider itself, by kind, for the steps whose `passed_objects` list them "
+            "in the `providers` endpoint. A step imports from them in this request when its own kind, the first it "
+            "lists, is sent; send its other kinds too, as an empty list when there are none. Every other step needs "
+            "`api_key`. For "
+            "Resend: `topics` as {id, name, description, default_subscription, visibility}; `templates` as {id, name, "
+            "alias, status, subject, from, reply_to, variables: [{key, type, fallback_value}], html, text}; "
+            "`automations` as {id, name, status, workflow} with the `workflow` JSON from the Resend MCP's "
+            "get-automation unchanged; `segments` as {id, name}; `domains` as {id, name, status, records: [{record, "
+            "type, name, value, ttl, status, priority}]}. All objects together can be at most 5 MB."
+        ),
     )
 
 
@@ -179,9 +206,12 @@ class ProviderImportViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     @validated_request(
         request_serializer=StartProviderImportSerializer,
         responses={
-            201: OpenApiResponse(response=ProviderImportRunSerializer),
+            201: OpenApiResponse(
+                response=ProviderImportRunSerializer,
+                description="The run. Steps imported from `objects` have already finished.",
+            ),
             400: OpenApiResponse(
-                description="The provider or a step is unknown, or the API key is missing or rejected."
+                description="The provider or a step is unknown, the API key is missing or rejected, or `objects` is missing a kind, names an unknown one or holds too many."
             ),
             409: OpenApiResponse(description="An import from this provider is running, or a different key is stored."),
             503: OpenApiResponse(description="The provider did not respond while checking the API key."),
@@ -204,17 +234,23 @@ class ProviderImportViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 "Importing automations can create cohorts, so this key needs the cohort:write scope. "
                 "Leave out Automations, or use a key that has it."
             )
+        with_objects = "objects" in data
         if data["provider"] not in {provider.key for provider in self._providers()}:
             raise ValidationError(f"Unknown import provider: {data['provider']}.")
         try:
             run = start_provider_import(
-                self.team_id, data["provider"], data["steps"], data.get("api_key"), request.user.id
+                self.team_id,
+                data["provider"],
+                data["steps"],
+                data.get("api_key"),
+                request.user.id,
+                objects=data.get("objects"),
             )
         except ProviderImportRejected as e:
             report_user_action(
                 request.user,
                 "workflows import run",
-                {"source": data["provider"], "stage": "rejected", "dry_run": False},
+                {"source": data["provider"], "stage": "rejected", "dry_run": False, "with_objects": with_objects},
                 team=self.team,
                 request=request,
             )
@@ -227,14 +263,20 @@ class ProviderImportViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         report_user_action(
             request.user,
             "messaging provider import started",
-            {"provider": run.provider, "steps": [step.key for step in run.steps]},
+            {"provider": run.provider, "steps": [step.key for step in run.steps], "with_objects": with_objects},
             team=self.team,
             request=request,
         )
         report_user_action(
             request.user,
             "workflows import run",
-            {"source": run.provider, "stage": "started", "steps": [step.key for step in run.steps], "dry_run": False},
+            {
+                "source": run.provider,
+                "stage": "started",
+                "steps": [step.key for step in run.steps],
+                "dry_run": False,
+                "with_objects": with_objects,
+            },
             team=self.team,
             request=request,
         )

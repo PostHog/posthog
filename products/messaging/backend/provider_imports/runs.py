@@ -3,7 +3,7 @@
 import hmac
 import hashlib
 import logging
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterator, Mapping
 from dataclasses import asdict
 from datetime import timedelta
 from typing import Any
@@ -30,6 +30,7 @@ from products.messaging.backend.provider_imports.base import (
     ImportPage,
     ImportProvider,
     ImportStepError,
+    PassedObjects,
     StepCheckpoint,
 )
 from products.messaging.backend.provider_imports.registry import get_provider
@@ -42,6 +43,8 @@ STALE_RUN_AGE = RUN_EXECUTION_TIMEOUT + timedelta(hours=1)
 MAX_STEP_WARNINGS = 50
 MAX_STEP_ITEMS = 200
 UNEXPECTED_ERROR_MESSAGE = "An unexpected error interrupted this step."
+# Temporal numbers its attempts from 1, so a step run in the request never shares an attempt with the workflow.
+PASSED_STEP_ATTEMPT = 0
 
 
 class ProviderImportAlreadyRunning(Exception):
@@ -67,23 +70,36 @@ class _StepClaim:
 
 
 def start_run(
-    team_id: int, provider_key: str, steps: list[str], api_key: str | None, created_by_id: int | None
+    team_id: int,
+    provider_key: str,
+    steps: list[str],
+    api_key: str | None,
+    created_by_id: int | None,
+    objects: PassedObjects | None = None,
 ) -> ProviderImportRun:
     """Check the credentials, claim a queued run, store the credentials, and start the run's workflow.
 
-    Raises UnknownImportProvider, InvalidImportSteps, ProviderImportAlreadyRunning, the ImportCredentials* errors and
-    ImportProviderUnavailable.
+    With `objects`, the steps the provider imports from them run in this request first, through the same save code
+    as the key, and only the rest need the key and the workflow. A run whose every step imports from them ends
+    before this returns.
+
+    Raises UnknownImportProvider, InvalidImportSteps, InvalidPassedObjects, ProviderImportAlreadyRunning, the
+    ImportCredentials* errors and ImportProviderUnavailable.
     """
     provider = get_provider(provider_key)
     ordered_steps = _order_steps(provider, steps)
+    passed_steps = provider.check_passed_objects(ordered_steps, objects) if objects is not None else []
+    key_steps = [step for step in ordered_steps if step not in passed_steps]
 
     _fail_stale_runs(team_id)
     if _runs(team_id).filter(provider=provider.key, status__in=ACTIVE_IMPORT_STATUSES).exists():
         raise ProviderImportAlreadyRunning(f"A {provider.label} import is already running.")
 
-    credentials = provider.check_credentials(team_id, api_key)
+    credentials = provider.check_credentials(team_id, api_key) if key_steps else None
     progress = {step: _new_step_progress() for step in ordered_steps}
-    if provider.resumes_after_failure:
+    for step in passed_steps:
+        progress[step]["from_objects"] = True
+    if provider.resumes_after_failure and credentials is not None:
         _continue_failed_steps(team_id, provider.key, progress, _key_id(credentials.api_key))
     try:
         with transaction.atomic():
@@ -96,22 +112,53 @@ def start_run(
                 created_by_id=created_by_id,
                 progress=progress,
             )
-            if provider.retains_credentials:
-                run.integration_id = provider.store_credentials(team_id, credentials, created_by_id)
-            else:
-                run.temporary_api_key = credentials.api_key
-            run.save(update_fields=["integration", "temporary_api_key"])
+            if credentials is not None:
+                if provider.retains_credentials:
+                    run.integration_id = provider.store_credentials(team_id, credentials, created_by_id)
+                else:
+                    run.temporary_api_key = credentials.api_key
+                run.save(update_fields=["integration", "temporary_api_key"])
     except IntegrityError as e:
         raise ProviderImportAlreadyRunning(f"A {provider.label} import is already running.") from e
 
+    if objects is not None and passed_steps:
+        _run_passed_steps(team_id, run, provider, passed_steps, objects)
+    if not key_steps:
+        _close_run(team_id, run.id)
+        run.refresh_from_db()
+        return run
+
     try:
-        start_provider_import_workflow(team_id=team_id, run_id=run.id, steps=ordered_steps)
+        start_provider_import_workflow(team_id=team_id, run_id=run.id, steps=key_steps)
     except Exception:
         # A queued run without a workflow would block every later import until it goes stale. If Temporal started
         # the workflow but the response got lost, its steps find the run closed and import nothing.
         _close_run(team_id, run.id)
         raise
+    run.refresh_from_db()
     return run
+
+
+def _run_passed_steps(
+    team_id: int, run: ProviderImportRun, provider: ImportProvider, steps: list[str], objects: PassedObjects
+) -> None:
+    context = ImportContext(team_id=team_id, created_by_id=run.created_by_id, integration_id=run.integration_id)
+    try:
+        for step in steps:
+            _claim_step(team_id, run.id, step, PASSED_STEP_ATTEMPT)
+            try:
+                _save_pages(
+                    team_id, run.id, step, PASSED_STEP_ATTEMPT, provider.run_passed_step(step, context, objects)
+                )
+            except (StaleImportAttempt, ImportRunClosed):
+                raise
+            except Exception:
+                # The step keeps its error and fails when the run ends. The steps after it still run.
+                continue
+    except Exception:
+        # Without a workflow the run would stay active and block the next import until it goes stale.
+        _close_run(team_id, run.id)
+        raise
 
 
 def run_step(team_id: int, run_id: UUID, step: str, attempt: int) -> None:
@@ -132,8 +179,12 @@ def run_step(team_id: int, run_id: UUID, step: str, attempt: int) -> None:
         integration_id=run.integration_id,
         api_key=run.temporary_api_key,
     )
+    _save_pages(team_id, run_id, step, attempt, provider.run_step(step, context, claim.checkpoint))
+
+
+def _save_pages(team_id: int, run_id: UUID, step: str, attempt: int, pages: Iterator[ImportPage]) -> None:
     try:
-        for page in provider.run_step(step, context, claim.checkpoint):
+        for page in pages:
             _save_page(team_id, run_id, step, attempt, page)
             if page.checkpoint is None:
                 return

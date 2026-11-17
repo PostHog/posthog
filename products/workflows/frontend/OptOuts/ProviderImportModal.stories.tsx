@@ -257,6 +257,7 @@ ImportRunning.args = {
                 items: [],
                 warnings_omitted: 0,
                 items_omitted: 0,
+                from_objects: false,
             },
             {
                 key: 'suppressions',
@@ -270,6 +271,7 @@ ImportRunning.args = {
                 items: [],
                 warnings_omitted: 0,
                 items_omitted: 0,
+                from_objects: false,
             },
             {
                 key: 'opt_outs',
@@ -283,6 +285,7 @@ ImportRunning.args = {
                 items: [],
                 warnings_omitted: 0,
                 items_omitted: 0,
+                from_objects: false,
             },
         ]),
     ],
@@ -311,6 +314,7 @@ ImportStepFailed.args = {
                 items: [],
                 warnings_omitted: 0,
                 items_omitted: 0,
+                from_objects: false,
             },
             {
                 key: 'opt_outs',
@@ -324,6 +328,7 @@ ImportStepFailed.args = {
                 items: [],
                 warnings_omitted: 0,
                 items_omitted: 0,
+                from_objects: false,
             },
         ]),
     ],
@@ -402,6 +407,7 @@ ResendFinishedWithNotes.args = {
                     items: [],
                     warnings_omitted: 0,
                     items_omitted: 0,
+                    from_objects: false,
                 },
                 {
                     key: 'templates',
@@ -430,6 +436,7 @@ ResendFinishedWithNotes.args = {
                     ],
                     warnings_omitted: 0,
                     items_omitted: 0,
+                    from_objects: false,
                 },
             ]),
             provider: 'resend',

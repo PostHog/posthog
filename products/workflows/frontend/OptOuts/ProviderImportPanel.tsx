@@ -54,7 +54,7 @@ function ImportRunResult({
                     Some steps failed. Run the import again to retry them. Data that already imported isn't duplicated.
                 </LemonBanner>
             )}
-            {!provider.retains_credentials && (
+            {!provider.retains_credentials && run.steps.some((step) => !step.from_objects) && (
                 <p className="text-sm text-secondary m-0" data-attr={`${provider.key}-import-key-deleted`}>
                     PostHog deleted your API key when the import ended.
                 </p>

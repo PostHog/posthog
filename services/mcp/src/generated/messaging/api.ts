@@ -246,7 +246,13 @@ export const MessagingProviderImportsCreateBody = () => zod.object({
         .max(messagingProviderImportsCreateBodyApiKeyMax)
         .optional()
         .describe(
-            "The provider's API key. For Customer.io, an App API key: leave it out to reuse the stored key. For Resend, a full access key: PostHog deletes it when the run ends, so send it every time."
+            "The provider's API key. For Customer.io, an App API key: leave it out to reuse the stored key. For Resend, a full access key: PostHog deletes it when the run ends, so send it every time. Leave it out when every selected step imports from `objects`."
+        ),
+    objects: zod
+        .record(zod.string(), zod.array(zod.record(zod.string(), zod.unknown())))
+        .optional()
+        .describe(
+            "Objects an agent read from the provider itself, by kind, for the steps whose `passed_objects` list them in the `providers` endpoint. A step imports from them in this request when its own kind, the first it lists, is sent; send its other kinds too, as an empty list when there are none. Every other step needs `api_key`. For Resend: `topics` as {id, name, description, default_subscription, visibility}; `templates` as {id, name, alias, status, subject, from, reply_to, variables: [{key, type, fallback_value}], html, text}; `automations` as {id, name, status, workflow} with the `workflow` JSON from the Resend MCP's get-automation unchanged; `segments` as {id, name}; `domains` as {id, name, status, records: [{record, type, name, value, ttl, status, priority}]}. All objects together can be at most 5 MB."
         ),
 })
 

@@ -124,13 +124,26 @@ tools:
             idempotent: false
         title: Start an import from another email tool
         description: >
-            Start a background import from another email tool, such as Resend, into the active project. Before the first
-            call, tell the user the project's name and id and ask whether the data belongs there. Ask the user to create
-            the API key themselves and treat it as a secret: never repeat it or write it to a file. Pass the step keys
-            from provider-imports-providers. Returns at once with the run. Poll provider-imports-get until `status` is
-            `completed` or `failed`. A second start while a run is active returns 409. Importing again adds what's new
-            and leaves anything changed or deleted in PostHog as it is. Never creates people, and imported drafts never
-            send on their own.
+            Start an import from another email tool, such as Resend, into the active project. Before the first call,
+            tell the user the project's name and id and ask whether the data belongs there. Pass the step keys from
+            provider-imports-providers. When the provider's MCP is connected, read the small data yourself and send
+            it in `objects` for every selected step whose `passed_objects` lists kinds, with all the kinds the step
+            lists: those steps import in this request with PostHog's own conversion. A step whose first kind you leave
+            out reads with the key instead. Copy each value exactly as the provider's MCP shows it into the
+            field names `objects` describes, and send an empty list for a kind that has none. Never put people,
+            contacts or suppressed addresses in `objects`. Steps with no `passed_objects`, such as suppressions and
+            unsubscribes, always need `api_key`, and PostHog reads them itself in the background. For Resend: topics
+            from list-topics; segments from list-segments; templates from get-template for each id list-templates
+            returns; automations from get-automation without an id to list them, then with each id, keeping its
+            `workflow` JSON unchanged; domains from get-domain for each id list-domains returns. Page with `after`
+            until nothing is left. Get the key from the provider's MCP when it can create one: for Resend, call
+            create-api-key with full_access, pass the token as `api_key` without showing or storing it, and call
+            remove-api-key with its id once provider-imports-get shows the run `completed` or `failed`. Otherwise ask
+            the user to put the key where you can read it without pasting it into chat, such as a .env file, or to
+            start the import in PostHog's import window. Returns the run: poll provider-imports-get until `status` is
+            `completed` or `failed`. A second start while a run is active returns 409. Importing again adds what's
+            new and leaves anything changed or deleted in PostHog as it is. Never creates people, and imported drafts
+            never send on their own.
         feature_flag: workflows-resend-import
     provider-imports-get:
         operation: messaging_provider_imports_retrieve
@@ -174,8 +187,8 @@ tools:
         title: List email tools PostHog can import from
         description: >
             List the email tools this project can import from, what each one can bring over (`steps`, with the keys to
-            pass to provider-imports-create), what stays behind (`not_imported`), and what the person does afterward
-            (`next_steps`). `retains_credentials: false` means PostHog deletes the API key when the run ends, so every
+            pass to provider-imports-create and the `passed_objects` you can read through the provider's MCP instead
+            of a key), what stays behind (`not_imported`), and what the person does afterward (`next_steps`). `retains_credentials: false` means PostHog deletes the API key when the run ends, so every
             import needs it again. Load the migrating-from-email-providers skill before you start a move.
         feature_flag: workflows-resend-import
     supabase-auth-emails-settings-get:

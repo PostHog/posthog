@@ -5,16 +5,19 @@ kind of data it can import. It knows nothing about Temporal or run state. `runs.
 together with the step's progress, and resumes a retried step from the last saved checkpoint.
 """
 
+import json
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Iterator, Mapping
 from dataclasses import field
-from typing import ClassVar, Literal
+from typing import Any, ClassVar, Literal
 
 from posthog.dataclasses import frozen
 
 # Where a step continues after a page. Each step defines its own keys. The values are JSON-safe because the
 # checkpoint is stored in the run's `progress`.
 StepCheckpoint = dict[str, str | int]
+PassedObjects = Mapping[str, list[dict[str, Any]]]
+MAX_PASSED_OBJECTS_BYTES = 5 * 1024 * 1024
 
 
 class ImportStepError(Exception):
@@ -39,6 +42,10 @@ class ImportProviderUnavailable(ImportStepError):
 
 class UnknownImportStep(ImportStepError):
     """The provider has no step with this key."""
+
+
+class InvalidPassedObjects(ImportStepError):
+    """Objects an agent passed are missing, unknown or too many. The message says which."""
 
 
 @frozen
@@ -107,6 +114,11 @@ class ImportProvider(ABC):
     steps: ClassVar[tuple[ImportStepSpec, ...]]
     # A provider whose key can do more than read keeps it only on the run, which clears it when it ends.
     retains_credentials: ClassVar[bool] = True
+    # Steps an agent can import from objects it read from the provider, each mapped to the kinds it reads, its own
+    # kind first. Bulk lists such as contacts or suppressions stay on the key: an agent would spend tokens copying
+    # every row that PostHog can page through itself.
+    passed_steps: ClassVar[Mapping[str, tuple[str, ...]]] = {}
+    passed_object_limits: ClassVar[Mapping[str, int]] = {}
     # A new run continues each failed step of the run before it, when a step's checkpoint stays valid between runs.
     resumes_after_failure: ClassVar[bool] = False
     # Hides the provider unless this flag is on for the team.
@@ -138,3 +150,31 @@ class ImportProvider(ABC):
     @abstractmethod
     def run_step(self, step: str, context: ImportContext, checkpoint: StepCheckpoint | None) -> Iterator[ImportPage]:
         """Fetch one step's pages from `checkpoint`, or from the start when it is None, without saving them."""
+
+    def check_passed_objects(self, steps: list[str], objects: PassedObjects) -> list[str]:
+        """Check what an agent passed, and return the selected steps that import from it. Raises InvalidPassedObjects."""
+        if not self.passed_steps:
+            raise InvalidPassedObjects(f"{self.label} imports read everything with an API key.")
+        unknown = sorted(set(objects) - set(self.passed_object_limits))
+        if unknown:
+            raise InvalidPassedObjects(f"{self.label} imports take no objects named {', '.join(unknown)}.")
+        passed = [step for step in steps if step in self.passed_steps and self.passed_steps[step][0] in objects]
+        missing = sorted({kind for step in passed for kind in self.passed_steps[step] if kind not in objects})
+        if missing:
+            raise InvalidPassedObjects(f"Send {', '.join(missing)} too, as an empty list when there are none.")
+        for kind, rows in objects.items():
+            if len(rows) > self.passed_object_limits[kind]:
+                raise InvalidPassedObjects(
+                    f"Send at most {self.passed_object_limits[kind]} {kind}. Leave them out of `objects` so "
+                    "PostHog reads them with the API key."
+                )
+        if len(json.dumps(objects).encode()) > MAX_PASSED_OBJECTS_BYTES:
+            raise InvalidPassedObjects(
+                f"The objects add up to more than {MAX_PASSED_OBJECTS_BYTES // (1024 * 1024)} MB. Import with the "
+                "API key instead."
+            )
+        return passed
+
+    def run_passed_step(self, step: str, context: ImportContext, objects: PassedObjects) -> Iterator[ImportPage]:
+        """The pages `run_step` would yield for these objects, so both paths save the same rows and counts."""
+        raise UnknownImportStep(f"{self.label} reads {step} with an API key.")

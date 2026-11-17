@@ -143,3 +143,42 @@ class TestResendImportFlag(APIBaseTest):
         assert [provider["key"] for provider in providers] == ["customerio"]
         assert response.status_code == 400
         assert "Unknown import provider: resend" in str(response.json())
+
+
+@patch("products.messaging.backend.provider_imports.runs.start_provider_import_workflow")
+@patch("products.messaging.backend.facade.provider_imports.feature_enabled_or_false", return_value=True)
+class TestPassedObjectsAPI(APIBaseTest):
+    @parameterized.expand(
+        [
+            ("too_many", "resend", ["templates"], {"templates": [{"id": "t"}] * 201}, "at most 200 templates"),
+            ("unknown_kind", "resend", ["domains"], {"domains": [], "contacts": []}, "no objects named contacts"),
+            ("missing_kind", "resend", ["automations"], {"automations": [], "templates": []}, "Send segments"),
+            (
+                "no_passed_steps",
+                "customerio",
+                ["suppressions"],
+                {"suppressions": []},
+                "read everything with an API key",
+            ),
+        ]
+    )
+    def test_objects_that_cannot_import_start_nothing(
+        self,
+        _flag: MagicMock,
+        start_workflow: MagicMock,
+        _name: str,
+        provider: str,
+        steps: list[str],
+        objects: dict,
+        expected_detail: str,
+    ) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/messaging_provider_imports/",
+            {"provider": provider, "steps": steps, "objects": objects},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert expected_detail in response.json()["detail"]
+        assert not ProviderImportRun.objects.for_team(self.team.id).exists()
+        start_workflow.assert_not_called()

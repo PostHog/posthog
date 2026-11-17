@@ -15,6 +15,7 @@ from django.utils import timezone
 from parameterized import parameterized
 
 from posthog.integrations import IntegrationManager, IntegrationRecord
+from posthog.models import Team
 
 from products.cdp.backend.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
 from products.cdp.backend.templates.hog_function_template import sync_template_to_db
@@ -39,6 +40,46 @@ from products.workflows.backend.facade.workflows import get_workflow
 FIXTURES = json.loads((Path(__file__).parent / "fixtures" / "resend_account.json").read_text())
 ALL_STEPS = ["topics", "suppressions", "opt_outs", "topic_opt_outs", "templates", "automations", "domains"]
 API_KEY = "re_full_access_key"
+MCP_CONFIG_FIELDS = {
+    "trigger": {"event_name": "eventName"},
+    "send_email": {"reply_to": "replyTo"},
+    "wait_for_event": {"event_name": "eventName", "filter_rule": "filterRule"},
+    "contact_update": {"first_name": "firstName", "last_name": "lastName"},
+    "add_to_segment": {"segment_id": "segmentId"},
+}
+BRANCHES = {"condition": ("condition_met", "condition_not_met"), "wait_for_event": ("event_received", "timeout")}
+
+
+def _as_mcp_automation(automation: dict[str, Any]) -> dict[str, Any]:
+    targets = {(c["from"], c.get("type") or "default"): c["to"] for c in automation["connections"]}
+    steps = []
+    for step in automation["steps"]:
+        renames = MCP_CONFIG_FIELDS.get(step["type"], {})
+        mcp_step = {
+            "key": step["key"],
+            "type": step["type"],
+            "config": {renames.get(k, k): v for k, v in step["config"].items()},
+        }
+        if step["type"] in BRANCHES:
+            mcp_step["branches"] = {branch: targets.get((step["key"], branch)) for branch in BRANCHES[step["type"]]}
+        else:
+            mcp_step["next"] = targets.get((step["key"], "default"))
+        steps.append(mcp_step)
+    return {
+        "id": automation["id"],
+        "name": automation["name"],
+        "status": automation["status"],
+        "workflow": {"steps": steps},
+    }
+
+
+AGENT_OBJECTS = {
+    "topics": FIXTURES["topics"],
+    "templates": FIXTURES["templates"],
+    "automations": [_as_mcp_automation(automation) for automation in FIXTURES["automations"]],
+    "segments": FIXTURES["segments"],
+    "domains": FIXTURES["domains"],
+}
 
 
 def _sync_email_template() -> None:
@@ -113,13 +154,94 @@ class TestResendImport(BaseTest):
         self.addCleanup(patcher.stop)
         return patcher.start()
 
-    def _run(self, steps: list[str] | None = None, api_key: str = API_KEY) -> ProviderImportRun:
-        run = runs.start_run(self.team.id, "resend", steps or ALL_STEPS, api_key, self.user.id)
-        for step in run.steps:
-            runs.run_step(self.team.id, run.id, step, attempt=1)
-        runs.finish_run(self.team.id, run.id)
+    def _run(
+        self,
+        steps: list[str] | None = None,
+        api_key: str | None = API_KEY,
+        objects: dict[str, list[dict[str, Any]]] | None = None,
+        team: Team | None = None,
+    ) -> ProviderImportRun:
+        team_id = (team or self.team).id
+        self.start_workflow.reset_mock()
+        run = runs.start_run(team_id, "resend", steps or ALL_STEPS, api_key, self.user.id, objects)
+        if self.start_workflow.called:
+            for step in self.start_workflow.call_args.kwargs["steps"]:
+                runs.run_step(team_id, run.id, step, attempt=1)
+            runs.finish_run(team_id, run.id)
         run.refresh_from_db()
         return run
+
+    def _imported(self, team: Team, run: ProviderImportRun) -> dict[str, Any]:
+        categories = {
+            str(category.id): category.key
+            for category in MessageCategory.objects.filter(team_id=team.id, deleted=False)
+        }
+        cohorts = {str(cohort.id): cohort.name for cohort in Cohort.objects.filter(team_id=team.id)}
+        workflows = []
+        for item in run.progress["automations"]["items"]:
+            workflow = get_workflow(
+                team_id=team.id, workflow_id=item["url"].split("/")[2], user_access_control=None, required_level=None
+            )
+            actions = cast(list[dict[str, Any]], workflow.actions)
+            for action in actions:
+                cohort_input = action["config"].get("inputs", {}).get("cohort_id")
+                if cohort_input:
+                    cohort_input["value"] = cohorts[str(cohort_input["value"])]
+            workflows.append(json.dumps([workflow.name, workflow.status, actions, workflow.edges], sort_keys=True))
+        return {
+            "categories": sorted(
+                MessageCategory.objects.filter(team_id=team.id).values_list("key", "name", "description")
+            ),
+            "templates": sorted(
+                (template.key, template.name, template.description, json.dumps(template.content, sort_keys=True))
+                for template in MessageTemplate.objects.filter(team_id=team.id)
+            ),
+            "suppressions": sorted(
+                MessageSuppression.objects.for_team(team.id).values_list("identifier", "source", "reason")
+            ),
+            "preferences": sorted(
+                (row.identifier, sorted((categories.get(key, key), value) for key, value in row.preferences.items()))
+                for row in MessageRecipientPreference.objects.filter(team_id=team.id)
+            ),
+            "cohorts": sorted(cohorts.values()),
+            "workflows": sorted(workflows),
+            "progress": {
+                step: {
+                    **{key: run.progress[step][key] for key in ("status", "processed", "imported", "warnings")},
+                    "counts": run.progress[step].get("counts"),
+                    "items": [
+                        (item["label"], item["status"], item["notes"]) for item in run.progress[step].get("items", [])
+                    ],
+                }
+                for step in run.steps
+            },
+        }
+
+    def test_objects_from_the_agent_import_what_the_key_imports(self) -> None:
+        agent_team = Team.objects.create(organization=self.organization, name="Agent import")
+        key_run = self._run()
+        self.resend.calls.clear()
+
+        agent_run = self._run(objects=AGENT_OBJECTS, team=agent_team)
+
+        assert agent_run.status == "completed"
+        assert agent_run.temporary_api_key is None
+        assert self._imported(agent_team, agent_run) == self._imported(self.team, key_run)
+        assert self.start_workflow.call_args.kwargs["steps"] == ["suppressions", "opt_outs", "topic_opt_outs"]
+        # Checking the key lists domains, but nothing reads a domain, template, automation or segment.
+        assert not [
+            call
+            for call in self.resend.calls
+            if call.startswith(("/templates", "/automations", "/segments", "/domains/"))
+        ]
+
+    def test_objects_alone_import_without_a_key_or_a_workflow(self) -> None:
+        run = self._run(["templates", "domains"], api_key=None, objects=AGENT_OBJECTS)
+
+        assert run.status == "completed"
+        assert run.progress["templates"]["imported"] == len(FIXTURES["templates"])
+        self.start_workflow.assert_not_called()
+        assert self.resend.calls == []
 
     def test_suppressions_map_by_origin_and_never_reach_the_global_list(self) -> None:
         MessageSuppression.objects.for_team(self.team.id).create(

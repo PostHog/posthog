@@ -26,6 +26,8 @@ from products.messaging.backend.provider_imports.base import (
     ImportProvider,
     ImportProviderUnavailable,
     ImportStepSpec,
+    InvalidPassedObjects,
+    PassedObjects,
 )
 from products.messaging.backend.provider_imports.registry import PROVIDERS, UnknownImportProvider
 
@@ -49,10 +51,17 @@ class ProviderImportUnavailable(Exception):
 
 
 @frozen
+class PassedObjectKind:
+    kind: str
+    max_count: int
+
+
+@frozen
 class ImportStepOption:
     key: str
     label: str
     description: str
+    passed_objects: tuple[PassedObjectKind, ...] = ()
 
 
 @frozen
@@ -98,6 +107,7 @@ class ImportStepProgress:
     # How many warnings and items didn't fit in the run's stored progress.
     warnings_omitted: int = 0
     items_omitted: int = 0
+    from_objects: bool = False
 
 
 @frozen
@@ -118,7 +128,15 @@ def list_import_providers(team_uuid: str, organization_id: str) -> list[ImportPr
             key=provider.key,
             label=provider.label,
             steps=tuple(
-                ImportStepOption(key=spec.key, label=spec.label, description=spec.description)
+                ImportStepOption(
+                    key=spec.key,
+                    label=spec.label,
+                    description=spec.description,
+                    passed_objects=tuple(
+                        PassedObjectKind(kind=kind, max_count=provider.passed_object_limits[kind])
+                        for kind in provider.passed_steps.get(spec.key, ())
+                    ),
+                )
                 for spec in provider.steps
             ),
             retains_credentials=provider.retains_credentials,
@@ -146,17 +164,29 @@ def _provider_enabled(provider: ImportProvider, team_uuid: str, organization_id:
 
 
 def start_provider_import(
-    team_id: int, provider: str, steps: list[str], api_key: str | None, created_by_id: int | None
+    team_id: int,
+    provider: str,
+    steps: list[str],
+    api_key: str | None,
+    created_by_id: int | None,
+    objects: PassedObjects | None = None,
 ) -> ProviderImportRunState:
-    """Check the credentials and start a background import of the selected steps.
+    """Check the credentials and start a background import of the selected steps. Steps the provider can import
+    from `objects`, which an agent read from the provider itself, run from them before this returns.
 
     Raises ProviderImportRejected for a request that can't work as sent, ProviderImportConflict when an import is
     already running or a different key is stored, and ProviderImportUnavailable when the provider can't check the
     key.
     """
     try:
-        run = runs.start_run(team_id, provider, steps, api_key, created_by_id)
-    except (UnknownImportProvider, runs.InvalidImportSteps, ImportCredentialsMissing, ImportCredentialsInvalid) as e:
+        run = runs.start_run(team_id, provider, steps, api_key, created_by_id, objects)
+    except (
+        UnknownImportProvider,
+        runs.InvalidImportSteps,
+        InvalidPassedObjects,
+        ImportCredentialsMissing,
+        ImportCredentialsInvalid,
+    ) as e:
         raise ProviderImportRejected(_rejection_message(e)) from e
     except (runs.ProviderImportAlreadyRunning, ImportCredentialsConflict) as e:
         raise ProviderImportConflict(str(e)) from e
@@ -219,4 +249,5 @@ def _step_progress(key: str, spec: ImportStepSpec | None, progress: dict[str, An
         ),
         warnings_omitted=progress.get("warnings_omitted", 0),
         items_omitted=progress.get("items_omitted", 0),
+        from_objects=progress.get("from_objects", False),
     )
