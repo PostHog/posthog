@@ -5160,6 +5160,7 @@ class TestSetupGitSigning:
         monkeypatch.setattr(devbox_cli, "signs_with_secure_enclave_key", lambda: secure_enclave)
         monkeypatch.setattr(devbox_cli, "_resolve_local_signing_key", lambda: key)
         monkeypatch.setattr(devbox_cli, "_resolve_local_identity_agent_for_coder", lambda: agent)
+        monkeypatch.setattr(devbox_cli, "_forwarded_agent_socket", lambda: None)
         monkeypatch.setattr(
             devbox_cli,
             "_diagnose_signing_agent",
@@ -5227,6 +5228,52 @@ class TestSetupGitSigning:
         devbox_cli.maybe_configure_git_signing(None)
 
         assert upserts == []
+
+    @pytest.mark.parametrize(
+        "github_keys, expected_upserts",
+        [
+            (
+                [{"id": 1, "title": "Laptop agent key", "key": "ssh-ed25519 AAAAAGENT"}],
+                [(coder.GIT_SIGNING_KEY_SECRET, "ssh-ed25519 AAAAAGENT", coder.GIT_SIGNING_KEY_SECRET)],
+            ),
+            ([{"id": 2, "title": "Other key", "key": "ssh-ed25519 AAAAOTHER"}], []),
+        ],
+        ids=["agent_key_registered_for_signing", "no_matching_signing_key"],
+    )
+    def test_secure_enclave_falls_back_to_an_agent_key_registered_on_github(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        github_keys: list[dict[str, object]],
+        expected_upserts: list[tuple[str, str, str | None]],
+    ) -> None:
+        monkeypatch.setattr(devbox_cli, "user_secret_exists", lambda name: False)
+        self._patch_local_config(monkeypatch, key=None, agent=self.AGENT_SOCKET, secure_enclave=True)
+        monkeypatch.setattr(devbox_cli, "_forwarded_agent_socket", lambda: self.AGENT_SOCKET)
+
+        def fake_run(args: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+            if args[:2] == ["ssh-add", "-L"]:
+                return subprocess.CompletedProcess(args, 0, "ssh-ed25519 AAAAAGENT laptop\nssh-rsa AAAARSA old\n", "")
+            if args[:3] == ["gh", "api", "user"]:
+                return subprocess.CompletedProcess(args, 0, "jane\n", "")
+            raise AssertionError(f"unexpected command: {args}")
+
+        requested: list[str] = []
+        response = MagicMock(status_code=200)
+        response.json.return_value = github_keys
+        monkeypatch.setattr(devbox_cli.subprocess, "run", fake_run)
+        monkeypatch.setattr(devbox_cli.requests, "get", lambda url, **kw: requested.append(url) or response)
+        monkeypatch.setattr(devbox_cli.click, "confirm", lambda *a, **kw: True)
+        upserts: list[tuple[str, str, str | None]] = []
+        monkeypatch.setattr(
+            devbox_cli,
+            "upsert_user_secret",
+            lambda name, value, env_name=None, description=None: upserts.append((name, value, env_name)),
+        )
+
+        devbox_cli.maybe_configure_git_signing(None)
+
+        assert requested == ["https://api.github.com/users/jane/ssh_signing_keys"]
+        assert upserts == expected_upserts
 
     def test_rejects_rsa_keys_per_handbook(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(devbox_cli, "user_secret_exists", lambda name: False)

@@ -23,10 +23,11 @@ from pathlib import Path
 from typing import Any
 
 import click
+import requests
 from hogli import telemetry
 from hogli.manifest import get_manifest
 
-from ..git_signing import DEVBOX_FEEDBACK_HINT, DEVBOX_SIGNING_NOTE, signs_with_secure_enclave_key
+from ..git_signing import DEVBOX_FEEDBACK_HINT, DEVBOX_SIGNING_NOTE, public_key_identity, signs_with_secure_enclave_key
 from ..worktrees import _gitdir_for
 from . import (
     herdr as herdr_app,
@@ -801,6 +802,94 @@ def _diagnose_signing_agent() -> SigningAgentStatus:
     return SigningAgentStatus(True, f"{fingerprint} via {socket_path}")
 
 
+_GITHUB_API_TIMEOUT = 10
+
+
+@dataclass(frozen=True)
+class AgentSigningKey:
+    """A key in the agent forwarded to devboxes that GitHub also lists as a signing key."""
+
+    public_key: str
+    title: str
+    github_login: str
+
+
+def _agent_public_keys(socket_path: str) -> set[str]:
+    listed = subprocess.run(
+        ["ssh-add", "-L"],
+        env={**os.environ, "SSH_AUTH_SOCK": socket_path},
+        capture_output=True,
+        text=True,
+    )
+    if listed.returncode != 0:
+        return set()
+    return {public_key_identity(line) for line in listed.stdout.splitlines() if line.strip()}
+
+
+def _github_login() -> str | None:
+    """Return the GitHub login from an authenticated `gh`, or ask for it."""
+    try:
+        result = subprocess.run(["gh", "api", "user", "--jq", ".login"], capture_output=True, text=True)
+    except OSError:
+        result = None
+    if result is not None and result.returncode == 0 and result.stdout.strip():
+        return result.stdout.strip()
+    login = click.prompt(
+        "  GitHub username, to look up your signing keys (Enter to skip)", default="", show_default=False
+    )
+    return login.strip() or None
+
+
+def _github_signing_keys(login: str) -> list[dict[str, Any]]:
+    url = f"https://api.github.com/users/{urllib.parse.quote(login)}/ssh_signing_keys"
+    try:
+        response = requests.get(url, headers={"Accept": "application/vnd.github+json"}, timeout=_GITHUB_API_TIMEOUT)
+    except requests.RequestException:
+        return []
+    if response.status_code != 200:
+        return []
+    try:
+        payload = response.json()
+    except ValueError:
+        return []
+    if not isinstance(payload, list):
+        return []
+    return [key for key in payload if isinstance(key, dict)]
+
+
+def _find_agent_github_signing_key() -> AgentSigningKey | None:
+    """Find a key that devboxes can sign with: held by the forwarded agent and registered on GitHub for signing."""
+    socket_path = _forwarded_agent_socket()
+    if not socket_path:
+        return None
+    agent_keys = {key for key in _agent_public_keys(socket_path) if not key.startswith("ssh-rsa ")}
+    if not agent_keys:
+        return None
+    login = _github_login()
+    if not login:
+        return None
+    for key in _github_signing_keys(login):
+        identity = public_key_identity(str(key.get("key", "")))
+        if identity in agent_keys:
+            return AgentSigningKey(public_key=identity, title=str(key.get("title") or "untitled"), github_login=login)
+    return None
+
+
+def _offer_agent_signing_key(key: AgentSigningKey) -> bool:
+    """Offer to sign devbox commits with a key from the agent. Returns True when the key was saved."""
+    key_type = key.public_key.split()[0]
+    click.echo(f"  Your SSH agent holds a key that GitHub lists as a signing key for {key.github_login}:")
+    click.echo(f"    {key.title} ({key_type})")
+    click.echo("  This key isn't in the Secure Enclave, and the security team wants Secure Enclave keys for signing.")
+    click.echo("  Use it only until devboxes support Secure Enclave signing.")
+    if not click.confirm("Sign devbox commits with this key?", default=False):
+        return False
+    upsert_user_secret(GIT_SIGNING_KEY_SECRET, key.public_key, env_name=GIT_SIGNING_KEY_SECRET)
+    click.echo(f"  Saved the key as Coder user secret '{GIT_SIGNING_KEY_SECRET}'.")
+    click.echo("  Restart any running devbox (`hogli devbox:restart`) to pick up the new gitconfig.")
+    return True
+
+
 def maybe_configure_git_signing(
     configure_git_signing: bool | None, *, known_secret_names: set[str] | None = None
 ) -> None:
@@ -835,6 +924,9 @@ def maybe_configure_git_signing(
         if already_set:
             lines = DEVBOX_SIGNING_NOTE
         else:
+            agent_key = _find_agent_github_signing_key()
+            if agent_key is not None and _offer_agent_signing_key(agent_key):
+                return
             lines = (
                 "Devbox commits won't be signed, because the forwarded SSH agent can't hold a Secure Enclave key.",
             )
