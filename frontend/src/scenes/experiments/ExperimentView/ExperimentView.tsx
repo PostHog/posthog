@@ -32,6 +32,7 @@ import { RecalculationStatus } from '../MetricsView/shared/RecalculationStatus'
 import { isLegacyExperiment } from '../utils'
 import { ClassicExposures } from './ClassicExposures'
 import { ClassicHypothesis } from './ClassicHypothesis'
+import { ClassicSettingsTab } from './ClassicSettingsTab'
 import { DeletedFlagBanner } from './DeletedFlagBanner'
 import { DistributionModal, DistributionTable } from './DistributionTable'
 import { ExperimentDebugPanel } from './ExperimentExecutionPathComparison'
@@ -201,7 +202,7 @@ export function ExperimentView(): JSX.Element {
                 ),
                 content: <ExperimentHealthTab />,
             },
-            { key: 'settings', label: 'Settings', content: <SettingsTab /> },
+            { key: 'settings', label: 'Settings', content: resultsRedesign ? <SettingsTab /> : <ClassicSettingsTab /> },
             { key: 'code', label: 'Code', content: <CodeTab /> },
             { key: 'variants', label: 'Variants', content: <VariantsTab /> },
             { key: 'recordings', label: 'Recordings', content: <ExperimentReplayTab experiment={experiment} /> },
