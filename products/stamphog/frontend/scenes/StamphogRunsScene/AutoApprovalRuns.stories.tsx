@@ -1,11 +1,12 @@
 import type { Meta, StoryObj } from '@storybook/react'
+import { combineUrl } from 'kea-router'
 
-import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
 
 import type { ReviewRunApi, CodeReviewApprovalRepositoryApi } from '../../generated/api.schemas'
+import { AutoApprovalRuns } from './AutoApprovalRuns'
 
 const repoConfigs = {
     count: 2,
@@ -151,13 +152,13 @@ const reviewRuns = {
 }
 
 const meta: Meta = {
-    component: App,
-    title: 'Scenes-App/Stamphog/Runs',
+    component: AutoApprovalRuns,
+    title: 'Scenes-App/Code review/Auto-approval runs',
     parameters: {
-        layout: 'fullscreen',
+        layout: 'padded',
         viewMode: 'story',
         mockDate: '2026-08-17 23:30:00',
-        pageUrl: urls.stamphogRuns(),
+        pageUrl: combineUrl(urls.codeReview(), { activity: 'auto_approvals' }).url,
         testOptions: { waitForSelector: '[data-attr="stamphog-runs-trigger-filter"]' },
     },
     decorators: [
@@ -171,7 +172,7 @@ const meta: Meta = {
 }
 export default meta
 
-// Every lifecycle state stamphog can leave behind: approved, gate-blocked, failed, superseded,
+// Every lifecycle state auto-approval can leave behind: approved, gate-blocked, failed, superseded,
 // still reviewing, and escalated to a human.
 export const RunsList: StoryObj = {}
 

@@ -3,7 +3,6 @@ import { within } from '@testing-library/dom'
 import userEvent from '@testing-library/user-event'
 import { combineUrl } from 'kea-router'
 
-import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
@@ -16,6 +15,7 @@ import type {
     CodeReviewApprovalRoutingRunDetailApi,
     CodeReviewApprovalRoutingRunOwnerApi,
 } from '../../generated/api.schemas'
+import { TeamChanges } from './TeamChanges'
 
 const file = (path: string, additions: number, deletions = 0): CodeReviewApprovalRoutingFileApi => ({
     path,
@@ -262,20 +262,20 @@ const storybookSplitDetail = {
 } as CodeReviewApprovalRoutingRunDetailApi
 
 const meta: Meta = {
-    component: App,
-    title: 'Scenes-App/Stamphog/Your area',
+    component: TeamChanges,
+    title: 'Scenes-App/Code review/Team changes',
     parameters: {
-        layout: 'fullscreen',
+        layout: 'padded',
         viewMode: 'story',
         mockDate: '2026-08-17 23:30:00',
-        // A single scene with no shared component, so the stories render in CI without a visual baseline.
+        // A single tab with no shared component, so the stories render in CI without a visual baseline.
         testOptions: { snapshotBrowsers: [] },
     },
 }
 export default meta
 
 const story = (team: string | null, response: PaginatedCodeReviewApprovalRoutingRunListApi): StoryObj => ({
-    parameters: { pageUrl: combineUrl(urls.stamphogArea(), team ? { team } : {}).url },
+    parameters: { pageUrl: combineUrl(urls.codeReview('team_changes'), team ? { team } : {}).url },
     decorators: [
         mswDecorator({
             get: {
@@ -288,7 +288,7 @@ const story = (team: string | null, response: PaginatedCodeReviewApprovalRouting
     ],
 })
 
-// Every group, from the pull requests that need a look to small parts of other teams' changes.
+// Every group, from the pull requests that need attention to small parts of other teams' changes.
 export const AllGroups: StoryObj = story('team-devex', page(runs))
 
 // The storybook split opened: the files team-devex owns, and why the team was not asked.

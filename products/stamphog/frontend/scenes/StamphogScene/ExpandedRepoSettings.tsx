@@ -1,27 +1,25 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonDivider, LemonSelect, LemonSwitch, Tooltip } from '@posthog/lemon-ui'
+import { IconCheckCircle, IconWarning } from '@posthog/icons'
+import { LemonSwitch, Spinner } from '@posthog/lemon-ui'
 
-import { EditableField } from 'lib/components/EditableField/EditableField'
+import { TZLabel } from 'lib/components/TZLabel'
 import { toAccessControlLevel } from 'lib/utils/accessControlUtils'
 
 import {
     OwnersFileStatusEnumApi,
-    ReviewModeEnumApi,
     RoutingModeEnumApi,
     type CodeReviewApprovalRepositoryApi,
 } from '../../generated/api.schemas'
-import { REVIEW_MODE_LABELS } from '../../reviewModeLabels'
-import { editorDisabledReason, managerDisabledReason } from './repoAccess'
-import { ReviewerRequestSettings } from './ReviewerRequestSettings'
-import { stamphogSceneLogic } from './stamphogSceneLogic'
+import { editorDisabledReason } from './repoAccess'
+import { type OwnersFileCheck, stamphogSceneLogic } from './stamphogSceneLogic'
 
-const REVIEWER_REQUESTS_DESCRIPTION =
-    'Asks the code owners in owners.yaml to review. Owners with a trivial part of the change are left out, and a comment on the pull request says why.'
-
-const REVIEWER_REQUESTS_MODE_DESCRIPTION: Partial<Record<RoutingModeEnumApi, string>> = {
-    [RoutingModeEnumApi.Fallback]: 'After a Stamphog approval, only the owners of sensitive and new paths are asked.',
-    [RoutingModeEnumApi.Always]: 'Owners are asked as soon as a pull request is ready for review.',
+const REVIEWER_REQUESTS_DESCRIPTION: Record<RoutingModeEnumApi, string> = {
+    [RoutingModeEnumApi.Off]:
+        'Reviewer requests ask the code owners in owners.yaml to review. Owners with a trivial part of the change are left out, and a comment on the pull request says why.',
+    [RoutingModeEnumApi.Fallback]:
+        'Code owners are asked when auto-approval does not approve. After an approval, only the owners of sensitive and new paths are asked.',
+    [RoutingModeEnumApi.Always]: 'Code owners are asked as soon as a pull request is ready for review.',
 }
 
 function Section({
@@ -34,112 +32,58 @@ function Section({
     children: React.ReactNode
 }): JSX.Element {
     return (
-        <section className="flex flex-col gap-2 min-w-0">
-            <h5 className="text-muted mb-0">{title}</h5>
+        <section className="flex min-w-0 flex-col gap-2">
+            <h5 className="mb-0 text-muted">{title}</h5>
             {children}
-            <p className="text-secondary text-xs m-0">{description}</p>
+            <p className="m-0 text-xs text-secondary">{description}</p>
         </section>
     )
 }
 
-function TriggerSettings({
-    repo,
-    updatingReason,
-}: {
-    repo: CodeReviewApprovalRepositoryApi
-    updatingReason?: string
-}): JSX.Element {
-    const { triggerLabelFieldResets, savingTriggerLabelRepoIds } = useValues(stamphogSceneLogic)
-    const { updateRepoConfig, triggerLabelEditStarted, resetTriggerLabelField } = useActions(stamphogSceneLogic)
-    const accessReason = managerDisabledReason(toAccessControlLevel(repo.user_access_level))
-    // Only the access level and the label's own save lock the label. An update elsewhere in the row
-    // must not swap the editor out and drop its draft.
-    const labelReadOnlyReason =
-        accessReason ?? (savingTriggerLabelRepoIds.includes(repo.id) ? 'Saving the label' : null)
-    const disabledReason = accessReason ?? updatingReason
-
-    const saveTriggerLabel = (value: string): void => {
-        const trimmed = value.trim()
-        // Save only real changes. A save with no edit must not re-PATCH, and the API rejects a blank label.
-        if (trimmed && trimmed !== repo.trigger_label) {
-            updateRepoConfig(repo.id, { trigger_label: trimmed })
-            return
-        }
-        resetTriggerLabelField(repo.id)
+function OwnersFileState({ ownersFile }: { ownersFile: OwnersFileCheck | undefined }): JSX.Element {
+    switch (ownersFile) {
+        case OwnersFileStatusEnumApi.Found:
+            return (
+                <span className="flex items-center gap-1 text-sm text-success" data-attr="stamphog-owners-file-found">
+                    <IconCheckCircle />
+                    owners.yaml found
+                </span>
+            )
+        case OwnersFileStatusEnumApi.Missing:
+            return (
+                <span className="flex items-center gap-1 text-sm text-warning">
+                    <IconWarning />
+                    No owners.yaml on the default branch, so nobody gets a review request.
+                </span>
+            )
+        case OwnersFileStatusEnumApi.Unavailable:
+            return (
+                <span className="text-sm text-secondary">Couldn't check for owners.yaml. Reopen the row to retry.</span>
+            )
+        default:
+            return (
+                <span className="flex items-center gap-1 text-sm text-secondary">
+                    <Spinner />
+                    Checking for owners.yaml
+                </span>
+            )
     }
-
-    return (
-        <div className="flex flex-wrap items-center gap-2">
-            <LemonSelect
-                size="small"
-                value={repo.review_mode ?? ReviewModeEnumApi.Label}
-                disabledReason={disabledReason}
-                onChange={(mode) => updateRepoConfig(repo.id, { review_mode: mode })}
-                options={[
-                    { value: ReviewModeEnumApi.All, label: REVIEW_MODE_LABELS[ReviewModeEnumApi.All] },
-                    { value: ReviewModeEnumApi.Label, label: REVIEW_MODE_LABELS[ReviewModeEnumApi.Label] },
-                ]}
-                data-attr="stamphog-repo-review-mode"
-            />
-            {repo.review_mode === ReviewModeEnumApi.Label &&
-                // EditableField has no disabled state, so a locked label reads as text.
-                (labelReadOnlyReason ? (
-                    <Tooltip title={labelReadOnlyReason}>
-                        <span className="font-mono text-xs" data-attr="stamphog-repo-trigger-label">
-                            {repo.trigger_label}
-                        </span>
-                    </Tooltip>
-                ) : (
-                    // A changed label silently stops reviews on pull requests that carry the old one, so a
-                    // change takes the pencil and an explicit save, never a stray blur.
-                    <EditableField
-                        key={triggerLabelFieldResets[repo.id] ?? 0}
-                        name="trigger_label"
-                        value={repo.trigger_label ?? ''}
-                        placeholder="Trigger label"
-                        minLength={1}
-                        compactButtons
-                        onModeToggle={(mode) => {
-                            if (mode === 'edit') {
-                                triggerLabelEditStarted(repo.id)
-                            }
-                        }}
-                        onSave={saveTriggerLabel}
-                        className="font-mono text-xs"
-                        data-attr="stamphog-repo-trigger-label"
-                    />
-                ))}
-        </div>
-    )
 }
 
+/** The settings of a repository that do not fit its row: the digest, the owners.yaml check, and when it was added. */
 export function ExpandedRepoSettings({ repo }: { repo: CodeReviewApprovalRepositoryApi }): JSX.Element {
     const { updatingRepoIds, ownersFileChecks } = useValues(stamphogSceneLogic)
     const { updateRepoConfig } = useActions(stamphogSceneLogic)
     const level = toAccessControlLevel(repo.user_access_level)
-    const updatingReason = updatingRepoIds.includes(repo.id) ? 'Updating' : undefined
-    const ownersFile = ownersFileChecks[repo.id]
+    const updatingReason = updatingRepoIds.includes(repo.id) ? 'Saving…' : undefined
     const routingMode = repo.routing_mode ?? RoutingModeEnumApi.Off
-    // Requests read every owner from owners.yaml, so a repository without one is not offered them. A repository
-    // that has them on keeps the setting in view, so it can be turned off.
-    const showReviewerRequests = routingMode !== RoutingModeEnumApi.Off || ownersFile === OwnersFileStatusEnumApi.Found
 
     return (
-        <div className="@container pl-2 pr-4 py-4">
-            <div className="grid grid-cols-1 @2xl:grid-cols-3 gap-x-8 gap-y-6">
-                <Section
-                    title="Triggers"
-                    description={
-                        repo.review_mode === ReviewModeEnumApi.Label
-                            ? 'Stamphog reviews a pull request once someone adds this label.'
-                            : 'Stamphog reviews every pull request that is ready for review.'
-                    }
-                >
-                    <TriggerSettings repo={repo} updatingReason={updatingReason} />
-                </Section>
+        <div className="@container py-4 pr-4 pl-2">
+            <div className="grid grid-cols-1 gap-x-8 gap-y-6 @2xl:grid-cols-3">
                 <Section
                     title="Daily digest"
-                    description="Posts the merged pull requests that Stamphog approved to Slack once a day."
+                    description="Posts the merged pull requests that auto-approval approved to Slack once a day."
                 >
                     <LemonSwitch
                         label="Include in the digest"
@@ -147,53 +91,21 @@ export function ExpandedRepoSettings({ repo }: { repo: CodeReviewApprovalReposit
                         // The API refuses a digest without reviews, because the digest lists only approved merges.
                         disabledReason={
                             editorDisabledReason(level) ??
-                            (repo.enabled ? updatingReason : 'Turn reviews on to include this repository in the digest')
+                            (repo.enabled ? updatingReason : 'Pick an Approve option other than Paused first')
                         }
                         onChange={(checked) => updateRepoConfig(repo.id, { digest_enabled: checked })}
                         data-attr="stamphog-repo-digest-toggle"
                     />
                 </Section>
-                <Section
-                    title="Reviews"
-                    description="Pausing also takes the repository out of the digest. The trigger settings stay."
-                >
-                    <LemonSwitch
-                        label="Review pull requests"
-                        checked={repo.enabled}
-                        // Pausing undoes a review decision, so it takes a higher level than turning reviews on.
-                        disabledReason={
-                            (repo.enabled ? managerDisabledReason(level) : editorDisabledReason(level)) ??
-                            updatingReason
-                        }
-                        onChange={(checked) => updateRepoConfig(repo.id, { enabled: checked })}
-                        data-attr="stamphog-repo-reviews-toggle"
-                    />
+                <Section title="Reviewer requests" description={REVIEWER_REQUESTS_DESCRIPTION[routingMode]}>
+                    <OwnersFileState ownersFile={ownersFileChecks[repo.id]} />
+                </Section>
+                <Section title="Added" description="When this repository was added to auto-approval.">
+                    <span className="text-sm">
+                        <TZLabel time={repo.created_at} />
+                    </span>
                 </Section>
             </div>
-            {showReviewerRequests && (
-                <>
-                    <LemonDivider className="my-4" />
-                    <div className="grid grid-cols-1 @2xl:grid-cols-3 gap-x-8">
-                        <div className="@2xl:col-span-2">
-                            <Section
-                                title="Reviewer requests"
-                                description={[
-                                    REVIEWER_REQUESTS_DESCRIPTION,
-                                    REVIEWER_REQUESTS_MODE_DESCRIPTION[routingMode],
-                                ]
-                                    .filter(Boolean)
-                                    .join(' ')}
-                            >
-                                <ReviewerRequestSettings
-                                    repo={repo}
-                                    ownersFile={ownersFile}
-                                    updatingReason={updatingReason}
-                                />
-                            </Section>
-                        </div>
-                    </div>
-                </>
-            )}
         </div>
     )
 }

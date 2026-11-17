@@ -496,6 +496,22 @@ describe('reviewHogSettingsLogic', () => {
 
         logic.actions.setActiveTab('settings')
         expect(router.values.searchParams.tab).toBe('settings')
+
+        router.actions.push(urls.codeReview(), { tab: 'team_changes' })
+        expect(logic.values.activeTab).toBe('team_changes')
+
+        router.actions.push(urls.codeReview(), { activity: 'auto_approvals' })
+        expect(logic.values.activeTab).toBe('activity')
+        expect(logic.values.activityView).toBe('auto_approvals')
+        logic.actions.setActivityView('reviews')
+        expect(router.values.searchParams.activity).toBeUndefined()
+
+        // The GitHub App callback keeps its path and its params, because the Auto-approval area on
+        // the Settings tab reads them to finish the connection.
+        router.actions.push(urls.stamphogCallback(), { code: 'example-code', state: 'example-state' })
+        expect(logic.values.activeTab).toBe('settings')
+        expect(router.values.location.pathname).toContain(urls.stamphogCallback())
+        expect(router.values.searchParams.code).toBe('example-code')
     })
 
     it('closes a deep-linked drawer when the review fails to load', async () => {

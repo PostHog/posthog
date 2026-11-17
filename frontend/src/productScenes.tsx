@@ -187,9 +187,6 @@ export const productScenes: Record<string, () => Promise<any>> = {
     CommunitySkills: () => import('../../products/skills/frontend/CommunitySkillsScene'),
     SlackAppWorkspaceSetup: () =>
         import('../../products/slack_app/frontend/workspace-setup/SlackAppWorkspaceSetupScene'),
-    Stamphog: () => import('../../products/stamphog/frontend/scenes/StamphogScene/StamphogScene'),
-    StamphogRuns: () => import('../../products/stamphog/frontend/scenes/StamphogRunsScene/StamphogRunsScene'),
-    StamphogArea: () => import('../../products/stamphog/frontend/scenes/StamphogAreaScene/StamphogAreaScene'),
     StreamlitApps: () => import('../../products/streamlit_apps/frontend/StreamlitApps'),
     StreamlitApp: () => import('../../products/streamlit_apps/frontend/StreamlitApp'),
     StreamlitAppEdit: () => import('../../products/streamlit_apps/frontend/StreamlitAppEdit'),

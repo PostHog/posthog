@@ -19,7 +19,7 @@ export const manifest: ProductManifest = {
         '/code-review': ['CodeReview', 'codeReview'],
     },
     urls: {
-        codeReview: (): string => '/code-review',
+        codeReview: (tab?: 'settings' | 'team_changes'): string => (tab ? `/code-review?tab=${tab}` : '/code-review'),
     },
     treeItemsProducts: [
         {

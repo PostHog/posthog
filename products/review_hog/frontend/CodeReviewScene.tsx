@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { Suspense, lazy } from 'react'
 
 import { IconChevronDown, IconExternal } from '@posthog/icons'
 import {
@@ -22,6 +23,7 @@ import { LemonDrawer } from 'lib/lemon-ui/LemonDrawer'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { retryImport } from 'lib/utils/retryImport'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -45,14 +47,38 @@ import {
 import { AdoptSkillModal } from './AdoptSkillModal'
 import { PipelineDetailModal } from './PipelineDetailModal'
 import { reviewTitle } from './reviewDisplay'
-import { CodeReviewTab, ReviewDrawerTab, reviewHogSettingsLogic } from './reviewHogSettingsLogic'
+import { ActivityView, CodeReviewTab, ReviewDrawerTab, reviewHogSettingsLogic } from './reviewHogSettingsLogic'
 import { ReviewModeTag } from './ReviewModeTag'
 import { ReviewsFilters } from './ReviewsFilters'
 import { ReviewsTable } from './ReviewsTable'
+import { AUTO_APPROVAL_AREA_ID } from './settings/autoApprovalAnchor'
 import { DeepArea } from './settings/DeepArea'
 import { InboxSection } from './settings/InboxSection'
 import { StandardArea } from './settings/StandardArea'
 import { prettifySkillName } from './skillNames'
+
+// Auto-approval and Team changes come from the stamphog product. Each loads in its own chunk, so the
+// first load of Code review does not carry them.
+const AutoApprovalArea = lazy(() =>
+    retryImport(() => import('products/stamphog/frontend/scenes/StamphogScene/AutoApprovalArea')).then((m) => ({
+        default: m.AutoApprovalArea,
+    }))
+)
+const AutoApprovalRuns = lazy(() =>
+    retryImport(() => import('products/stamphog/frontend/scenes/StamphogRunsScene/AutoApprovalRuns')).then((m) => ({
+        default: m.AutoApprovalRuns,
+    }))
+)
+const TeamChanges = lazy(() =>
+    retryImport(() => import('products/stamphog/frontend/scenes/StamphogAreaScene/TeamChanges')).then((m) => ({
+        default: m.TeamChanges,
+    }))
+)
+
+const ACTIVITY_VIEW_OPTIONS: { value: ActivityView; label: string; 'data-attr': string }[] = [
+    { value: 'reviews', label: 'Reviews', 'data-attr': 'code-review-activity-reviews' },
+    { value: 'auto_approvals', label: 'Auto-approvals', 'data-attr': 'code-review-activity-auto-approvals' },
+]
 
 // The Mine tooltip states what the backend's `mine` scope matches: the PR author OR the user who started the run.
 const REVIEWS_SCOPE_OPTIONS: {
@@ -837,19 +863,75 @@ export const scene: SceneExport = {
     logic: reviewHogSettingsLogic,
 }
 
+function LazySectionFallback(): JSX.Element {
+    return <LemonSkeleton className="h-40 w-full" />
+}
+
 function ActivityTab(): JSX.Element {
+    const { activityView } = useValues(reviewHogSettingsLogic)
+    const { setActivityView } = useActions(reviewHogSettingsLogic)
+
     return (
         <>
-            <TriggerReviewSection />
-            <ReviewsSection />
+            <LemonSegmentedButton
+                className="self-start"
+                size="small"
+                value={activityView}
+                onChange={(value) => setActivityView(value)}
+                options={ACTIVITY_VIEW_OPTIONS}
+            />
+            {activityView === 'reviews' ? (
+                <>
+                    <TriggerReviewSection />
+                    <ReviewsSection />
+                </>
+            ) : (
+                <SceneSection
+                    title="Auto-approvals"
+                    description="Each time auto-approval reviewed a pull request, and what it decided."
+                >
+                    <Suspense fallback={<LazySectionFallback />}>
+                        <AutoApprovalRuns />
+                    </Suspense>
+                </SceneSection>
+            )}
         </>
     )
 }
 
+function SettingsTab(): JSX.Element {
+    return (
+        <>
+            <StandardArea />
+            <DeepArea />
+            {/* The Inbox section links to this area while no repository is connected. */}
+            <div id={AUTO_APPROVAL_AREA_ID}>
+                <Suspense fallback={<LazySectionFallback />}>
+                    <AutoApprovalArea />
+                </Suspense>
+            </div>
+            <InboxSection />
+        </>
+    )
+}
+
+function TeamChangesTab(): JSX.Element {
+    return (
+        <SceneSection
+            title="Team changes"
+            description="What changed in code your team owns, and whether your team saw it before it merged."
+        >
+            <Suspense fallback={<LazySectionFallback />}>
+                <TeamChanges />
+            </Suspense>
+        </SceneSection>
+    )
+}
+
 /**
- * The "Code review" scene: ReviewHog's activity and settings page, split into an Activity tab
- * (trigger a review, recent reviews), a My preferences tab (the viewer's own choices), and a
- * Project settings tab (the rules and defaults that project admins set for everyone).
+ * The "Code review" scene: the page of PostHog Review, split into an Activity tab (trigger a review,
+ * recent reviews, auto-approval runs), a Settings tab (review settings and auto-approval), and a
+ * Team changes tab (what changed in the code a team owns).
  * Every control is live from load, no save step. See `reviewHogSettingsLogic` for the data flow.
  * Access is gated on FEATURE_FLAGS.REVIEW_HOG, the same flag that shows the menu entry, so whoever
  * discovers the entry can open the page.
@@ -893,6 +975,7 @@ export function CodeReviewScene(): JSX.Element {
                 tabs={[
                     { key: 'activity', label: 'Activity', 'data-attr': 'code-review-tab-activity' },
                     { key: 'settings', label: 'Settings', 'data-attr': 'code-review-tab-settings' },
+                    { key: 'team_changes', label: 'Team changes', 'data-attr': 'code-review-tab-team-changes' },
                 ]}
                 sceneInset
             />
@@ -903,15 +986,9 @@ export function CodeReviewScene(): JSX.Element {
                     </LemonBanner>
                 )}
 
-                {activeTab === 'activity' ? (
-                    <ActivityTab />
-                ) : (
-                    <>
-                        <StandardArea />
-                        <DeepArea />
-                        <InboxSection />
-                    </>
-                )}
+                {activeTab === 'activity' && <ActivityTab />}
+                {activeTab === 'settings' && <SettingsTab />}
+                {activeTab === 'team_changes' && <TeamChangesTab />}
 
                 {/* Overlays stay mounted on every tab, so a `?review=` deep link opens on any of them. */}
                 <AdoptSkillModal />

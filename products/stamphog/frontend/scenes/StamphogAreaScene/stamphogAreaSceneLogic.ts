@@ -1,6 +1,6 @@
 import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { actionToUrl, urlToAction } from 'kea-router'
+import { actionToUrl, router, urlToAction } from 'kea-router'
 
 import { dayjs } from 'lib/dayjs'
 import { teamLogic } from 'scenes/teamLogic'
@@ -320,11 +320,13 @@ export const stamphogAreaSceneLogic = kea<stamphogAreaSceneLogicType>([
     })),
 
     actionToUrl(({ values }) => {
-        const toUrl = (): [string, Record<string, string>] => [
-            urls.stamphogArea(),
+        // The view shares the Code review URL with its tab param, so the other params stay as they are.
+        const toUrl = (): [string, Record<string, any>] => [
+            urls.codeReview(),
             {
-                ...(values.owner ? { team: values.owner } : {}),
-                ...(values.filter !== DEFAULT_AREA_FILTER ? { show: values.filter } : {}),
+                ...router.values.searchParams,
+                team: values.owner || undefined,
+                show: values.filter !== DEFAULT_AREA_FILTER ? values.filter : undefined,
                 days: String(values.windowDays),
             },
         ]
@@ -336,7 +338,7 @@ export const stamphogAreaSceneLogic = kea<stamphogAreaSceneLogicType>([
     }),
 
     urlToAction(({ actions, values }) => ({
-        [urls.stamphogArea()]: (_: any, searchParams: Record<string, any>) => {
+        [urls.codeReview()]: (_: any, searchParams: Record<string, any>) => {
             // A link without a team keeps the team this viewer looked at last.
             const owner = typeof searchParams.team === 'string' ? searchParams.team : values.owner
             const filter =

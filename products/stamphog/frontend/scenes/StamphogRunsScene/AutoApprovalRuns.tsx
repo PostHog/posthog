@@ -4,21 +4,11 @@ import { LemonBanner, LemonSelect, LemonTable, LemonTag, Link } from '@posthog/l
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
-import { SceneExport } from 'scenes/sceneTypes'
 
-import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-
-import { StamphogTabs } from '../../components/StamphogTabs'
 import { ReviewRunApi } from '../../generated/api.schemas'
 import { ExpandedRunDetails } from './ExpandedRunDetails'
 import { TRIGGER_OPTIONS, runDuration, shortSha, statusDisplay, triggerLabel, verdictDisplay } from './runDisplay'
 import { RUNS_PAGE_SIZE, stamphogRunsSceneLogic } from './stamphogRunsSceneLogic'
-
-export const scene: SceneExport = {
-    component: StamphogRunsScene,
-    logic: stamphogRunsSceneLogic,
-}
 
 function RunFilters(): JSX.Element {
     const { repository, trigger, repositoryOptions, repoConfigsLoading } = useValues(stamphogRunsSceneLogic)
@@ -139,24 +129,17 @@ function RunsTable(): JSX.Element {
                 onForward: () => setPage(page + 1),
                 onBackward: () => setPage(page - 1),
             }}
-            emptyState="No runs yet. Stamphog records one here every time it looks at a pull request."
+            emptyState="No auto-approval runs yet. A run shows here each time auto-approval reviews a pull request."
         />
     )
 }
 
-export function StamphogRunsScene(): JSX.Element {
+/** Every auto-approval run of the project, with its filters, for the Activity tab of Code review. */
+export function AutoApprovalRuns(): JSX.Element {
     return (
-        <SceneContent>
-            <SceneTitleSection
-                name="Runs"
-                description="Every time Stamphog reviewed a pull request, and what it decided."
-                resourceType={{ type: 'stamphog' }}
-            />
-            <StamphogTabs activeKey="runs" />
+        <>
             <RunFilters />
             <RunsTable />
-        </SceneContent>
+        </>
     )
 }
-
-export default StamphogRunsScene
