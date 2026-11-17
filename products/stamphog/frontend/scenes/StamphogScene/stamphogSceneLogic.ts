@@ -325,7 +325,7 @@ export interface stamphogSceneLogicMeta {
             repoView: RepoView
         ) => CodeReviewApprovalRepositoryApi[]
         repoPageCount: (filteredRepoConfigs: CodeReviewApprovalRepositoryApi[]) => number
-        repoPage: (requestedRepoPage: any, repoPageCount: number) => number
+        repoPage: (requestedRepoPage: number, repoPageCount: number) => number
         visibleRepoConfigs: (
             filteredRepoConfigs: CodeReviewApprovalRepositoryApi[],
             repoPage: number
