@@ -44,6 +44,7 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType, ActivityScope, SavedInsightsTabs } from '~/types'
 
 import { productAnalyticsEmptyState } from 'products/product_analytics/frontend/emptyState/productAnalyticsEmptyState'
+import { AnomaliesTab } from 'products/product_analytics/frontend/insights/anomalies/AnomaliesTab'
 import { homeDashboardChoiceLogic } from 'products/product_analytics/frontend/insights/home/homeDashboardChoiceLogic'
 import { HomeDashboardMenu } from 'products/product_analytics/frontend/insights/home/HomeDashboardMenu'
 import { HomeDashboardModals } from 'products/product_analytics/frontend/insights/home/HomeDashboardModals'
@@ -91,6 +92,7 @@ export function SavedInsights(): JSX.Element {
     const summarizeInsight = useSummarizeInsight()
     const { openHomeDashboardStarter, editHomeDashboard, restorePostHogHome } = useActions(homeDashboardChoiceLogic)
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+    const anomaliesTab = useFeatureFlag('ANOMALIES_TAB')
 
     const { tab } = filters
 
@@ -395,6 +397,21 @@ export function SavedInsights(): JSX.Element {
                     ...(showHomeTab ? [{ key: SavedInsightsTabs.Home, label: 'Home' }] : []),
                     { key: SavedInsightsTabs.All, label: 'All insights' },
                     { key: SavedInsightsTabs.Yours, label: 'My insights' },
+                    ...(anomaliesTab
+                        ? [
+                              {
+                                  key: SavedInsightsTabs.Anomalies,
+                                  label: (
+                                      <span className="flex items-center gap-1.5">
+                                          Anomalies
+                                          <LemonTag type="warning" size="small">
+                                              Beta
+                                          </LemonTag>
+                                      </span>
+                                  ),
+                              },
+                          ]
+                        : []),
                     { key: SavedInsightsTabs.Alerts, label: 'Alerts' },
                     {
                         key: SavedInsightsTabs.Notifications,
@@ -422,6 +439,8 @@ export function SavedInsights(): JSX.Element {
                     <HomeDashboardModals />
                     <NewDashboardModal redirectAfterCreation={false} />
                 </>
+            ) : tab === SavedInsightsTabs.Anomalies && anomaliesTab ? (
+                <AnomaliesTab />
             ) : tab === SavedInsightsTabs.Notifications ? (
                 <ProductAnalyticsNotifications />
             ) : tab === SavedInsightsTabs.History ? (

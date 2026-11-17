@@ -266,6 +266,7 @@ export const FEATURE_FLAGS = {
     ALERTS_INLINE_NOTIFICATIONS: 'alerts-inline-notifications', // owner: @vdekrijger
     ALERTS_LLM_DETECTOR: 'alerts-llm-detector', // owner: #team-analytics-platform, gates the AI anomaly detector for insight alerts
     AMPLITUDE_BATCH_IMPORT_OPTIONS: 'amplitude-batch-import-options', // owner: #team-ingestion
+    ANOMALIES_TAB: 'anomalies-tab', // owner: #team-self-driving, shows the Anomalies tab in Product analytics; the anomaly search API keeps its own anomalies-search gate
     ANOMALY_ALERT_GUIDANCE_EXPERIMENT: 'anomaly-alert-guidance',
     APM_MOBILE_TRIAGE: 'apm-mobile-triage', // owner: #team-apm
     APPLICATION_OBSERVABILITY: 'unified-apm-product', // owner: #team-apm — gates the Application observability scene, nav entry, and services API; the backend reads the same key
