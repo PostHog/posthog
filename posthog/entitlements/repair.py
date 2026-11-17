@@ -7,18 +7,20 @@ from posthog.entitlements.registry import get_entitlement_reactor_registry
 
 CANDIDATE_PAGE_SIZE = 200
 
-# Each indexed source page is bounded before expansion, including pages with no behind rows.
+# Only organizations with a checkpoint can be behind, so pages walk checkpoint rows by organization_id.
+# Each page is bounded before expansion, including pages with no behind rows.
 BEHIND_PAGE_SQL = """
-WITH candidates AS MATERIALIZED (
-    SELECT id, available_product_features
-    FROM posthog_organization
-    WHERE id > %s::uuid
-    ORDER BY id
-    LIMIT %s
-), reactors AS (
+WITH reactors AS (
     SELECT * FROM jsonb_to_recordset(%s::jsonb) AS r(key text, feature_keys jsonb)
+), candidates AS MATERIALIZED (
+    SELECT DISTINCT organization_id
+    FROM posthog_organizationentitlementappliedstate
+    WHERE organization_id > %s::uuid AND reactor_key = ANY(ARRAY(SELECT key FROM reactors))
+    ORDER BY organization_id
+    LIMIT %s
 ), behind AS (
-    SELECT o.id FROM candidates o
+    SELECT o.id FROM candidates c
+    JOIN posthog_organization o ON o.id = c.organization_id
     WHERE jsonb_array_length(COALESCE(to_jsonb(o.available_product_features), '[]'::jsonb)) > 0
     AND EXISTS (
         SELECT 1 FROM reactors r
@@ -39,7 +41,7 @@ WITH candidates AS MATERIALIZED (
     )
 )
 SELECT COALESCE((SELECT jsonb_agg(id ORDER BY id) FROM behind), '[]'::jsonb),
-       (SELECT id::text FROM candidates ORDER BY id DESC LIMIT 1),
+       (SELECT organization_id::text FROM candidates ORDER BY organization_id DESC LIMIT 1),
        (SELECT count(*) FROM candidates)
 """
 
@@ -53,11 +55,11 @@ class BehindOrganizationsPage:
 
 def behind_page_parameters(after: str | None) -> list[str | int]:
     return [
-        after or "00000000-0000-0000-0000-000000000000",
-        CANDIDATE_PAGE_SIZE,
         json.dumps(
             [{"key": r.key, "feature_keys": sorted(r.feature_keys)} for r in get_entitlement_reactor_registry()]
         ),
+        after or "00000000-0000-0000-0000-000000000000",
+        CANDIDATE_PAGE_SIZE,
     ]
 
 
