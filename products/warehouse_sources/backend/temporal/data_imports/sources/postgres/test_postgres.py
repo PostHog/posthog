@@ -818,6 +818,10 @@ class TestPostgresSourceNonRetryableErrors:
                 'OperationalError: connection failed: connection to server at "203.0.113.7", port 5432 failed: FATAL:  service temporarily unavailable',
                 "temporarily unavailable",
             ),
+            (
+                "canceling statement due to lock timeout",
+                "lock timeout",
+            ),
         ],
     )
     def test_exhausted_retries_replace_raw_driver_text(self, source, error_msg, expected_phrase):
