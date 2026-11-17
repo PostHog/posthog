@@ -128,7 +128,14 @@ function namesMatchingSearch(names: string[], term: string): string[] {
     return names.filter((name) => tokens.some((token) => name.toLowerCase().includes(token)))
 }
 
-function catalogDiscoveryHint(allTools: Tool<ZodObjectAny>[], nameMatches: string[]): string | undefined {
+function catalogDiscoveryHint(
+    allTools: Tool<ZodObjectAny>[],
+    nameMatches: string[],
+    metricCatalogLookup: boolean
+): string | undefined {
+    if (!metricCatalogLookup) {
+        return undefined
+    }
     const availableToolNames = new Set(allTools.map((tool) => tool.name))
     const hasMetricCatalog =
         availableToolNames.has('metric-list') &&
@@ -293,6 +300,7 @@ export interface ExecToolOptions {
      * set is refused as `tool_not_granted`, so the agent does not search for another way to reach it.
      */
     heldTools?: ReadonlySet<string>
+    metricCatalogLookup?: boolean
 }
 
 const CALL_USAGE = 'Usage: call [--json] [--confirm] <tool_name> [json_input]'
@@ -1441,7 +1449,31 @@ export function formatInputValidationError(
             }
         }
         if (issue.code === 'unrecognized_keys') {
-            return `unexpected ${issue.keys.length > 1 ? 'properties' : 'property'}: ${issue.keys.join(', ')}`
+            // A bare rejection makes many agents stop instead of trying again, so the
+            // message says how to fix the call. A key that another variant of the
+            // object declares (`event_name` sent with `kind: "events"`) is a real field
+            // in the wrong variant, and dropping it answers a different question. Keep
+            // the `unexpected property: <keys>` prefix, because MCP failure buckets and
+            // saved analytics queries match on that text.
+            const location = path ? ` in "${path}"` : ''
+            const variantFields = schema && path ? wrapperFieldNames(schema, issue.path.map(String)) : new Set()
+            const misplaced = issue.keys.filter((key) => variantFields.has(key))
+            const unknown = issue.keys.filter((key) => !variantFields.has(key))
+            const mixed = misplaced.length > 0 && unknown.length > 0
+            const pronoun = (keys: string[]): string => (keys.length > 1 ? 'them' : 'it')
+            const subject = (keys: string[]): string => (mixed ? keys.join(', ') : pronoun(keys))
+            const advice: string[] = []
+            if (misplaced.length > 0) {
+                advice.push(
+                    `"${path}" accepts ${subject(misplaced)} only in another variant, so change its other fields to match that variant instead of removing ${pronoun(misplaced)}`
+                )
+            }
+            if (unknown.length > 0) {
+                advice.push(
+                    `this tool does not accept ${subject(unknown)}, so remove or rename ${pronoun(unknown)} and call the tool again`
+                )
+            }
+            return `unexpected ${issue.keys.length > 1 ? 'properties' : 'property'}: ${issue.keys.join(', ')}${location}; ${advice.join('; ')}`
         }
         // A too-long string names the limit and the input's actual length so the
         // agent knows how much to trim (zod's default names only the limit).
@@ -2012,7 +2044,8 @@ export function createExecTool(
                     if (truncatedFrom > 0) {
                         const catalogHint = catalogDiscoveryHint(
                             allTools,
-                            namesMatchingSearch(matchedNames, searchTerm)
+                            namesMatchingSearch(matchedNames, searchTerm),
+                            options.metricCatalogLookup !== false
                         )
                         return JSON.stringify({
                             matches,
@@ -2026,7 +2059,11 @@ export function createExecTool(
                                 .join(' '),
                         })
                     }
-                    const catalogHint = catalogDiscoveryHint(allTools, namesMatchingSearch(matchedNames, searchTerm))
+                    const catalogHint = catalogDiscoveryHint(
+                        allTools,
+                        namesMatchingSearch(matchedNames, searchTerm),
+                        options.metricCatalogLookup !== false
+                    )
                     const hint = [fallbackHint, catalogHint].filter(Boolean).join(' ')
                     if (hint) {
                         return JSON.stringify({ matches, hint })
