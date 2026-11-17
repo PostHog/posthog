@@ -735,6 +735,16 @@ class HeatmapPreflightSustainedRateThrottle(_TeamBucketRateThrottle):
     rate = "300/hour"
 
 
+class DataQualityRunBurstRateThrottle(_TeamBucketRateThrottle):
+    scope = "data_quality_run_burst"
+    rate = "20/minute"
+
+
+class DataQualityRunSustainedRateThrottle(_TeamBucketRateThrottle):
+    scope = "data_quality_run_sustained"
+    rate = "60/hour"
+
+
 # The llms.txt fetch pulls a caller-supplied file of up to 1 MB from an arbitrary host, holding a web
 # worker for the whole transfer, so like the heatmap pre-flight its budget is about worker occupancy.
 # It is not covered by the project-global Burst/Sustained pair, which only ever throttles personal

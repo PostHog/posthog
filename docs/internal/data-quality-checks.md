@@ -32,6 +32,10 @@ The family scope `warehouse_objects` reaches every warehouse kind. A per-kind sc
 
 The table above applies to the REST routes only. The MCP tools declare `query:read` alone, because a tool's scope list must be met in full and the two subject families are authorized independently; a token with no subject family is refused by the route. A raw HogQL query against `system.information_schema.data_quality_*` needs `query:read` and no other scope. The user's own permissions still apply to each row. A token with `query:read` reads metric checks only if its user has catalog access.
 
+## Run limits
+
+Each project can start 20 manual runs a minute and 60 an hour. Both `POST data_quality_checks/{id}/run/` and `POST data_quality_runs/` count toward one bucket per project, whatever credential the caller uses. A call over the limit returns HTTP 429 with `Retry-After`. One `data_quality_runs` call counts once however many checks it runs, so to run every check on a subject, start one run with `subject_type` and `subject_uuid`. Runs started by materialization, source sync and schedules are not limited.
+
 ## Question execution foundation
 
 The question execution primitives in `products/data_quality/backend/logic/jev_*.py` are not yet registered as an authorable check type.

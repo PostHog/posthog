@@ -197,7 +197,7 @@ export const DataQualityChecksDestroyParams = () => zod.object({
 })
 
 /**
- * Run this check now. Returns the suite run to poll for the report.
+ * Run this check now. Returns the suite run to poll for the report. Each project can start 20 runs a minute and 60 an hour, counted across this endpoint and POST data_quality_runs. To run every check on a subject, call POST data_quality_runs with subject_type and subject_uuid. That counts as one run.
  */
 export const DataQualityChecksRunCreateParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this data quality check.'),
