@@ -103,11 +103,14 @@ Its 16pt input has an explicit 20pt line height, centered vertically without And
   insets, so `useScreenInsets` uses the prototype's values there.
   A minimum 12pt top inset keeps floating controls away from the edge when the native status area moves to a side.
 - **Page titles.** Pushed pages share a 46pt navigation row and a 20pt gap before their title block.
-  Their blur fade ends 10pt before the content. `screenLayout` supplies these offsets to every page.
+  Their header backdrop ends 8pt after the navigation row. `screenLayout` supplies these offsets to every page.
   As the title scrolls under navigation, `ScreenChrome` fades in a smaller copy centered between the controls.
   The title truncates before either control and stays out of the accessibility tree; the content title remains the heading.
   This pattern covers Settings, browse lists, dashboards, insights, web analytics, scrollable full-screen charts,
   Errors, issues, Sessions, recordings, reports and full reports. Tab titles stay in their shared navigation row.
+- **Header backdrop.** Tab, pushed-page and chat headers use `HeaderBackdrop` with blur intensity 26.6 and the theme's existing tint. Blur and tint remain visible from the lower edge, gain strength through the upper half, and reach full strength at the top. Tab backdrops end just below the logo and title; status lines and controls do not extend them.
+  `ScreenBlur` keeps each screen's content inside an Android `BlurTargetView` and its header outside that target.
+  Reports and chat bodies can pass their existing target explicitly. Loading, empty and error states retain the same backdrop.
 - **Text wrapping.** The prototype sets `text-wrap: pretty`. iOS gets the same behavior from
   `lineBreakStrategyIOS="standard"`, and web from the CSS property (`prettyWrap`).
   Android wraps greedily.
