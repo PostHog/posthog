@@ -117,7 +117,7 @@ export const MessagingSendEmailCreateBody = /* @__PURE__ */ zod.object({
         .max(messagingSendEmailCreateBodyDistinctIdMax)
         .nullish()
         .describe(
-            "Distinct ID of the recipient's person. The email's engagement events (sent, delivered, opened, clicked, bounced) and the send itself are recorded against that person. Defaults to the recipient's email address. The template can't read the person's properties, so pass everything it needs in `message_data`."
+            "Distinct ID the email's engagement events (sent, delivered, opened, clicked, bounced) are captured under. Defaults to the recipient's email address. The events join the person who has this ID, or start a new person when nobody has it. No events are captured when the project's engagement events setting is off, or when `tracking` or `capture_engagement` turns engagement off for a send with `template_key`. The template can't read the person's properties, so pass everything it needs in `message_data`."
         ),
     subject: zod.string().optional().describe('Subject of the email your code rendered.'),
     html: zod.string().optional().describe('HTML body of the email your code rendered, at most 5 MiB as UTF-8.'),
@@ -586,18 +586,20 @@ export const MessagingPreferencesRemoveOptOutCreateBody = /* @__PURE__ */ zod.ob
 })
 
 /**
- * Background imports from other messaging tools, such as Customer.io suppressions and global unsubscribes.
+ * Background imports from other messaging tools, such as Customer.io and Resend suppressions and unsubscribes.
  *
  * A run executes outside the request, so a long provider list does not time out. Poll a run to show its progress.
  * @summary Start a background import from another messaging tool
  */
 export const messagingProviderImportsCreateBodyStepsItemMax = 64
 
+export const messagingProviderImportsCreateBodyApiKeyMax = 512
+
 export const MessagingProviderImportsCreateBody = /* @__PURE__ */ zod.object({
     provider: zod
-        .enum(['customerio'])
-        .describe('\* `customerio` - Customer.io')
-        .describe('The provider to import from.\n\n\* `customerio` - Customer.io'),
+        .enum(['customerio', 'resend'])
+        .describe('\* `customerio` - Customer.io\n\* `resend` - Resend')
+        .describe('The provider to import from.\n\n\* `customerio` - Customer.io\n\* `resend` - Resend'),
     steps: zod
         .array(zod.string().max(messagingProviderImportsCreateBodyStepsItemMax))
         .min(1)
@@ -606,8 +608,11 @@ export const MessagingProviderImportsCreateBody = /* @__PURE__ */ zod.object({
         ),
     api_key: zod
         .string()
+        .max(messagingProviderImportsCreateBodyApiKeyMax)
         .optional()
-        .describe("The provider's API key. For Customer.io, an App API key. Leave it out to reuse the stored key."),
+        .describe(
+            "The provider's API key. For Customer.io, an App API key: leave it out to reuse the stored key. For Resend, a full access key: PostHog deletes it when the run ends, so send it every time."
+        ),
 })
 
 /**
@@ -1595,7 +1600,7 @@ export const MessagingTemplatesSendCreateBody = /* @__PURE__ */ zod.object({
                 .max(messagingTemplatesSendCreateBodyIdentifiersOneDistinctIdMax)
                 .nullish()
                 .describe(
-                    "Distinct ID of the recipient's person. The email's engagement events (sent, delivered, opened, clicked, bounced) and the send itself are recorded against that person. Defaults to the recipient's email address. The template can't read the person's properties, so pass everything it needs in `message_data`."
+                    "Distinct ID the email's engagement events (sent, delivered, opened, clicked, bounced) are captured under. Defaults to the recipient's email address. The events join the person who has this ID, or start a new person when nobody has it. No events are captured when the project's engagement events setting is off, or when `tracking` or `capture_engagement` turns engagement off for a send with `template_key`. The template can't read the person's properties, so pass everything it needs in `message_data`."
                 ),
         })
         .optional()
