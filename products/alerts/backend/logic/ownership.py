@@ -44,6 +44,7 @@ from products.alerts_platform.backend.facade.contracts import (
     SourceKind,
 )
 from products.product_analytics.backend.facade.api import lock_insight_for_evaluation
+from products.product_analytics.backend.facade.models import Insight
 
 
 @frozen
@@ -251,9 +252,18 @@ def take_alert_ownership(
     owner: User,
     was_impersonated: bool,
     analytics_props: AnalyticsProps | None = None,
+    expected_insight: Insight | None = None,
 ) -> AlertConfiguration:
     alert = _load_alert(team_id, alert_id)
     snapshot = OwnershipSnapshot.of(alert)
+    if expected_insight is not None:
+        with upgrade_insight(alert.insight), upgrade_insight(expected_insight):
+            if (
+                alert.insight_id != expected_insight.pk
+                or alert.insight.query != expected_insight.query
+                or alert.insight.filters != expected_insight.filters
+            ):
+                raise AlertWriteRefused("The alert or insight changed. Retry the ownership transfer.", status_code=409)
     _validate_owner(alert, actor, owner)
     alert.created_by = owner
     attrs = validate_alert_write(

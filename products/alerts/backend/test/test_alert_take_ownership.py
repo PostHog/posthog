@@ -14,7 +14,9 @@ from rest_framework import status
 from posthog.constants import AvailableFeature
 from posthog.models import OrganizationMembership, User
 from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.scoping import team_scope
+from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.alerts.backend.facade.api import take_alert_ownership
@@ -359,3 +361,43 @@ class TestAlertTakeOwnership(APIBaseTest):
         assert alert.enabled is owner_enabled
         if not owner_enabled:
             assert "metrics" in response.json()["detail"]
+
+    def test_take_ownership_rejects_insight_changed_after_token_scope_check(self) -> None:
+        alert = self._disabled_alert_of_a_former_member()
+        previous_owner = alert.created_by
+        token = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="transfer", user=self.user, secure_value=hash_key_value(token), scopes=["alert:write"]
+        )
+        self.client.logout()
+        edited = False
+
+        def edit_before_recipient_lookup(execute: Callable, sql: str, params: Any, many: bool, context: dict) -> Any:
+            nonlocal edited
+            if not edited and '"posthog_user"."uuid" =' in sql:
+                edited = True
+                type(alert.insight).objects.filter(pk=alert.insight_id).update(
+                    query={"kind": "MetricsQuery", "clauses": [{"name": "a", "metricName": "queue.depth"}]}
+                )
+                AlertConfiguration.objects.filter(pk=alert.pk).update(config={"type": "MetricsAlertConfig"})
+            return execute(sql, params, many, context)
+
+        with (
+            connection.execute_wrapper(edit_before_recipient_lookup),
+            patch("posthoganalytics.feature_enabled", return_value=True),
+            patch(
+                "products.metrics.backend.hogql_queries.metrics_query_runner.posthog_feature_flag_enabled",
+                return_value=True,
+            ),
+        ):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/alerts/{alert.id}/take_ownership/",
+                {},
+                HTTP_AUTHORIZATION=f"Bearer {token}",
+            )
+
+        assert edited
+        assert response.status_code == status.HTTP_409_CONFLICT, response.content
+        alert.refresh_from_db()
+        assert alert.created_by == previous_owner
+        assert alert.enabled is False

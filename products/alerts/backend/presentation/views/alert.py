@@ -2524,6 +2524,7 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 owner=ownership.validated_data["owner"],
                 was_impersonated=get_was_impersonated(),
                 analytics_props=get_request_analytics_properties(request),
+                expected_insight=alert.insight,
             )
         except AlertConfiguration.DoesNotExist as error:
             raise Http404 from error

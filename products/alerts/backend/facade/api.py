@@ -666,6 +666,7 @@ def take_alert_ownership(
     owner: User,
     was_impersonated: bool,
     analytics_props: AnalyticsProps | None = None,
+    expected_insight: Insight | None = None,
 ) -> AlertConfiguration:
     from products.alerts.backend.logic.ownership import (
         take_alert_ownership as transfer,  # noqa: PLC0415 -- platform write helpers depend on this facade
@@ -678,6 +679,7 @@ def take_alert_ownership(
         owner=owner,
         was_impersonated=was_impersonated,
         analytics_props=analytics_props,
+        expected_insight=expected_insight,
     )
 
 
