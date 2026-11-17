@@ -38,6 +38,7 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { formatPercentage } from 'lib/utils/numbers'
 import { pluralize } from 'lib/utils/strings'
 
+import { dimWhileLoading } from '../components/loadingFeedback'
 import { DESTRUCTIVE_ERROR_RATE_PCT, formatMs, formatNumber } from '../dashboard/formatters'
 import { SkeletonLine } from '../dashboard/SkeletonLine'
 import {
@@ -174,7 +175,7 @@ function ToolRows(): JSX.Element {
         return <TableEmpty className="py-6 text-secondary">No tool calls match the current filters.</TableEmpty>
     }
     return (
-        <TableBody>
+        <TableBody aria-busy={toolRowsPageLoading} className={dimWhileLoading(toolRowsPageLoading)}>
             {toolRows.map((row) => (
                 <TableRow
                     key={row.tool}
