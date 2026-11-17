@@ -1,3 +1,5 @@
+import { set } from 'lodash'
+
 import { parseJSON } from '~/common/utils/json-parse'
 import { logger } from '~/common/utils/logger'
 
@@ -45,11 +47,7 @@ export function openSealedState<T extends Sealable>(
         const content: SealedContent | undefined = decrypted.ok ? parseJSON(decrypted.value) : undefined
         if (content?.teamId === job.teamId && content.id === job.id) {
             for (const [path, value] of content.fields) {
-                let target: Record<string, any> = opened
-                for (const key of path.slice(0, -1)) {
-                    target = target[key] ??= {}
-                }
-                target[path[path.length - 1]] = value
+                set(opened, path, value)
             }
             return opened as T
         }
