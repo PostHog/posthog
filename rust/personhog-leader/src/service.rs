@@ -2060,6 +2060,14 @@ mod tests {
             }),
             Ok(())
         );
+        for team_id in [-1, i64::from(i32::MAX) + 1] {
+            let refused = CachedPerson {
+                team_id,
+                ..person.clone()
+            };
+            let reason = assert_writeable(&refused).expect_err("team_id");
+            assert!(reason.starts_with("team_id"), "{reason}");
+        }
         assert!(
             Utc.timestamp_millis_opt(YEAR_ONE_MS).single().is_some(),
             "the writer converts with the same call, so year 1 binds"

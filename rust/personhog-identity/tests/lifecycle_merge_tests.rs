@@ -2875,8 +2875,8 @@ async fn invalid_merge_requests_are_rejected_before_any_work() {
 
     let cases: Vec<(&str, MergePersonsRequest, Code)> = vec![
         (
-            "zero team",
-            rpc_request(0, "anonymous", &["s"], op),
+            "negative team",
+            rpc_request(-1, "t", &["s"], op),
             Code::InvalidArgument,
         ),
         (

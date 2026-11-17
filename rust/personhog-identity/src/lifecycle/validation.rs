@@ -94,8 +94,9 @@ pub fn is_distinct_id_illegal(id: &str) -> bool {
 }
 
 /// Above i32::MAX the storage layer's `as i32` narrowing would wrap into
-/// another tenant's rows. Team 0 is a real team: a self-hosted or dev
-/// instance's own analytics team can have id 0.
+/// another tenant's rows. The lower bound is 0 because a team row inserted
+/// with an explicit id of 0 is a valid team. Ingestion treats this rejection
+/// as fatal, so a refused real team id makes the consumer crash-loop.
 pub fn is_team_id_valid(team_id: i64) -> bool {
     (0..=i32::MAX as i64).contains(&team_id)
 }
