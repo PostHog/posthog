@@ -311,7 +311,7 @@ Optional recovery actions sit below the message and wrap on narrow screens.
   exception type with a New (orange outline) or Spiking (orange fill, up arrow) badge and the owner's avatar at the
   right, the exception value in secondary text ("No message" keeps the line), then occurrences as `SparkBars` across
   the card (orange from the spike or the first occurrence), then Users, Sessions and Occurrences in three equal cells
-  in that order for every sort. The sorted stat's cell has a sunken fill and a border, a swatch in the bar color sits
+  in that order for every sort. The sorted stat's number is bolder and its label is ink, with no box around it. A swatch in the bar color sits
   before "Occurrences", counts are compact (1.23K), and zero sessions show "–". First seen is on the issue only. The
   list loads 15 issues per page with a Load more footer. Pull to refresh reloads the first page.
   Loading (cards of the same size with blocks in place of the text and chart), "Couldn't load your

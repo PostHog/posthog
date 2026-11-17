@@ -17,7 +17,7 @@ const AVATAR_SIZE = 18
 interface IssueListRowProps {
     row: IssueRow
     window: ErrorsWindow
-    /** The sorted stat sits on a tinted, outlined cell. */
+    /** The sorted stat's number and label draw stronger than the other two. */
     sort: IssueSort
     myName: string
     onOpen: (row: IssueRow) => void
@@ -70,7 +70,7 @@ export const IssueListRow = memo(function IssueListRow({
                     const sorted = stat === sort
                     const none = stat === 'sessions' && row.sessions <= 0
                     return (
-                        <View key={stat} style={[styles.stat, sorted && styles.statSorted]}>
+                        <View key={stat} style={styles.stat}>
                             <Text
                                 style={[styles.value, sorted && styles.valueSorted, none && styles.valueNone]}
                                 numberOfLines={1}
@@ -169,23 +169,13 @@ const useStyles = createStyles(({ colors }) => ({
     },
     stats: {
         marginTop: 6,
-        marginHorizontal: -8,
         flexDirection: 'row',
-        gap: 4,
+        gap: 20,
     },
-    // The transparent border keeps every cell the size of the outlined sorted cell.
     stat: {
         flex: 1,
         minWidth: 0,
-        paddingVertical: 3,
-        paddingHorizontal: 7,
-        borderWidth: 1,
-        borderColor: 'transparent',
-        borderRadius: radii.markSmall,
-    },
-    statSorted: {
-        backgroundColor: colors.sunken,
-        borderColor: colors.border,
+        paddingVertical: 4,
     },
     value: {
         fontSize: 17,
