@@ -17,7 +17,7 @@ from rest_framework.response import Response
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
-from posthog.integrations import IntegrationKind, IntegrationRecord
+from posthog.integrations import IntegrationKind, IntegrationManager, IntegrationRecord
 from posthog.integrations.fields import IntegrationReferenceField
 from posthog.models.integration import (
     AWSRedshiftRoleBasedIntegration,
@@ -1204,8 +1204,18 @@ class ExternalDataDestinationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
                     break
 
         source_inputs = SourceInputsStore.load_many({job.pipeline_id: job.pipeline for job, _ in matched}.values())
+        integration_ids = {
+            named.integration_id
+            for _, named_destinations in matched
+            for named in named_destinations
+            if named.integration_id
+        }
+        integrations = IntegrationManager.any.get_many(self.team_id, integration_ids) if integration_ids else {}
+        integration_secrets = {
+            integration_id: source_helpers.get_integration_error_redaction_values(integration)
+            for integration_id, integration in integrations.items()
+        }
         source_secrets: dict[str, frozenset[str]] = {}
-        destination_secrets: dict[str, frozenset[str]] = {}
 
         results: list[dict[str, Any]] = []
         for job, named_destinations in matched:
@@ -1215,14 +1225,13 @@ class ExternalDataDestinationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
                 source_secrets[source_id] = source_helpers.get_error_redaction_values(
                     job.pipeline, source_inputs.get(job.pipeline_id)
                 )
-            secrets = source_secrets[source_id]
-            for named in named_destinations:
-                named_id = str(named.id)
-                if named_id not in destination_secrets:
-                    destination_secrets[named_id] = source_helpers.get_integration_error_redaction_values(
-                        named.integration
-                    )
-                secrets = secrets | destination_secrets[named_id]
+            secrets = source_secrets[source_id].union(
+                *(
+                    integration_secrets.get(named.integration_id, frozenset())
+                    for named in named_destinations
+                    if named.integration_id is not None
+                )
+            )
             results.append(
                 {
                     "job_id": job.id,
