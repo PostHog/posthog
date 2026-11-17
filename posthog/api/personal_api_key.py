@@ -21,7 +21,7 @@ from posthog.models.personal_api_key import LEGACY_HASH_PREFIX, max_personal_api
 from posthog.models.utils import generate_random_token_personal, hash_key_value, mask_key_value
 from posthog.permissions import TimeSensitiveActionPermission
 from posthog.personal_api_key_minting import mint_personal_api_key
-from posthog.scopes.catalog import API_SCOPE_ACTIONS
+from posthog.scopes.catalog import API_SCOPE_ACTIONS, translate_renamed_scopes
 from posthog.scopes.exposure import GRANTABLE_API_SCOPE_OBJECTS
 from posthog.user_permissions import UserPermissions
 
@@ -227,8 +227,8 @@ class PersonalAPIKeySerializer(serializers.ModelSerializer):
 
     def validate_scopes(self, scopes):
         requesting_user = self.context["request"].user
-        existing_scopes = list(self.instance.scopes or []) if self.instance is not None else None
-        scopes = _drop_retired_scopes(scopes, existing_scopes)
+        existing_scopes = translate_renamed_scopes(self.instance.scopes or []) if self.instance is not None else None
+        scopes = _drop_retired_scopes(translate_renamed_scopes(scopes), existing_scopes)
         validate_personal_api_key_scopes(scopes, requesting_user, existing_scopes=existing_scopes)
 
         return scopes

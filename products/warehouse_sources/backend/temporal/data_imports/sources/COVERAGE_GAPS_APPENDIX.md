@@ -10498,11 +10498,11 @@ Diffed against: <https://docs.ruddr.io/llms.txt>
 - [x] `opportunities` — the sales pipeline, a whole analytical domain currently unavailable (high)
 - [x] `opportunity-stages` — lookup table resolving the stage IDs carried on opportunities (high)
 - [x] `project-roles` — lookup resolving the role IDs on project members and time entries (high)
-- [ ] `project-expenses` — cost side of project profitability (medium)
-- [ ] `payments` — cash collection against invoices (medium)
-- [ ] `timesheets` — submission and approval state wrapping the time entries we sync (medium)
+- [x] `project-expenses` — cost side of project profitability (medium)
+- [x] `payments` — cash collection against invoices (medium)
+- [x] `timesheets` — submission and approval state wrapping the time entries we sync (medium)
 - [x] `project-health-reports` — periodic project status history, a natural trend series (medium)
-- [ ] `practices` — lookup resolving the practice/org-unit IDs on members and projects (medium)
+- [x] `practices` — lookup resolving the practice/org-unit IDs on members and projects (medium)
 
 Note: Ruddr documents roughly 78 list endpoints; the connector exposes 17. Beyond those listed, whole domains are unsynced: project budget items (service/product/other/expense, plus monthly variants), revenue recognition entries, revenue adjustments, credit notes, tax rates, cost periods, exchange rate periods, utilization target periods, contacts, companies, expense reports, holidays, skills, disciplines, job titles and member levels. Static endpoint catalog, no dynamic discovery.
 
@@ -13094,20 +13094,20 @@ Note: Parsed the live OpenAPI specification and checked all GET operations, incl
 
 ## Veracode — **thin**
 
-Today (8): `applications`, `categories`, `cwes`, `findings`, `sandboxes`, `sca_findings`, `scans`, `summary_report`
+Today (15): `applications`, `business_units`, `categories`, `cwes`, `findings`, `policies`, `sandboxes`, `sca_findings`, `sca_workspace_issues`, `sca_workspace_libraries`, `sca_workspace_projects`, `sca_workspaces`, `scans`, `summary_report`, `teams`
 
 Diffed against: <https://api.swaggerhub.com/apis/Veracode?limit=100>
 
 - [x] `GET /appsec/v2/applications/{app_guid}/summary_report` — Veracode's headline per-application result: policy compliance status, security score and flaw counts by severity (high)
 - [x] `GET /appsec/v1/cwes` — lookup table resolving the CWE id carried on every findings row we already sync (high)
 - [x] `GET /appsec/v1/categories` — lookup table resolving the finding category id on findings we already sync (high)
-- [ ] `GET /appsec/v1/policies` — lookup resolving the policy GUID/name attached to each application we sync (high)
-- [ ] `GET /v2/teams (Identity API)` — lookup resolving the team GUIDs on applications, enabling per-team risk rollups (high)
+- [x] `GET /appsec/v1/policies` — lookup resolving the policy GUID/name attached to each application we sync (high)
+- [x] `GET /v2/teams (Identity API)` — lookup resolving the team GUIDs on applications, enabling per-team risk rollups (high) — built with `all_for_org=true`, because the endpoint otherwise lists only the teams of the API account
 - [x] `POST /appsec/v1/analytics/report + GET /appsec/v1/analytics/report/{id} (report_type SCANS)` — org-wide scan history — there is no scan/build table at all today, only findings (high) — built on the v2 `POST /analytics/scans/report` endpoint, because Veracode deprecated `report_type` on the v1 endpoint
 - [ ] `POST /appsec/v1/analytics/report (report_type FINDINGS)` — bulk org-wide findings export without per-application fan-out, the vendor's designated warehouse path (medium)
-- [ ] `GET /v2/business_units (Identity API)` — lookup resolving business unit on applications for org-level breakdowns (medium)
+- [x] `GET /v2/business_units (Identity API)` — lookup resolving business unit on applications for org-level breakdowns (medium)
 - [ ] `GET /v2/users (Identity API)` — lookup resolving user ids on annotations, mitigations and application owners (medium)
-- [ ] `GET /v3/workspaces and /v3/workspaces/{id}/issues, /libraries, /projects (SCA Agent API)` — agent-based SCA issues and library inventory, a separate dataset from the appsec SCA findings we sync (medium)
+- [x] `GET /v3/workspaces and /v3/workspaces/{id}/issues, /libraries, /projects (SCA Agent API)` — agent-based SCA issues and library inventory, a separate dataset from the appsec SCA findings we sync (medium) — built as `sca_workspaces` plus three per-workspace tables, off by default
 - [ ] `GET /mpt/v1/scans and /mpt/v1/scans/{id}/findings` — manual penetration test scans and their findings, absent from the appsec findings feed (low)
 
 Note: Veracode has no single spec; it publishes 16 separate OpenAPI specs on SwaggerHub under the Veracode org (applications, findings, identity, policy, summary_report, sca_agent, reporting, sandbox, annotations, etc). Diffed against all of them via the SwaggerHub API. The Annotations API is POST-only (write path) so it cannot be synced. Current coverage is the Applications + Findings + Sandbox specs only; Identity, Policy, Summary Report and Reporting are entirely unrepresented.
@@ -13705,15 +13705,15 @@ Note: api.getzep.com/api/v2/openapi.json returns 401, so I diffed against the do
 
 ## Zero — gaps
 
-Today (11): `Companies`, `Contacts`, `Deals`, `Meetings`, `Memberships`, `Notes`, `Pipelines`, `PipelineStages`, `Tasks`, `Users`, `Workspaces`
+Today (15): `Companies`, `Contacts`, `Deals`, `Lists`, `Meetings`, `Memberships`, `Notes`, `Pipelines`, `PipelineStages`, `Quotes`, `SequenceEnrollments`, `SequenceSteps`, `Tasks`, `Users`, `Workspaces`
 
 Diffed against: <https://docs.zero.inc/llms.txt>
 
-- [ ] `Lists (GET /api/lists)` — resolve listIds already returned on companies, contacts, and deals to named business segments (high)
-- [ ] `Quotes (GET /api/quotes)` — analyze deal quotes, line items, acceptance, total contract value, and recurring revenue (high)
-- [ ] `Sequence enrollments (GET /api/sequenceContactStatuses)` — measure outreach conversion, replies, bounces, unsubscribes, and progress for each contact and sequence (high)
+- [x] `Lists (GET /api/lists)` — resolve listIds already returned on companies, contacts, and deals to named business segments (high) → `lists`
+- [x] `Quotes (GET /api/quotes)` — analyze deal quotes, line items, acceptance, total contract value, and recurring revenue (high) → `quotes` (line items stay a nested array column)
+- [x] `Sequence enrollments (GET /api/sequenceContactStatuses)` — measure outreach conversion, replies, bounces, unsubscribes, and progress for each contact and sequence (high) → `sequence_enrollments`
 - [ ] `Sequences (GET /api/sequences)` — describe outreach campaigns and compare their status, target lists, and enrollment results (medium)
-- [ ] `Sequence steps (GET /api/sequenceSteps)` — identify which outreach steps precede replies, failures, or completed enrollments (medium)
+- [x] `Sequence steps (GET /api/sequenceSteps)` — identify which outreach steps precede replies, failures, or completed enrollments (medium) → `sequence_steps`
 - [ ] `Products (GET /api/products)` — describe quoted products and price variants for revenue analysis by SKU and billing interval (medium)
 - [ ] `Custom activities (GET /api/customActivities)` — analyze recorded business interactions linked to contacts, companies, deals, users, and sequences (medium)
 - [ ] `Custom activity types (GET /api/customActivityTypes)` — describe activity categories and their custom fields for consistent interaction reporting (medium)
@@ -13726,15 +13726,15 @@ Today (19): `Accounts`, `Calls`, `Campaigns`, `Cases`, `Contacts`, `Deals`, `Eve
 
 Diffed against: <https://www.zoho.com/crm/developer/docs/api/v8/api-references.html>
 
-- [ ] `Pipelines and stage maps (GET /crm/v8/settings/pipeline?layout_id={layout_id})` — resolve deal pipeline IDs and stage mappings for funnel analysis and forecasting (high)
-- [ ] `Custom and linking module records (GET /crm/v8/{module_api_name})` — include organization-specific business entities and relationship records that the fixed module list cannot expose (high)
-- [ ] `Timeline of a record (GET /crm/v8/{module_api_name}/{record_id}/__timeline)` — reconstruct field changes and measure deal stage duration, reassignment, and other record transitions (high)
+- [x] `Pipelines and stage maps (GET /crm/v8/settings/pipeline?layout_id={layout_id})` — resolve deal pipeline IDs and stage mappings for funnel analysis and forecasting (high) — added as `Pipelines`, read for every Deals layout
+- [x] `Custom and linking module records (GET /crm/v8/{module_api_name})` — include organization-specific business entities and relationship records that the fixed module list cannot expose (high) — added as one `Custom_<module>` table per discovered module
+- [x] `Timeline of a record (GET /crm/v8/{module_api_name}/{record_id}/__timeline)` — reconstruct field changes and measure deal stage duration, reassignment, and other record transitions (high) — added as `Deal_Timeline` (Deals only, one request per deal)
 - [ ] `Related records (GET /crm/v8/{module_api_name}/{record_id}/{related_list_api_name})` — capture campaign participation and relationships between existing CRM records that separate module tables omit (medium)
 - [ ] `Contact roles of a deal (GET /crm/v8/Deals/{deal_id}/Contact_Roles)` — analyze buying committees and identify each contact role across sales opportunities (medium)
 - [ ] `Emails of a record (GET /crm/v8/{module_api_name}/{record_id}/Emails)` — measure email interactions, follow-up activity, and communication patterns for leads and deals (medium)
 - [ ] `Appointments and Services (GET /crm/v8/Appointments; GET /crm/v8/Services)` — analyze booked services and appointment demand beyond the existing event and task tables (medium)
 - [ ] `Currencies (GET /crm/v8/org/currencies)` — interpret currency codes and exchange rates when comparing deal and invoice values across currencies (medium)
-- [ ] `Territories (GET /crm/v8/settings/territories)` — describe sales regions and their hierarchy for account allocation and regional performance analysis (medium)
+- [x] `Territories (GET /crm/v8/settings/territories)` — describe sales regions and their hierarchy for account allocation and regional performance analysis (medium) — added as `Territories`
 
 Note: Compared the v8 reference operation list and resource pages with the nineteen static tables. Confirmed GET paths in the official zoho/zohocrm-python-sdk-8.0 resource modules, version 6.0.0. Custom and linking modules need dynamic discovery; timelines, emails, and relationships require reads for each parent record. Pipelines require layout IDs, several lookups need additional scopes, and currencies and territories depend on account features.
 
@@ -13767,10 +13767,10 @@ Diffed against: <https://developers.zoom.us/api-hub/meetings/methods/endpoints.j
 - [x] `/report/webinars/{webinarId}/participants (and /past_webinars/{webinarId}/participants)` — webinar attendance rows; webinars are synced but have zero attendance data (high)
 - [x] `/webinars/{webinarId}/registrants` — registration records with approval status, the denominator for webinar show-up rate (high)
 - [x] `/meetings/{meetingId}/registrants` — registration records for registration-enabled meetings we already sync (high)
-- [ ] `/past_meetings/{meetingId}/instances (and /past_webinars/{webinarId}/instances)` — lookup resolving each recurring meeting/webinar ID we sync to its per-occurrence UUIDs, which every report endpoint keys on (high)
-- [ ] `/groups and /groups/{groupId}/members` — lookup table resolving the group IDs carried on the users rows we already sync (high)
-- [ ] `/report/users` — active/inactive host report with per-user meeting counts, minutes and participant totals - Zoom's headline usage metric (high)
-- [ ] `/users/{userId}/recordings` — cloud recording inventory per host, including file size and duration for storage/usage analysis (medium)
+- [x] `/past_meetings/{meetingId}/instances (and /past_webinars/{webinarId}/instances)` — lookup resolving each recurring meeting/webinar ID we sync to its per-occurrence UUIDs, which every report endpoint keys on (high)
+- [x] `/groups and /groups/{groupId}/members` — lookup table resolving the group IDs carried on the users rows we already sync (high)
+- [x] `/report/users` — active/inactive host report with per-user meeting counts, minutes and participant totals - Zoom's headline usage metric (high)
+- [x] `/users/{userId}/recordings` — cloud recording inventory per host, including file size and duration for storage/usage analysis (medium)
 - [ ] `/report/daily` — daily rollup of new users, meetings, participants and minutes per account (medium)
 - [ ] `/webinars/{webinarId}/panelists` — panelist membership per webinar, needed to separate hosts/panelists from attendees (medium)
 - [ ] `/meetings/meeting_summaries and /meetings/{meetingId}/meeting_summary` — account-wide AI meeting summaries, a queryable per-meeting content table (medium)
@@ -13806,19 +13806,19 @@ Out of scope — the Metering/meters API (`/meters/*`): despite the "Metering/me
 
 ## Zylo — gaps
 
-Today (14): `ActivityHistory`, `ApplicationBudgets`, `ApplicationLicenses`, `ApplicationUsers`, `Applications`, `AutomationExecutions`, `Automations`, `ContractLineItems`, `Contracts`, `POLineItems`, `Payments`, `PurchaseOrders`, `SavingsEvents`, `Suppliers`
+Today (18): `ActivityHistory`, `ApplicationBudgets`, `ApplicationLicenses`, `ApplicationStats`, `ApplicationUsers`, `Applications`, `AutomationExecutions`, `Automations`, `ContractLineItems`, `Contracts`, `POLineItems`, `Payments`, `PendingContracts`, `PurchaseOrders`, `SavingsEvents`, `Suppliers`, `Users`, `Views`
 
 Diffed against: <https://developer.zylo.com/sitemap.xml>
 
-- [ ] `/v2/users` — the company employee directory - lookup resolving the user IDs on the ApplicationUsers rows we already sync (high)
-- [ ] `/v2/applicationStats` — per-application spend and utilization stats, Zylo's headline metric and the whole point of SaaS management (high)
-- [ ] `/v2/pendingContracts` — contracts in flight/awaiting approval - the renewal pipeline, invisible from the committed Contracts table (high)
+- [x] `/v2/users` — the company employee directory - lookup resolving the user IDs on the ApplicationUsers rows we already sync (high) (`users`)
+- [x] `/v2/applicationStats` — per-application spend and utilization stats, Zylo's headline metric and the whole point of SaaS management (high) (`application_stats`, full refresh only: the stats change daily but the only timestamp filters are the application's own dates)
+- [x] `/v2/pendingContracts` — contracts in flight/awaiting approval - the renewal pipeline, invisible from the committed Contracts table (high) (`pending_contracts`)
 - [ ] `/v2/pendingContractLineItems` — line-item grain for pending contracts, needed to forecast renewal spend by product (medium)
 - [ ] `/v2/applications/{applicationId}/functionalities` — functionality taxonomy per app - the breakdown dimension for redundant-spend analysis across the Applications we sync (medium)
 - [ ] `/v2/zybrary` — Zylo's reference SaaS catalog - lookup enriching synced Applications with vendor/category benchmark data (medium)
 - [ ] `/v2/customFields` — custom field definitions - lookup resolving the customer-defined field IDs that appear on applications, contracts and suppliers (medium)
 - [ ] `/v2/zyloUsers` — Zylo platform users - lookup resolving owner/approver IDs referenced on applications and contracts (medium)
-- [ ] `/v2/views` — application groupings (cost centers, business units) - the org breakdown dimension for spend rollups (medium)
+- [x] `/v2/views` — application groupings (cost centers, business units) - the org breakdown dimension for spend rollups (medium) (`views`; needs the `admin` scope)
 - [ ] `/v2/applicationBudgets/stats` — budget-vs-actual aggregates alongside the raw ApplicationBudgets we already sync (medium)
 - [ ] `/v2/workflows and /v2/workflows/{workflowId}/responses` — app-request and review workflow responses - per-response rows for governance reporting (low)
 - [ ] `/v2/companyDocuments` — document metadata (MSAs, DPAs) linked to suppliers and contracts already synced (low)

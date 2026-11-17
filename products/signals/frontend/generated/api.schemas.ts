@@ -911,6 +911,21 @@ export interface SignalTeamConfigApi {
      */
     implementation_instructions?: string
     /**
+     * ID of a project-shared custom sandbox image that scout runs without their own image start from. Null uses the standard image. Only a project admin with editor access to skills can set it. An image that is missing or not ready at run time falls back to the standard image.
+     * @nullable
+     */
+    scout_custom_image_id?: string | null
+    /**
+     * ID of a project-shared custom sandbox image that report research and monitoring assessment runs start from. Null uses the standard image. Only a project admin can change it. An image that is missing or not ready at run time falls back to the standard image.
+     * @nullable
+     */
+    research_custom_image_id?: string | null
+    /**
+     * ID of a project-shared custom sandbox image that report implementation runs start from. Null uses the standard image. Only a project admin can change it. An image that is missing or not ready at run time falls back to the standard image.
+     * @nullable
+     */
+    implementation_custom_image_id?: string | null
+    /**
      * Connected GitHub, GitLab, Linear, or Jira integration that self-driving opens a tracker issue in for each pull request it makes. Null turns tracker issues off, which is the default.
      * @nullable
      */
@@ -1176,6 +1191,9 @@ export const InboxOnboardingSetupModeEnumApi = {
  * * `hubspot` - HubSpot
  * * `engineering_analytics` - Engineering analytics
  * * `google_search_console` - Google Search Console
+ * * `bing_webmaster_tools` - Bing Webmaster Tools
+ * * `ahrefs` - Ahrefs
+ * * `semrush` - Semrush
  * * `pagerduty` - PagerDuty
  * * `opsgenie` - Opsgenie
  * * `incident_io` - incident.io
@@ -1335,6 +1353,9 @@ export const SignalSourceProductEnumApi = {
     Hubspot: 'hubspot',
     EngineeringAnalytics: 'engineering_analytics',
     GoogleSearchConsole: 'google_search_console',
+    BingWebmasterTools: 'bing_webmaster_tools',
+    Ahrefs: 'ahrefs',
+    Semrush: 'semrush',
     Pagerduty: 'pagerduty',
     Opsgenie: 'opsgenie',
     IncidentIo: 'incident_io',
@@ -1545,6 +1566,9 @@ export interface InboxOnboardingSourceApi {
      * * `hubspot` - HubSpot
      * * `engineering_analytics` - Engineering analytics
      * * `google_search_console` - Google Search Console
+     * * `bing_webmaster_tools` - Bing Webmaster Tools
+     * * `ahrefs` - Ahrefs
+     * * `semrush` - Semrush
      * * `pagerduty` - PagerDuty
      * * `opsgenie` - Opsgenie
      * * `incident_io` - incident.io
@@ -4507,6 +4531,9 @@ export interface SignalReportLeaveReviewersApi {
  * * `hubspot` - hubspot
  * * `engineering_analytics` - engineering_analytics
  * * `google_search_console` - google_search_console
+ * * `bing_webmaster_tools` - bing_webmaster_tools
+ * * `ahrefs` - ahrefs
+ * * `semrush` - semrush
  * * `pagerduty` - pagerduty
  * * `opsgenie` - opsgenie
  * * `incident_io` - incident_io
@@ -4666,6 +4693,9 @@ export const SignalSourceProductApi = {
     Hubspot: 'hubspot',
     EngineeringAnalytics: 'engineering_analytics',
     GoogleSearchConsole: 'google_search_console',
+    BingWebmasterTools: 'bing_webmaster_tools',
+    Ahrefs: 'ahrefs',
+    Semrush: 'semrush',
     Pagerduty: 'pagerduty',
     Opsgenie: 'opsgenie',
     IncidentIo: 'incident_io',
@@ -5575,6 +5605,31 @@ export interface GoogleSearchConsoleSearchOpportunitySignalExtraApi {
     position: number
 }
 
+export interface BingWebmasterToolsSearchOpportunitySignalExtraApi {
+    site_url: string | null
+    issue_flag: string | null
+    issue: string | null
+    affected_urls: string | null
+    example_url: string | null
+    inbound_links: string | null
+}
+
+export interface AhrefsSearchOpportunitySignalExtraApi {
+    project_id: string | null
+    issue_id: string | null
+    issue_category: string | null
+    issue_importance: string | null
+    affected_urls: string | null
+}
+
+export interface SemrushSearchOpportunitySignalExtraApi {
+    project_id: string | null
+    issue_id: string | null
+    affected_pages: string | null
+    example_url: string | null
+    audit_snapshot_id: string | null
+}
+
 export interface HelpscoutConversationSignalExtraApi {
     number: string | null
     status: string | null
@@ -6369,6 +6424,9 @@ export type SignalExtraApi =
     | Dynamics365TicketSignalExtraApi
     | ZohoCrmTicketSignalExtraApi
     | GoogleSearchConsoleSearchOpportunitySignalExtraApi
+    | BingWebmasterToolsSearchOpportunitySignalExtraApi
+    | AhrefsSearchOpportunitySignalExtraApi
+    | SemrushSearchOpportunitySignalExtraApi
     | HelpscoutConversationSignalExtraApi
     | DecagonConversationSignalExtraApi
     | VitallyConversationSignalExtraApi
@@ -6556,6 +6614,9 @@ export interface SignalNodeApi {
      * * `hubspot` - hubspot
      * * `engineering_analytics` - engineering_analytics
      * * `google_search_console` - google_search_console
+     * * `bing_webmaster_tools` - bing_webmaster_tools
+     * * `ahrefs` - ahrefs
+     * * `semrush` - semrush
      * * `pagerduty` - pagerduty
      * * `opsgenie` - opsgenie
      * * `incident_io` - incident_io
@@ -8204,6 +8265,11 @@ export interface SignalScoutConfigOptionsApi {
      */
     model?: string | null
     /**
+     * ID of a project-shared custom sandbox image this scout's runs start from. Null uses the project's default scout image, or the standard image when no default is set. Only the scout's author or a project admin can change it. Setting an image requires skill-authoring authorization (the `llm_skill:write` scope and skill editor access), since the image can supply agent instructions. An image that is missing or not ready at run time falls back to the standard image.
+     * @nullable
+     */
+    custom_image_id?: string | null
+    /**
      * Free-form labels for grouping the fleet, e.g. `["revenue", "on-call"]`. Normalized to lowercase kebab-case (`On Call` and `on_call` both become `on-call`), deduped, and stored sorted; at most 10 tags, each at most 50 characters once normalized. Pass the full desired set — a write replaces the existing tags rather than merging into them. Filter the config list with the `tags` query parameter.
      * @maxItems 10
      */
@@ -8561,6 +8627,11 @@ export interface SignalScoutConfigApi {
      */
     readonly model: string | null
     /**
+     * ID of a project-shared custom sandbox image this scout's runs start from. Null uses the project's default scout image, or the standard image when no default is set. Only the scout's author or a project admin can change it. Setting an image requires skill-authoring authorization (the `llm_skill:write` scope and skill editor access), since the image can supply agent instructions. An image that is missing or not ready at run time falls back to the standard image.
+     * @nullable
+     */
+    readonly custom_image_id: string | null
+    /**
      * MCP gateway servers (by id) this scout's runs may use, chosen from the connections members shared to the whole team. Selection is per scout: an empty list gives the scout no MCP servers. Applies from the scout's next run.
      * @maxItems 100
      */
@@ -8714,6 +8785,11 @@ export interface SignalScoutConfigCreateApi {
      * @nullable
      */
     model?: string | null
+    /**
+     * ID of a project-shared custom sandbox image this scout's runs start from. Null uses the project's default scout image, or the standard image when no default is set. Only the scout's author or a project admin can change it. Setting an image requires skill-authoring authorization (the `llm_skill:write` scope and skill editor access), since the image can supply agent instructions. An image that is missing or not ready at run time falls back to the standard image.
+     * @nullable
+     */
+    custom_image_id?: string | null
     /**
      * Free-form labels for grouping the fleet, e.g. `["revenue", "on-call"]`. Normalized to lowercase kebab-case (`On Call` and `on_call` both become `on-call`), deduped, and stored sorted; at most 10 tags, each at most 50 characters once normalized. Pass the full desired set — a write replaces the existing tags rather than merging into them. Filter the config list with the `tags` query parameter.
      * @maxItems 10
@@ -8878,6 +8954,11 @@ export interface PatchedSignalScoutConfigUpdateApi {
      * @nullable
      */
     model?: string | null
+    /**
+     * ID of a project-shared custom sandbox image this scout's runs start from. Null uses the project's default scout image, or the standard image when no default is set. Only the scout's author or a project admin can change it. Setting an image requires skill-authoring authorization (the `llm_skill:write` scope and skill editor access), since the image can supply agent instructions. An image that is missing or not ready at run time falls back to the standard image.
+     * @nullable
+     */
+    custom_image_id?: string | null
     /** Exempt this scout from the inactivity sweep, meaning both the `ignored` pause and the `no_output` quiet warning. Set it on watchdog scouts whose value is staying quiet. */
     auto_pause_exempt?: boolean
     /**

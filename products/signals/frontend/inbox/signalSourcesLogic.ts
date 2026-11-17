@@ -645,6 +645,7 @@ export interface signalSourcesLogicMeta {
             sourceCategory: string,
             externalSourceStates: Record<
                 | 'aha'
+                | 'ahrefs'
                 | 'airbrake'
                 | 'amazon_cloudwatch'
                 | 'app_store_connect'
@@ -664,6 +665,7 @@ export interface signalSourcesLogicMeta {
                 | 'bettermode'
                 | 'betterstack'
                 | 'bigeye'
+                | 'bing_webmaster_tools'
                 | 'bugherd'
                 | 'bugsnag'
                 | 'canny'
@@ -747,6 +749,7 @@ export interface signalSourcesLogicMeta {
                 | 'rootly_alerts'
                 | 'semgrep'
                 | 'semgrep_sca'
+                | 'semrush'
                 | 'sentinelone'
                 | 'sentry'
                 | 'sentry_feedback'
@@ -803,6 +806,7 @@ export interface signalSourcesLogicMeta {
             externalAgents: AgentRosterDefinition[],
             externalSourceStates: Record<
                 | 'aha'
+                | 'ahrefs'
                 | 'airbrake'
                 | 'amazon_cloudwatch'
                 | 'app_store_connect'
@@ -822,6 +826,7 @@ export interface signalSourcesLogicMeta {
                 | 'bettermode'
                 | 'betterstack'
                 | 'bigeye'
+                | 'bing_webmaster_tools'
                 | 'bugherd'
                 | 'bugsnag'
                 | 'canny'
@@ -905,6 +910,7 @@ export interface signalSourcesLogicMeta {
                 | 'rootly_alerts'
                 | 'semgrep'
                 | 'semgrep_sca'
+                | 'semrush'
                 | 'sentinelone'
                 | 'sentry'
                 | 'sentry_feedback'
@@ -951,6 +957,7 @@ export interface signalSourcesLogicMeta {
             externalAgents: AgentRosterDefinition[],
             externalSourceStates: Record<
                 | 'aha'
+                | 'ahrefs'
                 | 'airbrake'
                 | 'amazon_cloudwatch'
                 | 'app_store_connect'
@@ -970,6 +977,7 @@ export interface signalSourcesLogicMeta {
                 | 'bettermode'
                 | 'betterstack'
                 | 'bigeye'
+                | 'bing_webmaster_tools'
                 | 'bugherd'
                 | 'bugsnag'
                 | 'canny'
@@ -1053,6 +1061,7 @@ export interface signalSourcesLogicMeta {
                 | 'rootly_alerts'
                 | 'semgrep'
                 | 'semgrep_sca'
+                | 'semrush'
                 | 'sentinelone'
                 | 'sentry'
                 | 'sentry_feedback'

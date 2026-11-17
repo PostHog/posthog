@@ -24,6 +24,7 @@ import type {
     GapActionApi,
     GapTopicActionApi,
     GapTopicActionResultApi,
+    KnowledgeAccessApi,
     KnowledgeAvailabilityApi,
     KnowledgeDocumentWindowApi,
     KnowledgeGapSuggestionApi,
@@ -68,6 +69,24 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
           [P in keyof Writable<T>]: T[P] extends object ? NonReadonly<NonNullable<T[P]>> : T[P]
       }
     : DistributeReadOnlyOverUnions<T>
+
+export const getBusinessKnowledgeAccessRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/business_knowledge/access/`
+}
+
+/**
+ * The project and, for a project secret API key limited to a library, the library the caller reads. A project secret API key can call this with `@current` as the project ID to learn its own project.
+ * @summary Get what the caller can read
+ */
+export const businessKnowledgeAccessRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<KnowledgeAccessApi> => {
+    return apiMutator<KnowledgeAccessApi>(getBusinessKnowledgeAccessRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
 
 export const getBusinessKnowledgeDocumentsWindowListUrl = (
     projectId: string,
