@@ -48,6 +48,7 @@ from products.warehouse_sources.backend.facade.pipelines import (
     destination_named_in_failure,
     is_configuration_failure_of,
 )
+from products.warehouse_sources.backend.facade.source_inputs import SourceInputsStore
 from products.warehouse_sources.backend.presentation.destination_connect_tokens import (
     ConnectTokenInvalidIntegration,
     ConnectTokenNotFound,
@@ -98,8 +99,7 @@ DESTINATION_INTEGRATION_KINDS: dict[str, tuple[str, ...]] = {
 
 DELIVERY_FAILURES_WINDOW_DAYS = 14
 DELIVERY_FAILURES_LIMIT = 50
-# Failed runs of other destinations share the same sources, so read more runs than the response returns.
-DELIVERY_FAILURES_SCAN_LIMIT = 500
+DELIVERY_FAILURES_PAGE_SIZE = 500
 
 INTEGRATION_ACCESS_DENIED = (
     "You do not have access to this integration. Ask a project admin for access, or connect your own credentials."
@@ -1150,42 +1150,80 @@ class ExternalDataDestinationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
         if accessible_source_ids is not None:
             sources = sources.filter(id__in=accessible_source_ids)
 
-        destination_id = str(destination.id)
-        jobs = list(
+        jobs = (
             ExternalDataJob.objects.filter(
                 team_id=self.team_id,
                 pipeline_id__in=sources.values("id"),
                 status=ExternalDataJob.Status.FAILED,
                 created_at__gte=timezone.now() - timedelta(days=DELIVERY_FAILURES_WINDOW_DAYS),
-                destination_ids__contains=[destination_id],
+                destination_ids__contains=[str(destination.id)],
             )
             .exclude(latest_error__isnull=True)
-            .select_related("pipeline", "schema")
-            .order_by("-created_at")[:DELIVERY_FAILURES_SCAN_LIMIT]
+            .select_related("pipeline", "schema__table", "schema__source")
+            .order_by("-created_at", "-id")
         )
 
-        # A run can deliver to several destinations, and its failure names the one that stopped it. The
-        # longest matching name wins, so a destination named `Prod` does not claim a failure of `Prod EU`.
-        names_by_id = {
-            str(named_id): name
-            for named_id, name in ExternalDataDestination.objects.for_team(self.team_id, canonical=True)
-            .filter(id__in={str(linked_id) for job in jobs for linked_id in job.destination_ids})
-            .values_list("id", "name")
-        }
-        destination_secrets = source_helpers.get_integration_error_redaction_values(destination.integration)
+        # Most failed runs of these sources failed somewhere else, so read them a page at a time until
+        # enough of them are failures of this destination or the window runs out.
+        destinations_by_id: dict[str, ExternalDataDestination] = {}
+        matched: list[tuple[ExternalDataJob, list[ExternalDataDestination]]] = []
+        offset = 0
+        while len(matched) < DELIVERY_FAILURES_LIMIT:
+            page = list(jobs[offset : offset + DELIVERY_FAILURES_PAGE_SIZE])
+            if not page:
+                break
+            offset += len(page)
+            unseen_ids = {
+                str(linked_id) for job in page for linked_id in job.destination_ids
+            } - destinations_by_id.keys()
+            if unseen_ids:
+                for linked in (
+                    ExternalDataDestination.objects.for_team(self.team_id, canonical=True)
+                    .filter(id__in=unseen_ids)
+                    .select_related("integration")
+                ):
+                    destinations_by_id[str(linked.id)] = linked
+
+            for job in page:
+                job_destinations = [
+                    destinations_by_id[str(linked_id)]
+                    for linked_id in job.destination_ids
+                    if str(linked_id) in destinations_by_id
+                ]
+                # The error names the destination that stopped the run. The longest matching name wins,
+                # so a destination named `Prod` does not claim a failure of `Prod EU`.
+                if destination_named_in_failure(job.latest_error or "", [d.name for d in job_destinations]) != (
+                    destination.name
+                ):
+                    continue
+                if not self._can_view_job_table(job):
+                    continue
+                # A name is not unique, so any destination of the run with this name may have raised the
+                # error. Mask the secrets of all of them.
+                matched.append((job, [d for d in job_destinations if d.name == destination.name]))
+                if len(matched) >= DELIVERY_FAILURES_LIMIT:
+                    break
+
+        source_inputs = SourceInputsStore.load_many({job.pipeline_id: job.pipeline for job, _ in matched}.values())
         source_secrets: dict[str, frozenset[str]] = {}
+        destination_secrets: dict[str, frozenset[str]] = {}
 
         results: list[dict[str, Any]] = []
-        for job in jobs:
+        for job, named_destinations in matched:
             reason = job.latest_error or ""
-            job_destination_names = [
-                names_by_id[str(linked_id)] for linked_id in job.destination_ids if str(linked_id) in names_by_id
-            ]
-            if destination_named_in_failure(reason, job_destination_names) != destination.name:
-                continue
             source_id = str(job.pipeline_id)
             if source_id not in source_secrets:
-                source_secrets[source_id] = source_helpers.get_error_redaction_values(job.pipeline)
+                source_secrets[source_id] = source_helpers.get_error_redaction_values(
+                    job.pipeline, source_inputs.get(job.pipeline_id)
+                )
+            secrets = source_secrets[source_id]
+            for named in named_destinations:
+                named_id = str(named.id)
+                if named_id not in destination_secrets:
+                    destination_secrets[named_id] = source_helpers.get_integration_error_redaction_values(
+                        named.integration
+                    )
+                secrets = secrets | destination_secrets[named_id]
             results.append(
                 {
                     "job_id": job.id,
@@ -1195,8 +1233,7 @@ class ExternalDataDestinationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
                     "schema_id": job.schema_id,
                     "schema_name": job.schema.name if job.schema else None,
                     "error": source_helpers.redact_error_message(
-                        _delivery_error_detail(reason, destination.name),
-                        source_secrets[source_id] | destination_secrets,
+                        _delivery_error_detail(reason, destination.name), secrets
                     ),
                     "is_configuration_error": is_configuration_failure_of(reason, destination.name),
                     "created_at": job.created_at,
@@ -1204,14 +1241,19 @@ class ExternalDataDestinationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
                     "workflow_run_id": job.workflow_run_id,
                 }
             )
-            if len(results) >= DELIVERY_FAILURES_LIMIT:
-                break
 
         return Response(
             DestinationDeliveryFailuresResponseSerializer(
                 {"results": results, "window_days": DELIVERY_FAILURES_WINDOW_DAYS}
             ).data
         )
+
+    def _can_view_job_table(self, job: ExternalDataJob) -> bool:
+        """Whether the user may read the table a run synced, the same check the schema endpoints make."""
+        if job.schema is None or is_service_auth(self.request):
+            return True
+        level = self.user_access_control.get_user_access_level(job.schema.table or job.schema.source)
+        return level is not None and access_level_satisfied_for_resource("warehouse_table", level, "viewer")
 
     @extend_schema(request=None, responses={200: DestinationConnectionTestResponseSerializer})
     @action(methods=["POST"], detail=True)

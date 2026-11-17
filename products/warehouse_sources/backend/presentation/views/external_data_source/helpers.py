@@ -510,14 +510,18 @@ def get_error_redaction_values(
 def get_integration_error_redaction_values(integration: IntegrationRecord | None) -> frozenset[str]:
     """The secret values of a destination's integration, to mask wherever they appear in its delivery errors.
 
-    Every value in `sensitive_config` is a secret. In `config`, only keys named like a secret are.
+    Every value in `sensitive_config` is a secret, so each one is masked whatever its length. In `config`,
+    only keys named like a secret are, and short values there are left alone like a source's.
     """
     if integration is None:
         return frozenset()
-    values: set[str] = set()
-    _collect_string_leaves(integration.sensitive_config, values)
-    _collect_secret_values(integration.config, set(), values)
-    return frozenset(value for value in values if len(value) >= _MIN_REDACTED_SECRET_LENGTH)
+    sensitive: set[str] = set()
+    _collect_string_leaves(integration.sensitive_config, sensitive)
+    named_like_secret: set[str] = set()
+    _collect_secret_values(integration.config, set(), named_like_secret)
+    return frozenset(value for value in sensitive if value) | frozenset(
+        value for value in named_like_secret if len(value) >= _MIN_REDACTED_SECRET_LENGTH
+    )
 
 
 def redact_error_message(message: str | None, secret_values: Iterable[str]) -> str | None:
