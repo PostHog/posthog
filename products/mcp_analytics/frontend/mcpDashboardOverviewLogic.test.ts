@@ -270,9 +270,9 @@ describe('mcpDashboardOverviewLogic', () => {
     describe('buildKPIs', () => {
         it('splits current vs prior buckets and computes values, deltas, and sparklines', () => {
             const rows: BucketRow[] = [
-                { bucket: '2024-01-09', sessions: 20, tool_calls: 200, errors: 15, p95: 300 },
-                { bucket: '2024-01-08', sessions: 10, tool_calls: 100, errors: 5, p95: 200 },
-                { bucket: '2024-01-01', sessions: 5, tool_calls: 50, errors: 5, p95: 150 },
+                { bucket: '2024-01-09', sessions: 20, tool_calls: 200, errors: 15, p95: 300, users: 12 },
+                { bucket: '2024-01-08', sessions: 10, tool_calls: 100, errors: 5, p95: 200, users: 9 },
+                { bucket: '2024-01-01', sessions: 5, tool_calls: 50, errors: 5, p95: 150, users: 4 },
             ]
             const kpis = buildKPIs(rows, '2024-01-08')
 
@@ -291,6 +291,7 @@ describe('mcpDashboardOverviewLogic', () => {
                 sparkline: [100, 200],
             })
             expect(kpis.p95LatencyMs).toMatchObject({ sparkline: [200, 300], goodDirection: 'down' })
+            expect(kpis.users).toMatchObject({ value: 0, sparkline: [9, 12], goodDirection: 'up' })
             expect(kpis.errorRatePct).toMatchObject({
                 value: (20 / 300) * 100,
                 previousValue: 10,
@@ -299,7 +300,9 @@ describe('mcpDashboardOverviewLogic', () => {
         })
 
         it('returns null deltas when there is no prior-period data', () => {
-            const rows: BucketRow[] = [{ bucket: '2024-01-08', sessions: 10, tool_calls: 100, errors: 0, p95: 200 }]
+            const rows: BucketRow[] = [
+                { bucket: '2024-01-08', sessions: 10, tool_calls: 100, errors: 0, p95: 200, users: 3 },
+            ]
             expect(buildKPIs(rows, '2024-01-08').sessions.deltaPct).toBeNull()
         })
     })
@@ -523,18 +526,29 @@ describe('mcpDashboardOverviewLogic', () => {
         ])('maps the period totals columns to the users and p95 metrics: $rows', async ({ rows, users, p95 }) => {
             mockSections((section) => (section === MCPDashboardSection.PeriodTotals ? rows : []))
             const logic = await mountDashboard()
+            logic.actions.sectionsLoaded({
+                [MCPDashboardSection.Kpis]: {
+                    results: [
+                        ['2024-01-08', 10, 100, 5, 700, 9],
+                        ['2024-01-09', 20, 200, 15, 800, 12],
+                    ],
+                    currentStartBucket: '2024-01-08',
+                },
+            })
 
             const [value, previousValue, delta] = users
-            expect(logic.values.periodTotals.users).toMatchObject({
+            expect(logic.values.headlineKpis.users).toMatchObject({
                 value,
                 previousValue,
                 deltaPct: delta,
+                sparkline: [9, 12],
                 goodDirection: 'up',
             })
             expect(logic.values.headlineKpis.p95LatencyMs).toMatchObject({
                 value: p95[0],
                 previousValue: p95[1],
                 deltaPct: p95[2],
+                sparkline: [700, 800],
                 goodDirection: 'down',
             })
         })
