@@ -1,8 +1,8 @@
 import { decode } from 'he'
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 
 import { IconCopy } from '@posthog/icons'
-import { LemonButton, LemonSkeleton, LemonTable, LemonTag } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonSkeleton, LemonTable, LemonTag } from '@posthog/lemon-ui'
 
 import { IconKey } from 'lib/lemon-ui/icons'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
@@ -15,7 +15,20 @@ import { PROVISIONING_STATUS_LABELS, PROVISIONING_STATUS_TAG_TYPES } from './oau
 import { oauthAppsLogic } from './oauthAppsLogic'
 
 export function OAuthApps(): JSX.Element {
-    const { oauthApps, oauthAppsLoading } = useValues(oauthAppsLogic)
+    const { oauthApps, oauthAppsLoading, oauthAppsLoadFailed } = useValues(oauthAppsLogic)
+    const { loadOAuthApps } = useActions(oauthAppsLogic)
+
+    if (oauthAppsLoadFailed && !oauthAppsLoading) {
+        return (
+            <LemonBanner
+                type="error"
+                className="mt-4"
+                action={{ children: 'Try again', onClick: loadOAuthApps, 'data-attr': 'oauth-apps-retry' }}
+            >
+                Couldn't load your OAuth applications. Try again, and if it keeps happening contact support.
+            </LemonBanner>
+        )
+    }
 
     if (oauthApps === null || (oauthAppsLoading && oauthApps.length === 0)) {
         return (
