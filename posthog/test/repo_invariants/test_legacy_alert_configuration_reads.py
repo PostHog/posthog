@@ -113,7 +113,15 @@ READERS: dict[str, str] = {
     "products/alerts/backend/facade/api.py::snooze_alert_from_slack": (
         "Slack snooze refuses an alert whose row is off (plan: stays until E2)"
     ),
-    "products/alerts/backend/facade/api.py::assign_alert_owner": "sets the creator on the row (E2)",
+    "products/alerts/backend/logic/ownership.py::_load_alert": (
+        "ownership loads the legacy row or platform copy while both stores exist (E2, G3)"
+    ),
+    "products/alerts/backend/logic/ownership.py::take_alert_ownership": (
+        "ownership keeps an unsaved pre-write state for limit checks (G3)"
+    ),
+    "products/alerts/backend/logic/alert_validation.py::validate_alert_write": (
+        "shared write validation builds an unsaved row for limit checks (G3)"
+    ),
     "products/alerts/backend/facade/api.py::delete_insight_alerts": "deletes rows with their insight (G2)",
     # Read surfaces: rows the source stack still owns; platform-owned alerts read their copy (B1-B5).
     "products/alerts/backend/presentation/views/alert.py::AlertViewSet": "insight alert API (B2)",
