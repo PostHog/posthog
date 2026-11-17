@@ -44,8 +44,9 @@ export function SourceFilterModal({
         teamsEditable,
         linearIntegration,
         integrationsUnknown,
+        integrationsLoadFailed,
     } = useValues(logic)
-    const { setSourceFilterValue, selectField, removeFilter } = useActions(logic)
+    const { setSourceFilterValue, selectField, removeFilter, loadIntegrations } = useActions(logic)
 
     const textAreaRef = useRef<HTMLTextAreaElement>(null)
     const pendingCursor = useRef<number | null>(null)
@@ -141,6 +142,8 @@ export function SourceFilterModal({
                             scope={sourceFilter.teamScope}
                             linearIntegration={linearIntegration}
                             integrationsUnknown={integrationsUnknown}
+                            integrationsLoadFailed={integrationsLoadFailed}
+                            onRetryIntegrations={() => loadIntegrations()}
                             disabledReason={busy ? 'Saving' : undefined}
                         />
                     )}

@@ -34,6 +34,7 @@ describe('sourceFilterModalLogic', () => {
     let logic: ReturnType<typeof sourceFilterModalLogic.build>
     let patchBodies: Record<string, any>[]
     let rejectWith: string | null
+    let integrationsFail: boolean
     let onClose: jest.Mock
 
     function mountWith(config: Record<string, any>): void {
@@ -44,10 +45,14 @@ describe('sourceFilterModalLogic', () => {
     beforeEach(() => {
         patchBodies = []
         rejectWith = null
+        integrationsFail = false
         onClose = jest.fn()
         useMocks({
             get: {
-                '/api/environments/:team_id/integrations/': () => [200, { results: [] }],
+                '/api/projects/:team_id/integrations/': () =>
+                    integrationsFail ? [500, { detail: 'Internal server error' }] : [200, { results: [] }],
+                '/api/environments/:team_id/integrations/': () =>
+                    integrationsFail ? [500, { detail: 'Internal server error' }] : [200, { results: [] }],
                 '/api/environments/:team_id/external_data_sources/': () => [200, { results: [] }],
                 '/api/projects/:team_id/signals/source_configs/': () => [
                     200,
@@ -128,5 +133,16 @@ describe('sourceFilterModalLogic', () => {
 
         logic.actions.setSourceFilterValue('expression', "project_name = 'Core'")
         expect(logic.values.sourceFilterAllErrors).toEqual({})
+    })
+
+    it('reports a failed Linear connection load and recovers on retry', async () => {
+        integrationsFail = true
+        mountWith({})
+        await expectLogic(logic).toDispatchActions(['loadIntegrationsFailure'])
+        expect(logic.values.integrationsLoadFailed).toBe(true)
+
+        integrationsFail = false
+        await expectLogic(logic, () => logic.actions.loadIntegrations()).toDispatchActions(['loadIntegrationsSuccess'])
+        expect(logic.values.integrationsLoadFailed).toBe(false)
     })
 })

@@ -18,6 +18,8 @@ export interface SourceFilterLinearTeamsProps {
     scope: LinearTeamsScope
     linearIntegration: IntegrationType | null
     integrationsUnknown: boolean
+    integrationsLoadFailed: boolean
+    onRetryIntegrations: () => void
     disabledReason?: string
 }
 
@@ -26,6 +28,8 @@ export function SourceFilterLinearTeams({
     scope,
     linearIntegration,
     integrationsUnknown,
+    integrationsLoadFailed,
+    onRetryIntegrations,
     disabledReason,
 }: SourceFilterLinearTeamsProps): JSX.Element {
     // A radio group disables per option, so the reason goes on each one.
@@ -43,7 +47,18 @@ export function SourceFilterLinearTeams({
                 )}
             </LemonField>
             {scope === 'selected' &&
-                (integrationsUnknown ? (
+                (integrationsLoadFailed && integrationsUnknown ? (
+                    <LemonBanner
+                        type="error"
+                        action={{
+                            children: 'Retry',
+                            onClick: onRetryIntegrations,
+                            'data-attr': 'signal-source-filter-teams-retry',
+                        }}
+                    >
+                        Couldn't load your Linear connection, so the team list isn't available. Retry to load it.
+                    </LemonBanner>
+                ) : integrationsUnknown ? (
                     <LemonSkeleton className="h-10" />
                 ) : linearIntegration ? (
                     <LemonField name="teamIds">
