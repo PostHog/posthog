@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { type ReactNode } from 'react'
 
 import {
     DropdownMenu,
@@ -20,7 +21,7 @@ import { userLogic } from 'scenes/userLogic'
 import { membersLogic } from '~/models/membersLogic'
 import { ExperimentStatus } from '~/types'
 
-import { ExperimentVelocityStats } from 'products/experiments/frontend/components/ExperimentVelocityStats'
+import { QuillExperimentVelocityStats } from 'products/experiments/frontend/components/QuillExperimentVelocityStats'
 import { experimentsLogic } from 'products/experiments/frontend/scenes/experimentsLogic'
 
 const DEFAULT_ORDER = '-created_at'
@@ -197,13 +198,13 @@ function QuillExperimentsFilterMenu(): JSX.Element {
     )
 }
 
-/** Search, and beside it the one menu of the list's controls, like the analytics list. */
-export function QuillExperimentsListFilters(): JSX.Element {
+/** Search, the one menu of the list's controls, then whatever the list adds, like the analytics list. */
+export function QuillExperimentsListFilters({ children }: { children?: ReactNode }): JSX.Element {
     const { filters } = useValues(experimentsLogic)
     const { setExperimentsFilters } = useActions(experimentsLogic)
 
     return (
-        <div className="flex flex-wrap items-start justify-between gap-2">
+        <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="flex flex-wrap items-center gap-2">
                 <AnalyticsSearchInput
                     value={filters.search || ''}
@@ -213,8 +214,9 @@ export function QuillExperimentsListFilters(): JSX.Element {
                     dataAttr="experiments-list-search"
                 />
                 <QuillExperimentsFilterMenu />
+                {children}
             </div>
-            <ExperimentVelocityStats />
+            <QuillExperimentVelocityStats />
         </div>
     )
 }

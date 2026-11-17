@@ -92,8 +92,7 @@ import {
     startExperimentSurvey,
     useMatchingExperimentIds,
 } from './experimentsTable'
-import { QuillExperimentsListFilters } from './QuillExperimentsListFilters'
-import { QuillExperimentsTable } from './QuillExperimentsTable'
+import { QuillExperimentsList } from './QuillExperimentsTable'
 
 // "Experiments open feedback" in project 2: https://us.posthog.com/project/2/surveys/01a08364-270e-0000-585b-147d32bf96ed
 // Button-only: its URL condition never matches, so this button is the survey's sole entry point.
@@ -522,12 +521,7 @@ const ExperimentsTable = ({
     return (
         <SceneContent>
             {todayRailNav && resultsRedesign ? (
-                <QuillExperimentsListFilters />
-            ) : (
-                <ExperimentsTableFilters filters={filters} onFiltersChange={setExperimentsFilters} />
-            )}
-            {todayRailNav && resultsRedesign ? (
-                <QuillExperimentsTable
+                <QuillExperimentsList
                     matching={matching}
                     openDuplicateModal={openDuplicateModal}
                     openSurveyModal={openSurveyModal}
@@ -535,6 +529,7 @@ const ExperimentsTable = ({
                 />
             ) : (
                 <>
+                    <ExperimentsTableFilters filters={filters} onFiltersChange={setExperimentsFilters} />
                     <LemonDivider className="my-0" />
                     {count ? (
                         // min-h-9 matches the bulk selection bar's own height so the row doesn't jump

@@ -26,7 +26,7 @@ import {
 import type { DataTableProps } from '@posthog/quill'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
-import { BulkUpdateTagsButton } from 'lib/components/BulkActions/BulkUpdateTagsButton'
+import { QuillBulkUpdateTagsButton } from 'lib/components/BulkActions/QuillBulkUpdateTagsButton'
 import { QuillEmptyCell, QuillTimeCell } from 'lib/components/QuillTableCells/QuillTableCells'
 import { QuillTablePagination } from 'lib/components/QuillTablePagination/QuillTablePagination'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
@@ -76,6 +76,7 @@ import {
     getExperimentRemainingTime,
     startExperimentSurvey,
 } from './experimentsTable'
+import { QuillExperimentsListFilters } from './QuillExperimentsListFilters'
 import { QuillExperimentTagsDialog } from './QuillExperimentTagsDialog'
 
 type ExperimentsDataTable = DataTableProps<Experiment, unknown>
@@ -516,29 +517,25 @@ function experimentColumns({
     ]
 }
 
-export function QuillExperimentsTable({
+function QuillExperimentsSelectionControls({
     matching,
-    openDuplicateModal,
-    openSurveyModal,
-    openCopyToProjectModal,
-}: ExperimentsTableActions & { matching: MatchingExperimentIds }): JSX.Element {
-    const { experiments, experimentsLoading, filters, count } = useValues(experimentsLogic)
-    const { loadExperiments, setExperimentsFilters } = useActions(experimentsLogic)
-    const { currentOrganization } = useValues(organizationLogic)
-    const hasMultipleProjects = (currentOrganization?.projects?.length ?? 0) > 1
-    const [rowSelection, setRowSelection] = useState<RowSelectionState>({})
-    const [tagsExperiment, setTagsExperiment] = useState<Experiment | null>(null)
-
-    useEffect(() => {
-        setRowSelection({})
-    }, [matching.filterIdentity])
-
-    const page = filters.page || 1
-    const startCount = count === 0 ? 0 : (page - 1) * EXPERIMENTS_PER_PAGE + 1
-    const endCount = page * EXPERIMENTS_PER_PAGE < count ? page * EXPERIMENTS_PER_PAGE : count
+    rowSelection,
+    setRowSelection,
+}: {
+    matching: MatchingExperimentIds
+    rowSelection: RowSelectionState
+    setRowSelection: (rowSelection: RowSelectionState) => void
+}): JSX.Element | null {
+    const { count } = useValues(experimentsLogic)
+    const { loadExperiments } = useActions(experimentsLogic)
     const selectedIds = Object.keys(rowSelection)
         .filter((id) => rowSelection[id])
         .map(Number)
+
+    if (selectedIds.length === 0) {
+        return null
+    }
+
     const selectedIdSet = new Set(selectedIds)
     const isAllMatchingSelected =
         matching.matchingExperimentIds !== null &&
@@ -548,48 +545,60 @@ export function QuillExperimentsTable({
         !isAllMatchingSelected && selectedIds.length >= EXPERIMENTS_PER_PAGE && count > selectedIds.length
 
     return (
-        <div className="flex flex-col gap-2" data-attr="experiments-table-container">
-            {count ? (
-                <div className="flex min-h-9 items-center justify-between gap-2" data-attr="experiments-count-row">
-                    <Text size="xs" variant="muted" render={<span />}>
-                        {`${startCount}${endCount - startCount > 1 ? '-' + endCount : ''} of ${pluralize(count, 'experiment')}`}
-                    </Text>
-                    {selectedIds.length > 0 && (
-                        <div className="flex items-center gap-2" data-attr="experiments-selection-bar">
-                            <Text size="xs" variant="muted" render={<span />}>
-                                {isAllMatchingSelected
-                                    ? `All ${selectedIds.length} matching experiments selected`
-                                    : `${pluralize(selectedIds.length, 'experiment')} selected`}
-                            </Text>
-                            {showSelectAllMatching && (
-                                <Button
-                                    variant="outline"
-                                    loading={matching.matchingExperimentIdsLoading}
-                                    onClick={() =>
-                                        void matching.selectAllMatching((ids) =>
-                                            setRowSelection(Object.fromEntries(ids.map((id) => [String(id), true])))
-                                        )
-                                    }
-                                >
-                                    Select all {count} matching experiments
-                                </Button>
-                            )}
-                            <BulkUpdateTagsButton
-                                resource="experiments"
-                                selectedIds={selectedIds}
-                                onSuccess={() => {
-                                    setRowSelection({})
-                                    matching.clearMatchingExperimentIds()
-                                    loadExperiments()
-                                }}
-                            />
-                            <Button variant="link" onClick={() => setRowSelection({})}>
-                                Clear
-                            </Button>
-                        </div>
-                    )}
-                </div>
-            ) : null}
+        <div className="flex flex-wrap items-center gap-2" data-attr="experiments-selection-bar">
+            <Text size="xs" variant="muted" render={<span />}>
+                {isAllMatchingSelected
+                    ? `All ${selectedIds.length} matching experiments selected`
+                    : `${pluralize(selectedIds.length, 'experiment')} selected`}
+            </Text>
+            {showSelectAllMatching && (
+                <Button
+                    variant="outline"
+                    loading={matching.matchingExperimentIdsLoading}
+                    onClick={() =>
+                        void matching.selectAllMatching((ids) =>
+                            setRowSelection(Object.fromEntries(ids.map((id) => [String(id), true])))
+                        )
+                    }
+                >
+                    Select all {count} matching experiments
+                </Button>
+            )}
+            <QuillBulkUpdateTagsButton
+                resource="experiments"
+                selectedIds={selectedIds}
+                onSuccess={() => {
+                    setRowSelection({})
+                    matching.clearMatchingExperimentIds()
+                    loadExperiments()
+                }}
+            />
+            <Button variant="link" onClick={() => setRowSelection({})}>
+                Clear
+            </Button>
+        </div>
+    )
+}
+
+function QuillExperimentsTable({
+    rowSelection,
+    setRowSelection,
+    openDuplicateModal,
+    openSurveyModal,
+    openCopyToProjectModal,
+}: ExperimentsTableActions & {
+    rowSelection: RowSelectionState
+    setRowSelection: (rowSelection: RowSelectionState) => void
+}): JSX.Element {
+    const { experiments, experimentsLoading, filters, count } = useValues(experimentsLogic)
+    const { loadExperiments, setExperimentsFilters } = useActions(experimentsLogic)
+    const { currentOrganization } = useValues(organizationLogic)
+    const hasMultipleProjects = (currentOrganization?.projects?.length ?? 0) > 1
+    const [tagsExperiment, setTagsExperiment] = useState<Experiment | null>(null)
+    const page = filters.page || 1
+
+    return (
+        <>
             <Card size="sm" flush className="pt-0" data-attr="experiment-table">
                 <div
                     className={cn('transition-opacity', experimentsLoading && 'opacity-60')}
@@ -644,6 +653,31 @@ export function QuillExperimentsTable({
                     loadExperiments()
                 }}
             />
+        </>
+    )
+}
+
+/** The quill experiments list: search, the filter menu and the selection controls in one row, then the table. */
+export function QuillExperimentsList({
+    matching,
+    ...actions
+}: ExperimentsTableActions & { matching: MatchingExperimentIds }): JSX.Element {
+    const [rowSelection, setRowSelection] = useState<RowSelectionState>({})
+
+    useEffect(() => {
+        setRowSelection({})
+    }, [matching.filterIdentity])
+
+    return (
+        <div className="flex flex-col gap-3" data-attr="experiments-table-container">
+            <QuillExperimentsListFilters>
+                <QuillExperimentsSelectionControls
+                    matching={matching}
+                    rowSelection={rowSelection}
+                    setRowSelection={setRowSelection}
+                />
+            </QuillExperimentsListFilters>
+            <QuillExperimentsTable {...actions} rowSelection={rowSelection} setRowSelection={setRowSelection} />
         </div>
     )
 }
