@@ -190,9 +190,11 @@ const TARGET_NODE = {
 
 const nodeOfTarget = (target) => TARGET_NODE[target] ?? (NODE_BY_ID[target] ? target : undefined)
 
+const inSentence = (name) => (/^[A-Z][a-z]/.test(name) ? name[0].toLowerCase() + name.slice(1) : name)
+
 const plainOf = (target) => {
     const id = nodeOfTarget(target)
-    return id ? NODE_BY_ID[id].name.toLowerCase() : target
+    return id ? inSentence(NODE_BY_ID[id].name) : target
 }
 
 const VALVE_PLAIN = {
@@ -1057,12 +1059,14 @@ function mapOf(topology, { onPart } = {}) {
     for (const node of graph.nodes) {
         partEls[node.id] = shapeOf(node, placed[node.id])
         if (onPart) {
-            partEls[node.id].setAttribute('tabindex', 0)
-            partEls[node.id].setAttribute('aria-label', node.name)
-            partEls[node.id].addEventListener('mouseenter', () => onPart(node))
-            partEls[node.id].addEventListener('focus', () => onPart(node))
-            partEls[node.id].addEventListener('mouseleave', () => onPart(null))
-            partEls[node.id].addEventListener('blur', () => onPart(null))
+            const part = partEls[node.id]
+            part.setAttribute('tabindex', 0)
+            part.setAttribute('role', 'img')
+            part.setAttribute('aria-label', node.name)
+            part.addEventListener('mouseenter', () => onPart(node))
+            part.addEventListener('focus', () => onPart(node))
+            part.addEventListener('mouseleave', () => part.matches(':focus') || onPart(null))
+            part.addEventListener('blur', () => part.matches(':hover') || onPart(null))
         }
         svg.append(partEls[node.id])
     }
@@ -1106,6 +1110,7 @@ function mapOf(topology, { onPart } = {}) {
                     {
                         class: card ? 'pin on' : 'pin',
                         tabindex: card ? 0 : null,
+                        role: card ? 'img' : null,
                         'aria-label': card ? text : null,
                     },
                     s('title', {}, card ? text : breaksText(hitBy.size)),
@@ -1187,7 +1192,7 @@ const foundLines = (found) =>
           : found.lines.map((line) => h('span', {}, line))
 
 const touchText = (count, node) =>
-    `${count === 0 ? 'No scenario touches' : count === 1 ? '1 scenario touches' : `${count} scenarios touch`} the ${node.name.toLowerCase()}.`
+    `${count === 0 ? 'No scenario touches' : count === 1 ? '1 scenario touches' : `${count} scenarios touch`} the ${inSentence(node.name)}.`
 
 async function mapPage(render) {
     const [all, runs, wiring] = await Promise.all([cards(), getJson('/api/runs'), readTopology()])
@@ -1197,9 +1202,10 @@ async function mapPage(render) {
         'span',
         { class: 'muted' },
         'Hover a scenario to light the parts its traffic passes through and pin what it breaks, or hover a part to find the scenarios that touch it.',
-        wiring.problem ? ` ${wiringText(wiring)}` : ''
+        wiring.recorded ? '' : ` ${wiringText(wiring)}`
     )
     const strip = h('div', { class: 'focus' }, resting)
+    let touchedLine = null
     const showTouching = (node) => {
         const touching = node ? loaded.filter((card) => partsOf(card).has(node.id)) : []
         list.classList.toggle('narrowed', Boolean(node))
@@ -1209,7 +1215,8 @@ async function mapPage(render) {
                 touching.some((card) => card.id === id)
             )
         }
-        strip.replaceChildren(node ? h('span', {}, touchText(touching.length, node)) : resting)
+        touchedLine = node ? h('span', {}, touchText(touching.length, node)) : null
+        strip.replaceChildren(touchedLine ?? resting)
     }
     const map = mapOf(wiring.recorded?.topology ?? DECLARED_TOPOLOGY, { onPart: showTouching })
     map.setCards(loaded)
@@ -1231,7 +1238,7 @@ async function mapPage(render) {
                       ),
                       h('div', { class: 'focus-found' }, ...foundLines(findings[card.id])),
                   ]
-                : [resting])
+                : [touchedLine ?? resting])
         )
     }
     const select = (card, meta) => {
@@ -1255,8 +1262,8 @@ async function mapPage(render) {
                     href: `#/cards/${card.id}`,
                     onmouseenter: () => select(card, meta),
                     onfocus: () => select(card, meta),
-                    onmouseleave: () => select(null),
-                    onblur: () => select(null),
+                    onmouseleave: (event) => event.currentTarget.matches(':focus') || select(null),
+                    onblur: (event) => event.currentTarget.matches(':hover') || select(null),
                 },
                 h(
                     'div',
