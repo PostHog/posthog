@@ -252,7 +252,7 @@
         "scope": {
             "anyOf": [
                 {
-                    "description": "An experiment scope: the sessions of people exposed to an experiment, labeled by variant.",
+                    "description": "What a read of `scope` can actually return, which is wider than what a write accepts.\n\nA scope the mirror derived from an older store carries no `variants` when that store watched\nevery variant: both older shapes could leave the variant unset, and `as_stored()` drops a None.\nWrites still require it, so only the response schema is widened; the backfill that gives every\nrow an explicit variant list retires this difference.",
                     "properties": {
                         "experiment_id": {
                             "description": "The experiment whose exposed sessions the scanner watches.",
@@ -265,7 +265,7 @@
                             "type": "string"
                         },
                         "variants": {
-                            "description": "Every variant the scanner watches, named explicitly. Read them from the experiment first. There is no value that means every variant, so a variant added to the experiment later is not watched until it is added here.",
+                            "description": "Every variant the scanner watches. Absent only on a scanner still carrying a scope derived from the older targeting shapes, which could mean every variant.",
                             "items": {
                                 "maxLength": 400,
                                 "type": "string"
@@ -279,7 +279,7 @@
                             "type": "string"
                         }
                     },
-                    "required": ["kind", "experiment_id", "variants"],
+                    "required": ["kind", "experiment_id"],
                     "type": "object"
                 },
                 {
