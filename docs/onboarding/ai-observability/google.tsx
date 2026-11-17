@@ -30,7 +30,7 @@ export const getGoogleSteps = (ctx: OnboardingComponentsContext): StepDefinition
                                 language: 'bash',
                                 file: 'Python',
                                 code: dedent`
-                                    pip install "posthog>=8,<9" google-genai
+                                    pip install posthog~=8.0 google-genai
                                 `,
                             },
                             {

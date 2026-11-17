@@ -30,7 +30,7 @@ export const getLangGraphSteps = (ctx: OnboardingComponentsContext): StepDefinit
                                 language: 'bash',
                                 file: 'Python',
                                 code: dedent`
-                                    pip install "posthog>=8,<9" langgraph langchain-core langchain-openai
+                                    pip install posthog~=8.0 langgraph langchain-core langchain-openai
                                 `,
                             },
                             {

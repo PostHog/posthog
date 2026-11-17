@@ -49,7 +49,7 @@ export const getOpenAICompatibleSteps = (
                                 language: 'bash',
                                 file: 'Python',
                                 code: dedent`
-                                    pip install "posthog>=8,<9" openai
+                                    pip install posthog~=8.0 openai
                                 `,
                             },
                             {

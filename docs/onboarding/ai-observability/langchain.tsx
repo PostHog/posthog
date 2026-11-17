@@ -30,7 +30,7 @@ export const getLangChainSteps = (ctx: OnboardingComponentsContext): StepDefinit
                                 language: 'bash',
                                 file: 'Python',
                                 code: dedent`
-                                    pip install "posthog>=8,<9" "langchain>=1.0" langchain-core langchain-openai
+                                    pip install posthog~=8.0 "langchain>=1.0" langchain-core langchain-openai
                                 `,
                             },
                             {

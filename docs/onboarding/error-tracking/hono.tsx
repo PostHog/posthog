@@ -27,7 +27,7 @@ export const getHonoSteps = (ctx: OnboardingComponentsContext): StepDefinition[]
                             file: 'index.ts',
                             code: dedent`
                               import { PostHog } from 'posthog-node'
-                              const posthog = new PostHog(process.env.POSTHOG_TOKEN, { host: 'https://us.i.posthog.com' })
+                              const posthog = new PostHog(process.env.POSTHOG_TOKEN!, { host: 'https://us.i.posthog.com' })
                               app.onError(async (err, c) => {
                                 posthog.captureException(err, {
                                   distinctId: 'user_distinct_id_with_err_rethrow',

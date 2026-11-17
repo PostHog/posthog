@@ -31,7 +31,7 @@ export const getAnthropicSteps = (ctx: OnboardingComponentsContext): StepDefinit
                                 language: 'bash',
                                 file: 'Python',
                                 code: dedent`
-                                    pip install "posthog>=8,<9" anthropic
+                                    pip install posthog~=8.0 anthropic
                                 `,
                             },
                             {

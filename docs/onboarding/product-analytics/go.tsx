@@ -18,7 +18,7 @@ export const getGoInstallSteps = (ctx: OnboardingComponentsContext): StepDefinit
                                 language: 'bash',
                                 file: 'Terminal',
                                 code: dedent`
-                                go get "github.com/posthog/posthog-go/v2"
+                                go get github.com/posthog/posthog-go/v2
                             `,
                             },
                         ]}
