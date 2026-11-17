@@ -83,6 +83,8 @@ def load_realtime_cohorts(team_id: int) -> QuerySet[Cohort]:
         Cohort.objects.filter(
             team_id=team_id,
             cohort_type=CohortType.REALTIME,
+            realtime_enabled_at__isnull=False,
+            is_static=False,
             deleted=False,
             filters__isnull=False,
         )
