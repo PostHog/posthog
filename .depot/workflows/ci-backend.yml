@@ -246,6 +246,7 @@ jobs:
             schema: ${{ steps.filter.outputs.schema || 'true' }}
             product_yamls: ${{ steps.filter.outputs.product_yamls || 'false' }}
             repo_invariants: ${{ steps.filter.outputs.repo_invariants || 'false' }}
+            hoglint: ${{ steps.filter.outputs.hoglint || 'false' }}
             sdk_manifests: ${{ steps.filter.outputs.sdk_manifests || 'true' }}
             product_yamls_files: ${{ steps.filter.outputs.product_yamls_files }}
         steps:
@@ -338,10 +339,13 @@ jobs:
                         - pytest.ini
                         - conftest.py # Root conftest loads for every pytest run
                         - .test_quarantine.json # Un-quarantining must re-run the affected tests
-                        # turbo-discover reads the module graph for the dependent
-                        # cascade, and `tach check` validates it — a graph-only PR
-                        # must still dispatch both.
-                        - tach.toml
+                        # turbo-discover reads hoglint's map for the dependent cascade,
+                        # and `hoglint compare` judges the policy, the ledger and the
+                        # exceptions — a policy-only PR must still dispatch both.
+                        - hoglint.toml
+                        - hoglint.ledger
+                        - hoglint.exceptions.toml
+                        - 'tools/hoglint/**'
                         # generates posthog/schema.py
                         - frontend/src/queries/schema.json
                         # Operator parity check
@@ -371,12 +375,8 @@ jobs:
                         # Transitional: branches that predate the move still carry the
                         # resolver at tools/owners.
                         - 'tools/owners/**'
-                        # product:lint --all checks these generated files against the tree,
-                        # so a baseline-only edit must run it too. The crossings baseline is
-                        # also what product:lint reads to let a wiring location leave a
-                        # product's turbo.json inputs, so both edits must run the checks.
-                        - products/isolation_baseline.txt
-                        - products/model_crossing_uses_baseline.txt
+                        # hoglint's Isolated level reads each product's contract-check
+                        # inputs, so an inputs-only edit must run `hoglint compare`.
                         - 'products/*/turbo.json'
                         # Make sure we run if someone is explicitly changing the workflow
                         - .depot/workflows/ci-backend.yml
@@ -552,6 +552,14 @@ jobs:
                         # That check and the other hogli commands in repo-checks import modules from
                         # this tree, and the backend filter matches only the ones the test setup imports.
                         - 'tools/hogli-commands/**'
+                      hoglint:
+                        # hoglint reads every first-party Python file (hoglint.toml), and the
+                        # backend filter leaves some of them out. A change there must still run
+                        # `hoglint compare` in repo-checks.
+                        - 'tools/**/*.py'
+                        - 'services/**/*.py'
+                        - 'packages/**/*.py'
+                        - 'common/**/*.py'
                       sdk_manifests:
                         # Everything the SDK major-version guard reads. Lockfiles are listed
                         # because a floor-only or `*` spec can move to a new major through
@@ -808,8 +816,8 @@ jobs:
                   token: ${{ steps.setup-gh-token.outputs.token || github.token }}
             - name: Install turbo
               uses: ./.depot/actions/setup-turbo
-            # turbo-discover.js runs .github/scripts/tach_map.py under `uv run
-            # --no-project` for the dependent cascade; the script pins tach, so no
+            # turbo-discover.js runs .github/scripts/hoglint_map.py under `uv run
+            # --no-project` for the dependent cascade; the script pins hoglint, so no
             # Python project sync is needed. A missing uv widens the cascade to
             # every product rather than failing the job.
             - uses: ./.depot/actions/setup-uv
@@ -1547,8 +1555,10 @@ jobs:
     repo-checks:
         needs: [changes]
         # product_yamls: ownership-only PRs still need the owners.yaml lint below.
-        if: (needs.changes.outputs.backend == 'true' || needs.changes.outputs.product_yamls == 'true' || needs.changes.outputs.repo_invariants == 'true') && github.event_name != 'schedule'
-        timeout-minutes: 10
+        # hoglint: Python the backend filter leaves out still needs `hoglint compare`.
+        if: (needs.changes.outputs.backend == 'true' || needs.changes.outputs.product_yamls == 'true' || needs.changes.outputs.repo_invariants == 'true' || needs.changes.outputs.hoglint == 'true') && github.event_name != 'schedule'
+        # hoglint compare scans the base and the head, and the scaffold check scans once more.
+        timeout-minutes: 15
         outputs:
             deterministic_failure: ${{ steps.deterministic-failure.outputs.deterministic_failure || 'false' }}
         permissions:
@@ -1593,8 +1603,8 @@ jobs:
                   REPO: ${{ github.repository }}
                   PR_NUMBER: ${{ github.event.pull_request.number }}
               run: .github/scripts/list-removed-renamed-paths.sh > "$RUNNER_TEMP/deleted-migration-paths.txt"
-            # Above the boundary for the same reason. product:lint compares the crossings ledger
-            # with the merge commit's first parent, so the clone needs one more level of history.
+            # Above the boundary for the same reason. `hoglint compare` and the ee/ file check
+            # compare with the merge commit's first parent, so the clone needs one more level of history.
             - name: Fetch the pull request base
               if: github.event_name == 'pull_request'
               run: |
@@ -1610,11 +1620,24 @@ jobs:
             - name: Check deleted migrations
               if: steps.fetch-deleted-migrations.outcome == 'success'
               run: ./bin/hogli lint:migration-deletions < "$RUNNER_TEMP/deleted-migration-paths.txt"
+            # The required boundary check. A pull request is judged against its base: old
+            # debt passes, and new debt, a stale ledger line or a failed level claim blocks.
+            # It runs before the scaffold, which edits tracked files that compare would read
+            # as part of the change.
+            - name: Check boundaries (hoglint)
+              run: |
+                  if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
+                      hoglint compare --base HEAD^1
+                  else
+                      hoglint check
+                  fi
             - name: Bootstrap scaffold product
               run: ./bin/hogli product:bootstrap spline_reticulator --non-interactive
+            # A bootstrapped product must pass hoglint from its first commit, its Isolated
+            # level included.
+            - name: Check the scaffold product (hoglint)
+              run: hoglint check
             - name: Lint product structure
-              env:
-                  CROSSINGS_LEDGER_BASE: ${{ github.event_name == 'pull_request' && 'HEAD^1' || '' }}
               run: ./bin/hogli product:lint --all
             # Distributed owners.yaml tree: schema, product.yaml/owners.yaml
             # conflicts, dead rule globs, coverage (warn-only). No --live, so no
@@ -1631,18 +1654,6 @@ jobs:
                     run: python .github/scripts/check-dwh-source-agnostic.py
                   - name: Check operator parity
                     run: python .github/scripts/check-operator-parity.py
-                  - name: Check module boundaries (tach)
-                    # Two passes: tests are in the interface graph but not the dependency graph.
-                    # A branch that predates the command still excludes tests in tach.toml, so
-                    # the old single pass is the right check there.
-                    run: |
-                        if ./bin/hogli lint:tach --help >/dev/null 2>&1; then
-                            ./bin/hogli lint:tach
-                        else
-                            tach check --dependencies --interfaces
-                        fi
-                  - name: Check product facade enforcement (import-linter)
-                    run: lint-imports
                   # These guards take the whole repo as input (import graph after
                   # django.setup(), signal registries, repo-wide AST scans), so diff-based
                   # test selection can't pick them and the Django matrix skips them on

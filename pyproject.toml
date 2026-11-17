@@ -252,6 +252,8 @@ dev = [
     "faker==17.6.0",
     "fakeredis[lua]==2.34.1",
     "flameprof~=0.4",
+    # .github/scripts/hoglint_map.py pins the same version; test_hoglint_map.py holds them equal.
+    "hoglint==0.1.0",
     "hypothesis~=6.151.14",
     "pyinstrument~=5.1",
     # 16.6.1 and later write a retried failure to JUnit as an extra passing <testcase>, which reads as pass-on-retry.
