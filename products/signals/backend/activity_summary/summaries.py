@@ -33,8 +33,7 @@ DEFAULT_MODEL = "gpt-6-luna"
 # One retry on a malformed or truncated answer. The SDK already retries a failed request on its own.
 MAX_ATTEMPTS = 2
 REQUEST_TIMEOUT_SECONDS = 120.0
-# Flex runs on spare provider capacity, so it answers slower than the standard tier. The pair timeout of the tick
-# grows with this value.
+# Flex runs on spare provider capacity, so it answers slower than the standard tier.
 FLEX_REQUEST_TIMEOUT_SECONDS = 150.0
 TRUNCATED_FINISH_REASON = "length"
 

@@ -112,7 +112,6 @@ class ActivitySummaryUpdate:
     outdated: bool = False
     # The pair had no generated summary before this update.
     new_summary: bool = False
-    # The tier the provider reports for the last response, and whether a refused flex call moved to the standard tier.
     served_tier: str | None = None
     fell_back: bool = False
 

@@ -886,7 +886,6 @@ class TestActivitySummaryQueue(BaseTest):
         usage = daily_usage(NOW)
 
         assert usage.updates == 2
-        # The row can come from any priced variant, so it counts at the bound of the most expensive one.
         assert usage.cost_usd == pytest.approx(0.25 + max_update_cost_usd(MAX_LIMITS, TERRA))
         with time_machine.travel(NOW + datetime.timedelta(days=1, minutes=1), tick=False):
             assert daily_usage(NOW + datetime.timedelta(days=1, minutes=1)).updates == 0
