@@ -15721,6 +15721,11 @@ export namespace Schemas {
       failed_delivery_channels: FailedDeliveryChannelsEnum[];
     }
 
+    export interface AlertTransferOwnership {
+      /** New owner's user UUID. Must be an active organization member. Defaults to yourself. */
+      user_uuid?: string;
+    }
+
     export interface AmazonCloudwatchIncidentSignalExtra {
       alarm_name: string | null;
       alarm_kind: string | null;
@@ -119562,6 +119567,11 @@ export namespace Schemas {
        * * `errored` - Errored
        * * `inconclusive` - Inconclusive */
       outcome: SignalReportCheckOutcomeEnum;
+    }
+
+    export interface SubscriptionTransferOwnership {
+      /** New owner's user UUID. Must be an active organization member. Defaults to yourself. */
+      user_uuid?: string;
     }
 
     export type SubscriptionWriteContextsItem = {
