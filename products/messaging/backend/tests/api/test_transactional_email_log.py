@@ -562,8 +562,8 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
 
     def test_counts_conversions_within_a_week_of_the_click_against_sends_nobody_clicked(self, _flag):
         create_person(team=self.team, distinct_ids=["clicker", "clicker-phone"])
-        for distinct_id in ["early", "slow", "delayed", "reader", "late", "bounced"]:
-            create_person(team=self.team, distinct_ids=[distinct_id])
+        for name in ["early", "slow", "delayed", "reader", "late", "bounced"]:
+            create_person(team=self.team, distinct_ids=[name])
         delivered = [("sent", 1, ""), ("delivered", 2, "")]
         clicked_an_hour_in = [*delivered, ("opened", 60, ""), ("clicked", 3600, "")]
         sends = [
