@@ -27,6 +27,8 @@ import type {
     KnowledgeAvailabilityApi,
     KnowledgeDocumentWindowApi,
     KnowledgeGapSuggestionApi,
+    KnowledgeKeyApi,
+    KnowledgeKeyCreateApi,
     KnowledgeLibraryApi,
     KnowledgeLibraryCreateApi,
     KnowledgeSearchResultApi,
@@ -266,6 +268,45 @@ export const businessKnowledgeGapSuggestionsDismissTopicCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(gapTopicActionApi),
+    })
+}
+
+export const getBusinessKnowledgeKeysListUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/business_knowledge/keys/`
+}
+
+/**
+ * Project secret API keys in this project with the business_knowledge:read scope, newest first, and the library each one is limited to.
+ * @summary List the keys that read business knowledge
+ */
+export const businessKnowledgeKeysList = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<KnowledgeKeyApi[]> => {
+    return apiMutator<KnowledgeKeyApi[]>(getBusinessKnowledgeKeysListUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getBusinessKnowledgeKeysCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/business_knowledge/keys/`
+}
+
+/**
+ * Creates a project secret API key with the business_knowledge:read scope, limited to one library. The response is the only place the key value appears. Delete or roll the key through the project secret API keys endpoint.
+ * @summary Create a key that reads one business knowledge library
+ */
+export const businessKnowledgeKeysCreate = async (
+    projectId: string,
+    knowledgeKeyCreateApi: KnowledgeKeyCreateApi,
+    options?: RequestInit
+): Promise<KnowledgeKeyApi> => {
+    return apiMutator<KnowledgeKeyApi>(getBusinessKnowledgeKeysCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(knowledgeKeyCreateApi),
     })
 }
 
