@@ -15,6 +15,7 @@ from posthog.hogql.functions.prompt_jev import PromptJevFinder, is_decision_call
 from posthog.hogql.printer import print_prepared_ast
 from posthog.hogql.printer.clickhouse import ClickHousePrinter
 from posthog.hogql.query import TRANSIENT_S3_ERROR_RETRY_DELAY_SECONDS, HogQLQueryExecutor
+from posthog.hogql.resolver_utils import extract_select_queries
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor, clone_expr
 
 from posthog.clickhouse.client import sync_execute
@@ -47,6 +48,14 @@ _LOCAL_COMPARE_OPS = {
 }
 
 
+_IN_SUBQUERY_OPS = (
+    ast.CompareOperationOp.In,
+    ast.CompareOperationOp.NotIn,
+    ast.CompareOperationOp.GlobalIn,
+    ast.CompareOperationOp.GlobalNotIn,
+)
+
+
 class _DowngradeGlobalIn(CloningVisitor):
     def __init__(self) -> None:
         super().__init__(clear_types=False, clear_locations=False)
@@ -60,12 +69,22 @@ class _DowngradeGlobalIn(CloningVisitor):
         return cloned
 
 
-class _ZeroRowJevSelects(TraversingVisitor):
+class _ZeroRowJevPlanning(TraversingVisitor):
     def visit_select_query(self, node: ast.SelectQuery) -> None:
         super().visit_select_query(node)
         if any(_is_jev_column(column) for column in node.select):
-            node.limit = ast.Constant(value=0)
-            node.offset = None
+            _limit_to_zero_rows(node)
+
+    def visit_compare_operation(self, node: ast.CompareOperation) -> None:
+        super().visit_compare_operation(node)
+        if node.op in _IN_SUBQUERY_OPS and isinstance(node.right, ast.SelectQuery | ast.SelectSetQuery):
+            _limit_to_zero_rows(node.right)
+
+
+def _limit_to_zero_rows(select_query: ast.SelectQuery | ast.SelectSetQuery) -> None:
+    for branch in extract_select_queries(select_query):
+        branch.limit = ast.Constant(value=0)
+        branch.offset = None
 
 
 def print_describe_variant(
@@ -158,7 +177,7 @@ def _plan_prompt_jev(
     select_query: ast.SelectQuery | ast.SelectSetQuery, context: HogQLContext, team: Team
 ) -> tuple[ast.SelectQuery | ast.SelectSetQuery, list[ClickHouseExternalTable]]:
     zero_row_query = clone_expr(select_query)
-    _ZeroRowJevSelects().visit(zero_row_query)
+    _ZeroRowJevPlanning().visit(zero_row_query)
     planned_query, jev_tables = HogQLQueryExecutor(
         query=zero_row_query,
         team=team,

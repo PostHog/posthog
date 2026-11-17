@@ -222,16 +222,24 @@ class TestGetColumnsDescribesTheQuery(ClickhouseTestMixin, BaseTest):
         assert "DESCRIBE TABLE" in queries[0]
 
     def test_a_jev_view_describes_its_model_results_without_calling_the_model(self) -> None:
-        sql = "SELECT text, jev(text, 'Is this a refund request?') AS is_refund FROM (SELECT arrayJoin(['refund me', 'hi']) AS text)"
+        sql = (
+            "SELECT text, jev(text, 'Is this a refund request?') AS is_refund "
+            "FROM (SELECT arrayJoin(['refund me', 'hi']) AS text) "
+            "WHERE text NOT IN (SELECT event FROM events)"
+        )
         saved_query = DataWarehouseSavedQuery(team=self.team, name="my_view", query={"query": sql})
 
         with override_settings(AI_GATEWAY_URL="https://gateway.example.com/v1", AI_GATEWAY_API_KEY="test-key"):
             with patch("httpx.AsyncClient.post", side_effect=_refund_gateway_response):
                 executed = execute_hogql_query(sql, team=self.team, user=self.user)
-            with patch("httpx.AsyncClient.post", side_effect=AssertionError("called the model")):
+            with (
+                patch("httpx.AsyncClient.post", side_effect=AssertionError("called the model")),
+                self.capture_select_queries() as jev_source_queries,
+            ):
                 columns = saved_query.get_columns(user=self.user)
 
         assert {name: column["clickhouse"] for name, column in columns.items()} == dict(executed.types or [])
+        assert [query.count("LIMIT 0") for query in jev_source_queries] == [2]
 
 
 def _refund_gateway_response(_url: str, *, json: dict, headers: dict) -> httpx.Response:
