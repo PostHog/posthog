@@ -4,12 +4,13 @@ from datetime import datetime, timedelta
 from functools import cache as functools_cache
 from typing import TYPE_CHECKING, Any, Literal, NotRequired, Optional, Self, TypedDict, Union
 
+from django.apps import apps
 from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
 from django.contrib.postgres.indexes import GinIndex, OpClass
 from django.core.cache import cache
 from django.db import IntegrityError, models, transaction
-from django.db.models.functions import Upper
+from django.db.models.functions import Greatest, Upper
 from django.db.models.query import QuerySet
 from django.db.models.query_utils import Q
 from django.db.models.signals import post_save
@@ -34,6 +35,8 @@ from products.authorization.backend.facade.enums import Action
 
 if TYPE_CHECKING:
     from posthog.models import Team, User
+
+    from products.access_control.backend.models.role import Role
 
     from ee.billing.quota_limiting import QuotaResource
 
@@ -822,7 +825,25 @@ class OrganizationAITerms(Organization):
 
 class OrganizationMembershipQuerySet(models.QuerySet["OrganizationMembership"]):
     def with_effective_level(self) -> "QuerySet[Any]":
-        return self.annotate(resolved_level=models.F("level"))
+        try:
+            role_membership_model = apps.get_model("ee", "RoleMembership")
+        except LookupError:
+            return self.annotate(resolved_level=models.F("level"))
+        admin_roles = role_membership_model.objects.filter(
+            user_id=models.OuterRef("user_id"),
+            role__organization_id=models.OuterRef("organization_id"),
+            role__organization_access_level=OrganizationMembership.Level.ADMIN,
+        ).filter(Q(organization_member_id=models.OuterRef("pk")) | Q(organization_member__isnull=True))
+        return self.annotate(
+            resolved_level=Greatest(
+                "level",
+                models.Case(
+                    models.When(models.Exists(admin_roles), then=models.Value(OrganizationMembership.Level.ADMIN)),
+                    default=models.Value(OrganizationMembership.Level.MEMBER),
+                ),
+                output_field=models.PositiveSmallIntegerField(),
+            )
+        )
 
 
 class OrganizationMembership(ModelActivityMixin, UUIDTModel):
@@ -882,7 +903,44 @@ class OrganizationMembership(ModelActivityMixin, UUIDTModel):
 
     @property
     def effective_level(self) -> Level:
-        return self.Level(self.level)
+        """Resolve organization access; only an individually assigned owner may resolve to OWNER."""
+        if self.level >= self.Level.ADMIN or self._state.adding:
+            return self.Level(self.level)
+        resolved_level = getattr(self, "resolved_level", None)
+        if resolved_level is None:
+            resolved_level = (
+                type(self)
+                .objects.with_effective_level()
+                .filter(pk=self.pk)
+                .values_list("resolved_level", flat=True)
+                .first()
+            )
+        return self.Level(max(self.level, min(resolved_level or self.level, self.Level.ADMIN)))
+
+    @property
+    def organization_access_role_grants(self) -> list["Role"]:
+        try:
+            role_membership_model = apps.get_model("ee", "RoleMembership")
+        except LookupError:
+            return []
+        memberships = getattr(self.user, "organization_access_role_memberships", None)
+        if memberships is None:
+            memberships = role_membership_model.objects.filter(
+                user_id=self.user_id,
+                role__organization_id=self.organization_id,
+                role__organization_access_level=self.Level.ADMIN,
+            ).select_related("role")
+        return sorted(
+            [
+                membership.role
+                for membership in memberships
+                if membership.user_id == self.user_id
+                and membership.role.organization_id == self.organization_id
+                and membership.organization_member_id in (None, self.pk)
+                and membership.role.organization_access_level == self.Level.ADMIN
+            ],
+            key=lambda role: (role.name, str(role.pk)),
+        )
 
     def validate_update(
         self,

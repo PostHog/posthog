@@ -6,7 +6,7 @@ from django.db.models.signals import post_delete, post_save
 from .logic import session
 
 # A write to these models clears the session's cached rules.
-RULE_MODELS = ("ee.AccessControl", "ee.RoleMembership", "posthog.OrganizationMembership")
+RULE_MODELS = ("ee.AccessControl", "ee.RoleMembership", "ee.Role", "posthog.OrganizationMembership")
 
 
 class AuthorizationConfig(AppConfig):

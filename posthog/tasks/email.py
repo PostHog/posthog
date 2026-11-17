@@ -115,8 +115,10 @@ def get_members_to_notify(
 ) -> list[OrganizationMembership]:
     """Members who turned this email on and may open the project. `user_ids` limits the check to those people."""
     memberships_to_email = []
-    queryset = OrganizationMembership.objects.prefetch_related("user", "organization").filter(
-        organization_id=team.organization_id, user__is_active=True
+    queryset = (
+        OrganizationMembership.objects.with_effective_level()
+        .prefetch_related("user", "organization")
+        .filter(organization_id=team.organization_id, user__is_active=True)
     )
     if user_ids is not None:
         queryset = queryset.filter(user_id__in=user_ids)
@@ -802,8 +804,10 @@ def _get_project_admins_to_notify_of_email_sending_suspension(team: Team) -> lis
     # notification-setting gate — the send is failing until action is taken and members must
     # not be able to mute this.
     memberships_to_email = []
-    memberships = OrganizationMembership.objects.prefetch_related("user", "organization").filter(
-        organization_id=team.organization_id, user__is_active=True
+    memberships = (
+        OrganizationMembership.objects.with_effective_level()
+        .prefetch_related("user", "organization")
+        .filter(organization_id=team.organization_id, user__is_active=True)
     )
     for membership in memberships:
         team_permissions = UserPermissions(membership.user).team(team)
@@ -2294,9 +2298,13 @@ def send_new_ticket_notification(ticket_id: str, team_id: int, first_message_con
         return
 
     # Get users who should receive notifications and have access to the project
-    memberships = OrganizationMembership.objects.prefetch_related("user", "organization").filter(
-        organization_id=team.organization_id,
-        user_id__in=recipient_ids,
+    memberships = (
+        OrganizationMembership.objects.with_effective_level()
+        .prefetch_related("user", "organization")
+        .filter(
+            organization_id=team.organization_id,
+            user_id__in=recipient_ids,
+        )
     )
 
     memberships_to_email = []
@@ -2485,7 +2493,9 @@ def send_error_tracking_weekly_digest_for_org(self: Task, org_id: str) -> None:
         logger.info(f"No allowed emails configured, skipping org {org_id}")
         return
 
-    all_memberships = OrganizationMembership.objects.prefetch_related("user").filter(organization_id=org.id)
+    all_memberships = (
+        OrganizationMembership.objects.with_effective_level().prefetch_related("user").filter(organization_id=org.id)
+    )
     memberships: list[OrganizationMembership] = (
         [m for m in all_memberships if m.user.email in allowed_emails]
         if "*" not in allowed_emails

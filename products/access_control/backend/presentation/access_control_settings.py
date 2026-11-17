@@ -448,7 +448,8 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
         user_access_control = cast(UserAccessControl, self.user_access_control)  # type: ignore
 
         memberships = (
-            OrganizationMembership.objects.filter(organization=team.organization, user__is_active=True)
+            OrganizationMembership.objects.with_effective_level()
+            .filter(organization=team.organization, user__is_active=True)
             .select_related("user")
             .prefetch_related(Prefetch("role_memberships", queryset=RoleMembership.objects.valid_for_authorization()))
         )

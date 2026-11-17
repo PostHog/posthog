@@ -496,9 +496,9 @@ class UserAccessControl:
     @classmethod
     def for_user_ids(cls, *, user_ids: Iterable[int], team: Team) -> dict[int, "UserAccessControl"]:
         memberships = list(
-            OrganizationMembership.objects.filter(
-                organization_id=team.organization_id, user_id__in=set(user_ids)
-            ).select_related("user", "organization")
+            OrganizationMembership.objects.with_effective_level()
+            .filter(organization_id=team.organization_id, user_id__in=set(user_ids))
+            .select_related("user", "organization")
         )
         if not memberships:
             return {}

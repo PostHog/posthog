@@ -17,4 +17,5 @@ class AccessControlConfig(AppConfig):
         from products.access_control.backend import (
             activity_logging,  # noqa: F401, PLC0415
             property_access_control,  # noqa: F401, PLC0415
+            role_access_signals,  # noqa: F401, PLC0415
         )

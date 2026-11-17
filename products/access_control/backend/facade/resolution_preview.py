@@ -151,9 +151,9 @@ def _build_subjects(team: Team, user_access_control: UserAccessControl, rows: li
     role_ids = {row.role_id for row in rows if row.role_id is not None}
 
     memberships = list(
-        OrganizationMembership.objects.filter(id__in=member_ids, organization_id=team.organization_id).select_related(
-            "user"
-        )
+        OrganizationMembership.objects.with_effective_level()
+        .filter(id__in=member_ids, organization_id=team.organization_id)
+        .select_related("user")
     )
     roles = Role.objects.filter(id__in=role_ids, organization_id=team.organization_id)
     # Role membership is keyed by user, matching SubjectAccessControl._user_role_ids
@@ -428,7 +428,8 @@ def iter_resolution_changes(
         org_id = str(team.organization_id)
         if org_id not in acting_membership_by_org:
             acting_membership_by_org[org_id] = (
-                OrganizationMembership.objects.filter(organization_id=team.organization_id, user__is_active=True)
+                OrganizationMembership.objects.with_effective_level()
+                .filter(organization_id=team.organization_id, user__is_active=True)
                 .select_related("user")
                 .first()
             )
