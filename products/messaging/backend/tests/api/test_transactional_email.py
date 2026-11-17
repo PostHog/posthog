@@ -414,7 +414,7 @@ class TestTransactionalEmail(APIBaseTest):
                     "X-PostHog-Client": "mcp",
                     "X-PostHog-Mcp-Client-Name": "Example Agent",
                     "X-PostHog-Mcp-Client-Version": "2.1.0",
-                    "x-posthog-intent": "Send the welcome email to a new signup",
+                    "x-posthog-intent": "Send the password reset link to someone@example.com",
                 },
                 202,
                 {
@@ -422,7 +422,7 @@ class TestTransactionalEmail(APIBaseTest):
                     "source": "mcp",
                     "mcp_client_name": "Example Agent",
                     "mcp_client_version": "2.1.0",
-                    "mcp_intent": "Send the welcome email to a new signup",
+                    "mcp_intent": None,
                 },
             ),
         ]

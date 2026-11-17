@@ -44,7 +44,6 @@ from posthog.auth import ProjectSecretAPIKeyAuthentication, ProjectSecretAPIKeyU
 from posthog.event_usage import groups, report_user_action, sanitize_header_value
 from posthog.integrations import IntegrationManager, IntegrationNotFound
 from posthog.models import ProjectSecretAPIKey, User
-from posthog.models.activity_logging.utils import ACTIVITY_LOG_INTENT_HEADER
 from posthog.models.file_system.constants import resolved_workflows_list_v2
 from posthog.models.file_system.file_system_mixin import file_system_sync
 from posthog.models.tag import tagify
@@ -1167,7 +1166,6 @@ class TransactionalEmailSendMixin(RequestBodyCapMixin):
                 request.user,
                 "transactional email api send",
                 {
-                    "mcp_intent": sanitize_header_value(request.headers.get(ACTIVITY_LOG_INTENT_HEADER)),
                     "migrated_from": sanitize_header_value(request.headers.get("X-PostHog-Migrated-From")),
                     "team_id": self.team_id,
                     "auth_method": "project_secret_api_key"
