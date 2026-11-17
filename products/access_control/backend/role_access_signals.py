@@ -21,9 +21,7 @@ def remember_previous_role_grants(sender: type[Role], instance: Role, **kwargs: 
 def invalidate_role_grants(sender: type[Role], instance: Role, **kwargs: Any) -> None:
     members = set(getattr(instance, "_previous_grant_members", []))
     members.update((instance.organization_id, user_id) for user_id in instance.roles.values_list("user_id", flat=True))
-    invalidate_organization_membership_access_caches(
-        (organization_id, user_id) for organization_id, user_id in members if user_id is not None
-    )
+    Role.objects.filter(pk=instance.pk).invalidate_organization_access(members)
 
 
 @receiver(pre_save, sender=RoleMembership)

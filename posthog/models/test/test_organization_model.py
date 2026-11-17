@@ -694,6 +694,10 @@ class TestOrganizationMembership(BaseTest):
 class TestOrganizationAccessCache(NonAtomicBaseTest):
     CLASS_DATA_LEVEL_SETUP = False
 
+    def setUp(self) -> None:
+        super().setUp()
+        cache.clear()
+
     def test_access_cache_reuses_organization_and_membership_details(self):
         with self.settings(ORGANIZATION_ACCESS_CACHE_ENABLED=True):
             with self.assertNumQueries(1):

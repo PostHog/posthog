@@ -828,17 +828,17 @@ class OrganizationMembershipQuerySet(models.QuerySet["OrganizationMembership"]):
         try:
             role_membership_model = apps.get_model("ee", "RoleMembership")
         except LookupError:
-            return self.annotate(resolved_level=models.F("level"))
+            return self.annotate(resolved_role_admin=models.Value(False), resolved_level=models.F("level"))
         admin_roles = role_membership_model.objects.filter(
             user_id=models.OuterRef("user_id"),
             role__organization_id=models.OuterRef("organization_id"),
             role__organization_access_level=OrganizationMembership.Level.ADMIN,
         ).filter(Q(organization_member_id=models.OuterRef("pk")) | Q(organization_member__isnull=True))
-        return self.annotate(
+        return self.annotate(resolved_role_admin=models.Exists(admin_roles)).annotate(
             resolved_level=Greatest(
                 "level",
                 models.Case(
-                    models.When(models.Exists(admin_roles), then=models.Value(OrganizationMembership.Level.ADMIN)),
+                    models.When(resolved_role_admin=True, then=models.Value(OrganizationMembership.Level.ADMIN)),
                     default=models.Value(OrganizationMembership.Level.MEMBER),
                 ),
                 output_field=models.PositiveSmallIntegerField(),
@@ -906,16 +906,17 @@ class OrganizationMembership(ModelActivityMixin, UUIDTModel):
         """Resolve organization access; only an individually assigned owner may resolve to OWNER."""
         if self.level >= self.Level.ADMIN or self._state.adding:
             return self.Level(self.level)
-        resolved_level = getattr(self, "resolved_level", None)
-        if resolved_level is None:
-            resolved_level = (
-                type(self)
-                .objects.with_effective_level()
-                .filter(pk=self.pk)
-                .values_list("resolved_level", flat=True)
-                .first()
-            )
-        return self.Level(max(self.level, min(resolved_level or self.level, self.Level.ADMIN)))
+        role_admin = getattr(self, "resolved_role_admin", None)
+        if role_admin is not None:
+            return self.Level(max(self.level, self.Level.ADMIN if role_admin else self.Level.MEMBER))
+        role_admin = (
+            type(self)
+            .objects.with_effective_level()
+            .filter(pk=self.pk)
+            .values_list("resolved_role_admin", flat=True)
+            .first()
+        )
+        return self.Level(max(self.level, self.Level.ADMIN if role_admin else self.Level.MEMBER))
 
     @property
     def organization_access_role_grants(self) -> list["Role"]:

@@ -1,15 +1,21 @@
+from concurrent.futures import ThreadPoolExecutor
+
 from posthog.test.base import BaseTest, NonAtomicBaseTest
 from unittest.mock import patch
 
-from django.db import transaction
+import django
+from django.core.cache import caches
+from django.db import connections, transaction
 from django.db.models import Prefetch
 
 from parameterized import parameterized
 
+from posthog.constants import AvailableFeature
 from posthog.models import Organization, OrganizationMembership, User
 from posthog.organization_caching import get_cached_organization_membership, get_cached_organization_memberships
 from posthog.user_permissions import UserPermissions
 
+from products.access_control.backend.facade.testing import create_access_control
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.access_control.backend.models.role import Role, RoleMembership
 from products.authorization.backend.facade import api as authorization
@@ -81,6 +87,29 @@ class TestOrganizationRoleAccess(BaseTest):
             access = UserAccessControl.for_user_ids(user_ids=[user.pk for user in users], team=self.team)
             assert all(item.is_organization_admin for item in access.values())
 
+    @parameterized.expand([(1,), (5,)])
+    def test_project_member_enumeration_batches_role_grants(self, count: int) -> None:
+        self.organization.available_product_features = [{"key": AvailableFeature.ACCESS_CONTROL}]
+        self.organization.save()
+        self.team.organization = self.organization
+        create_access_control(
+            team_id=self.team.id, resource="project", resource_id=str(self.team.id), access_level="none"
+        )
+        create_access_control(
+            team_id=self.team.id,
+            resource="project",
+            resource_id=str(self.team.id),
+            access_level="none",
+            organization_member_id=self.organization_membership.pk,
+        )
+        users = [
+            User.objects.create_and_join(self.organization, f"project-{i}@example.com", None) for i in range(count)
+        ]
+        role = Role.objects.create(organization=self.organization, name="Administrators", organization_access_level=8)
+        RoleMembership.objects.bulk_create([RoleMembership(role=role, user=user) for user in users])
+        with self.assertNumQueries(3):
+            assert set(self.team.all_users_with_access().values_list("pk", flat=True)) == {user.pk for user in users}
+
     def test_metadata_prefetch_matches_effective_resolution_without_extra_queries(self) -> None:
         grant = Role.objects.create(organization=self.organization, name="Grant", organization_access_level=8)
         ordinary = Role.objects.create(organization=self.organization, name="Ordinary")
@@ -102,15 +131,30 @@ class TestOrganizationRoleAccess(BaseTest):
             assert member.effective_level == 8
             assert member.organization_access_role_grants == [grant]
 
+    @parameterized.expand([(assigned, grant, 8 if grant else 1) for assigned in (8, 15) for grant in (False, True)])
+    def test_changing_direct_level_does_not_reuse_annotated_direct_admin(
+        self, assigned: int, grant: bool, expected: int
+    ) -> None:
+        self.organization_membership.level = assigned
+        self.organization_membership.save()
+        if grant:
+            role = Role.objects.create(organization=self.organization, name="Grant", organization_access_level=8)
+            RoleMembership.objects.create(role=role, user=self.user)
+        member = OrganizationMembership.objects.with_effective_level().get(pk=self.organization_membership.pk)
+        member.level = 1
+        with self.assertNumQueries(0):
+            assert member.effective_level == expected
+        member.save()
+        assert member.effective_level == expected
+
     def test_explicit_preview_membership_is_not_replaced(self) -> None:
         preview = OrganizationMembership(organization=self.organization, user=self.user, level=8)
         with self.assertNumQueries(0):
-            assert (
-                UserPermissions(self.user, organization_membership=preview)
-                .get_organization_membership(self.organization.id)
-                .effective_level
-                == 8
+            member = UserPermissions(self.user, organization_membership=preview).get_organization_membership(
+                self.organization.id
             )
+            assert member is not None and member is preview
+            assert member.effective_level == 8
 
 
 class TestOrganizationRoleAccessCache(NonAtomicBaseTest):
@@ -159,7 +203,8 @@ class TestOrganizationRoleAccessCache(NonAtomicBaseTest):
         other = User.objects.create_and_join(self.organization, "other@example.com", None)
         RoleMembership.objects.filter(role=self.role).update(user=other)
         self.assert_access(1)
-        assert get_cached_organization_membership(self.organization.id, other).effective_level == 8
+        other_member = get_cached_organization_membership(self.organization.id, other)
+        assert other_member is not None and other_member.effective_level == 8
 
     @parameterized.expand([("grant", False), ("revoke", True)])
     def test_transaction_reads_own_changes_and_rollback_keeps_cache(self, _name: str, granted: bool) -> None:
@@ -240,14 +285,17 @@ class TestOrganizationRoleAccessCache(NonAtomicBaseTest):
         OrganizationMembership.objects.create(organization=other, user=self.user)
         RoleMembership.objects.create(role=self.role, user=self.user)
         self.assert_access(8)
-        assert get_cached_organization_membership(other.id, self.user).effective_level == 1
+        other_member = get_cached_organization_membership(other.id, self.user)
+        assert other_member is not None and other_member.effective_level == 1
         if bulk:
             Role.objects.filter(pk=self.role.pk).update(organization=other)
         else:
             self.role.organization = other
             self.role.save()
-        assert get_cached_organization_membership(self.organization.id, self.user).effective_level == 1
-        assert get_cached_organization_membership(other.id, self.user).effective_level == 8
+        previous_member = get_cached_organization_membership(self.organization.id, self.user)
+        other_member = get_cached_organization_membership(other.id, self.user)
+        assert previous_member is not None and previous_member.effective_level == 1
+        assert other_member is not None and other_member.effective_level == 8
         assert {m.organization_id: m.effective_level for m in get_cached_organization_memberships(self.user)} == {
             self.organization.id: 1,
             other.id: 8,
@@ -278,3 +326,61 @@ class TestOrganizationRoleAccessCache(NonAtomicBaseTest):
         resource = Resource(type=ResourceType.ORGANIZATION, id=str(self.organization.pk))
         with self.assertRaises(NotImplementedError):
             authorization.check(resource=resource, action=Action.EDIT, subject=Subject(api_key_id="example-key"))
+
+    def test_deployment_does_not_reuse_unannotated_membership_payloads(self) -> None:
+        self.grant()
+        old_namespace = f"django{django.VERSION[0]}.{django.VERSION[1]}"
+        caches["organization_access"].set(
+            f"organization_access:membership:{self.organization.id}:{self.user.id}:{old_namespace}",
+            (None, self.organization_membership),
+        )
+        caches["organization_access"].set(
+            f"organization_access:user_memberships:{self.user.id}:{old_namespace}",
+            (None, [self.organization_membership]),
+        )
+        self.assert_access(8)
+        with self.assertNumQueries(0):
+            self.assert_access(8)
+
+    @parameterized.expand([("role",), ("membership",)])
+    def test_bulk_upsert_cannot_bypass_grant_invalidation(self, model: str) -> None:
+        link = self.grant()
+        self.assert_access(8)
+        if model == "role":
+            self.role.organization_access_level = None
+        else:
+            link.user = User.objects.create_and_join(self.organization, "upsert@example.com", None)
+        with self.assertRaises(ValueError):
+            if model == "role":
+                Role.objects.bulk_create(
+                    [self.role],
+                    update_conflicts=True,
+                    update_fields=["organization_access_level"],
+                    unique_fields=["id"],
+                )
+            else:
+                RoleMembership.objects.bulk_create(
+                    [link], update_conflicts=True, update_fields=["user"], unique_fields=["id"]
+                )
+        self.assert_access(8)
+
+    @parameterized.expand([("grant", None, 8), ("revoke", 8, None)])
+    def test_role_edit_invalidates_members_added_before_commit(
+        self, _name: str, before: int | None, after: int | None
+    ) -> None:
+        self.role.organization_access_level = before
+        self.role.save()
+
+        def join_and_warm_cache() -> None:
+            try:
+                self.grant()
+                self.assert_access(before or 1)
+            finally:
+                connections.close_all()
+
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            with transaction.atomic():
+                self.role.organization_access_level = after
+                self.role.save()
+                executor.submit(join_and_warm_cache).result(timeout=60)
+            self.assert_access(after or 1)

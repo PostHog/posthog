@@ -1534,6 +1534,7 @@ path = "products.access_control"
 depends_on = [
     "posthog",
     "ee",
+    "products.authorization",
     "products.event_definitions",
 ]
 layer = "modules"
