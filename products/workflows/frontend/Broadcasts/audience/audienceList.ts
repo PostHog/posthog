@@ -21,23 +21,44 @@ export function defaultListCohortName(broadcastName: string, date: string): stri
     return `${name && name !== 'New broadcast' ? `${name} recipients` : 'Broadcast recipients'}, ${date}`
 }
 
+type MaybeNegatedFilter = AnyPropertyFilter & { negation?: boolean }
+
+/**
+ * Whether a condition excludes a cohort's members. A saved audience can spell that as `negation: true` with the
+ * `in` operator, and the send excludes those members too, so both spellings count.
+ */
+function isCohortExclusion(filter: AnyPropertyFilter): boolean {
+    return (
+        filter.type === PropertyFilterType.Cohort &&
+        ((filter as MaybeNegatedFilter).negation === true || filter.operator === PropertyOperator.NotIn)
+    )
+}
+
 /** Whether a condition sends to a cohort's members, as opposed to excluding them. */
 export function isCohortInclusion(filter: AnyPropertyFilter): boolean {
-    return filter.type === PropertyFilterType.Cohort && filter.operator !== PropertyOperator.NotIn
+    return filter.type === PropertyFilterType.Cohort && !isCohortExclusion(filter)
+}
+
+/**
+ * The condition with an excluded cohort spelled as `not_in`, because the query schema refuses `negation` and the
+ * filter labels read only the operator.
+ */
+export function withCohortExclusionOperator(filter: AnyPropertyFilter): AnyPropertyFilter {
+    if (!isCohortExclusion(filter)) {
+        return filter
+    }
+    const { negation: _negation, ...rest } = filter as MaybeNegatedFilter
+    return { ...rest, operator: PropertyOperator.NotIn } as AnyPropertyFilter
 }
 
 export const COMPUTED_FILTER_KEYS = new Set(['bytecode', 'bytecode_error', 'conditionHash'])
 
 export function toActorsQueryProperties(audienceProperties: AnyPropertyFilter[]): AnyPersonScopeFilter[] {
     return audienceProperties.map((filter) => {
-        const { negation, ...rest } = filter as AnyPropertyFilter & { negation?: boolean }
-        const queryFilter = Object.fromEntries(
+        const { negation: _negation, ...rest } = withCohortExclusionOperator(filter) as MaybeNegatedFilter
+        return Object.fromEntries(
             Object.entries(rest).filter(([key]) => !COMPUTED_FILTER_KEYS.has(key))
         ) as AnyPersonScopeFilter
-        if (queryFilter.type === PropertyFilterType.Cohort && negation === true) {
-            queryFilter.operator = PropertyOperator.NotIn
-        }
-        return queryFilter
     })
 }
 

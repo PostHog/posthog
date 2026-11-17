@@ -14,6 +14,7 @@ import {
     audienceCohortLaunchError,
     isCohortInclusion,
     toAudienceCohort,
+    withCohortExclusionOperator,
 } from './audienceList'
 
 export interface AudienceCohort {
@@ -101,7 +102,7 @@ export const broadcastAudienceCohortsLogic = kea<broadcastAudienceCohortsLogicTy
         nonCohortAudience: [
             (s) => [s.audienceProperties],
             (audienceProperties: AnyPropertyFilter[]): AnyPropertyFilter[] =>
-                audienceProperties.filter((filter) => !isCohortInclusion(filter)),
+                audienceProperties.filter((filter) => !isCohortInclusion(filter)).map(withCohortExclusionOperator),
         ],
         // Every cohort, excluded ones too, because an excluded cohort that is still calculating also changes who
         // the send reaches.
