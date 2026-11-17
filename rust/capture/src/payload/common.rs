@@ -300,7 +300,7 @@ mod tests {
         let payloads: Vec<String> = (0..6)
             .map(|n| {
                 format!(
-                    r#"{{"event":"beacon{}","properties":{{"q":"~~>>??\u00fb\u00ff"}}}}"#,
+                    r#"{{"event":"beacon{}","properties":{{"q":"~~>>??ûÿ"}}}}"#,
                     "x".repeat(n)
                 )
             })
