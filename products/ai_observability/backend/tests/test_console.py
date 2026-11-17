@@ -22,6 +22,7 @@ from products.ai_observability.backend.models.eval_suggestions import (
 )
 from products.ai_observability.backend.models.evaluation_config import EvaluationConfig
 from products.ai_observability.backend.models.evaluations import Evaluation
+from products.ai_observability.backend.models.model_configuration import LLMModelConfiguration
 from products.ai_observability.backend.models.provider_keys import LLMProviderKey
 from products.ai_observability.backend.models.taggers import Tagger
 
@@ -179,6 +180,22 @@ class TestTaggersPanel(BaseTest):
             tagger_type="hog",
             tagger_config={"source": "return length(output) > 10 ? ['Long'] : []", "tags": [{"name": "Long"}]},
         )
+        broken_key = LLMProviderKey.objects.create(
+            team=self.team,
+            provider="openai",
+            name="Revoked key",
+            state=LLMProviderKey.State.ERROR,
+            encrypted_config={"api_key": "sk-revoked"},
+        )
+        self.broken_key = Tagger.objects.create(
+            team=self.team,
+            name="On a broken key",
+            enabled=True,
+            tagger_config=llm_config,
+            model_configuration=LLMModelConfiguration.objects.create(
+                team=self.team, provider="openai", model="gpt-5-mini", provider_key=broken_key
+            ),
+        )
         self.legacy = Tagger.objects.create(team=self.team, name="Legacy", enabled=True, tagger_config=llm_config)
         Tagger.objects.filter(pk=self.legacy.pk).update(tagger_config={**llm_config, "prompt": ""})
         self.url = f"/admin/console/teams/{self.team.pk}/ai-observability-taggers/migrate-taggers/"
@@ -193,6 +210,7 @@ class TestTaggersPanel(BaseTest):
             str(self.untagged_hog.id): 40,
             str(self.hog.id): 7,
             str(self.legacy.id): 3,
+            str(self.broken_key.id): 5,
         }
 
         preview = self.client.post(self.url, {"reason": "Taggers are deprecated"})
@@ -230,8 +248,9 @@ class TestTaggersPanel(BaseTest):
             "Free-form Hog": (True, None),
             "Long answers": (False, hog_evaluation.id),
             "Legacy": (True, None),
+            "On a broken key": (True, None),
         }
         assert sorted(call.kwargs["tagger_ids"][0] for call in reload_taggers.call_args_list) == sorted(
             [str(self.active.id), str(self.silent.id), str(self.hog.id)]
         )
-        assert [step.action for step in second_run] == [MigrationAction.SKIP, MigrationAction.SKIP]
+        assert [step.action for step in second_run] == [MigrationAction.SKIP] * 3
