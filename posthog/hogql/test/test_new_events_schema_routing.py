@@ -1,4 +1,6 @@
 import json
+from collections.abc import Iterator
+from contextlib import contextmanager, nullcontext
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
@@ -17,6 +19,8 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.clickhouse.client.connection import Workload, events_cluster_host
 from posthog.models import Organization, Team, User
 from posthog.models.event.new_events_schema import (
+    EVENTS_TABLE_ROLLOUT_FLAG,
+    EVENTS_TABLE_SELF_SERVE_FLAG,
     NEW_EVENTS_SCHEMA_COOKIE,
     events_route_scope,
     new_events_schema_for_request,
@@ -46,13 +50,56 @@ class TestEventsTableSwitch(SimpleTestCase):
             )
         )
 
-    def test_a_stored_project_modifier_does_not_switch_the_events_table(self) -> None:
-        self.team.modifiers = {"useNewEventsSchema": True, "bounceRateDurationSeconds": 30}
-        modifiers = create_default_modifiers_for_team(
-            self.team, HogQLQueryModifiers(personsOnEventsMode=PersonsOnEventsMode.DISABLED)
-        )
-        self.assertIsNone(modifiers.useNewEventsSchema)
-        self.assertEqual(modifiers.bounceRateDurationSeconds, 30)
+    @contextmanager
+    def _flag_on(self, flag_on: str | None) -> Iterator[MagicMock]:
+        with (
+            patch("posthog.models.event.new_events_schema.is_cloud", return_value=True),
+            patch(
+                "posthog.models.event.new_events_schema.posthoganalytics.feature_enabled",
+                side_effect=lambda flag, *args, **kwargs: flag == flag_on,
+            ) as feature_enabled,
+        ):
+            yield feature_enabled
+        for flag_call in feature_enabled.call_args_list:
+            self.assertEqual(flag_call.kwargs["groups"], {"project": str(self.team.pk)})
+            self.assertEqual(flag_call.kwargs["group_properties"], {"project": {"id": str(self.team.pk)}})
+
+    @parameterized.expand(
+        [
+            ("opted_in", True, True, None, None, True),
+            ("opted_in_while_self_serve_is_closed", True, False, None, None, None),
+            ("a_stored_false_cannot_choose_legacy", False, True, None, None, None),
+            ("staff_tab_on_legacy", True, True, False, None, None),
+            ("query_pinned_to_legacy", True, True, None, False, False),
+        ]
+    )
+    def test_a_project_opt_in_moves_its_hogql_queries_unless_an_override_chose_a_table(
+        self,
+        _name: str,
+        stored: bool,
+        self_serve_open: bool,
+        staff_switch: bool | None,
+        query_modifier: bool | None,
+        expected: bool | None,
+    ) -> None:
+        self.team.modifiers = {"useNewEventsSchema": stored, "bounceRateDurationSeconds": 30}
+        staff_browser = nullcontext() if staff_switch is None else new_events_schema_for_request(staff_switch)
+        with self._flag_on(EVENTS_TABLE_SELF_SERVE_FLAG if self_serve_open else None), staff_browser:
+            modifiers = create_default_modifiers_for_team(
+                self.team,
+                HogQLQueryModifiers(
+                    personsOnEventsMode=PersonsOnEventsMode.DISABLED, useNewEventsSchema=query_modifier
+                ),
+            )
+            self.assertEqual(modifiers.useNewEventsSchema, expected)
+            self.assertEqual(modifiers.bounceRateDurationSeconds, 30)
+        # Readers that write their own SQL ask without modifiers, and an opt-in does not move them.
+        self.assertFalse(use_new_events_schema(self.team.pk))
+
+    def test_the_rollout_flag_moves_a_project_for_every_reader(self) -> None:
+        with self._flag_on(EVENTS_TABLE_ROLLOUT_FLAG) as feature_enabled:
+            self.assertTrue(use_new_events_schema(self.team.pk))
+        feature_enabled.assert_called_once()
 
     def test_a_person_pinned_to_legacy_reads_legacy_on_an_allowlisted_project(self) -> None:
         self.instance_settings["CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS"] = str(self.team.pk)
