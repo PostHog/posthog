@@ -1069,6 +1069,23 @@ def is_nondeterministic_function(name: str) -> bool:
     return name.lower() in _NONDETERMINISTIC_FUNCTIONS
 
 
+class _NondeterministicFunctionFinder(TraversingVisitor):
+    def __init__(self) -> None:
+        super().__init__()
+        self.found = False
+
+    def visit_call(self, node: ast.Call) -> None:
+        if is_nondeterministic_function(node.name):
+            self.found = True
+        super().visit_call(node)
+
+
+def contains_nondeterministic_function(expr: ast.Expr) -> bool:
+    finder = _NondeterministicFunctionFinder()
+    finder.visit(expr)
+    return finder.found
+
+
 class _RowMultiplyingFunctionFinder(TraversingVisitor):
     """Detects any row-multiplying function call (e.g. arrayJoin) anywhere in an expression."""
 

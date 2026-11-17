@@ -19,7 +19,10 @@ from posthog.hogql.database.models import (
     Table,
 )
 from posthog.hogql.database.schema.groups_revenue_analytics import GroupsRevenueAnalyticsTable
-from posthog.hogql.database.schema.util.where_clause_extractor import top_level_conjuncts
+from posthog.hogql.database.schema.util.where_clause_extractor import (
+    contains_nondeterministic_function,
+    top_level_conjuncts,
+)
 from posthog.hogql.errors import ResolutionError
 from posthog.hogql.parser import parse_select
 from posthog.hogql.visitor import TraversingVisitor, clone_expr
@@ -244,6 +247,8 @@ def _outer_prefilter(
     re-trigger the resolver on the same lazy join during inner-subquery resolution. The remaining terms match
     every row that the full WHERE matches, so the key subquery still returns the key of each row that the
     outer query keeps. A term below an OR is not a top-level term, because dropping it would lose rows.
+    A term that calls a function such as `rand()` is left out too. The key subquery evaluates its copy on a
+    separate read, so the copy would select other rows than the outer query keeps.
 
     We only return the part when:
 
@@ -286,7 +291,8 @@ def _outer_prefilter(
     reusable = [
         conjunct
         for conjunct in top_level_conjuncts(where)
-        if not any(
+        if not contains_nondeterministic_function(conjunct)
+        and not any(
             _chain_hits_guarded_alias(chain, guarded_aliases, source_chain, alias)
             for chain in find_field_chains(conjunct)
         )

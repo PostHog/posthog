@@ -685,20 +685,16 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
 
     @parameterized.expand(
         [
-            ("unaliased", "posthog.flag_evaluations", "", True),
-            ("events_list_alias", "posthog.flag_evaluations AS flag_evaluations", "", True),
-            # Cloned into the key subquery, a group field resolves the same groups join again and recurses.
+            ("unaliased", "posthog.flag_evaluations", ""),
+            ("events_list_alias", "posthog.flag_evaluations AS flag_evaluations", ""),
             (
                 "qualified_group_filter",
                 "posthog.flag_evaluations",
                 " AND posthog.flag_evaluations.group_0.properties.industry = 'software'",
-                False,
             ),
         ]
     )
-    def test_group_join_reads_only_the_groups_of_the_matched_rows(
-        self, _name: str, source: str, where: str, key_bound: bool
-    ):
+    def test_group_join_reads_only_the_groups_of_the_matched_rows(self, _name: str, source: str, where: str):
         # Without the key bound, the groups subquery reads every group of the type that the team has.
         create_group_type_mapping(
             team=self.team,
@@ -713,7 +709,7 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
             "group_0.properties.industry", where=f"{where} AND timestamp >= now() - INTERVAL 1 DAY", source=source
         )
 
-        assert ("globalIn(key," in response.clickhouse) == key_bound
+        assert "globalIn(key," in response.clickhouse
         assert response.results == [("software",)]
 
     def test_group_join_of_a_swapped_events_scan_reads_only_the_groups_of_the_matched_rows(self):

@@ -133,6 +133,13 @@ class TestGroupsJoinPrefilter(APIBaseTest):
         )
         self.assertEqual(sql.count("globalIn(key,"), expected_bounds)
 
+    def test_key_subquery_leaves_out_a_term_that_differs_on_each_read(self):
+        sql = self._print(
+            "SELECT group_0.properties FROM events WHERE timestamp > toDateTime('2026-01-01') AND rand() % 2 = 0"
+        )
+        self.assertEqual(sql.count("globalIn(key,"), 1)
+        self.assertEqual(sql.count("rand()"), 1)
+
     def test_skips_filter_when_outer_where_lacks_timestamp(self):
         # No timestamp reference → the optimization would push a key subquery that scans every
         # event for the team, which is strictly worse than no filter. Guard skips it.
