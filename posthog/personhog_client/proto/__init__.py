@@ -132,6 +132,8 @@ from personhog.types.v1.person_pb2 import (
     RaisePersonVersionFloorsResponse,
     RaisePersonVersionRequest,
     RaisePersonVersionResponse,
+    UpdatePersonPropertiesRequest,
+    UpdatePersonPropertiesResponse,
     RestorePersonsRequest,
     RestorePersonsResponse,
     RestoredDistinctId,
