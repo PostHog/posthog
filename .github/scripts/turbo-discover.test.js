@@ -12,10 +12,9 @@ const test = require('node:test')
 const assert = require('node:assert/strict')
 const { execFileSync } = require('node:child_process')
 const fs = require('node:fs')
-const os = require('node:os')
 const path = require('node:path')
 
-const { DJANGO_SEGMENTS, getIsolatedProducts, loadJsonTargets } = require('./turbo-discover')
+const { DJANGO_SEGMENTS, loadJsonTargets } = require('./turbo-discover')
 
 const REPO_ROOT = path.join(__dirname, '..', '..')
 const WORKFLOW = '.depot/workflows/ci-backend.yml'
@@ -127,35 +126,6 @@ test("the safeguard allowlist stays inside Core's pool", () => {
             `${prefix} is in CorePOE but Core does not run it, so it never runs in the default person mode`
         )
     }
-})
-
-// Isolation is the claim that a product can be tested without the Django suite.
-// A product that ships the contract-check script but no turbo.json of its own
-// leaves the task on the root definition, whose inputs are its whole backend,
-// so every backend edit reads as a contract change and cascades anyway.
-test('isolation needs both the contract-check script and narrowed contract inputs', () => {
-    const repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'isolated-products-'))
-    const declare = (product, turboJson) => {
-        fs.mkdirSync(path.join(repoRoot, 'products', product), { recursive: true })
-        if (turboJson) {
-            fs.writeFileSync(path.join(repoRoot, 'products', product, 'turbo.json'), JSON.stringify(turboJson))
-        }
-    }
-    declare('declared', { tasks: { 'backend:contract-check': { inputs: ['backend/facade/**'] } } })
-    declare('empty-inputs', { tasks: { 'backend:contract-check': { inputs: [] } } })
-    declare('other-task', { tasks: { 'backend:test': { inputs: ['backend/**'] } } })
-    declare('no-turbo-json', null)
-    // Directory uses underscores while the package name uses dashes — the lookup
-    // must bridge the two or every multiword product reads as non-isolated.
-    declare('multi_word', { tasks: { 'backend:contract-check': { inputs: ['backend/facade/**'] } } })
-
-    // Every task here comes from `turbo run backend:contract-check`, so each of
-    // these products already declares the script.
-    const tasks = ['declared', 'empty-inputs', 'other-task', 'no-turbo-json', 'multi-word'].map((product) => ({
-        package: `@posthog/products-${product}`,
-    }))
-
-    assert.deepEqual([...getIsolatedProducts(tasks, repoRoot)].sort(), ['declared', 'multi-word'])
 })
 
 // The events_json rows skip a listed path that a checkout lacks, and pytest passes a path

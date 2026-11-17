@@ -1,7 +1,7 @@
 // Run with: node --test .github/scripts/turbo-discover-cascade.test.js
 //
 // Unit tests for the dependent-cascade logic in turbo-discover.js:
-// productGraphFromImportMap, importDependents, loadImportGraph, and the lib
+// productGraphFromImportMap, importDependents, loadImportGraph, loadWatchedSets, and the lib
 // package import scan (libImportName, productsImportingModule,
 // coreFilesImportingModule, getAffectedLibPackages). Uses a synthetic graph and
 // a temp-dir tree throughout — never asserts against the real hoglint map or the
@@ -19,6 +19,7 @@ const {
     productGraphFromImportMap,
     importDependents,
     loadImportGraph,
+    loadWatchedSets,
     getAffectedLibPackages,
     libImportName,
     productsImportingModule,
@@ -99,8 +100,12 @@ test('changed products are excluded from their own dependent set', () => {
 // The callers widen on null and would crash on a throw, so a run that cannot
 // start has to come back as "unknown", not as an exception. A repo root that
 // does not exist fails the spawn before any real uv or hoglint is involved.
-test('fail closed: a run that cannot start yields null instead of throwing', () => {
+// The same run answers isolation, so it isolates no product either.
+test('fail closed: a run that cannot start yields no graph and no isolated product', () => {
     assert.equal(loadImportGraph('/nonexistent/repo-root'), null)
+    const watched = loadWatchedSets('/nonexistent/repo-root')
+    assert.equal(watched.status, 'unavailable')
+    assert.equal(watched.isolated.size, 0)
 })
 
 // --- Lib packages as cascade sources ---

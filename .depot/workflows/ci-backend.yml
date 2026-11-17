@@ -339,9 +339,9 @@ jobs:
                         - pytest.ini
                         - conftest.py # Root conftest loads for every pytest run
                         - .test_quarantine.json # Un-quarantining must re-run the affected tests
-                        # turbo-discover reads hoglint's map for the dependent cascade,
-                        # and `hoglint compare` judges the policy, the ledger and the
-                        # exceptions — a policy-only PR must still dispatch both.
+                        # turbo-discover reads hoglint's watched sets and map for isolation
+                        # and the dependent cascade, and `hoglint compare` judges the policy,
+                        # the ledger and the exceptions — a policy-only PR must still dispatch both.
                         - hoglint.toml
                         - hoglint.ledger
                         - hoglint.exceptions.toml
@@ -375,8 +375,9 @@ jobs:
                         # Transitional: branches that predate the move still carry the
                         # resolver at tools/owners.
                         - 'tools/owners/**'
-                        # hoglint's Isolated level reads each product's contract-check
-                        # inputs, so an inputs-only edit must run `hoglint compare`.
+                        # A product's turbo.json overrides its backend:test task, which
+                        # turbo-discover reads. Its Isolated claim lives in product.yaml,
+                        # which the product_yamls filter sends to `hoglint compare`.
                         - 'products/*/turbo.json'
                         # Make sure we run if someone is explicitly changing the workflow
                         - .depot/workflows/ci-backend.yml
@@ -817,9 +818,10 @@ jobs:
             - name: Install turbo
               uses: ./.depot/actions/setup-turbo
             # turbo-discover.js runs .github/scripts/hoglint_map.py under `uv run
-            # --no-project` for the dependent cascade; the script pins hoglint, so no
-            # Python project sync is needed. A missing uv widens the cascade to
-            # every product rather than failing the job.
+            # --no-project` for `hoglint watched --map`: which products are isolated, their
+            # watched files and the dependent cascade. The script pins hoglint, so no
+            # Python project sync is needed. A missing uv makes no product isolated and
+            # widens the cascade to every product rather than failing the job.
             - uses: ./.depot/actions/setup-uv
               with:
                   enable-cache: false
@@ -955,8 +957,8 @@ jobs:
                   SKIP_PRODUCT_TESTS: ${{ vars.SKIP_PRODUCT_TESTS || '' }}
               run: |
                   # turbo-discover.js uses Turbo's Git affectedness to detect
-                  # changed products. Non-isolated product changes trigger the
-                  # full suite (all products + Django).
+                  # changed products. A change to a product that is not isolated, or
+                  # to a watched file of one that is, triggers Django.
                   RESULT=$(node .github/scripts/turbo-discover.js)
                   echo "Result: $RESULT"
                   echo "matrix=$(echo "$RESULT" | jq -c '.matrix')" >> $GITHUB_OUTPUT
