@@ -20,7 +20,7 @@ import {
     pickProjectId,
 } from './account'
 import { type AccountRef, accountKey } from './accountKey'
-import { authorize, OAuthError, refreshTokens, revokeToken } from './oauth'
+import { type AuthorizeResult, authorize, OAuthError, refreshTokens, revokeToken } from './oauth'
 import { type RegionId, regionForHost, validateHost } from './regions'
 import {
     AccountAlreadyAddedError,
@@ -780,6 +780,7 @@ export const useAuthStore = create<AuthState>()(
                 clientId: string | null,
                 intent: number,
                 reauth: string | undefined,
+                browser: Omit<AuthorizeResult, 'tokens'>,
                 ownership: { kept: boolean }
             ): Promise<void> => {
                 let account: Account
@@ -803,7 +804,7 @@ export const useAuthStore = create<AuthState>()(
                         sessionActive &&
                         isUsable(existing, state.unreadableAccountKeys)
                     ) {
-                        throw new AccountAlreadyAddedError(key, account.user.email, host)
+                        throw new AccountAlreadyAddedError(key, account.user.email, host, browser)
                     }
                     await settleAccountRefresh(key)
                     const identity: SessionIdentity = { host, clientId, method, userUuid: account.user.uuid }
@@ -973,7 +974,7 @@ export const useAuthStore = create<AuthState>()(
                         }
                     }
                     const { accounts, freshLoginNext, unreadableAccountKeys } = get()
-                    const tokens = await authorize({
+                    const { tokens, ...browser } = await authorize({
                         host: validation.host,
                         clientId: trimmedClientId,
                         // A usable account has its web session in the browser, which would return it again.
@@ -993,6 +994,7 @@ export const useAuthStore = create<AuthState>()(
                             trimmedClientId,
                             intent,
                             options?.reauth,
+                            browser,
                             ownership
                         )
                     } catch (error) {
@@ -1034,6 +1036,7 @@ export const useAuthStore = create<AuthState>()(
                         null,
                         intent,
                         undefined,
+                        { privateSession: false },
                         { kept: false }
                     )
                 },

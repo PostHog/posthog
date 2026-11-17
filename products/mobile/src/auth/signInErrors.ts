@@ -37,20 +37,29 @@ export class AccountLoadError extends Error {
     }
 }
 
-/** The browser returned an account that is already on this device. It was usually still signed in to the web app. */
+export interface AccountAlreadyAddedOptions {
+    privateSession?: boolean
+}
+
+/** The browser returned an account that is already on this device. */
 export class AccountAlreadyAddedError extends Error {
     readonly key: string
     readonly email: string
     readonly host: string
+    /** The sign-in ran in a private browser session, which starts signed out, so the person picked this account. */
+    readonly privateSession: boolean
 
-    constructor(key: string, email: string, host: string) {
+    constructor(key: string, email: string, host: string, { privateSession = false }: AccountAlreadyAddedOptions = {}) {
         super(
-            `${email} is already signed in on this device. To add another account, sign out of PostHog in your browser, then try again.`
+            privateSession
+                ? `${email} is already on this phone. To add a different account, try again and sign in with it.`
+                : `${email} is already signed in on this device. To add another account, sign out of PostHog in your browser, then try again.`
         )
         this.name = 'AccountAlreadyAddedError'
         this.key = key
         this.email = email
         this.host = host
+        this.privateSession = privateSession
     }
 }
 

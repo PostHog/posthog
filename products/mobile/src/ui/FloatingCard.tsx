@@ -131,7 +131,9 @@ const useStyles = createStyles(({ colors, scheme }) => ({
         left: 0,
         borderRadius: radii.floating,
     },
+    // Fills a card of fixed height, so a child that grows reaches the card's bottom edge, as on the solid card.
     glassContent: {
+        flexGrow: 1,
         flexShrink: 1,
     },
 }))

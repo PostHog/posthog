@@ -252,7 +252,7 @@ describe('token refresh through the API client', () => {
             })
             const request = (): Promise<unknown> =>
                 operation === 'sign-in'
-                    ? authorize({ host: HOST, clientId: 'test-client' })
+                    ? authorize({ host: HOST, clientId: 'test-client' }).then(({ tokens }) => tokens)
                     : refreshTokens({ host: HOST, clientId: 'test-client', refreshToken: 'example-refresh' })
             const failure = expect(request()).rejects.toMatchObject({ name: 'OAuthError', kind: 'network' })
             await jest.advanceTimersByTimeAsync(5_000)

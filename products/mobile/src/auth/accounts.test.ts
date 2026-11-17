@@ -1,4 +1,5 @@
 import * as SecureStore from 'expo-secure-store'
+import { Platform } from 'react-native'
 
 import { apiJson, apiStream, NotSignedInError, SessionEndedError } from '@/api/client'
 import { queryClient } from '@/api/queryClient'
@@ -332,9 +333,11 @@ describe('several accounts on one device', () => {
         installAuthProvider()
     })
 
+    const originalPlatform = Platform.OS
     afterEach(() => {
         setAnalyticsClient(null)
         jest.useRealTimers()
+        Platform.OS = originalPlatform
     })
 
     async function expireActiveSession(): Promise<void> {
@@ -666,24 +669,31 @@ describe('several accounts on one device', () => {
         expect(useAuthStore.getState()).toMatchObject({ activeAccountKey: ada, unreadableAccountKeys: [] })
     })
 
-    test('adding an account that is already on the device revokes the new token and changes nothing', async () => {
-        const ada = await signIn(US, 'ada')
-        const adaRefresh = getSessionTokens()?.refreshToken
-        const bob = await signIn(EU, 'bob')
-        const generation = sessionGeneration()
-        const before = useAuthStore.getState().accounts
+    test.each([
+        ['ios', true],
+        ['android', false],
+    ] as const)(
+        'on %s, adding an account that is already on the device revokes the new token and changes nothing (private session: %s)',
+        async (platform, privateSession) => {
+            Platform.OS = platform
+            const ada = await signIn(US, 'ada')
+            const adaRefresh = getSessionTokens()?.refreshToken
+            const bob = await signIn(EU, 'bob')
+            const generation = sessionGeneration()
+            const before = useAuthStore.getState().accounts
 
-        const adding = signIn(US, 'ada')
+            const adding = signIn(US, 'ada')
 
-        await expect(adding).rejects.toBeInstanceOf(AccountAlreadyAddedError)
-        await expect(adding).rejects.toMatchObject({ key: ada, email: 'ada@example.com', host: US })
-        const duplicate = lastIssued('ada-refresh-')
-        expect(revoked()).toEqual([duplicate])
-        expect(duplicate).not.toBe(adaRefresh)
-        expect(slot(ada)?.tokens.refreshToken).toBe(adaRefresh)
-        expect(sessionGeneration()).toBe(generation)
-        expect(useAuthStore.getState()).toMatchObject({ activeAccountKey: bob, accounts: before })
-    })
+            await expect(adding).rejects.toBeInstanceOf(AccountAlreadyAddedError)
+            await expect(adding).rejects.toMatchObject({ key: ada, email: 'ada@example.com', host: US, privateSession })
+            const duplicate = lastIssued('ada-refresh-')
+            expect(revoked()).toEqual([duplicate])
+            expect(duplicate).not.toBe(adaRefresh)
+            expect(slot(ada)?.tokens.refreshToken).toBe(adaRefresh)
+            expect(sessionGeneration()).toBe(generation)
+            expect(useAuthStore.getState()).toMatchObject({ activeAccountKey: bob, accounts: before })
+        }
+    )
 
     test('while signed out, a sign-in to an account that is on the device replaces its slot and activates it', async () => {
         const ada = await signIn(US, 'ada')

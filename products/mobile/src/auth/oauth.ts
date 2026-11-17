@@ -204,6 +204,12 @@ function authResultError(result: AuthSessionResult): OAuthError {
     return new OAuthError('rejected', 'The sign-in page returned no authorization code.')
 }
 
+export interface AuthorizeResult {
+    tokens: SessionTokens
+    /** The sign-in ran in a private browser session, which starts without the browser's PostHog web session. */
+    privateSession: boolean
+}
+
 /**
  * `preferEphemeralSession` keeps the browser's cookies out of the sign-in (iOS only). `/oauth/authorize` issues a code
  * at once for the user whose web session the browser holds, so adding a second account needs a browser without one.
@@ -216,7 +222,7 @@ export async function authorize({
     host: string
     clientId: string
     preferEphemeralSession?: boolean
-}): Promise<SessionTokens> {
+}): Promise<AuthorizeResult> {
     if (Platform.OS === 'web') {
         throw new OAuthError('unsupported')
     }
@@ -243,7 +249,7 @@ export async function authorize({
     if (!request.codeVerifier) {
         throw new OAuthError('rejected', 'The sign-in request lost its PKCE verifier.')
     }
-    return postToken(
+    const tokens = await postToken(
         host,
         {
             grant_type: 'authorization_code',
@@ -271,6 +277,8 @@ export async function authorize({
             })
         }
     )
+    // The Android Custom Tab ignores `preferEphemeralSession` and always shares the browser's cookies.
+    return { tokens, privateSession: preferEphemeralSession && Platform.OS === 'ios' }
 }
 
 // The server rotates the refresh token on every call and revokes the whole family when an old one is reused after a

@@ -76,13 +76,29 @@ describe('SignInScreen', () => {
         expect(mockRouter.back).toHaveBeenCalled()
     })
 
-    test.each(['ios', 'android'] as const)(
-        'on %s, an account that is already on the phone explains the browser and offers both next steps',
-        async (platform) => {
-            Platform.OS = platform
+    // On iOS, so a notice that reads the platform instead of the error fails the shared case.
+    test.each<[string, boolean, string, boolean]>([
+        [
+            'a shared browser session',
+            false,
+            'Your browser is still signed in to PostHog as maya@example.com, and that account is already on this phone. To add a different account, sign out of PostHog in the browser, then try again.',
+            true,
+        ],
+        [
+            'a private browser session',
+            true,
+            'You signed in as maya@example.com, and that account is already on this phone. To add a different account, try again and sign in with it.',
+            false,
+        ],
+    ])(
+        'after %s, an account that is already on the phone gets the next steps that apply',
+        async (_name, privateSession, text, opensBrowser) => {
+            Platform.OS = 'ios'
             mockParams = { mode: 'add' }
             const signIn = jest.fn(async () => {
-                throw new AccountAlreadyAddedError(US_ACCOUNT.key, 'maya@example.com', US_ACCOUNT.host)
+                throw new AccountAlreadyAddedError(US_ACCOUNT.key, 'maya@example.com', US_ACCOUNT.host, {
+                    privateSession,
+                })
             })
             setAuth({ ...signedInAsUs, signIn })
             const openURL = jest.spyOn(Linking, 'openURL').mockResolvedValue(undefined)
@@ -90,11 +106,13 @@ describe('SignInScreen', () => {
 
             await act(async () => fireEvent.press(screen.getByTestId('sign-in')))
 
-            expect(screen.getByTestId('sign-in-already-added')).toHaveTextContent(
-                /signed in to PostHog as maya@example\.com, and that account is already on this phone\. To add a different account, sign out of PostHog in the browser, then try again\./
-            )
-            fireEvent.press(screen.getByTestId('sign-in-open-browser'))
-            expect(openURL).toHaveBeenCalledWith(US_ACCOUNT.host)
+            expect(screen.getByTestId('sign-in-already-added')).toHaveTextContent(text, { exact: false })
+            if (opensBrowser) {
+                fireEvent.press(screen.getByTestId('sign-in-open-browser'))
+                expect(openURL).toHaveBeenCalledWith(US_ACCOUNT.host)
+            } else {
+                expect(screen.queryByTestId('sign-in-open-browser')).toBeNull()
+            }
             await act(async () => fireEvent.press(screen.getByTestId('sign-in-retry')))
             expect(signIn).toHaveBeenCalledTimes(2)
         }

@@ -14,13 +14,14 @@ import { Pressable44 } from '@/ui/Pressable44'
 import { createStyles, useTheme } from '@/ui/theme'
 import { iconSizes, inputReset, radii, type } from '@/ui/tokens'
 import { useLiquidGlass } from '@/ui/useLiquidGlass'
-import { usePickerCardStyle } from '@/ui/usePickerCardStyle'
+import { usePickerCardHeight, usePickerCardStyle } from '@/ui/usePickerCardStyle'
 import { useSceneDimensions } from '@/ui/useSceneDimensions'
 import { bottomOffset, topOffset, useScreenInsets } from '@/ui/useScreenInsets'
 
 import { AccountSection } from './AccountSection'
 import { ProjectGroups } from './ProjectGroups'
 import { ProjectRow } from './ProjectRow'
+import { MIN_HEIGHT_WITH_FOOTER, projectCardLayout } from './projectCardLayout'
 import { accountSections, filterProjects, groupByOrganization } from './projectList'
 
 interface ProjectSheetProps {
@@ -43,7 +44,6 @@ export function ProjectSheet({ visible, onClose, onSelect }: ProjectSheetProps):
     const { colors, scheme } = useTheme(glass)
     const insets = useScreenInsets()
     const { height: windowHeight } = useSceneDimensions()
-    const compact = windowHeight < 480
     const top = topOffset(insets, 120)
     const demo = useDemoMode((state) => state.enabled)
     const accounts = useAuthStore((state) => state.accounts)
@@ -57,11 +57,14 @@ export function ProjectSheet({ visible, onClose, onSelect }: ProjectSheetProps):
     const accountSwitch = useAccountSwitch('nav_menu')
     const openAddAccount = useOpenAddAccount()
     const multi = !demo && accounts.length >= 2
+    const cardMinHeight = demo ? 320 : Math.max(320, MIN_HEIGHT_WITH_FOOTER)
     // With several accounts the card reaches down to the bottom edge, so more than one account header stays in view.
     const cardHeight = multi
-        ? Math.max(320, windowHeight - top - bottomOffset(insets, 40))
-        : Math.max(320, Math.round((windowHeight - top) * 0.52))
+        ? Math.max(cardMinHeight, windowHeight - top - bottomOffset(insets, 40))
+        : Math.max(cardMinHeight, Math.round((windowHeight - top) * 0.52))
     const cardStyle = usePickerCardStyle(top, cardHeight)
+    const fittedHeight = usePickerCardHeight(top, cardHeight)
+    const { compact, footerPinned } = projectCardLayout(fittedHeight, windowHeight, !demo)
 
     useEffect(() => {
         if (!visible) {
@@ -128,19 +131,18 @@ export function ProjectSheet({ visible, onClose, onSelect }: ProjectSheetProps):
                 {retry}
             </View>
         ) : null
-    const addRow =
-        !demo && !trimmed ? (
-            <>
-                <View style={styles.addDivider} />
-                <AddAccountRow
-                    onPress={() => addAccount()}
-                    disabled={switching}
-                    quiet={!multi}
-                    style={[styles.addRow, compact && styles.addRowCompact]}
-                    testID="project-sheet-add-account"
-                />
-            </>
-        ) : null
+    const addRow = demo ? null : (
+        <>
+            <View style={[styles.addDivider, footerPinned && styles.addDividerPinned]} />
+            <AddAccountRow
+                onPress={() => addAccount()}
+                disabled={switching}
+                quiet={!multi}
+                style={[styles.addRow, compact && styles.addRowCompact]}
+                testID="project-sheet-add-account"
+            />
+        </>
+    )
 
     let content: ReactNode
     if (multi) {
@@ -175,23 +177,10 @@ export function ProjectSheet({ visible, onClose, onSelect }: ProjectSheetProps):
                     </Text>
                 ))}
                 {refreshError}
-                {addRow}
-            </>
-        )
-    } else if (!demo && projects.length === 0 && (accountLoading || accountError)) {
-        content = (
-            <>
-                {activeEmpty}
-                {accountLoading ? null : addRow}
             </>
         )
     } else if (projects.length === 0) {
-        content = (
-            <>
-                {activeEmpty}
-                {addRow}
-            </>
-        )
+        content = activeEmpty
     } else {
         content = (
             <>
@@ -217,7 +206,6 @@ export function ProjectSheet({ visible, onClose, onSelect }: ProjectSheetProps):
                 ) : (
                     refreshError
                 )}
-                {addRow}
             </>
         )
     }
@@ -262,9 +250,15 @@ export function ProjectSheet({ visible, onClose, onSelect }: ProjectSheetProps):
                     />
                 </View>
             </View>
-            <ScrollView style={[styles.list, compact && { marginTop: 2 }]} keyboardShouldPersistTaps="handled">
+            <ScrollView
+                style={[styles.list, compact && { marginTop: 2 }, footerPinned && styles.listAboveFooter]}
+                keyboardShouldPersistTaps="handled"
+                testID="project-sheet-list"
+            >
                 {content}
+                {footerPinned ? null : addRow}
             </ScrollView>
+            {footerPinned ? addRow : null}
         </FloatingCard>
     )
 }
@@ -334,6 +328,10 @@ const useStyles = createStyles(({ colors }) => ({
         flexGrow: 0,
         flexShrink: 1,
     },
+    // Keeps Add account at the bottom of the card, so it does not move while a search filters the list.
+    listAboveFooter: {
+        flexGrow: 1,
+    },
     sectionDivider: {
         marginTop: 10,
         paddingTop: 4,
@@ -346,6 +344,9 @@ const useStyles = createStyles(({ colors }) => ({
         marginTop: 10,
         marginBottom: 2,
         marginHorizontal: 4,
+    },
+    addDividerPinned: {
+        marginTop: 0,
     },
     addRow: {
         minHeight: 56,

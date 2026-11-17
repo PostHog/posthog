@@ -1,5 +1,6 @@
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react-native'
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react-native'
 import { isLiquidGlassAvailable } from 'expo-glass-effect'
+import { Dimensions } from 'react-native'
 
 import { AccountNeedsSignInError, type StoredAccount, useAuthStore } from '@/auth/authStore'
 import { useDemoMode } from '@/demo/demoMode'
@@ -17,7 +18,12 @@ jest.mock(
     'react-native-safe-area-context',
     () => jest.requireActual('react-native-safe-area-context/jest/mock').default
 )
-jest.mock('react-native-keyboard-controller', () => jest.requireActual('react-native-keyboard-controller/jest'))
+let mockKeyboardHeight = 0
+jest.mock('react-native-keyboard-controller', () => ({
+    ...jest.requireActual('react-native-keyboard-controller/jest'),
+    useKeyboardState: <T,>(select: (state: { isVisible: boolean; height: number }) => T): T =>
+        select({ isVisible: mockKeyboardHeight > 0, height: mockKeyboardHeight }),
+}))
 const mockPush = jest.fn()
 jest.mock('expo-router', () => ({
     ...jest.requireActual('expo-router'),
@@ -61,6 +67,7 @@ describe('ProjectSheet', () => {
             useDemoMode.setState({ enabled: false })
         })
         mockPush.mockReset()
+        mockKeyboardHeight = 0
         jest.mocked(isLiquidGlassAvailable).mockReturnValue(false)
     })
 
@@ -77,27 +84,36 @@ describe('ProjectSheet', () => {
         expect(screen.getByTestId('project-sheet-1')).toBeChecked()
     })
 
-    test.each([false, true])(
-        'with one account (demo %s) lists projects as before, with Add account only outside demo',
-        (demo) => {
-            act(() => {
-                signIn([US_ACCOUNT])
-                useDemoMode.setState({ enabled: demo })
-            })
-            const { onClose } = renderSheet()
-
-            expect(screen.queryByTestId('project-sheet-account-active')).toBeNull()
-            if (demo) {
-                expect(screen.queryByTestId('project-sheet-add-account')).toBeNull()
-                return
-            }
-            expect(screen.getByTestId('project-sheet-1')).toBeChecked()
-            expect(screen.getByTestId('project-sheet-3')).toBeTruthy()
-            fireEvent.press(screen.getByTestId('project-sheet-add-account'))
-            expect(onClose).toHaveBeenCalled()
-            expect(mockPush).toHaveBeenCalledWith({ pathname: '/sign-in', params: { mode: 'add' } })
+    test.each<
+        [string, 'below the list' | 'in the list' | 'hidden', { demo: boolean; roomAboveKeyboard: number | null }]
+    >([
+        ['outside demo', 'below the list', { demo: false, roomAboveKeyboard: null }],
+        ['with the keyboard up and no room for a footer', 'in the list', { demo: false, roomAboveKeyboard: 150 }],
+        ['in demo mode', 'hidden', { demo: true, roomAboveKeyboard: null }],
+    ])('with one account %s, lists projects as before, with Add account %s', (_name, placement, setup) => {
+        if (setup.roomAboveKeyboard !== null) {
+            mockKeyboardHeight = Dimensions.get('window').height - setup.roomAboveKeyboard
         }
-    )
+        act(() => {
+            signIn([US_ACCOUNT])
+            useDemoMode.setState({ enabled: setup.demo })
+        })
+        const { onClose } = renderSheet()
+
+        expect(screen.queryByTestId('project-sheet-account-active')).toBeNull()
+        if (placement === 'hidden') {
+            expect(screen.queryByTestId('project-sheet-add-account')).toBeNull()
+            return
+        }
+        expect(screen.getByTestId('project-sheet-1')).toBeChecked()
+        expect(screen.getByTestId('project-sheet-3')).toBeTruthy()
+        expect(
+            within(screen.getByTestId('project-sheet-list')).queryByTestId('project-sheet-add-account') !== null
+        ).toBe(placement === 'in the list')
+        fireEvent.press(screen.getByTestId('project-sheet-add-account'))
+        expect(onClose).toHaveBeenCalled()
+        expect(mockPush).toHaveBeenCalledWith({ pathname: '/sign-in', params: { mode: 'add' } })
+    })
 
     test('a project of another account switches to it, and blocks every row until the switch settles', async () => {
         let finish: () => void = () => undefined
@@ -144,7 +160,7 @@ describe('ProjectSheet', () => {
         }
     })
 
-    test('an account whose session ended lists no projects, offers sign-in, and a search says it was skipped', () => {
+    test('an account whose session ended lists no projects, offers sign-in, and a search says it was skipped and keeps Add account', () => {
         act(() => signIn([US_ACCOUNT, SELF_HOSTED_ACCOUNT]))
         renderSheet()
         expect(screen.getByText('Session ended')).toBeTruthy()
@@ -157,7 +173,8 @@ describe('ProjectSheet', () => {
         expect(screen.getByTestId('project-sheet-skipped')).toHaveTextContent(
             'Projects in maya@example.org show after you sign in again.'
         )
-        expect(screen.queryByTestId('project-sheet-add-account')).toBeNull()
+        expect(screen.getByTestId('project-sheet-add-account')).toBeTruthy()
+        expect(within(screen.getByTestId('project-sheet-list')).queryByTestId('project-sheet-add-account')).toBeNull()
 
         fireEvent.changeText(screen.getByTestId('project-search'), '')
         fireEvent.press(screen.getByTestId('project-sheet-account-self-hosted-account-sign-in'))

@@ -15,34 +15,53 @@ interface AccountAlreadyAddedNoticeProps {
     onRetry: () => void
 }
 
+interface NoticeContent {
+    text: string
+    openBrowser: boolean
+}
+
+function noticeContent(error: AccountAlreadyAddedError): NoticeContent {
+    if (error.privateSession) {
+        return {
+            text: `You signed in as ${error.email}, and that account is already on this phone. To add a different account, try again and sign in with it.`,
+            openBrowser: false,
+        }
+    }
+    return {
+        text: `Your browser is still signed in to PostHog as ${error.email}, and that account is already on this phone. To add a different account, sign out of PostHog in the browser, then try again.`,
+        openBrowser: true,
+    }
+}
+
 /**
- * The browser signed in as an account this phone already has. The app cannot sign the browser out, because the web
- * app's logout takes a form post, so it opens PostHog where the user can sign out.
+ * The browser signed in as an account this phone already has. A private browser session starts signed out, so there
+ * the person picked that account and only needs to try again. The app cannot sign a shared browser out, because the
+ * web app's logout takes a form post, so it opens PostHog where the user can sign out.
  */
 export function AccountAlreadyAddedNotice({ error, pending, onRetry }: AccountAlreadyAddedNoticeProps): ReactElement {
     const colors = useColors()
     const styles = useStyles()
+    const content = noticeContent(error)
     const openBrowser = (): void => {
         track('mobile_account_browser_opened', { region: regionForHost(error.host) })
         Linking.openURL(error.host).catch(() => undefined)
     }
     return (
         <View style={styles.box} accessibilityRole="alert" testID="sign-in-already-added">
-            <Text style={styles.text}>
-                Your browser is still signed in to PostHog as {error.email}, and that account is already on this phone.
-                To add a different account, sign out of PostHog in the browser, then try again.
-            </Text>
+            <Text style={styles.text}>{content.text}</Text>
             <View style={styles.actions}>
-                <Pressable44
-                    onPress={openBrowser}
-                    accessibilityRole="link"
-                    accessibilityHint="Opens in your browser"
-                    pressedBackground={colors.sunken}
-                    style={styles.button}
-                    testID="sign-in-open-browser"
-                >
-                    <Text style={styles.buttonText}>Open PostHog in the browser</Text>
-                </Pressable44>
+                {content.openBrowser ? (
+                    <Pressable44
+                        onPress={openBrowser}
+                        accessibilityRole="link"
+                        accessibilityHint="Opens in your browser"
+                        pressedBackground={colors.sunken}
+                        style={styles.button}
+                        testID="sign-in-open-browser"
+                    >
+                        <Text style={styles.buttonText}>Open PostHog in the browser</Text>
+                    </Pressable44>
+                ) : null}
                 <Pressable44
                     onPress={onRetry}
                     disabled={pending}
