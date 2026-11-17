@@ -1,4 +1,5 @@
 import re
+from typing import Any
 
 from unittest.mock import patch
 
@@ -122,12 +123,21 @@ class TestBackfillHogFunctionAbuseScores(AbuseClassificationTestCase):
         self.flags.enabled[TEAM_FLAG] = False
         self.create_destination()
         self.create_destination()
-        slept: list[float] = []
+        clock = [0.0]
+        queued_at: list[float] = []
+        record = self.capture.record
 
-        with patch(SLEEP, new=slept.append):
+        def advance(seconds: float) -> None:
+            clock[0] += seconds
+
+        def record_with_time(**event: Any) -> None:
+            queued_at.append(clock[0])
+            record(**event)
+
+        with patch(SLEEP, new=advance), patch.object(self.capture, "record", new=record_with_time):
             self.run_command(COMMAND, "--rate", "4")
 
-        assert slept == [0.25, 0.25]
+        assert queued_at == [0.0, 0.25]
 
     def test_skips_transformations_that_run_template_code(self) -> None:
         self.flags.enabled[TEAM_FLAG] = False
@@ -139,3 +149,13 @@ class TestBackfillHogFunctionAbuseScores(AbuseClassificationTestCase):
 
         assert "1 functions" in dry_run
         assert [event["properties"]["hog_function_id"] for event in self.captured_events()] == [str(custom.id)]
+
+    def test_scores_teams_outside_the_flag_with_the_flag_thresholds(self) -> None:
+        self.flags.enabled[TEAM_FLAG] = False
+        self.flags.payload = {"alert_threshold": 0.3, "block_threshold": 0.75}
+        self.create_destination()
+
+        self.run_command(COMMAND, "--rate", "0")
+
+        [event] = self.captured_events()
+        assert event["properties"]["would_block"] is True

@@ -27,8 +27,6 @@ from products.ml_inference.backend.facade.enums import DecisionQuestionType
 # The state limit of the ml_inference decide API, which asks the same model.
 MAX_STATE_CHARS = 65_536
 _TRUNCATED_MARKER = " [truncated]"
-# Compiled from the fields beside them, so they add nothing for the model and change on every recompile.
-_DERIVED_KEYS = frozenset({"bytecode", "bytecode_error", "bytecode_contract"})
 
 _FRAMING = (
     "The state is the configuration of a data pipeline function that a customer saved. The function runs on "
@@ -122,16 +120,12 @@ class AbuseVerdict:
 
 
 def public_inputs(inputs: object, inputs_schema: object) -> dict[str, JsonValue]:
-    """The inputs without secret values and without compiled bytecode."""
+    """The inputs without the values of secret inputs."""
     if not isinstance(inputs, dict):
         return {}
     schema = inputs_schema if isinstance(inputs_schema, list) else []
     secret_keys = {item.get("key") for item in schema if isinstance(item, dict) and item.get("secret")}
-    return {
-        key: without_derived(entry) if isinstance(entry, dict) else entry
-        for key, entry in inputs.items()
-        if key not in secret_keys
-    }
+    return {key: entry for key, entry in inputs.items() if key not in secret_keys}
 
 
 def public_schema(inputs_schema: object) -> list[JsonValue]:
@@ -153,18 +147,11 @@ def public_mappings(mappings: object) -> list[JsonValue]:
 
 
 def _public_mapping(mapping: dict[str, JsonValue]) -> dict[str, JsonValue]:
-    public = without_derived(mapping)
-    public["filters"] = without_derived(mapping.get("filters"))
-    public["inputs_schema"] = public_schema(mapping.get("inputs_schema"))
-    public["inputs"] = public_inputs(mapping.get("inputs"), mapping.get("inputs_schema"))
-    return public
-
-
-def without_derived(value: object) -> dict[str, JsonValue]:
-    """Drops compiled keys from one level only. Deeper keys with the same names are customer data."""
-    if not isinstance(value, dict):
-        return {}
-    return {key: item for key, item in value.items() if key not in _DERIVED_KEYS}
+    return {
+        **mapping,
+        "inputs": public_inputs(mapping.get("inputs"), mapping.get("inputs_schema")),
+        "inputs_schema": public_schema(mapping.get("inputs_schema")),
+    }
 
 
 def content_hash(content: HogFunctionContent) -> str:

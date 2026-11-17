@@ -82,8 +82,11 @@ class FakeFlags:
             raise self.error
         return self.enabled.get(key)
 
-    def get_feature_flag_payload(self, _key: str, _distinct_id: str, **_options: Any) -> object:
-        return self.payload
+    def get_feature_flag_payload(
+        self, key: str, _distinct_id: str, match_value: object = None, **_options: Any
+    ) -> object:
+        # Like the SDK, a team the flag does not match gets the payload only when asked for a variant.
+        return self.payload if match_value is True or self.enabled.get(key) else None
 
 
 @override_settings(**GATEWAY_SETTINGS)

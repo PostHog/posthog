@@ -32,10 +32,10 @@ from products.cdp.backend.abuse.classifier import (
     public_inputs,
     public_mappings,
     public_schema,
-    without_derived,
 )
 from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction, HogFunctionType, _is_draft_only_save
+from products.cdp.backend.services.hog_function_content import comparable_content
 
 logger = structlog.get_logger(__name__)
 
@@ -66,16 +66,25 @@ class ScoredHogFunction:
 
 
 def content_of(hog_function: HogFunction, template: HogFunctionTemplate | None = None) -> HogFunctionContent:
+    # Compiled values change on every recompile and add nothing for the model, so they stay out of the state and hash.
+    config = comparable_content(
+        {
+            "inputs": hog_function.inputs,
+            "filters": hog_function.filters,
+            "mappings": hog_function.mappings,
+            "masking": hog_function.masking,
+        }
+    )
     return HogFunctionContent(
         type=hog_function.type or "",
         template_id=hog_function.template_id,
         code_modified_from_template=None if template is None else hog_function.hog != template.code,
         hog=hog_function.hog or "",
         inputs_schema=public_schema(hog_function.inputs_schema),
-        inputs=public_inputs(hog_function.inputs, hog_function.inputs_schema),
-        filters=without_derived(hog_function.filters),
-        mappings=public_mappings(hog_function.mappings),
-        masking=without_derived(hog_function.masking) or None,
+        inputs=public_inputs(config["inputs"], hog_function.inputs_schema),
+        filters=config["filters"] or {},
+        mappings=public_mappings(config["mappings"]),
+        masking=config["masking"] or None,
     )
 
 
@@ -119,7 +128,11 @@ def backfill_enabled() -> bool:
 
 def thresholds_for(team: Team) -> Thresholds:
     try:
-        payload = posthoganalytics.get_feature_flag_payload(FLAG, str(team.uuid), **_flag_targeting(team))
+        # The flag has one payload. Asking for the "on" value returns it for teams the flag does not match too,
+        # so a backfill scores every team against the same thresholds.
+        payload = posthoganalytics.get_feature_flag_payload(
+            FLAG, str(team.uuid), match_value=True, **_flag_targeting(team)
+        )
         if isinstance(payload, str):
             payload = json.loads(payload)
         if isinstance(payload, dict):
