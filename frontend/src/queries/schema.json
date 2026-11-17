@@ -57815,8 +57815,7 @@
                 "keypress_count",
                 "mouse_activity_count",
                 "activity_score",
-                "recording_ttl",
-                "surfacing_score"
+                "recording_ttl"
             ],
             "type": "string"
         },
@@ -57975,10 +57974,6 @@
                         "$ref": "#/definitions/AnyPropertyFilter"
                     },
                     "type": "array"
-                },
-                "recommended_only": {
-                    "description": "Restrict results to recordings above the replay relevance threshold.",
-                    "type": "boolean"
                 },
                 "response": {
                     "$ref": "#/definitions/RecordingsQueryResponse"
