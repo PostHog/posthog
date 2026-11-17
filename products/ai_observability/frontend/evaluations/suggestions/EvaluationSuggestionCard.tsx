@@ -1,17 +1,16 @@
 import { useActions, useValues } from 'kea'
-import { combineUrl } from 'kea-router'
 
 import { IconEye } from '@posthog/icons'
 import { LemonButton, LemonDropdown, LemonMenu, LemonTag } from '@posthog/lemon-ui'
 
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { pluralize } from 'lib/utils/strings'
-import { urls } from 'scenes/urls'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import type { EvalSuggestionApi, EvalSuggestionDismissReasonEnumApi } from '../../generated/api.schemas'
 import { EvaluationSuggestionDetails } from './EvaluationSuggestionDetails'
+import { EvaluationSuggestionPrimaryAction } from './EvaluationSuggestionPrimaryAction'
 import { evaluationSuggestionsLogic, type SuggestionInFlight } from './evaluationSuggestionsLogic'
 
 const DISMISS_REASONS: { reason: EvalSuggestionDismissReasonEnumApi; label: string }[] = [
@@ -44,11 +43,8 @@ export function EvaluationSuggestionCard({ suggestion }: { suggestion: EvalSugge
     const disabledReason =
         getAccessControlDisabledReason(AccessControlResourceType.Evaluation, AccessControlLevel.Editor) ??
         (inFlight ? 'Wait for the current change to finish' : null)
-    const isFix = suggestion.kind === 'fix_eval'
-    // A prompt problem has no evaluation to add: the team fixes the prompt, then dismisses the card.
-    const isPromptFix = suggestion.kind === 'fix_prompt'
-    const promptName = typeof suggestion.draft.prompt_name === 'string' ? suggestion.draft.prompt_name : null
-    const hasPatch = Object.keys(suggestion.draft).length > 0
+    // A broken eval or a prompt problem names something to fix, not an evaluation to add.
+    const needsFix = suggestion.kind === 'fix_eval' || suggestion.kind === 'fix_prompt'
     const examples = suggestion.evidence.length
 
     return (
@@ -58,10 +54,10 @@ export function EvaluationSuggestionCard({ suggestion }: { suggestion: EvalSugge
         >
             {/* As tall as the Details button, so headlines line up across cards with and without one. */}
             <div className="flex items-center justify-between gap-2 min-h-6.5">
-                <LemonTag type={isFix || isPromptFix ? 'warning' : 'muted'} size="small">
+                <LemonTag type={needsFix ? 'warning' : 'muted'} size="small">
                     {kindLabel(suggestion)}
                 </LemonTag>
-                {!isFix && !isPromptFix && (
+                {!needsFix && (
                     <LemonDropdown
                         overlay={<EvaluationSuggestionDetails suggestion={suggestion} />}
                         placement="bottom-end"
@@ -76,51 +72,17 @@ export function EvaluationSuggestionCard({ suggestion }: { suggestion: EvalSugge
             <h4 className="m-0 text-sm font-semibold">{suggestion.headline}</h4>
             <p className="m-0 text-xs text-secondary">{suggestion.outcome}</p>
             <div className="flex flex-wrap items-center gap-2 mt-auto pt-1.5">
-                {isPromptFix ? (
-                    promptName && (
-                        <LemonButton
-                            type="primary"
-                            size="small"
-                            to={urls.aiObservabilityPrompt(promptName)}
-                            data-attr="eval-suggestion-open-prompt"
-                        >
-                            Open prompt
-                        </LemonButton>
-                    )
-                ) : isFix ? (
-                    suggestion.target_evaluation && (
-                        // The evaluation page shows the proposed change, and the suggestion closes once it is saved there.
-                        <LemonButton
-                            type="primary"
-                            size="small"
-                            to={
-                                combineUrl(urls.aiObservabilityEvaluation(suggestion.target_evaluation), {
-                                    evaluation_tab: 'configuration',
-                                    suggestion: suggestion.id,
-                                }).url
-                            }
-                            data-attr={hasPatch ? 'eval-suggestion-review-fix' : 'eval-suggestion-open-eval'}
-                        >
-                            {hasPatch ? 'Review fix' : 'Open eval'}
-                        </LemonButton>
-                    )
-                ) : (
-                    <LemonButton
-                        type="primary"
-                        size="small"
-                        loading={running('accept')}
-                        disabledReason={disabledReason}
-                        onClick={() =>
-                            // Only LLM judges cost money, so only they stop at the cost confirm.
-                            suggestion.draft.evaluation_type === 'llm_judge'
-                                ? openJudgeConfirm(suggestion)
-                                : acceptSuggestion(suggestion)
-                        }
-                        data-attr="eval-suggestion-add"
-                    >
-                        Add eval
-                    </LemonButton>
-                )}
+                <EvaluationSuggestionPrimaryAction
+                    suggestion={suggestion}
+                    accepting={running('accept')}
+                    disabledReason={disabledReason}
+                    onAccept={() =>
+                        // Only LLM judges cost money, so only they stop at the cost confirm.
+                        suggestion.draft.evaluation_type === 'llm_judge'
+                            ? openJudgeConfirm(suggestion)
+                            : acceptSuggestion(suggestion)
+                    }
+                />
                 <LemonMenu
                     items={[
                         {
