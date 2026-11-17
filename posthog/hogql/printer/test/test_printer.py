@@ -2007,6 +2007,12 @@ class TestPrinter(BaseTest):
         )
         # Single-arg toFloatOrDefault is degenerate; rewritten to toFloatOrZero for ClickHouse.
         self.assertEqual(self._expr("toFloatOrDefault('1.5')", context), "toFloat64OrZero(%(hogql_val_8)s)")
+        self.assertEqual(
+            self._expr("toDecimal('3.14', 10)", context), "accurateCastOrNull(%(hogql_val_9)s, %(hogql_val_10)s)"
+        )
+        self.assertEqual(
+            [context.values["hogql_val_7"], context.values["hogql_val_10"]], ["Decimal64(2)", "Decimal64(10)"]
+        )
         self.assertEqual(self._expr("quantile(0.95)( event )"), "quantile(0.95)(events.event)")
 
         self.assertEqual(self._expr("groupArraySample(5)(event)"), "groupArraySample(5)(events.event)")
