@@ -587,7 +587,9 @@ describe('SandboxEmailSendStep', () => {
         })
     })
 
-    it.each<[string, () => Promise<void>, object, object]>([
+    type EmailResult = { status: 'accepted'; message_id: string } | { status: 'skipped' | 'failed'; reason: string }
+
+    it.each<[string, () => Promise<void>, EmailResult, EmailResult]>([
         [
             'the first one is delivered',
             () => Promise.resolve(),
