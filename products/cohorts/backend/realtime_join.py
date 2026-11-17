@@ -92,6 +92,15 @@ def join_state(team_id: int) -> RealtimeCohortsJoinState:
 
 
 def _join_facts(team_id: int) -> JoinFacts:
+    # The request comes first because the task writes `serving` to the row before it marks the request `done`. In
+    # the other order, a read that spans both writes sees the old row and the finished request, and decides
+    # `available` for a project that just joined.
+    last_request = (
+        RealtimeCohortRequest.objects.for_team(team_id)
+        .filter(kind=RealtimeCohortRequestKind.ENABLE)
+        .order_by("-created_at")
+        .first()
+    )
     row = RealtimeCohortTeamAccess.objects.filter(team_id=team_id).first()
     try:
         check_enablement(team_id, purpose=RealtimeCohortAccessPurpose.BETA)
@@ -102,10 +111,7 @@ def _join_facts(team_id: int) -> JoinFacts:
         serving_since=row.changed_at if row is not None and row.level == RealtimeCohortLevel.SERVING else None,
         join_open=get_instance_setting("REALTIME_COHORT_JOIN_OPEN"),
         enablement_refused=enablement_refused,
-        last_request=RealtimeCohortRequest.objects.for_team(team_id)
-        .filter(kind=RealtimeCohortRequestKind.ENABLE)
-        .order_by("-created_at")
-        .first(),
+        last_request=last_request,
     )
 
 

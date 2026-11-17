@@ -37,11 +37,12 @@ export function RealtimeCohortsJoinBanner(): JSX.Element | null {
     }
 
     const { type, text, dismissKey } = BANNERS[joinState]
+    // The tracker goes inside, because its wrapper div would still render around a dismissed banner and leave a gap.
     return (
-        <PostHogCaptureOnViewed name="realtime-cohorts-join-banner-shown" properties={{ state: joinState }}>
-            <LemonBanner type={type} dismissKey={dismissKey}>
+        <LemonBanner type={type} dismissKey={dismissKey}>
+            <PostHogCaptureOnViewed name="realtime-cohorts-join-banner-shown" properties={{ state: joinState }}>
                 {text}
-            </LemonBanner>
-        </PostHogCaptureOnViewed>
+            </PostHogCaptureOnViewed>
+        </LemonBanner>
     )
 }

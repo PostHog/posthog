@@ -19,6 +19,7 @@ from posthog.dataclasses import frozen
 from posthog.event_usage import groups
 from posthog.models.team.team import Team
 from posthog.ph_client import ph_scoped_capture
+from posthog.utils import get_instance_region
 
 from products.cohorts.backend.backfill.runs import (
     check_person_run_preconditions,
@@ -179,7 +180,7 @@ def _report_join_outcome(
         if state == RealtimeCohortRequestState.DONE
         else {}
     )
-    with ph_scoped_capture() as capture:
+    with ph_scoped_capture(event_region=get_instance_region()) as capture:
         capture(
             distinct_id=str(team.uuid),
             event=_JOIN_OUTCOME_EVENTS[state],

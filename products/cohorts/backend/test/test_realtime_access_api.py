@@ -10,6 +10,7 @@ from posthog.models.instance_setting import override_instance_config
 from posthog.models.team.team import Team
 
 from products.access_control.backend.models.access_control import AccessControl
+from products.cohorts.backend.models.cohort import Cohort
 from products.cohorts.backend.models.realtime_request import (
     RealtimeCohortRequest,
     RealtimeCohortRequestKind,
@@ -35,8 +36,8 @@ class TestRealtimeCohortsJoinAPI(APIBaseTest):
         super().setUp()
         self.enterContext(override_instance_config("REALTIME_COHORT_JOIN_OPEN", True))
 
-    def _join(self, team_id: int | None = None) -> tuple[int, dict]:
-        response = self.client.post(f"/api/projects/{team_id or self.team.id}/realtime_cohorts/join/")
+    def _join(self, team_id: int | None = None, headers: dict[str, str] | None = None) -> tuple[int, dict]:
+        response = self.client.post(f"/api/projects/{team_id or self.team.id}/realtime_cohorts/join/", headers=headers)
         return response.status_code, response.json()
 
     def _requests(self) -> list[tuple[str, str, int | None]]:
@@ -84,15 +85,24 @@ class TestRealtimeCohortsJoinAPI(APIBaseTest):
         assert self._join() == (200, {"state": state})
         assert self._requests() == []
 
-    def test_an_impersonated_session_cannot_join(self) -> None:
-        with mock.patch("posthog.decorators.is_impersonated_session", return_value=True):
-            status, _ = self._join()
+    @parameterized.expand([("impersonated_session",), ("read_only_api_key",)])
+    def test_only_a_members_own_app_session_can_join(self, caller: str) -> None:
+        headers = None
+        if caller == "impersonated_session":
+            self.enterContext(mock.patch("posthog.decorators.is_impersonated_session", return_value=True))
+        else:
+            headers = {"authorization": f"Bearer {self.create_personal_api_key_with_scopes(['cohort:read'])}"}
+            self.client.logout()
+
+        status, _ = self._join(headers=headers)
 
         assert status == 403
         assert self._requests() == []
 
-    @parameterized.expand([("viewer", 200), ("none", 403)])
-    def test_a_member_needs_view_access_to_cohorts_to_join(self, access_level: str, status: int) -> None:
+    @parameterized.expand([("viewer", False, 200), ("none", False, 403), ("none", True, 403)])
+    def test_a_member_needs_view_access_to_cohorts_to_join(
+        self, access_level: str, one_cohort_shared: bool, status: int
+    ) -> None:
         self.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
         ]
@@ -103,6 +113,14 @@ class TestRealtimeCohortsJoinAPI(APIBaseTest):
             access_level=access_level,
             organization_member=self.organization_membership,
         )
+        if one_cohort_shared:
+            AccessControl.objects.create(
+                team=self.team,
+                resource="cohort",
+                resource_id=str(Cohort.objects.create(team=self.team, name="Shared").id),
+                access_level="viewer",
+                organization_member=self.organization_membership,
+            )
 
         assert self._join()[0] == status
         assert len(self._requests()) == (1 if status == 200 else 0)
