@@ -43,6 +43,8 @@ class TestTeamWorkflowsConfig(APIBaseTest):
         self.url = f"/api/environments/{self.team.id}/"
 
     def test_defaults_to_capture_disabled_when_no_extension_row_exists(self) -> None:
+        TeamWorkflowsConfig.objects.filter(team=self.team).delete()
+
         response = self.client.get(self.url)
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["workflows_config"] == {

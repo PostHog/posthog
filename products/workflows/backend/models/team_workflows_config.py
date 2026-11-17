@@ -9,8 +9,9 @@ from products.workflows.backend.facade.enums import EMAIL_TRACKING_CONSENT_MODE_
 class TeamWorkflowsConfig(models.Model):
     team = models.OneToOneField(Team, on_delete=models.CASCADE, primary_key=True, related_name="+")
 
-    # Opt-in toggle for emitting workflows engagement activity (sends, opens, clicks, bounces, etc.)
-    # as standard PostHog events alongside the existing workflow metrics.
+    # Emits workflows engagement activity (sends, opens, clicks, bounces, etc.) as standard, billed
+    # PostHog events. New teams get a row with this on at creation (workflows receivers). Keep the
+    # default False: older teams may have no row yet, and a lazy read must not turn capture on for them.
     capture_workflows_engagement_events = models.BooleanField(default=False)
 
     # Recipient-consent enforcement for open/click tracking on marketing emails (CNIL/ePrivacy).

@@ -6,7 +6,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
 
 from products.cohorts.backend.facade.ready_signals import connect_realtime_cohort_ready
-from products.workflows.backend.models import HogFlow, HogFlowOptimization
+from products.workflows.backend.models import HogFlow, HogFlowOptimization, TeamWorkflowsConfig
 
 
 def _sync_after_commit(team_id: int) -> None:
@@ -23,6 +23,14 @@ def _sync_after_commit(team_id: int) -> None:
             capture_exception(error)
 
     transaction.on_commit(sync)
+
+
+@receiver(post_save, sender=Team, dispatch_uid="workflows_new_team_captures_engagement_events")
+def new_team_captures_engagement_events(
+    sender: type, instance: Team, created: bool, raw: bool = False, **kwargs: object
+) -> None:
+    if created and not raw:
+        TeamWorkflowsConfig.objects.create(team=instance, capture_workflows_engagement_events=True)
 
 
 @receiver(post_delete, sender=HogFlowOptimization)
