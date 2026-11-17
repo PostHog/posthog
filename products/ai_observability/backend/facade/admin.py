@@ -8,6 +8,7 @@ from products.ai_observability.backend.dataset_retention import dataset_retentio
 from products.ai_observability.backend.logic.eval_suggestions.review_queries import (
     ReviewCard as ReviewCard,
     label_card as label_card,
+    load_labeled_cards as load_labeled_cards,
     load_review_cards as load_review_cards,
 )
 from products.ai_observability.backend.models.eval_suggestions import (

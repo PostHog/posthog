@@ -99,28 +99,35 @@ class TestEvalSuggestionReviewTool(BaseTest):
     @parameterized.expand(
         [
             # The first visit shows only unlabeled cards, and a label leaves the next one in the same place.
-            ("first_visit", "", "check:b", "Card waiting for a label", "card=1&unlabeled=on", None),
-            ("every_card", "?days=30", "check:a", "Already labeled card", "card=2", "Examples are summaries"),
+            ("first_visit", "", "check:b", "Card waiting for a label", "card=1&unlabeled=on"),
+            ("every_card", "?days=30", "check:a", "Already labeled card", "card=2"),
         ]
     )
     def test_the_page_shows_one_card_with_buttons_that_label_it(
-        self, _name: str, query: str, key: str, headline: str, after_label: str, note: str | None
+        self, _name: str, query: str, key: str, headline: str, after_label: str
     ) -> None:
         response = self.client.get(f"/admin/console/tools/eval-suggestion-review/{query}")
 
         assert response.status_code == 200
         content = response.content.decode()
-        assert headline in content and f"Checks the {key} rule." in content and f"Measured the {key} rule." in content
-        assert ("Already labeled card" in content) is (key == "check:a")
-        assert ("Card waiting for a label" in content) is (key == "check:b")
+        assert re.findall(r'data-slot="card-title">([^<]*)</h2>', content)[0] == headline
+        assert (headline == "Already labeled card") is ("Card waiting for a label" not in content)
+        assert f"Checks the {key} rule." in content and f"Measured the {key} rule." in content
         assert "/ai-observability/traces/trace%252F1%253Fstep%253D2%2523end%25252F" in content
         form = re.search(r'action="/admin/console/tools/eval-suggestion-review/label/\?([^"]*)"', content)
         assert form is not None and form.group(1).endswith(after_label.replace("&", "&amp;"))
         assert 'data-console-key="ArrowRight"' in content and 'data-console-key="ArrowLeft"' in content
         # Staff label from the card, so the page has no form that asks for a suggestion ID.
         assert "tool-actions-title" not in content
-        if note is not None:
-            assert note in content
+
+    def test_the_labeled_cards_list_every_label_and_open_each_card(self) -> None:
+        content = self.client.get("/admin/console/tools/eval-suggestion-review/").content.decode()
+
+        link = f"/admin/console/tools/eval-suggestion-review/?days=30&amp;suggestion={self.labeled.id}"
+        assert link in content and "Examples are summaries" in content
+        opened = self.client.get(link.replace("&amp;", "&")).content.decode()
+        assert re.findall(r'data-slot="card-title">([^<]*)</h2>', opened)[0] == "Already labeled card"
+        assert "Examples are summaries" in opened
 
     @parameterized.expand([("known_card", True, 302), ("unknown_card", False, 404)])
     def test_labeling_saves_the_verdict_and_note(self, _name: str, known: bool, expected_status: int) -> None:

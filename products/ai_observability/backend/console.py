@@ -35,6 +35,7 @@ from products.ai_observability.backend.facade.admin import (
     UsageReportRefused,
     dataset_retention_enabled,
     label_card,
+    load_labeled_cards,
     load_review_cards,
     queue_usage_report,
     set_dataset_retention_enabled,
@@ -198,12 +199,17 @@ def _query(filters: dict[str, Any], card: int) -> str:
     return urlencode(params)
 
 
-def _position(request: HttpRequest, count: int) -> int:
+def _position(request: HttpRequest, cards: list[ReviewCard]) -> int:
+    # A link from the labeled cards names the card, which keeps its place among every card.
+    named = request.GET.get("suggestion")
+    for index, card in enumerate(cards, start=1):
+        if str(card.id) == named:
+            return index
     try:
         wanted = int(request.GET.get("card", "1"))
     except ValueError:
         wanted = 1
-    return min(max(wanted, 1), count)
+    return min(max(wanted, 1), len(cards))
 
 
 def _trace_url(team_id: int, trace_id: str) -> str:
@@ -225,6 +231,40 @@ def _card_stats(card: ReviewCard) -> Stats:
     if card.estimated_weekly_cost_usd is not None:
         items.append(Stat(label="Cost a week", value=f"${card.estimated_weekly_cost_usd:,.2f}"))
     return Stats(items=tuple(items))
+
+
+def _labeled_table(filters: dict[str, Any]) -> Table:
+    cards = load_labeled_cards(since=timezone.now() - timedelta(days=filters["days"]), team_id=filters["team"])
+    every_card = {"days": filters["days"], **({"team": filters["team"]} if filters["team"] is not None else {})}
+    return Table(
+        title="Labeled cards",
+        columns=("Labeled", "Card", "Label", "Note"),
+        rows=tuple(
+            Row(
+                cells=(
+                    Cell(
+                        text=card.reviewed_at.strftime("%Y-%m-%d") if card.reviewed_at else "-",
+                        detail=card.reviewer,
+                    ),
+                    Cell(
+                        text=card.headline,
+                        href=f"{REVIEW_TOOL_URL}?{urlencode({**every_card, 'suggestion': str(card.id)})}",
+                        detail=f"team {card.team_id}",
+                    ),
+                    Cell(
+                        text=EvalSuggestionReviewVerdict(card.review_verdict).label,
+                        tone=Tone.SUCCESS
+                        if card.review_verdict == EvalSuggestionReviewVerdict.GOOD
+                        else Tone.DESTRUCTIVE,
+                    ),
+                    Cell(text=card.review_note or "-", muted=not card.review_note),
+                )
+            )
+            for card in cards
+        ),
+        empty_text="No labeled cards in these runs yet.",
+        scrolls=True,
+    )
 
 
 def _decision(card: ReviewCard, position: int, count: int, filters: dict[str, Any]) -> Decision:
@@ -284,8 +324,8 @@ class EvalSuggestionReviewTool(ConsoleTool):
             ),
         ]
         if not cards:
-            return Page(blocks=(*blocks, Notice(text="No cards match these filters.")))
-        position = _position(request, len(cards))
+            return Page(blocks=(*blocks, Notice(text="No cards match these filters."), _labeled_table(filters)))
+        position = _position(request, cards)
         card = cards[position - 1]
         blocks += [_decision(card, position, len(cards), filters), _card_stats(card)]
         if card.examples:
@@ -304,6 +344,7 @@ class EvalSuggestionReviewTool(ConsoleTool):
                     ),
                 )
             )
+        blocks.append(_labeled_table(filters))
         return Page(blocks=tuple(blocks))
 
     def operations(self, request: HttpRequest) -> list[ToolOperation]:
