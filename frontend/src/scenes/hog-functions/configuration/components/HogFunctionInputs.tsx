@@ -13,13 +13,9 @@ import { AvailableFeature, CyclotronJobInputSchemaType } from '~/types'
 
 import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
 
-import {
-    HogFunctionInputsToolOutput,
-    hogFunctionInputsSuggestion,
-    redactSecretHogFunctionInputs,
-    truncateHogFunctionContext,
-} from '../../hog-function-utils'
+import { redactSecretHogFunctionInputs, truncateHogFunctionContext } from '../../hog-function-utils'
 import { hogFunctionConfigurationLogic } from '../hogFunctionConfigurationLogic'
+import { HogFunctionInputsToolOutput, hogFunctionInputsSuggestion } from '../hogFunctionInputsSuggestion'
 
 export function HogFunctionInputs(): JSX.Element {
     const {
