@@ -1,8 +1,11 @@
 from uuid import uuid4
 
-from django.db import IntegrityError, connection
+from django.core.exceptions import ValidationError
+from django.db import IntegrityError, connection, transaction
+from django.test import TestCase
 from django.test.utils import CaptureQueriesContext
 
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models.organization import Organization, OrganizationMembership
@@ -11,6 +14,44 @@ from posthog.models.user import User
 from products.access_control.backend.models.role import Role, RoleMembership
 
 from ee.api.test.base import APILicensedTest
+
+
+class TestRoleOrganizationAccessLevel(TestCase):
+    def test_no_grant_by_default(self) -> None:
+        organization = Organization.objects.create(name="Example")
+        role = Role.objects.create(name="Default", organization=organization)
+        role.refresh_from_db()
+        self.assertIsNone(role.organization_access_level)
+
+    @parameterized.expand([(None,), (8,)])
+    def test_valid_grant_round_trip(self, level: int | None) -> None:
+        organization = Organization.objects.create(name="Example")
+        role = Role(name="Grant", organization=organization, organization_access_level=level)
+        role.full_clean(exclude=["created_by"])
+        role.save()
+        role.refresh_from_db()
+        self.assertEqual(role.organization_access_level, level)
+        role.organization_access_level = None
+        role.save(update_fields=["organization_access_level"])
+        role.refresh_from_db()
+        self.assertIsNone(role.organization_access_level)
+
+    @parameterized.expand([(1,), (15,), (0,), (9,)])
+    def test_model_validation_rejects_other_levels(self, level: int) -> None:
+        organization = Organization.objects.create(name="Example")
+        role = Role(name="Invalid", organization=organization, organization_access_level=level)
+        with self.assertRaises(ValidationError) as error:
+            role.full_clean(exclude=["created_by"])
+        self.assertIn("organization_access_level", error.exception.message_dict)
+
+    @parameterized.expand([(1,), (15,), (0,), (9,)])
+    def test_database_rejects_other_levels(self, level: int) -> None:
+        organization = Organization.objects.create(name="Example")
+        role = Role.objects.create(name="Grant", organization=organization)
+        with self.assertRaisesMessage(IntegrityError, "role_org_access_level_admin_or_null"), transaction.atomic():
+            Role.objects.filter(pk=role.pk).update(organization_access_level=level)
+        role.refresh_from_db()
+        self.assertIsNone(role.organization_access_level)
 
 
 class TestRoleCrossOrgAuthorization(APILicensedTest):
