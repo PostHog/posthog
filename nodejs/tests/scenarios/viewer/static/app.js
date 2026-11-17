@@ -1301,12 +1301,7 @@ async function mapPage({ render, onLeave }) {
             return tile
         })
     )
-    render(
-        running,
-        h('div', { class: 'panel map-panel' }, strip, map.svg),
-        h('h2', {}, 'Scenarios'),
-        list
-    )
+    render(running, h('div', { class: 'panel map-panel' }, strip, map.svg), h('h2', {}, 'Scenarios'), list)
     const showLive = async () => {
         let live
         try {
