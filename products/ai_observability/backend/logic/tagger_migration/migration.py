@@ -3,6 +3,7 @@ from enum import StrEnum
 from functools import partial
 from types import SimpleNamespace
 from typing import Any
+from uuid import UUID
 
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import transaction
@@ -106,10 +107,19 @@ class _AccessRules:
     resource_rules_differ: bool
 
 
+@frozen
+class _Grant:
+    access_level: str
+    organization_member_id: UUID | None
+    role_id: UUID | None
+
+
 def _access_rules(team: Team) -> _AccessRules:
-    def resource_wide(resource: str) -> set[tuple[str, Any, Any]]:
+    def resource_wide(resource: str) -> set[_Grant]:
         return {
-            (rule.access_level, rule.organization_member_id, rule.role_id)
+            _Grant(
+                access_level=rule.access_level, organization_member_id=rule.organization_member_id, role_id=rule.role_id
+            )
             for rule in access_rules(team_id=team.pk, resources=[resource])
             if rule.resource_id is None and rule.applies
         }
