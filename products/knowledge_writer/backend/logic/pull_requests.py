@@ -92,6 +92,7 @@ MAX_REVIEW_PAGES = 10
 SECONDS_PER_HOUR = 3600
 DRAFT_FILE_PATCH_CHARACTERS = 4_000
 DRAFT_PATCH_BUDGET_CHARACTERS = 60_000
+MAX_DRAFTED_FILES = 200
 OPEN_PULL_REQUESTS_OFF = "open_pull_requests_off"
 NO_HUMAN_AUTHOR = "no_human_author"
 REVIEW_REQUEST_FAILED = "review_request_failed"
@@ -591,7 +592,9 @@ def capture_draft(
             "review_requested": review.requested_login if review is not None else None,
             "review_request_skipped": review.skip_reason if review is not None else None,
             "review_request_status_code": review.status_code if review is not None else None,
-            "files": drafted_files(draft.changed_files),
+            "files": drafted_files(draft.changed_files[:MAX_DRAFTED_FILES]),
+            "changed_file_count": len(draft.changed_files),
+            "are_files_truncated": len(draft.changed_files) > MAX_DRAFTED_FILES,
             "extra_pages": list(flags.extra_pages) if flags is not None else None,
             "unsupported_lines": list(flags.grounding.unsupported_lines[:MAX_GROUNDED_LINES])
             if flags is not None

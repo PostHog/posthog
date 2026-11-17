@@ -13,6 +13,7 @@ DIRECTORY_MODE = 0o040000
 REGULAR_FILE_TREE_MODE = "100644"
 GRAPHQL_TIMEOUT_SECONDS = 60
 COMMIT_TIMEOUT_SECONDS = 60
+BASE_TREE_BATCH_PATHS = 100
 
 DEFAULT_BRANCH_HEAD_QUERY = """query($owner: String!, $name: String!) {
   repository(owner: $owner, name: $name) { defaultBranchRef { target { oid } } }
@@ -59,23 +60,22 @@ def ancestor_directories(path: str) -> list[str]:
 def base_tree(github: GitHubIntegration, docs_repository: str, base_sha: str, paths: frozenset[str]) -> BaseTree:
     directories = sorted({directory for path in paths for directory in ancestor_directories(path)})
     texts_wanted = sorted(paths)
-    variables: dict[str, str] = {
+    expressions_by_alias: dict[str, str] = {
         **{f"d{index}": f"{base_sha}:{directory}" for index, directory in enumerate(directories)},
         **{f"t{index}": f"{base_sha}:{path}" for index, path in enumerate(texts_wanted)},
     }
-    declared = "".join(f", ${name}: String!" for name in variables)
-    selected = " ".join(
-        f"{name}: object(expression: ${name}) {{ ... on Tree {{ entries {{ name mode oid }} }} }}"
-        if name.startswith("d")
-        else f"{name}: object(expression: ${name}) {{ ... on Blob {{ oid text isBinary isTruncated }} }}"
-        for name in variables
-    )
+    aliases = list(expressions_by_alias)
     owner, name = docs_repository.split("/", 1)
-    repository = base_tree_objects(
-        github,
-        f"query($owner: String!, $name: String!{declared}) {{ repository(owner: $owner, name: $name) {{ {selected} }} }}",
-        {"owner": owner, "name": name, **variables},
-    )
+    repository: dict = {}
+    for batch_start in range(0, len(aliases), BASE_TREE_BATCH_PATHS):
+        batch_aliases = aliases[batch_start : batch_start + BASE_TREE_BATCH_PATHS]
+        repository.update(
+            base_tree_objects(
+                github,
+                base_tree_query(batch_aliases),
+                {"owner": owner, "name": name, **{alias: expressions_by_alias[alias] for alias in batch_aliases}},
+            )
+        )
     listed: dict[str, BaseEntry] = {}
     for index, directory in enumerate(directories):
         for entry in (repository.get(f"d{index}") or {}).get("entries") or []:
@@ -90,6 +90,17 @@ def base_tree(github: GitHubIntegration, docs_repository: str, base_sha: str, pa
             for index, path in enumerate(texts_wanted)
         },
     )
+
+
+def base_tree_query(aliases: list[str]) -> str:
+    declared = "".join(f", ${alias}: String!" for alias in aliases)
+    selected = " ".join(
+        f"{alias}: object(expression: ${alias}) {{ ... on Tree {{ entries {{ name mode oid }} }} }}"
+        if alias.startswith("d")
+        else f"{alias}: object(expression: ${alias}) {{ ... on Blob {{ oid text isBinary isTruncated }} }}"
+        for alias in aliases
+    )
+    return f"query($owner: String!, $name: String!{declared}) {{ repository(owner: $owner, name: $name) {{ {selected} }} }}"
 
 
 def base_tree_objects(github: GitHubIntegration, query: str, variables: dict[str, str]) -> dict:

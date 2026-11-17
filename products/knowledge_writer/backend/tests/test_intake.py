@@ -41,13 +41,7 @@ from products.knowledge_writer.backend.logic.records import (
     PULL_REQUEST_STATE_KEY,
     REQUEST_STATE_KEY,
 )
-from products.knowledge_writer.backend.logic.writer_change import (
-    MAX_CHANGED_FILES,
-    MAX_WRITER_CHANGE_BYTES,
-    MAX_WRITTEN_FILE_BYTES,
-    MAX_WRITTEN_FILE_LINES,
-    WRITER_CHANGE_ARTIFACT_NAME,
-)
+from products.knowledge_writer.backend.logic.writer_change import MAX_WRITER_CHANGE_BYTES, WRITER_CHANGE_ARTIFACT_NAME
 from products.knowledge_writer.backend.task_profiles import WRITER
 from products.knowledge_writer.backend.temporal.merge_workflow import MergeCheckInputs, check_merge
 from products.tasks.backend.facade import api as tasks_facade
@@ -592,13 +586,6 @@ REFUSED_CHANGES: tuple[tuple[bytes, dict, str], ...] = (
     (b"{not json", {}, "manifest_unreadable"),
     (json.dumps({"written": {DOCS_PAGE_PATH: "not base64!"}, "deleted": []}).encode(), {}, "manifest_unreadable"),
     (_change(), {}, "no_changes"),
-    (
-        _change({f"contents/docs/page-{index}.mdx": "x" for index in range(MAX_CHANGED_FILES)}),
-        {},
-        "too_many_changed_files",
-    ),
-    (_change({DOCS_PAGE_PATH: "line\n" * MAX_WRITTEN_FILE_LINES}), {}, "too_many_changed_lines"),
-    (_change({DOCS_PAGE_PATH: "x" * (MAX_WRITTEN_FILE_BYTES + 1)}), {}, "file_too_large"),
     (b" " * (MAX_WRITER_CHANGE_BYTES + 1), {}, "change_too_large"),
     (_change({"contents/docs/../../.github/workflows/deploy.yml": "x"}), {}, "unsafe_path"),
     (_change({"contents/docs/.git/config": "x"}), {}, "unsafe_path"),

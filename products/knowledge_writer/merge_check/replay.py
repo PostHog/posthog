@@ -35,6 +35,8 @@ EVAL_JOBS = 8
 ERROR_MESSAGE_LIMIT = 200
 GITHUB_CACHE_DIRECTORY = Path.home() / ".cache" / "posthog" / "knowledge-writer-eval" / "github"
 CACHED_STATUS_CODES = frozenset({200, 404})
+COMMIT_FILES_PER_PAGE = 100
+COMMIT_MAX_LISTED_FILES = 3000
 EVAL_ROW_ERRORS = (requests.RequestException, httpx.HTTPError, APIError, UnexpectedGitHubResponse)
 SCORED_CRITERION_BY_TRUTH_KEY = {
     "release_state": "release_state",
@@ -348,14 +350,14 @@ def publish_eval_command(labelled_commits_path: Path) -> int:
 
 
 def commit_publication_refusal(github: GitHubReader, repository: str, commit_sha: str) -> str | None:
-    comparison = parent_comparison(github, repository, commit_sha)
+    commit_files, parent_tree_sha = commit_change(github, repository, commit_sha)
     try:
-        change = parse_writer_change(writer_change_manifest(github, repository, comparison["files"]))
+        change = parse_writer_change(writer_change_manifest(github, repository, commit_files))
     except WriterChangeRefused as refused:
         return refused.reason
     if not change.paths:
         return "no_changes"
-    tree = parent_tree(github, repository, comparison["base_commit"]["commit"]["tree"]["sha"], change.paths)
+    tree = parent_tree(github, repository, parent_tree_sha, change.paths)
     changed_files = changed_files_for(change, tree)
     if changed_files is None:
         return "unsafe_base_entry"
@@ -364,17 +366,28 @@ def commit_publication_refusal(github: GitHubReader, repository: str, commit_sha
     )
 
 
-def parent_comparison(github: GitHubReader, repository: str, commit_sha: str) -> dict:
-    commit = read_github(
-        github, f"/repos/{repository}/commits/{commit_sha}", endpoint="/repos/{owner}/{repo}/commits/{ref}"
-    )
-    parent_sha = commit.json()["parents"][0]["sha"]
-    comparison = read_github(
+def commit_change(github: GitHubReader, repository: str, commit_sha: str) -> tuple[list[dict], str]:
+    commit_files: list[dict] = []
+    page = 1
+    while True:
+        commit = read_github(
+            github,
+            f"/repos/{repository}/commits/{commit_sha}",
+            endpoint="/repos/{owner}/{repo}/commits/{ref}",
+            params={"page": page, "per_page": COMMIT_FILES_PER_PAGE},
+        ).json()
+        commit_files.extend(commit["files"])
+        if len(commit["files"]) < COMMIT_FILES_PER_PAGE:
+            break
+        page += 1
+    if len(commit_files) >= COMMIT_MAX_LISTED_FILES:
+        raise UnexpectedGitHubResponse(f"GitHub lists at most {COMMIT_MAX_LISTED_FILES} files of a commit")
+    parent = read_github(
         github,
-        f"/repos/{repository}/compare/{parent_sha}...{commit_sha}",
-        endpoint="/repos/{owner}/{repo}/compare/{basehead}",
-    )
-    return comparison.json()
+        f"/repos/{repository}/git/commits/{commit['parents'][0]['sha']}",
+        endpoint="/repos/{owner}/{repo}/git/commits/{commit_sha}",
+    ).json()
+    return commit_files, parent["tree"]["sha"]
 
 
 def writer_change_manifest(github: GitHubReader, repository: str, compared_files: list[dict]) -> bytes:
