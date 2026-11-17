@@ -14349,6 +14349,14 @@ export namespace Schemas {
       created_at: string | null;
     }
 
+    export interface AhrefsSearchOpportunitySignalExtra {
+      project_id: string | null;
+      issue_id: string | null;
+      issue_category: string | null;
+      issue_importance: string | null;
+      affected_urls: string | null;
+    }
+
     /**
      * * `used` - used
      * * `edited` - edited
@@ -14961,6 +14969,14 @@ export namespace Schemas {
       type: EnsembleDetectorConfigType;
     }
 
+    export type LLMDetectorModel = typeof LLMDetectorModel[keyof typeof LLMDetectorModel];
+
+
+    export const LLMDetectorModel = {
+      ClaudeHaiku55: 'claude-haiku-5-5',
+      Gpt6Luna: 'gpt-6-luna',
+    } as const;
+
     export type LLMDetectorConfigType = typeof LLMDetectorConfigType[keyof typeof LLMDetectorConfigType];
 
 
@@ -14971,6 +14987,8 @@ export namespace Schemas {
     export interface LLMDetectorConfig {
       /** What counts as unusual or interesting for this metric, in your own words. Optional. */
       instructions?: string | null;
+      /** The model that judges each check: claude-haiku-5-5 or gpt-6-luna. Optional. When it is not set, the alert uses claude-haiku-5-5. */
+      model?: LLMDetectorModel | null;
       type: LLMDetectorConfigType;
     }
 
@@ -22892,6 +22910,15 @@ export namespace Schemas {
       ByteBudget: 'byte_budget',
     } as const;
 
+    export interface BingWebmasterToolsSearchOpportunitySignalExtra {
+      site_url: string | null;
+      issue_flag: string | null;
+      issue: string | null;
+      affected_urls: string | null;
+      example_url: string | null;
+      inbound_links: string | null;
+    }
+
     /**
      * * `email` - email
      */
@@ -26849,6 +26876,19 @@ export namespace Schemas {
       evidence?: CapabilityStateEvidence;
     }
 
+    export interface CatalogUser {
+      /** ID of the user. */
+      id: number;
+      /** UUID of the user. */
+      uuid: string;
+      /** First name of the user. */
+      first_name: string;
+      /** Last name of the user. */
+      last_name: string;
+      /** Email address of the user. */
+      email: string;
+    }
+
     export interface CatalogFlag {
       /** ID of the feature flag. */
       id: number;
@@ -26858,10 +26898,12 @@ export namespace Schemas {
       active: boolean;
       /** When the flag was created. */
       created_at: string;
+      /** Who created the flag, if known. */
+      created_by: CatalogUser | null;
     }
 
     export interface CatalogFlagsResponse {
-      /** Flags the caller can see, newest first. */
+      /** Flags the caller can see, in the requested order. */
       results: CatalogFlag[];
       /** True when more flags follow this page. */
       has_more: boolean;
@@ -26874,10 +26916,12 @@ export namespace Schemas {
       name: string;
       /** When the release was created. */
       created_at: string;
+      /** Who owns the release, if anyone. */
+      owner: CatalogUser | null;
     }
 
     export interface CatalogReleasesResponse {
-      /** Releases of the project, newest first. */
+      /** Releases of the project, in the requested order. */
       results: CatalogRelease[];
       /**
          * Pass as cursor to fetch the next page. Null when no more releases follow.
@@ -57545,7 +57589,7 @@ export namespace Schemas {
       value_format: HighlightValueFormat | null;
       /** The first day of the period each value in `series` covers, in the project's timezone. Same length and order as `series`. */
       period_starts: string[];
-      /** Why the pulse suggests the metric: `routine` for an insight the person opens often, `dashboard` for a tile of a dashboard they open often, `key_metric` for a key metric of the project, shown only when the person has no numbers of their own, `popular` for an insight that many people in the project open, `watched` for an insight the person gets an alert or a subscription for, `built` for an insight the person created or edited recently, `experiment` for a running experiment the person created, `agent` for an insight the person's AI agents read on several days, `evaluation` for the pass rate of an evaluation the person created. Null for metrics computed before this field existed.
+      /** Why the pulse suggests the metric: `routine` for an insight the person opens often, `dashboard` for a tile of a dashboard they open often, `key_metric` for a key metric of the project, shown only when the person has no numbers of their own, `popular` for an insight that many people in the project open, shown only when no other number would show, `watched` for an insight the person gets an alert or a subscription for, `built` for an insight the person created or edited recently, `experiment` for a running experiment the person created, `agent` for an insight the person's AI agents read on several days, `evaluation` for the pass rate of an evaluation the person created. Null for metrics computed before this field existed.
        *
        * * `routine` - You open this often
        * * `dashboard` - On a dashboard you open often
@@ -63570,6 +63614,9 @@ export namespace Schemas {
      * * `hubspot` - HubSpot
      * * `engineering_analytics` - Engineering analytics
      * * `google_search_console` - Google Search Console
+     * * `bing_webmaster_tools` - Bing Webmaster Tools
+     * * `ahrefs` - Ahrefs
+     * * `semrush` - Semrush
      * * `pagerduty` - PagerDuty
      * * `opsgenie` - Opsgenie
      * * `incident_io` - incident.io
@@ -63728,6 +63775,9 @@ export namespace Schemas {
       Hubspot: 'hubspot',
       EngineeringAnalytics: 'engineering_analytics',
       GoogleSearchConsole: 'google_search_console',
+      BingWebmasterTools: 'bing_webmaster_tools',
+      Ahrefs: 'ahrefs',
+      Semrush: 'semrush',
       Pagerduty: 'pagerduty',
       Opsgenie: 'opsgenie',
       IncidentIo: 'incident_io',
@@ -63936,6 +63986,9 @@ export namespace Schemas {
        * * `hubspot` - HubSpot
        * * `engineering_analytics` - Engineering analytics
        * * `google_search_console` - Google Search Console
+       * * `bing_webmaster_tools` - Bing Webmaster Tools
+       * * `ahrefs` - Ahrefs
+       * * `semrush` - Semrush
        * * `pagerduty` - PagerDuty
        * * `opsgenie` - Opsgenie
        * * `incident_io` - incident.io
@@ -108409,6 +108462,9 @@ export namespace Schemas {
      * * `hubspot` - hubspot
      * * `engineering_analytics` - engineering_analytics
      * * `google_search_console` - google_search_console
+     * * `bing_webmaster_tools` - bing_webmaster_tools
+     * * `ahrefs` - ahrefs
+     * * `semrush` - semrush
      * * `pagerduty` - pagerduty
      * * `opsgenie` - opsgenie
      * * `incident_io` - incident_io
@@ -108567,6 +108623,9 @@ export namespace Schemas {
       Hubspot: 'hubspot',
       EngineeringAnalytics: 'engineering_analytics',
       GoogleSearchConsole: 'google_search_console',
+      BingWebmasterTools: 'bing_webmaster_tools',
+      Ahrefs: 'ahrefs',
+      Semrush: 'semrush',
       Pagerduty: 'pagerduty',
       Opsgenie: 'opsgenie',
       IncidentIo: 'incident_io',
@@ -108907,6 +108966,14 @@ export namespace Schemas {
       created_time: string | null;
     }
 
+    export interface SemrushSearchOpportunitySignalExtra {
+      project_id: string | null;
+      issue_id: string | null;
+      affected_pages: string | null;
+      example_url: string | null;
+      audit_snapshot_id: string | null;
+    }
+
     export interface VitallyConversationSignalExtra {
       external_url: string | null;
       created_at: string | null;
@@ -109116,7 +109183,7 @@ export namespace Schemas {
       created_at: string | null;
     }
 
-    export type SignalExtra = SessionProblemSignalExtra | LlmEvalSignalExtra | LlmEvalReportSignalExtra | ZendeskTicketSignalExtra | GithubIssueSignalExtra | LinearIssueSignalExtra | JiraIssueSignalExtra | ConversationsTicketSignalExtra | ErrorTrackingSignalExtra | PgAnalyzeIssueSignalExtra | EndpointExecutionFailedSignalExtra | EndpointBreakdownLimitExceededSignalExtra | SignalsScoutSignalExtra | CheckFailedSignalExtra | MonitoringUnresolvedSignalExtra | LogsAlertStateChangeSignalExtra | ReplayVisionScannerFindingSignalExtra | AnalyticsAnomalyInvestigationSignalExtra | AnalyticsAlertFiringSignalExtra | HealthCheckSignalExtra | EngineeringAnalyticsCIFlakyCheckSignalExtra | EngineeringAnalyticsCIBrokenDefaultBranchSignalExtra | EngineeringAnalyticsCIDurationRegressionSignalExtra | FreshdeskTicketSignalExtra | FreshserviceTicketSignalExtra | FrontConversationSignalExtra | GorgiasTicketSignalExtra | KustomerConversationSignalExtra | DixaConversationSignalExtra | PlainThreadSignalExtra | GitlabIssueSignalExtra | GiteaIssueSignalExtra | ShortcutStorySignalExtra | ClickupTaskSignalExtra | WrikeTaskSignalExtra | TrelloCardSignalExtra | BugherdTaskSignalExtra | SentryIssueSignalExtra | RollbarItemSignalExtra | BugsnagErrorSignalExtra | HoneybadgerFaultSignalExtra | RaygunErrorGroupSignalExtra | DatadogSignalExtra | SnykScannerFindingSignalExtra | SonarqubeScannerFindingSignalExtra | SemgrepScannerFindingSignalExtra | Rapid7InsightvmScannerFindingSignalExtra | FeaturebaseFeedbackSignalExtra | FrillFeedbackSignalExtra | AhaFeedbackSignalExtra | UservoiceFeedbackSignalExtra | ProductboardFeedbackSignalExtra | CannyFeedbackSignalExtra | AsknicelyFeedbackSignalExtra | RetentlyFeedbackSignalExtra | UsersnapFeedbackSignalExtra | TypeformFeedbackSignalExtra | QualtricsFeedbackSignalExtra | SurveymonkeyFeedbackSignalExtra | FormbricksFeedbackSignalExtra | SurvicateFeedbackSignalExtra | SurveysparrowFeedbackSignalExtra | AppfiguresReviewSignalExtra | AppfollowReviewSignalExtra | JudgemeReviewsReviewSignalExtra | IntercomTicketSignalExtra | HubspotTicketSignalExtra | Dynamics365TicketSignalExtra | ZohoCrmTicketSignalExtra | GoogleSearchConsoleSearchOpportunitySignalExtra | HelpscoutConversationSignalExtra | DecagonConversationSignalExtra | VitallyConversationSignalExtra | IntercomTicketsTicketSignalExtra | PylonTicketSignalExtra | PagerdutyIncidentSignalExtra | OpsgenieAlertSignalExtra | IncidentIoIncidentSignalExtra | FirehydrantIncidentSignalExtra | SquadcastIncidentSignalExtra | ServicenowIncidentSignalExtra | SolarwindsServiceDeskIncidentSignalExtra | GrafanaIrmIncidentSignalExtra | XmattersIncidentSignalExtra | LaceworkScannerFindingSignalExtra | OrcaSecurityScannerFindingSignalExtra | TenableVulnerabilityManagementScannerFindingSignalExtra | BetterstackIncidentSignalExtra | AsanaIssueSignalExtra | MondayIssueSignalExtra | PlaneIssueSignalExtra | AzureDevopsIssueSignalExtra | MonteCarloAlertSignalExtra | BigeyeIssueSignalExtra | DynatraceIncidentSignalExtra | StatuspageIncidentSignalExtra | CronitorIncidentSignalExtra | InstatusIncidentSignalExtra | RootlyIncidentSignalExtra | ZendutyIncidentSignalExtra | SplunkObservabilityCloudIncidentSignalExtra | UptimerobotIncidentSignalExtra | RootlyAlertsIncidentSignalExtra | IncidentIoAlertsIncidentSignalExtra | FirehydrantAlertsIncidentSignalExtra | GrafanaIrmAlertGroupsIncidentSignalExtra | GooglePlayConsoleIssueSignalExtra | AzureApplicationInsightsIssueSignalExtra | AppsignalIssueSignalExtra | CursorIssueSignalExtra | SonarcloudScannerFindingSignalExtra | CheckmarxScannerFindingSignalExtra | VeracodeScannerFindingSignalExtra | VeracodeScaScannerFindingSignalExtra | SemgrepScaScannerFindingSignalExtra | GitguardianScannerFindingSignalExtra | InfisicalScannerFindingSignalExtra | AwsMacieScannerFindingSignalExtra | SentineloneScannerFindingSignalExtra | JfrogXrayScannerFindingSignalExtra | DynatraceSecurityScannerFindingSignalExtra | TriggerDevErrorSignalExtra | ChecklyErrorGroupSignalExtra | RoarkIssueSignalExtra | SleekplanFeedbackSignalExtra | BettermodeFeedbackSignalExtra | DiscourseFeedbackSignalExtra | MintlifyFeedbackSignalExtra | LangsmithFeedbackSignalExtra | SprigFeedbackSignalExtra | GainsightPxFeedbackSignalExtra | TrustpilotReviewSignalExtra | OkendoReviewSignalExtra | BeamerFeedbackSignalExtra | BeamerNpsFeedbackSignalExtra | ChameleonFeedbackSignalExtra | FeaturebaseSurveysFeedbackSignalExtra | UservoiceNpsFeedbackSignalExtra | VitallyNpsFeedbackSignalExtra | EtsyReviewSignalExtra | G2ReviewSignalExtra | GumroadReviewSignalExtra | TrustpilotProductReviewsReviewSignalExtra | WoocommerceReviewSignalExtra | YotpoReviewSignalExtra | AwsSecurityHubScannerFindingSignalExtra | AwsGuarddutyScannerFindingSignalExtra | AwsInspectorScannerFindingSignalExtra | MicrosoftDefenderCloudAppsScannerFindingSignalExtra | GithubDependabotScannerFindingSignalExtra | GithubCodeScanningScannerFindingSignalExtra | GithubSecretScanningScannerFindingSignalExtra | NewrelicIssueSignalExtra | AmazonCloudwatchIncidentSignalExtra | LogicmonitorIncidentSignalExtra | AirbrakeIssueSignalExtra | MuxIssueSignalExtra;
+    export type SignalExtra = SessionProblemSignalExtra | LlmEvalSignalExtra | LlmEvalReportSignalExtra | ZendeskTicketSignalExtra | GithubIssueSignalExtra | LinearIssueSignalExtra | JiraIssueSignalExtra | ConversationsTicketSignalExtra | ErrorTrackingSignalExtra | PgAnalyzeIssueSignalExtra | EndpointExecutionFailedSignalExtra | EndpointBreakdownLimitExceededSignalExtra | SignalsScoutSignalExtra | CheckFailedSignalExtra | MonitoringUnresolvedSignalExtra | LogsAlertStateChangeSignalExtra | ReplayVisionScannerFindingSignalExtra | AnalyticsAnomalyInvestigationSignalExtra | AnalyticsAlertFiringSignalExtra | HealthCheckSignalExtra | EngineeringAnalyticsCIFlakyCheckSignalExtra | EngineeringAnalyticsCIBrokenDefaultBranchSignalExtra | EngineeringAnalyticsCIDurationRegressionSignalExtra | FreshdeskTicketSignalExtra | FreshserviceTicketSignalExtra | FrontConversationSignalExtra | GorgiasTicketSignalExtra | KustomerConversationSignalExtra | DixaConversationSignalExtra | PlainThreadSignalExtra | GitlabIssueSignalExtra | GiteaIssueSignalExtra | ShortcutStorySignalExtra | ClickupTaskSignalExtra | WrikeTaskSignalExtra | TrelloCardSignalExtra | BugherdTaskSignalExtra | SentryIssueSignalExtra | RollbarItemSignalExtra | BugsnagErrorSignalExtra | HoneybadgerFaultSignalExtra | RaygunErrorGroupSignalExtra | DatadogSignalExtra | SnykScannerFindingSignalExtra | SonarqubeScannerFindingSignalExtra | SemgrepScannerFindingSignalExtra | Rapid7InsightvmScannerFindingSignalExtra | FeaturebaseFeedbackSignalExtra | FrillFeedbackSignalExtra | AhaFeedbackSignalExtra | UservoiceFeedbackSignalExtra | ProductboardFeedbackSignalExtra | CannyFeedbackSignalExtra | AsknicelyFeedbackSignalExtra | RetentlyFeedbackSignalExtra | UsersnapFeedbackSignalExtra | TypeformFeedbackSignalExtra | QualtricsFeedbackSignalExtra | SurveymonkeyFeedbackSignalExtra | FormbricksFeedbackSignalExtra | SurvicateFeedbackSignalExtra | SurveysparrowFeedbackSignalExtra | AppfiguresReviewSignalExtra | AppfollowReviewSignalExtra | JudgemeReviewsReviewSignalExtra | IntercomTicketSignalExtra | HubspotTicketSignalExtra | Dynamics365TicketSignalExtra | ZohoCrmTicketSignalExtra | GoogleSearchConsoleSearchOpportunitySignalExtra | BingWebmasterToolsSearchOpportunitySignalExtra | AhrefsSearchOpportunitySignalExtra | SemrushSearchOpportunitySignalExtra | HelpscoutConversationSignalExtra | DecagonConversationSignalExtra | VitallyConversationSignalExtra | IntercomTicketsTicketSignalExtra | PylonTicketSignalExtra | PagerdutyIncidentSignalExtra | OpsgenieAlertSignalExtra | IncidentIoIncidentSignalExtra | FirehydrantIncidentSignalExtra | SquadcastIncidentSignalExtra | ServicenowIncidentSignalExtra | SolarwindsServiceDeskIncidentSignalExtra | GrafanaIrmIncidentSignalExtra | XmattersIncidentSignalExtra | LaceworkScannerFindingSignalExtra | OrcaSecurityScannerFindingSignalExtra | TenableVulnerabilityManagementScannerFindingSignalExtra | BetterstackIncidentSignalExtra | AsanaIssueSignalExtra | MondayIssueSignalExtra | PlaneIssueSignalExtra | AzureDevopsIssueSignalExtra | MonteCarloAlertSignalExtra | BigeyeIssueSignalExtra | DynatraceIncidentSignalExtra | StatuspageIncidentSignalExtra | CronitorIncidentSignalExtra | InstatusIncidentSignalExtra | RootlyIncidentSignalExtra | ZendutyIncidentSignalExtra | SplunkObservabilityCloudIncidentSignalExtra | UptimerobotIncidentSignalExtra | RootlyAlertsIncidentSignalExtra | IncidentIoAlertsIncidentSignalExtra | FirehydrantAlertsIncidentSignalExtra | GrafanaIrmAlertGroupsIncidentSignalExtra | GooglePlayConsoleIssueSignalExtra | AzureApplicationInsightsIssueSignalExtra | AppsignalIssueSignalExtra | CursorIssueSignalExtra | SonarcloudScannerFindingSignalExtra | CheckmarxScannerFindingSignalExtra | VeracodeScannerFindingSignalExtra | VeracodeScaScannerFindingSignalExtra | SemgrepScaScannerFindingSignalExtra | GitguardianScannerFindingSignalExtra | InfisicalScannerFindingSignalExtra | AwsMacieScannerFindingSignalExtra | SentineloneScannerFindingSignalExtra | JfrogXrayScannerFindingSignalExtra | DynatraceSecurityScannerFindingSignalExtra | TriggerDevErrorSignalExtra | ChecklyErrorGroupSignalExtra | RoarkIssueSignalExtra | SleekplanFeedbackSignalExtra | BettermodeFeedbackSignalExtra | DiscourseFeedbackSignalExtra | MintlifyFeedbackSignalExtra | LangsmithFeedbackSignalExtra | SprigFeedbackSignalExtra | GainsightPxFeedbackSignalExtra | TrustpilotReviewSignalExtra | OkendoReviewSignalExtra | BeamerFeedbackSignalExtra | BeamerNpsFeedbackSignalExtra | ChameleonFeedbackSignalExtra | FeaturebaseSurveysFeedbackSignalExtra | UservoiceNpsFeedbackSignalExtra | VitallyNpsFeedbackSignalExtra | EtsyReviewSignalExtra | G2ReviewSignalExtra | GumroadReviewSignalExtra | TrustpilotProductReviewsReviewSignalExtra | WoocommerceReviewSignalExtra | YotpoReviewSignalExtra | AwsSecurityHubScannerFindingSignalExtra | AwsGuarddutyScannerFindingSignalExtra | AwsInspectorScannerFindingSignalExtra | MicrosoftDefenderCloudAppsScannerFindingSignalExtra | GithubDependabotScannerFindingSignalExtra | GithubCodeScanningScannerFindingSignalExtra | GithubSecretScanningScannerFindingSignalExtra | NewrelicIssueSignalExtra | AmazonCloudwatchIncidentSignalExtra | LogicmonitorIncidentSignalExtra | AirbrakeIssueSignalExtra | MuxIssueSignalExtra;
 
     export type SignalMatchMetadata = MatchedMetadata | NoMatchMetadata;
 
@@ -109186,6 +109253,9 @@ export namespace Schemas {
        * * `hubspot` - hubspot
        * * `engineering_analytics` - engineering_analytics
        * * `google_search_console` - google_search_console
+       * * `bing_webmaster_tools` - bing_webmaster_tools
+       * * `ahrefs` - ahrefs
+       * * `semrush` - semrush
        * * `pagerduty` - pagerduty
        * * `opsgenie` - opsgenie
        * * `incident_io` - incident_io
@@ -127670,10 +127740,10 @@ export namespace Schemas {
     /**
      * * `customerio` - Customer.io
      */
-    export type WorkflowImportSourceEnum = typeof WorkflowImportSourceEnum[keyof typeof WorkflowImportSourceEnum];
+    export type WorkflowImportRequestSourceEnum = typeof WorkflowImportRequestSourceEnum[keyof typeof WorkflowImportRequestSourceEnum];
 
 
-    export const WorkflowImportSourceEnum = {
+    export const WorkflowImportRequestSourceEnum = {
       Customerio: 'customerio',
     } as const;
 
@@ -127681,7 +127751,7 @@ export namespace Schemas {
       /** The tool the automations come from.
        *
        * * `customerio` - Customer.io */
-      source: WorkflowImportSourceEnum;
+      source: WorkflowImportRequestSourceEnum;
       /** The automations to import, at most 50. People are never read from these objects. */
       campaigns: CustomerioCampaign[];
       /** Customer.io snippet name to its content, inlined where a message uses `{{ snippets.name }}`. When PostHog reads the message content with a stored Customer.io App API key, it reads the snippets too. */
@@ -133023,6 +133093,8 @@ export namespace Schemas {
      * * `DataWarehouseJoin` - DataWarehouseJoin
      * * `Billing` - Billing
      * * `Loop` - Loop
+     * * `SandboxEnvironment` - SandboxEnvironment
+     * * `SandboxCustomImage` - SandboxCustomImage
      * * `StamphogRepoConfig` - StamphogRepoConfig
      * * `ReviewRepository` - ReviewRepository
      * * `ReviewProjectSettings` - ReviewProjectSettings
@@ -133147,6 +133219,8 @@ export namespace Schemas {
       DataWarehouseJoin: 'DataWarehouseJoin',
       Billing: 'Billing',
       Loop: 'Loop',
+      SandboxEnvironment: 'SandboxEnvironment',
+      SandboxCustomImage: 'SandboxCustomImage',
       StamphogRepoConfig: 'StamphogRepoConfig',
       ReviewRepository: 'ReviewRepository',
       ReviewProjectSettings: 'ReviewProjectSettings',
@@ -133257,6 +133331,8 @@ export namespace Schemas {
      * * `DataWarehouseJoin` - DataWarehouseJoin
      * * `Billing` - Billing
      * * `Loop` - Loop
+     * * `SandboxEnvironment` - SandboxEnvironment
+     * * `SandboxCustomImage` - SandboxCustomImage
      * * `StamphogRepoConfig` - StamphogRepoConfig
      * * `ReviewRepository` - ReviewRepository
      * * `ReviewProjectSettings` - ReviewProjectSettings
@@ -133369,6 +133445,8 @@ export namespace Schemas {
       DataWarehouseJoin: 'DataWarehouseJoin',
       Billing: 'Billing',
       Loop: 'Loop',
+      SandboxEnvironment: 'SandboxEnvironment',
+      SandboxCustomImage: 'SandboxCustomImage',
       StamphogRepoConfig: 'StamphogRepoConfig',
       ReviewRepository: 'ReviewRepository',
       ReviewProjectSettings: 'ReviewProjectSettings',
@@ -137388,6 +137466,10 @@ export namespace Schemas {
 
     export type EarlyAccessFeatureListParams = {
     /**
+     * Comma-separated user IDs. Only features created by one of them are listed.
+     */
+    created_by_id?: string;
+    /**
      * Comma-separated early access feature IDs, at most 200.
      */
     ids?: string;
@@ -137399,6 +137481,10 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    /**
+     * Sort by creation time: -created_at (default) for newest first, created_at for oldest first.
+     */
+    order?: string;
     /**
      * Case-insensitive match on the feature name.
      */
@@ -144656,16 +144742,29 @@ export namespace Schemas {
 
     export type ReleasesCatalogFlagsRetrieveParams = {
     /**
+     * Comma-separated user IDs. Only flags created by one of them are listed.
+     * @maxLength 1000
+     */
+    created_by?: string;
+    /**
      * How many flags to return, at most 100.
      * @minimum 1
      * @maximum 100
      */
     limit?: number;
     /**
-     * How many flags to skip, newest first.
+     * How many flags to skip.
      * @minimum 0
      */
     offset?: number;
+    /**
+     * Sort by creation time: -created_at for newest first, created_at for oldest first.
+     *
+     * * `-created_at` - Newest first
+     * * `created_at` - Oldest first
+     * @minLength 1
+     */
+    order?: string;
     /**
      * Part of the flag key or name to match.
      * @maxLength 200
@@ -144685,6 +144784,19 @@ export namespace Schemas {
      * @maximum 100
      */
     limit?: number;
+    /**
+     * Sort by creation time: -created_at for newest first, created_at for oldest first.
+     *
+     * * `-created_at` - Newest first
+     * * `created_at` - Oldest first
+     * @minLength 1
+     */
+    order?: string;
+    /**
+     * Comma-separated user IDs. Only releases owned by one of them are listed.
+     * @maxLength 1000
+     */
+    owner?: string;
     /**
      * Part of the release name to match.
      * @maxLength 200

@@ -92,10 +92,13 @@ export function ReleaseSidebar(): JSX.Element {
         },
     ].filter((item) => matches(item.label))
 
-    const pinned = shortcutData.filter((entry) => RELEASE_TYPES.includes(entry.type ?? '') && matches(entryName(entry)))
+    const pinned = shortcutData.filter(
+        (entry) => !!entry.ref && RELEASE_TYPES.includes(entry.type ?? '') && matches(entryName(entry))
+    )
     const recent = newestByName(
         recents.filter(
             (entry) =>
+                !!entry.ref &&
                 RELEASE_TYPES.includes(entry.type ?? '') &&
                 matches(entryName(entry)) &&
                 !pinnedShortcutIds.has(`${entry.type}:${entry.ref}`)
@@ -110,7 +113,13 @@ export function ReleaseSidebar(): JSX.Element {
             key={`${kind}:${entry.id}`}
             value={`${kind}:${entry.id}`}
             label={entryName(entry)}
-            icon={iconForType((entry.type ?? 'feature_flag') as FileSystemIconType)}
+            icon={
+                entry.type === 'release' ? (
+                    <IconFlag />
+                ) : (
+                    iconForType((entry.type ?? 'feature_flag') as FileSystemIconType)
+                )
+            }
             to={entry.href ?? '#'}
             active={!!entry.href && path === removeProjectIdIfPresent(entry.href)}
             action={

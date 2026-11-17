@@ -1176,6 +1176,9 @@ export const InboxOnboardingSetupModeEnumApi = {
  * * `hubspot` - HubSpot
  * * `engineering_analytics` - Engineering analytics
  * * `google_search_console` - Google Search Console
+ * * `bing_webmaster_tools` - Bing Webmaster Tools
+ * * `ahrefs` - Ahrefs
+ * * `semrush` - Semrush
  * * `pagerduty` - PagerDuty
  * * `opsgenie` - Opsgenie
  * * `incident_io` - incident.io
@@ -1333,6 +1336,9 @@ export const SignalSourceProductEnumApi = {
     Hubspot: 'hubspot',
     EngineeringAnalytics: 'engineering_analytics',
     GoogleSearchConsole: 'google_search_console',
+    BingWebmasterTools: 'bing_webmaster_tools',
+    Ahrefs: 'ahrefs',
+    Semrush: 'semrush',
     Pagerduty: 'pagerduty',
     Opsgenie: 'opsgenie',
     IncidentIo: 'incident_io',
@@ -1541,6 +1547,9 @@ export interface InboxOnboardingSourceApi {
      * * `hubspot` - HubSpot
      * * `engineering_analytics` - Engineering analytics
      * * `google_search_console` - Google Search Console
+     * * `bing_webmaster_tools` - Bing Webmaster Tools
+     * * `ahrefs` - Ahrefs
+     * * `semrush` - Semrush
      * * `pagerduty` - PagerDuty
      * * `opsgenie` - Opsgenie
      * * `incident_io` - incident.io
@@ -4501,6 +4510,9 @@ export interface SignalReportLeaveReviewersApi {
  * * `hubspot` - hubspot
  * * `engineering_analytics` - engineering_analytics
  * * `google_search_console` - google_search_console
+ * * `bing_webmaster_tools` - bing_webmaster_tools
+ * * `ahrefs` - ahrefs
+ * * `semrush` - semrush
  * * `pagerduty` - pagerduty
  * * `opsgenie` - opsgenie
  * * `incident_io` - incident_io
@@ -4658,6 +4670,9 @@ export const SignalSourceProductApi = {
     Hubspot: 'hubspot',
     EngineeringAnalytics: 'engineering_analytics',
     GoogleSearchConsole: 'google_search_console',
+    BingWebmasterTools: 'bing_webmaster_tools',
+    Ahrefs: 'ahrefs',
+    Semrush: 'semrush',
     Pagerduty: 'pagerduty',
     Opsgenie: 'opsgenie',
     IncidentIo: 'incident_io',
@@ -5565,6 +5580,31 @@ export interface GoogleSearchConsoleSearchOpportunitySignalExtraApi {
     position: number
 }
 
+export interface BingWebmasterToolsSearchOpportunitySignalExtraApi {
+    site_url: string | null
+    issue_flag: string | null
+    issue: string | null
+    affected_urls: string | null
+    example_url: string | null
+    inbound_links: string | null
+}
+
+export interface AhrefsSearchOpportunitySignalExtraApi {
+    project_id: string | null
+    issue_id: string | null
+    issue_category: string | null
+    issue_importance: string | null
+    affected_urls: string | null
+}
+
+export interface SemrushSearchOpportunitySignalExtraApi {
+    project_id: string | null
+    issue_id: string | null
+    affected_pages: string | null
+    example_url: string | null
+    audit_snapshot_id: string | null
+}
+
 export interface HelpscoutConversationSignalExtraApi {
     number: string | null
     status: string | null
@@ -6346,6 +6386,9 @@ export type SignalExtraApi =
     | Dynamics365TicketSignalExtraApi
     | ZohoCrmTicketSignalExtraApi
     | GoogleSearchConsoleSearchOpportunitySignalExtraApi
+    | BingWebmasterToolsSearchOpportunitySignalExtraApi
+    | AhrefsSearchOpportunitySignalExtraApi
+    | SemrushSearchOpportunitySignalExtraApi
     | HelpscoutConversationSignalExtraApi
     | DecagonConversationSignalExtraApi
     | VitallyConversationSignalExtraApi
@@ -6531,6 +6574,9 @@ export interface SignalNodeApi {
      * * `hubspot` - hubspot
      * * `engineering_analytics` - engineering_analytics
      * * `google_search_console` - google_search_console
+     * * `bing_webmaster_tools` - bing_webmaster_tools
+     * * `ahrefs` - ahrefs
+     * * `semrush` - semrush
      * * `pagerduty` - pagerduty
      * * `opsgenie` - opsgenie
      * * `incident_io` - incident_io

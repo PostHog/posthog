@@ -55,6 +55,32 @@ def get_cohort_ref(*, team_id: int, cohort_id: int) -> CohortRef | None:
     )
 
 
+def find_cohort_ref_by_description(*, team_id: int, description: str) -> CohortRef | None:
+    """The oldest cohort with this description, deleted or not, so an import can respect a cohort someone deleted."""
+    cohort = (
+        Cohort.objects.filter(team_id=team_id, description=description)
+        .only("id", "team_id", "created_by_id", "is_static", "deleted")
+        .order_by("id")
+        .first()
+    )
+    if cohort is None:
+        return None
+    return CohortRef(
+        id=cohort.id,
+        team_id=cohort.team_id,
+        created_by_id=cohort.created_by_id,
+        is_static=cohort.is_static,
+        deleted=cohort.deleted,
+    )
+
+
+def create_empty_static_cohort(*, team_id: int, name: str, description: str, created_by_id: int) -> CohortRef:
+    cohort = Cohort.objects.create(
+        team_id=team_id, name=name, description=description, is_static=True, count=0, created_by_id=created_by_id
+    )
+    return CohortRef(id=cohort.id, team_id=cohort.team_id, created_by_id=created_by_id, is_static=True, deleted=False)
+
+
 def add_person_to_static_cohort(*, team_id: int, cohort_id: int, person_uuid: str) -> bool:
     """Add one person to a static cohort. Returns False when the team has no person with that UUID.
 
