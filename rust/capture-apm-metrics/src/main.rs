@@ -12,13 +12,15 @@ use capture_apm_metrics::config::Config;
 use capture_apm_metrics::k8s_resource_attributes::K8sResourceAttributes;
 use capture_apm_metrics::management;
 use capture_apm_metrics::prometheus;
-use capture_apm_metrics::series_label_gate::{spawn_redis_writer, CacheLimits, SeriesLabelGate};
+use capture_apm_metrics::series_label_gate::{
+    metrics_bucket_overrides, spawn_redis_writer, CacheLimits, SeriesLabelGate,
+};
 use capture_apm_metrics::service::{export_metrics_http, MetricsService};
 use capture_logs::authorizer::Authorizer;
 use capture_logs::kafka::KafkaSink;
 use capture_logs::middleware::translate_compression_query_param;
 use capture_logs::service::options_handler;
-use common_metrics::setup_metrics_routes;
+use common_metrics::setup_metrics_routes_with_overrides;
 use common_redis::{Client, CompressionConfig, RedisClient, RedisValueFormat};
 use std::future::ready;
 use std::net::SocketAddr;
@@ -237,7 +239,8 @@ async fn run(
             "/_liveness",
             get(move || ready(health_registry.get_status())),
         );
-    let management_router = setup_metrics_routes(management_router);
+    let management_router =
+        setup_metrics_routes_with_overrides(management_router, &metrics_bucket_overrides());
 
     let series_label_gate = start_series_label_gate(&config).await;
     let token_dropper =
