@@ -329,6 +329,7 @@ The fixed command syntax stays in the tool schema, while skill names and bodies 
 Tools mode lists a `learn` tool when skill discovery is enabled for the connection.
 The rules match cli mode: the `mcp-exec-skills` flag is on and the consumer is not `plugin` or `posthog-code`.
 Connections through the MCP store do not get the tool.
+The `features` and `tools` filters do not hide it, as with the tools marked `always_available`.
 Its `command` takes the skill commands above, with or without the leading `learn`, and serves them from the same catalog.
 The tools-mode `instructions` then tell the agent to search with `learn` before non-trivial PostHog work.
 
