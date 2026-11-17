@@ -732,6 +732,60 @@ function ensureLocalSettings(cwd: string): void {
   }
 }
 
+function disablePrAttribution(options: Options, sessionId: string): void {
+  const source = options.settings ?? options.extraArgs?.settings;
+  let settings: Settings;
+  let settingsFile: string | undefined;
+  if (typeof source === "string") {
+    try {
+      settings = JSON.parse(source) as Settings;
+    } catch {
+      try {
+        settings = JSON.parse(
+          fs.readFileSync(
+            path.resolve(options.cwd ?? process.cwd(), source),
+            "utf-8",
+          ),
+        ) as Settings;
+        settingsFile = source;
+      } catch {
+        return;
+      }
+    }
+  } else {
+    settings = source ?? {};
+  }
+  const merged: Settings = {
+    ...settings,
+    attribution: {
+      ...(settings.attribution === false
+        ? { commit: "", sessionUrl: false }
+        : typeof settings.attribution === "object"
+          ? settings.attribution
+          : {}),
+      pr: "",
+    },
+  };
+  if (settingsFile) {
+    const dir = pinnedSettingsDir();
+    const file = isPinnedSettingsFile(settingsFile)
+      ? settingsFile
+      : path.join(dir, `${sessionId.replace(/[^A-Za-z0-9_-]/g, "_")}.json`);
+    fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+    fs.writeFileSync(file, JSON.stringify(merged), { mode: 0o600 });
+    fs.chmodSync(file, 0o600);
+    delete options.settings;
+    options.extraArgs = { ...options.extraArgs, settings: file };
+  } else if (options.settings !== undefined || source === undefined) {
+    options.settings = merged;
+  } else {
+    options.extraArgs = {
+      ...options.extraArgs,
+      settings: JSON.stringify(merged),
+    };
+  }
+}
+
 // The legacy CLI ships as cli.js; native binaries have no file extension.
 function isLegacyJavaScriptClaudeExecutable(executablePath: string): boolean {
   return executablePath.endsWith(".js");
@@ -951,6 +1005,7 @@ export function buildSessionOptions(params: BuildOptionsParams): Options {
     options.effort = toSdkEffort(params.effort);
   }
 
+  disablePrAttribution(options, params.sessionId);
   clearStatsigCache();
   return options;
 }

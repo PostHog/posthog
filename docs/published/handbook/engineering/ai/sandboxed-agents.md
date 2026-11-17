@@ -468,6 +468,9 @@ They can:
 - Create git branches and pull requests (commits must be signed — see below)
 - Execute arbitrary shell commands within the container
 
+Claude sessions set `attribution.pr` to an empty string to disable Claude Code's default footer in pull request descriptions.
+The agent keeps the PostHog attribution footer from its task instructions.
+
 ### Git commit signing
 
 Direct `git commit` and `git push` commands are blocked in the sandbox to ensure all commits are properly signed by GitHub. A PATH shim (`git-guard.sh` at `/opt/posthog/bin/git`) intercepts these subcommands while passing all other git operations through to the real binary.
