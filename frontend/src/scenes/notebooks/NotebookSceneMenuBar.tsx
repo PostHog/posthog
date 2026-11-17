@@ -38,7 +38,7 @@ export function NotebookSceneMenuBar({ shortId }: { shortId: string }): JSX.Elem
 }
 
 function NotebookSceneMenuBarInner({ shortId }: { shortId: string }): JSX.Element {
-    const { preparePrint } = useActions(notebookExportLogic({ shortId }))
+    const { preparePrint, prepareImage } = useActions(notebookExportLogic({ shortId }))
     const logic = notebookLogic({ shortId })
     const { notebook, showHistory, isLocalOnly, content, showVariables } = useValues(logic)
     const { openShareModal, duplicateNotebook, downloadMarkdown, copyMarkdown, setShowHistory } = useActions(logic)
@@ -59,6 +59,10 @@ function NotebookSceneMenuBarInner({ shortId }: { shortId: string }): JSX.Elemen
         <SceneMenuBar>
             <SceneMenuBarMenu label="File" dataAttr={`${RESOURCE_TYPE}-menubar-file`}>
                 <SceneMenuBarSubMenu label="Export">
+                    <SceneMenuBarItem onClick={prepareImage} data-attr="notebook-menubar-export-png">
+                        <IconDownload />
+                        Download PNG
+                    </SceneMenuBarItem>
                     <SceneMenuBarItem onClick={preparePrint} data-attr="notebook-menubar-print-pdf">
                         <IconDownload />
                         Print / save PDF
