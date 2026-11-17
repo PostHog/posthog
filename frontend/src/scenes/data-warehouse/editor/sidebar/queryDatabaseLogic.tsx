@@ -78,6 +78,7 @@ import {
 } from 'products/data_warehouse/frontend/shared/logics/connectionSelectorLogic'
 import { joinsDataLogic } from 'products/data_warehouse/frontend/shared/logics/joinsDataLogic'
 import { viewLinkLogic } from 'products/data_warehouse/frontend/shared/logics/viewLinkLogic'
+import { groupModelsByNamespace } from 'products/data_warehouse/frontend/shared/modelNamespaceTree'
 import {
     getSidebarPropertyDefinitionTarget,
     SidebarPropertyDefinitionTarget,
@@ -1635,6 +1636,13 @@ const flattenViewNodes = (nodes: TreeDataItem[], flattenedViews: TreeDataItem[],
 
         if (node.record?.type === 'folder' && node.record?.folderType === 'view-folder') {
             flattenViewNodes(node.children ?? [], flattenedViews, connectionId)
+        }
+
+        if (node.record?.type === 'model-namespace') {
+            // A flat list loses the group, so the model shows its full listed name again.
+            const groupedViews: TreeDataItem[] = []
+            flattenViewNodes(node.children ?? [], groupedViews, connectionId)
+            flattenedViews.push(...groupedViews.map((view) => ({ ...view, displayName: undefined })))
         }
     })
 }
@@ -3342,6 +3350,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
 
                 // Add saved queries
                 const materializingViewIdSet = new Set(materializingViewIds)
+                const unfiledViewNodes: TreeDataItem[] = []
                 relevantSavedQueries.forEach(([view, matches]) => {
                     const schemaTable = getSavedQuerySchemaTable(view, savedQuerySchemaTablesById)
                     const viewNode = createViewNode(
@@ -3358,9 +3367,12 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                         currentChildren.push(viewNode)
                         viewChildrenByFolderId.set(view.folder_id, currentChildren)
                     } else {
-                        viewsChildren.push(viewNode)
+                        unfiledViewNodes.push(viewNode)
                     }
                 })
+                const searchModelNamespaces = groupModelsByNamespace(unfiledViewNodes, true)
+                viewsChildren.push(...searchModelNamespaces.items)
+                expandedIds.push(...searchModelNamespaces.groupIds)
 
                 dataWarehouseSavedQueryFolders.forEach((folder) => {
                     const folderChildren = viewChildrenByFolderId.get(folder.id) ?? []
@@ -3626,6 +3638,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 } else {
                     const viewChildrenByFolderId = new Map<string, TreeDataItem[]>()
                     const materializingViewIdSet = new Set(materializingViewIds)
+                    const unfiledViewNodes: TreeDataItem[] = []
 
                     // Add saved queries
                     dataWarehouseSavedQueries.forEach((view) => {
@@ -3644,9 +3657,11 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                             folderChildren.push(viewNode)
                             viewChildrenByFolderId.set(view.folder_id, folderChildren)
                         } else {
-                            viewsChildren.push(viewNode)
+                            unfiledViewNodes.push(viewNode)
                         }
                     })
+                    // A model the user filed into a folder stays there; the namespace groups only unfiled models.
+                    viewsChildren.push(...groupModelsByNamespace(unfiledViewNodes, false).items)
 
                     dataWarehouseSavedQueryFolders.forEach((folder) => {
                         const folderChildren = viewChildrenByFolderId.get(folder.id) ?? []

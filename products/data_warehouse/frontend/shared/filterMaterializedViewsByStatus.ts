@@ -115,7 +115,11 @@ export function filterMaterializedViewsByStatus(
             return [item]
         }
 
-        if (item.record?.type === 'views' || item.record?.folderType === 'view-folder') {
+        if (
+            item.record?.type === 'views' ||
+            item.record?.type === 'model-namespace' ||
+            item.record?.folderType === 'view-folder'
+        ) {
             const children = filterMaterializedViewsByStatus(item.children ?? [], statuses)
             return children.length ? [{ ...item, children }] : []
         }
