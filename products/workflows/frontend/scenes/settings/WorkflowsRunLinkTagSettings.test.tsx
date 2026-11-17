@@ -28,28 +28,32 @@ describe('<WorkflowsRunLinkTagSettings />', () => {
         })
         initKeaTests()
         teamLogic.mount()
-        teamLogic.actions.loadCurrentTeamSuccess({
-            ...MOCK_DEFAULT_TEAM,
-            workflows_config: {
-                capture_workflows_engagement_events: true,
-                email_utm_tags_enabled: true,
-            },
-        })
     })
 
     afterEach(() => {
         cleanup()
     })
 
-    it('shows the tag as on for a team that never set it, and turning it off sends only that field', async () => {
+    it.each([
+        { stored: undefined, shownOn: true, saved: false },
+        { stored: false, shownOn: false, saved: true },
+    ])('stored $stored shows on=$shownOn, and a click sends only $saved', async ({ stored, shownOn, saved }) => {
+        teamLogic.actions.loadCurrentTeamSuccess({
+            ...MOCK_DEFAULT_TEAM,
+            workflows_config: {
+                capture_workflows_engagement_events: true,
+                email_utm_tags_enabled: true,
+                ...(stored === undefined ? {} : { email_workflow_run_link_tag_enabled: stored }),
+            },
+        })
         render(<WorkflowsRunLinkTagSettings />)
         const toggle = screen.getByLabelText('Add ph_workflow_run to tracked email links')
-        expect(toggle).toBeChecked()
+        expect(toggle).toHaveAttribute('aria-checked', String(shownOn))
 
         await userEvent.click(toggle)
 
         await waitFor(() => expect(patchBodies).toHaveLength(1))
-        expect(patchBodies[0]).toEqual({ workflows_config: { email_workflow_run_link_tag_enabled: false } })
-        await waitFor(() => expect(toggle).not.toBeChecked())
+        expect(patchBodies[0]).toEqual({ workflows_config: { email_workflow_run_link_tag_enabled: saved } })
+        await waitFor(() => expect(toggle).toHaveAttribute('aria-checked', String(saved)))
     })
 })
