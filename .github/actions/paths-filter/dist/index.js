@@ -42133,6 +42133,20 @@ function wrappy (fn, cb) {
 
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.ChangeStatus = void 0;
+exports.filesFromApiRow = filesFromApiRow;
+function filesFromApiRow(row) {
+    var _a, _b;
+    if (row.status === ChangeStatus.Renamed) {
+        return [
+            { filename: row.filename, status: ChangeStatus.Added, sha: (_a = row.sha) !== null && _a !== void 0 ? _a : undefined },
+            { filename: row.previous_filename, status: ChangeStatus.Deleted }
+        ];
+    }
+    if (row.status === 'removed') {
+        return [{ filename: row.filename, status: ChangeStatus.Deleted }];
+    }
+    return [{ filename: row.filename, status: row.status, sha: (_b = row.sha) !== null && _b !== void 0 ? _b : undefined }];
+}
 var ChangeStatus;
 (function (ChangeStatus) {
     ChangeStatus["Added"] = "added";
@@ -42711,6 +42725,7 @@ const filter_1 = __nccwpck_require__(9037);
 const shared_image_policy_1 = __nccwpck_require__(9229);
 const file_1 = __nccwpck_require__(3765);
 const git = __importStar(__nccwpck_require__(1243));
+const reuse = __importStar(__nccwpck_require__(2671));
 const shadow = __importStar(__nccwpck_require__(5763));
 const shell_escape_1 = __nccwpck_require__(6880);
 const csv_escape_1 = __nccwpck_require__(6146);
@@ -42737,10 +42752,25 @@ async function run() {
             return;
         }
         const filter = new filter_1.Filter(filtersYaml);
+        const reuseConfig = reuse.loadConfig(filter);
         const { files, api } = await getChangedFiles(token, base, ref, initialFetchDepth);
         core.info(`Detected ${files.length} changed files`);
         const results = filter.match(files);
-        exportResults(results, listFiles);
+        const decision = reuseConfig && api
+            ? await reuse.evaluate({
+                config: reuseConfig,
+                filter,
+                files,
+                truncated: api.apiTruncated,
+                action: github.context.payload.action,
+                before: github.context.payload.before,
+                pr: api.pr
+            }, signal => reuse.githubApi(token, signal))
+            : null;
+        exportResults((decision === null || decision === void 0 ? void 0 : decision.reuse) ? reuse.withoutReusedKeys(results, decision.keys) : results, listFiles);
+        if (decision) {
+            await reuse.publish(decision);
+        }
         if (api) {
             await shadow.report({ filter, apiFiles: files, apiResults: results, ...api });
         }
@@ -42876,28 +42906,7 @@ async function getChangedFilesFromApi(token, pullRequest) {
             for (const row of response.data) {
                 apiRows++;
                 core.info(`[${row.status}] ${JSON.stringify(row.filename)}`);
-                // There's no obvious use-case for detection of renames
-                // Therefore we treat it as if rename detection in git diff was turned off.
-                // Rename is replaced by delete of original filename and add of new filename
-                if (row.status === file_1.ChangeStatus.Renamed) {
-                    files.push({
-                        filename: row.filename,
-                        status: file_1.ChangeStatus.Added
-                    });
-                    files.push({
-                        // 'previous_filename' for some unknown reason isn't in the type definition or documentation
-                        filename: row.previous_filename,
-                        status: file_1.ChangeStatus.Deleted
-                    });
-                }
-                else {
-                    // Github status and git status variants are same except for deleted files
-                    const status = row.status === 'removed' ? file_1.ChangeStatus.Deleted : row.status;
-                    files.push({
-                        filename: row.filename,
-                        status
-                    });
-                }
+                files.push(...(0, file_1.filesFromApiRow)(row));
             }
         }
         return { files, apiRows, apiTruncated: apiRows >= API_FILE_CAP };
@@ -42962,6 +42971,330 @@ function getErrorMessage(error) {
     return String(error);
 }
 run();
+
+
+/***/ }),
+
+/***/ 2671:
+/***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
+
+"use strict";
+
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.loadConfig = loadConfig;
+exports.evaluate = evaluate;
+exports.withoutReusedKeys = withoutReusedKeys;
+exports.githubApi = githubApi;
+exports.publish = publish;
+const core = __importStar(__nccwpck_require__(7484));
+const github = __importStar(__nccwpck_require__(3228));
+const file_1 = __nccwpck_require__(3765);
+const BUDGET_MS = 20000;
+const CAPTURE_TIMEOUT_MS = 2000;
+const COMPARE_FILE_CAP = 300;
+const DETAIL_SAMPLE = 5;
+const NULL_SHA = '0000000000000000000000000000000000000000';
+const POSTHOG_HOST = 'https://us.i.posthog.com';
+const EVENT_NAME = 'posthog-ci-reuse-decision';
+const MERGE_QUEUE_BRANCH_PREFIX = 'trunk-merge/';
+const PASSING_CONCLUSIONS = ['success', 'skipped'];
+class BudgetExceeded extends Error {
+}
+function listInput(name) {
+    return core
+        .getInput(name, { required: false })
+        .split('\n')
+        .map(item => item.trim())
+        .filter(item => item.length > 0);
+}
+function loadConfig(filter) {
+    const checks = listInput('reuse-checks');
+    if (checks.length === 0) {
+        return null;
+    }
+    const known = Object.keys(filter.rules);
+    const requested = listInput('reuse-filters');
+    const unknown = requested.filter(key => !known.includes(key));
+    if (unknown.length > 0) {
+        throw new Error(`Input 'reuse-filters' names filters that do not exist: ${unknown.join(', ')}`);
+    }
+    return {
+        checks,
+        keys: requested.length > 0 ? requested : known,
+        blockingLabels: listInput('reuse-blocking-labels'),
+        disabled: core.getInput('reuse-disabled', { required: false }).toLowerCase() === 'true'
+    };
+}
+function inputsOf(filter, keys, files) {
+    const matched = filter.match(files);
+    const inputs = new Map();
+    for (const key of keys) {
+        for (const file of matched[key]) {
+            if (file.status === file_1.ChangeStatus.Deleted) {
+                inputs.set(file.filename, file.status);
+            }
+            else if (file.sha) {
+                inputs.set(file.filename, `${file.status}:${file.sha}`);
+            }
+            else {
+                return null;
+            }
+        }
+    }
+    return inputs;
+}
+function differingFiles(current, previous) {
+    const names = new Set([...current.keys(), ...previous.keys()]);
+    return [...names].filter(name => current.get(name) !== previous.get(name)).sort();
+}
+function isSha(value) {
+    return value !== undefined && /^[0-9a-f]{40}$/.test(value) && value !== NULL_SHA;
+}
+function miss(reason, detail = null) {
+    return { reuse: false, reason, detail, previousSha: null };
+}
+async function decide(input, api) {
+    var _a, _b, _c;
+    const { config, filter, pr } = input;
+    if (config.disabled) {
+        return miss('disabled');
+    }
+    if (input.action !== 'synchronize') {
+        return miss('not-a-push', (_a = input.action) !== null && _a !== void 0 ? _a : null);
+    }
+    if (((_b = pr.head.repo) === null || _b === void 0 ? void 0 : _b.full_name) !== pr.base.repo.full_name) {
+        return miss('fork');
+    }
+    if (pr.head.ref.startsWith(MERGE_QUEUE_BRANCH_PREFIX)) {
+        return miss('merge-queue');
+    }
+    const blockingLabel = pr.labels.find(label => config.blockingLabels.includes(label.name));
+    if (blockingLabel) {
+        return miss('blocking-label', blockingLabel.name);
+    }
+    if (!isSha(input.before)) {
+        return miss('no-previous-head');
+    }
+    if (input.truncated) {
+        return miss('file-list-truncated', 'current head');
+    }
+    const current = inputsOf(filter, config.keys, input.files);
+    if (current === null) {
+        return miss('error', 'a current file has no blob sha');
+    }
+    if (current.size === 0) {
+        return miss('no-inputs');
+    }
+    const previousFiles = await api.filesAt(pr.base.sha, input.before);
+    if (previousFiles === null) {
+        return miss('file-list-truncated', 'previous head');
+    }
+    const previous = inputsOf(filter, config.keys, previousFiles);
+    if (previous === null) {
+        return miss('error', 'a previous file has no blob sha');
+    }
+    const differing = differingFiles(current, previous);
+    if (differing.length > 0) {
+        return miss('inputs-changed', differing.slice(0, DETAIL_SAMPLE).join(', '));
+    }
+    const readyAt = pr.draft ? null : await api.readyForReviewAt(pr.number);
+    for (const name of config.checks) {
+        const runs = await api.checkRuns(input.before, name);
+        if (runs.length === 0) {
+            return miss('previous-not-green', `${name}: no check run`);
+        }
+        const notGreen = runs.find(run => { var _a; return !PASSING_CONCLUSIONS.includes((_a = run.conclusion) !== null && _a !== void 0 ? _a : ''); });
+        if (notGreen) {
+            return miss('previous-not-green', `${name}: ${(_c = notGreen.conclusion) !== null && _c !== void 0 ? _c : notGreen.status}`);
+        }
+        const newestStart = runs
+            .map(run => { var _a; return (_a = run.startedAt) !== null && _a !== void 0 ? _a : ''; })
+            .sort()
+            .pop();
+        if (readyAt !== null && newestStart < readyAt) {
+            return miss('previous-ran-as-draft', name);
+        }
+    }
+    return { reuse: true, reason: 'reused', detail: null, previousSha: input.before };
+}
+async function evaluate(input, apiFor) {
+    const startedAt = Date.now();
+    const controller = new AbortController();
+    let timer;
+    const expiry = new Promise((_, reject) => {
+        timer = setTimeout(() => {
+            controller.abort();
+            reject(new BudgetExceeded());
+        }, BUDGET_MS);
+    });
+    let verdict;
+    try {
+        verdict = await Promise.race([decide(input, apiFor(controller.signal)), expiry]);
+    }
+    catch (error) {
+        verdict =
+            error instanceof BudgetExceeded
+                ? miss('budget-exceeded', `${BUDGET_MS}ms`)
+                : miss('error', error instanceof Error ? error.message : String(error));
+    }
+    finally {
+        clearTimeout(timer);
+    }
+    return { ...verdict, keys: input.config.keys, durationMs: Date.now() - startedAt, pr: input.pr };
+}
+function withoutReusedKeys(results, keys) {
+    return Object.fromEntries(Object.entries(results).map(([key, files]) => [key, keys.includes(key) ? [] : files]));
+}
+const READY_FOR_REVIEW_QUERY = `
+  query ($owner: String!, $name: String!, $number: Int!) {
+    repository(owner: $owner, name: $name) {
+      pullRequest(number: $number) {
+        timelineItems(last: 1, itemTypes: [READY_FOR_REVIEW_EVENT]) {
+          nodes {
+            ... on ReadyForReviewEvent {
+              createdAt
+            }
+          }
+        }
+      }
+    }
+  }
+`;
+function githubApi(token, signal) {
+    const client = github.getOctokit(token);
+    const { owner, repo } = github.context.repo;
+    const request = { signal };
+    return {
+        async filesAt(baseSha, headSha) {
+            var _a;
+            const response = await client.rest.repos.compareCommitsWithBasehead({
+                owner,
+                repo,
+                basehead: `${baseSha}...${headSha}`,
+                per_page: 1,
+                request
+            });
+            const rows = (_a = response.data.files) !== null && _a !== void 0 ? _a : [];
+            return rows.length >= COMPARE_FILE_CAP ? null : rows.flatMap(file_1.filesFromApiRow);
+        },
+        async checkRuns(sha, name) {
+            const response = await client.rest.checks.listForRef({
+                owner,
+                repo,
+                ref: sha,
+                check_name: name,
+                filter: 'latest',
+                per_page: 100,
+                request
+            });
+            return response.data.check_runs.map(run => ({
+                status: run.status,
+                conclusion: run.conclusion,
+                startedAt: run.started_at
+            }));
+        },
+        async readyForReviewAt(pullNumber) {
+            var _a, _b;
+            const response = await client.graphql(READY_FOR_REVIEW_QUERY, {
+                owner,
+                name: repo,
+                number: pullNumber,
+                request
+            });
+            return (_b = (_a = response.repository.pullRequest.timelineItems.nodes[0]) === null || _a === void 0 ? void 0 : _a.createdAt) !== null && _b !== void 0 ? _b : null;
+        }
+    };
+}
+async function capture(apiKey, decision) {
+    const repo = process.env.GITHUB_REPOSITORY || null;
+    const pr = decision.pr;
+    const response = await fetch(`${POSTHOG_HOST}/capture/`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            api_key: apiKey,
+            event: EVENT_NAME,
+            distinct_id: repo || 'paths-filter-reuse',
+            properties: {
+                repo,
+                reused: decision.reuse,
+                reason: decision.reason,
+                detail: decision.detail,
+                filters: decision.keys,
+                previous_sha: decision.previousSha,
+                pr_number: pr.number,
+                head_sha: pr.head.sha,
+                head_ref: pr.head.ref,
+                draft: pr.draft,
+                duration_ms: decision.durationMs,
+                workflow: process.env.GITHUB_WORKFLOW || null,
+                job: process.env.GITHUB_JOB || null,
+                run_id: process.env.GITHUB_RUN_ID || null,
+                run_attempt: process.env.GITHUB_RUN_ATTEMPT || null
+            }
+        }),
+        signal: AbortSignal.timeout(CAPTURE_TIMEOUT_MS)
+    });
+    if (!response.ok) {
+        throw new Error(`capture ${response.status}`);
+    }
+}
+async function publish(decision) {
+    var _a;
+    core.setOutput('reused', decision.reuse);
+    core.setOutput('reused_from', (_a = decision.previousSha) !== null && _a !== void 0 ? _a : '');
+    const filters = decision.keys.join(', ');
+    if (decision.reuse) {
+        const message = `No file that the ${filters} filters match changed since ${decision.previousSha}, where this workflow passed. Those filters report no changes, so the jobs they gate are skipped and the earlier result stands.`;
+        core.notice(message, { title: 'Earlier CI result reused' });
+        await core.summary
+            .addRaw(`**Earlier CI result reused.** ${message}`, true)
+            .write()
+            .catch(() => undefined);
+    }
+    else {
+        core.info(`reuse: not reused (${decision.reason}${decision.detail ? `: ${decision.detail}` : ''})`);
+    }
+    const apiKey = process.env.PATHS_FILTER_REUSE_POSTHOG_TOKEN;
+    if (apiKey) {
+        await capture(apiKey, decision).catch(error => {
+            core.info(`reuse: capture skipped (${error instanceof Error ? error.message : String(error)})`);
+        });
+    }
+}
 
 
 /***/ }),

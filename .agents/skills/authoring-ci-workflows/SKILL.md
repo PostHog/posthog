@@ -1,7 +1,7 @@
 ---
 name: authoring-ci-workflows
 description: >
-  Use when adding or editing a GitHub Actions workflow, composite action, reusable workflow, or `actions.lock` under `.github/`: new CI jobs, triggers, matrices, checkout/clone tuning, action pinning and lockfiles, GitHub App token auth, concurrency groups, `timeout-minutes`, `paths` filters, caching, or runner choice.
+  Use when adding or editing a GitHub Actions workflow, composite action, reusable workflow, or `actions.lock` under `.github/`: new CI jobs, triggers, matrices, checkout/clone tuning, action pinning and lockfiles, GitHub App token auth, concurrency groups, `timeout-minutes`, `paths` filters, reusing an earlier passing result, caching, or runner choice.
   Covers PostHog's workflow-authoring conventions and the reasons behind them: the 500-runs/10s dispatch cap, shallow vs full clone, per-SHA push concurrency, dedicated App-token rate-limit buckets, and fork-safe secrets on a public repo.
   Points to the linters (`bin/hogli lint:workflows`, actionlint) that enforce the mechanical rules, and to the narrower skills for production deploys, secrets, and Depot runners.
   Not for debugging red CI (use debugging-ci-failures) or wiring a new secret end to end (use managing-github-actions-secrets).
@@ -281,6 +281,7 @@ Measured checkout-step durations, from the GitHub API on real runs:
   Name any file a step reads that way in the sparse set — `ci-dagster.yml` does this for `docker-compose.base.yml`, whose contents feed a cache key.
 
 - **`changes` / paths-filter gating jobs:** on `pull_request` the vendored `.github/actions/paths-filter` diffs via the GitHub API and never touches the tree.
+  Its opt-in reuse of an earlier passing result also reads only the API (see [Reusing an earlier passing result](#reusing-an-earlier-passing-result)).
   The only reason to check out is that a local action must exist on disk, so sparse-checkout `.github/actions/paths-filter` plus any file the job's own steps read.
   **Never pass `base: HEAD` to paths-filter from a sparse job** — that routes it to `git diff HEAD`, which a sparse worktree makes return nothing, so every downstream job silently skips green.
 
@@ -427,6 +428,7 @@ Details: `/depot-github-runners`.
 The merge gate is the merge queue's run on a `trunk-merge/` branch.
 So a heavy suite runs its narrowed subset on drafts _and_ on ready PRs, and only the queue run takes the full matrix.
 `ci-backend.yml`, `ci-frontend.yml`, `ci-storybook.yml`, and `ci-e2e-playwright.yml` all work this way.
+A later push that changes none of a suite's files can skip it instead (see [Reusing an earlier passing result](#reusing-an-earlier-passing-result)).
 Exclude the queue with `!startsWith(github.head_ref, 'trunk-merge/')`, or with `draft != true` since those PRs open as drafts — not with `draft == true`.
 
 Still add `ready_for_review` to the `pull_request` types — a `no-ci` draft skips the workflow outright, and that event is what gives it a run — and make aggregator "... Tests Pass" jobs treat `skipped` as success so drafts still report.
@@ -460,6 +462,9 @@ It takes effect on the next push, or when the PR is marked ready for review. An 
 git commit --allow-empty -m "chore(ci): run the full matrix" && git push
 ```
 
+The empty commit works because both labels are in `reuse-blocking-labels`.
+Without a blocking label, an empty commit changes no file, so a workflow that reuses results skips its suite and keeps the previous verdict.
+
 Do not add `labeled`/`unlabeled` back to a merge gate's `on.pull_request.types` to avoid that push.
 GitHub cannot filter a label trigger by name, so every unrelated label re-runs the full matrices against a commit CI has already covered.
 Guarding it inside the workflow is worse: skipping the gate job cascades to the `if: !cancelled()` aggregator, which counts a skipped dependency as success and posts a green required check with no tests behind it.
@@ -481,6 +486,43 @@ Copy the shape from `capture-jest-selection` in `ci-frontend.yml`:
 What this still does not answer is whether a narrowed run would have **caught** what broke.
 Only backend scores that, in `tools/test_selection_verdict.py`, which reads the run's JUnit and reports recall.
 The cheap oracle for the rest is the queue: the `trunk-merge/**` run tests the same code with the full suite, so a failure there whose file was reachable from the diff and was not selected is a miss, at no extra compute.
+
+### Reusing an earlier passing result
+
+Without reuse, every push to a PR re-runs each suite whose filter matches anything in the whole PR, even when the push touched none of its files.
+The vendored paths-filter can instead report its filters as unchanged when the files they match are identical to the previous head's and the named checks passed there.
+The gated jobs skip and the gate passes through its "nothing to test" path.
+The [paths-filter README](../../../.github/actions/paths-filter/README.md#reusing-an-earlier-passing-result-opt-in) owns the inputs, outputs, and the conditions under which it never reuses.
+`ci-frontend.yml`, `ci-storybook.yml`, `ci-rust.yml`, `ci-nodejs.yml`, `ci-e2e-playwright.yml`, `ci-mcp.yml`, `ci-python.yml` and `.depot/workflows/ci-backend.yml` use it, all behind the `DISABLE_CI_REUSE` repository variable.
+
+Adopt it only where two things already hold: the gate treats `skipped` as success, and the merge queue runs the full suite.
+Reuse compares the PR's own changed files, not the base, so a rebase that leaves them alone keeps the old result. The queue run never reuses, and it is what catches a break from master.
+
+The judgment calls when you adopt or change it:
+
+- **Scope only the filters that can clear.**
+  All filters in `reuse-filters` are compared as one set and cleared together, so one broad filter (`'**'`) in scope means reuse never fires.
+  Leave such filters out; they keep answering from the real file list. `ci-frontend.yml` is the reference: it scopes four filters and leaves `all_files` out.
+- **`reuse-checks` names every check whose failure must stop a reuse.**
+  That is the required gate, plus any job the scoped filters gate that is not in the gate's `needs`.
+  `ci-rust.yml` names `PersonHog e2e gate`, and backend names the `product.yaml` owners job.
+  A job that is missing from both shows as skipped after a reuse, even when it failed on the previous head.
+- **A check name that embeds a runner label is brittle.**
+  Renaming the job or its runner silently stops reuse, and the only sign is `previous-not-green` with `no check run` in the `posthog-ci-reuse-decision` events.
+  When you rename a job, update `reuse-checks` in the same change.
+- **Labels that force a fuller run go in `reuse-blocking-labels`** (`run-ci-backend`, `run-ci-frontend`, `test-new-events-schema`).
+- **Anything that acts on a filter being `false` must also check `reused`.**
+  After a reuse, `false` means "unchanged since a green run", not "nothing here".
+  Backend's coverage cleanup is the example: it clears stale coverage only when `needs.changes.outputs.reused != 'true'`.
+- **Without `ready_for_review` in the trigger types, the first push after a draft is marked ready always runs.**
+  The action refuses a previous run that started before the PR was ready, and `ci-rust.yml` and `ci-nodejs.yml` have a bare `pull_request:` trigger.
+- **A gate that can pass without the suite having run weakens the chain.**
+  Playwright's debounce skips a superseded run and its gate still passes, so the next push can reuse a green result that tested nothing.
+  Do not add another pass-without-running path to a gate that reuse reads.
+- **Declaring outputs in the action's `action.yml` changes the object type** that the ignore pattern in `.github/actionlint.yaml` anchors on.
+  Update both patterns in the same change, or actionlint fails on every per-filter output.
+
+Before you widen reuse, read the measured alternatives in [things already tried](../../../docs/internal/ci-things-already-tried.md#treat-comment-only-or-formatting-only-edits-as-unchanged-for-reuse).
 
 ## The hourly master lane
 

@@ -248,6 +248,7 @@ jobs:
             repo_invariants: ${{ steps.filter.outputs.repo_invariants || 'false' }}
             sdk_manifests: ${{ steps.filter.outputs.sdk_manifests || 'true' }}
             product_yamls_files: ${{ steps.filter.outputs.product_yamls_files }}
+            reused: ${{ steps.filter.outputs.reused }}
         steps:
             # For pull requests it's not necessary to checkout the code, but we
             # also want this to run on master so we need to checkout
@@ -276,9 +277,18 @@ jobs:
               # .agents/skills/authoring-ci-workflows/SKILL.md for why a cron cannot
               # diff, and what breaks if this guard is dropped.
               if: github.event_name != 'push' && github.event_name != 'schedule'
+              env:
+                  PATHS_FILTER_REUSE_POSTHOG_TOKEN: ${{ secrets.POSTHOG_DEVEX_PROJECT_API_TOKEN }}
               with:
                   token: ${{ steps.app-token.outputs.token || github.token }}
                   list-files: 'escape'
+                  reuse-checks: |
+                      Backend CI on Depot / Django Tests Pass on Depot
+                      Backend CI on Depot / Validate product.yaml owners (depot-ubuntu-24.04)
+                  reuse-blocking-labels: |
+                      run-ci-backend
+                      test-new-events-schema
+                  reuse-disabled: ${{ vars.DISABLE_CI_REUSE }}
                   filters: |
                       backend:
                         # Avoid running backend tests for irrelevant changes
@@ -4679,6 +4689,7 @@ jobs:
                   github.event_name == 'pull_request' &&
                   github.event.pull_request.draft == false &&
                   needs.changes.outputs.backend == 'false' &&
+                  needs.changes.outputs.reused != 'true' &&
                   needs.django.result == 'skipped' &&
                   needs.turbo-tests.result == 'skipped' &&
                   needs.django_tests.result == 'success'

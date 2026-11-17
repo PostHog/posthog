@@ -91,6 +91,7 @@ jobs:
                   # This workflow opts in for the whole repository. It runs on every pull
                   # request, so one wiring covers every shape the comparison needs to see.
                   PATHS_FILTER_SHADOW_POSTHOG_TOKEN: ${{ secrets.POSTHOG_DEVEX_PROJECT_API_TOKEN }}
+                  PATHS_FILTER_REUSE_POSTHOG_TOKEN: ${{ secrets.POSTHOG_DEVEX_PROJECT_API_TOKEN }}
               # Skipped on master push and on the hourly schedule: every output then
               # defaults to true. See "The hourly master lane" in
               # .agents/skills/authoring-ci-workflows/SKILL.md for why a cron cannot
@@ -99,6 +100,8 @@ jobs:
               with:
                   token: ${{ steps.app-token.outputs.token || github.token }}
                   list-files: 'escape'
+                  reuse-checks: Python code quality checks
+                  reuse-disabled: ${{ vars.DISABLE_CI_REUSE }}
                   filters: |
                       # Consumed as a file list (complexity_files) by the changed-file
                       # complexity check — the PR files API, not a hand-rolled git diff.

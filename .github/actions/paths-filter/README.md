@@ -65,6 +65,58 @@ changed:
   - added|modified: ['src/**', '!src/vendor/**']
 ```
 
+## Reusing an earlier passing result (opt-in)
+
+A pull request's filters answer for the whole pull request, so a suite that ran on the first push runs again on every later push, even one that touches none of its files.
+Set `reuse-checks` to stop that: when a push changes no file the scoped filters match, and the named checks passed on the previous head, the action reports those filters as unchanged.
+The jobs they gate are skipped, the gate reads the skips as a pass, and the earlier result stands.
+
+```yaml
+- uses: ./.github/actions/paths-filter
+  id: filter
+  with:
+    reuse-checks: Frontend Tests Pass
+    reuse-filters: |
+      frontend
+      frontend_code
+    reuse-blocking-labels: run-ci-frontend
+    reuse-disabled: ${{ vars.DISABLE_CI_REUSE }}
+    filters: |
+      frontend:
+        - 'frontend/**'
+```
+
+| Input                   | Meaning                                                                                                                     |
+| ----------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| `reuse-checks`          | Check run names, one per line. Each must have concluded `success` or `skipped` on the previous head. Empty turns reuse off. |
+| `reuse-filters`         | The filters reuse applies to, one per line. Defaults to every filter in the step.                                           |
+| `reuse-blocking-labels` | Labels that turn reuse off, for the labels that force a fuller run.                                                         |
+| `reuse-disabled`        | `'true'` turns reuse off. Wire it to a repository variable to have a kill switch.                                           |
+
+The outputs `reused` and `reused_from` say whether a result was reused and from which commit.
+
+The action reuses a result only when every one of these holds, and runs the suite otherwise:
+
+- The event is a push to a same-repository pull request (`synchronize`) that is not a merge queue branch.
+- The files the scoped filters match are the same set, with the same change status and the same content, on the previous head and on this one.
+  The comparison uses each file's blob SHA from the API, so a formatting-only edit counts as a change.
+- Every named check has a run on the previous head and none of them failed, was cancelled, or is still running.
+- On a pull request that is ready for review, the newest of those runs started after it was marked ready, because a draft can run a narrower suite.
+- Neither file list is truncated (3,000 files for this head, 300 for the previous one), and every API call succeeded within 20 seconds.
+
+Scope decides how often this fires.
+All scoped filters are compared as one set and cleared together, so one broad filter in the scope (`'**'`) makes every push count as a change.
+Leave such a filter out of `reuse-filters`; it keeps answering from the real file list.
+
+The comparison covers the files the pull request changes, not the base branch.
+A rebase that leaves those files alone reuses the earlier result even though master moved underneath.
+The merge queue run never reuses a result, so it still tests the real merge.
+
+Name every check whose failure should stop a reuse.
+A job that the scoped filters gate but no named check covers shows as skipped after a reuse, even when it failed on the previous head.
+
+Set `PATHS_FILTER_REUSE_POSTHOG_TOKEN` on the step to record each decision as a `posthog-ci-reuse-decision` event, with a closed `reason` and a free-text `detail`.
+
 ## Shadow comparison (opt-in)
 
 Set `PATHS_FILTER_SHADOW_POSTHOG_TOKEN` on a step to have that run compare the API's

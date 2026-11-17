@@ -78,8 +78,12 @@ jobs:
               # .agents/skills/authoring-ci-workflows/SKILL.md for why a cron cannot
               # diff, and what breaks if this guard is dropped.
               if: github.event_name != 'push' && github.event_name != 'schedule'
+              env:
+                  PATHS_FILTER_REUSE_POSTHOG_TOKEN: ${{ secrets.POSTHOG_DEVEX_PROJECT_API_TOKEN }}
               with:
                   token: ${{ steps.app-token.outputs.token || github.token }}
+                  reuse-checks: MCP Tests Pass
+                  reuse-disabled: ${{ vars.DISABLE_CI_REUSE }}
                   filters: |
                       mcp:
                         # MCP service and per-product tool/UI-app configs
