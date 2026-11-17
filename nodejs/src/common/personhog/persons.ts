@@ -45,6 +45,24 @@ export class PersonhogPropertiesSizeError extends Error {
 }
 
 /**
+ * The leader read the person's stored row and cannot parse its properties.
+ * The row reads the same on every retry, so the pipeline dead-letters the
+ * event instead of retrying it.
+ */
+export class PersonhogUnprocessablePersonError extends Error {
+    readonly isRetriable = false
+
+    constructor(
+        message: string,
+        public readonly teamId: number,
+        public readonly personId: string
+    ) {
+        super(message)
+        this.name = 'PersonhogUnprocessablePersonError'
+    }
+}
+
+/**
  * The leader knows no such person: deleted, or merged into another. The
  * persons store redirects the ops to the survivor, so the retry layer files
  * this under handled verdicts rather than terminal errors. Still a
@@ -229,6 +247,9 @@ export class PersonHogPersonOperations {
         } catch (error) {
             if (error instanceof ConnectError && error.code === Code.NotFound) {
                 return null
+            }
+            if (error instanceof ConnectError && error.code === Code.DataLoss) {
+                throw new PersonhogUnprocessablePersonError(error.rawMessage, teamId, personId)
             }
             throw error
         }

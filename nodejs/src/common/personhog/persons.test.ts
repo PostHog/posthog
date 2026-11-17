@@ -16,6 +16,7 @@ import {
     PersonhogFencedError,
     PersonhogPersonNotFoundError,
     PersonhogPropertiesSizeError,
+    PersonhogUnprocessablePersonError,
 } from './persons'
 
 const textEncoder = new TextEncoder()
@@ -206,6 +207,21 @@ describe('PersonHogPersonOperations', () => {
             // team 1: 2 batches (250 + 50), team 2: 1 batch (100)
             expect(handler).toHaveBeenCalledTimes(3)
             expect(results).toHaveLength(400)
+        })
+    })
+
+    describe('fetchPersonById', () => {
+        it('marks a person whose stored row the leader cannot parse as non-retriable', async () => {
+            const { ops } = createOperations({
+                getPerson: () => {
+                    throw new ConnectError('stored person properties cannot be parsed', Code.DataLoss)
+                },
+            })
+
+            const error = await ops.fetchPersonById(7, '42', undefined, { consistency: 'strong' }).catch((e) => e)
+
+            expect(error).toBeInstanceOf(PersonhogUnprocessablePersonError)
+            expect(error.isRetriable).toBe(false)
         })
     })
 

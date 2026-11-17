@@ -34,7 +34,7 @@ use crate::fencing::FencedProducerConfig;
 use crate::fencing::{FencedChangelogProducers, FencedProduceError};
 use crate::inflight::{InflightGuard, InflightTracker};
 use crate::person_update::{apply_property_updates, compute_event_property_updates};
-use crate::pg::{load_person_from_pg, PgFallback};
+use crate::pg::{load_person_from_pg, LoadError, PgFallback};
 use crate::recovery::ChangelogRecovery;
 use crate::warnings::{SizeViolationWarning, WarningsProducer};
 use personhog_common::properties::{
@@ -87,6 +87,12 @@ struct Committer {
     fenced: Arc<FencedChangelogProducers>,
     /// Shared with the service; a mark names the partition's captured topic.
     captures: ChangelogCaptures,
+}
+
+/// DATA_LOSS is outside every retry set, so the caller can dead-letter
+/// the event instead of retrying a row that reads the same each time.
+fn unprocessable_person_status() -> Status {
+    Status::data_loss("stored person properties cannot be parsed")
 }
 
 fn not_served(partition: u32) -> Status {
@@ -467,7 +473,21 @@ impl PersonHogLeaderService {
                     key.team_id, key.person_id
                 )))
             }
-            Err(e) => {
+            Err(LoadError::UnprocessableProperties(reason)) => {
+                counter!(
+                    "personhog_leader_person_loads_total",
+                    "source" => "pg", "outcome" => "unprocessable"
+                )
+                .increment(1);
+                tracing::error!(
+                    team_id = key.team_id,
+                    person_id = key.person_id,
+                    reason,
+                    "stored person properties cannot be parsed"
+                );
+                Err(unprocessable_person_status())
+            }
+            Err(LoadError::Query(e)) => {
                 counter!(
                     "personhog_leader_person_loads_total",
                     "source" => "pg", "outcome" => "error"
@@ -535,7 +555,18 @@ impl PersonHogLeaderService {
                 counter!("personhog_leader_revivals_total", "outcome" => "tombstoned").increment(1);
                 Ok(person)
             }
-            Err(e) => {
+            Err(LoadError::UnprocessableProperties(reason)) => {
+                counter!("personhog_leader_revivals_total", "outcome" => "unprocessable")
+                    .increment(1);
+                tracing::error!(
+                    team_id = key.team_id,
+                    person_id = key.person_id,
+                    reason,
+                    "stored person properties cannot be parsed"
+                );
+                Err(unprocessable_person_status())
+            }
+            Err(LoadError::Query(e)) => {
                 counter!("personhog_leader_revivals_total", "outcome" => "load_error").increment(1);
                 counter!("personhog_leader_pg_fallback_errors_total").increment(1);
                 tracing::error!(

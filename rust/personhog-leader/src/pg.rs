@@ -59,6 +59,61 @@ pub fn validate_table_name(table: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// Why a fallback load produced no person.
+#[derive(Debug)]
+pub enum LoadError {
+    Query(sqlx::Error),
+    /// The row was read, but its properties cannot be parsed. A retry reads the same bytes.
+    UnprocessableProperties(String),
+}
+
+impl std::fmt::Display for LoadError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Query(e) => e.fmt(f),
+            Self::UnprocessableProperties(reason) => f.write_str(reason),
+        }
+    }
+}
+
+impl From<sqlx::Error> for LoadError {
+    fn from(e: sqlx::Error) -> Self {
+        Self::Query(e)
+    }
+}
+
+/// Parses the stored properties of one row.
+fn parse_stored_properties(
+    properties_text: &str,
+    team_id: i32,
+    id: i64,
+) -> Result<serde_json::Value, LoadError> {
+    match serde_json::from_str(properties_text) {
+        Ok(value) => Ok(value),
+        // Out-of-range numerics from other writers: rewrite to what
+        // JSON.parse would read (rounding, clamping beyond f64) instead
+        // of leaving the person permanently unloadable. Admission's
+        // sanitizer persists the healed form on the next write-through.
+        Err(strict_err) => {
+            match serde_json::from_str(&rewrite_out_of_range_numbers(properties_text)) {
+                Ok(value) => {
+                    counter!("personhog_leader_pg_properties_rewritten_total").increment(1);
+                    tracing::warn!(
+                        team_id,
+                        person_id = id,
+                        "rewrote out-of-range numerics in stored person properties"
+                    );
+                    Ok(value)
+                }
+                Err(rewritten_err) => Err(LoadError::UnprocessableProperties(format!(
+                    "person properties unparseable (team_id={team_id}, person_id={id}): \
+                     {strict_err}; after numeric rewrite: {rewritten_err}"
+                ))),
+            }
+        }
+    }
+}
+
 /// Reads a person from the configured fallback table — the table the
 /// writer maintains. Used as a fallback when the leader's cache doesn't
 /// have the person.
@@ -66,12 +121,13 @@ pub async fn load_person_from_pg(
     pool: &PgPool,
     table: &str,
     key: &PersonCacheKey,
-) -> Result<Option<CachedPerson>, sqlx::Error> {
+) -> Result<Option<CachedPerson>, LoadError> {
     let start = Instant::now();
     let mut conn = acquire_timed(pool, "load_person").await?;
 
     let team_id_i32 = i32::try_from(key.team_id)
-        .map_err(|_| sqlx::Error::Protocol(format!("team_id {} exceeds i32 range", key.team_id)))?;
+        .map_err(|_| sqlx::Error::Protocol(format!("team_id {} exceeds i32 range", key.team_id)))
+        .map_err(LoadError::Query)?;
 
     // properties comes back as text and is parsed here rather than through
     // sqlx's jsonb decode: rows written by other services can hold numerics
@@ -115,39 +171,14 @@ pub async fn load_person_from_pg(
     let is_identified: bool = row.get("is_identified");
     let last_seen_at: Option<chrono::DateTime<chrono::Utc>> = row.get("last_seen_at");
 
-    let properties: serde_json::Value = match serde_json::from_str(properties_text) {
-        Ok(value) => value,
-        // Out-of-range numerics from other writers: rewrite to what
-        // JSON.parse would read (rounding, clamping beyond f64) instead
-        // of leaving the person permanently unloadable. Admission's
-        // sanitizer persists the healed form on the next write-through.
-        Err(strict_err) => {
-            match serde_json::from_str(&rewrite_out_of_range_numbers(properties_text)) {
-                Ok(value) => {
-                    counter!("personhog_leader_pg_properties_rewritten_total").increment(1);
-                    tracing::warn!(
-                        team_id,
-                        person_id = id,
-                        "rewrote out-of-range numerics in stored person properties"
-                    );
-                    value
-                }
-                Err(rewritten_err) => {
-                    return Err(sqlx::Error::Protocol(format!(
-                        "person properties unparseable (team_id={team_id}, person_id={id}): \
-                     {strict_err}; after numeric rewrite: {rewritten_err}"
-                    )));
-                }
-            }
-        }
-    };
+    let properties = parse_stored_properties(properties_text, team_id, id)?;
 
     counter!("personhog_leader_pg_fallback_total", "outcome" => "found").increment(1);
 
     let properties_bytes = serde_json::to_vec(&properties).map_err(|e| {
-        sqlx::Error::Protocol(format!(
+        LoadError::Query(sqlx::Error::Protocol(format!(
             "person properties reserialize failed (team_id={team_id}, person_id={id}): {e}"
-        ))
+        )))
     })?;
     Ok(Some(CachedPerson {
         id,
@@ -162,4 +193,18 @@ pub async fn load_person_from_pg(
         is_deleted: false,
         last_seen_at: last_seen_at.map(|t| t.timestamp_millis()),
     }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn properties_nested_past_the_parser_limit_are_unprocessable() {
+        let nested = format!("{{\"a\":{}1{}}}", "[".repeat(200), "]".repeat(200));
+        assert!(matches!(
+            parse_stored_properties(&nested, 1, 1),
+            Err(LoadError::UnprocessableProperties(_))
+        ));
+    }
 }
