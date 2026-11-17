@@ -12,6 +12,7 @@
 //	phrocs stop [--timeout N]                          # stop detached process via IPC
 //	phrocs attach                                      # polling TUI against a detached process
 //	phrocs evals --fd N                                # live view of an eval harness run
+//	phrocs mcp                                         # MCP server over stdio for the running phrocs
 //	phrocs --version
 //
 // Flags:
@@ -70,6 +71,7 @@ Usage:
   phrocs stop [--timeout N]                 stop the detached process gracefully
   phrocs attach                             polling status client against a detached process
   phrocs evals --fd N                       live view of an eval harness run (started by hogli evals)
+  phrocs mcp                                MCP server over stdio for the phrocs running in this directory
   phrocs --version`)
 }
 
@@ -79,7 +81,7 @@ func parseArgs(args []string) (parsedArgs, error) {
 	// First pass: if the first arg is a known subcommand, consume it.
 	if len(args) > 0 {
 		switch args[0] {
-		case "wait", "stop", "attach", "detach", "evals":
+		case "wait", "stop", "attach", "detach", "evals", "mcp":
 			pa.subcommand = args[0]
 			i = 1
 		}
@@ -145,6 +147,8 @@ func main() {
 		os.Exit(runStop(pa.timeout))
 	case "attach":
 		os.Exit(runAttach())
+	case "mcp":
+		os.Exit(runMCP())
 	case "evals":
 		if pa.fd == 0 {
 			fmt.Fprintln(os.Stderr, "phrocs: evals requires --fd")

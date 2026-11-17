@@ -5,7 +5,7 @@ from functools import partial
 from uuid import UUID
 
 from django.db import transaction
-from django.db.models import Exists, F, OuterRef, Q, QuerySet, Subquery
+from django.db.models import Exists, F, OuterRef, Q, QuerySet, Subquery, Sum
 from django.db.models.functions import Coalesce
 from django.utils import timezone
 
@@ -16,6 +16,7 @@ from posthog.models.instance_setting import get_instance_settings
 
 from products.ai_observability.backend.models.datasets import Dataset, DatasetItem, DatasetItemVersion, DatasetRevision
 from products.ai_observability.backend.models.offline_evaluations import OfflineExperiment, OfflineExperimentItem
+from products.ai_observability.backend.retention_metrics import JsonByteLength
 
 logger = structlog.get_logger(__name__)
 
@@ -146,6 +147,7 @@ class DatasetRetention:
         self.datasets_expired = 0
         self.revisions_expired = 0
         self.versions_deleted = 0
+        self.payload_bytes_deleted = 0
         self.datasets_deleted = 0
         self.datasets_failed = 0
         self.budget_exhausted = False
@@ -199,8 +201,19 @@ class DatasetRetention:
             DatasetItem.objects.for_team(dataset.team_id, canonical=True).filter(
                 dataset_id=dataset.id, current_version_id__in=removable_ids
             ).update(current_version=None)
-        versions.filter(id__in=removable_ids).only("id").delete()
+        removable = versions.filter(id__in=removable_ids)
+        payload_bytes = removable.aggregate(
+            total=Sum(
+                JsonByteLength("input")
+                + JsonByteLength("expected_output")
+                + JsonByteLength("source_output")
+                + JsonByteLength("metadata"),
+                default=0,
+            )
+        )["total"]
+        removable.only("id").delete()
         self.versions_deleted += len(removable_ids)
+        self.payload_bytes_deleted += payload_bytes
 
     @staticmethod
     def _delete_revisions(dataset: Dataset, revisions: QuerySet[DatasetRevision], ids: list[UUID]) -> None:
@@ -288,7 +301,13 @@ class DatasetRetention:
 
     def _clean_dataset(self, team_id: int, dataset_id: UUID) -> None:
         failure: Exception | None = None
-        before = (self.datasets_expired, self.revisions_expired, self.versions_deleted, self.datasets_deleted)
+        before = (
+            self.datasets_expired,
+            self.revisions_expired,
+            self.versions_deleted,
+            self.datasets_deleted,
+            self.payload_bytes_deleted,
+        )
         with transaction.atomic():
             dataset = (
                 Dataset.objects.for_team(team_id, canonical=True)
@@ -310,6 +329,7 @@ class DatasetRetention:
                         "revisions_expired": self.revisions_expired - before[1],
                         "versions_deleted": self.versions_deleted - before[2],
                         "datasets_deleted": self.datasets_deleted - before[3],
+                        "payload_bytes_deleted": self.payload_bytes_deleted - before[4],
                     }
                     if any(counts.values()):
                         transaction.on_commit(
@@ -376,6 +396,7 @@ class DatasetRetention:
             revisions_expired = self.revisions_expired
             versions_deleted = self.versions_deleted
             datasets_deleted = self.datasets_deleted
+            payload_bytes_deleted = self.payload_bytes_deleted
             try:
                 self._clean_dataset(team_id, dataset_id)
             except Exception as error:
@@ -383,6 +404,7 @@ class DatasetRetention:
                 self.revisions_expired = revisions_expired
                 self.versions_deleted = versions_deleted
                 self.datasets_deleted = datasets_deleted
+                self.payload_bytes_deleted = payload_bytes_deleted
                 self.datasets_failed += 1
                 if isinstance(error, SoftTimeLimitExceeded):
                     raise

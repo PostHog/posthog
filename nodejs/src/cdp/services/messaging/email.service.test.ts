@@ -2868,6 +2868,53 @@ describe('EmailService', () => {
             )
         })
 
+        const skipGates = {
+            'a suspended team': () =>
+                hub.postgres.query(
+                    PostgresUse.COMMON_WRITE,
+                    `INSERT INTO workflows_teamworkflowsconfig
+                        (team_id, capture_workflows_engagement_events, email_tracking_consent_mode,
+                         email_sending_suspended_at, email_sending_suspension_reason)
+                     VALUES ($1, false, 'off', now(), 'testing the skip outcome')
+                     ON CONFLICT (team_id) DO UPDATE SET email_sending_suspended_at = now()`,
+                    [team.id],
+                    'test-suspend-email-sending'
+                ),
+            'a paused workflow': () => workflowPaused(),
+            'a missing recipient': () => recipientMissing(),
+            'a suppressed recipient': () =>
+                new EmailSuppressionService(hub.postgres, emailSuppressionConfigFromEnv()).recordHardBounces(team.id, [
+                    'test@example.com',
+                ]),
+        }
+
+        it.each([
+            ['a suspended team', 'warn'],
+            ['a paused workflow', 'error'],
+            ['a missing recipient', 'warn'],
+            ['a suppressed recipient', 'info'],
+        ] as const)('logs the skip for %s at %s level', async (gate, logLevel) => {
+            await skipGates[gate]()
+
+            const result = await service.executeSendEmail(invocation)
+
+            const skipLog = result.logs.find((log) => log.message === result.emailSendResult?.reason)
+            expect(skipLog?.level).toBe(logLevel)
+        })
+
+        it.each([
+            ['a suspended team', false],
+            ['a paused workflow', true],
+            ['a missing recipient', true],
+            ['a suppressed recipient', false],
+        ] as const)('%s sets the skipped flag to %s', async (gate, skipped) => {
+            await skipGates[gate]()
+
+            const result = await service.executeSendEmail(invocation)
+
+            expect(result.skipped ?? false).toBe(skipped)
+        })
+
         it('records a send-time metric for normal sends but not for test sends', async () => {
             const normal = await service.executeSendEmail(invocation)
             expect(normal.metrics.map((m) => m.metric_name)).toContain('email_sent')
