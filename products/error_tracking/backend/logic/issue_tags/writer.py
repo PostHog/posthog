@@ -64,7 +64,9 @@ def set_issue_tag(
             if tag.source in sources_above:
                 return False
             before, updated_at = _replace_tag(tags, tag, fields)
-        if before != after:
+        # A rule answer tells whether the event matched a property that some members may not read, and every member
+        # can read the activity log. So the log holds no rule answer, as a change or as the value a correction replaced.
+        if before != after and source != ErrorTrackingIssueTag.Source.RULE:
             _log_tag_change(issue, answer.set_by, was_impersonated, before, after, strict=True)
         _sync_tag_on_commit(issue, key, answer.value, updated_at)
     return True
@@ -124,12 +126,17 @@ def _carried_label_replaces(label: ErrorTrackingIssueTag, current: ErrorTracking
 
 def _replace_tag(
     tags: QuerySet[ErrorTrackingIssueTag], tag: ErrorTrackingIssueTag, fields: Mapping[str, object]
-) -> tuple[dict[str, object], datetime]:
-    """Overwrite the locked row with `fields`. Return the answer it held, for the activity log, and its new updated_at."""
+) -> tuple[dict[str, object] | None, datetime]:
+    """Overwrite the locked row with `fields`. Return the answer it held, for the activity log, and its new updated_at.
+
+    The answer is None when a rule wrote it, because the activity log holds no rule answer.
+    """
     # Pods do not share one clock, so a later write can read an earlier time. Each write to the
     # locked row moves updated_at forward, which keeps the ClickHouse versions of a tag in commit order.
     updated_at = max(timezone.now(), tag.updated_at + timedelta(microseconds=1))
     tags.filter(pk=tag.pk).update(**fields, updated_at=updated_at)
+    if tag.source == ErrorTrackingIssueTag.Source.RULE:
+        return None, updated_at
     return {"key": tag.key, "value": tag.value, "source": tag.source}, updated_at
 
 

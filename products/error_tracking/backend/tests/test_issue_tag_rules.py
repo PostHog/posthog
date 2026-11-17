@@ -14,6 +14,7 @@ from posthog.hogql.parser import parse_program
 
 from posthog.constants import AvailableFeature
 from posthog.models import Team, User
+from posthog.models.activity_logging.activity_log import ActivityLog
 
 from products.access_control.backend.facade.api import upsert_property_access_control
 from products.access_control.backend.facade.contracts import (
@@ -113,6 +114,26 @@ class TestIssueTagRules(BaseTest):
             self.unhandled.key: Source.RULE,
         }
         assert tags.get(key=self.big_order.key).value is False
+
+    def test_a_rule_match_writes_no_activity_and_a_correction_does_not_log_it(self) -> None:
+        issue = ErrorTrackingIssue.objects.create(team=self.team)
+        activity = ActivityLog.objects.filter(team_id=self.team.id, scope="ErrorTrackingIssue", item_id=str(issue.id))
+
+        run_issue_taggers(self.team.id, issue.id, lambda team: BIG_UNHANDLED_ORDER)
+        assert not activity.exists()
+
+        correct_issue_tag(
+            self.team.id, issue.id, self.big_order.key, applied=False, user=self.user, was_impersonated=False
+        )
+        assert [change for entry in activity for change in (entry.detail or {}).get("changes", [])] == [
+            {
+                "type": "ErrorTrackingIssue",
+                "action": "created",
+                "field": "tag",
+                "before": None,
+                "after": {"key": self.big_order.key, "value": False, "source": Source.MANUAL},
+            }
+        ]
 
     def test_a_rule_applies_to_and_shows_for_its_own_team_only(self) -> None:
         other_team = Team.objects.create(organization=self.organization)
