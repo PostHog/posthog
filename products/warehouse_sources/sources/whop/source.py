@@ -114,7 +114,8 @@ class WhopSource(
                             "dashboard. Grant it read access to the resources you want to sync: "
                             "`company:basic:read`, `member:basic:read`, `payment:basic:read`, "
                             "`access_pass:basic:read`, `plan:basic:read`, `promo_code:basic:read`, "
-                            "`invoice:basic:read` and `social_account:read`, plus `developer:manage_webhook` if "
+                            "`invoice:basic:read`, `social_account:read`, `payout:withdrawal:read` and "
+                            "`company:balance:read`, plus `developer:manage_webhook` if "
                             "you want PostHog to register the webhook for you."
                         ),
                         secret=True,

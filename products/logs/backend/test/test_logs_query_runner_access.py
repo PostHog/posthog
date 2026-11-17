@@ -7,6 +7,9 @@ from posthog.schema import DateRange, FilterLogicalOperator, LogsQuery, Property
 
 from posthog.hogql.constants import LimitContext
 
+from posthog.constants import AvailableFeature
+
+from products.access_control.backend.facade.testing import create_access_control
 from products.access_control.backend.facade.user_access_control import UserAccessControlError
 from products.logs.backend.logs_query_runner import LogsQueryRunner
 
@@ -46,6 +49,18 @@ class TestLogsQueryRunnerAccess(APIBaseTest):
         runner = _build_runner(self.team, limit_context=LimitContext.EXPORT)
 
         assert runner.validate_query_runner_access(self.user) is True
+
+    def test_validate_query_runner_access_blocks_export_without_logs_access(self):
+        """An export must not hand logs to a creator whose role has no access to logs."""
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        create_access_control(team_id=self.team.id, resource="logs", access_level="none")
+        runner = _build_runner(self.team, limit_context=LimitContext.EXPORT)
+
+        with self.assertRaises(UserAccessControlError):
+            runner.validate_query_runner_access(self.user)
 
     def test_run_with_user_in_export_context_skips_block(self):
         runner = _build_runner(self.team, limit_context=LimitContext.EXPORT)

@@ -785,9 +785,10 @@ export const PagerDutyRegionEnumApi = {
 } as const
 
 export interface LogsAlertDestinationConfigApi {
+    /** The HogFunction IDs that delete this destination as a group. A destination moved off HogFunctions keeps the IDs it had, though those HogFunctions are deleted. */
     hog_function_ids: string[]
     /**
-     * The destination's ID on the alerts platform. Null for a destination added before the platform kept one, which `hog_function_ids` identifies instead. A destination whose HogFunctions are gone has an empty `hog_function_ids`, and is deleted by this ID.
+     * The destination's ID on the alerts platform. Null for a destination added before the platform kept one, which `hog_function_ids` identifies instead. A destination added with no HogFunctions has an empty `hog_function_ids`, and is deleted by this ID.
      * @nullable
      */
     id: string | null
@@ -3465,6 +3466,24 @@ export interface _LogsServicesResponseApi {
     source?: LogsServicesSourceEnumApi
     /** Prefilled follow-up calls for problem services. */
     next?: _LogsNextStepApi[]
+}
+
+export interface LogsSigningSecretApi {
+    /**
+     * Raw secret that a server uses to sign log requests (HMAC). Null until one exists.
+     * @nullable
+     */
+    readonly secret: string | null
+    /**
+     * When the secret last changed, or null when no secret exists yet.
+     * @nullable
+     */
+    readonly updated_at: string | null
+    /**
+     * Until when the previous secret stays valid after a rotation, or null when no grace period is active.
+     * @nullable
+     */
+    readonly previous_secret_valid_until: string | null
 }
 
 /**

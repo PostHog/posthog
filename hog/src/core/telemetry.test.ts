@@ -3,6 +3,7 @@ import { mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
+import { EXIT_FAILURE, EXIT_SUCCESS } from '@/core/errors'
 import { runHog, TEST_CREDENTIALS, type HogRun } from '@/testing'
 
 import { SMALL_MAPPING } from '../../test/parity/fixtures'
@@ -39,7 +40,7 @@ describe('telemetry', () => {
                     command_name: 'endpoints_run',
                     command_path: 'endpoints run',
                     success: true,
-                    exit_code: 0,
+                    exit_code: EXIT_SUCCESS,
                     options: ['var'],
                     source: 'endpoint',
                     variable_count: 1,
@@ -200,7 +201,7 @@ describe('telemetry', () => {
             http_status: status,
         })
         expect(JSON.stringify(events(result))).not.toContain('Private detail')
-        expect(run!.properties).toMatchObject({ success: false, error_code: code, exit_code: 1 })
+        expect(run!.properties).toMatchObject({ success: false, error_code: code, exit_code: EXIT_FAILURE })
     })
 
     test('a posthog.json hog cannot parse stops the command, and telemetry still reports it', async () => {
@@ -210,7 +211,7 @@ describe('telemetry', () => {
             files: { '/work/posthog.json': '{"cli":' },
             respond: () => ({ status: 200, body: {} }),
         })
-        expect(result.exitCode).toBe(1)
+        expect(result.exitCode).toBe(EXIT_FAILURE)
         expect(events(result).map((event) => [event.event, event.properties.error_code])).toEqual([
             ['$exception', 'invalid_config'],
             ['posthog cli command run', 'invalid_config'],
@@ -237,7 +238,7 @@ describe('telemetry', () => {
                 },
             }
         )
-        expect(result.exitCode).toBe(0)
+        expect(result.exitCode).toBe(EXIT_SUCCESS)
         const uploads = events(result).filter((event) => event.event.startsWith('error_tracking_cli'))
         expect(uploads.map((event) => [event.event, event.properties.type, event.properties.file_count])).toEqual([
             ['error_tracking_cli_sourcemaps_upload_started', 'proguard', 1],
@@ -275,7 +276,7 @@ describe('telemetry', () => {
             respond: () => ({ status: 200, body: {} }),
         })
 
-        expect(result.exitCode).toBe(0)
+        expect(result.exitCode).toBe(EXIT_SUCCESS)
         expect(events(result).length).toBeGreaterThan(0)
         expect(keychainReads).toBe(0)
     })

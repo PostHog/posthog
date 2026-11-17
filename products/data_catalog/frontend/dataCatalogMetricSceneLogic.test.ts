@@ -11,6 +11,8 @@ import { initKeaTests } from '~/test/init'
 import { expectLogic } from '~/test/keaTestUtils'
 import { SidePanelTab } from '~/types'
 
+import { suiteRunResultsLogic } from 'products/data_quality/frontend/suiteRunResultsLogic'
+
 import { dataCatalogAgentSyncLogic } from './dataCatalogAgentSyncLogic'
 import {
     dataCatalogMetricSceneLogic,
@@ -265,6 +267,15 @@ describe('dataCatalogMetricSceneLogic', () => {
 
         expect(logic.values.lineageProblem).toBe(expected)
         expect(logic.values.lineageRetried).toBe(expected === 'not_ready')
+    })
+
+    it.each([
+        ['opens the data quality tab for its own metric', 'metric-1', 'data-quality'],
+        ['stays put for another metric', 'metric-2', 'definition'],
+    ])('when a toast asks to show run results, %s', (_, subjectId, expectedTab) => {
+        suiteRunResultsLogic.actions.revealSubjectResults({ subjectType: 'metric', subjectId })
+
+        expect(logic.values.activeTab).toBe(expectedTab)
     })
 
     it('redirects the legacy tests key to the data quality tab and preserves it on rename', async () => {

@@ -8,7 +8,7 @@ The plan's ship gate for semantic search compares two variants on the same label
 Each suite seeds the invented catalog in ``metric_search_cases.py`` into a fresh team and runs every
 case through ``search_metrics``. Scores are deterministic. ``metric_search_recall_<type>`` gives
 recall per case type: the share of cases whose expected metric is among the hits the search returns,
-10 by default. ``metric_search_correct_no_match`` scores the real-gap cases, and
+20 by default. ``metric_search_correct_no_match`` scores the real-gap cases, and
 ``metric_search_sibling_ranked_above`` scores the near-sibling cases.
 
 Semantic search ships only if the hybrid suite raises the related-word and paraphrased-question rows

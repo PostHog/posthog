@@ -113,7 +113,9 @@ class TestPlatformAlertRouting(APIBaseTest):
     @parameterized.expand(
         [
             ("matching_route", True, "apm", True),
-            ("route_matches_another_team", True, "web", False),
+            # A group routes on its own labels, which the source does not know yet, so any route to an
+            # incident receiver keeps the actions; routing then decides who gets them.
+            ("route_matches_another_team", True, "web", True),
             ("routing_off_for_the_team", False, "apm", False),
             # A dropped resolve would leave the incident open for good, so a failed lookup keeps the actions.
             ("flag_lookup_fails", RuntimeError("flags down"), "apm", True),
