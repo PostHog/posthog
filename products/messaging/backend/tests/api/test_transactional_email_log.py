@@ -43,6 +43,7 @@ RANK = {
     "clicked": 9,
 }
 NOW = datetime(2026, 6, 15, 12, 0, 0, tzinfo=UTC)
+SLOW_SEND_MINUTES_AGO = 12 * 24 * 60
 
 
 @time_machine.travel(NOW, tick=False)
@@ -309,6 +310,7 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
                 ["hog_flow:read", "person:read"],
                 "query:read",
             ),
+            ("impact", "impact/?workflow_id={workflow_id}", ["hog_flow:read", "person:read"], "query:read"),
         ]
     )
     def test_a_token_needs_the_scope_for_the_data_it_reads(self, _flag, _name, path, scopes, missing_scope):
@@ -557,6 +559,75 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert response.json() == {"recipients": 4, "converted": 2, "revenue": 55.0, "median_hours_to_convert": 5.0}
 
+    def test_counts_conversions_within_a_week_of_the_click_against_sends_nobody_clicked(self, _flag):
+        create_person(team=self.team, distinct_ids=["clicker", "clicker-phone"])
+        for distinct_id in ["early", "slow", "reader", "late", "bounced"]:
+            create_person(team=self.team, distinct_ids=[distinct_id])
+        delivered = [("sent", 1, ""), ("delivered", 2, "")]
+        clicked_an_hour_in = [*delivered, ("opened", 60, ""), ("clicked", 3600, "")]
+        sends = [
+            (3_000, "clicker", clicked_an_hour_in, timedelta(minutes=60 + 60 * 24)),
+            (2_000, "early", clicked_an_hour_in, timedelta(minutes=10)),
+            (
+                SLOW_SEND_MINUTES_AGO,
+                "slow",
+                [*delivered, ("opened", 60, ""), ("clicked", 4 * 86400, "")],
+                timedelta(days=9),
+            ),
+            (1_000, None, clicked_an_hour_in, None),
+            (4_000, "reader", [*delivered, ("opened", 60, "")], timedelta(days=1)),
+            (5_000, "late", delivered, timedelta(days=7, hours=1)),
+            (6_000, "bounced", [("sent", 1, ""), ("bounced", 2, "")], timedelta(hours=1)),
+        ]
+        for minutes_ago, distinct_id, statuses, purchase_after_send in sends:
+            message_id = self._send(minutes_ago, f"{distinct_id}@example.com", statuses)
+            sent_at = NOW - timedelta(minutes=minutes_ago)
+            if distinct_id:
+                self._record_distinct_id(message_id, distinct_id, f"{distinct_id}@example.com", sent_at)
+            if purchase_after_send:
+                purchaser = "clicker-phone" if distinct_id == "clicker" else distinct_id
+                _create_event(
+                    team=self.team, event="purchase", distinct_id=purchaser, timestamp=sent_at + purchase_after_send
+                )
+        other_workflow = create_workflow_for_test(team_id=self.team.id, name="Welcome").id
+        self._send(500, "clicker@example.com", clicked_an_hour_in, workflow_id=other_workflow)
+        flush_persons_and_events()
+        date_from = (NOW - timedelta(days=29)).isoformat()
+
+        funnel = self.client.get(self._url("impact/"), {"workflow_id": self.workflow_id, "date_from": date_from})
+        converted = self.client.get(
+            self._url("impact/"), {"workflow_id": self.workflow_id, "event": "purchase", "date_from": date_from}
+        )
+        # The send falls in the period while its click and the conversion come days after it ends.
+        slow_sent_at = NOW - timedelta(minutes=SLOW_SEND_MINUTES_AGO)
+        clicked_after_the_period = self.client.get(
+            self._url("impact/"),
+            {
+                "workflow_id": self.workflow_id,
+                "event": "purchase",
+                "date_from": (slow_sent_at - timedelta(hours=1)).isoformat(),
+                "date_to": (slow_sent_at + timedelta(days=1)).isoformat(),
+            },
+        )
+
+        assert funnel.status_code == status.HTTP_200_OK, funnel.json()
+        counts = {"sent": 7, "delivered": 6, "opened": 5, "clicked": 4, "window_days": 7}
+        assert funnel.json() == {**counts, "after_click": None, "without_click": None}
+        assert converted.json() == {
+            **counts,
+            "after_click": {"sends": 3, "converted": 2},
+            "without_click": {"sends": 2, "converted": 1},
+        }
+        assert clicked_after_the_period.json() == {
+            "sent": 1,
+            "delivered": 1,
+            "opened": 1,
+            "clicked": 1,
+            "window_days": 7,
+            "after_click": {"sends": 1, "converted": 1},
+            "without_click": {"sends": 0, "converted": 0},
+        }
+
     def test_hides_the_sends_of_a_workflow_the_user_cannot_view(self, _flag):
         restricted = create_workflow_for_test(team_id=self.team.id, name="Payroll").id
         visible_id = self._send(20, "jane@example.com", [("sent", 1, "")])
@@ -598,6 +669,7 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
         detail = self.client.get(self._url(f"{hidden_id}/"))
         activity = self.client.get(self._url(f"{hidden_id}/activity/"))
         results = self.client.get(self._url("results/"), {"workflow_id": restricted, "event": "purchase"})
+        impact = self.client.get(self._url("impact/"), {"workflow_id": restricted})
 
         stats = self.client.get(self._url("stats/"), {"group_by": "sending_domain"}).json()["results"]
         over_time = self.client.get(self._url("stats_over_time/")).json()["buckets"]
@@ -607,6 +679,7 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
         assert detail.status_code == status.HTTP_404_NOT_FOUND
         assert activity.status_code == status.HTTP_404_NOT_FOUND
         assert results.status_code == status.HTTP_404_NOT_FOUND
+        assert impact.status_code == status.HTTP_404_NOT_FOUND
         assert {row["label"] for row in stats} == {"mail.example.com", "old.example.com"}
         assert self.client.get(self._url(f"{deleted_id}/")).json()["recipient"] == "old@example.com"
         assert self.client.get(self._url(f"{denied_then_deleted_id}/")).status_code == status.HTTP_404_NOT_FOUND

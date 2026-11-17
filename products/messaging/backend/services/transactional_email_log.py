@@ -26,6 +26,8 @@ from products.messaging.backend.facade.contracts import (
     EmailLogEventKind,
     EmailStatsGroupBy,
     EmailStatsInterval,
+    TransactionalEmailConversions,
+    TransactionalEmailImpact,
     TransactionalEmailLogDetail,
     TransactionalEmailLogEntry,
     TransactionalEmailLogEvent,
@@ -46,6 +48,7 @@ from products.messaging.backend.services.code_emails import code_emails_by_workf
 from products.messaging.backend.services.transactional_email_status import message_created_at
 from products.workflows.backend.facade.contracts import WorkflowViewAccess
 from products.workflows.backend.facade.message_assets import (
+    fetch_email_send_distinct_ids,
     fetch_first_email_sends,
     fetch_message_assets_for_invocations,
 )
@@ -57,6 +60,8 @@ _CLOCK_SKEW = timedelta(minutes=5)
 MAX_CONVERSION_WINDOW_DAYS = 30
 # The results read at most this many recipients, newest sends first.
 MAX_RESULTS_RECIPIENTS = 10_000
+# How long after a click, or a send nobody clicked, the conversion event still counts.
+IMPACT_WINDOW_DAYS = 7
 
 # A message's rows sit together in the table's sort key, so grouping can finish each message as it reads on.
 _GROUP_AS_READ: dict[str, int] = {"optimize_aggregation_in_order": 1}
@@ -582,6 +587,162 @@ def transactional_email_results(
     )
 
 
+def transactional_email_impact(
+    team: Team,
+    user: User | None,
+    workflow_id: str,
+    event: str | None,
+    *,
+    date_from: datetime | None = None,
+    date_to: datetime | None = None,
+) -> TransactionalEmailImpact:
+    """How far one email's sends got, from sent to clicked, and how often the person behind a send did `event` within
+    a week of clicking, against sends that were delivered and never clicked."""
+    period = _window(date_from, date_to)
+    params: dict[str, Any] = {"start": period.start, "end": period.end, "workflow_id": workflow_id}
+    [(sent, delivered, opened, clicked)] = _execute(
+        team.id,
+        f"""
+        SELECT
+            countIf(delivery_status IN ('sent', 'delivered', 'bounced', 'complained')),
+            countIf(delivery_status IN ('delivered', 'complained')),
+            countIf(was_opened),
+            countIf(was_clicked)
+        FROM (
+            SELECT {_MESSAGE_COLUMNS}
+            FROM {EMAIL_STATUS_EVENTS_TABLE}
+            WHERE team_id = %(team_id)s AND created_at >= %(start)s AND created_at < %(end)s
+            GROUP BY created_at, message_id
+        )
+        WHERE delivery_status != '' AND message_function_id = %(workflow_id)s
+        """,
+        params,
+        _GROUP_AS_READ,
+    )
+    if not event:
+        return TransactionalEmailImpact(
+            sent=sent,
+            delivered=delivered,
+            opened=opened,
+            clicked=clicked,
+            window_days=IMPACT_WINDOW_DAYS,
+            after_click=None,
+            without_click=None,
+        )
+    sends = _sends_to_follow(team, user, workflow_id, period)
+    converted = _converted_sends(team, user, event, sends)
+    return TransactionalEmailImpact(
+        sent=sent,
+        delivered=delivered,
+        opened=opened,
+        clicked=clicked,
+        window_days=IMPACT_WINDOW_DAYS,
+        after_click=_conversions_of([send for send in sends if send.clicked], converted),
+        without_click=_conversions_of([send for send in sends if not send.clicked], converted),
+    )
+
+
+@frozen
+class _FollowedSend:
+    message_id: str
+    distinct_id: str
+    recipient: str
+    clicked: bool
+    # The first click, or the send itself when nobody clicked.
+    since: datetime
+
+
+def _sends_to_follow(team: Team, user: User | None, workflow_id: str, period: _Period) -> list[_FollowedSend]:
+    rows = _execute(
+        team.id,
+        f"""
+        SELECT toString(message_id), was_clicked, if(was_clicked, first_clicked_at, queued_at)
+        FROM (
+            SELECT {_MESSAGE_COLUMNS}, minIf(status_at, status = 'clicked') AS first_clicked_at
+            FROM {EMAIL_STATUS_EVENTS_TABLE}
+            WHERE team_id = %(team_id)s AND created_at >= %(start)s AND created_at < %(end)s
+            GROUP BY created_at, message_id
+        )
+        WHERE message_function_id = %(workflow_id)s
+          AND (was_clicked OR delivery_status IN ('delivered', 'complained'))
+        ORDER BY queued_at DESC
+        LIMIT %(limit)s BY was_clicked
+        """,
+        {"start": period.start, "end": period.end, "workflow_id": workflow_id, "limit": MAX_RESULTS_RECIPIENTS},
+    )
+    distinct_ids = fetch_email_send_distinct_ids(
+        team.id, workflow_id, [row[0] for row in rows], after=period.start - _CLOCK_SKEW
+    )
+    # The same person can be reached under several distinct ids, so a send and a conversion meet on the person.
+    persons = _persons_for_distinct_ids(team, user, list(set(distinct_ids.values()))) if distinct_ids else {}
+    return [
+        _FollowedSend(
+            message_id=message_id,
+            distinct_id=distinct_ids[message_id],
+            recipient=persons.get(distinct_ids[message_id], f"distinct:{distinct_ids[message_id]}"),
+            clicked=bool(was_clicked),
+            since=since.replace(tzinfo=UTC),
+        )
+        for message_id, was_clicked, since in rows
+        if message_id in distinct_ids
+    ]
+
+
+def _converted_sends(
+    team: Team,
+    user: User | None,
+    event: str,
+    sends: list[_FollowedSend],
+) -> set[str]:
+    if not sends:
+        return set()
+    window = timedelta(days=IMPACT_WINDOW_DAYS)
+    # A click can come days after the period ends, so the events to scan follow the sends, not the period.
+    start = min(send.since for send in sends)
+    end = max(send.since for send in sends) + window + timedelta(seconds=1)
+    response = execute_hogql_query(
+        """
+        SELECT DISTINCT sends.message_id
+        FROM ("""
+        + _RECIPIENT_EVENTS
+        + """) AS conversions
+        INNER JOIN (
+            SELECT
+                tupleElement(send, 1) AS message_id,
+                tupleElement(send, 2) AS recipient,
+                fromUnixTimestamp64Milli(tupleElement(send, 3)) AS since
+            FROM (SELECT arrayJoin(arrayZip({message_ids}, {recipients}, {since_ms})) AS send)
+        ) AS sends ON conversions.recipient = sends.recipient
+        WHERE conversions.timestamp >= sends.since
+          AND conversions.timestamp <= sends.since + toIntervalSecond({window_seconds})
+        LIMIT {limit}
+        """,
+        team=team,
+        user=user,
+        placeholders={
+            "revenue": ast.Constant(value=None),
+            "event": ast.Constant(value=event),
+            "start": ast.Constant(value=start),
+            "end": ast.Constant(value=end),
+            "distinct_ids": ast.Constant(value=list({send.distinct_id for send in sends})),
+            "message_ids": ast.Constant(value=[send.message_id for send in sends]),
+            "recipients": ast.Constant(value=[send.recipient for send in sends]),
+            "since_ms": ast.Constant(value=[int(send.since.timestamp() * 1000) for send in sends]),
+            "window_seconds": ast.Constant(value=int(window.total_seconds())),
+            "limit": ast.Constant(value=len(sends)),
+        },
+        query_type="transactional_email_impact_conversions",
+        workload=Workload.ONLINE,
+    )
+    return {message_id for (message_id,) in response.results or []}
+
+
+def _conversions_of(sends: list[_FollowedSend], converted: set[str]) -> TransactionalEmailConversions:
+    return TransactionalEmailConversions(
+        sends=len(sends), converted=sum(1 for send in sends if send.message_id in converted)
+    )
+
+
 def _persons_for_distinct_ids(team: Team, user: User | None, distinct_ids: list[str]) -> dict[str, str]:
     response = execute_hogql_query(
         """
@@ -596,6 +757,22 @@ def _persons_for_distinct_ids(team: Team, user: User | None, distinct_ids: list[
         workload=Workload.ONLINE,
     )
     return dict(response.results or [])
+
+
+# Each event of `{event}` by the people behind `{distinct_ids}`, keyed by person, or by distinct ID for a recipient
+# with no person profile.
+_RECIPIENT_EVENTS = """
+    SELECT
+        if(person_id IN (SELECT person_id FROM person_distinct_ids WHERE distinct_id IN {distinct_ids}),
+           toString(person_id), concat('distinct:', distinct_id)) AS recipient,
+        timestamp,
+        {revenue} AS value
+    FROM events
+    WHERE event = {event}
+      AND timestamp >= {start} AND timestamp < {end}
+      AND (distinct_id IN {distinct_ids}
+           OR person_id IN (SELECT person_id FROM person_distinct_ids WHERE distinct_id IN {distinct_ids}))
+"""
 
 
 @frozen
@@ -632,18 +809,9 @@ def _conversions(
     response = execute_hogql_query(
         """
         SELECT conversions.recipient, min(conversions.timestamp), sum(conversions.value)
-        FROM (
-            SELECT
-                if(person_id IN (SELECT person_id FROM person_distinct_ids WHERE distinct_id IN {distinct_ids}),
-                   toString(person_id), concat('distinct:', distinct_id)) AS recipient,
-                timestamp,
-                {revenue} AS value
-            FROM events
-            WHERE event = {event}
-              AND timestamp >= {start} AND timestamp < {end}
-              AND (distinct_id IN {distinct_ids}
-                   OR person_id IN (SELECT person_id FROM person_distinct_ids WHERE distinct_id IN {distinct_ids}))
-        ) AS conversions
+        FROM ("""
+        + _RECIPIENT_EVENTS
+        + """) AS conversions
         INNER JOIN (
             SELECT tupleElement(send, 1) AS recipient, fromUnixTimestamp64Milli(tupleElement(send, 2)) AS sent_at
             FROM (SELECT arrayJoin(arrayZip({recipients}, {sent_at_ms})) AS send)

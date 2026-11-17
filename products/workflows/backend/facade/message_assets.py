@@ -1,6 +1,7 @@
 """Message assets: the emails and push notifications that workflow steps sent, read from ClickHouse."""
 
 from products.workflows.backend.services.message_assets import (
+    fetch_email_send_distinct_ids,
     fetch_first_email_sends,
     fetch_message_asset_html,
     fetch_message_assets,
@@ -9,6 +10,7 @@ from products.workflows.backend.services.message_assets import (
 )
 
 __all__ = [
+    "fetch_email_send_distinct_ids",
     "fetch_first_email_sends",
     "fetch_message_asset_html",
     "fetch_message_assets",

@@ -56,7 +56,9 @@ import type {
     SupabaseAuthEmailSettingsApi,
     TopicPreferencesApi,
     TransactionalEmailActivityApi,
+    TransactionalEmailImpactApi,
     TransactionalEmailLogDetailApi,
+    TransactionalEmailLogImpactRetrieveParams,
     TransactionalEmailLogListApi,
     TransactionalEmailLogListParams,
     TransactionalEmailLogResultsRetrieveParams,
@@ -1250,6 +1252,40 @@ export const transactionalEmailLogActivityRetrieve = async (
     options?: RequestInit
 ): Promise<TransactionalEmailActivityApi> => {
     return apiMutator<TransactionalEmailActivityApi>(getTransactionalEmailLogActivityRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getTransactionalEmailLogImpactRetrieveUrl = (
+    projectId: string,
+    params: TransactionalEmailLogImpactRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/transactional_email_log/impact/?${stringifiedParams}`
+        : `/api/projects/${projectId}/transactional_email_log/impact/`
+}
+
+/**
+ * Count one email's sends that were sent, delivered, opened and clicked. With an event, also count the clicked sends whose person did it within a week of the click, against delivered sends nobody clicked.
+ * @summary Get how far a transactional email's sends got
+ */
+export const transactionalEmailLogImpactRetrieve = async (
+    projectId: string,
+    params: TransactionalEmailLogImpactRetrieveParams,
+    options?: RequestInit
+): Promise<TransactionalEmailImpactApi> => {
+    return apiMutator<TransactionalEmailImpactApi>(getTransactionalEmailLogImpactRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
     })

@@ -1486,6 +1486,30 @@ export interface TransactionalEmailActivityApi {
     sessions: TransactionalEmailActivitySessionApi[]
 }
 
+export interface TransactionalEmailConversionsApi {
+    /** Sends in this group that named a person, newest 10,000 at most. */
+    sends: number
+    /** Of those, sends whose person did the event within window_days of the click, or of the send when nobody clicked. */
+    converted: number
+}
+
+export interface TransactionalEmailImpactApi {
+    /** Sends that left PostHog, including those that bounced. */
+    sent: number
+    /** Sends the recipient's mail server accepted. */
+    delivered: number
+    /** Sends opened at least once. */
+    opened: number
+    /** Sends with at least one tracked link click. */
+    clicked: number
+    /** How many days after the click or the send the event counts. */
+    window_days: number
+    /** Clicked sends and how many converted. Null without an event. */
+    after_click: TransactionalEmailConversionsApi | null
+    /** Delivered sends nobody clicked and how many converted. Null without an event. */
+    without_click: TransactionalEmailConversionsApi | null
+}
+
 export interface TransactionalEmailResultsApi {
     /** People the email was sent to in the date range. */
     recipients: number
@@ -1705,6 +1729,25 @@ export const TransactionalEmailLogListStatus = {
     Bounced: 'bounced',
     Complained: 'complained',
 } as const
+
+export type TransactionalEmailLogImpactRetrieveParams = {
+    /**
+     * Only sends queued at or after this time. Defaults to 7 days ago. The log keeps sends for 30 days.
+     */
+    date_from?: string
+    /**
+     * Only sends queued before this time. Defaults to now.
+     */
+    date_to?: string
+    /**
+     * The event that counts as a conversion, such as `signed_up`. Leave it out for the funnel alone.
+     */
+    event?: string
+    /**
+     * The workflow behind the transactional email.
+     */
+    workflow_id: string
+}
 
 export type TransactionalEmailLogResultsRetrieveParams = {
     /**
