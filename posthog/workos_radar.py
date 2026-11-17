@@ -28,7 +28,7 @@ from rest_framework.exceptions import APIException
 
 from posthog.models.instance_setting import get_instance_setting
 from posthog.turnstile import create_challenge_nonce, validate_and_consume_nonce, verify_turnstile_token
-from posthog.utils import get_ip_address, get_short_user_agent, get_trusted_client_ip
+from posthog.utils import _normalize_ip, get_ip_address, get_short_user_agent, get_trusted_client_ip
 
 from products.security.backend.facade.api import is_signup_risk_exempt
 
@@ -160,6 +160,26 @@ def radar_client_id_for_login() -> str:
     return settings.WORKOS_RADAR_CLIENT_ID
 
 
+def _client_ip_for_radar(request: HttpRequest) -> str:
+    trusted_ip = get_trusted_client_ip(request)
+    if trusted_ip:
+        return trusted_ip
+    trusted_proxies = {proxy.strip() for proxy in (settings.TRUSTED_PROXIES or "").split(",") if proxy.strip()}
+    remote_addr = request.META.get("REMOTE_ADDR") or ""
+    if settings.USE_X_FORWARDED_HOST and trusted_proxies:
+        # The nearest hop that no trusted proxy vouches for is the client, so a forged left-most entry is ignored
+        forwarded = [hop.strip() for hop in (request.headers.get("x-forwarded-for") or "").split(",") if hop.strip()]
+        for hop in reversed([*forwarded, remote_addr]):
+            hop_ip = _normalize_ip(hop)
+            if hop_ip is None:
+                break
+            if hop_ip not in trusted_proxies:
+                return hop_ip
+        return _normalize_ip(remote_addr) or remote_addr
+    # Without trusted proxies the connecting address is often a proxy shared by every login
+    return get_ip_address(request)
+
+
 def _clean_signals_id(value: str) -> str:
     return value if _SIGNALS_ID_PATTERN.fullmatch(value) else ""
 
@@ -212,9 +232,7 @@ def evaluate_auth_attempt(
     if mode == RadarMode.OFF:
         return None
 
-    # A direct deployment gets the connecting address. A proxy chain that fails the trust check keeps
-    # the forwarded address, because the connecting address there is the proxy for every login.
-    ip_address = get_trusted_client_ip(request) or get_ip_address(request)
+    ip_address = _client_ip_for_radar(request)
     short_user_agent = get_short_user_agent(request)
     signals_id = _clean_signals_id(signals_id)
 

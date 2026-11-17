@@ -548,17 +548,34 @@ class TestEvaluateAuthAttempt(SimpleTestCase):
 
         mock_is_exempt.assert_not_called()
 
+    @parameterized.expand(
+        [
+            ("deployment_without_forwarding", False, "", "198.51.100.42", "8.8.8.8"),
+            ("forged_entry_behind_a_trusted_proxy", True, "10.0.0.2", "10.0.0.2", "8.8.8.8, 198.51.100.42"),
+        ]
+    )
     @patch("posthog.workos_radar._log_radar_event")
     @patch("posthog.workos_radar._call_radar_api", return_value=RadarVerdict.ALLOW)
-    @override_settings(WORKOS_RADAR_ENABLED=True, WORKOS_RADAR_API_KEY="test_key", USE_X_FORWARDED_HOST=False)
-    def test_a_forwarded_ip_the_deployment_does_not_trust_never_reaches_radar(self, mock_call_api, mock_log_event):
+    def test_a_forwarded_ip_the_deployment_does_not_trust_never_reaches_radar(
+        self, _name, use_forwarded, trusted_proxies, remote_addr, forwarded_for, mock_call_api, mock_log_event
+    ):
         request = RequestFactory().post(
-            "/api/signup", REMOTE_ADDR="198.51.100.42", HTTP_X_FORWARDED_FOR="8.8.8.8", HTTP_USER_AGENT="TestBrowser"
+            "/api/signup", REMOTE_ADDR=remote_addr, HTTP_X_FORWARDED_FOR=forwarded_for, HTTP_USER_AGENT="TestBrowser"
         )
 
-        evaluate_auth_attempt(
-            request=request, email="test@example.com", action=RadarAction.SIGNUP, auth_method=RadarAuthMethod.PASSWORD
-        )
+        with self.settings(
+            WORKOS_RADAR_ENABLED=True,
+            WORKOS_RADAR_API_KEY="test_key",
+            USE_X_FORWARDED_HOST=use_forwarded,
+            TRUST_ALL_PROXIES=False,
+            TRUSTED_PROXIES=trusted_proxies,
+        ):
+            evaluate_auth_attempt(
+                request=request,
+                email="test@example.com",
+                action=RadarAction.SIGNUP,
+                auth_method=RadarAuthMethod.PASSWORD,
+            )
 
         assert mock_call_api.call_args[1]["ip_address"] == "198.51.100.42"
 

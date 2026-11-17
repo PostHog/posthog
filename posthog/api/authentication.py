@@ -426,7 +426,8 @@ class LoginSerializer(serializers.Serializer):
             try:
                 evaluate_auth_attempt(
                     request=request._request,
-                    email=validated_data["email"],
+                    # Radar knows the account by its stored address, not the variant spelling the lookup folded
+                    email=existing_user.email if existing_user else validated_data["email"],
                     action=RadarAction.SIGNIN,
                     auth_method=RadarAuthMethod.PASSWORD,
                     user_id=str(existing_user.distinct_id) if existing_user else None,
