@@ -459,10 +459,10 @@ class TestDedupeFlashFindings:
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
-        "llm_duplicate,budget_left,expected",
+        "llm_duplicates,budget_left,expected",
         [
             pytest.param(
-                ("2003-1-1", "2000-1-1"),
+                [("2003-1-1", "2000-1-1")],
                 None,
                 [
                     ("2000-1-1", IssuePriority.CONSIDER),
@@ -472,7 +472,7 @@ class TestDedupeFlashFindings:
                 id="devex_p1_drops_into_a_main_p3_without_raising_it",
             ),
             pytest.param(
-                ("2002-1-1", "2003-1-1"),
+                [("2002-1-1", "2003-1-1")],
                 None,
                 [
                     ("2000-1-1", IssuePriority.CONSIDER),
@@ -483,7 +483,7 @@ class TestDedupeFlashFindings:
                 id="a_lens_finding_never_drops_into_a_devex_finding",
             ),
             pytest.param(
-                ("2003-1-1", "2003-1-2"),
+                [("2003-1-1", "2003-1-2")],
                 None,
                 [
                     ("2000-1-1", IssuePriority.CONSIDER),
@@ -493,7 +493,7 @@ class TestDedupeFlashFindings:
                 id="devex_p1_still_raises_a_devex_p3",
             ),
             pytest.param(
-                ("2003-1-1", "2000-1-1"),
+                [("2003-1-1", "2000-1-1")],
                 1,
                 [
                     ("2002-1-1", IssuePriority.SHOULD_FIX),
@@ -502,12 +502,18 @@ class TestDedupeFlashFindings:
                 ],
                 id="devex_p1_posts_when_the_budget_drops_its_main_anchor",
             ),
+            pytest.param(
+                [("2003-1-1", "2000-1-1"), ("2003-1-2", "2000-1-1")],
+                1,
+                [("2002-1-1", IssuePriority.SHOULD_FIX), ("2003-1-1", IssuePriority.MUST_FIX)],
+                id="one_devex_finding_posts_per_dropped_anchor",
+            ),
         ],
     )
     async def test_a_devex_finding_can_lose_to_any_session_and_changes_nothing_else(
         self,
         pr_metadata: PRMetadata,
-        llm_duplicate: tuple[str, str],
+        llm_duplicates: list[tuple[str, str]],
         budget_left: int | None,
         expected: list[tuple[str, IssuePriority]],
     ) -> None:
@@ -520,7 +526,7 @@ class TestDedupeFlashFindings:
             _issue("2003-1-2", IssuePriority.CONSIDER, DEVEX_LENS.source),
         ]
 
-        kept = (await self._dedupe(pr_metadata, issues, _flash_dedup(llm_duplicate), budget_left=budget_left)).kept
+        kept = (await self._dedupe(pr_metadata, issues, _flash_dedup(*llm_duplicates), budget_left=budget_left)).kept
 
         assert sorted((issue.id, issue.priority) for issue in kept) == sorted(expected)
 
