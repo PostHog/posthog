@@ -1,4 +1,5 @@
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react-native'
+import { isLiquidGlassAvailable } from 'expo-glass-effect'
 
 import { AccountNeedsSignInError, type StoredAccount, useAuthStore } from '@/auth/authStore'
 import { useDemoMode } from '@/demo/demoMode'
@@ -60,6 +61,20 @@ describe('ProjectSheet', () => {
             useDemoMode.setState({ enabled: false })
         })
         mockPush.mockReset()
+        jest.mocked(isLiquidGlassAvailable).mockReturnValue(false)
+    })
+
+    test.each([
+        ['draws the card on Liquid Glass where the system has it', true],
+        ['keeps the solid card where the system has no glass', false],
+    ])('%s', async (_name, available) => {
+        jest.mocked(isLiquidGlassAvailable).mockReturnValue(available)
+        act(() => signIn([US_ACCOUNT]))
+        renderSheet()
+        await act(async () => undefined)
+
+        expect(screen.queryByTestId('floating-card-glass') !== null).toBe(available)
+        expect(screen.getByTestId('project-sheet-1')).toBeChecked()
     })
 
     test.each([false, true])(

@@ -13,6 +13,7 @@ import { SearchIcon } from '@/ui/icons/SearchIcon'
 import { Pressable44 } from '@/ui/Pressable44'
 import { createStyles, useTheme } from '@/ui/theme'
 import { iconSizes, inputReset, radii, type } from '@/ui/tokens'
+import { useLiquidGlass } from '@/ui/useLiquidGlass'
 import { usePickerCardStyle } from '@/ui/usePickerCardStyle'
 import { useSceneDimensions } from '@/ui/useSceneDimensions'
 import { bottomOffset, topOffset, useScreenInsets } from '@/ui/useScreenInsets'
@@ -37,8 +38,9 @@ const DEMO_PROJECTS = [DEMO_PROJECT]
  * and a project of another account switches to that account.
  */
 export function ProjectSheet({ visible, onClose, onSelect }: ProjectSheetProps): ReactElement {
-    const styles = useStyles()
-    const { colors, scheme } = useTheme()
+    const glass = useLiquidGlass()
+    const styles = useStyles(glass)
+    const { colors, scheme } = useTheme(glass)
     const insets = useScreenInsets()
     const { height: windowHeight } = useSceneDimensions()
     const compact = windowHeight < 480
@@ -227,6 +229,7 @@ export function ProjectSheet({ visible, onClose, onSelect }: ProjectSheetProps):
             accessibilityLabel="Project"
             testID="project-sheet"
             style={[styles.card, compact && styles.cardCompact, cardStyle]}
+            glass={glass}
         >
             <View style={compact ? styles.controlsCompact : undefined}>
                 <View style={[styles.header, compact && styles.headerCompact]}>

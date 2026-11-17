@@ -81,6 +81,9 @@ Choices the build contract left open, with the reason for each.
   Top chrome fades down into the content; the bottom tab bar fades up, with the same blur intensity and tint.
 - **Shadows.** Native uses `shadow*` + `elevation`; web uses the exact CSS `boxShadow`, because
   react-native-web renders `shadowRadius` as a blur half the handoff's size.
+- **Liquid Glass on the control layer only.** On iOS 26 and later, the More menu and the Project card draw on Liquid Glass
+  (`expo-glass-effect`). Other floating cards, sheets and the Settings rows stay solid, because Apple's guidance keeps glass
+  off content lists. Reduce Transparency and Increase Contrast bring back the solid card. See [DESIGN.md](DESIGN.md#liquid-glass).
 - **Text wrapping.** `lineBreakStrategyIOS="standard"` on iOS and CSS `text-wrap: pretty` on web
   match the prototype's wrapping of headlines, ledes, questions, PR titles and quotes.
 - **Focus ring.** Web text fields drop the browser outline; the field container is the affordance.

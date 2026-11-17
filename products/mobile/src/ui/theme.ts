@@ -1,3 +1,4 @@
+import { createContext, useContext } from 'react'
 import { type ImageStyle, Platform, StyleSheet, type TextStyle, useColorScheme, type ViewStyle } from 'react-native'
 import type { Accent } from '@/model/types'
 import { resolveColorScheme, useAppearanceStore } from '@/ui/appearanceStore'
@@ -47,6 +48,8 @@ export const lightColors = {
     scrimLight: 'rgba(246,246,243,0.72)',
     scrimDark: 'rgba(31,31,28,0.38)',
     scrimChat: 'rgba(31,31,28,0.45)',
+    /** Behind a Liquid Glass card, light enough that the glass has content to refract. */
+    scrimGlass: 'rgba(246,246,243,0.3)',
     onAccentTile: 'rgba(255,255,255,0.22)',
     onAccentDivider: 'rgba(255,255,255,0.35)',
     pressOverlay: 'rgba(0,0,0,0.12)',
@@ -112,6 +115,7 @@ export const darkColors: ThemeColors = {
     scrimLight: 'rgba(29,31,39,0.72)',
     scrimDark: 'rgba(0,0,0,0.55)',
     scrimChat: 'rgba(0,0,0,0.60)',
+    scrimGlass: 'rgba(29,31,39,0.3)',
     onAccentTile: 'rgba(29,31,39,0.16)',
     onAccentDivider: 'rgba(29,31,39,0.28)',
     pressOverlay: 'rgba(255,255,255,0.12)',
@@ -176,29 +180,39 @@ const SHADOW_SPECS: Record<ShadowName, { y: number; blur: number; opacity: numbe
 const DARK_SHADOW_OPACITY_SCALE = 1.8
 const DARK_SHADOW_MAX_OPACITY = 0.6
 
+function shadowAlpha(opacity: number, scheme: ColorScheme): number {
+    return scheme === 'dark' ? Math.min(opacity * DARK_SHADOW_OPACITY_SCALE, DARK_SHADOW_MAX_OPACITY) : opacity
+}
+
+/**
+ * The named shadow as a CSS `boxShadow`. React Native draws an outset box shadow outside the view only, so it suits a
+ * translucent view, which a layer shadow would also darken from behind.
+ */
+export function boxShadow(name: ShadowName, scheme: ColorScheme): string {
+    const { y, blur, opacity } = SHADOW_SPECS[name]
+    const alpha = shadowAlpha(opacity, scheme)
+    return `0px ${y}px ${blur}px ${scheme === 'dark' ? `rgba(0,0,0,${alpha})` : `rgba(31,31,28,${alpha})`}`
+}
+
 // CSS blur is roughly twice an iOS shadow radius, so the radius is half the handoff's blur. The web build gets the
 // exact CSS value because react-native-web halves the look of shadowRadius.
-function shadow(y: number, blur: number, opacity: number, elevation: number, scheme: ColorScheme): Shadow {
-    const dark = scheme === 'dark'
-    const alpha = dark ? Math.min(opacity * DARK_SHADOW_OPACITY_SCALE, DARK_SHADOW_MAX_OPACITY) : opacity
+function shadow(name: ShadowName, scheme: ColorScheme): Shadow {
     if (Platform.OS === 'web') {
-        return { boxShadow: `0px ${y}px ${blur}px ${dark ? `rgba(0,0,0,${alpha})` : `rgba(31,31,28,${alpha})`}` }
+        return { boxShadow: boxShadow(name, scheme) }
     }
+    const { y, blur, opacity, elevation } = SHADOW_SPECS[name]
     return {
-        shadowColor: dark ? '#000000' : lightColors.ink,
+        shadowColor: scheme === 'dark' ? '#000000' : lightColors.ink,
         shadowOffset: { width: 0, height: y },
-        shadowOpacity: alpha,
+        shadowOpacity: shadowAlpha(opacity, scheme),
         shadowRadius: blur / 2,
         elevation,
     }
 }
 
 function shadowsFor(scheme: ColorScheme): Shadows {
-    const entries = Object.entries(SHADOW_SPECS).map(([name, { y, blur, opacity, elevation }]) => [
-        name,
-        shadow(y, blur, opacity, elevation, scheme),
-    ])
-    return Object.fromEntries(entries) as Record<ShadowName, Shadow>
+    const names = Object.keys(SHADOW_SPECS) as ShadowName[]
+    return Object.fromEntries(names.map((name) => [name, shadow(name, scheme)])) as Record<ShadowName, Shadow>
 }
 
 function buildTheme(
@@ -235,34 +249,72 @@ export const themes: Record<ColorScheme, Theme> = {
     ),
 }
 
+type GlassColors = Pick<ThemeColors, 'surface' | 'sunken' | 'background' | 'hairline' | 'border'>
+
+// An opaque fill on a Liquid Glass card hides the glass under it like a patch, so the fills, pills and dividers on the
+// card use translucent values of the same roles. `sunken` and `background` are the iOS tertiary system fill. Text and
+// accent colors keep their values.
+const GLASS_COLORS: Record<ColorScheme, GlassColors> = {
+    light: {
+        surface: 'rgba(255,255,255,0.5)',
+        sunken: 'rgba(118,118,128,0.12)',
+        background: 'rgba(118,118,128,0.12)',
+        hairline: 'rgba(31,31,28,0.1)',
+        border: 'rgba(31,31,28,0.16)',
+    },
+    dark: {
+        surface: 'rgba(255,255,255,0.1)',
+        sunken: 'rgba(118,118,128,0.24)',
+        background: 'rgba(118,118,128,0.24)',
+        hairline: 'rgba(255,255,255,0.1)',
+        border: 'rgba(255,255,255,0.16)',
+    },
+}
+
+/** The themes for content on a Liquid Glass `FloatingCard`. */
+export const glassThemes: Record<ColorScheme, Theme> = {
+    light: { ...themes.light, colors: { ...lightColors, ...GLASS_COLORS.light } },
+    dark: { ...themes.dark, colors: { ...darkColors, ...GLASS_COLORS.dark } },
+}
+
+/** True below a `FloatingCard` that draws Liquid Glass, so the components on it pick `glassThemes`. */
+export const GlassSurfaceContext = createContext(false)
+
 export function useColorSchemeName(): ColorScheme {
     const deviceScheme = useColorScheme()
     const appearance = useAppearanceStore((state) => state.appearance)
     return resolveColorScheme(appearance, deviceScheme)
 }
 
-export function useTheme(): Theme {
-    return themes[useColorSchemeName()]
+/**
+ * The theme for the surface the component draws on. `onGlass` overrides the surface for the component that renders a
+ * glass card, because it sits outside the card's `GlassSurfaceContext`.
+ */
+export function useTheme(onGlass?: boolean): Theme {
+    const scheme = useColorSchemeName()
+    const inGlass = useContext(GlassSurfaceContext)
+    return (onGlass ?? inGlass) ? glassThemes[scheme] : themes[scheme]
 }
 
-export function useColors(): ThemeColors {
-    return useTheme().colors
+export function useColors(onGlass?: boolean): ThemeColors {
+    return useTheme(onGlass).colors
 }
 
 type NamedStyles<T> = { [P in keyof T]: ViewStyle | TextStyle | ImageStyle }
 
 /**
- * Builds a StyleSheet per scheme, once, and returns a hook that picks the current one. Call it at module level, like
- * `StyleSheet.create`; the factory must be pure because it runs once per scheme for the life of the app.
+ * Builds a StyleSheet per scheme and surface, once, and returns a hook that picks the current one. Call it at module
+ * level, like `StyleSheet.create`; the factory must be pure because it runs once per theme for the life of the app.
+ * The hook takes the same `onGlass` override as `useTheme`.
  */
-export function createStyles<T extends NamedStyles<T>>(factory: (theme: Theme) => T): () => T {
-    const sheets: Partial<Record<ColorScheme, T>> = {}
-    return function useStyles(): T {
-        const scheme = useColorSchemeName()
-        let sheet = sheets[scheme]
+export function createStyles<T extends NamedStyles<T>>(factory: (theme: Theme) => T): (onGlass?: boolean) => T {
+    const sheets = new Map<Theme, T>()
+    return function useStyles(onGlass?: boolean): T {
+        const theme = useTheme(onGlass)
+        let sheet = sheets.get(theme)
         if (sheet === undefined) {
-            sheet = StyleSheet.create(factory(themes[scheme]))
-            sheets[scheme] = sheet
+            sheet = StyleSheet.create(factory(theme))
+            sheets.set(theme, sheet)
         }
         return sheet
     }

@@ -20,6 +20,7 @@ import { Pressable44 } from '@/ui/Pressable44'
 import { createStyles, useColors } from '@/ui/theme'
 import { iconSizes, radii, type } from '@/ui/tokens'
 import { useFloatingMenuStyle } from '@/ui/useFloatingMenuStyle'
+import { useLiquidGlass } from '@/ui/useLiquidGlass'
 import { useSceneDimensions } from '@/ui/useSceneDimensions'
 import { topOffset, useScreenInsets } from '@/ui/useScreenInsets'
 
@@ -96,8 +97,9 @@ export function NavMenu({
     onCancelSignOut,
     onConfirmSignOut,
 }: NavMenuProps): ReactElement {
-    const colors = useColors()
-    const styles = useStyles()
+    const glass = useLiquidGlass()
+    const colors = useColors(glass)
+    const styles = useStyles(glass)
     const insets = useScreenInsets()
     const { width: windowWidth } = useSceneDimensions()
     // The handoff's 75% width is the content box; padding and border add 22pt.
@@ -138,6 +140,7 @@ export function NavMenu({
                 accessibilityLabel="Menu"
                 testID="nav-menu"
                 style={[styles.card, cardStyle]}
+                glass={glass}
             >
                 <ScrollView keyboardShouldPersistTaps="handled">
                     <Pressable44
