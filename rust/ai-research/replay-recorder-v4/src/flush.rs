@@ -232,6 +232,9 @@ pub async fn write_flush(
         stats[index].images_extracted += block.counts.extracted;
         stats[index].image_bytes += block.counts.bytes;
         stats[index].images_inline += block.counts.inline;
+        for image in &block.images {
+            stats[index].image_ref_sketch.insert(&image.reference);
+        }
         stats[index].written_jsonl_bytes += block.counts.jsonl_bytes;
         stats[index].max_written_event_bytes = block.counts.max_line_bytes;
         stats[index].url_fingerprints = std::mem::take(&mut block.url_fingerprints);

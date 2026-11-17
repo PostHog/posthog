@@ -86,7 +86,9 @@ def send_handoff(request: AlertDeliveryRequest, targets: Sequence[HandoffTarget]
         .filter(configuration_id=request.configuration_id, state=PlatformAlertState.FIRING)
         .values_list("grouping_key", "firing_started_at")
     }
-    current = destination_handoff.current_addresses(request.team_id, request.configuration_id)
+    current = destination_handoff.current_addresses(
+        request.team_id, request.configuration_id, {target.send.grouping_key for target in targets}
+    )
     if current is None and any(target.send.gained for target in targets):
         # Unreadable flags would read as no routed receivers and drop every routed trigger for good.
         raise DeliveryError("Could not read whether this team routes alerts.")
@@ -142,12 +144,16 @@ def send_handoff(request: AlertDeliveryRequest, targets: Sequence[HandoffTarget]
 
 
 def _still_owed(
-    target: HandoffTarget, current: frozenset[str] | None, still_firing: set[tuple[str, datetime | None]]
+    target: HandoffTarget,
+    current: dict[str, frozenset[str]] | None,
+    still_firing: set[tuple[str, datetime | None]],
 ) -> bool:
     """Checked again when the send runs, because a later edit may have moved the firing back, and a
     stale send would undo it."""
     firing = (target.send.grouping_key, target.send.episode_started_at) in still_firing
-    here = current is not None and destination_handoff.address(target.data) in current
+    here = current is not None and destination_handoff.address(target.data) in current.get(
+        target.send.grouping_key, frozenset()
+    )
     if target.send.gained:
         # A firing that ended since sent its resolve to the destinations of that moment, so a trigger
         # now would open an incident nothing closes.

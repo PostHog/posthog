@@ -11,6 +11,7 @@ import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 
 import { linkSuggestionsKey, releaseLogic } from './releaseLogic'
 import { releaseRelatedLogic } from './releaseRelatedLogic'
+import { linkedKeys } from './releaseTracks'
 import { ReleaseRow } from './releaseUtils'
 
 interface Suggestion {
@@ -46,7 +47,13 @@ function SuggestionRow({ item, onDismiss }: { item: Suggestion; onDismiss: () =>
                     {item.reason}
                 </Text>
             </span>
-            <Button size="xs" variant="outline" onClick={item.add} data-attr="release-suggested-add">
+            <Button
+                size="xs"
+                variant="outline"
+                onClick={item.add}
+                aria-label={`Add ${item.label}`}
+                data-attr="release-suggested-add"
+            >
                 Add
             </Button>
             <Button
@@ -107,12 +114,7 @@ export function ReleaseSuggestedCard({ row }: { row: ReleaseRow }): JSX.Element 
     }
 
     const related = relatedByRelease[row.id]
-    const linked = new Set([
-        ...row.flags.map((flag) => `flag:${flag.id}`),
-        ...row.broadcasts.map((broadcast) => `broadcast:${broadcast.id}`),
-        ...(related?.surveys ?? []).map((survey) => `survey:${survey.id}`),
-        ...(related?.insights ?? []).map((insight) => `insight:${insight.id}`),
-    ])
+    const linked = linkedKeys(row, related)
     const visible = (key: string): boolean => !dismissed[`${row.id}:${key}`] && !linked.has(key)
 
     const relatedItems: (Suggestion & { detected: boolean })[] =

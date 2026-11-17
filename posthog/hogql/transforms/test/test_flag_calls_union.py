@@ -1,6 +1,8 @@
 import re
+import sys
 import json
 import uuid
+from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 
@@ -36,11 +38,13 @@ from posthog.hogql.database.models import DatabaseField, FieldTraverser, LazyJoi
 from posthog.hogql.database.schema.flag_evaluations import FLAG_EVALUATIONS_COMPLETE_DAYS
 from posthog.hogql.database.schema.util.where_clause_extractor import is_nondeterministic_function
 from posthog.hogql.errors import QueryError
+from posthog.hogql.flag_called_warnings import count_flag_calls_read_from_events
 from posthog.hogql.functions.mapping import HOGQL_CLICKHOUSE_FUNCTIONS
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.query import HogQLQueryExecutor, execute_hogql_query
 from posthog.hogql.test.test_prompt_jev import gateway_response
+from posthog.hogql.transforms.flag_calls_from_flag_evaluations import EventsOnlyNames, swaps_flag_calls
 from posthog.hogql.transforms.flag_calls_union import rename_flag_call_scans_to_union
 from posthog.hogql.visitor import TraversingVisitor, clone_expr
 
@@ -48,6 +52,7 @@ from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.escape import substitute_params
 from posthog.clickhouse.query_tagging import get_query_tags
 from posthog.constants import AvailableFeature
+from posthog.models.instance_setting import override_instance_config
 from posthog.test.persons import create_group_type_mapping
 
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
@@ -223,18 +228,36 @@ def _long_with() -> ast.SelectQuery:
     return select
 
 
+def _scan_of_events_in(events: list[str] | tuple[str, ...]) -> ast.SelectQuery:
+    events_match = ast.CompareOperation(
+        op=ast.CompareOperationOp.In, left=ast.Field(chain=["event"]), right=ast.Constant(value=events)
+    )
+    return cast(
+        ast.SelectQuery,
+        parse_select(
+            "SELECT count() FROM events WHERE timestamp > now() - INTERVAL 1 DAY AND {events_match}",
+            placeholders={"events_match": events_match},
+        ),
+    )
+
+
 def _set_mode(organization, mode: FlagEvaluationsMode) -> None:
     OrganizationFeatureFlagsConfig.objects.update_or_create(
         organization=organization, defaults={"flag_evaluations_mode": mode}
     )
 
 
-def _enabled_flags(union: bool):
-    enabled = {"hogql-flag-calls-union"} if union else set()
-    return patch(
-        "posthog.hogql.database.database.feature_enabled_or_false",
-        side_effect=lambda key, *args, **kwargs: key in enabled,
-    )
+@contextmanager
+def _enabled_flags(union: bool, union_flag: bool | None = None):
+    enabled = {"hogql-flag-calls-union"} if (union if union_flag is None else union_flag) else set()
+    with (
+        patch(
+            "posthog.hogql.database.database.feature_enabled_or_false",
+            side_effect=lambda key, *args, **kwargs: key in enabled,
+        ),
+        override_instance_config("FLAG_EVALUATIONS_UNION_DISABLED", not union),
+    ):
+        yield
 
 
 def _flag_evaluations_table_in_catalog():
@@ -779,6 +802,7 @@ class TestReadFlagCallsWithUnion(BaseTest):
         *,
         mode: FlagEvaluationsMode = READ,
         union: bool = True,
+        union_flag: bool | None = None,
         persons_on_events: PersonsOnEventsMode | None = None,
         new_events_schema: bool | None = None,
         person_id_pushdown: bool | None = None,
@@ -788,7 +812,7 @@ class TestReadFlagCallsWithUnion(BaseTest):
         rewrite_flag_calls: bool = True,
     ) -> str:
         _set_mode(self.organization, mode)
-        with _enabled_flags(union=union), _flag_evaluations_table_in_catalog():
+        with _enabled_flags(union=union, union_flag=union_flag), _flag_evaluations_table_in_catalog():
             sql, context = HogQLQueryExecutor(
                 query=query,
                 team=self.team,
@@ -815,8 +839,39 @@ class TestReadFlagCallsWithUnion(BaseTest):
 
     @parameterized.expand(
         [
-            ("mixed_query", f"SELECT count() FROM events WHERE {MIXED}", True, True),
-            ("mixed_query_with_the_flag_off", f"SELECT count() FROM events WHERE {MIXED}", False, False),
+            param("events_mode_with_the_flag", EVENTS, False, union_flag=True, new_events_schema=False),
+            param("read_mode", READ, False),
+            param("read_mode_with_the_flag", READ, True, union_flag=True),
+            param("read_mode_with_the_flag_and_the_union_disabled", READ, False, union_flag=True, union=False),
+            param("only_mode", ONLY, True),
+            param("only_mode_with_the_union_disabled", ONLY, False, union=False),
+            # The native JSON events table holds no flag calls on any mode.
+            param("native_events_on_events_mode", EVENTS, True, new_events_schema=True),
+            param("native_events_with_the_union_disabled", EVENTS, False, new_events_schema=True, union=False),
+        ]
+    )
+    def test_union_follows_the_mode_and_the_kill_switch(
+        self,
+        _name: str,
+        mode: FlagEvaluationsMode,
+        expected_union: bool,
+        union_flag: bool = False,
+        union: bool = True,
+        new_events_schema: bool | None = None,
+    ):
+        sql = self._sql(
+            f"SELECT count() FROM events WHERE {MIXED}",
+            mode=mode,
+            union=union,
+            union_flag=union_flag,
+            new_events_schema=new_events_schema,
+        )
+
+        assert ("UNION ALL" in sql) is expected_union
+        assert (re.search(r"FROM flag_evaluations\b", sql) is not None) is expected_union
+
+    @parameterized.expand(
+        [
             (
                 "query_phase_1_swaps",
                 "SELECT count() FROM events WHERE event = '$feature_flag_called' "
@@ -1057,6 +1112,83 @@ class TestReadFlagCallsWithUnion(BaseTest):
         assert sql == self._sql(query, mode=ONLY, union=False)
         assert "UNION ALL" not in sql
         assert "flag_evaluations AS " in sql
+
+    @parameterized.expand(
+        [
+            ("mixed_list", ["$feature_flag_called", "$experiment_exposure"], True, "UNION ALL"),
+            ("mixed_tuple", ("$pageview", "$feature_flag_called"), True, "UNION ALL"),
+            ("flag_call_list", ["$feature_flag_called"], False, "FROM flag_evaluations AS events"),
+        ]
+    )
+    def test_mode_2_reads_flag_calls_that_a_query_builder_names_in_one_list_constant(
+        self, _name: str, events: list[str] | tuple[str, ...], union: bool, expected: str
+    ):
+        sql = self._sql(_scan_of_events_in(events), mode=ONLY, union=union)
+
+        assert expected in sql
+
+    @parameterized.expand([("legacy", False), ("native", True)])
+    def test_mode_2_reads_events_only_names_without_the_union_or_the_swap(self, _name: str, native: bool):
+        names = ["$feature_flag_called", "$experiment_exposure"]
+
+        plain = self._sql(_scan_of_events_in(names), mode=ONLY, new_events_schema=native)
+        events_only = self._sql(_scan_of_events_in(EventsOnlyNames(names)), mode=ONLY, new_events_schema=native)
+
+        assert "UNION ALL" in plain
+        assert "UNION ALL" not in events_only
+        assert "flag_evaluations" not in events_only
+
+    @parameterized.expand(
+        [
+            ("mode_0", EVENTS, False),
+            ("mode_0_native", EVENTS, True),
+            ("mode_1", READ, False),
+            ("mode_1_native", READ, True),
+        ]
+    )
+    def test_events_only_names_print_what_a_query_without_the_swap_prints_on_modes_0_and_1(
+        self, _name: str, mode: FlagEvaluationsMode, native: bool
+    ):
+        names = ["$feature_flag_called", "$experiment_exposure"]
+
+        sql = self._sql(_scan_of_events_in(EventsOnlyNames(names)), mode=mode, new_events_schema=native)
+
+        assert sql == self._sql(
+            _scan_of_events_in(names), mode=mode, new_events_schema=native, rewrite_flag_calls=False
+        )
+
+    def test_swaps_flag_calls_when_a_list_constant_names_them(self):
+        _set_mode(self.organization, ONLY)
+        with _enabled_flags(union=False), _flag_evaluations_table_in_catalog():
+            context = HogQLContext(team_id=self.team.pk, database=Database.create_for(team=self.team))
+
+            assert swaps_flag_calls(_scan_of_events_in(["$pageview", "$feature_flag_called"]), context)
+            assert not swaps_flag_calls(_scan_of_events_in(["$pageview"]), context)
+
+    def test_a_list_constant_nested_deeper_than_the_stack_allows_does_not_raise(self):
+        nested: list = ["$pageview"]
+        for _ in range(sys.getrecursionlimit() * 2):
+            nested = [nested]
+        _set_mode(self.organization, ONLY)
+        with _enabled_flags(union=False), _flag_evaluations_table_in_catalog():
+            context = HogQLContext(team_id=self.team.pk, database=Database.create_for(team=self.team))
+
+            events_match = ast.CompareOperation(
+                op=ast.CompareOperationOp.In, left=ast.Field(chain=["event"]), right=ast.Constant(value=nested)
+            )
+
+            assert not swaps_flag_calls(events_match, context)
+
+    @parameterized.expand([("list", ["$pageview", "$feature_flag_called"]), ("tuple", ("$feature_flag_called",))])
+    def test_counts_a_flag_call_read_from_events_that_a_list_constant_names(
+        self, _name: str, events: list[str] | tuple[str, ...]
+    ):
+        _set_mode(self.organization, FlagEvaluationsMode.EVENTS)
+        executor = HogQLQueryExecutor(query=_scan_of_events_in(events), team=self.team)
+        executor.generate_clickhouse_sql()
+
+        assert executor.clickhouse_prepared_ast is not None
+        assert count_flag_calls_read_from_events(executor.clickhouse_prepared_ast) == 1
 
     def test_mode_2_self_join_reads_its_mixed_side_from_the_union_and_its_flag_call_side_from_flag_evaluations(
         self,
@@ -2210,7 +2342,7 @@ class TestFlagCallsUnionRows(ClickhouseTestMixin, APIBaseTest):
             ({"a": 1}, {"a": 1}),
             ([1, 2], [1, 2]),
             ("text", "text"),
-            ({}, None),
+            ({}, {}),
             (None, None),
             (missing, None),
         ]

@@ -1,6 +1,6 @@
 """Which team-wide receivers an alert's labels route it to."""
 
-from collections.abc import Mapping
+from collections.abc import Collection, Mapping, Sequence
 from typing import cast
 from uuid import UUID
 
@@ -12,18 +12,9 @@ from posthog.models import Team
 from products.alerts_platform.backend.delivery.team_flags import team_flag_enabled
 from products.alerts_platform.backend.facade.contracts import ROUTING_FLAG, AlertDestinationData, AlertEventKind
 from products.alerts_platform.backend.logic.alert_destinations import INCIDENT_DESTINATION_TYPES
-from products.alerts_platform.backend.models import AlertReceiver, AlertRoute, PlatformAlertConfiguration
+from products.alerts_platform.backend.models import AlertReceiver, AlertRoute, PlatformAlert
 
 logger = structlog.get_logger(__name__)
-
-
-def routing_is_enabled(team: Team) -> bool:
-    """Fail closed, so a flag-eval blip sends to the alert's own destinations only."""
-    try:
-        return bool(team_flag_enabled(ROUTING_FLAG, team))
-    except Exception:
-        logger.warning("alerts_platform_routing_flag_check_failed_defaulting_off", team_id=team.id, exc_info=True)
-        return False
 
 
 @frozen
@@ -38,19 +29,7 @@ class RoutedReceiver:
 def matching_routes(*, team_id: int, labels: Mapping[str, str]) -> list[AlertRoute]:
     """Every enabled route to an enabled receiver that these labels match, in route order, up to
     the first match that stops matching."""
-    matched: list[AlertRoute] = []
-    routes = (
-        AlertRoute.objects.for_team(team_id)
-        .filter(enabled=True, receiver__enabled=True)
-        .order_by("position", "created_at", "id")
-    )
-    for route in routes:
-        if not _matches(route, labels):
-            continue
-        matched.append(route)
-        if not route.continue_matching:
-            break
-    return matched
+    return _first_matches(_enabled_routes(team_id), labels)
 
 
 def routed_receivers(*, team_id: int, labels: Mapping[str, str]) -> tuple[RoutedReceiver, ...]:
@@ -58,26 +37,39 @@ def routed_receivers(*, team_id: int, labels: Mapping[str, str]) -> tuple[Routed
 
     A receiver that two routes reach is sent to once, with the kinds of both.
     """
-    kinds_by_receiver: dict[UUID, dict[AlertEventKind, None]] = {}
-    for route in matching_routes(team_id=team_id, labels=labels):
-        kinds_by_receiver.setdefault(route.receiver_id, {}).update(
-            dict.fromkeys(AlertEventKind(kind) for kind in route.event_kinds)
-        )
-    # Loaded only for the receivers that matched, so a team's other configs are never decrypted.
-    configs = {
-        receiver.id: receiver.config
-        for receiver in AlertReceiver.objects.for_team(team_id).filter(id__in=kinds_by_receiver).only("id", "config")
-    }
-    return tuple(
-        RoutedReceiver(id=receiver_id, data=cast(AlertDestinationData, configs[receiver_id]), event_kinds=tuple(kinds))
-        for receiver_id, kinds in kinds_by_receiver.items()
-        if receiver_id in configs
-    )
+    return routed_receivers_for_label_sets(team_id=team_id, label_sets=[labels])[0]
+
+
+def has_enabled_routes(team_id: int) -> bool:
+    return AlertRoute.objects.for_team(team_id).filter(enabled=True, receiver__enabled=True).exists()
+
+
+def has_incident_receiver(team_id: int) -> bool:
+    """Whether the team has an enabled incident manager receiver. Most teams have none, and this answers
+    that without a flag evaluation or a decrypt."""
+    return AlertReceiver.objects.for_team(team_id).filter(type__in=INCIDENT_DESTINATION_TYPES, enabled=True).exists()
+
+
+def routes_reach_incident_receiver(*, team_id: int) -> bool:
+    """Whether a route can send this team's alerts to an incident manager, so that a firing that opens
+    or closes needs a delivery even when the alert has no incident manager of its own.
+
+    Each group routes on its own labels, which the source does not know when it decides, so any
+    enabled route to an enabled incident receiver counts. Keeping a trigger or resolve costs at most a
+    delivery that routing declines, while one dropped here is gone for good.
+    """
+    if (
+        not AlertRoute.objects.for_team(team_id)
+        .filter(enabled=True, receiver__enabled=True, receiver__type__in=INCIDENT_DESTINATION_TYPES)
+        .exists()
+    ):
+        return False
+    team = Team.objects.filter(id=team_id).first()
+    return team is not None and _routing_may_be_enabled(team)
 
 
 def _routing_may_be_enabled(team: Team) -> bool:
-    """Fails open, unlike `routing_is_enabled`. A trigger or resolve dropped here is gone for good, while
-    keeping one costs at most a delivery that routing then declines."""
+    """Fails open, unlike `routing_is_enabled`, for the reason `routes_reach_incident_receiver` gives."""
     try:
         return team_flag_enabled(ROUTING_FLAG, team) is not False
     except Exception:
@@ -87,30 +79,93 @@ def _routing_may_be_enabled(team: Team) -> bool:
         return True
 
 
-def has_incident_receiver(team_id: int) -> bool:
-    """Whether the team has an enabled incident manager receiver. Most teams have none, and this answers
-    that without a flag evaluation or a decrypt."""
-    return AlertReceiver.objects.for_team(team_id).filter(type__in=INCIDENT_DESTINATION_TYPES, enabled=True).exists()
+def routed_label_names(team_id: int) -> frozenset[str]:
+    """Every label name an enabled route of the team matches on."""
+    return frozenset(
+        matcher["label"]
+        for matchers in AlertRoute.objects.for_team(team_id)
+        .filter(enabled=True, receiver__enabled=True)
+        .values_list("matchers", flat=True)
+        for matcher in matchers or ()
+        if isinstance(matcher, dict) and isinstance(matcher.get("label"), str)
+    )
 
 
-def routes_reach_incident_receiver(*, team_id: int, configuration_id: UUID) -> bool:
-    """Whether a route this alert matches sends to an incident manager, so that a firing that opens
-    or closes needs a delivery even when the alert has no incident manager of its own."""
-    if not has_incident_receiver(team_id):
-        return False
-    team = Team.objects.filter(id=team_id).first()
-    if team is None or not _routing_may_be_enabled(team):
-        return False
-    labels = (
-        PlatformAlertConfiguration.objects.for_team(team_id)
-        .filter(id=configuration_id)
-        .values_list("labels", flat=True)
-        .first()
+def stored_group_labels(
+    *, team_id: int, configuration_id: str, grouping_keys: Collection[str]
+) -> dict[str, dict[str, str]]:
+    """The labels each group's instance last kept. A group a check stopped returning resolves
+    without labels, and its instance still holds the ones its firing had."""
+    if not grouping_keys:
+        return {}
+    rows = (
+        PlatformAlert.objects.for_team(team_id)
+        .filter(configuration_id=configuration_id, grouping_key__in=grouping_keys)
+        .values_list("grouping_key", "labels")
     )
-    return any(
-        receiver.data.get("type") in INCIDENT_DESTINATION_TYPES
-        for receiver in routed_receivers(team_id=team_id, labels=labels or {})
+    return {grouping_key: dict(labels or {}) for grouping_key, labels in rows}
+
+
+def routing_labels(*, group_labels: Mapping[str, str], rule_labels: Mapping[str, str]) -> dict[str, str]:
+    """The labels a group's transition is routed on: the group's own labels with the rule's
+    labels on top, so a rule label wins over a group label of the same name, as in Prometheus."""
+    return {**group_labels, **rule_labels}
+
+
+def routed_receivers_for_label_sets(
+    *, team_id: int, label_sets: Sequence[Mapping[str, str]]
+) -> list[tuple[RoutedReceiver, ...]]:
+    """`routed_receivers` for each label set, in the same order, reading the team's routes once."""
+    routes = _enabled_routes(team_id)
+    kinds_per_set = [_kinds_by_receiver(_first_matches(routes, labels)) for labels in label_sets]
+    matched_ids = {receiver_id for kinds in kinds_per_set for receiver_id in kinds}
+    # Loaded only for the receivers that matched, so a team's other configs are never decrypted.
+    configs = (
+        {
+            receiver.id: receiver.config
+            for receiver in AlertReceiver.objects.for_team(team_id).filter(id__in=matched_ids).only("id", "config")
+        }
+        if matched_ids
+        else {}
     )
+    return [
+        tuple(
+            RoutedReceiver(
+                id=receiver_id, data=cast(AlertDestinationData, configs[receiver_id]), event_kinds=tuple(kinds)
+            )
+            for receiver_id, kinds in kinds_by_receiver.items()
+            if receiver_id in configs
+        )
+        for kinds_by_receiver in kinds_per_set
+    ]
+
+
+def _enabled_routes(team_id: int) -> list[AlertRoute]:
+    return list(
+        AlertRoute.objects.for_team(team_id)
+        .filter(enabled=True, receiver__enabled=True)
+        .order_by("position", "created_at", "id")
+    )
+
+
+def _first_matches(routes: Sequence[AlertRoute], labels: Mapping[str, str]) -> list[AlertRoute]:
+    matched: list[AlertRoute] = []
+    for route in routes:
+        if not _matches(route, labels):
+            continue
+        matched.append(route)
+        if not route.continue_matching:
+            break
+    return matched
+
+
+def _kinds_by_receiver(routes: Sequence[AlertRoute]) -> dict[UUID, dict[AlertEventKind, None]]:
+    kinds_by_receiver: dict[UUID, dict[AlertEventKind, None]] = {}
+    for route in routes:
+        kinds_by_receiver.setdefault(route.receiver_id, {}).update(
+            dict.fromkeys(AlertEventKind(kind) for kind in route.event_kinds)
+        )
+    return kinds_by_receiver
 
 
 def _matches(route: AlertRoute, labels: Mapping[str, str]) -> bool:

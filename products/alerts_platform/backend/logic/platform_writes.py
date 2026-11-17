@@ -21,7 +21,6 @@ from posthog.models.activity_logging.model_activity import get_current_user, get
 from posthog.models.signals import model_activity_signal
 
 from products.alerts_platform.backend.facade.contracts import (
-    MAX_EVALUATION_PERIODS,
     MAX_STORED_INTEGER,
     Grouping,
     GroupingMode,
@@ -84,8 +83,8 @@ def _validated(
         ("evaluation_periods", edit.evaluation_periods),
         ("datapoints_to_alarm", edit.datapoints_to_alarm),
     ):
-        if not 1 <= value <= MAX_EVALUATION_PERIODS:
-            raise InvalidPlatformAlertEdit(name, f"Must be between 1 and {MAX_EVALUATION_PERIODS}.")
+        if not 1 <= value <= spec.max_evaluation_periods:
+            raise InvalidPlatformAlertEdit(name, f"Must be between 1 and {spec.max_evaluation_periods}.")
     if edit.datapoints_to_alarm > edit.evaluation_periods:
         raise InvalidPlatformAlertEdit("datapoints_to_alarm", "Cannot exceed evaluation_periods.")
     if not 0 <= edit.cooldown_minutes <= MAX_STORED_INTEGER:
@@ -170,13 +169,15 @@ def update_configuration(
     cadence: PlatformAlertUpsert | None = None,
     rescheduled: bool = False,
     source_checked: bool = False,
+    check_interval_minutes: int | None = None,
 ) -> PlatformAlertConfigurationView | None:
     """Applies `change` to the configuration's current settings under its row lock, and mirrors the
     result onto the source's own row. With `snooze_changed`, `snooze_until` becomes the whole alert's mute.
 
     For an alert with no source row, `cadence` writes its schedule as `update_owned_copy` writes a
     copy's, and its kind's `native_edit_guard` refuses what the source's API alone may change. A
-    source whose own API checked the edit sets `source_checked` to skip the guard.
+    source whose own API checked the edit sets `source_checked` to skip the guard. Such an alert can
+    instead take `check_interval_minutes`, one of the cadences its kind offers a native create.
 
     None when the configuration does not exist or its kind is not among `source_kinds`. Taking a
     function rather than the new settings lets a partial update merge with what is stored inside
@@ -193,12 +194,15 @@ def update_configuration(
         if snooze_changed and legacy_configuration_id is not None:
             # The source row keeps the snooze too, and no mirror carries one, so the two would disagree.
             raise InvalidPlatformAlertEdit("snooze_until", f"Snooze this alert in the {source_kind} product.")
-        if cadence is not None and legacy_configuration_id is not None:
+        if (cadence is not None or check_interval_minutes is not None) and legacy_configuration_id is not None:
             # The source row keeps the schedule, and `update_owned_copy` writes it onto the copy.
             raise InvalidPlatformAlertEdit(
                 "check_interval_minutes", f"Schedule this alert in the {source_kind} product."
             )
         spec = source_configs.spec(SourceKind(source_kind))
+        native = spec.native if spec is not None else None
+        if check_interval_minutes is not None:
+            check_interval_minutes = _native_check_interval(native, check_interval_minutes)
         mirror = spec.mirror if spec is not None else None
         write_source = (
             mirror(team_id=team_id, legacy_configuration_id=legacy_configuration_id)
@@ -226,7 +230,7 @@ def update_configuration(
             snoozing=snoozing,
             admit=True,
             guard=guard,
-            check_interval_minutes=cadence.check_interval_minutes if cadence is not None else None,
+            check_interval_minutes=cadence.check_interval_minutes if cadence is not None else check_interval_minutes,
         )
         # After the edit, whose enable would reset the due time the cadence sets, and before the snooze,
         # whose deferred due time the cadence would otherwise overwrite.
@@ -235,6 +239,13 @@ def update_configuration(
                 platform_lifecycle.write_owned_cadence(configuration, cadence, rescheduled=rescheduled)
             except ValueError as error:
                 raise InvalidPlatformAlertEdit("check_interval_minutes", str(error)) from error
+        elif check_interval_minutes is not None and native is not None:
+            platform_lifecycle.write_native_cadence(
+                configuration,
+                check_interval_minutes=check_interval_minutes,
+                recurrence_unit=(native.check_intervals or {}).get(check_interval_minutes),
+                now=now,
+            )
         if snooze_changed:
             platform_lifecycle.write_snooze(configuration, snooze_until, now=now)
         if write_source is not None:
@@ -275,7 +286,7 @@ def create_configuration(
         raise PlatformAlertNotEditable(f"{source_kind} alerts cannot be created through this API.")
     validated = _validated(source_kind, None, edit, team_id=team_id)
     if spec.native is not None and (spec.creates_natively(team_id) if natively is None else natively):
-        check_interval_minutes = _native_check_interval(spec.native, validated)
+        check_interval_minutes = _native_check_interval(spec.native, validated.check_interval_minutes)
         recurrence_unit = (spec.native.check_intervals or {}).get(check_interval_minutes)
         with transaction.atomic():
             _admit(
@@ -312,11 +323,10 @@ def create_configuration(
     return view
 
 
-def _native_check_interval(native: NativeAlertLifecycle, edit: PlatformAlertConfigurationEdit) -> int:
-    requested = edit.check_interval_minutes
-    if requested is None:
+def _native_check_interval(native: NativeAlertLifecycle | None, requested: int | None) -> int:
+    if native is not None and requested is None:
         return native.check_interval_minutes
-    if native.check_intervals is None:
+    if native is None or native.check_intervals is None or requested is None:
         raise InvalidPlatformAlertEdit("check_interval_minutes", "Alerts of this type have one fixed cadence.")
     if requested not in native.check_intervals:
         allowed = ", ".join(str(minutes) for minutes in sorted(native.check_intervals))

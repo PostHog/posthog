@@ -124,7 +124,9 @@ class TestPlatformAlertRouting(APIBaseTest):
     @parameterized.expand(
         [
             ("pagerduty_matching_route", _PAGERDUTY, True, "apm", True),
-            ("pagerduty_route_matches_another_team", _PAGERDUTY, True, "web", False),
+            # A group routes on its own labels, which the source does not know yet, so any route to an
+            # incident receiver keeps the actions; routing then decides who gets them.
+            ("pagerduty_route_matches_another_team", _PAGERDUTY, True, "web", True),
             ("pagerduty_routing_off_for_the_team", _PAGERDUTY, False, "apm", False),
             # A dropped resolve would leave the incident open for good, so a failed lookup keeps the actions.
             ("pagerduty_flag_lookup_fails", _PAGERDUTY, RuntimeError("flags down"), "apm", True),

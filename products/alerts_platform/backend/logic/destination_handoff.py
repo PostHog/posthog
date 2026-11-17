@@ -43,7 +43,11 @@ from products.alerts_platform.backend.logic.alert_destinations import (
     INCIDENT_DESTINATION_TYPES,
     enabled_alert_destinations,
 )
-from products.alerts_platform.backend.logic.alert_routes import routed_receivers, routing_is_enabled
+from products.alerts_platform.backend.logic.alert_routes import (
+    routed_receivers_for_label_sets,
+    routing_labels,
+    stored_group_labels,
+)
 from products.alerts_platform.backend.models import PlatformAlert, PlatformAlertConfiguration
 
 logger = structlog.get_logger(__name__)
@@ -69,11 +73,19 @@ class _Endpoint:
 
 
 @frozen
+class _Group:
+    started_at: datetime
+    # The group's own labels, which routing reads with the rule's labels on top.
+    labels: dict[str, str]
+
+
+@frozen
 class _Watched:
     configuration_id: UUID
     # Grouping key to firing start, for every group firing when the snapshot was taken.
     firing: dict[str, datetime]
-    endpoints: dict[str, _Endpoint]
+    # Grouping key to where that group's firing goes, by `address`. Each group routes on its own labels.
+    endpoints: dict[str, dict[str, _Endpoint]]
 
 
 @frozen
@@ -89,7 +101,7 @@ def snapshot(team_id: int, *, configuration_ids: Collection[UUID] | None = None,
     team when None. With `routes_only`, an edit that can move firings only between routed receivers
     skips the work when the team does not route."""
     team = Team.objects.filter(id=team_id).first()
-    routing = team is not None and routing_is_enabled(team)
+    routing = team is not None and _routing_on(team)
     if team is None or (routes_only and not routing):
         return Snapshot(team_id=team_id, routing=routing, watched=())
     firing = _firing_groups(team_id, configuration_ids)
@@ -104,8 +116,12 @@ def snapshot(team_id: int, *, configuration_ids: Collection[UUID] | None = None,
         watched=tuple(
             _Watched(
                 configuration_id=configuration.id,
-                firing=firing[configuration.id],
-                endpoints=_endpoints(configuration, routing=routing),
+                firing={key: group.started_at for key, group in firing[configuration.id].items()},
+                endpoints=_endpoints(
+                    configuration,
+                    {key: group.labels for key, group in firing[configuration.id].items()},
+                    routing=routing,
+                ),
             )
             for configuration in configurations
         ),
@@ -158,31 +174,38 @@ def hand_over_after_commit(before: Snapshot) -> None:
             continue
         # Only a firing that runs on through the edit. One the edit ended was closed by the edit.
         firing = {
-            key: started
-            for key, started in now_firing[watched.configuration_id].items()
-            if watched.firing.get(key) == started
+            key: group
+            for key, group in now_firing[watched.configuration_id].items()
+            if watched.firing.get(key) == group.started_at
         }
         if firing:
-            _schedule(configuration, firing, watched.endpoints, _endpoints(configuration, routing=before.routing))
+            _schedule(
+                configuration,
+                firing,
+                watched.endpoints,
+                _endpoints(configuration, {key: group.labels for key, group in firing.items()}, routing=before.routing),
+            )
 
 
 def _schedule(
     configuration: PlatformAlertConfiguration,
-    firing: Mapping[str, datetime],
-    before: Mapping[str, _Endpoint],
-    after: Mapping[str, _Endpoint],
+    firing: Mapping[str, _Group],
+    before: Mapping[str, Mapping[str, _Endpoint]],
+    after: Mapping[str, Mapping[str, _Endpoint]],
 ) -> None:
     queued: list[HandoffSend] = []
     # Resolves go from this process with the settings read before the edit. A later edit can delete or
     # repoint the row before a workflow would read it by id, and nothing else knows the incident is open.
     # The settings carry a credential, so they never go on a workflow's payload.
     inline: list[tuple[HandoffSend, AlertDestinationData]] = []
-    for where, endpoint in after.items():
-        if where not in before:
-            queued.extend(_sends(endpoint, firing, gained=True))
-    for where, endpoint in before.items():
-        if where not in after:
-            inline.extend((send, endpoint.data) for send in _sends(endpoint, firing, gained=False))
+    for key, group in firing.items():
+        was, now = before.get(key, {}), after.get(key, {})
+        for where, endpoint in now.items():
+            if where not in was:
+                queued.append(_send_for(endpoint, key, group.started_at, gained=True))
+        for where, endpoint in was.items():
+            if where not in now:
+                inline.append((_send_for(endpoint, key, group.started_at, gained=False), endpoint.data))
     if not queued and not inline:
         return
     request = _request(configuration, queued or [send for send, _ in inline])
@@ -250,8 +273,10 @@ def _request(configuration: PlatformAlertConfiguration, sends: list[HandoffSend]
     )
 
 
-def current_addresses(team_id: int, configuration_id: str) -> frozenset[str] | None:
-    """Where the configuration's firings go now, by `address`, for a send to check it is still owed.
+def current_addresses(
+    team_id: int, configuration_id: str, grouping_keys: Collection[str]
+) -> dict[str, frozenset[str]] | None:
+    """Where each of these groups' firings go now, by `address`, for a send to check it is still owed.
     None when the routing flag cannot be read, which would otherwise read as no routed receivers."""
     team = Team.objects.filter(id=team_id).first()
     configuration = (
@@ -260,7 +285,7 @@ def current_addresses(team_id: int, configuration_id: str) -> frozenset[str] | N
         .first()
     )
     if team is None or configuration is None:
-        return frozenset()
+        return {}
     try:
         routing = team_flag_enabled(ROUTING_FLAG, team)
     except Exception:
@@ -268,40 +293,65 @@ def current_addresses(team_id: int, configuration_id: str) -> frozenset[str] | N
         return None
     if routing is None:
         return None
-    return frozenset(_endpoints(configuration, routing=routing))
+    labels = stored_group_labels(team_id=team_id, configuration_id=configuration_id, grouping_keys=grouping_keys)
+    group_labels = {key: labels.get(key, {}) for key in grouping_keys}
+    return {key: frozenset(found) for key, found in _endpoints(configuration, group_labels, routing=routing).items()}
 
 
-def _sends(endpoint: _Endpoint, firing: Mapping[str, datetime], *, gained: bool) -> list[HandoffSend]:
-    return [
-        HandoffSend(
-            grouping_key=grouping_key,
-            episode_started_at=started_at,
-            destination_id=endpoint.destination_id,
-            routed=endpoint.routed,
-            gained=gained,
-        )
-        for grouping_key, started_at in firing.items()
-    ]
+def _send_for(endpoint: _Endpoint, grouping_key: str, started_at: datetime, *, gained: bool) -> HandoffSend:
+    return HandoffSend(
+        grouping_key=grouping_key,
+        episode_started_at=started_at,
+        destination_id=endpoint.destination_id,
+        routed=endpoint.routed,
+        gained=gained,
+    )
 
 
-def _endpoints(configuration: PlatformAlertConfiguration, *, routing: bool) -> dict[str, _Endpoint]:
-    """The incident managers a firing of this configuration is sent to. Each hears every trigger and
-    resolve, whatever kinds it lists."""
-    found: dict[str, _Endpoint] = {}
+def _endpoints(
+    configuration: PlatformAlertConfiguration, group_labels: Mapping[str, Mapping[str, str]], *, routing: bool
+) -> dict[str, dict[str, _Endpoint]]:
+    """The incident managers each group's firing is sent to. Each hears every trigger and resolve,
+    whatever kinds it lists. The alert's own destinations hear every group, and a routed receiver
+    hears the groups whose labels, with the rule's on top, its routes match."""
+    own: dict[str, _Endpoint] = {}
     if configuration.destinations_owner == PlatformAlertOwner.PLATFORM:
         for destination in enabled_alert_destinations(team_id=configuration.team_id, configuration_id=configuration.id):
             if destination.data.get("type") in INCIDENT_DESTINATION_TYPES:
-                found.setdefault(
+                own.setdefault(
                     address(destination.data),
                     _Endpoint(destination_id=str(destination.id), routed=False, data=destination.data),
                 )
-    if routing:
-        for receiver in routed_receivers(team_id=configuration.team_id, labels=configuration.labels or {}):
+    keys = list(group_labels)
+    routed = (
+        routed_receivers_for_label_sets(
+            team_id=configuration.team_id,
+            label_sets=[
+                routing_labels(group_labels=group_labels[key], rule_labels=configuration.labels or {}) for key in keys
+            ],
+        )
+        if routing and keys
+        else [() for _ in keys]
+    )
+    found: dict[str, dict[str, _Endpoint]] = {}
+    for key, receivers in zip(keys, routed):
+        endpoints = dict(own)
+        for receiver in receivers:
             if receiver.data.get("type") in INCIDENT_DESTINATION_TYPES:
-                found.setdefault(
+                endpoints.setdefault(
                     address(receiver.data), _Endpoint(destination_id=str(receiver.id), routed=True, data=receiver.data)
                 )
+        found[key] = endpoints
     return found
+
+
+def _routing_on(team: Team) -> bool:
+    """Fails closed. The snapshot and the comparison after the edit share this one read."""
+    try:
+        return bool(team_flag_enabled(ROUTING_FLAG, team))
+    except Exception:
+        logger.warning("alerts_platform_handoff_routing_flag_unreadable", team_id=team.id, exc_info=True)
+        return False
 
 
 def address(data: AlertDestinationData) -> str:
@@ -310,17 +360,19 @@ def address(data: AlertDestinationData) -> str:
     return json.dumps({**kept, "type": data.get("type")}, sort_keys=True, default=str)
 
 
-def _firing_groups(team_id: int, configuration_ids: Collection[UUID] | None) -> dict[UUID, dict[str, datetime]]:
+def _firing_groups(team_id: int, configuration_ids: Collection[UUID] | None) -> dict[UUID, dict[str, _Group]]:
     rows = PlatformAlert.objects.for_team(team_id).filter(
         state=PlatformAlertState.FIRING, firing_started_at__isnull=False
     )
     if configuration_ids is not None:
         rows = rows.filter(configuration_id__in=configuration_ids)
-    firing: dict[UUID, dict[str, datetime]] = {}
-    for configuration_id, grouping_key, started_at in rows.values_list(
-        "configuration_id", "grouping_key", "firing_started_at"
+    firing: dict[UUID, dict[str, _Group]] = {}
+    for configuration_id, grouping_key, started_at, labels in rows.values_list(
+        "configuration_id", "grouping_key", "firing_started_at", "labels"
     ):
         # Never None: the filter above leaves those rows out.
         if started_at is not None:
-            firing.setdefault(configuration_id, {})[grouping_key] = started_at
+            firing.setdefault(configuration_id, {})[grouping_key] = _Group(
+                started_at=started_at, labels=dict(labels or {})
+            )
     return firing

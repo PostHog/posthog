@@ -25,6 +25,7 @@ from products.alerts_platform.backend.facade.contracts import (
     IncidentAction,
     NativeAlertLifecycle,
     NewAlertDestination,
+    RouteMatcher,
     SourceConfigSpec,
     SourceKind,
 )
@@ -295,3 +296,42 @@ class TestDestinationHandoff(ClickhouseTestMixin, APIBaseTest):
             deliver_handoff(started[0])
 
         assert self._sends() == []
+
+    def test_a_route_on_a_group_label_hands_over_only_the_groups_it_matches(self) -> None:
+        configuration = PlatformAlertConfiguration.objects.for_team(self.team.id).get(id=self.configuration_id)
+        PlatformAlert.objects.for_team(self.team.id).filter(grouping_key="").update(labels={"service": "api"})
+        web = PlatformAlert.objects.for_team(self.team.id).create(
+            team=self.team,
+            configuration=configuration,
+            grouping_key="web",
+            labels={"service": "web"},
+            state=PlatformAlertState.FIRING,
+            firing_started_at=FIRING_STARTED,
+        )
+        insert_events(
+            self.team.id,
+            [
+                event_row(
+                    configuration,
+                    alert=web,
+                    evaluation_key="opening-check",
+                    kind=AlertEventKind.FIRING.value,
+                    previous_state=PlatformAlertState.NOT_FIRING.value,
+                    state=PlatformAlertState.FIRING.value,
+                    episode_started_at=FIRING_STARTED,
+                    consecutive_failures=0,
+                    now=FIRING_STARTED,
+                )
+            ],
+        )
+        receiver = self._receiver("pagerduty", "new", None)
+
+        with self.captureOnCommitCallbacks(execute=True):
+            alert_routing.create_route(
+                team_id=self.team.id,
+                edit=AlertRouteEdit(receiver_id=receiver.id, matchers=(RouteMatcher(label="service", value="api"),)),
+            )
+
+        assert [
+            (message.transition.grouping_key, message.incident_action) for _, message in RecordingTransport.sends
+        ] == [("", IncidentAction.TRIGGER)]
