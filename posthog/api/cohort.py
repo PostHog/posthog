@@ -115,8 +115,10 @@ from posthog.utils import format_query_params_absolute_url, safe_int, str_to_boo
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.cdp.backend.filters import build_behavioral_event_expr
 from products.cohorts.backend.cohort_enablement import (
+    RealtimeLimitReached,
     RealtimeTurnOnRefused,
     flag_calls_table_refusal,
+    refuse_edit_over_plan_limits,
     turn_realtime_off,
     turn_realtime_on,
     turn_realtime_on_for_included_cohorts,
@@ -259,6 +261,7 @@ def _workflow_names_suffix(
 
 
 COHORT_USED_BY_WORKFLOWS_ERROR_CODE = "cohort_used_by_workflows"
+REALTIME_LIMIT_REACHED_ERROR_CODE = "realtime_limit_reached"
 
 
 class CohortPersonsResponseSerializer(serializers.Serializer):
@@ -733,8 +736,10 @@ class AddPersonsToStaticCohortRequestSerializer(serializers.Serializer):
 class CohortRealtimeRequestSerializer(serializers.Serializer):
     enabled = serializers.BooleanField(
         help_text="True turns realtime on for the cohort and for every realtime cohort it includes as criteria, and "
-        "starts preparing them from past events. False turns realtime off. PostHog refuses that while a feature flag, "
-        "an active workflow, or another cohort with realtime on reads the cohort.",
+        "starts preparing them from past events. PostHog refuses that when the project's plan allows no more cohorts "
+        "with realtime on, or when the criteria look back further than the plan allows. False turns realtime off. "
+        "PostHog refuses that while a feature flag, an active workflow, or another cohort with realtime on reads the "
+        "cohort.",
     )
 
 
@@ -1272,13 +1277,37 @@ def _can_edit(user_access_control: Optional[UserAccessControl]) -> Callable[[Coh
     )
 
 
+def _report_realtime_limit_reached(
+    request: Request, cohort: Cohort, error: RealtimeLimitReached, source: Literal["switch", "create", "edit"]
+) -> None:
+    report_user_action(
+        cast(User, request.user),
+        "cohort realtime limit reached",
+        {
+            **cohort.get_analytics_metadata(),
+            "limit": error.limit,
+            "allowed": error.allowed,
+            "used": error.used,
+            "source": source,
+        },
+        team=cohort.team,
+        request=request,
+    )
+
+
 def _turn_realtime_on_after_save(
-    turn_on: Callable[..., list[int]], cohort: Cohort, user_access_control: Optional[UserAccessControl]
+    turn_on: Callable[..., list[int]],
+    cohort: Cohort,
+    request: Request,
+    user_access_control: Optional[UserAccessControl],
+    source: Literal["create", "edit"],
 ) -> None:
     """Turn realtime on after a request saved the cohort. A refusal or an error leaves the save in place."""
     try:
         turn_on(cohort.team_id, cohort.pk, can_edit=_can_edit(user_access_control))
     except RealtimeTurnOnRefused as error:
+        if isinstance(error, RealtimeLimitReached):
+            _report_realtime_limit_reached(request, cohort, error, source)
         logger.info("cohort_realtime_turn_on_after_save_refused", cohort_id=cohort.pk, error=str(error))
         return
     except Exception as error:
@@ -1328,14 +1357,15 @@ class CohortRealtimeReadinessSerializer(serializers.Serializer):
         choices=CohortRealtimeUnavailableReason.choices,
         allow_null=True,
         help_text="Why feature flags can't target the cohort. `history_over_limit`, on a `daily` cohort: its criteria "
-        "look back further than `history_limit_days`. `too_large_to_build`, on a `needs_attention` cohort: the events "
+        "look back further than realtime cohorts can. On an `off` cohort: its criteria look back further than the "
+        "project's plan allows, so it can't be turned on. `too_large_to_build`, on a `needs_attention` cohort: the events "
         "in its criteria happen too often for PostHog to prepare it automatically. Null in every other case, "
         "including a `daily` cohort that other criteria keep off realtime.",
     )
     history_limit_days = serializers.IntegerField(
         allow_null=True,
-        help_text="The most days realtime cohort criteria can look back. Null unless the reason is "
-        "`history_over_limit`.",
+        help_text="The most days realtime cohort criteria can look back on the project's plan. Null unless the reason "
+        "is `history_over_limit`.",
     )
 
 
@@ -1632,7 +1662,7 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
             cohort.enqueue_calculation(initiating_user=request.user)
 
         if realtime_enabled and _realtime_targeting_enabled(self.context):
-            _turn_realtime_on_after_save(turn_realtime_on, cohort, self._user_access_control())
+            _turn_realtime_on_after_save(turn_realtime_on, cohort, request, self._user_access_control(), "create")
 
         report_user_action(
             request.user,
@@ -2239,6 +2269,7 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
             cohort._create_in_folder = create_in_folder or None
 
         was_realtime = cohort.cohort_type == CohortType.REALTIME and not cohort.is_static
+        held_a_realtime_slot = cohort.realtime_enabled and was_realtime and not cohort.deleted
 
         cohort.name = validated_data.get("name", cohort.name)
         cohort.description = validated_data.get("description", cohort.description)
@@ -2320,6 +2351,22 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
                 )
 
         deleted_state = cast(bool | None, validated_data.get("deleted"))
+
+        # The plan's limits judge new criteria, and an edit that brings back a cohort that is on. Such a cohort keeps its
+        # switch while it is daily, static or deleted, and holds no slot then, so the edit takes a slot without a
+        # turn-on. A user who doesn't see realtime cohorts is not judged, because they can't see or turn off the
+        # cohorts that hold the slots. The turn-on after the save still checks the plan for the cohorts it turns on.
+        holds_a_realtime_slot = (
+            cohort.realtime_enabled
+            and cohort.cohort_type == CohortType.REALTIME
+            and not cohort.is_static
+            and not (cohort.deleted if deleted_state is None else deleted_state)
+        )
+        judge_plan_limits = (
+            holds_a_realtime_slot
+            and (filters_changed or not held_a_realtime_slot)
+            and _realtime_targeting_enabled(self.context)
+        )
 
         incoming_has_criteria = cohort_filters_have_values(validated_data.get("filters"))
         if cohort.is_static and filters_changed and (existing_has_criteria or incoming_has_criteria):
@@ -2435,11 +2482,6 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
                     ],
                     ignore_conflicts=True,
                 )
-            else:
-                AsyncDeletion.objects.filter(
-                    deletion_type=DeletionType.Cohort_full,
-                    key__startswith=f"{cohort.pk}_{cohort.version}",  # We target this _prefix_, so all teams are covered
-                ).delete()
         elif not cohort.is_static:
             cohort.is_calculating = True
 
@@ -2458,6 +2500,22 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
             if not field.primary_key and field.name not in COHORT_REALTIME_SWITCH_FIELDS
         ]
         with transaction.atomic():
+            # Judged in the save's transaction, under the lock turn-ons take, so no other turn-on or edit takes a slot
+            # between the count and the save. A restore cancels its pending deletion in the same transaction, so a
+            # refused restore keeps it.
+            if judge_plan_limits:
+                try:
+                    refuse_edit_over_plan_limits(
+                        cohort, held_a_slot=held_a_realtime_slot, can_edit=_can_edit(self._user_access_control())
+                    )
+                except RealtimeLimitReached as error:
+                    _report_realtime_limit_reached(request, cohort, error, "edit")
+                    raise ValidationError(str(error), code=REALTIME_LIMIT_REACHED_ERROR_CODE) from error
+            if is_deletion_change and deleted_state is False:
+                AsyncDeletion.objects.filter(
+                    deletion_type=DeletionType.Cohort_full,
+                    key__startswith=f"{cohort.pk}_{cohort.version}",  # We target this _prefix_, so all teams are covered
+                ).delete()
             if import_from_csv or populate_from_query:
                 self._claim_static_population(cohort, "csv" if import_from_csv else "query")
                 cohort.save(update_fields=update_fields)
@@ -2479,7 +2537,9 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
             # A cohort that is on can only be ready when every cohort it includes is on too. A restore needs this as
             # well, because turning off an included cohort ignores parents that are deleted.
             if filters_changed or (is_deletion_change and deleted_state is False):
-                _turn_realtime_on_after_save(turn_realtime_on_for_included_cohorts, cohort, self._user_access_control())
+                _turn_realtime_on_after_save(
+                    turn_realtime_on_for_included_cohorts, cohort, request, self._user_access_control(), "edit"
+                )
 
         report_user_action(
             request.user,
@@ -3227,6 +3287,9 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
         if enabled:
             try:
                 turn_realtime_on(cohort.team_id, cohort.pk, can_edit=_can_edit(self.user_access_control))
+            except RealtimeLimitReached as error:
+                _report_realtime_limit_reached(request, cohort, error, "switch")
+                raise ValidationError(str(error), code=REALTIME_LIMIT_REACHED_ERROR_CODE) from error
             except RealtimeTurnOnRefused as error:
                 raise ValidationError(str(error), code="realtime_refused") from error
         else:
