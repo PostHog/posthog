@@ -517,6 +517,7 @@ The description covers the backend, frontend, and Rust workflows. The diff chang
 The PR did not merge, and no person reviewed it. The stale bot closed it. Thus there is no recorded reason for the result.
 
 Sparse-checkout is correct for small jobs, and `ci-storybook.yml`, `ci-security.yaml`, and `pr-resolve-outdated-bot-comments.yml` use it today.
+The parser npm workflow's WASM build needs only `common/hogql_parser/` and `.github/actions/setup-emsdk/`; its CMake build downloads the ANTLR runtime separately.
 The backend timing collector uses a full checkout because its optimizer uses product directory presence to retain timings for skipped products.
 Sparse checkout enables a blobless fetch by default, which adds on-demand fetching when the collector still needs the broad `products/` tree.
 The bot IP updater needs only `bin/update-bots-list` and `nodejs/assets/bot-ips.txt`; its sparse checkout retains the tracked output so Git can detect and commit updates.
