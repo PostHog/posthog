@@ -62,6 +62,7 @@ import { scorecardOf } from '../scorecard/scorecard'
 import { publish } from '../scorecard/write'
 import { reportToStore } from '../store/client'
 import { ValveTimelineEntry, createValves } from '../valves/valves'
+import { openLiveLog } from './live'
 import { SAVED_RUN_FILE, SavedRun } from './saved-run'
 import { Admission, Status, admissionsOf, statusOf } from './status'
 
@@ -125,7 +126,7 @@ type Outcome = Pick<
     | 'bars'
 >
 
-type Probes = { commits(): readonly WriterSample[]; stop(): Promise<Probed> }
+type Probes = { commits(): readonly WriterSample[]; queue(): readonly QueueSample[]; stop(): Promise<Probed> }
 
 async function startProbes(
     cyclotronUrl: string,
@@ -145,6 +146,7 @@ async function startProbes(
     let stopping: Promise<Probed> | undefined
     return {
         commits: () => writer.taken(),
+        queue: () => queue.taken(),
         stop: () =>
             (stopping ??= (async () => {
                 const [writerSamples, queueSamples] = await Promise.all([writer.stop(), queue.stop()])
@@ -434,6 +436,8 @@ export function createRunner(
                 fetchRetries: fetchRetriesOf(specs.find(({ role }) => role === 'cdp-cyclotron-worker-hogflow')!),
             })
             const valves = createValves()
+            using live = openLiveLog(evidenceDir)
+            live.write({ type: 'start', at: Date.now(), runId, cardId: card.id, cardHash: loaded.cardHash })
             let outcome: Outcome = {
                 status: 'invalid',
                 statusReason: 'not started',
@@ -452,12 +456,14 @@ export function createRunner(
             let producer: KafkaProducerWrapper | undefined
             try {
                 producer = await KafkaProducerWrapper.createWithConfig(undefined, producerConfigOf(specs[0].env))
+                live.write({ type: 'phase', at: Date.now(), phase: 'reset' })
                 await environment.reset(profile.settings, profile.replicas).catch((error: unknown) => {
                     restartRequired = new Error(
                         `The reset before run ${runId} failed and stopped the environment: ${messageOf(error)}. Restart the runner, then run the card again.`
                     )
                     throw error
                 })
+                live.write({ type: 'phase', at: Date.now(), phase: 'seed' })
                 const seeded = await seedWithin(loaded, seedingUrlOf(specs[0]), signal, seedWithinMs).catch(
                     (error: unknown) => {
                         if (error instanceof SeedingCutShort) {
@@ -487,6 +493,21 @@ export function createRunner(
                 )
                 probes = await startProbes(cyclotronUrlOf(specs[0]), probe, seeded.teamIds, manifest !== undefined)
                 const driveStartedAt = Date.now()
+                live.write({
+                    type: 'phase',
+                    at: driveStartedAt,
+                    phase: 'drive',
+                    driveForMs: durationMs(card.drive.for),
+                })
+                const sampling = { sampler, probes }
+                live.follow({
+                    timeline: () => valves.timeline(),
+                    samples: () => sampling.sampler.taken(),
+                    queue: () => sampling.probes.queue(),
+                    writer: () => sampling.probes.commits(),
+                    journal: () => judge.evidence().journal,
+                    edgeUrl,
+                })
                 await valves.start(card.valves, {
                     environment,
                     probe,
@@ -512,7 +533,10 @@ export function createRunner(
                 const driveWindow: DriveWindow = { startedAt: driveStartedAt, endedAt: Date.now() }
                 driven = driveWindow
                 await valves.releaseAll()
+                live.write({ type: 'phase', at: Date.now(), phase: 'converge' })
                 const convergence = await judge.converge(durationMs(card.convergeWithin), signal)
+                live.write({ type: 'phase', at: Date.now(), phase: 'judge' })
+                await live.stop()
                 probed = await probes.stop()
                 sampled = await sampler.stop()
                 const down = await stopHealth()
@@ -561,6 +585,7 @@ export function createRunner(
                     statusReason: `the run stopped: ${messageOf(error)}`,
                 }
             } finally {
+                await live.stop()
                 await valves.releaseAll()
                 await stopHealth?.()
                 probed = (await probes?.stop()) ?? probed
@@ -611,6 +636,7 @@ export function createRunner(
                 } satisfies SavedRun)
             })
             const judged = withEvidenceError(verdict, evidenceError)
+            live.write({ type: 'end', at: Date.now(), status: judged.status, statusReason: judged.statusReason })
             const scorecard = scorecardOf(judged, loaded, provenance)
             const written = await publish(scorecard, env, signal)
             const reported = await reportToStore({ scorecard, host }, env)

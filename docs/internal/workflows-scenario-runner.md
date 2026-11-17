@@ -43,9 +43,12 @@ Do not run cards on a box whose dev stack holds work you want to keep.
 | `truth.json`      | Every request the provider edge received and how it answered                      |
 | `logs/<role>.log` | Each role's log lines from this run                                               |
 | `scorecard.json`  | The run's verdict and its scorecard event, written before the runner publishes it |
+| `live.jsonl`      | The run's phases, probe samples and valve timeline, appended every second         |
 | `topology.json`   | The processes, consumer groups, databases and hosts the run's roles used          |
 
 Each role also appends to one log across runs, `posthog-scenarios/<role>.log`.
+
+The runner touches `live.jsonl` every second until it writes the run's `end` record, and stops when the run ends on any other path, so a file that stops changing without an `end` record marks a run that died.
 
 Before the drive, the runner reads the topology again until every part a valve targets and every consumer group its roles run shows in it and two reads agree, for up to 30 seconds. A target that never shows makes the run invalid. A topology still changing at the deadline does not, because pooled sessions keep moving between roles on the cloud host, and the run records the last read. Databases come from the sessions each role holds open under its scenario session name.
 

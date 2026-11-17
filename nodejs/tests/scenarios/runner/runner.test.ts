@@ -10,6 +10,8 @@ import fs, {
     readFileSync,
     readdirSync,
     rmSync,
+    statSync,
+    utimesSync,
     writeFileSync,
 } from 'fs'
 import http from 'http'
@@ -61,8 +63,10 @@ import { JournalEntry } from '../judge/judge'
 import { main } from '../main'
 import { ProviderEdge, TruthRecord, WEBHOOK_HOST, startProviderEdge } from '../provider-edge'
 import { FakeProjectApi, startFakeProjectApi } from '../scorecard/fake-project-api'
+import * as provenance from '../scorecard/provenance'
 import { STORE_URL } from '../store/client'
 import { TestStore, UNREACHABLE_STORE, startTestStore, storeEnvOf } from '../store/test-store'
+import { LIVE_FILE } from './live'
 import { RunResult, Runner, createRunner } from './runner'
 import { EXIT_CODE, exitCodeOf } from './status'
 
@@ -177,6 +181,7 @@ describe('runner', () => {
     })
 
     afterEach(async () => {
+        jest.useRealTimers()
         jest.restoreAllMocks()
         await runner.down()
         rmSync(cacheHome, { recursive: true, force: true })
@@ -550,6 +555,37 @@ describe('runner', () => {
         const { evidenceDir } = await runner.run(withSettings({}), NEVER_ABORTED)
 
         expect(readFileSync(path.join(evidenceDir, 'logs', 'cdp-api.log'), 'utf8')).toBe('line from this run\n')
+    })
+
+    it('stops the live heartbeat of a run that fails before it writes its end record', async () => {
+        jest.useFakeTimers({
+            doNotFake: [
+                'Date',
+                'hrtime',
+                'nextTick',
+                'performance',
+                'queueMicrotask',
+                'setImmediate',
+                'clearImmediate',
+                'setTimeout',
+                'clearTimeout',
+            ],
+        })
+        jest.spyOn(provenance, 'provenanceOf').mockImplementation(() => {
+            throw new Error('the checkout is gone')
+        })
+
+        await expect(runner.run(withSettings({ DATABASE_URL: PROFILE_DATABASE_URL }), NEVER_ABORTED)).rejects.toThrow(
+            'the checkout is gone'
+        )
+
+        const [live] = readdirSync(stateDir)
+            .map((name) => path.join(stateDir, name, LIVE_FILE))
+            .filter((file) => existsSync(file))
+        const minuteAgo = new Date(Date.now() - 60_000)
+        utimesSync(live, minuteAgo, minuteAgo)
+        jest.advanceTimersByTime(5000)
+        expect(statSync(live).mtimeMs).toBe(minuteAgo.getTime())
     })
 })
 
