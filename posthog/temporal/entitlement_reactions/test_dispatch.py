@@ -166,7 +166,7 @@ async def test_flag_failure_acknowledges_on_legacy_path(integration, monkeypatch
     organization_id = await setup_organization(baseline=False)
     monkeypatch.setattr(dispatch, "feature_enabled_or_false", MagicMock(side_effect=RuntimeError("flag")))
     instance = consumer()
-    connect = AsyncMock(side_effect=AssertionError("No handoff on the legacy path"))
+    connect = AsyncMock()
     with patch("posthog.entitlements.dispatch.async_connect", connect):
         await process(instance, message(organization_id, [{"key": "fixture", "limit": 2}]))
     assert not connect.called
@@ -194,7 +194,7 @@ async def test_no_work_acknowledges_without_temporal(integration, monkeypatch, c
     elif case == "unwatched":
         features.append({"key": "other", "limit": 2})
     instance = consumer()
-    connect = AsyncMock(side_effect=AssertionError("No handoff required"))
+    connect = AsyncMock()
     with patch("posthog.entitlements.dispatch.async_connect", connect):
         await process(instance, message(organization_id, features))
     assert not connect.called
