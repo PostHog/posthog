@@ -1654,6 +1654,7 @@ def _prepare_single_agent_prompt(input: SandboxStageInput, chunk_id: int, for_le
         delta_since=input.delta_since_head_sha if change is not None else None,
         changed_since_review=changed_since_review,
         changed_code_only=changed_code_only,
+        whole_pr_files=snapshot.pr_files,
         prior_findings=load_prior_findings(
             team_id=input.team_id, report_id=input.report_id, before_run_index=input.run_index
         ),

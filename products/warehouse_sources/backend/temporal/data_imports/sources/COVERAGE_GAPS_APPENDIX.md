@@ -312,13 +312,13 @@ Note: Fetched the combined official OpenAPI spec and inspected all GET paths. Th
 
 ## Airbrake — gaps
 
-Today (4): `deploys`, `groups`, `notices`, `projects`
+Today (7): `activities`, `deploys`, `group_stats`, `groups`, `notices`, `project_stats`, `projects`
 
 Diffed against: <https://docs.airbrake.io/docs/devops-tools/api/>
 
-- [ ] `project activities (GET /api/v4/projects/{project_id}/activities)` — per-project activity/change log complementing the error groups already synced (medium)
-- [ ] `group statistics (GET /api/v4/projects/{project_id}/groups/{group_id}/stats)` — time-bucketed occurrence counts per error group - the trend metric behind each group (medium)
-- [ ] `project statistics (GET /api/v4/projects/{project_id}/stats)` — project-level error volume over time for quota and regression tracking (medium)
+- [x] `project activities (GET /api/v4/projects/{project_id}/activities)` — per-project activity/change log complementing the error groups already synced (medium)
+- [x] `group statistics (GET /api/v4/projects/{project_id}/groups/{group_id}/stats)` — time-bucketed occurrence counts per error group - the trend metric behind each group (medium)
+- [x] `project statistics (GET /api/v4/projects/{project_id}/stats)` — project-level error volume over time for quota and regression tracking (medium)
 
 Note: Airbrake's readable v4 surface is small and coverage is close to complete: projects, deploys, groups and notices are all synced. The Performance Monitoring endpoints (routes-stats, routes-breakdowns, queries, queues) are PUT-only ingestion, not queryable, so they are not a warehouse gap. Source maps and iOS crash report upload are plumbing and excluded.
 
@@ -6627,10 +6627,10 @@ Today (2): `builds`, `jobs`
 
 Diffed against: <https://www.jenkins.io/doc/book/using/remote-access-api/>
 
-- [ ] `/computer/api/json (nodes / agents + executors)` — lookup table resolving the builtOn field already on builds; agent online/offline and executor counts (high)
-- [ ] `/queue/api/json (build queue items)` — queued items with blocked/waiting reasons - the only way to measure build wait time vs run time (high)
-- [ ] `/job/{job}/{n}/testReport/api/json (JUnit test report)` — per-build suite and case pass/fail/skip and durations, the headline CI quality metric (high)
-- [ ] `build changeSet / culprits (on /job/{job}/{n}/api/json)` — SCM commits and authors attached to each build, needed to join builds to code changes (high)
+- [x] `/computer/api/json (nodes / agents + executors)` — lookup table resolving the builtOn field already on builds; agent online/offline and executor counts (high)
+- [x] `/queue/api/json (build queue items)` — queued items with blocked/waiting reasons - the only way to measure build wait time vs run time (high)
+- [x] `/job/{job}/{n}/testReport/api/json (JUnit test report)` — per-build suite and case pass/fail/skip and durations, the headline CI quality metric (high)
+- [x] `build changeSet / culprits (on /job/{job}/{n}/api/json)` — SCM commits and authors attached to each build, needed to join builds to code changes (high)
 - [ ] `/view/{name}/api/json (views)` — lookup grouping jobs into views, referenced from the root API's views array (medium)
 - [ ] `/job/{job}/{n}/wfapi/describe (pipeline stage descriptions)` — per-stage status and duration for Pipeline jobs, the breakdown dimension for build-time analysis (medium)
 - [ ] `build artifacts array (on /job/{job}/{n}/api/json)` — artifacts produced per build; the connector's tree selection does not pull them (low)
@@ -7589,12 +7589,12 @@ Diffed against: <https://developers.mailerlite.com/llms.txt>
 - [x] `GET /api/segments/{segment_id}/subscribers` — segment membership join table (high)
 - [x] `GET /api/ecommerce/shops/{shop_id}/orders` — purchase transactions — the highest-value analytical object in the e-commerce API (high)
 - [x] `GET /api/ecommerce/shops` — lookup resolving shop ids for every e-commerce record (high)
-- [ ] `GET /api/ecommerce/shops/{shop_id}/customers` — shop customers linked to subscribers, joins revenue to email (medium)
+- [x] `GET /api/ecommerce/shops/{shop_id}/customers` — shop customers linked to subscribers, joins revenue to email (medium)
 - [x] `GET /api/ecommerce/shops/{shop_id}/products` — product catalog resolving order line items (medium)
-- [ ] `GET /api/forms/{form_id}/subscribers` — signups attributable to each popup/embedded/promotion form (medium)
+- [x] `GET /api/forms/{form_id}/subscribers` — signups attributable to each popup/embedded/promotion form (medium)
 - [x] `GET /api/ecommerce/shops/{shop_id}/categories` — category dimension for product and order breakdowns (medium)
-- [ ] `GET /api/timezones` — lookup resolving the timezone id on subscribers and account settings (low)
-- [ ] `GET /api/campaign-languages` — lookup resolving campaign language codes (low)
+- [x] `GET /api/timezones` — lookup resolving the timezone id on subscribers and account settings (low)
+- [x] `GET /api/campaign-languages` — lookup resolving campaign language codes (low)
 
 Note: The source ships an api_inventory.md documenting the 10 implemented paths; it only covers the core /api surface and does not mention the separate E-commerce API (shops, carts, orders, products, categories, customers), which is entirely unexposed. All schemas are static and full-refresh (MailerLite has no server-side updated_after filter).
 
