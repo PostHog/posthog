@@ -7,6 +7,8 @@ import { LemonButton, LemonCollapse, LemonTag, Link } from '@posthog/lemon-ui'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 
+import type { ReportMetricApi } from 'products/signals/frontend/generated/api.schemas'
+
 import { inboxTaskKickoffLogic } from '../../inboxTaskKickoffLogic'
 import { inboxReportDetailLogic } from '../../logics/inboxReportDetailLogic'
 import { SignalReport } from '../../types'
@@ -52,6 +54,28 @@ function approvalDisabledReason({
     return unavailableMeasurements
         ? 'The measurement query is not available to you.'
         : 'No measurements awaiting approval.'
+}
+
+function MeasurementOpenButton({ metric }: { metric: ReportMetricApi }): JSX.Element | null {
+    const authoredQuery = asReportMetricTrendsQuery(metric.query)
+    const openTarget = authoredQuery ? chartOpenTarget(authoredQuery) : null
+    if (!openTarget) {
+        return null
+    }
+    return (
+        <LemonButton
+            to={openTarget.url}
+            targetBlank
+            hideExternalLinkIcon
+            icon={<IconExternal />}
+            size="xsmall"
+            type="tertiary"
+            className="shrink-0"
+            tooltip={openTarget.label}
+            aria-label={openTarget.label}
+            data-attr="report-expected-impact-open"
+        />
+    )
 }
 
 export function ReportExpectedImpact({
@@ -121,8 +145,6 @@ export function ReportExpectedImpact({
                 {measurements.length ? (
                     measurements.map(({ check, reportStatus, config, metric, goal, detail, tag, cancellable }) => {
                         const query = asReportMetricSeriesQuery(metric)
-                        const authoredQuery = asReportMetricTrendsQuery(metric.query)
-                        const openTarget = authoredQuery ? chartOpenTarget(authoredQuery) : null
                         const showApprovalLabel =
                             cancellable &&
                             !check.monitoring_timing &&
@@ -136,20 +158,7 @@ export function ReportExpectedImpact({
                                             <span>{` per ${monitoringPeriodLabel(config.monitoring.reference_period_minutes)}`}</span>
                                         )}
                                     </p>
-                                    {openTarget ? (
-                                        <LemonButton
-                                            to={openTarget.url}
-                                            targetBlank
-                                            hideExternalLinkIcon
-                                            icon={<IconExternal />}
-                                            size="xsmall"
-                                            type="tertiary"
-                                            className="shrink-0"
-                                            tooltip={openTarget.label}
-                                            aria-label={openTarget.label}
-                                            data-attr="report-expected-impact-open"
-                                        />
-                                    ) : null}
+                                    <MeasurementOpenButton metric={metric} />
                                 </div>
                                 <div className="m-0 flex flex-wrap items-center gap-x-1 text-secondary text-sm">
                                     {showApprovalLabel ? (
