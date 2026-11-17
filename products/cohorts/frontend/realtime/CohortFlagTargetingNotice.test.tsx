@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { Provider } from 'kea'
 import { expectLogic } from 'kea-test-utils'
 
@@ -53,6 +53,13 @@ async function renderNotice(
     ).container
 }
 
+const setPageHidden = (hidden: boolean): void => {
+    Object.defineProperty(document, 'hidden', { configurable: true, get: () => hidden })
+    act(() => {
+        document.dispatchEvent(new Event('visibilitychange'))
+    })
+}
+
 describe('CohortFlagTargetingNotice', () => {
     beforeEach(() => {
         listed = true
@@ -67,6 +74,7 @@ describe('CohortFlagTargetingNotice', () => {
 
     afterEach(() => {
         cleanup()
+        delete (document as any).hidden
     })
 
     it.each([
@@ -122,6 +130,24 @@ describe('CohortFlagTargetingNotice', () => {
         listed = false
 
         await renderNotice(readiness('off'))
+
+        expect(await screen.findByText('Turn on realtime')).toBeInTheDocument()
+    })
+
+    it('reads a cohort the shared model missed again when the tab comes back after its read failed', async () => {
+        listed = false
+        let readFails = true
+        useMocks({
+            get: {
+                '/api/projects/:team_id/cohorts/:id/': () => (readFails ? [500, {}] : [200, cohort()]),
+            },
+        })
+        await renderNotice(readiness('off'))
+        await expectLogic(cohortsModel).toDispatchActions(['loadCohortsByIdsFailure'])
+        readFails = false
+
+        setPageHidden(true)
+        setPageHidden(false)
 
         expect(await screen.findByText('Turn on realtime')).toBeInTheDocument()
     })

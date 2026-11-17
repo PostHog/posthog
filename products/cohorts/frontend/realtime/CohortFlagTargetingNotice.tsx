@@ -6,6 +6,7 @@ import { IconInfo } from '@posthog/icons'
 import { PostHogCaptureOnViewed } from '@posthog/react'
 
 import { isCohortPropertyFilter } from 'lib/components/PropertyFilters/utils'
+import { usePageVisibility } from 'lib/hooks/usePageVisibility'
 
 import { cohortsModel } from '~/models/cohortsModel'
 import { AnyPropertyFilter } from '~/types'
@@ -29,16 +30,18 @@ export function CohortFlagTargetingNotice({
 }): JSX.Element | null {
     const { cohortsById } = useValues(cohortsModel)
     const { loadCohortsByIds } = useActions(cohortsModel)
+    const { isVisible } = usePageVisibility()
     // Ids can arrive as strings, and a set can name the same cohort twice.
     const cohortIds = [...new Set(properties.filter(isCohortPropertyFilter).map(({ value }) => Number(value)))]
     // The shared model lists cohorts once per session, so a cohort created since, in another tab or by a teammate, is
-    // read on its own. Joined so that the effect runs when the missing ids change, not on every render.
+    // read on its own. A read that failed is tried again when the tab comes back, as each row's own read is. Joined so
+    // that the effect runs when the missing ids change, not on every render.
     const missingCohortIds = cohortIds.filter((cohortId) => !cohortsById[cohortId]).join(',')
     useEffect(() => {
-        if (missingCohortIds) {
+        if (missingCohortIds && isVisible) {
             loadCohortsByIds({ ids: missingCohortIds.split(',').map(Number) })
         }
-    }, [missingCohortIds, loadCohortsByIds])
+    }, [missingCohortIds, isVisible, loadCohortsByIds])
     const rows = cohortIds.flatMap((cohortId) => {
         const state = cohortsById[cohortId]?.realtime?.state
         return state && STATES_WITH_ROW.includes(state) ? [{ cohortId, state }] : []
