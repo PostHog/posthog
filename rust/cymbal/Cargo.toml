@@ -20,6 +20,7 @@ common-kafka = { path = "../common/kafka" }
 common-database = { path = "../common/database" }
 common-types = { path = "../common/types" }
 common-dns = { path = "../common/dns" }
+common-ingestion-response = { path = "../common/ingestion-response" }
 common-redis = { path = "../common/redis" }
 redis = { workspace = true }
 common-posthog = { path = "../common/posthog" }

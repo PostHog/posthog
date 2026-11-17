@@ -1,19 +1,38 @@
 # Cymbal HTTP compatibility
 
 Remote symbol resolution is an internal implementation detail of cymbal.
-The external Node.js error-tracking consumer contract stays unchanged.
+It does not change the HTTP contract with the Node.js error-tracking consumer.
+
+## `/v2/process` request and response
+
+`POST /v2/process` reports one result for each event.
+The request is an array of `AnyEvent`-shaped exception events, the same body `/process` takes.
+The response follows the ingestion response contract in [`common/ingestion-response`](../../common/ingestion-response/README.md), and always carries its `X-PostHog-Ingestion-Response` header.
+The route selects the contract, so the caller does not need to send that header.
+
+| `result` | Meaning for cymbal |
+| --- | --- |
+| `ok` | The event was processed. `value` is the same `AnyEvent` shape with updated `properties`. |
+| `drop` | The normal cymbal pipeline dropped the event. `reason` is `suppressed`, `suppressed_by_rule`, `rate_limited_per_issue`, or `rate_limited_project`. |
+| `fail` | The event's own data cannot be processed, such as a payload the resolution service reports as poison. The code is `invalid_input`. |
+
+Cymbal does not answer `retry`.
+A failure that can come from a dependency, such as a database, Kafka, or resolution-pool error, fails the whole request with a 500, as the contract requires.
 
 ## `/process` request and response
 
-- Node still sends `POST /process` to cymbal with an array of `AnyEvent`-shaped exception events.
-- Cymbal still returns an array with the same length and ordering as the request.
+`/process` is the contract the Node.js error-tracking consumer uses.
+
+- The caller sends `POST /process` with an array of `AnyEvent`-shaped exception events.
+- Cymbal returns an array with the same length and ordering as the request.
 - Each non-null response entry is the same `AnyEvent` shape with updated `properties`.
-- `null` entries keep their existing meaning: the event was suppressed by the normal cymbal pipeline.
+- `null` entries mean the event was suppressed by the normal cymbal pipeline.
+- A slot has no way to report a failed event, so one failed event fails the whole request with a 500.
 - Remote resolution only changes how cymbal fills the exception list before properties, grouping, linking, suppression, and alerting continue.
 
 ## Node-side chunking
 
-`nodejs/src/ingestion/error-tracking/cymbal/client.ts` chunks HTTP requests by estimated original event body size before they reach cymbal.
+`nodejs/src/ingestion/pipelines/errortracking/cymbal/client.ts` chunks HTTP requests by estimated original event body size before they reach cymbal.
 That remains valid because cymbal preserves the HTTP boundary and performs private exception-level gRPC work after it receives an HTTP chunk.
 
 No generated type changes are needed:
