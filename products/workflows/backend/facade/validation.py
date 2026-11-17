@@ -4,6 +4,11 @@ from products.cohorts.backend.models.cohort import Cohort
 from products.workflows.backend.facade.contracts import RealtimeAudienceCohort
 from products.workflows.backend.services import batch_audience_cohorts
 from products.workflows.backend.services.batch_audience_cohorts import find_behavioral_cohort_name
+from products.workflows.backend.services.insight_alert_trigger import (
+    INSIGHT_ALERT_FIRING_EVENT,
+    normalize_alert_id_filters,
+    trigger_alert_ids,
+)
 from products.workflows.backend.services.wait_clock_conditions import find_clock_function, find_group_field
 from products.workflows.backend.utils.durations import (
     DURATION_PATTERN,
@@ -45,6 +50,9 @@ def realtime_audience_cohort(project_id: int, filters: object) -> RealtimeAudien
 
 
 __all__ = [
+    "INSIGHT_ALERT_FIRING_EVENT",
+    "normalize_alert_id_filters",
+    "trigger_alert_ids",
     "DURATION_PATTERN",
     "duration_cap_error",
     "duration_error",
