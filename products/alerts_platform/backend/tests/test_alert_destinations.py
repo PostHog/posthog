@@ -278,7 +278,8 @@ class TestSourceDestinations(BaseTest):
 
     def test_the_list_keeps_groups_no_row_copies_and_rows_whose_hog_functions_are_gone(self) -> None:
         older = self._hog_functions(WEBHOOK)
-        orphan = self._record(SLACK, (uuid4(),))
+        retired = (uuid4(),)
+        orphan = self._record(SLACK, retired)
         set_subscriber_destinations(
             team_id=self.team.id,
             public_id=self.legacy_id,
@@ -290,7 +291,13 @@ class TestSourceDestinations(BaseTest):
 
         assert self._listed() == (
             SourceDestination(destination_id=None, hog_function_ids=older, data=WEBHOOK, enabled=True),
-            SourceDestination(destination_id=orphan.id, hog_function_ids=(), data=SLACK, enabled=True),
+            SourceDestination(
+                destination_id=orphan.id,
+                hog_function_ids=(),
+                data=SLACK,
+                enabled=True,
+                retired_hog_function_ids=retired,
+            ),
         )
 
     def test_a_delete_returns_only_the_hog_functions_of_rows_named_by_id(self) -> None:

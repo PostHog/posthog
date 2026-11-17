@@ -345,7 +345,7 @@ export enum AccessControlResourceType {
     Ticket = 'ticket',
     SessionRecording = 'session_recording',
     SharingConfiguration = 'sharing_configuration',
-    Stamphog = 'stamphog',
+    CodeReviewApproval = 'code_review_approval',
     RevenueAnalytics = 'revenue_analytics',
     Survey = 'survey',
     Logs = 'logs',
@@ -948,6 +948,7 @@ export interface TeamType extends TeamBasicType {
     base_currency: CurrencyCode
     managed_viewsets: Record<DataWarehouseManagedViewsetKind, boolean>
     flag_evaluations_mode: FlagEvaluationsModeEnumApi
+    flag_calls_only_in_flag_evaluations: boolean
     // Optional so cached team objects from before this field shipped still typecheck.
     realtime_cohorts?: TeamRealtimeCohortsApi
     receive_org_level_activity_logs: boolean | null
@@ -1684,7 +1685,6 @@ export interface RecordingUniversalFilters {
     order?: RecordingsQuery['order']
     order_direction?: RecordingsQuery['order_direction']
     limit?: RecordingsQuery['limit']
-    recommended_only?: boolean
     event_match_scope?: RecordingsQuery['event_match_scope']
     /**
      * Server-resolved population narrowing (sessions of persons exposed to the experiment).
@@ -5905,10 +5905,13 @@ export type ExportContext = (
     | QueryExportContext
     | ReplayExportContext
     | HeatmapExportContext
+    | { image_size: import('products/subscriptions/frontend/generated/api.schemas').ImageSizeApi }
 ) & {
+    image_size?: import('products/subscriptions/frontend/generated/api.schemas').ImageSizeApi
     row_limit?: number // Some exports have different row limits, e.g. logs
     columns?: string[]
     variables_override?: Record<string, any>
+    filters_override?: DashboardFilter
 }
 
 export interface ExportedAssetType {
@@ -5957,7 +5960,7 @@ export interface RoleMemberType {
     user_uuid: string
 }
 
-// Every grantable scope object. `hogli build:openapi` generates the enum from posthog/scopes.py,
+// Every grantable scope object. `hogli build:openapi` generates the enum from posthog/scopes/,
 // through the `resource` choice fields of the access control serializers.
 export type APIScopeObject = ScopeObjectEnumApi
 
@@ -6225,6 +6228,8 @@ export enum ActivityScope {
     REVIEW_PROJECT_SETTINGS = 'ReviewProjectSettings',
     REVIEW_INSTALLATION_CLAIM = 'ReviewInstallationClaim',
     RECOMMENDATION_RESOLUTION = 'RecommendationResolution',
+    SANDBOX_ENVIRONMENT = 'SandboxEnvironment',
+    SANDBOX_CUSTOM_IMAGE = 'SandboxCustomImage',
 }
 
 export type CommentType = {

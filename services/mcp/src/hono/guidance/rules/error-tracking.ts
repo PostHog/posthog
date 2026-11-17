@@ -36,9 +36,9 @@ const rules: GuidanceRule[] = [
         requiresTool: ['docs-search'],
         when: async ({ productState }) => (await productState.hasErrorTrackingIssues()) === false,
         text: [
-            'This project has no error tracking issues at all, so exception capture is probably not set up.',
-            'If the user wants error tracking, call `docs-search` to find the setup steps for their SDK.',
-            'If the user expected errors here, tell them that no exceptions have reached PostHog.',
+            'PostHog holds no error tracking issues for this project, with any filter or date range.',
+            'This result does not show whether an SDK tries to capture exceptions.',
+            '`docs-search` finds the setup and troubleshooting steps for an SDK.',
         ].join(' '),
     }),
     emptyResultRule({

@@ -46,6 +46,15 @@ const UNAVAILABLE_MESSAGES: &[&str] = &[
     "conflict with recovery",
 ];
 
+/// Node's `POSTGRES_UNAVAILABLE_SQLSTATES`. A SQLSTATE covers every message variant of its code.
+/// 57014 (query_canceled) stays out because a statement timeout can repeat on each retry of the same slow query.
+const UNAVAILABLE_SQLSTATES: &[&str] = &[
+    "53300", // too_many_connections
+    "57P01", // admin_shutdown
+    "57P02", // crash_shutdown
+    "57P03", // cannot_connect_now: the server is starting up, shutting down, or in recovery
+];
+
 /// sqlx reports a lost connection as an I/O or pool error instead.
 pub fn classify_pg_error(error: sqlx::Error) -> anyhow::Error {
     let transient = match &error {
@@ -55,8 +64,11 @@ pub fn classify_pg_error(error: sqlx::Error) -> anyhow::Error {
         | sqlx::Error::WorkerCrashed
         | sqlx::Error::Tls(_) => true,
         other => {
-            let text = other.to_string();
-            UNAVAILABLE_MESSAGES.iter().any(|m| text.contains(m))
+            let sqlstate = other.as_database_error().and_then(|e| e.code());
+            sqlstate.is_some_and(|code| UNAVAILABLE_SQLSTATES.contains(&code.as_ref())) || {
+                let text = other.to_string();
+                UNAVAILABLE_MESSAGES.iter().any(|m| text.contains(m))
+            }
         }
     };
     if transient {
@@ -655,14 +667,100 @@ mod tests {
         assert_eq!(valid_team_id("phc_abc"), None);
     }
 
+    #[derive(Debug)]
+    struct ServerError {
+        sqlstate: &'static str,
+        message: &'static str,
+    }
+
+    impl std::fmt::Display for ServerError {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            f.write_str(self.message)
+        }
+    }
+
+    impl std::error::Error for ServerError {}
+
+    impl sqlx::error::DatabaseError for ServerError {
+        fn message(&self) -> &str {
+            self.message
+        }
+
+        fn code(&self) -> Option<std::borrow::Cow<'_, str>> {
+            Some(self.sqlstate.into())
+        }
+
+        fn as_error(&self) -> &(dyn std::error::Error + Send + Sync + 'static) {
+            self
+        }
+
+        fn as_error_mut(&mut self) -> &mut (dyn std::error::Error + Send + Sync + 'static) {
+            self
+        }
+
+        fn into_error(self: Box<Self>) -> Box<dyn std::error::Error + Send + Sync + 'static> {
+            self
+        }
+
+        fn kind(&self) -> sqlx::error::ErrorKind {
+            sqlx::error::ErrorKind::Other
+        }
+    }
+
+    fn server_error(sqlstate: &'static str, message: &'static str) -> sqlx::Error {
+        sqlx::Error::Database(Box::new(ServerError { sqlstate, message }))
+    }
+
     #[test]
     fn connection_failures_are_dependency_unavailable() {
-        let refused = classify_pg_error(sqlx::Error::Io(std::io::Error::new(
-            std::io::ErrorKind::ConnectionRefused,
-            "refused",
-        )));
-        assert!(crate::pipeline::errors::is_dependency_unavailable(&refused));
-        let bad = classify_pg_error(sqlx::Error::RowNotFound);
-        assert!(!crate::pipeline::errors::is_dependency_unavailable(&bad));
+        let cases = [
+            (
+                sqlx::Error::Io(std::io::Error::new(
+                    std::io::ErrorKind::ConnectionRefused,
+                    "refused",
+                )),
+                true,
+            ),
+            (sqlx::Error::RowNotFound, false),
+            (
+                server_error("53300", "sorry, too many clients already"),
+                true,
+            ),
+            (
+                server_error(
+                    "57P01",
+                    "terminating connection due to administrator command",
+                ),
+                true,
+            ),
+            (
+                server_error(
+                    "57P02",
+                    "terminating connection because of crash of another server process",
+                ),
+                true,
+            ),
+            (
+                server_error("57P03", "the database system is starting up"),
+                true,
+            ),
+            (
+                server_error("57P03", "the database system is shutting down"),
+                true,
+            ),
+            (
+                server_error("57014", "canceling statement due to statement timeout"),
+                false,
+            ),
+        ];
+        for (error, expected) in cases {
+            let label = format!("{error:?}");
+            let classified = classify_pg_error(error);
+            assert_eq!(
+                crate::pipeline::errors::is_dependency_unavailable(&classified),
+                expected,
+                "{label}"
+            );
+        }
     }
 }

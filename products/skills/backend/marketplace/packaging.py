@@ -283,6 +283,8 @@ def parse_skill_md(content: str) -> dict:
         frontmatter = yaml.safe_load(match.group(1))
     except yaml.YAMLError as err:
         raise SkillImportError(f"SKILL.md frontmatter is not valid YAML: {err}")
+    except RecursionError:
+        raise SkillImportError("SKILL.md frontmatter is nested too deeply. Flatten the YAML and try again.")
     if not isinstance(frontmatter, dict):
         raise SkillImportError("SKILL.md frontmatter must be a key/value mapping.")
 

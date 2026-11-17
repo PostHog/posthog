@@ -1,5 +1,6 @@
 import logging
 import dataclasses
+from collections.abc import Callable
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional
 from urllib.parse import parse_qs, urlsplit
@@ -353,6 +354,27 @@ class LoopCursorPaginator(BasePaginator):
         return "LoopCursorPaginator()"
 
 
+def nested_ids_map(
+    nested_id_columns: tuple[tuple[str, str], ...],
+) -> Callable[[dict[str, Any]], dict[str, Any] | list[dict[str, Any]]]:
+    """Copy the `id` of each nested object into its own column, so the ids can be a primary key.
+
+    A row without one of those ids can't be keyed, and a null key would multi-match on every merge,
+    so the row is dropped.
+    """
+
+    def _mapper(row: dict[str, Any]) -> dict[str, Any] | list[dict[str, Any]]:
+        for column, nested_key in nested_id_columns:
+            nested = row.get(nested_key)
+            nested_id = nested.get("id") if isinstance(nested, dict) else None
+            if nested_id is None:
+                return []
+            row[column] = nested_id
+        return row
+
+    return _mapper
+
+
 def get_resource(config: LoopReturnsEndpointConfig, should_use_incremental_field: bool) -> EndpointResource:
     endpoint: Endpoint = {"path": config.path}
     if config.data_selector is not None:
@@ -381,6 +403,8 @@ def get_resource(config: LoopReturnsEndpointConfig, should_use_incremental_field
     if config.parent is not None:
         resource["include_from_parent"] = ["id"]
         resource["data_map"] = rename_parent_fields(config.parent, {"id": config.parent_id_column})
+    elif config.nested_id_columns:
+        resource["data_map"] = nested_ids_map(config.nested_id_columns)
     return resource
 
 
