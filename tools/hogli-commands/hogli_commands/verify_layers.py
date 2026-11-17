@@ -29,7 +29,7 @@ from hogli_commands.ci_preflight import (
     _run_diff_check,
 )
 from hogli_commands.test_runner import changed_test_files
-from hogli_commands.verify_stamp import FAILED_OUTCOME, NO_LAYER, write_stamp
+from hogli_commands.verify_stamp import FAILED_OUTCOME, NO_LAYER, VERIFIED_OUTCOME, snapshot_content_hash, write_stamp
 
 
 class ComplexityLayer(IntEnum):
@@ -219,7 +219,9 @@ def _static_layer_status(checks: dict[str, str]) -> str:
     return "pass"
 
 
-def _record_stamp(plan: VerifyPlan, checks: dict[str, str], unit_tests: str, outstanding: list[str]) -> None:
+def _record_stamp(
+    content_hash: str | None, plan: VerifyPlan, checks: dict[str, str], unit_tests: str, outstanding: list[str]
+) -> None:
     static = _static_layer_status(checks)
     layers = {_layer_name(ComplexityLayer.STATIC): static, _layer_name(ComplexityLayer.UNIT_TEST): unit_tests}
     layers.update({_layer_name(layer): "advice" for layer in plan.manual_layers})
@@ -236,8 +238,9 @@ def _record_stamp(plan: VerifyPlan, checks: dict[str, str], unit_tests: str, out
     elif outstanding or plan.manual_layers:
         outcome = "unverified"
     else:
-        outcome = "verified"
+        outcome = VERIFIED_OUTCOME
     write_stamp(
+        content_hash=content_hash,
         outcome=outcome,
         highest_layer=highest_layer,
         sufficient_layer=_layer_name(sufficient),
@@ -278,6 +281,7 @@ def _print_manual_layers(plan: VerifyPlan, outstanding: tuple[str, ...] = ()) ->
 def verify(changed: bool, plan_only: bool) -> None:
     if not changed:
         raise click.UsageError("Pass --changed to verify the files changed on this branch.")
+    content_hash = None if plan_only else snapshot_content_hash()
     files = changed_files()
     if not files:
         click.secho("No changed files on this branch.", fg="yellow")
@@ -305,7 +309,7 @@ def verify(changed: bool, plan_only: bool) -> None:
         click.echo(f"       {detail}")
     click.echo()
     if failures:
-        _record_stamp(plan, check_statuses, "not_run", outstanding)
+        _record_stamp(content_hash, plan, check_statuses, "not_run", outstanding)
         click.secho("  Fix the failures above, then run `hogli verify --changed` again.", fg="red")
         sys.exit(1)
 
@@ -319,11 +323,11 @@ def verify(changed: bool, plan_only: bool) -> None:
         click.secho("  Layer 2: hogli test --changed --skip-playwright", bold=True)
         test_command = [sys.executable, "-m", "hogli", "test", "--changed", "--skip-playwright"]
         if subprocess.run(test_command, cwd=REPO_ROOT).returncode != 0:
-            _record_stamp(plan, check_statuses, "fail", outstanding)
+            _record_stamp(content_hash, plan, check_statuses, "fail", outstanding)
             click.secho("\n  Tests failed. Fix them before you run slower checks.", fg="red")
             sys.exit(1)
         unit_tests = "pass"
         click.echo()
 
-    _record_stamp(plan, check_statuses, unit_tests, outstanding)
+    _record_stamp(content_hash, plan, check_statuses, unit_tests, outstanding)
     _print_manual_layers(plan, tuple(outstanding))

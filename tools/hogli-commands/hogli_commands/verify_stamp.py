@@ -27,6 +27,7 @@ GATE_TELEMETRY_WAIT_SECONDS = 0.5
 ESCAPE_TRAILER = re.compile(r"^Unverified:[ \t]*(\S.*)$", re.IGNORECASE | re.MULTILINE)
 NO_LAYER = "none"
 FAILED_OUTCOME = "failed"
+VERIFIED_OUTCOME = "verified"
 
 
 class GateMode(StrEnum):
@@ -38,6 +39,7 @@ class GateMode(StrEnum):
 class GateVerdict(StrEnum):
     VERIFIED = "verified"
     FAILED = "failed"
+    UNVERIFIED = "unverified"
     STALE = "stale"
     MISSING = "missing"
     ESCAPED = "escaped"
@@ -56,9 +58,12 @@ class VerifyStamp:
     checks: dict[str, str] = field(default_factory=dict)
 
 
+def _git_bytes(*args: str, env: dict[str, str] | None = None) -> bytes:
+    return subprocess.run(["git", *args], cwd=REPO_ROOT, capture_output=True, env=env, check=True).stdout
+
+
 def _git(*args: str, env: dict[str, str] | None = None) -> str:
-    result = subprocess.run(["git", *args], cwd=REPO_ROOT, capture_output=True, text=True, env=env, check=True)
-    return result.stdout.strip()
+    return _git_bytes(*args, env=env).decode().strip()
 
 
 def _git_path(name: str) -> Path:
@@ -70,29 +75,55 @@ def stamp_path() -> Path:
 
 
 def staged_content_hash(env: dict[str, str] | None = None) -> str:
-    return hashlib.sha256(_git("ls-files", "--stage", "-z", env=env).encode()).hexdigest()
+    return hashlib.sha256(_git_bytes("ls-files", "--stage", "-z", env=env)).hexdigest()
 
 
 def working_tree_content_hash() -> str:
+    real_objects = _git_path("objects")
     with tempfile.TemporaryDirectory() as scratch:
         scratch_index = Path(scratch) / "index"
-        shutil.copyfile(_git_path("index"), scratch_index)
-        env = {**os.environ, "GIT_INDEX_FILE": str(scratch_index)}
+        scratch_objects = Path(scratch) / "objects"
+        scratch_objects.mkdir()
+        shutil.copy2(_git_path("index"), scratch_index)
+        env = {
+            **os.environ,
+            "GIT_INDEX_FILE": str(scratch_index),
+            "GIT_OBJECT_DIRECTORY": str(scratch_objects),
+            "GIT_ALTERNATE_OBJECT_DIRECTORIES": str(real_objects),
+        }
         _git("add", "--all", env=env)
         return staged_content_hash(env)
 
 
+def snapshot_content_hash() -> str | None:
+    try:
+        return working_tree_content_hash()
+    except Exception as error:
+        click.secho(
+            f"  Could not hash the working tree, so no verification stamp will be recorded: {error}", fg="yellow"
+        )
+        return None
+
+
 def write_stamp(
     *,
+    content_hash: str | None,
     outcome: str,
     highest_layer: str,
     sufficient_layer: str,
     layers: dict[str, str],
     checks: dict[str, str],
 ) -> VerifyStamp | None:
+    if content_hash is None:
+        return None
     try:
+        if working_tree_content_hash() != content_hash:
+            click.secho(
+                "  Files changed while the checks ran. Run `hogli verify --changed` again before you commit.",
+                fg="yellow",
+            )
         stamp = VerifyStamp(
-            content_hash=working_tree_content_hash(),
+            content_hash=content_hash,
             head=_git("rev-parse", "HEAD"),
             recorded_at=datetime.now(UTC).isoformat(),
             outcome=outcome,
@@ -141,6 +172,8 @@ def judge(stamp: VerifyStamp | None, staged_content: str, commit_message: str) -
         unverified = GateVerdict.STALE
     elif stamp.outcome == FAILED_OUTCOME or stamp.highest_layer == NO_LAYER:
         unverified = GateVerdict.FAILED
+    elif stamp.outcome != VERIFIED_OUTCOME:
+        unverified = GateVerdict.UNVERIFIED
     else:
         return GateVerdict.VERIFIED
     return GateVerdict.ESCAPED if escape_reason(commit_message) else unverified
@@ -150,6 +183,8 @@ VERDICT_EXPLANATIONS: dict[GateVerdict, str] = {
     GateVerdict.MISSING: "no `hogli verify --changed` run is recorded for this checkout",
     GateVerdict.STALE: "the content changed after the last `hogli verify --changed` run",
     GateVerdict.FAILED: "the last `hogli verify --changed` run on this content failed",
+    GateVerdict.UNVERIFIED: "the last `hogli verify --changed` run on this content left checks outstanding",
+    GateVerdict.ERROR: "the commit could not be compared with the stamp",
 }
 
 PASSING_VERDICTS = frozenset({GateVerdict.VERIFIED, GateVerdict.ESCAPED})
@@ -183,19 +218,23 @@ def verify_gate(commit_message_file: Path) -> None:
     if mode == GateMode.OFF:
         return
     stamp: VerifyStamp | None = None
+    commit_message = ""
+    error_detail = ""
     try:
+        commit_message = commit_message_file.read_text(errors="replace")
         stamp = read_stamp()
-        verdict = judge(stamp, staged_content_hash(), commit_message_file.read_text())
-    except Exception:
-        verdict = GateVerdict.ERROR
-    would_block = verdict not in PASSING_VERDICTS and verdict != GateVerdict.ERROR
+        verdict = judge(stamp, staged_content_hash(), commit_message)
+    except Exception as error:
+        verdict = GateVerdict.ESCAPED if escape_reason(commit_message) else GateVerdict.ERROR
+        error_detail = f" ({error})"
+    would_block = verdict not in PASSING_VERDICTS
     _track_gate_check(mode, verdict, would_block, stamp)
     if verdict == GateVerdict.VERIFIED and stamp is not None:
         click.secho(f"hogli verify gate: verified, highest layer {stamp.highest_layer}.", dim=True, err=True)
         return
     if not would_block:
         return
-    explanation = VERDICT_EXPLANATIONS[verdict]
+    explanation = VERDICT_EXPLANATIONS[verdict] + error_detail
     advice = "Run `hogli verify --changed`, or add an `Unverified: <reason>` line to the commit message."
     if mode == GateMode.OBSERVE:
         click.secho(f"hogli verify gate: would block ({verdict}): {explanation}. {advice}", fg="yellow", err=True)

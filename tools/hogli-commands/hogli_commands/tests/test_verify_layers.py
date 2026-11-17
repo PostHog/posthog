@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import subprocess
 from collections.abc import Callable
 from pathlib import Path
 
@@ -17,7 +18,7 @@ from hogli_commands.verify_layers import (
     plan_verification,
     verify,
 )
-from hogli_commands.verify_stamp import read_stamp, verify_gate, write_stamp
+from hogli_commands.verify_stamp import read_stamp, stamp_path, verify_gate, working_tree_content_hash, write_stamp
 
 
 @pytest.fixture
@@ -115,6 +116,33 @@ class TestVerifyCommand:
         assert stamp is not None
         assert (stamp.outcome, stamp.highest_layer, stamp.layers["unit_test"]) == ("unverified", "static", "no_tests")
 
+    def test_a_file_written_while_checks_run_leaves_the_stamp_stale(
+        self, repo: Path, git: Callable[..., str], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        (repo / "team.py").write_text("a = 2\n")
+
+        def write_unchecked_file_during_check(*args: object, **kwargs: object) -> tuple[str, str]:
+            (repo / "never_checked.py").write_text("b = 1\n")
+            return ("pass", "ok")
+
+        with (
+            patch("hogli_commands.verify_layers.changed_files", return_value=["team.py"]),
+            patch("hogli_commands.verify_layers._run_diff_check", side_effect=write_unchecked_file_during_check),
+            patch("hogli_commands.verify_layers.plan_verification") as plan,
+        ):
+            plan.return_value.runs_unit_tests = False
+            plan.return_value.manual_layers = ()
+            plan.return_value.files_by_kind = {}
+            CliRunner().invoke(verify, ["--changed"])
+        git(repo, "add", "-A")
+        message_file = repo / "COMMIT_EDITMSG"
+        message_file.write_text("feat: x")
+        monkeypatch.setenv("HOGLI_VERIFY_GATE", "enforce")
+
+        result = CliRunner().invoke(verify_gate, [str(message_file)])
+
+        assert (result.exit_code, "blocked (stale)" in result.output) == (3, True)
+
 
 class TestVerifyGate:
     @pytest.mark.parametrize(
@@ -125,6 +153,8 @@ class TestVerifyGate:
             ("enforce", "verified", "unit_test", True, "feat: x", 3, "blocked (stale)"),
             ("enforce", "failed", "none", False, "feat: x", 3, "blocked (failed)"),
             ("enforce", "failed", "static", False, "feat: x", 3, "blocked (failed)"),
+            ("enforce", "unverified", "static", False, "feat: x", 3, "blocked (unverified)"),
+            ("observe", "unverified", "static", False, "feat: x", 0, "would block (unverified)"),
             ("enforce", "verified", "unit_test", True, "feat: x\n\nUnverified: generated file only", 0, ""),
             ("off", "failed", "none", True, "feat: x", 0, ""),
         ],
@@ -145,7 +175,12 @@ class TestVerifyGate:
         (repo / "team.py").write_text("a = 2\n")
         (repo / "new_module.py").write_text("b = 1\n")
         write_stamp(
-            outcome=stamp_outcome, highest_layer=highest_layer, sufficient_layer="unit_test", layers={}, checks={}
+            content_hash=working_tree_content_hash(),
+            outcome=stamp_outcome,
+            highest_layer=highest_layer,
+            sufficient_layer="unit_test",
+            layers={},
+            checks={},
         )
         assert git(repo, "status", "--porcelain").splitlines() == ["M team.py", "?? new_module.py"]
         if edited_after_verify:
@@ -159,3 +194,33 @@ class TestVerifyGate:
 
         assert result.exit_code == exit_code
         assert output in result.output
+
+    @pytest.mark.parametrize(
+        "mode,message,exit_code,output",
+        [
+            ("enforce", "feat: x", 3, "blocked (error)"),
+            ("observe", "feat: x", 0, "would block (error)"),
+            ("enforce", "feat: x\n\nUnverified: stamp tooling broken", 0, ""),
+        ],
+    )
+    def test_an_unreadable_stamp_is_reported_instead_of_passing_silently(
+        self, repo: Path, monkeypatch: pytest.MonkeyPatch, mode: str, message: str, exit_code: int, output: str
+    ) -> None:
+        stamp_path().write_text("{truncated")
+        message_file = repo / "COMMIT_EDITMSG"
+        message_file.write_text(message)
+        monkeypatch.setenv("HOGLI_VERIFY_GATE", mode)
+
+        result = CliRunner().invoke(verify_gate, [str(message_file)])
+
+        assert result.exit_code == exit_code
+        assert output in result.output
+
+
+def test_hashing_the_working_tree_writes_no_objects_to_the_repository(repo: Path, git: Callable[..., str]) -> None:
+    (repo / "local_secrets.txt").write_text("token=not-a-real-token\n")
+    blob_id = git(repo, "hash-object", "local_secrets.txt").strip()
+
+    working_tree_content_hash()
+
+    assert subprocess.run(["git", "-C", str(repo), "cat-file", "-e", blob_id]).returncode != 0
