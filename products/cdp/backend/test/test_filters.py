@@ -666,7 +666,7 @@ class TestHogFunctionFilters(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest
         country_us = {"key": "country", "value": "US", "operator": "exact", "type": "person"}
         country_de = {"key": "country", "value": "DE", "operator": "exact", "type": "person"}
         plan_enterprise = {"key": "plan", "value": "enterprise", "operator": "exact", "type": "person"}
-        properties: list | dict = {
+        shapes: dict[str, list | dict] = {
             "flat": [plan_pro, country_us],
             "grouped": {
                 "type": "OR",
@@ -683,7 +683,8 @@ class TestHogFunctionFilters(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest
                 "type": "OR",
                 "values": [{"type": "AND", "values": [plan_pro]}, {"type": "AND", "values": []}],
             },
-        }[shape]
+        }
+        properties = shapes[shape]
 
         bytecode = self.filters_to_bytecode(filters={"properties": properties})
 

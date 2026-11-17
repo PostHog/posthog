@@ -1576,7 +1576,8 @@ class PropertyFiltersOrGroupField(serializers.Field):
 
 
 class HogFlowConditionFiltersSerializer(HogFunctionFiltersSerializer):
-    properties = PropertyFiltersOrGroupField(
+    # DRF lets a subclass replace a declared field; mypy reads it as reassigning the base's ListField.
+    properties = PropertyFiltersOrGroupField(  # type: ignore[assignment]
         required=False,
         help_text=(
             "Property filters for a branch condition. Either a list of filters that must all match, or "
