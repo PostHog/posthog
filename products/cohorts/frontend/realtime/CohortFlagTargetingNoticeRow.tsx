@@ -45,7 +45,8 @@ export function CohortFlagTargetingNoticeRow({ cohortId }: { cohortId: number })
                     <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                         <span>
                             Realtime is off for {name}, so feature flags can't target it yet. When you turn it on,
-                            PostHog prepares the cohort from past events. This usually takes under 30 minutes.
+                            PostHog prepares the cohort from past events. This usually takes under 30 minutes. You can
+                            save once it's ready.
                         </span>
                         <LemonButton
                             type="secondary"
@@ -71,13 +72,13 @@ export function CohortFlagTargetingNoticeRow({ cohortId }: { cohortId: number })
                     <Spinner size="small" className="shrink-0 mt-0.5" />
                     {realtime.state === 'rebuilding' ? (
                         <span>
-                            The criteria of {name} changed, so PostHog is preparing it again from past events. Feature
-                            flags can target it once it's ready.
+                            The criteria of {name} changed, so PostHog is preparing it again from past events. You can
+                            save once it's ready.
                         </span>
                     ) : (
                         <span>
-                            PostHog is preparing {name} from past events. Feature flags can target it once it's ready,
-                            which usually takes under 30 minutes.
+                            PostHog is preparing {name} from past events. You can save once it's ready, which usually
+                            takes under 30 minutes.
                         </span>
                     )}
                 </div>

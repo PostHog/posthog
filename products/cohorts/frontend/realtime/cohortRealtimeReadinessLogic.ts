@@ -111,9 +111,10 @@ export const cohortRealtimeReadinessLogic: LogicWrapper<cohortRealtimeReadinessL
         }),
         listeners(({ actions, values, props, cache }) => {
             // Only the readiness merges back, so the rest of the list's basic payload that other readers of the shared
-            // model use stays as it was.
+            // model use stays as it was. The API sends no readiness when its lookup of queued builds fails. That says
+            // nothing about the build, so the last known state stays rather than reading as a cohort flags can target.
             const mergeReadiness = (fetched: CohortApi): void => {
-                if (values.cohort) {
+                if (values.cohort && fetched.realtime) {
                     actions.updateCohort({
                         ...values.cohort,
                         realtime_enabled: fetched.realtime_enabled,
@@ -150,13 +151,11 @@ export const cohortRealtimeReadinessLogic: LogicWrapper<cohortRealtimeReadinessL
                     if (generation !== cache.readinessGeneration) {
                         return
                     }
-                    // The API sends no readiness when its lookup of queued builds fails. That says nothing about the
-                    // build either, so the last known state stays and the watch goes on.
-                    if (fetched?.realtime) {
+                    if (fetched) {
                         mergeReadiness(fetched)
                         // Only a build this logic watched is news. A cohort the shared model still shows as preparing
                         // may have been ready for an hour.
-                        if (cache.watchedBuild && fetched.realtime.state === 'ready') {
+                        if (cache.watchedBuild && fetched.realtime?.state === 'ready') {
                             cache.watchedBuild = false
                             lemonToast.success(`Cohort '${fetched.name}' is ready. Feature flags can target it now.`)
                         }

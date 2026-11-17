@@ -29,6 +29,7 @@ const cohortCondition = (value: number | string): AnyPropertyFilter =>
     ({ type: PropertyFilterType.Cohort, key: 'id', value, operator: PropertyOperator.In }) as AnyPropertyFilter
 
 let served: CohortRealtimeReadinessApi | null
+let listed: boolean
 
 const cohort = (): Record<string, unknown> => ({
     id: 1,
@@ -54,9 +55,10 @@ async function renderNotice(
 
 describe('CohortFlagTargetingNotice', () => {
     beforeEach(() => {
+        listed = true
         useMocks({
             get: {
-                '/api/projects/:team_id/cohorts/': () => [200, toPaginatedResponse([cohort()])],
+                '/api/projects/:team_id/cohorts/': () => [200, toPaginatedResponse(listed ? [cohort()] : [])],
                 '/api/projects/:team_id/cohorts/:id/': () => [200, cohort()],
             },
         })
@@ -95,6 +97,14 @@ describe('CohortFlagTargetingNotice', () => {
         const container = await renderNotice(realtime)
 
         expect(container).toBeEmptyDOMElement()
+    })
+
+    it('reads a cohort created after the shared model listed cohorts', async () => {
+        listed = false
+
+        await renderNotice(readiness('off'))
+
+        expect(await screen.findByText('Turn on realtime')).toBeInTheDocument()
     })
 
     it('lists a cohort once when the set names it twice', async () => {

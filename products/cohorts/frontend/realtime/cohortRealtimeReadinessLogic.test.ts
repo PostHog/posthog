@@ -163,10 +163,11 @@ describe('cohortRealtimeReadinessLogic', () => {
         await mountLogic()
         const afterMount = detailFetches
 
+        // The mount armed the poll on a real timer, and the mocked requests need real timers to answer. Clearing that
+        // timer before faking the clock keeps it from firing later, and arming again puts the loop on the fake clock.
+        logic.cache.disposables.dispose('readinessPoll')
         jest.useFakeTimers()
         try {
-            // The mount armed the poll on a real timer. Arming again replaces that disposable with one on the fake
-            // clock, which is the timer the loop re-arms below.
             logic.actions.armReadinessPoll()
 
             // The API sends no readiness when its lookup of queued builds fails.

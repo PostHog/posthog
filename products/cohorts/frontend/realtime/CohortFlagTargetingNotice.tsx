@@ -1,5 +1,6 @@
 import clsx from 'clsx'
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
+import { useEffect } from 'react'
 
 import { IconInfo } from '@posthog/icons'
 import { PostHogCaptureOnViewed } from '@posthog/react'
@@ -27,8 +28,17 @@ export function CohortFlagTargetingNotice({
     className?: string
 }): JSX.Element | null {
     const { cohortsById } = useValues(cohortsModel)
+    const { loadCohortsByIds } = useActions(cohortsModel)
     // Ids can arrive as strings, and a set can name the same cohort twice.
     const cohortIds = [...new Set(properties.filter(isCohortPropertyFilter).map(({ value }) => Number(value)))]
+    // The shared model lists cohorts once per session, so a cohort created since, in another tab or by a teammate, is
+    // read on its own. Joined so that the effect runs when the missing ids change, not on every render.
+    const missingCohortIds = cohortIds.filter((cohortId) => !cohortsById[cohortId]).join(',')
+    useEffect(() => {
+        if (missingCohortIds) {
+            loadCohortsByIds({ ids: missingCohortIds.split(',').map(Number) })
+        }
+    }, [missingCohortIds, loadCohortsByIds])
     const rows = cohortIds.flatMap((cohortId) => {
         const state = cohortsById[cohortId]?.realtime?.state
         return state && STATES_WITH_ROW.includes(state) ? [{ cohortId, state }] : []
