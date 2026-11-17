@@ -64,9 +64,9 @@ const MetricsTab = (): JSX.Element => {
 
     return (
         <>
-            <div className="w-full mb-4 flex flex-col gap-4">
+            <div className="w-full mb-4 grid grid-cols-1 lg:grid-cols-2 gap-4">
                 <Hypothesis />
-                <div>
+                <div className="flex flex-col gap-4">
                     <Exposures />
                     {!showsHealthTab && <MultiVariantBiasWarning />}
                 </div>
