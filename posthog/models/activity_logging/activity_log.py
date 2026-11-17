@@ -22,6 +22,7 @@ from prometheus_client import Counter
 
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
+from posthog.models import oauth_activity_log_config as _oauth_activity_log_config
 from posthog.models.activity_logging.utils import (
     ACTIVITY_LOG_CLIENT_MAX_LENGTH,
     ACTIVITY_LOG_CREDENTIAL_ID_MAX_LENGTH,
@@ -31,6 +32,8 @@ from posthog.models.activity_logging.utils import (
     is_uncached_reverse_one_to_one,
 )
 from posthog.models.utils import ActivityDetailEncoder, UUIDTModel
+
+from products.feature_flags.backend import activity_log_config as _feature_flag_activity_log_config
 
 if TYPE_CHECKING:
     from posthog.models.user import User
@@ -540,9 +543,6 @@ field_name_overrides: dict[AuditableScope, dict[str, str]] = {
         "research_instructions": "research instructions",
         "implementation_instructions": "implementation instructions",
     },
-    "OAuthApplication": {
-        "_provisioning_config": "provisioning config",
-    },
     "OrganizationIPRestrictions": {
         "ip_restrictions": "IP allowlist",
         "enabled": "IP restrictions enabled",
@@ -914,16 +914,6 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         "widget_instances",
         "widget_snapshots",
     ],
-    "FeatureFlag": [
-        "experiment",
-        "featureflagoverride",
-        "usage_dashboard",
-        "analytics_dashboards",
-        "flag_evaluation_contexts",
-        # FeatureFlagCodeAnalysis is team-scoped, so reading this relation for a diff hits the
-        # fail-closed manager. A code analysis does not change the flag, so the diff skips it.
-        "code_analyses",
-    ],
     "Experiment": [
         "feature_flag",
         "feature_flag_auto_archived",
@@ -1213,25 +1203,32 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         # Reverse relations auto-managed by FK creates, not user-initiated config changes.
         "runs",
     ],
-    "OAuthApplication": [
-        # Secrets — never diff these, even masked.
-        "client_secret",
-        "hash_client_secret",
-        # Reverse token relations can hold tens of thousands of rows; reading
-        # through them in `changes_between` would scan the token tables.
-        "oauthaccesstoken",
-        "oauthidtoken",
-        "oauthrefreshtoken",
-        "oauthgrant",
-        # Bookkeeping timestamps and FKs, not scope-ceiling intent.
-        "created",
-        "updated",
-        "cimd_metadata_last_fetched",
-        "dcr_client_id_issued_at",
-        "organization",
-        "user",
-    ],
 }
+
+# A scope's tuning lives next to the model it configures, in a data-only module, so the team that
+# owns the model owns its tuning. Core keeps the scopes whose model has no product owner. The
+# collision check is the guard against one scope being tuned in two places.
+_SCOPE_CONFIG_MODULES = (
+    _feature_flag_activity_log_config,
+    _oauth_activity_log_config,
+)
+
+
+def _merge_scope_config(target: dict[Any, Any], attribute: str) -> None:
+    for module in _SCOPE_CONFIG_MODULES:
+        for scope, value in getattr(module, attribute, {}).items():
+            if scope in target:
+                raise RuntimeError(f"{attribute}: {scope} is tuned in both core and {module.__name__}")
+            target[scope] = value
+
+
+for _target, _attribute in (
+    (field_exclusions, "FIELD_EXCLUSIONS"),
+    (field_name_overrides, "FIELD_NAME_OVERRIDES"),
+    (field_with_masked_contents, "FIELD_WITH_MASKED_CONTENTS"),
+    (signal_exclusions, "SIGNAL_EXCLUSIONS"),
+):
+    _merge_scope_config(_target, _attribute)
 
 
 def describe_change(m: Any) -> Union[str, dict]:

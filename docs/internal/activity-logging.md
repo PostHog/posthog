@@ -75,7 +75,7 @@ Seventeen products follow this shape; `products/feature_flags/backend/activity_l
 | Receiver        | `products/<name>/backend/activity_logging.py`                                                                            | `@mutable_receiver(model_activity_signal, sender=Thing)`. Keep the module import-light: no DRF, no viewsets, no query runners.                        |
 | Wiring          | `products/<name>/backend/apps.py`, in `ready()`                                                                          | `from products.<name>.backend import activity_logging  # noqa: F401, PLC0415` with a one-line comment that says why it must connect in every process. |
 | Receiver budget | `posthog/test/repo_invariants/setup_receivers_baseline.txt`                                                              | The startup import budget lists every receiver connected at `django.setup()`. Add the new one.                                                        |
-| Exclusions      | the registries in `activity_log.py`                                                                                      | See "Tune the diff" below.                                                                                                                            |
+| Exclusions      | the registries in `activity_log.py`, or `products/<name>/backend/activity_log_config.py`                                 | See "Tune the diff" below. A migrated scope's tuning lives next to its model so the model's owner reviews it.                                         |
 | Describer       | `products/<name>/frontend/activityDescriber.tsx`, registered in `frontend/src/lib/components/ActivityLog/describers.tsx` | Optional. Without one `defaultDescriber` renders "X created / updated / deleted <name>".                                                              |
 | Tests           | `products/<name>/backend/tests/`, or `posthog/test/activity_logging/` for a core model                                   | See "Tests" below.                                                                                                                                    |
 
@@ -121,7 +121,14 @@ A receiver may resolve it further, for example a change of `deleted` from false 
 ### Tune the diff
 
 `changes_between` compares every model field except the ones in `common_field_exclusions` (ids, timestamps, `team`, `created_by`, and similar).
-Four registries in `activity_log.py` tune it per scope:
+Four registries tune it per scope.
+Core keeps them in `activity_log.py` for scopes whose model has no product owner, and a migrated scope keeps its entries in a data only module next to the model, such as `products/feature_flags/backend/activity_log_config.py` or `posthog/models/oauth_activity_log_config.py`.
+That placement is the point: `posthog/models/owners.yaml` and `products/<name>/product.yaml` then give the tuning to the team that owns the model, instead of to whoever owns the activity log.
+`activity_log.py` merges those modules at import and raises if one scope is tuned in two places, and `posthog/test/repo_invariants/test_activity_log_config_ownership.py` fails when a module's owners and its model's owners do not overlap.
+
+Put a new scope's tuning in a module next to its model.
+A config module holds no imports, because `activity_log.py` merges it at `django.setup()` in every process.
+The registries are:
 
 - `signal_exclusions` - skip logging when only these fields changed. Use it for bookkeeping fields a job touches on every run (`last_checked_at`, `next_check_at`).
 - `field_exclusions` - drop these fields from the diff but still log the row.

@@ -84,6 +84,20 @@ When the model is routed in `products/db_routing.yaml`:
 - Secrets go in `field_with_masked_contents` (the change is recorded, the values are not).
 - User-facing names go in `field_name_overrides`.
 
+Put them in a data only module next to the model, so the team that owns the model owns its tuning:
+
+```python
+# products/<name>/backend/activity_log_config.py
+FIELD_EXCLUSIONS = {"Thing": ["bookkeeping_field"]}
+```
+
+For a model under `posthog/` or `ee/`, the module sits next to that model file and takes its owner from the `owners.yaml` walk (`posthog/models/oauth_activity_log_config.py`, owned through the `/oauth.py` rule).
+For a flat module in a mixed-owner directory, add the new filename to that rule's `match` list.
+Register the module in `_SCOPE_CONFIG_MODULES` in `posthog/models/activity_logging/activity_log.py`.
+A config module holds no imports: `activity_log.py` merges it at `django.setup()`.
+Scopes whose model has no product owner keep their tuning in the registries in `activity_log.py`.
+`posthog/test/repo_invariants/test_activity_log_config_ownership.py` checks that a module and its model resolve to the same team.
+
 ## Step 8 - Describer (optional)
 
 `defaultDescriber` renders "X created / updated / deleted <name>".
