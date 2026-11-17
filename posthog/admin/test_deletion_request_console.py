@@ -697,6 +697,7 @@ class TestDeletionRequestConsole(BaseTest):
 
 
 @override_settings(STORAGES={"staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"}})
+@time_machine.travel("2026-11-06T12:00:00Z", tick=False)
 class TestDeletionRequestVerifyLocking(NonAtomicBaseTest):
     def setUp(self) -> None:
         super().setUp()
