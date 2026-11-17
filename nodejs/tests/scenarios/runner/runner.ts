@@ -536,9 +536,9 @@ export function createRunner(
                 live.write({ type: 'phase', at: Date.now(), phase: 'converge' })
                 const convergence = await judge.converge(durationMs(card.convergeWithin), signal)
                 live.write({ type: 'phase', at: Date.now(), phase: 'judge' })
-                await live.stop()
                 probed = await probes.stop()
                 sampled = await sampler.stop()
+                await live.stop()
                 const down = await stopHealth()
                 const janitorResets = janitorResetsOf({ ...sampled, sampledFrom: sampler.sampledFrom })
                 const invariants = await judge.check(card.invariants, card.gates, { janitorResets })
@@ -585,11 +585,11 @@ export function createRunner(
                     statusReason: `the run stopped: ${messageOf(error)}`,
                 }
             } finally {
-                await live.stop()
                 await valves.releaseAll()
                 await stopHealth?.()
                 probed = (await probes?.stop()) ?? probed
                 sampled = (await sampler?.stop()) ?? sampled
+                await live.stop()
                 try {
                     await producer?.disconnect()
                 } catch (error) {

@@ -63,10 +63,9 @@ import { JournalEntry } from '../judge/judge'
 import { main } from '../main'
 import { ProviderEdge, TruthRecord, WEBHOOK_HOST, startProviderEdge } from '../provider-edge'
 import { FakeProjectApi, startFakeProjectApi } from '../scorecard/fake-project-api'
-import * as provenance from '../scorecard/provenance'
 import { STORE_URL } from '../store/client'
 import { TestStore, UNREACHABLE_STORE, startTestStore, storeEnvOf } from '../store/test-store'
-import { LIVE_FILE } from './live'
+import { LIVE_FILE, LiveRecord } from './live'
 import { RunResult, Runner, createRunner } from './runner'
 import { EXIT_CODE, exitCodeOf } from './status'
 
@@ -571,12 +570,12 @@ describe('runner', () => {
                 'clearTimeout',
             ],
         })
-        jest.spyOn(provenance, 'provenanceOf').mockImplementation(() => {
-            throw new Error('the checkout is gone')
+        jest.spyOn(os, 'cpus').mockImplementation(() => {
+            throw new Error('the host hides its CPUs')
         })
 
         await expect(runner.run(withSettings({ DATABASE_URL: PROFILE_DATABASE_URL }), NEVER_ABORTED)).rejects.toThrow(
-            'the checkout is gone'
+            'the host hides its CPUs'
         )
 
         const [live] = readdirSync(stateDir)
@@ -1186,7 +1185,7 @@ describe('runner through seed, drive and judge', () => {
         })
     }, 30_000)
 
-    it('samples every replica the profile starts and seeds flows that park as often as it asks', async () => {
+    it('samples every replica the profile starts, follows every sample live, and seeds flows that park as often as it asks', async () => {
         const result = await createRunner(environmentOf('none'), env).run(
             shortSmoke([], 'event_email', { replicas: { 'cdp-cyclotron-worker-email': 2 }, parks: 1 }),
             NEVER_ABORTED
@@ -1205,7 +1204,13 @@ describe('runner through seed, drive and judge', () => {
             defaultConfig.DATABASE_URL
         )
         const { samples } = evidenceOf(result, 'metrics.json') as { samples: { role: string; replica: number }[] }
+        const followed = readFileSync(path.join(result.evidenceDir, LIVE_FILE), 'utf8')
+            .trimEnd()
+            .split('\n')
+            .map((line) => parseJSON(line) as LiveRecord)
+            .flatMap((record) => (record.type === 'tick' ? record.samples : []))
         expect({
+            unfollowedSamples: samples.length - followed.length,
             parksPerFlow: [
                 ...new Set(flows.map(({ actions }) => actions.filter(({ type }) => type === 'delay').length)),
             ],
@@ -1214,7 +1219,7 @@ describe('runner through seed, drive and judge', () => {
                     samples.filter(({ role }) => role === 'cdp-cyclotron-worker-email').map(({ replica }) => replica)
                 ),
             ].sort(),
-        }).toEqual({ parksPerFlow: [1], emailReplicas: [0, 1] })
+        }).toEqual({ unfollowedSamples: 0, parksPerFlow: [1], emailReplicas: [0, 1] })
     }, 30_000)
 
     it.each<[string, Parameters<typeof environmentOf>[0], string, string | undefined, string, object]>([

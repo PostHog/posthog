@@ -1,4 +1,6 @@
 import { mkdtempSync, readFileSync, rmSync, statSync, utimesSync } from 'fs'
+import http from 'http'
+import { AddressInfo } from 'net'
 import os from 'os'
 import path from 'path'
 
@@ -103,10 +105,77 @@ describe('live log', () => {
         ])
     })
 
+    it('stops following without failing the run when a source throws', async () => {
+        const log = openLiveLog(runDir)
+        log.write(START)
+        log.follow({
+            timeline: () => {
+                throw new Error('the valves are gone')
+            },
+            samples: () => [],
+            queue: () => [],
+            writer: () => [],
+            journal: () => [],
+            edgeUrl: UNREACHABLE_EDGE,
+        })
+
+        await expect(log.stop()).resolves.toBeUndefined()
+        log.write(END)
+        expect(linesOf()).toEqual([START, END])
+    })
+
+    it("follows only this run's truth when the edge cannot name its head at first", async () => {
+        const records = [1, 2, 3].map((seq) => ({ seq, at: seq, kind: 'delivery', unitId: `unit-${seq}` }))
+        let headReads = 0
+        let headFailed: () => void = () => undefined
+        const firstHeadFailed = new Promise<void>((resolve) => (headFailed = resolve))
+        const edge = http.createServer((request, response) => {
+            const url = new URL(request.url!, 'http://edge')
+            if (url.pathname === '/_truth/head') {
+                headReads += 1
+                if (headReads === 1) {
+                    response.writeHead(500).end()
+                    headFailed()
+                    return
+                }
+                response.end(JSON.stringify({ head: 2 }))
+                return
+            }
+            const after = Number(url.searchParams.get('after'))
+            response.end(JSON.stringify({ records: records.filter(({ seq }) => seq > after) }))
+        })
+        await new Promise<void>((resolve) => edge.listen(0, '127.0.0.1', resolve))
+        const log = openLiveLog(runDir)
+        log.write(START)
+
+        log.follow({
+            timeline: () => [],
+            samples: () => [],
+            queue: () => [],
+            writer: () => [],
+            journal: () => [],
+            edgeUrl: `http://127.0.0.1:${(edge.address() as AddressInfo).port}`,
+        })
+        await firstHeadFailed
+        await log.stop()
+        await new Promise((resolve) => edge.close(resolve))
+
+        expect(linesOf()).toEqual([START, expect.objectContaining({ type: 'tick', truth: [records[2]] })])
+    })
+
     it.each<[string, (log: LiveLog) => Promise<void> | void, boolean]>([
         ['keeps beating while the run is judged after its follow stopped', (log) => log.stop(), true],
         ['stops beating at the end record', (log) => log.write(END), false],
         ['stops beating when the run leaves it without an end record', (log) => log[Symbol.dispose](), false],
+        [
+            'keeps beating past a beat that failed',
+            (log) => {
+                rmSync(file())
+                jest.advanceTimersByTime(50)
+                log.write(SEEDING)
+            },
+            true,
+        ],
     ])('%s', async (_story, leave, beating) => {
         jest.useFakeTimers()
         const log = openLiveLog(runDir, 10)

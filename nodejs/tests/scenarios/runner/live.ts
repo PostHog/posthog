@@ -91,9 +91,7 @@ export function openLiveLog(evidenceDir: string, beatMs = TICK_MS): LiveLog {
         try {
             const now = new Date()
             utimesSync(file, now, now)
-        } catch {
-            stopBeat()
-        }
+        } catch {}
     }, beatMs)
     beat.unref()
     const stopBeat = (): void => clearInterval(beat)
@@ -118,9 +116,9 @@ export function openLiveLog(evidenceDir: string, beatMs = TICK_MS): LiveLog {
         write,
         follow(sources) {
             following = (async () => {
-                const seen = { samples: 0, queue: 0, writer: 0, journal: 0, truth: 0 }
+                const seen = { samples: 0, queue: 0, writer: 0, journal: 0 }
                 let timeline = ''
-                seen.truth = await truthHead(sources.edgeUrl).catch(() => 0)
+                let truthFrom = await truthHead(sources.edgeUrl).catch(() => undefined)
                 for (let last = false; !last && !broken; ) {
                     await sleep(TICK_MS, undefined, { signal: stopped.signal }).catch(() => undefined)
                     last = stopped.signal.aborted
@@ -129,8 +127,10 @@ export function openLiveLog(evidenceDir: string, beatMs = TICK_MS): LiveLog {
                         seen[key] = all.length
                         return taken
                     }
-                    const truth = await truthAfter(sources.edgeUrl, seen.truth).catch(() => [])
-                    seen.truth = truth.at(-1)?.seq ?? seen.truth
+                    truthFrom ??= await truthHead(sources.edgeUrl).catch(() => undefined)
+                    const truth =
+                        truthFrom === undefined ? [] : await truthAfter(sources.edgeUrl, truthFrom).catch(() => [])
+                    truthFrom = truth.at(-1)?.seq ?? truthFrom
                     const valves = sources.timeline()
                     const serialized = JSON.stringify(valves)
                     const changed = serialized !== timeline
@@ -154,7 +154,7 @@ export function openLiveLog(evidenceDir: string, beatMs = TICK_MS): LiveLog {
                         truth,
                     })
                 }
-            })()
+            })().catch(() => undefined)
         },
         async stop() {
             stopped.abort()
