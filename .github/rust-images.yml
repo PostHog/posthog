@@ -12,7 +12,7 @@
 # migrate-entry names (persons, behavioral-cohorts, cyclotron-node, flags-read-store).
 # The build writes every migration version of these databases into the image's
 # deploy requirements manifest (/app/schema-requirements.json, see tools/deploy-requirements), and the
-# deploy-time check (rust/bin/sqlx-schema-check) waits until they are applied.
+# deploy-time check (rust/bin/deploy-requirements-check) waits until they are applied.
 - image: capture
   dockerfile: ./rust/Dockerfile
   project: kshskj225r

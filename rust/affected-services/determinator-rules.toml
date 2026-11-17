@@ -19,9 +19,9 @@ use-default-rules = true
 # forces rebuild-all in code instead.
 
 # Dockerfiles and CI image config — cross-cutting build changes. Every image runs
-# bin/write-sqlx-requirements in its Dockerfile, so a change to it is one too.
+# bin/write-deploy-requirements in its Dockerfile, so a change to it is one too.
 [[path-rule]]
-globs = ["Dockerfile", "Dockerfile.sqlx-migrate", "../.github/rust-images.yml", "bin/write-sqlx-requirements"]
+globs = ["Dockerfile", "Dockerfile.sqlx-migrate", "../.github/rust-images.yml", "bin/write-deploy-requirements"]
 mark-changed = "all"
 
 # sqlx offline query metadata — affects all sqlx-using crates.

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tests for write-sqlx-requirements and sqlx-schema-check. Fakes on PATH replace psql, sleep and
+# Tests for write-deploy-requirements and deploy-requirements-check. Fakes on PATH replace psql, sleep and
 # timeout: psql returns the rows of _sqlx_migrations from a fixture file, sleep records its
 # argument instead of waiting, so no database and no real wait is needed.
 set -euo pipefail
@@ -63,32 +63,28 @@ assert_eq() {
 run_check() {
     local output code
     set +e
-    output=$(SQLX_SCHEMA_CHECK_WAIT_SECONDS=0 SQLX_SCHEMA_CHECK_INTERVAL_SECONDS=1 "$BIN_DIR/sqlx-schema-check" 2>&1)
+    output=$(SCHEMA_CHECK_WAIT_SECONDS=0 SCHEMA_CHECK_INTERVAL_SECONDS=1 "$BIN_DIR/deploy-requirements-check" 2>&1)
     code=$?
     set -e
     echo "$code $(echo "$output" | sed -n 's/.*"result":"\([a-z_]*\)".*/\1/p')"
 }
 
 # The writer lists every up migration of the declared databases and skips .down.sql twins.
-"$BIN_DIR/write-sqlx-requirements" "persons behavioral-cohorts" "$WORK/req.json" "$WORK/migrations"
+"$BIN_DIR/write-deploy-requirements" "persons behavioral-cohorts" "$WORK/req.json" "$WORK/migrations"
 assert_eq "writer writes a deploy requirements manifest with sqlx requirements" \
     '{"schema_version":1,"requirements":[{"kind":"sqlx","database":"persons","versions":[20250101000001,20250201000001]},{"kind":"sqlx","database":"behavioral-cohorts","versions":[20250301000001]}]}' \
     "$(jq -c '{schema_version, requirements}' "$WORK/req.json")"
 
-# The contract defines the digest as sha256 of the compact requirements JSON, first 12 hex.
-expected_digest=$(jq -c '.requirements' "$WORK/req.json" | tr -d '\n' | { sha256sum 2>/dev/null || shasum -a 256; } | cut -c1-12)
-assert_eq "writer digest matches the Node formula" "$expected_digest" "$(jq -r '.digest' "$WORK/req.json")"
-
-"$BIN_DIR/write-sqlx-requirements" "" "$WORK/empty.json" "$WORK/migrations"
+"$BIN_DIR/write-deploy-requirements" "" "$WORK/empty.json" "$WORK/migrations"
 assert_eq "writer with no database writes no requirements" "[]" "$(jq -c '.requirements' "$WORK/empty.json")"
 
 set +e
-"$BIN_DIR/write-sqlx-requirements" "personz" "$WORK/bad.json" "$WORK/migrations" 2>/dev/null
+"$BIN_DIR/write-deploy-requirements" "personz" "$WORK/bad.json" "$WORK/migrations" 2>/dev/null
 assert_eq "writer fails on an unknown database" "1" "$?"
 set -e
 
-export SQLX_SCHEMA_CHECK_REQUIREMENTS="$WORK/req.json"
-export SQLX_SCHEMA_CHECK_MODE=enforce
+export SCHEMA_CHECK_REQUIREMENTS="$WORK/req.json"
+export SCHEMA_CHECK_MODE=enforce
 export BEHAVIORAL_COHORTS_DATABASE_URL="postgres://fixture/cohorts"
 printf '20250301000001 t\n' > "$WORK/cohorts"
 
@@ -113,29 +109,29 @@ assert_eq "a declared database without a URL is an error" "2 error" "$(run_check
 
 export PERSONS_DATABASE_URL="postgres://fixture/persons"
 printf '20250101000001 t\n' > "$WORK/persons"
-assert_eq "shadow mode logs the hold and exits 0" "0 missing" "$(SQLX_SCHEMA_CHECK_MODE=shadow run_check)"
+assert_eq "shadow mode logs the hold and exits 0" "0 missing" "$(SCHEMA_CHECK_MODE=shadow run_check)"
 
 assert_eq "no manifest passes (image older than the check)" "0 no_requirements_file" \
-    "$(SQLX_SCHEMA_CHECK_REQUIREMENTS="$WORK/none.json" run_check)"
+    "$(SCHEMA_CHECK_REQUIREMENTS="$WORK/none.json" run_check)"
 
 printf 'persons 20250101000001\n' > "$WORK/malformed.json"
 assert_eq "a file that is not a manifest is an error" "2 error" \
-    "$(SQLX_SCHEMA_CHECK_REQUIREMENTS="$WORK/malformed.json" run_check)"
+    "$(SCHEMA_CHECK_REQUIREMENTS="$WORK/malformed.json" run_check)"
 
 printf '{"schema_version":1,"requirements":[{"kind":"django","database":"default","app":"posthog","migration":"0001"}]}\n' > "$WORK/django.json"
 assert_eq "an unknown requirement kind is an error, not a pass" "2 error" \
-    "$(SQLX_SCHEMA_CHECK_REQUIREMENTS="$WORK/django.json" run_check)"
+    "$(SCHEMA_CHECK_REQUIREMENTS="$WORK/django.json" run_check)"
 
 printf '{"schema_version":2,"requirements":[]}\n' > "$WORK/v2.json"
-assert_eq "an unknown schema version is an error" "2 error" "$(SQLX_SCHEMA_CHECK_REQUIREMENTS="$WORK/v2.json" run_check)"
+assert_eq "an unknown schema version is an error" "2 error" "$(SCHEMA_CHECK_REQUIREMENTS="$WORK/v2.json" run_check)"
 
 assert_eq "an image without sqlx databases passes" "0 satisfied" \
-    "$(SQLX_SCHEMA_CHECK_REQUIREMENTS="$WORK/empty.json" run_check)"
+    "$(SCHEMA_CHECK_REQUIREMENTS="$WORK/empty.json" run_check)"
 
 # Shadow mode must not wait for a pending migration, or it delays the rollout it must not hold.
 printf '20250101000001 t\n' > "$WORK/persons"
 rm -f "$WORK/sleeps"
-SQLX_SCHEMA_CHECK_MODE=shadow "$BIN_DIR/sqlx-schema-check" > /dev/null
+SCHEMA_CHECK_MODE=shadow "$BIN_DIR/deploy-requirements-check" > /dev/null
 assert_eq "shadow mode checks once without waiting" "no pause" "$([ -f "$WORK/sleeps" ] && echo paused || echo "no pause")"
 
 # A wait shorter than the interval still checks again at the deadline. The migration finishes
@@ -144,7 +140,7 @@ printf '20250101000001 t\n' > "$WORK/persons"
 printf '20250101000001 t\n20250201000001 t\n' > "$WORK/applied"
 rm -f "$WORK/sleeps"
 set +e
-deadline_output=$(FAKE_SLEEP_APPLIES="$WORK/applied" SQLX_SCHEMA_CHECK_WAIT_SECONDS=5 SQLX_SCHEMA_CHECK_INTERVAL_SECONDS=15 "$BIN_DIR/sqlx-schema-check")
+deadline_output=$(FAKE_SLEEP_APPLIES="$WORK/applied" SCHEMA_CHECK_WAIT_SECONDS=5 SCHEMA_CHECK_INTERVAL_SECONDS=15 "$BIN_DIR/deploy-requirements-check")
 deadline_code=$?
 set -e
 assert_eq "a short wait checks again at the deadline" "0 satisfied" \
@@ -153,7 +149,7 @@ assert_eq "the last pause ends at the deadline" "yes" "$([ "$(head -1 "$WORK/sle
 
 # libpq can echo part of a malformed password. The log must not carry it.
 export PERSONS_DATABASE_URL="postgres://fixture/badpass"
-badpass_output=$(SQLX_SCHEMA_CHECK_MODE=shadow "$BIN_DIR/sqlx-schema-check")
+badpass_output=$(SCHEMA_CHECK_MODE=shadow "$BIN_DIR/deploy-requirements-check")
 assert_eq "a psql error does not log quoted credentials" "no secret" \
     "$(echo "$badpass_output" | grep -q secret && echo "secret leaked" || echo "no secret")"
 export PERSONS_DATABASE_URL="postgres://fixture/persons"

@@ -12,7 +12,7 @@ HERE = Path(__file__).resolve().parent
 REPO_ROOT = HERE.parents[1]
 SCHEMA = json.loads((HERE / "deploy-requirements.v1.schema.json").read_text())
 VALIDATOR = Draft202012Validator(SCHEMA)
-RUST_WRITER = REPO_ROOT / "rust/bin/write-sqlx-requirements"
+RUST_WRITER = REPO_ROOT / "rust/bin/write-deploy-requirements"
 
 
 def digest_of(requirements: list[dict]) -> str:

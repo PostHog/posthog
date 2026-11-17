@@ -1,16 +1,16 @@
 #!/bin/sh
 # Writes the deploy requirements manifest of a Rust image (tools/deploy-requirements, version 1):
 # every sqlx migration version of the databases that the image declares, as "sqlx" requirements.
-# The deploy-time check (sqlx-schema-check) reads this file from the app image, so the
+# The deploy-time check (deploy-requirements-check) reads this file from the app image, so the
 # requirements always come from the image that rolls out, not from today's migration image.
 #
-# Usage: write-sqlx-requirements "<databases>" <output file> [migrations base dir]
+# Usage: write-deploy-requirements "<databases>" <output file> [migrations base dir]
 # <databases> is a space-separated list of migrate-entry names, or empty for an image that
 # uses no sqlx database. An empty list writes a manifest with no requirements.
 set -eu
 
 DATABASES="${1-}"
-OUTPUT="${2:?Usage: write-sqlx-requirements \"<databases>\" <output file> [migrations base dir]}"
+OUTPUT="${2:?Usage: write-deploy-requirements \"<databases>\" <output file> [migrations base dir]}"
 BASE="${3:-.}"
 
 migrations_dir() {

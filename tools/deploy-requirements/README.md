@@ -12,10 +12,10 @@ The contract is [`deploy-requirements.v1.schema.json`](deploy-requirements.v1.sc
 
 ## Where it is
 
-| Image                    | File                                    | Writer                                                                                 | Reader                                                                                         |
-| ------------------------ | --------------------------------------- | -------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
-| Node (`Dockerfile.node`) | `/code/nodejs/schema-requirements.json` | `nodejs/src/schema-check/generate.ts`                                                  | `nodejs/src/schema-check/manifest.ts`, in the `node-schema-check` Sync hook                    |
-| Rust (`rust/Dockerfile`) | `/app/schema-requirements.json`         | `rust/bin/write-sqlx-requirements`, from `sqlx_databases` in `.github/rust-images.yml` | `rust/bin/sqlx-schema-check` in the `sqlx-migrate` image, in the `sqlx-schema-check` Sync hook |
+| Image                    | File                                    | Writer                                                                                   | Reader                                                                                                         |
+| ------------------------ | --------------------------------------- | ---------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| Node (`Dockerfile.node`) | `/code/nodejs/schema-requirements.json` | `nodejs/src/schema-check/generate.ts`                                                    | `nodejs/src/schema-check/manifest.ts`, in the `node-schema-check` Sync hook                                    |
+| Rust (`rust/Dockerfile`) | `/app/schema-requirements.json`         | `rust/bin/write-deploy-requirements`, from `sqlx_databases` in `.github/rust-images.yml` | `rust/bin/deploy-requirements-check` in the `sqlx-migrate` image, in the `deploy-requirements-check` Sync hook |
 
 The file name stays `schema-requirements.json` in version 1, because the checks read old images too.
 The Sync hooks are in PostHog/charts, `charts/posthog-app/templates/`.

@@ -726,7 +726,7 @@ jobs:
               run: cp -r proto rust/proto
 
             # The image's schema requirements manifest lists the migrations of these databases.
-            # Without them the canary would ship an empty manifest that the sqlx schema check passes.
+            # Without them the canary would ship an empty manifest that the deploy requirements check passes.
             - name: Read the sqlx databases of the feature-flags image
               id: sqlx
               run: |
