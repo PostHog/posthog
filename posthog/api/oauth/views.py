@@ -2677,7 +2677,9 @@ def _active_access_token_response(
     data: dict[str, Any] = {
         "active": True,
         "token_type": "access_token",
-        "scope": scope,
+        # A token stored before a scope rename holds the old name. The MCP server checks scopes
+        # from this field, so it gets the names `get_authenticator_scopes` checks against.
+        "scope": " ".join(translate_renamed_scopes(scope.split())),
         "is_impersonated": is_impersonated,
         # The MCP server reads this to choose between a 403 insufficient_scope challenge and a
         # tool error when a scope is missing.
