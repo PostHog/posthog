@@ -1,36 +1,33 @@
 import { useActions, useValues } from 'kea'
 
-import { Button, Dialog, DialogBody, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@posthog/quill'
+import {
+    Button,
+    Dialog,
+    DialogBody,
+    DialogContent,
+    DialogDescription,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle,
+    FieldGroup,
+} from '@posthog/quill'
 
+import { DISMISS_REASON_LEGEND, dismissReasonChoices } from '../dismissReasons'
 import type { WarehouseSuggestionDismissalReasonEnumApi } from '../generated/api.schemas'
 import { countOf } from '../suggestionCopy'
 import { warehouseSuggestionsSectionLogic } from '../warehouseSuggestionsSectionLogic'
-import { QuillChoice, QuillChoiceGroup } from './QuillChoiceGroup'
+import { QuillChoiceGroup } from './QuillChoiceGroup'
+import { QuillDismissNoteField } from './QuillDismissNoteField'
 
-const REASON_CHOICES: QuillChoice<WarehouseSuggestionDismissalReasonEnumApi>[] = [
-    {
-        value: 'not_now',
-        label: 'Not now',
-        description: 'Each one can be suggested again if the case for it grows a lot.',
-        'data-attr': 'warehouse-suggestions-bulk-dismiss-not-now',
-    },
-    {
-        value: 'not_useful',
-        label: 'Not useful',
-        description: "They won't be suggested again.",
-        'data-attr': 'warehouse-suggestions-bulk-dismiss-not-useful',
-    },
-    {
-        value: 'other',
-        label: 'Another reason',
-        description: "They won't be suggested again.",
-        'data-attr': 'warehouse-suggestions-bulk-dismiss-other',
-    },
-]
+const REASON_CHOICES = dismissReasonChoices('warehouse-suggestions-bulk-dismiss', { includeNotNow: true })
 
 export function QuillBulkDismissSuggestionsDialog(): JSX.Element {
-    const { bulkDismissOpen, selectedSuggestions, dismissReason } = useValues(warehouseSuggestionsSectionLogic)
-    const { closeBulkDismiss, setDismissReason, confirmBulkDismiss } = useActions(warehouseSuggestionsSectionLogic)
+    const { bulkDismissOpen, selectedSuggestions, dismissReason, dismissNote } = useValues(
+        warehouseSuggestionsSectionLogic
+    )
+    const { closeBulkDismiss, setDismissReason, setDismissNote, confirmBulkDismiss } = useActions(
+        warehouseSuggestionsSectionLogic
+    )
     const count = countOf(selectedSuggestions.length, 'suggestion', 'suggestions')
 
     return (
@@ -38,16 +35,25 @@ export function QuillBulkDismissSuggestionsDialog(): JSX.Element {
             <DialogContent className="max-w-lg" data-attr="warehouse-suggestions-bulk-dismiss-dialog">
                 <DialogHeader>
                     <DialogTitle>{`Dismiss ${count}?`}</DialogTitle>
+                    <DialogDescription>Unless you pick Not now, they won't be suggested again.</DialogDescription>
                 </DialogHeader>
                 <DialogBody>
-                    <QuillChoiceGroup<WarehouseSuggestionDismissalReasonEnumApi>
-                        legend="Why"
-                        idPrefix="bulk-dismiss-reason"
-                        value={dismissReason}
-                        onChange={setDismissReason}
-                        choices={REASON_CHOICES}
-                        disabled={false}
-                    />
+                    <FieldGroup>
+                        <QuillChoiceGroup<WarehouseSuggestionDismissalReasonEnumApi>
+                            legend={DISMISS_REASON_LEGEND}
+                            idPrefix="bulk-dismiss-reason"
+                            value={dismissReason}
+                            onChange={setDismissReason}
+                            choices={REASON_CHOICES}
+                            disabled={false}
+                        />
+                        <QuillDismissNoteField
+                            id="bulk-dismiss-note"
+                            value={dismissNote}
+                            onChange={setDismissNote}
+                            dataAttr="warehouse-suggestions-bulk-dismiss-note"
+                        />
+                    </FieldGroup>
                 </DialogBody>
                 <DialogFooter>
                     <Button variant="outline" onClick={closeBulkDismiss}>

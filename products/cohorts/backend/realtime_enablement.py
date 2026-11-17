@@ -226,7 +226,11 @@ def _clear_unmaintained_stamps(team_id: int) -> int:
 def _realtime_cohorts(team_id: int) -> list[Cohort]:
     return list(
         Cohort.objects.filter(
-            team_id=team_id, cohort_type=CohortType.REALTIME, is_static=False, deleted=False
+            team_id=team_id,
+            cohort_type=CohortType.REALTIME,
+            realtime_enabled_at__isnull=False,
+            is_static=False,
+            deleted=False,
         ).order_by("id")
     )
 
