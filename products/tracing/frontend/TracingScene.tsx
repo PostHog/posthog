@@ -133,7 +133,6 @@ function TracingSceneContents(): JSX.Element {
         showHeatmap,
         displayMode,
         compareActive,
-        sceneTabsEnabled,
         availableSceneTabs,
         activeSceneTab,
     } = useValues(tracingSceneLogic())
@@ -278,14 +277,12 @@ function TracingSceneContents(): JSX.Element {
                     )
                 }
             />
-            {sceneTabsEnabled && (
-                <LemonTabs<TracingSceneTab>
-                    activeKey={activeSceneTab}
-                    onChange={selectSceneTab}
-                    tabs={availableSceneTabs.map((key) => ({ key, label: SCENE_TAB_LABELS[key] }))}
-                    sceneInset
-                />
-            )}
+            <LemonTabs<TracingSceneTab>
+                activeKey={activeSceneTab}
+                onChange={selectSceneTab}
+                tabs={availableSceneTabs.map((key) => ({ key, label: SCENE_TAB_LABELS[key] }))}
+                sceneInset
+            />
             <div className={cn('flex flex-col gap-y-4 flex-1 min-h-0', activeSceneTab !== 'viewer' && 'hidden')}>
                 <TracingFilterBar />
                 <SceneDivider />
