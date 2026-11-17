@@ -435,16 +435,11 @@ async fn test_secret_api_token_authentication_invalid_token() {
     assert_eq!(body["attr"], Value::Null);
 }
 
-/// A phs_ token authenticates only through a PSAK row with the same string (#66179):
-/// for migrated legacy tokens the backfilled mirror row — deleting it kills the token.
-#[rstest::rstest]
-#[case::with_mirror_row(true, 200)]
-#[case::without_mirror_row(false, 401)]
+/// A phs_ token authenticates only through a PSAK row with the same string (#66179), so a
+/// legacy token whose mirror row is gone — never backfilled, or leak-revoked — gets 401.
+/// `test_secret_api_token_authentication_valid_token` covers the matching-row 200.
 #[tokio::test]
-async fn test_legacy_token_only_matches_mirror_row(
-    #[case] mirror_row: bool,
-    #[case] expected_status: u16,
-) {
+async fn test_legacy_token_without_mirror_row_is_rejected() {
     use feature_flags::{config::Config, utils::test_utils::TestContext};
     use reqwest;
 
@@ -455,12 +450,10 @@ async fn test_legacy_token_only_matches_mirror_row(
         .create_team_with_secret_token(None, None, None)
         .await
         .unwrap();
-    if !mirror_row {
-        context
-            .delete_project_secret_api_keys_for_token(team.id, &secret_token)
-            .await
-            .unwrap();
-    }
+    context
+        .delete_project_secret_api_keys_for_token(team.id, &secret_token)
+        .await
+        .unwrap();
     context.populate_cache_for_team(team.id).await.unwrap();
 
     let server = common::ServerHandle::for_config(config.clone()).await;
@@ -478,7 +471,7 @@ async fn test_legacy_token_only_matches_mirror_row(
 
     let status = response.status();
     let body_text = response.text().await.unwrap();
-    assert_eq!(status, expected_status, "Response body: {body_text}");
+    assert_eq!(status, 401, "Response body: {body_text}");
 }
 
 /// Token param absent with a valid team-scoped secret — team is derived from the token.

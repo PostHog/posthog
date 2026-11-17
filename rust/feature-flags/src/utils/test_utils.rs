@@ -1887,8 +1887,9 @@ impl TestContext {
         Ok((key_id, raw_key))
     }
 
-    /// Creates a team with both public token and secret API token
-    /// Optionally accepts a backup secret token
+    /// Creates a team with a public token, a secret token and an optional backup, plus the
+    /// PSAK mirror row for each secret, as the #63111 backfill does. Don't insert another
+    /// PSAK with the same raw token: `secure_value` is unique.
     pub async fn create_team_with_secret_token(
         &self,
         public_token: Option<&str>,
@@ -1992,7 +1993,7 @@ impl TestContext {
         if let Some(ref backup) = backup_secret_token {
             self.create_project_secret_api_key_with_value(
                 team.id,
-                "Migrated legacy secret API key backup",
+                "Migrated legacy key (backup)",
                 Some(vec!["feature_flag:read", "support_ticket:read"]),
                 backup,
             )
