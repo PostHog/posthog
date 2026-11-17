@@ -57,6 +57,9 @@ from products.ai_observability.backend.logic.evaluations.judge_prompts import (
 )
 from products.ai_observability.backend.logic.message_utils import format_tool_definitions
 
+from common.hogvm.python.stl import STL
+from common.hogvm.python.stl.bytecode import BYTECODE_STL
+
 from . import call_review
 from .call_review import Rendering, ReviewCard, Verdict
 from .call_review_queries import ReviewCallRow
@@ -451,12 +454,21 @@ _CODE_CHECK_FUNCTIONS = frozenset(
 )
 
 
+_HOG_FUNCTIONS = frozenset(STL) | frozenset(BYTECODE_STL)
+
+
 class _OutsideCodeCheckSet(TraversingVisitor):
     found = False
 
     def visit_call(self, node: ast.Call) -> None:
         self.found = self.found or node.name not in _CODE_CHECK_FUNCTIONS
         super().visit_call(node)
+
+    def visit_field(self, node: ast.Field) -> None:
+        # A function read as a value could be called under an allowed name, as in `let match := replaceAll`.
+        name = node.chain[0]
+        self.found = self.found or (name in _HOG_FUNCTIONS and name not in _CODE_CHECK_FUNCTIONS)
+        super().visit_field(node)
 
     def visit_expr_call(self, node: ast.ExprCall) -> None:
         self.found = True
