@@ -92,7 +92,7 @@ describe('AuditExporter', () => {
     it('exports each row once, in batches, and never again', async () => {
         await seed(5)
         const { sent, send } = recorder()
-        const exporter = new AuditExporter(pool, send, 2)
+        const exporter = new AuditExporter(pool, send, 2, 'test')
 
         expect(await exporter.tick()).toBe('exported')
         expect(sent.map((batch) => batch.length)).toEqual([2, 2, 1])
@@ -107,7 +107,7 @@ describe('AuditExporter', () => {
         await seed(3)
         const { sent, send } = recorder()
 
-        expect(await new AuditExporter(runtimePool, send, 10).tick()).toBe('exported')
+        expect(await new AuditExporter(runtimePool, send, 10, 'test').tick()).toBe('exported')
         expect(await exportedCount()).toBe(3)
         expect(sent.flat()).toHaveLength(3)
 
@@ -128,22 +128,23 @@ describe('AuditExporter', () => {
         )
         const { sent, send } = recorder()
 
-        expect(await new AuditExporter(pool, send, 10).tick()).toBe('exported')
+        expect(await new AuditExporter(pool, send, 10, 'test').tick()).toBe('exported')
         expect(sent.flat()).toHaveLength(5)
         expect(await exportedCount()).toBe(5)
-        expect(await new AuditExporter(pool, send, 10).tick()).toBe('idle')
+        expect(await new AuditExporter(pool, send, 10, 'test').tick()).toBe('idle')
     })
 
     it('sends the documented event shape', async () => {
         await seed(1, 'resolve')
         const { sent, send } = recorder()
-        await new AuditExporter(pool, send, 10).tick()
+        await new AuditExporter(pool, send, 10, 'test').tick()
 
         const [event] = sent[0]!
         expect(event).toMatchObject({ event: AUDIT_EVENT, distinct_id: AUDIT_DISTINCT_ID })
         expect(event!.uuid).toMatch(/^[0-9a-f-]{36}$/)
         expect(event!.properties).toEqual({
             $process_person_profile: false,
+            environment: 'test',
             deployment: 'cdp-api',
             caller: 'tests',
             user_id: 7,
@@ -172,7 +173,8 @@ describe('AuditExporter', () => {
                 }
                 sent.push(events)
             },
-            10
+            10,
+            'test'
         )
 
         expect(await exporter.tick()).toBe('failed')
@@ -192,7 +194,7 @@ describe('AuditExporter', () => {
         try {
             await holder.query('SELECT pg_advisory_lock($1)', [EXPORT_LOCK_KEY])
             const { sent, send } = recorder()
-            expect(await new AuditExporter(pool, send, 10).tick()).toBe('not_leader')
+            expect(await new AuditExporter(pool, send, 10, 'test').tick()).toBe('not_leader')
             expect(sent).toHaveLength(0)
             expect(await exportedCount()).toBe(0)
         } finally {
@@ -200,7 +202,7 @@ describe('AuditExporter', () => {
             holder.release()
         }
         const { sent, send } = recorder()
-        expect(await new AuditExporter(pool, send, 10).tick()).toBe('exported')
+        expect(await new AuditExporter(pool, send, 10, 'test').tick()).toBe('exported')
         expect(sent.flat()).toHaveLength(2)
     })
 
@@ -208,8 +210,8 @@ describe('AuditExporter', () => {
         await seed(6)
         const { sent, send } = recorder()
         const results = await Promise.all([
-            new AuditExporter(pool, send, 2).tick(),
-            new AuditExporter(pool, send, 2).tick(),
+            new AuditExporter(pool, send, 2, 'test').tick(),
+            new AuditExporter(pool, send, 2, 'test').tick(),
         ])
         expect(results).toContain('exported')
         const uuids = sent.flat().map((event) => event.uuid)
@@ -226,13 +228,14 @@ describe('AuditExporter', () => {
             async () => {
                 throw new Error('down')
             },
-            10
+            10,
+            'test'
         )
         await failing.tick()
         expect(await metricValue('credentials_service_audit_export_lag_seconds')).toBeGreaterThanOrEqual(119)
 
-        await new AuditExporter(pool, send, 10).tick()
-        await new AuditExporter(pool, send, 10).tick()
+        await new AuditExporter(pool, send, 10, 'test').tick()
+        await new AuditExporter(pool, send, 10, 'test').tick()
         expect(await metricValue('credentials_service_audit_export_lag_seconds')).toBe(0)
     })
 
@@ -253,7 +256,7 @@ describe('AuditExporter', () => {
             },
             fakeFetch
         )
-        await new AuditExporter(pool, send, 10).tick()
+        await new AuditExporter(pool, send, 10, 'test').tick()
 
         expect(bodies).toHaveLength(1)
         expect(bodies[0]).not.toContain(FAKE_SECRET)
@@ -274,7 +277,7 @@ describe('AuditExporter', () => {
             },
             fakeFetch
         )
-        expect(await new AuditExporter(pool, send, 10).tick()).toBe('failed')
+        expect(await new AuditExporter(pool, send, 10, 'test').tick()).toBe('failed')
         expect(await exportedCount()).toBe(0)
     })
 })
