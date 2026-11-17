@@ -874,6 +874,7 @@ CREDENTIAL_AUTH_TYPES: Mapping[str, str] = {
     "new-york-times": "token",
     "news-api": "token",
     "news-data": "token",
+    "newsbreak": "token",
     "nexhealth": "credentials",
     "nexiopay": "credentials",
     "nextdoor-ads": "credentials",

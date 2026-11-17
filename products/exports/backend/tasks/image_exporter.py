@@ -26,6 +26,7 @@ from posthog.schema import ChartDisplayType, FunnelLayout, NodeKind
 from posthog.hogql.errors import TableAccessDeniedError
 
 from posthog.api.services.query import process_query_dict
+from posthog.api.shared import ImageSizeSerializer
 from posthog.caching.calculate_results import calculate_for_query_based_insight
 from posthog.caching.insight_result import InsightResult
 from posthog.event_usage import AnalyticsProps, EventSource
@@ -47,6 +48,7 @@ from products.exports.backend.tasks.failure_handler import (
     classify_failure_type,
     is_reportable_export_failure,
 )
+from products.exports.backend.tasks.image_size import fit_image_to_size
 from products.exports.backend.url_security import is_heatmap_url_allowed
 from products.product_analytics.backend.facade.api import insight_variables_for_team, map_stale_to_latest
 
@@ -355,7 +357,7 @@ def _export_to_png(
 
         access_token = get_render_access_token(exported_asset, timedelta(minutes=15))
 
-        screenshot_width: ScreenWidth
+        screenshot_width: int
         wait_for_css_selector: CSSSelector
         screenshot_height: int = 600
         page_load_timeout: int = 40
@@ -434,6 +436,12 @@ def _export_to_png(
                 reportable=True,
             )
 
+        size = ImageSizeSerializer(data=(exported_asset.export_context or {}).get("image_size", {}))
+        size.is_valid(raise_exception=True)
+        image_size = size.validated_data
+        screenshot_width = image_size.get("width") or screenshot_width
+        screenshot_height = image_size.get("height") or screenshot_height
+
         logger.info("exporting_asset", asset_id=exported_asset.id, render_url=url_to_render)
 
         render_start = time.perf_counter()
@@ -448,7 +456,10 @@ def _export_to_png(
                 max_height_pixels,
                 page_load_timeout,
                 read_site_style,
+                fixed_width=image_size.get("width"),
+                device_scale_factor=1 if any(image_size.values()) else 2,
             )
+            fit_image_to_size(image_path, image_size.get("width"), image_size.get("height"))
         except Exception as e:
             IMAGE_EXPORT_RENDER_DURATION.labels(backend="browserless", outcome="failure").observe(
                 time.perf_counter() - render_start
@@ -563,12 +574,14 @@ def _save_debug_screenshot(take_screenshot: Callable[[str], object], image_path:
 def _screenshot_asset_browserless(
     image_path: str,
     url_to_render: str,
-    screenshot_width: ScreenWidth,
+    screenshot_width: int,
     wait_for_css_selector: CSSSelector,
     screenshot_height: int = 600,
     max_height_pixels: Optional[int] = None,
     page_load_timeout: int = 40,
     read_site_style: bool = False,
+    fixed_width: int | None = None,
+    device_scale_factor: int = 2,
 ) -> Optional[dict]:
     endpoint = _build_cdp_endpoint(
         settings.BROWSERLESS_CDP_URL, settings.BROWSERLESS_TOKEN, settings.BROWSERLESS_SESSION_TIMEOUT_MS
@@ -589,7 +602,7 @@ def _screenshot_asset_browserless(
         page = None
         try:
             context = browser.new_context(
-                device_scale_factor=2,
+                device_scale_factor=device_scale_factor,
                 viewport={"width": screenshot_width, "height": screenshot_height},
             )
             page = context.new_page()
@@ -624,8 +637,11 @@ def _screenshot_asset_browserless(
             height = _cap_height(
                 int(page.evaluate(f"() => {{ {MEASURE_CONTENT_HEIGHT_JS} }}")), effective_max, url_to_render
             )
-            width = _resolve_width(
-                page.evaluate(f"() => {{ {MEASURE_CONTENT_WIDTH_JS} }}"), screenshot_width, url_to_render
+            width = max(
+                fixed_width or 0,
+                _resolve_width(
+                    page.evaluate(f"() => {{ {MEASURE_CONTENT_WIDTH_JS} }}"), screenshot_width, url_to_render
+                ),
             )
 
             page.set_viewport_size({"width": width, "height": height})

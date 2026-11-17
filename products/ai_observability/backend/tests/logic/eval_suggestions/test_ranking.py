@@ -12,10 +12,10 @@ from posthog.hogql.compiler.bytecode import create_bytecode
 from posthog.hogql.property import property_to_expr
 
 from products.ai_observability.backend.llm import DEFAULT_MODEL_BY_PROVIDER
-from products.ai_observability.backend.logic.eval_suggestions import adapters, prices, ranking
+from products.ai_observability.backend.logic.eval_suggestions import adapters, cards, prices, ranking
 from products.ai_observability.backend.logic.eval_suggestions.call_review import ReviewCard, ReviewExample
 from products.ai_observability.backend.logic.eval_suggestions.call_review_queries import CallTypeRow, SnippetMatches
-from products.ai_observability.backend.logic.eval_suggestions.judge_calibration import Calibration
+from products.ai_observability.backend.logic.eval_suggestions.judge_calibration import Calibration, CodeCheck
 from products.ai_observability.backend.logic.eval_suggestions.measure import (
     Measurement,
     Outcome,
@@ -587,3 +587,61 @@ def test_a_reviewed_card_keeps_its_dedupe_key_when_a_later_review_rewords_it(
     )
 
     assert (ranking.review_dedupe_key(first) == ranking.review_dedupe_key(later)) is same_key
+
+
+def test_a_reviewed_code_check_keeps_the_judge_card_identity_and_runs_free() -> None:
+    card = _review_card([_call_type("prompt_name", "support-reply")])
+    calibration = Calibration(
+        review_fails=4,
+        caught=4,
+        review_passes=16,
+        judged_passes=16,
+        false_alarms=0,
+        unjudged=0,
+        na_on_fails=0,
+        na_on_passes=0,
+    )
+    code = CodeCheck(source="return true", calibration=calibration, failed=5, of=25, errors=0)
+
+    proposal = ranking.review_code_proposal(card, PROFILE, snippets={}, code=code)
+    judge = ranking.review_proposal(card, PROFILE, snippets={}, judge_model="gpt-5-mini", calibration=calibration)
+
+    assert proposal is not None and judge is not None
+    assert (proposal.kind, proposal.template_key, proposal.dedupe_key, proposal.filters) == (
+        "new_hog",
+        judge.template_key,
+        judge.dedupe_key,
+        judge.filters,
+    )
+    assert {k: proposal.draft[k] for k in ("evaluation_type", "evaluation_config", "target", "output_type")} == {
+        "evaluation_type": "hog",
+        "evaluation_config": {"source": "return true"},
+        "target": "generation",
+        "output_type": "boolean",
+    }
+    assert (proposal.measured_failure_rate, proposal.sample_size, proposal.rollout_percentage) == (0.2, 25, 100.0)
+    assert (proposal.estimated_weekly_cost_usd, proposal.judge_model) == (None, "")
+    assert proposal.outcome.endswith(cards.FREE)
+
+
+@parameterized.expand(
+    [
+        ("most_calls_break_the_rule", 21, 30, True, {"support-reply"}),
+        ("a_minority_breaks_it", 20, 30, False, {"support-reply"}),
+        ("too_few_calls_to_tell", 4, 4, False, {"support-reply"}),
+        # The prompt name comes from the events, and the team no longer manages a prompt by that name.
+        ("prompt_no_longer_managed", 21, 30, True, set()),
+    ]
+)
+def test_a_card_whose_rule_most_calls_break_asks_for_a_prompt_fix(
+    _name: str, failed: int, of: int, prompt_bug: bool, managed: set[str]
+) -> None:
+    card = replace(_review_card([_call_type("prompt_name", "support-reply")]), failed=failed, of=of)
+
+    assert ranking.is_prompt_bug(card) is prompt_bug
+    proposal = ranking.prompt_fix_proposal(card, managed)
+    assert (proposal.kind, proposal.dedupe_key, proposal.draft.get("prompt_name")) == (
+        "fix_prompt",
+        ranking.review_dedupe_key(card),
+        "support-reply" if managed else None,
+    )

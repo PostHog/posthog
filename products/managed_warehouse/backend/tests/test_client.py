@@ -101,6 +101,41 @@ class TestDuckLakeModelRedirect:
         assert "s3(" not in compiled.sql.lower()
         assert f"shadow_{team.pk}_models" in compiled.sql
 
+    def test_long_model_name_resolves_to_the_table_the_materialization_writes(self):
+        from posthog.models import Organization, Team
+
+        from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
+        from products.managed_warehouse.backend.common import duckgres_data_modeling_table_name
+        from products.warehouse_sources.backend.facade.models import DataWarehouseCredential, DataWarehouseTable
+
+        org = Organization.objects.create(name="ducklake-long-model")
+        team = Team.objects.create(organization=org)
+        credential = DataWarehouseCredential.objects.create(team=team, access_key="key", access_secret="secret")
+        source_table = DataWarehouseTable.objects.create(
+            name="vitally_source",
+            team=team,
+            columns={"org_id": "String"},
+            credential=credential,
+            url_pattern="https://bucket.s3.amazonaws.com/vitally/*.parquet",
+            format="Parquet",
+        )
+        model_name = "customer_subscription_revenue_by_region_plan_tier_and_cohort_week_daily_rollup"
+        saved_query = DataWarehouseSavedQuery.objects.create(
+            team=team,
+            name=model_name,
+            query={"query": "SELECT org_id FROM vitally_source"},
+            columns={"org_id": {"clickhouse": "String", "hogql": "StringDatabaseField"}},
+            table=source_table,
+            is_materialized=True,
+            status=DataWarehouseSavedQuery.Status.COMPLETED,
+        )
+
+        compiled = compile_hogql_to_ducklake_sql(team.pk, HogQLQuery(query=f"SELECT org_id FROM {model_name}"))
+
+        written_table = duckgres_data_modeling_table_name(saved_query.normalized_name)
+        assert len(written_table) <= 63
+        assert f"shadow_{team.pk}_models.{written_table} " in compiled.sql
+
     def test_source_table_resolves_to_ducklake_table_not_s3(self):
         from posthog.models import Organization, Team
 

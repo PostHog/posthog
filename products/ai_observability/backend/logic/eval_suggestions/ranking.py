@@ -9,7 +9,7 @@ import re
 import math
 import hashlib
 from collections import Counter
-from collections.abc import Mapping, Sequence
+from collections.abc import Collection, Mapping, Sequence
 from dataclasses import asdict
 from typing import Any
 
@@ -28,7 +28,7 @@ from .adapters import AdaptedCheck
 from .call_review import REVIEW_TEMPLATE_KEY, ReviewCard
 from .call_review_queries import CALL_TYPE_INPUT_CHARS, CallTypeRow, SnippetMatches
 from .coverage import EvalFix, fix_dedupe_key
-from .judge_calibration import Calibration
+from .judge_calibration import Calibration, CodeCheck
 from .measure import Measurement, Outcome, SampledTrace, TraceSample
 from .prices import MODEL_PRICES
 from .profile import StructuredGap, TeamProfile, normalize_segment_value
@@ -68,6 +68,10 @@ FIX_SEVERITY = 1.0
 # A reviewed card names a failure the review model saw several times against a rule in the team's own prompt, which
 # makes it worth more than a judge picked from the catalog.
 REVIEW_SEVERITY = 1.0
+# A call type that breaks a rule this often has a prompt that does not get the rule across. An evaluation of it would
+# fail nearly every call, which tells the team nothing they cannot see in the examples.
+PROMPT_BUG_FAIL_SHARE = 0.7
+MIN_PROMPT_BUG_FAILURES = 5
 # The property that names each kind of call type on a live generation. A call type named by its input has none.
 CALL_TYPE_PROPERTIES = {"prompt_name": "$ai_prompt_name", "span_name": "$ai_span_name"}
 # Plain text that a generation's input holds as is and that the condition matcher's string of the input keeps. The
@@ -624,6 +628,92 @@ def review_proposal(
         estimated_weekly_cost_usd=cost.weekly_cost_usd,
         mean_input_tokens=round(profile.mean_input_tokens) if profile.mean_input_tokens else None,
         judge_model=judge_model,
+    )
+
+
+def review_code_proposal(
+    card: ReviewCard, profile: TeamProfile, *, snippets: Mapping[str, str], code: CodeCheck
+) -> Proposal | None:
+    """The card as a free Hog check on the generations of its call types, with the code's own rate, or None when no
+    filter selects those generations. It keeps the judge card's filters and dedupe key, so the check stays one card
+    whichever kind a run gives it."""
+    filters = call_type_filters(card.call_types, snippets)
+    if filters is None:
+        return None
+    weekly_units = 7 * sum(c.calls for c in card.call_types)
+    rollout = capped_rollout(weekly_units, WEEKLY_HOG_RUNS)
+    text = cards.review_text(card, cards.FREE)
+    return Proposal(
+        kind=EvalSuggestionKind.NEW_HOG,
+        template_key=REVIEW_TEMPLATE_KEY,
+        dedupe_key=review_dedupe_key(card),
+        headline=text.headline,
+        outcome=text.outcome,
+        reason=text.reason,
+        draft={
+            "name": card.title[: Evaluation._meta.get_field("name").max_length],
+            "description": card.checks,
+            "evaluation_type": "hog",
+            "evaluation_config": {"source": code.source},
+            "output_type": "boolean",
+            "output_config": {"allows_na": True},
+            "target": "generation",
+            # How the code matched the review's labels. Accepting the card leaves this out of the evaluation.
+            "calibration": asdict(code.calibration),
+        },
+        filters=filters,
+        rollout_percentage=rollout,
+        measured_failure_rate=code.failed / code.of,
+        sample_size=code.of,
+        evidence=[Evidence(trace_id=e.trace_id, reason=e.reason[:160]) for e in card.examples],
+        score=_score(
+            REVIEW_SEVERITY,
+            wilson_interval(code.failed, code.of).low * weekly_units,
+            judge=False,
+            similar=False,
+        ),
+        estimated_weekly_runs=round(weekly_units * rollout / 100),
+    )
+
+
+def is_prompt_bug(card: ReviewCard) -> bool:
+    """Whether the review saw the card's rule broken in most calls, by its own labels."""
+    return card.failed >= MIN_PROMPT_BUG_FAILURES and card.failed >= PROMPT_BUG_FAIL_SHARE * card.of
+
+
+def prompt_fix_proposal(card: ReviewCard, managed_prompts: Collection[str]) -> Proposal:
+    """A card that asks the team to fix the prompt of the card's call types, with the review's examples. It keeps the
+    review card's dedupe key, so the check stays one card whichever kind a run gives it. It names the prompt only
+    when the team manages one by that name, since the card links to it."""
+    text = cards.prompt_fix_text(card)
+    weekly_units = 7 * sum(c.calls for c in card.call_types)
+    prompts = [c.name for c in card.call_types if c.source == "prompt_name" and c.name in managed_prompts]
+    return Proposal(
+        kind=EvalSuggestionKind.FIX_PROMPT,
+        template_key=REVIEW_TEMPLATE_KEY,
+        dedupe_key=review_dedupe_key(card),
+        headline=text.headline,
+        outcome=text.outcome,
+        reason=text.reason,
+        # The earlier-card lookup reads a review card's name and description from its draft.
+        draft={
+            "name": card.title[: Evaluation._meta.get_field("name").max_length],
+            "description": card.checks,
+            # The card reports a rate over generations, as a judge on them would.
+            "target": "generation",
+            **({"prompt_name": prompts[0]} if len(prompts) == 1 else {}),
+        },
+        filters=[],
+        rollout_percentage=100.0,
+        measured_failure_rate=card.failed / card.of,
+        sample_size=card.of,
+        evidence=[Evidence(trace_id=e.trace_id, reason=e.reason[:160]) for e in card.examples],
+        score=_score(
+            REVIEW_SEVERITY,
+            wilson_interval(card.failed, card.of).low * weekly_units,
+            judge=False,
+            similar=False,
+        ),
     )
 
 

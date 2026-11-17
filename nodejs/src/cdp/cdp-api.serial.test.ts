@@ -19,6 +19,7 @@ import { version as uuidVersion } from 'uuid'
 import { keyedRunId } from '~/cdp/intake/run-intake'
 import { CyclotronInputType } from '~/cdp/schema/cyclotron'
 import { HogFlow } from '~/cdp/schema/hogflow'
+import { EncryptedFields } from '~/cdp/utils/encryption-utils'
 import { PosthogJwtAudience } from '~/cdp/utils/jwt-utils'
 import { ScopedServiceJwt } from '~/cdp/utils/scoped-service-jwt'
 import { setupExpressApp } from '~/common/api/router'
@@ -78,6 +79,7 @@ import {
     transactionalEmailRequestsTotal,
     transactionalEmailStageDurationMs,
 } from './services/hogflows/transactional-email'
+import { FINGERPRINT_PURPOSE } from './services/hogflows/transactional-sends'
 import { CyclotronJobQueuePostgresV2 } from './services/job-queue/job-queue-postgres-v2'
 import { SEND_NEEDS_FILES_FOR_MS } from './services/messaging/attachment-horizon'
 import {
@@ -2888,12 +2890,12 @@ describe('CDP API', () => {
                 })
             })
 
-            it('inserts a sensitive send without producing it, so its secret stays off Kafka', async () => {
+            it('inserts a sensitive send and produces its shadow copy like any other send', async () => {
                 const res = await sendAccepted(hogFlow.id, { ...body, send: { ...codeSend, sensitive: true } })
 
                 expect(res.status).toEqual(202)
                 expect(mockQueueInvocations).toHaveBeenCalledTimes(1)
-                expect(intakeMessages()).toEqual([])
+                expect(intakeMessages()).toHaveLength(1)
             })
 
             it('claims a run without a key on its own id, so the consumer replays the produced copy', async () => {
@@ -2929,6 +2931,7 @@ describe('CDP API', () => {
 
             afterEach(() => {
                 api['config'].CDP_INTAKE_KAFKA_ASYNC_TEAMS = ''
+                api['config'].CDP_SEAL_TRANSACTIONAL_EMAIL_STATE = false
             })
 
             it('answers on the broker ack and leaves the insert and its rows to the consumer', async () => {
@@ -3003,12 +3006,21 @@ describe('CDP API', () => {
                 expect(producedTo('cdp_intake_transactional_email')).toHaveLength(2)
             })
 
-            it('inserts a sensitive send synchronously, so its secret never reaches Kafka', async () => {
-                const res = await sendAccepted(hogFlow.id, { ...body, send: { ...codeSend, sensitive: true } })
+            it.each([
+                ['sealing is off', false, false, 1],
+                ['sealing is on and the send is keyed', true, true, 1],
+                ['sealing is on and the send has no key', true, false, 1],
+            ])('produces a sensitive send in async mode when %s', async (_name, sealing, keyed, produced) => {
+                api['config'].CDP_SEAL_TRANSACTIONAL_EMAIL_STATE = sealing
+
+                const res = await sendAccepted(hogFlow.id, {
+                    ...body,
+                    ...(keyed ? { idempotency_key: `key-${new UUIDT().toString()}` } : {}),
+                    send: { ...codeSend, sensitive: true },
+                })
 
                 expect(res.status).toEqual(202)
-                expect(mockQueueInvocations).toHaveBeenCalledTimes(1)
-                expect(producedTo('cdp_intake_')).toEqual([])
+                expect(producedTo('cdp_intake_transactional_email')).toHaveLength(produced)
             })
 
             it('produces a keyed send when its claim lookup does not answer in time', async () => {
@@ -3334,6 +3346,8 @@ describe('CDP API', () => {
                     (
                         await cyclotron.query('SELECT id FROM cyclotron_jobs WHERE function_id = $1', [hogFlow.id])
                     ).rows.map((row) => row.id)
+                const unkeyedFingerprint = (): string =>
+                    IdempotencyKeys.fingerprint([hogFlow.id, keyed.to, keyed.distinct_id, keyed.variables])
                 const claimFingerprint = async (id: string): Promise<string | undefined> =>
                     (await cyclotron.query('SELECT fingerprint FROM cyclotron_idempotency_keys WHERE id = $1', [id]))
                         .rows[0]?.fingerprint
@@ -3357,6 +3371,41 @@ describe('CDP API', () => {
                     expect(uuidVersion(sent.body.invocation_id)).toEqual(5)
                     expect(await jobsOfFlow()).toEqual([sent.body.invocation_id])
                     expect(await claimFingerprint(sent.body.invocation_id)).toEqual(expect.any(String))
+                    expect(await claimFingerprint(sent.body.invocation_id)).not.toEqual(unkeyedFingerprint())
+                })
+
+                it.each([
+                    ['a keyed signature', () => {}],
+                    [
+                        'a keyed signature under a key that has since rotated',
+                        () => {
+                            api['deps'].encryptedFields = new EncryptedFields(
+                                `11beef0011beef0011beef0011beef11,${hub.ENCRYPTION_SALT_KEYS}`
+                            )
+                        },
+                    ],
+                ])('replays a retry whose claim holds %s', async (_, rotateKeys) => {
+                    const encryptedFields = api['deps'].encryptedFields
+                    try {
+                        const sent = await sendKeyed()
+                        await forgetValkeyRecord(keyed.idempotency_key as string)
+                        await cyclotron.query('UPDATE cyclotron_idempotency_keys SET fingerprint = $2 WHERE id = $1', [
+                            sent.body.invocation_id,
+                            new EncryptedFields(hub.ENCRYPTION_SALT_KEYS).sign(
+                                FINGERPRINT_PURPOSE,
+                                unkeyedFingerprint()
+                            ),
+                        ])
+                        rotateKeys()
+
+                        const retry = await sendKeyed()
+
+                        expect(retry.status).toEqual(202)
+                        expect(retry.body).toEqual({ ...sent.body, replayed: true })
+                        expect(await jobsOfFlow()).toEqual([sent.body.invocation_id])
+                    } finally {
+                        api['deps'].encryptedFields = encryptedFields
+                    }
                 })
 
                 it.each([
