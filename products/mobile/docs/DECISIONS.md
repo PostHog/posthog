@@ -344,16 +344,20 @@ See [DATA.md](DATA.md) for the endpoint map and every adapter rule.
 - **The compact `error_tracking/query/` endpoints, not raw `query/`.** They are the agent and MCP surface: typed
   request serializers, small answers, impact, trend, releases and breakdowns already computed. Every read then needs
   only `error_tracking:read`, the scope the Errors gate checks, and none spends the Views query budget.
-- **Most users first, active only.** The list is `status: 'active'`, `orderBy: 'users'`, 15 rows per page, 24h by default
+- **Most users first by default, active only.** The list is `status: 'active'`, 15 rows per page, 24h by default
   with 7d one tap away. Load more follows the server's next offset. Resolved and suppressed issues stay on the web.
+- **Sort by users, sessions or occurrences.** The caption under the title opens a sheet, because the controls row is
+  full. The sort is the server's `orderBy` and is not saved between visits. Errors with no `$session_id` come last in
+  Most sessions and show "–".
 - **New, Spiking and Mine filter the list, one at a time.** New and Spiking narrow loaded pages on the device.
   A partial empty result offers Load more. Mine is a server filter (`assignee: { type: 'user', id }`).
 - **New is first seen inside the window. Spiking is the server's spike detection.** The badge reads
   `error_tracking/spike_events/`, the read the web's issue list uses, so the phone and the web call the same issues
   spiking. New wins over Spiking for the displayed badge, but an issue can match either filter.
   Spike reads cover each loaded page, and a failed read offers a retry in the Spiking filter.
-- **Counts on the list, charts on the issue.** The list requests `volumeResolution: 0` to reduce the initial response
-  and time-bucket work. The issue detail still requests its volume chart.
+- **Bars on every card.** The list requests the issue chart's buckets (`volumeResolution` 24 for 24h, 28 for 7d). The
+  server computes the list in one query either way. The bars are SVG (`SparkBars`), not Skia canvases.
+- **Compact counts, as on the web.** Three significant figures (1.23K). Screen reader labels keep the full counts.
 - **No Reopened badge.** Nothing the app can read says an issue came back after a resolve: the issue resource has no
   history field, and the activity log needs `activity_log:read`.
 - **Statuses and wording match the web.** `active`, `resolved`, `suppressed` with the labels of the web's

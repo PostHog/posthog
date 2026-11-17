@@ -1,5 +1,6 @@
 import type {
     ErrorTrackingIssueListItemApi,
+    ErrorTrackingIssueOrderByEnumApi,
     ErrorTrackingIssuesListQueryRequestApi,
     ErrorTrackingIssuesListResponseApi,
 } from '../../../error_tracking/frontend/generated/api.schemas'
@@ -115,6 +116,8 @@ export interface SpikeEventsResponseApi {
 }
 
 export type ErrorsWindow = '24h' | '7d'
+/** The list orders the server can sort by that the phone offers, most first. */
+export type IssueSort = Extract<ErrorTrackingIssueOrderByEnumApi, 'users' | 'sessions' | 'occurrences'>
 
 export const ISSUE_BUCKETS: Record<ErrorsWindow, number> = { '24h': 24, '7d': 28 }
 export const ISSUES_PAGE_SIZE = 15
@@ -126,21 +129,23 @@ export function windowDateRange(window: ErrorsWindow): { date_from: string } {
 
 export interface IssuesListInput {
     window: ErrorsWindow
+    sort: IssueSort
     assigneeUserId?: number
 }
 
 export function issuesListBody(
-    { window, assigneeUserId }: IssuesListInput,
+    { window, sort, assigneeUserId }: IssuesListInput,
     offset = 0
 ): ErrorTrackingIssuesListQueryRequestApi {
     return {
         dateRange: windowDateRange(window),
         status: 'active',
-        orderBy: 'users',
+        orderBy: sort,
         orderDirection: 'DESC',
         limit: ISSUES_PAGE_SIZE,
         offset,
-        volumeResolution: 0,
+        // The issue screen asks for the same buckets, so a card's bars and the issue's chart line up.
+        volumeResolution: ISSUE_BUCKETS[window],
         ...(assigneeUserId === undefined ? {} : { assignee: { type: 'user', id: assigneeUserId } }),
     }
 }
@@ -261,7 +266,7 @@ export const errorTrackingKeys = {
     all: (scope: ProjectScope | null) => ['error_tracking', ...scopeKey(scope)] as const,
     lists: (scope: ProjectScope | null) => [...errorTrackingKeys.all(scope), 'issues'] as const,
     list: (scope: ProjectScope | null, input: IssuesListInput) =>
-        [...errorTrackingKeys.lists(scope), input.window, input.assigneeUserId ?? null, 'pages'] as const,
+        [...errorTrackingKeys.lists(scope), input.window, input.sort, input.assigneeUserId ?? null, 'pages'] as const,
     spikes: (scope: ProjectScope | null, window: ErrorsWindow, issueIds: readonly string[]) =>
         [...errorTrackingKeys.all(scope), 'spikes', window, issueIds.join(',')] as const,
     issueAll: (scope: ProjectScope | null, issueId: string) =>

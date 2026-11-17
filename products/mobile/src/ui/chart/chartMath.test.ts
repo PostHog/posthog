@@ -1,6 +1,6 @@
 import { getCalendars } from 'expo-localization'
 
-import { barPageSize, barSegments, barWindow } from './barLayout'
+import { barPageSize, barSegments, barWindow, sparkBars } from './barLayout'
 import { barSpan, yPosition } from './chartGeometry'
 import {
     formatAxisDate,
@@ -57,6 +57,23 @@ describe('chartMath', () => {
             )[1]?.ends
         ).toEqual([5, -2, Number.NaN])
         expect(barSegments(series, 'grouped')[2]).toEqual({ starts: [0, 0, 0], ends: [5, -2, Number.NaN] })
+    })
+
+    test.each<[string, number[], number | null, [number, boolean][]]>([
+        ['one occurrence stays a short bar under the floor', [0, 1, 0], null, [[3, false]]],
+        ['empty buckets draw nothing', [0, 0, Number.NaN], null, []],
+        [
+            'bars scale from zero to the peak, keep a visible minimum and highlight from the index',
+            [5, 50, 100],
+            2,
+            [
+                [2, false],
+                [16, false],
+                [32, true],
+            ],
+        ],
+    ])('spark bars: %s', (_name, values, highlightFrom, expected) => {
+        expect(sparkBars(values, 32, highlightFrom).map((bar) => [bar.height, bar.highlighted])).toEqual(expected)
     })
 
     test.each<[string, number[], ChartKind, [number, number], number[]]>([

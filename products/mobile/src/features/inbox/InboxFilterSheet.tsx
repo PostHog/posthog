@@ -1,5 +1,5 @@
-import { Fragment, type ReactElement, useMemo } from 'react'
-import { ScrollView, StyleSheet, Text, View } from 'react-native'
+import { type ReactElement, useMemo } from 'react'
+import { ScrollView, Text, View } from 'react-native'
 import { Gesture, GestureDetector } from 'react-native-gesture-handler'
 import { FEATURE_FLAGS, useFeatureFlag } from '@/lib/featureFlags'
 import type { InboxItem } from '@/model/types'
@@ -7,6 +7,7 @@ import { BottomSheet } from '@/ui/BottomSheet'
 import { Eyebrow } from '@/ui/Eyebrow'
 import { FadeEdge } from '@/ui/FadeEdge'
 import { CheckIcon } from '@/ui/icons/CheckIcon'
+import { OptionCard } from '@/ui/OptionCard'
 import { Pressable44 } from '@/ui/Pressable44'
 import { SegmentedPill } from '@/ui/SegmentedPill'
 import { createStyles, useColors } from '@/ui/theme'
@@ -21,7 +22,6 @@ import {
     isDefaultInboxFilters,
     MODEL_SCORE_SORT_OPTION,
     SORT_OPTIONS,
-    type SortOption,
     type SourceFilterKey,
     sourceFilterOptionsFor,
 } from './filters'
@@ -94,18 +94,12 @@ export function InboxFilterSheet({
                             <View style={styles.sectionHead}>
                                 <Eyebrow>Sort by</Eyebrow>
                             </View>
-                            <View style={styles.card} accessibilityRole="radiogroup">
-                                {sortOptions.map((option, index) => (
-                                    <Fragment key={option.key}>
-                                        {index > 0 ? <View style={styles.divider} /> : null}
-                                        <SortRow
-                                            option={option}
-                                            selected={filters.sort === option.key}
-                                            onPress={() => onSortChange(option.key)}
-                                        />
-                                    </Fragment>
-                                ))}
-                            </View>
+                            <OptionCard
+                                options={sortOptions}
+                                selected={filters.sort}
+                                onSelect={onSortChange}
+                                testIDPrefix="inbox-sort"
+                            />
                         </View>
                         <View style={styles.section}>
                             <View style={styles.sectionHead}>
@@ -177,42 +171,7 @@ export function InboxFilterSheet({
     )
 }
 
-interface SortRowProps {
-    option: SortOption
-    selected: boolean
-    onPress: () => void
-}
-
-function SortRow({ option, selected, onPress }: SortRowProps): ReactElement {
-    const styles = useStyles()
-    const colors = useColors()
-    const { Icon } = option
-    return (
-        <Pressable44
-            onPress={onPress}
-            hitSlop={0}
-            accessibilityRole="radio"
-            accessibilityLabel={option.description ? `${option.label}, ${option.description}` : option.label}
-            accessibilityState={{ selected }}
-            pressedBackground={colors.pressed}
-            style={[styles.row, selected && styles.rowSelected]}
-            testID={`inbox-sort-${option.key}`}
-        >
-            <Icon size={iconSizes.control} color={colors.ink} />
-            <View style={styles.rowText}>
-                <Text style={styles.rowLabel}>{option.label}</Text>
-                {option.description ? <Text style={styles.rowDescription}>{option.description}</Text> : null}
-            </View>
-            {selected ? <CheckIcon size={iconSizes.control} /> : null}
-        </Pressable44>
-    )
-}
-
 const FADE_HEIGHT = space[24]
-const ROW_PADDING = space[16]
-const ROW_GAP = space[12]
-// Dividers start under the label, past the icon, like a grouped list.
-const ROW_TEXT_INSET = ROW_PADDING + iconSizes.control + ROW_GAP
 
 const useStyles = createStyles(({ colors }) => ({
     head: {
@@ -265,41 +224,6 @@ const useStyles = createStyles(({ colors }) => ({
         paddingHorizontal: 4,
     },
     hint: {
-        ...type.meta,
-        color: colors.tertiary,
-    },
-    card: {
-        backgroundColor: colors.surface,
-        borderWidth: 1,
-        borderColor: colors.hairline,
-        borderRadius: radii.softCard,
-        overflow: 'hidden',
-    },
-    divider: {
-        height: StyleSheet.hairlineWidth,
-        marginLeft: ROW_TEXT_INSET,
-        backgroundColor: colors.rowDivider,
-    },
-    row: {
-        minHeight: 56,
-        paddingVertical: space[8],
-        paddingHorizontal: ROW_PADDING,
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: ROW_GAP,
-    },
-    rowSelected: {
-        backgroundColor: colors.sunken,
-    },
-    rowText: {
-        flex: 1,
-        minWidth: 0,
-    },
-    rowLabel: {
-        ...type.body,
-        color: colors.ink,
-    },
-    rowDescription: {
         ...type.meta,
         color: colors.tertiary,
     },
