@@ -262,8 +262,8 @@ tools:
             create accounts yet, and to read the message PostHog staff left on its review. `provisioning_status` says
             whether the application can provision now, and `provisioning_review.status` says where its review stands.
             Only organization admins can call this. To ask PostHog about a review or to request verification of an
-            application, send the user to the OAuth applications page in organization settings, which opens support
-            with the details filled in.
+            application, send the user to the OAuth applications page in organization settings, which opens support with
+            the details filled in.
         response:
             include:
                 - id
