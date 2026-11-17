@@ -291,7 +291,11 @@ from products.signals.backend.scout_harness.tools.report_author import (
     user_report_limit_resets_at,
 )
 from products.signals.backend.scout_harness.trial_access import trial_state_errors, trial_store_for_request
-from products.signals.backend.scout_harness.views import emit_report_from_validated_data, emit_report_response_data
+from products.signals.backend.scout_harness.views import (
+    SAFETY_JUDGE_UNAVAILABLE_RESPONSE,
+    emit_report_from_validated_data,
+    emit_report_response_data,
+)
 from products.signals.backend.scout_report.trial_inbox import TrialInboxReads, private_report_artefacts
 from products.signals.backend.serializers import (
     AlertPatternPreviewOutcome,
@@ -3302,6 +3306,7 @@ class SignalReportViewSet(
                 )
             ),
             429: OpenApiResponse(description="The caller filed the daily maximum of reports for this project."),
+            503: SAFETY_JUDGE_UNAVAILABLE_RESPONSE,
         },
         summary="File an inbox report",
         description=(

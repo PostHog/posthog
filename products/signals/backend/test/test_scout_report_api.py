@@ -12,6 +12,8 @@ from django.db import OperationalError, transaction
 from django.test import SimpleTestCase
 from django.utils import timezone
 
+import httpx
+from anthropic import APITimeoutError
 from asgiref.sync import async_to_sync, sync_to_async
 from parameterized import parameterized
 from rest_framework import status
@@ -1632,6 +1634,29 @@ class TestScoutReportAPI(APIBaseTest):
         report = SignalReport.objects.get(id=created["report_id"])
         assert report.summary == self._payload()["summary"]
         assert report.suggested_prompts == []
+
+    @parameterized.expand([("emit",), ("edit",)])
+    def test_safety_judge_timeout_returns_retryable_503_and_writes_nothing(self, path) -> None:
+        run = _make_run(self.team)
+        with _safe_judge(), patch(EMBED_PATH):
+            created = self.client.post(self._emit_url(str(run.id)), data=self._payload(), format="json").json()
+        timeout = APITimeoutError(request=httpx.Request("POST", "https://llm.example.com/v1/messages"))
+        with patch(JUDGE_PATH, new=AsyncMock(side_effect=timeout)), patch(EMBED_PATH):
+            if path == "emit":
+                response = self.client.post(
+                    self._emit_url(str(run.id)), data=self._payload(title="A second report"), format="json"
+                )
+            else:
+                response = self.client.post(
+                    self._edit_url(str(run.id)),
+                    data={"report_id": created["report_id"], "summary": "A rewritten summary"},
+                    format="json",
+                )
+        assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
+        assert response.json()["code"] == "safety_judge_unavailable"
+        assert list(SignalReport.objects.filter(team=self.team).values_list("title", "summary")) == [
+            (self._payload()["title"], self._payload()["summary"])
+        ]
 
     def test_unsafe_metric_only_edit_is_rejected_and_writes_nothing(self) -> None:
         run = _make_run(self.team)

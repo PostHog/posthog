@@ -29,6 +29,8 @@ from typing import Literal
 
 from django.utils import timezone
 
+from anthropic import APIConnectionError
+
 from products.signals.backend.artefact_schemas import ActionabilityAssessment, ActionabilityChoice, SafetyJudgment
 from products.signals.backend.models import SignalReport
 from products.signals.backend.report_charts import ReportChart
@@ -71,16 +73,29 @@ def resolve_authored_report_status(*, safe: bool, actionability: ActionabilityCh
 SAFETY_REFUSAL_EXPLANATION = "The safety model refused to assess this content, so it is treated as unsafe."
 
 
+class SafetyJudgeUnavailableError(Exception):
+    """The safety model timed out or could not be reached, so there is no verdict and nothing may be written."""
+
+
 async def _judge_safety_fail_closed(
     team_id: int, signals: list[SignalData], *, path: Literal["emit", "edit"]
 ) -> SafetyJudgeResponse:
-    """Fail closed when the safety model refuses: a refusal gives no verdict, so the content counts as unsafe."""
+    """Fail closed when the safety model refuses: a refusal gives no verdict, so the content counts as unsafe.
+
+    A model that times out or cannot be reached also gives no verdict, but the content may be fine, so this
+    raises `SafetyJudgeUnavailableError` and the caller writes nothing."""
     try:
         return await judge_report_safety(team_id=team_id, signals=signals)
     except LLMRefusalError:
         logger.warning("signals_scout: safety model refused a report", extra={"team_id": team_id, "path": path})
         increment_scout_report_safety_refusal(path)
         return SafetyJudgeResponse(choice=False, explanation=SAFETY_REFUSAL_EXPLANATION)
+    except APIConnectionError as exc:
+        # `APITimeoutError` is a subclass, and covers the model call's own timeout.
+        logger.warning(
+            "signals_scout: safety model unavailable", extra={"team_id": team_id, "path": path}, exc_info=True
+        )
+        raise SafetyJudgeUnavailableError from exc
 
 
 def _report_content_signal(title: str, summary: str) -> SignalData:
