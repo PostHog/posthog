@@ -710,8 +710,7 @@ class _PlatformDestinations:
     recipients: tuple[str, ...]
     kind_by_event_id: dict[str, AlertEventKind]
     incident_event_ids: frozenset[str]
-    # The alert's HogFunction groups for each event id the delivery sends, read with the rows. Empty when
-    # the platform keeps the destinations.
+    # Read in the same snapshot as the rows. Empty when the platform keeps the destinations.
     groups_by_event_id: dict[str, tuple[AlertDestinationGroup, ...]]
 
 

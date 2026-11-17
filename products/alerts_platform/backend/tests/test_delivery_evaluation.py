@@ -1183,7 +1183,6 @@ class TestDeliveryPath(APIBaseTest):
 
 
 class TestDestinationMoveDuringDelivery(NonAtomicBaseTest):
-    # Committed transactions, so a move on a second connection lands between delivery's reads.
     def test_a_group_that_becomes_a_row_while_delivery_reads_is_sent_once(self) -> None:
         RecordingTransport.sends = []
         configuration = PlatformAlertConfiguration.objects.for_team(self.team.id).create(
