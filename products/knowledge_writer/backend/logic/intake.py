@@ -15,7 +15,13 @@ from ..feature_flags import is_agent_launch_enabled
 from ..settings import WriterSettings, writer_settings
 from .caps import OPEN_PULL_REQUEST_CAP, alert_cap_reached, daily_run_cap_reached, in_flight_writer_run_count
 from .launch import start_writer
-from .pull_requests import capture_writer_event, docs_github, open_writer_pull_requests, source_repository_github
+from .pull_requests import (
+    OpenPullRequestsUnavailable,
+    capture_writer_event,
+    docs_github,
+    open_writer_pull_requests,
+    source_repository_github,
+)
 from .routing import route_request
 from .server_commit import docs_branch_head
 
@@ -49,6 +55,10 @@ def submit(payload: object, *, team_id: int) -> IntakeOutcome:
     return outcome
 
 
+class WriterLaunchDeferred(Exception):
+    pass
+
+
 def intake_outcome(verdict: AdapterVerdict, *, team_id: int) -> IntakeOutcome:
     writer = writer_settings()
     if writer is None or writer.team_id != team_id:
@@ -72,7 +82,10 @@ def intake_outcome(verdict: AdapterVerdict, *, team_id: int) -> IntakeOutcome:
     base_sha = docs_base_sha(writer)
     if base_sha is None:
         return IntakeOutcome(status="unconfigured")
-    open_pull_requests = open_writer_pull_requests(writer)
+    try:
+        open_pull_requests = open_writer_pull_requests(writer)
+    except OpenPullRequestsUnavailable as error:
+        raise WriterLaunchDeferred("open writer pull requests could not be listed") from error
     if open_pull_requests is None:
         alert_cap_reached("open_pull_request_lookup", team_id=team_id, dedupe_id=request.dedupe_id)
         return IntakeOutcome(status="capped")

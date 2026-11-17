@@ -19,7 +19,7 @@ from posthog.models.integration import GitHubIntegrationError, Integration
 
 from products.knowledge_writer.backend.adapters.repo_merge import RepoMergeAdapter
 from products.knowledge_writer.backend.facade.contracts import MergeCheckReport
-from products.knowledge_writer.backend.facade.enums import DocsChangeKind, DocsRequestSource
+from products.knowledge_writer.backend.facade.enums import DocsChangeKind, DocsRequestSource, MergeCheckFailure
 from products.knowledge_writer.backend.feature_flags import AGENT_LAUNCH_FLAG, OPEN_PULL_REQUESTS_FLAG
 from products.knowledge_writer.backend.logic import caps, intake
 from products.knowledge_writer.backend.logic.grounding import GroundingReply, LineSupport
@@ -44,7 +44,7 @@ from products.knowledge_writer.backend.logic.writer_change import (
     WRITER_CHANGE_ARTIFACT_NAME,
 )
 from products.knowledge_writer.backend.task_profiles import WRITER
-from products.knowledge_writer.backend.temporal.merge_workflow import MergeCheckInputs
+from products.knowledge_writer.backend.temporal.merge_workflow import MergeCheckInputs, check_merge
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.models import Task, TaskRun
 
@@ -95,6 +95,7 @@ START_WORKFLOW = "products.tasks.backend.logic.services.workflow_dispatch.enqueu
 WRITER_APP_LOGIN = "posthog-app[bot]"
 CAPTURE_VERDICT = "products.knowledge_writer.backend.logic.intake.capture_verdict"
 KNOWLEDGE_WRITER_ENABLED = "products.knowledge_writer.backend.settings.is_writer_enabled"
+MERGE_WORKFLOW_MODULE = "products.knowledge_writer.backend.temporal.merge_workflow"
 START_PUBLISH = "products.knowledge_writer.backend.temporal.client.start_publish"
 CAPTURE_DRAFT = "products.knowledge_writer.backend.logic.pull_requests.ph_scoped_capture"
 GROUNDING_GATEWAY = "products.knowledge_writer.backend.logic.grounding.build_ai_gateway_anthropic_client"
@@ -152,6 +153,7 @@ class DocsGitHub:
         graphql_failing_paths: frozenset[str] = frozenset(),
         review_status_code: int = 201,
         review_interruptions: int = 0,
+        listing_status_code: int = 200,
     ) -> None:
         self.listed = [
             {
@@ -174,6 +176,7 @@ class DocsGitHub:
         self.review_status_code = review_status_code
         self.review_requests: list[dict] = []
         self.review_interruptions = review_interruptions
+        self.listing_status_code = listing_status_code
         self.trees: list[dict] = []
         self.commits: list[dict] = []
         self.commit_shas: list[str] = []
@@ -221,6 +224,8 @@ class DocsGitHub:
                 raise self.lookup_error
             is_published = any(f"/docs/published/docs/{page}." in path for page in self.published_page_paths)
             return MagicMock(status_code=200 if is_published else 404)
+        if self.listing_status_code != 200:
+            return MagicMock(status_code=self.listing_status_code)
         return _replied(self.listed)
 
     def graphql(self, body: dict) -> MagicMock:
@@ -331,16 +336,15 @@ def writer_env(team, user):
         yield
 
 
-def _verdict(
+def _needs_docs_report(
     pull_request_number: int = 123,
     suggested_page_urls: tuple[str, ...] = (),
     *,
     commit_sha: str = "a" * 40,
-    note: str = "Document the new retention option.",
     docs_content_root: str | None = None,
     author_login: str | None = None,
-):
-    report = MergeCheckReport(
+) -> MergeCheckReport:
+    return MergeCheckReport(
         commit_sha=commit_sha,
         commit_url=f"https://github.com/PostHog/posthog/commit/{commit_sha}",
         title="Add a retention option to session replay",
@@ -353,6 +357,24 @@ def _verdict(
         change_kind=DocsChangeKind.UPDATE,
         page_urls=suggested_page_urls,
         evidence=f"https://github.com/PostHog/posthog/pull/{pull_request_number}",
+        docs_content_root=docs_content_root,
+        author_login=author_login,
+    )
+
+
+def _verdict(
+    pull_request_number: int = 123,
+    suggested_page_urls: tuple[str, ...] = (),
+    *,
+    commit_sha: str = "a" * 40,
+    note: str = "Document the new retention option.",
+    docs_content_root: str | None = None,
+    author_login: str | None = None,
+):
+    report = _needs_docs_report(
+        pull_request_number,
+        suggested_page_urls,
+        commit_sha=commit_sha,
         docs_content_root=docs_content_root,
         author_login=author_login,
     )
@@ -998,6 +1020,7 @@ RECORDED_PULL_REQUEST = (PULL_REQUEST_STATE_KEY, {"number": 1})
         ),
         ("open_pull_request", DocsGitHub(), None, "capped"),
         ("open_pull_request", DocsGitHub(), (PULL_REQUEST_FAILURE_STATE_KEY, "publish_failed"), "started"),
+        ("open_pull_request_lookup", DocsGitHub(listing_status_code=404), None, "capped"),
     ],
 )
 def test_no_agent_starts_past_a_cap_and_the_cap_raises_an_alert(
@@ -1028,3 +1051,40 @@ def test_no_agent_starts_past_a_cap_and_the_cap_raises_an_alert(
     assert start_workflow.called is (expected_status == "started")
     if expected_status == "capped":
         assert capture_alert.call_args.kwargs["additional_properties"]["cap"] == cap
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("failing_listing", ["open_pull_request_listing", "open_pull_request_listing_raises"])
+def test_a_transient_launch_lookup_failure_retries_on_the_same_report_and_records_a_failure_on_the_last_attempt(
+    team, writer_env, failing_listing
+) -> None:
+    healthy_github = DocsGitHub()
+
+    def failing_github(method: str, path: str, **kwargs: object) -> MagicMock:
+        if failing_listing == "open_pull_request_listing" and path.endswith("/pulls"):
+            return MagicMock(status_code=502)
+        if failing_listing == "open_pull_request_listing_raises" and path.endswith("/pulls"):
+            raise GitHubRateLimitError("rate limited")
+        return healthy_github(method, path, **kwargs)
+
+    inputs = MergeCheckInputs(
+        commit_sha="a" * 40, team_id=team.id, pull_request_number=123, check_id=f"merge-check-{failing_listing}"
+    )
+    exhausted_inputs = dataclasses.replace(inputs, check_id=f"{inputs.check_id}-exhausted")
+    with (
+        patch(FLAG_CHECK, return_value=True),
+        patch(f"{MERGE_WORKFLOW_MODULE}.docs_github", return_value=MagicMock()),
+        patch(f"{MERGE_WORKFLOW_MODULE}.judge_client", return_value=MagicMock()),
+        patch(f"{MERGE_WORKFLOW_MODULE}.run_merge_check", return_value=_needs_docs_report()) as run_merge_check,
+        patch(START_WORKFLOW) as start_workflow,
+    ):
+        with patch(GITHUB_REQUEST, side_effect=failing_github):
+            exhausted = check_merge(exhausted_inputs, is_final_attempt=True)
+        with patch(GITHUB_REQUEST, side_effect=failing_github), pytest.raises(intake.WriterLaunchDeferred):
+            check_merge(inputs, is_final_attempt=False)
+        with patch(GITHUB_REQUEST, side_effect=healthy_github):
+            retried = check_merge(inputs, is_final_attempt=True)
+
+    assert exhausted.failure_reason == MergeCheckFailure.RETRIES_EXHAUSTED
+    assert (retried.status, run_merge_check.call_count) == ("started", 2)
+    start_workflow.assert_called_once()

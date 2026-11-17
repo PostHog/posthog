@@ -25,7 +25,13 @@ from ...facade.enums import DocsChangeKind
 from ...feature_flags import AGENT_LAUNCH_FLAG, OPEN_PULL_REQUESTS_FLAG, is_team_flag_enabled
 from ...logic import intake
 from ...logic.launch import start_writer
-from ...logic.pull_requests import LINK_BACK_START, docs_github, open_writer_pull_requests, source_repository_github
+from ...logic.pull_requests import (
+    LINK_BACK_START,
+    OpenPullRequestsUnavailable,
+    docs_github,
+    open_writer_pull_requests,
+    source_repository_github,
+)
 from ...logic.records import (
     HEAD_BRANCH_STATE_KEY,
     PULL_REQUEST_FAILURE_STATE_KEY,
@@ -230,7 +236,10 @@ def run_agent_request(
     source = merged_source(github, source_url, writer.user_id)
     async_to_sync(initialize_self_capture_api_token)()
     deadline = time.monotonic() + timeout_minutes * 60
-    outcome = intake.submit(smoke_verdict(section, source, smoke_id), team_id=team.id)
+    try:
+        outcome = intake.submit(smoke_verdict(section, source, smoke_id), team_id=team.id)
+    except intake.WriterLaunchDeferred as error:
+        raise CommandError("open writer pull requests could not be listed, retry") from error
     if outcome.status == "shadow":
         raise CommandError(
             f"Intake ran in shadow mode: turn the {AGENT_LAUNCH_FLAG} flag on at 100% for team {team.id}"
@@ -302,7 +311,7 @@ def close_smoke_pull_requests(
 ) -> list[str]:
     try:
         open_pull_requests = open_writer_pull_requests(writer)
-    except GITHUB_FAILURES as error:
+    except OpenPullRequestsUnavailable as error:
         return [f"could not list pull requests to close on {repository}: {error}"]
     if open_pull_requests is None:
         return [f"could not list pull requests to close on {repository}"]

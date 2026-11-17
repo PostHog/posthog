@@ -1,21 +1,22 @@
 from dataclasses import dataclass, replace
 from datetime import timedelta
 
+from django.core.cache import cache
 from django.db import DatabaseError
 
 import httpx
-import requests
 import structlog
 from anthropic import APIError
+from django_redis.exceptions import ConnectionInterrupted
+from pydantic import TypeAdapter, ValidationError
+from redis.exceptions import RedisError
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 from temporalio.exceptions import ActivityError
 
-from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubRateLimitError
 from posthog.egress.limiter.policies import Priority
 from posthog.exceptions_capture import capture_exception
 from posthog.github.installations import installation_integrations
-from posthog.models.integration import GitHubIntegrationError
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.utils import close_db_connections
@@ -36,7 +37,7 @@ from ..facade.contracts import AdapterVerdict, MergeCheckReport
 from ..facade.enums import DocsRequestSource, MergeCheckFailure
 from ..facade.finished_check_hooks import FinishedDocsCheck, get_finished_docs_check_hooks
 from ..logic import intake
-from ..logic.pull_requests import docs_github, github_app_login
+from ..logic.pull_requests import GITHUB_READ_ERRORS, docs_github, github_app_login
 from ..settings import docs_source, writer_settings
 
 logger = structlog.get_logger(__name__)
@@ -49,12 +50,7 @@ MERGE_CHECK_ATTEMPTS = 3
 MERGE_CHECK_RETRY_INTERVAL = timedelta(minutes=1)
 ADD_DOCS_CHECK_WAITER_SIGNAL = "add_docs_check_waiter"
 DOCS_CHECK_WAITERS_PER_TELL = 50
-GITHUB_READ_ERRORS = (
-    requests.RequestException,
-    GitHubIntegrationError,
-    GitHubRateLimitError,
-    GitHubEgressBudgetExhausted,
-)
+DEFERRED_REPORT_TTL = timedelta(minutes=30)
 MERGE_CHECK_RETRYABLE_ERRORS = (
     *GITHUB_READ_ERRORS,
     httpx.HTTPError,
@@ -63,6 +59,7 @@ MERGE_CHECK_RETRYABLE_ERRORS = (
     CheckDeadlineExceeded,
 )
 SITEMAP_TIMEOUT_SECONDS = 30
+merge_check_report_json = TypeAdapter(MergeCheckReport)
 
 
 LEGACY_MERGE_CHECK_REPOSITORY = "PostHog/posthog"  # inputs started before pushes named the repository
@@ -185,7 +182,8 @@ def check_merge(inputs: MergeCheckInputs, *, is_final_attempt: bool) -> Finished
         report = (
             None
             if change is None
-            else judged_report(change, deadline_github, deadline, is_final_attempt=is_final_attempt)
+            else deferred_report(inputs)
+            or judged_report(change, deadline_github, deadline, is_final_attempt=is_final_attempt)
         )
     except MERGE_CHECK_RETRYABLE_ERRORS as error:
         if not is_final_attempt:
@@ -197,7 +195,15 @@ def check_merge(inputs: MergeCheckInputs, *, is_final_attempt: bool) -> Finished
         return record_merge_check_failed(inputs, MergeCheckFailure.PULL_REQUEST_NOT_MERGED)
     if report is None:
         return record_merge_check_failed(inputs, MergeCheckFailure.JUDGE_CLIENT_UNAVAILABLE)
-    return submit_verdict(inputs, RepoMergeAdapter().assess(report, inputs))
+    try:
+        return submit_verdict(inputs, RepoMergeAdapter().assess(report, inputs))
+    except intake.WriterLaunchDeferred as error:
+        if not is_final_attempt:
+            defer_report(inputs, report)
+            refund(merge_check_budget_key(inputs.team_id), MERGE_CHECK_BUDGET)
+            raise
+        capture_exception(error, {"commit_sha": inputs.commit_sha})
+        return record_merge_check_failed(inputs, MergeCheckFailure.RETRIES_EXHAUSTED)
 
 
 def landed_change_for(inputs: MergeCheckInputs, pull_request_number: int, github: GitHubReader) -> LandedChange | None:
@@ -206,6 +212,34 @@ def landed_change_for(inputs: MergeCheckInputs, pull_request_number: int, github
             repository=inputs.repository, after=inputs.commit_sha, pull_request_number=pull_request_number
         )
     return landed_change(inputs.repository, read_pull_request(github, inputs.repository, pull_request_number))
+
+
+def deferred_report_key(check_id: str) -> str:
+    return f"knowledge_writer:merge_check_deferred_report:v1:{check_id}"
+
+
+def deferred_report(inputs: MergeCheckInputs) -> MergeCheckReport | None:
+    if inputs.check_id is None:
+        return None
+    try:
+        stored_report = cache.get(deferred_report_key(inputs.check_id))
+        return None if stored_report is None else merge_check_report_json.validate_json(stored_report)
+    except (ConnectionInterrupted, RedisError, UnicodeDecodeError, ValidationError):
+        logger.warning("knowledge_writer_deferred_report_unavailable", exc_info=True)
+        return None
+
+
+def defer_report(inputs: MergeCheckInputs, report: MergeCheckReport) -> None:
+    if inputs.check_id is None:
+        return
+    try:
+        cache.set(
+            deferred_report_key(inputs.check_id),
+            merge_check_report_json.dump_json(report),
+            timeout=DEFERRED_REPORT_TTL.total_seconds(),
+        )
+    except (ConnectionInterrupted, RedisError):
+        logger.warning("knowledge_writer_deferred_report_unavailable", exc_info=True)
 
 
 def judged_report(
