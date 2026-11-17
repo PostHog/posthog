@@ -1290,7 +1290,7 @@ impl MergeDriver {
                     // real foreign op would need a live mark we hold); the
                     // leader's healer clears it on observation. Transient
                     // failures retry the step; a refusal backs the op out.
-                    return match SagaError::leader(status) {
+                    return match classify_leader_failure(status) {
                         SagaError::LeaderRefused(status) => {
                             self.abort_refused(pools, op, MergeStep::Claimed, &status)
                                 .await
@@ -1486,6 +1486,15 @@ impl MergeDriver {
     }
 }
 
+/// A person the leader cannot read fails the same way on every retry.
+fn classify_leader_failure(status: Status) -> SagaError {
+    if status.code() == Code::DataLoss {
+        SagaError::LeaderRefused(Box::new(status))
+    } else {
+        SagaError::leader(status)
+    }
+}
+
 fn snapshot_from_sealed(person: &Person) -> Result<SealedSnapshot, SagaError> {
     let properties = if person.properties.is_empty() {
         Value::Object(serde_json::Map::new())
@@ -1668,7 +1677,7 @@ impl MergeDriver {
         {
             Ok(response) => response,
             Err(status) => {
-                return match SagaError::leader(status) {
+                return match classify_leader_failure(status) {
                     SagaError::LeaderRefused(status) => {
                         // Under a stale claim the advancing driver still
                         // needs the fences, so Busy re-attaches the retry;

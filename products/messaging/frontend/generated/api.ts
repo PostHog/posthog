@@ -29,6 +29,7 @@ import type {
     MessagePreferencesApi,
     MessageSuppressionApi,
     MessageTemplateApi,
+    MessageTemplatePlacementApi,
     MessagingCategoriesListParams,
     MessagingPreferencesExportOptOutsCsvRetrieveParams,
     MessagingPreferencesOptOutsRetrieveParams,
@@ -631,7 +632,7 @@ export const getMessagingProviderImportsListUrl = (projectId: string) => {
 }
 
 /**
- * Background imports from other messaging tools, such as Customer.io suppressions and global unsubscribes.
+ * Background imports from other messaging tools, such as Customer.io and Resend suppressions and unsubscribes.
  *
  * A run executes outside the request, so a long provider list does not time out. Poll a run to show its progress.
  * @summary List the most recent provider imports
@@ -651,7 +652,7 @@ export const getMessagingProviderImportsCreateUrl = (projectId: string) => {
 }
 
 /**
- * Background imports from other messaging tools, such as Customer.io suppressions and global unsubscribes.
+ * Background imports from other messaging tools, such as Customer.io and Resend suppressions and unsubscribes.
  *
  * A run executes outside the request, so a long provider list does not time out. Poll a run to show its progress.
  * @summary Start a background import from another messaging tool
@@ -674,7 +675,7 @@ export const getMessagingProviderImportsRetrieveUrl = (projectId: string, id: st
 }
 
 /**
- * Background imports from other messaging tools, such as Customer.io suppressions and global unsubscribes.
+ * Background imports from other messaging tools, such as Customer.io and Resend suppressions and unsubscribes.
  *
  * A run executes outside the request, so a long provider list does not time out. Poll a run to show its progress.
  * @summary Get a provider import and its progress
@@ -695,7 +696,7 @@ export const getMessagingProviderImportsProvidersListUrl = (projectId: string) =
 }
 
 /**
- * Background imports from other messaging tools, such as Customer.io suppressions and global unsubscribes.
+ * Background imports from other messaging tools, such as Customer.io and Resend suppressions and unsubscribes.
  *
  * A run executes outside the request, so a long provider list does not time out. Poll a run to show its progress.
  * @summary List the providers and what each can import
@@ -814,7 +815,7 @@ export const getMessagingSuppressionsBulkAddSuppressionsCreateUrl = (projectId: 
 }
 
 /**
- * Suppress every address in the list. Addresses that already have an entry are skipped, so repeating a call is safe.
+ * Suppress every address in the list. An address that already has an entry keeps it, and a `bounce` also makes that entry block transactional email. Repeating a call is safe.
  * @summary Add multiple email addresses to the suppression list
  */
 export const messagingSuppressionsBulkAddSuppressionsCreate = async (
@@ -1062,6 +1063,24 @@ export const messagingTemplatesMakeTransactionalCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(makeTransactionalApi),
+    })
+}
+
+export const getMessagingTemplatesPlacementRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/messaging_templates/${id}/placement/`
+}
+
+/**
+ * Read where the template sits in the project tree, so an undo of its delete can put it back.
+ */
+export const messagingTemplatesPlacementRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<MessageTemplatePlacementApi> => {
+    return apiMutator<MessageTemplatePlacementApi>(getMessagingTemplatesPlacementRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
     })
 }
 

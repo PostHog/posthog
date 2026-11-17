@@ -2297,6 +2297,11 @@ export interface EmailSendingAllowanceApi {
     readonly emails_sent_last_day: number
     /** True when these allowances are applied to sends. False while they are only being measured. */
     readonly enforced: boolean
+    /**
+     * The largest audience a single email batch may reach when its sending rate limit is slow enough. Null when no rate limit raises max_batch_audience.
+     * @nullable
+     */
+    readonly rate_limited_max_batch_audience: number | null
 }
 
 export interface TeamEmailReputationResponseApi {
@@ -2419,6 +2424,8 @@ export interface BlastRadiusRequestApi {
     dedupe_key?: DedupeKeyEnumApi | null
     /** Whether the workflow contains an email step. The tiered audience limit only applies to email sends; SMS, push, and webhook batches keep the flat limit. Defaults to true. */
     sends_email?: boolean
+    /** The workflow's email sending rate limit. A slow enough rate raises the email audience limit. The response's rate_limited field says which rates qualify. */
+    email_sending_rate_limit?: HogFlowEmailSendingRateLimitApi | null
 }
 
 /**
@@ -2463,6 +2470,15 @@ export interface RealtimeCohortRefApi {
     name: string
 }
 
+export interface RateLimitedAudienceApi {
+    /** The fastest email sending rate limit that raises the audience limit. A faster rate keeps the normal limit. */
+    max_emails_per_hour: number
+    /** The most days a rate-limited send may take to reach everyone. */
+    max_days: number
+    /** The audience limit with a rate limit of max_emails_per_hour. A slower rate allows fewer people. */
+    limit: number
+}
+
 export interface BlastRadiusApi {
     /** Number of users matching the filters */
     affected: number
@@ -2480,6 +2496,8 @@ export interface BlastRadiusApi {
     realtime_cohort?: RealtimeCohortStatusApi | null
     /** Set when a realtime cohort shares the audience with other conditions. Saving that audience fails: a realtime cohort has to be the only condition. */
     realtime_cohort_with_other_conditions?: RealtimeCohortRefApi | null
+    /** Set when an email sending rate limit can raise 'limit'. A send at a slow enough rate leaves part of the project's daily email allowance to its other workflows, so it may reach more people over several days. */
+    rate_limited?: RateLimitedAudienceApi | null
 }
 
 export interface PushTokenImportCreateApi {
@@ -2888,9 +2906,10 @@ export type WorkflowImportRequestApiLayouts = { [key: string]: string }
 /**
  * * `customerio` - Customer.io
  */
-export type ImportProviderKeyEnumApi = (typeof ImportProviderKeyEnumApi)[keyof typeof ImportProviderKeyEnumApi]
+export type WorkflowImportRequestSourceEnumApi =
+    (typeof WorkflowImportRequestSourceEnumApi)[keyof typeof WorkflowImportRequestSourceEnumApi]
 
-export const ImportProviderKeyEnumApi = {
+export const WorkflowImportRequestSourceEnumApi = {
     Customerio: 'customerio',
 } as const
 
@@ -2937,7 +2956,7 @@ export interface WorkflowImportRequestApi {
     /** The tool the automations come from.
      *
      * * `customerio` - Customer.io */
-    source: ImportProviderKeyEnumApi
+    source: WorkflowImportRequestSourceEnumApi
     /** The automations to import, at most 50. People are never read from these objects. */
     campaigns: CustomerioCampaignApi[]
     /** Customer.io snippet name to its content, inlined where a message uses `{{ snippets.name }}`. When PostHog reads the message content with a stored Customer.io App API key, it reads the snippets too. */

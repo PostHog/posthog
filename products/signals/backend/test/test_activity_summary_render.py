@@ -634,6 +634,24 @@ def test_activity_units_spread_a_burst_across_days(_name: str, older_days: int, 
             ],
             {Drop.INBOX_BULK_TRIAGE: 9},
         ),
+        (
+            "a reviewer correction says whether the person removed or added themselves, or only changed others",
+            InboxActivity(
+                artefacts=(
+                    _acted("r1", "Batch export retries", "reviewer_corrections", reviewer_change="removed_self"),
+                    _acted(
+                        "r2", "Export job timeouts", "reviewer_corrections", days_ago=2, reviewer_change="added_self"
+                    ),
+                    _acted("r3", "Flag rollout stalled", "reviewer_corrections", days_ago=3, reviewer_change="others"),
+                ),
+            ),
+            RenderLimits(inbox_lines=2),
+            [
+                '- 2026-10-17 "Export job timeouts": added themselves as reviewer',
+                '- 2026-10-18 "Batch export retries": removed themselves as reviewer',
+            ],
+            {Drop.SAMPLE_CAP: 1},
+        ),
     ]
 )
 def test_inbox_units(

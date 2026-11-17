@@ -230,9 +230,10 @@ class TestLogsAlertAPI(APIBaseTest):
             ("firing", platform_due_at.isoformat().replace("+00:00", "Z"))
         ] * len(rows)
         # Settings, runtime, history ids and control-change ids, whatever the page size. A list also
-        # reads which alerts the platform owns and the alerts with no logs row.
+        # reads which alerts the platform owns and the alerts with no logs row; a single alert also
+        # reads its destinations.
         platform_reads = [q for q in queries.captured_queries if "alerts_platformalertconfiguration" in q["sql"]]
-        assert len(platform_reads) == (6 if action == "list" else 4)
+        assert len(platform_reads) == (6 if action == "list" else 5)
 
     def test_list_filters_by_created_by(self):
         other_user = User.objects.create_and_join(self.organization, "other@posthog.com", None)
@@ -684,11 +685,95 @@ class TestLogsAlertAPI(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["attr"] == "filters"
 
+    UNSUPPORTED_NESTED_GROUP_CASES: list[tuple[str, dict[str, Any]]] = [
+        (
+            "log_resource_attribute",
+            {"key": "k8s.namespace.name", "value": ["prod"], "operator": "exact", "type": "log_resource_attribute"},
+        ),
+        ("log", {"key": "message", "value": "timeout", "operator": "icontains", "type": "log"}),
+    ]
+
+    @staticmethod
+    def _nested_group_filters(leaf: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "filterGroup": {"type": "AND", "values": [{"type": "AND", "values": [{"type": "OR", "values": [leaf]}]}]}
+        }
+
+    @parameterized.expand(UNSUPPORTED_NESTED_GROUP_CASES)
+    def test_create_rejects_unsupported_nested_filter_group(self, leaf_type, leaf):
+        response = self.client.post(
+            self.base_url,
+            self._valid_payload(filters=self._nested_group_filters(leaf)),
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == "filters"
+        assert leaf_type in response.json()["detail"]
+        assert not LogsAlertConfiguration.objects.filter(team=self.team).exists()
+
+    @parameterized.expand(UNSUPPORTED_NESTED_GROUP_CASES)
+    def test_patch_rejects_unsupported_nested_filter_group(self, leaf_type, leaf):
+        created = self._create_via_api()
+        response = self.client.patch(
+            f"{self.base_url}{created['id']}/",
+            {"filters": self._nested_group_filters(leaf)},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == "filters"
+        assert leaf_type in response.json()["detail"]
+        assert LogsAlertConfiguration.objects.get(id=created["id"]).filters == {"severityLevels": ["error"]}
+
+    def test_patch_disables_stored_alert_with_unsupported_nested_filter_group(self):
+        alert = LogsAlertConfiguration.objects.create(
+            team=self.team,
+            name="Stored before validation",
+            threshold_count=10,
+            filters=self._nested_group_filters(self.UNSUPPORTED_NESTED_GROUP_CASES[0][1]),
+            created_by=self.user,
+        )
+        response = self.client.patch(f"{self.base_url}{alert.id}/", {"enabled": False}, format="json")
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        alert.refresh_from_db()
+        assert alert.enabled is False
+
     @parameterized.expand(
         [
             ("severity_levels", {"severityLevels": ["error"]}),
             ("service_names", {"serviceNames": ["my-service"]}),
             ("filter_group", {"filterGroup": {"type": "AND", "values": []}}),
+            (
+                "nested_log_attribute_group",
+                {
+                    "filterGroup": {
+                        "type": "AND",
+                        "values": [
+                            {
+                                "type": "AND",
+                                "values": [
+                                    {
+                                        "type": "OR",
+                                        "values": [
+                                            {
+                                                "key": "user.id",
+                                                "value": "u1",
+                                                "operator": "exact",
+                                                "type": "log_attribute",
+                                            },
+                                            {
+                                                "key": "user_id",
+                                                "value": "u1",
+                                                "operator": "exact",
+                                                "type": "log_attribute",
+                                            },
+                                        ],
+                                    }
+                                ],
+                            }
+                        ],
+                    }
+                },
+            ),
         ]
     )
     def test_create_accepts_valid_filter(self, _name, filters):
@@ -1262,6 +1347,85 @@ class TestLogsAlertAPI(APIBaseTest):
         body = response.content.decode()
         assert "password" not in body
         assert "token=secret" not in body
+
+    @parameterized.expand(
+        [
+            ("by_hog_function_ids", "hog_function_ids", False),
+            ("by_destination_id", "destination_ids", False),
+            ("by_hog_function_ids_after_conversion", "hog_function_ids", True),
+        ]
+    )
+    def test_a_destination_is_a_platform_row_beside_its_hog_functions_until_deleted(
+        self, _name: str, delete_by: str, converted: bool
+    ) -> None:
+        self._sync_destination_templates()
+        created = self._create_via_api()
+        create_response = self.client.post(
+            self._destinations_url(created["id"]),
+            {"type": "webhook", "webhook_url": "https://example.com/hook"},
+            format="json",
+        )
+        hog_function_ids = create_response.json()["hog_function_ids"]
+        if converted:
+            HogFunction.objects.filter(id__in=hog_function_ids).update(deleted=True, enabled=False)
+
+        (destination,) = self._read_destinations(created["id"])
+        assert destination["id"] is not None
+        assert sorted(destination["hog_function_ids"]) == sorted(hog_function_ids)
+
+        named = hog_function_ids if delete_by == "hog_function_ids" else [destination["id"]]
+        response = self.client.post(self._destinations_delete_url(created["id"]), {delete_by: named}, format="json")
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT, response.json()
+        assert self._read_destinations(created["id"]) == []
+        assert not HogFunction.objects.filter(id__in=hog_function_ids, deleted=False).exists()
+
+    @patch("products.logs.backend.presentation.views.alerts_api.report_user_action")
+    def test_a_destination_moves_between_its_row_and_hog_functions_through_customize_and_reset(
+        self, mock_report
+    ) -> None:
+        self._sync_destination_templates()
+        created = self._create_via_api()
+        assert created["platform_owned"] is True
+        hog_function_ids = self.client.post(
+            self._destinations_url(created["id"]),
+            {"type": "webhook", "webhook_url": "https://example.com/hook"},
+            format="json",
+        ).json()["hog_function_ids"]
+        (copied,) = self._read_destinations(created["id"])
+
+        kept = self.client.post(
+            f"{self._destinations_url(created['id'])}customize/", {"destination_id": copied["id"]}, format="json"
+        )
+
+        assert kept.status_code == status.HTTP_200_OK, kept.json()
+        assert sorted(kept.json()["hog_function_ids"]) == sorted(hog_function_ids)
+        assert self._read_destinations(created["id"])[0]["id"] is None
+
+        reset = self.client.post(
+            f"{self._destinations_url(created['id'])}reset/", {"hog_function_ids": hog_function_ids}, format="json"
+        )
+
+        assert reset.status_code == status.HTTP_200_OK, reset.json()
+        (row_only,) = self._read_destinations(created["id"])
+        assert (row_only["id"], row_only["hog_function_ids"]) == (reset.json()["id"], [])
+
+        customized = self.client.post(
+            f"{self._destinations_url(created['id'])}customize/", {"destination_id": row_only["id"]}, format="json"
+        )
+
+        assert customized.status_code == status.HTTP_200_OK, customized.json()
+        (listed,) = self._read_destinations(created["id"])
+        assert (listed["id"], sorted(listed["hog_function_ids"])) == (
+            None,
+            sorted(customized.json()["hog_function_ids"]),
+        )
+        assert listed["webhook_url"] == "https://example.com"
+        assert [call.args[1] for call in mock_report.call_args_list[-3:]] == [
+            "logs alert destination customized",
+            "logs alert destination reset",
+            "logs alert destination customized",
+        ]
 
     def test_reading_an_alert_marks_only_the_destination_with_a_customized_function(self) -> None:
         self._sync_destination_templates()
@@ -3611,6 +3775,24 @@ class TestLogsAlertAPIPersonalAPIKeyScopes(APIBaseTest):
         url = f"{self.base_url}{uuid4()}/destinations/"
         response = self.client.post(url, {}, format="json", **self._auth(key))
         assert response.status_code == 403, response.json()
+
+    # --- customize_destination action (POST detail, also writes HogFunctions) ---
+
+    @parameterized.expand(
+        [
+            ("logs_write_alone", ["logs:write"], status.HTTP_403_FORBIDDEN),
+            ("with_hog_function_write", ["logs:write", "hog_function:write"], status.HTTP_404_NOT_FOUND),
+        ]
+    )
+    def test_customize_destination_needs_hog_function_write(self, _name: str, scopes: list[str], expected: int) -> None:
+        key = self.create_personal_api_key_with_scopes(scopes)
+        response = self.client.post(
+            f"{self.base_url}{uuid4()}/destinations/customize/",
+            {"destination_id": str(uuid4())},
+            format="json",
+            **self._auth(key),
+        )
+        assert response.status_code == expected, response.json()
 
     # --- delete_destination action (POST detail, requires logs:write) ---
 

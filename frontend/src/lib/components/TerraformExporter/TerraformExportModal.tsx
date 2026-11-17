@@ -37,7 +37,7 @@ function getBaseName(resource: TerraformExportResource): string {
 }
 
 function getDescription(resource: TerraformExportResource, result: TerraformExportResult | null): JSX.Element {
-    const providerDocsUrl = 'https://registry.terraform.io/providers/PostHog/posthog/latest/docs'
+    const providerDocsUrl = 'https://posthog.com/docs/terraform'
     const exampleRepoUrl =
         'https://github.com/PostHog/posthog/tree/master/terraform/us/project-2/team-analytics-platform'
 

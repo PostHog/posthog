@@ -319,6 +319,47 @@ class TestLoopReturnsSource:
         assert result.params("cursor") == [None, None, "v1", None]
         assert result.saved_states == []
 
+    def test_inventory_rows_are_keyed_by_their_variant_and_location(self) -> None:
+        result = self._driver().run(
+            "inventories",
+            [
+                ScriptedResponse(
+                    json={
+                        "inventories": [
+                            {"available_count": 4, "product_variant": {"id": 1}, "location": {"id": 10}},
+                            {"available_count": 0, "product_variant": {"id": 1}, "location": {"id": 20}},
+                            # Rows that can't be keyed: a missing, null or id-less variant or location.
+                            {"available_count": 3, "product_variant": None, "location": {"id": 10}},
+                            {"available_count": 3, "product_variant": {"id": 2}},
+                            {"available_count": 3, "product_variant": {"id": 2}, "location": {"name": "Shop"}},
+                            {"available_count": 3, "product_variant": "2", "location": {"id": 10}},
+                        ],
+                        "next_page_url": "https://api.loopreturns.com/api/v1/inventories?cursor=i1",
+                    }
+                ),
+                ScriptedResponse(
+                    json={
+                        "inventories": [
+                            {"available_count": None, "product_variant": {"id": 2}, "location": {"id": 10}}
+                        ],
+                        "next_page_url": None,
+                    }
+                ),
+            ],
+            api_version=API_VERSION,
+        )
+
+        assert result.raised is None
+        assert result.response is not None
+        assert result.response.primary_keys == ["product_variant_id", "location_id"]
+        assert [(row["product_variant_id"], row["location_id"], row["available_count"]) for row in result.rows] == [
+            (1, 10, 4),
+            (1, 20, 0),
+            (2, 10, None),
+        ]
+        assert result.params("cursor") == [None, "i1"]
+        assert result.saved_states == [LoopReturnsResumeConfig(cursor="i1")]
+
 
 class TestCredentialValidation:
     @pytest.mark.parametrize(
@@ -327,10 +368,12 @@ class TestCredentialValidation:
             ("returns_readable", [200], True),
             # A key scoped only for destinations still works, just for fewer tables.
             ("returns_denied_destinations_readable", [401, 200], True),
-            # One probe per scope: returns, destinations, orders, products, then customers.
+            # One probe per scope: returns, destinations, orders, products, customers, locations,
+            # then inventories.
             ("only_customers_readable", [401, 401, 401, 401, 200], True),
-            ("everything_denied", [401] * 5, False),
-            ("forbidden", [403] * 5, False),
+            ("only_inventories_readable", [401] * 6 + [200], True),
+            ("everything_denied", [401] * 7, False),
+            ("forbidden", [403] * 7, False),
             ("server_error", [500], False),
         ],
     )

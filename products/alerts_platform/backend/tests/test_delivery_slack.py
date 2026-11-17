@@ -16,6 +16,7 @@ from slack_sdk.http_retry.builtin_handlers import ConnectionErrorRetryHandler
 from posthog.models.integration import Integration
 from posthog.slack.channels import MAX_HEADER_CHARS, MAX_SECTION_CHARS
 
+from products.alerts_platform.backend.delivery.dispatch import deliver
 from products.alerts_platform.backend.delivery.message import UNTRACKED_GROUPS_LABEL
 from products.alerts_platform.backend.delivery.slack import (
     SLACK_EDIT_TIMEOUT_SECONDS,
@@ -24,23 +25,28 @@ from products.alerts_platform.backend.delivery.slack import (
     blocks_for,
     content_for,
 )
+from products.alerts_platform.backend.delivery.thread_store import NullThreadStore
 from products.alerts_platform.backend.delivery.transport import (
     DeliveryAmbiguous,
     DeliveryError,
     DestinationMisconfigured,
+    DestinationRefused,
     MessageHandle,
 )
 from products.alerts_platform.backend.facade.contracts import (
     SLACK_IMAGE_SLOT_BLOCK_ID,
     AlertDestinationData,
     AlertEventKind,
+    EvaluationAnnouncement,
     MessageDetail,
     MessageImage,
     MessageLink,
     SlackMessageContent,
+    SourceKind,
 )
 from products.alerts_platform.backend.temporal.workflows import DELIVERY_START_TO_CLOSE
 from products.alerts_platform.backend.tests.delivery_messages import ALERT_URL, alert_message, announced_transition
+from products.alerts_platform.backend.tests.recorded_metrics import recorded_metrics
 
 MESSAGE = alert_message(
     headline="API errors is firing",
@@ -241,6 +247,53 @@ class TestSlackTransport(APIBaseTest):
                 SlackTransport().deliver(team_id=self.team.id, target=self.target, message=MESSAGE)
 
         assert isinstance(refused.value, DestinationMisconfigured) is misconfigured
+        assert isinstance(refused.value, DestinationRefused) is misconfigured
+
+    @parameterized.expand(
+        [
+            ("not_in_channel", True, "misconfigured", "The PostHog app is not in this channel."),
+            ("account_inactive", True, "misconfigured", "The Slack connection is no longer active."),
+            ("ratelimited", False, "failed", None),
+            ("internal_error", False, "failed", None),
+        ]
+    )
+    def test_the_alert_creator_hears_only_about_a_refusal_they_can_fix(
+        self, code: str, noticed: bool, outcome: str, explanation: str | None
+    ) -> None:
+        announcement = EvaluationAnnouncement(
+            source=SourceKind.LOGS,
+            configuration_id="cfg-1",
+            alert_name="API errors",
+            consecutive_failures=0,
+            transitions=(announced_transition(),),
+        )
+        with (
+            patch("products.alerts_platform.backend.delivery.slack.SlackIntegration") as slack_integration,
+            patch("products.alerts_platform.backend.delivery.dispatch.record_delivery"),
+            patch("products.alerts_platform.backend.delivery.dispatch.notify_refused") as notified,
+            recorded_metrics() as metrics,
+        ):
+            slack_integration.return_value.client.chat_postMessage.side_effect = SlackApiError(code, {"error": code})
+            with pytest.raises(DeliveryError):
+                deliver(
+                    transport=SlackTransport(),
+                    thread_store=NullThreadStore(),
+                    team_id=self.team.id,
+                    configuration_id="cfg-1",
+                    evaluation_key="eval-1",
+                    target=self.target,
+                    destination_id="destination-1",
+                    announcement=announcement,
+                )
+
+        assert [m.attributes["outcome"] for m in metrics if m.name == "alerts_platform_deliveries_total"] == [outcome]
+        assert notified.call_count == (1 if noticed else 0)
+        if noticed:
+            refusal = notified.call_args.kwargs["refusal"]
+            assert notified.call_args.kwargs["destination"] == "C-ENG"
+            # The code stays in the text, so the worker's logs can still be searched for it.
+            assert str(refusal) == f"Slack refused the message: {code}. {explanation}"
+            assert "URL" not in refusal.remedy
 
     def test_a_message_whose_image_slack_cannot_fetch_goes_again_without_it(self) -> None:
         message = alert_message(image=MessageImage(url="https://app.example.com/chart.png", alt_text="Insight chart"))

@@ -64,10 +64,6 @@ from posthog.temporal.salesforce_enrichment.workflow import SalesforceEnrichment
 from posthog.temporal.session_replay.delete_recordings.types import PurgeDeletedMetadataInput
 from posthog.temporal.session_replay.enforce_max_replay_retention.types import EnforceMaxReplayRetentionInput
 from posthog.temporal.session_replay.replay_count_metrics.types import ReplayCountMetricsInput
-from posthog.temporal.session_replay.surfacing_score_export_sweep.schedule import (
-    create_surfacing_score_export_sweep_schedule,
-)
-from posthog.temporal.session_replay.surfacing_scoring_sweep.schedule import create_surfacing_scoring_sweep_schedule
 from posthog.temporal.sync_events_retention.types import SyncEventsRetentionInput
 from posthog.temporal.usage_report.types import RunUsageReportsInputs
 from posthog.temporal.warehouse_sources_queue_partition_management.schedule import (
@@ -101,7 +97,11 @@ from products.customer_analytics.backend.facade.temporal import (
     create_membership_discovery_schedule,
     create_ownership_claims_coordinator_schedule,
 )
-from products.data_catalog.backend.facade.temporal import create_data_catalog_weekly_digest_schedule
+from products.data_catalog.backend.facade.temporal import (
+    create_data_catalog_effectiveness_schedule,
+    create_data_catalog_usage_scan_schedule,
+    create_data_catalog_weekly_digest_schedule,
+)
 from products.data_quality.backend.facade.temporal import (
     create_cleanup_data_quality_check_runs_schedule,
     create_reconcile_metric_schedules_schedule,
@@ -155,6 +155,7 @@ from products.signals.backend.facade.temporal import (
     create_inbox_ranking_scoring_schedule,
     create_personal_inbox_ranking_tick_schedule,
     create_scout_suggestions_coordinator_schedule,
+    create_signal_grouping_record_cleanup_schedule,
     create_signals_scout_coordinator_schedule,
 )
 from products.slack_app.backend.temporal.schedule import create_slack_app_daily_focus_sweep_schedule
@@ -170,21 +171,25 @@ from ee.billing.salesforce_enrichment.constants import DEFAULT_CHUNK_SIZE
 logger = structlog.get_logger(__name__)
 
 
+async def _delete_retired_schedules(client: Client, schedule_ids: list[str]) -> None:
+    """Delete schedules whose workflows are gone. Any in-flight run ends on its own execution timeout."""
+    for schedule_id in schedule_ids:
+        if await a_schedule_exists(client, schedule_id):
+            await a_delete_schedule(client, schedule_id)
+
+
 async def cleanup_sync_vectors_schedule(client: Client):
-    """Disabled: delete the actions embedding sync schedule. Any in-flight runs die on their own execution_timeout."""
-    if await a_schedule_exists(client, "ai-sync-vectors-schedule"):
-        await a_delete_schedule(client, "ai-sync-vectors-schedule")
+    await _delete_retired_schedules(client, ["ai-sync-vectors-schedule"])
 
 
 async def cleanup_retired_replay_vision_schedules(client: Client):
-    """Delete Replay Vision schedules whose workflows are gone. Any in-flight run ends on its own execution timeout."""
-    retired_schedule_ids = [
-        "replay-vision-search-suggestions-refresher-schedule",
-        "replay-vision-jev-watch-rank-schedule",
-    ]
-    for schedule_id in retired_schedule_ids:
-        if await a_schedule_exists(client, schedule_id):
-            await a_delete_schedule(client, schedule_id)
+    await _delete_retired_schedules(
+        client, ["replay-vision-search-suggestions-refresher-schedule", "replay-vision-jev-watch-rank-schedule"]
+    )
+
+
+async def cleanup_retired_session_replay_schedules(client: Client):
+    await _delete_retired_schedules(client, ["surfacing-scoring-sweep-batch", "surfacing-score-export-sweep"])
 
 
 async def create_run_quota_limiting_schedule(client: Client):
@@ -967,10 +972,9 @@ schedules = [
     create_count_trigger_schedule,
     create_evaluation_sampler_schedule,
     create_evaluation_clustering_schedule,
-    create_surfacing_score_export_sweep_schedule,
-    create_surfacing_scoring_sweep_schedule,
     create_ducklake_compaction_schedule,
     create_purge_deleted_recording_metadata_schedule,
+    cleanup_retired_session_replay_schedules,
     create_experiment_regular_metrics_schedules,
     create_experiment_saved_metrics_schedules,
     create_experiment_precompute_canary_schedule,
@@ -992,6 +996,8 @@ schedules = [
     create_wa_digest_notification_schedule,
     create_heatmap_page_history_schedule,
     create_data_catalog_weekly_digest_schedule,
+    create_data_catalog_usage_scan_schedule,
+    create_data_catalog_effectiveness_schedule,
     create_alerts_platform_tick_schedule,
     create_alerts_platform_inventory_schedule,
     create_alerts_platform_expired_holds_schedule,
@@ -1003,6 +1009,7 @@ schedules = [
     create_autoresearch_daily_schedule,
     delete_today_briefing_schedule,
     create_signals_scout_coordinator_schedule,
+    create_signal_grouping_record_cleanup_schedule,
     create_inbox_ranking_scoring_schedule,
     create_activity_summary_tick_schedule,
     create_personal_inbox_ranking_tick_schedule,

@@ -1,3 +1,4 @@
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
@@ -5,7 +6,7 @@ import { initKeaTests } from '~/test/init'
 
 import { platformAlertsDestinationsCreate, platformAlertsDestinationsList } from '../generated/api'
 import { PlatformAlertDestinationTypeEnumApi } from '../generated/api.schemas'
-import { MAX_DESTINATIONS_PER_ALERT } from './platformAlertDestinations'
+import { AlertDestinationEntry, MAX_DESTINATIONS_PER_ALERT } from './platformAlertDestinations'
 import { platformAlertDestinationsLogic } from './platformAlertDestinationsLogic'
 
 jest.mock('posthog-js')
@@ -41,6 +42,22 @@ describe('platformAlertDestinationsLogic', () => {
 
         expect(logic.values.pendingDestinations).toHaveLength(MAX_DESTINATIONS_PER_ALERT)
         expect(logic.values.addDisabledReason).toContain(`at most ${MAX_DESTINATIONS_PER_ALERT}`)
+    })
+
+    it('takes more destinations when the routes set no cap', async () => {
+        const uncapped = platformAlertDestinationsLogic({
+            sourceKind: 'logs',
+            api: { list: jest.fn(), create: jest.fn(), remove: jest.fn() },
+        })
+        uncapped.mount()
+        uncapped.actions.setSelectedType(PlatformAlertDestinationTypeEnumApi.Webhook)
+        for (let i = 0; i <= MAX_DESTINATIONS_PER_ALERT; i++) {
+            uncapped.actions.setWebhookUrl(`https://hooks.example.com/alert-${i}`)
+            uncapped.actions.addSelectedDestination()
+            await expectLogic(uncapped).toFinishAllListeners()
+        }
+
+        expect(uncapped.values.pendingDestinations).toHaveLength(MAX_DESTINATIONS_PER_ALERT + 1)
     })
 
     it('queues a PagerDuty destination with its incident settings', async () => {
@@ -114,5 +131,43 @@ describe('platformAlertDestinationsLogic', () => {
         resumeKeaLoadersErrors()
 
         expect(saved.values).toMatchObject({ destinations: [], destinationsLoadFailed: true })
+    })
+
+    it.each([
+        ['opens the message editor for the HogFunctions it returns', 'succeeds', '/editor/hf-1'],
+        ['stays on the alert when the route refuses', 'refuses', '/alert'],
+        ['stays on the page the person moved to while it ran', 'moves', '/elsewhere'],
+    ])('customize %s', async (_name, outcome, expectedPath) => {
+        router.actions.push('/alert')
+        const destination = { id: 'row-1', type: PlatformAlertDestinationTypeEnumApi.Slack, enabled: true }
+        const customize = jest.fn(async () => {
+            if (outcome === 'refuses') {
+                throw { detail: 'This destination has changed.' }
+            }
+            if (outcome === 'moves') {
+                router.actions.push('/elsewhere')
+            }
+            return ['hf-1', 'hf-2']
+        })
+        const saved = platformAlertDestinationsLogic({
+            alertId: 'alert-1',
+            sourceKind: 'logs',
+            api: {
+                list: jest.fn().mockResolvedValue([destination]),
+                create: jest.fn(),
+                remove: jest.fn(),
+                customize,
+                reset: jest.fn(),
+                messageEditorUrl: (_alertId, hogFunctionIds) => `/editor/${hogFunctionIds[0]}`,
+            },
+        })
+        saved.mount()
+
+        saved.actions.customizeDestination(destination as AlertDestinationEntry)
+        await expectLogic(saved).toFinishAllListeners()
+
+        expect(customize).toHaveBeenCalledWith(expect.any(String), 'alert-1', destination)
+        expect(router.values.location.pathname).toMatch(new RegExp(`${expectedPath}$`))
+        expect(saved.values.changingMessageDestinationIds.size).toEqual(0)
     })
 })

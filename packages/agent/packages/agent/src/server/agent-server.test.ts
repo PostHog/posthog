@@ -317,7 +317,7 @@ interface NativeResumeTestServer {
   ): Promise<{ sessionId: string; warm: boolean } | null>;
 }
 
-let nextTestPort = 20000;
+let nextTestPort = 20000 + Math.floor(Math.random() * 20000);
 
 function getNextTestPort(): number {
   const port = nextTestPort;
@@ -1149,6 +1149,49 @@ describe("AgentServer HTTP Mode", () => {
 
       expect(testServer.session?.sessionMeta.channelMode).toBeUndefined();
     }, 30000);
+
+    it.each(["knowledge_writer", "user_created"])(
+      "lets only a %s-origin task push its task branch when createPr is false",
+      async (originProduct) => {
+        await mkdir("/tmp/workspace", { recursive: true });
+        mswServer.use(
+          http.get(
+            "http://localhost:8000/api/projects/:projectId/tasks/:taskId/",
+            () =>
+              HttpResponse.json({
+                id: "test-task-id",
+                title: "Test task",
+                description: null,
+                origin_product: originProduct,
+                repository: null,
+                created_at: new Date().toISOString(),
+                updated_at: new Date().toISOString(),
+              }),
+          ),
+        );
+
+        const testServer = createServer({
+          createPr: false,
+        }) as unknown as TestableServer & { start(): Promise<void> };
+        await testServer.start();
+        const prompt = testServer.buildCloudSystemPrompt();
+
+        const isWriter = originProduct === "knowledge_writer";
+        expect(prompt.includes("push only to the branch your task names")).toBe(
+          isWriter,
+        );
+        expect(prompt.includes("Publishing is disabled for this run.")).toBe(
+          !isWriter,
+        );
+        expect(
+          prompt.includes("stop with local changes ready for review"),
+        ).toBe(!isWriter);
+        expect(prompt.includes("Always create the PR as a draft.")).toBe(
+          !isWriter,
+        );
+      },
+      30000,
+    );
 
     it("links native agent state before initializing the session", async () => {
       const originalClaudeConfigDir = process.env.CLAUDE_CONFIG_DIR;
@@ -2551,12 +2594,20 @@ describe("AgentServer HTTP Mode", () => {
         started = resolve;
       });
       const api = {
-        prepareContextSelection: vi.fn(() => {
-          started();
-          return new Promise<ContextSelectionResponse>((resolve) => {
-            finishPreparation = resolve;
-          });
-        }),
+        prepareContextSelection: vi
+          .fn()
+          .mockImplementationOnce(() => {
+            started();
+            return new Promise<ContextSelectionResponse>((resolve) => {
+              finishPreparation = resolve;
+            });
+          })
+          .mockResolvedValue({
+            selection_id: "s",
+            context: "",
+            mode: "treatment",
+            reason: "empty",
+          }),
       };
       testServer.session.contextSelection = new ContextSelection(api, "run-1");
       const result = testServer.runStartupTurn(() =>
@@ -2573,12 +2624,27 @@ describe("AgentServer HTTP Mode", () => {
       await testServer.executeCommand("cancel", {});
       finishPreparation({
         selection_id: "s",
-        context: "definition",
+        context: [
+          '<posthog_reference_context selection_id="s">',
+          JSON.stringify({
+            id: "c",
+            kind: "business_knowledge",
+            document_id: "doc-1",
+          }),
+          "</posthog_reference_context>",
+        ].join("\n"),
         mode: "treatment",
         reason: "selected",
       });
       await expect(result).resolves.toMatchObject({ stopReason: "cancelled" });
       expect(prompt).not.toHaveBeenCalled();
+      await testServer.session.contextSelection.prepare({
+        messageId: "next",
+        text: "Define activation",
+      });
+      expect(api.prepareContextSelection.mock.lastCall?.[0].exclude).toEqual(
+        [],
+      );
     });
 
     it("continues an unattended turn after a transient upstream stream death", async () => {
@@ -3783,6 +3849,53 @@ describe("AgentServer HTTP Mode", () => {
       });
       await selector.prepare({ messageId: "third", text: "Define activation" });
       expect(requests[2].history).toBe("");
+      testServer.session = null;
+    });
+
+    it("lets selection repeat references once the agent compacts", async () => {
+      const testServer = exposeRefresh(createServer());
+      attachSession(
+        testServer,
+        vi.fn(async () => ({ refreshed: true })),
+      );
+      const excludes: string[][] = [];
+      mswServer.use(
+        http.post(
+          "http://localhost:8000/api/projects/1/context_layer/selection/prepare/",
+          async ({ request }) => {
+            const body = (await request.json()) as { exclude: string[] };
+            excludes.push(body.exclude);
+            return HttpResponse.json({
+              selection_id: "s",
+              context: [
+                '<posthog_reference_context selection_id="s">',
+                JSON.stringify({
+                  id: "c",
+                  kind: "business_knowledge",
+                  document_id: "doc-1",
+                }),
+                "</posthog_reference_context>",
+              ].join("\n"),
+              mode: "treatment",
+              reason: "selected",
+            });
+          },
+        ),
+      );
+      if (!testServer.session) throw new Error("Missing test session");
+      const selector = testServer.session.contextSelection;
+      selector.recordInjected(
+        await selector.prepare({
+          messageId: "first",
+          text: "Define activation",
+        }),
+      );
+      await selector.prepare({ messageId: "second", text: "And retention?" });
+      testServer.handleAcpTransportMessage({
+        method: POSTHOG_NOTIFICATIONS.COMPACT_BOUNDARY,
+      });
+      await selector.prepare({ messageId: "third", text: "And churn?" });
+      expect(excludes).toEqual([[], ["business_knowledge:c"], []]);
       testServer.session = null;
     });
 

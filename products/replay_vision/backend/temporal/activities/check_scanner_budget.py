@@ -31,7 +31,6 @@ from products.replay_vision.backend.scanner_access import unrunnable_reason
 from products.replay_vision.backend.temporal.activities.create_observation import capture_scan_blocked
 from products.replay_vision.backend.temporal.activities.find_scanner_candidates import stop_variant_analysis
 from products.replay_vision.backend.temporal.constants import CHECK_SCANNER_BUDGET_TIMEOUT
-from products.replay_vision.backend.temporal.decorators import track_activity
 from products.replay_vision.backend.temporal.metrics import record_sweep_outcome
 from products.replay_vision.backend.temporal.query_budget import bounded_queries
 from products.replay_vision.backend.temporal.sweep_cadence import SWEEP_PAUSE_RECHECK, SWEEP_PAUSE_RECHECK_SOON
@@ -154,12 +153,6 @@ def _turn_off_free_only_scanner(scanner: ReplayScanner) -> None:
         body += " Its backfill was canceled."
     # Best effort: a turned-off scanner has no next tick to retry a failed send.
     _notify_scanner_viewers(scanner, f'"{scanner.name}" stopped: free credits used', body)
-
-
-@activity.defn
-@track_activity()
-def check_scanner_budget_activity(inputs: CheckScannerBudgetInputs) -> CheckScannerBudgetOutput:
-    return check_scanner_budget(inputs)
 
 
 def check_scanner_budget(inputs: CheckScannerBudgetInputs) -> CheckScannerBudgetOutput:

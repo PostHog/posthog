@@ -60,6 +60,7 @@ from products.signals.backend.report_discussions import (
     DEFAULT_DISCUSSIONS_LIMIT,
     DEFAULT_DISCUSSIONS_SINCE,
     MAX_DISCUSSIONS_LIMIT,
+    DiscussionSource,
     ReportInvolvement,
 )
 from products.signals.backend.report_metrics import MAX_LIVE_METRIC_QUERY_POINTS, MAX_REPORT_METRICS
@@ -3353,6 +3354,15 @@ def _validate_structured_output_schema(value: dict | None) -> dict | None:
         raise serializers.ValidationError(str(exc))
 
 
+_SCOUT_CUSTOM_IMAGE_HELP = (
+    "ID of a project-shared custom sandbox image this scout's runs start from. Null uses the project's "
+    "default scout image, or the standard image when no default is set. Only the scout's author or a "
+    "project admin can change it. Setting an image requires skill-authoring authorization (the "
+    "`llm_skill:write` scope and skill editor access), since the image can supply agent instructions. An image that is missing or not ready at run time falls back to the "
+    "standard image."
+)
+
+
 _SCOUT_MODEL_HELP = (
     "Optional model id this scout's runs are pinned to, e.g. `claude-opus-4-5`. Must be one of the "
     "platform's agent models; an invalid id is rejected with the available ones listed. Null keeps "
@@ -3798,6 +3808,7 @@ class SignalScoutConfigSerializer(serializers.ModelSerializer):
         allow_null=True,
         help_text=_SCOUT_MODEL_HELP,
     )
+    custom_image_id = serializers.UUIDField(read_only=True, allow_null=True, help_text=_SCOUT_CUSTOM_IMAGE_HELP)
     precheck_query = serializers.CharField(read_only=True, allow_null=True, help_text=_PRECHECK_QUERY_HELP)
     precheck_disabled = serializers.BooleanField(read_only=True, help_text=_PRECHECK_DISABLED_HELP)
     effective_precheck_query = serializers.SerializerMethodField(
@@ -3999,6 +4010,7 @@ class SignalScoutConfigSerializer(serializers.ModelSerializer):
             "structured_output_schema",
             "network_access",
             "model",
+            "custom_image_id",
             "mcp_gateway_server_ids",
             "repositories",
             "write_scopes",
@@ -4085,6 +4097,7 @@ class _ScoutConfigCapabilityFieldsMixin(serializers.Serializer):
         max_length=200,
         help_text=_SCOUT_MODEL_HELP,
     )
+    custom_image_id = serializers.UUIDField(required=False, allow_null=True, help_text=_SCOUT_CUSTOM_IMAGE_HELP)
     tags = _scout_tags_field()
     structured_output_schema = StructuredOutputSchemaField(
         required=False,
@@ -4350,6 +4363,7 @@ class SignalScoutConfigUpdateSerializer(_ScoutConfigCapabilityFieldsMixin, seria
             "structured_output_schema",
             "network_access",
             "model",
+            "custom_image_id",
             "auto_pause_exempt",
             "tags",
             "mcp_gateway_server_ids",
@@ -5008,6 +5022,10 @@ class ScoutReportDiscussionSerializer(serializers.Serializer):
         choices=ReportInvolvement.choices,
         help_text="`authored` when your scout emitted the report, `edited` when it only edited it.",
     )
+    source = serializers.ChoiceField(  # type: ignore[assignment]  # field named `source` shadows DRF Field.source
+        choices=DiscussionSource.choices,
+        help_text="`inbox` when the discussion started from Ask AI in the inbox, `slack` when it started from a reply in the report's Slack thread.",
+    )
     task_id = serializers.CharField(help_text="The discussion task.")
     created_at = serializers.DateTimeField(help_text="When the discussion started.")
     active_at = serializers.DateTimeField(
@@ -5021,6 +5039,16 @@ class ScoutReportDiscussionSerializer(serializers.Serializer):
         allow_null=True,
         help_text=(
             "The latest run's summary of the conversation and its outcome. Null when no run has written one yet, "
-            "or when the summary could have been written by someone who may not steer scouts on this project."
+            "or when the summary could have been written by someone who may not steer scouts on this project. "
+            "For a `slack` discussion, other people in the public thread can shape the summary, so it is "
+            "returned when the person who started the discussion may steer scouts."
+        ),
+    )
+    question = serializers.CharField(
+        allow_null=True,
+        help_text=(
+            "For a `slack` discussion, the message that started it, in the person's own words. Null when that "
+            "person may not steer scouts on this project, or started a later Slack discussion on the same report. "
+            "Always null for an `inbox` discussion, because a scout note carried its question."
         ),
     )
