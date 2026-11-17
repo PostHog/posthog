@@ -1280,6 +1280,23 @@ class TestCohortUtils(BaseTest):
 
         self.assertEqual(mock_sync_execute.call_args.kwargs["settings"], REPLACE_READ_SETTINGS)
 
+    def test_uuids_present_at_marker_waits_for_a_replica_not_in_quorum(self):
+        marker = datetime(2026, 11, 7, 12, 0, tzinfo=UTC)
+        person_id = uuid4()
+        lagging = InternalCHQueryError("replica is not in quorum", code=289)
+
+        with (
+            patch(
+                "products.cohorts.backend.models.util.sync_execute", side_effect=[lagging, [(person_id,)]]
+            ) as mock_exec,
+            patch("products.cohorts.backend.models.util.time.sleep") as mock_sleep,
+        ):
+            present = _uuids_present_at_marker(1, self.team.pk, [str(person_id)], marker)
+
+        self.assertEqual(present, {str(person_id)})
+        self.assertEqual(mock_exec.call_count, 2)
+        self.assertEqual([c.args[0] for c in mock_sleep.call_args_list], [STATIC_COHORT_READ_BACK_WAITS_SECONDS[0]])
+
     def test_mint_population_marker_loses_to_a_newer_attempt(self):
         cohort = Cohort.objects.create(
             team=self.team,
@@ -1351,6 +1368,27 @@ class TestCohortUtils(BaseTest):
 
         mock_sleep.assert_called_once_with(1.0)
         self.assertEqual(marker, row_second + timedelta(seconds=1))
+
+    def test_mint_population_marker_waits_for_a_replica_not_in_quorum(self):
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="replace",
+            is_static=True,
+            pending_population_mode=CohortPopulationMode.REPLACE,
+        )
+        now = datetime(2026, 11, 7, 12, 0, 10, tzinfo=UTC)
+        lagging = InternalCHQueryError("replica is not in quorum", code=289)
+
+        with (
+            time_machine.travel(now, tick=False),
+            patch("products.cohorts.backend.models.util.sync_execute", side_effect=[lagging, [(None,)]]) as mock_exec,
+            patch("products.cohorts.backend.models.util.time.sleep") as mock_sleep,
+        ):
+            marker = mint_population_marker(cohort, team_id=self.team.pk)
+
+        self.assertEqual(marker, now)
+        self.assertEqual(mock_exec.call_count, 2)
+        self.assertEqual([c.args[0] for c in mock_sleep.call_args_list], [STATIC_COHORT_READ_BACK_WAITS_SECONDS[0]])
 
     def test_a_superseded_replace_copies_and_prunes_nothing(self):
         member = create_person(team=self.team, distinct_ids=["member"], uuid=uuid4())

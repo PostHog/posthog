@@ -9,7 +9,7 @@ from collections.abc import Callable, Iterator, Sequence
 from contextlib import AbstractContextManager
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
-from typing import TYPE_CHECKING, Any, Optional, cast
+from typing import TYPE_CHECKING, Any, Optional, TypeVar, cast
 
 from django.conf import settings
 from django.db import DEFAULT_DB_ALIAS, InterfaceError, OperationalError, connections
@@ -92,6 +92,24 @@ COHORT_QUERY_TIMEOUT_SECONDS = 1200  # Max execution time for ClickHouse cohort 
 STATIC_COHORT_READ_BACK_WAITS_SECONDS = (0.25, 0.5, 1, 2, 4, 8)
 # REPLICA_IS_NOT_IN_QUORUM: a sequentially consistent read reached a replica without the latest quorum part.
 CLICKHOUSE_REPLICA_NOT_IN_QUORUM_CODE = 289
+
+_T = TypeVar("_T")
+
+
+def _retry_quorum_read(read_fn: Callable[[], _T]) -> _T:
+    """Retry a sequentially consistent read on replica-not-in-quorum (289) before surfacing to the task."""
+    for wait_seconds in STATIC_COHORT_READ_BACK_WAITS_SECONDS:
+        try:
+            return read_fn()
+        except Exception as err:
+            # Sequential consistency turns a replica that has not yet fetched the quorum part into error 289
+            # instead of a stale partial result; waiting briefly avoids restarting the whole population task.
+            if getattr(err, "code", None) != CLICKHOUSE_REPLICA_NOT_IN_QUORUM_CODE:
+                raise
+            time.sleep(wait_seconds)
+    return read_fn()
+
+
 COHORT_QUERY_TIMEOUT_SETTINGS = {
     "max_execution_time": COHORT_QUERY_TIMEOUT_SECONDS,
     "send_timeout": COHORT_QUERY_TIMEOUT_SECONDS,
@@ -1502,27 +1520,20 @@ def insert_cohort_people_into_pg(
     consistency, and each of them counts. The stored marker is checked before each page. A newer
     replace attempt makes this raise ``PopulationSuperseded`` before it writes another page.
     """
+
+    def _copy_once() -> tuple[int, bool]:
+        return _copy_static_cohort_rows_to_pg(
+            cohort,
+            team_id=team_id,
+            written_since=written_since,
+            replace_marker=replace_marker,
+            replace_floor=replace_floor,
+        )
+
     for wait_seconds in (*STATIC_COHORT_READ_BACK_WAITS_SECONDS, None):
-        try:
-            new_rows_read, any_counted_resolved = _copy_static_cohort_rows_to_pg(
-                cohort,
-                team_id=team_id,
-                written_since=written_since,
-                replace_marker=replace_marker,
-                replace_floor=replace_floor,
-            )
-        except Exception as err:
-            # A replace reads with sequential consistency, so a replica that hasn't fetched the replace's quorum part
-            # fails the read instead of returning a partial set. It's a short read: wait for the part like any other,
-            # rather than rerunning the whole population. Copying again is safe, since membership inserts are idempotent.
-            if (
-                replace_marker is None
-                or wait_seconds is None
-                or getattr(err, "code", None) != CLICKHOUSE_REPLICA_NOT_IN_QUORUM_CODE
-            ):
-                raise
-            time.sleep(wait_seconds)
-            continue
+        new_rows_read, any_counted_resolved = (
+            _retry_quorum_read(_copy_once) if replace_marker is not None else _copy_once()
+        )
         if new_rows_read >= min_rows:
             # ClickHouse can hold non-empty rows whose UUIDs do not correspond to any Person in Postgres.
             # Require at least one resolved counted person before pruning so Postgres keeps existing members
@@ -1744,17 +1755,21 @@ def mint_population_marker(cohort: Cohort, *, team_id: int) -> datetime | None:
     one attempt can own the cohort at a time.
     """
     stored = cohort.population_marker
-    tag_queries(product=ProductKey.COHORTS, feature=Feature.COHORT, query_type="static_cohort_replace_mint_marker")
-    # nosemgrep: clickhouse-fstring-param-audit - table name from constant, values parameterized
-    with _static_cohort_data_route():
-        rows = sync_execute(
-            f"SELECT max(_timestamp) FROM {PERSON_STATIC_COHORT_TABLE} WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s",
-            {"team_id": team_id, "cohort_id": cohort.pk},
-            settings=REPLACE_READ_SETTINGS,
-            workload=Workload.OFFLINE,
-            ch_user=ClickHouseUser.COHORTS,
-            team_id=team_id,
-        )
+
+    def _read_max_timestamp() -> Any:
+        tag_queries(product=ProductKey.COHORTS, feature=Feature.COHORT, query_type="static_cohort_replace_mint_marker")
+        # nosemgrep: clickhouse-fstring-param-audit - table name from constant, values parameterized
+        with _static_cohort_data_route():
+            return sync_execute(
+                f"SELECT max(_timestamp) FROM {PERSON_STATIC_COHORT_TABLE} WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s",
+                {"team_id": team_id, "cohort_id": cohort.pk},
+                settings=REPLACE_READ_SETTINGS,
+                workload=Workload.OFFLINE,
+                ch_user=ClickHouseUser.COHORTS,
+                team_id=team_id,
+            )
+
+    rows = _retry_quorum_read(_read_max_timestamp)
     floor = _as_utc(rows[0][0]) if rows and rows[0][0] is not None else None
     if stored is not None:
         floor = max(floor, _as_utc(stored)) if floor is not None else _as_utc(stored)
@@ -1878,24 +1893,28 @@ def _uuids_present_at_marker(
     """The persons among ``person_uuids`` that have a row the replace keeps (``REPLACE_KEEPS_ROW``)."""
     if not person_uuids:
         return set()
-    tag_queries(product=ProductKey.COHORTS, feature=Feature.COHORT, query_type="static_cohort_replace_membership")
-    # nosemgrep: clickhouse-fstring-param-audit - table name from constant, values parameterized
-    with _static_cohort_data_route():
-        rows = sync_execute(
-            f"SELECT DISTINCT person_id FROM {PERSON_STATIC_COHORT_TABLE} WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s AND {REPLACE_KEEPS_ROW} AND person_id IN %(person_uuids)s",
-            {
-                "team_id": team_id,
-                "cohort_id": cohort_id,
-                "marker": marker,
-                "floor": floor or marker,
-                "replace_offset": REPLACE_ROW_OFFSET,
-                "person_uuids": person_uuids,
-            },
-            settings=REPLACE_READ_SETTINGS,
-            workload=Workload.OFFLINE,
-            ch_user=ClickHouseUser.COHORTS,
-            team_id=team_id,
-        )
+
+    def _read_present_uuids() -> Any:
+        tag_queries(product=ProductKey.COHORTS, feature=Feature.COHORT, query_type="static_cohort_replace_membership")
+        # nosemgrep: clickhouse-fstring-param-audit - table name from constant, values parameterized
+        with _static_cohort_data_route():
+            return sync_execute(
+                f"SELECT DISTINCT person_id FROM {PERSON_STATIC_COHORT_TABLE} WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s AND {REPLACE_KEEPS_ROW} AND person_id IN %(person_uuids)s",
+                {
+                    "team_id": team_id,
+                    "cohort_id": cohort_id,
+                    "marker": marker,
+                    "floor": floor or marker,
+                    "replace_offset": REPLACE_ROW_OFFSET,
+                    "person_uuids": person_uuids,
+                },
+                settings=REPLACE_READ_SETTINGS,
+                workload=Workload.OFFLINE,
+                ch_user=ClickHouseUser.COHORTS,
+                team_id=team_id,
+            )
+
+    rows = _retry_quorum_read(_read_present_uuids)
     return {str(row[0]) for row in rows}
 
 
