@@ -19,8 +19,7 @@ def check_ses_sender_health() -> None:
         failed_domains = SESProvider().list_failed_domain_identities()
     except Exception as error:
         error_code = error.response.get("Error", {}).get("Code") if isinstance(error, ClientError) else None
-        logger.exception("SES sender health check could not list identities", error_code=error_code)
+        logger.warning("SES sender health check could not list identities", error_code=error_code)
         capture_exception(error, {"error_code": error_code})
-        # Re-raised so the Celery task failure metric still counts the run.
         raise
     record_ses_sending_status(failed_domains)
