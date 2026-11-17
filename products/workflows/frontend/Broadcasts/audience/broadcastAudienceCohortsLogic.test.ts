@@ -80,7 +80,7 @@ describe('broadcastAudienceCohortsLogic', () => {
         ['not_in', excluded],
         ['negation', { ...excluded, operator: PropertyOperator.In, negation: true } as AnyPropertyFilter],
     ])(
-        'shows a cohort excluded by %s as a "not in" condition rather than a recipient card, and still blocks launch while it matches',
+        'shows a cohort excluded by %s as a "not in" condition in the summary and the editor rather than a recipient card, and still blocks launch while it matches',
         async (_, condition) => {
             jest.useFakeTimers()
             try {
@@ -95,6 +95,7 @@ describe('broadcastAudienceCohortsLogic', () => {
                 await jest.advanceTimersByTimeAsync(1000)
                 expect(logic.values.includedCohortIds).toEqual([])
                 expect(logic.values.nonCohortAudience).toEqual([excluded])
+                expect(logic.values.editableAudience).toEqual([excluded])
                 expect(wizard.values.audienceCohortLaunchErrors).toEqual([
                     { cohortId: 42, message: expect.stringContaining('still matching people') },
                 ])
