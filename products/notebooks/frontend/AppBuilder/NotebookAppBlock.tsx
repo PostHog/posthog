@@ -25,10 +25,15 @@ export function NotebookAppBlock({
     onInput: (name: string, value: NotebookVariableValue) => void
 }): JSX.Element {
     if (block.kind === 'divider') {
-        return <hr />
+        return <hr aria-label={block.title || undefined} />
     }
     if (block.kind === 'text') {
-        return <LemonMarkdown>{block.text || '*Add text in component settings.*'}</LemonMarkdown>
+        return (
+            <div>
+                {block.title && <h3 className="mb-3">{block.title}</h3>}
+                <LemonMarkdown>{block.text || '*Add text in component settings.*'}</LemonMarkdown>
+            </div>
+        )
     }
     if (block.kind === 'input') {
         return (

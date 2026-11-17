@@ -54,6 +54,7 @@ const markdown = [
         title: 'Weekly breakdown',
         code: 'select * from weekly_growth',
         returnVariable: 'growth_table',
+        outputTab: 'results',
         result,
     }),
     serializeMarkdownNotebookComponent('PythonV2', {

@@ -23,8 +23,12 @@ export function appSourceCells(markdown: string): NotebookBlockNode[] {
     return parseMarkdownNotebook(markdown)
         .nodes.filter(
             (node) =>
-                !(node.type === 'component' && ['Comment', 'Prompt', 'NotebookComment'].includes(node.tagName)) &&
-                !(node.type === 'paragraph' && !getInlineText(node.children).trim())
+                !(
+                    node.type === 'component' &&
+                    ['Comment', 'Prompt', 'NotebookComment', 'Columns', 'Column', 'ColumnEnd', 'ColumnsEnd'].includes(
+                        node.tagName
+                    )
+                ) && !(node.type === 'paragraph' && !getInlineText(node.children).trim())
         )
         .map((node) =>
             node.type === 'component' && typeof node.props.nodeId === 'string' && node.props.nodeId

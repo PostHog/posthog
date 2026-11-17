@@ -94,10 +94,10 @@ class NotebookAppLayoutSerializer(serializers.Serializer):
     full_width = serializers.BooleanField(
         default=False, help_text="Use all available width instead of a centered page."
     )
-    tabs = serializers.ListSerializer(
+    tabs: serializers.ListSerializer[dict[str, Any]] = serializers.ListSerializer(
         child=NotebookAppTabSerializer(), allow_empty=False, max_length=20, help_text="Ordered app tabs."
     )
-    blocks = serializers.ListSerializer(
+    blocks: serializers.ListSerializer[dict[str, Any]] = serializers.ListSerializer(
         child=NotebookAppBlockSerializer(),
         max_length=100,
         help_text="Ordered components, arranged in rows within each tab.",
