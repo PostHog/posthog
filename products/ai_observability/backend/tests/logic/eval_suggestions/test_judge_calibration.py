@@ -231,6 +231,20 @@ def test_the_judge_grades_the_review_calls_on_the_team_model(
     )
 
 
+@parameterized.expand(
+    [
+        ("anthropic", call_review, "build_ai_gateway_anthropic_client"),
+        ("openai", judge_calibration, "build_openai_client"),
+        ("gemini", judge_calibration, "build_gemini_client"),
+    ]
+)
+def test_every_judge_client_tags_its_calls_with_the_run_trigger(provider: str, module: Any, builder: str) -> None:
+    with patch.object(module, builder) as build:
+        judge_calibration.build_client(7, "run-1", DEFAULT_MODEL_BY_PROVIDER[provider], "manual")
+
+    assert build.call_args.kwargs["properties"]["trigger"] == "manual"
+
+
 def test_a_judge_is_calibrated_on_the_prompts_the_accepted_evaluation_sends() -> None:
     tools = [{"type": "function", "function": {"name": "refund_status", "description": "Looks up a refund."}}]
     messages = [
@@ -287,7 +301,11 @@ def test_a_judge_is_calibrated_on_the_prompts_the_accepted_evaluation_sends() ->
 def test_a_judge_request_reads_any_stored_call(_name: str, input: str, output: str, tools: str, expected: str) -> None:
     row = ReviewCallRow(event_uuid="e1", trace_id="t1", call_type=SUPPORT.key, input=input, output=output, tools=tools)
     rendering = call_review.Rendering(
-        text="", call_types={}, trace_ids={}, calls={1: call_review.RenderedCall(call_type=SUPPORT.key, row=row)}
+        text="",
+        call_types={},
+        trace_ids={},
+        calls={1: call_review.RenderedCall(call_type=SUPPORT.key, row=row)},
+        earlier_cards={},
     )
 
     request = judge_calibration.judge_request(

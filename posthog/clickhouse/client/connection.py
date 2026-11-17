@@ -156,8 +156,6 @@ class ClickHouseUser(StrEnum):
     BILLING = "billing"
     BUSINESS_KNOWLEDGE = "business_knowledge"
     REPLAY_VISION = "replay_vision"
-    # Session replay surfacing scoring sweep
-    SURFACING_SCORING = "surfacing_scoring"
     DELETION_EXECUTOR = "deletion_executor"
     # The alerts platform's parallel evaluation has one user per source. A source's checks then
     # never take from the concurrency budget of the user that its production alerting queries as.
