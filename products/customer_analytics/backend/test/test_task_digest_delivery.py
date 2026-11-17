@@ -7,10 +7,12 @@ from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
 from django.core import mail
+from django.core.cache import caches
 from django.db import DatabaseError
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
+from redis.exceptions import RedisError
 
 from posthog.models import OrganizationMembership
 from posthog.models.instance_setting import override_instance_config
@@ -122,6 +124,14 @@ class TestTaskDigestDelivery(BaseTest):
         record = MessagingRecord.objects.get(campaign_key=self.campaign_key)
         assert record.sent_at is None
         assert record.campaign_count == MAX_SEND_ATTEMPTS
+
+    @override_settings(POSTHOG_TRANSACTIONAL_EMAIL_API_KEY="phs_test", POSTHOG_HOST="https://us.posthog.com")
+    def test_a_pin_cache_failure_is_a_temporary_failure(self) -> None:
+        with patch.object(caches["email_workflows_pins"], "get", side_effect=RedisError("cache down")):
+            with self.assertRaises(TemporaryTaskDigestFailure):
+                deliver_task_digest(self.team.pk, self.user.pk, "2026-09-18")
+
+        assert MessagingRecord.objects.get(campaign_key=self.campaign_key).campaign_count == 1
 
     @parameterized.expand([("opt_out",), ("membership",), ("reassigned",), ("disabled",), ("flag",)])
     def test_current_state_is_checked_before_sending(self, change: str) -> None:
