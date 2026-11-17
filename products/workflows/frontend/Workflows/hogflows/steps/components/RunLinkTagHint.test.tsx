@@ -68,8 +68,15 @@ describe('<RunLinkTagHint />', () => {
     })
 
     it('reloads the team once per return, and not after the hint is gone', async () => {
-        const loadTeam = jest.fn(() => [200, MOCK_DEFAULT_TEAM])
-        useMocks({ get: { '/api/projects/:id/': loadTeam } })
+        const teamRequests: string[] = []
+        useMocks({
+            get: {
+                '/api/projects/:id/': ({ request }) => {
+                    teamRequests.push(request.url)
+                    return [200, MOCK_DEFAULT_TEAM]
+                },
+            },
+        })
         const { unmount } = render(<RunLinkTagHint />)
         const link = screen.getByText('Turn it off in settings')
 
@@ -78,13 +85,13 @@ describe('<RunLinkTagHint />', () => {
         await act(async () => {
             window.dispatchEvent(new Event('focus'))
         })
-        expect(loadTeam).toHaveBeenCalledTimes(1)
+        expect(teamRequests).toHaveLength(1)
 
         fireEvent.click(link)
         unmount()
         await act(async () => {
             window.dispatchEvent(new Event('focus'))
         })
-        expect(loadTeam).toHaveBeenCalledTimes(1)
+        expect(teamRequests).toHaveLength(1)
     })
 })
