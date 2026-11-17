@@ -1765,12 +1765,10 @@ def social_require_idp_email_verification(
     try:
         sent = _send_login_code(request, user, target_email=email)
     except LoginCodeEmailUndeliverable:
-        # The provider refuses mail for this address, so refusing the login as well would lock the
-        # account out. The step retries on the next login.
         logger.warning("idp_email_verification_code_undeliverable", user_id=user.pk, backend=backend.name)
         sent = False
     if not sent:
-        return None
+        return redirect(sso_failure_redirect_url(request, "improperly_configured_sso"))
 
     request.session[CODE_BASED_VERIFICATION_SSO_SESSION_KEY] = PendingIdPEmailVerification(
         provider=identity.provider,

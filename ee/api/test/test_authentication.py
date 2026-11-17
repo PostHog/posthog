@@ -397,7 +397,7 @@ class TestOIDCAuthentication(APILicensedTest):
         self.assertTrue(self.user.is_email_verified)
 
     @pytest.mark.disable_mock_code_based_verifier
-    def test_login_continues_when_the_asserted_address_refuses_mail(self) -> None:
+    def test_login_stops_when_the_asserted_address_refuses_mail(self) -> None:
         self.user.email = "member@example.com"
         self.user.save()
         self.client.logout()
@@ -406,7 +406,8 @@ class TestOIDCAuthentication(APILicensedTest):
             response = self._complete_oidc_login("member@example.com")
 
         self.assertEqual(response.status_code, 302)
-        self.assertEqual(self.client.session["_auth_user_id"], str(self.user.pk))
+        self.assertNotIn("_auth_user_id", self.client.session)
+        self.assertFalse(UserSocialAuth.objects.filter(user=self.user, provider="oidc").exists())
         self.assertFalse(IdentityProviderEmailVerification.objects.filter(user=self.user).exists())
 
     @parameterized.expand([("verified", True), ("unverified", False), ("missing", None)])
