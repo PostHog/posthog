@@ -27,6 +27,7 @@ from products.alerts.backend.logic.destination_eligibility import (
     classify_destinations_by_alert,
     unbound_alert_destinations,
 )
+from products.alerts.backend.logic.workflow_triggers import workflow_triggered_alert_ids
 from products.alerts_platform.backend.facade.contracts import DeliveryPath, SourceKind
 from products.alerts_platform.backend.facade.delivery import has_legacy_webhook_body, keeps_legacy_webhook_body
 from products.cdp.backend.internal_events import LEGACY_INSIGHT_ALERT_EVENT
@@ -39,8 +40,12 @@ def delivery_path(
 ) -> DeliveryPath:
     """The platform's chooser: the path one alert's destinations allow now."""
     team = _TeamDestinations(source=source, team_id=team_id, allowed_event_ids=allowed_event_ids)
-    choice = team.unbound_choice() or team.choice(
-        classify_alert_destinations(team_id=team_id, alert_id=alert_id, allowed_event_ids=allowed_event_ids)
+    choice = (
+        team.unbound_choice()
+        or team.workflow_choice(alert_id)
+        or team.choice(
+            classify_alert_destinations(team_id=team_id, alert_id=alert_id, allowed_event_ids=allowed_event_ids)
+        )
     )
     if choice.reason is not None:
         logger.info("alert_delivery_path_hog_function", team_id=team_id, alert_id=alert_id, reason=choice.reason)
@@ -55,7 +60,10 @@ def team_delivery_paths(
     if (unbound := team.unbound_choice()) is not None:
         return dict.fromkeys(alert_ids, unbound)
     by_alert = classify_destinations_by_alert(team_id=team_id, alert_ids=alert_ids, allowed_event_ids=allowed_event_ids)
-    return {alert_id: team.choice(destinations) for alert_id, destinations in by_alert.items()}
+    return {
+        alert_id: team.workflow_choice(alert_id) or team.choice(destinations)
+        for alert_id, destinations in by_alert.items()
+    }
 
 
 class _TeamDestinations:
@@ -69,6 +77,14 @@ class _TeamDestinations:
     def unbound_choice(self) -> DeliveryPathChoice | None:
         """Every alert of a team with an unbound function sends through HogFunctions, whatever its own destinations are."""
         return DeliveryPathChoice(reason=HogFunctionPathReason.UNBOUND) if self._has_unbound else None
+
+    def workflow_choice(self, alert_id: str) -> DeliveryPathChoice | None:
+        """An alert a live workflow starts on sends through HogFunctions, because only that path emits the event the workflow listens on."""
+        return (
+            DeliveryPathChoice(reason=HogFunctionPathReason.WORKFLOW_TRIGGER)
+            if alert_id in self._workflow_alert_ids
+            else None
+        )
 
     def choice(self, destinations: Sequence[DestinationEligibility]) -> DeliveryPathChoice:
         if any(bucket_for(destination) != DestinationBucket.STOCK for destination in destinations):
@@ -86,6 +102,12 @@ class _TeamDestinations:
             if self._keeps_legacy_webhook_body and not has_legacy_webhook_body(self._source):
                 return DeliveryPathChoice(reason=HogFunctionPathReason.LEGACY_WEBHOOK_BODY_NOT_NATIVE)
         return DeliveryPathChoice()
+
+    @cached_property
+    def _workflow_alert_ids(self) -> frozenset[str]:
+        if self._source != SourceKind.INSIGHT or LEGACY_INSIGHT_ALERT_EVENT not in self._allowed_event_ids:
+            return frozenset()
+        return workflow_triggered_alert_ids(self._team_id)
 
     @cached_property
     def _has_unbound(self) -> bool:
