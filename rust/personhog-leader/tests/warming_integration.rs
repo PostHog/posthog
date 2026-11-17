@@ -10,10 +10,13 @@ use std::time::Duration;
 use common::{create_mock_kafka, test_warming_config, CHANGELOG_TOPIC, NUM_PARTITIONS};
 use personhog_coordination::changelog::WarmSource;
 use personhog_leader::cache::{CacheLookup, DirtyIndex, PartitionedCache, PersonCacheKey};
-use personhog_leader::warming::{warm_from_sources, WarmClientPools, WarmingConfig};
+use personhog_leader::warming::{
+    fill_source, lookback_offset, warm_from_sources, FillConfig, FillEnd, WarmClientPools,
+    WarmingConfig,
+};
 use personhog_proto::personhog::types::v1::Person;
 use prost::Message as ProtoMessage;
-use rdkafka::config::ClientConfig;
+use rdkafka::config::{ClientConfig, FromClientConfig};
 use rdkafka::consumer::{BaseConsumer, CommitMode, Consumer};
 use rdkafka::mocking::MockCluster;
 use rdkafka::producer::{DefaultProducerContext, FutureProducer, FutureRecord};
@@ -100,7 +103,358 @@ async fn warm_live(
     partition: u32,
 ) -> personhog_coordination::error::Result<()> {
     let sources = [WarmSource::live(CHANGELOG_TOPIC, None, partition)];
-    warm_from_sources(cfg, pools, cache, dirty_index, partition, &sources).await
+    warm_from_sources(cfg, pools, cache, dirty_index, partition, &sources)
+        .await
+        .map(|_| ())
+}
+
+fn version_of(cache: &PartitionedCache, partition: u32, person_id: i64) -> Option<i64> {
+    let key = PersonCacheKey {
+        team_id: 1,
+        person_id,
+    };
+    match cache.get(partition, &key) {
+        CacheLookup::Found(person) => Some(person.version),
+        _ => None,
+    }
+}
+
+fn token(cache: &PartitionedCache) -> u64 {
+    cache
+        .fill_token(0)
+        .expect("the partition has a pending fill")
+}
+
+const FILL: FillConfig = FillConfig {
+    lookback: Duration::from_secs(3600),
+    chunk_offsets: 2,
+    pause: Duration::ZERO,
+    room_fraction: 0.9,
+};
+
+/// Six applied records on partition 0, then a warm that finds nothing left to read.
+async fn warmed_over_applied_history(
+    cache: &PartitionedCache,
+) -> (
+    MockCluster<'static, DefaultProducerContext>,
+    WarmingConfig,
+    WarmClientPools,
+    i64,
+) {
+    let (cluster, producer) = create_mock_kafka().await;
+    let history = [
+        Person {
+            version: 1,
+            ..make_person(1, 1)
+        },
+        Person {
+            version: 1,
+            ..make_person(1, 2)
+        },
+        Person {
+            version: 1,
+            ..make_person(1, 3)
+        },
+        Person {
+            version: 2,
+            ..make_person(1, 1)
+        },
+        Person {
+            version: 2,
+            is_deleted: true,
+            ..make_person(1, 3)
+        },
+        Person {
+            version: 3,
+            ..make_person(1, 1)
+        },
+    ];
+    for person in &history {
+        produce_person_to_partition(&producer, 0, person).await;
+    }
+    commit_writer_offset_at(&cluster, "personhog-writer", 0, history.len() as i64);
+    let dirty_index = DirtyIndex::new(1_000_000);
+    let (cfg, pools) = warming_config_for("filler", &cluster);
+    let sources = [WarmSource::live(CHANGELOG_TOPIC, None, 0)];
+    let starts = warm_from_sources(&cfg, &pools, cache, &dirty_index, 0, &sources)
+        .await
+        .expect("warming should succeed");
+    assert!(dirty_index.is_empty());
+    (cluster, cfg, pools, starts[0])
+}
+
+#[tokio::test]
+async fn the_lookback_offset_is_the_first_record_at_or_after_the_cutoff() {
+    let topic = common::owned_broker_topic(1).await;
+    let producer = common::create_kafka_producer_on(&topic.bootstrap_servers()).await;
+    const HOUR_MS: i64 = 3_600_000;
+    let now_ms = 1_790_000_000_000;
+    for (person_id, age_hours) in [(1, 3), (2, 2), (3, 1)] {
+        let person = make_person(1, person_id);
+        let key = format!("1:{person_id}");
+        let payload = person.encode_to_vec();
+        let record = FutureRecord::to(&topic.topic)
+            .key(&key)
+            .partition(0)
+            .timestamp(now_ms - age_hours * HOUR_MS)
+            .payload(&payload);
+        producer
+            .send(record, Duration::from_secs(5))
+            .await
+            .expect("produce should succeed");
+    }
+    let cfg = test_warming_config("lookback", &topic.bootstrap_servers());
+    let pools = WarmClientPools::new(&cfg.kafka, "lookback", &cfg.writer_consumer_group);
+    let source = WarmSource::live(&topic.topic, None, 0);
+
+    let cutoffs = [
+        (now_ms - 4 * HOUR_MS, 0),
+        (now_ms - 2 * HOUR_MS - HOUR_MS / 2, 1),
+        (now_ms, 3),
+    ];
+    for (since_ms, expected) in cutoffs {
+        let offset = lookback_offset(&cfg, &pools, &source, since_ms, 3)
+            .await
+            .expect("lookup should succeed");
+        assert_eq!(offset, expected, "cutoff {since_ms}");
+    }
+}
+
+#[tokio::test]
+async fn a_fill_reads_each_record_once_when_markers_end_its_chunks() {
+    use rdkafka::producer::Producer;
+
+    let topic = common::owned_broker_topic(1).await;
+    let producer: FutureProducer = ClientConfig::new()
+        .set("bootstrap.servers", topic.bootstrap_servers())
+        .set("transactional.id", format!("fill-{}", topic.topic))
+        .create()
+        .expect("transactional producer");
+    producer
+        .init_transactions(Duration::from_secs(10))
+        .expect("init transactions");
+    // One transaction per record, so every record is followed by a marker.
+    for person_id in 1..=3 {
+        producer.begin_transaction().expect("begin");
+        let payload = make_person(1, person_id).encode_to_vec();
+        let key = format!("1:{person_id}");
+        producer
+            .send(
+                FutureRecord::to(&topic.topic)
+                    .key(&key)
+                    .partition(0)
+                    .payload(&payload),
+                Duration::from_secs(5),
+            )
+            .await
+            .expect("produce should succeed");
+        producer
+            .commit_transaction(Duration::from_secs(10))
+            .expect("commit");
+    }
+    let cfg = test_warming_config("markers", &topic.bootstrap_servers());
+    let pools = WarmClientPools::new(&cfg.kafka, "markers", &cfg.writer_consumer_group);
+    let cache = PartitionedCache::new(1 << 20).with_fill(true);
+    cache.begin_warm_partition(0);
+    cache.publish_warmed_partition(0);
+    let source = WarmSource::live(&topic.topic, None, 0);
+
+    let (_, end) = BaseConsumer::from_config(
+        ClientConfig::new().set("bootstrap.servers", topic.bootstrap_servers()),
+    )
+    .expect("consumer")
+    .fetch_watermarks(&topic.topic, 0, Duration::from_secs(5))
+    .expect("watermarks");
+
+    let stats = fill_source(
+        &cfg,
+        &FILL,
+        &pools,
+        &cache,
+        0,
+        token(&cache),
+        &source,
+        0,
+        end,
+    )
+    .await
+    .expect("fill should succeed");
+
+    assert_eq!((stats.records, stats.inserted), (3, 3));
+}
+
+#[tokio::test]
+async fn a_fill_restores_the_newest_applied_record_of_each_live_person() {
+    let cache = PartitionedCache::new(1 << 20).with_fill(true);
+    let (_cluster, cfg, pools, upper) = warmed_over_applied_history(&cache).await;
+    assert_eq!(version_of(&cache, 0, 1), None);
+
+    let source = WarmSource::live(CHANGELOG_TOPIC, None, 0);
+    let stats = fill_source(
+        &cfg,
+        &FILL,
+        &pools,
+        &cache,
+        0,
+        token(&cache),
+        &source,
+        0,
+        upper,
+    )
+    .await
+    .expect("fill should succeed");
+
+    assert_eq!(stats.end, FillEnd::Bound);
+    assert_eq!(version_of(&cache, 0, 1), Some(3));
+    assert_eq!(version_of(&cache, 0, 2), Some(1));
+    assert_eq!(version_of(&cache, 0, 3), None);
+}
+
+#[tokio::test]
+async fn a_fill_leaves_a_person_put_since_the_warm_alone() {
+    let cache = PartitionedCache::new(1 << 20).with_fill(true);
+    let (_cluster, cfg, pools, upper) = warmed_over_applied_history(&cache).await;
+    let newer = personhog_leader::cache::CachedPerson::try_from(Person {
+        version: 9,
+        ..make_person(1, 1)
+    })
+    .unwrap();
+    cache.put(
+        0,
+        PersonCacheKey {
+            team_id: 1,
+            person_id: 1,
+        },
+        newer,
+    );
+
+    let source = WarmSource::live(CHANGELOG_TOPIC, None, 0);
+    fill_source(
+        &cfg,
+        &FILL,
+        &pools,
+        &cache,
+        0,
+        token(&cache),
+        &source,
+        0,
+        upper,
+    )
+    .await
+    .expect("fill should succeed");
+
+    assert_eq!(version_of(&cache, 0, 1), Some(9));
+    assert_eq!(version_of(&cache, 0, 2), Some(1));
+}
+
+#[tokio::test]
+async fn a_fill_stops_when_the_cache_has_no_room_or_tracks_no_puts() {
+    let source = WarmSource::live(CHANGELOG_TOPIC, None, 0);
+
+    let full = PartitionedCache::new(1 << 20).with_fill(true);
+    let (_cluster, cfg, pools, upper) = warmed_over_applied_history(&full).await;
+    let no_room = FillConfig {
+        room_fraction: 0.0,
+        ..FILL
+    };
+    let stats = fill_source(
+        &cfg,
+        &no_room,
+        &pools,
+        &full,
+        0,
+        token(&full),
+        &source,
+        0,
+        upper,
+    )
+    .await
+    .expect("fill should succeed");
+    assert_eq!((stats.end, stats.inserted), (FillEnd::Budget, 0));
+
+    let untracked = PartitionedCache::new(1 << 20);
+    let (_cluster, cfg, pools, upper) = warmed_over_applied_history(&untracked).await;
+    let stats = fill_source(&cfg, &FILL, &pools, &untracked, 0, 0, &source, 0, upper)
+        .await
+        .expect("fill should succeed");
+    assert_eq!((stats.end, stats.inserted), (FillEnd::Stopped, 0));
+
+    let released = PartitionedCache::new(1 << 20).with_fill(true);
+    let (_cluster, cfg, pools, upper) = warmed_over_applied_history(&released).await;
+    let held = token(&released);
+    released.drop_partition(0);
+    let stats = fill_source(&cfg, &FILL, &pools, &released, 0, held, &source, 0, upper)
+        .await
+        .expect("fill should succeed");
+    assert_eq!((stats.end, stats.inserted), (FillEnd::Stopped, 0));
+}
+
+#[tokio::test]
+async fn a_fill_over_many_chunks_reads_every_record_once() {
+    let topic = common::owned_broker_topic(1).await;
+    let producer = common::create_kafka_producer_on(&topic.bootstrap_servers()).await;
+    const PERSONS: i64 = 200;
+    for person_id in 1..=PERSONS {
+        let payload = make_person(1, person_id).encode_to_vec();
+        let key = format!("1:{person_id}");
+        producer
+            .send(
+                FutureRecord::to(&topic.topic)
+                    .key(&key)
+                    .partition(0)
+                    .payload(&payload),
+                Duration::from_secs(5),
+            )
+            .await
+            .expect("produce should succeed");
+    }
+    let cfg = test_warming_config("chunks", &topic.bootstrap_servers());
+    let pools = WarmClientPools::new(&cfg.kafka, "chunks", &cfg.writer_consumer_group);
+    let cache = PartitionedCache::new(8 << 20).with_fill(true);
+    cache.begin_warm_partition(0);
+    cache.publish_warmed_partition(0);
+    let source = WarmSource::live(&topic.topic, None, 0);
+    let fill = FillConfig {
+        chunk_offsets: 7,
+        ..FILL
+    };
+
+    let stats = fill_source(
+        &cfg,
+        &fill,
+        &pools,
+        &cache,
+        0,
+        token(&cache),
+        &source,
+        0,
+        PERSONS,
+    )
+    .await
+    .expect("fill should succeed");
+
+    assert_eq!(
+        (stats.records, stats.inserted),
+        (PERSONS as u64, PERSONS as u64)
+    );
+}
+
+#[tokio::test]
+async fn a_fill_fails_on_a_record_it_cannot_decode() {
+    let (cluster, producer) = create_mock_kafka().await;
+    produce_person_to_partition(&producer, 0, &make_person(1, 1)).await;
+    produce_garbage_to_partition(&producer, 0).await;
+    produce_person_to_partition(&producer, 0, &make_person(1, 2)).await;
+    let (cfg, pools) = warming_config_for("garbage", &cluster);
+    let cache = PartitionedCache::new(1 << 20).with_fill(true);
+    cache.begin_warm_partition(0);
+    cache.publish_warmed_partition(0);
+    let source = WarmSource::live(CHANGELOG_TOPIC, None, 0);
+
+    let failed = fill_source(&cfg, &FILL, &pools, &cache, 0, token(&cache), &source, 0, 3).await;
+
+    assert!(failed.is_err());
+    assert_eq!(version_of(&cache, 0, 2), None);
 }
 
 /// Happy path: produce N messages to a partition, warm, assert every

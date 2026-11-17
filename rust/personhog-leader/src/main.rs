@@ -304,7 +304,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let cache = Arc::new(
         PartitionedCache::new(config.cache_memory_capacity_bytes)
-            .with_properties_compression(config.cache_properties_compression_enabled),
+            .with_properties_compression(config.cache_properties_compression_enabled)
+            .with_fill(config.cache_fill().is_some()),
     );
 
     // PG fallback pool for cache misses (optional, disabled if URL is empty)
@@ -579,7 +580,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Arc::clone(&fenced),
         Arc::clone(&authority),
         Arc::clone(&emitted_versions),
-    );
+    )
+    .with_fill(config.cache_fill());
     let advertise_address =
         personhog_leader::config::derive_advertise_address(&config.grpc_address, &config.pod_ip)
             .expect("Invalid advertise address configuration");

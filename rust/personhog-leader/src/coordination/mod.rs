@@ -23,7 +23,7 @@ use crate::fencing::{
 };
 use crate::inflight::InflightTracker;
 use crate::pg::PgFallback;
-use crate::warming::{warm_from_sources, WarmClientPools, WarmingConfig};
+use crate::warming::{run_fill, warm_from_sources, FillConfig, WarmClientPools, WarmingConfig};
 
 /// The config a partition was acquired under.
 pub struct Capture {
@@ -115,6 +115,24 @@ pub struct LeaderHandoffHandler {
     freshly_fenced: Arc<dashmap::DashSet<u32>>,
     captures: ChangelogCaptures,
     changelog: LiveChangelog,
+    fill: Option<FillConfig>,
+    /// Each partition's running fill, stopped when the partition is released.
+    fills: Arc<DashMap<u32, tokio::task::AbortHandle>>,
+    /// One fill at a time, so fills never crowd out serving.
+    fill_slot: Arc<tokio::sync::Semaphore>,
+}
+
+/// Stops a fill's put tracking however the fill ends.
+struct EndFill {
+    cache: Arc<PartitionedCache>,
+    partition: u32,
+    token: u64,
+}
+
+impl Drop for EndFill {
+    fn drop(&mut self) {
+        self.cache.end_fill(self.partition, self.token);
+    }
 }
 
 impl LeaderHandoffHandler {
@@ -147,6 +165,52 @@ impl LeaderHandoffHandler {
             freshly_fenced: Arc::new(dashmap::DashSet::new()),
             captures,
             changelog,
+            fill: None,
+            fills: Arc::new(DashMap::new()),
+            fill_slot: Arc::new(tokio::sync::Semaphore::new(1)),
+        }
+    }
+
+    /// The cache must be built `with_fill` too, or no build records its puts.
+    pub fn with_fill(mut self, fill: Option<FillConfig>) -> Self {
+        self.fill = fill;
+        self
+    }
+
+    /// Refill the partition's cache in the background; nothing waits on it.
+    fn start_fill(
+        &self,
+        partition: u32,
+        source: personhog_coordination::changelog::WarmSource,
+        upper: i64,
+    ) {
+        let Some(token) = self.cache.fill_token(partition) else {
+            return;
+        };
+        let Some(fill) = self.fill else {
+            self.cache.end_fill(partition, token);
+            return;
+        };
+        let cache = Arc::clone(&self.cache);
+        let pools = Arc::clone(&self.pools);
+        let warming = self.warming.clone();
+        let slot = Arc::clone(&self.fill_slot);
+        let task = tokio::spawn(async move {
+            let _end = EndFill {
+                cache: Arc::clone(&cache),
+                partition,
+                token,
+            };
+            let Ok(_permit) = slot.acquire().await else {
+                return;
+            };
+            run_fill(
+                &warming, &fill, &pools, &cache, partition, token, &source, upper,
+            )
+            .await;
+        });
+        if let Some(previous) = self.fills.insert(partition, task.abort_handle()) {
+            previous.abort();
         }
     }
 
@@ -351,8 +415,8 @@ impl HandoffHandler for LeaderHandoffHandler {
         // The guard gives the epoch back if the warm fails or never
         // returns, rather than holding a partition this pod lost.
         let fence_guard = FenceGuard::new(Arc::clone(&self.fenced), partition, "warm");
-        let sources = warm_sources(&config, partition);
-        warm_from_sources(
+        let mut sources = warm_sources(&config, partition);
+        let mut warm_starts = warm_from_sources(
             &self.warming,
             &self.pools,
             &self.cache,
@@ -369,6 +433,10 @@ impl HandoffHandler for LeaderHandoffHandler {
         capture_guard.armed = false;
         self.freshly_fenced.insert(partition);
         info!(partition, "partition warmed");
+        // The live source is last, and holds each person's newest records.
+        if let (Some(live), Some(upper)) = (sources.pop(), warm_starts.pop()) {
+            self.start_fill(partition, live, upper);
+        }
         Ok(())
     }
 
@@ -413,6 +481,9 @@ impl HandoffHandler for LeaderHandoffHandler {
     // growing SHUTDOWN_FENCE_BOUND.
     async fn release_partition(&self, partition: u32) -> Result<()> {
         info!(partition, "releasing partition");
+        if let Some((_, fill)) = self.fills.remove(&partition) {
+            fill.abort();
+        }
         self.fenced.release(partition);
         self.inflight.unfence(partition);
         self.cache.drop_partition(partition);
