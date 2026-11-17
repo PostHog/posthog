@@ -1,5 +1,5 @@
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from posthog.test.base import BaseTest
@@ -13,6 +13,7 @@ from parameterized import parameterized
 from posthog.clickhouse.client import sync_execute
 from posthog.helpers.batch_iterators import FunctionBatchIterator
 from posthog.models import Person, Team
+from posthog.models.person.sql import INSERT_PERSON_STATIC_COHORT
 from posthog.models.person.util import get_person_by_id
 from posthog.tasks.calculate_cohort import calculate_cohort_from_list
 from posthog.test.persons import add_cohort_members, create_person
@@ -548,6 +549,34 @@ class TestCohort(BaseTest):
             {"team_id": self.team.id, "cohort_id": cohort.pk, "person_id": str(person.uuid)},
         )
         self.assertEqual(rows[0][0], expected_rows)
+
+    def test_stale_instance_insert_after_replace_ignores_lingering_ch_rows(self):
+        person = create_person(team=self.team, distinct_ids=["pruned"], uuid=uuid.uuid4())
+        stale_cohort = Cohort.objects.create(team=self.team, groups=[], is_static=True)
+        before_replace = datetime(2026, 3, 1, 12, 0, 0, tzinfo=UTC)
+        floor = before_replace + timedelta(minutes=5)
+        marker = floor + timedelta(minutes=1)
+        sync_execute(
+            INSERT_PERSON_STATIC_COHORT,
+            [(uuid.uuid4(), person.uuid, stale_cohort.pk, self.team.pk, before_replace)],
+        )
+
+        # Simulate a replace finishing after stale_cohort was loaded, leaving the pre-replace ClickHouse row
+        # lingering while last_replace_marker/last_replace_floor are stored in Postgres.
+        Cohort.objects.filter(pk=stale_cohort.pk).update(
+            pending_population_mode=None,
+            last_replace_marker=marker,
+            last_replace_floor=floor,
+        )
+
+        stale_cohort.insert_users_list_by_uuid([str(person.uuid)], team_id=self.team.pk, insert_in_clickhouse=True)
+
+        fresh_rows = sync_execute(
+            "SELECT count() FROM person_static_cohort WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s AND person_id = %(person_id)s AND _timestamp >= %(floor)s",
+            {"team_id": self.team.id, "cohort_id": stale_cohort.pk, "person_id": str(person.uuid), "floor": floor},
+        )
+        self.assertEqual(fresh_rows[0][0], 1)
+        self.assertEqual(count_cohort_members(self.team.id, stale_cohort.pk), 1)
 
     def test_insert_users_by_list_avoids_duplicates_with_batching(self):
         """Test that batching with duplicates works correctly - people already in cohort are not re-inserted."""

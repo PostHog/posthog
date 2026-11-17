@@ -1278,11 +1278,20 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         insert_cohort_members(team_id, self.pk, person_ids, self.version, _skip_ownership_check=True)
 
     def _replace_in_flight(self) -> bool:
-        # Read from the database: the caller's instance may predate the claim.
-        # The mode alone, not is_calculating: the sweep releases is_calculating before its redispatch starts, and an
-        # add in that gap must still write a fresh row. A stale mode would only write a duplicate row, which readers
-        # deduplicate.
-        return Cohort.objects.filter(pk=self.pk, pending_population_mode=CohortPopulationMode.REPLACE).exists()
+        # Read from the database: the caller's instance may predate a claim or the finish of a prior replace.
+        # Refreshing last_replace_marker and last_replace_floor here ensures the ClickHouse membership check ignores
+        # lingering rows from a replace that finished after this instance was loaded.
+        # Only pending_population_mode decides whether a replace is in flight, not is_calculating: the sweep
+        # releases is_calculating before its redispatch starts, and an add in that gap must still write a fresh row.
+        row = (
+            Cohort.objects.filter(pk=self.pk)
+            .values_list("pending_population_mode", "last_replace_marker", "last_replace_floor")
+            .first()
+        )
+        if row is None:
+            return False
+        mode, self.last_replace_marker, self.last_replace_floor = row
+        return mode == CohortPopulationMode.REPLACE
 
     def _get_existing_ch_member_uuids(
         self,

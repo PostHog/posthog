@@ -1439,12 +1439,16 @@ def schedule_static_cohort_count_refresh(*, team_id: int, cohort_id: int) -> Non
         raise
 
 
+def _recount_static_cohort(*, team_id: int, cohort_id: int) -> None:
+    count = count_cohort_members(team_id=team_id, cohort_id=cohort_id, consistency="strong")
+    Cohort.objects.filter(team_id=team_id, id=cohort_id, is_static=True).update(count=count)
+
+
 @shared_task(ignore_result=True, autoretry_for=(Exception,), retry_backoff=True, max_retries=5)
 @with_team_scope()
 def refresh_static_cohort_count(team_id: int, cohort_id: int) -> None:
     cache.delete(_static_cohort_count_refresh_key(cohort_id))
-    count = count_cohort_members(team_id=team_id, cohort_id=cohort_id, consistency="strong")
-    Cohort.objects.filter(team_id=team_id, id=cohort_id, is_static=True).update(count=count)
+    _recount_static_cohort(team_id=team_id, cohort_id=cohort_id)
 
 
 def _collect_cohort_calculation_metrics(history: CohortCalculationHistory, start_time: datetime) -> None:

@@ -3181,13 +3181,27 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
                 "Distinct IDs do not match, even when they look like UUIDs.",
                 code="no_matching_persons",
             )
-        from posthog.tasks.calculate_cohort import schedule_static_cohort_count_refresh
+        from posthog.tasks.calculate_cohort import _recount_static_cohort, schedule_static_cohort_count_refresh
 
-        # save_state=False, as the workflow add does: saving the cohort's state would release is_calculating, and a
-        # replace in flight would then stop writing fresh rows for later adds and prune them. The scheduled refresh
-        # updates the count instead.
-        cohort.insert_users_list_by_uuid(uuids, team_id=self.team_id, save_state=False)
-        schedule_static_cohort_count_refresh(team_id=self.team_id, cohort_id=cohort.id)
+        # save_state=False keeps is_calculating intact during an in-flight replace. Outside a replace we recount
+        # synchronously so the response reflects the new size; during a replace we debounce via the refresh task.
+        # Guarding the count cleanup in finally ensures even a partial batch error refreshes the count without masking
+        # the insert failure.
+        try:
+            cohort.insert_users_list_by_uuid(uuids, team_id=self.team_id, save_state=False)
+        finally:
+            try:
+                if cohort._replace_in_flight():
+                    schedule_static_cohort_count_refresh(team_id=self.team_id, cohort_id=cohort.id)
+                else:
+                    _recount_static_cohort(team_id=self.team_id, cohort_id=cohort.id)
+            except Exception as err:
+                logger.exception(
+                    "add_persons_to_static_cohort_count_refresh_failed",
+                    cohort_id=cohort.id,
+                    team_id=self.team_id,
+                )
+                capture_exception(err, additional_properties={"cohort_id": cohort.id, "team_id": self.team_id})
         log_activity(
             organization_id=cast(UUIDT, self.organization_id),
             team_id=self.team_id,

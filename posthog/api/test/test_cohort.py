@@ -6373,6 +6373,62 @@ email@example.org,
         assert response.status_code == 200, response.json()
         assert _cohort_member_uuids(self.team.pk, static_cohort) == {str(person.uuid)}
 
+    def test_add_persons_to_static_cohort_updates_count_and_logs_activity(self):
+        static_cohort = Cohort.objects.create(team=self.team, name="Test Static Cohort", is_static=True)
+        p1 = _create_person(team_id=self.team.pk, distinct_ids=["p1"])
+        p2 = _create_person(team_id=self.team.pk, distinct_ids=["p2"])
+        flush_persons_and_events()
+
+        with patch("posthog.tasks.calculate_cohort.schedule_static_cohort_count_refresh") as mock_schedule:
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/cohorts/{static_cohort.id}/add_persons_to_static_cohort",
+                {"person_ids": [str(p1.uuid), str(p2.uuid)]},
+                format="json",
+            )
+
+        assert response.status_code == 200, response.json()
+        mock_schedule.assert_not_called()
+        static_cohort.refresh_from_db()
+        assert static_cohort.count == 2
+        assert ActivityLog.objects.filter(
+            team_id=self.team.pk,
+            scope="Cohort",
+            item_id=str(static_cohort.id),
+            activity="persons_added_manually",
+        ).exists()
+
+    def test_add_persons_count_refresh_failure_does_not_mask_insert_error(self):
+        static_cohort = Cohort.objects.create(team=self.team, name="Test Static Cohort", is_static=True)
+        p1 = _create_person(team_id=self.team.pk, distinct_ids=["p1"])
+        flush_persons_and_events()
+
+        with (
+            patch(
+                "products.cohorts.backend.models.cohort.Cohort.insert_users_list_by_uuid",
+                side_effect=RuntimeError("insert boom"),
+            ),
+            patch(
+                "posthog.tasks.calculate_cohort._recount_static_cohort",
+                side_effect=RuntimeError("recount boom"),
+            ),
+            patch("posthog.api.cohort.capture_exception") as mock_capture,
+            self.assertRaisesRegex(RuntimeError, "insert boom"),
+        ):
+            self.client.patch(
+                f"/api/projects/{self.team.id}/cohorts/{static_cohort.id}/add_persons_to_static_cohort",
+                {"person_ids": [str(p1.uuid)]},
+                format="json",
+            )
+
+        mock_capture.assert_called_once()
+        assert str(mock_capture.call_args.args[0]) == "recount boom"
+        assert not ActivityLog.objects.filter(
+            team_id=self.team.pk,
+            scope="Cohort",
+            item_id=str(static_cohort.id),
+            activity="persons_added_manually",
+        ).exists()
+
     @patch("posthog.tasks.calculate_cohort.schedule_static_cohort_count_refresh")
     def test_add_persons_during_a_replace_keeps_the_replace_running(self, mock_schedule_refresh: MagicMock) -> None:
         # An add during a replace writes a fresh ClickHouse row so the prune keeps the person. If one add-persons call
