@@ -2064,10 +2064,12 @@ def persist_schema_metadata(
 
     def _prune(row: ExternalDataSchema) -> PrunedColumns:
         pruned = prune_enabled_columns(row.enabled_columns, available_names)
-        primary_keys = row.primary_key_columns or detected_primary_keys
-        # A selection left with no column, primary key or incremental field projects as `SELECT *`, which
-        # reads the columns the user left out. Keeping the stale selection fails the next read instead.
-        if pruned.removed and compute_projected_columns(pruned.kept, primary_keys, row.incremental_field) is None:
+        # A selection pruned to nothing projects as `SELECT *` and reads the columns the user left out. The
+        # read always projects the incremental field it is given, but not a stored primary key: some sources
+        # detect keys live and can find none. Unless the incremental field keeps the projection, keep the
+        # stale selection so the next read fails on the dropped column.
+        incremental_field = row.incremental_field if row.should_use_incremental_field else None
+        if pruned.removed and compute_projected_columns(pruned.kept, None, incremental_field) is None:
             return PrunedColumns(kept=row.enabled_columns, removed=[])
         return pruned
 

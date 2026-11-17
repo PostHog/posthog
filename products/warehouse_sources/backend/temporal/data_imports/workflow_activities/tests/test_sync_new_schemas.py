@@ -380,12 +380,7 @@ class TestDiscoveryStoresColumnMetadata(BaseTest):
             **kwargs,
         )
 
-    def _discover(
-        self,
-        source: ExternalDataSource,
-        columns: list[tuple[str, str, bool]],
-        primary_keys: list[str] | None = None,
-    ) -> ExternalDataSchema:
+    def _discover(self, source: ExternalDataSource, columns: list[tuple[str, str, bool]]) -> ExternalDataSchema:
         source_impl = mock.MagicMock()
         source_impl.in_use_oauth_slot.return_value = None
         source_impl.get_server_metadata.return_value = {}
@@ -397,7 +392,7 @@ class TestDiscoveryStoresColumnMetadata(BaseTest):
                 columns=columns,
                 source_schema="public",
                 source_table_name="orders",
-                detected_primary_keys=["id"] if primary_keys is None else primary_keys or None,
+                detected_primary_keys=["id"],
             )
         ]
         with (
@@ -454,24 +449,29 @@ class TestDiscoveryStoresColumnMetadata(BaseTest):
 
     @parameterized.expand(
         [
-            ("one_selected_column_dropped", None, ["id", "total"], ["id"]),
-            ("last_selected_column_dropped_primary_key_survives", None, ["total"], []),
-            ("last_selected_column_dropped_without_a_primary_key", [], ["total"], ["total"]),
+            ("one_selected_column_dropped", {}, ["id", "total"], ["id"]),
+            ("last_selected_column_dropped", {}, ["total"], ["total"]),
+            (
+                "last_selected_column_dropped_incremental_field_survives",
+                {"sync_type": ExternalDataSchema.SyncType.INCREMENTAL},
+                ["total"],
+                [],
+            ),
         ]
     )
     def test_a_dropped_column_leaves_the_selection(
         self,
         _name: str,
-        primary_keys: list[str] | None,
+        schema_fields: dict,
         enabled_columns: list[str],
         expected_enabled_columns: list[str],
     ) -> None:
         source = self._make_source()
-        ExternalDataSchema.objects.filter(id=self._discover(source, _ORDERS_COLUMNS, primary_keys).id).update(
-            enabled_columns=enabled_columns
-        )
+        schema_id = self._discover(source, _ORDERS_COLUMNS).id
+        ExternalDataSchema.objects.filter(id=schema_id).update(enabled_columns=enabled_columns, **schema_fields)
+        update_sync_type_config_keys(schema_id, self.team.pk, updates={"incremental_field": "id"})
 
-        schema = self._discover(source, [("id", "integer", False)], primary_keys)
+        schema = self._discover(source, [("id", "integer", False)])
 
         assert schema.enabled_columns == expected_enabled_columns
 
