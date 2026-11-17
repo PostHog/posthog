@@ -182,7 +182,10 @@ def _decision_handler(*, accept: bool) -> OperationHandler:
 def change_capabilities(request: HttpRequest, obj: Model, form: forms.Form | None) -> HttpResponse | None:
     assert isinstance(obj, OAuthApplication) and form is not None
     is_partner = form.cleaned_data["is_provisioning_partner"]
-    capabilities = {name: form.cleaned_data[name] for name in CAPABILITIES}
+    capabilities: dict[str, bool] = {name: form.cleaned_data[name] for name in CAPABILITIES}
+    if not is_partner:
+        # Registration reads an active non-partner as one staff vouched for in advance, and promotes it without a review.
+        capabilities["active"] = False
     with transaction.atomic():
         # Checked on the locked row, so a key removed in Django admin since the page loaded is seen.
         app = OAuthApplication.objects.select_for_update().get(pk=obj.pk)

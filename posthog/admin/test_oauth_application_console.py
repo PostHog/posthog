@@ -143,6 +143,16 @@ class TestOAuthApplicationConsole(BaseTest):
             # An unticked box turns a capability off rather than leaving it as it was.
             assert app.provisioning.can_provision_resources is False
 
+    def test_removing_a_partner_turns_provisioning_off(self) -> None:
+        app = self._app(config=ProvisioningConfig(active=True))
+
+        response = self._post(app, "provisioning/capabilities", {"reason": "No longer a partner"})
+
+        assert response.status_code == 302, response.content
+        app.refresh_from_db()
+        assert app.is_provisioning_partner is False
+        assert app.provisioning.active is False
+
     def test_a_partner_that_already_cannot_sign_stays_editable(self) -> None:
         app = self._app(config=ProvisioningConfig(can_create_accounts=True))
 
