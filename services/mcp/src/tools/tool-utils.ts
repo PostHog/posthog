@@ -16,18 +16,17 @@ export type WithPostHogUrl<T = unknown> = T extends readonly (infer U)[]
     ? { results: U[]; _posthogUrl: string } & ResultProject
     : T & { _posthogUrl: string } & ResultProject
 
-export const MCP_RESULT_PROJECT_FLAG = 'mcp-result-project'
-
-/** The project that a list result came from, as a field to spread into it. Empty when the flag is off. */
+/** The project that a list result came from, as a field to spread into it. Empty when the project is unknown. */
 export async function resultProject(context: Context): Promise<ResultProject> {
-    if (context.featureFlags?.[MCP_RESULT_PROJECT_FLAG] !== true) {
+    try {
+        const [id, project] = await Promise.all([
+            context.stateManager.getProjectId(),
+            context.stateManager.getCachedOrFetchProject(),
+        ])
+        return project?.name ? { _project: { id: String(id), name: project.name } } : {}
+    } catch {
         return {}
     }
-    const [id, project] = await Promise.all([
-        context.stateManager.getProjectId(),
-        context.stateManager.getCachedOrFetchProject().catch(() => undefined),
-    ])
-    return project?.name ? { _project: { id: String(id), name: project.name } } : {}
 }
 
 function isListResult(result: unknown): boolean {

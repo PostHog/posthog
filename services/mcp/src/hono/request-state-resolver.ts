@@ -38,12 +38,7 @@ import type {
 
 import { McpSessionRedisStore } from './cache/McpSessionRedisStore'
 import type { RedisLike } from './cache/RedisCache'
-import {
-    MCP_CURSOR_EXEC_MODE_FLAG,
-    MCP_EXEC_SKILLS_FEATURE_FLAG,
-    MCP_INBOX_FIRST_FLAG,
-    MCP_RESULT_PROJECT_FLAG,
-} from './constants'
+import { MCP_CURSOR_EXEC_MODE_FLAG, MCP_EXEC_SKILLS_FEATURE_FLAG, MCP_INBOX_FIRST_FLAG } from './constants'
 import { GUIDANCE_RULE_FLAGS } from './guidance/rules'
 import { MCP_INTENT_PROMPT_FLAG, resolveIntentPrompt } from './intent-prompt'
 import {
@@ -237,7 +232,6 @@ export class RequestStateResolver {
                 MCP_INTERVIEW_RECRUITMENT_FLAG,
                 MCP_INTENT_PROMPT_FLAG,
                 MCP_INBOX_FIRST_FLAG,
-                MCP_RESULT_PROJECT_FLAG,
                 ...GUIDANCE_RULE_FLAGS,
             ]),
         ]
@@ -313,7 +307,6 @@ export class RequestStateResolver {
         // even when no catalog tool referenced it.
         const flagKeysForState = [...new Set([...allFlagKeys, ...Object.keys(overrides)])]
         const toolFeatureFlags = Object.fromEntries(flagKeysForState.map((k) => [k, mergedFlags[k]]))
-        context.featureFlags = toolFeatureFlags
         const intentPrompt =
             source === EVENT_SOURCE.MCP && !_apiKey?.is_impersonated && !props.suppressAnalytics
                 ? resolveIntentPrompt(mergedFlags[MCP_INTENT_PROMPT_FLAG], payloads[MCP_INTENT_PROMPT_FLAG])

@@ -23,7 +23,7 @@ import { EXECUTE_SQL_TOOL_NAME } from '@/tools/posthogAiTools/executeSql'
 import { MAX_CAPTURED_DESCRIPTION_LENGTH, getToolCategory, getToolDescription } from '@/tools/toolDefinitions'
 import { APP_DATA_META_KEY } from '@/ui-apps/types'
 
-import { MCP_INBOX_FIRST_FLAG, MCP_RESULT_PROJECT_FLAG } from './constants'
+import { MCP_INBOX_FIRST_FLAG } from './constants'
 import { MCP_INTENT_PROMPT_FLAG } from './intent-prompt'
 import { interviewRecruitmentProperties } from './interview-recruitment'
 import { buildMCPSessionAnalyticsProperties, getEffectiveMCPClientIdentity } from './mcp-context'
@@ -252,7 +252,6 @@ export async function trackToolCall(
                 ...extraProperties,
                 [`$feature/${MCP_INTENT_PROMPT_FLAG}`]: state.toolFeatureFlags?.[MCP_INTENT_PROMPT_FLAG],
                 [`$feature/${MCP_INBOX_FIRST_FLAG}`]: state.toolFeatureFlags?.[MCP_INBOX_FIRST_FLAG],
-                [`$feature/${MCP_RESULT_PROJECT_FLAG}`]: state.toolFeatureFlags?.[MCP_RESULT_PROJECT_FLAG],
                 is_impersonated: state.isImpersonated === true,
                 suppress_analytics: state.suppressAnalytics === true,
             },
