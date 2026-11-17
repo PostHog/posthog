@@ -1807,10 +1807,65 @@ class TestCohortCalculationTasks(APIBaseTest):
             (cohort.is_calculating, cohort.pending_population_mode, cohort.population_marker),
             expected,
         )
-        # And no error row is left to show a failure banner on a cohort that never failed, nor an open row that
-        # reads as a run still in flight.
-        self.assertFalse(CohortCalculationHistory.objects.filter(cohort=cohort, error_code__isnull=False).exists())
-        self.assertFalse(CohortCalculationHistory.objects.filter(cohort=cohort, finished_at__isnull=True).exists())
+        # Losing ownership at finalize discards the attempt's history row so neither a spurious success, an
+        # error banner, nor an open in-flight row remains.
+        self.assertFalse(CohortCalculationHistory.objects.filter(cohort=cohort).exists())
+
+    def test_query_replace_history_records_post_replace_count(self) -> None:
+        tag = uuid4().hex
+        p1 = create_person(team=self.team, distinct_ids=[f"{tag}-1"], properties={"tag": f"{tag}-keep"}, uuid=uuid4())
+        p2 = create_person(team=self.team, distinct_ids=[f"{tag}-2"], properties={"tag": f"{tag}-keep"}, uuid=uuid4())
+        p3 = create_person(team=self.team, distinct_ids=[f"{tag}-3"], properties={"tag": f"{tag}-drop"}, uuid=uuid4())
+        flush_persons_and_events()
+
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="static cohort",
+            is_static=True,
+            query={"kind": "HogQLQuery", "query": f"SELECT id FROM persons WHERE properties.tag = '{tag}-keep'"},
+        )
+        cohort.insert_users_list_by_uuid([str(p1.uuid), str(p2.uuid), str(p3.uuid)], team_id=self.team.pk)
+        cohort.refresh_from_db()
+        self.assertEqual(cohort.count, 3)
+
+        Cohort.objects.filter(pk=cohort.pk).update(
+            is_calculating=True,
+            pending_population_mode=CohortPopulationMode.REPLACE,
+            population_claimed_at=timezone.now().replace(microsecond=0),
+        )
+        with time_machine.travel(timezone.now() + timedelta(seconds=10), tick=False):
+            insert_cohort_from_query(cohort.id, self.team.pk)
+
+        cohort.refresh_from_db()
+        history = CohortCalculationHistory.objects.filter(cohort=cohort).latest("started_at")
+        self.assertEqual(cohort.count, 2)
+        self.assertEqual(history.count, 2)
+        self.assertEqual(set(list_cohort_member_ids(team_id=self.team.pk, cohort_id=cohort.pk)), {p1.id, p2.id})
+
+    def test_query_population_keeps_history_when_finalize_ownership_check_hits_db_error(self) -> None:
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="static cohort",
+            is_static=True,
+            query=PERSONS_HOGQL_QUERY,
+            is_calculating=True,
+        )
+
+        with (
+            patch(QUERY_CH_INSERT_PATH, return_value=1),
+            patch(PG_SYNC_PATH),
+            patch(
+                "products.cohorts.backend.models.util.clear_population_run_fields",
+                side_effect=[OperationalError("db gone"), OperationalError("db still gone")],
+            ) as mock_clear,
+            patch("products.cohorts.backend.models.util.capture_exception") as mock_capture,
+        ):
+            insert_cohort_from_query(cohort.id, self.team.pk)
+
+        self.assertEqual(mock_clear.call_count, 2)
+        mock_capture.assert_called_once()
+        history = CohortCalculationHistory.objects.get(cohort=cohort)
+        self.assertIsNotNone(history.finished_at)
 
     @parameterized.expand(
         [
