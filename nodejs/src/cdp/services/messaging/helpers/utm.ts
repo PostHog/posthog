@@ -19,7 +19,7 @@ export type UtmTags = {
 type LinkTags = Record<string, string>
 
 export type WorkflowRunTag = {
-    // null for a team that turned the tag off: links lose the run ids of earlier sends and gain none.
+    // null when this send carries no run id: links still lose the run ids of earlier sends.
     runId: string | null
     senderEmail: string
     siteUrl: string
@@ -129,11 +129,6 @@ const trimUrlWhitespace = (href: string): string => {
     return href.slice(start, end)
 }
 
-/**
- * Appends each tag the link does not already carry. Returns null when the link stays as is:
- * not an absolute http(s) URL, a host the caller does not tag, an unrendered template tag, or a
- * link that already has every tag.
- */
 const parseTaggableUrl = (url: string, isTaggedHost: (url: URL) => boolean): URL | null => {
     if (url.includes('{{') || url.includes('{%')) {
         return null
@@ -150,6 +145,11 @@ const parseTaggableUrl = (url: string, isTaggedHost: (url: URL) => boolean): URL
     return parsed
 }
 
+/**
+ * Appends each tag the link does not already carry. Returns null when the link stays as is:
+ * not an absolute http(s) URL, a host the caller does not tag, an unrendered template tag, or a
+ * link that already has every tag.
+ */
 const addTagsToUrl = (url: string, tags: LinkTags, isTaggedHost: (url: URL) => boolean): string | null => {
     const parsed = parseTaggableUrl(url, isTaggedHost)
     if (!parsed) {

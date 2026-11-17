@@ -3918,6 +3918,7 @@ describe('EmailService', () => {
                     allowlisted: false,
                     isTest: false,
                     sensitive: false,
+                    html: '<a href="https://app.posthog-test.com/">a</a>',
                     tagged: false,
                 },
                 {
@@ -3927,11 +3928,10 @@ describe('EmailService', () => {
                     isTest: false,
                     sensitive: false,
                     teamOptedOut: true,
-                    html: '<a href="https://app.posthog-test.com/?ph_workflow_run=earlier-run">b</a>',
                     tagged: false,
                 },
                 {
-                    case: 'leaves the links of an untracked send',
+                    case: 'drops the run ids of earlier sends from an untracked send',
                     trackingEnabled: false,
                     allowlisted: true,
                     isTest: false,
@@ -3939,7 +3939,7 @@ describe('EmailService', () => {
                     tagged: false,
                 },
                 {
-                    case: 'leaves the links of a test send',
+                    case: 'drops the run ids of earlier sends from a test send',
                     trackingEnabled: true,
                     allowlisted: true,
                     isTest: true,
@@ -3947,7 +3947,7 @@ describe('EmailService', () => {
                     tagged: false,
                 },
                 {
-                    case: 'leaves the links of a sensitive email',
+                    case: 'drops the run ids of earlier sends from a sensitive email',
                     trackingEnabled: true,
                     allowlisted: true,
                     isTest: false,
@@ -3955,7 +3955,7 @@ describe('EmailService', () => {
                     tagged: false,
                 },
                 {
-                    case: "leaves the links of a code send marked sensitive on a workflow that isn't sensitive",
+                    case: "drops the run ids of earlier sends from a code send marked sensitive on a workflow that isn't sensitive",
                     trackingEnabled: true,
                     allowlisted: true,
                     isTest: false,
@@ -3994,7 +3994,8 @@ describe('EmailService', () => {
                     invocation.queueParameters = createEmailParams({
                         from: { integrationId: 1 },
                         html:
-                            html ?? '<a href="https://app.posthog-test.com/">a</a><a href="https://example.com/">b</a>',
+                            html ??
+                            '<a href="https://app.posthog-test.com/?ph_workflow_run=earlier-run">a</a><a href="https://example.com/">b</a>',
                     })
                     const result = await taggingService.executeSendEmail(invocation, isTest)
                     expect(result.error).toBeUndefined()
@@ -4005,30 +4006,33 @@ describe('EmailService', () => {
                 }
             )
 
-            it('sends without any run id when the link tag lookup fails', async () => {
-                const teamConfigDb = await postgresThatDropsConnections(hub.DATABASE_URL, () => true)
-                const taggingService = createService(
-                    { workflowRunLinkTagTeams: String(team.id) },
-                    {},
-                    { teamConfigDb: teamConfigDb.postgres }
-                )
-                // Transactional sends skip the consent read, so the failure reaches the tag lookup.
-                invocation.hogFunction.metadata = {
-                    tracking_enabled: true,
-                    sensitive: false,
-                    message_category_type: 'transactional',
+            // A transactional send skips the consent read, so its failure reaches the tag lookup instead.
+            it.each(['marketing', 'transactional'] as const)(
+                'sends a %s email without any run id when the team config read fails',
+                async (category) => {
+                    const teamConfigDb = await postgresThatDropsConnections(hub.DATABASE_URL, () => true)
+                    const taggingService = createService(
+                        { workflowRunLinkTagTeams: String(team.id) },
+                        {},
+                        { teamConfigDb: teamConfigDb.postgres }
+                    )
+                    invocation.hogFunction.metadata = {
+                        tracking_enabled: true,
+                        sensitive: false,
+                        message_category_type: category,
+                    }
+                    invocation.queueParameters = createEmailParams({
+                        from: { integrationId: 1 },
+                        html: '<a href="https://app.posthog-test.com/?ph_workflow_run=earlier-run">b</a>',
+                    })
+
+                    const result = await taggingService.executeSendEmail(invocation).finally(() => teamConfigDb.close())
+
+                    expect(result.error).toBeUndefined()
+                    expect(ses.sent).toHaveLength(1)
+                    expect(ses.sent[0].html).not.toContain('ph_workflow_run')
                 }
-                invocation.queueParameters = createEmailParams({
-                    from: { integrationId: 1 },
-                    html: '<a href="https://app.posthog-test.com/?ph_workflow_run=earlier-run">b</a>',
-                })
-
-                const result = await taggingService.executeSendEmail(invocation).finally(() => teamConfigDb.close())
-
-                expect(result.error).toBeUndefined()
-                expect(ses.sent).toHaveLength(1)
-                expect(ses.sent[0].html).not.toContain('ph_workflow_run')
-            })
+            )
 
             it('records an email_untracked app metric for untracked sends but not for test sends', async () => {
                 invocation.state.renderedWorkflowVersion = 3

@@ -664,13 +664,13 @@ export class EmailService {
         isTest: boolean,
         senderEmail: string
     ): Promise<WorkflowRunTag | null> {
-        if (!trackingEnabled || isTest || isSensitiveMessage(invocation)) {
-            return null
-        }
         if (!this.workflowRunLinkTagTeams(invocation.teamId)) {
             return null
         }
         const untagged = { runId: null, senderEmail, siteUrl: this.siteUrl }
+        if (!trackingEnabled || isTest || isSensitiveMessage(invocation)) {
+            return untagged
+        }
         try {
             const enabled = await this.teamWorkflowsConfigService.tagsEmailLinksWithWorkflowRun(invocation.teamId)
             return enabled ? { ...untagged, runId: invocation.id } : untagged
