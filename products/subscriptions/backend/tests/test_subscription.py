@@ -50,7 +50,7 @@ from products.subscriptions.backend.facade.api import (
 )
 from products.subscriptions.backend.facade.contracts import (
     ProcessSubscriptionWorkflowInputs,
-    SubscriptionConflictError,
+    SubscriptionRequestInvalidError,
     SubscriptionTriggerType,
 )
 from products.subscriptions.backend.facade.testing import AI_QUERY_PLAN_VERSION
@@ -1200,17 +1200,16 @@ class TestSubscriptionTemporal(APILicensedTest):
         assert subscription.created_by != self.user
         assert subscription.enabled is False
 
-    @parameterized.expand(["recipients", "contexts", "scheduler"])
+    @parameterized.expand(["recipients", "contexts", "scheduler", "content"])
     def test_take_ownership_preserves_concurrent_changes(self, change: str) -> None:
         subscription = self._disabled_subscription_of_a_former_member()
         previous_owner = subscription.created_by
         changed = False
         next_delivery = timezone.now() + timedelta(days=7)
 
-        def edit_during_validation(execute, sql, params, many, context):
+        def edit_before_lock(execute, sql, params, many, context):
             nonlocal changed
-            result = execute(sql, params, many, context)
-            if not changed and 'FROM "posthog_subscription"' in sql and 'AS "a"' in sql:
+            if not changed and 'FROM "posthog_subscription"' in sql and "FOR UPDATE" in sql:
                 changed = True
                 if change == "recipients":
                     Subscription.objects.filter(pk=subscription.pk).update(target_value="changed@example.com")
@@ -1218,16 +1217,19 @@ class TestSubscriptionTemporal(APILicensedTest):
                     SubscriptionContext.objects.for_team(self.team.id).create(
                         team=self.team, subscription=subscription, insight=self.insight
                     )
-                else:
+                elif change == "scheduler":
                     Subscription.objects.filter(pk=subscription.pk).update(next_delivery_date=next_delivery)
-            return result
+                else:
+                    Subscription.objects.filter(pk=subscription.pk).update(insight=None)
+            return execute(sql, params, many, context)
 
         if change == "scheduler":
             subscription.enabled = True
             subscription.save()
         with (
-            connection.execute_wrapper(edit_during_validation),
-            pytest.raises(SubscriptionConflictError) if change != "scheduler" else nullcontext(),
+            self.captureOnCommitCallbacks(execute=True),
+            connection.execute_wrapper(edit_before_lock),
+            pytest.raises(SubscriptionRequestInvalidError) if change == "content" else nullcontext(),
         ):
             take_subscription_ownership(
                 team=self.team,
@@ -1239,12 +1241,11 @@ class TestSubscriptionTemporal(APILicensedTest):
                 analytics_props={"source": EventSource.WEB},
             )
 
+            self.mock_temporal_client.start_workflow.assert_not_called()
+
         assert changed
         subscription.refresh_from_db()
-        if change == "scheduler":
-            assert subscription.created_by == self.user
-            assert subscription.next_delivery_date == next_delivery
-        else:
+        if change == "content":
             assert subscription.created_by == previous_owner
             assert subscription.enabled is False
             assert not ActivityLog.objects.filter(
@@ -1252,7 +1253,12 @@ class TestSubscriptionTemporal(APILicensedTest):
                 item_id=str(subscription.id),
                 activity__in=["took_ownership", "transferred_ownership"],
             ).exists()
-            if change == "recipients":
+        else:
+            assert subscription.created_by == self.user
+            assert subscription.enabled is True
+            if change == "scheduler":
+                assert subscription.next_delivery_date == next_delivery
+            elif change == "recipients":
                 assert subscription.target_value == "changed@example.com"
             else:
                 assert (
@@ -1260,6 +1266,10 @@ class TestSubscriptionTemporal(APILicensedTest):
                     .filter(subscription=subscription, insight=self.insight)
                     .exists()
                 )
+        if change in ("recipients", "contexts"):
+            delivery = self.mock_temporal_client.start_workflow.call_args.args[1]
+            assert delivery.subscription_id == subscription.id
+            assert delivery.previous_target_value == subscription.target_value
 
     @parameterized.expand(
         [
