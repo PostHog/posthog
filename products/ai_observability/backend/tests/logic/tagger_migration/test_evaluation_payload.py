@@ -29,11 +29,11 @@ GENERATION = {
 class TestTaggerEvaluationPayload(SimpleTestCase):
     @parameterized.expand(
         [
-            ("slugs", ["Billing issue", "Feature request"], ["billing_issue", "feature_request"]),
-            ("accents_and_symbols", ["Café / Bar!", "  spaced  out  "], ["cafe_bar", "spaced_out"]),
-            ("repeated_slug", ["A-B", "a b", "A_B"], ["a_b", "a_b_2", "a_b_3"]),
-            ("no_letters_or_digits", ["😀", "日本語"], ["tag_1", "tag_2"]),
-            ("too_long", ["x" * 200, "x" * 200], ["x" * 128, "x" * 126 + "_2"]),
+            ("slugs", ["Billing issue", "Feature request"], ["billing-issue", "feature-request"]),
+            ("accents_and_symbols", ["Café / Bar!", "  spaced  out  "], ["cafe-bar", "spaced-out"]),
+            ("repeated_slug", ["A-B", "a b", "A_B"], ["a-b", "a-b-2", "a-b-3"]),
+            ("no_letters_or_digits", ["😀", "日本語"], ["tag-1", "tag-2"]),
+            ("too_long", ["x" * 200, "x" * 200], ["x" * 128, "x" * 126 + "-2"]),
         ]
     )
     def test_option_keys_are_unique_valid_category_keys(
@@ -78,7 +78,7 @@ class TestTaggerEvaluationPayload(SimpleTestCase):
 
         assert payload["output_config"] == {
             "options": [
-                {"key": "billing_issue", "label": "Billing issue"},
+                {"key": "billing-issue", "label": "Billing issue"},
                 {"key": "other", "label": "Other"},
                 {"key": "bug", "label": "Bug"},
             ],
@@ -97,24 +97,25 @@ class TestTaggerEvaluationPayload(SimpleTestCase):
             (
                 "list_with_unknown_and_repeated_tags",
                 "return ['Billing issue', 'Billing issue', 'unknown']",
-                ["billing_issue"],
+                ["billing-issue"],
             ),
             ("single_string", "return 'Other'", ["other"]),
             ("null", "return null", []),
             ("no_return", "print('nothing to tag')", []),
             ("not_a_list", "return 5", []),
+            ("throws", "throw Error('bad input')", []),
             (
                 "reads_the_input",
                 "if (input ilike '%invoice%') { return ['Billing issue'] }\nreturn []",
-                ["billing_issue"],
+                ["billing-issue"],
             ),
             (
                 "reads_the_tags_list",
                 "let out := []\nfor (let tag in tags) { if (tag == 'Other') { out := arrayPushBack(out, tag) } }\nreturn out",
                 ["other"],
             ),
-            ("indexes_the_sorted_tags_like_the_tagger_runtime", "return [tags[1]]", ["billing_issue"]),
-            ("own_function_and_quotes", "fun pick(x) { return x }\nreturn [pick('it\\'s \"new\"')]", ["it_s_new"]),
+            ("indexes_the_sorted_tags_like_the_tagger_runtime", "return [tags[1]]", ["billing-issue"]),
+            ("own_function_and_quotes", "fun pick(x) { return x }\nreturn [pick('it\\'s \"new\"')]", ["it-s-new"]),
         ]
     )
     def test_hog_tagger_code_returns_the_same_tags_as_category_keys(

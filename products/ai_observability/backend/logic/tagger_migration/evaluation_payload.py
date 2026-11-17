@@ -10,13 +10,20 @@ from products.ai_observability.backend.models.taggers import HogTaggerConfig, LL
 MAX_OPTION_KEY_LENGTH = 128
 
 # The tagger runtime gave Hog code a `tags` list and dropped returned names that were not in it. The wrapper keeps
-# that contract, and turns tag names into option keys, so the customer's code runs unchanged.
+# that contract and turns tag names into option keys. A tagger error only failed that run, while an evaluation error
+# switches the evaluation off, so the wrapper catches it and the run gets no categories.
 HOG_WRAPPER = """let tags := {tags}
 fun tagger_result() {{
 {source}
 }}
 let tag_keys := {tag_keys}
-let returned := tagger_result()
+let returned := null
+try {{
+    returned := tagger_result()
+}} catch (error) {{
+    print(f'Tagger code failed: {{error.message}}')
+    return []
+}}
 if (typeof(returned) == 'string') {{
     returned := [returned]
 }}
@@ -35,17 +42,17 @@ return categories
 
 
 def option_keys(tag_names: list[str]) -> list[str]:
-    """A category key for each tag name, in the same order. Keys must be unique slugs, so a name with no letters or
-    digits gets its position, and a repeated slug gets a number."""
+    """A category key for each tag name, in the same order, in the hyphenated form the evaluation editor makes. Keys
+    must be unique slugs, so a name with no letters or digits gets its position, and a repeated slug gets a number."""
     keys: list[str] = []
     for position, name in enumerate(tag_names, start=1):
         ascii_name = unicodedata.normalize("NFKD", name).encode("ascii", "ignore").decode()
-        slug = re.sub(r"[^a-z0-9]+", "_", ascii_name.lower()).strip("_")[:MAX_OPTION_KEY_LENGTH].strip("_")
-        base = slug or f"tag_{position}"
+        slug = re.sub(r"[^a-z0-9]+", "-", ascii_name.lower()).strip("-")[:MAX_OPTION_KEY_LENGTH].strip("-")
+        base = slug or f"tag-{position}"
         key, suffix = base, 2
         while key in keys:
-            ending = f"_{suffix}"
-            key = f"{base[: MAX_OPTION_KEY_LENGTH - len(ending)].strip('_')}{ending}"
+            ending = f"-{suffix}"
+            key = f"{base[: MAX_OPTION_KEY_LENGTH - len(ending)].strip('-')}{ending}"
             suffix += 1
         keys.append(key)
     return keys

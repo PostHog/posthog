@@ -31,8 +31,8 @@ function bannerContent({ migratedToEvaluationId, someMigrated }: TaggersDeprecat
     }
     if (someMigrated) {
         return {
-            title: 'Some of your taggers are now evaluations',
-            body: 'Taggers marked "Moved to evaluation" now run as evaluations with a categorical output. New results go to those evaluations, and the tags already sent stay here.',
+            title: 'Taggers are deprecated, and some of yours are now evaluations',
+            body: 'Taggers marked "Moved to evaluation" run as evaluations with a categorical output, and the tags they already sent stay here. To tag new generations, create an evaluation with a categorical output.',
             actionLabel: 'Go to evaluations',
             to: urls.aiObservabilityEvaluations(),
             dataAttr: 'taggers-deprecation-banner-go-to-evaluations',

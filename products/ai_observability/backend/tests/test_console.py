@@ -14,7 +14,8 @@ from posthog.models.user import User
 
 from products.access_control.backend.facade.api import replace_object_access_rules
 from products.access_control.backend.facade.contracts import ObjectAccessRuleInput
-from products.ai_observability.backend.facade.admin import MigrationAction, migrate_taggers
+from products.access_control.backend.facade.testing import create_access_control
+from products.ai_observability.backend.facade.admin import MigrationAction, migrate_taggers, plan_tagger_migration
 from products.ai_observability.backend.models.eval_suggestions import (
     EvalSuggestion,
     EvalSuggestionKind,
@@ -252,7 +253,7 @@ class TestTaggersPanel(BaseTest):
         )
         assert evaluation.output_config["selection_mode"] == "single"
         assert evaluation.output_config["allows_na"] is True
-        assert [option["key"] for option in evaluation.output_config["options"]] == ["billing_issue", "other"]
+        assert [option["key"] for option in evaluation.output_config["options"]] == ["billing-issue", "other"]
         assert evaluation.conditions[0]["rollout_percentage"] == 25
         assert evaluation.model_configuration is not None and evaluation.model_configuration.provider == "openai"
         states = {
@@ -273,3 +274,21 @@ class TestTaggersPanel(BaseTest):
             [str(self.active.id), str(self.silent.id), str(self.hog.id)]
         )
         assert [step.action for step in second_run] == [MigrationAction.SKIP] * 5
+
+    @parameterized.expand(
+        [
+            ("tagger_rule_only", ["tagger"], MigrationAction.SKIP),
+            ("same_rule_on_both", ["tagger", "evaluation"], MigrationAction.MIGRATE),
+        ]
+    )
+    @patch("products.ai_observability.backend.logic.tagger_migration.migration.load_recent_tag_counts")
+    def test_team_wide_access_rules_must_match_before_a_tagger_moves(
+        self, _name: str, resources: list[str], expected: MigrationAction, load_counts: MagicMock
+    ) -> None:
+        load_counts.return_value = {str(self.active.id): 120}
+        for resource in resources:
+            create_access_control(team_id=self.team.pk, resource=resource, access_level="viewer")
+
+        steps = {step.tagger_name: step.action for step in plan_tagger_migration(self.team)}
+
+        assert steps["User intent"] == expected

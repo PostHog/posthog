@@ -73,8 +73,8 @@ def _pending_taggers(team: Team) -> list[Tagger]:
 
 
 def _model_configuration(tagger: Tagger, team: Team) -> dict[str, Any] | None:
-    """The tagger's model, or for a tagger without one the default model of the team's active key. Without a pinned
-    key the evaluation keeps following the active key, as the tagger did."""
+    """The tagger's model, or for a tagger without one the provider and default model of the team's active key. The
+    evaluation pins that provider and model but not the key, so it uses whichever key of that provider is active."""
     config = tagger.model_configuration
     if config is not None:
         return {
@@ -145,7 +145,7 @@ def _plan(tagger: Tagger, team: Team, recent_tags: int, rules: _AccessRules) -> 
     if recent_tags == 0:
         return _Planned(
             step=step(
-                MigrationAction.SWITCH_OFF, f"Sent no tags in the last {RECENT_DAYS} days, so nothing replaces it."
+                MigrationAction.SWITCH_OFF, f"It did not run in the last {RECENT_DAYS} days, so nothing replaces it."
             )
         )
     if str(tagger.id) in rules.tagger_ids_with_own_rules:

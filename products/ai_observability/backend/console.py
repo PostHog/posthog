@@ -359,7 +359,7 @@ def _step_row(step: TaggerMigrationStep) -> Row:
 
 def _steps_table(steps: list[TaggerMigrationStep]) -> Table:
     return Table(
-        columns=("Tagger", "Tags in 30 days", "What happens", "Category keys"),
+        columns=("Tagger", "Runs in 30 days", "What happens", "Category keys"),
         rows=tuple(_step_row(step) for step in steps),
         numeric_columns=(1,),
         empty_text="This team has no switched-on taggers left to migrate.",
@@ -371,9 +371,9 @@ def preview_tagger_migration(request: HttpRequest, obj: Model, form: forms.Form)
     return Page(
         blocks=(
             Notice(
-                text="Each tagger that sent tags in the last 30 days becomes an enabled categorical evaluation with "
+                text="Each tagger that ran in the last 30 days becomes an enabled categorical evaluation with "
                 "the same name, filters, sampling, and model, and the migration switches the tagger off. It only "
-                "switches off taggers that sent no tags. Old tag data stays. Results arrive as evaluation events from "
+                "switches off taggers that did not run. Old tag data stays. Results arrive as evaluation events from "
                 "now on, so insights built on tags stop updating."
             ),
             _steps_table(plan_tagger_migration(cast(Team, obj))),

@@ -21,7 +21,8 @@ LIMIT {limit}
 
 
 def load_recent_tag_counts(team: Team, tagger_ids: list[str]) -> dict[str, int]:
-    """Tags each tagger sent in the last RECENT_DAYS days. A tagger that sent none is missing from the result."""
+    """Runs of each tagger in the last RECENT_DAYS days: one $ai_tag event per run, with or without tags. A tagger that
+    did not run is missing from the result."""
     if not tagger_ids:
         return {}
     with tags_context(product=Product.LLM_ANALYTICS, feature=Feature.MIGRATION, team_id=team.pk):
