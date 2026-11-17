@@ -511,6 +511,7 @@ describe('transactional send sealing', () => {
         state: {
             event: { uuid: 'e-1', event, distinct_id: 'user-42', properties: { to: 'ada@example.com' } },
             variables: { code: CODE },
+            globals: undefined,
             currentAction: { id: 'email', startedAtTimestamp: 0, hogFunctionState: { vmState: { stack: [CODE] } } },
             acceptedAt: '2026-11-17T10:00:00.000Z',
         },
