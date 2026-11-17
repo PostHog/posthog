@@ -1,6 +1,7 @@
 import {
     AI_EVENTS_USAGE_KEY,
     EVENTS_USAGE_KEY,
+    MCP_EVENTS_USAGE_KEY,
     SURVEY_RESPONSES_USAGE_KEY,
     resolveAiUsageKey,
     resolveAnalyticsUsageKey,
@@ -16,6 +17,10 @@ describe('usage key resolvers', () => {
         ['$ai_not_a_real_event', AI_EVENTS_USAGE_KEY],
         ['ai_generation', EVENTS_USAGE_KEY],
         ['$AI_generation', EVENTS_USAGE_KEY],
+        ['$mcp_tool_call', MCP_EVENTS_USAGE_KEY],
+        ['$mcp_initialize', MCP_EVENTS_USAGE_KEY],
+        ['$mcp', EVENTS_USAGE_KEY],
+        ['mcp_tool_call', EVENTS_USAGE_KEY],
         ['$feature_flag_called', null],
         ['$experiment_exposure', null],
         ['survey sent', SURVEY_RESPONSES_USAGE_KEY],
