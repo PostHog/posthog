@@ -1,3 +1,6 @@
+import pino from 'pino'
+
+import { parseJSON } from '~/common/utils/json-parse'
 import { logger } from '~/common/utils/logger'
 
 import {
@@ -12,6 +15,14 @@ import {
 import { SES_SEND_TIMEOUT_MS } from './sandbox-deadlines'
 import { SandboxMessage } from './sandbox-message'
 import { SandboxSesClient, createSandboxSesV2Client } from './sandbox-ses-client'
+
+const captureLogRecords = (): { records: Record<string, unknown>[]; stop: () => void } => {
+    const target = logger as unknown as { pino: pino.Logger }
+    const original = target.pino
+    const records: Record<string, unknown>[] = []
+    target.pino = pino({ level: 'warn' }, { write: (line: string) => void records.push(parseJSON(line)) })
+    return { records, stop: () => void (target.pino = original) }
+}
 
 describe('SandboxSesClient', () => {
     const message: SandboxMessage = {
@@ -121,19 +132,34 @@ describe('SandboxSesClient', () => {
         expect(ses.delivered).toEqual([])
     })
 
-    it('logs the reason SES gives for refusing a send', async () => {
-        const warn = jest.spyOn(logger, 'warn')
-        ses.replyAlways(SES_ACCESS_DENIED)
+    it.each<[string, SesReply, string]>([
+        ['an access denial, with the refused role and resource', SES_ACCESS_DENIED, SES_ACCESS_DENIED.message],
+        [
+            'a rejection that names recipients, without their addresses',
+            {
+                kind: 'error',
+                status: 400,
+                errorType: 'MessageRejected',
+                message:
+                    'Email address is not verified. The following identities failed the check: Member@Example.com, <ota.jun+test@example.com>',
+            },
+            'Email address is not verified. The following identities failed the check: <email> <email>',
+        ],
+    ])('logs the reason SES gives for %s', async (_name, reply, loggedReason) => {
+        ses.replyAlways(reply)
+        const logs = captureLogRecords()
+        try {
+            await expect(client.send(message, tags)).resolves.toEqual({ status: 'failed', reason: 'ses_rejected' })
+        } finally {
+            logs.stop()
+        }
 
-        await expect(client.send(message, tags)).resolves.toEqual({ status: 'failed', reason: 'ses_rejected' })
-        expect(warn).toHaveBeenCalledWith(
-            'Sandbox SES send failed',
+        expect(logs.records).toEqual([
             expect.objectContaining({
-                error: 'AccessDeniedException',
-                httpStatusCode: 403,
-                message: SES_ACCESS_DENIED.message,
-            })
-        )
+                msg: expect.stringContaining('Sandbox SES send failed'),
+                message: loggedReason,
+            }),
+        ])
     })
 
     it('gives up on a send SES never answers and retries it later', async () => {
