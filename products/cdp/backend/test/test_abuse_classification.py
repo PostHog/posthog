@@ -215,6 +215,26 @@ class TestAbuseClassification(AbuseClassificationTestCase):
                 0,
             ),
             (
+                "stock_template_with_a_secret_input_expression",
+                "transformation",
+                "stock",
+                {
+                    "inputs_schema": [{"key": "value", "type": "string", "secret": True}],
+                    "inputs": {"value": {"value": "{event.uuid}"}},
+                },
+                1,
+            ),
+            (
+                "stock_template_with_liquid_despite_templating_off",
+                "transformation",
+                "stock",
+                {
+                    "inputs_schema": [{"key": "value", "type": "string", "templating": False}],
+                    "inputs": {"value": {"value": "{% if true %}x{% endif %}", "templating": "liquid"}},
+                },
+                1,
+            ),
+            (
                 "stock_template_with_templating_off",
                 "transformation",
                 "stock",

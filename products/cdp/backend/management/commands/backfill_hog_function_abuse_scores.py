@@ -8,13 +8,30 @@ flag stops the run before its next function, both here and in tasks already queu
 
 import time
 import uuid
+from collections.abc import Iterator
 from itertools import islice
 from typing import Any
+from uuid import UUID
 
 from django.core.management.base import BaseCommand
+from django.db.models import QuerySet
 
 from products.cdp.backend.abuse import shadow
+from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cdp.backend.tasks.abuse_classification import backfill_hog_function_abuse_score
+
+_PAGE_SIZE = 500
+# What `runs_customer_code` reads, so a page never loads compiled bytecode or the team.
+_SCOPE_FIELDS = (
+    "id",
+    "team_id",
+    "type",
+    "hog",
+    "inputs",
+    "inputs_schema",
+    "encrypted_inputs",
+    "hog_function_template__code",
+)
 
 
 class Command(BaseCommand):
@@ -40,12 +57,7 @@ class Command(BaseCommand):
         )
         if options["after_id"]:
             hog_functions = hog_functions.filter(id__gt=options["after_id"])
-        in_scope = (
-            (hog_function.id, hog_function.team_id)
-            for hog_function in hog_functions.iterator(chunk_size=500)
-            if shadow.runs_customer_code(hog_function)
-        )
-        targets = list(islice(in_scope, options["limit"]))
+        targets = list(islice(self._in_scope(hog_functions), options["limit"]))
 
         if options["dry_run"]:
             self.stdout.write(f"Dry run: {len(targets)} functions would be queued.")
@@ -71,3 +83,18 @@ class Command(BaseCommand):
         self.stdout.write(
             f"run_id {run_id}: queued {queued}, last {last_id}. Resume with --run-id {run_id} to retry failures."
         )
+
+    def _in_scope(self, hog_functions: QuerySet[HogFunction]) -> Iterator[tuple[UUID, int]]:
+        """Reads candidates in bounded keyset pages. Behind PgBouncer a plain iterator buffers the whole result."""
+        page = (
+            hog_functions.select_related(None)
+            .select_related("hog_function_template")
+            .only(*_SCOPE_FIELDS)
+            .order_by("id")
+        )
+        last_id: UUID | None = None
+        while batch := list((page if last_id is None else page.filter(id__gt=last_id))[:_PAGE_SIZE]):
+            for hog_function in batch:
+                if shadow.runs_customer_code(hog_function):
+                    yield hog_function.id, hog_function.team_id
+            last_id = batch[-1].id

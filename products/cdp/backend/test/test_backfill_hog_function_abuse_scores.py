@@ -19,7 +19,8 @@ from products.cdp.backend.test.abuse_support import (
 )
 
 COMMAND = "backfill_hog_function_abuse_scores"
-SLEEP = "products.cdp.backend.management.commands.backfill_hog_function_abuse_scores.time.sleep"
+BACKFILL_MODULE = "products.cdp.backend.management.commands.backfill_hog_function_abuse_scores"
+SLEEP = f"{BACKFILL_MODULE}.time.sleep"
 
 
 class TestBackfillHogFunctionAbuseScores(AbuseClassificationTestCase):
@@ -159,3 +160,12 @@ class TestBackfillHogFunctionAbuseScores(AbuseClassificationTestCase):
 
         [event] = self.captured_events()
         assert event["properties"]["would_block"] is True
+
+    def test_reads_candidates_across_pages(self) -> None:
+        self.flags.enabled[TEAM_FLAG] = False
+        ids = sorted(str(self.create_destination().id) for _ in range(3))
+
+        with patch(f"{BACKFILL_MODULE}._PAGE_SIZE", 1):
+            self.run_command(COMMAND, "--rate", "0")
+
+        assert sorted(event["properties"]["hog_function_id"] for event in self.captured_events()) == ids

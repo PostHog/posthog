@@ -133,12 +133,21 @@ def has_input_expression(inputs: object, inputs_schema: object) -> bool:
     if not isinstance(inputs, dict):
         return False
     schema = inputs_schema if isinstance(inputs_schema, list) else []
-    literal_keys = {item.get("key") for item in schema if isinstance(item, dict) and item.get("templating") is False}
+    schema_literal_keys = {
+        item.get("key") for item in schema if isinstance(item, dict) and item.get("templating") is False
+    }
     return any(
         _holds_expression(entry.get("value"))
         for key, entry in inputs.items()
-        if key not in literal_keys and isinstance(entry, dict)
+        if isinstance(entry, dict) and _templating(entry, key in schema_literal_keys) is not False
     )
+
+
+def _templating(entry: dict[str, JsonValue], schema_says_literal: bool) -> JsonValue:
+    """An input's own templating mode wins over its schema's, as at runtime."""
+    if "templating" in entry and entry["templating"] is not None:
+        return entry["templating"]
+    return False if schema_says_literal else True
 
 
 def _holds_expression(value: object) -> bool:

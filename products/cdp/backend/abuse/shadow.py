@@ -172,7 +172,8 @@ def _queue_if_enabled(hog_function: HogFunction) -> None:
         if not shadow_enabled(hog_function.team, only_evaluate_locally=True):
             return
         # Checked after the flag, so the query runs only for enrolled teams.
-        if not scorable_hog_functions().filter(pk=hog_function.pk).exists():
+        candidate = scorable_hog_functions().filter(pk=hog_function.pk).first()
+        if candidate is None or not runs_customer_code(candidate):
             return
 
         from products.cdp.backend.tasks.abuse_classification import classify_hog_function_for_abuse  # noqa: PLC0415
@@ -192,14 +193,15 @@ def scorable_hog_functions() -> QuerySet[HogFunction]:
 
     A transformation runs without network access, so one that runs a template's code unchanged is PostHog's code.
     A destination from a template is still scored: its inputs, such as a webhook URL, can make it abusive.
-    Input expressions cannot be told apart in SQL, so a template transformation with any inputs is a candidate,
-    and `runs_customer_code` decides.
+    Input expressions cannot be told apart in SQL, and secret inputs are encrypted, so a template transformation
+    with any inputs or a secret input is a candidate, and `runs_customer_code` decides.
     """
     # No linked template, code that differs from it, or inputs. A blank template's starter code counts as stock.
     may_run_custom_code = ~Q(template_id__startswith=_LEGACY_PLUGIN_PREFIX) & (
         Q(hog_function_template__isnull=True)
         | ~Q(hog=F("hog_function_template__code"))
         | (Q(inputs__isnull=False) & ~Q(inputs={}))
+        | Q(inputs_schema__contains=[{"secret": True}])
     )
     return (
         HogFunction.objects.select_related("team__organization", "hog_function_template")
@@ -210,13 +212,15 @@ def scorable_hog_functions() -> QuerySet[HogFunction]:
 
 def runs_customer_code(hog_function: HogFunction) -> bool:
     """For a candidate from `scorable_hog_functions`: a destination, or a transformation whose code was written or
-    edited by the customer or whose inputs hold an expression."""
+    edited by the customer or whose inputs hold an expression. Secret inputs are checked here but never sent to Jev."""
     if hog_function.type != HogFunctionType.TRANSFORMATION:
         return True
     template = hog_function.hog_function_template
     if template is None or hog_function.hog != template.code:
         return True
-    return has_input_expression(hog_function.inputs, hog_function.inputs_schema)
+    return has_input_expression(hog_function.inputs, hog_function.inputs_schema) or has_input_expression(
+        hog_function.encrypted_inputs, hog_function.inputs_schema
+    )
 
 
 def classify_if_due(hog_function: HogFunction) -> None:
