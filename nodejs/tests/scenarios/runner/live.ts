@@ -84,7 +84,7 @@ async function truthHead(edgeUrl: string): Promise<number> {
     return (parseJSON(await response.text()) as { head: number }).head
 }
 
-export function openLiveLog(evidenceDir: string, beatMs = TICK_MS): LiveLog {
+export function openLiveLog(evidenceDir: string, tickMs = TICK_MS): LiveLog {
     const file = path.join(evidenceDir, LIVE_FILE)
     let broken = false
     const beat = setInterval(() => {
@@ -92,7 +92,7 @@ export function openLiveLog(evidenceDir: string, beatMs = TICK_MS): LiveLog {
             const now = new Date()
             utimesSync(file, now, now)
         } catch {}
-    }, beatMs)
+    }, tickMs)
     beat.unref()
     const stopBeat = (): void => clearInterval(beat)
     const write = (record: LiveRecord): void => {
@@ -120,7 +120,7 @@ export function openLiveLog(evidenceDir: string, beatMs = TICK_MS): LiveLog {
                 let timeline = ''
                 let truthFrom = await truthHead(sources.edgeUrl).catch(() => undefined)
                 for (let last = false; !last && !broken; ) {
-                    await sleep(TICK_MS, undefined, { signal: stopped.signal }).catch(() => undefined)
+                    await sleep(tickMs, undefined, { signal: stopped.signal }).catch(() => undefined)
                     last = stopped.signal.aborted
                     const fresh = <T>(all: readonly T[], key: keyof typeof seen): T[] => {
                         const taken = all.slice(seen[key])

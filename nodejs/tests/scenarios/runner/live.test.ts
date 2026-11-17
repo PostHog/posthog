@@ -7,6 +7,7 @@ import path from 'path'
 import { parseJSON } from '~/common/utils/json-parse'
 
 import type { JournalEntry } from '../judge/judge'
+import type { MetricSample } from '../judge/measurements'
 import type { ValveTimelineEntry } from '../valves/valves'
 import { LIVE_FILE, LiveLog, LiveRecord, openLiveLog } from './live'
 
@@ -102,6 +103,52 @@ describe('live log', () => {
                 truth: [],
             },
             END,
+        ])
+    })
+
+    it('appends only the evidence that arrived since the tick before', async () => {
+        const first: MetricSample = {
+            role: 'cdp-api',
+            replica: 0,
+            at: 1_767_225_630_000,
+            startedAt: 1_767_225_600_000,
+            cpuSeconds: 3,
+            rssBytes: 200_000_000,
+            processed: { event: 4 },
+            pgClientErrors: 0,
+            consumerLoopErrors: 0,
+            janitorStalled: 0,
+            lateness: {},
+        }
+        const second: MetricSample = { ...first, at: 1_767_225_631_000, cpuSeconds: 4 }
+        let reads = 0
+        let readTwice: () => void = () => undefined
+        const secondRead = new Promise<void>((resolve) => (readTwice = resolve))
+        const log = openLiveLog(runDir, 10)
+        log.write(START)
+
+        log.follow({
+            timeline: () => [],
+            samples: () => {
+                reads += 1
+                if (reads === 2) {
+                    readTwice()
+                }
+                return reads === 1 ? [first] : [first, second]
+            },
+            queue: () => [],
+            writer: () => [],
+            journal: () => [],
+            edgeUrl: UNREACHABLE_EDGE,
+        })
+        await secondRead
+        await log.stop()
+
+        expect(linesOf().map((line) => (line as { samples?: MetricSample[] }).samples)).toEqual([
+            undefined,
+            [first],
+            [second],
+            [],
         ])
     })
 
