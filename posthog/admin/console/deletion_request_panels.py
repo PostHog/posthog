@@ -455,7 +455,9 @@ def verify(request: HttpRequest, obj: Model, form: forms.Form | None) -> HttpRes
     prior_status = obj.status
     if _property_removal_run_unfinished(obj):
         # The count reads only the table. The run may hold rows only in its staged files.
-        messages.error(request, "This property removal's run started. Retry it so that its run completes it.")
+        messages.error(
+            request, "This property removal's run started and did not complete. Retry it until it completes."
+        )
         return HttpResponse(status=409)
     try:
         remaining = count_remaining_for_request(obj)

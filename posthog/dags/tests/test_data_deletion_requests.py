@@ -3868,33 +3868,42 @@ def test_pickup_sensor_launches_staff_request_before_older_non_staff_request(old
 
 
 @pytest.mark.django_db
-def test_pickup_sensor_skips_a_property_removal_that_waits_for_another_on_its_team():
+@pytest.mark.parametrize(
+    "blocker_status, launched",
+    [(RequestStatus.FAILED, "other_team"), (RequestStatus.APPROVED, "blocker")],
+    ids=["blocker_failed", "blocker_retried"],
+)
+def test_pickup_sensor_skips_a_property_removal_that_waits_for_another_on_its_team(
+    blocker_status: RequestStatus, launched: str
+):
     now = timezone.now()
     removal = {
-        "team_id": TEAM_ID,
         "request_type": RequestType.PROPERTY_REMOVAL,
         "events": ["$pageview"],
         "start_time": now - timedelta(days=7),
         "end_time": now,
     }
-    DataDeletionRequest.objects.create(
-        **removal, properties=["secret"], status=RequestStatus.FAILED, property_removal_marker=now
+    # A retried blocker holds its own marker and must not wait on itself.
+    blocker = DataDeletionRequest.objects.create(
+        **removal,
+        team_id=TEAM_ID,
+        properties=["secret"],
+        status=blocker_status,
+        property_removal_marker=now,
+        approved_at=now - timedelta(days=400),
+        created_by_staff=True,
     )
-    # Staff-created and approved first, so the sensor would pick it ahead of every other approved request.
+    # Staff-created and approved before the other team's removal, so the sensor would pick it next.
     waiting = DataDeletionRequest.objects.create(
         **removal,
+        team_id=TEAM_ID,
         properties=["other"],
         status=RequestStatus.APPROVED,
         approved_at=now - timedelta(days=365),
         created_by_staff=True,
     )
-    DataDeletionRequest.objects.create(
-        team_id=TEAM_ID + 1,
-        request_type=RequestType.PERSON_REMOVAL,
-        person_uuids=[str(uuid4())],
-        person_drop_profiles=True,
-        status=RequestStatus.APPROVED,
-        approved_at=now,
+    other_team = DataDeletionRequest.objects.create(
+        **removal, team_id=TEAM_ID + 1, properties=["secret"], status=RequestStatus.APPROVED, approved_at=now
     )
 
     result = data_deletion_request_pickup_sensor(
@@ -3902,7 +3911,8 @@ def test_pickup_sensor_skips_a_property_removal_that_waits_for_another_on_its_te
     )
 
     assert isinstance(result, dagster.RunRequest)
-    assert result.tags["deletion_request_id"] != str(waiting.pk)
+    expected = {"other_team": other_team, "blocker": blocker}[launched]
+    assert result.tags["deletion_request_id"] == str(expected.pk) != str(waiting.pk)
 
 
 @pytest.mark.django_db

@@ -1721,7 +1721,8 @@ def delete_property_removal_shard(
         if _DELETED in steps:
             log("skip", "delete already finished")
             return steps[_DELETED]["rows"]
-        if _DELETE_STARTED not in steps and not holds_marker:
+        delete_started = _DELETE_STARTED in steps
+        if not delete_started and not holds_marker:
             raise dagster.Failure(
                 description=f"[{target.mapping_key}] the request no longer holds this run's marker. Nothing was "
                 "deleted. Retry the request to start a new run."
@@ -1750,21 +1751,20 @@ def delete_property_removal_shard(
         log("count-originals", count_sql)
         source = dict(client.execute(count_sql, predicate.params, settings=_LONG_QUERY_SETTINGS))
         originals = sum(source.values())
-        # The previous-version scan reads every staged file. Only a delete that has not started uses it.
-        previous_version = (
-            0
-            if _DELETE_STARTED in steps
-            else _count_rows_staged_by_previous_version(client, staging, sorted(copied["months"]), marker_str)
-        )
-        if _DELETE_STARTED not in steps and (source != staged or previous_version):
-            # Nothing is deleted yet, so copying again is safe. Discarding the copy's progress file
-            # lets the next run of the job copy again from the current source.
-            staging.discard_step(client, _COPIED)
-            raise dagster.Failure(
-                description=f"[{target.mapping_key}] the originals differ from the staged copy "
-                f"(source={source}, staged={staged}, {previous_version} rows staged by a previous version of "
-                "this job). Nothing was deleted. Retry the request to copy the originals again."
+        if not delete_started:
+            # The previous-version scan reads every staged file, so only a delete that has not started runs it.
+            previous_version = _count_rows_staged_by_previous_version(
+                client, staging, sorted(copied["months"]), marker_str
             )
+            if source != staged or previous_version:
+                # Nothing is deleted yet, so copying again is safe. Discarding the copy's progress file
+                # lets the next run of the job copy again from the current source.
+                staging.discard_step(client, _COPIED)
+                raise dagster.Failure(
+                    description=f"[{target.mapping_key}] the originals differ from the staged copy "
+                    f"(source={source}, staged={staged}, {previous_version} rows staged by a previous version of "
+                    "this job). Nothing was deleted. Retry the request to copy the originals again."
+                )
         if source != staged:
             # An earlier attempt started the delete and may have removed some originals, so the staged
             # files are the only copy of those and must stay. The survivors only have to be a subset of
@@ -1785,7 +1785,7 @@ def delete_property_removal_shard(
                     "earlier attempt already started deleting. The staged copy is kept. Investigate before "
                     "re-running."
                 )
-        elif _DELETE_STARTED not in steps:
+        elif not delete_started:
             # Recorded before the mutation is enqueued. From here on the copy is never discarded, because
             # the delete may remove rows whose only other copy is staged.
             staging.finish_step(client, _DELETE_STARTED, {"rows": originals})
@@ -2444,8 +2444,8 @@ def mark_deletion_failed(context: dagster.HookContext) -> None:
         return
 
     failed = DataDeletionRequest.objects.filter(pk=request_id, status=RequestStatus.IN_PROGRESS)
-    # A first property removal run that fails before its copy has staged nothing. Its marker would only keep
-    # other property removals on the team waiting. A later run may follow an attempt that staged a copy
+    # A first property removal run that fails in one of these ops has not staged a copy. Its marker would only
+    # keep other property removals on the team waiting. A later run may follow an attempt that staged a copy
     # stamped with that marker, so it keeps the marker.
     if context.op.name in {"load_property_removal_request", "get_property_removal_shards"}:
         # A duplicate run's load refuses the request without recording itself, so it never matches the run id.
