@@ -49,10 +49,9 @@ import {
     EXAMPLE_SECOND_PROFILE,
 } from './contentAutopilotStoryFixtures'
 
-const echoedFilters = (url: string): { days: number; branded: string; engine: string | null; topic: string | null } => {
+const echoedFilters = (url: string): { branded: string; engine: string | null; topic: string | null } => {
     const params = new URL(url).searchParams
     return {
-        days: Number(params.get('days') ?? 30),
         branded: params.get('branded') ?? 'all',
         engine: params.get('engine'),
         topic: params.get('topic'),
@@ -124,18 +123,14 @@ const workspaceHandlers = ({
                 { ...EXAMPLE_PROMPT_SET_RANKINGS, ...echoedFilters(request.url) },
             ],
             '/api/projects/:team_id/aeo_keywords/': () => [200, keywords],
-            '/api/projects/:team_id/aeo_keywords/report/': ({ request }) => [
+            '/api/projects/:team_id/aeo_keywords/report/': () => [
                 200,
                 {
                     ...EXAMPLE_KEYWORD_REPORT,
-                    days: echoedFilters(request.url).days,
                     keywords: keywords.length ? EXAMPLE_KEYWORD_REPORT.keywords : [],
                 },
             ],
-            '/api/projects/:team_id/aeo_keywords/modifiers/': ({ request }) => [
-                200,
-                { ...EXAMPLE_KEYWORD_MODIFIERS, days: echoedFilters(request.url).days },
-            ],
+            '/api/projects/:team_id/aeo_keywords/modifiers/': () => [200, EXAMPLE_KEYWORD_MODIFIERS],
             '/api/projects/:team_id/aeo_brands/': () => [
                 200,
                 {
@@ -339,7 +334,7 @@ OverviewTab.parameters = { testOptions: { snapshotBrowsers: [] } }
 export const OverviewTabFiltered: StoryFn<typeof ContentAutopilot> = () => <WorkspaceTabStory tab="overview" />
 OverviewTabFiltered.decorators = OverviewTab.decorators
 OverviewTabFiltered.parameters = {
-    pageUrl: '/web/content-autopilot?days=7&engine=claude-web-search&topic=Product%20analytics',
+    pageUrl: '/web/content-autopilot?date_from=-7d&engine=claude-web-search&topic=Product%20analytics',
     testOptions: { snapshotBrowsers: [] },
 }
 
@@ -400,7 +395,8 @@ const CitationsStory = ({
 const CITED_SITE: CitationsLookup = {
     kind: 'domain',
     value: 'analytics-review.example.com',
-    days: 30,
+    dateFrom: '-30d',
+    dateTo: null,
     branded: 'non_branded',
 }
 export const CitationsOfACitedSite: StoryFn<typeof ContentAutopilot> = () => (
@@ -412,7 +408,8 @@ CitationsOfACitedSite.parameters = { testOptions: { snapshotBrowsers: [] } }
 const OWN_PAGE: CitationsLookup = {
     kind: 'url',
     value: 'https://example.com/docs/product-analytics',
-    days: 30,
+    dateFrom: '-30d',
+    dateTo: null,
     branded: 'non_branded',
 }
 export const CitationsOfYourPage: StoryFn<typeof ContentAutopilot> = () => (
@@ -421,7 +418,13 @@ export const CitationsOfYourPage: StoryFn<typeof ContentAutopilot> = () => (
 CitationsOfYourPage.decorators = OverviewTab.decorators
 CitationsOfYourPage.parameters = { testOptions: { snapshotBrowsers: [] } }
 
-const SEARCH: CitationsLookup = { kind: 'search', value: 'open source product analytics', days: 30, branded: 'all' }
+const SEARCH: CitationsLookup = {
+    kind: 'search',
+    value: 'open source product analytics',
+    dateFrom: '-30d',
+    dateTo: null,
+    branded: 'all',
+}
 export const CitationsOfASearch: StoryFn<typeof ContentAutopilot> = () => (
     <CitationsStory tab="overview" lookup={SEARCH} />
 )
