@@ -107,7 +107,7 @@ const rules: GuidanceRule[] = [
         id: 'logs-empty-to-range',
         hasLogs: true,
         when: (call) => !searches(call) && filtersIn(call).length === 0,
-        text: ['This project has logs, but this date range has none.', 'The result covers only this range.'].join(' '),
+        text: 'This project has logs, but this date range has none.',
     }),
 ]
 
