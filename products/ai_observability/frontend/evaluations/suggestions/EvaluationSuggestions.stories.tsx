@@ -101,6 +101,27 @@ const FIX_BY_HAND = suggestion({
     target_evaluation_name: 'Tone check',
 })
 
+const PROMPT_PROBLEM = suggestion({
+    id: 'suggestion-prompt',
+    kind: 'fix_prompt',
+    template_key: 'review',
+    headline: 'Replies promise a refund date',
+    outcome:
+        '26 of 30 sampled calls break this rule. An evaluation would fail almost every call, so the prompt is the place to fix it.',
+    reason: 'The prompt says never to promise a refund date.',
+    draft: {
+        name: 'Replies promise a refund date',
+        description: 'Whether a reply promises a refund date',
+        prompt_name: 'support-reply',
+    },
+    measured_failure_rate: 26 / 30,
+    sample_size: 30,
+    evidence: [
+        { trace_id: '3e5f7a20-0000-4000-8000-000000000006', reason: 'Promised the refund by Friday' },
+        { trace_id: '8d2b4c61-0000-4000-8000-000000000007', reason: 'Promised the money within 3 days' },
+    ],
+})
+
 const ESTIMATE: EvalSuggestionEstimateApi = {
     target: 'trace',
     units: 50,
@@ -151,6 +172,8 @@ export const CodeCheck: Story = { decorators: withSuggestions([CODE_CHECK]) }
 export const LlmJudge: Story = { decorators: withSuggestions([JUDGE]) }
 
 export const BrokenEval: Story = { decorators: withSuggestions([FIX_FILTER, FIX_BY_HAND]) }
+
+export const PromptProblem: Story = { decorators: withSuggestions([PROMPT_PROBLEM]) }
 
 export const ThreeAcross: Story = {
     decorators: [withWidth(1120), ...withSuggestions([FIX_FILTER, JUDGE, CODE_CHECK])],

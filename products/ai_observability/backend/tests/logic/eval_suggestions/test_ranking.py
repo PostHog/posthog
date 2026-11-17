@@ -587,3 +587,24 @@ def test_a_reviewed_card_keeps_its_dedupe_key_when_a_later_review_rewords_it(
     )
 
     assert (ranking.review_dedupe_key(first) == ranking.review_dedupe_key(later)) is same_key
+
+
+@parameterized.expand(
+    [
+        ("most_calls_break_the_rule", 21, 30, True),
+        ("a_minority_breaks_it", 20, 30, False),
+        ("too_few_calls_to_tell", 4, 4, False),
+    ]
+)
+def test_a_card_whose_rule_most_calls_break_asks_for_a_prompt_fix(
+    _name: str, failed: int, of: int, prompt_bug: bool
+) -> None:
+    card = replace(_review_card([_call_type("prompt_name", "support-reply")]), failed=failed, of=of)
+
+    assert ranking.is_prompt_bug(card) is prompt_bug
+    proposal = ranking.prompt_fix_proposal(card)
+    assert (proposal.kind, proposal.dedupe_key, proposal.draft["prompt_name"]) == (
+        "fix_prompt",
+        ranking.review_dedupe_key(card),
+        "support-reply",
+    )

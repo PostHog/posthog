@@ -25,6 +25,9 @@ function kindLabel(suggestion: EvalSuggestionApi): string {
     if (suggestion.kind === 'fix_eval') {
         return 'Broken eval'
     }
+    if (suggestion.kind === 'fix_prompt') {
+        return 'Prompt problem'
+    }
     if (suggestion.kind === 'new_hog') {
         return 'Code check'
     }
@@ -42,6 +45,9 @@ export function EvaluationSuggestionCard({ suggestion }: { suggestion: EvalSugge
         getAccessControlDisabledReason(AccessControlResourceType.Evaluation, AccessControlLevel.Editor) ??
         (inFlight ? 'Wait for the current change to finish' : null)
     const isFix = suggestion.kind === 'fix_eval'
+    // A prompt problem has no evaluation to add: the team fixes the prompt, then dismisses the card.
+    const isPromptFix = suggestion.kind === 'fix_prompt'
+    const promptName = typeof suggestion.draft.prompt_name === 'string' ? suggestion.draft.prompt_name : null
     const hasPatch = Object.keys(suggestion.draft).length > 0
     const examples = suggestion.evidence.length
 
@@ -52,10 +58,10 @@ export function EvaluationSuggestionCard({ suggestion }: { suggestion: EvalSugge
         >
             {/* As tall as the Details button, so headlines line up across cards with and without one. */}
             <div className="flex items-center justify-between gap-2 min-h-6.5">
-                <LemonTag type={isFix ? 'warning' : 'muted'} size="small">
+                <LemonTag type={isFix || isPromptFix ? 'warning' : 'muted'} size="small">
                     {kindLabel(suggestion)}
                 </LemonTag>
-                {!isFix && (
+                {!isFix && !isPromptFix && (
                     <LemonDropdown
                         overlay={<EvaluationSuggestionDetails suggestion={suggestion} />}
                         placement="bottom-end"
@@ -70,7 +76,18 @@ export function EvaluationSuggestionCard({ suggestion }: { suggestion: EvalSugge
             <h4 className="m-0 text-sm font-semibold">{suggestion.headline}</h4>
             <p className="m-0 text-xs text-secondary">{suggestion.outcome}</p>
             <div className="flex flex-wrap items-center gap-2 mt-auto pt-1.5">
-                {isFix ? (
+                {isPromptFix ? (
+                    promptName && (
+                        <LemonButton
+                            type="primary"
+                            size="small"
+                            to={urls.aiObservabilityPrompt(promptName)}
+                            data-attr="eval-suggestion-open-prompt"
+                        >
+                            Open prompt
+                        </LemonButton>
+                    )
+                ) : isFix ? (
                     suggestion.target_evaluation && (
                         // The evaluation page shows the proposed change, and the suggestion closes once it is saved there.
                         <LemonButton
