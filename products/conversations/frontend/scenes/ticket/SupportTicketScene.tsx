@@ -23,8 +23,8 @@ import { userLogic } from 'scenes/userLogic'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { TodayPeoplePinButton } from '~/layout/today/TodayPeoplePinButton'
 import { useTodayPeopleTitle } from '~/layout/today/todayPeopleRows'
+import { TodayScenePinButton } from '~/layout/today/TodayScenePinButton'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType, Breadcrumb } from '~/types'
 
@@ -266,7 +266,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
         <SceneContent className="flex-1 min-h-0 pb-4">
             <SupportTicketSceneMenuBar ticketId={ticketId} />
             <SceneTitleSection
-                nameAction={<TodayPeoplePinButton />}
+                nameAction={<TodayScenePinButton />}
                 name={`Ticket: ${ticket?.ticket_number?.toString() || ticket?.id || ''}`}
                 nameSuffix={
                     ticket && ticket.identity_verified !== true ? (

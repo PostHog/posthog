@@ -199,18 +199,44 @@ class TestPendingReviewAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("catalog_read_scope", ["data_catalog:read"], status.HTTP_200_OK),
-            ("unrelated_scope", ["insight:read"], status.HTTP_403_FORBIDDEN),
+            (f"{path}_{name}", path, scopes, expected_status)
+            for path in ("pending_review", "metric_availability")
+            for name, scopes, expected_status in (
+                ("catalog_read_scope", ["data_catalog:read"], status.HTTP_200_OK),
+                ("unrelated_scope", ["insight:read"], status.HTTP_403_FORBIDDEN),
+            )
         ]
     )
     def test_personal_api_key_needs_the_catalog_read_scope(
-        self, _name: str, scopes: list[str], expected_status: int
+        self, _name: str, path: str, scopes: list[str], expected_status: int
     ) -> None:
         raw_key = generate_random_token_personal()
         PersonalAPIKey.objects.create(label="k", user=self.user, secure_value=hash_key_value(raw_key), scopes=scopes)
 
         response = self.client.get(
-            f"/api/projects/{self.team.id}/data_catalog/pending_review/", HTTP_AUTHORIZATION=f"Bearer {raw_key}"
+            f"/api/projects/{self.team.id}/data_catalog/{path}/", HTTP_AUTHORIZATION=f"Bearer {raw_key}"
         )
 
         assert response.status_code == expected_status, response.json()
+
+
+class TestMetricAvailabilityAPI(APIBaseTest):
+    @parameterized.expand(
+        [
+            ("no_metrics", [], False),
+            ("only_deleted_metrics", [{"deleted": True}], False),
+            ("metric_on_a_denied_table", [{"referenced_table_names": ["restricted_source"]}], True),
+        ]
+    )
+    @patch("products.data_catalog.backend.logic.metrics.Database.create_for")
+    def test_reports_live_metrics_without_building_the_hogql_database(
+        self, _name: str, metrics: list[dict], expected: bool, create_database: MagicMock
+    ) -> None:
+        for index, fields in enumerate(metrics):
+            _metric(self.team, f"metric_{index}", **fields)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/data_catalog/metric_availability/")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json() == {"has_metrics": expected}
+        create_database.assert_not_called()

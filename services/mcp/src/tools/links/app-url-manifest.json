@@ -1209,6 +1209,11 @@
         "params": [],
         "scope": "project"
     },
+    "logsSavedView": {
+        "template": "/logs",
+        "params": [],
+        "scope": "project"
+    },
     "managedMigration": {
         "template": "/managed_migrations",
         "params": [],
@@ -1716,6 +1721,11 @@
     },
     "stamphog": {
         "template": "/stamphog",
+        "params": [],
+        "scope": "project"
+    },
+    "stamphogArea": {
+        "template": "/stamphog/area",
         "params": [],
         "scope": "project"
     },

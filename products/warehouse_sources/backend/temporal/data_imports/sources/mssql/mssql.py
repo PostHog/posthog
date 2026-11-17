@@ -193,6 +193,13 @@ def run_metadata_with_deadline(operation: Callable[[], _T], *, action: str, time
 # idle cull, a failover, a brief network blip), leaving pymssql's dbprocess dead so the in-flight
 # fetch raises. A fresh connection recovers, so this is transient rather than a config error.
 _TRANSIENT_CONNECTION_ERROR = "DBPROCESS is dead or not enabled"
+
+# pymssql's own InterfaceError, raised by `assert_connected` in `_mssql.pyx` when a statement
+# (including the implicit transaction `Cursor.execute` starts, or its own `cancel()` clearing
+# pending results) finds the dbprocess already dead. Same DBPROCESS-death class as the 20047 case
+# above — just surfaced through a different internal code path — so a fresh connection recovers
+# here too. Stable prefix, also matched by `MSSQLSource.get_retryable_errors`.
+_DEAD_CONNECTION_ERROR = "Not connected to any MS SQL server"
 _MAX_DISCOVERY_CONNECTION_ATTEMPTS = 5
 
 # SQL Server error 9002 raised while running `sp_spaceused` for table stats. The transaction log
@@ -250,9 +257,9 @@ _TABLE_NOT_FOUND_ERROR = "Table not found when reading column metadata"
 
 
 def _is_transient_connection_error(error: BaseException) -> bool:
-    """True for a mid-stream TDS connection death that a fresh connection recovers from."""
+    """True for a dbprocess-death error, mid-stream or at connect, that a fresh connection recovers from."""
     message = " ".join(str(arg) for arg in error.args) if error.args else str(error)
-    return _TRANSIENT_CONNECTION_ERROR in message
+    return _TRANSIENT_CONNECTION_ERROR in message or _DEAD_CONNECTION_ERROR in message
 
 
 def _is_deadlock_victim_error(error: BaseException) -> bool:

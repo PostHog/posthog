@@ -32,12 +32,13 @@ import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { formatPercentage } from 'lib/utils/numbers'
+import { sceneConfigurations } from 'scenes/scenes'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import type { MCPToolFailureOccurrenceItem } from '~/queries/schema/schema-general'
-import { SceneExport } from '~/scenes/sceneTypes'
+import { Scene, SceneExport } from '~/scenes/sceneTypes'
 
 import { PersonDisplay } from 'products/persons/frontend/components/PersonDisplay'
 
@@ -368,6 +369,16 @@ function StatTiles({
     )
 }
 
+const INTENT_SOURCE_LABELS: Record<string, string> = {
+    context_parameter: 'Agent',
+    inferred: 'Inferred',
+}
+
+function intentSourceLabel(source: unknown): string {
+    const value = String(source ?? '')
+    return INTENT_SOURCE_LABELS[value] ?? value
+}
+
 function IntentCoverageTag({
     coverage,
     loading,
@@ -383,7 +394,7 @@ function IntentCoverageTag({
     }
     const pct = Math.round((coverage.with_intent / coverage.total) * 100)
     return (
-        <Tooltip title="Share of calls where $mcp_intent was captured. Inferred intents are server fallbacks; context_parameter intents come from the client.">
+        <Tooltip title="Share of calls that recorded why the agent made them. Agent intents come from the agent itself. Inferred intents are a fallback your server derived when the agent gave none.">
             <span className="text-[11px] text-secondary">
                 {formatNumber(coverage.with_intent)} of {formatNumber(coverage.total)} calls captured intent ({pct}%)
             </span>
@@ -574,7 +585,7 @@ export function MCPAnalyticsToolDetail(): JSX.Element {
                 description={null}
                 resourceType={{ type: 'mcp_analytics' }}
                 forceBackTo={{
-                    name: 'Tool quality',
+                    name: sceneConfigurations[Scene.MCPAnalytics].name,
                     path: mcpToolQualityUrlWithDates(dateFilter, pinnedInterval),
                     key: 'mcp-analytics-tool-quality',
                 }}
@@ -703,7 +714,7 @@ export function MCPAnalyticsToolDetail(): JSX.Element {
                         columns={[
                             { header: 'When', render: (r) => <TZLabel time={String(r[0])} /> },
                             { header: 'Intent', expand: true, render: (r) => <span>{String(r[1] ?? '')}</span> },
-                            { header: 'Intent source', render: (r) => <span>{String(r[2] ?? '')}</span> },
+                            { header: 'Intent source', render: (r) => <span>{intentSourceLabel(r[2])}</span> },
                             { header: 'Harness', render: (r) => <span>{String(r[3] ?? '')}</span> },
                         ]}
                     />
@@ -914,7 +925,7 @@ function FailureOccurrencesModal(): JSX.Element {
                                     {String(r[2])}
                                 </span>
                             ) : (
-                                <Tooltip title="No $mcp_error_message on this event. Check that your MCP server sends it on failed tool calls.">
+                                <Tooltip title="No error message was captured for this call. Check that your MCP server sends one on failed tool calls.">
                                     <span className="text-muted text-xs whitespace-nowrap">
                                         Not captured <IconInfo />
                                     </span>

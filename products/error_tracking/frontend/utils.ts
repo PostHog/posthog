@@ -211,7 +211,6 @@ export function issueVisionScannerHandoff(
             // Error-scoped queries match few sessions, so scan them all rather than starting at
             // the wizard's narrow default rate.
             sampling_rate: 1.0,
-            sampling_mode: 'balanced',
             // 5,000 credits is $50 (1 credit = $0.01), the anchor the goal-based flow suggests.
             credit_limit: 5000,
             credit_limit_enabled: true,
