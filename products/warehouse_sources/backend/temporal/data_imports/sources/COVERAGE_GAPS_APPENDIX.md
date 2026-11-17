@@ -154,7 +154,7 @@ Diffed against: <https://dev.adjust.com/en/api/rs-api/reports/>
 - [x] `Event reports (GET /reports-service/report, event metrics)` — measure purchases and other app conversions by acquisition source instead of only installs and sessions (high)
 - [x] `SKAdNetwork reports (GET /reports-service/report, SKAdNetwork metrics)` — analyze iOS campaign attribution through SKAdNetwork installs and conversion values (high)
 - [x] `Events catalog (GET /reports-service/events)` — map readable event names and app tokens to the metric slugs needed for conversion reports (medium)
-- [ ] `Device type reports (GET /reports-service/report, dimensions=day,app,app_token,device_type)` — compare acquisition cost, engagement, and revenue across device types (medium)
+- [x] `Device type reports (GET /reports-service/report, dimensions=day,app,app_token,device_type)` — compare acquisition cost, engagement, and revenue across device types (medium)
 
 Note: Read the official Report Service operations, event catalog, and filter catalog. All six tables use one endpoint with fixed metrics and dimensions. Missing reports need new query shapes; event metrics require discovery through GET /reports-service/events. Excluded CSV, Parquet, and pivot duplicates, plus write and test APIs.
 
@@ -13705,15 +13705,15 @@ Note: api.getzep.com/api/v2/openapi.json returns 401, so I diffed against the do
 
 ## Zero — gaps
 
-Today (11): `Companies`, `Contacts`, `Deals`, `Meetings`, `Memberships`, `Notes`, `Pipelines`, `PipelineStages`, `Tasks`, `Users`, `Workspaces`
+Today (15): `Companies`, `Contacts`, `Deals`, `Lists`, `Meetings`, `Memberships`, `Notes`, `Pipelines`, `PipelineStages`, `Quotes`, `SequenceEnrollments`, `SequenceSteps`, `Tasks`, `Users`, `Workspaces`
 
 Diffed against: <https://docs.zero.inc/llms.txt>
 
-- [ ] `Lists (GET /api/lists)` — resolve listIds already returned on companies, contacts, and deals to named business segments (high)
-- [ ] `Quotes (GET /api/quotes)` — analyze deal quotes, line items, acceptance, total contract value, and recurring revenue (high)
-- [ ] `Sequence enrollments (GET /api/sequenceContactStatuses)` — measure outreach conversion, replies, bounces, unsubscribes, and progress for each contact and sequence (high)
+- [x] `Lists (GET /api/lists)` — resolve listIds already returned on companies, contacts, and deals to named business segments (high) → `lists`
+- [x] `Quotes (GET /api/quotes)` — analyze deal quotes, line items, acceptance, total contract value, and recurring revenue (high) → `quotes` (line items stay a nested array column)
+- [x] `Sequence enrollments (GET /api/sequenceContactStatuses)` — measure outreach conversion, replies, bounces, unsubscribes, and progress for each contact and sequence (high) → `sequence_enrollments`
 - [ ] `Sequences (GET /api/sequences)` — describe outreach campaigns and compare their status, target lists, and enrollment results (medium)
-- [ ] `Sequence steps (GET /api/sequenceSteps)` — identify which outreach steps precede replies, failures, or completed enrollments (medium)
+- [x] `Sequence steps (GET /api/sequenceSteps)` — identify which outreach steps precede replies, failures, or completed enrollments (medium) → `sequence_steps`
 - [ ] `Products (GET /api/products)` — describe quoted products and price variants for revenue analysis by SKU and billing interval (medium)
 - [ ] `Custom activities (GET /api/customActivities)` — analyze recorded business interactions linked to contacts, companies, deals, users, and sequences (medium)
 - [ ] `Custom activity types (GET /api/customActivityTypes)` — describe activity categories and their custom fields for consistent interaction reporting (medium)
@@ -13806,19 +13806,19 @@ Out of scope — the Metering/meters API (`/meters/*`): despite the "Metering/me
 
 ## Zylo — gaps
 
-Today (14): `ActivityHistory`, `ApplicationBudgets`, `ApplicationLicenses`, `ApplicationUsers`, `Applications`, `AutomationExecutions`, `Automations`, `ContractLineItems`, `Contracts`, `POLineItems`, `Payments`, `PurchaseOrders`, `SavingsEvents`, `Suppliers`
+Today (18): `ActivityHistory`, `ApplicationBudgets`, `ApplicationLicenses`, `ApplicationStats`, `ApplicationUsers`, `Applications`, `AutomationExecutions`, `Automations`, `ContractLineItems`, `Contracts`, `POLineItems`, `Payments`, `PendingContracts`, `PurchaseOrders`, `SavingsEvents`, `Suppliers`, `Users`, `Views`
 
 Diffed against: <https://developer.zylo.com/sitemap.xml>
 
-- [ ] `/v2/users` — the company employee directory - lookup resolving the user IDs on the ApplicationUsers rows we already sync (high)
-- [ ] `/v2/applicationStats` — per-application spend and utilization stats, Zylo's headline metric and the whole point of SaaS management (high)
-- [ ] `/v2/pendingContracts` — contracts in flight/awaiting approval - the renewal pipeline, invisible from the committed Contracts table (high)
+- [x] `/v2/users` — the company employee directory - lookup resolving the user IDs on the ApplicationUsers rows we already sync (high) (`users`)
+- [x] `/v2/applicationStats` — per-application spend and utilization stats, Zylo's headline metric and the whole point of SaaS management (high) (`application_stats`, full refresh only: the stats change daily but the only timestamp filters are the application's own dates)
+- [x] `/v2/pendingContracts` — contracts in flight/awaiting approval - the renewal pipeline, invisible from the committed Contracts table (high) (`pending_contracts`)
 - [ ] `/v2/pendingContractLineItems` — line-item grain for pending contracts, needed to forecast renewal spend by product (medium)
 - [ ] `/v2/applications/{applicationId}/functionalities` — functionality taxonomy per app - the breakdown dimension for redundant-spend analysis across the Applications we sync (medium)
 - [ ] `/v2/zybrary` — Zylo's reference SaaS catalog - lookup enriching synced Applications with vendor/category benchmark data (medium)
 - [ ] `/v2/customFields` — custom field definitions - lookup resolving the customer-defined field IDs that appear on applications, contracts and suppliers (medium)
 - [ ] `/v2/zyloUsers` — Zylo platform users - lookup resolving owner/approver IDs referenced on applications and contracts (medium)
-- [ ] `/v2/views` — application groupings (cost centers, business units) - the org breakdown dimension for spend rollups (medium)
+- [x] `/v2/views` — application groupings (cost centers, business units) - the org breakdown dimension for spend rollups (medium) (`views`; needs the `admin` scope)
 - [ ] `/v2/applicationBudgets/stats` — budget-vs-actual aggregates alongside the raw ApplicationBudgets we already sync (medium)
 - [ ] `/v2/workflows and /v2/workflows/{workflowId}/responses` — app-request and review workflow responses - per-response rows for governance reporting (low)
 - [ ] `/v2/companyDocuments` — document metadata (MSAs, DPAs) linked to suppliers and contracts already synced (low)
