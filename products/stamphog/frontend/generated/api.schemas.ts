@@ -501,6 +501,42 @@ export interface CodeReviewApprovalSyncInstallationResponseApi {
     readonly installations: readonly CodeReviewApprovalDiscoveredInstallationApi[]
 }
 
+export interface CodeReviewApprovalRoutingPullRequestApi {
+    /** The pull request title, as auto-approval last saw it. */
+    title: string
+    /** The GitHub login of the pull request author. */
+    author: string
+    /** Link to the pull request on GitHub. */
+    url: string
+    /**
+     * When the pull request merged. Null when it is not merged.
+     * @nullable
+     */
+    merged_at?: string | null
+    /**
+     * Added lines. Null until the pull request merges, because auto-approval stores the size at merge.
+     * @nullable
+     */
+    additions?: number | null
+    /**
+     * Deleted lines. Null until the pull request merges, because auto-approval stores the size at merge.
+     * @nullable
+     */
+    deletions?: number | null
+    /**
+     * Changed files. Null until the pull request merges, because auto-approval stores the size at merge.
+     * @nullable
+     */
+    changed_files?: number | null
+    /**
+     * The auto-approval reviewer's one sentence about the whole change, from the newest completed review of the pull request that wrote one, at any head. Null when no review wrote one.
+     * @nullable
+     */
+    summary?: string | null
+    /** Whether a standing stamphog approval (posted at the head, or kept there because the diff did not change) covers the head this routing run decided on. That is the head routing last decided on with latest_per_pr, which is usually but not always the merged head. */
+    auto_approved?: boolean
+}
+
 /**
  * * `single_candidate` - Single candidate
  * * `fork` - Fork
@@ -630,6 +666,11 @@ export interface CodeReviewApprovalRoutingRunOwnerApi {
     lines?: number
     /** Changed files this owner owns. */
     file_count?: number
+    /**
+     * The auto-approval reviewer's clause about this owner's part of the change. Set only when the reviewer wrote one clause per owning team, which it does when several teams own changed files.
+     * @nullable
+     */
+    summary?: string | null
 }
 
 export interface CodeReviewApprovalRoutingRunApi {
@@ -639,6 +680,8 @@ export interface CodeReviewApprovalRoutingRunApi {
     repository: string
     /** Pull request number. */
     pr_number: number
+    /** The pull request the run routed, as auto-approval last saw it rather than as it was at the run. */
+    readonly pull_request: CodeReviewApprovalRoutingPullRequestApi
     /** The head commit the run routed. */
     head_sha: string
     /** The repository's routing_mode when the run made its requests.
@@ -750,6 +793,11 @@ export interface CodeReviewApprovalRoutingRunOwnerDetailApi {
     lines?: number
     /** Changed files this owner owns. */
     file_count?: number
+    /**
+     * The auto-approval reviewer's clause about this owner's part of the change. Set only when the reviewer wrote one clause per owning team, which it does when several teams own changed files.
+     * @nullable
+     */
+    summary?: string | null
 }
 
 export interface CodeReviewApprovalRoutingRunDetailApi {
@@ -759,6 +807,8 @@ export interface CodeReviewApprovalRoutingRunDetailApi {
     repository: string
     /** Pull request number. */
     pr_number: number
+    /** The pull request the run routed, as auto-approval last saw it rather than as it was at the run. */
+    readonly pull_request: CodeReviewApprovalRoutingPullRequestApi
     /** The head commit the run routed. */
     head_sha: string
     /** The repository's routing_mode when the run made its requests.
@@ -800,6 +850,18 @@ export interface CodeReviewApprovalRoutingRunDetailApi {
      * @nullable
      */
     created_at?: string | null
+}
+
+export interface CodeReviewApprovalRoutingOwnerCountApi {
+    /** Whether the owner is a GitHub team or a person.
+     *
+     * * `team` - Team
+     * * `person` - Person */
+    readonly kind: OwnerKindEnumApi
+    /** The owner as owners.yaml spells it: a team slug such as 'team-devex', or a login such as '@octocat'. */
+    owner: string
+    /** Distinct pull requests whose routing runs decided about this owner in the window. */
+    pr_count: number
 }
 
 /**
@@ -1104,25 +1166,49 @@ export type CodeReviewApprovalsReviewerRoutingListParams = {
      */
     head_sha?: string
     /**
+     * Keep only the newest run of each pull request. The newest run is picked over the pull request's whole history first, and every other filter then applies to it: a pull request whose newest run fails a filter drops out and is never replaced by an older run. With this flag, `count` counts pull requests.
+     */
+    latest_per_pr?: boolean
+    /**
      * Number of results to return per page.
      */
     limit?: number
+    /**
+     * true keeps runs of merged pull requests. false keeps runs of pull requests that are not merged: open ones and ones closed without merging, because auto-approval does not record a close. Omit for both.
+     * @nullable
+     */
+    merged?: boolean | null
+    /**
+     * Keep only runs of pull requests merged at or after this time (ISO 8601). Only merged pull requests match.
+     */
+    merged_after?: string
+    /**
+     * Keep only runs of pull requests merged before this time (ISO 8601). Only merged pull requests match.
+     */
+    merged_before?: string
     /**
      * The initial index from which to return the results.
      */
     offset?: number
     /**
-     * Keep only runs where an owner got this outcome. With `owner`, that owner must have it, so `owner=team-devex&outcome=cut` lists the runs that cut team-devex.
+     * '-created_at' (the default) lists the newest run first. '-merged_at' lists the newest merge first, then the newest run, with unmerged pull requests last.
      *
-     * * `requested` - Requested
-     * * `labeled` - Labeled
-     * * `refused` - Refused by GitHub
-     * * `cut` - Cut
-     * * `not_requested` - Not requested
-     * * `already_requested` - Already requested
+     * * `-created_at` - Newest run first
+     * * `-merged_at` - Newest merge first
      * @minLength 1
      */
-    outcome?: CodeReviewApprovalsReviewerRoutingListOutcome
+    ordering?: CodeReviewApprovalsReviewerRoutingListOrdering
+    /**
+     * Keep only runs where an owner got one of these outcomes. Pass one, or several as a list: a comma-separated value, a JSON-encoded array, or the repeated parameter. With `owner`, that owner must have one of them, so `owner=team-devex&outcome=cut` lists the runs that cut team-devex.
+     */
+    outcome?:
+        | 'requested'
+        | 'labeled'
+        | 'refused'
+        | 'cut'
+        | 'not_requested'
+        | 'already_requested'
+        | ('requested' | 'labeled' | 'refused' | 'cut' | 'not_requested' | 'already_requested')[]
     /**
      * Keep only runs that decided about this owner, spelled as in owners.yaml: a team slug such as 'team-devex', or a GitHub login such as '@octocat'.
      * @minLength 1
@@ -1153,16 +1239,12 @@ export type CodeReviewApprovalsReviewerRoutingListParams = {
     repository?: string
 }
 
-export type CodeReviewApprovalsReviewerRoutingListOutcome =
-    (typeof CodeReviewApprovalsReviewerRoutingListOutcome)[keyof typeof CodeReviewApprovalsReviewerRoutingListOutcome]
+export type CodeReviewApprovalsReviewerRoutingListOrdering =
+    (typeof CodeReviewApprovalsReviewerRoutingListOrdering)[keyof typeof CodeReviewApprovalsReviewerRoutingListOrdering]
 
-export const CodeReviewApprovalsReviewerRoutingListOutcome = {
-    Requested: 'requested',
-    Labeled: 'labeled',
-    Refused: 'refused',
-    Cut: 'cut',
-    NotRequested: 'not_requested',
-    AlreadyRequested: 'already_requested',
+export const CodeReviewApprovalsReviewerRoutingListOrdering = {
+    CreatedAt: '-created_at',
+    MergedAt: '-merged_at',
 } as const
 
 export type CodeReviewApprovalsReviewerRoutingListReason =
@@ -1178,6 +1260,13 @@ export const CodeReviewApprovalsReviewerRoutingListReason = {
     ModelCut: 'model_cut',
     StamphogApproved: 'stamphog_approved',
 } as const
+
+export type CodeReviewApprovalsReviewerRoutingOwnersListParams = {
+    /**
+     * Count only runs created at or after this time (ISO 8601). Defaults to 90 days ago.
+     */
+    created_after?: string
+}
 
 export type CodeReviewApprovalsRunsListParams = {
     /**

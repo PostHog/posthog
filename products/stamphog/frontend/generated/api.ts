@@ -16,6 +16,7 @@ import type {
     CodeReviewApprovalPullRequestApi,
     CodeReviewApprovalRepositoryApi,
     CodeReviewApprovalRepositoryWriteApi,
+    CodeReviewApprovalRoutingOwnerCountApi,
     CodeReviewApprovalRoutingRunDetailApi,
     CodeReviewApprovalSyncInstallationRequestApi,
     CodeReviewApprovalSyncInstallationResponseApi,
@@ -24,6 +25,7 @@ import type {
     CodeReviewApprovalsRepositoriesAvailableRepositoriesRetrieveParams,
     CodeReviewApprovalsRepositoriesListParams,
     CodeReviewApprovalsReviewerRoutingListParams,
+    CodeReviewApprovalsReviewerRoutingOwnersListParams,
     CodeReviewApprovalsRunsListParams,
     DigestRunApi,
     PaginatedCodeReviewApprovalPullRequestListApi,
@@ -422,7 +424,7 @@ export const getCodeReviewApprovalsReviewerRoutingListUrl = (
 }
 
 /**
- * List reviewer routing runs, newest first. Each run holds its decision for every owner of the changed code: requested, cut, or not asked, with the reason. Filter by owner to answer why a team or person was or was not asked to review. Get one run for the files each owner owns.
+ * List reviewer routing runs, newest run first by default or newest merge first with ordering=-merged_at. Each run holds its decision for every owner of the changed code: requested, cut, or not asked, with the reason, and the pull request it routed. Filter by owner to answer why a team or person was or was not asked to review. With latest_per_pr, list what landed in an owner's area. Get one run for the files each owner owns.
  */
 export const codeReviewApprovalsReviewerRoutingList = async (
     projectId: string,
@@ -452,6 +454,42 @@ export const codeReviewApprovalsReviewerRoutingRetrieve = async (
 ): Promise<CodeReviewApprovalRoutingRunDetailApi> => {
     return apiMutator<CodeReviewApprovalRoutingRunDetailApi>(
         getCodeReviewApprovalsReviewerRoutingRetrieveUrl(projectId, id),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export const getCodeReviewApprovalsReviewerRoutingOwnersListUrl = (
+    projectId: string,
+    params?: CodeReviewApprovalsReviewerRoutingOwnersListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/code_review/approvals/reviewer_routing/owners/?${stringifiedParams}`
+        : `/api/projects/${projectId}/code_review/approvals/reviewer_routing/owners/`
+}
+
+/**
+ * List the owners that routing runs decided about, with how many distinct pull requests each one touched, most first. Defaults to the last 90 days of runs.
+ */
+export const codeReviewApprovalsReviewerRoutingOwnersList = async (
+    projectId: string,
+    params?: CodeReviewApprovalsReviewerRoutingOwnersListParams,
+    options?: RequestInit
+): Promise<CodeReviewApprovalRoutingOwnerCountApi[]> => {
+    return apiMutator<CodeReviewApprovalRoutingOwnerCountApi[]>(
+        getCodeReviewApprovalsReviewerRoutingOwnersListUrl(projectId, params),
         {
             ...options,
             method: 'GET',
