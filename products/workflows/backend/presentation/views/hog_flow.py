@@ -538,7 +538,9 @@ def _reject_over_cap_duration(action: dict, field: str, context: dict) -> None:
     raise serializers.ValidationError({"config": duration_cap_error(field)})
 
 
-def _branch_condition_already_stored(action: dict, condition: dict, context: dict) -> bool:
+def _branch_condition_already_stored(
+    action: dict, condition: dict, context: dict, stored_key: str = "stored_branch_conditions"
+) -> bool:
     """
     True when this conditional_branch condition matches one already persisted for the same action.
 
@@ -547,7 +549,7 @@ def _branch_condition_already_stored(action: dict, condition: dict, context: dic
     re-save, which has no request to evaluate the flag against) would fail compilation of an active
     flow's unchanged conditions.
     """
-    stored = context.get("stored_branch_conditions")
+    stored = context.get(stored_key)
     if not stored:
         return False
     action_id = action.get("id")
@@ -2582,7 +2584,10 @@ class HogFlowActionSerializer(serializers.Serializer):
                         and isinstance(filters, dict)
                         and is_property_group(filters.get("properties"))
                     )
-                    if uses_filter_groups and not (already_stored or self._condition_filter_groups_enabled()):
+                    groups_already_stored = _branch_condition_already_stored(
+                        data, condition, self.context, "stored_grouped_branch_conditions"
+                    )
+                    if uses_filter_groups and not (groups_already_stored or self._condition_filter_groups_enabled()):
                         if strict:
                             raise serializers.ValidationError(
                                 {"config": "Filter groups in branch conditions aren't available for this organization."}
@@ -3873,6 +3878,21 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
                 if isinstance(stored_condition, dict)
             ]
             for action in ((instance.actions if instance and instance.status == HogFlow.State.ACTIVE else None) or [])
+            if isinstance(action, dict) and action.get("id") and action.get("type") == "conditional_branch"
+        }
+
+        # Grouped conditions stored in any status, not only active. Resuming a disabled workflow
+        # revalidates its stored actions, and a Canvas resume has no request to evaluate the flag
+        # against, so an active-only list would refuse a workflow that already holds groups.
+        self.context["stored_grouped_branch_conditions"] = {
+            action["id"]: [
+                _authored_condition(stored_condition)
+                for stored_condition in (action.get("config") or {}).get("conditions") or []
+                if isinstance(stored_condition, dict)
+                and isinstance(stored_condition.get("filters"), dict)
+                and is_property_group(stored_condition["filters"].get("properties"))
+            ]
+            for action in ((instance.actions if instance else None) or [])
             if isinstance(action, dict) and action.get("id") and action.get("type") == "conditional_branch"
         }
 

@@ -76,6 +76,7 @@ from products.workflows.backend.presentation.views.hog_flow import (
     HogFlowActionSerializer,
     _should_validate_strictly,
     mint_audience_confirm_token,
+    set_workflow_enabled,
 )
 from products.workflows.backend.services.workflow_test_runs import workflow_test_run_context
 from products.workflows.backend.tests.api.test_workflow_data_suggestions import _push_function_template
@@ -2620,6 +2621,15 @@ class TestHogFlowAPI(APIBaseTest):
                 f"/api/projects/{self.team.id}/hog_flows/{flow_id}", {"actions": edited_actions}
             )
             assert new_adoption.status_code == 400, new_adoption.json()
+            assert "Filter groups in branch conditions aren't available" in new_adoption.json()["detail"]
+
+            # A Canvas resume revalidates the stored actions with no request to read the flag from.
+            workflow_id = UUID(flow_id)
+            set_workflow_enabled(team_id=self.team.id, user_id=self.user.id, workflow_id=workflow_id, enabled=False)
+            resumed = set_workflow_enabled(
+                team_id=self.team.id, user_id=self.user.id, workflow_id=workflow_id, enabled=True
+            )
+            assert resumed == "active"
 
     @parameterized.expand(
         [

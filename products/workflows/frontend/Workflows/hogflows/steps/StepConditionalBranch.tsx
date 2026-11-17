@@ -8,7 +8,7 @@ import { Spinner, Tooltip } from '@posthog/lemon-ui'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 
-import { HogFlowConditionFilters } from '../filters/HogFlowConditionFilters'
+import { ConditionFilters, HogFlowConditionFilters } from '../filters/HogFlowConditionFilters'
 import { useHogFlowBranchSelection } from '../HogFlowBranchSelection'
 import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
 import { HogFlow, HogFlowAction } from '../types'
@@ -16,11 +16,6 @@ import { batchTriggerLogic } from './batchTriggerLogic'
 import { StepSchemaErrors } from './components/StepSchemaErrors'
 import { HogFlowBranchCard } from './HogFlowBranchCard'
 import { getBranchRemovalDisabledReason, isCountableCondition, removeBranchEdge, useNameInputs } from './utils'
-
-type ConditionFilters = Extract<
-    HogFlowAction,
-    { type: 'conditional_branch' }
->['config']['conditions'][number]['filters']
 
 function ConditionAudienceEstimate({
     actionId,
