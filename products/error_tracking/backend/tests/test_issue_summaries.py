@@ -394,7 +394,7 @@ class TestIssueSummaryGeneration(BaseTest):
             ("all_checks_pass", None, IssueSummaryOutcome.GENERATED, True),
         ]
     )
-    def test_issue_created_summary_activity_fails_closed(
+    def test_issue_created_summary_activity_gates_generation(
         self, _name: str, arrange: Any, expected: IssueSummaryOutcome, reported: bool
     ) -> None:
         fetch = self.enterContext(
@@ -404,6 +404,8 @@ class TestIssueSummaryGeneration(BaseTest):
         self.enterContext(patch.object(issue_summaries, "ph_background_capture", return_value=capture))
         if arrange is not None:
             arrange(self)
+        counter_labels = {"outcome": expected.value, "trigger": "write"}
+        counted_before = REGISTRY.get_sample_value("error_tracking_issue_summary_total", counter_labels) or 0
 
         with self.assertNumQueries(0) if expected == IssueSummaryOutcome.DISABLED else nullcontext():
             outcome = generate_issue_created_summary_activity(self._issue_created_inputs())
@@ -412,6 +414,10 @@ class TestIssueSummaryGeneration(BaseTest):
         assert self.llm_calls == (1 if expected == IssueSummaryOutcome.GENERATED else 0)
         assert fetch.called is (expected == IssueSummaryOutcome.GENERATED)
         assert capture.called is reported
+        counted = (
+            REGISTRY.get_sample_value("error_tracking_issue_summary_total", counter_labels) or 0
+        ) - counted_before
+        assert counted == (0 if expected == IssueSummaryOutcome.DISABLED else 1)
 
     def test_issue_created_summary_activity_skips_while_worker_summary_slots_are_full(self) -> None:
         self.enterContext(
