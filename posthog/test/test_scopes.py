@@ -5,7 +5,7 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
-from posthog.scopes.catalog import API_SCOPE_ACTIONS, API_SCOPE_OBJECTS
+from posthog.scopes.catalog import API_SCOPE_ACTIONS, API_SCOPE_OBJECTS, translate_renamed_scopes
 from posthog.scopes.ceilings import (
     MIN_SCOPES_BEFORE_TRUNCATION,
     clamp_scopes_to_ceiling,
@@ -385,6 +385,19 @@ class TestNarrowScopesToCeiling(SimpleTestCase):
                 ["@default", "llm_gateway:read"],
                 ["llm_gateway:read", "query:read"],
             ),
+            # A token stored before the code review rename refreshes under the new names.
+            (
+                "renamed_token_scope_meets_new_ceiling",
+                ["stamphog:read"],
+                ["code_review_approval:read"],
+                ["code_review_approval:read"],
+            ),
+            (
+                "token_holding_both_names_keeps_one",
+                ["stamphog:read", "code_review_approval:read"],
+                ["stamphog:read", "code_review_approval:read"],
+                ["code_review_approval:read"],
+            ),
         ]
     )
     def test_resolution(self, _name: str, requested: list[str], app_scopes: list[str], expected: list[str]) -> None:
@@ -456,6 +469,27 @@ class TestClampScopesToCeiling(SimpleTestCase):
             assert scopes_within_ceiling(clamped, app_scopes, allow_wildcard_under_empty_ceiling=True)
 
 
+class TestTranslateRenamedScopes(SimpleTestCase):
+    @parameterized.expand(
+        [
+            # Shipped desktop builds still request the old object names.
+            (
+                "renamed_objects_translate_to_new_names",
+                ["query:read", "review_hog:write", "stamphog:read"],
+                ["query:read", "code_review:write", "code_review_approval:read"],
+            ),
+            (
+                "both_names_collapse_to_one",
+                ["stamphog:read", "code_review_approval:read"],
+                ["code_review_approval:read"],
+            ),
+            ("bare_old_object_name_is_not_a_scope", ["stamphog", "*"], ["stamphog", "*"]),
+        ]
+    )
+    def test_translation(self, _name: str, given: list[str], expected: list[str]) -> None:
+        assert translate_renamed_scopes(given) == expected
+
+
 def _real_scopes(count: int) -> list[str]:
     return sorted(ALL_SCOPES)[:count]
 
@@ -522,6 +556,13 @@ class TestFilterSelfRegisteredCeiling(SimpleTestCase):
             ("introspection_is_not_an_identity_scope", ["introspection"], []),
             ("nothing_grantable", ["llm_gateway:read", "garbage"], []),
             ("empty_in_empty_out", [], []),
+            # CIMD and DCR metadata written before the code review rename keeps code review access.
+            (
+                "renamed_scopes_translated",
+                ["stamphog:read", "insight:read"],
+                ["code_review_approval:read", "insight:read"],
+            ),
+            ("only_renamed_scopes", ["review_hog:read", "review_hog:write"], ["code_review:read", "code_review:write"]),
         ]
     )
     def test_resolution(self, _name: str, given: list[str], expected: list[str]) -> None:
