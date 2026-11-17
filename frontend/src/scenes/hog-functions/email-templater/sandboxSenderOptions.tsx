@@ -7,6 +7,7 @@ import type { SandboxSenderChoice } from './SandboxSenderChoiceContext'
 
 export const SANDBOX_SENDER_VALUE = -2
 const SANDBOX_SENDER_LABEL = 'Sandbox sender'
+const SANDBOX_RECIPIENTS_NOTE = 'Only verified members of your organization receive sandbox email.'
 
 export function sandboxSenderGroups(sandbox: SandboxSenderChoice | null): LemonSelectSection<number>[] {
     if (!sandbox) {
@@ -51,10 +52,13 @@ export function sandboxSenderHint(sandbox: SandboxSenderChoice | null): JSX.Elem
     if (!sandbox?.selected) {
         return null
     }
+    if (!sandbox.fromLine) {
+        return <span>{SANDBOX_RECIPIENTS_NOTE}</span>
+    }
     return (
         <span className="flex gap-1 items-center min-w-0">
-            {sandbox.fromLine ? <span className="truncate">{`Sends as ${sandbox.fromLine}.`}</span> : null}
-            <Tooltip title="Only verified members of your organization receive sandbox email.">
+            <span className="truncate">{`Sends as ${sandbox.fromLine}.`}</span>
+            <Tooltip title={SANDBOX_RECIPIENTS_NOTE}>
                 <IconInfo className="shrink-0 text-secondary" />
             </Tooltip>
         </span>
