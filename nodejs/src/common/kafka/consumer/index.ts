@@ -54,5 +54,12 @@ export function createKafkaConsumer(
         logger.info('🔁', 'kafka_consumer_factory_using_v2', { groupId: config.groupId, topic: config.topic })
         return new KafkaConsumerV2(config, rdKafkaConfig)
     }
+    if (defaultConfig.CONSUMER_BATCH_SIZE_KB > 0) {
+        logger.warn('🔁', 'kafka_consumer_factory_batch_byte_bound_ignored_by_v1', {
+            groupId: config.groupId,
+            topic: config.topic,
+            batchSizeKb: defaultConfig.CONSUMER_BATCH_SIZE_KB,
+        })
+    }
     return new KafkaConsumer(config, rdKafkaConfig)
 }
