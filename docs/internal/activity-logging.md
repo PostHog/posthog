@@ -122,18 +122,22 @@ A receiver may resolve it further, for example a change of `deleted` from false 
 
 `changes_between` compares every model field except the ones in `common_field_exclusions` (ids, timestamps, `team`, `created_by`, and similar).
 Four registries tune it per scope.
-Core keeps them in `activity_log.py` for scopes whose model has no product owner, and a migrated scope keeps its entries in a data only module next to the model, such as `products/feature_flags/backend/activity_log_config.py` or `posthog/models/oauth_activity_log_config.py`.
+Core keeps them in `activity_log.py` for scopes whose model has no product owner, and every other scope keeps its entries in a data only module next to the model, such as `products/feature_flags/backend/activity_log_config.py` or `posthog/models/oauth_activity_log_config.py`.
 That placement is the point: `posthog/models/owners.yaml` and `products/<name>/product.yaml` then give the tuning to the team that owns the model, instead of to whoever owns the activity log.
 `activity_log.py` merges those modules at import and raises if one scope is tuned in two places, and `posthog/test/repo_invariants/test_activity_log_config_ownership.py` fails when a module's owners and its model's owners do not overlap.
 
-Put a new scope's tuning in a module next to its model.
-A config module holds no imports, because `activity_log.py` merges it at `django.setup()` in every process.
 The registries are:
 
 - `signal_exclusions` - skip logging when only these fields changed. Use it for bookkeeping fields a job touches on every run (`last_checked_at`, `next_check_at`).
 - `field_exclusions` - drop these fields from the diff but still log the row.
 - `field_with_masked_contents` - record that the field changed, never its values. Use it for secrets and encrypted inputs.
 - `field_name_overrides` - rename a field in the stored change so the describer shows the user-facing label.
+
+A new scope's tuning needs no edit outside the owning team's tree.
+Name the module `<app>.activity_log_config` inside a Django app package, which is `products/<name>/backend/activity_log_config.py` for a product, and discovery picks it up from `INSTALLED_APPS`.
+Only a config module that has no app to be found under, such as a core model's, is registered by hand in `_SCOPE_CONFIG_MODULES`.
+A config module holds no imports, because `activity_log.py` merges it at `django.setup()` in every process.
+The guard test above also fails when a config module in the tree is never merged.
 
 `changes_between` also reads named reverse relations.
 Exclude relations that hold execution results or storage bookkeeping, such as a notebook's widget snapshots.

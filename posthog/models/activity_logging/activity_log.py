@@ -1,6 +1,9 @@
 import json
 import dataclasses
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from importlib import import_module
+from importlib.util import find_spec
+from types import ModuleType
 from typing import TYPE_CHECKING, Any, Literal, Optional, Required, TypedDict, Union, cast
 from uuid import UUID
 
@@ -32,8 +35,6 @@ from posthog.models.activity_logging.utils import (
     is_uncached_reverse_one_to_one,
 )
 from posthog.models.utils import ActivityDetailEncoder, UUIDTModel
-
-from products.feature_flags.backend import activity_log_config as _feature_flag_activity_log_config
 
 if TYPE_CHECKING:
     from posthog.models.user import User
@@ -1224,16 +1225,40 @@ field_exclusions: dict[AuditableScope, list[str]] = {
 }
 
 # A scope's tuning lives next to the model it configures, in a data-only module, so the team that
-# owns the model owns its tuning. Core keeps the scopes whose model has no product owner. The
-# collision check is the guard against one scope being tuned in two places.
-_SCOPE_CONFIG_MODULES = (
-    _feature_flag_activity_log_config,
-    _oauth_activity_log_config,
-)
+# owns the model owns its tuning. Core keeps the scopes whose model has no product owner.
+#
+# A product opts in by adding `<app>.activity_log_config` to its own tree and editing nothing here,
+# so a new one needs no review from the activity log's owners. This list is for config with no app of
+# its own to be found under, such as a core model's module.
+_SCOPE_CONFIG_MODULES: tuple[ModuleType, ...] = (_oauth_activity_log_config,)
+
+
+def _discovered_scope_config_modules() -> Iterator[ModuleType]:
+    """Every installed app that ships an `activity_log_config` module beside its `apps.py`.
+
+    Read from `settings.INSTALLED_APPS` rather than the app registry, which is not ready when this
+    module loads. `find_spec` keeps the misses cheap: importing every app's candidate would raise a
+    `ModuleNotFoundError` for each one that has no config.
+    """
+    for app_path in settings.INSTALLED_APPS:
+        package, separator, _ = app_path.rpartition(".apps.")
+        if not separator:
+            continue
+        module_name = f"{package}.activity_log_config"
+        if find_spec(module_name) is not None:
+            yield import_module(module_name)
+
+
+def scope_config_modules() -> tuple[ModuleType, ...]:
+    """Every module that tunes an activity scope, discovered ones included."""
+    found: dict[str, ModuleType] = {module.__name__: module for module in _SCOPE_CONFIG_MODULES}
+    for module in _discovered_scope_config_modules():
+        found.setdefault(module.__name__, module)
+    return tuple(found.values())
 
 
 def _merge_scope_config(target: dict[Any, Any], attribute: str) -> None:
-    for module in _SCOPE_CONFIG_MODULES:
+    for module in scope_config_modules():
         for scope, value in getattr(module, attribute, {}).items():
             if scope in target:
                 raise RuntimeError(f"{attribute}: {scope} is tuned in both core and {module.__name__}")
