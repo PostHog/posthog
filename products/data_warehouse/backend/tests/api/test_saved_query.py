@@ -4192,6 +4192,18 @@ class TestSavedQueryStateComesFromTheServingRun(APIBaseTest):
         self.assertEqual(detail["latest_error"], listed["latest_error"])
         self.assertEqual(listed["status"], "Completed")
 
+    def test_the_detail_route_reads_the_serving_run_once(self):
+        view = self._view("detail_view")
+        self._run(view, DataModelingJob.Status.FAILED, minutes_ago=5, error="new failure")
+
+        with CaptureQueriesContext(connection) as queries:
+            body = self._detail(view)
+
+        self.assertEqual((body["status"], body["latest_error"]), ("Failed", "new failure"))
+        job_table = DataModelingJob._meta.db_table
+        job_selects = [q["sql"] for q in queries.captured_queries if f'FROM "{job_table}" WHERE' in q["sql"]]
+        self.assertEqual(len(job_selects), 1, job_selects)
+
     def test_the_list_reads_only_the_newest_clickhouse_run_of_each_view(self):
         recovered = self._view("recovered_view")
         self._run(recovered, DataModelingJob.Status.FAILED, minutes_ago=60, error="old failure")

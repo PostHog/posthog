@@ -106,24 +106,31 @@ def serving_run_annotations() -> dict[str, Subquery]:
     }
 
 
+def _load_serving_run(view: DataWarehouseSavedQuery) -> None:
+    run = (
+        DataModelingJob.objects.filter(saved_query_id=view.id, engine=DataModelingJobEngine.CLICKHOUSE)
+        .order_by("-last_run_at")
+        .values(*SERVING_RUN_FIELDS)
+        .first()
+    )
+    for field in SERVING_RUN_FIELDS:
+        setattr(view, f"serving_run_{field}", run[field] if run else None)
+
+
 class DataWarehouseSavedQuerySerializerMixin:
     """Shared methods for DataWarehouseSavedQuery serializers.
 
     This mixin is intended to be used with serializers.ModelSerializer subclasses.
     """
 
-    def _serving_run(self, view: DataWarehouseSavedQuery) -> ServingRun | DataModelingJob | None:
+    def _serving_run(self, view: DataWarehouseSavedQuery) -> ServingRun | None:
         """The newest materialization run that serves this view, or None if it has never run.
 
         Prefers the prefetched job so a list of views costs one query. Falls back to a lookup for
         the detail route, which has no prefetch.
         """
         if not hasattr(view, "serving_run_status"):
-            return (
-                DataModelingJob.objects.filter(saved_query_id=view.id, engine=DataModelingJobEngine.CLICKHOUSE)
-                .order_by("-last_run_at")
-                .first()
-            )
+            _load_serving_run(view)
         annotated_run = {field: getattr(view, f"serving_run_{field}") for field in SERVING_RUN_FIELDS}
         return ServingRun(**annotated_run) if annotated_run["status"] is not None else None
 
