@@ -4009,7 +4009,12 @@ describe('EmailService', () => {
                     {},
                     { teamConfigDb: teamConfigDb.postgres }
                 )
-                invocation.hogFunction.metadata = { tracking_enabled: true, sensitive: false }
+                // Transactional sends skip the consent read, so the failure reaches the tag lookup.
+                invocation.hogFunction.metadata = {
+                    tracking_enabled: true,
+                    sensitive: false,
+                    message_category_type: 'transactional',
+                }
                 invocation.queueParameters = createEmailParams({
                     from: { integrationId: 1 },
                     html: '<a href="https://example.com/">b</a>',
