@@ -76,6 +76,24 @@ describe('oauthAppsLogic', () => {
         expect(freshLogic.values.oauthAppsLoading).toEqual(true)
     })
 
+    it('reports a failed load, and clears it when a retry succeeds', async () => {
+        useMocks({ get: { '/api/organizations/:organization_id/oauth_applications/': () => [500, {}] } })
+        logic.actions.loadOAuthApps()
+        await expectLogic(logic).toDispatchActions(['loadOAuthAppsFailure']).toMatchValues({
+            oauthApps: MOCK_APPS,
+            oauthAppsLoadFailed: true,
+        })
+
+        useMocks({
+            get: { '/api/organizations/:organization_id/oauth_applications/': { results: MOCK_APPS } },
+        })
+        logic.actions.loadOAuthApps()
+
+        await expectLogic(logic).toDispatchActions(['loadOAuthAppsSuccess']).toMatchValues({
+            oauthAppsLoadFailed: false,
+        })
+    })
+
     it.each([
         ['review', 'provisioning review', 'Waiting for PostHog staff'],
         ['verification', 'verify our OAuth application', "Our product's website:"],
