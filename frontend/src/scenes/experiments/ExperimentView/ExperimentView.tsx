@@ -48,6 +48,7 @@ import { Hypothesis } from './Hypothesis'
 import { LoadingState } from './LoadingState'
 import { MultiVariantBiasWarning } from './MultiVariantBiasWarning'
 import { PageHeaderCustom } from './PageHeader'
+import { type ExperimentTabDefinition, QuillExperimentTabs } from './QuillExperimentTabs'
 import { ReleaseConditionsModal, ReleaseConditionsTable } from './ReleaseConditionsTable'
 import { SettingsTab } from './SettingsTab'
 
@@ -167,6 +168,7 @@ export function ExperimentView(): JSX.Element {
     const { closeExperimentMetricModal } = useActions(experimentMetricModalLogic)
     const { closeSharedMetricModal } = useActions(sharedMetricModalLogic)
     const resultsRedesign = useFeatureFlag('EXPERIMENTS_RESULTS_REDESIGN')
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     // Branch to legacy view for legacy experiments
     if (!experimentLoading && isLegacyExperiment(experiment)) {
@@ -174,48 +176,38 @@ export function ExperimentView(): JSX.Element {
     }
 
     const healthIssueCount = healthIssues(healthFindings).length
+    const healthBadgeStatus = healthFindings?.some(({ severity }) => severity === 'critical') ? 'danger' : 'warning'
 
     // Ordered as: results (Metrics, then the Health checks that say whether to trust them), configuration
     // (Settings, Code, Variants), feature tabs (Recordings, User feedback), audit trail (History), and the
     // staff-only Health debug.
     // Which of these actually render is resolved by experimentSceneLogic's availableTabs, so the tab set,
     // the URL, and the tracked tab stay in agreement.
-    const tabs: LemonTab<ExperimentTab>[] = (
-        [
-            { key: 'metrics', label: resultsRedesign ? 'Overview' : 'Metrics', content: <MetricsTab /> },
-            {
-                key: 'health',
-                label: (
-                    <span className="flex items-center gap-1.5">
-                        <span>Health</span>
-                        {healthIssueCount > 0 && (
-                            <LemonBadge.Number
-                                count={healthIssueCount}
-                                status={
-                                    healthFindings?.some(({ severity }) => severity === 'critical')
-                                        ? 'danger'
-                                        : 'warning'
-                                }
-                                size="small"
-                            />
-                        )}
-                    </span>
-                ),
-                content: <ExperimentHealthTab />,
-            },
-            { key: 'settings', label: 'Settings', content: resultsRedesign ? <SettingsTab /> : <ClassicSettingsTab /> },
-            { key: 'code', label: 'Code', content: <CodeTab /> },
-            { key: 'variants', label: 'Variants', content: <VariantsTab /> },
-            { key: 'recordings', label: 'Recordings', content: <ExperimentReplayTab experiment={experiment} /> },
-            { key: 'feedback', label: 'User feedback', content: <ExperimentFeedbackTab experiment={experiment} /> },
-            {
-                key: 'history',
-                label: 'History',
-                content: <ActivityLog scope={ActivityScope.EXPERIMENT} id={experimentId} />,
-            },
-            { key: 'health-debug', label: 'Health debug', content: <ExperimentHealthDebug /> },
-        ] satisfies LemonTab<ExperimentTab>[]
-    ).filter((tab) => availableTabs.includes(tab.key))
+    const allTabs: ExperimentTabDefinition[] = [
+        { key: 'metrics', label: resultsRedesign ? 'Overview' : 'Metrics', content: <MetricsTab /> },
+        { key: 'health', label: 'Health', content: <ExperimentHealthTab />, count: healthIssueCount },
+        { key: 'settings', label: 'Settings', content: resultsRedesign ? <SettingsTab /> : <ClassicSettingsTab /> },
+        { key: 'code', label: 'Code', content: <CodeTab /> },
+        { key: 'variants', label: 'Variants', content: <VariantsTab /> },
+        { key: 'recordings', label: 'Recordings', content: <ExperimentReplayTab experiment={experiment} /> },
+        { key: 'feedback', label: 'User feedback', content: <ExperimentFeedbackTab experiment={experiment} /> },
+        {
+            key: 'history',
+            label: 'History',
+            content: <ActivityLog scope={ActivityScope.EXPERIMENT} id={experimentId} />,
+        },
+        { key: 'health-debug', label: 'Health debug', content: <ExperimentHealthDebug /> },
+    ]
+    const tabs = allTabs.filter((tab) => availableTabs.includes(tab.key))
+
+    // Fall back to the default tab if the active one is conditionally hidden
+    const activeKey = tabs.some((tab) => tab.key === activeTabKey) ? activeTabKey : DEFAULT_EXPERIMENT_TAB
+    const onTabChange = (key: ExperimentTab): void => {
+        setActiveTabKey(key)
+        if (key === 'health') {
+            reportHealthChecksOpened('tab')
+        }
+    }
 
     return (
         <SceneContent>
@@ -242,28 +234,37 @@ export function ExperimentView(): JSX.Element {
                     )}
                     <ExperimentMetaBar />
                     <ExperimentHeader />
-                    <LemonTabs
-                        // Fall back to the default tab if the active one is conditionally hidden
-                        activeKey={tabs.some((tab) => tab.key === activeTabKey) ? activeTabKey : DEFAULT_EXPERIMENT_TAB}
-                        onChange={(key) => {
-                            setActiveTabKey(key)
-                            if (key === 'health') {
-                                reportHealthChecksOpened('tab')
-                            }
-                        }}
-                        // Override sceneInset's -mt-4 pull-up so the tabs keep 32px from whatever sits above them
-                        className="mt-4"
-                        sceneInset
-                        // Keep the tab bar full-width, but cap the content under each tab for readability
-                        tabs={tabs.map((tab) =>
-                            'content' in tab
-                                ? {
-                                      ...tab,
-                                      content: <div className="w-full max-w-[1400px] mx-auto">{tab.content}</div>,
-                                  }
-                                : tab
-                        )}
-                    />
+                    {todayRailNav ? (
+                        <QuillExperimentTabs
+                            tabs={tabs}
+                            activeKey={activeKey}
+                            onChange={onTabChange}
+                            badgeVariant={healthBadgeStatus === 'danger' ? 'destructive' : 'warning'}
+                        />
+                    ) : (
+                        <LemonTabs
+                            activeKey={activeKey}
+                            onChange={onTabChange}
+                            // Override sceneInset's -mt-4 pull-up so the tabs keep 32px from whatever sits above them
+                            className="mt-4"
+                            sceneInset
+                            // Keep the tab bar full-width, but cap the content under each tab for readability
+                            tabs={tabs.map(
+                                ({ key, label, content, count }): LemonTab<ExperimentTab> => ({
+                                    key,
+                                    label: count ? (
+                                        <span className="flex items-center gap-1.5">
+                                            <span>{label}</span>
+                                            <LemonBadge.Number count={count} status={healthBadgeStatus} size="small" />
+                                        </span>
+                                    ) : (
+                                        label
+                                    ),
+                                    content: <div className="w-full max-w-[1400px] mx-auto">{content}</div>,
+                                })
+                            )}
+                        />
+                    )}
 
                     {/* Modern experiment modals */}
                     <MetricSourceModal experiment={experiment} />

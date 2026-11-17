@@ -3,6 +3,7 @@ import { useActions, useValues } from 'kea'
 import { IconCorrelationAnalysis } from '@posthog/icons'
 import { LemonBanner, LemonTab, LemonTabs } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { PendingChangeRequestBanner } from 'scenes/approvals/PendingChangeRequestBanner'
 import { experimentLogic } from 'scenes/experiments/experimentLogic'
@@ -16,6 +17,10 @@ import { ExperimentWarningBanner } from 'scenes/experiments/ExperimentView/Exper
 import { Hypothesis } from 'scenes/experiments/ExperimentView/Hypothesis'
 import { LoadingState } from 'scenes/experiments/ExperimentView/LoadingState'
 import { PageHeaderCustom } from 'scenes/experiments/ExperimentView/PageHeader'
+import {
+    type ExperimentTabDefinition,
+    QuillExperimentTabs,
+} from 'scenes/experiments/ExperimentView/QuillExperimentTabs'
 import {
     ReleaseConditionsModal,
     ReleaseConditionsTable,
@@ -69,10 +74,14 @@ export function LegacyExperimentView(): JSX.Element {
     const { activeTabKey } = useValues(experimentSceneLogic)
     const { setActiveTabKey } = useActions(experimentSceneLogic)
 
-    const tabs: LemonTab<ExperimentTab>[] = [
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+
+    const tabs: ExperimentTabDefinition[] = [
         { key: 'metrics', label: 'Overview', content: <MetricsTab /> },
         { key: 'variants', label: 'Variants', content: <VariantsTab /> },
     ]
+    // Fall back to the default tab if the active one isn't rendered here
+    const activeKey = tabs.some((tab) => tab.key === activeTabKey) ? activeTabKey : DEFAULT_EXPERIMENT_TAB
 
     return (
         <SceneContent>
@@ -114,21 +123,28 @@ export function LegacyExperimentView(): JSX.Element {
 
                     <ExperimentMetaBar />
 
-                    <LemonTabs
-                        // Fall back to the default tab if the active one isn't rendered here
-                        activeKey={tabs.some((tab) => tab.key === activeTabKey) ? activeTabKey : DEFAULT_EXPERIMENT_TAB}
-                        onChange={(key) => setActiveTabKey(key)}
-                        className="mt-4"
-                        sceneInset
-                        tabs={tabs.map((tab) =>
-                            'content' in tab
-                                ? {
-                                      ...tab,
-                                      content: <div className="w-full max-w-[1400px] mx-auto">{tab.content}</div>,
-                                  }
-                                : tab
-                        )}
-                    />
+                    {todayRailNav ? (
+                        <QuillExperimentTabs
+                            tabs={tabs}
+                            activeKey={activeKey}
+                            onChange={setActiveTabKey}
+                            badgeVariant="warning"
+                        />
+                    ) : (
+                        <LemonTabs
+                            activeKey={activeKey}
+                            onChange={(key) => setActiveTabKey(key)}
+                            className="mt-4"
+                            sceneInset
+                            tabs={tabs.map(
+                                ({ key, label, content }): LemonTab<ExperimentTab> => ({
+                                    key,
+                                    label,
+                                    content: <div className="w-full max-w-[1400px] mx-auto">{content}</div>,
+                                })
+                            )}
+                        />
+                    )}
 
                     <DistributionModal />
                     <ReleaseConditionsModal />
