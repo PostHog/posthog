@@ -1,6 +1,7 @@
 // The app holds itself to the published API rate limits for these endpoints. The buckets hold 25% of each budget: they
 // exist to stop a client bug, such as a refresh loop, and normal use never empties them. They live in memory, so a cold
-// start refills them.
+// start refills them. An account switch does not: spend carried into the next account can only delay its reads, while a
+// refill on every switch would let a loop that spans switches spend more.
 
 export type BudgetFamily = 'insights' | 'dashboards' | 'query' | 'replay' | 'live'
 

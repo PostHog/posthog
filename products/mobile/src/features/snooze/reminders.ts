@@ -1,6 +1,10 @@
 import * as Notifications from 'expo-notifications'
 import { Platform } from 'react-native'
 
+import { waitForPersist } from '@/lib/persistHydration'
+
+import { useSnoozeStore } from './snoozeStore'
+
 export interface SnoozeReminder {
     reportId: string
     projectId: number
@@ -38,6 +42,22 @@ export async function scheduleSnoozeReminder(
         },
         trigger: { type: Notifications.SchedulableTriggerInputTypes.DATE, date: new Date(reminder.until) },
     })
+}
+
+/**
+ * `unknown`: no reminder of this app version has this identifier, such as a remote push. `removed`: the reminder's
+ * account left the device.
+ */
+export type ReminderAccount = { kind: 'unknown' } | { kind: 'removed' } | { kind: 'account'; key: string }
+
+/** The account that scheduled the reminder with this notification identifier, from the app's own record. */
+export async function reminderAccount(notificationId: string): Promise<ReminderAccount> {
+    await waitForPersist(useSnoozeStore)
+    const owner = useSnoozeStore.getState().reminderOwners[notificationId]
+    if (!owner) {
+        return { kind: 'unknown' }
+    }
+    return owner.account === null ? { kind: 'removed' } : { kind: 'account', key: owner.account }
 }
 
 export async function cancelSnoozeReminder(notificationId: string | undefined): Promise<void> {

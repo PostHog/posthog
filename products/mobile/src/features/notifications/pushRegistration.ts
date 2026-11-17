@@ -3,14 +3,27 @@ import * as Notifications from 'expo-notifications'
 import { Platform } from 'react-native'
 
 import { ApiError } from '@/api/client'
-import { registerPushToken, unregisterPushToken } from '@/api/pushTokens'
+import {
+    type AccountCredentials,
+    registerPushToken,
+    unregisterPushToken,
+    unregisterPushTokenFor,
+} from '@/api/pushTokens'
 import { TransportError } from '@/api/transport'
-import { useAuthStore } from '@/auth/authStore'
-import { sessionGeneration } from '@/auth/tokens'
+import { type AccountRef, useAuthStore } from '@/auth/authStore'
+import { getSessionAccountKey, getSessionIdentity, readAccountSession, sessionGeneration } from '@/auth/tokens'
 import { track } from '@/lib/analytics'
 import { toError } from '@/lib/errors'
 import { foregroundNotificationBehavior } from './foregroundNotifications'
-import { type PushPermission, usePushStore, waitForPushHydration } from './pushStore'
+import {
+    hostKey,
+    type OwedRemoval,
+    oweRemoval,
+    type PushPermission,
+    settleRemovals,
+    usePushStore,
+    waitForPushHydration,
+} from './pushStore'
 import { notificationsSupported, pushUnavailableReason } from './pushSupport'
 
 // Expo push messages without a `channelId` go to the channel with this id, so creating it here sets how server
@@ -20,6 +33,10 @@ export const ANDROID_CHANNEL_ID = 'default'
 const UNREGISTER_TIMEOUT_MS = 4_000
 const REGISTER_TIMEOUT_MS = 4_000
 const TOKEN_TIMEOUT_MS = 15_000
+/** The longest an account switch or the removal of another account waits for push cleanup before it continues. */
+const CLEANUP_WAIT_MS = 2_500
+/** A stored access token this close to its expiry is not sent, because the host would refuse it. */
+const CREDENTIALS_MARGIN_MS = 60_000
 let closingSession: number | null = null
 
 /** `never`: register only if already granted. `once`: ask the first time after sign in. `always`: ask while allowed. */
@@ -178,6 +195,10 @@ async function syncOnce(policy: PromptPolicy): Promise<void> {
             return
         }
         usePushStore.setState({ registering: false })
+        // The server gave this token to the active account and deleted every other user's row for it on this host.
+        const host = hostKey(useAuthStore.getState().host ?? '')
+        const account = useAuthStore.getState().activeAccountKey
+        settleRemovals((removal) => removal.token === token && (removal.account === account || removal.host === host))
         // Every launch re-registers the same token, so only a new registration counts as a success.
         if (previous.token !== token || previous.registeredFor !== key) {
             track('mobile_push_registration_finished', { ok: true, trigger: TRIGGERS[policy] })
@@ -207,9 +228,145 @@ function enqueue<T>(work: () => Promise<T>): Promise<T> {
     return result
 }
 
-// Calls run one after another, so a Settings tap never races the automatic run after sign in.
+/** Resolves when `work` settles or after `timeoutMs`, whichever comes first. The work continues after a timeout. */
+async function waitAtMost(work: Promise<unknown>, timeoutMs: number): Promise<void> {
+    let timer: ReturnType<typeof setTimeout> | undefined
+    try {
+        await Promise.race([
+            work.then(
+                () => undefined,
+                () => undefined
+            ),
+            new Promise<void>((resolve) => {
+                timer = setTimeout(resolve, timeoutMs)
+            }),
+        ])
+    } finally {
+        clearTimeout(timer)
+    }
+}
+
+/**
+ * Reads `account`'s credentials from its own slot, never from the session. Null when the slot is gone or unreadable,
+ * or when its access token has expired.
+ */
+async function credentialsOf(account: string): Promise<AccountCredentials | null> {
+    const stored = await readAccountSession(account)
+    if (!stored) {
+        return null
+    }
+    // A refresh here could race a switch that refreshes the same slot, and a reused refresh token revokes the whole
+    // token family. The account refreshes its token when it becomes active again.
+    const { tokens, identity } = stored
+    if (tokens.expiresAt !== null && tokens.expiresAt - Date.now() < CREDENTIALS_MARGIN_MS) {
+        return null
+    }
+    return { host: identity.host, accessToken: tokens.accessToken }
+}
+
+/** Removes one owed registration on its account's host, with that account's token, and forgets it on success. */
+async function removeOwed(removal: OwedRemoval): Promise<void> {
+    const credentials = await credentialsOf(removal.account)
+    if (!credentials) {
+        return
+    }
+    await withTimeout((signal) => unregisterPushTokenFor(credentials, removal.token, { signal }), UNREGISTER_TIMEOUT_MS)
+    settleRemovals((owed) => owed.account === removal.account && owed.token === removal.token)
+}
+
+async function settleOnce(): Promise<void> {
+    await waitForPushHydration()
+    const { status, accounts, activeAccountKey } = useAuthStore.getState()
+    // The account list is complete only after restore.
+    if (status !== 'signed_in') {
+        return
+    }
+    // An account without a usable slot cannot authenticate the removal. A later registration on its host still
+    // deletes its row there.
+    settleRemovals((removal) => !accounts.some((account) => account.key === removal.account && !account.needsSignIn))
+    for (const removal of usePushStore.getState().owed) {
+        // The active account's own registration settles what it owes.
+        if (removal.account === activeAccountKey) {
+            continue
+        }
+        try {
+            await removeOwed(removal)
+        } catch {
+            // Kept for the next launch, return to the app or switch.
+        }
+    }
+}
+
+/** Retries every removal that an inactive account still owes. */
+export function settleOwedRemovals(): Promise<void> {
+    return enqueue(settleOnce).catch(() => undefined)
+}
+
+// Calls run one after another, so a Settings tap never races the automatic run after sign in. The owed removals run
+// after it in the same queue, but the caller does not wait for them.
 export function syncPushRegistration(policy: PromptPolicy): Promise<void> {
-    return enqueue(() => syncOnce(policy)).catch(() => undefined)
+    const synced = enqueue(() => syncOnce(policy)).catch(() => undefined)
+    void settleOwedRemovals()
+    return synced
+}
+
+/**
+ * The account switch task. Only the active account stays registered, so the account that leaves owes the removal of
+ * its registration until its own host confirms it. The switch waits at most `CLEANUP_WAIT_MS`.
+ */
+export async function releaseRegistration(next: AccountRef): Promise<void> {
+    const session = sessionGeneration()
+    const account = getSessionAccountKey()
+    const owner = getSessionIdentity()
+    const key = registrationKey()
+    if (!account || !owner || !key) {
+        return
+    }
+    // No registration for the leaving session may start or finish after this point.
+    closingSession = session
+    await waitAtMost(waitForPushHydration(), CLEANUP_WAIT_MS)
+    const { token, registeredFor } = usePushStore.getState()
+    if (!token || registeredFor !== key) {
+        return
+    }
+    const removal: OwedRemoval = { account, host: hostKey(owner.host), token }
+    // Saved before the request, so a crash or a lost response leaves the removal owed.
+    oweRemoval(removal)
+    usePushStore.setState({ registeredFor: null, error: null })
+    // On the same host, the next account's registration of this token deletes the leaving account's row, so a request
+    // here would only slow the switch. If that registration fails, the retry removes the row with this account's token.
+    if (hostKey(next.host) === removal.host) {
+        return
+    }
+    // Queued, so the removal follows a registration POST of the leaving account that is still in flight.
+    await waitAtMost(
+        enqueue(() => removeOwed(removal)),
+        CLEANUP_WAIT_MS
+    )
+}
+
+/** The inactive sign-out task: removes what the account owes while its slot still holds its tokens. */
+export async function settleBeforeSignOut(account: AccountRef): Promise<void> {
+    await waitAtMost(waitForPushHydration(), CLEANUP_WAIT_MS)
+    if (!usePushStore.getState().owed.some((removal) => removal.account === account.key)) {
+        return
+    }
+    await waitAtMost(
+        enqueue(async () => {
+            await waitForPushHydration()
+            for (const removal of usePushStore.getState().owed) {
+                if (removal.account === account.key) {
+                    await removeOwed(removal).catch(() => undefined)
+                }
+            }
+        }),
+        CLEANUP_WAIT_MS
+    )
+}
+
+/** The account-removed task. The account's credentials are gone, so nothing it owes can be removed any more. */
+export function forgetOwedRemovals(account: AccountRef): void {
+    settleRemovals((removal) => removal.account === account.key)
 }
 
 export async function refreshPushPermission(): Promise<void> {

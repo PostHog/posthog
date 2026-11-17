@@ -6,13 +6,15 @@ import type { InsightApi, InsightBasicApi } from '@/api/insights'
 import { queryClient } from '@/api/queryClient'
 import type { PaginatedApi } from '@/api/reports'
 import type { FileSystemShortcutApi } from '@/api/shortcuts'
-import { addSessionEndTask, installAuthProvider, useAuthStore } from '@/auth/authStore'
+import { accountKey } from '@/auth/accountKey'
+import { addSessionEndTask, installAuthProvider, type StoredAccount, useAuthStore } from '@/auth/authStore'
 import {
     type SessionIdentity,
     type SessionTokens,
     saveRefreshedTokens,
     sessionGeneration,
     setSessionTokens,
+    writeAccountSlot,
 } from '@/auth/tokens'
 import { useDemoMode } from '@/demo/demoMode'
 import { usePinPrefs } from '@/features/views/pinPrefsStore'
@@ -27,13 +29,14 @@ const mockWidgetState = jest.fn()
 const mockSetCredentials = jest.fn()
 const mockClearCredentials = jest.fn()
 const mockSetCatalog = jest.fn()
+const mockClearCatalog = jest.fn()
 jest.mock('../../../modules/chart-widget', () => ({
     isAvailable: () => true,
     getWidgetState: () => mockWidgetState(),
     setCredentials: (credentials: unknown) => mockSetCredentials(credentials),
     clearCredentials: () => mockClearCredentials(),
     setCatalog: (json: string) => mockSetCatalog(json),
-    clearCatalog: () => undefined,
+    clearCatalog: () => mockClearCatalog(),
     reloadWidgets: () => undefined,
 }))
 jest.mock('expo-secure-store', () => {
@@ -139,13 +142,22 @@ describe('chart widget sync', () => {
         globalThis.fetch = fetchMock as unknown as typeof fetch
         installAuthProvider()
         setSessionTokens(null)
-        useAuthStore.setState({ status: 'signed_out', signedIn: false, user: null, projectId: null, projectName: null })
+        useAuthStore.setState({
+            status: 'signed_out',
+            signedIn: false,
+            user: null,
+            projectId: null,
+            projectName: null,
+            accounts: [],
+            activeAccountKey: null,
+        })
         useDemoMode.setState({ enabled: false })
         usePinPrefs.setState({ accounts: {} })
         clearWidgetState()
         mockSetCredentials.mockClear()
         mockClearCredentials.mockClear()
         mockSetCatalog.mockClear()
+        mockClearCatalog.mockClear()
     })
 
     afterEach(() => {
@@ -729,5 +741,96 @@ describe('chart widget sync', () => {
         useAuthStore.setState({ projectId: 3, projectName: 'Second project' })
         await syncWidgetCatalog(client)
         expect(JSON.parse(mockSetCatalog.mock.calls.at(-1)?.[0] ?? '{}').projectId).toBe(3)
+    })
+
+    // The native widget compares host and project only, so on the same host and project nothing but the app's clear
+    // keeps the earlier account's token, catalog and charts out of the next account's widget.
+    it.each([
+        {
+            name: 'a switch',
+            leave: (bob: StoredAccount) => useAuthStore.getState().switchAccount(bob.key, { from: 'settings' }),
+        },
+        { name: 'signing out of the active account', leave: () => useAuthStore.getState().signOut() },
+    ])('after $name, the widget holds only the next account on the same host and project', async ({ leave }) => {
+        const project = { id: 2, name: 'Example project', organizationId: 'org-1', organizationName: 'Example org' }
+        const scope = { host: HOST, projectId: 2 }
+        const accounts: StoredAccount[] = []
+        for (const [user, lastUsedAt] of [
+            ['ada', 2],
+            ['bob', 1],
+        ] as const) {
+            const key = await accountKey(HOST, user)
+            await writeAccountSlot(key, { ...KEY, accessToken: `phx_${user}` }, { ...owner(KEY), userUuid: user })
+            accounts.push({
+                key,
+                host: HOST,
+                clientId: null,
+                method: 'personal_api_key',
+                region: 'us',
+                userUuid: user,
+                user: { uuid: user, distinctId: user, email: `${user}@example.com`, name: user },
+                organizations: [],
+                projects: [project],
+                projectId: 2,
+                needsSignIn: false,
+                lastUsedAt,
+            })
+        }
+        const [ada, bob] = accounts as [StoredAccount, StoredAccount]
+        setSessionTokens({ ...KEY, accessToken: 'phx_ada' }, { ...owner(KEY), userUuid: 'ada' }, ada.key)
+        useAuthStore.setState({
+            status: 'signed_in',
+            signedIn: true,
+            host: HOST,
+            method: 'personal_api_key',
+            user: ada.user,
+            projects: [project],
+            projectId: 2,
+            projectName: project.name,
+            accounts,
+            activeAccountKey: ada.key,
+        })
+        const client = queryClient
+        client.clear()
+        client.setQueryData(viewsKeys.shortcuts(scope), { count: 1, next: null, results: [shortcut('s-ada', 'ada1')] })
+        fetchMock.mockImplementation(async (url, init) =>
+            url.includes('/api/projects/2/file_system_shortcut/') &&
+            (init?.headers as Record<string, string>).Authorization === 'Bearer phx_bob'
+                ? json(200, { count: 1, next: null, results: [shortcut('s-bob', 'bob1')] })
+                : json(404, {})
+        )
+        stop = startChartWidgetSync(client)
+        await syncWidgetCatalog(client)
+        expect(JSON.parse(mockSetCatalog.mock.calls.at(-1)?.[0] ?? '{}').pins[0].id).toBe('s-ada')
+        for (const mock of [mockSetCredentials, mockSetCatalog, mockClearCredentials, mockClearCatalog, fetchMock]) {
+            mock.mockClear()
+        }
+
+        await leave(bob)
+
+        await waitFor(() =>
+            expect(
+                JSON.parse(mockSetCatalog.mock.calls.at(-1)?.[0] ?? '{}').pins.map(({ id }: { id: string }) => id)
+            ).toEqual(['s-bob'])
+        )
+        expect(mockClearCredentials).toHaveBeenCalled()
+        expect(mockClearCatalog).toHaveBeenCalled()
+        const cleared = Math.max(
+            ...mockClearCredentials.mock.invocationCallOrder,
+            ...mockClearCatalog.mock.invocationCallOrder
+        )
+        const written = [...mockSetCredentials.mock.invocationCallOrder, ...mockSetCatalog.mock.invocationCallOrder]
+        expect(cleared).toBeLessThan(Math.min(...written))
+        expect(mockSetCredentials.mock.calls.map(([credentials]) => credentials)).toEqual([
+            expect.objectContaining({ accessToken: 'phx_bob', userUuid: 'bob', host: HOST, projectId: 2 }),
+        ])
+        expect(mockSetCatalog.mock.calls.filter(([catalog]) => String(catalog).includes('s-ada'))).toEqual([])
+        expect(
+            fetchMock.mock.calls.filter(
+                ([, init]) => (init?.headers as Record<string, string>).Authorization !== 'Bearer phx_bob'
+            )
+        ).toEqual([])
+        await client.cancelQueries()
+        client.clear()
     })
 })

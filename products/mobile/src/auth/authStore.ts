@@ -132,12 +132,14 @@ const FOREGROUND_REFRESH_MARGIN_MS = 24 * 60 * 60_000
 type SignOutTask = () => Promise<undefined | (() => void)>
 type SessionEndTask = () => void | Promise<void>
 type AccountRemovedTask = (account: AccountRef) => void | Promise<void>
-type AccountSwitchTask = () => void | Promise<void>
+type AccountSwitchTask = (next: AccountRef) => void | Promise<void>
+type InactiveSignOutTask = (account: AccountRef) => Promise<void>
 
 const signOutTasks = new Set<SignOutTask>()
 const sessionEndTasks = new Set<SessionEndTask>()
 const accountRemovedTasks = new Set<AccountRemovedTask>()
 const accountSwitchTasks = new Set<AccountSwitchTask>()
+const inactiveSignOutTasks = new Set<InactiveSignOutTask>()
 
 function register<T>(tasks: Set<T>, task: T): () => void {
     tasks.add(task)
@@ -175,10 +177,20 @@ export function addAccountRemovedTask(task: AccountRemovedTask): () => void {
 
 /**
  * Registers work for the start of an account switch, while the token of the account that is left is still valid and
- * its screens are still mounted. The switch awaits the task and ignores its failure.
+ * its screens are still mounted. `next` is the account the switch goes to. The switch awaits the task and ignores its
+ * failure, so the task must bound its own time.
  */
 export function addAccountSwitchTask(task: AccountSwitchTask): () => void {
     return register(accountSwitchTasks, task)
+}
+
+/**
+ * Registers work that runs before an account that is not the session signs out, while its slot still holds its tokens.
+ * The task reads that account's credentials itself, from its own slot. The sign out awaits the task and ignores its
+ * failure, so the task must bound its own time.
+ */
+export function addInactiveSignOutTask(task: InactiveSignOutTask): () => void {
+    return register(inactiveSignOutTasks, task)
 }
 
 async function runSessionEndTasks(): Promise<void> {
@@ -189,8 +201,12 @@ async function runAccountRemovedTasks(account: AccountRef): Promise<void> {
     await Promise.allSettled([...accountRemovedTasks].map(async (task) => task(account)))
 }
 
-async function runAccountSwitchTasks(): Promise<void> {
-    await Promise.allSettled([...accountSwitchTasks].map(async (task) => task()))
+async function runAccountSwitchTasks(next: AccountRef): Promise<void> {
+    await Promise.allSettled([...accountSwitchTasks].map(async (task) => task(next)))
+}
+
+async function runInactiveSignOutTasks(account: AccountRef): Promise<void> {
+    await Promise.allSettled([...inactiveSignOutTasks].map(async (task) => task(account)))
 }
 
 const SIGNED_OUT_ACCOUNT = {
@@ -443,7 +459,7 @@ export const useAuthStore = create<AuthState>()(
                 const leaving = get().status === 'signed_in' && getSessionTokens() !== null
                 if (leaving) {
                     beforeLeave?.()
-                    await runAccountSwitchTasks()
+                    await runAccountSwitchTasks(refOf(account))
                     reloading = null
                     // The root layout unmounts every screen while the status is loading.
                     set({ status: 'loading', signedIn: false })
@@ -639,6 +655,7 @@ export const useAuthStore = create<AuthState>()(
 
             /** Signs out of an account that is not the session. The session stays as it is. */
             const signOutInactive = async (account: StoredAccount): Promise<void> => {
+                await runInactiveSignOutTasks(refOf(account))
                 const stored = await readAccountSession(account.key)
                 if (stored?.tokens.kind === 'oauth' && stored.tokens.refreshToken && stored.identity.clientId) {
                     await revokeToken({

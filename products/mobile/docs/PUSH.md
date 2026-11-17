@@ -12,7 +12,11 @@ Code: `src/features/notifications/`, `src/api/pushTokens.ts`. The root layout in
 | OS rotates the token                            | `addPushTokenListener` unregisters the old token before registering the new one. A failed delete keeps the old token for retry.                                                                                 |
 | App returns to the foreground                   | Rereads the permission and retries registration after an error, a missing token or a session change.                                                                                                            |
 | Settings, "Enable notifications" or "Try again" | Asks when the system allows it, retries a failed registration, or opens system settings when permission is blocked.                                                                                             |
-| Sign out or account switch                      | Waits for in-flight registration, then sends `POST /api/users/@me/push_tokens/unregister/` `{ token }` before changing credentials. A failed delete keeps the session and offers a retry.                       |
+| Sign out of the active account                  | Waits for in-flight registration, then sends `POST /api/users/@me/push_tokens/unregister/` `{ token }` before changing credentials. A failed delete keeps the session and offers a retry.                       |
+| Account switch                                  | The leaving account owes the removal of its registration (see [Accounts](#accounts)). On another host the switch sends the unregister with that account's own token and waits at most 2.5 seconds for it.       |
+| The next account registers                      | Its registration also settles what earlier accounts owe for the same token on the same host, because the server deleted their rows. The account's own earlier removal is settled too.                           |
+| Every sync, and a return to the app             | Retries each owed removal of an inactive account with the token in that account's own slot, on the host in that slot.                                                                                           |
+| Signing out of another account                  | Sends what that account owes before its refresh token is revoked and its slot is deleted, and waits at most 2.5 seconds.                                                                                        |
 
 The server keeps at most 20 tokens per user and evicts the oldest. Both endpoints need `user:write`.
 A successful registration assigns the token to the current user and removes other users' registrations of that token on the same instance. Concurrent registrations of the same token are serialized, including when no row exists yet.
@@ -25,6 +29,34 @@ Fetching the Expo push token has a 15-second deadline. If the device or Expo doe
 
 Push is unavailable, and the app skips it without errors, on the web, in simulators and emulators, and in Expo Go.
 Settings shows which one applies.
+
+## Accounts
+
+Notifications follow the active account. Only the active account is registered for push on this device, and Settings says which account that is.
+
+A switch makes the leaving account owe the removal of its registration. `owed` in `pushStore.ts` records the account key, its host and the push token, never a credential.
+The record is saved before any request, so a crash or a lost response leaves it owed.
+
+- **Another host.** The switch task (`releaseRegistration()`) sends the unregister on the leaving account's host with its own token. A failure or a timeout never fails or holds the switch longer than 2.5 seconds.
+- **The same host.** The switch sends nothing. The next account's registration of the same token deletes the leaving account's row on the server, which settles the record. A request at the switch would only slow it down.
+
+A record stays until one of these happens:
+
+- the host confirms the removal;
+- a registration of the same token on the same host succeeds;
+- the account becomes active again and registers;
+- the account leaves the device: a sign out of it, or an expiry (`addAccountRemovedTask()`). An account marked `needsSignIn` has no credentials left, so its record is dropped too.
+
+A retry reads the inactive account's slot with `readAccountSession()` and sends that slot's access token to that slot's host.
+It never uses the active session. It does not refresh an expired access token, because a refresh outside a session transition could race a switch that refreshes the same slot, and a reused refresh token revokes the whole token family. Such a record waits until the account becomes active again or leaves the device.
+
+Signing out of an inactive account runs `addInactiveSignOutTask()` first, so its owed removal goes while its slot still holds its tokens.
+
+What remains open needs server changes:
+
+- Two accounts on one host cannot both receive pushes on one device, because a registration deletes every other user's row for the token.
+- A push names no account. A stale push of an earlier account opens in the active account, where the server refuses its data.
+- An all-accounts mode needs the server to keep one device token for several users and to name the recipient in the payload.
 
 ## Credentials
 
@@ -93,6 +125,7 @@ Kinds: `completed`, `failed`, `cancelled`, `awaiting`, `turn_completed`, `thread
 **Pull request outcomes** come from verified PR close events through `notify_task_pull_request_outcome()`. Ordinary task pushes use title `PostHog` and body `"{task title}" pull request was merged` or `"{task title}" pull request was closed`, with `Untitled task` as the blank-title fallback. Report work uses title `Report update`, the same suffix with the report title (`Untitled report` fallback), and the report updates preference. Both carry `pullRequestUrl` as the stable PR identity. A durable per-recipient, task, PR, and outcome claim prevents retry duplicates independently of Slack announcement history.
 
 **Snooze reminders** are local notifications. They use the inbox shape with `notificationKind: 'snooze_reminder'`, so the same routing opens the report.
+The data carries no account. The snooze store records the account that scheduled each reminder under its notification identifier (`reminderOwners`), because the Android tap store keeps only the routing fields and the snooze entry is pruned once its time passes. The record stays 30 days after the reminder time, and a removed account's records keep no account key.
 
 ## Routing
 
@@ -130,8 +163,18 @@ underneath without stepping through older chats.
 | anything else                                            | nothing                                                                                                                                                                                                                                                      |
 
 A tap turns demo mode off, because a push is about live data.
-A task lookup that finishes after the account changes cannot navigate the new account.
-Every tap captures `mobile_push_opened` with `kind` (the payload's `notificationKind`, else `report`, `task` or `unknown`).
+
+A remote push names no account, so it opens in the active account. A stale push of an earlier account fails closed there: the task lookup gets a 404 and the tap opens the inbox, and a report opens the report screen's load error, because the server refuses a report the active user cannot read. This holds when project ids collide across hosts. Routing never probes other accounts.
+
+A snooze reminder opens in the account that scheduled it:
+
+- its account is active: the report opens as for a push;
+- another account on the device that can sign in: `switchAccount(key, { projectId, from: 'push' })`, then the report opens once that account's screens mount;
+- its account needs a new sign-in, left the device, or the switch fails: the active account's inbox, and nothing of the other account loads;
+- a reminder scheduled before the app recorded its account: the active account, as for a push.
+
+A tap that arrives during a restore or a switch waits until the next account's screens mount, then is judged once against that account. A task lookup that finishes after the account changes cannot navigate the new account, and the tap is judged again against it.
+Every tap captures `mobile_push_opened` once, when it is handled, with `kind` (the payload's `notificationKind`, else `report`, `task` or `unknown`). A reminder tap adds `account: 'switched'` when it switched account first, and `account: 'unavailable'` when its account could not open it. The switch itself captures `mobile_account_switched` with `from: 'push'`.
 A push that arrives while the app is open captures `mobile_push_received` with `kind` and `shown` (false when the user is viewing that task or report, or has time-snoozed the report). Explicit task pushes are suppressed only when that chat is open; viewing its linked report does not hide a discussion reply. Legacy task payloads retain report-association suppression. Foreground delivery never plays sound or sets a badge.
 
 Time snooze reminders are scheduled on the device after an explicit snooze action. They follow system notification permission and are separate from the account's server push categories. A signal-based snooze does not schedule a timed reminder. Repeated delivery of the same notification is suppressed before receipt analytics in the foreground; terminal task and report-work outcomes are also deduplicated by run.
@@ -161,3 +204,5 @@ The Settings button captures `mobile_push_enable_pressed` with `action` (`reques
 5. Repeat with `{"taskId":"<task id>","notificationKind":"awaiting"}` for a task linked to a report, and for one without a report (opens its chat).
 6. For real server pushes, trigger a task run started or actively continued in mobile. To test report pushes, also enable `posthog-code-mobile-push` for your user and trigger a new report or report update.
 7. Sign out and check that `POST …/push_tokens/unregister/` ran (server logs or the token row is gone).
+8. Add an account on another host and switch to it. The first host has no row for the device token, and the second host has one. Repeat with two accounts on one host: only the active account's row exists.
+9. Snooze a report for a minute, switch to the other account, and tap the reminder. The app switches back and opens the report. On Android, repeat with the app killed.
