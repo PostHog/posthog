@@ -1309,6 +1309,10 @@ OIDC_RSA_PRIVATE_KEYS_INACTIVE = [
 ]
 
 OAUTH_EXPIRED_TOKEN_RETENTION_PERIOD = 60 * 60 * 24 * 30  # 30 days
+# Provisioning partner reviews post a thread per review to this channel in PostHog's own Slack workspace, with the
+# PostHog Slack app's bot token for that workspace. Leave either empty to post nothing.
+PROVISIONING_REVIEW_SLACK_BOT_TOKEN: str = get_from_env("PROVISIONING_REVIEW_SLACK_BOT_TOKEN", "")
+PROVISIONING_REVIEW_SLACK_CHANNEL: str = get_from_env("PROVISIONING_REVIEW_SLACK_CHANNEL", "")
 OAUTH_STALE_APPLICATION_GRACE_PERIOD = 60 * 60 * 24 * 30  # 30 days
 
 OAUTH2_PROVIDER = {

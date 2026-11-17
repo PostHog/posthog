@@ -1,0 +1,274 @@
+"""The staff Slack thread for each provisioning partner review, in PostHog's own Slack workspace.
+
+The first time a review settles, PostHog posts it to `PROVISIONING_REVIEW_SLACK_CHANNEL`. Every later
+decision edits that message to show the current state and replies under it, so the whole history of a
+partner stays in one thread. The message carries a Block button for staff. Accepting stays in PostHog
+Admin, because granting account creation should keep the admin step-up that a Slack click skips.
+
+Clicks reach the PostHog Slack app's interactivity endpoint in `products/slack_app`, which routes them
+to the review's region with the region in the block id and calls the handlers here.
+"""
+
+import json
+from typing import Any
+
+from django.conf import settings
+from django.core.cache import cache
+from django.db import transaction
+
+import structlog
+from celery import shared_task
+
+from posthog.egress.slack.client import SlackWebClient
+from posthog.models.oauth_provisioning_review import CIMDProvisioningReview, ProvisioningReviewStatus
+from posthog.models.user import User
+from posthog.slack.identity import resolve_slack_user
+from posthog.utils import get_instance_region
+
+logger = structlog.get_logger(__name__)
+
+BLOCK_ACTION_ID = "cimd_review_block"
+# A URL button still sends Slack a click, which the interactivity endpoint acknowledges and ignores.
+OPEN_ACTION_ID = "cimd_review_open"
+BLOCK_MODAL_CALLBACK_ID = "cimd_review_block_modal"
+BLOCK_MODAL_REASON_BLOCK = "cimd_review_block_reason"
+BLOCK_MODAL_REASON_INPUT = "reason"
+# The block id carries the review's region, so the interactivity endpoint can route a click to the
+# region that holds the review before anything reads the database.
+BLOCK_ID_PREFIX = "cimd_review"
+WORKSPACE_CACHE_KEY = "cimd_review_slack_workspace_id"
+WORKSPACE_CACHE_SECONDS = 60 * 60
+
+STATUS_HEADINGS = {
+    ProvisioningReviewStatus.ACCEPTED: ":white_check_mark: Provisioning partner accepted",
+    ProvisioningReviewStatus.REJECTED: ":no_entry: Provisioning partner blocked",
+    ProvisioningReviewStatus.NEEDS_HUMAN: ":eyes: Provisioning partner needs a staff review",
+    ProvisioningReviewStatus.PENDING: ":hourglass: Provisioning partner in review",
+}
+
+
+def slack_thread_configured() -> bool:
+    return bool(settings.PROVISIONING_REVIEW_SLACK_BOT_TOKEN and settings.PROVISIONING_REVIEW_SLACK_CHANNEL)
+
+
+def _client() -> SlackWebClient:
+    return SlackWebClient(
+        token=settings.PROVISIONING_REVIEW_SLACK_BOT_TOKEN, source="cimd_provisioning_review", app_id="posthog"
+    )
+
+
+def _region() -> str:
+    return get_instance_region() or ""
+
+
+def _escape(text: str) -> str:
+    # The partner names its own app, so its name must not become a mention or a link in Slack.
+    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
+def review_region(payload: dict[str, Any]) -> str | None:
+    """The region of the review a Slack payload is about, or None when the payload isn't about a review."""
+    for action in payload.get("actions") or ():
+        parts = str(action.get("block_id", "")).split(":")
+        if len(parts) == 3 and parts[0] == BLOCK_ID_PREFIX:
+            return parts[1]
+    view = payload.get("view") or {}
+    if view.get("callback_id") == BLOCK_MODAL_CALLBACK_ID:
+        try:
+            return str(json.loads(view.get("private_metadata") or "{}").get("region", ""))
+        except (json.JSONDecodeError, AttributeError):
+            return ""
+    return None
+
+
+def render_review_message(review: CIMDProvisioningReview) -> tuple[str, list[dict[str, Any]]]:
+    from posthog.api.oauth.provisioning_review import application_console_url  # noqa: PLC0415 - import cycle
+
+    app = review.application
+    status = ProvisioningReviewStatus(review.status)
+    name = _escape(app.name or app.client_id)
+    heading = f"{STATUS_HEADINGS[status]}: {name}"
+    blocked = app.provisioning.disabled and not app.provisioning.active
+    details = [f"*Domain:* `{_escape(review.domain)}`", f"*Region:* {_region() or 'self-hosted'}"]
+    if review.decided_stage:
+        details.append(f"*Decided at:* {review.decided_stage}")
+    blocks: list[dict[str, Any]] = [
+        {"type": "section", "text": {"type": "mrkdwn", "text": f"*{heading}*"}},
+        {"type": "section", "fields": [{"type": "mrkdwn", "text": detail} for detail in details]},
+    ]
+    if review.reason:
+        blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": _escape(review.reason)[:2900]}})
+    blocks.append({"type": "context", "elements": [{"type": "plain_text", "text": app.client_id[:2900]}]})
+    actions: list[dict[str, Any]] = [
+        {
+            "type": "button",
+            "text": {"type": "plain_text", "text": "Open in PostHog Admin"},
+            "url": application_console_url(app.pk),
+            "action_id": OPEN_ACTION_ID,
+        }
+    ]
+    if not blocked:
+        actions.append(
+            {
+                "type": "button",
+                "text": {"type": "plain_text", "text": "Block"},
+                "style": "danger",
+                "action_id": BLOCK_ACTION_ID,
+                "value": str(review.pk),
+            }
+        )
+    blocks.append({"type": "actions", "block_id": f"{BLOCK_ID_PREFIX}:{_region()}:{review.pk}", "elements": actions})
+    return heading, blocks
+
+
+@shared_task(ignore_result=True, autoretry_for=(Exception,), retry_backoff=True, max_retries=3)
+def sync_review_slack_thread(review_id: str, previous_status: str | None = None) -> None:
+    """Post the review's thread the first time it settles, then keep the first message current and reply
+    with each change. Runs after the decision commits, so it reads the decision it was queued for."""
+    if not slack_thread_configured():
+        return
+    review = CIMDProvisioningReview.objects.select_related("application").filter(pk=review_id).first()
+    if review is None or review.status == ProvisioningReviewStatus.PENDING:
+        return
+    client = _client()
+    text, blocks = render_review_message(review)
+
+    if not review.slack_message_ts:
+        response = client.chat_postMessage(
+            channel=settings.PROVISIONING_REVIEW_SLACK_CHANNEL, text=text, blocks=blocks, unfurl_links=False
+        )
+        # Conditional, so a second task that raced this one can't overwrite the thread it started.
+        CIMDProvisioningReview.objects.filter(pk=review.pk, slack_message_ts="").update(
+            slack_channel_id=response["channel"], slack_message_ts=response["ts"]
+        )
+        return
+
+    client.chat_update(channel=review.slack_channel_id, ts=review.slack_message_ts, text=text, blocks=blocks)
+    previous = ProvisioningReviewStatus(previous_status).label if previous_status else None
+    change = ProvisioningReviewStatus(review.status).label
+    reply = f"{previous} → {change}" if previous else change
+    if review.reason:
+        reply = f"{reply}: {_escape(review.reason)}"
+    client.chat_postMessage(channel=review.slack_channel_id, thread_ts=review.slack_message_ts, text=reply[:3000])
+
+
+def queue_review_slack_thread(review: CIMDProvisioningReview, *, previous_status: str | None) -> None:
+    if not slack_thread_configured():
+        return
+    review_id = str(review.pk)
+    transaction.on_commit(lambda: sync_review_slack_thread.delay(review_id, previous_status))
+
+
+def _workspace_id(client: SlackWebClient) -> str | None:
+    cached = cache.get(WORKSPACE_CACHE_KEY)
+    if cached:
+        return cached
+    team_id = client.auth_test().get("team_id")
+    if team_id:
+        cache.set(WORKSPACE_CACHE_KEY, team_id, WORKSPACE_CACHE_SECONDS)
+    return team_id
+
+
+def staff_user_for_slack_user(payload: dict[str, Any]) -> User | None:
+    """The active PostHog staff user behind a Slack click, or None.
+
+    Only a member of PostHog's own workspace counts, so a Slack Connect guest in the channel can't act
+    with an email that matches a staff account.
+    """
+    if not slack_thread_configured():
+        return None
+    slack_user_id = (payload.get("user") or {}).get("id") or ""
+    client = _client()
+    workspace_id = _workspace_id(client)
+    if not workspace_id or (payload.get("team") or {}).get("id") != workspace_id:
+        return None
+    slack_user = resolve_slack_user(client, slack_user_id, workspace=workspace_id)
+    email = slack_user.get("email")
+    if not email or slack_user.get("team_id") != workspace_id:
+        return None
+    return User.objects.filter(email__iexact=email, is_staff=True, is_active=True).first()
+
+
+def _review_for_action(payload: dict[str, Any]) -> CIMDProvisioningReview | None:
+    for action in payload.get("actions") or ():
+        if action.get("action_id") == BLOCK_ACTION_ID:
+            return CIMDProvisioningReview.objects.select_related("application").filter(pk=action.get("value")).first()
+    return None
+
+
+def handle_block_click(payload: dict[str, Any]) -> None:
+    """Open the reason form for a staff member who clicked Block. The block itself happens on submit."""
+    review = _review_for_action(payload)
+    trigger_id = payload.get("trigger_id")
+    if review is None or not trigger_id:
+        return
+    client = _client()
+    if staff_user_for_slack_user(payload) is None:
+        client.chat_postEphemeral(
+            channel=(payload.get("channel") or {}).get("id", ""),
+            user=(payload.get("user") or {}).get("id", ""),
+            text="Only PostHog staff can block a provisioning partner.",
+        )
+        return
+    client.views_open(
+        trigger_id=trigger_id,
+        view={
+            "type": "modal",
+            "callback_id": BLOCK_MODAL_CALLBACK_ID,
+            "private_metadata": json.dumps({"review_id": str(review.pk), "region": _region()}),
+            "title": {"type": "plain_text", "text": "Block partner"},
+            "submit": {"type": "plain_text", "text": "Block"},
+            "close": {"type": "plain_text", "text": "Cancel"},
+            "blocks": [
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": (
+                            f"Block *{_escape(review.application.name)}*? It stops provisioning and every "
+                            "connection it has is signed out. You can accept it again in PostHog Admin."
+                        ),
+                    },
+                },
+                {
+                    "type": "input",
+                    "block_id": BLOCK_MODAL_REASON_BLOCK,
+                    "label": {"type": "plain_text", "text": "Reason"},
+                    "element": {"type": "plain_text_input", "action_id": BLOCK_MODAL_REASON_INPUT, "multiline": True},
+                },
+            ],
+        },
+    )
+
+
+def handle_block_modal_submit(payload: dict[str, Any]) -> dict[str, Any] | None:
+    """Block the partner from the reason form. Returns a Slack error response to keep the form open, or
+    None to close it. The submit re-checks staff, because anyone with the form open can submit it."""
+    from posthog.api.oauth.provisioning_review import decide_partner  # noqa: PLC0415 - import cycle
+
+    view = payload.get("view") or {}
+    try:
+        review_id = json.loads(view.get("private_metadata") or "{}").get("review_id")
+    except (json.JSONDecodeError, AttributeError):
+        return None
+    reason = (
+        ((view.get("state") or {}).get("values") or {})
+        .get(BLOCK_MODAL_REASON_BLOCK, {})
+        .get(BLOCK_MODAL_REASON_INPUT, {})
+        .get("value")
+        or ""
+    ).strip()
+    if not reason:
+        return {"response_action": "errors", "errors": {BLOCK_MODAL_REASON_BLOCK: "Enter a reason."}}
+    staff = staff_user_for_slack_user(payload)
+    if staff is None:
+        return {
+            "response_action": "errors",
+            "errors": {BLOCK_MODAL_REASON_BLOCK: "Only PostHog staff can block a provisioning partner."},
+        }
+    review = CIMDProvisioningReview.objects.select_related("application").filter(pk=review_id).first()
+    if review is None:
+        return None
+    decide_partner(review.application, accept=False, reason=f"Staff ({staff.email}, from Slack): {reason}")
+    logger.info("cimd_review_blocked_from_slack", review_id=str(review.pk), staff_user_id=staff.pk)
+    return None

@@ -21,6 +21,7 @@ import structlog
 import posthoganalytics
 from celery import shared_task
 
+from posthog.api.oauth.provisioning_review_slack import queue_review_slack_thread
 from posthog.cloud_utils import is_cloud
 from posthog.email import EMAIL_TASK_KWARGS, EmailMessage, get_email_team_and_org_context, is_email_available
 from posthog.helpers.email_utils import sanitize_display_name
@@ -237,6 +238,7 @@ def _capture_settled(review: CIMDProvisioningReview, *, previous_status: str) ->
     )
     review_id, status = str(review.pk), review.status
     transaction.on_commit(lambda: send_partner_review_email.delay(review_id, status))
+    queue_review_slack_thread(review, previous_status=previous_status)
 
 
 # Review outcomes the partner's organization admins hear about. A pending review stays quiet.
