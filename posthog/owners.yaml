@@ -1,6 +1,11 @@
 version: 1
 owners: []
 rules:
+    - match:
+          - '/admin/console/member_email_migration.py'
+          - '/admin/console/organization_sign_in_panels.py'
+          - '/admin/test_organization_sign_in_panels.py'
+      owners: team-platform-features
     - match: '/caching/'
       owners: team-analytics-platform
     - match: '/clickhouse/hcl/'

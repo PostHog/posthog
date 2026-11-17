@@ -1,4 +1,5 @@
 import re
+import copy
 import json
 import time
 import hashlib
@@ -79,6 +80,7 @@ from products.posthog_ai.backend.task_ownership import (
     detach_conversations_for_task_handoff,
     soft_delete_conversations_for_task,
 )
+from products.tasks.backend.activity_logging import log_sandbox_custom_image_update
 from products.tasks.backend.constants import (
     AGENT_OTEL_TELEMETRY_STATE_KEY,
     ANALYSIS_TARGET_IMAGE_ID_STATE_KEY,
@@ -3195,6 +3197,9 @@ def build_sandbox_custom_image(
     )
     if not updated:
         raise ValueError("A build is already in progress for this image")
+    after = copy.copy(image)
+    after.spec = spec.model_dump()
+    log_sandbox_custom_image_update(image, after, user_id)
 
     observe_custom_image_build("started")
     execute_build_sandbox_image_workflow(str(image.id), team_id)
@@ -3224,7 +3229,8 @@ def update_sandbox_custom_image(
     if not updates:
         return get_sandbox_custom_image(image_id, team_id, user_id)
 
-    if _get_writable_custom_image(image_id, team_id, user_id) is None:
+    image = _get_writable_custom_image(image_id, team_id, user_id)
+    if image is None:
         return None
     updated = (
         _accessible_custom_images(team_id, user_id)
@@ -3233,6 +3239,10 @@ def update_sandbox_custom_image(
     )
     if not updated:
         return None
+    after = copy.copy(image)
+    for key, value in updates.items():
+        setattr(after, key, value)
+    log_sandbox_custom_image_update(image, after, user_id)
     # Re-read through get_sandbox_custom_image rather than _reload_image_dto: if a
     # concurrent delete removes the row between the update above and this read,
     # `.first()` returns None (→ 404) instead of .get() raising DoesNotExist (→ 500).
@@ -3296,6 +3306,8 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         "agent_parent_run_id",
         "agent_started_run_count",
         "resume_from_run_id",
+        # Once another member drove the sandbox, nothing inside it may unlock the creator's memory.
+        "agent_memory_locked",
         "run_source",
         "pr_base_branch",
         "stack_base_branch",
@@ -3339,6 +3351,7 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         "sandbox_url",
         "sandbox_connect_token",
         "sandbox_jwt_kid",
+        "agent_egress_probe",
         DEV_STACK_PREVIEW_STATE_KEY,
         "sandbox_cpu_cores",
         "sandbox_memory_gb",

@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+from types import SimpleNamespace
 from typing import TYPE_CHECKING
 from uuid import UUID, uuid4
 
@@ -1586,6 +1587,85 @@ class TestScoutHarnessConfigWriteScopesAPI(APIBaseTest):
         config.refresh_from_db()
         assert config.run_interval_minutes == 720
 
+    @parameterized.expand(
+        [
+            ("plain_member", False, False, "shared", False, None, False, status.HTTP_403_FORBIDDEN),
+            ("plain_member_resends_unchanged", False, False, "shared", True, None, False, status.HTTP_200_OK),
+            ("scout_author", True, False, "shared", False, None, False, status.HTTP_200_OK),
+            ("project_admin_private_image", False, True, "private", False, None, False, status.HTTP_400_BAD_REQUEST),
+            ("project_admin_missing_image", False, True, "missing", False, None, False, status.HTTP_400_BAD_REQUEST),
+            (
+                "scout_author_key_without_skill_scope",
+                True,
+                False,
+                "shared",
+                False,
+                ["signal_scout:write"],
+                False,
+                status.HTTP_403_FORBIDDEN,
+            ),
+            (
+                "scout_author_key_with_skill_scope",
+                True,
+                False,
+                "shared",
+                False,
+                ["signal_scout:write", "llm_skill:write"],
+                False,
+                status.HTTP_200_OK,
+            ),
+            ("project_admin_without_skill_editor", False, True, "shared", False, None, True, status.HTTP_403_FORBIDDEN),
+        ]
+    )
+    def test_custom_image_needs_the_acting_user_or_an_admin_and_a_shared_image(
+        self,
+        _name: str,
+        is_author: bool,
+        is_admin: bool,
+        lookup: str,
+        already_set: bool,
+        key_scopes: list[str] | None,
+        deny_skill_editor: bool,
+        expected: int,
+    ) -> None:
+        image_id = uuid4()
+        config = self._config(custom_image_id=image_id if already_set else None)
+        self._authored_by(self.user if is_author else self._other_member())
+        if is_admin:
+            self._become_admin()
+        found = None if lookup == "missing" else SimpleNamespace(private=lookup == "private")
+        if key_scopes:
+            self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {self._personal_api_key(key_scopes)}")
+        real_check = UserAccessControl.check_access_level_for_resource
+
+        def resource_access(
+            access: UserAccessControl, resource: APIScopeObject, required_level: AccessControlLevel
+        ) -> bool:
+            if deny_skill_editor and resource == "llm_skill":
+                return False
+            return real_check(access, resource, required_level)
+
+        with (
+            patch("products.tasks.backend.facade.api.get_sandbox_custom_image", return_value=found),
+            patch.object(
+                UserAccessControl, "check_access_level_for_resource", autospec=True, side_effect=resource_access
+            ),
+        ):
+            response = self.client.patch(
+                self._detail_url(str(config.id)),
+                data={"custom_image_id": str(image_id), "run_interval_minutes": 720},
+                format="json",
+            )
+
+        assert response.status_code == expected, response.json()
+        config.refresh_from_db()
+        if expected == status.HTTP_200_OK:
+            assert response.json()["custom_image_id"] == str(image_id)
+            assert config.custom_image_id == image_id
+            assert config.run_interval_minutes == 720
+        else:
+            assert config.custom_image_id is None
+
     def test_revoking_write_access_needs_the_same_claim(self) -> None:
         # Narrowing is safe, but the refusal keeps one rule to state: a member who cannot grant
         # cannot rewrite the field at all, so nobody can flip a scout's access behind its author.
@@ -1851,7 +1931,13 @@ class TestScoutHarnessConfigWriteScopesAPI(APIBaseTest):
         assert config.allowed_mcp_tools is None
         assert response.json()["attr"] == "allowed_mcp_tools"
 
-    @parameterized.expand([({"allowed_mcp_tools": []},), ({"tool_preset": "read_only"},)])
+    @parameterized.expand(
+        [
+            ({"allowed_mcp_tools": []},),
+            ({"tool_preset": "read_only"},),
+            ({"custom_image_id": "8f6d2c1e-4b7a-4e0f-9a3d-5c2b1e7f6a90"},),
+        ]
+    )
     def test_sandbox_token_cannot_select_tools(self, payload: dict) -> None:
         self._authored_by(self.user)
         config = self._config()
@@ -1862,6 +1948,7 @@ class TestScoutHarnessConfigWriteScopesAPI(APIBaseTest):
         assert response.status_code == 403, response.json()
         config.refresh_from_db()
         assert config.allowed_mcp_tools is None
+        assert config.custom_image_id is None
 
     def test_preset_is_snapshotted_and_reordered_list_does_not_log(self) -> None:
         config = self._config()

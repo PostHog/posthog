@@ -246,6 +246,7 @@ class TestIssueSummaryGeneration(BaseTest):
         assert request["extra_headers"] == {"X-PostHog-Privacy-Mode": "true"}
         assert request["response_format"]["json_schema"]["strict"] is True
         assert self.build_client.call_args.kwargs["properties"]["issue_id"] == str(self.issue.id)
+        assert self.build_client.call_args.kwargs["ai_product"] == "error_tracking_issue_summaries"
         assert not issue_summaries.get_client().exists(self._lock_key)
 
     @parameterized.expand(

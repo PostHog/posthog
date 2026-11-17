@@ -7523,9 +7523,9 @@ Diffed against: <https://docs.loopreturns.com/llms.txt>
 - [x] `Products (GET /api/v1/products)` — resolve product references on returned and exchanged items for catalog analysis (high)
 - [x] `Product variants (GET /api/v1/products/{productId}/product-variants)` — resolve variant references for return rates by SKU and product option (high)
 - [x] `Customers (GET /api/v1/customers)` — analyze repeat return behavior and customer cohorts beyond the email on a return (medium)
-- [ ] `Return notes (GET /api/v1/warehouse/return/{id}/notes)` — analyze support explanations and operational handling of returns (medium)
-- [ ] `Inventories (GET /api/v1/inventories)` — compare exchange demand with stock availability by variant and location (medium)
-- [ ] `Locations (GET /api/v1/locations)` — provide location names and metadata for inventory analysis (medium)
+- [ ] `Return notes (GET /api/v1/warehouse/return/{id}/notes)` — analyze support explanations and operational handling of returns (medium) Skipped: per-return lookup only, with no list or date filter, so every sync needs one request per return in the full history at a 300 requests/minute limit.
+- [x] `Inventories (GET /api/v1/inventories)` — compare exchange demand with stock availability by variant and location (medium)
+- [x] `Locations (GET /api/v1/locations)` — provide location names and metadata for inventory analysis (medium)
 
 Note: Fetched llms.txt, then parsed the linked Returns, Orders, Products, Customers, Inventories, Locations, and related OpenAPI specs. Return rows already include line items, exchanges, refunds, and labels, so these are not separate gaps. Variants and notes need parent fan-out; Commerce Data endpoints require matching scopes and account support. Listed paths use the documented v1 server; compatibility with the selectable 2026-07 version needs implementation checks.
 
@@ -7589,12 +7589,12 @@ Diffed against: <https://developers.mailerlite.com/llms.txt>
 - [x] `GET /api/segments/{segment_id}/subscribers` — segment membership join table (high)
 - [x] `GET /api/ecommerce/shops/{shop_id}/orders` — purchase transactions — the highest-value analytical object in the e-commerce API (high)
 - [x] `GET /api/ecommerce/shops` — lookup resolving shop ids for every e-commerce record (high)
-- [ ] `GET /api/ecommerce/shops/{shop_id}/customers` — shop customers linked to subscribers, joins revenue to email (medium)
+- [x] `GET /api/ecommerce/shops/{shop_id}/customers` — shop customers linked to subscribers, joins revenue to email (medium)
 - [x] `GET /api/ecommerce/shops/{shop_id}/products` — product catalog resolving order line items (medium)
-- [ ] `GET /api/forms/{form_id}/subscribers` — signups attributable to each popup/embedded/promotion form (medium)
+- [x] `GET /api/forms/{form_id}/subscribers` — signups attributable to each popup/embedded/promotion form (medium)
 - [x] `GET /api/ecommerce/shops/{shop_id}/categories` — category dimension for product and order breakdowns (medium)
-- [ ] `GET /api/timezones` — lookup resolving the timezone id on subscribers and account settings (low)
-- [ ] `GET /api/campaign-languages` — lookup resolving campaign language codes (low)
+- [x] `GET /api/timezones` — lookup resolving the timezone id on subscribers and account settings (low)
+- [x] `GET /api/campaign-languages` — lookup resolving campaign language codes (low)
 
 Note: The source ships an api_inventory.md documenting the 10 implemented paths; it only covers the core /api surface and does not mention the separate E-commerce API (shops, carts, orders, products, categories, customers), which is entirely unexposed. All schemas are static and full-refresh (MailerLite has no server-side updated_after filter).
 
@@ -10498,11 +10498,11 @@ Diffed against: <https://docs.ruddr.io/llms.txt>
 - [x] `opportunities` — the sales pipeline, a whole analytical domain currently unavailable (high)
 - [x] `opportunity-stages` — lookup table resolving the stage IDs carried on opportunities (high)
 - [x] `project-roles` — lookup resolving the role IDs on project members and time entries (high)
-- [ ] `project-expenses` — cost side of project profitability (medium)
-- [ ] `payments` — cash collection against invoices (medium)
-- [ ] `timesheets` — submission and approval state wrapping the time entries we sync (medium)
+- [x] `project-expenses` — cost side of project profitability (medium)
+- [x] `payments` — cash collection against invoices (medium)
+- [x] `timesheets` — submission and approval state wrapping the time entries we sync (medium)
 - [x] `project-health-reports` — periodic project status history, a natural trend series (medium)
-- [ ] `practices` — lookup resolving the practice/org-unit IDs on members and projects (medium)
+- [x] `practices` — lookup resolving the practice/org-unit IDs on members and projects (medium)
 
 Note: Ruddr documents roughly 78 list endpoints; the connector exposes 17. Beyond those listed, whole domains are unsynced: project budget items (service/product/other/expense, plus monthly variants), revenue recognition entries, revenue adjustments, credit notes, tax rates, cost periods, exchange rate periods, utilization target periods, contacts, companies, expense reports, holidays, skills, disciplines, job titles and member levels. Static endpoint catalog, no dynamic discovery.
 
@@ -13726,15 +13726,15 @@ Today (19): `Accounts`, `Calls`, `Campaigns`, `Cases`, `Contacts`, `Deals`, `Eve
 
 Diffed against: <https://www.zoho.com/crm/developer/docs/api/v8/api-references.html>
 
-- [ ] `Pipelines and stage maps (GET /crm/v8/settings/pipeline?layout_id={layout_id})` — resolve deal pipeline IDs and stage mappings for funnel analysis and forecasting (high)
-- [ ] `Custom and linking module records (GET /crm/v8/{module_api_name})` — include organization-specific business entities and relationship records that the fixed module list cannot expose (high)
-- [ ] `Timeline of a record (GET /crm/v8/{module_api_name}/{record_id}/__timeline)` — reconstruct field changes and measure deal stage duration, reassignment, and other record transitions (high)
+- [x] `Pipelines and stage maps (GET /crm/v8/settings/pipeline?layout_id={layout_id})` — resolve deal pipeline IDs and stage mappings for funnel analysis and forecasting (high) — added as `Pipelines`, read for every Deals layout
+- [x] `Custom and linking module records (GET /crm/v8/{module_api_name})` — include organization-specific business entities and relationship records that the fixed module list cannot expose (high) — added as one `Custom_<module>` table per discovered module
+- [x] `Timeline of a record (GET /crm/v8/{module_api_name}/{record_id}/__timeline)` — reconstruct field changes and measure deal stage duration, reassignment, and other record transitions (high) — added as `Deal_Timeline` (Deals only, one request per deal)
 - [ ] `Related records (GET /crm/v8/{module_api_name}/{record_id}/{related_list_api_name})` — capture campaign participation and relationships between existing CRM records that separate module tables omit (medium)
 - [ ] `Contact roles of a deal (GET /crm/v8/Deals/{deal_id}/Contact_Roles)` — analyze buying committees and identify each contact role across sales opportunities (medium)
 - [ ] `Emails of a record (GET /crm/v8/{module_api_name}/{record_id}/Emails)` — measure email interactions, follow-up activity, and communication patterns for leads and deals (medium)
 - [ ] `Appointments and Services (GET /crm/v8/Appointments; GET /crm/v8/Services)` — analyze booked services and appointment demand beyond the existing event and task tables (medium)
 - [ ] `Currencies (GET /crm/v8/org/currencies)` — interpret currency codes and exchange rates when comparing deal and invoice values across currencies (medium)
-- [ ] `Territories (GET /crm/v8/settings/territories)` — describe sales regions and their hierarchy for account allocation and regional performance analysis (medium)
+- [x] `Territories (GET /crm/v8/settings/territories)` — describe sales regions and their hierarchy for account allocation and regional performance analysis (medium) — added as `Territories`
 
 Note: Compared the v8 reference operation list and resource pages with the nineteen static tables. Confirmed GET paths in the official zoho/zohocrm-python-sdk-8.0 resource modules, version 6.0.0. Custom and linking modules need dynamic discovery; timelines, emails, and relationships require reads for each parent record. Pipelines require layout IDs, several lookups need additional scopes, and currencies and territories depend on account features.
 
@@ -13767,10 +13767,10 @@ Diffed against: <https://developers.zoom.us/api-hub/meetings/methods/endpoints.j
 - [x] `/report/webinars/{webinarId}/participants (and /past_webinars/{webinarId}/participants)` — webinar attendance rows; webinars are synced but have zero attendance data (high)
 - [x] `/webinars/{webinarId}/registrants` — registration records with approval status, the denominator for webinar show-up rate (high)
 - [x] `/meetings/{meetingId}/registrants` — registration records for registration-enabled meetings we already sync (high)
-- [ ] `/past_meetings/{meetingId}/instances (and /past_webinars/{webinarId}/instances)` — lookup resolving each recurring meeting/webinar ID we sync to its per-occurrence UUIDs, which every report endpoint keys on (high)
-- [ ] `/groups and /groups/{groupId}/members` — lookup table resolving the group IDs carried on the users rows we already sync (high)
-- [ ] `/report/users` — active/inactive host report with per-user meeting counts, minutes and participant totals - Zoom's headline usage metric (high)
-- [ ] `/users/{userId}/recordings` — cloud recording inventory per host, including file size and duration for storage/usage analysis (medium)
+- [x] `/past_meetings/{meetingId}/instances (and /past_webinars/{webinarId}/instances)` — lookup resolving each recurring meeting/webinar ID we sync to its per-occurrence UUIDs, which every report endpoint keys on (high)
+- [x] `/groups and /groups/{groupId}/members` — lookup table resolving the group IDs carried on the users rows we already sync (high)
+- [x] `/report/users` — active/inactive host report with per-user meeting counts, minutes and participant totals - Zoom's headline usage metric (high)
+- [x] `/users/{userId}/recordings` — cloud recording inventory per host, including file size and duration for storage/usage analysis (medium)
 - [ ] `/report/daily` — daily rollup of new users, meetings, participants and minutes per account (medium)
 - [ ] `/webinars/{webinarId}/panelists` — panelist membership per webinar, needed to separate hosts/panelists from attendees (medium)
 - [ ] `/meetings/meeting_summaries and /meetings/{meetingId}/meeting_summary` — account-wide AI meeting summaries, a queryable per-meeting content table (medium)
