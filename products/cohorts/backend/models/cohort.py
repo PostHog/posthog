@@ -67,9 +67,16 @@ class CohortPopulationMode(models.TextChoices):
     REPLACE = "replace", "Replace"
 
 
-# Columns a static population owns while it runs. Only the claim and the population itself write them.
+# Columns a static population owns while it runs or when recording a replace. Only the claim and the population itself write them.
 STATIC_POPULATION_RUN_FIELDS = frozenset(
-    {"is_calculating", "pending_population_mode", "population_marker", "population_claimed_at"}
+    {
+        "is_calculating",
+        "pending_population_mode",
+        "population_marker",
+        "population_claimed_at",
+        "last_replace_marker",
+        "last_replace_floor",
+    }
 )
 
 

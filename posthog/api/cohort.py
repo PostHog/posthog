@@ -2334,7 +2334,7 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
         )
         if not claimed:
             raise ValidationError({source_field: ["This cohort is still being populated. Try again when it finishes."]})
-        # cohort.save() writes every field, so the in-memory values must match the claim.
+        # Keep the in-memory instance aligned with the claim update for serialization and callers after update.
         cohort.is_calculating = True
         cohort.pending_population_mode = claim_mode
         cohort.population_marker = None
@@ -2605,7 +2605,9 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
         update_fields = [
             field.name
             for field in Cohort._meta.concrete_fields
-            if not field.primary_key and field.name not in COHORT_REALTIME_SWITCH_FIELDS
+            if not field.primary_key
+            and field.name not in COHORT_REALTIME_SWITCH_FIELDS
+            and field.name not in STATIC_POPULATION_RUN_FIELDS
         ]
         with transaction.atomic():
             # Judged in the save's transaction, under the lock turn-ons take, so no other turn-on or edit takes a slot
@@ -2632,14 +2634,11 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
                 )
                 cohort.save(update_fields=update_fields)
             elif cohort.is_static:
-                # A concurrent query PATCH can claim the cohort after this request loaded it, and the population it
-                # starts writes its own state. Writing this request's stale copy would release that claim and let a
-                # duplicate population through, or change the replace marker under the running population.
-                cohort.save(
-                    update_fields=[field for field in update_fields if field not in STATIC_POPULATION_RUN_FIELDS]
-                )
-            else:
                 cohort.save(update_fields=update_fields)
+            else:
+                # Dynamic edits mark the cohort for recalculation above, so include is_calculating here even though
+                # STATIC_POPULATION_RUN_FIELDS excludes it from the shared update_fields list.
+                cohort.save(update_fields=[*update_fields, "is_calculating"])
 
         if not deleted_state:
             if import_from_csv:

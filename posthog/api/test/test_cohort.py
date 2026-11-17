@@ -1021,6 +1021,86 @@ email@example.org
         self.assertIsNone(cohort.population_marker)
         mock_delay.assert_called_once_with(cohort.pk, self.team.id)
 
+    @parameterized.expand(
+        [
+            ("metadata", lambda: {"name": "renamed"}, False),
+            ("claim", lambda: {"name": "claimed", "query": {"kind": "HogQLQuery", "query": "select 1"}}, True),
+            (
+                "static_to_dynamic",
+                lambda: {
+                    "is_static": False,
+                    "filters": {
+                        "properties": {
+                            "type": "OR",
+                            "values": [
+                                {
+                                    "type": "AND",
+                                    "values": [
+                                        {
+                                            "key": "email",
+                                            "type": "person",
+                                            "value": ["user@example.com"],
+                                            "operator": "exact",
+                                        }
+                                    ],
+                                }
+                            ],
+                        }
+                    },
+                },
+                False,
+            ),
+        ]
+    )
+    def test_stale_cohort_instance_patch_preserves_last_replace_fields(
+        self, _name: str, payload_fn: Callable[[], dict[str, Any]], expects_claim: bool
+    ) -> None:
+        cohort = Cohort.objects.create(team=self.team, name="static", is_static=True)
+        stale_instance = Cohort.objects.get(pk=cohort.pk)
+        finished_marker = datetime(2026, 11, 7, 12, 0, tzinfo=UTC)
+        finished_floor = finished_marker - timedelta(seconds=5)
+        Cohort.objects.filter(pk=cohort.pk).update(
+            last_replace_marker=finished_marker,
+            last_replace_floor=finished_floor,
+        )
+
+        with (
+            patch.object(CohortViewSet, "get_object", return_value=stale_instance),
+            patch("posthog.tasks.calculate_cohort.insert_cohort_from_query.delay"),
+            patch.object(Cohort, "enqueue_calculation"),
+        ):
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/cohorts/{cohort.pk}",
+                data=payload_fn(),
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, 200, response.json())
+        cohort.refresh_from_db()
+        self.assertEqual(cohort.last_replace_marker, finished_marker)
+        self.assertEqual(cohort.last_replace_floor, finished_floor)
+        self.assertEqual(cohort.is_calculating, expects_claim)
+
+    def test_dynamic_cohort_patch_still_writes_is_calculating(self) -> None:
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="dynamic",
+            is_static=False,
+            is_calculating=False,
+            groups=[{"properties": [{"key": "email", "value": "user@example.com", "type": "person"}]}],
+        )
+
+        with patch.object(Cohort, "enqueue_calculation"):
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/cohorts/{cohort.pk}",
+                data={"name": "dynamic renamed"},
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, 200, response.json())
+        cohort.refresh_from_db()
+        self.assertTrue(cohort.is_calculating)
+
     def test_calculation_history_endpoint_and_serializer_expose_mode(self) -> None:
         cohort = Cohort.objects.create(team=self.team, name="Static with History", is_static=True)
         history = CohortCalculationHistory.objects.create(
