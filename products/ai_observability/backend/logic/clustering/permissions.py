@@ -36,7 +36,8 @@ def can_access_clustering_filters(team_id: int, user: User, filters: list[dict[s
         "group": ast.TableType(table=GroupsTable()),
     }
     for event_filter in filters:
-        if not isinstance(event_filter.get("key"), str):
+        # Virtual fields can read restricted properties that this key-level check cannot see.
+        if not isinstance(event_filter.get("key"), str) or event_filter["key"].startswith("$virt_"):
             return False
         try:
             prop = Property(**event_filter)
