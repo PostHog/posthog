@@ -139,7 +139,6 @@ data_modeling.DataModelingJob products.data_warehouse.backend.presentation.views
 data_modeling.DataModelingJob products.data_warehouse.backend.presentation.views.saved_query.view_state instance-single 1
 data_modeling.DataModelingJob products.data_warehouse.backend.presentation.views.saved_query.viewset instance-many(filter) 1
 data_modeling.DataModelingJob products.data_warehouse.backend.presentation.views.saved_query.viewset instance-many(order_by) 1
-data_modeling.DataModelingJob products.data_warehouse.backend.presentation.views.saved_query.viewset prefetch 1
 data_modeling.DataModelingJob products.data_warehouse.backend.temporal.health_checks.materialized_view_failure instance-many(order_by) 1
 data_modeling.DataModelingJob products.endpoints.backend.presentation.views.api instance-many(order_by) 1
 data_modeling.DataModelingJob products.endpoints.backend.tasks.tasks instance-many(exclude) 1
