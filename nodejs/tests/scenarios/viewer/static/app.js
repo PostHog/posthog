@@ -806,6 +806,11 @@ async function cardsPage({ render, onLeave }) {
     const running = h('div', { class: 'panel running-now' }, h('span', { class: 'muted' }, 'Checking for a run…'))
     const diagram = deliveryPath()
     diagram.paint({ nodes: {}, links: {} })
+    const grid = h(
+        'div',
+        { class: 'grid' },
+        all.map((card) => cardTile(card, runs))
+    )
     render(
         h('h1', {}, 'Scenario dashboard'),
         h(
@@ -814,11 +819,7 @@ async function cardsPage({ render, onLeave }) {
             `Each card breaks one part of the Workflows delivery path on purpose while synthetic load runs through it, then checks that every message still arrived. ${all.length} cards, ${runs.length} ${runs.length === 1 ? 'run' : 'runs'} on this box.`
         ),
         running,
-        h(
-            'div',
-            { class: 'grid' },
-            all.map((card) => cardTile(card, runs))
-        ),
+        grid,
         h('h2', {}, 'The delivery path the cards break'),
         h(
             'div',
@@ -842,7 +843,7 @@ async function cardsPage({ render, onLeave }) {
             return
         }
         const now = live?.state === 'running' ? live : null
-        document.querySelectorAll('.live-badge').forEach((badge) => (badge.hidden = badge.dataset.card !== now?.cardId))
+        grid.querySelectorAll('.live-badge').forEach((badge) => (badge.hidden = badge.dataset.card !== now?.cardId))
         running.replaceChildren(
             ...(now
                 ? [
@@ -868,7 +869,7 @@ async function cardsPage({ render, onLeave }) {
     await Promise.all(
         all.map(async (card) => {
             const last = runs.find((run) => run.cardId === card.id)
-            const slot = document.querySelector(`[data-finding="${card.id}"]`)
+            const slot = grid.querySelector(`[data-finding="${card.id}"]`)
             if (!last || !slot) {
                 return
             }
