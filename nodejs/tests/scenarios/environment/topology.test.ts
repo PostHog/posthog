@@ -59,6 +59,7 @@ const SPECS: RoleSpec[] = roleSpecs({}, { url: 'http://edge' }, secretsOf({}), '
 const CLIENTS = [
     { application: 'scenario-cdp-cyclotron-worker-email', database: 'cyclotron', connections: 4 },
     { application: 'scenario-cdp-api', database: 'posthog', connections: 2 },
+    { application: 'cdp-processed-events', database: 'posthog', connections: 3 },
     { application: 'psql', database: 'posthog', connections: 1 },
 ]
 
@@ -78,7 +79,7 @@ describe('topology', () => {
         rmSync(dir, { recursive: true, force: true })
     })
 
-    it('reads which role consumes which group and topic with the lag of its own partitions, and which database it talks to', async () => {
+    it('reads which role consumes which group and topic with the lag of its own partitions, and which database it talks to under either session name', async () => {
         const groups = await groupsWithLag('5')
 
         expect(scenarioGroupsOf(groups)).toEqual([{ group: 'orders-consumer', topics: ['orders_in'] }])
@@ -103,6 +104,7 @@ describe('topology', () => {
             databases: [
                 { adapter: 'workflows', role: 'cdp-api', database: 'posthog', connections: 2 },
                 { adapter: 'workflows', role: 'cdp-cyclotron-worker-email', database: 'cyclotron', connections: 4 },
+                { adapter: 'workflows', role: 'cdp-processed-events', database: 'posthog', connections: 3 },
             ],
         })
         expect(wiringFrom(groups).processes).toContainEqual({

@@ -344,7 +344,7 @@ export function createRunner(
             } else {
                 const nodes = nodesOf(read.wiring, EDGE_HOSTS)
                 const missing = missingTargets(targets, nodes)
-                const settled = missing.length === 0 && (targets.length === 0 || read.wiring.hash === previousHash)
+                const settled = missing.length === 0 && read.wiring.hash === previousHash
                 if (settled || late) {
                     return { wiring: read.wiring, nodes, missing }
                 }
@@ -456,6 +456,7 @@ export function createRunner(
                     }
                 )
                 await judge.open(seeded)
+                const exitsBefore = environment.exits().length
                 const { wiring, nodes, missing } = await settledWiring(
                     card.valves.map(({ target }) => target),
                     signal
@@ -466,7 +467,6 @@ export function createRunner(
                         `the card targets ${missing.join(', ')}, which this run's topology does not have; it found ${nodes.join(', ')}`
                     )
                 }
-                const exitsBefore = environment.exits().length
                 stopHealth = watchHealth(environment)
                 sampler = await startSampler(
                     environment.roles().map(({ name, replica, metricsUrl }) => ({ role: name, replica, metricsUrl }))

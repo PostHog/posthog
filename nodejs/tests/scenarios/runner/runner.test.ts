@@ -739,6 +739,7 @@ describe('runner through seed, drive and judge', () => {
     let failedWiringReads = 0
     let cyclotronJoinsAtRead = 0
     let wiringReads = 0
+    let exitsAtWiringRead: RoleExit[] = []
     const exitOfTheKill = (role: Role): RoleExit[] => [
         { role, replica: 0, at: new Date().toISOString(), code: null, signal: 'SIGKILL', byValve: true },
     ]
@@ -778,6 +779,7 @@ describe('runner through seed, drive and judge', () => {
         groupLag: () => Promise.resolve(0),
         wiring: () => {
             const read = wiringReads++
+            exits.push(...exitsAtWiringRead.splice(0))
             if (read < failedWiringReads) {
                 return Promise.reject(new Error('rpk group list timed out'))
             }
@@ -886,6 +888,7 @@ describe('runner through seed, drive and judge', () => {
         failedWiringReads = 0
         cyclotronJoinsAtRead = 0
         wiringReads = 0
+        exitsAtWiringRead = []
         api = await startFakeProjectApi()
         cacheHome = mkdtempSync(path.join(os.tmpdir(), 'scenario-runner-'))
         env = {
@@ -1312,6 +1315,26 @@ describe('runner through seed, drive and judge', () => {
         },
         30_000
     )
+
+    it('fails a run in which a role exits while its topology settles', async () => {
+        exitsAtWiringRead = [
+            {
+                role: 'cdp-cyclotron-worker-hogflow',
+                replica: 0,
+                at: new Date().toISOString(),
+                code: 1,
+                signal: null,
+                byValve: false,
+            },
+        ]
+
+        const result = await run('all')
+
+        expect(result).toMatchObject({
+            status: 'failed',
+            statusReason: 'cdp-cyclotron-worker-hogflow exited (code 1) without a valve causing it',
+        })
+    }, 30_000)
 
     it('calls a run invalid before its drive when a valve targets a node its topology lacks, and names the nodes found', async () => {
         cyclotronJoinsAtRead = Infinity
