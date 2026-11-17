@@ -1145,7 +1145,7 @@ async def get_client(
     Returns a ClickHouse client based on the aiochclient library. This is an
     async context manager.
 
-    DEFAULT workfload resolves to OFFLINE for this client. An explicit clickhouse_url
+    DEFAULT workload resolves to OFFLINE for this client. An explicit clickhouse_url
     overrides the endpoint, but logs and metrics keep their workload's database and cluster.
     All workloads authenticate with the same deployment's CLICKHOUSE_USER credentials.
 
