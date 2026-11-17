@@ -23,8 +23,11 @@ SOURCES := $(shell find . -type f -name '*.go' -not -path './$(DIST_DIR)/*') go.
 
 build: $(DIST_DIR)/$(BINARY_NAME)
 
+# phrocs has no C code, so cgo only adds a dependency on the system C linker
+# and macOS SDK, which breaks the flox build when the SDK and the flox linker
+# disagree. The release targets below build the same way.
 $(DIST_DIR)/$(BINARY_NAME): $(SOURCES) | $(DIST_DIR)
-	$(GOBUILD) $(LDFLAGS) -o $@ .
+	CGO_ENABLED=0 $(GOBUILD) $(LDFLAGS) -o $@ .
 
 $(DIST_DIR):
 	mkdir -p $@
