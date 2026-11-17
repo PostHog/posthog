@@ -2943,6 +2943,20 @@ class TestHogFlowAPI(APIBaseTest):
                 "group_nested_three_levels_deep",
                 {"properties": {"type": "OR", "values": [{"type": "AND", "values": [{"type": "OR", "values": []}]}]}},
             ),
+            (
+                "incomplete_filter_in_an_or_group",
+                {
+                    "properties": {
+                        "type": "AND",
+                        "values": [
+                            {
+                                "type": "OR",
+                                "values": [{"key": "plan", "value": "pro", "operator": "exact", "type": "person"}, {}],
+                            }
+                        ],
+                    }
+                },
+            ),
         ]
     )
     @patch("products.workflows.backend.presentation.views.hog_flow.feature_enabled_or_false", return_value=True)
