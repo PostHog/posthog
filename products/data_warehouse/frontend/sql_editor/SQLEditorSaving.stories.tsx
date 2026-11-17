@@ -10,7 +10,7 @@ import { DataVisualizationNode } from '~/queries/schema/schema-general'
 
 import { expect, userEvent } from 'storybook/test'
 
-import { Story, DISCARD_VIEW, DISCARD_INSIGHT, sqlEditorStoryMeta } from './SQLEditorStoryFixtures'
+import { Story, DISCARD_VIEW, DISCARD_INSIGHT, sqlEditorStoryMeta } from './__mocks__/SQLEditorStoryFixtures'
 
 const meta: Meta = { ...sqlEditorStoryMeta, component: App, title: 'Scenes-App/Data Warehouse/SQL Editor' }
 export default meta

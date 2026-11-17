@@ -2538,6 +2538,18 @@
     "products/data_warehouse/frontend/shared/components/RenameViewModal.stories.tsx": {
         "chromium": 3.832
     },
+    "products/data_warehouse/frontend/sql_editor/SQLEditorAnalysis.stories.tsx": {
+        "chromium": 52.569
+    },
+    "products/data_warehouse/frontend/sql_editor/SQLEditorSaving.stories.tsx": {
+        "chromium": 42.586
+    },
+    "products/data_warehouse/frontend/sql_editor/SQLEditorScene.stories.tsx": {
+        "chromium": 34.357
+    },
+    "products/data_warehouse/frontend/sql_editor/SQLEditorWorksheet.stories.tsx": {
+        "chromium": 32.223
+    },
     "products/data_warehouse/frontend/sql_editor/SaveAsMenu.stories.tsx": {
         "chromium": 5.508
     },
