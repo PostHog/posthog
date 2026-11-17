@@ -1,4 +1,4 @@
-import { useActions } from 'kea'
+import { useActions, useValues } from 'kea'
 import { MutableRefObject, useEffect, useMemo, useRef, useState } from 'react'
 
 import { IconX } from '@posthog/icons'
@@ -17,7 +17,7 @@ import {
 } from '@posthog/quill'
 
 import { TodayTourPoint } from './todayTourGeometry'
-import { TODAY_TOUR_STEPS, TodayTourStep, todayTourLogic } from './todayTourLogic'
+import { TodayTourStep, todayTourLogic } from './todayTourLogic'
 import { TodayTourTimer } from './TodayTourTimer'
 
 const TOUR_STEP_MS = 8000
@@ -36,6 +36,7 @@ interface TodayTourCardProps {
 
 /** One step of the tour, next to the tour's cursor. It moves on by itself on a timer, paused while hovered. */
 export function TodayTourCard({ step, stepIndex, anchor, refocusNextRef }: TodayTourCardProps): JSX.Element {
+    const { tourSteps } = useValues(todayTourLogic)
     const { nextTourStep, endTour } = useActions(todayTourLogic)
     // Moving the whole page on a timer is the kind of motion this setting asks to avoid, so the tour waits for Next.
     const reducedMotion = useReducedMotion()
@@ -127,7 +128,7 @@ export function TodayTourCard({ step, stepIndex, anchor, refocusNextRef }: Today
                     </CardHeader>
                     <CardFooter className="justify-between gap-2">
                         <Text size="xs" variant="muted">
-                            {`${stepIndex + 1} of ${TODAY_TOUR_STEPS.length}`}
+                            {`${stepIndex + 1} of ${tourSteps.length}`}
                         </Text>
                         <div className="flex items-center gap-2">
                             {!reducedMotion && (
@@ -138,7 +139,7 @@ export function TodayTourCard({ step, stepIndex, anchor, refocusNextRef }: Today
                                 />
                             )}
                             <Button ref={nextButtonRef} variant="primary" onClick={goNext} data-attr="today-tour-next">
-                                {stepIndex === TODAY_TOUR_STEPS.length - 1 ? 'Done' : 'Next'}
+                                {stepIndex === tourSteps.length - 1 ? 'Done' : 'Next'}
                             </Button>
                         </div>
                     </CardFooter>

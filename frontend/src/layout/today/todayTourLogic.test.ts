@@ -2,12 +2,12 @@ import { navSwitchLogic } from 'lib/components/NavSwitch/navSwitchLogic'
 
 import { initKeaTests } from '~/test/init'
 
-import { TODAY_TOUR_STEPS, todayTourLogic } from './todayTourLogic'
+import { todayTourLogic, tourStepsForRail } from './todayTourLogic'
 
 type TourLogic = ReturnType<typeof todayTourLogic.build>
 
 const clickDoneOnLastStep = (logic: TourLogic): void => {
-    TODAY_TOUR_STEPS.forEach(() => logic.actions.nextTourStep())
+    logic.values.tourSteps.forEach(() => logic.actions.nextTourStep())
 }
 
 const closeTourEarly = (logic: TourLogic): void => {
@@ -51,5 +51,15 @@ describe('todayTourLogic', () => {
 
         expect(tourLogic.values.tourCompleted).toBe(true)
         expect(tourLogic.values.tourJustCompleted).toBe(false)
+    })
+
+    test.each([
+        { rail: ['home', 'analytics', 'products'], panes: ['home', 'analytics', 'products', 'settings'] },
+        {
+            rail: ['home', 'analytics', 'release', 'monitor', 'products'],
+            panes: ['home', 'analytics', 'release', 'monitor', 'products', 'settings'],
+        },
+    ] as const)('the tour visits only the panes the rail shows: $rail', ({ rail, panes }) => {
+        expect(tourStepsForRail([...rail]).map((step) => step.pane)).toEqual(panes)
     })
 })

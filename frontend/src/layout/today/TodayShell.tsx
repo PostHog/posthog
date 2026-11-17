@@ -16,6 +16,7 @@ import { lazyWithRetry } from 'lib/utils/retryImport'
 import { QuillSceneHeader } from '~/layout/scenes/components/QuillSceneHeader'
 
 import { TodayNavSwitchDialog } from './TodayNavSwitchDialog'
+import { TodayPaneIntro } from './TodayPaneIntro'
 import { TodayPhoneHeader } from './TodayPhoneHeader'
 import { TodayPreviewCardProvider } from './TodayPreviewCardProvider'
 import { TodayRail } from './TodayRail'
@@ -153,6 +154,7 @@ export function TodayShell({ className }: { className?: string }): JSX.Element {
                 }
                 actions={PaneAction && <PaneAction />}
             />
+            {activePane !== 'home' && <TodayPaneIntro pane={activePane} />}
             {paneContent}
         </div>
     )
