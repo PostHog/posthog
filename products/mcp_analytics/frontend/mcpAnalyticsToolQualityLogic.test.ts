@@ -345,6 +345,41 @@ describe('mcpAnalyticsToolQualityLogic', () => {
             expect(logic.values.toolRows.map((row) => row.tool)).toEqual(['page-two-tool'])
         })
 
+        it.each([
+            ['the first load', false],
+            ['a reload with rows already on screen', true],
+        ])('reports a failed rows request on %s as an error, not as no rows', async (_name, firstLoadSucceeds) => {
+            let rowsFail = !firstLoadSucceeds
+            mockApi.query.mockImplementation(async (query: any) => {
+                if (query.kind !== NodeKind.MCPToolQualityRowsQuery) {
+                    return { results: [] }
+                }
+                if (rowsFail) {
+                    throw new Error('Internal server error')
+                }
+                return { ...emptyToolRowsResponse, results: [toolRowResult('tool_a')], totalCount: 1 }
+            })
+            const logic = mcpAnalyticsToolQualityLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            if (firstLoadSucceeds) {
+                rowsFail = true
+                await expectLogic(logic, () => {
+                    logic.actions.setSearchTerm('tool')
+                }).toFinishAllListeners()
+            }
+
+            expect(logic.values.toolRowsLoadFailed).toBe(true)
+            expect(logic.values.toolRowsPage).toBeNull()
+
+            rowsFail = false
+            logic.actions.loadToolRowsPage()
+            expect(logic.values.toolRowsLoadFailed).toBe(false)
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.toolRows.map((row) => row.tool)).toEqual(['tool_a'])
+        })
+
         it('sends search, global sort, and page offsets to the rows query', async () => {
             mockApi.query.mockImplementation(async (query: any) =>
                 query.kind === NodeKind.MCPToolQualityRowsQuery
