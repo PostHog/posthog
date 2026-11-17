@@ -147,3 +147,22 @@ class TestEvalSuggestionReviewTool(BaseTest):
         assert (self.unlabeled.review_verdict, self.unlabeled.review_note, self.unlabeled.reviewed_by_id) == (
             ("good", "Real failures", self.user.pk) if known else (None, "", None)
         )
+
+    def test_an_old_label_link_opens_the_form_for_its_card(self) -> None:
+        response = self.client.get(
+            f"/admin/console/tools/eval-suggestion-review/label/?team={self.team.pk}&suggestion={self.labeled.id}"
+        )
+
+        content = response.content.decode()
+        assert re.search(rf'name="suggestion"\s+value="{self.labeled.id}"', content)
+        assert re.search(rf'name="team"\s+value="{self.team.pk}"', content)
+
+    def test_a_named_card_outside_the_loaded_cards_says_so(self) -> None:
+        with patch("products.ai_observability.backend.logic.eval_suggestions.review_queries.MAX_REVIEW_CARDS", 1):
+            response = self.client.get(
+                f"/admin/console/tools/eval-suggestion-review/?days=30&suggestion={self.unlabeled.id}"
+            )
+
+        content = response.content.decode()
+        assert "That card is not among the 1 newest cards" in content
+        assert re.findall(r'data-slot="card-title">([^<]*)</h2>', content)[0] == "Already labeled card"

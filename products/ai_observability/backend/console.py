@@ -9,6 +9,8 @@ from django.contrib import messages
 from django.http import HttpRequest, HttpResponse
 from django.utils import timezone
 
+import structlog
+
 from posthog.admin.console.panels import Owner, ReasonForm, Tone
 from posthog.admin.console.registry import console
 from posthog.admin.console.tools import (
@@ -43,6 +45,8 @@ from products.ai_observability.backend.facade.admin import (
     set_dataset_retention_enabled,
     usage_report_skips_existing_reports,
 )
+
+logger = structlog.get_logger(__name__)
 
 AI_OBSERVABILITY = Owner(name="AI observability", crest="ai-observability")
 
@@ -188,6 +192,14 @@ def label_suggestion(request: HttpRequest, form: forms.Form | None) -> HttpRespo
     ):
         messages.error(request, "This team has no suggestion with this ID.")
         return HttpResponse(status=404)
+    # The console's operation log records the page's query, which names no card, so the label logs its target.
+    logger.info(
+        "eval_suggestion_labeled",
+        team_id=cleaned["team"],
+        suggestion_id=str(cleaned["suggestion"]),
+        verdict=verdict.value,
+        reviewer_id=reviewer_id,
+    )
     messages.success(request, f"Labeled the card {verdict.label.lower()}.")
     return None
 
@@ -336,6 +348,15 @@ class EvalSuggestionReviewTool(ConsoleTool):
         if not cards:
             return Page(blocks=(*blocks, Notice(text="No cards match these filters."), _labeled_table(filters)))
         position = _position(request, cards)
+        if request.GET.get("suggestion") and str(cards[position - 1].id) != request.GET["suggestion"]:
+            # The labeled cards can name a card that the newest cards these filters load leave out.
+            blocks.append(
+                Notice(
+                    text=f"That card is not among the {len(cards)} newest cards these filters show. Add its team ID "
+                    "or pick fewer days to open it. This is the newest card instead.",
+                    tone=Tone.WARNING,
+                )
+            )
         card = cards[position - 1]
         blocks += [_decision(card, position, len(cards), filters), _card_stats(card)]
         if card.examples:
@@ -364,6 +385,8 @@ class EvalSuggestionReviewTool(ConsoleTool):
                 label="Label a card",
                 handler=label_suggestion,
                 form_class=LabelSuggestionForm,
+                # Bookmarks to the old label page carry the card in the query.
+                form_initial={"team": request.GET.get("team", ""), "suggestion": request.GET.get("suggestion", "")},
                 description="Saves a staff label on one card. The customer sees nothing.",
                 listed=False,
             )
