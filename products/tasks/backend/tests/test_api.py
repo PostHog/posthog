@@ -13123,6 +13123,7 @@ class TestTaskRunCancelAPI(BaseTaskAPITest):
         self.assertEqual(response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
         run.refresh_from_db()
         self.assertEqual(run.status, TaskRun.Status.IN_PROGRESS)
+        self.assertNotIn("cancel_requested_at", run.state)
 
     def test_cancel_unknown_run_returns_404(self):
         task = self.create_task()

@@ -199,6 +199,10 @@ def cancel_task_run(
 
     signal_outcome = _signal_complete_task(run, TaskRun.Status.CANCELLED, error_message)
     if signal_outcome == "unavailable":
+        try:
+            run.state = TaskRun.update_state_atomic(run.id, remove_keys=list(marker))
+        except Exception:
+            logger.warning("Failed to withdraw cancel request marker for task run %s", run.id, exc_info=True)
         return "unavailable", tasks_api._task_run_detail_to_dto(run)
 
     if signal_outcome == "workflow_gone":
