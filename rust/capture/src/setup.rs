@@ -340,14 +340,7 @@ pub async fn build_components(
     // metrics or state-cleanup tasks of its own: the global rate limiter owns
     // its background tick loop, its cache eviction, and its own metric series
     // (scoped `<mode>_ai_bytes`).
-    let ai_event_size_caps = AiEventSizeCaps::parse(
-        config.ai_max_event_bytes,
-        config
-            .ai_max_event_bytes_overrides_csv
-            .as_deref()
-            .unwrap_or_default(),
-        max_raised_ai_event_bytes(ingestion_message_max_bytes),
-    );
+    let ai_event_size_caps = ai_event_size_caps(&config, ingestion_message_max_bytes);
     if ai_byte_limit_enabled {
         warn_if_ai_byte_budget_below_max_event(&config, ai_event_size_caps.largest_bytes());
     }
@@ -448,6 +441,17 @@ fn ai_ceiling_exceeds_producer_cap(config: &Config, producer_message_max_bytes: 
     let ceiling = config.ai_max_event_bytes;
     // `0` disables the ceiling, so there is no ordering to be wrong about.
     ceiling != 0 && ceiling >= producer_message_max_bytes as u64
+}
+
+fn ai_event_size_caps(config: &Config, producer_message_max_bytes: u32) -> AiEventSizeCaps {
+    AiEventSizeCaps::parse(
+        config.ai_max_event_bytes,
+        config
+            .ai_max_event_bytes_overrides_csv
+            .as_deref()
+            .unwrap_or_default(),
+        max_raised_ai_event_bytes(producer_message_max_bytes),
+    )
 }
 
 /// The producer's limit covers the `CapturedEvent` envelope too, so a raised
@@ -1258,6 +1262,25 @@ mod tests {
         create_output_registry(&config, &default_producers, None, None)
             .await
             .expect("boot must proceed when the completeness check is disabled");
+    }
+
+    #[test]
+    fn the_overrides_env_var_raises_only_its_tokens() {
+        let cfg_env: HashMap<String, String> = [
+            ("REDIS_URL", "redis://localhost:6379/"),
+            ("CAPTURE_MODE", "ai"),
+            ("AI_MAX_EVENT_BYTES_OVERRIDES_CSV", "phc_big=24000000"),
+        ]
+        .into_iter()
+        .map(|(k, v)| (k.to_string(), v.to_string()))
+        .collect();
+        let config: Config =
+            envconfig::Envconfig::init_from_hashmap(&cfg_env).expect("test config");
+
+        let caps = ai_event_size_caps(&config, 64_000_000);
+
+        assert_eq!(caps.for_token("phc_big"), 24_000_000);
+        assert_eq!(caps.for_token("phc_other"), config.ai_max_event_bytes);
     }
 
     #[rstest]

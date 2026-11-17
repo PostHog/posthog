@@ -40,7 +40,12 @@ impl AiEventSizeCaps {
                         lowered = bytes < requested,
                         "raising the AI event size cap for a token"
                     );
-                    by_token.insert(token.to_string(), bytes);
+                    if by_token.insert(token.to_string(), bytes).is_some() {
+                        warn!(
+                            token,
+                            "AI_MAX_EVENT_BYTES_OVERRIDES_CSV lists a token twice; the last entry wins"
+                        );
+                    }
                 }
                 Err(reason) => {
                     warn!(
@@ -110,6 +115,11 @@ mod tests {
     #[case::not_an_integer_is_skipped("phc_big=24MB", "phc_big", DEFAULT)]
     #[case::missing_separator_is_skipped("phc_big", "phc_big", DEFAULT)]
     #[case::a_bad_entry_keeps_the_good_ones("phc_bad=1,phc_big=24000000", "phc_big", 24_000_000)]
+    #[case::the_last_entry_for_a_token_wins(
+        "phc_big=48000000,phc_big=24000000",
+        "phc_big",
+        24_000_000
+    )]
     fn caps_come_from_valid_entries_only(
         #[case] by_token: &str,
         #[case] token: &str,
