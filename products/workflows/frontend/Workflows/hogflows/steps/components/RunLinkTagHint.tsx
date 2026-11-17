@@ -11,6 +11,9 @@ export function RunLinkTagHint(): JSX.Element | null {
     if (!currentTeam) {
         return null
     }
+    const refreshOnReturn = (): void => {
+        window.addEventListener('focus', () => refreshCurrentTeam(), { once: true })
+    }
     const enabled = currentTeam.workflows_config?.email_workflow_run_link_tag_enabled ?? true
 
     return (
@@ -22,7 +25,9 @@ export function RunLinkTagHint(): JSX.Element | null {
                 to={urls.settings('environment-workflows', 'workflows-email-run-link-tag')}
                 target="_blank"
                 // The setting changes in another tab, so reload the team when this tab gets focus back.
-                onClick={() => window.addEventListener('focus', () => refreshCurrentTeam(), { once: true })}
+                // Capture also sees Cmd/Ctrl-clicks, and middle-clicks only fire auxclick.
+                onClickCapture={refreshOnReturn}
+                onAuxClick={refreshOnReturn}
                 data-attr="workflows-run-link-tag-settings-link"
             >
                 {enabled ? 'Turn it off in settings' : 'Turn it on in settings'}

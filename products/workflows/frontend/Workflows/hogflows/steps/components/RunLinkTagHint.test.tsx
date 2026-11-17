@@ -41,7 +41,14 @@ describe('<RunLinkTagHint />', () => {
             expect.stringMatching(/\/settings\/environment-workflows#workflows-email-run-link-tag$/)
         )
     })
-    it('shows the new setting when the user comes back from the settings tab', async () => {
+    it.each([
+        { opened: 'a click', open: (link: HTMLElement) => fireEvent.click(link) },
+        { opened: 'a Cmd-click', open: (link: HTMLElement) => fireEvent.click(link, { metaKey: true }) },
+        {
+            opened: 'a middle-click',
+            open: (link: HTMLElement) => fireEvent(link, new MouseEvent('auxclick', { bubbles: true, button: 1 })),
+        },
+    ])('shows the new setting after returning from settings opened with $opened', async ({ open }) => {
         useMocks({
             get: {
                 '/api/projects/:id/': {
@@ -52,7 +59,7 @@ describe('<RunLinkTagHint />', () => {
         })
         render(<RunLinkTagHint />)
 
-        fireEvent.click(screen.getByText('Turn it off in settings'))
+        open(screen.getByText('Turn it off in settings'))
         await act(async () => {
             window.dispatchEvent(new Event('focus'))
         })
