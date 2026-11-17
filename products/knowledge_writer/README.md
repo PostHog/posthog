@@ -24,7 +24,8 @@ Secondary readers gain only when that engineer approves:
 
 The writer is meant to work on any docs repository, whatever builds it.
 It will have no per-framework adapters: a repository will name its nav and redirect files, and one generic check will refuse any edit there that doesn't point at a page the branch changed.
-Neither the repository config nor that check is built yet, so for now publish refuses a branch that changes any file outside `KNOWLEDGE_WRITER_DOCS_PATHS`.
+The check exists, but the repository config does not yet: `COMPANION_PATHS` names posthog.com's `vercel.json` and `src/navs/index.js` in code for every repository, so another docs repository can change files under `KNOWLEDGE_WRITER_DOCS_PATHS` plus any files it has at those two paths.
+Grow that check by moving `COMPANION_PATHS` into repository config, not by adding another repository's files to it.
 
 ## Settings
 
