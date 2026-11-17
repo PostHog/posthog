@@ -70,7 +70,11 @@ export const todayPaneIntroLogic = kea<todayPaneIntroLogicType>([
         // The tour points at each intro, so it shows them again, unless the person dismisses one during the tour.
         isIntroShown: [
             (s) => [s.dismissedLocally, s.user, s.tourActive],
-            (dismissedLocally, user, tourActive): ((pane: TodayIntroPane) => boolean) =>
+            (
+                dismissedLocally: Partial<Record<TodayIntroPane, true>>,
+                user: UserType | null,
+                tourActive: boolean
+            ): ((pane: TodayIntroPane) => boolean) =>
                 (pane) =>
                     !dismissedLocally[pane] &&
                     (tourActive || !user?.has_seen_product_intro_for?.[todayPaneIntroKey(pane)]),
