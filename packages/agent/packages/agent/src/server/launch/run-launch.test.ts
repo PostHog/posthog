@@ -141,6 +141,20 @@ describe("run launch", () => {
         "https://us.posthog.com/project/2/inbox/rep_1",
       ],
       [
+        "the inbox report for a desktop task",
+        createTask({
+          signal_report: "rep_1",
+          client_provenance: "posthog_desktop",
+        }),
+        "https://us.posthog.com/project/2/inbox/rep_1",
+      ],
+      ["nothing without provenance", createTask(), undefined],
+      [
+        "nothing with null provenance",
+        createTask({ client_provenance: null }),
+        undefined,
+      ],
+      [
         "the web chat for a web task",
         createTask({ client_provenance: "posthog_web" }),
         "https://us.posthog.com/project/2/ai?task=task-1",
