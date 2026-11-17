@@ -227,6 +227,20 @@ class TestAnomalySearchAPI(ClickhouseTestMixin, APIBaseTest):
             (day, day == "2026-10-22") for day in expected_days
         ]
 
+    def test_search_returns_the_points_of_every_series_on_a_page_with_many_points(self) -> None:
+        hours = [NOW - datetime.timedelta(hours=hour) for hour in range(1, 61)]
+        for series_key in ("signups", "logins", "upgrades"):
+            for hour in hours:
+                self._score(hour, score=0.99, flag=1, series_key=series_key, interval="hour")
+
+        body = self._get("search", date_from="-3d", interval="hour", include_points=True).json()
+
+        assert {row["series_key"]: len(row["points"]) for row in body["series"]} == {
+            "signups": 60,
+            "logins": 60,
+            "upgrades": 60,
+        }
+
     @parameterized.expand(
         [
             ("unusual", "unusual", ["burst", "steady", "blip"]),

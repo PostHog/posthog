@@ -113,6 +113,7 @@ FROM ({_LATEST_BUCKETS})
 WHERE score IS NOT NULL AND series_key IN {{series_keys}}
 ORDER BY insight_id, series_key, bucket_start DESC
 LIMIT {{limit}} BY insight_id, series_key
+LIMIT {{total_limit}}
 """
 
 _SCORED_DAYS_QUERY = """
@@ -475,6 +476,8 @@ def series_points(
             ),
             "series_keys": ast.Tuple(exprs=[ast.Constant(value=key) for key in sorted({key for _, key in series})]),
             "limit": ast.Constant(value=MAX_SERIES_POINTS),
+            # Without a limit of its own, the query gets the default HogQL row cap, and most series lose their points.
+            "total_limit": ast.Constant(value=MAX_SERIES_POINTS * len(series)),
         },
         ch_user=ClickHouseUser.DEFAULT,
     )
