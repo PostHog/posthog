@@ -442,6 +442,8 @@ export const redactSensitiveValues = (message: string, sensitiveValues?: string[
         // Logged objects are JSON-encoded, which escapes quotes, backslashes and newlines, so a secret
         // such as a PEM private key no longer matches its raw form inside the message.
         variants.add(JSON.stringify(sensitiveValue).slice(1, -1))
+        // A thrown Hog error prints its message with each `'` escaped as `\'`.
+        variants.add(sensitiveValue.replaceAll("'", "\\'"))
     })
     if (!variants.size) {
         return message
