@@ -577,31 +577,36 @@ def render(
     output_needs = [min(len(call.output), MAX_CALL_OUTPUT_CHARS) for call in calls]
     # Only a call that needs more than MIN_CALL_CHARS is owed that much. Shorter calls compete in the shares, so
     # calls drop only to let long calls reach MIN_CALL_CHARS, and a team of moderate calls keeps every one.
-    floors = [
-        (MIN_CALL_CHARS if input_need + output_need > MIN_CALL_CHARS else 0) + overhead
-        for input_need, output_need, overhead in zip(input_needs, output_needs, overheads)
-    ]
+    needs = [input_need + output_need for input_need, output_need in zip(input_needs, output_needs)]
+    # What a call claims of the budget: its whole need up to MIN_CALL_CHARS, and its tags.
+    claims = [min(need, MIN_CALL_CHARS) + overhead for need, overhead in zip(needs, overheads)]
 
+    def kept_shares(kept: Sequence[int]) -> list[int]:
+        return _shares([needs[index] for index in kept], budget - sum(overheads[index] for index in kept))
+
+    def long_calls_starved(kept: Sequence[int], shares: Sequence[int]) -> bool:
+        return any(needs[index] > MIN_CALL_CHARS and share < MIN_CALL_CHARS for index, share in zip(kept, shares))
+
+    # Calls drop only while a long call's share stays under MIN_CALL_CHARS, so a team of moderate calls keeps every
+    # one, and the shares that decide it already count what shorter calls take.
     kept = list(range(len(calls)))
     counts: Counter[str] = Counter(call.call_type for call in calls)
     claimed: defaultdict[str, int] = defaultdict(int)
-    for call, floor in zip(calls, floors):
-        claimed[call.call_type] += floor
-    while sum(floors[index] for index in kept) > budget:
+    for call, claim in zip(calls, claims):
+        claimed[call.call_type] += claim
+    shares = kept_shares(kept)
+    while long_calls_starved(kept, shares):
         droppable = [key for key, count in counts.items() if count > MIN_CALLS_PER_CALL_TYPE]
         if not droppable:
             break
         key = max(droppable, key=claimed.__getitem__)
         # The longest call frees the most room. Among equals the latest goes, as select_calls ranks calls.
-        index = max((index for index in reversed(kept) if calls[index].call_type == key), key=floors.__getitem__)
+        index = max((index for index in reversed(kept) if calls[index].call_type == key), key=needs.__getitem__)
         kept.remove(index)
         counts[key] -= 1
-        claimed[key] -= floors[index]
+        claimed[key] -= claims[index]
+        shares = kept_shares(kept)
 
-    shares = _shares(
-        [input_needs[index] + output_needs[index] for index in kept],
-        budget - sum(overheads[index] for index in kept),
-    )
     blocks = []
     for number, (index, share) in enumerate(zip(kept, shares), start=1):
         # The output takes at least a third of the share, so a long input cannot crowd out the answer being judged.

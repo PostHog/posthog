@@ -178,14 +178,31 @@ def test_the_rendering_fills_its_bound_and_shows_each_system_prompt_once(_name: 
 
 @parameterized.expand(
     [
-        ("long_calls", None, "Account note. " * 1800, (call_review.MIN_CALLS_PER_CALL_TYPE + 1, 59), (5000, 12000)),
-        ("moderate_calls", "Account note. " * 170, "Account note. " * 170, (60, 60), (1600, 2000)),
+        (
+            "long_calls",
+            None,
+            "Account note. " * 1800,
+            (60, 60),
+            (call_review.MIN_CALLS_PER_CALL_TYPE + 1, 59),
+            (5000, 12000),
+        ),
+        ("moderate_calls", "Account note. " * 170, "Account note. " * 170, (60, 60), (60, 60), (1600, 2000)),
+        # The shorter calls take part of the budget, so fewer long calls stay, each still with room to read.
+        (
+            "long_and_shorter_calls",
+            "Account note. " * 140,
+            "Account note. " * 1800,
+            (call_review.MIN_CALLS_PER_CALL_TYPE, 60),
+            (call_review.MIN_CALLS_PER_CALL_TYPE, 40),
+            (5000, 12000),
+        ),
     ]
 )
 def test_the_budget_goes_by_need(
     _name: str,
     support_body: str | None,
     advisor_body: str,
+    support_calls: tuple[int, int],
     advisor_calls: tuple[int, int],
     profile_chars: tuple[int, int],
 ) -> None:
@@ -206,14 +223,15 @@ def test_the_budget_goes_by_need(
 
     assert len(rendering.text) <= call_review.RENDERED_CHARS_PER_CALL * call_review.REVIEW_CALLS
     counts = Counter(call.call_type for call in rendering.calls.values())
-    assert counts[SUPPORT.key] == 60
+    assert support_calls[0] <= counts[SUPPORT.key] <= support_calls[1]
     assert advisor_calls[0] <= counts[advisor.key] <= advisor_calls[1]
     inputs = re.findall(r"<call_input>\n(.*?)\n</call_input>", rendering.text, re.S)
     assert len(inputs) == sum(counts.values())
-    profiles = [text for text in inputs if text.startswith("user: PROFILE-START")]
-    assert all(text == "user: Where is my refund?" for text in inputs if text not in profiles)
-    assert all(profile_chars[0] < len(text) < profile_chars[1] for text in profiles)
-    assert all(text.endswith("QUESTION-END") for text in profiles)
+    advisor_inputs = [text for text, call in zip(inputs, rendering.calls.values()) if call.call_type == advisor.key]
+    assert all(profile_chars[0] < len(text) < profile_chars[1] for text in advisor_inputs)
+    assert all(text.startswith("user: PROFILE-START") and text.endswith("QUESTION-END") for text in advisor_inputs)
+    if support_body is None:
+        assert all(text == "user: Where is my refund?" for text in inputs if text not in advisor_inputs)
 
 
 @parameterized.expand(
