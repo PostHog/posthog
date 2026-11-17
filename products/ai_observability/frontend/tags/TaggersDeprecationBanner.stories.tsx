@@ -8,6 +8,8 @@ const meta: Meta<typeof TaggersDeprecationBanner> = {
     parameters: {
         viewMode: 'story',
     },
+    // The banner is a size container, so without a width around it the snapshot shrinks it to a sliver.
+    decorators: [(StoryFn): JSX.Element => <div className="w-[720px]">{StoryFn()}</div>],
 }
 export default meta
 
