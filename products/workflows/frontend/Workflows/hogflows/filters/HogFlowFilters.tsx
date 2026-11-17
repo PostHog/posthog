@@ -12,7 +12,13 @@ import { groupsModel } from '~/models/groupsModel'
 import { PropValue } from '~/models/propertyDefinitionsModel'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { DatabaseSchemaField, NodeKind } from '~/queries/schema/schema-general'
-import { AnyPropertyFilter, ChartDisplayCategory, PropertyDefinition, PropertyOperator } from '~/types'
+import {
+    AnyPropertyFilter,
+    ChartDisplayCategory,
+    FilterLogicalOperator,
+    PropertyDefinition,
+    PropertyOperator,
+} from '~/types'
 
 import { workflowLogic } from '../../workflowLogic'
 import { HogFlowAction } from '../types'
@@ -68,6 +74,7 @@ export type HogFlowFiltersProps = {
     singleLine?: boolean
     showRemoveButton?: boolean
     hasRowOperator?: boolean
+    propertyGroupType?: FilterLogicalOperator
 }
 
 /**
@@ -151,6 +158,7 @@ export function HogFlowPropertyFilters({
     singleLine,
     showRemoveButton,
     hasRowOperator,
+    propertyGroupType,
 }: HogFlowFiltersProps): JSX.Element {
     const sampleGlobals = useSampleGlobals()
     const { groupsTaxonomicTypes } = useValues(groupsModel)
@@ -179,6 +187,8 @@ export function HogFlowPropertyFilters({
             singleLine={singleLine}
             showRemoveButton={showRemoveButton}
             hasRowOperator={hasRowOperator}
+            propertyGroupType={propertyGroupType}
+            orFiltering={!!propertyGroupType}
             taxonomicGroupTypes={
                 taxonomicGroupTypes ??
                 // Warehouse rows are row-scoped — only the synced row's columns make sense to filter on,
