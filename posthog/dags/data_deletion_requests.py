@@ -2439,10 +2439,13 @@ def mark_deletion_failed(context: dagster.HookContext) -> None:
     if not request_id:
         return
 
-    DataDeletionRequest.objects.filter(
-        pk=request_id,
-        status=RequestStatus.IN_PROGRESS,
-    ).update(status=RequestStatus.FAILED, updated_at=timezone.now())
+    failed = DataDeletionRequest.objects.filter(pk=request_id, status=RequestStatus.IN_PROGRESS)
+    # A first property removal run that fails before its copy has staged nothing. Its marker would only keep
+    # other property removals on the team waiting. A later run may follow an attempt that staged a copy
+    # stamped with that marker, so it keeps the marker.
+    if context.op.name in {"load_property_removal_request", "get_property_removal_shards"}:
+        failed.filter(attempt_count=1).update(property_removal_marker=None)
+    failed.update(status=RequestStatus.FAILED, updated_at=timezone.now())
 
     context.log.error(f"Deletion request {request_id} marked as failed.")
 

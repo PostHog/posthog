@@ -2343,6 +2343,32 @@ def test_a_property_removal_waits_for_an_unfinished_one_on_the_same_team(cluster
 
 
 @pytest.mark.django_db
+@pytest.mark.parametrize("earlier_attempts, marker_kept", [(0, False), (1, True)])
+def test_a_first_run_that_fails_before_staging_releases_the_team(
+    cluster: ClickhouseCluster, earlier_attempts: int, marker_kept: bool
+):
+    # A first run that fails before the copy has staged nothing, so its marker would only block the team.
+    # A later run may follow an attempt that staged a copy, which needs the marker it was stamped with.
+    request = _property_removal_request(
+        start_time=datetime.now(UTC) - timedelta(days=7), attempt_count=earlier_attempts
+    )
+
+    with patch(
+        "posthog.dags.data_deletion_requests._refuse_property_removal_unsweepable",
+        side_effect=dagster.Failure(description="refused"),
+    ):
+        assert not data_deletion_request_property_removal.execute_in_process(
+            run_config={"ops": {"load_property_removal_request": {"config": {"request_id": str(request.pk)}}}},
+            resources={"cluster": cluster},
+            raise_on_error=False,
+        ).success
+
+    request.refresh_from_db()
+    assert request.status == RequestStatus.FAILED
+    assert (request.property_removal_marker is not None) == marker_kept
+
+
+@pytest.mark.django_db
 def test_delete_refuses_a_run_whose_marker_the_request_no_longer_holds(cluster: ClickhouseCluster):
     now = datetime.now(UTC)
     props = json.dumps({"secret": "value", "keep": "yes"})

@@ -466,9 +466,11 @@ def verify(request: HttpRequest, obj: Model, form: forms.Form | None) -> HttpRes
             f"{obj.get_status_display().lower()}. Verify again after the next scheduled deletion.",
         )
         return None
+    # A property removal's run can start during the count, so the update checks for one again.
     promoted = (
         DataDeletionRequest.objects.filter(pk=obj.pk, **_criteria_lookup(revision))
         .exclude(status=RequestStatus.COMPLETED)
+        .exclude(pk__in=unfinished_property_removals().values("pk"))
         .update(status=RequestStatus.COMPLETED, updated_at=timezone.now())
     )
     if promoted:
@@ -480,6 +482,9 @@ def verify(request: HttpRequest, obj: Model, form: forms.Form | None) -> HttpRes
     if obj.status == RequestStatus.COMPLETED:
         messages.info(request, "Verified: no matching rows remain. It was already completed.")
         return None
+    if unfinished_property_removals().filter(pk=obj.pk).exists():
+        messages.error(request, "This property removal's run started while it was verified, so it was not completed.")
+        return HttpResponse(status=409)
     messages.error(request, "The criteria changed while verifying, so the request was not completed. Verify again.")
     return HttpResponse(status=409)
 

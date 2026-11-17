@@ -551,6 +551,23 @@ class TestDeletionRequestConsole(BaseTest):
         obj.refresh_from_db()
         assert obj.request_type == RequestType.EVENT_REMOVAL
 
+    def test_verify_does_not_complete_a_property_removal_whose_run_starts_during_the_count(self) -> None:
+        obj = self._request(
+            request_type=RequestType.PROPERTY_REMOVAL, properties=["$ip"], status=RequestStatus.APPROVED
+        )
+
+        def count_while_the_run_starts(request: DataDeletionRequest) -> int:
+            DataDeletionRequest.objects.filter(pk=request.pk).update(
+                status=RequestStatus.IN_PROGRESS, property_removal_marker=timezone.now()
+            )
+            return 0
+
+        with patch(f"{PANELS}.count_remaining_for_request", side_effect=count_while_the_run_starts):
+            self.client.post(self._url(obj, "workflow", "verify"))
+
+        obj.refresh_from_db()
+        assert obj.status == RequestStatus.IN_PROGRESS
+
     def test_criteria_of_a_property_removal_whose_run_started_stay_fixed(self) -> None:
         # The edit would clear the marker, which lets another removal on the team start while this run may
         # still restore its staged copy.
