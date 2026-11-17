@@ -79,6 +79,7 @@ import {
     transactionalEmailRequestsTotal,
     transactionalEmailStageDurationMs,
 } from './services/hogflows/transactional-email'
+import { FINGERPRINT_PURPOSE } from './services/hogflows/transactional-sends'
 import { CyclotronJobQueuePostgresV2 } from './services/job-queue/job-queue-postgres-v2'
 import { SEND_NEEDS_FILES_FOR_MS } from './services/messaging/attachment-horizon'
 import {
@@ -3360,33 +3361,31 @@ describe('CDP API', () => {
                     expect(uuidVersion(sent.body.invocation_id)).toEqual(5)
                     expect(await jobsOfFlow()).toEqual([sent.body.invocation_id])
                     expect(await claimFingerprint(sent.body.invocation_id)).toEqual(expect.any(String))
-                    expect(await claimFingerprint(sent.body.invocation_id)).not.toEqual(unkeyedFingerprint())
                 })
 
                 it.each([
+                    ['a keyed signature', () => {}],
                     [
-                        'the unkeyed hash stored before the fingerprint was keyed',
-                        async (runId: string) => {
-                            await cyclotron.query(
-                                'UPDATE cyclotron_idempotency_keys SET fingerprint = $2 WHERE id = $1',
-                                [runId, unkeyedFingerprint()]
-                            )
-                        },
-                    ],
-                    [
-                        'a signature under a key that has since rotated',
+                        'a keyed signature under a key that has since rotated',
                         () => {
                             api['deps'].encryptedFields = new EncryptedFields(
                                 `11beef0011beef0011beef0011beef11,${hub.ENCRYPTION_SALT_KEYS}`
                             )
                         },
                     ],
-                ])('replays a retry whose claim holds %s', async (_, ageClaim) => {
+                ])('replays a retry whose claim holds %s', async (_, rotateKeys) => {
                     const encryptedFields = api['deps'].encryptedFields
                     try {
                         const sent = await sendKeyed()
                         await forgetValkeyRecord(keyed.idempotency_key as string)
-                        await ageClaim(sent.body.invocation_id)
+                        await cyclotron.query('UPDATE cyclotron_idempotency_keys SET fingerprint = $2 WHERE id = $1', [
+                            sent.body.invocation_id,
+                            new EncryptedFields(hub.ENCRYPTION_SALT_KEYS).sign(
+                                FINGERPRINT_PURPOSE,
+                                unkeyedFingerprint()
+                            ),
+                        ])
+                        rotateKeys()
 
                         const retry = await sendKeyed()
 

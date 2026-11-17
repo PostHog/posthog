@@ -75,7 +75,7 @@ const CLOCK_SKEW_MARGIN_MS = 60 * 60 * 1000
 const NO_ATTACHMENTS = { attachment_count: 0, attachment_bytes: 0 }
 const PRIORITY_CLASS: EmailQueuePriorityClass = 'fast'
 const RUN_SCOPE = 'transactional-email'
-const FINGERPRINT_PURPOSE = 'transactional_email_idempotency_fingerprint'
+export const FINGERPRINT_PURPOSE = 'transactional_email_idempotency_fingerprint'
 const ASYNC_REFUSAL_BUDGET_MS = 1_000
 
 const refusalFailOpenCounter = new Counter({
@@ -113,11 +113,11 @@ const claimedBySameRequest = (fingerprint: TransactionalEmailFingerprint, claime
     claimed !== undefined && fingerprint.alsoMatches.includes(claimed)
 
 // Keyed, because the variables can hold a short login code that anyone who reads a store could guess offline from an
-// unkeyed hash. A record signed under any configured key still matches after a rotation. So does the unkeyed hash of a
-// record stored before keying, until the last such record expires.
+// unkeyed hash. A record signed under any configured key still matches after a rotation. The first value is the one
+// stored, and stays unkeyed until every pod matches keyed values, so no pod refuses a retry another pod recorded.
 const fingerprintsOf = (encryptedFields: EncryptedFields, request: unknown[]): string[] => {
     const unkeyed = IdempotencyKeys.fingerprint(request)
-    return [...encryptedFields.signatures(FINGERPRINT_PURPOSE, unkeyed), unkeyed]
+    return [unkeyed, ...encryptedFields.signatures(FINGERPRINT_PURPOSE, unkeyed)]
 }
 
 const transactionalEmailFingerprint = (
