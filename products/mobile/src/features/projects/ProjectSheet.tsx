@@ -1,20 +1,26 @@
 import { type ReactElement, type ReactNode, useEffect, useMemo, useState } from 'react'
 import { ActivityIndicator, ScrollView, Text, TextInput, View } from 'react-native'
-import { type AuthProject, useAuthStore } from '@/auth/authStore'
+import { type AuthProject, type StoredAccount, useAuthStore } from '@/auth/authStore'
 import { DEMO_PROJECT_NAME } from '@/demo/briefings'
 import { useDemoMode } from '@/demo/demoMode'
+import { AddAccountRow } from '@/features/accounts/AddAccountRow'
+import { accountLabel } from '@/features/accounts/accountLabel'
+import { useAccountSwitch } from '@/features/accounts/useAccountSwitch'
+import { useOpenAddAccount } from '@/features/accounts/useOpenAddAccount'
 import { FloatingCard } from '@/ui/FloatingCard'
-import { CheckIcon } from '@/ui/icons/CheckIcon'
 import { CloseIcon } from '@/ui/icons/CloseIcon'
 import { SearchIcon } from '@/ui/icons/SearchIcon'
 import { Pressable44 } from '@/ui/Pressable44'
-import { createStyles, useColors, useTheme } from '@/ui/theme'
+import { createStyles, useTheme } from '@/ui/theme'
 import { iconSizes, inputReset, radii, type } from '@/ui/tokens'
 import { usePickerCardStyle } from '@/ui/usePickerCardStyle'
 import { useSceneDimensions } from '@/ui/useSceneDimensions'
-import { topOffset, useScreenInsets } from '@/ui/useScreenInsets'
+import { bottomOffset, topOffset, useScreenInsets } from '@/ui/useScreenInsets'
 
-import { filterProjects, groupByOrganization } from './projectList'
+import { AccountSection } from './AccountSection'
+import { ProjectGroups } from './ProjectGroups'
+import { ProjectRow } from './ProjectRow'
+import { accountSections, filterProjects, groupByOrganization } from './projectList'
 
 interface ProjectSheetProps {
     visible: boolean
@@ -26,34 +32,10 @@ interface ProjectSheetProps {
 const DEMO_PROJECT: AuthProject = { id: 0, name: DEMO_PROJECT_NAME, organizationId: 'demo', organizationName: '' }
 const DEMO_PROJECTS = [DEMO_PROJECT]
 
-interface ProjectRowProps {
-    compact?: boolean
-    project: AuthProject
-    selected: boolean
-    onPress: () => void
-}
-
-function ProjectRow({ compact = false, project, selected, onPress }: ProjectRowProps): ReactElement {
-    const styles = useStyles()
-    const colors = useColors()
-    return (
-        <Pressable44
-            onPress={onPress}
-            accessibilityRole="radio"
-            accessibilityState={{ checked: selected }}
-            accessibilityLabel={project.name}
-            pressedBackground={colors.background}
-            style={[styles.row, compact && { minHeight: 44 }]}
-            testID={`project-sheet-${project.id}`}
-        >
-            <Text style={styles.rowLabel} numberOfLines={1}>
-                {project.name}
-            </Text>
-            {selected ? <CheckIcon size={iconSizes.control} /> : null}
-        </Pressable44>
-    )
-}
-
+/**
+ * The project switcher. With two or more accounts on the phone it lists every account's projects under the account,
+ * and a project of another account switches to that account.
+ */
 export function ProjectSheet({ visible, onClose, onSelect }: ProjectSheetProps): ReactElement {
     const styles = useStyles()
     const { colors, scheme } = useTheme()
@@ -61,15 +43,23 @@ export function ProjectSheet({ visible, onClose, onSelect }: ProjectSheetProps):
     const { height: windowHeight } = useSceneDimensions()
     const compact = windowHeight < 480
     const top = topOffset(insets, 120)
-    const cardHeight = Math.max(320, Math.round((windowHeight - top) * 0.52))
-    const cardStyle = usePickerCardStyle(top, cardHeight)
     const demo = useDemoMode((state) => state.enabled)
+    const accounts = useAuthStore((state) => state.accounts)
+    const activeKey = useAuthStore((state) => state.activeAccountKey)
     const storeProjects = useAuthStore((state) => state.projects)
     const storeProjectId = useAuthStore((state) => state.projectId)
     const accountLoading = useAuthStore((state) => state.accountLoading)
     const accountError = useAuthStore((state) => state.accountError)
     const reloadAccount = useAuthStore((state) => state.reloadAccount)
     const [query, setQuery] = useState('')
+    const accountSwitch = useAccountSwitch('nav_menu')
+    const openAddAccount = useOpenAddAccount()
+    const multi = !demo && accounts.length >= 2
+    // With several accounts the card reaches down to the bottom edge, so more than one account header stays in view.
+    const cardHeight = multi
+        ? Math.max(320, windowHeight - top - bottomOffset(insets, 40))
+        : Math.max(320, Math.round((windowHeight - top) * 0.52))
+    const cardStyle = usePickerCardStyle(top, cardHeight)
 
     useEffect(() => {
         if (!visible) {
@@ -87,6 +77,8 @@ export function ProjectSheet({ visible, onClose, onSelect }: ProjectSheetProps):
     const showOrganizations = useMemo(() => groupByOrganization(projects).length > 1, [projects])
     const trimmed = query.trim()
     const groups = useMemo(() => groupByOrganization(filterProjects(projects, query)), [projects, query])
+    const list = useMemo(() => accountSections(accounts, activeKey, query), [accounts, activeKey, query])
+    const switching = accountSwitch.pending !== null
 
     const pick = (project: AuthProject): void => {
         if (project.id === projectId) {
@@ -94,6 +86,10 @@ export function ProjectSheet({ visible, onClose, onSelect }: ProjectSheetProps):
             return
         }
         onSelect(project.id)
+    }
+    const addAccount = (reauth?: StoredAccount): void => {
+        onClose()
+        openAddAccount('project_card', reauth)
     }
 
     const retry = (
@@ -112,48 +108,103 @@ export function ProjectSheet({ visible, onClose, onSelect }: ProjectSheetProps):
             )}
         </Pressable44>
     )
-
-    let content: ReactNode
-    if (!demo && projects.length === 0 && accountLoading) {
-        content = <ActivityIndicator color={colors.ink} style={styles.loading} accessibilityLabel="Loading projects" />
-    } else if (!demo && projects.length === 0 && accountError) {
-        content = (
-            <View style={styles.loadError} testID="project-load-error">
-                <Text style={styles.empty}>Couldn't load your projects. {accountError}</Text>
+    // The active account's state before it lists a project: loading, a load error, or no project to open.
+    const activeEmpty = accountLoading ? (
+        <ActivityIndicator color={colors.ink} style={styles.loading} accessibilityLabel="Loading projects" />
+    ) : accountError ? (
+        <View style={styles.loadError} testID="project-load-error">
+            <Text style={styles.empty}>Couldn't load your projects. {accountError}</Text>
+            {retry}
+        </View>
+    ) : (
+        <Text style={styles.empty}>Your account has no projects you can open. Create one in PostHog on the web.</Text>
+    )
+    const refreshError =
+        !demo && accountError && projects.length > 0 ? (
+            <View style={styles.footer} testID="project-refresh-error">
+                <Text style={styles.note}>Couldn't refresh the project list. {accountError}</Text>
                 {retry}
             </View>
+        ) : null
+    const addRow =
+        !demo && !trimmed ? (
+            <>
+                <View style={styles.addDivider} />
+                <AddAccountRow
+                    onPress={() => addAccount()}
+                    disabled={switching}
+                    quiet={!multi}
+                    style={[styles.addRow, compact && styles.addRowCompact]}
+                    testID="project-sheet-add-account"
+                />
+            </>
+        ) : null
+
+    let content: ReactNode
+    if (multi) {
+        content = (
+            <>
+                {list.sections.map((section, index) => (
+                    <View key={section.account.key} style={index > 0 ? styles.sectionDivider : undefined}>
+                        <AccountSection
+                            section={section}
+                            label={accountLabel(section.account, accounts)}
+                            compact={compact}
+                            selectedProjectId={storeProjectId}
+                            accountSwitch={accountSwitch}
+                            onPickActive={pick}
+                            onSignInAgain={addAccount}
+                            empty={
+                                section.active ? (
+                                    activeEmpty
+                                ) : (
+                                    <Text style={styles.note}>This account has no projects you can open.</Text>
+                                )
+                            }
+                        />
+                    </View>
+                ))}
+                {trimmed && list.matches === 0 ? <Text style={styles.empty}>No projects match "{trimmed}"</Text> : null}
+                {list.skipped.map(({ account, state }) => (
+                    <Text key={account.key} style={styles.note} testID="project-sheet-skipped">
+                        {state === 'needs_sign_in'
+                            ? `Projects in ${accountLabel(account, accounts)} show after you sign in again.`
+                            : `Projects in ${accountLabel(account, accounts)} show after you switch to it.`}
+                    </Text>
+                ))}
+                {refreshError}
+                {addRow}
+            </>
+        )
+    } else if (!demo && projects.length === 0 && (accountLoading || accountError)) {
+        content = (
+            <>
+                {activeEmpty}
+                {accountLoading ? null : addRow}
+            </>
         )
     } else if (projects.length === 0) {
         content = (
-            <Text style={styles.empty}>
-                Your account has no projects you can open. Create one in PostHog on the web.
-            </Text>
+            <>
+                {activeEmpty}
+                {addRow}
+            </>
         )
     } else {
         content = (
             <>
-                {groups.flatMap((group) => [
-                    ...(showOrganizations
-                        ? [
-                              <Text
-                                  key={`org-${group.id}`}
-                                  style={[type.eyebrow, styles.organization]}
-                                  numberOfLines={1}
-                              >
-                                  {group.name.toUpperCase()}
-                              </Text>,
-                          ]
-                        : []),
-                    ...group.projects.map((project) => (
+                <ProjectGroups groups={groups} showOrganizations={showOrganizations}>
+                    {(project) => (
                         <ProjectRow
-                            compact={compact}
                             key={project.id}
-                            project={project}
+                            label={project.name}
+                            compact={compact}
                             selected={project.id === projectId}
                             onPress={() => pick(project)}
+                            testID={`project-sheet-${project.id}`}
                         />
-                    )),
-                ])}
+                    )}
+                </ProjectGroups>
                 {groups.length === 0 && trimmed ? (
                     <Text style={styles.empty}>No projects match "{trimmed}"</Text>
                 ) : null}
@@ -161,12 +212,10 @@ export function ProjectSheet({ visible, onClose, onSelect }: ProjectSheetProps):
                     <Text style={styles.note}>
                         Demo mode shows sample reports. Turn it off in Settings to switch projects.
                     </Text>
-                ) : accountError ? (
-                    <View style={styles.footer} testID="project-refresh-error">
-                        <Text style={styles.note}>Couldn't refresh the project list. {accountError}</Text>
-                        {retry}
-                    </View>
-                ) : null}
+                ) : (
+                    refreshError
+                )}
+                {addRow}
             </>
         )
     }
@@ -199,7 +248,8 @@ export function ProjectSheet({ visible, onClose, onSelect }: ProjectSheetProps):
                         placeholder="Find a project…"
                         placeholderTextColor={colors.tertiary}
                         keyboardAppearance={scheme}
-                        autoFocus
+                        // The keyboard would cover the account headers that tell the lists apart.
+                        autoFocus={!multi}
                         autoCorrect={false}
                         disableFullscreenUI
                         autoCapitalize="none"
@@ -281,25 +331,26 @@ const useStyles = createStyles(({ colors }) => ({
         flexGrow: 0,
         flexShrink: 1,
     },
-    organization: {
-        color: colors.tertiary,
-        paddingHorizontal: 4,
-        paddingTop: 14,
-        paddingBottom: 4,
+    sectionDivider: {
+        marginTop: 10,
+        paddingTop: 4,
+        borderTopWidth: 1,
+        borderTopColor: colors.hairline,
     },
-    row: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 14,
+    addDivider: {
+        height: 1,
+        backgroundColor: colors.hairline,
+        marginTop: 10,
+        marginBottom: 2,
+        marginHorizontal: 4,
+    },
+    addRow: {
         minHeight: 56,
         paddingHorizontal: 4,
         borderRadius: radii.card,
     },
-    rowLabel: {
-        ...type.label,
-        color: colors.ink,
-        flex: 1,
-        minWidth: 0,
+    addRowCompact: {
+        minHeight: 44,
     },
     loading: {
         paddingVertical: 20,

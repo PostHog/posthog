@@ -2,6 +2,7 @@ import { type ReactElement, useEffect } from 'react'
 import { View } from 'react-native'
 
 import { FEATURE_SCOPES, type ScopedFeature } from '@/api/scopeErrors'
+import { useAuthStore } from '@/auth/authStore'
 import { useSignOutAction } from '@/features/settings/useSignOut'
 import { LockIcon } from '@/ui/icons/LockIcon'
 import { StateView } from '@/ui/StateView'
@@ -98,7 +99,12 @@ export function ViewsReauthState({
             title={copy.reauthTitle}
             message={message}
             actionLabel="Sign in again"
-            onAction={() => void signOut.run()}
+            onAction={() => {
+                const key = useAuthStore.getState().activeAccountKey
+                if (key) {
+                    void signOut.run(key)
+                }
+            }}
             testID={`${feature}-reauth`}
         />
     )

@@ -1,6 +1,7 @@
 import { type BottomTabBarProps, Tabs } from 'expo-router/js-tabs'
-import { type ReactElement, useEffect, useLayoutEffect, useRef } from 'react'
+import { type ReactElement, useCallback, useEffect, useLayoutEffect, useRef } from 'react'
 import { Platform, View } from 'react-native'
+import { useAccountNoticeToast } from '@/features/accounts/accountNotices'
 import { useInboxHasUnread } from '@/features/inbox/useInboxUnread'
 import { trackLiveOpened } from '@/features/live/analytics'
 import { useViewsOpenedEvent } from '@/features/views/list/useViewsOpenedEvent'
@@ -106,6 +107,11 @@ function CustomTabsLayout(): ReactElement {
 
 export function TabsLayout(): ReactElement {
     const toasts = useToasts()
+    const { show } = toasts
+    // An account switch remounts the tabs on the start page, so the toast that confirms it draws from here.
+    useAccountNoticeToast(
+        useCallback((text: string, detail: string | undefined) => show(text, undefined, detail), [show])
+    )
     return (
         <NavToastsContext.Provider value={toasts}>
             {Platform.OS === 'ios' ? (

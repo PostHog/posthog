@@ -166,6 +166,8 @@ export default function RootLayout(): ReactElement {
                                         <BootSplash />
                                     </View>
                                 )}
+                                {/* An account switch unmounts every screen until the next session is ready. */}
+                                {splashHidden && !ready ? <BootSplash /> : null}
                                 <AiApprovalDialog />
                             </QueryClientProvider>
                         </KeyboardProvider>

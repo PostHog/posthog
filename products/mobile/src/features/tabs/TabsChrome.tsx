@@ -31,7 +31,7 @@ export function TabsChrome(): ReactElement {
     const exitDemo = useExitDemo()
     const signOut = useSignOutAction()
     const [menuOpen, setMenuOpen] = useState(false)
-    const [confirmingSignOut, setConfirmingSignOut] = useState(false)
+    const [confirmingSignOut, setConfirmingSignOut] = useState<'one' | 'all' | null>(null)
     const scope = useProjectScope()
     const status = usePostHogStatus(scope?.host)
     // A list's tab has no menu of its own, so its pin toast draws from here, inside the tabs' overlay host.
@@ -42,11 +42,11 @@ export function TabsChrome(): ReactElement {
             return
         }
         setMenuOpen(false)
-        setConfirmingSignOut(false)
+        setConfirmingSignOut(null)
     }
     const startSignOut = (): void => {
         if (signedIn) {
-            setConfirmingSignOut(true)
+            setConfirmingSignOut('one')
             return
         }
         setMenuOpen(false)
@@ -116,14 +116,23 @@ export function TabsChrome(): ReactElement {
                     router.push('/settings')
                 }}
                 onSignOut={startSignOut}
+                onSignOutAll={() => {
+                    signOut.clearError()
+                    setConfirmingSignOut('all')
+                }}
                 confirmingSignOut={confirmingSignOut}
                 signOutPending={signOut.pending}
                 signOutError={signOut.error}
                 onCancelSignOut={() => {
                     signOut.clearError()
-                    setConfirmingSignOut(false)
+                    setConfirmingSignOut(null)
                 }}
-                onConfirmSignOut={() => void signOut.run()}
+                onConfirmSignOut={() => {
+                    const target = confirmingSignOut === 'all' ? 'all' : useAuthStore.getState().activeAccountKey
+                    if (target) {
+                        void signOut.run(target)
+                    }
+                }}
             />
             {tab !== 'views' ? <ViewsToast toast={toasts.toast} onHide={toasts.hide} /> : null}
         </>
