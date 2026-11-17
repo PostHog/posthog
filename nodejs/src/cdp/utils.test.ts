@@ -232,6 +232,7 @@ describe('Utils', () => {
                 ["it's"],
                 "Error('{\\'key\\': \\'***REDACTED***\\'}')",
             ],
+            ['a thrown error with a JSON-encoded value', ["Error('q\\\"\\'x')"], ['q"\'x'], "Error('***REDACTED***')"],
             [
                 'repeated values that occur inside the marker',
                 [{ key: '*' }],

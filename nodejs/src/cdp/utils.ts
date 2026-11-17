@@ -440,16 +440,15 @@ export const redactSensitiveValues = (message: string, sensitiveValues?: string[
         if (typeof sensitiveValue !== 'string' || !sensitiveValue) {
             return
         }
-        variants.add(sensitiveValue)
         // Logged objects are JSON-encoded, which escapes quotes, backslashes and newlines, so a secret
         // such as a PEM private key no longer matches its raw form inside the message.
-        variants.add(JSON.stringify(sensitiveValue).slice(1, -1))
+        const jsonEncoded = JSON.stringify(sensitiveValue).slice(1, -1)
         // Hog prints a string inside a list or dict with its own escaping, which an interpolated
-        // response body carries into a message. A thrown Hog error then prints its message with
-        // each `'` escaped as `\'`.
+        // response body carries into a message.
         const hogPrinted = escapeString(sensitiveValue).slice(1, -1)
-        for (const form of [sensitiveValue, hogPrinted]) {
+        for (const form of [sensitiveValue, jsonEncoded, hogPrinted]) {
             variants.add(form)
+            // A thrown Hog error prints its message with each `'` escaped as `\'`.
             variants.add(form.replaceAll("'", "\\'"))
         }
     })
