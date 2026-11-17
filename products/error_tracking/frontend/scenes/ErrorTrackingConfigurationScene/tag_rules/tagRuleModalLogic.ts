@@ -10,8 +10,8 @@ import { AnyPropertyFilter, FilterLogicalOperator, UniversalFiltersGroup } from 
 import { issueTagDefinitionsLogic } from '../../../components/IssueFilters/issueTagDefinitionsLogic'
 import { errorTrackingTagRulesCreate, errorTrackingTagRulesUpdate } from '../../../generated/api'
 import type { ErrorTrackingIssueTagRuleFiltersApi } from '../../../generated/api.schemas'
-import { destroyRule } from '../rules/ruleRequests'
 import { rulesLogic } from '../rules/rulesLogic'
+import { destroyTagRule } from '../rules/tagRuleRequests'
 import { ErrorTrackingRule, ErrorTrackingRuleType, ErrorTrackingTagRule, ErrorTrackingTagRuleNew } from '../rules/types'
 
 type EditableTagRule = ErrorTrackingTagRule | ErrorTrackingTagRuleNew
@@ -261,7 +261,7 @@ export const tagRuleModalLogic = kea<tagRuleModalLogicType>([
             false,
             {
                 deleteRule: async () => {
-                    await destroyRule(ErrorTrackingRuleType.Tag, values.rule.id)
+                    await destroyTagRule(values.rule.id)
                     return true
                 },
             },

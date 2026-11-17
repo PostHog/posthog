@@ -1,10 +1,12 @@
 import type { Meta, StoryObj } from '@storybook/react'
-import { fireEvent, within } from '@testing-library/react'
+import { useActions } from 'kea'
+import { useEffect } from 'react'
 
 import { mswDecorator } from '~/mocks/browser'
 import { FilterLogicalOperator, PropertyFilterType, PropertyOperator } from '~/types'
 
 import type { ErrorTrackingTagRule } from '../rules/types'
+import { tagRuleModalLogic } from './tagRuleModalLogic'
 import { TagRules } from './TagRules'
 
 const RULES: ErrorTrackingTagRule[] = [
@@ -105,10 +107,17 @@ type Story = StoryObj<typeof TagRules>
 
 export const List: Story = {}
 
+function TagRulesWithDisabledRuleOpen(): JSX.Element {
+    const { openModal } = useActions(tagRuleModalLogic)
+    useEffect(() => openModal(RULES[2]), [openModal])
+    return <TagRules />
+}
+
 export const EditDisabledRule: Story = {
-    play: async ({ canvasElement }) => {
-        fireEvent.click(await within(canvasElement).findByText('Large orders'))
-        await within(document.body).findByText('Edit label rule')
-        await within(document.body).findByText(/maximum bytecode size/)
-    },
+    render: () => (
+        <div className="w-[520px]">
+            <TagRulesWithDisabledRuleOpen />
+        </div>
+    ),
+    parameters: { testOptions: { waitForSelector: 'text=The rule exceeds the maximum bytecode size.' } },
 }
