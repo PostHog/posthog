@@ -1,3 +1,4 @@
+from datetime import timedelta
 from typing import Any, Optional, cast
 from urllib.parse import quote
 from uuid import UUID
@@ -16,7 +17,12 @@ from rest_framework.response import Response
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
-from posthog.integrations import IntegrationKind, IntegrationRecord
+from posthog.integrations import (
+    IntegrationKind,
+    IntegrationManager,
+    IntegrationRecord,
+    UndecryptedIntegrationSecretError,
+)
 from posthog.integrations.fields import IntegrationReferenceField
 from posthog.models.integration import (
     AWSRedshiftRoleBasedIntegration,
@@ -38,10 +44,16 @@ from products.warehouse_sources.backend.facade.destination_health import resume_
 from products.warehouse_sources.backend.facade.destinations import is_destination_type_enabled
 from products.warehouse_sources.backend.facade.models import (
     ExternalDataDestination,
+    ExternalDataJob,
     ExternalDataSchema,
     ExternalDataSource,
     ExternalDataSourceDestination,
 )
+from products.warehouse_sources.backend.facade.pipelines import (
+    destination_named_in_failure,
+    is_configuration_failure_of,
+)
+from products.warehouse_sources.backend.facade.source_inputs import SourceInputsStore
 from products.warehouse_sources.backend.presentation.destination_connect_tokens import (
     ConnectTokenInvalidIntegration,
     ConnectTokenNotFound,
@@ -68,6 +80,7 @@ from products.warehouse_sources.backend.presentation.destination_connection_test
 )
 from products.warehouse_sources.backend.presentation.views.destination_links import MAX_DESTINATIONS_PER_LINK
 from products.warehouse_sources.backend.presentation.views.external_data_schema import resync_schema
+from products.warehouse_sources.backend.presentation.views.external_data_source import helpers as source_helpers
 
 # Which Integration kind holds the credentials for each destination type. A type absent from
 # this map needs no integration; the PostHog warehouse is the only such type today.
@@ -88,6 +101,14 @@ DESTINATION_INTEGRATION_KINDS: dict[str, tuple[str, ...]] = {
     str(ExternalDataDestination.Type.AZURE_BLOB): (str(IntegrationKind.AZURE_BLOB),),
     str(ExternalDataDestination.Type.MOTHERDUCK): (str(IntegrationKind.MOTHERDUCK),),
 }
+
+DELIVERY_FAILURES_WINDOW_DAYS = 14
+DELIVERY_FAILURES_LIMIT = 50
+DELIVERY_FAILURES_PAGE_SIZE = 500
+UNREADABLE_CREDENTIALS_ERROR = (
+    "Couldn't read this destination's credentials, so the error is hidden. "
+    "Reconnect the destination and run the sync again."
+)
 
 INTEGRATION_ACCESS_DENIED = (
     "You do not have access to this integration. Ask a project admin for access, or connect your own credentials."
@@ -305,6 +326,44 @@ class AddSourcesResponseSerializer(serializers.Serializer):
     )
 
 
+class DestinationDeliveryFailureSerializer(serializers.Serializer):
+    job_id = serializers.UUIDField(help_text="ID of the sync run that could not deliver to this destination.")
+    source_id = serializers.UUIDField(help_text="ID of the source the run belongs to.")
+    source_name = serializers.CharField(help_text="Name of the source: its prefix, if any, and its type.")
+    source_type = serializers.CharField(help_text="Type of the source, for example `Stripe` or `MetaAds`.")
+    schema_id = serializers.UUIDField(allow_null=True, help_text="ID of the table the run synced.")
+    schema_name = serializers.CharField(allow_null=True, help_text="Name of the table the run synced.")
+    error = serializers.CharField(
+        help_text=(
+            "Why the delivery failed, as the destination reported it. Stored credentials of the source and of "
+            "the destination are masked."
+        )
+    )
+    is_configuration_error = serializers.BooleanField(
+        help_text=(
+            "Whether the destination's own settings caused the failure, for example a wrong password or a "
+            "missing permission. Configuration errors do not go away until the settings change."
+        )
+    )
+    created_at = serializers.DateTimeField(help_text="When the run started.")
+    finished_at = serializers.DateTimeField(allow_null=True, help_text="When the run stopped.")
+    workflow_run_id = serializers.CharField(
+        allow_null=True, help_text="ID that the run's log lines carry, to find the logs of this run."
+    )
+
+
+class DestinationDeliveryFailuresResponseSerializer(serializers.Serializer):
+    results = DestinationDeliveryFailureSerializer(
+        many=True,
+        help_text=(
+            f"Sync runs that could not deliver to this destination, newest first. At most "
+            f"{DELIVERY_FAILURES_LIMIT} runs from the last {DELIVERY_FAILURES_WINDOW_DAYS} days, from sources "
+            "you have access to."
+        ),
+    )
+    window_days = serializers.IntegerField(help_text="How many days back the runs go.")
+
+
 class DestinationConnectionTestStepSerializer(serializers.Serializer):
     name = serializers.CharField(help_text="What this step checks.")
     description = serializers.CharField(help_text="A longer explanation of what this step checks.")
@@ -324,6 +383,15 @@ class DestinationConnectionTestResponseSerializer(serializers.Serializer):
         many=True,
         help_text="The steps of the connection test, in order. The test stops at the first failed step.",
     )
+
+
+def _delivery_error_detail(reason: str, destination_name: str) -> str:
+    """The part of a run's failure reason that comes after the `<destination name>: ` prefix."""
+    prefix = f"{destination_name}: "
+    if reason.startswith(prefix):
+        return reason[len(prefix) :]
+    index = reason.find(f": {prefix}")
+    return reason[index + 2 + len(prefix) :] if index >= 0 else reason
 
 
 def _planned_destination(
@@ -782,7 +850,7 @@ class ExternalDataDestinationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
     # access to `external_data_source` instead.
     requires_resource_level_access = True
     # Token auth rejects any action missing from these lists.
-    scope_object_read_actions = ["list", "retrieve", "connect_link", "connect_link_status"]
+    scope_object_read_actions = ["list", "retrieve", "connect_link", "connect_link_status", "delivery_failures"]
     scope_object_write_actions = [
         "create",
         "update",
@@ -1073,6 +1141,142 @@ class ExternalDataDestinationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
                 }
             ).data
         )
+
+    @extend_schema(responses={200: DestinationDeliveryFailuresResponseSerializer})
+    @action(methods=["GET"], detail=True, pagination_class=None)
+    def delivery_failures(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """List recent sync runs that could not deliver to this destination, with the error of each one."""
+        destination: ExternalDataDestination = self.get_object()
+        if destination.is_posthog_warehouse:
+            return Response(
+                DestinationDeliveryFailuresResponseSerializer(
+                    {"results": [], "window_days": DELIVERY_FAILURES_WINDOW_DAYS}
+                ).data
+            )
+
+        sources = ExternalDataSource.objects.filter(team_id=self.team_id).exclude(deleted=True)
+        accessible_source_ids = self._accessible_source_ids()
+        if accessible_source_ids is not None:
+            sources = sources.filter(id__in=accessible_source_ids)
+
+        jobs = (
+            ExternalDataJob.objects.filter(
+                team_id=self.team_id,
+                pipeline_id__in=sources.values("id"),
+                status=ExternalDataJob.Status.FAILED,
+                created_at__gte=timezone.now() - timedelta(days=DELIVERY_FAILURES_WINDOW_DAYS),
+                destination_ids__contains=[str(destination.id)],
+            )
+            .exclude(latest_error__isnull=True)
+            .select_related("pipeline", "schema__table", "schema__source")
+            .order_by("-created_at", "-id")
+        )
+
+        # Most failed runs of these sources failed somewhere else, so read them a page at a time until
+        # enough of them are failures of this destination or the window runs out.
+        destinations_by_id: dict[str, ExternalDataDestination] = {}
+        matched: list[tuple[ExternalDataJob, list[ExternalDataDestination]]] = []
+        page_query = jobs
+        while len(matched) < DELIVERY_FAILURES_LIMIT:
+            page = list(page_query[:DELIVERY_FAILURES_PAGE_SIZE])
+            if not page:
+                break
+            last = page[-1]
+            page_query = jobs.filter(Q(created_at__lt=last.created_at) | Q(created_at=last.created_at, id__lt=last.id))
+            unseen_ids = {
+                str(linked_id) for job in page for linked_id in job.destination_ids
+            } - destinations_by_id.keys()
+            if unseen_ids:
+                for linked in ExternalDataDestination.objects.for_team(self.team_id, canonical=True).filter(
+                    id__in=unseen_ids
+                ):
+                    destinations_by_id[str(linked.id)] = linked
+
+            for job in page:
+                job_destinations = [
+                    destinations_by_id[str(linked_id)]
+                    for linked_id in job.destination_ids
+                    if str(linked_id) in destinations_by_id
+                ]
+                # The error names the destination that stopped the run. The longest matching name wins,
+                # so a destination named `Prod` does not claim a failure of `Prod EU`.
+                if destination_named_in_failure(job.latest_error or "", [d.name for d in job_destinations]) != (
+                    destination.name
+                ):
+                    continue
+                if not self._can_view_job_table(job):
+                    continue
+                # A name is not unique, so any destination of the run with this name may have raised the
+                # error. Mask the secrets of all of them.
+                matched.append((job, [d for d in job_destinations if d.name == destination.name]))
+                if len(matched) >= DELIVERY_FAILURES_LIMIT:
+                    break
+
+        source_inputs = SourceInputsStore.load_many({job.pipeline_id: job.pipeline for job, _ in matched}.values())
+        integration_ids = {
+            named.integration_id
+            for _, named_destinations in matched
+            for named in named_destinations
+            if named.integration_id
+        }
+        integrations = IntegrationManager.any.get_many(self.team_id, integration_ids) if integration_ids else {}
+        integration_secrets: dict[int, frozenset[str]] = {}
+        unreadable_integration_ids: set[int] = set()
+        for integration_id, integration in integrations.items():
+            try:
+                integration_secrets[integration_id] = source_helpers.get_integration_error_redaction_values(integration)
+            except UndecryptedIntegrationSecretError:
+                # Secrets that cannot be read cannot be masked, so the errors of this integration stay hidden.
+                unreadable_integration_ids.add(integration_id)
+        source_secrets: dict[str, frozenset[str]] = {}
+
+        results: list[dict[str, Any]] = []
+        for job, named_destinations in matched:
+            reason = job.latest_error or ""
+            source_id = str(job.pipeline_id)
+            if source_id not in source_secrets:
+                source_secrets[source_id] = source_helpers.get_error_redaction_values(
+                    job.pipeline, source_inputs.get(job.pipeline_id)
+                )
+            secrets = source_secrets[source_id].union(
+                *(
+                    integration_secrets.get(named.integration_id, frozenset())
+                    for named in named_destinations
+                    if named.integration_id is not None
+                )
+            )
+            if any(named.integration_id in unreadable_integration_ids for named in named_destinations):
+                error: str | None = UNREADABLE_CREDENTIALS_ERROR
+            else:
+                error = source_helpers.redact_error_message(_delivery_error_detail(reason, destination.name), secrets)
+            results.append(
+                {
+                    "job_id": job.id,
+                    "source_id": job.pipeline_id,
+                    "source_name": _source_summary(job.pipeline)["name"],
+                    "source_type": job.pipeline.source_type,
+                    "schema_id": job.schema_id,
+                    "schema_name": job.schema.name if job.schema else None,
+                    "error": error,
+                    "is_configuration_error": is_configuration_failure_of(reason, destination.name),
+                    "created_at": job.created_at,
+                    "finished_at": job.finished_at,
+                    "workflow_run_id": job.workflow_run_id,
+                }
+            )
+
+        return Response(
+            DestinationDeliveryFailuresResponseSerializer(
+                {"results": results, "window_days": DELIVERY_FAILURES_WINDOW_DAYS}
+            ).data
+        )
+
+    def _can_view_job_table(self, job: ExternalDataJob) -> bool:
+        """Whether the user may read the table a run synced, the same check the schema endpoints make."""
+        if job.schema is None or is_service_auth(self.request):
+            return True
+        level = self.user_access_control.get_user_access_level(job.schema.table or job.schema.source)
+        return level is not None and access_level_satisfied_for_resource("warehouse_table", level, "viewer")
 
     @extend_schema(request=None, responses={200: DestinationConnectionTestResponseSerializer})
     @action(methods=["POST"], detail=True)
