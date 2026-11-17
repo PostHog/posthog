@@ -9,6 +9,7 @@ from typing import TypeVar
 
 from django.conf import settings as django_settings
 from django.core.exceptions import ValidationError as DjangoValidationError
+from django.db.models import F
 
 import dagster
 import pydantic
@@ -25,6 +26,7 @@ from clickhouse_driver import Client
 # packages already get cached this way; common.hogvm is the only fresh import on the predicate
 # path, so it is the one that breaks without this.
 import posthog.hogql.compiler.bytecode  # noqa: F401
+from posthog.hogql.printer.events_json_document import is_container_string_member_sql
 
 from posthog.clickhouse.adhoc_events_deletion import ADHOC_EVENTS_DELETION_TABLE
 from posthog.clickhouse.client import sync_execute
@@ -77,6 +79,7 @@ from posthog.models.deletion_targets import (
 )
 from posthog.models.event.sql import json_property_presence_expr
 from posthog.models.person.bulk_delete import (
+    DeletionRun,
     PersonDeletionStep,
     delete_persons_profile,
     queue_person_recording_deletion,
@@ -1265,6 +1268,38 @@ def _drop_keys_expr(source: str, keys_param: str) -> str:
     return f"if(empty({source}), {source}, JSONDropKeysPool(if(empty({source}), '{{}}', {source}), %({keys_param})s))"
 
 
+def _json_drop_keys_expr(column: str, keys: list[str], keys_param: str) -> str:
+    """A native JSON column without `keys`, as text that the cast turns back into the column.
+
+    A key at the top level is dropped from the serialized column. The column stores an object or array as a string
+    of its JSON text, and that drop cannot see into a string, so a key inside one is dropped from that string alone.
+    Every other member is copied as it is stored. A string is rewritten only when dropping the keys changes what
+    JSONDropKeysPool writes for it, and JSONDropKeysPool keeps the numbers, key order and nulls of what it leaves.
+    """
+    dropped = _drop_keys_expr(f"toJSONString({column})", keys_param)
+    if not any("." in key for key in keys):
+        return dropped
+    members = f"JSONExtractKeysAndValuesRaw({dropped})"
+    text = "JSONExtractString(kv.2)"
+    keys_below_member = (
+        "arrayMap(k -> substring(k, length(kv.1) + 2), "
+        f"arrayFilter(k -> startsWith(k, concat(kv.1, '.')), %({keys_param})s))"
+    )
+    # JSONDropKeysPool fails on text that is not JSON, so only a string that parses reaches it.
+    is_candidate = f"notEmpty({keys_below_member}) AND {is_container_string_member_sql('kv.2')}"
+    rewritten = (
+        f"arrayMap(kv -> (kv.1, JSONDropKeysPool({text}, {keys_below_member}), JSONDropKeysPool({text}, emptyArrayString())), "
+        f"arrayFilter(kv -> {is_candidate}, {members}))"
+    )
+    changed = f"arrayFilter(item -> item.2 != item.3, {rewritten})"
+    value = (
+        f"if(has(arrayMap(item -> item.1, {changed}), kv.1), "
+        f"toJSONString(arrayFirst(item -> item.1 = kv.1, {changed}).2), kv.2)"
+    )
+    pairs = f"arrayMap(kv -> concat(toJSONString(kv.1), ':', {value}), {members})"
+    return f"concat('{{', arrayStringConcat({pairs}, ','), '}}')"
+
+
 @frozen
 class _CleanedSelect:
     """How the copy reads cleaned rows out of the source table."""
@@ -1311,12 +1346,18 @@ def _cleaned_select_list(
     # On the JSON table the column round-trips through a string: serialize it, drop the keys, and
     # let the cast below turn the cleaned string back into the JSON column type.
     if deletion_request.properties:
-        source = "toJSONString(properties)" if target.json_schema else "properties"
-        replacements["properties"] = _drop_keys_expr(source, "keys")
+        replacements["properties"] = (
+            _json_drop_keys_expr("properties", deletion_request.properties, "keys")
+            if target.json_schema
+            else _drop_keys_expr("properties", "keys")
+        )
         params["keys"] = deletion_request.properties
     if deletion_request.person_properties:
-        source = "toJSONString(person_properties)" if target.json_schema else "person_properties"
-        replacements["person_properties"] = _drop_keys_expr(source, "person_keys")
+        replacements["person_properties"] = (
+            _json_drop_keys_expr("person_properties", deletion_request.person_properties, "person_keys")
+            if target.json_schema
+            else _drop_keys_expr("person_properties", "person_keys")
+        )
         params["person_keys"] = deletion_request.person_properties
     for name, is_nullable in mat_cols:
         replacements[name] = "NULL" if is_nullable else "''"
@@ -2152,7 +2193,7 @@ def delete_person_profiles_op(
         context.log.info("No persons resolved; nothing to delete")
         return person_removal
 
-    result = delete_persons_profile(person_removal.team_id, persons, actor=None)
+    result = delete_persons_profile(person_removal.team_id, persons, actor=None, run=DeletionRun(run_id=context.run_id))
     metadata: dict[str, dagster.MetadataValue] = {
         "deleted_count": dagster.MetadataValue.int(result.deleted_count),
         "errors": dagster.MetadataValue.int(len(result.errors)),
@@ -2377,6 +2418,10 @@ def data_deletion_request_pickup_sensor(context: dagster.SensorEvaluationContext
         dagster.DagsterRunStatus.NOT_STARTED,
         dagster.DagsterRunStatus.STARTING,
         dagster.DagsterRunStatus.STARTED,
+        # A CANCELING run can still execute ops until termination completes. If the sensor launched
+        # beside it, two runs could load the same request, and the loser's failure hook would mark
+        # the winner's IN_PROGRESS request FAILED.
+        dagster.DagsterRunStatus.CANCELING,
     ]
     active_count = 0
     for job_name in DELETION_JOB_NAMES:
@@ -2388,7 +2433,14 @@ def data_deletion_request_pickup_sensor(context: dagster.SensorEvaluationContext
     if active_count > 0:
         return dagster.SkipReason(f"A deletion job is already running ({active_count} active). Waiting.")
 
-    next_request = DataDeletionRequest.objects.filter(status=RequestStatus.APPROVED).order_by("approved_at").first()
+    # Only one deletion job runs at a time, so automatic requests (such as conversations ticket
+    # purges) can build a long queue. Staff-created requests skip that queue. created_by_staff is
+    # NULL on requests that no person submitted, so nulls sort with the non-staff requests.
+    next_request = (
+        DataDeletionRequest.objects.filter(status=RequestStatus.APPROVED)
+        .order_by(F("created_by_staff").desc(nulls_last=True), "approved_at")
+        .first()
+    )
     if next_request is None:
         return dagster.SkipReason("No approved deletion requests to process.")
 
@@ -2408,12 +2460,18 @@ def data_deletion_request_pickup_sensor(context: dagster.SensorEvaluationContext
         f"(team_id={next_request.team_id}, type={next_request.request_type})"
     )
 
+    # Dagster drops a RunRequest whose run_key it has seen before, even when that run failed.
+    # attempt_count alone does not make the key unique, because only the load_* op increments it.
+    # A run can end without reaching that op: it is cancelled while queued, its worker crashes, or
+    # its load op finds the request was moved out of APPROVED and later approved again. The request
+    # is then APPROVED with an unchanged attempt_count, and it stays first in the queue, so every
+    # request behind it would wait forever. The count of earlier runs for this request makes each
+    # launch's key new. All of those runs are finished, because the check above returns while any
+    # deletion run is active.
+    prior_runs = context.instance.get_runs_count(dagster.RunsFilter(tags={"deletion_request_id": str(next_request.pk)}))
+
     return dagster.RunRequest(
-        # Include attempt_count so retries / re-approvals of the same request get a
-        # distinct run_key. Dagster dedupes by run_key, so a bare pk would make every
-        # relaunch after the first a silent no-op. attempt_count is bumped exactly once
-        # per APPROVED → IN_PROGRESS transition (see _mark_in_progress).
-        run_key=f"{next_request.pk}:{next_request.attempt_count}",
+        run_key=f"{next_request.pk}:{next_request.attempt_count}:{prior_runs}",
         job_name=job.name,
         run_config={
             "ops": {

@@ -9,6 +9,7 @@ from collections.abc import Sequence
 
 from prometheus_client import Gauge
 
+from posthog.dataclasses import frozen
 from posthog.metrics import pushed_metrics_registry
 
 from products.alerts_platform.backend.logic.inventory import SourceInventory
@@ -16,6 +17,30 @@ from products.alerts_platform.backend.logic.inventory import SourceInventory
 # The timeout applies to the connect and to the response separately, so a stalled PushGateway
 # holds the push for up to 10 seconds. That stays inside the 20-second activity timeout.
 PUSH_TIMEOUT_SECONDS = 5
+
+
+@frozen
+class TickScheduleRuns:
+    """The tick schedule's lifetime counts, as Temporal keeps them for this schedule alone."""
+
+    started: int
+    skipped_overlap: int
+    missed_catchup: int
+
+
+def push_tick_schedule_runs(schedule_runs: TickScheduleRuns) -> None:
+    """A group of its own, so a failed inventory count neither holds these back nor replaces them."""
+    with pushed_metrics_registry("alerts_platform_tick_schedule", timeout=PUSH_TIMEOUT_SECONDS) as registry:
+        # Lifetime counts, so a rise between two pushes is a tick the schedule skipped or dropped.
+        runs = Gauge(
+            "alerts_platform_tick_schedule_actions",
+            "Ticks the platform's schedule started, skipped for overlap, or dropped for starting late",
+            ["outcome"],
+            registry=registry,
+        )
+        runs.labels(outcome="started").set(schedule_runs.started)
+        runs.labels(outcome="skipped_overlap").set(schedule_runs.skipped_overlap)
+        runs.labels(outcome="missed_catchup").set(schedule_runs.missed_catchup)
 
 
 def push_inventory(inventories: Sequence[SourceInventory]) -> None:
@@ -32,8 +57,39 @@ def push_inventory(inventories: Sequence[SourceInventory]) -> None:
             ["source", "state", "muted"],
             registry=registry,
         )
+        # By owner, because only a platform-owned configuration's due time is the platform's to keep.
+        overdue = Gauge(
+            "alerts_platform_configurations_overdue",
+            "Enabled, not broken configurations whose check is later than its grace period, whatever held it back",
+            ["source", "owner"],
+            registry=registry,
+        )
+        unscheduled = Gauge(
+            "alerts_platform_configurations_unscheduled",
+            "Enabled, not broken configurations with no due time",
+            ["source", "owner"],
+            registry=registry,
+        )
+        oldest_due = Gauge(
+            "alerts_platform_configurations_oldest_due_seconds",
+            "How long the longest-waiting due check of an enabled, not broken configuration has waited",
+            ["source", "owner"],
+            registry=registry,
+        )
+        broken = Gauge(
+            "alerts_platform_configurations_broken",
+            "Enabled configurations held back as broken, which discovery skips until they are reset",
+            ["source", "owner"],
+            registry=registry,
+        )
         for inventory in inventories:
             source = inventory.source.value
+            for count in inventory.overdue:
+                labels = {"source": source, "owner": count.owner.value}
+                overdue.labels(**labels).set(count.overdue)
+                unscheduled.labels(**labels).set(count.unscheduled)
+                oldest_due.labels(**labels).set(count.oldest_due_seconds)
+                broken.labels(**labels).set(count.broken)
             for configuration in inventory.configurations:
                 configurations.labels(
                     source=source, enabled=str(configuration.enabled).lower(), owner=configuration.owner.value

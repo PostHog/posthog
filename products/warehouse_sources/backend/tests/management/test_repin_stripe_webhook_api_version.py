@@ -38,7 +38,14 @@ def _create_source_with_webhook(
         source_id=str(uuid.uuid4()),
         connection_id=str(uuid.uuid4()),
         source_type="Stripe",
-        job_inputs={"stripe_secret_key": secret_key, "auth_method": auth_method},
+        job_inputs={
+            "stripe_secret_key": secret_key,
+            "auth_method": {
+                "selection": auth_method,
+                **({"stripe_integration_id": 1} if auth_method == "oauth" else {}),
+            },
+        },
+        api_version=STRIPE_API_VERSION_ACACIA,
     )
     hog_function = HogFunction.objects.create(
         team=team,
@@ -68,7 +75,7 @@ def _stored_secret(hog_function_id) -> str | None:
 def _parse_config(job_inputs) -> SimpleNamespace:
     return SimpleNamespace(
         stripe_secret_key=job_inputs["stripe_secret_key"],
-        auth_method=SimpleNamespace(selection=job_inputs.get("auth_method", "api_key")),
+        auth_method=SimpleNamespace(selection=job_inputs.get("auth_method", {}).get("selection", "api_key")),
     )
 
 

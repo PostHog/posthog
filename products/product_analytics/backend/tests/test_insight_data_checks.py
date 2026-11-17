@@ -28,7 +28,7 @@ from posthog.clickhouse.query_tagging import get_query_tag_value
 from posthog.constants import AvailableFeature
 from posthog.errors import CHQueryErrorQueryWasCancelled, ExposedCHQueryError
 from posthog.exceptions import APIQueriesBudgetExceeded
-from posthog.models import PersonalAPIKey, PropertyDefinition
+from posthog.models import PersonalAPIKey
 from posthog.models.organization import OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.team import Team
@@ -37,6 +37,7 @@ from products.access_control.backend.facade.api import upsert_property_access_co
 from products.access_control.backend.facade.contracts import PropertyAccessLevel, UpsertPropertyAccessControlInput
 from products.access_control.backend.models.access_control import AccessControl
 from products.cohorts.backend.models.cohort import Cohort
+from products.event_definitions.backend.models import PropertyDefinition
 from products.product_analytics.backend.facade.contracts import (
     InsightDataCheck,
     InsightDataChecks,
@@ -150,6 +151,8 @@ class TestEvaluateDataChecks(SimpleTestCase):
             ("local_tiny_share_still_counts", checked(1_000_000, local=60), {LOCAL: WARNING}),
             ("local_under_50_events", checked(100, local=49), {}),
             ("local_fifth_is_still_a_warning", checked(1000, local=200), {LOCAL: WARNING}),
+            ("local_under_nine_tenths_is_still_a_warning", checked(1000, local=899), {LOCAL: WARNING}),
+            ("local_nearly_every_event_is_the_app_itself", checked(1000, local=900), {}),
             ("too_many_events_to_count_skips_only_internal_users", checked(1000, counted=False), {INTERNAL: SKIPPED}),
             ("bots_small_share_is_a_warning", checked(10_000, bots=200), {BOTS: WARNING}),
             (
@@ -562,7 +565,8 @@ class TestInsightDataChecks(ClickhouseTestMixin, APIBaseTest):
         self, _name: str, days_with_events: range, status: str, events_checked: int
     ) -> None:
         for days_ago in days_with_events:
-            self._events(10, event=WIDELY_SENT_EVENT, days_ago=days_ago, properties={"$host": LOCAL_HOST})
+            self._events(8, event=WIDELY_SENT_EVENT, days_ago=days_ago, properties={"$host": LOCAL_HOST})
+            self._events(2, event=WIDELY_SENT_EVENT, days_ago=days_ago)
         flush_persons_and_events()
         query = self._query(
             [{"kind": "EventsNode", "event": WIDELY_SENT_EVENT}],

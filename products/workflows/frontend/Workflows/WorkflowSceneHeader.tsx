@@ -170,11 +170,12 @@ export const WorkflowSceneHeader = (props: WorkflowSceneLogicProps = {}): JSX.El
                 name={workflow?.name}
                 description={workflow?.description}
                 resourceType={{ type: 'workflows' }}
-                canEdit
+                canEdit={canEdit}
                 onNameChange={(name) => setWorkflowValue('name', name)}
                 onDescriptionChange={(description) => setWorkflowValue('description', description)}
                 isLoading={workflowLoading && !workflow}
                 renameDebounceMs={200}
+                hideProductSetupButton
                 forceBackTo={workflowBackTo(workflow, props.id)}
                 actions={
                     <>

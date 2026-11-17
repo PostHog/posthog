@@ -56,6 +56,7 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
             "kind": "HogQLQuery",
             "modifiers": None,
             "name": None,
+            "offset": None,
             "query": "SELECT count(1) FROM query_log",
             "response": None,
             "sendRawQuery": None,
@@ -352,6 +353,7 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
             "kind": "HogQLQuery",
             "modifiers": None,
             "name": None,
+            "offset": None,
             "query": "SELECT 1",
             "response": None,
             "sendRawQuery": None,
@@ -742,27 +744,24 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
     def test_list_no_filters(self):
         """Test listing all endpoints without filters."""
         create_endpoint_with_version(
-            name="query1",
-            team=self.team,
-            query=self.sample_hogql_query,
-            created_by=self.user,
-            is_active=True,
-        )
-        create_endpoint_with_version(
             name="query2",
             team=self.team,
             query=self.sample_hogql_query,
             created_by=self.user,
             is_active=False,
         )
+        create_endpoint_with_version(
+            name="query1",
+            team=self.team,
+            query=self.sample_hogql_query,
+            created_by=self.user,
+            is_active=True,
+        )
 
-        # Test without any filters - should return all queries
         response = self.client.get(f"/api/environments/{self.team.id}/endpoints/")
+
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        response_data = response.json()
-        self.assertEqual(len(response_data["results"]), 2)
-        query_names = {q["name"] for q in response_data["results"]}
-        self.assertEqual(query_names, {"query1", "query2"})
+        self.assertEqual([q["name"] for q in response.json()["results"]], ["query1", "query2"])
 
     def test_create_endpoint_with_comprehensive_trends_query(self):
         """Test creating a endpoint with a comprehensive TrendsQuery containing many fields."""
@@ -1253,9 +1252,10 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
 
         # Update to different data freshness
         updated_data: dict[str, int | None] = {"data_freshness_seconds": 21600}
-        response = self.client.patch(
-            f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/", updated_data, format="json"
-        )
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/", updated_data, format="json"
+            )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["data_freshness_seconds"], 21600)
         # The freshness target is part of the throttle's cached snapshot, so the edit drops it.
@@ -1689,11 +1689,13 @@ class TestMaterializationPreview(ClickhouseTestMixin, APIBaseTest):
 
         # Change bucket_overrides — should trigger an immediate refresh
         with mock.patch("products.endpoints.backend.logic.crud.materialize_saved_query") as mock_trigger:
-            response = self.client.patch(
-                f"/api/environments/{self.team.id}/endpoints/trigger-bucket/",
-                {"bucket_overrides": {"timestamp": "hour"}},
-                format="json",
-            )
+            with self.captureOnCommitCallbacks(execute=True):
+                response = self.client.patch(
+                    f"/api/environments/{self.team.id}/endpoints/trigger-bucket/",
+                    {"bucket_overrides": {"timestamp": "hour"}},
+                    format="json",
+                )
+                mock_trigger.assert_not_called()
             assert response.status_code == status.HTTP_200_OK, response.json()
             version = EndpointVersion.objects.get(endpoint__name="trigger-bucket", endpoint__team=self.team, version=1)
             assert version.bucket_overrides == {"timestamp": "hour"}

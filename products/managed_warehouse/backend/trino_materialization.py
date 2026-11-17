@@ -19,6 +19,7 @@ from products.data_modeling.backend.facade.system_tables import DATA_MODELING_AL
 from products.managed_warehouse.backend.common import ducklake_data_modeling_schema
 from products.managed_warehouse.backend.facade.contracts import (
     DuckLakeTableResult,
+    TrinoCompiledQuery,
     TrinoExpansionMode,
     TrinoIncrementalWrite,
 )

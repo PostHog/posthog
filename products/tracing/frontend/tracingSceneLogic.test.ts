@@ -1,4 +1,5 @@
 import { router } from 'kea-router'
+import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -7,6 +8,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { initKeaTests } from '~/test/init'
 
+import { makeSpan } from './__mocks__/span'
 import { tracingDataLogic } from './tracingDataLogic'
 import { TRACING_SCENE_VIEWER_ID, tracingFiltersLogic } from './tracingFiltersLogic'
 import { tracingSceneLogic } from './tracingSceneLogic'
@@ -54,6 +56,28 @@ describe('tracingSceneLogic', () => {
 
     const LOWER_TRACE_ID = '4bf92f3577b34da6a3ce929d0e0e4736'
     const UPPER_TRACE_ID = '4BF92F3577B34DA6A3CE929D0E0E4736'
+
+    it.each([
+        ['without a timestamp', { trace: LOWER_TRACE_ID }],
+        ['with a timestamp other than the root span', { trace: LOWER_TRACE_ID, ts: '2026-01-01T00:00:00Z' }],
+    ])('reports an open trace to Monitor recents under one link, opened %s', async (_name, urlParams) => {
+        const rootSpan = makeSpan({
+            trace_id: UPPER_TRACE_ID,
+            is_root_span: true,
+            name: 'GET /checkout',
+            timestamp: '2026-01-02T03:04:05Z',
+        })
+        jest.spyOn(api.tracing, 'getTrace').mockResolvedValue({ results: [rootSpan], hasMore: false })
+        mountAt(urlParams)
+
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.todayRecent).toEqual({
+            type: 'trace',
+            name: 'GET /checkout',
+            href: `/tracing?trace=${UPPER_TRACE_ID}&ts=2026-01-02T03%3A04%3A05Z`,
+        })
+    })
 
     it.each([
         ['a lowercase trace id', null, { trace: LOWER_TRACE_ID }, UPPER_TRACE_ID],
@@ -143,16 +167,33 @@ describe('tracingSceneLogic', () => {
         expect(filtersLogic.values.comparison).toMatchObject({ preset: 'yesterday' })
     })
 
-    it('opens the operations view from a ?view=operations deep link', () => {
-        enableOperationsView()
-        mountAt({ view: 'operations' })
-        expect(logic.values.activeTracingTab).toBe('operations')
+    it.each([
+        ['operations', FEATURE_FLAGS.TRACING_OPERATIONS_VIEW, undefined],
+        ['endpoints', FEATURE_FLAGS.TRACING_ENDPOINTS_VIEW, true],
+    ] as const)('opens the %s view from a deep link and fetches its aggregate', (view, flag, groupByEndpoint) => {
+        const aggregate = jest.spyOn(api.tracing, 'aggregate')
+        featureFlagLogic.actions.setFeatureFlags([], { [flag]: true })
+        mountAt({ view })
+        expect(logic.values.activeTracingTab).toBe(view)
+        expect(aggregate).toHaveBeenLastCalledWith(
+            expect.objectContaining({ groupByEndpoint, includeHealth: groupByEndpoint }),
+            expect.anything()
+        )
     })
 
-    it('ignores ?view=operations when the operations view flag is off', () => {
-        const filtersLogic = mountAt({ view: 'operations' })
+    it.each(['operations', 'endpoints'])('ignores ?view=%s when its flag is off', (view) => {
+        const filtersLogic = mountAt({ view })
         expect(logic.values.activeTracingTab).toBe('traces')
+        expect(filtersLogic.values.viewMode).toBe('spans')
+    })
+
+    it('round-trips the non-default traces view mode through the URL', () => {
+        const filtersLogic = mountAt({ view: 'traces' })
         expect(filtersLogic.values.viewMode).toBe('traces')
+        expect(router.values.searchParams.view).toBe('traces')
+
+        logic.actions.setDisplayMode('spans')
+        expect(router.values.searchParams).not.toHaveProperty('view')
     })
 
     it('reconciles the operations tab when the flag resolves after a ?view=operations deep link', () => {
@@ -193,7 +234,7 @@ describe('tracingSceneLogic', () => {
 
         featureFlagLogic.actions.setFeatureFlags([], {})
         expect(logic.values.activeTracingTab).toBe('traces')
-        expect(logic.values.displayMode).toBe('traces')
+        expect(logic.values.displayMode).toBe('spans')
         expect(router.values.searchParams).not.toHaveProperty('view')
     })
 
@@ -210,7 +251,7 @@ describe('tracingSceneLogic', () => {
 
         logic.actions.setDisplayMode('spans')
         expect(logic.values.activeTracingTab).toBe('traces')
-        expect(router.values.searchParams.view).toBe('spans')
+        expect(router.values.searchParams).not.toHaveProperty('view')
 
         // Back/forward to a non-operations URL while on the operations tab resets the tab.
         logic.actions.setDisplayMode('operations')
@@ -234,6 +275,28 @@ describe('tracingSceneLogic', () => {
         expect(logic.values.sceneTab).toBe('viewer')
         expect(router.values.searchParams).not.toHaveProperty('tab')
         expect(router.values.searchParams.serviceNames).toEqual(['checkout'])
+    })
+
+    it.each([
+        ['sql', [FEATURE_FLAGS.TRACING_SCENE_TABS], [FEATURE_FLAGS.PLATFORM_ALERTS_SOURCE_TRACES]],
+        // The traces flag alone is not enough: the API also needs platform-alerts.
+        [
+            'alerts',
+            [FEATURE_FLAGS.PLATFORM_ALERTS, FEATURE_FLAGS.PLATFORM_ALERTS_SOURCE_TRACES],
+            [FEATURE_FLAGS.TRACING_SCENE_TABS, FEATURE_FLAGS.PLATFORM_ALERTS_SOURCE_TRACES],
+        ],
+    ])('opens a tab=%s deep link only behind its own flags', (tab, ownFlags, otherFlags) => {
+        const flagsOn = (flags: string[]): Record<string, boolean> =>
+            Object.fromEntries(flags.map((flag) => [flag, true]))
+        featureFlagLogic.actions.setFeatureFlags([], flagsOn(otherFlags))
+        mountAt({ tab })
+        expect(logic.values.activeSceneTab).toBe('viewer')
+        expect(router.values.searchParams).not.toHaveProperty('tab')
+
+        featureFlagLogic.actions.setFeatureFlags([], flagsOn(ownFlags))
+        router.actions.push('/tracing', { tab })
+        expect(logic.values.activeSceneTab).toBe(tab)
+        expect(logic.values.availableSceneTabs).toEqual(['viewer', tab])
     })
 
     it('restores the SQL tab from a deep link without dropping the filter params', () => {
@@ -276,6 +339,37 @@ describe('tracingSceneLogic', () => {
 
         expect(aggregateSpy).toHaveBeenLastCalledWith(
             expect.objectContaining({ compareFilter: expect.objectContaining({ compare: false }) }),
+            expect.anything()
+        )
+        resumeKeaLoadersErrors()
+    })
+
+    it.each([
+        ['a comparison window drag', 'drag'],
+        ['a refresh', 'refresh'],
+    ])('keeps endpoint grouping on the full range after %s while comparing', async (_label, trigger) => {
+        silenceKeaLoadersErrors()
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.TRACING_ENDPOINTS_VIEW]: true })
+        const filtersLogic = mountAt({ comparison: JSON.stringify({ mode: 'time', preset: 'custom' }) })
+        expect(filtersLogic.values.compareActive).toBe(true)
+
+        const aggregateSpy = jest.spyOn(api.tracing, 'aggregate')
+        logic.actions.setActiveTracingTab('endpoints')
+        await new Promise((resolve) => setTimeout(resolve, 0))
+        aggregateSpy.mockClear()
+
+        if (trigger === 'drag') {
+            filtersLogic.actions.updateComparisonWindows({ startMs: 0, endMs: 1000 }, { startMs: 2000, endMs: 3000 })
+        } else {
+            logic.actions.refreshQuery()
+        }
+        await new Promise((resolve) => setTimeout(resolve, 0))
+
+        expect(aggregateSpy).toHaveBeenLastCalledWith(
+            expect.objectContaining({
+                groupByEndpoint: true,
+                compareFilter: expect.objectContaining({ compare: false }),
+            }),
             expect.anything()
         )
         resumeKeaLoadersErrors()

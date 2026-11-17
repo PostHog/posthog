@@ -5,6 +5,7 @@ import {
   flattenBranchPages,
   type GithubBranchesPage,
 } from "@posthog/core/integrations/branches";
+import { combineGitlabProjects } from "@posthog/core/integrations/gitlabProjects";
 import { REPOSITORIES_SERVICE } from "@posthog/core/integrations/identifiers";
 import {
   combineGithubRepositories,
@@ -31,6 +32,10 @@ import {
 } from "@posthog/core/integrations/repositoryKeys";
 import { useService } from "@posthog/di/react";
 import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
+import {
+  getAuthIdentity,
+  useAuthStateValue,
+} from "@posthog/ui/features/auth/store";
 import { AUTH_SCOPED_QUERY_META } from "@posthog/ui/features/auth/useCurrentUser";
 import {
   type Integration,
@@ -41,6 +46,7 @@ import { useSettingsStore } from "@posthog/ui/features/settings/settingsStore";
 import { useAuthenticatedInfiniteQuery } from "@posthog/ui/hooks/useAuthenticatedInfiniteQuery";
 import { useAuthenticatedQuery } from "@posthog/ui/hooks/useAuthenticatedQuery";
 import { useDebounce } from "@posthog/ui/primitives/hooks/useDebounce";
+import { logger } from "@posthog/ui/shell/logger";
 import {
   type QueryClient,
   useQueries,
@@ -81,9 +87,10 @@ export interface IntegrationsQueryOptions {
 
 export function useIntegrations(options: IntegrationsQueryOptions = {}) {
   const setIntegrations = useIntegrationStore((state) => state.setIntegrations);
+  const scope = useAuthStateValue(getAuthIdentity);
 
   const query = useAuthenticatedQuery(
-    integrationKeys.list(),
+    integrationKeys.list(scope),
     (client) => client.getIntegrations() as Promise<Integration[]>,
     {
       refetchInterval: options.refetchInterval ?? false,
@@ -92,35 +99,51 @@ export function useIntegrations(options: IntegrationsQueryOptions = {}) {
   );
 
   useEffect(() => {
-    if (query.data) {
-      setIntegrations(query.data);
-    }
-  }, [query.data, setIntegrations]);
+    setIntegrations(query.data ?? [], scope);
+  }, [query.data, scope, setIntegrations]);
 
   return query;
 }
 
-function useAllGithubRepositories(githubIntegrations: Integration[]) {
+export function useGithubRepositoryQueries(githubIntegrations: Integration[]) {
   const client = useOptionalAuthenticatedClient();
+  const scope = useAuthStateValue(getAuthIdentity);
 
   return useQueries({
     queries: githubIntegrations.map((integration) => ({
-      queryKey: integrationKeys.repositories(integration.id),
-      queryFn: async () => {
+      queryKey: integrationKeys.repositories(integration.id, scope),
+      queryFn: async ({ signal }: { signal: AbortSignal }) => {
         if (!client) throw new Error("Not authenticated");
-        const repos = await client.getGithubRepositories(integration.id);
-        return { integrationId: integration.id, repos };
+        try {
+          const repos = await client.getGithubRepositories(
+            integration.id,
+            signal,
+          );
+          return { integrationId: integration.id, repos };
+        } catch (error) {
+          if (!signal.aborted) {
+            logger
+              .scope("github-repositories")
+              .error("Failed to load repositories", {
+                integrationId: integration.id,
+                error,
+              });
+          }
+          throw error;
+        }
       },
       enabled: !!client,
       staleTime: 5 * 60 * 1000,
       meta: AUTH_SCOPED_QUERY_META,
     })),
-    combine: (results) =>
-      combineGithubRepositories(
-        results,
-        githubIntegrations.map((integration) => integration.id),
-      ),
   });
+}
+
+function useAllGithubRepositories(githubIntegrations: Integration[]) {
+  return combineGithubRepositories(
+    useGithubRepositoryQueries(githubIntegrations),
+    githubIntegrations.map((integration) => integration.id),
+  );
 }
 
 export function useUserGithubIntegrations(
@@ -335,6 +358,52 @@ export function useUserGithubRepositories(
     hasMore,
     loadMore,
   };
+}
+
+/**
+ * The gitlab.com project of each connection, with the integration to send for
+ * each, and the token scopes that coding tasks need and a token lacks.
+ */
+export function useGitlabProjects(
+  integrationIds: ReadonlyArray<number>,
+  search: string,
+  enabled: boolean,
+) {
+  const client = useOptionalAuthenticatedClient();
+  const normalizedSearch = search.trim().toLowerCase();
+  return useQueries({
+    queries: integrationIds.map((integrationId) => ({
+      queryKey: integrationKeys.gitlabProjects(integrationId),
+      queryFn: async () => {
+        if (!client) throw new Error("Not authenticated");
+        return await client.getGitlabProjects(integrationId);
+      },
+      enabled: enabled && !!client,
+      staleTime: 5 * 60 * 1000,
+      meta: AUTH_SCOPED_QUERY_META,
+    })),
+    combine: (results) => {
+      const combined = combineGitlabProjects(
+        results.map((result, index) => ({
+          integrationId: integrationIds[index],
+          response: result.data,
+        })),
+      );
+      return {
+        ...combined,
+        projects: combined.projects.filter((project) =>
+          project.toLowerCase().includes(normalizedSearch),
+        ),
+        isPending: enabled && results.some((result) => result.isPending),
+        isError: enabled && results.some((result) => result.isError),
+        retry: () => {
+          for (const result of results) {
+            if (result.isError) void result.refetch();
+          }
+        },
+      };
+    },
+  });
 }
 
 export function useGithubBranches(

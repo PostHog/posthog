@@ -1,11 +1,11 @@
-import { MakeLogicType, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import { teamLogic } from 'scenes/teamLogic'
 
 import { visualReviewReposList, visualReviewReposRetrieve } from '../generated/api'
 import type { RepoApi } from '../generated/api.schemas'
-import { RepoNotFoundError, resolveRepoId } from '../lib/repoIds'
+import { isNotFoundError, resolveRepoId } from '../lib/repoIds'
 import { visualReviewPreferencesLogic } from './visualReviewPreferencesLogic'
 
 export interface VisualReviewRepoLogicProps {
@@ -56,11 +56,14 @@ export interface visualReviewRepoLogicActions {
         errorObject?: any
     }
     loadRepoSuccess: (
-        repo: RepoApi,
+        repo: RepoApi | null,
         payload?: any
     ) => {
-        repo: RepoApi
+        repo: RepoApi | null
         payload?: any
+    }
+    setRepoNotFound: () => {
+        value: true
     }
 }
 
@@ -91,13 +94,27 @@ export const visualReviewRepoLogic = kea<visualReviewRepoLogicType>([
         values: [teamLogic, ['currentProjectId']],
         actions: [visualReviewPreferencesLogic, ['rememberRepo']],
     })),
-    loaders(({ props, values }) => ({
+    actions({
+        setRepoNotFound: true,
+    }),
+    loaders(({ actions, props, values }) => ({
         repo: [
             null as RepoApi | null,
             {
                 loadRepo: async () => {
                     const projectId = String(values.currentProjectId)
-                    return visualReviewReposRetrieve(projectId, await resolveRepoId(projectId, props.repoFullName))
+                    try {
+                        return await visualReviewReposRetrieve(
+                            projectId,
+                            await resolveRepoId(projectId, props.repoFullName)
+                        )
+                    } catch (error) {
+                        if (isNotFoundError(error)) {
+                            actions.setRepoNotFound()
+                            return null
+                        }
+                        throw error
+                    }
                 },
             },
         ],
@@ -119,7 +136,7 @@ export const visualReviewRepoLogic = kea<visualReviewRepoLogicType>([
             false,
             {
                 loadRepo: () => false,
-                loadRepoFailure: (_, { errorObject }) => errorObject instanceof RepoNotFoundError,
+                setRepoNotFound: () => true,
             },
         ],
     }),
@@ -132,7 +149,9 @@ export const visualReviewRepoLogic = kea<visualReviewRepoLogicType>([
     }),
     listeners(({ actions }) => ({
         loadRepoSuccess: ({ repo }) => {
-            actions.rememberRepo(repo.team_id, repo.repo_full_name)
+            if (repo) {
+                actions.rememberRepo(repo.team_id, repo.repo_full_name)
+            }
         },
     })),
     afterMount(({ actions }) => {

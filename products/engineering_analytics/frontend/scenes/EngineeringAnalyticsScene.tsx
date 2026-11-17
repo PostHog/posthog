@@ -75,7 +75,6 @@ function DeploysRefreshButton(): JSX.Element {
     return <RefreshButton extraLoading={doraLoading} />
 }
 
-// Each tab's own page. Detail pages render beneath their tab through ProductNav too.
 const TAB_CONTENT: Record<EngineeringAnalyticsView, () => JSX.Element> = {
     hub: () => <RepoOverviewScene />,
     'pull-requests': () => <EngineeringAnalyticsPullRequests />,

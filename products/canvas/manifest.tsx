@@ -1,10 +1,14 @@
 import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
-import { ProductManifest } from '../../frontend/src/types'
+import { ActivityScope, ProductManifest } from '../../frontend/src/types'
 
 export const manifest: ProductManifest = {
     name: 'Canvas',
+    activityDescribers: {
+        [ActivityScope.CANVAS]: () =>
+            import('./frontend/activityDescriber').then((module) => module.canvasActivityDescriber),
+    },
     scenes: {
         CanvasNew: {
             name: 'New canvas',

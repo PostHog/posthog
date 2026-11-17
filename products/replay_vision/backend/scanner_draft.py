@@ -2,7 +2,7 @@
 
 The goal step asks "what should the scanner find out?" and this turns the answer into a ready-to-review
 scanner draft: the scanner type, a name, a description, the type-specific config (prompt, tag vocabulary,
-score scale, or summary length), the session targeting, and the sampling dials solved from the budget.
+score scale, or summary length), the session targeting, and the sampling rate solved from the budget.
 The draft is grounded in the team's real pages, events, and saved entities, the
 scanners the caller already has (so a goal can say "like the checkout scanner but for onboarding"), and the
 company's business context (Max's core memory), so the prompt talks about THEIR product. It then lands in
@@ -11,6 +11,7 @@ re-validates everything on save.
 """
 
 import re
+import json
 import time
 import uuid
 import functools
@@ -27,9 +28,7 @@ from django.db import connections
 from django.db.models import Q
 
 import structlog
-import posthoganalytics
 from google.genai.types import FinishReason, GenerateContentConfig, GenerateContentResponse, ThinkingConfig
-from posthoganalytics.ai.gemini import genai
 from pydantic import BaseModel, Field
 
 from posthog.schema import RecordingsQuery
@@ -37,22 +36,24 @@ from posthog.schema import RecordingsQuery
 from posthog.api.search import (
     ENTITY_MAP as _SEARCH_ENTITY_MAP,
     EntityConfig,
+    FacadeSearch,
     search_entities,
+    search_live_actions,
 )
 from posthog.clickhouse.query_tagging import get_query_tags, query_tags
 from posthog.hogql_queries.utils.parallel import run_in_parallel_threads
 from posthog.llm.semantic_enrichment import get_team_business_context
-from posthog.models import EventDefinition
 from posthog.models.team import Team
 from posthog.models.user import User
-from posthog.scopes import APIScopeObject
+from posthog.scopes.catalog import APIScopeObject
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.event_definitions.backend.models import EventDefinition
 from products.experiments.backend.facade.replay import targetable_experiments
 from products.replay_vision.backend.billing import observation_credits_for_model
+from products.replay_vision.backend.gemini_client import gemini_text_models
 from products.replay_vision.backend.models.replay_scanner import (
     ReplayScanner,
-    SamplingMode,
     ScannerModel,
     ScannerType,
     apply_experiment_targeting,
@@ -64,10 +65,12 @@ from products.replay_vision.backend.queries.scanner_candidate_query import MIN_S
 from products.replay_vision.backend.queries.scanner_volume_estimate import (
     PREVIEW_ESTIMATE_BUDGET,
     estimate_scanner_session_volume,
+    has_recent_matching_recording,
     project_monthly_observations,
 )
 from products.replay_vision.backend.queries.visited_paths import VisitedPath, fetch_visited_paths
 from products.replay_vision.backend.scanner_config import scanner_config_error
+from products.replay_vision.backend.scanner_query import NarrowingRefusal, combines_with_and, narrow_chosen_query
 from products.replay_vision.backend.tags import slugify_tag
 
 from ee.hogai.utils.feature_flags import is_core_memory_disabled
@@ -171,9 +174,10 @@ _MAX_FILTER_EVENT_PROPERTIES = 2
 # who answered it is a real goal.
 _LIVE_SEARCH_ENTITY_MAP: dict[str, EntityConfig] = {
     **_SEARCH_ENTITY_MAP,
-    "action": {**_SEARCH_ENTITY_MAP["action"], "filters": {"deleted": False}},
     "cohort": {**_SEARCH_ENTITY_MAP["cohort"], "filters": {"deleted": False}},
 }
+# Actions are searched through the actions facade, not the union map, so they are left out the same way here.
+_LIVE_FACADE_SEARCHES: dict[str, FacadeSearch] = {"action": search_live_actions}
 # Words common to almost any goal. Matching them returns arbitrary events rather than the ones the
 # user means, and crowds out the terms that carry the intent.
 _GOAL_STOPWORDS = frozenset(
@@ -266,6 +270,14 @@ class UnwatchableExperimentError(Exception):
     group-aggregated, or without variants."""
 
 
+class UnknownExperimentVariantError(Exception):
+    """A variant the person picked is not one the experiment defines, so the exposure read would refuse it."""
+
+    def __init__(self, variant: str) -> None:
+        super().__init__(variant)
+        self.variant = variant
+
+
 @dataclass(frozen=True, kw_only=True)
 class ScannerDraft:
     """A normalized draft ready to seed the creation wizard's form."""
@@ -276,10 +288,8 @@ class ScannerDraft:
     scanner_config: dict[str, Any]
     rationale: str
     query: dict[str, Any] | None
-    # The quality pre-filter the model chose for the goal, the random rate solved from the stated
-    # budget, and the resulting monthly projection. None when the costing estimate failed, so the
-    # wizard keeps its defaults.
-    sampling_mode: str | None = None
+    # The random rate solved from the stated budget and the resulting monthly projection; None when
+    # the costing estimate failed, so the wizard keeps its defaults.
     sampling_rate: float | None = None
     estimated_monthly_observations: int | None = None
     # The observation model the draft chose, and the monthly credit cap set to the stated budget so a
@@ -287,6 +297,8 @@ class ScannerDraft:
     model: str | None = None
     credit_limit: int | None = None
     free_only: bool = False
+    query_additions: dict[str, Any] | None = None
+    narrowing_refusal: str | None = None
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -602,10 +614,6 @@ class _LlmDraft(BaseModel):
         "rather than surveys in general. Only use a property and value the briefing showed; anything else is "
         "dropped. Leave empty when the event alone is what the goal means.",
     )
-    sampling_mode: Literal["comprehensive", "balanced", "focused"] = Field(
-        default="comprehensive",
-        description="Which sessions deserve the budget when it cannot cover everything; see the drafting rules.",
-    )
     model: Literal["gemini-3.5-flash-lite", "gemini-3-flash-preview", "gemini-3.8-flash"] = Field(
         default="gemini-3-flash-preview",
         description="The model that watches each recording. Pick by how much judgment the goal needs: "
@@ -740,15 +748,6 @@ Pick the single type that best fits the goal, then draft the scanner:
   audience, so use one when the goal is about WHO the user is ('what do power users struggle with')
   rather than what they did. Copy the name exactly; anything not in the list is discarded. Usually
   one cohort; it ANDs with every other filter.
-- sampling_mode: who deserves the budget when it cannot cover every matching session. Each session
-  carries a score of how eventful it looks; the mode drops the lowest-scoring sessions before random
-  sampling. Choose by what the goal hunts:
-  - comprehensive: no filter. The default, and REQUIRED when the goal is about ordinary, quiet, or
-    unremarkable behavior: giving up, drifting away, missing a feature, not converting. Those sessions
-    look boring, and a tighter mode would silently discard the scanner's own answers.
-  - balanced: drops only the least eventful sessions. For general questions tilted toward engaged usage.
-  - focused: keeps only clearly eventful sessions. Only when the goal explicitly hunts intense moments:
-    rage, frustration, heavy usage, power users.
 - model: which model watches each recording, chosen by how much judgment the goal needs, NOT by budget
   (the budget is spent by watching fewer recordings, never by dropping to a weaker model):
   - gemini-3.5-flash-lite (cheapest): a simple, unambiguous yes/no monitor where the answer is obvious
@@ -788,6 +787,8 @@ def _build_user_content(
     cohorts: Sequence[_MatchedCohort] = (),
     experiments: Sequence[_MatchedExperiment] = (),
     pinned_experiment: _MatchedExperiment | None = None,
+    pinned_variants: Sequence[str] | None = None,
+    chosen_query: dict[str, Any] | None = None,
     business_context: str = "",
     company: str = "",
 ) -> str:
@@ -862,12 +863,40 @@ def _build_user_content(
                 ),
             )
         )
+    if chosen_query is not None:
+        # The operand covers the whole query, so a filter that ORs its conditions has nothing to AND onto.
+        narrowable = combines_with_and(chosen_query)
+        lines.append(
+            "\n"
+            + as_untrusted_data(
+                "chosen-recordings",
+                [json.dumps(chosen_query, separators=(",", ":"), sort_keys=True)],
+                source=(
+                    "the recording filter the user already chose, as a RecordingsQuery. The scanner starts "
+                    "from it and always keeps it; with no filters it starts from every new recording. "
+                    + (
+                        "When the goal asks for narrower recordings than this filter holds, such as one page, "
+                        "event, action or cohort, set the filter_ fields for that. Each one you set is ANDed "
+                        "with this filter, so it can only remove recordings, and it is kept only if the "
+                        "result still matches recent recordings. Do not repeat a condition this filter already "
+                        "has, keep filter_events_match at all, and leave the filter_ fields empty when this "
+                        "filter already fits the goal. The user also fixed which experiment, if any, the "
+                        "scanner watches, so leave filter_experiment and filter_experiment_variant empty"
+                        if narrowable
+                        else "It matches recordings that meet any one of its conditions, so nothing can be "
+                        "ANDed onto it: leave every filter_ field empty and write the scanner for these "
+                        "recordings"
+                    )
+                ),
+            )
+        )
     if pinned_experiment is not None:
+        picked = f"; watch only: {', '.join(pinned_variants)}" if pinned_variants else ""
         lines.append(
             "\n"
             + as_untrusted_data(
                 "chosen-experiment",
-                [f'"{pinned_experiment.name}" -> variants: {", ".join(pinned_experiment.variants)}'],
+                [f'"{pinned_experiment.name}" -> variants: {", ".join(pinned_experiment.variants)}{picked}'],
                 source=(
                     "the experiment the user picked for this scanner to watch. Copy its name into "
                     "filter_experiment and draft an experiment scanner about it"
@@ -976,6 +1005,28 @@ def scopes_allow_read(allowed_scopes: list[str] | None, resource: APIScopeObject
     return "*" in allowed_scopes or f"{resource}:read" in allowed_scopes or f"{resource}:write" in allowed_scopes
 
 
+def readable_entity_kinds(user_access_control: UserAccessControl, allowed_scopes: list[str] | None) -> set[str]:
+    """The kinds of team entity the caller may read: by role for the access-controlled kinds, and by
+    token scope for every kind, since a draft has no viewset to enforce `required_scopes`.
+
+    A kind the caller holds specific access to counts, so callers that act on single objects still
+    check each one.
+    """
+
+    def _readable(resource: APIScopeObject) -> bool:
+        return user_access_control.check_access_level_for_resource(
+            resource, required_level="viewer"
+        ) or user_access_control.has_any_specific_access_for_resource(resource, required_level="viewer")
+
+    acl_kinds: tuple[APIScopeObject, ...] = ("survey", "action", "experiment")
+    kinds: set[str] = {kind for kind in acl_kinds if _readable(kind) and scopes_allow_read(allowed_scopes, kind)}
+    # Cohorts are team-scoped only, not in ACCESS_CONTROL_RESOURCES, so they get no resource gate,
+    # but a scoped token still must hold cohort:read to receive them.
+    if scopes_allow_read(allowed_scopes, "cohort"):
+        kinds.add("cohort")
+    return kinds
+
+
 def _goal_entity_matches(
     team: Team,
     goal: str,
@@ -1009,17 +1060,7 @@ def _goal_entity_matches(
     if not terms:
         return _GoalEntityMatches(surveys=[], actions=[], cohorts=[], experiments=[])
 
-    def _readable(resource: APIScopeObject) -> bool:
-        return user_access_control.check_access_level_for_resource(
-            resource, required_level="viewer"
-        ) or user_access_control.has_any_specific_access_for_resource(resource, required_level="viewer")
-
-    acl_kinds: tuple[APIScopeObject, ...] = ("survey", "action", "experiment")
-    kinds: set[str] = {kind for kind in acl_kinds if _readable(kind) and scopes_allow_read(allowed_scopes, kind)}
-    # Cohorts are team-scoped only, not in ACCESS_CONTROL_RESOURCES, so they get no resource gate,
-    # but a scoped token still must hold cohort:read to receive them.
-    if scopes_allow_read(allowed_scopes, "cohort"):
-        kinds.add("cohort")
+    kinds = readable_entity_kinds(user_access_control, allowed_scopes)
     # `search_entities` builds its result by unioning one queryset per kind, then orders by the rank
     # those querysets annotate. With no kind it orders an empty base queryset by a column that was
     # never added, which raises.
@@ -1040,6 +1081,7 @@ def _goal_entity_matches(
                 view=view,  # type: ignore[arg-type]
                 entity_map=_LIVE_SEARCH_ENTITY_MAP,
                 include_counts=False,
+                facade_searches=_LIVE_FACADE_SEARCHES,
             )
             for result in results:
                 extra = result.get("extra_fields") or {}
@@ -1248,7 +1290,6 @@ def _draft_query(
 
 @dataclass(frozen=True, kw_only=True)
 class _BudgetSolution:
-    sampling_mode: str
     sampling_rate: float
     estimated_monthly_observations: int
 
@@ -1265,20 +1306,15 @@ def _solve_budget(
     query: dict[str, Any] | None,
     monthly_credit_budget: int,
     credits_per_observation: int,
-    model_mode: str,
     experiment_targeting: dict[str, Any] | None = None,
 ) -> _BudgetSolution:
-    """Set the two dials from the stated credit budget.
+    """Solve the random sampling rate from the stated credit budget.
 
     The budget is credits, so the number of recordings it buys depends on the chosen model's price:
     a pricier model buys fewer recordings. Convert to an observation budget first, then solve.
 
-    Budget covers everything: watch everything. No quality filter, no sampling — a filter would only
-    hide sessions the budget could have paid for.
-
-    Budget below the matched volume: keep the model's quality mode (it read the goal; a formula
-    cannot tell "find where people give up" from "find the most frustrated users"), then solve the
-    random rate so the projection lands on the budget.
+    Budget covers everything: watch everything. Budget below the matched volume: solve the random
+    rate so the projection lands on the budget.
 
     Raises on estimate failure; the caller degrades to an uncosted draft.
     """
@@ -1290,38 +1326,15 @@ def _solve_budget(
     recordings_query = apply_experiment_targeting(
         RecordingsQuery.model_validate(query or {"kind": "RecordingsQuery"}), experiment_targeting
     )
-    comprehensive = estimate_scanner_session_volume(
+    estimate = estimate_scanner_session_volume(
         team=team,
         query=recordings_query,
         user=user,
-        sampling_mode=SamplingMode.COMPREHENSIVE,
         budget=PREVIEW_ESTIMATE_BUDGET,
     )
-    monthly_all = project_monthly_observations(comprehensive, 1.0)
-    if monthly_all <= monthly_scan_budget:
-        return _BudgetSolution(
-            sampling_mode=SamplingMode.COMPREHENSIVE, sampling_rate=1.0, estimated_monthly_observations=monthly_all
-        )
-
-    if model_mode == SamplingMode.COMPREHENSIVE:
-        monthly_mode = monthly_all
-    else:
-        under_mode = estimate_scanner_session_volume(
-            team=team,
-            query=recordings_query,
-            user=user,
-            sampling_mode=model_mode,
-            budget=PREVIEW_ESTIMATE_BUDGET,
-        )
-        monthly_mode = project_monthly_observations(under_mode, 1.0)
-    if monthly_mode <= monthly_scan_budget:
-        return _BudgetSolution(sampling_mode=model_mode, sampling_rate=1.0, estimated_monthly_observations=monthly_mode)
-    rate = _floor_to_precision(monthly_scan_budget / monthly_mode)
-    return _BudgetSolution(
-        sampling_mode=model_mode,
-        sampling_rate=rate,
-        estimated_monthly_observations=round(monthly_mode * rate),
-    )
+    monthly_all = project_monthly_observations(estimate, 1.0)
+    rate = 1.0 if monthly_all <= monthly_scan_budget else _floor_to_precision(monthly_scan_budget / monthly_all)
+    return _BudgetSolution(sampling_rate=rate, estimated_monthly_observations=round(monthly_all * rate))
 
 
 def _grounded_event_properties(
@@ -1384,8 +1397,13 @@ def _finalize(
     allowed_cohorts: Sequence[_MatchedCohort] = (),
     allowed_experiments: Sequence[_MatchedExperiment] = (),
     pinned_experiment: _MatchedExperiment | None = None,
+    pinned_variants: Sequence[str] | None = None,
 ) -> ScannerDraft:
-    """Normalize the model output; costing is applied by the caller."""
+    """Normalize the model output; costing is applied by the caller.
+
+    `pinned_variants` are the variants of `pinned_experiment` the user picked, or empty for every
+    variant. When it is set, the model's variant is ignored.
+    """
     name = parsed.name.strip()[:_MAX_NAME_LENGTH]
     if not name or not parsed.prompt.strip():
         raise DraftError("missing_name_or_prompt")
@@ -1424,7 +1442,13 @@ def _finalize(
         if pinned_experiment is not None
         else (parsed.filter_experiment, allowed_experiments)
     )
-    targeting = _grounded_targeting(experiment_name, parsed.filter_experiment_variant, allowed=experiments)
+    if pinned_experiment is not None and pinned_variants is not None:
+        targeting: dict[str, Any] | None = {
+            "experiment_id": pinned_experiment.experiment_id,
+            "variants": list(pinned_variants) or None,
+        }
+    else:
+        targeting = _grounded_targeting(experiment_name, parsed.filter_experiment_variant, allowed=experiments)
     scanner_type, scanner_config = _typed_config(parsed, targeting)
     # Dropping a dead event narrows only while another filter still holds the scan down. Alone it
     # inverts, leaving a query that matches every session rather than none, so the event goes back.
@@ -1514,7 +1538,6 @@ def _finalize(
         scanner_config=scanner_config,
         rationale=parsed.rationale.strip()[:_MAX_RATIONALE_LENGTH],
         query=query,
-        sampling_mode=parsed.sampling_mode,
         model=parsed.model,
     )
 
@@ -1534,18 +1557,11 @@ def _generate(
     distinct_id: str,
     thinking_budget: int | None = None,
 ) -> _LlmDraft:
-    api_key = settings.REPLAY_VISION_GEMINI_API_KEY or settings.GEMINI_API_KEY
     # Runs inline on the interactive request path, so a hung provider call must time out.
     try:
-        client = genai.Client(
-            api_key=api_key,
-            # Privacy mode keeps customer content out of the internal project, where it could not be deleted on request.
-            posthog_privacy_mode=True,
-            posthog_client=posthoganalytics.default_client,
-            http_options={"timeout": _MODEL_CALL_TIMEOUT_MS},
-        )
+        models = gemini_text_models(timeout_ms=_MODEL_CALL_TIMEOUT_MS)
     except Exception as e:
-        # A missing or malformed API key raises at construction. Wrap it so the API returns
+        # A missing gateway config raises at construction. Wrap it so the API returns
         # the friendly 503 instead of a 500.
         raise DraftError("model_client_unavailable") from e
     config = GenerateContentConfig(
@@ -1557,7 +1573,7 @@ def _generate(
     )
 
     def call_model() -> GenerateContentResponse:
-        return client.models.generate_content(
+        return models.generate_content(
             model=_DRAFT_MODEL,
             contents=user_content,
             config=config,
@@ -1570,7 +1586,6 @@ def _generate(
                 "team_id": team_id,
                 "thinking_budget": thinking_budget,
             },
-            posthog_groups={"project": str(team_id)},
         )
 
     started = time.monotonic()
@@ -1656,7 +1671,7 @@ def _typed_config(parsed: _LlmDraft, targeting: dict[str, Any] | None) -> tuple[
     scanner_config = {
         **summary,
         "experiment_id": targeting["experiment_id"],
-        "variants": [variant] if variant else None,
+        "variants": targeting.get("variants") or ([variant] if variant else None),
         "balance_variants": True,
     }
     if error := scanner_config_error(ScannerType.EXPERIMENT, scanner_config):
@@ -1718,10 +1733,19 @@ def draft_scanner_from_goal(
     include_business_context: bool = True,
     allowed_scopes: list[str] | None = None,
     experiment_id: int | None = None,
+    experiment_variants: Sequence[str] | None = None,
     free_only: bool = False,
+    chosen_query: dict[str, Any] | None = None,
 ) -> ScannerDraft:
     """Ground the goal in the team's real pages, draft the whole scanner in one
-    model call, then solve the sampling dials from the stated monthly credit budget.
+    model call, then solve the sampling rate from the stated monthly credit budget.
+
+    `chosen_query` is a recording filter the user already chose, already cleaned by
+    `clean_scanner_query`. The draft starts from it and never widens it: see `_settle_chosen_scope`.
+    The user's experiment scope is fixed with it, so the model cannot add or change an experiment.
+
+    `experiment_variants` are the variants of `experiment_id` the user picked. This raises
+    UnknownExperimentVariantError for one the experiment does not define.
 
     `free_only` drafts a scanner that runs only on the organization's free credits. The caller then
     passes those free credits as `monthly_credit_budget`, and the draft carries no credit limit.
@@ -1751,6 +1775,12 @@ def draft_scanner_from_goal(
         )
         if pinned_experiment is None:
             raise UnwatchableExperimentError()
+        for variant in experiment_variants or ():
+            if variant not in pinned_experiment.variants:
+                raise UnknownExperimentVariantError(variant)
+    # With a chosen filter the user fixed the experiment scope too, so every variant is theirs unless
+    # they picked some. Without one, the model may still narrow the picked experiment to a variant.
+    pinned_variants = tuple(experiment_variants or ()) if chosen_query is not None or experiment_variants else None
     company = (
         " / ".join(part for part in [team.organization.name, team.project.name if team.project else ""] if part)
         if include_business_context
@@ -1826,8 +1856,10 @@ def draft_scanner_from_goal(
         surveys=matches.surveys,
         actions=matches.actions,
         cohorts=matches.cohorts,
-        experiments=[e for e in matches.experiments if e != pinned_experiment],
+        experiments=[] if chosen_query is not None else [e for e in matches.experiments if e != pinned_experiment],
         pinned_experiment=pinned_experiment,
+        pinned_variants=pinned_variants,
+        chosen_query=chosen_query,
         business_context=_business_context(team, user) if include_business_context else "",
         company=company,
     )
@@ -1846,8 +1878,9 @@ def draft_scanner_from_goal(
         allowed_surveys=matches.surveys,
         allowed_actions=matches.actions,
         allowed_cohorts=matches.cohorts,
-        allowed_experiments=matches.experiments,
+        allowed_experiments=() if chosen_query is not None else matches.experiments,
         pinned_experiment=pinned_experiment,
+        pinned_variants=pinned_variants,
     )
     # The cap is the stated budget, so a mis-estimate stops the scanner at the credits the user
     # agreed to rather than overspending. Kept even when costing fails, so the guardrail survives.
@@ -1869,8 +1902,21 @@ def draft_scanner_from_goal(
             experiment_targeting=config_experiment_scope(draft.scanner_config),
             monthly_credit_budget=monthly_credit_budget,
             credits_per_observation=observation_credits_for_model(draft.model or ScannerModel.GEMINI_3_FLASH_PREVIEW),
-            model_mode=draft.sampling_mode or SamplingMode.COMPREHENSIVE,
         )
+
+    if chosen_query is not None:
+
+        def has_match(query: dict[str, Any]) -> bool:
+            # Targeted the way the estimate is, so both ask about the same population.
+            return has_recent_matching_recording(
+                team=team,
+                user=user,
+                query=apply_experiment_targeting(
+                    RecordingsQuery.model_validate(query), config_experiment_scope(draft.scanner_config)
+                ),
+            )
+
+        return _settle_chosen_scope(draft, chosen=chosen_query, solve=solve, has_match=has_match, team_id=team.id)
 
     # Started next to the draft's own estimate, so a filter that matches nothing costs no second wait.
     fallback = _pages_only(draft.query)
@@ -1885,20 +1931,91 @@ def draft_scanner_from_goal(
             return None
 
     relaxed = _start_in_background(solve_fallback) if fallback is not None else None
-    try:
-        solution = solve(draft.query)
-    except Exception:
-        # A slow count must not throw away a good draft; the wizard falls back to its defaults.
-        logger.warning("replay_vision.scanner_draft.budget_solve_failed", team_id=team.id, exc_info=True)
-        return replace(draft, sampling_mode=None, sampling_rate=None, estimated_monthly_observations=None)
+    solution = _solve_or_none(solve, draft.query, team_id=team.id)
+    if solution is None:
+        return _costed(draft, None)
     if solution.estimated_monthly_observations == 0 and fallback is not None and relaxed is not None:
         if (relaxed_solution := relaxed()) is not None:
             draft, solution = _fall_back_to_pages(
                 team=team, draft=draft, solution=solution, fallback=fallback, relaxed=relaxed_solution
             )
+    return _costed(draft, solution)
+
+
+# The model's rationale describes the narrower filter, so a dropped proposal needs a note or it misleads.
+_NARROWING_REFUSAL_NOTES: dict[NarrowingRefusal, str] = {
+    NarrowingRefusal.OR_OPERAND: (
+        "Your filter matches recordings that meet any one of its conditions, so nothing could be added to it. "
+        "This watches the recordings you picked."
+    ),
+    NarrowingRefusal.INVALID: (
+        "The filters suggested for yours would make a filter a scanner can't save. This watches the "
+        "recordings you picked."
+    ),
+    NarrowingRefusal.MATCHED_NOTHING: (
+        "The filters suggested for yours matched no recent recordings. This watches the recordings you picked."
+    ),
+    NarrowingRefusal.UNVERIFIED: (
+        "The filters suggested for yours could not be checked against recent recordings. This watches the "
+        "recordings you picked."
+    ),
+}
+
+
+def _settle_chosen_scope(
+    draft: ScannerDraft,
+    *,
+    chosen: dict[str, Any],
+    solve: Callable[[dict[str, Any] | None], _BudgetSolution],
+    has_match: Callable[[dict[str, Any]], bool],
+    team_id: int,
+) -> ScannerDraft:
+    """The draft on the user's chosen filter, narrowed by the model's filters only where that is shown to work.
+
+    The chosen filter is the user's, so it is kept whatever it matches. The model's filters are a
+    proposal: they are kept only when the combined filter is one a scanner can save, and the
+    recordings list finds a recent recording that matches it. That check applies negative filters,
+    which the estimate skips, so it is the check, and the estimate only prices the filter that won.
+    Every other outcome keeps the chosen filter, and the rationale says why whenever a proposal was
+    dropped.
+    """
+    narrowing = narrow_chosen_query(chosen, draft.query)
+    refusal = narrowing.refusal
+    query, additions = chosen, None
+    if narrowing.additions is not None:
+        try:
+            matched: bool | None = has_match(narrowing.query)
+        except Exception:
+            logger.warning("replay_vision.scanner_draft.narrowing_check_failed", team_id=team_id, exc_info=True)
+            matched = None
+        if matched:
+            query, additions = narrowing.query, narrowing.additions
+        else:
+            refusal = NarrowingRefusal.MATCHED_NOTHING if matched is False else NarrowingRefusal.UNVERIFIED
+    draft = replace(draft, query=query, query_additions=additions, narrowing_refusal=refusal.value if refusal else None)
+    if refusal is not None:
+        draft = replace(draft, rationale=_rationale_with_note(draft.rationale, _NARROWING_REFUSAL_NOTES[refusal]))
+    return _costed(draft, _solve_or_none(solve, query, team_id=team_id))
+
+
+def _solve_or_none(
+    solve: Callable[[dict[str, Any] | None], _BudgetSolution], query: dict[str, Any] | None, *, team_id: int
+) -> _BudgetSolution | None:
+    """The budget solution for `query`, or None when counting failed."""
+    try:
+        return solve(query)
+    except Exception:
+        # A slow count must not throw away a good draft; the wizard falls back to its defaults.
+        logger.warning("replay_vision.scanner_draft.budget_solve_failed", team_id=team_id, exc_info=True)
+        return None
+
+
+def _costed(draft: ScannerDraft, solution: _BudgetSolution | None) -> ScannerDraft:
+    """The draft with its sampling rate solved, or left empty for the wizard's defaults when counting failed."""
+    if solution is None:
+        return replace(draft, sampling_rate=None, estimated_monthly_observations=None)
     return replace(
         draft,
-        sampling_mode=solution.sampling_mode,
         sampling_rate=solution.sampling_rate,
         estimated_monthly_observations=solution.estimated_monthly_observations,
     )
@@ -1967,12 +2084,16 @@ def _fallback_rationale(rationale: str, *, dropped_events: int, dropped_actions:
 
     The rationale still describes the filter the model picked, so leaving it alone would tell the
     user this scanner watches something it no longer watches.
-
-    Trims the model's own text rather than the note, so the note cannot be cut in half by the cap.
     """
     if dropped_events and dropped_actions:
         filters = "event and action filters"
     else:
         filters = "event filter" if dropped_events else "action filter"
-    note = f"The {filters} matched no recent recordings, so this scans the pages instead."
+    return _rationale_with_note(
+        rationale, f"The {filters} matched no recent recordings, so this scans the pages instead."
+    )
+
+
+def _rationale_with_note(rationale: str, note: str) -> str:
+    """Trims the model's own text rather than the note, so the note cannot be cut in half by the cap."""
     return f"{rationale[: _MAX_RATIONALE_LENGTH - len(note) - 1].strip()} {note}".strip()

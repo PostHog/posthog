@@ -1,6 +1,7 @@
 import type { Decorator, Meta, StoryObj } from '@storybook/react'
-import { fireEvent, waitFor, within } from '@testing-library/dom'
+import { fireEvent, within } from '@testing-library/dom'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
@@ -8,6 +9,49 @@ import type { Mocks } from '~/mocks/utils'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { ModelsOverviewTab } from './ModelsOverviewTab'
+
+const NODES_URL = '/api/environments/:team_id/data_modeling_nodes/'
+const CHECKS_URL = '/api/projects/:team_id/data_quality_checks/'
+const HEALTH_URL = '/api/projects/:team_id/data_quality_checks/health/'
+const SUGGESTIONS_URL = '/api/projects/:team_id/warehouse_suggestions/'
+const SUGGESTIONS_STATUS_URL = '/api/projects/:team_id/warehouse_suggestions/status/'
+
+function savedQueriesFor(rows: { id: string; name: string }[]): Record<string, unknown> {
+    const results = rows.map(({ id, name }) => ({ id: `query-${id}`, name, columns: [], is_materialized: true }))
+    return { results, count: results.length }
+}
+
+function savedQueryMocks(rows: { id: string; name: string }[]): Mocks['get'] {
+    return {
+        '/api/environments/:team_id/warehouse_saved_queries/': savedQueriesFor(rows),
+        '/api/projects/:team_id/warehouse_saved_queries/': savedQueriesFor(rows),
+    }
+}
+
+const SUSPENDED_EVERY = 4
+const FAILED_RUN_TIMES = ['2026-09-14T22:10:00Z', '2026-09-14T09:30:00Z', '2026-09-12T15:00:00Z']
+
+function attentionState(index: number): Record<string, unknown> {
+    if (index % SUSPENDED_EVERY === 0) {
+        return {
+            last_run_status: 'Failed',
+            last_run_at: '2026-09-13T04:00:00Z',
+            last_run_error: 'Memory limit exceeded while building the result.',
+            suspended: {
+                clickhouse: {
+                    at: '2026-09-13T04:00:00Z',
+                    reason: 'Memory limit exceeded while building the result.',
+                    job_id: `job-${index}`,
+                },
+            },
+        }
+    }
+    return {
+        last_run_status: 'Failed',
+        last_run_at: FAILED_RUN_TIMES[index % FAILED_RUN_TIMES.length],
+        last_run_error: "Unknown column 'plan_tier' in the query.",
+    }
+}
 
 const nodes = ['attention', 'behind'].flatMap((group) =>
     Array.from({ length: 12 }, (_, index) => ({
@@ -17,22 +61,42 @@ const nodes = ['attention', 'behind'].flatMap((group) =>
         created_at: '2026-01-01T00:00:00Z',
         updated_at: '2026-01-01T00:00:00Z',
         last_run_at: '2026-09-14T00:00:00Z',
-        last_run_status: group === 'attention' ? 'Failed' : 'Completed',
-        last_run_error: group === 'attention' ? 'Example refresh failed.' : null,
+        last_run_status: 'Completed',
+        last_run_error: null,
         sync_interval: '1hour',
         upstream_count: 0,
         downstream_count: 0,
+        saved_query_id: `query-${group}-${index + 1}`,
+        ...(group === 'attention' ? attentionState(index) : {}),
     }))
 )
-const checks = Array.from({ length: 12 }, (_, index) => ({
-    id: `check-${index + 1}`,
-    name: `Example check ${index + 1}`,
-    check_type: 'not_null',
-    subject_type: 'view',
-    subject_name: `example_view_${index + 1}`,
-    subject_node_id: `attention-${index + 1}`,
-    last_status: 'failed',
+const edges = ['behind-1', 'behind-2', 'behind-3'].map((target, index) => ({
+    id: `edge-${index}`,
+    source_id: 'attention-2',
+    target_id: target,
 }))
+const checks = [
+    ...[1, 2, 5].map((nodeIndex) => ({
+        id: `check-${nodeIndex}`,
+        name: `Example check ${nodeIndex}`,
+        check_type: 'not_null',
+        subject_type: 'view',
+        subject_name: `attention_model_${nodeIndex}`,
+        subject_node_id: `attention-${nodeIndex}`,
+        last_status: 'failed',
+        failing_since: '2026-09-13T00:00:00Z',
+    })),
+    ...['row_count_drop', 'freshness'].map((name) => ({
+        id: `check-${name}`,
+        name,
+        check_type: 'not_null',
+        subject_type: 'posthog_table',
+        subject_name: 'events',
+        subject_node_id: null,
+        last_status: 'failed',
+        failing_since: '2026-09-14T18:00:00Z',
+    })),
+]
 
 const healthyNodes = Array.from({ length: 3 }, (_, index) => ({
     id: `healthy-${index + 1}`,
@@ -46,6 +110,7 @@ const healthyNodes = Array.from({ length: 3 }, (_, index) => ({
     sync_interval: '24hour',
     upstream_count: 0,
     downstream_count: 0,
+    saved_query_id: `query-healthy-${index + 1}`,
 }))
 const passingChecks = [
     {
@@ -60,18 +125,104 @@ const passingChecks = [
 ]
 const neverRunChecks = passingChecks.map((check) => ({ ...check, last_status: '' }))
 
-function healthyMocks(checkRows: Record<string, any>[]): { mocks: Mocks } {
+function rollupFor(health: string): Record<string, unknown>[] {
+    return [
+        {
+            subject_type: 'view',
+            subject_uuid: 'query-healthy-1',
+            health,
+            checks_total: 1,
+            checks_failing: 0,
+        },
+    ]
+}
+
+const suggestionStatus = {
+    enabled: true,
+    eligible: true,
+    days_with_data: 30,
+    window_days: 30,
+    paused_reason: null,
+    refreshed_at: '2026-09-15T00:00:00Z',
+}
+
+function suggestion(id: string, name: string, kind: 'materialize' | 'unmaterialize', savedSeconds: number): object {
+    const payload =
+        kind === 'materialize'
+            ? {
+                  subject_name: name,
+                  refresh_interval_seconds: 86400,
+                  saves_seconds_per_month: savedSeconds,
+                  saves_bytes_per_month: 0,
+                  freshness_today_seconds: 3600,
+                  freshness_after_seconds: 90000,
+                  live_sources: { names: ['events'], hidden_count: 0 },
+                  unknown_sources: { names: [], hidden_count: 0 },
+                  refresh_interval_basis: 'source_sync',
+                  refresh_mode: 'full',
+              }
+            : {
+                  subject_name: name,
+                  refresh_seconds_per_month: savedSeconds * 2,
+                  refresh_bytes_per_month: 0,
+                  live_seconds_per_month: savedSeconds,
+                  live_bytes_per_month: 0,
+                  read_seconds: 3.6,
+              }
+    return {
+        id,
+        kind,
+        subject_kind: 'saved_query',
+        subject_id: `view-${id}`,
+        payload,
+        payload_version: 1,
+        evidence: { human_requests: 214, human_users: 6, human_days: 27, requests_by_surface: { sql_editor: 214 } },
+        evidence_window_start: '2026-08-15T00:00:00Z',
+        evidence_window_end: '2026-09-15T00:00:00Z',
+        last_seen_at: '2026-09-15T00:00:00Z',
+        status: 'proposed',
+        surfaced_at: '2026-09-15T00:00:00Z',
+        reviewed_by: null,
+        reviewed_at: null,
+        dismissal_reason: null,
+        dismissal_note: null,
+        created_asset: null,
+        asset_outcome: null,
+        realized_seconds_saved_per_month: null,
+        realized_bytes_saved_per_month: null,
+        can_act: true,
+        assignee: null,
+    }
+}
+
+const suggestions = [
+    suggestion('1', 'customer_monthly_revenue', 'materialize', 2400),
+    suggestion('2', 'sessions_by_plan_daily', 'materialize', 1080),
+    suggestion('3', 'legacy_signup_funnel', 'unmaterialize', 1800),
+    suggestion('4', 'product_usage_rollup', 'materialize', 600),
+]
+
+function healthyMocks(
+    checkRows: Record<string, any>[],
+    rollup: Record<string, unknown>[],
+    extra: Mocks['get'] = {}
+): { mocks: Mocks } {
     return {
         mocks: {
             get: {
-                '/api/environments/:team_id/data_modeling_nodes/': {
-                    results: healthyNodes,
-                    count: healthyNodes.length,
-                },
-                '/api/projects/:team_id/data_quality_checks/': { results: checkRows, count: checkRows.length },
+                [NODES_URL]: { results: healthyNodes, count: healthyNodes.length },
+                ...savedQueryMocks(healthyNodes),
+                [CHECKS_URL]: { results: checkRows, count: checkRows.length },
+                [HEALTH_URL]: rollup,
+                ...extra,
             },
         },
     }
+}
+
+const suggestionMocks: Mocks['get'] = {
+    [SUGGESTIONS_URL]: { results: suggestions, count: suggestions.length },
+    [SUGGESTIONS_STATUS_URL]: suggestionStatus,
 }
 
 const inMainContent =
@@ -96,18 +247,19 @@ const meta: Meta<typeof ModelsOverviewTab> = {
             context.resource_access_control = previous
         }
     },
-    decorators: [mswDecorator({})],
+    decorators: [mswDecorator({}), inMainContent('w-256')],
     parameters: {
         pageUrl: urls.models(),
         mockDate: '2026-09-15',
         msw: {
             mocks: {
                 get: {
-                    '/api/environments/:team_id/data_modeling_nodes/': { results: nodes, count: nodes.length },
-                    '/api/environments/:team_id/data_modeling_edges/': { results: [], count: 0 },
-                    '/api/environments/:team_id/warehouse_saved_queries/': { results: [], count: 0 },
-                    '/api/projects/:team_id/data_quality_checks/': { results: checks, count: checks.length },
-                    '/api/projects/:team_id/data_quality_checks/health/': [],
+                    [NODES_URL]: { results: nodes, count: nodes.length },
+                    '/api/environments/:team_id/data_modeling_edges/': { results: edges, count: edges.length },
+                    ...savedQueryMocks(nodes),
+                    [CHECKS_URL]: { results: checks, count: checks.length },
+                    [HEALTH_URL]: [],
+                    '/api/projects/:team_id/data_quality_checks/schedules/': [],
                 },
             },
         },
@@ -119,84 +271,95 @@ export default meta
 type Story = StoryObj<typeof ModelsOverviewTab>
 export const Paginated: Story = {}
 export const Narrow: Story = {
-    decorators: [
-        (Story) => (
-            <div className="w-128 max-w-full">
-                <Story />
-            </div>
-        ),
-    ],
-}
-
-export const PartialLastPage: Story = {
-    play: async ({ canvasElement }) => {
-        const canvas = within(canvasElement)
-        await canvas.findAllByText('1-10 of 12 entries')
-        await waitFor(() => {
-            if (canvas.queryAllByText('1-10 of 12 entries').length !== 3) {
-                throw new Error('All three overview tables must finish loading')
-            }
-        })
-        const tables = ['attention', 'behind', 'failing-checks'].map((section) => {
-            const table = canvasElement.querySelector<HTMLElement>(`[data-attr="models-overview-${section}"]`)!
-            return { table, height: table.offsetHeight, top: table.getBoundingClientRect().top + window.scrollY }
-        })
-        for (const { table } of tables) {
-            within(table).getByRole('button', { name: 'Previous page' })
-            const next = within(table).getByRole('button', { name: 'Next page' })
-            fireEvent.click(next)
-            await within(table).findByText('11-12 of 12 entries')
-            for (const initial of tables) {
-                if (
-                    initial.table.offsetHeight !== initial.height ||
-                    initial.table.getBoundingClientRect().top + window.scrollY !== initial.top
-                ) {
-                    throw new Error('Paging must preserve table heights and the positions of surrounding sections')
-                }
-            }
-        }
-    },
-}
-export const NarrowPartialLastPage: Story = {
-    ...Narrow,
-    play: PartialLastPage.play,
+    decorators: [inMainContent('w-128')],
 }
 
 export const Healthy: Story = {
-    decorators: [inMainContent('w-256')],
-    parameters: { msw: healthyMocks(passingChecks) },
+    parameters: { msw: healthyMocks(passingChecks, rollupFor('healthy')) },
 }
 
 export const HealthyWithoutChecks: Story = {
-    decorators: [inMainContent('w-256')],
-    parameters: { msw: healthyMocks([]) },
+    parameters: { msw: healthyMocks([], []) },
 }
 
 export const HealthyWithChecksNotRun: Story = {
-    decorators: [inMainContent('w-256')],
-    parameters: { msw: healthyMocks(neverRunChecks) },
+    parameters: { msw: healthyMocks(neverRunChecks, rollupFor('unknown')) },
 }
 
 export const HealthyWithDataQualityDisabled: Story = {
-    decorators: [inMainContent('w-256')],
-    parameters: { featureFlags: [], msw: healthyMocks(passingChecks) },
+    parameters: { featureFlags: [], msw: healthyMocks(passingChecks, rollupFor('healthy')) },
 }
 
 export const HealthyNarrow: Story = {
     decorators: [inMainContent('w-128')],
-    parameters: { msw: healthyMocks(passingChecks) },
+    parameters: { msw: healthyMocks(passingChecks, rollupFor('healthy')) },
 }
 
-export const FirstView: Story = {
-    decorators: [inMainContent('w-256')],
+export const WithSuggestions: Story = {
+    parameters: {
+        featureFlags: [FEATURE_FLAGS.WAREHOUSE_SUGGESTIONS],
+        msw: healthyMocks(passingChecks, rollupFor('healthy'), suggestionMocks),
+        testOptions: { waitForSelector: '[data-attr="warehouse-suggestions-review"]' },
+    },
+}
+
+export const WithSuggestionsNarrow: Story = {
+    ...WithSuggestions,
+    decorators: [inMainContent('w-128')],
+}
+
+export const ChecksFailedToLoad: Story = {
+    parameters: { msw: healthyMocks([], [], { [CHECKS_URL]: () => [500, { detail: 'Server error' }] }) },
+}
+
+export const ModelsFailedToLoad: Story = {
+    parameters: {
+        msw: healthyMocks(passingChecks, rollupFor('healthy'), {
+            [NODES_URL]: () => [500, { detail: 'Server error' }],
+        }),
+    },
+}
+
+export const NoModelsWithFailingCheck: Story = {
     parameters: {
         msw: {
             mocks: {
                 get: {
-                    '/api/environments/:team_id/data_modeling_nodes/': { results: [], count: 0 },
-                    '/api/projects/:team_id/data_quality_checks/': { results: [], count: 0 },
+                    [NODES_URL]: { results: [], count: 0 },
+                    ...savedQueryMocks([]),
+                    [CHECKS_URL]: {
+                        results: [{ ...checks[0], subject_type: 'posthog_table', subject_node_id: null }],
+                        count: 1,
+                    },
                 },
             },
         },
+    },
+}
+
+export const FirstView: Story = {
+    parameters: {
+        msw: {
+            mocks: {
+                get: {
+                    [NODES_URL]: { results: [], count: 0 },
+                    ...savedQueryMocks([]),
+                    [CHECKS_URL]: { results: [], count: 0 },
+                },
+            },
+        },
+    },
+}
+
+export const FirstViewNarrow: Story = {
+    ...FirstView,
+    decorators: [inMainContent('w-128')],
+}
+
+export const FilteredToBehindSchedule: Story = {
+    play: async ({ canvasElement }) => {
+        const filter = await within(canvasElement).findByRole('group', { name: 'Show problems' })
+        fireEvent.click(within(filter).getByText('Behind schedule'))
+        await within(canvasElement).findByText('1–10 of 12')
     },
 }

@@ -40,6 +40,7 @@ from .skill_services import (
     compute_spec_problems,
     normalize_skill_file_path,
     resolve_owner_users,
+    resolve_skill_metadata,
     resolve_skill_owners,
     seed_skill_owner,
     set_skill_owners,
@@ -221,7 +222,7 @@ class LLMSkillSearchQuerySerializer(serializers.Serializer):
         min_length=1,
         max_length=200,
         trim_whitespace=True,
-        help_text="Case-insensitive substring to search across ordinary skill names, descriptions, bodies, file paths, and Markdown file contents.",
+        help_text="Case-insensitive text to search for in ordinary skills. Names, descriptions, and file paths match any substring. Bodies and Markdown file contents match whole words and word prefixes.",
     )
 
 
@@ -817,6 +818,7 @@ class LLMSkillCreateSerializer(LLMSkillSerializer):
         team = self.context["get_team"]()
         files = validated_data.pop("files", None)
         owner_uuids = validated_data.pop("owners", None)
+        validated_data["metadata"] = resolve_skill_metadata(validated_data.get("metadata"), None)
 
         with transaction.atomic():
             # `category` is read-only on the serializer, so it can never arrive in validated_data —

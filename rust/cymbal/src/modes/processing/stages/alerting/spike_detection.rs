@@ -10,9 +10,9 @@ use crate::app_context::AppContext;
 use crate::error::UnhandledError;
 use crate::issue_resolution::{send_issue_spiking_notification, Issue};
 use crate::metric_consts::{
-    SPIKE_ACQUIRE_LOCKS_TIME, SPIKE_GET_SPIKING_ISSUES_TIME, SPIKE_INCREMENT_ISSUE_BUCKETS_TIME,
-    SPIKE_INCREMENT_TEAM_BUCKETS_TIME, SPIKE_ISSUES_BLOCKED_BY_COOLDOWN, SPIKE_ISSUES_CHECKED,
-    SPIKE_ISSUES_SPIKING,
+    SPIKE_ACQUIRE_LOCKS_TIME, SPIKE_FETCH_BUCKETS_ERRORS, SPIKE_GET_SPIKING_ISSUES_TIME,
+    SPIKE_INCREMENT_ISSUE_BUCKETS_TIME, SPIKE_INCREMENT_TEAM_BUCKETS_TIME,
+    SPIKE_ISSUES_BLOCKED_BY_COOLDOWN, SPIKE_ISSUES_CHECKED, SPIKE_ISSUES_SPIKING,
 };
 use crate::modes::processing::redis_heal::{heal_on_connection_error, HealGate};
 use crate::modes::processing::rules::spike::SpikeDetectionConfig;
@@ -350,14 +350,24 @@ async fn emit_spiking_events(
     }
 }
 
-fn get_bucket_timestamps() -> Vec<String> {
-    let now = Utc::now();
+fn get_bucket_timestamps(now: DateTime<Utc>) -> Vec<String> {
     (0..NUM_BUCKETS)
         .map(|i| {
             let offset = Duration::minutes(ISSUE_BUCKET_INTERVAL_MINUTES * i as i64);
             get_rounded_to_minutes(now - offset, ISSUE_BUCKET_INTERVAL_MINUTES)
         })
         .collect()
+}
+
+fn buckets_since_issue_creation(
+    issue_created_at: DateTime<Utc>,
+    current_bucket_start: DateTime<Utc>,
+) -> usize {
+    let creation_bucket_start =
+        round_datetime_to_minutes(issue_created_at, ISSUE_BUCKET_INTERVAL_MINUTES);
+    let buckets = (current_bucket_start - creation_bucket_start).num_minutes()
+        / ISSUE_BUCKET_INTERVAL_MINUTES;
+    buckets.max(0) as usize
 }
 
 fn compute_team_baseline(exception_values: &[Option<i64>], issue_counts: &[u64]) -> f64 {
@@ -381,12 +391,34 @@ fn compute_team_baseline(exception_values: &[Option<i64>], issue_counts: &[u64])
     }
 }
 
-fn compute_issue_baseline(historical_buckets: &[Option<i64>], team_baseline: f64) -> f64 {
+// Redis stores a bucket only when the issue had exceptions in it, so a missing bucket means that
+// the issue was quiet, that the issue did not exist yet, or that Redis lost the bucket. Only a
+// quiet bucket counts as zero. Otherwise an issue that was quiet and then ramps up over several
+// buckets is compared only with the earlier buckets of the same ramp, and it never exceeds the
+// multiplier. A bucket is quiet when the issue existed and the team bucket for the same interval
+// is present, because the team bucket shows that Redis recorded exceptions for that interval.
+fn compute_issue_baseline(
+    historical_buckets: &[Option<i64>],
+    historical_team_buckets: &[Option<i64>],
+    buckets_since_creation: usize,
+    team_baseline: f64,
+) -> f64 {
     let non_empty_count = historical_buckets.iter().filter(|v| v.is_some()).count();
 
     if non_empty_count >= MIN_HISTORICAL_BUCKETS_FOR_ISSUE_BASELINE {
         let sum: i64 = historical_buckets.iter().filter_map(|v| *v).sum();
-        sum as f64 / non_empty_count as f64
+        let quiet_count = historical_buckets
+            .iter()
+            .enumerate()
+            .filter(|(idx, value)| {
+                value.is_none()
+                    && *idx < buckets_since_creation
+                    && historical_team_buckets
+                        .get(*idx)
+                        .is_some_and(Option::is_some)
+            })
+            .count();
+        sum as f64 / (non_empty_count + quiet_count) as f64
     } else {
         team_baseline
     }
@@ -411,7 +443,9 @@ async fn get_spiking_issues(
 
     let issue_ids: Vec<Uuid> = issues_by_id.keys().copied().collect();
 
-    let bucket_timestamps = get_bucket_timestamps();
+    let now = Utc::now();
+    let current_bucket_start = round_datetime_to_minutes(now, ISSUE_BUCKET_INTERVAL_MINUTES);
+    let bucket_timestamps = get_bucket_timestamps(now);
     let unique_team_ids: Vec<i32> = issues_by_id
         .values()
         .map(|i| i.team_id)
@@ -420,9 +454,20 @@ async fn get_spiking_issues(
         .collect();
 
     let (issue_buckets, team_buckets) =
-        fetch_bucket_data(redis, &issue_ids, &unique_team_ids, &bucket_timestamps).await?;
+        match fetch_bucket_data(redis, &issue_ids, &unique_team_ids, &bucket_timestamps).await {
+            Ok(data) => data,
+            Err(err) => {
+                warn!("Failed to fetch spike detection buckets: {err}");
+                metrics::counter!(SPIKE_FETCH_BUCKETS_ERRORS).increment(1);
+                return Ok(vec![]);
+            }
+        };
 
     let team_baselines: HashMap<i32, f64> = compute_team_baselines(&team_buckets);
+    let team_exception_counts: HashMap<i32, &[Option<i64>]> = team_buckets
+        .iter()
+        .map(|bucket| (bucket.team_id, bucket.exception_counts.as_slice()))
+        .collect();
 
     let mut spiking = Vec::new();
     for bucket in &issue_buckets {
@@ -433,7 +478,18 @@ async fn get_spiking_issues(
         let current_value = bucket.values[0].unwrap_or(0);
         let historical = &bucket.values[1..];
         let team_baseline = *team_baselines.get(&issue.team_id).unwrap_or(&0.0);
-        let baseline = compute_issue_baseline(historical, team_baseline);
+        let buckets_since_creation =
+            buckets_since_issue_creation(issue.created_at, current_bucket_start);
+        let historical_team = team_exception_counts
+            .get(&issue.team_id)
+            .and_then(|counts| counts.get(1..))
+            .unwrap_or(&[]);
+        let baseline = compute_issue_baseline(
+            historical,
+            historical_team,
+            buckets_since_creation,
+            team_baseline,
+        );
         let config = team_configs.get(&issue.team_id).ok_or_else(|| {
             UnhandledError::Other(format!(
                 "No spike detection config for team {}",
@@ -487,7 +543,7 @@ async fn fetch_bucket_data(
         .collect();
 
     let all_keys: Vec<String> = issue_keys.into_iter().chain(team_bucket_keys).collect();
-    let all_values = redis.mget(all_keys).await?;
+    let all_values = redis.get_multiple(all_keys).await?;
     let team_issue_counts = redis.scard_multiple(team_issue_set_keys).await?;
 
     let all_values: Vec<Option<i64>> = all_values
@@ -556,6 +612,37 @@ mod tests {
     use chrono::TimeZone;
     use common_redis::MockRedisClient;
 
+    #[tokio::test]
+    async fn writes_spike_counters_sets_and_cooldowns_to_primary() {
+        let ctx = TestContext::new();
+        let key = cooldown_key(&ctx.issue_id);
+        let mut redis_mock = MockRedisClient::new();
+        redis_mock.set_nx_ex_ret(&key, Ok(true));
+        let redis = Arc::new(redis_mock);
+        let client: Arc<dyn Client + Send + Sync> = redis.clone();
+        let counts = HashMap::from([(ctx.issue_id, 2)]);
+        let gate = HealGate::new();
+        try_increment_issue_buckets(&gate, &client, &counts).await;
+        try_increment_team_buckets(&gate, &client, &ctx.issues_by_id(), &counts).await;
+        let locks = vec![(key.clone(), 3600)];
+        assert_eq!(
+            acquire_cooldown_locks(&*client, &locks).await.unwrap(),
+            vec![true]
+        );
+        client.batch_del(vec![key]).await.unwrap();
+
+        let ops: Vec<_> = redis.get_calls().into_iter().map(|call| call.op).collect();
+        assert_eq!(
+            ops.iter()
+                .filter(|op| op.as_str() == "batch_incr_by_expire_nx")
+                .count(),
+            2
+        );
+        assert!(ops.contains(&"batch_sadd_expire".to_string()));
+        assert!(ops.contains(&"batch_set_nx_ex".to_string()));
+        assert!(ops.contains(&"batch_del".to_string()));
+    }
+
     fn bytes(v: i64) -> Vec<u8> {
         v.to_string().into_bytes()
     }
@@ -587,6 +674,7 @@ mod tests {
         redis: MockRedisClient,
         issue_id: Uuid,
         team_id: i32,
+        issue_created_at: DateTime<Utc>,
     }
 
     impl TestContext {
@@ -595,6 +683,7 @@ mod tests {
                 redis: MockRedisClient::new(),
                 issue_id: Uuid::new_v4(),
                 team_id: 1,
+                issue_created_at: Utc::now(),
             }
         }
 
@@ -653,7 +742,7 @@ mod tests {
                 severity: None,
                 name: Some("Test Issue".to_string()),
                 description: Some("Test Description".to_string()),
-                created_at: Utc::now(),
+                created_at: self.issue_created_at,
             }
         }
 
@@ -691,6 +780,32 @@ mod tests {
             get_rounded_to_minutes(dt, 12),
             "2025-12-16T12:24:00Z".to_string()
         );
+    }
+
+    #[tokio::test]
+    async fn test_bucket_reads_do_not_use_cross_slot_mget() {
+        let mut ctx = TestContext::new();
+        ctx.setup_issue_buckets(&[Some(10)]);
+        ctx.setup_team_buckets(&[Some(10)], &[1]);
+
+        ctx.get_spiking().await;
+
+        let ops: Vec<String> = ctx.redis.get_calls().into_iter().map(|c| c.op).collect();
+        assert!(ops.contains(&"get_multiple".to_string()));
+        assert!(!ops.contains(&"mget".to_string()));
+    }
+
+    #[tokio::test]
+    async fn test_bucket_read_error_skips_spike_detection() {
+        let mut ctx = TestContext::new();
+        ctx.redis
+            .mget_error(common_redis::CustomRedisError::Timeout);
+        let configs = HashMap::from([(ctx.team_id, SpikeDetectionConfig::default())]);
+        let samples = HashMap::from([(ctx.issue_id, spike_sample(ctx.issue_id))]);
+
+        let result = get_spiking_issues(&ctx.redis, &ctx.issues_by_id(), &samples, &configs).await;
+
+        assert!(result.unwrap().is_empty());
     }
 
     // ISSUE BUCKETS (most recent first): 500, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10
@@ -812,6 +927,80 @@ mod tests {
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].computed_baseline, 10.0);
         assert_eq!(result[0].current_bucket_value, 600);
+    }
+
+    #[tokio::test]
+    async fn test_quiet_existing_issue_ramp_spikes() {
+        let mut ctx = TestContext::new();
+        ctx.issue_created_at = Utc::now() - Duration::days(30);
+        ctx.setup_issue_buckets(&[Some(2000), Some(330)]);
+        ctx.setup_team_buckets(&[Some(2100); NUM_BUCKETS], &[2; NUM_BUCKETS]);
+
+        let result = ctx.get_spiking().await;
+
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].computed_baseline, 30.0);
+        assert_eq!(result[0].current_bucket_value, 2000);
+    }
+
+    #[test]
+    fn test_issue_baseline_counts_quiet_buckets() {
+        let team_baseline = 7.0;
+        let no_buckets: Vec<Option<i64>> = vec![None; NUM_BUCKETS - 1];
+        let all_team_buckets = vec![Some(1000); NUM_BUCKETS - 1];
+        let mut one_active = no_buckets.clone();
+        one_active[0] = Some(330);
+        let mut two_active = one_active.clone();
+        two_active[1] = Some(270);
+        let mut recent_team_buckets = no_buckets.clone();
+        recent_team_buckets[0] = Some(1000);
+        recent_team_buckets[1] = Some(1000);
+        recent_team_buckets[2] = Some(1000);
+
+        let cases = [
+            (&one_active, &all_team_buckets, 500, 30.0),
+            (&one_active, &all_team_buckets, 11, 30.0),
+            (&one_active, &all_team_buckets, 4, 82.5),
+            (&one_active, &all_team_buckets, 1, 330.0),
+            (&one_active, &all_team_buckets, 0, 330.0),
+            (&two_active, &all_team_buckets, 1, 300.0),
+            (&one_active, &recent_team_buckets, 500, 110.0),
+            (&one_active, &no_buckets, 500, 330.0),
+            (&no_buckets, &all_team_buckets, 11, team_baseline),
+        ];
+
+        for (historical, historical_team, buckets_since_creation, expected) in cases {
+            assert_eq!(
+                compute_issue_baseline(
+                    historical,
+                    historical_team,
+                    buckets_since_creation,
+                    team_baseline
+                ),
+                expected,
+                "buckets since creation: {buckets_since_creation}, team buckets: {historical_team:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_buckets_since_issue_creation() {
+        let current_bucket_start = Utc.with_ymd_and_hms(2025, 12, 16, 12, 30, 0).unwrap();
+        let cases = [
+            (Utc.with_ymd_and_hms(2025, 12, 16, 12, 31, 0).unwrap(), 0),
+            (Utc.with_ymd_and_hms(2025, 12, 16, 12, 29, 59).unwrap(), 1),
+            (Utc.with_ymd_and_hms(2025, 12, 16, 12, 20, 0).unwrap(), 2),
+            (Utc.with_ymd_and_hms(2025, 12, 16, 11, 30, 0).unwrap(), 12),
+            (Utc.with_ymd_and_hms(2025, 12, 16, 12, 40, 0).unwrap(), 0),
+        ];
+
+        for (issue_created_at, expected) in cases {
+            assert_eq!(
+                buckets_since_issue_creation(issue_created_at, current_bucket_start),
+                expected,
+                "issue created at {issue_created_at}"
+            );
+        }
     }
 
     // ISSUE BUCKETS (most recent first): 50, 10

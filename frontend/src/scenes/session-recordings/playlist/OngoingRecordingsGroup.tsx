@@ -1,15 +1,17 @@
 import { ReactNode, useState } from 'react'
 
-import { IconChevronDown, IconChevronRight, IconLive } from '@posthog/icons'
-import { LemonBadge, LemonButton } from '@posthog/lemon-ui'
+import { IconLive } from '@posthog/icons'
+import { Badge, Collapsible, CollapsibleContent, CollapsibleTrigger } from '@posthog/quill'
 
 export function OngoingRecordingsGroup({
     count,
     holdsActive,
+    defaultOpen = false,
     children,
 }: {
     count: number
     holdsActive: boolean
+    defaultOpen?: boolean
     children: ReactNode
 }): JSX.Element | null {
     // null follows the selection. A click pins a choice until the selection next moves into the group
@@ -24,25 +26,24 @@ export function OngoingRecordingsGroup({
     if (count === 0) {
         return null
     }
-    const expanded = choice ?? holdsActive
+    const expanded = choice ?? (holdsActive || defaultOpen)
 
     return (
-        <div className="border-b">
-            <LemonButton
-                fullWidth
-                size="xsmall"
-                className="rounded-none bg-surface-secondary"
-                icon={<IconLive className="text-primary-3000" />}
-                sideIcon={expanded ? <IconChevronDown /> : <IconChevronRight />}
-                onClick={() => setChoice(!expanded)}
-                data-attr="list-ongoing-toggle"
-            >
-                <span className="flex items-center gap-1 text-[11px] uppercase tracking-wide text-secondary font-semibold">
+        <Collapsible
+            data-quill
+            open={expanded}
+            onOpenChange={(open) => setChoice(open)}
+            className="border-b border-border"
+        >
+            <CollapsibleTrigger className="w-full rounded-none bg-muted" data-attr="list-ongoing-toggle">
+                <IconLive className="text-primary-3000" />
+                <span className="flex items-center gap-1 text-[11px] uppercase tracking-wide text-muted-foreground font-semibold">
                     Still recording
-                    <LemonBadge.Number count={count} status="muted" size="small" />
+                    <Badge>{count}</Badge>
                 </span>
-            </LemonButton>
-            {expanded && children}
-        </div>
+                <span className="grow" />
+            </CollapsibleTrigger>
+            <CollapsibleContent>{children}</CollapsibleContent>
+        </Collapsible>
     )
 }

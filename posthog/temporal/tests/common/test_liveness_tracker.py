@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.conf import settings
 
-from temporalio.worker import ExecuteActivityInput, ExecuteWorkflowInput
+from temporalio.worker import ExecuteActivityInput, ExecuteWorkflowInput, StartActivityInput, WorkflowInboundInterceptor
 
 from posthog.temporal.common.interceptor import is_task_queue_supported
 from posthog.temporal.common.liveness_tracker import (
@@ -16,6 +16,7 @@ from posthog.temporal.common.liveness_tracker import (
     RunningActivity,
     _LivenessActivityInboundInterceptor,
     _LivenessWorkflowInterceptor,
+    _LivenessWorkflowOutboundInterceptor,
     get_liveness_tracker,
 )
 
@@ -33,33 +34,36 @@ class TestLivenessTracker:
     def test_record_activity_execution(self):
         """Test recording activity execution updates timestamp."""
 
-        tracker = LivenessTracker()
-        initial_time = tracker.get_last_execution_time()
+        with time_machine.travel(dt.datetime(2026, 1, 1, tzinfo=dt.UTC), tick=False) as traveller:
+            tracker = LivenessTracker()
+            initial_time = tracker.get_last_execution_time()
 
-        time.sleep(0.1)
-        tracker.record_activity_execution()
+            traveller.shift(1)
+            tracker.record_activity_execution()
 
         assert tracker.get_last_execution_time() > initial_time
 
     def test_record_workflow_execution(self):
         """Test recording workflow execution updates timestamp."""
 
-        tracker = LivenessTracker()
-        initial_time = tracker.get_last_execution_time()
+        with time_machine.travel(dt.datetime(2026, 1, 1, tzinfo=dt.UTC), tick=False) as traveller:
+            tracker = LivenessTracker()
+            initial_time = tracker.get_last_execution_time()
 
-        time.sleep(0.1)
-        tracker.record_workflow_execution()
+            traveller.shift(1)
+            tracker.record_workflow_execution()
 
         assert tracker.get_last_execution_time() > initial_time
 
     def test_record_heartbeat(self):
         """Test recording heartbeat updates timestamp."""
 
-        tracker = LivenessTracker()
-        initial_time = tracker.get_last_execution_time()
+        with time_machine.travel(dt.datetime(2026, 1, 1, tzinfo=dt.UTC), tick=False) as traveller:
+            tracker = LivenessTracker()
+            initial_time = tracker.get_last_execution_time()
 
-        time.sleep(0.1)
-        tracker.record_heartbeat()
+            traveller.shift(1)
+            tracker.record_heartbeat()
 
         assert tracker.get_last_execution_time() > initial_time
 
@@ -346,4 +350,22 @@ class TestLivenessWorkflowInterceptor:
             await interceptor.execute_workflow(mock_input)
 
         # Should still have recorded execution
+        assert tracker.get_idle_time() < 1.0
+
+    async def test_records_progress_when_a_running_workflow_schedules_an_activity(self):
+        tracker = LivenessTracker()
+        tracker._last_activity_time = time.time() - 10.0
+        tracker._last_workflow_time = time.time() - 10.0
+        handle = MagicMock()
+        next_outbound = MagicMock()
+        next_outbound.start_activity.return_value = handle
+
+        interceptor = _LivenessWorkflowInterceptor(AsyncMock())
+        interceptor._tracker = tracker
+        with patch.object(WorkflowInboundInterceptor, "init") as inbound_init:
+            interceptor.init(next_outbound)
+        outbound = inbound_init.call_args.args[0]
+
+        assert isinstance(outbound, _LivenessWorkflowOutboundInterceptor)
+        assert outbound.start_activity(MagicMock(spec=StartActivityInput)) is handle
         assert tracker.get_idle_time() < 1.0

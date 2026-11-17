@@ -6,11 +6,14 @@ from django.conf import settings
 import httpx
 
 INTERNAL_API_TIMEOUT_SECONDS = 5.0
+REPORTED_SPEND_TIMEOUT_SECONDS = 2.0
+USAGE_REPORT_TIMEOUT_SECONDS = 35.0
 IDEMPOTENCY_KEY_HEADER = "Idempotency-Key"
 INTERNAL_ACTOR_HEADER = "X-Internal-Actor"
 # Ledger provenance tag (meta.source): admin-originated vs the billing path's
 # "billing". The acting human is audited in ActivityLog, not here.
 ADMIN_ACTOR = "posthog-admin"
+TASKS_COMPUTE_ACTOR = "tasks-compute"
 
 
 class AIGatewayInternalError(Exception):
@@ -50,6 +53,13 @@ class CreditResult:
     amount_usd: str
     balance_usd: str
     duplicate: bool
+
+
+@dataclasses.dataclass(frozen=True)
+class ReportedSpendResponse:
+    status_code: int
+    body: dict[str, Any] | None
+    text: str
 
 
 def _config() -> tuple[str, str]:
@@ -140,6 +150,86 @@ def add_credit(team_id: int, amount_usd: str, reason: str, idempotency_key: str)
         balance_usd=data.get("balance_usd", ""),
         duplicate=bool(data.get("duplicate", False)),
     )
+
+
+def report_spend(wallet_team_id: int, body: dict[str, Any]) -> ReportedSpendResponse:
+    url, token = _config()
+    response = httpx.post(
+        f"{url}/internal/teams/{wallet_team_id}/reported-spend",
+        headers=_auth_headers(token, {INTERNAL_ACTOR_HEADER: TASKS_COMPUTE_ACTOR}),
+        json=body,
+        timeout=REPORTED_SPEND_TIMEOUT_SECONDS,
+        trust_env=False,
+    )
+    try:
+        parsed: Any = response.json()
+    except ValueError:
+        parsed = None
+    return ReportedSpendResponse(
+        status_code=response.status_code,
+        body=parsed if isinstance(parsed, dict) else None,
+        text=response.text,
+    )
+
+
+@dataclasses.dataclass(frozen=True)
+class UsageReportPage:
+    rows: list[dict[str, Any]]
+    truncated: bool
+    next_cursor: str | None
+
+
+def get_usage_report(params: dict[str, str]) -> UsageReportPage:
+    url, token = _config()
+    try:
+        response = httpx.get(
+            f"{url}/internal/usage/report",
+            headers=_auth_headers(token, {INTERNAL_ACTOR_HEADER: TASKS_COMPUTE_ACTOR}),
+            params=params,
+            timeout=USAGE_REPORT_TIMEOUT_SECONDS,
+            trust_env=False,
+        )
+    except httpx.HTTPError as exc:
+        raise AIGatewayInternalError(f"usage report read failed: {exc}") from exc
+    if response.status_code >= 400:
+        raise AIGatewayInternalError(f"usage report read failed: {_error_detail(response)}")
+    try:
+        data: Any = response.json()
+    except ValueError as exc:
+        raise AIGatewayInternalError(f"usage report read failed: {exc}") from exc
+    if not isinstance(data, dict):
+        raise AIGatewayInternalError("usage report response was not an object")
+    rows = data.get("rows")
+    if not isinstance(rows, list):
+        raise AIGatewayInternalError("usage report response had no rows")
+    truncated = data.get("truncated")
+    if not isinstance(truncated, bool):
+        raise AIGatewayInternalError("usage report response had no truncated flag")
+    cursor = data.get("next_cursor")
+    if cursor is not None and not isinstance(cursor, str):
+        raise AIGatewayInternalError("usage report response had an invalid cursor")
+    return UsageReportPage(
+        rows=[row for row in rows if isinstance(row, dict)],
+        truncated=truncated,
+        next_cursor=cursor,
+    )
+
+
+def get_usage_report_rows(params: dict[str, str]) -> list[dict[str, Any]]:
+    page_params = {**params, "order_by": "key"}
+    rows: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    while True:
+        page = get_usage_report(page_params)
+        rows.extend(page.rows)
+        if not page.truncated:
+            return rows
+        if not page.next_cursor:
+            raise AIGatewayInternalError("usage report is truncated but returned no cursor")
+        if page.next_cursor in seen:
+            raise AIGatewayInternalError("usage report returned a repeated cursor")
+        seen.add(page.next_cursor)
+        page_params = {**params, "order_by": "key", "cursor": page.next_cursor}
 
 
 def _error_detail(response: httpx.Response) -> str:

@@ -6,7 +6,7 @@ Feature-level guides follow the same convention: the content lives in `<dir>/AGE
 
 ## Architecture
 
-PostHog uses a layered architecture. Business logic and UI live in shared `packages/*`. Each `apps/*` host boots those packages and binds host-specific implementations. `@posthog/core` and `@posthog/ui` must run unchanged on desktop, web, and mobile.
+PostHog uses a layered architecture. Business logic and UI live in shared `packages/*`. Each `apps/*` host boots those packages and binds host-specific implementations. `@posthog/core` and `@posthog/ui` must run unchanged on desktop and web.
 
 Principle: logic is portable; hosts are thin.
 
@@ -43,7 +43,6 @@ Hosts:
 
 - `apps/code`: Electron desktop host.
 - `apps/web`: web host and portability smoke test.
-- `apps/mobile`: React Native host.
 
 ## Rules
 
@@ -195,7 +194,7 @@ packages/ui/src/features/<feature>/
 - Tokens are standalone `export const TOKEN = Symbol.for("posthog.<area>.<thing>")` consts, defined beside the interface in the owning package. Standalone consts infer `unique symbol`, which is what lets a `BindingMap` key on them; object-literal token bags do not and are forbidden.
 - Each composition root (`apps/code` main + renderer, `apps/web`, `packages/workspace-server`) owns a `BindingMap` interface mapping every token it binds to the bound type, and constructs `new TypedContainer<BindingMap>()` (from `@inversifyjs/strongly-typed`). `bind`/`get`/`isBound` are then checked against the map at compile time.
 - Services bind in feature `.module.ts` files with `ContainerModule` (typed via `TypedContainerModule<BindingMap>` where the root is typed).
-- Hosts load modules in `desktop-contributions.ts` or the equivalent web/mobile composition file.
+- Hosts load modules in `desktop-contributions.ts` or the equivalent web composition file.
 - Hosts bind platform implementations in `desktop-services.ts`, `main/index.ts`, or host equivalents.
 - Hosts call `setRootContainer(container)` before resolving services through React or host seams.
 - `CONTRIBUTION` starts subscriptions, commands, routes, menus, and feature boot.
@@ -226,23 +225,7 @@ await boot(container);
 - `pnpm --filter <pkg> typecheck|test|build`: run a scoped task.
 - `pnpm --filter code package|make`: package the Electron app.
 - `node scripts/check-host-boundaries.mjs`: verify host boundary allowlist.
-- `node scripts/check-mobile-types.mjs`: typecheck `apps/mobile` against its error baseline.
 - `pnpm --filter @posthog/api-client generate-client` (or the `@posthog/code` alias): regenerate the typed PostHog API client from the local OpenAPI schema. See [API client](#api-client).
-
-## Mobile Host Types
-
-`apps/mobile` typechecks against a baseline of pre-existing errors, not against zero.
-`pnpm typecheck` runs it like every other package; `scripts/check-mobile-types.mjs` fails only on errors absent from `scripts/mobile-type-baseline.json`.
-
-Metro strips types instead of checking them, so before this the mobile host was the one place a shared-package change could break without CI noticing — a new method on a `@posthog/platform` interface, a renamed `@posthog/core` export.
-
-After fixing baselined errors, shrink the baseline:
-
-```bash
-node scripts/check-mobile-types.mjs --prune
-```
-
-Do not use `--init` to baseline new errors.
 
 ## API client
 
@@ -265,7 +248,7 @@ To call a new endpoint or import a new schema type:
 4. Run `pnpm typecheck`. A call site whose path is not allowlisted fails with `not assignable to keyof GetEndpoints` (or the matching method); add the path and regenerate.
 5. Commit `generated.ts` together with the allowlist change.
 
-Keep desktop and backend changes in separate PRs: the desktop ships on its own auto-update schedule, so a client that calls an endpoint before it is deployed reaches users. A regen from a branch that adds a backend endpoint only carries types for it, which is safe; the call site lands after the endpoint is live. For this reason the desktop/backend coupling check ignores `generated.ts`, but not the allowlist or any call site.
+A desktop or `packages/agent/packages/` change and the Django change it calls may share a PR, because `desktop-tag.yml` and `desktop-agent-tag.yml` hold each release until prod-us and prod-eu run a Django build that contains its commit. Keep desktop and `rust/` changes in separate PRs: the releases do not wait for Rust deploys, so a client could call an endpoint before it is deployed. A regen from a branch that adds a backend endpoint only carries types for it, which is safe. For this reason the desktop/backend coupling check ignores `generated.ts`, but not the allowlist or any call site.
 
 Raw `fetch` calls through `this.api.fetcher.fetch` with a hand-built path do not need an allowlist entry, and endpoints that leave the schema surface as a generator error on the next regen: remove them from the allowlist, and typecheck shows any call site that still used them.
 

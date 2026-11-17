@@ -39,7 +39,6 @@ The append keeps one row for each key in a batch, not in the run: a key that the
 
 A source that has no primary key can name the origin of each row instead, for example the file it came from.
 It sets `SourceResponse.replace_scope` (`ReplaceScope` in `sources/common/typings.py`): a column, the values this run reads again (`replaced`), and the values that are live now (`retained`).
-A source sets a scope only while the `warehouse-replace-rows-by-file` flag is on for the schema, because an older loader ignores the scope and fails the keyless batch.
 
 - The pipeline writes the two value sets to `replace_scope.parquet` in the run's folder (`pipeline_v3/replace_scope.py`). Each queue row carries only the column and the manifest path, under `replace_scope` in its metadata.
 - Before batch 0 of a fresh attempt writes, the loader deletes each row whose value is in `replaced` or not in `retained` (`pipeline_v3/load/replace_rows.py`). It reads the values in the table from one column, and deletes in commits of up to 1,000 values. Then every batch of the run appends.
@@ -77,7 +76,7 @@ Gated by the `warehouse-multi-destination` flag, evaluated once in `create_exter
 - **Billing** multiplies the run's rows by the number of destinations it snapshotted (`billable_destination_multiplier`). Runs that predate destinations carry an empty list and bill as one.
 - **Falling behind** is bounded by queue retention, not by patience: past that the staged parquet is gone and the run must be re-extracted. Alert on `oldest_eligible_age_seconds`.
 
-Writers live in `destinations_load/writers/` and are resolved by type from a registry, so the consumer never names a destination type. Only Postgres ships today; it runs on batch exports' `PostgreSQLClient`.
+Writers live in `destinations_load/writers/` and are resolved by type from a registry, so the consumer never names a destination type. Postgres, Redshift, Snowflake, Databricks, S3, BigQuery, Azure Blob and MotherDuck ship today (`destinations_load/builtin_writers.py`). Most run on batch exports' destination clients. MotherDuck has no batch export, so its writer uses the `duckdb` connection helpers of the MotherDuck source.
 
 CDC is excluded for now: the source setup flow does not offer destinations for CDC tables.
 

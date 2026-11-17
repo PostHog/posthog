@@ -40,7 +40,8 @@ import psycopg
 import pyarrow as pa
 from psycopg import sql
 
-from posthog.models.integration import Integration, PostgreSQLIntegration
+from posthog.integrations import IntegrationManager, IntegrationNotFound, IntegrationRecord
+from posthog.models.integration import PostgreSQLIntegration
 from posthog.psycopg_helpers import has_ipv6_route, is_resolvable_hostname, is_temporary_resolution_failure
 
 from products.batch_exports.backend.facade.destinations.postgres import (
@@ -259,18 +260,16 @@ class PostgresDestinationWriter:
 
     # --- connection -------------------------------------------------------------------
 
-    def _client_from_integration(self, integration: Integration) -> PostgreSQLClient:
+    async def _client_from_integration(self, integration: IntegrationRecord) -> PostgreSQLClient:
         # `from_inputs` accepts anything exposing credentials/authority/tls, which the
         # integration wrapper does, so the batch export path and this one resolve credentials
         # identically.
         return PostgreSQLClient.from_inputs(PostgreSQLIntegration(integration), database=self._database)
 
-    async def _load_integration(self, integration_id: int) -> Integration:
+    async def _load_integration(self, integration_id: int) -> IntegrationRecord:
         try:
-            return await Integration.objects.aget(
-                id=integration_id, team_id=self._ctx.team_id, kind=self.integration_kind
-            )
-        except Integration.DoesNotExist as err:
+            return await IntegrationManager.kinds(self.integration_kind).aget(self._ctx.team_id, integration_id)
+        except IntegrationNotFound as err:
             # The same error batch exports raises, which its destinations never retry: a
             # deleted or re-kinded integration cannot be recovered by trying again.
             raise PostgreSQLIntegrationNotFoundError(
@@ -285,7 +284,7 @@ class PostgresDestinationWriter:
             integration = await self._load_integration(self._ctx.integration_id)
         except PostgreSQLIntegrationNotFoundError as err:
             raise DestinationConfigurationError(self._ctx.destination_name, MISSING_INTEGRATION_DETAIL) from err
-        return self._client_from_integration(integration)
+        return await self._client_from_integration(integration)
 
     @asynccontextmanager
     async def _client(self) -> AsyncIterator[PostgreSQLClient]:
@@ -749,9 +748,14 @@ class PostgresDestinationWriter:
         # The probe batch exports uses. `information_schema.tables` would be the obvious
         # query, but it only exists on the leader node of a Redshift cluster, and Redshift
         # inherits this method.
+        #
+        # `_ensure_table` only creates the schema once this returns, so a destination's
+        # first-ever run against a schema it hasn't created yet must read as "table missing"
+        # too, not raise: `InvalidSchemaName` is Postgres's and Redshift's error for a schema
+        # that does not exist, the same way `UndefinedTable` is for a table.
         try:
             await client.aget_table_columns(self._schema, table)
-        except psycopg.errors.UndefinedTable:
+        except (psycopg.errors.UndefinedTable, psycopg.errors.InvalidSchemaName):
             return False
         return True
 

@@ -22,6 +22,8 @@ export const CanvasesListParams = () => zod.object({
         ),
 })
 
+export const canvasesListQueryLimitMax = 1000
+
 export const CanvasesListQueryParams = () => zod.object({
     channel: zod.string().optional().describe('Only return canvases in this channel.'),
     created_by: zod.string().optional().describe('Only return canvases created by the user with this UUID.'),
@@ -29,7 +31,7 @@ export const CanvasesListQueryParams = () => zod.object({
         .enum(['component', 'freeform', 'grid'])
         .optional()
         .describe('Only return canvases of this kind. kind=component lists the component store.'),
-    limit: zod.number().optional().describe('Number of results to return per page.'),
+    limit: zod.number().max(canvasesListQueryLimitMax).optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     ordering: zod
         .enum(['-created_at', '-updated_at'])
@@ -236,6 +238,8 @@ export const CanvasesCommentsRetrieveQueryParams = () => zod.object({
  * changes for viewers. Promote the version with `promote` to make it live.
  * The response reports how the draft's declared capabilities widen the
  * current head's, so growth in access can be reviewed before it ships.
+ * Only the canvas creator can stage a draft that adds capabilities, because
+ * a draft preview runs with the draft's capabilities.
  * No version guard applies: a draft conflicts with nothing.
  */
 export const CanvasesDraftCreateParams = () => zod.object({

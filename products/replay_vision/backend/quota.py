@@ -5,6 +5,7 @@ from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass, replace
 from datetime import UTC, date, datetime, timedelta
+from typing import cast
 from uuid import UUID
 
 from django.db.models import Count, IntegerField, QuerySet, Sum, Value
@@ -35,7 +36,7 @@ logger = structlog.get_logger(__name__)
 
 # Fallback monthly credit cap for orgs billing has never synced (self-hosted, sync gaps, malformed
 # limits). Matches the free plan's allocation so an unsynced org is never better off than a synced
-# free-tier org; self-hosted deployments raise it via the env var.
+# free-tier org.
 MONTHLY_CREDIT_QUOTA = get_from_env("REPLAY_VISION_MONTHLY_CREDIT_QUOTA", FREE_TIER_MONTHLY_CREDITS, type_cast=int)
 
 
@@ -138,6 +139,9 @@ class SpendProjection:
     scanners_monthly_credits: int
     # Committed-but-unspent credits of active backfills. A one-off charge, not a rate.
     backfills_committed_credits: int
+    # The scanners' share of that rate that lands before the period ends: the one rest-of-period figure
+    # the meters, the spend chart and billing's forecast all read.
+    scanners_period_credits: int = 0
     # The monthly rate the free credits still cover after the other free-only scanners and backfills.
     # Only the editor's forecast asks for it, so it is None unless requested.
     free_only_monthly_credits_left: int | None = None
@@ -154,6 +158,7 @@ class QuotaSnapshot(QuotaState):
     projected_monthly_credits: int = 0
     scanners_monthly_credits: int = 0
     backfills_committed_credits: int = 0
+    scanners_period_credits: int = 0
 
 
 def next_month_start(now: datetime) -> datetime:
@@ -303,12 +308,11 @@ class ScannerBudget(QuotaState):
         return self.other_ceiling_settled_blocked or replace(self, credits_used=self.credits_settled).blocked
 
     @property
-    def settled_block_from_free_credits(self) -> bool:
-        """Whether the org's free credits, rather than the scanner's own limit, are the ceiling posted spend fills."""
-        if replace(self, credits_used=self.credits_settled).blocked:
-            return self.free_credits_bound
-        # The other ceiling of a free-only scanner is the own limit when this one is the free credits, and back.
-        return self.other_ceiling_settled_blocked and not self.free_credits_bound
+    def free_credits_filled_by_settled_spend(self) -> bool:
+        """Whether posted spend fills the org's free credits for this free-only scanner, whichever of its ceilings binds."""
+        if self.free_credits_bound:
+            return replace(self, credits_used=self.credits_settled).blocked
+        return self.other_ceiling_settled_blocked
 
 
 def _scanner_in_flight_credits(
@@ -379,7 +383,8 @@ def compute_scanner_budgets(
         # is then counted by both (a transient over-count that fails toward capped), never by neither.
         in_flight = _scanner_in_flight_credits(organization_id, capped_ids, period)
         settled = {
-            row["scanner_id"]: row["total_credits"] or 0
+            # The scanner_id__in filter excludes rows without a scanner.
+            cast(UUID, row["scanner_id"]): row["total_credits"] or 0
             for row in scanner_period_receipts(organization_id, period)
             .filter(scanner_id__in=capped_ids)
             .values("scanner_id")
@@ -513,7 +518,8 @@ def _sum_active_backfill_remaining_credits(organization_id: UUID) -> BackfillCom
     """
     rows = (
         ReplayScannerBackfill.objects.unscoped()
-        .filter(team__organization_id=organization_id, status__in=ACTIVE_BACKFILL_STATUSES)
+        # A disabled scanner holds its backfills, so they owe nothing until it is turned back on.
+        .filter(team__organization_id=organization_id, status__in=ACTIVE_BACKFILL_STATUSES, scanner__enabled=True)
         .values_list(
             "total_count", "dispatched_count", "skipped_count", "credits_per_observation", "scanner__free_only"
         )
@@ -554,6 +560,12 @@ def _billing_synced_limit(organization: Organization | None) -> tuple[bool, int 
     return False, None
 
 
+def _monthly_rate_to_period_credits(monthly_credits: float, period_end: datetime, now: datetime) -> int:
+    """The part of a 30-day credit rate that lands between `now` and `period_end`."""
+    days_left = max((period_end - now).total_seconds() / 86400, 0)
+    return round(max(monthly_credits, 0) * days_left / ESTIMATE_MONTH_DAYS)
+
+
 def spend_projection(
     organization_id: UUID,
     exclude_scanner_id: UUID | None = None,
@@ -592,11 +604,64 @@ def spend_projection(
         pool_rate = _remaining_as_monthly_rate(pool, datetime.now(UTC))
         # Past the period end there is no rate to share, and an unbounded rate leaves nothing to cap.
         free_left = max(0, round(pool_rate - rates.free_only)) if math.isfinite(pool_rate) else 0
+    period_end = org_state.period_end if org_state else current_period_bounds(organization_id).end
     return SpendProjection(
         scanners_monthly_credits=rates.total,
         backfills_committed_credits=backfills.paid + free_only_backfills,
+        scanners_period_credits=_monthly_rate_to_period_credits(rates.total, period_end, datetime.now(UTC)),
         free_only_monthly_credits_left=free_left,
     )
+
+
+@frozen
+class UnreportedSpend:
+    """An org's spend that a usage report has not counted yet, through to the period end."""
+
+    # Credits, not a rate, so billing needs no clock.
+    scanner_credits: int
+    backfill_credits: int
+
+
+def unreported_spend_by_org(report_cutoff: datetime) -> dict[UUID, UnreportedSpend]:
+    """Every org's spend after a usage report's cutoff, for billing's forecast.
+
+    The report counts receipts up to its cutoff, but the projection starts now. The spend in between,
+    receipts since the cutoff and in-flight reservations, goes onto the scanner figure.
+    """
+    receipts = ReplayObservationUsage.objects.filter(created_at__gte=report_cutoff)
+    # An org that switched its last scanner off after the cutoff still has that spend to report.
+    org_ids = (
+        set(ReplayScanner.objects.filter(enabled=True).values_list("team__organization_id", flat=True))
+        | set(
+            ReplayScannerBackfill.objects.unscoped()
+            .filter(status__in=ACTIVE_BACKFILL_STATUSES)
+            .values_list("team__organization_id", flat=True)
+        )
+        | set(
+            ReplayObservation.objects.filter(status__in=IN_FLIGHT_STATUSES).values_list(
+                "team__organization_id", flat=True
+            )
+        )
+        | set(receipts.values_list("organization_id", flat=True).distinct())
+    )
+    # Reservations read BEFORE receipts: an observation settling between the two is counted twice, never zero times.
+    states = {org_id: quota_state(org_id) for org_id in org_ids}
+    receipts_since_cutoff = dict(
+        receipts.filter(organization_id__in=org_ids)
+        .values("organization_id")
+        .annotate(total=Sum("credits"))
+        .values_list("organization_id", "total")
+    )
+    result: dict[UUID, UnreportedSpend] = {}
+    for org_id, state in states.items():
+        projection = spend_projection(org_id, org_state=state)
+        result[org_id] = UnreportedSpend(
+            scanner_credits=projection.scanners_period_credits
+            + (receipts_since_cutoff.get(org_id) or 0)
+            + state.credits_reserved,
+            backfill_credits=projection.backfills_committed_credits,
+        )
+    return result
 
 
 @frozen
@@ -676,6 +741,21 @@ def free_credits_ceiling(cap: OrgCreditCap) -> int:
     return min(cap.credit_limit, FREE_TIER_MONTHLY_CREDITS)
 
 
+FREE_CREDITS_USED_CODE = "scanner_free_credits_used"
+
+
+def free_credits_used_up(
+    organization_id: UUID, cap: OrgCreditCap | None = None, credits_per_observation: int = 1
+) -> bool:
+    """Whether a free-only scanner would stop before its first scan: one more observation won't fit the free credits.
+
+    Matches `ScannerBudget.blocked`, so the API never turns on a scanner the next sweep turns straight back off.
+    """
+    cap = cap or org_credit_cap(organization_id)
+    credits_used = quota_state_for_cap(organization_id, cap).credits_used
+    return credits_used + max(credits_per_observation, 1) > free_credits_ceiling(cap)
+
+
 def _free_credits_budget(organization_id: UUID, period: BillingPeriod) -> ScannerBudget:
     cap = replace(org_credit_cap(organization_id), period=period)
     return _free_credits_budget_from_state(quota_state_for_cap(organization_id, cap))
@@ -713,6 +793,7 @@ def compute_quota_snapshot(organization_id: UUID) -> QuotaSnapshot:
         projected_monthly_credits=projection.total,
         scanners_monthly_credits=projection.scanners_monthly_credits,
         backfills_committed_credits=projection.backfills_committed_credits,
+        scanners_period_credits=projection.scanners_period_credits,
     )
 
 

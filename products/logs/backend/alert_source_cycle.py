@@ -34,7 +34,14 @@ from posthog.models import Team
 from posthog.temporal.alerts.admission import hold_evaluation_slot, release_evaluation_slot
 
 from products.alerts.backend.facade.destinations import configured_destination_template_ids
-from products.alerts_platform.backend.facade.api import due_check_ids, due_checks, refresh_settings, slot_of
+from products.alerts_platform.backend.facade.api import (
+    due_check_ids,
+    due_checks,
+    has_incident_destination,
+    refresh_settings,
+    slot_of,
+)
+from products.alerts_platform.backend.facade.check_errors import classify_check_error
 from products.alerts_platform.backend.facade.contracts import (
     AlertDeliveryRequest,
     AlertEventKind,
@@ -82,6 +89,11 @@ from products.alerts_platform.backend.facade.platform_metrics import (
     record_scheduler_lag,
     safe_record,
 )
+from products.alerts_platform.backend.facade.rolling_checks import (
+    derive_breaches,
+    resolve_check_end,
+    rolling_check_lookback_minutes,
+)
 from products.alerts_platform.backend.facade.scheduling import is_utc_datetime_blocked, parse_blocked_windows_tuples
 from products.logs.backend.alert_check_query import (
     BatchedAlertCheckQuery,
@@ -89,20 +101,17 @@ from products.logs.backend.alert_check_query import (
     GroupedAlertCheckQuery,
     fetch_live_logs_checkpoint,
     is_projection_eligible,
-    resolve_alert_date_to,
 )
 from products.logs.backend.alert_destinations import EVENT_KIND_CONFIG, EventKind
-from products.logs.backend.alert_error_classifier import classify as classify_alert_error
 from products.logs.backend.alert_evaluation_key import WINDOW_MARKER
 from products.logs.backend.alert_group_columns import grouping_problem
-from products.logs.backend.alert_lookback import rolling_check_lookback_minutes
 from products.logs.backend.models import LogsAlertConfiguration
 from products.logs.backend.platform_alert_backfill import SETTINGS_FIELDS, platform_upsert_of
 from products.logs.backend.platform_source_config import filters_of, logs_alert_url
 
-# Private to the production activity. Reimplementing either would let this path drift from
-# what the logs stack evaluates. Promoting them to a shared home is the deeper fix.
-from products.logs.backend.temporal.activities import _derive_breaches, _detect_broken_filter_config
+# Private to the production activity. Reimplementing it would let this path drift from
+# what the logs stack evaluates. Promoting it to a shared home is the deeper fix.
+from products.logs.backend.temporal.activities import _detect_broken_filter_config
 from products.logs.backend.temporal.batch_slot import LogsBatchAdmission, LogsBatchSlot
 from products.logs.backend.temporal.constants import MAX_ALERT_COHORT_SIZE
 
@@ -150,8 +159,7 @@ class LogsAlertCondition:
     window_minutes: int
 
     def __post_init__(self) -> None:
-        # `_derive_breaches` reads any operator but `above` as `below`, so an unknown one would
-        # decide the alert against the wrong side of its bound instead of failing.
+        # Checked at parse so an unknown operator marks the alert broken instead of failing its query.
         if self.threshold_operator not in LogsAlertConfiguration.ThresholdOperator.values:
             raise ValueError(f"Unknown threshold operator {self.threshold_operator!r}")
         # A threshold of 0 is valid: with `above` it fires on any matching log, as the logs API documents.
@@ -208,7 +216,7 @@ def _broken_condition(check: PlatformAlertCheckInput) -> str | None:
 def _evaluation_key(check: PlatformAlertCheckInput, window_end: datetime) -> str:
     """Names the scheduled check, and the window it answered for.
 
-    The slot is in the key because `resolve_alert_date_to` clamps the window end to the ingestion
+    The slot is in the key because `resolve_check_end` clamps the window end to the ingestion
     checkpoint. Two consecutive scheduled checks reach the same window end whenever the checkpoint
     has not moved, and a key built from the window alone would make them one evaluation to any
     reader deduplicating on it.
@@ -251,7 +259,7 @@ def _cohort_key(check: PlatformAlertCheckInput, checkpoint: datetime | None, now
         shape.evaluation_periods,
         check.check_interval_minutes,
         shape.projection_eligible,
-        resolve_alert_date_to(check.next_check_at or now, checkpoint),
+        resolve_check_end(check.next_check_at or now, checkpoint),
     )
 
 
@@ -456,13 +464,13 @@ def _request(
     destination needs one resolve for every trigger. An alert with no such destination gets no
     incident action, so its edges start no delivery.
     """
-    destination_alert_id = str(check.legacy_configuration_id)
+    destination_alert_id = str(check.destination_alert_id)
     actions = {
         key: action
         for key, move in moves.items()
         if (action := decide_incident_action(move.before, move.after, policy=PLATFORM_LOGS_ALERT_POLICY)) is not None
     }
-    if actions and not _has_incident_destination(check.team_id, destination_alert_id):
+    if actions and not _has_incident_destination(check):
         actions = {}
     if not sends_messages and not actions:
         return None
@@ -478,10 +486,9 @@ def _request(
         event_ids_by_incident_action=EVENT_IDS_BY_INCIDENT_ACTION,
         incident_actions=actions,
         sends_messages=sends_messages,
-        # The logs alert page, as the HogFunction messages linked. An alert with no logs row has none.
-        source_alert_url=logs_alert_url(check.team_id, check.legacy_configuration_id)
-        if check.legacy_configuration_id is not None
-        else None,
+        # The logs alert page, as the HogFunction messages linked. The logs API serves an alert with
+        # no logs row under the configuration's own id.
+        source_alert_url=logs_alert_url(check.team_id, check.destination_alert_id),
         owned_by_platform=check.owned_by_platform,
         overflowed=recorded.overflowed,
         overflow_is_lower_bound=recorded.overflow_is_lower_bound,
@@ -493,12 +500,18 @@ def _ungrouped_move(check: PlatformAlertCheckInput, outcome: Outcome) -> dict[st
     return {"": _Move(before=AlertState(check.instance().state), after=outcome.new_state)}
 
 
-def _has_incident_destination(team_id: int, destination_alert_id: str) -> bool:
-    """Whether a destination of this alert follows the incident events. Read only on a firing edge."""
+def _has_incident_destination(check: PlatformAlertCheckInput) -> bool:
+    """Whether a destination of this alert follows the incident events, as a HogFunction or as a
+    destination the platform keeps. Read only on a firing edge. A copy's destinations are always
+    HogFunctions, so only an alert with no logs row can have the platform's."""
+    if check.legacy_configuration_id is None and has_incident_destination(
+        team_id=check.team_id, configuration_id=check.id
+    ):
+        return True
     return bool(
         configured_destination_template_ids(
-            team_id=team_id,
-            alert_id=destination_alert_id,
+            team_id=check.team_id,
+            alert_id=str(check.destination_alert_id),
             allowed_event_ids=tuple(EVENT_IDS_BY_INCIDENT_ACTION.values()),
         )
     )
@@ -522,8 +535,8 @@ def _evaluate_one(
     check: PlatformAlertCheckInput, buckets: list[BucketedCount], *, now: datetime, muted: bool
 ) -> AlertCheckOutcome:
     condition = LogsAlertCondition.of(check)
-    current_breached, *prior_windows_breached = _derive_breaches(
-        buckets, condition.threshold_count, condition.threshold_operator, check.evaluation_periods
+    current_breached, *prior_windows_breached = derive_breaches(
+        [b.count for b in buckets], condition.threshold_count, condition.threshold_operator, check.evaluation_periods
     ) or (False,)
     return _verdict(
         check,
@@ -541,7 +554,7 @@ def _failed(check: PlatformAlertCheckInput, error: Exception, *, now: datetime, 
     every check stops being evaluated instead of failing forever. A transient error is classified
     as one so the policy can hold the counter.
     """
-    classified = classify_alert_error(error)
+    classified = classify_check_error(error)
     return _verdict(
         check,
         CheckInput(
@@ -678,14 +691,17 @@ def _as_configured_now(
     A copy the platform owns is not a seed: every edit reaches it directly, from the logs API or the
     platform's, so it is evaluated as stored. It still needs its logs row on the copy's team. A row in
     a child environment has its logs there, and the query would read the project's instead.
+
+    An alert the platform created without a logs row is evaluated as stored. It is always on a
+    project, because a create refuses an environment.
     """
-    legacy_ids = [check.legacy_configuration_id for check in checks]
+    legacy_ids = [check.legacy_configuration_id for check in checks if check.legacy_configuration_id is not None]
     alerts = {alert.id: alert for alert in LogsAlertConfiguration.objects.filter(team_id=team_id, id__in=legacy_ids)}
     current: list[PlatformAlertCheckInput] = []
     stopped: list[Decision] = []
     for check in checks:
         alert = alerts.get(check.legacy_configuration_id)
-        if check.owned_by_platform and alert is not None:
+        if check.owned_by_platform and (check.legacy_configuration_id is None or alert is not None):
             current.append(check)
             continue
         if alert is None or not alert.enabled:
@@ -782,7 +798,7 @@ def _evaluate_grouped(
     count and can resolve.
     """
     condition = LogsAlertCondition.of(check)
-    date_to = resolve_alert_date_to(check.next_check_at or now, checkpoint)
+    date_to = resolve_check_end(check.next_check_at or now, checkpoint)
     lookback = rolling_check_lookback_minutes(
         condition.window_minutes, check.check_interval_minutes, check.evaluation_periods
     )
@@ -816,8 +832,11 @@ def _evaluate_grouped(
     counts = {grouping_key_of(group.labels): group for group in result.groups}
 
     def observe(key: str, buckets: list[BucketedCount], labels: dict[str, str]) -> GroupObservation:
-        current_breached, *prior_breached = _derive_breaches(
-            buckets, condition.threshold_count, condition.threshold_operator, check.evaluation_periods
+        current_breached, *prior_breached = derive_breaches(
+            [b.count for b in buckets],
+            condition.threshold_count,
+            condition.threshold_operator,
+            check.evaluation_periods,
         ) or (False,)
         return GroupObservation(
             grouping_key=key,

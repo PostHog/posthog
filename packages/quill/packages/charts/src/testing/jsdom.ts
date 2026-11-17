@@ -43,8 +43,12 @@ export function setupJsdom(): () => void {
             disconnect(): void {}
         } as unknown as typeof ResizeObserver
     }
-    const spy = jest.spyOn(Element.prototype, 'getBoundingClientRect').mockReturnValue(mockRect)
-    return () => spy.mockRestore()
+    // Not `jest.spyOn`, so the helpers also run under other test runners.
+    const original = Element.prototype.getBoundingClientRect
+    Element.prototype.getBoundingClientRect = () => mockRect
+    return () => {
+        Element.prototype.getBoundingClientRect = original
+    }
 }
 
 /** Run requestAnimationFrame callbacks synchronously for the duration of a

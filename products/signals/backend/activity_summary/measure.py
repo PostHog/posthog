@@ -295,7 +295,7 @@ def leave_one_out_pair(
             previous_summary=None,
             model=DEFAULT_MODEL,
             as_of=now.date(),
-            computed=compute_fields(variant_tasks, variant_activity, []).as_json(),
+            computed=compute_fields(variant_tasks, variant_activity, []).with_line_refs(rendered).as_json(),
         )
         records.append(
             {

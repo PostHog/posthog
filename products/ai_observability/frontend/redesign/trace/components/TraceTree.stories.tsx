@@ -3,7 +3,7 @@ import { useState } from 'react'
 
 import type { TraceNodeApi } from '../../../generated/api.schemas'
 import { claudeCodePluginSession } from '../sampleFixtures/claudeCodePluginSession'
-import { FIXTURE_TREE, withWidth } from '../storyFixtures'
+import { FIXTURE_TREE, stepFeedbackWithCounts, withWidth } from '../storyFixtures'
 import { EvalRollupOutcome } from '../types'
 import { TraceTree } from './TraceTree'
 
@@ -11,10 +11,14 @@ function Stateful({
     nodes,
     initialSelectedId = 'gen-answer',
     evalOutcomes = {},
+    feedbackCounts,
+    matchingNodeIds = null,
 }: {
     nodes: TraceNodeApi[]
     initialSelectedId?: string
     evalOutcomes?: Record<string, EvalRollupOutcome>
+    feedbackCounts?: Record<string, number>
+    matchingNodeIds?: ReadonlySet<string> | null
 }): JSX.Element {
     const [selected, setSelected] = useState<string | null>(initialSelectedId)
     return (
@@ -23,7 +27,9 @@ function Stateful({
             selectedNodeId={selected}
             onSelectNode={setSelected}
             onPrefetchNode={() => {}}
-            evalOutcomes={evalOutcomes}
+            evalOutcomes={new Map(Object.entries(evalOutcomes))}
+            stepFeedback={feedbackCounts ? stepFeedbackWithCounts(feedbackCounts) : undefined}
+            matchingNodeIds={matchingNodeIds}
         />
     )
 }
@@ -47,6 +53,9 @@ export const WithEvalMarkers: Story = {
         evalOutcomes: { 'trace-1': 'pass', 'embed-question': 'unrated', 'gen-answer': 'fail' },
     },
 }
+export const WithSearchMatches: Story = {
+    args: { nodes: FIXTURE_TREE, matchingNodeIds: new Set(['span-search', 'gen-answer']) },
+}
 export const WithError: Story = {
     args: {
         nodes: [
@@ -57,4 +66,7 @@ export const WithError: Story = {
             },
         ],
     },
+}
+export const WithFeedbackMarkers: Story = {
+    args: { nodes: FIXTURE_TREE, feedbackCounts: { 'trace-1': 3, 'gen-answer': 12, 'span-search': 1 } },
 }

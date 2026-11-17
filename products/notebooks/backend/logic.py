@@ -11,13 +11,15 @@ from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
 from django.db import transaction
-from django.db.models import F, Q
+from django.db.models import F, Prefetch, Q
 from django.utils import timezone
 
 from asgiref.sync import sync_to_async
 
 from posthog.constants import AvailableFeature
 from posthog.models import Team
+from posthog.models.tag import Tag, tagify
+from posthog.models.tagged_item import TaggedItem
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 
@@ -252,12 +254,21 @@ def list_account_internal_notes(account_id: str | UUID) -> list[ResourceNotebook
     )
 
 
+def _tags_prefetch() -> Prefetch:
+    # Same `prefetched_tags` attribute the tagged-item serializer mixin reads, so one query serves the whole page.
+    return Prefetch("tagged_items", queryset=TaggedItem.objects.select_related("tag"), to_attr="prefetched_tags")
+
+
 def _account_notebook_queryset(account_id: str | UUID) -> Any:
-    return Notebook.objects.filter(
-        deleted=False,
-        visibility=Notebook.Visibility.INTERNAL,
-        resources__account_id=account_id,
-    ).select_related("created_by", "last_modified_by")
+    return (
+        Notebook.objects.filter(
+            deleted=False,
+            visibility=Notebook.Visibility.INTERNAL,
+            resources__account_id=account_id,
+        )
+        .select_related("created_by", "last_modified_by")
+        .prefetch_related(_tags_prefetch())
+    )
 
 
 # Author sorting fans out to the user's name columns so the order matches what the UI shows.
@@ -266,24 +277,84 @@ _ACCOUNT_NOTEBOOK_ORDERING: dict[str, tuple[str, ...]] = {
     "-created_at": ("-created_at",),
     "created_by": ("created_by__first_name", "created_by__last_name"),
     "-created_by": ("-created_by__first_name", "-created_by__last_name"),
+    "last_modified_at": ("last_modified_at",),
+    "-last_modified_at": ("-last_modified_at",),
+    "title": ("title",),
+    "-title": ("-title",),
 }
 _DEFAULT_ACCOUNT_NOTEBOOK_ORDERING = ("-created_at",)
 
 
 def list_account_notebooks(
-    account_id: str | UUID, *, search: str | None = None, order: str | None = None
+    account_id: str | UUID,
+    *,
+    search: str | None = None,
+    order: str | None = None,
+    tags: Iterable[str] | None = None,
+    created_by_ids: Iterable[int] | None = None,
 ) -> list[Notebook]:
     queryset = _account_notebook_queryset(account_id)
+    if created_by_ids:
+        queryset = queryset.filter(created_by_id__in=list(created_by_ids))
     if search:
         # Mirror the main notebooks list: full-text over title and content (some notebooks
         # have no text_content until their next save, so title is matched too).
         queryset = queryset.filter(Q(title__search=search) | Q(text_content__search=search))
+    if tags:
+        queryset = queryset.filter(tagged_items__tag__name__in=[tagify(t) for t in tags]).distinct()
     ordering = _ACCOUNT_NOTEBOOK_ORDERING.get(order or "", _DEFAULT_ACCOUNT_NOTEBOOK_ORDERING)
     return list(queryset.order_by(*ordering))
 
 
 def get_account_notebook(account_id: str | UUID, short_id: str) -> Notebook | None:
     return _account_notebook_queryset(account_id).filter(short_id=short_id).first()
+
+
+def update_account_notebook(
+    account_id: str | UUID,
+    short_id: str,
+    *,
+    tags: Iterable[str] | None = None,
+) -> Notebook | None:
+    """Replace the tags of an account notebook. `None` leaves them untouched.
+
+    The title is not editable here: a note's displayed title comes from its first line, so it is
+    renamed by editing the note."""
+    if tags is None:
+        return get_account_notebook(account_id, short_id)
+    with transaction.atomic():
+        notebook = (
+            _account_notebook_queryset(account_id)
+            .select_related(None)
+            .prefetch_related(None)
+            .filter(short_id=short_id, resources__account__team_id=F("team_id"))
+            .select_for_update(of=("self",))
+            .first()
+        )
+        if notebook is None:
+            return None
+        set_notebook_tags(notebook, tags)
+        return get_account_notebook(account_id, short_id)
+
+
+def set_notebook_tags(notebook: Notebook, tags: Iterable[str]) -> None:
+    """Replace a notebook's tags. Rows are written one by one so each change lands in the activity log."""
+    deduped = sorted({tagify(t) for t in tags if tagify(t)})
+    kept: list[TaggedItem] = []
+    for name in deduped:
+        tag, _ = Tag.objects.get_or_create(name=name, team_id=notebook.team_id)
+        item, _ = notebook.tagged_items.get_or_create(tag_id=tag.id)
+        item.tag = tag
+        kept.append(item)
+    removed = list(notebook.tagged_items.exclude(tag__name__in=deduped).select_related("tag__team"))
+    for item in removed:
+        item.uuid_object = notebook
+        item.delete()
+    if removed:
+        Tag.objects.filter(
+            team_id=notebook.team_id, id__in=[item.tag_id for item in removed], tagged_items__isnull=True
+        ).delete()
+    notebook.prefetched_tags = kept  # type: ignore[attr-defined]
 
 
 def delete_account_notebook(account_id: str | UUID, short_id: str) -> bool:
@@ -301,6 +372,8 @@ def list_team_account_notes(
     account_id: UUID | str | None = None,
     created_by_ids: Iterable[int] | None = None,
     search: str | None = None,
+    tags: Iterable[str] | None = None,
+    order: str | None = None,
     offset: int = 0,
     limit: int = 100,
 ) -> tuple[list[ResourceNotebook], int]:
@@ -310,14 +383,25 @@ def list_team_account_notes(
     a lazy ``values_list`` queryset compiles to a SQL subquery). ``account_id`` narrows to a
     single account, ``created_by_ids`` to notes authored by the given users. ``search`` is
     full-text over notebook title/content plus substring over the linked account's name.
+    ``tags`` keeps notes carrying any of the tags.
     Returns ``(page, total_count)``.
     """
-    queryset = ResourceNotebook.objects.filter(
-        account__isnull=False,
-        notebook__team_id=team_id,
-        notebook__deleted=False,
-        notebook__visibility=Notebook.Visibility.INTERNAL,
-    ).select_related("notebook", "notebook__created_by", "account")
+    queryset = (
+        ResourceNotebook.objects.filter(
+            account__isnull=False,
+            notebook__team_id=team_id,
+            notebook__deleted=False,
+            notebook__visibility=Notebook.Visibility.INTERNAL,
+        )
+        .select_related("notebook", "notebook__created_by", "account")
+        .prefetch_related(
+            Prefetch(
+                "notebook__tagged_items",
+                queryset=TaggedItem.objects.select_related("tag"),
+                to_attr="prefetched_tags",
+            )
+        )
+    )
     if account_ids is not None:
         queryset = queryset.filter(account_id__in=account_ids)
     if account_id is not None:
@@ -330,5 +414,22 @@ def list_team_account_notes(
             | Q(notebook__text_content__search=search)
             | Q(account__name__icontains=search)
         )
-    queryset = queryset.order_by("-notebook__last_modified_at")
+    if tags:
+        queryset = queryset.filter(notebook__tagged_items__tag__name__in=[tagify(t) for t in tags]).distinct()
+    queryset = queryset.order_by(*_TEAM_ACCOUNT_NOTE_ORDERING.get(order or "", _DEFAULT_TEAM_ACCOUNT_NOTE_ORDERING))
     return list(queryset[offset : offset + limit]), queryset.count()
+
+
+_TEAM_ACCOUNT_NOTE_ORDERING: dict[str, tuple[str, ...]] = {
+    "last_modified_at": ("notebook__last_modified_at",),
+    "-last_modified_at": ("-notebook__last_modified_at",),
+    "created_at": ("notebook__created_at",),
+    "-created_at": ("-notebook__created_at",),
+    "title": ("notebook__title",),
+    "-title": ("-notebook__title",),
+    "created_by": ("notebook__created_by__first_name", "notebook__created_by__last_name"),
+    "-created_by": ("-notebook__created_by__first_name", "-notebook__created_by__last_name"),
+    "account_name": ("account__name", "-notebook__last_modified_at"),
+    "-account_name": ("-account__name", "-notebook__last_modified_at"),
+}
+_DEFAULT_TEAM_ACCOUNT_NOTE_ORDERING = ("-notebook__last_modified_at",)

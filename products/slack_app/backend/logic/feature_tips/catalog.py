@@ -17,7 +17,8 @@ from __future__ import annotations
 from functools import cached_property
 
 from posthog.dataclasses import frozen
-from posthog.models.integration import Integration, SlackIntegration
+from posthog.integrations import IntegrationManager
+from posthog.models.integration import SlackIntegration
 from posthog.models.user_integration import UserIntegration
 from posthog.slack.formatting import channel_id_from_target
 
@@ -40,12 +41,13 @@ from products.slack_app.backend.services.slack_settings import (
     set_untagged_followup_mode,
     set_untagged_question_mode,
 )
+from products.slack_app.backend.services.workspace_integrations import WorkspaceIntegration, workspace_integrations
 from products.subscriptions.backend.facade.api import user_has_slack_subscription
 
 
 @frozen(slots=False)
 class TipContext:
-    integration: Integration
+    integration: WorkspaceIntegration
     slack_user_id: str
     posthog_user_id: int | None
     channel: str
@@ -62,17 +64,12 @@ class TipContext:
 
     @cached_property
     def team_has_github(self) -> bool:
-        return Integration.objects.filter(team_id=self.team_id, kind="github").exists()
+        return IntegrationManager.github.oauth.exists(self.team_id)
 
     @cached_property
     def workspace_has_several_projects(self) -> bool:
         # Every PostHog project connected to this Slack workspace has its own Slack integration row.
-        return (
-            Integration.objects.filter(  # nosemgrep: idor-lookup-without-team
-                kind="slack", integration_id=self.integration.integration_id
-            ).count()
-            > 1
-        )
+        return len(workspace_integrations(self.integration.integration_id)) > 1
 
     @cached_property
     def inbox_channel_target(self) -> str | None:
@@ -90,7 +87,7 @@ class TipContext:
         return app_home_url(self.integration)
 
 
-def _is_public_channel(integration: Integration, channel_id: str) -> bool:
+def _is_public_channel(integration: WorkspaceIntegration, channel_id: str) -> bool:
     conversation_type = resolve_conversation_type(SlackIntegration(integration), {}, channel_id)
     return conversation_type == SlackThreadTaskMapping.ConversationType.PUBLIC_CHANNEL
 
@@ -131,7 +128,7 @@ class TipFeature:
     def cta(self, ctx: TipContext) -> TipCta | None:
         return None
 
-    def apply_action(self, integration: Integration, slack_user_id: str) -> str:
+    def apply_action(self, integration: WorkspaceIntegration, slack_user_id: str) -> str:
         raise NotImplementedError
 
 
@@ -159,7 +156,7 @@ class ThreadFollowupTip(TipFeature):
     def cta(self, ctx: TipContext) -> TipCta | None:
         return TipCta(label="Always pick up my replies")
 
-    def apply_action(self, integration: Integration, slack_user_id: str) -> str:
+    def apply_action(self, integration: WorkspaceIntegration, slack_user_id: str) -> str:
         set_untagged_followup_mode(integration.integration_id, slack_user_id, UntaggedFollowupMode.AUTO)
         return (
             "✅ Done. I'll pick up your replies in threads you start with me. "
@@ -324,7 +321,7 @@ class InboxChannelTip(TipFeature):
     def cta(self, ctx: TipContext) -> TipCta | None:
         return TipCta(label="Join the channel")
 
-    def apply_action(self, integration: Integration, slack_user_id: str) -> str:
+    def apply_action(self, integration: WorkspaceIntegration, slack_user_id: str) -> str:
         channel = ensure_inbox_channel(integration)
         # Checked again on click, because the channel can turn private after the tip was shown.
         if channel is None or not _is_public_channel(integration, channel[0]):
@@ -405,7 +402,7 @@ class AutoModelChoiceTip(TipFeature):
     def cta(self, ctx: TipContext) -> TipCta | None:
         return TipCta(label="Turn it on")
 
-    def apply_action(self, integration: Integration, slack_user_id: str) -> str:
+    def apply_action(self, integration: WorkspaceIntegration, slack_user_id: str) -> str:
         set_auto_model_choice(integration.integration_id, slack_user_id, True)
         return "✅ Done. I'll choose the model for each new task you start. You can change this in the PostHog app Home tab."
 
@@ -476,7 +473,7 @@ class UnpromptedAnswersTip(TipFeature):
     def cta(self, ctx: TipContext) -> TipCta | None:
         return TipCta(label="Always answer my questions")
 
-    def apply_action(self, integration: Integration, slack_user_id: str) -> str:
+    def apply_action(self, integration: WorkspaceIntegration, slack_user_id: str) -> str:
         set_untagged_question_mode(integration.integration_id, slack_user_id, UntaggedFollowupMode.AUTO)
         return (
             "✅ Done. I'll answer your questions about PostHog in channels, also when you don't tag me. "

@@ -8,10 +8,14 @@ from posthog.settings.utils import get_from_env, get_list, str_to_bool
 CREDENTIALS_SERVICE_URL = get_from_env("CREDENTIALS_SERVICE_URL", "")
 # Comma-separated `new,old`, newest first. Per deployment, not fleet-wide.
 CREDENTIALS_SERVICE_JWT_SECRET = get_from_env("CREDENTIALS_SERVICE_JWT_SECRET", "")
-
-# Bot token and channel for the staff-only UI feedback widget. Empty token disables delivery.
-INTERNAL_FEEDBACK_SLACK_BOT_TOKEN = get_from_env("INTERNAL_FEEDBACK_SLACK_BOT_TOKEN", "")
-INTERNAL_FEEDBACK_SLACK_CHANNEL = get_from_env("INTERNAL_FEEDBACK_SLACK_CHANNEL", "C09G8Q32R6F")
+# Path of a mounted file with the Ed25519 private key (PEM) that signs integrations tokens. Per deployment.
+# The key is never an environment variable value. Read once per process.
+CREDENTIALS_SERVICE_INTEGRATIONS_SIGNING_KEY_PATH = get_from_env(
+    "CREDENTIALS_SERVICE_INTEGRATIONS_SIGNING_KEY_PATH", ""
+)
+# Where the integrations SDK keeps integration rows: "django" (the `Integration` model) or "service"
+# (the credentials service, with the URL and the signing key path above). See posthog/integrations/backend/.
+INTEGRATIONS_STORAGE_BACKEND = get_from_env("INTEGRATIONS_STORAGE_BACKEND", "django")
 
 HUBSPOT_APP_CLIENT_ID = get_from_env("HUBSPOT_APP_CLIENT_ID", "")
 HUBSPOT_APP_CLIENT_SECRET = get_from_env("HUBSPOT_APP_CLIENT_SECRET", "")
@@ -27,6 +31,7 @@ INTERCOM_APP_CLIENT_SECRET = get_from_env("INTERCOM_APP_CLIENT_SECRET", "")
 # keep the app importable and the OAuth auth method dormant until the client is provisioned.
 RESEND_APP_CLIENT_ID = get_from_env("RESEND_APP_CLIENT_ID", "")
 RESEND_APP_CLIENT_SECRET = get_from_env("RESEND_APP_CLIENT_SECRET", "")
+MESSAGING_RESEND_API_URL = get_from_env("MESSAGING_RESEND_API_URL", "https://api.resend.com")
 
 # Apple Ads service provider OAuth. Apple issues no static client secret: the client secret is an
 # ES256 JWT this app signs per token request with the private key whose public half was registered
@@ -67,6 +72,8 @@ SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET = get_from_env("SOCIAL_AUTH_GOOGLE_OAUTH2_SECRE
 
 LINEAR_APP_CLIENT_ID = get_from_env("LINEAR_APP_CLIENT_ID", "")
 LINEAR_APP_CLIENT_SECRET = get_from_env("LINEAR_APP_CLIENT_SECRET", "")
+# The signing secret from the Linear App's webhook settings. Empty leaves `webhooks/linear` unconfigured.
+LINEAR_APP_WEBHOOK_SECRET = get_from_env("LINEAR_APP_WEBHOOK_SECRET", "")
 
 HELPSCOUT_APP_CLIENT_ID = get_from_env("HELPSCOUT_APP_CLIENT_ID", "")
 HELPSCOUT_APP_CLIENT_SECRET = get_from_env("HELPSCOUT_APP_CLIENT_SECRET", "")

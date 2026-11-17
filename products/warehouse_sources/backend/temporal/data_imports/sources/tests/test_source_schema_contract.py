@@ -15,7 +15,6 @@ import pytest
 
 from posthog.dataclasses import frozen
 
-import products.warehouse_sources.backend.temporal.data_imports.sources._load_all  # noqa: F401
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import _BaseSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
@@ -91,6 +90,7 @@ SCHEMA_FILTER_NOT_CHECKABLE: dict[str, str] = {
     "Trino": "network",
     "Vitally": "network",
     "Webflow": "network",
+    "ZohoCRM": "network",
 }
 
 # Sources whose extraction for an unknown schema this test cannot check. Reasons:

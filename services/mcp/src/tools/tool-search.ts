@@ -3,14 +3,15 @@ export interface SearchableTool {
     name: string
     title: string
     description: string
+    searchKeywords?: readonly string[]
 }
 
-const SEARCH_FIELD_WEIGHT = { name: 3, title: 2, description: 1 } as const
+const SEARCH_FIELD_WEIGHT = { name: 3, title: 2, keywords: 2, description: 1 } as const
 export type SearchField = keyof typeof SEARCH_FIELD_WEIGHT
 
 /** A token counts once, at its highest-weight field, so a name hit does not
  *  also score for a description mention. */
-const ORDERED_FIELDS: readonly SearchField[] = ['name', 'title', 'description']
+const ORDERED_FIELDS: readonly SearchField[] = ['name', 'title', 'keywords', 'description']
 
 export interface RankedToolMatch {
     name: string
@@ -29,11 +30,24 @@ export function isRegexPattern(pattern: string): boolean {
     return REGEX_METACHARACTER.test(pattern)
 }
 
-/** The original `exec search` predicate, kept verbatim. Throws if the pattern
- *  is not a valid regex, so callers surface their own error message. */
+/** The `exec search` predicate for regex patterns, ordered by the field that matched so a name
+ *  hit comes before a description mention, the way `searchToolsRanked` already orders words.
+ *  Ties keep catalog order. Throws if the pattern is not a valid regex, so callers surface their
+ *  own error message. */
 export function searchToolsRegex<T extends SearchableTool>(tools: readonly T[], pattern: string): T[] {
     const regex = new RegExp(pattern, 'i')
-    return tools.filter((t) => regex.test(t.name) || regex.test(t.title) || regex.test(t.description))
+    const matched: { tool: T; rank: number }[] = []
+    for (const tool of tools) {
+        const rank = ORDERED_FIELDS.findIndex((field) =>
+            field === 'keywords'
+                ? (tool.searchKeywords ?? []).some((keyword) => regex.test(keyword))
+                : regex.test(tool[field])
+        )
+        if (rank !== -1) {
+            matched.push({ tool, rank })
+        }
+    }
+    return matched.sort((a, b) => a.rank - b.rank).map((m) => m.tool)
 }
 
 /** Multi-word queries like "create dashboard insight" match nothing as a single
@@ -48,6 +62,7 @@ export function searchToolsRanked<T extends SearchableTool>(tools: readonly T[],
         const haystack: Record<SearchField, string> = {
             name: t.name.toLowerCase(),
             title: t.title.toLowerCase(),
+            keywords: (t.searchKeywords ?? []).join(' ').toLowerCase(),
             description: t.description.toLowerCase(),
         }
         let tokensMatched = 0

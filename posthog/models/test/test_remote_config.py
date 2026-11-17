@@ -13,17 +13,19 @@ from django.utils import timezone
 from parameterized import parameterized
 
 from posthog.caching.flags_redis_cache import FLAGS_DEDICATED_CACHE_ALIAS
+from posthog.integrations import IntegrationManager
+from posthog.integrations.accessors import AuthAccessor
 from posthog.models.integration import Integration
+from posthog.models.integration.auth_types import default_auth_type
 from posthog.models.project import Project
 from posthog.models.remote_config import (
     REMOTE_CONFIG_CACHE_EXPIRY_SORTED_SET,
-    TRIGGER_GROUP_OBJECT_FLAGS_ROLLOUT,
     RemoteConfig,
     RemoteConfigTokenChangeSyncError,
     UnreadableTriggerGroupsError,
 )
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.testing import create_action
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cdp.backend.templates.helpers import mock_transpile
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
@@ -230,23 +232,37 @@ class TestRemoteConfig(_RemoteConfigBase):
                 self.organization.save()
             assert not mock_rebuild.called
 
-    @parameterized.expand([("firebase", True), ("apns", True), ("slack", False)])
-    def test_only_push_integrations_schedule_a_config_rebuild(self, kind, expects_rebuild):
+    @parameterized.expand(
+        [
+            (kind, through_sdk, expects_rebuild)
+            for kind, expects_rebuild in [("firebase", True), ("apns", True), ("slack", False)]
+            for through_sdk in (False, True)
+        ]
+    )
+    def test_only_push_integrations_schedule_a_config_rebuild(self, kind, through_sdk, expects_rebuild):
         # Configuring push is the moment the payload has to change, and nothing else on the team is
         # touched when it happens. Guard both directions: without the receiver a project that
         # configures push keeps serving the old empty appIds, and without the kind check every OAuth
         # token refresh on an unrelated integration would enqueue a rebuild.
+        expected_calls = 1 if expects_rebuild else 0
         with patch("posthog.models.remote_config._update_team_remote_config") as mock_rebuild:
             with self.captureOnCommitCallbacks(execute=True):
-                integration = Integration.objects.create(team=self.team, kind=kind, config={})
-            assert mock_rebuild.called is expects_rebuild
+                if through_sdk:
+                    integration = _write_accessor(kind).create(self.team.id, external_id=None, config={})
+                else:
+                    integration = Integration.objects.create(team=self.team, kind=kind, config={})
+            assert mock_rebuild.call_count == expected_calls
 
             mock_rebuild.reset_mock()
             with self.captureOnCommitCallbacks(execute=True):
-                integration.delete()
-            assert mock_rebuild.called is expects_rebuild
+                if through_sdk:
+                    IntegrationManager.any.delete(self.team.id, integration.id, ignore_usages=True)
+                else:
+                    Integration.objects.get(id=integration.id).delete()
+            assert mock_rebuild.call_count == expected_calls
 
-    def test_push_integration_save_that_cannot_change_app_ids_skips_the_rebuild(self):
+    @parameterized.expand([("model_save", False), ("sdk_update", True)])
+    def test_push_integration_save_that_cannot_change_app_ids_skips_the_rebuild(self, _name, through_sdk):
         # Integration code saves errors and created_by on their own — apns_integration does three
         # saves per creation. Without the update_fields guard each one enqueues a rebuild and a CDN
         # purge for a payload that cannot have changed.
@@ -254,12 +270,18 @@ class TestRemoteConfig(_RemoteConfigBase):
 
         with patch("posthog.models.remote_config._update_team_remote_config") as mock_rebuild:
             with self.captureOnCommitCallbacks(execute=True):
-                integration.save(update_fields=["errors"])
+                if through_sdk:
+                    _write_accessor("apns").update(self.team.id, integration.id, errors="boom")
+                else:
+                    integration.save(update_fields=["errors"])
             assert not mock_rebuild.called
 
             with self.captureOnCommitCallbacks(execute=True):
-                integration.save(update_fields=["config"])
-            assert mock_rebuild.called
+                if through_sdk:
+                    _write_accessor("apns").update(self.team.id, integration.id, config_patch={"bundle_id": "b"})
+                else:
+                    integration.save(update_fields=["config"])
+            assert mock_rebuild.call_count == 1
 
     def test_conversations_disabled_by_default(self):
         self.sync_remote_config()
@@ -418,13 +440,7 @@ class TestRemoteConfig(_RemoteConfigBase):
         expect_reported: bool,
     ) -> None:
         self.team.session_recording_trigger_groups = stored
-        with (
-            patch("posthog.models.remote_config.capture_exception") as mock_capture_exception,
-            patch(
-                "posthoganalytics.feature_enabled",
-                side_effect=lambda key, *args, **kwargs: key == TRIGGER_GROUP_OBJECT_FLAGS_ROLLOUT,
-            ),
-        ):
+        with patch("posthog.models.remote_config.capture_exception") as mock_capture_exception:
             self.team.save()
             self.sync_remote_config()
         reported = any(
@@ -437,35 +453,6 @@ class TestRemoteConfig(_RemoteConfigBase):
         else:
             assert session_recording["version"] == 2
             assert session_recording["triggerGroups"] == expected_trigger_groups
-
-    @parameterized.expand(
-        [
-            ("rollout_region", "US", {"flag": "k", "variant": "test"}),
-            ("same_project_id_other_region", "EU", {"id": 7, "key": "k", "variant": "test"}),
-        ]
-    )
-    def test_session_recording_trigger_group_flag_rollout_targets_one_region(
-        self, _name: str, region: str, expected_flag: dict[str, Any]
-    ) -> None:
-        def rollout_for_us_project(key: str, *args: Any, group_properties: Any = None, **kwargs: Any) -> bool:
-            project = (group_properties or {}).get("project", {})
-            return (
-                key == TRIGGER_GROUP_OBJECT_FLAGS_ROLLOUT
-                and project.get("id") == str(self.team.id)
-                and project.get("region") == "US"
-            )
-
-        flag = {"id": 7, "key": "k", "variant": "test"}
-        self.team.session_recording_trigger_groups = {"version": 2, "groups": [_flag_group(flag, events=["purchase"])]}
-        with (
-            override_settings(CLOUD_DEPLOYMENT=region),
-            patch("posthoganalytics.feature_enabled", side_effect=rollout_for_us_project),
-        ):
-            self.team.save()
-            self.sync_remote_config()
-        assert self.remote_config.config["sessionRecording"]["triggerGroups"] == [
-            _flag_group(expected_flag, events=[{"name": "purchase"}])
-        ]
 
     def test_extra_settings_recorder_script(self):
         self.team.session_recording_opt_in = True
@@ -720,7 +707,7 @@ class TestRemoteConfigSurveys(_RemoteConfigBase):
             start_date=timezone.now(),
         )
 
-        action = Action.objects.create(
+        action = create_action(
             team=self.team,
             name="user subscribed",
             steps_json=[{"event": "$pageview", "url": "docs", "url_matching": "contains"}],
@@ -734,7 +721,7 @@ class TestRemoteConfigSurveys(_RemoteConfigBase):
             questions=[{"type": "open", "question": "Why's a hedgehog?"}],
             start_date=timezone.now(),
         )
-        survey_with_actions.actions.set(Action.objects.filter(name="user subscribed"))
+        survey_with_actions.actions.set([action.id])
         survey_with_actions.save()
 
         self.sync_remote_config()
@@ -1092,3 +1079,7 @@ class TestRemoteConfigRaceCondition(_RemoteConfigBase):
             f"Cache should show hasFeatureFlags=True when database has {final_flag_count} active flags. "
             f"If this fails, the race condition fix is not working properly."
         )
+
+
+def _write_accessor(kind: str) -> AuthAccessor:
+    return getattr(getattr(IntegrationManager, kind), default_auth_type(kind).value)

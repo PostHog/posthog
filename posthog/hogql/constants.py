@@ -30,6 +30,10 @@ INACTIVE_FEATURE_FLAG_VALUES: tuple[str, ...] = ("", "false")
 
 FEATURE_FLAG_PROPERTY_PREFIX = "$feature/"
 
+# posthog/models/flag_evaluations/sql.py defines the same value as FLAG_EVALUATIONS_SOURCE_EVENT. That module imports
+# django.conf, which HogQL keeps off its import path, so the value is spelled out here.
+FLAG_CALLED_EVENT = "$feature_flag_called"
+
 
 def is_virtual_feature_flag_key(key: str) -> bool:
     """Whether an events_json property is rebuilt from the `$feature_flags` map instead of read under its own name."""
@@ -199,6 +203,7 @@ class HogQLGlobalSettings(HogQLQuerySettings):
     model_config = ConfigDict(extra="forbid")
     readonly: Optional[int] = 2
     max_execution_time: Optional[int] = 60
+    timeout_before_checking_execution_speed: Optional[int] = None
     # None inherits the cluster profile's overflow behavior. Set "throw" when a partial
     # result is worse than an error (e.g. sampling queries whose output feeds further
     # computation), or "break" to accept partial results on timeout.
@@ -210,6 +215,7 @@ class HogQLGlobalSettings(HogQLQuerySettings):
     max_expanded_ast_elements: Optional[int] = 4_000_000
     max_bytes_before_external_group_by: Optional[int] = 0  # default value means we don't swap ordering by to disk
     enable_analyzer: Optional[bool] = None
+    enable_materialized_cte: Optional[bool] = None
     transform_null_in: Optional[bool] = True
     # A bugfix workaround that stops clauses that look like
     # `or(event = '1', event = '2', event = '3')` from being optimized into `event IN ('1', '2', '3')`
@@ -243,6 +249,7 @@ class HogQLGlobalSettings(HogQLQuerySettings):
     use_uncompressed_cache: Optional[bool] = None
     merge_tree_max_rows_to_use_cache: Optional[int] = None
     merge_tree_max_bytes_to_use_cache: Optional[int] = None
+    move_primary_key_columns_to_end_of_prewhere: Optional[bool] = None
 
 
 def get_default_hogql_global_settings(

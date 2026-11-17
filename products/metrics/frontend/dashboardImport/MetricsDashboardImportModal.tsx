@@ -2,8 +2,9 @@ import { useActions, useValues } from 'kea'
 
 import { LemonButton, LemonModal } from '@posthog/lemon-ui'
 
-import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
 import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
+
+import { aiConsentLogic } from '~/layout/ai/aiConsentLogic'
 
 import type { DashboardImportSourceEnumApi } from 'products/metrics/frontend/generated/api.schemas'
 

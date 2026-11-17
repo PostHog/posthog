@@ -11,6 +11,9 @@ from parameterized import parameterized
 
 from products.alerts.backend.facade.contracts import (
     INSIGHT_ALERT_EVENT_IDS,
+    INSIGHT_ALERT_INCIDENT_CLOSED_EVENT,
+    INSIGHT_ALERT_INCIDENT_OPENED_EVENT,
+    INSIGHT_EVENT_IDS_BY_INCIDENT_ACTION,
     DestinationBucket,
     DestinationEligibility,
     DestinationHoldBack,
@@ -20,10 +23,20 @@ from products.alerts.backend.facade.destinations import (
     classify_alert_destinations,
     unbound_alert_destinations,
 )
+from products.alerts.backend.logic.delivery_path import delivery_path
 from products.alerts.backend.logic.destination_bucket_report import bucketed_destinations
-from products.alerts.backend.logic.destination_eligibility import STOCK_INPUT_VALUES
-from products.alerts.backend.logic.insight_alert_destinations import build_insight_alert_slack_config
-from products.alerts_platform.backend.facade.contracts import AlertDestinationData, DestinationType
+from products.alerts.backend.logic.destination_eligibility import LOGS_STOCK_INPUT_VALUES, STOCK_INPUT_VALUES
+from products.alerts.backend.logic.insight_alert_destinations import (
+    build_insight_alert_pagerduty_configs,
+    build_insight_alert_slack_config,
+)
+from products.alerts_platform.backend.facade.contracts import (
+    AlertDestinationData,
+    DeliveryPath,
+    DestinationType,
+    SourceKind,
+)
+from products.cdp.backend.internal_events import LEGACY_INSIGHT_ALERT_EVENT
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cdp.backend.models.hog_functions.hog_function_revision import HogFunctionRevision
 
@@ -32,13 +45,17 @@ EVENT = "$logs_alert_firing"
 WEBHOOK_INPUTS: dict[str, Any] = {
     "url": {"value": "https://hooks.example.com/hook"},
     "method": {"value": "POST"},
-    "body": {"value": {"type": "logs_alert.firing"}},
+    "body": {"value": LOGS_STOCK_INPUT_VALUES["template-webhook"]["body"][0]},
     "headers": {"value": {"Content-Type": "application/json"}},
 }
 PAGERDUTY_INPUTS: dict[str, Any] = {
     "routing_key": {"value": "not-a-real-key"},
     "severity": {"value": "critical"},
     "region": {"value": "us"},
+}
+INSIGHT_PAGERDUTY_DATA: AlertDestinationData = {
+    "type": DestinationType.PAGERDUTY,
+    "pagerduty_routing_key": "a" * 32,
 }
 INSIGHT_SLACK_DATA: AlertDestinationData = {
     "type": DestinationType.SLACK,
@@ -48,7 +65,7 @@ INSIGHT_SLACK_DATA: AlertDestinationData = {
 SLACK_INPUTS: dict[str, Any] = {
     "slack_workspace": {"value": 1},
     "channel": {"value": "C-1"},
-    "text": {"value": "Log alert is firing"},
+    "text": {"value": LOGS_STOCK_INPUT_VALUES["template-slack"]["text"][0]},
 }
 
 
@@ -64,6 +81,7 @@ class TestDestinationEligibility(APIBaseTest):
         secret_keys: frozenset[str] = frozenset(),
         alert_id: str | None = ALERT_ID,
         enabled: bool = True,
+        event: str = EVENT,
         **fields: Any,
     ) -> HogFunction:
         return HogFunction.objects.create(
@@ -77,7 +95,7 @@ class TestDestinationEligibility(APIBaseTest):
             hog="return event",
             filters={
                 "source": "internal-events",
-                "events": [{"id": EVENT, "type": "events"}],
+                "events": [{"id": event, "type": "events"}],
                 "properties": [{"key": "alert_id", "value": alert_id, "operator": "exact", "type": "event"}]
                 if alert_id
                 else [],
@@ -273,6 +291,33 @@ class TestDestinationEligibility(APIBaseTest):
 
         assert self._classify() == (DestinationHoldBack.REFUSED_ADDRESS,)
 
+    @parameterized.expand(
+        [
+            ("the_firing_event", LEGACY_INSIGHT_ALERT_EVENT, None, DeliveryPath.HOG_FUNCTION),
+            ("an_incident_event", INSIGHT_ALERT_INCIDENT_CLOSED_EVENT, None, DeliveryPath.NATIVE),
+            ("the_form_built_trigger", INSIGHT_ALERT_INCIDENT_OPENED_EVENT, 0, DeliveryPath.NATIVE),
+            ("the_form_built_resolve", INSIGHT_ALERT_INCIDENT_CLOSED_EVENT, 1, DeliveryPath.NATIVE),
+        ]
+    )
+    def test_an_insight_pagerduty_function_is_native_only_on_the_incident_events(
+        self, _name: str, event: str, built_index: int | None, expected: DeliveryPath
+    ) -> None:
+        inputs = PAGERDUTY_INPUTS
+        if built_index is not None:
+            inputs = build_insight_alert_pagerduty_configs(
+                alert_id=ALERT_ID, alert_name="API errors", data=INSIGHT_PAGERDUTY_DATA
+            )[built_index].payload["inputs"]
+        self._function("template-pagerduty", inputs, event=event)
+
+        path = delivery_path(
+            source=SourceKind.INSIGHT,
+            team_id=self.team.id,
+            alert_id=ALERT_ID,
+            allowed_event_ids=[LEGACY_INSIGHT_ALERT_EVENT, *INSIGHT_EVENT_IDS_BY_INCIDENT_ACTION.values()],
+        )
+
+        assert path == expected
+
     def test_a_signed_webhook_is_held_back(self) -> None:
         self._function(
             "template-webhook",
@@ -323,11 +368,20 @@ class TestDestinationEligibility(APIBaseTest):
                 "properties": [{"key": "alert_id", "value": ALERT_ID, "operator": "is_not", "type": "event"}],
             }
         )
+        implicit_exact = self._function("template-slack", SLACK_INPUTS)
+        HogFunction.objects.filter(pk=implicit_exact.pk).update(
+            filters={**(implicit_exact.filters or {}), "properties": [{"key": "alert_id", "value": ALERT_ID}]}
+        )
+        non_string_id = self._function("template-slack", SLACK_INPUTS)
+        HogFunction.objects.filter(pk=non_string_id.pk).update(
+            filters={**(non_string_id.filters or {}), "properties": [{"key": "alert_id", "value": [ALERT_ID]}]}
+        )
 
         assert unbound_alert_destinations(team_id=self.team.id, allowed_event_ids=[EVENT]) == (
             team_wide.id,
             untyped_event.id,
             excluding_one_alert.id,
+            non_string_id.id,
         )
 
     def test_the_report_buckets_an_unbound_function_by_its_content_once_per_team(self) -> None:
@@ -424,10 +478,19 @@ class TestDestinationEligibility(APIBaseTest):
         (eligibility,) = classify_alert_destinations(team_id=self.team.id, alert_id=ALERT_ID, allowed_event_ids=[event])
         assert eligibility.hold_backs == expected
 
-    def test_a_logs_destination_is_not_compared_with_insight_defaults(self) -> None:
-        self._function("template-slack", _with(SLACK_INPUTS, "text", "Look at this"))
+    @parameterized.expand(
+        [
+            ("logs_default", LOGS_STOCK_INPUT_VALUES["template-slack"]["text"][1], ()),
+            ("own_text", "Look at this", (DestinationHoldBack.MESSAGE,)),
+            ("insight_default", STOCK_INPUT_VALUES["template-slack"]["text"][0], (DestinationHoldBack.MESSAGE,)),
+        ]
+    )
+    def test_a_logs_destination_built_without_a_revision_is_compared_with_logs_defaults(
+        self, _name: str, text: str, expected: tuple[DestinationHoldBack, ...]
+    ) -> None:
+        self._function("template-slack", _with(SLACK_INPUTS, "text", text))
 
-        assert self._classify() == ()
+        assert self._classify() == expected
 
 
 class TestBucketFor(SimpleTestCase):
@@ -460,7 +523,11 @@ class TestBucketFor(SimpleTestCase):
         self, _name: str, hold_backs: tuple[DestinationHoldBack, ...], expected: DestinationBucket
     ) -> None:
         eligibility = DestinationEligibility(
-            hog_function_id=UUID(int=1), template_id="template-webhook", hold_backs=hold_backs, code_hash=""
+            hog_function_id=UUID(int=1),
+            template_id="template-webhook",
+            hold_backs=hold_backs,
+            code_hash="",
+            event_ids=frozenset(),
         )
 
         assert bucket_for(eligibility) == expected

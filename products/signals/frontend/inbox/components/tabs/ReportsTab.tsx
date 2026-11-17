@@ -1,12 +1,10 @@
 import { useMountedLogic, useValues } from 'kea'
 import { Fragment, JSX, memo, useCallback, useEffect, useRef } from 'react'
 
-import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonDivider } from '@posthog/lemon-ui'
 
-import { KeyboardShortcut } from 'lib/components/KeyboardShortcut/KeyboardShortcut'
-import { urls } from 'scenes/urls'
-
-import { isRankingSortField } from '../../filterOptions'
+import type { PaginatedSignalReportListListApiPersonalRankingStatus } from '../../../generated/api.schemas'
+import { isMergeKeySortField, isRankingSortField } from '../../filterOptions'
 import { captureInboxViewed } from '../../inboxAnalytics'
 import { inboxSceneLogic } from '../../inboxSceneLogic'
 import { inboxTaskKickoffLogic } from '../../inboxTaskKickoffLogic'
@@ -14,7 +12,7 @@ import { inboxActivationVisibilityLogic } from '../../logics/inboxActivationVisi
 import { inboxFiltersLogic, isDefaultStateFilter } from '../../logics/inboxFiltersLogic'
 import type { InboxRankingSortField } from '../../logics/inboxFiltersLogic'
 import { inboxSetupLogic } from '../../logics/inboxSetupLogic'
-import { reportListLogic, sectionListLogicProps } from '../../logics/reportListLogic'
+import { ReportListRequestContext, reportListLogic, sectionListLogicProps } from '../../logics/reportListLogic'
 import {
     INBOX_SCOPE_ENTIRE_PROJECT,
     INBOX_SCOPE_CLAIMED_BY_YOU,
@@ -33,8 +31,10 @@ import { InboxWaitingForWork } from '../emptyState/InboxWaitingForWork'
 import { InboxMcpBanner } from '../InboxMcpBanner'
 import { InboxActivationPanel } from '../onboarding/InboxActivationPanel'
 import { InboxBulkSelectionBar } from '../shell/InboxBulkSelectionBar'
+import { InboxFiltersPanel } from '../shell/InboxFiltersPanel'
 import { InboxReportFilters } from '../shell/InboxReportFilters'
 import { InboxScopeFilter } from '../shell/InboxScopeFilter'
+import { InboxSortSelect } from '../shell/InboxSortSelect'
 import { useReportImpressions } from '../useReportImpressions'
 import { useSelectableReportList } from '../useSelectableReportList'
 
@@ -44,19 +44,26 @@ import { useSelectableReportList } from '../useSelectableReportList'
  * surfaced nothing worth acting on. The empty-state verdict is a separate question, answered over
  * the states the current user can actually see.
  */
-const COUNTED_SECTION_KEYS = ['needs-decision', 'monitoring', 'resolved', 'dismissed', 'held-back'] as const
+const COUNTED_SECTION_KEYS = ['needs-decision', 'monitoring', 'resolved', 'closed', 'dismissed', 'held-back'] as const
 
 type CountedSectionKey = (typeof COUNTED_SECTION_KEYS)[number]
 
 interface SectionListState {
     count: number | null
     countLoading: boolean
+    countSettled: boolean
     reports: SignalReport[]
     isLoaded: boolean
     reportsLoadFailed: boolean
     pageLoadFailed: boolean
     reportsResponseLoading: boolean
     hasMore: boolean
+    loadedRankingPill: boolean
+    loadedPersonalOrder: boolean
+    loadedPersonalFallback: boolean
+    loadedPersonalRankingStatus: PaginatedSignalReportListListApiPersonalRankingStatus
+    loadedContext: ReportListRequestContext | null
+    loadedRanker: string | null
 }
 
 /**
@@ -68,27 +75,41 @@ function useSectionState(sectionKey: InboxReportSectionKey): SectionListState {
     const {
         count,
         countLoading,
+        countSettled,
         reports,
         isLoaded,
         reportsLoadFailed,
         pageLoadFailed,
         reportsResponseLoading,
         hasMore,
+        loadedRankingPill,
+        loadedPersonalOrder,
+        loadedPersonalFallback,
+        loadedPersonalRankingStatus,
+        loadedContext,
+        loadedRanker,
     } = useValues(reportListLogic(sectionListLogicProps(sectionKey)))
     return {
         count,
         countLoading,
+        countSettled,
         reports,
         isLoaded,
         reportsLoadFailed,
         pageLoadFailed,
         reportsResponseLoading,
         hasMore,
+        loadedRankingPill,
+        loadedPersonalOrder,
+        loadedPersonalFallback,
+        loadedPersonalRankingStatus,
+        loadedContext,
+        loadedRanker,
     }
 }
 
 /**
- * Every state's count and loaded rows, keyed by state. All six logics are mounted regardless of
+ * Every state's count and loaded rows, keyed by state. All logics are mounted regardless of
  * who is looking or which states the filter selects, so the hooks never change shape when the
  * staff flag resolves or a checkbox toggles; callers decide which states matter to them.
  */
@@ -96,7 +117,9 @@ function useSectionStates(): Record<InboxReportSectionKey, SectionListState> {
     return {
         monitoring: useSectionState('monitoring'),
         'needs-decision': useSectionState('needs-decision'),
+        'outcome-monitoring': useSectionState('outcome-monitoring'),
         resolved: useSectionState('resolved'),
+        closed: useSectionState('closed'),
         dismissed: useSectionState('dismissed'),
         'held-back': useSectionState('held-back'),
         'not-actionable': useSectionState('not-actionable'),
@@ -108,8 +131,15 @@ function useSectionStates(): Record<InboxReportSectionKey, SectionListState> {
  * One event per visit, carrying the whole loaded list.
  */
 function useInboxViewedEvent(sections: Record<CountedSectionKey, SectionListState>): void {
-    const { hasActiveFilters, sourceProductFilter, priorityFilter, visibleStateFilter, scope } =
-        useValues(inboxFiltersLogic)
+    const {
+        hasActiveFilters,
+        activeSourceProductFilter,
+        priorityFilter,
+        visibleStateFilter,
+        scope,
+        isScopedToMe,
+        activeSortField,
+    } = useValues(inboxFiltersLogic)
     // The list stays mounted (hidden) while a report/scout detail is open, so gate the view event on
     // the list actually being the visible surface — otherwise a deep-link to a report fires a phantom
     // `Inbox viewed` and then suppresses the real one when the user navigates back to the list.
@@ -123,10 +153,9 @@ function useInboxViewedEvent(sections: Record<CountedSectionKey, SectionListStat
         !isRunsOpen &&
         !isTriageOpen
 
-    // A count is settled once its request is no longer in flight: loaded, refreshed, or failed
-    // (count stays null). Waiting on the loading flags rather than non-null values means a scope or
-    // filter refresh in progress doesn't fire the event with the previous query's counts.
-    const settled = COUNTED_SECTION_KEYS.every((key) => !sections[key].countLoading)
+    // Waiting on `countSettled` rather than the loading flags means a scope or filter change
+    // doesn't fire the event with the previous query's counts.
+    const settled = COUNTED_SECTION_KEYS.every((key) => sections[key].countSettled)
     const firedRef = useRef(false)
 
     useEffect(() => {
@@ -134,28 +163,38 @@ function useInboxViewedEvent(sections: Record<CountedSectionKey, SectionListStat
             return
         }
         firedRef.current = true
+        const totalCount = COUNTED_SECTION_KEYS.reduce((sum, key) => sum + (sections[key].count ?? 0), 0)
+        // Every first page carries the same status, sort and ranker, so the first loaded state stands for the list.
+        const served = COUNTED_SECTION_KEYS.map((key) => sections[key]).find((section) => section.isLoaded)
         captureInboxViewed({
             // pinned: analytics property. `tab` names the inbox page tab; dashboards group on it.
             tab: 'reports',
             reports: COUNTED_SECTION_KEYS.flatMap((key) => sections[key].reports),
-            totalCount: COUNTED_SECTION_KEYS.reduce((sum, key) => sum + (sections[key].count ?? 0), 0),
+            totalCount,
             pullsTabCount: sections.monitoring.count,
             reportsTabCount: sections['needs-decision'].count,
             hasActiveFilters,
-            sourceProductFilter,
+            sourceProductFilter: activeSourceProductFilter,
             priorityFilter,
             stateFilter: visibleStateFilter,
             scope,
+            personalRankingStatus: served?.loadedPersonalRankingStatus ?? null,
+            // The counts cover every counted state, so they are the For you count when nothing else narrows them.
+            forYouReportCount: isScopedToMe && !hasActiveFilters ? totalCount : null,
+            sortField: served?.loadedContext?.sortField ?? activeSortField,
+            rankerId: served?.loadedRanker ?? null,
         })
     }, [
         listVisible,
         settled,
         sections,
         hasActiveFilters,
-        sourceProductFilter,
+        activeSourceProductFilter,
         priorityFilter,
         visibleStateFilter,
         scope,
+        isScopedToMe,
+        activeSortField,
     ])
 }
 
@@ -168,12 +207,18 @@ const ReportRow = memo(function ReportRow({
     report,
     sectionKey,
     rankingSortField,
+    rankingPill,
+    personalSort,
     timestampField,
+    hideOwnClaim,
 }: {
     report: SignalReport
     sectionKey: InboxReportSectionKey
     rankingSortField: InboxRankingSortField | null
+    rankingPill: boolean
+    personalSort: boolean
     timestampField: 'created_at' | 'updated_at'
+    hideOwnClaim: boolean
 }): JSX.Element {
     return (
         <ReportContextMenu report={report} sectionKey={sectionKey}>
@@ -181,7 +226,10 @@ const ReportRow = memo(function ReportRow({
                 report={report}
                 selectable
                 rankingSortField={rankingSortField}
+                rankingPill={rankingPill}
+                personalSort={personalSort}
                 timestampField={timestampField}
+                hideOwnClaim={hideOwnClaim}
                 onRestore={() =>
                     reportListLogic(sectionListLogicProps(sectionKey)).actions.restoreReport(report.id, 'list_row')
                 }
@@ -250,6 +298,16 @@ export function ReportsTab(): JSX.Element {
         SignalReport[]
     >
     const rows = mergeReportRows(reportsBySection, selectedSections, activeSortField, activeSortDirection)
+    // Every state's request comes from one flag arm, so any loaded response can say whether to show pills.
+    const rankingPill =
+        isMergeKeySortField(activeSortField) && selectedSections.some((key) => sections[key].loadedRankingPill)
+    const personalSort = activeSortField === 'personal'
+    // The Recommended sort shows the personal order to the users of one flag arm.
+    const personalOrder =
+        personalSort ||
+        (isMergeKeySortField(activeSortField) && selectedSections.some((key) => sections[key].loadedPersonalOrder))
+    // Every state reads the same stored ranking, so one fallback response means the whole list fell back.
+    const personalFallback = personalSort && selectedSections.some((key) => sections[key].loadedPersonalFallback)
     // Under a model sort the unscored rows trail the scored ones. A divider marks where they start.
     const firstUnscoredIndex = rankingSortField
         ? rows.findIndex(({ report }) => rankingSortScore(report, rankingSortField) === null)
@@ -342,20 +400,27 @@ export function ReportsTab(): JSX.Element {
 
     return (
         <div className="mx-auto flex w-full max-w-4xl flex-col gap-4 px-6 py-3">
-            <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-                <InboxReportFilters />
-                <div className="ml-auto flex shrink-0 items-center gap-2">
-                    <LemonButton
-                        type="primary"
-                        size="small"
-                        to={urls.inboxTriage()}
-                        sideIcon={<KeyboardShortcut t />}
-                        tooltip="Go through the reports that need a pull request one at a time"
-                        data-attr="inbox-triage-mode"
-                    >
-                        Triage mode
-                    </LemonButton>
-                    <InboxScopeFilter />
+            {/* When the row runs out of room it wraps at the divider: filters on one line, sort and
+                scope on the next. The divider sits in the gap left of the sort group, so on a wrapped
+                line it falls outside the clipped edge instead of leading the line. The sort group
+                grows so scope always ends the row. */}
+            <div className="@container -mx-1 overflow-x-clip px-1">
+                <div className="flex items-center gap-2 @2xl:hidden">
+                    <InboxFiltersPanel />
+                    <InboxSortSelect />
+                    <div className="ml-auto min-w-0">
+                        <InboxScopeFilter />
+                    </div>
+                </div>
+                <div className="hidden flex-wrap items-center gap-2 @2xl:flex">
+                    <InboxReportFilters />
+                    <div className="relative flex flex-1 items-center gap-2">
+                        <LemonDivider vertical className="absolute inset-y-1 -left-[5px] m-0" />
+                        <InboxSortSelect />
+                        <div className="ml-auto shrink-0">
+                            <InboxScopeFilter />
+                        </div>
+                    </div>
                 </div>
             </div>
             <InboxBulkSelectionBar reports={rows.map(({ report }) => report)} />
@@ -368,6 +433,12 @@ export function ReportsTab(): JSX.Element {
                         notificationEmail={savedState?.first_report_notification_email}
                     />
                 </div>
+            )}
+
+            {personalFallback && !inboxIsEmpty && (
+                <LemonBanner type="info">
+                    Your personalized list isn't ready yet, so this is the Recommended order.
+                </LemonBanner>
             )}
 
             {inboxIsEmpty && !anyLoadFailed ? (
@@ -408,7 +479,10 @@ export function ReportsTab(): JSX.Element {
                                 report={report}
                                 sectionKey={sectionKey}
                                 rankingSortField={rankingSortField}
+                                rankingPill={rankingPill}
+                                personalSort={personalOrder}
                                 timestampField={timestampField}
+                                hideOwnClaim={scope === INBOX_SCOPE_CLAIMED_BY_YOU}
                             />
                         </Fragment>
                     ))}

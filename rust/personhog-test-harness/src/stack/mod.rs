@@ -4,9 +4,10 @@ use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 use anyhow::{bail, ensure, Context, Result};
+use personhog_coordination::follow::REBIND_LOG;
 use personhog_coordination::store::PersonhogStore;
 use personhog_coordination::types::{
-    ChangelogTarget, HandoffPhase, MigrationPhase, MigrationRequest,
+    ChangelogTarget, ClusterEndpoint, HandoffPhase, MigrationPhase, MigrationRequest,
 };
 
 mod etcd;
@@ -64,6 +65,7 @@ pub struct StackConfig {
     pub routers: u32,
     pub partitions: u32,
     pub kafka_hosts: String,
+    pub secondary_kafka_hosts: Option<String>,
     pub etcd_endpoints: String,
     pub persons_db_url: String,
     /// Writer flush cadence. Short by default so gate quiesce is quick.
@@ -142,6 +144,8 @@ pub struct Stack {
     topic: String,
     /// Topics a migration moved off; deleted with the live one at teardown.
     retired_topics: Vec<String>,
+    secondary_topics: HashSet<String>,
+    writer_rebinds: usize,
     /// Old generations awaiting the writer's drain and the retire op, with the saga's end.
     pending_retire: Vec<(String, Instant)>,
     pub router_url: String,
@@ -483,6 +487,8 @@ impl Stack {
             store,
             topic,
             retired_topics: Vec::new(),
+            secondary_topics: HashSet::new(),
+            writer_rebinds: 0,
             pending_retire: Vec::new(),
             router_url,
             identity_url,
@@ -1011,13 +1017,33 @@ impl Stack {
     /// Fail if any spawned service has exited (retired and paused
     /// processes excluded — their state is chaos-induced).
     pub fn check_alive(&mut self) -> Result<()> {
+        let mut writer_rebinds = self.writer_rebinds;
         let procs = self
             .infra
             .iter_mut()
             .chain(self.routers.iter_mut().map(|(_, proc)| proc))
             .chain(self.leaders.iter_mut().map(|(_, proc)| proc));
         for proc in procs {
-            if let Some(status) = proc.exited() {
+            if let Some(exit) = proc.exited() {
+                let clean = exit.as_ref().is_ok_and(|status| status.success());
+                let status = match exit {
+                    Ok(status) => status.to_string(),
+                    Err(e) => format!("unknown ({e})"),
+                };
+                let logged = if proc.name() == "writer" {
+                    std::fs::read_to_string(proc.log_path())
+                        .unwrap_or_default()
+                        .matches(REBIND_LOG)
+                        .count()
+                } else {
+                    0
+                };
+                if logged > writer_rebinds && clean {
+                    writer_rebinds = logged;
+                    proc.restart_exited()?;
+                    println!("Migration: the writer exited ({status}) to follow the changelog onto another cluster; restarted it");
+                    continue;
+                }
                 let tail = proc.log_tail(30);
                 bail!(
                     "service {} exited ({status}); last log lines:\n{tail}",
@@ -1025,7 +1051,16 @@ impl Stack {
                 );
             }
         }
+        self.writer_rebinds = writer_rebinds;
         Ok(())
+    }
+
+    pub fn writer_rebinds(&self) -> usize {
+        self.writer_rebinds
+    }
+
+    fn hosts_of(&self, topic: &str) -> String {
+        topic_hosts(&self.config, &self.secondary_topics, topic).to_string()
     }
 
     fn dump_recent_logs(&self) {
@@ -1069,7 +1104,8 @@ impl Stack {
         }
         let mut first_error = None;
         for topic in topics {
-            if let Err(e) = kafka::delete_topic(&self.config.kafka_hosts, topic).await {
+            let hosts = topic_hosts(&self.config, &self.secondary_topics, topic);
+            if let Err(e) = kafka::delete_topic(hosts, topic).await {
                 first_error.get_or_insert(e);
             }
         }
@@ -1086,18 +1122,48 @@ impl Stack {
         if !self.pending_retire.is_empty() {
             self.retire_drained().await?;
         }
-        let from = self
+        let (mut from, revision) = self
             .store
-            .get_changelog_config()
+            .get_changelog_config_with_mod_revision()
             .await?
             .context("config/changelog must be seeded")?;
+        if chaos.to_secondary && from.cluster.is_none() {
+            let primary = ClusterEndpoint {
+                name: PRIMARY_CLUSTER.to_string(),
+                hosts: self.config.kafka_hosts.clone(),
+                tls: false,
+            };
+            ensure!(
+                self.store
+                    .set_changelog_cluster(&from, revision, &primary)
+                    .await?,
+                "recording the live changelog's cluster lost a race"
+            );
+            from.cluster = Some(primary);
+        }
         let generation = self.retired_topics.len() + 2;
         let to_topic = format!("{}_g{generation}", self.topic);
-        kafka::create_topic(&self.config.kafka_hosts, &to_topic, chaos.to_partitions).await?;
+        let to_cluster = if chaos.to_secondary {
+            let hosts = self
+                .config
+                .secondary_kafka_hosts
+                .clone()
+                .context("a migration onto the secondary cluster needs its hosts")?;
+            self.secondary_topics.insert(to_topic.clone());
+            Some(ClusterEndpoint {
+                name: SECONDARY_CLUSTER.to_string(),
+                hosts,
+                tls: false,
+            })
+        } else {
+            None
+        };
+        kafka::create_topic(&self.hosts_of(&to_topic), &to_topic, chaos.to_partitions).await?;
         let migration = MigrationRequest {
             id: format!("harness-g{generation}"),
             from: from.target(),
             to: ChangelogTarget {
+                cluster: to_cluster,
                 topic: to_topic.clone(),
                 partitions: chaos.to_partitions,
             },
@@ -1304,7 +1370,7 @@ impl Stack {
             archived.blocking.join("; ")
         );
         if expected == MigrationPhase::Cancelled {
-            kafka::delete_topic(&self.config.kafka_hosts, &to_topic).await?;
+            kafka::delete_topic(&self.hosts_of(&to_topic), &to_topic).await?;
             return Ok(saga);
         }
         self.config.partitions = chaos.to_partitions;
@@ -1329,6 +1395,7 @@ impl Stack {
                 if !draining {
                     break;
                 }
+                self.check_alive()?;
                 ensure!(
                     waited_from.elapsed() < RETIREMENT_DEADLINE,
                     "the coordinator did not retire {old_topic} within {RETIREMENT_DEADLINE:?}"
@@ -1345,7 +1412,7 @@ impl Stack {
         let moved_at = Instant::now();
         loop {
             if kafka::group_has_committed_offsets(
-                &self.config.kafka_hosts,
+                &self.hosts_of(&self.topic),
                 WRITER_CONSUMER_GROUP,
                 &self.topic,
             )
@@ -1353,6 +1420,7 @@ impl Stack {
             {
                 break;
             }
+            self.check_alive()?;
             ensure!(
                 moved_at.elapsed() < WRITER_MOVE_DEADLINE,
                 "the writer did not commit on {} within {WRITER_MOVE_DEADLINE:?}",
@@ -1391,6 +1459,21 @@ pub struct MigrationChaos {
     pub stall: Option<StallAt>,
     /// Pause the writer for this long as the migration starts.
     pub pause_writer: Option<Duration>,
+    pub to_secondary: bool,
+}
+
+pub const PRIMARY_CLUSTER: &str = "harness-primary";
+pub const SECONDARY_CLUSTER: &str = "harness-secondary";
+
+fn topic_hosts<'a>(
+    config: &'a StackConfig,
+    secondary_topics: &HashSet<String>,
+    topic: &str,
+) -> &'a str {
+    match &config.secondary_kafka_hosts {
+        Some(secondary) if secondary_topics.contains(topic) => secondary,
+        _ => &config.kafka_hosts,
+    }
 }
 
 fn now_millis() -> i64 {

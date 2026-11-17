@@ -1,4 +1,3 @@
-import struct
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any, Literal, Optional, Union, cast
 
@@ -34,6 +33,10 @@ from posthog.session_recordings.queries.sub_queries.events_subquery import (
     ReplayFiltersEventsSubQuery,
     SessionIdMatchPlan,
 )
+from posthog.session_recordings.queries.sub_queries.group_key_resolver import (
+    GROUP_KEY_RESOLUTION_MAX_SECONDS,
+    GroupKeyLookupBudget,
+)
 from posthog.session_recordings.queries.sub_queries.person_ids_subquery import PersonsIdCompareOperation
 from posthog.session_recordings.queries.sub_queries.person_props_subquery import PersonsPropertiesSubQuery
 from posthog.session_recordings.queries.utils import (
@@ -54,13 +57,6 @@ if TYPE_CHECKING:
 
 logger = structlog.get_logger(__name__)
 tracer = trace.get_tracer(__name__)
-
-
-# Neutral mid-pack score for sessions the surfacing scorer has not reached; shared with the
-# replay-vision sweep so list eligibility and sweep eligibility agree on unscored sessions.
-UNSCORED_SURFACING_SCORE = 0.36
-# Match the Float32 storage precision so a score equal to the cutoff stays excluded after promotion.
-RECOMMENDED_SURFACING_SCORE_THRESHOLD = struct.unpack("!f", struct.pack("!f", 0.36))[0]
 
 
 class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
@@ -99,8 +95,7 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
             /
             ((sum(s.mouse_activity_count) + dateDiff('SECOND', start_time, end_time) + sum(s.console_error_count) + sum(s.console_log_count) + sum(s.console_warn_count)))
             * 100
-            ), 0), 100), 2) as activity_score,
-            coalesce(max(s.surfacing_score), {unscored_surfacing_score}) as surfacing_score
+            ), 0), 100), 2) as activity_score
         FROM raw_session_replay_events s
         WHERE {where_predicates}
         GROUP BY session_id
@@ -131,7 +126,6 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
             "recording_ttl",
             "ongoing",
             "activity_score",
-            "surfacing_score",
         ]
 
     @staticmethod
@@ -170,9 +164,13 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
         # variant (as `any(exposure.variant)`): the experiment-exposure join then projects it.
         # The population is unchanged, so plain listings never need this.
         project_exposure_variant: bool = False,
+        # For callers that read a short page as "no more matches", so a timeout must raise, not truncate.
+        throw_on_timeout: bool = False,
+        group_key_resolution_seconds: int = GROUP_KEY_RESOLUTION_MAX_SECONDS,
         **_,
     ):
         self._user = user
+        self._throw_on_timeout = throw_on_timeout
         self._project_exposure_variant = project_exposure_variant
         # Storage-level SAMPLE on any events subqueries; opt-in for estimates.
         self._events_sample_factor = events_sample_factor
@@ -180,6 +178,8 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
         # session window and do not need each run to re-scan the whole range.
         self._events_timestamp_floor = events_timestamp_floor
         self._resolve_group_properties = resolve_group_properties
+        # One budget for every builder this listing makes, so its group filters share one lookup allowance.
+        self._group_key_budget = GroupKeyLookupBudget(group_key_resolution_seconds)
         self.events_subqueries_sampled = False
         self._allow_combined_event_filters = allow_combined_event_filters
         self._event_match_plan: SessionIdMatchPlan | None = None
@@ -280,10 +280,9 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
             # every cause.
             settings_args["max_memory_usage"] = linkage.live_scan_max_memory_bytes
         in_session_narrowed = linkage is not None and linkage.in_session
-        if in_session_narrowed:
-            # Under a "break" timeout profile a timed-out evidence subquery would return a partial
-            # session set, silently listing fewer in-session recordings. A partial result is worse
-            # than an error here, so the execution-time kill must throw.
+        if in_session_narrowed or self._throw_on_timeout:
+            # Under a "break" timeout profile a timed-out query returns partial rows, which an in-session
+            # listing or a `throw_on_timeout` caller would take as complete. So the execution-time kill throws.
             settings_args["timeout_overflow_mode"] = "throw"
 
         with tracer.start_as_current_span("SessionRecordingListFromQuery.paginate"):
@@ -370,7 +369,6 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
                 "where_predicates": self._where_predicates(),
                 "having_predicates": self._having_predicates() or ast.Constant(value=True),
                 "python_now": ast.Constant(value=datetime.now(UTC)),
-                "unscored_surfacing_score": ast.Constant(value=UNSCORED_SURFACING_SCORE),
             },
         )
         if isinstance(parsed_query, ast.SelectSetQuery):
@@ -710,6 +708,8 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
             sample_factor=self._events_sample_factor,
             events_timestamp_floor=self._events_timestamp_floor,
             resolve_group_properties=self._resolve_group_properties,
+            user=self._user,
+            group_key_budget=self._group_key_budget,
         )
         self._event_match_plan = events_sub_query_builder.get_session_id_match_plan(
             allow_combined_filters=self._allow_combined_event_filters
@@ -842,6 +842,8 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
                 sample_factor=self._events_sample_factor,
                 events_timestamp_floor=self._events_timestamp_floor,
                 resolve_group_properties=self._resolve_group_properties,
+                user=self._user,
+                group_key_budget=self._group_key_budget,
             )
             for sub_q in test_account_events_builder.get_queries_for_session_id_matching():
                 exprs.append(
@@ -1006,15 +1008,6 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
         # baselines), so they're AND'd regardless of the user's operand.
         if self._query.having_predicates:
             exprs.append(property_to_expr(self._query.having_predicates, team=self._team, scope="replay"))
-
-        if self._query.recommended_only:
-            exprs.append(
-                ast.CompareOperation(
-                    op=ast.CompareOperationOp.Gt,
-                    left=ast.Call(name="max", args=[ast.Field(chain=["s", "surfacing_score"])]),
-                    right=ast.Constant(value=RECOMMENDED_SURFACING_SCORE_THRESHOLD),
-                )
-            )
 
         # User filter-group recording filters (e.g. visited_page) follow the match-any/all operand.
         if self._operand_having_predicates:

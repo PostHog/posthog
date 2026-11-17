@@ -1,0 +1,149 @@
+{
+  "exitCode": 0,
+  "requests": [
+    {
+      "method": "POST",
+      "path": "/api/projects/1/error_tracking/symbol_sets/bulk_check_upload",
+      "headers": {
+        "authorization": "Bearer phx_<key>",
+        "content-type": "application/json"
+      },
+      "body": "{\"symbol_sets\":[{\"chunk_id\":\"7f049abd-6283-5ecf-925b-d4ce9b1a514d\",\"release_id\":null,\"content_hash\":\"f1452989ce16248eab98a5a988232a5823ef581d0112174b3cafa8de3f6554c520f9ad9728a53c749e73c969bac4e45b1f962f620ae1f0d970152cf3e51e7b7c\",\"content_length\":683},{\"chunk_id\":\"8e45a01c-ff78-471a-87d3-ba56f7ab4c31\",\"release_id\":null,\"content_hash\":\"530432894b6d893269da7130a7334c9bb3ecf5ec2e8d0061333aad18508444bb2273882db7b293a769491827c160a7e31dda60fedb5aaff26c18236a25eee8ad\",\"content_length\":700},{\"chunk_id\":\"97e874eb-b143-5723-bb41-695f14c0d557\",\"release_id\":null,\"content_hash\":\"e54df964d76a5e0f9a231e63c72fad63894b1e0297652144831877c762a0901d16b1941cd680def1b57eea70a94a9c4a554d54492387b7241a757d92d71a576a\",\"content_length\":1471},{\"chunk_id\":\"99aebe21-13ee-51da-a4aa-940e274f080f\",\"release_id\":null,\"content_hash\":\"3c14eeaf26034aa5c287d5f31a6859a06cf89dcd509b262902e2103e9b6e649e541a5d9badf8bb5836e1df0f0e43f2a8a235aca9aeb18ed4477d37379454d272\",\"content_length\":681},{\"chunk_id\":\"b7e07b27-43b5-41de-9196-855306cb5e17\",\"release_id\":null,\"content_hash\":\"5a68fc82f35276caaabd0863c28b08785560d543eca3d0d845bdf35ff9c4663f84b8dfad6391a176c48d9f4a2ef5381a8d3a59ecce5f4dd90bbe062df84b0673\",\"content_length\":1395},{\"chunk_id\":\"bb9d599f-3e44-5c89-bd8f-745d085a30a0\",\"release_id\":null,\"content_hash\":\"40196dd2164a5e8453ce9e4fea9e13ead4934a18706fb6a484928f3e38e4b2a3be29cc0a391461ec15e66cbc0b9957bacf5ccfe1b365c36a3975bb5c2e1854b1\",\"content_length\":2016},{\"chunk_id\":\"d56106a8-57e0-4c45-909c-5a8d8c4a9cc3\",\"release_id\":null,\"content_hash\":\"5d02bb52fe5e2e1f517c4e8bd27fbe242a3364c12727db54d71efa3fb02d6bf939dbc85955c65078b7c4b49d5c14c05c70d222648d67e442934511f7ba5f04f8\",\"content_length\":5997},{\"chunk_id\":\"eaaf9a0d-6c5a-4568-a743-6f4fa42549a4\",\"release_id\":null,\"content_hash\":\"77b4943d3104140f4554b84c5ff96dc70c739733f8bc092bce8c7c72ea846e01832a7bbbb302ba5ccb3ec61e920b0e6125bbf2ae914dd91e1cd6d73463532463\",\"content_length\":758}],\"force\":true,\"skip_on_conflict\":false}",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/api/projects/1/error_tracking/symbol_sets/bulk_start_upload",
+      "headers": {
+        "authorization": "Bearer phx_<key>",
+        "content-type": "application/json"
+      },
+      "body": "{\"symbol_sets\":[{\"chunk_id\":\"7f049abd-6283-5ecf-925b-d4ce9b1a514d\",\"release_id\":null,\"content_hash\":\"f1452989ce16248eab98a5a988232a5823ef581d0112174b3cafa8de3f6554c520f9ad9728a53c749e73c969bac4e45b1f962f620ae1f0d970152cf3e51e7b7c\",\"content_length\":683},{\"chunk_id\":\"8e45a01c-ff78-471a-87d3-ba56f7ab4c31\",\"release_id\":null,\"content_hash\":\"530432894b6d893269da7130a7334c9bb3ecf5ec2e8d0061333aad18508444bb2273882db7b293a769491827c160a7e31dda60fedb5aaff26c18236a25eee8ad\",\"content_length\":700},{\"chunk_id\":\"97e874eb-b143-5723-bb41-695f14c0d557\",\"release_id\":null,\"content_hash\":\"e54df964d76a5e0f9a231e63c72fad63894b1e0297652144831877c762a0901d16b1941cd680def1b57eea70a94a9c4a554d54492387b7241a757d92d71a576a\",\"content_length\":1471},{\"chunk_id\":\"99aebe21-13ee-51da-a4aa-940e274f080f\",\"release_id\":null,\"content_hash\":\"3c14eeaf26034aa5c287d5f31a6859a06cf89dcd509b262902e2103e9b6e649e541a5d9badf8bb5836e1df0f0e43f2a8a235aca9aeb18ed4477d37379454d272\",\"content_length\":681},{\"chunk_id\":\"b7e07b27-43b5-41de-9196-855306cb5e17\",\"release_id\":null,\"content_hash\":\"5a68fc82f35276caaabd0863c28b08785560d543eca3d0d845bdf35ff9c4663f84b8dfad6391a176c48d9f4a2ef5381a8d3a59ecce5f4dd90bbe062df84b0673\",\"content_length\":1395},{\"chunk_id\":\"bb9d599f-3e44-5c89-bd8f-745d085a30a0\",\"release_id\":null,\"content_hash\":\"40196dd2164a5e8453ce9e4fea9e13ead4934a18706fb6a484928f3e38e4b2a3be29cc0a391461ec15e66cbc0b9957bacf5ccfe1b365c36a3975bb5c2e1854b1\",\"content_length\":2016},{\"chunk_id\":\"d56106a8-57e0-4c45-909c-5a8d8c4a9cc3\",\"release_id\":null,\"content_hash\":\"5d02bb52fe5e2e1f517c4e8bd27fbe242a3364c12727db54d71efa3fb02d6bf939dbc85955c65078b7c4b49d5c14c05c70d222648d67e442934511f7ba5f04f8\",\"content_length\":5997},{\"chunk_id\":\"eaaf9a0d-6c5a-4568-a743-6f4fa42549a4\",\"release_id\":null,\"content_hash\":\"77b4943d3104140f4554b84c5ff96dc70c739733f8bc092bce8c7c72ea846e01832a7bbbb302ba5ccb3ec61e920b0e6125bbf2ae914dd91e1cd6d73463532463\",\"content_length\":758}],\"upload_attempt_id\":\"<attempt-1>\",\"upload_run_id\":\"<run>\",\"force\":true,\"skip_on_conflict\":false}",
+      "status": 201
+    },
+    {
+      "method": "PUT",
+      "path": "/s3/put/symbolsets/352a9101-f516-5f32-b056-fa854bede172?length=2016",
+      "headers": {
+        "authorization": "<none>"
+      },
+      "upload": {
+        "sha512": "fae195309165ddf39cfb033cf7120ccf0848ec3fedffe5d37389b06ecc539a46c41a9604ca74ba6bb1f9c56938d6723fde0fa1be7a8e3cece3aa77fda251c48e",
+        "length": 2016
+      },
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/s3/put/symbolsets/3c842e61-a617-54d6-9b1a-be6815ca29c8?length=1471",
+      "headers": {
+        "authorization": "<none>"
+      },
+      "upload": {
+        "sha512": "1caa14a513f3c9048415842d5f2d7ef9334c94026fd73d7c16e826995de389b793faafbdcd2e5a59c69c5cd7a6b9286e5c76ecb6b49d999bc7a8ae8896d58d46",
+        "length": 1471
+      },
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/s3/put/symbolsets/57fc17ec-68e5-598a-9821-9c09d88c3062?length=681",
+      "headers": {
+        "authorization": "<none>"
+      },
+      "upload": {
+        "sha512": "d0db144f7934dc046cc243960809b32bd6bd887fd082b328a7f54566b727ee4e1d93d01e3b9cdd1496f148a7387518af411bdcf3e1c445204dfb3d9d3acc8a2e",
+        "length": 681
+      },
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/s3/put/symbolsets/681f29ad-219c-5b86-ae2b-84ae38e13632?length=5997",
+      "headers": {
+        "authorization": "<none>"
+      },
+      "upload": {
+        "sha512": "743359e55f9b74ba04080fe6be44b8c527aa16fca61f4421d3d60ffb9fbf9c9eddb8cafe64150c7b657bdb45de705124e6cc6595ef23acd05a45d8d6071e75f5",
+        "length": 5997
+      },
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/s3/put/symbolsets/942ecec0-4cb2-5160-9c2b-948cbff4d4e6?length=758",
+      "headers": {
+        "authorization": "<none>"
+      },
+      "upload": {
+        "sha512": "c6b438a5a2a4578e19c939f28d7bf28bac0dfeb81633fc91cf7ed23fbbf5412091be9015b5c0f819a6202314f47f87a18e6a08c061468d144d87d040d119fef1",
+        "length": 758
+      },
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/s3/put/symbolsets/aa9eb665-a4e6-563c-8f32-132887ddb156?length=1395",
+      "headers": {
+        "authorization": "<none>"
+      },
+      "upload": {
+        "sha512": "627434671e6fe54b3fea57d2fe6836df782fae290ef0b65fa3fef8fe4fef028e0d4041e5f6b09fa7db5e326e31a4700cd3399723de8598a14529336b1698a4d3",
+        "length": 1395
+      },
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/s3/put/symbolsets/bc620c4b-45a7-55ab-a4d5-2952c5a7549b?length=683",
+      "headers": {
+        "authorization": "<none>"
+      },
+      "upload": {
+        "sha512": "18ce3f754f32bacb5d4f548500ea10473b9c0890432d90593642a81929e3fc354e2c190b21c8cbc20e04b5364364c87cf209bf5bfcaec4bb4a4255cf82f6e795",
+        "length": 683
+      },
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/s3/put/symbolsets/f3a4edbe-bdbe-5854-a25b-283553f240ba?length=700",
+      "headers": {
+        "authorization": "<none>"
+      },
+      "upload": {
+        "sha512": "0300e5cdf227fb4b872e9b56e5531a9ba06e75e4b0ca28c09b9f8fc7cc3f98d4813373925bcc40d1322e0194537bf7267938754381ef8b25e92a8d3c22040211",
+        "length": 700
+      },
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/api/projects/1/error_tracking/symbol_sets/bulk_finish_upload",
+      "headers": {
+        "authorization": "Bearer phx_<key>",
+        "content-type": "application/json"
+      },
+      "body": "{\"content_hashes\":{\"352a9101-f516-5f32-b056-fa854bede172\":\"40196dd2164a5e8453ce9e4fea9e13ead4934a18706fb6a484928f3e38e4b2a3be29cc0a391461ec15e66cbc0b9957bacf5ccfe1b365c36a3975bb5c2e1854b1\",\"3c842e61-a617-54d6-9b1a-be6815ca29c8\":\"e54df964d76a5e0f9a231e63c72fad63894b1e0297652144831877c762a0901d16b1941cd680def1b57eea70a94a9c4a554d54492387b7241a757d92d71a576a\",\"57fc17ec-68e5-598a-9821-9c09d88c3062\":\"3c14eeaf26034aa5c287d5f31a6859a06cf89dcd509b262902e2103e9b6e649e541a5d9badf8bb5836e1df0f0e43f2a8a235aca9aeb18ed4477d37379454d272\",\"681f29ad-219c-5b86-ae2b-84ae38e13632\":\"5d02bb52fe5e2e1f517c4e8bd27fbe242a3364c12727db54d71efa3fb02d6bf939dbc85955c65078b7c4b49d5c14c05c70d222648d67e442934511f7ba5f04f8\",\"942ecec0-4cb2-5160-9c2b-948cbff4d4e6\":\"77b4943d3104140f4554b84c5ff96dc70c739733f8bc092bce8c7c72ea846e01832a7bbbb302ba5ccb3ec61e920b0e6125bbf2ae914dd91e1cd6d73463532463\",\"aa9eb665-a4e6-563c-8f32-132887ddb156\":\"5a68fc82f35276caaabd0863c28b08785560d543eca3d0d845bdf35ff9c4663f84b8dfad6391a176c48d9f4a2ef5381a8d3a59ecce5f4dd90bbe062df84b0673\",\"bc620c4b-45a7-55ab-a4d5-2952c5a7549b\":\"f1452989ce16248eab98a5a988232a5823ef581d0112174b3cafa8de3f6554c520f9ad9728a53c749e73c969bac4e45b1f962f620ae1f0d970152cf3e51e7b7c\",\"f3a4edbe-bdbe-5854-a25b-283553f240ba\":\"530432894b6d893269da7130a7334c9bb3ecf5ec2e8d0061333aad18508444bb2273882db7b293a769491827c160a7e31dda60fedb5aaff26c18236a25eee8ad\"},\"upload_attempt_id\":\"<attempt-1>\",\"upload_run_id\":\"<run>\"}",
+      "status": 201
+    }
+  ],
+  "files": {
+    "esbuild-cjs/index.cjs": "sha512:5c5a3205d61deba47f5e78da8310b96164d85549f68966c72fbf592446a511488b38ca932310b277754eee314fc91de04b86a57b0347efa16c15f4dde4f3db85",
+    "esbuild-cjs/index.cjs.map": "sha512:66f9e06dd3db41543ff26f633a6b8887fa2759fc302c336337dc0b2c4ee180bfbdab754eb4232b1209b193d0740e92fd18e8aee419ac167e6677b468de9d28fc",
+    "esbuild/chunk-QCGVITVN.js": "utf8:!function(){try{var e=\"undefined\"!=typeof window?window:\"undefined\"!=typeof global?global:\"undefined\"!=typeof globalThis?globalThis:\"undefined\"!=typeof self?self:{};e._posthogReleaseId=e._posthogReleaseId||\"e7ccdce0-e172-5444-b00e-bec22162f00f\";var n=(new e.Error).stack;n&&(e._posthogChunkIds=e._posthogChunkIds||{},e._posthogChunkIds[n]=\"7f049abd-6283-5ecf-925b-d4ce9b1a514d\")}catch(e){}}();function e(r){if(!r)throw new Error(\"Missing product\");return[{productId:r,stars:5,text:\"Works as described\"}]}export{e as fetchReviews};\n//# sourceMappingURL=chunk-QCGVITVN.js.map\n\n//# chunkId=7f049abd-6283-5ecf-925b-d4ce9b1a514d",
+    "esbuild/chunk-QCGVITVN.js.map": "utf8:{\"chunk_id\":\"7f049abd-6283-5ecf-925b-d4ce9b1a514d\",\"mappings\":\"yYAAO,SAASA,EAAaC,EAAW,CACpC,GAAI,CAACA,EACD,MAAM,IAAI,MAAM,iBAAiB,EAErC,MAAO,CAAC,CAAE,UAAAA,EAAW,MAAO,EAAG,KAAM,oBAAqB,CAAC,CAC/D\",\"names\":[\"fetchReviews\",\"productId\"],\"sources\":[\"../../src/reviews.js\"],\"sourcesContent\":[\"export function fetchReviews(productId) {\\n    if (!productId) {\\n        throw new Error('Missing product')\\n    }\\n    return [{ productId, stars: 5, text: 'Works as described' }]\\n}\\n\"],\"version\":3}",
+    "esbuild/index-DLM2YCDD.js": "utf8:!function(){try{var e=\"undefined\"!=typeof window?window:\"undefined\"!=typeof global?global:\"undefined\"!=typeof globalThis?globalThis:\"undefined\"!=typeof self?self:{};e._posthogReleaseId=e._posthogReleaseId||\"e7ccdce0-e172-5444-b00e-bec22162f00f\";var n=(new e.Error).stack;n&&(e._posthogChunkIds=e._posthogChunkIds||{},e._posthogChunkIds[n]=\"97e874eb-b143-5723-bb41-695f14c0d557\")}catch(e){}}();function o(t){return`$${(t/100).toFixed(2)}`}function n(t){let r=Number.parseInt(t,10);if(Number.isNaN(r))throw new TypeError(`Invalid quantity: ${t}`);return r}function i(t){return JSON.stringify({kind:\"badge\",label:t,createdAt:\"\\xE9\\u65E5\\u{1F600}\"})}function f(t){let r=0;for(let e of t)r+=e.price*n(e.quantity);if(r<=0)throw new Error(\"Cart total must be positive\");return i(`Total: ${o(r)}`)}async function s(){let{fetchReviews:t}=await import(\"./chunk-QCGVITVN.js\");return t(\"example-product\")}export{f as checkout,s as loadReviews};\n//# sourceMappingURL=index-DLM2YCDD.js.map\n\n//# chunkId=97e874eb-b143-5723-bb41-695f14c0d557",
+    "esbuild/index-DLM2YCDD.js.map": "utf8:{\"chunk_id\":\"97e874eb-b143-5723-bb41-695f14c0d557\",\"mappings\":\"yYAAO,SAASA,EAAYC,EAAO,CAC/B,MAAO,KAAKA,EAAQ,KAAK,QAAQ,CAAC,CAAC,EACvC,CAEO,SAASC,EAAcC,EAAO,CACjC,IAAMC,EAAS,OAAO,SAASD,EAAO,EAAE,EACxC,GAAI,OAAO,MAAMC,CAAM,EACnB,MAAM,IAAI,UAAU,qBAAqBD,CAAK,EAAE,EAEpD,OAAOC,CACX,CCVO,SAASC,EAAYC,EAAO,CAE/B,OAAO,KAAK,UADE,CAAE,KAAM,QAAS,MAAAA,EAAO,UAAW,qBAAO,CAC7B,CAC/B,CCAO,SAASC,EAASC,EAAO,CAC5B,IAAIC,EAAQ,EACZ,QAAWC,KAAQF,EACfC,GAASC,EAAK,MAAQC,EAAcD,EAAK,QAAQ,EAErD,GAAID,GAAS,EACT,MAAM,IAAI,MAAM,6BAA6B,EAEjD,OAAOG,EAAY,UAAUC,EAAYJ,CAAK,CAAC,EAAE,CACrD,CAEA,eAAsBK,GAAc,CAChC,GAAM,CAAE,aAAAC,CAAa,EAAI,KAAM,QAAO,qBAAc,EACpD,OAAOA,EAAa,iBAAiB,CACzC\",\"names\":[\"formatPrice\",\"cents\",\"parseQuantity\",\"value\",\"parsed\",\"renderBadge\",\"label\",\"checkout\",\"items\",\"total\",\"item\",\"parseQuantity\",\"renderBadge\",\"formatPrice\",\"loadReviews\",\"fetchReviews\"],\"sources\":[\"../../src/cart.js\",\"../../src/ui/badge.js\",\"../../src/index.js\"],\"sourcesContent\":[\"export function formatPrice(cents) {\\n    return `$${(cents / 100).toFixed(2)}`\\n}\\n\\nexport function parseQuantity(value) {\\n    const parsed = Number.parseInt(value, 10)\\n    if (Number.isNaN(parsed)) {\\n        throw new TypeError(`Invalid quantity: ${value}`)\\n    }\\n    return parsed\\n}\\n\",\"export function renderBadge(label) {\\n    const badge = { kind: 'badge', label, createdAt: 'é日😀' }\\n    return JSON.stringify(badge)\\n}\\n\",\"import { formatPrice, parseQuantity } from './cart.js'\\nimport { renderBadge } from './ui/badge.js'\\n\\nexport function checkout(items) {\\n    let total = 0\\n    for (const item of items) {\\n        total += item.price * parseQuantity(item.quantity)\\n    }\\n    if (total <= 0) {\\n        throw new Error('Cart total must be positive')\\n    }\\n    return renderBadge(`Total: ${formatPrice(total)}`)\\n}\\n\\nexport async function loadReviews() {\\n    const { fetchReviews } = await import('./reviews.js')\\n    return fetchReviews('example-product')\\n}\\n\"],\"version\":3}",
+    "rollup/index-W25VBdhh.mjs": "utf8:!function(){try{var e=\"undefined\"!=typeof window?window:\"undefined\"!=typeof global?global:\"undefined\"!=typeof globalThis?globalThis:\"undefined\"!=typeof self?self:{};e._posthogReleaseId=e._posthogReleaseId||\"e7ccdce0-e172-5444-b00e-bec22162f00f\";var n=(new e.Error).stack;n&&(e._posthogChunkIds=e._posthogChunkIds||{},e._posthogChunkIds[n]=\"b7e07b27-43b5-41de-9196-855306cb5e17\")}catch(e){}}();function formatPrice(cents) {\n    return `$${(cents / 100).toFixed(2)}`\n}\n\nfunction parseQuantity(value) {\n    const parsed = Number.parseInt(value, 10);\n    if (Number.isNaN(parsed)) {\n        throw new TypeError(`Invalid quantity: ${value}`)\n    }\n    return parsed\n}\n\nfunction renderBadge(label) {\n    const badge = { kind: 'badge', label, createdAt: 'é日😀' };\n    return JSON.stringify(badge)\n}\n\nfunction checkout(items) {\n    let total = 0;\n    for (const item of items) {\n        total += item.price * parseQuantity(item.quantity);\n    }\n    if (total <= 0) {\n        throw new Error('Cart total must be positive')\n    }\n    return renderBadge(`Total: ${formatPrice(total)}`)\n}\n\nasync function loadReviews() {\n    const { fetchReviews } = await import('./reviews-nJfzDM_Q.mjs');\n    return fetchReviews('example-product')\n}\n\nexport { checkout, loadReviews };\n//# debugId=b7e07b27-43b5-41de-9196-855306cb5e17\n//# sourceMappingURL=index-W25VBdhh.mjs.map\n\n//# chunkId=b7e07b27-43b5-41de-9196-855306cb5e17",
+    "rollup/index-W25VBdhh.mjs.map": "sha512:6003118ca3121a2eacc01deb5f0dbe20de431c9c201fb3042a59e3acf7f6130229f2f047bcca4aaaa2bea100083dbe2d82009d75ffb68f621db995b26b34d2f6",
+    "rollup/reviews-nJfzDM_Q.mjs": "utf8:!function(){try{var e=\"undefined\"!=typeof window?window:\"undefined\"!=typeof global?global:\"undefined\"!=typeof globalThis?globalThis:\"undefined\"!=typeof self?self:{};e._posthogReleaseId=e._posthogReleaseId||\"e7ccdce0-e172-5444-b00e-bec22162f00f\";var n=(new e.Error).stack;n&&(e._posthogChunkIds=e._posthogChunkIds||{},e._posthogChunkIds[n]=\"8e45a01c-ff78-471a-87d3-ba56f7ab4c31\")}catch(e){}}();function fetchReviews(productId) {\n    if (!productId) {\n        throw new Error('Missing product')\n    }\n    return [{ productId, stars: 5, text: 'Works as described' }]\n}\n\nexport { fetchReviews };\n//# debugId=8e45a01c-ff78-471a-87d3-ba56f7ab4c31\n//# sourceMappingURL=reviews-nJfzDM_Q.mjs.map\n\n//# chunkId=8e45a01c-ff78-471a-87d3-ba56f7ab4c31",
+    "rollup/reviews-nJfzDM_Q.mjs.map": "utf8:{\"chunk_id\":\"8e45a01c-ff78-471a-87d3-ba56f7ab4c31\",\"debugId\":\"8e45a01c-ff78-471a-87d3-ba56f7ab4c31\",\"debug_id\":\"8e45a01c-ff78-471a-87d3-ba56f7ab4c31\",\"file\":\"reviews-nJfzDM_Q.mjs\",\"mappings\":\"yYAAO,SAAS,YAAY,CAAC,SAAS,EAAE;AACxC,IAAI,IAAI,CAAC,SAAS,EAAE;AACpB,QAAQ,MAAM,IAAI,KAAK,CAAC,iBAAiB;AACzC,IAAI;AACJ,IAAI,OAAO,CAAC,EAAE,SAAS,EAAE,KAAK,EAAE,CAAC,EAAE,IAAI,EAAE,oBAAoB,EAAE;AAC/D\",\"names\":[],\"sources\":[\"../../src/reviews.js\"],\"sourcesContent\":[\"export function fetchReviews(productId) {\\n    if (!productId) {\\n        throw new Error('Missing product')\\n    }\\n    return [{ productId, stars: 5, text: 'Works as described' }]\\n}\\n\"],\"version\":3}",
+    "terser/badge.min.js": "utf8:!function(){try{var e=\"undefined\"!=typeof window?window:\"undefined\"!=typeof global?global:\"undefined\"!=typeof globalThis?globalThis:\"undefined\"!=typeof self?self:{};e._posthogReleaseId=e._posthogReleaseId||\"e7ccdce0-e172-5444-b00e-bec22162f00f\";var n=(new e.Error).stack;n&&(e._posthogChunkIds=e._posthogChunkIds||{},e._posthogChunkIds[n]=\"99aebe21-13ee-51da-a4aa-940e274f080f\")}catch(e){}}();var Badge=function(e){\"use strict\";return e.renderBadge=function(e){const n={kind:\"badge\",label:e,createdAt:\"é日😀\"};return JSON.stringify(n)},e}({});\n//# sourceMappingURL=badge.min.js.map\n//# chunkId=99aebe21-13ee-51da-a4aa-940e274f080f",
+    "terser/badge.min.js.map": "utf8:{\"chunk_id\":\"99aebe21-13ee-51da-a4aa-940e274f080f\",\"file\":\"badge.min.js\",\"mappings\":\"icAAO,SAAqBA,GACxB,MAAMC,EAAQ,CAAEC,KAAM,QAASF,QAAOG,UAAW,QACjD,OAAOC,KAAKC,UAAUJ,EAC1B,E\",\"names\":[\"label\",\"badge\",\"kind\",\"createdAt\",\"JSON\",\"stringify\"],\"sources\":[\"src/ui/badge.js\"],\"sourcesContent\":[\"export function renderBadge(label) {\\n    const badge = { kind: 'badge', label, createdAt: 'é日😀' }\\n    return JSON.stringify(badge)\\n}\\n\"],\"version\":3}",
+    "webpack/213.eef13598.js": "utf8:!function(){try{var e=\"undefined\"!=typeof window?window:\"undefined\"!=typeof global?global:\"undefined\"!=typeof globalThis?globalThis:\"undefined\"!=typeof self?self:{};e._posthogReleaseId=e._posthogReleaseId||\"e7ccdce0-e172-5444-b00e-bec22162f00f\";var n=(new e.Error).stack;n&&(e._posthogChunkIds=e._posthogChunkIds||{},e._posthogChunkIds[n]=\"eaaf9a0d-6c5a-4568-a743-6f4fa42549a4\")}catch(e){}}();\"use strict\";(self.webpackChunk=self.webpackChunk||[]).push([[213],{213(e,s,r){function t(e){if(!e)throw new Error(\"Missing product\");return[{productId:e,stars:5,text:\"Works as described\"}]}r.d(s,{fetchReviews:()=>t})}}]);\n//# debugId=eaaf9a0d-6c5a-4568-a743-6f4fa42549a4\n//# sourceMappingURL=213.eef13598.js.map\n//# chunkId=eaaf9a0d-6c5a-4568-a743-6f4fa42549a4",
+    "webpack/213.eef13598.js.map": "utf8:{\"chunk_id\":\"eaaf9a0d-6c5a-4568-a743-6f4fa42549a4\",\"debugId\":\"eaaf9a0d-6c5a-4568-a743-6f4fa42549a4\",\"debug_id\":\"eaaf9a0d-6c5a-4568-a743-6f4fa42549a4\",\"file\":\"213.eef13598.js\",\"mappings\":\"wdAAO,SAAAA,EAAAC,GACP,IAAAA,EACA,UAAAC,MAAA,mBAEA,QAAcD,YAAAE,MAAA,EAAAC,KAAA,sBACd\",\"names\":[\"fetchReviews\",\"productId\",\"Error\",\"stars\",\"text\"],\"sourceRoot\":\"\",\"sources\":[\"webpack:///./src/reviews.js\"],\"sourcesContent\":[\"export function fetchReviews(productId) {\\n    if (!productId) {\\n        throw new Error('Missing product')\\n    }\\n    return [{ productId, stars: 5, text: 'Works as described' }]\\n}\\n\"],\"version\":3}",
+    "webpack/main.24954514.js": "sha512:637a70c7e7d9e960c9576bd3851748cd657928836d0c0576cc2aa7e40a9c7ad504c49f69302e04014b712e3272c19784246619824bdeefc11b3dd66a9bec0e3c",
+    "webpack/main.24954514.js.map": "sha512:b38a062d5ea75a3723d3ca677d58abde5f9ccba18e7095cd0387c3cc90cc99ceb9ea202de7943558af79a781b20ff66408319bd53bc0340b946e9043f190b2bb"
+  }
+}

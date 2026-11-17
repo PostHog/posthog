@@ -60,6 +60,22 @@ LOGS_DISTINCT_PATTERNS_QUERY_PATCH_ID = "usage-report-logs-distinct-patterns-que
 LOGS_DISTINCT_PATTERNS_QUERY_NAME = "teams_with_logs_distinct_patterns_in_period"
 TRANSACTIONAL_EMAILS_QUERY_PATCH_ID = "usage-report-transactional-emails-query-2026-10"
 TRANSACTIONAL_EMAILS_QUERY_NAME = "teams_with_workflow_transactional_emails_sent_in_period"
+SIGNALS_SPEND_QUERY_PATCH_ID = "usage-report-signals-spend-query-2026-11"
+SIGNALS_SPEND_QUERY_NAME = "teams_with_signals_spend_credits_used_in_period"
+MCP_EVENT_COUNT_QUERY_PATCH_ID = "usage-report-mcp-event-count-query-2026-10"
+MCP_EVENT_COUNT_QUERY_NAME = "teams_with_mcp_event_count_in_period"
+REPLAY_VISION_SPEND_PROJECTION_QUERY_PATCH_ID = "usage-report-replay-vision-spend-projection-query-2026-10"
+REPLAY_VISION_SPEND_PROJECTION_QUERY_NAME = "replay_vision_spend_projection"
+BUSINESS_KNOWLEDGE_USAGE_QUERY_PATCH_ID = "usage-report-business-knowledge-usage-query-2026-11"
+BUSINESS_KNOWLEDGE_USAGE_QUERY_NAME = "business_knowledge_usage"
+LOCAL_EVALUATION_NOT_MODIFIED_QUERY_PATCH_ID = "usage-report-local-evaluation-not-modified-query-2026-11"
+LOCAL_EVALUATION_NOT_MODIFIED_QUERY_NAME = UsageCounter.FEATURE_FLAG_LOCAL_EVALUATION_NOT_MODIFIED_REQUESTS.value
+AI_OVERAGE_BYTES_QUERY_PATCH_ID = "usage-report-ai-overage-bytes-query-2026-11"
+AI_OVERAGE_BYTES_QUERY_NAME = UsageCounter.AI_OVERAGE_BYTES.value
+# Query activities run on any worker of the queue, and a worker without a query's spec fails the whole run on its
+# name. During a rolling deploy older workers still run, so a new query stays registered but undispatched until
+# every worker has its spec. The aggregator defaults a missing query to empty meanwhile.
+DEFERRED_QUERY_NAMES = frozenset({AI_OVERAGE_BYTES_QUERY_NAME})
 
 
 def _queries_for_sandbox_compute_patch(patch_applied: bool) -> list[QuerySpec]:
@@ -78,6 +94,46 @@ def _queries_for_transactional_emails_patch(queries: list[QuerySpec], patch_appl
     if patch_applied:
         return queries
     return [spec for spec in queries if spec.name != TRANSACTIONAL_EMAILS_QUERY_NAME]
+
+
+def _queries_for_signals_spend_patch(queries: list[QuerySpec], patch_applied: bool) -> list[QuerySpec]:
+    if patch_applied:
+        return queries
+    return [spec for spec in queries if spec.name != SIGNALS_SPEND_QUERY_NAME]
+
+
+def _queries_for_mcp_event_count_patch(queries: list[QuerySpec], patch_applied: bool) -> list[QuerySpec]:
+    if patch_applied:
+        return queries
+    return [spec for spec in queries if spec.name != MCP_EVENT_COUNT_QUERY_NAME]
+
+
+def _queries_for_replay_vision_spend_projection_patch(queries: list[QuerySpec], patch_applied: bool) -> list[QuerySpec]:
+    if patch_applied:
+        return queries
+    return [spec for spec in queries if spec.name != REPLAY_VISION_SPEND_PROJECTION_QUERY_NAME]
+
+
+def _queries_for_business_knowledge_usage_patch(queries: list[QuerySpec], patch_applied: bool) -> list[QuerySpec]:
+    if patch_applied:
+        return queries
+    return [spec for spec in queries if spec.name != BUSINESS_KNOWLEDGE_USAGE_QUERY_NAME]
+
+
+def _queries_for_local_evaluation_not_modified_patch(queries: list[QuerySpec], patch_applied: bool) -> list[QuerySpec]:
+    if patch_applied:
+        return queries
+    return [spec for spec in queries if spec.name != LOCAL_EVALUATION_NOT_MODIFIED_QUERY_NAME]
+
+
+def _dispatched_queries(queries: list[QuerySpec]) -> list[QuerySpec]:
+    return [spec for spec in queries if spec.name not in DEFERRED_QUERY_NAMES]
+
+
+def _queries_for_ai_overage_bytes_patch(queries: list[QuerySpec], patch_applied: bool) -> list[QuerySpec]:
+    if patch_applied:
+        return queries
+    return [spec for spec in queries if spec.name != AI_OVERAGE_BYTES_QUERY_NAME]
 
 
 def build_context(inputs: RunUsageReportsInputs, run_id: str, now: datetime) -> WorkflowContext:
@@ -146,6 +202,19 @@ class RunUsageReportsWorkflow(PostHogWorkflow):
             queries = _queries_for_transactional_emails_patch(
                 queries, workflow.patched(TRANSACTIONAL_EMAILS_QUERY_PATCH_ID)
             )
+            queries = _queries_for_mcp_event_count_patch(queries, workflow.patched(MCP_EVENT_COUNT_QUERY_PATCH_ID))
+            queries = _queries_for_replay_vision_spend_projection_patch(
+                queries, workflow.patched(REPLAY_VISION_SPEND_PROJECTION_QUERY_PATCH_ID)
+            )
+            queries = _queries_for_signals_spend_patch(queries, workflow.patched(SIGNALS_SPEND_QUERY_PATCH_ID))
+            queries = _queries_for_business_knowledge_usage_patch(
+                queries, workflow.patched(BUSINESS_KNOWLEDGE_USAGE_QUERY_PATCH_ID)
+            )
+            queries = _queries_for_local_evaluation_not_modified_patch(
+                queries, workflow.patched(LOCAL_EVALUATION_NOT_MODIFIED_QUERY_PATCH_ID)
+            )
+            queries = _queries_for_ai_overage_bytes_patch(queries, workflow.patched(AI_OVERAGE_BYTES_QUERY_PATCH_ID))
+            queries = _dispatched_queries(queries)
             if workflow.patched(USAGE_COUNTER_SERVICE_PATCH_ID):
                 ctx.usage_counter_plan = await workflow.execute_activity(
                     plan_usage_counters,

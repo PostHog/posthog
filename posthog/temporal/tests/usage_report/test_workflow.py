@@ -10,6 +10,7 @@ import asyncio
 import logging
 from collections.abc import Callable
 from contextlib import nullcontext
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -34,7 +35,7 @@ from posthog.temporal.quota_limiting.run_quota_limiting import (
     RunQuotaLimitingWorkflow,
 )
 from posthog.temporal.usage_report.activities import plan_usage_counters
-from posthog.temporal.usage_report.queries import QUERIES, QuerySpec
+from posthog.temporal.usage_report.queries import QUERIES, QUERY_INDEX, QuerySpec
 from posthog.temporal.usage_report.types import (
     AggregateInputs,
     AggregateResult,
@@ -47,21 +48,36 @@ from posthog.temporal.usage_report.types import (
 )
 from posthog.temporal.usage_report.workflow import (
     AGGREGATION_QUEUE_PATCH_ID,
+    AI_OVERAGE_BYTES_QUERY_NAME,
+    BUSINESS_KNOWLEDGE_USAGE_QUERY_NAME,
+    LOCAL_EVALUATION_NOT_MODIFIED_QUERY_NAME,
     LOGS_DISTINCT_PATTERNS_QUERY_NAME,
+    MCP_EVENT_COUNT_QUERY_NAME,
     PARALLEL_COUNTER_QUERIES_PATCH_ID,
     QUERY_CONCURRENCY,
+    REPLAY_VISION_SPEND_PROJECTION_QUERY_NAME,
     SANDBOX_COMPUTE_QUERY_NAME,
+    SIGNALS_SPEND_QUERY_NAME,
+    SIGNALS_SPEND_QUERY_PATCH_ID,
     TRANSACTIONAL_EMAILS_QUERY_NAME,
     USAGE_COUNTER_SERVICE_PATCH_ID,
     RunUsageReportsWorkflow,
+    _dispatched_queries,
+    _queries_for_ai_overage_bytes_patch,
+    _queries_for_business_knowledge_usage_patch,
+    _queries_for_local_evaluation_not_modified_patch,
     _queries_for_logs_distinct_patterns_patch,
+    _queries_for_mcp_event_count_patch,
+    _queries_for_replay_vision_spend_projection_patch,
     _queries_for_sandbox_compute_patch,
+    _queries_for_signals_spend_patch,
     _queries_for_transactional_emails_patch,
     build_context,
 )
 from posthog.usage_counters import (
     COUNTER_FLAG_NAMES,
     LEGACY_QUERY_NAMES,
+    PLAN_DEFERRED_COUNTERS,
     UsageCounter,
     UsageCounterMode,
     UsageCounterPlan,
@@ -77,6 +93,20 @@ def test_sandbox_compute_query_is_versioned_for_existing_histories() -> None:
     [
         ("logs_distinct_patterns", _queries_for_logs_distinct_patterns_patch, LOGS_DISTINCT_PATTERNS_QUERY_NAME),
         ("transactional_emails", _queries_for_transactional_emails_patch, TRANSACTIONAL_EMAILS_QUERY_NAME),
+        ("mcp_event_count", _queries_for_mcp_event_count_patch, MCP_EVENT_COUNT_QUERY_NAME),
+        ("signals_spend", _queries_for_signals_spend_patch, SIGNALS_SPEND_QUERY_NAME),
+        (
+            "replay_vision_spend_projection",
+            _queries_for_replay_vision_spend_projection_patch,
+            REPLAY_VISION_SPEND_PROJECTION_QUERY_NAME,
+        ),
+        ("business_knowledge_usage", _queries_for_business_knowledge_usage_patch, BUSINESS_KNOWLEDGE_USAGE_QUERY_NAME),
+        (
+            "local_evaluation_not_modified",
+            _queries_for_local_evaluation_not_modified_patch,
+            LOCAL_EVALUATION_NOT_MODIFIED_QUERY_NAME,
+        ),
+        ("ai_overage_bytes", _queries_for_ai_overage_bytes_patch, AI_OVERAGE_BYTES_QUERY_NAME),
     ]
 )
 def test_single_query_is_versioned_for_existing_histories(
@@ -84,6 +114,11 @@ def test_single_query_is_versioned_for_existing_histories(
 ) -> None:
     assert query_name not in [spec.name for spec in queries_for_patch(QUERIES, False)]
     assert query_name in [spec.name for spec in queries_for_patch(QUERIES, True)]
+
+
+def test_deferred_query_is_known_to_every_worker_but_not_dispatched() -> None:
+    assert AI_OVERAGE_BYTES_QUERY_NAME in QUERY_INDEX
+    assert AI_OVERAGE_BYTES_QUERY_NAME not in [spec.name for spec in _dispatched_queries(QUERIES)]
 
 
 @parameterized.expand(
@@ -167,6 +202,7 @@ async def test_workflow_rejects_invalid_inputs_before_running_queries(
         "concurrency",
         "serial_counters",
         "counter_query_failure",
+        "pre_signals_spend",
         "pre_aggregation_queue",
         "aggregation_queue",
     ],
@@ -195,6 +231,9 @@ async def test_workflow_runs_query_then_aggregate(report_behavior: str, caplog: 
     max_active = 0
     max_active_counters = 0
     fails = report_behavior in {"activity_failure", "query_failure", "pre_patch_query_failure", "counter_query_failure"}
+    pre_signals_spend = report_behavior == "pre_signals_spend"
+    recording_queries = [spec for spec in QUERIES if not pre_signals_spend or spec.name != SIGNALS_SPEND_QUERY_NAME]
+    dispatched_queries = _dispatched_queries(recording_queries)
     pre_patch = report_behavior.startswith("pre_patch")
     legacy_aggregation_queue = pre_patch or report_behavior == "pre_aggregation_queue"
     parallel_counters = not pre_patch and report_behavior != "serial_counters"
@@ -216,6 +255,15 @@ async def test_workflow_runs_query_then_aggregate(report_behavior: str, caplog: 
             if report_behavior == "flag_failure":
                 flag.side_effect = RuntimeError("flag service unavailable")
             plan = await plan_usage_counters(ctx)
+        if pre_signals_spend:
+            plan = replace(
+                plan,
+                modes={
+                    counter: mode
+                    for counter, mode in plan.modes.items()
+                    if counter != UsageCounter.SIGNALS_SPEND_CREDITS
+                },
+            )
         plans.append(plan)
         return plan
 
@@ -330,11 +378,13 @@ async def test_workflow_runs_query_then_aggregate(report_behavior: str, caplog: 
                         if (pre_patch and name == USAGE_COUNTER_SERVICE_PATCH_ID)
                         or (report_behavior == "serial_counters" and name == PARALLEL_COUNTER_QUERIES_PATCH_ID)
                         or (legacy_aggregation_queue and name == AGGREGATION_QUEUE_PATCH_ID)
+                        or (pre_signals_spend and name == SIGNALS_SPEND_QUERY_PATCH_ID)
                         else patched(name)
                     ),
                 )
-                if legacy_aggregation_queue or report_behavior == "serial_counters"
-                else nullcontext()
+                if legacy_aggregation_queue or report_behavior == "serial_counters" or pre_signals_spend
+                else nullcontext(),
+                patch("posthog.temporal.usage_report.workflow.QUERIES", recording_queries),
             ):
                 try:
                     with pytest.raises(WorkflowFailureError) if fails else nullcontext():
@@ -348,10 +398,10 @@ async def test_workflow_runs_query_then_aggregate(report_behavior: str, caplog: 
                             ),
                         )
                         if report_behavior == "concurrency":
-                            for offset in range(0, len(QUERIES), QUERY_CONCURRENCY):
+                            for offset in range(0, len(dispatched_queries), QUERY_CONCURRENCY):
                                 batch = [
                                     await asyncio.wait_for(starts.get(), timeout=10)
-                                    for _ in range(min(QUERY_CONCURRENCY, len(QUERIES) - offset))
+                                    for _ in range(min(QUERY_CONCURRENCY, len(dispatched_queries) - offset))
                                 ]
                                 for name in batch:
                                     releases[name].set()
@@ -412,7 +462,7 @@ async def test_workflow_runs_query_then_aggregate(report_behavior: str, caplog: 
                 scheduled_summaries[attrs.activity_id] = decoded_summary
 
     counter_names = plans[0].query_names if plans else set()
-    expected_names = [spec.name for spec in QUERIES if spec.name not in counter_names]
+    expected_names = [spec.name for spec in dispatched_queries if spec.name not in counter_names]
     with override_settings(USAGE_REPORT_AGGREGATION_TASK_QUEUE=aggregation_queue):
         await Replayer(
             workflows=[RunUsageReportsWorkflow],
@@ -436,6 +486,10 @@ async def test_workflow_runs_query_then_aggregate(report_behavior: str, caplog: 
     expected_counters = plans[0].legacy_counters if parallel_counters else []
     assert set(seen_counters) == set(expected_counters)
     assert len(seen_counters) == len(expected_counters)
+    if pre_signals_spend:
+        assert SIGNALS_SPEND_QUERY_NAME not in seen_query_names
+        assert UsageCounter.SIGNALS_SPEND_CREDITS not in seen_counters
+        assert UsageCounter.SIGNALS_SPEND_CREDITS not in plans[0].modes
     if report_behavior == "concurrency":
         assert max_active == QUERY_CONCURRENCY
         assert max_active_counters == QUERY_CONCURRENCY
@@ -458,6 +512,8 @@ async def test_workflow_runs_query_then_aggregate(report_behavior: str, caplog: 
         assert plans[0].modes == {
             counter: expected_mode if counter in COUNTER_FLAG_NAMES else UsageCounterMode.LEGACY
             for counter in UsageCounter
+            if counter not in PLAN_DEFERRED_COUNTERS
+            and (not pre_signals_spend or counter != UsageCounter.SIGNALS_SPEND_CREDITS)
         }
     assert aggregate_payloads[0].ctx.usage_counter_plan == (plans[0] if plans else None)
 
