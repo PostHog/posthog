@@ -1,5 +1,8 @@
+from collections.abc import Sequence
 from typing import Any, Literal
 from uuid import UUID
+
+from django.db import models
 
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import serializers, status, viewsets
@@ -18,6 +21,7 @@ from products.messaging.backend.facade.provider_imports import (
     IMPORT_PROVIDER_CHOICES,
     IMPORT_STEP_STATUS_CHOICES,
     PROVIDER_IMPORT_STATUS_CHOICES,
+    ImportProviderOption,
     ProviderImportConflict,
     ProviderImportRejected,
     ProviderImportUnavailable,
@@ -42,6 +46,45 @@ class ImportProviderOptionSerializer(serializers.Serializer):
     )
     label = serializers.CharField(help_text="Display name of the provider.")  # type: ignore[assignment]  # field named `label` shadows DRF Field.label
     steps = ImportStepOptionSerializer(many=True, help_text="What the provider can import, in the order the steps run.")
+    retains_credentials = serializers.BooleanField(
+        help_text="Whether PostHog stores the API key for later imports. When false, PostHog deletes the key when the run ends, so each import needs it again."
+    )
+    api_key_label = serializers.CharField(help_text="Display name of the API key this provider asks for.")
+    api_key_help = serializers.CharField(help_text="What kind of key to create, and how PostHog handles it.")
+    api_key_url = serializers.URLField(
+        allow_null=True, help_text="The page in the provider's app where the person can create the key."
+    )
+    not_imported = serializers.CharField(
+        help_text="What the import can't bring over. Empty when there is nothing to say."
+    )
+    next_steps = serializers.ListField(
+        child=serializers.CharField(), help_text="What the person does once the import has finished, in order."
+    )
+
+
+class ImportStepCountSerializer(serializers.Serializer):
+    key = serializers.CharField(help_text="What the step counted, for example `complained`.")
+    label = serializers.CharField(help_text="Display text for the count, including what it means for sends.")  # type: ignore[assignment]  # field named `label` shadows DRF Field.label
+    value = serializers.IntegerField(help_text="The count so far.")
+
+
+class ImportItemStatus(models.TextChoices):
+    CREATED = "created", "Created"
+    SKIPPED = "skipped", "Left as it is"
+    FAILED = "failed", "Failed"
+    LISTED = "listed", "Listed"
+
+
+class ImportStepItemSerializer(serializers.Serializer):
+    label = serializers.CharField(help_text="The object's name, for example a template name or a domain.")  # type: ignore[assignment]  # field named `label` shadows DRF Field.label
+    status = serializers.ChoiceField(
+        choices=ImportItemStatus.choices,
+        help_text="`created` when the step made it, `skipped` when it already existed and stayed as it was, `failed` when it could not be made, `listed` when the step only reports it.",
+    )
+    url = serializers.CharField(allow_null=True, help_text="Where to open the object in PostHog, as an app path.")
+    notes = serializers.ListField(
+        child=serializers.CharField(), help_text="What to review, or what did not carry over exactly."
+    )
 
 
 class ImportStepProgressSerializer(serializers.Serializer):
@@ -62,6 +105,12 @@ class ImportStepProgressSerializer(serializers.Serializer):
         allow_null=True,
         help_text="The error from the step's most recent failed attempt. A running step retries after an error; a failed step stopped.",
     )
+    counts = ImportStepCountSerializer(
+        many=True, help_text="A breakdown of what the step did. Only counts above zero appear."
+    )
+    items = ImportStepItemSerializer(many=True, help_text="The objects the step handled, with anything to review.")
+    warnings_omitted = serializers.IntegerField(help_text="How many more warnings there were than `warnings` holds.")
+    items_omitted = serializers.IntegerField(help_text="How many more objects there were than `items` holds.")
 
 
 class ProviderImportRunSerializer(serializers.Serializer):
@@ -87,7 +136,8 @@ class StartProviderImportSerializer(serializers.Serializer):
     api_key = serializers.CharField(
         required=False,
         write_only=True,
-        help_text="The provider's API key. For Customer.io, an App API key. Leave it out to reuse the stored key.",
+        max_length=512,
+        help_text="The provider's API key. For Customer.io, an App API key: leave it out to reuse the stored key. For Resend, a full access key: PostHog deletes it when the run ends, so send it every time.",
     )
 
 
@@ -98,7 +148,7 @@ class ProviderUnavailable(APIException):
 
 class ProviderImportViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     """
-    Background imports from other messaging tools, such as Customer.io suppressions and global unsubscribes.
+    Background imports from other messaging tools, such as Customer.io and Resend suppressions and unsubscribes.
 
     A run executes outside the request, so a long provider list does not time out. Poll a run to show its progress.
     """
@@ -140,6 +190,8 @@ class ProviderImportViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         self._require_project_access("editor")
 
         data = request.validated_data
+        if data["provider"] not in {provider.key for provider in self._providers()}:
+            raise ValidationError(f"Unknown import provider: {data['provider']}.")
         try:
             run = start_provider_import(
                 self.team_id, data["provider"], data["steps"], data.get("api_key"), request.user.id
@@ -166,7 +218,10 @@ class ProviderImportViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     )
     @action(detail=False, methods=["get"], required_scopes=["hog_flow:read"])
     def providers(self, request: Request, **kwargs: Any) -> Response:
-        return Response(ImportProviderOptionSerializer(list_import_providers(), many=True).data)
+        return Response(ImportProviderOptionSerializer(self._providers(), many=True).data)
+
+    def _providers(self) -> Sequence[ImportProviderOption]:
+        return list_import_providers(str(self.team.uuid), str(self.team.organization_id))
 
     def _require_project_access(self, level: Literal["viewer", "editor"]) -> None:
         # Runs cover the whole project, not one workflow. Without this check, access to a single workflow would be

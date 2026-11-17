@@ -29,6 +29,7 @@ import {
 import { estimateTokens } from '@/lib/estimate-tokens'
 import { resolveGatewayTools } from '@/lib/gateway-tools'
 import { findIgnoredInputKeys, withIgnoredInputKeys } from '@/lib/ignored-input-keys'
+import { resolveMetricCatalogMode } from '@/lib/metric-catalog'
 import { challengeStepUpBeforeRun } from '@/lib/missing-scope'
 import { getPostHogClient } from '@/lib/posthog'
 import { sanitizeErrorToken } from '@/lib/posthog/analytics'
@@ -218,7 +219,7 @@ export class ToolExecutor {
             if (entry.name === EXECUTE_SQL_TOOL_NAME) {
                 return {
                     ...entry,
-                    description: this.instructionsBuilder.formatExecuteSqlDescription(),
+                    description: this.instructionsBuilder.formatExecuteSqlDescription(state),
                 }
             }
             return entry
@@ -389,9 +390,9 @@ export class ToolExecutor {
     // from the catalog, on both the native tools/list path and exec's `info` output.
     // trackToolCall stamps the catalog text by default, so it needs the served text
     // for this tool or $mcp_tool_description records words the agent never saw.
-    private servedToolDescription(toolName: string): string | undefined {
+    private servedToolDescription(toolName: string, state: ResolvedState): string | undefined {
         if (toolName === EXECUTE_SQL_TOOL_NAME) {
-            return this.instructionsBuilder.formatExecuteSqlDescription()
+            return this.instructionsBuilder.formatExecuteSqlDescription(state)
         }
         return undefined
     }
@@ -475,7 +476,7 @@ export class ToolExecutor {
                     ...errorAnalyticsProperties(classifyToolError(rejection, tool.name), rejection),
                 },
                 analyticsMeta,
-                this.servedToolDescription(tool.name)
+                this.servedToolDescription(tool.name, state)
             )
             return {
                 content: [{ type: 'text', text: message }],
@@ -560,7 +561,7 @@ export class ToolExecutor {
                     ...guidanceAnalyticsProperties(guidance),
                 },
                 { ...analyticsMeta, parameters: validation.data, response: handlerResult },
-                this.servedToolDescription(tool.name)
+                this.servedToolDescription(tool.name, state)
             )
 
             if (tool.name === EXECUTE_SQL_TOOL_NAME) {
@@ -617,7 +618,7 @@ export class ToolExecutor {
                     ...guidanceAnalyticsProperties(guidance),
                 },
                 { ...analyticsMeta, parameters: validation.data },
-                this.servedToolDescription(tool.name)
+                this.servedToolDescription(tool.name, state)
             )
 
             const errorMessage = extractErrorMessage(error)
@@ -803,7 +804,7 @@ export class ToolExecutor {
                     ...guidanceAnalyticsProperties(guidance),
                 },
                 execAnalyticsMeta(),
-                this.servedToolDescription(analyticsToolName())
+                this.servedToolDescription(analyticsToolName(), state)
             )
 
             return guided
@@ -835,7 +836,7 @@ export class ToolExecutor {
                     ...guidanceAnalyticsProperties(guidance),
                 },
                 execAnalyticsMeta(),
-                this.servedToolDescription(analyticsToolName())
+                this.servedToolDescription(analyticsToolName(), state)
             )
 
             const sessionUuid = await sessionUuidForError(state)
@@ -958,7 +959,7 @@ export class ToolExecutor {
             tool.name === EXECUTE_SQL_TOOL_NAME
                 ? {
                       ...tool,
-                      description: this.instructionsBuilder.formatExecuteSqlDescription(),
+                      description: this.instructionsBuilder.formatExecuteSqlDescription(state),
                   }
                 : tool
         )
@@ -982,6 +983,7 @@ export class ToolExecutor {
                 ...(state.heldTools ? { heldTools: state.heldTools } : {}),
                 builtInSkillHint: this.builtInSkillHint(state),
                 oauthClientId: state.oauthClientId,
+                metricCatalogLookup: resolveMetricCatalogMode(state.metricCatalog) === 'lookup',
                 ...(state.gatewayToolsEnabled
                     ? {
                           gatewayToolsProvider: () => this.gatewayToolsFor(state),

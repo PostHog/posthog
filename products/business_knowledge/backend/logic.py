@@ -3175,6 +3175,7 @@ def get_document_window(
     center_ordinal: int,
     *,
     radius: int = BK_DRILLDOWN_DEFAULT_RADIUS,
+    library_id: UUID | None = None,
 ) -> list[KnowledgeSearchResult]:
     """
     Return a contiguous span of chunks from one document, centered on
@@ -3188,7 +3189,7 @@ def get_document_window(
     high = center_ordinal + radius
 
     chunks = (
-        _safe_chunks_qs(team_id)
+        _safe_chunks_qs(team_id, library_id=library_id)
         .filter(document_id=document_id, ordinal__gte=low, ordinal__lte=high)
         .select_related("source", "document")
         .only(

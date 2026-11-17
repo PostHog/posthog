@@ -44,6 +44,7 @@ from social_core.backends.utils import load_backends
 from social_core.exceptions import AuthCanceled, AuthException, AuthFailed, AuthStateForbidden, AuthStateMissing
 from statshog.defaults.django import statsd
 
+from posthog.api.current_alias_usage import record_current_alias_use
 from posthog.api.shared import UserBasicSerializer
 from posthog.clickhouse.client.execute import clickhouse_query_counter
 from posthog.clickhouse.query_tagging import QueryCounter, get_query_tag_value, reset_query_tags, tag_queries
@@ -727,6 +728,7 @@ class CHQueries:
                     access_method=get_query_tag_value("access_method") or "",
                     status_class=status_class,
                 ).observe(time.perf_counter() - start)
+                record_current_alias_use(request, route=request_route(request), status_class=status_class)
             reset_query_tags()
 
     def process_view(

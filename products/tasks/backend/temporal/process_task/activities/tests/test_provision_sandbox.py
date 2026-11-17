@@ -379,8 +379,17 @@ def test_old_full_snapshot_agent_is_rejected_only_for_prewarmed_resume(
     assert _prewarmed_resume_needs_fresh_agent(context, prepared, sandbox, used_snapshot=True) is expected
 
 
-@pytest.mark.parametrize(("value", "expected"), [(None, "v1"), ("0", "v1"), ("1", "v2")])
-def test_modal_sandbox_backend_label(monkeypatch: pytest.MonkeyPatch, value: str | None, expected: str) -> None:
+@pytest.mark.parametrize(
+    ("value", "profile_value", "expected"),
+    [(None, None, "v2"), ("0", None, "v1"), ("1", False, "v2"), (None, False, "v1")],
+)
+def test_modal_sandbox_backend_label(
+    monkeypatch: pytest.MonkeyPatch, value: str | None, profile_value: bool | None, expected: str
+) -> None:
+    monkeypatch.setattr("modal.config._profile", "test")
+    monkeypatch.setattr(
+        "modal.config._user_config", {"test": {"sandbox_v2": profile_value}} if profile_value is not None else {}
+    )
     if value is None:
         monkeypatch.delenv("MODAL_SANDBOX_V2", raising=False)
     else:

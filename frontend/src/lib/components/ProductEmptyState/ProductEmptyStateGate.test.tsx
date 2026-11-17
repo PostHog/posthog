@@ -4,6 +4,8 @@ import { router } from 'kea-router'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { createSceneRenderedMark } from 'lib/utils/bootTiming'
+import { SceneRenderedMarkContext } from 'scenes/SceneContentFallback'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
 
@@ -56,6 +58,27 @@ describe('ProductEmptyStateGate', () => {
     })
 
     afterEach(() => cleanup())
+
+    it('holds scene readiness until setup detection resolves', async () => {
+        const setup = productSetupStatusLogic({ productKey: ProductKey.EXPERIMENTS })
+        setup.actions.setDetectedStatus('loading')
+        const scene = createSceneRenderedMark(() => {})
+        scene.sceneCommitted()
+        render(
+            <SceneRenderedMarkContext.Provider value={scene}>
+                <ProductEmptyStateGate emptyState={emptyState}>
+                    <div>the real scene</div>
+                </ProductEmptyStateGate>
+            </SceneRenderedMarkContext.Provider>
+        )
+        await act(async () => {})
+        expect(scene.getReadyVersion()).toBeNull()
+        expect(screen.queryByText('the real scene')).toBeNull()
+
+        await act(async () => setup.actions.setDetectedStatus('has-data'))
+        expect(scene.getReadyVersion()).not.toBeNull()
+        expect(screen.getByText('the real scene')).not.toBeNull()
+    })
 
     it.each([
         ['metrics', 'on'],

@@ -268,11 +268,14 @@ class TestImageExporter(APIBaseTest):
 
             assert self.exported_asset.content == b"image_data"
 
+    @parameterized.expand([(None,), ({"date_from": "-90d", "date_to": "2026-01-01"},)])
     @patch("products.exports.backend.tasks.image_exporter.calculate_for_query_based_insight")
-    def test_dashboard_export_calculates_all_insights(self, mock_calculate: Any, *args: Any) -> None:
+    def test_dashboard_export_calculates_all_insights(
+        self, selected_filters: dict | None, mock_calculate: Any, *args: Any
+    ) -> None:
         mock_calculate.return_value = make_insight_result("test_cache_key")
 
-        dashboard = Dashboard.objects.create(team=self.team, name="Test Dashboard")
+        dashboard = Dashboard.objects.create(team=self.team, name="Test Dashboard", filters={"date_from": "-7d"})
         insight_count = 3
 
         insights = []
@@ -293,6 +296,7 @@ class TestImageExporter(APIBaseTest):
             export_format=ExportedAsset.ExportFormat.PNG,
             dashboard=dashboard,
             insight=None,
+            export_context={"filters_override": selected_filters},
         )
 
         with self.settings(OBJECT_STORAGE_ENABLED=False):
@@ -306,6 +310,7 @@ class TestImageExporter(APIBaseTest):
             call_kwargs = call[1]
 
             assert call_kwargs["dashboard"].id == dashboard.id, f"Call {i + 1} missing dashboard"
+            assert call_kwargs["filters_override"] == (selected_filters or dashboard.filters)
 
             assert call_kwargs["execution_mode"] == ExecutionMode.CALCULATE_BLOCKING_ALWAYS, (
                 f"Call {i + 1} should use CALCULATE_BLOCKING_ALWAYS, got {call_kwargs['execution_mode']}"
