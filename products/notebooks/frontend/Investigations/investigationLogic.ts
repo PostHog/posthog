@@ -1,10 +1,11 @@
 import { MakeLogicType, actions, getContext, kea, key, listeners, path, props, propsChanged, reducers } from 'kea'
 import posthog from 'posthog-js'
 
+import { ApiError } from 'lib/api-error'
 import { uuid } from 'lib/utils/dom'
 
 import { performQuery } from '~/queries/query'
-import { HogQLQuery, NodeKind } from '~/queries/schema/schema-general'
+import { HogQLQuery, NodeKind, ProductKey } from '~/queries/schema/schema-general'
 
 import {
     InvestigationDocument,
@@ -114,7 +115,11 @@ export const investigationLogic = kea<investigationLogicType>([
                 for (const item of evidence) {
                     try {
                         const response = await performQuery<HogQLQuery>(
-                            { kind: NodeKind.HogQLQuery, query: item.sql },
+                            {
+                                kind: NodeKind.HogQLQuery,
+                                query: item.sql,
+                                tags: { productKey: ProductKey.NOTEBOOKS, name: 'investigation_evidence' },
+                            },
                             { signal: controller.signal, queryTelemetry: 'metadata' },
                             'force_async'
                         )
@@ -174,6 +179,12 @@ export const investigationLogic = kea<investigationLogicType>([
 ])
 
 function failedResult(evidence: InvestigationEvidence, error: unknown): InvestigationResult {
+    const message =
+        error instanceof ApiError
+            ? error.detail || error.message
+            : error instanceof Error
+              ? error.message
+              : 'Query failed. Review the SQL and run again.'
     return {
         evidenceId: evidence.id,
         title: evidence.title,
@@ -181,6 +192,6 @@ function failedResult(evidence: InvestigationEvidence, error: unknown): Investig
         columns: [],
         rows: [],
         truncated: false,
-        error: (error instanceof Error ? error.message : 'Query failed. Review the SQL and run again.').slice(0, 2000),
+        error: message.slice(0, 2000),
     }
 }

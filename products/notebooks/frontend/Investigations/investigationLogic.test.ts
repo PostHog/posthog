@@ -40,13 +40,15 @@ describe('investigationLogic', () => {
     afterEach(() => logic.unmount())
 
     it('records actual query results with their definition and preserves edits made during a run', async () => {
+        let submittedQuery: unknown
         let complete: () => void = () => {}
         const responseReady = new Promise<void>((resolve) => {
             complete = resolve
         })
         useMocks({
             post: {
-                '/api/environments/:team_id/query/:kind': async () => {
+                '/api/environments/:team_id/query/:kind': async ({ request }) => {
+                    submittedQuery = ((await request.json()) as { query: unknown }).query
                     await responseReady
                     return { columns: ['metric'], results: [[42]], hasMore: false }
                 },
@@ -58,6 +60,11 @@ describe('investigationLogic', () => {
         complete()
         await expectLogic(logic).toFinishAllListeners()
         expect(logic.values.running).toBe(false)
+        expect(submittedQuery).toMatchObject({
+            kind: 'HogQLQuery',
+            query: 'SELECT 42 AS metric',
+            tags: { productKey: 'notebooks', name: 'investigation_evidence' },
+        })
         expect(persisted.at(-1)).toMatchObject({
             conclusion: 'An edit during execution',
             runs: [
@@ -70,12 +77,22 @@ describe('investigationLogic', () => {
     })
 
     it('retains failures as failed evidence instead of silently keeping an older successful result', async () => {
-        useMocks({ post: { '/api/environments/:team_id/query/:kind': [400, { detail: 'Unknown field conversion' }] } })
+        useMocks({
+            post: {
+                '/api/environments/:team_id/query/:kind': { query_status: { id: 'failed-query', complete: false } },
+            },
+            get: {
+                '/api/environments/:team_id/query/failed-query/': [
+                    400,
+                    { query_status: { error_message: 'Unknown field conversion' } },
+                ],
+            },
+        })
         await expectLogic(logic, () => logic.actions.runEvidence()).toFinishAllListeners()
         expect(logic.values.running).toBe(false)
         expect(logic.values.document.runs[0].results[0]).toMatchObject({
             rows: [],
-            error: expect.stringContaining('Unknown field'),
+            error: 'Unknown field conversion',
         })
     })
 

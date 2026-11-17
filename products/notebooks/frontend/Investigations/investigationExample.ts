@@ -24,7 +24,7 @@ export function investigationExample(): InvestigationDocument {
                 reference: 2,
                 title: 'Conversion by acquisition channel',
                 kind: 'query',
-                sql: "SELECT 'Organic' AS channel, 240 AS trials, 60 AS converted UNION ALL SELECT 'Paid', 360, 50 ORDER BY channel",
+                sql: "SELECT 'Organic' AS channel, 240 AS trials, 60 AS converted UNION ALL SELECT 'Paid' AS channel, 360 AS trials, 50 AS converted ORDER BY channel",
                 url: '',
                 note: 'Paid traffic accounts for a larger share of the example cohort. These counts alone do not isolate a release effect.',
             },
@@ -96,7 +96,7 @@ export function investigationExample(): InvestigationDocument {
                     {
                         evidenceId: 'segments',
                         title: 'Conversion by acquisition channel',
-                        sql: "SELECT 'Organic' AS channel, 240 AS trials, 60 AS converted UNION ALL SELECT 'Paid', 360, 50 ORDER BY channel",
+                        sql: "SELECT 'Organic' AS channel, 240 AS trials, 60 AS converted UNION ALL SELECT 'Paid' AS channel, 360 AS trials, 50 AS converted ORDER BY channel",
                         columns: ['channel', 'trials', 'converted'],
                         rows: [
                             ['Organic', 240, 60],
