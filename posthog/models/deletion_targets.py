@@ -29,6 +29,7 @@ from posthog.models.event.sql import (
     DISTRIBUTED_EVENTS_JSON_TABLE,
     EVENTS_DATA_TABLE,
     EVENTS_JSON_DATA_TABLE,
+    SHARDED_EVENTS_JSON_RECENT_TABLE,
     SHARDED_EVENTS_RECENT_DATA_TABLE,
 )
 from posthog.models.flag_evaluations.sql import (
@@ -264,7 +265,10 @@ PERSON_ID_REWRITE_EXEMPT: frozenset[str] = frozenset()
 # sharded_events_recent is a transient mirror of the last few days of events, on a 7-day TTL keyed
 # on inserted_at. Seven days is a short enough window to accept as the erasure bound, and a sweep
 # would race the TTL for little benefit.
-TTL_ONLY_TABLES: frozenset[str] = frozenset({SHARDED_EVENTS_RECENT_DATA_TABLE()})
+#
+# sharded_events_json_recent holds the same recent events in the events_json shape, on a 9-day TTL
+# keyed on inserted_at. It is accepted on the same terms.
+TTL_ONLY_TABLES: frozenset[str] = frozenset({SHARDED_EVENTS_RECENT_DATA_TABLE(), SHARDED_EVENTS_JSON_RECENT_TABLE})
 
 
 _TABLE_EXISTS_SQL = "SELECT count() FROM system.tables WHERE database = %(database)s AND name = %(name)s"
