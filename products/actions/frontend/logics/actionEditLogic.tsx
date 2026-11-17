@@ -77,6 +77,13 @@ export interface actionEditLogicActions {
     loadEventDefinitions: (url?: string | null | undefined) => {
         url: string | null
     } // eventDefinitionsTableLogic
+    loadCurrentProjectSuccess: (
+        currentProject: null | import('~/types').ProjectType,
+        payload?: any
+    ) => {
+        currentProject: null | import('~/types').ProjectType
+        payload?: any
+    } // projectLogic
     actionAlreadyExists: (actionId: number | null) => {
         actionId: number | null
     }
@@ -205,7 +212,7 @@ export const actionEditLogic = kea<actionEditLogicType>([
     key((props) => `${props.id || 'new'}`),
     connect(() => ({
         values: [projectLogic, ['currentProjectId']],
-        actions: [eventDefinitionsTableLogic, ['loadEventDefinitions']],
+        actions: [eventDefinitionsTableLogic, ['loadEventDefinitions'], projectLogic, ['loadCurrentProjectSuccess']],
     })),
     actions({
         setAction: (action: Partial<ActionType>, options: SetActionProps = { merge: true }) => ({
@@ -390,7 +397,13 @@ export const actionEditLogic = kea<actionEditLogicType>([
         ],
     }),
 
-    listeners(({ values, actions }) => ({
+    listeners(({ values, actions, props }) => ({
+        loadCurrentProjectSuccess: () => {
+            // References need the project id, so an edit page mounted before the project loaded fetches them now.
+            if (props.id && values.references.length === 0 && !values.referencesLoading) {
+                actions.loadReferences()
+            }
+        },
         deleteAction: async () => {
             const actionId = values.action.id
             if (!actionId || values.currentProjectId === null) {
