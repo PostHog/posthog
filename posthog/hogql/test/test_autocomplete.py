@@ -934,12 +934,22 @@ class TestAutocomplete(ClickhouseTestMixin, APIBaseTest):
         [
             (
                 "",
-                ["models.revenue", "models.marts.revenue", "models.clash", "clash", "charge", "my_endpoint_v1"],
-                ["revenue", "marts.revenue", "models.charge", "models.my_endpoint_v1"],
+                [
+                    "models.revenue",
+                    "models.marts.revenue",
+                    "models.clash",
+                    "clash",
+                    "charge",
+                    "my_endpoint_v1",
+                    "models.costs",
+                    "models.finance.fees",
+                ],
+                ["revenue", "marts.revenue", "models.charge", "models.my_endpoint_v1", "costs", "finance.fees"],
             ),
-            ("models.", ["revenue", "marts.revenue", "clash"], ["models.revenue", "charge"]),
+            ("models.", ["revenue", "marts.revenue", "clash", "costs", "finance.fees"], ["models.revenue", "charge"]),
             ("models.marts.", ["revenue"], []),
             ("marts.", ["revenue"], []),
+            ("finance.", [], ["fees"]),
         ]
     )
     def test_autocomplete_suggests_authored_models_under_the_models_root(
@@ -951,6 +961,8 @@ class TestAutocomplete(ClickhouseTestMixin, APIBaseTest):
             ("clash", None),
             ("charge", DataWarehouseSavedQuery.Origin.MANAGED_VIEWSET),
             ("my_endpoint_v1", DataWarehouseSavedQuery.Origin.ENDPOINT),
+            ("models.costs", None),
+            ("models.finance.fees", None),
         ]:
             DataWarehouseSavedQuery.objects.create(
                 team=self.team, name=name, origin=origin, query={"query": "select * from events"}

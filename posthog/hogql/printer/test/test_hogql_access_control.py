@@ -1384,16 +1384,27 @@ class TestWarehouseViewAccessControl(BaseTest):
             credential=credential,
             url_pattern=view.url_pattern,
             columns={"id": "String"},
+            created_via=DataWarehouseTable.CreatedVia.MATERIALIZED_VIEW,
         )
         view.table = backing_table
         view.is_materialized = True
         view.save(update_fields=["table", "is_materialized"])
         return backing_table
 
-    @parameterized.expand([("view", False), ("materialized", True)])
-    def test_denied_model_is_refused_under_both_names(self, _name: str, materialized: bool):
+    @parameterized.expand(
+        [
+            ("view", False, False),
+            ("materialized", True, False),
+            ("stored_under_models", False, True),
+            ("stored_under_models_materialized", True, True),
+        ]
+    )
+    def test_denied_model_is_refused_under_both_names(self, _name: str, materialized: bool, stored_under_models: bool):
         from posthog.hogql.query import execute_hogql_query
 
+        if stored_under_models:
+            self.denied_view.name = "models.denied_view"
+            self.denied_view.save(update_fields=["name"])
         if materialized:
             self._materialize(self.denied_view)
         self._create_ac(
@@ -1417,8 +1428,43 @@ class TestWarehouseViewAccessControl(BaseTest):
             user=self.user,
         )
         listed = {row[0] for row in response.results or []}
-        assert "allowed_view" in listed
-        assert not {"denied_view", "models.denied_view", "models.allowed_view"} & listed
+        assert "models.allowed_view" in listed
+        assert not {"denied_view", "models.denied_view", "allowed_view"} & listed
+
+    @parameterized.expand([("warehouse_table", "orders"), ("posthog_table", "events")])
+    def test_a_denied_model_does_not_deny_the_table_holding_its_bare_name(self, _name: str, table_name: str):
+        from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
+        from products.warehouse_sources.backend.facade.models import DataWarehouseCredential, DataWarehouseTable
+
+        model = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name=f"models.{table_name}",
+            query={"kind": "HogQLQuery", "query": "SELECT 1 AS id"},
+            columns={"id": "String"},
+        )
+        if table_name == "orders":
+            credential = DataWarehouseCredential.objects.create(access_key="k", access_secret="s", team=self.team)
+            DataWarehouseTable.objects.create(
+                name=table_name,
+                format=DataWarehouseTable.TableFormat.Parquet,
+                team=self.team,
+                credential=credential,
+                url_pattern="s3://bucket/orders/*",
+                columns={"id": "String"},
+            )
+        self._create_ac(
+            resource="warehouse_view",
+            resource_id=str(model.id),
+            access_level="none",
+            member=self._membership(),
+        )
+
+        database = Database.create_for(team=self.team, user=self.user)
+
+        with self.assertRaises(TableAccessDeniedError):
+            database.get_table(f"models.{table_name}")
+        assert not database.is_table_access_denied(table_name)
+        assert not isinstance(database.get_table(table_name), SavedQuery)
 
     def test_a_denied_stored_models_name_is_not_taken_over_by_a_derived_slot(self):
         from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery

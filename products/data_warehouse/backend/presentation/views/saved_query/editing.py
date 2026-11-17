@@ -21,11 +21,11 @@ from posthog.hogql.database.database import (
     MODELS_NAMESPACE_QUERY_ERROR,
     Database,
     is_reserved_models_name,
-    models_namespace_chain,
+    models_alias_chain,
 )
 from posthog.hogql.database.models import SavedQuery, TableNode
 from posthog.hogql.direct_sql.trino_adapter import ensure_read_only_raw_trino_statement
-from posthog.hogql.errors import ExposedHogQLError
+from posthog.hogql.errors import ExposedHogQLError, ResolutionError
 from posthog.hogql.metadata import get_table_names
 from posthog.hogql.parser import parse_select
 from posthog.hogql.placeholders import FindPlaceholders
@@ -211,14 +211,11 @@ def _cadence_asks_to_materialize(view: DataWarehouseSavedQuery, sync_frequency: 
 def _authored_model_answering_to(
     team_id: int, name: str, exclude: DataWarehouseSavedQuery | None
 ) -> DataWarehouseSavedQuery | None:
-    if not name.startswith("models."):
-        return None
-    candidates = DataWarehouseSavedQuery.objects.filter(team_id=team_id, name=name.removeprefix("models.")).exclude(
-        deleted=True
-    )
+    stored_name = name.removeprefix("models.") if name.startswith("models.") else f"models.{name}"
+    candidates = DataWarehouseSavedQuery.objects.filter(team_id=team_id, name=stored_name).exclude(deleted=True)
     if exclude is not None:
         candidates = candidates.exclude(pk=exclude.pk)
-    return next((query for query in candidates if models_namespace_chain(query) == name.split(".")), None)
+    return next((query for query in candidates if models_alias_chain(query) == name.split(".")), None)
 
 
 INCREMENTAL_CONFIG_CHANGED_REFUSAL = (
@@ -512,10 +509,13 @@ class DataWarehouseSavedQuerySerializer(
         nodes: list[TableNode] = []
         seen_node_ids: set[int] = set()
         chains = [view.name_chain]
-        if (models_chain := models_namespace_chain(view)) is not None:
+        if (models_chain := models_alias_chain(view)) is not None:
             chains.append(models_chain)
         for chain in chains:
-            node = database.get_table_node(chain)
+            try:
+                node = database.get_table_node(chain)
+            except ResolutionError:
+                continue
             saved_query_id = (
                 node.table.id if isinstance(node.table, SavedQuery) else getattr(node.table, "saved_query_id", None)
             )
@@ -1106,13 +1106,14 @@ class DataWarehouseSavedQuerySerializer(
                 DataWarehouseSavedQuery.Origin.MANAGED_VIEWSET,
             }:
                 raise serializers.ValidationError(MODELS_NAMESPACE_QUERY_ERROR)
-            own_chain = models_namespace_chain(self.instance)
+            own_chain = models_alias_chain(self.instance)
             own_models_name = ".".join(own_chain) if own_chain is not None else None
 
         validate_saved_query_name(name)
 
-        # An authored model answers to `models.<its name>` for the whole team, and has_table hides models the
-        # caller is denied, so a denied caller could otherwise take that name over for everyone.
+        # An authored model answers to its alias (`models.x` for `x`, `x` for `models.x`) for the whole team,
+        # and has_table hides models the caller is denied, so a denied caller could otherwise take that name
+        # over for everyone.
         instance = self.instance if isinstance(self.instance, DataWarehouseSavedQuery) else None
         owner = _authored_model_answering_to(self.context["team_id"], name, instance)
         if owner is not None:
@@ -1125,8 +1126,7 @@ class DataWarehouseSavedQuerySerializer(
         # has_table covers system/posthog tables and warehouse objects the requesting user can see; it's
         # user-filtered, so also resolve the name team-wide using get_view_or_table_by_name.
         # Otherwise a user with denied table could create another one with colliding name.
-        # An authored model already resolves under `models.<stored name>`, so a rename to that name
-        # collides with nothing. The two lookups below still reject it if a stored view or table holds it.
+        # An authored model already resolves under its alias, so a rename to that name collides with nothing. The two lookups below still reject it if a stored view or table holds it.
         if (
             (name != own_models_name and self.context["database"].has_table(name))
             or get_view_or_table_by_name(self.context["team_id"], name)

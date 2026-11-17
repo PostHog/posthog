@@ -257,28 +257,81 @@ class TestModelsNamespaceDualRegistration(BaseTest):
         assert listed_name in database.get_visible_table_names()
         assert unlisted_name not in database.get_visible_table_names()
 
-    def test_the_models_name_reaches_the_model_when_a_warehouse_table_holds_the_bare_name(self) -> None:
-        credential = DataWarehouseCredential.objects.create(access_key="key", access_secret="secret", team=self.team)
-        DataWarehouseTable.objects.create(
-            name="revenue",
-            format="Parquet",
-            team=self.team,
-            credential=credential,
-            url_pattern="https://bucket.s3/data/*",
-            columns={
-                "table_only": {"hogql": "StringDatabaseField", "clickhouse": "Nullable(String)", "schema_valid": True}
-            },
-        )
-        self._create("revenue")
+    @parameterized.expand(
+        [
+            ("authored", "models.revenue", Origin.DATA_WAREHOUSE, "revenue", True),
+            ("null_origin", "models.revenue", None, "revenue", True),
+            ("dotted", "models.marts.revenue", Origin.DATA_WAREHOUSE, "marts.revenue", True),
+            ("managed_viewset", "models.charge", Origin.MANAGED_VIEWSET, "charge", False),
+            ("endpoint", "models.my_endpoint_v1", Origin.ENDPOINT, "my_endpoint_v1", False),
+            ("nested_models_root", "models.models.revenue", Origin.DATA_WAREHOUSE, "models.revenue", False),
+        ]
+    )
+    def test_a_bare_name_reaches_its_model_when_nothing_else_holds_it(
+        self, _name: str, stored_name: str, origin: str | None, bare_name: str, resolves: bool
+    ) -> None:
+        # save() refuses `models.` names for machine-made rows, so those rows get theirs past it.
+        saved_query = self._create("placeholder", origin)
+        DataWarehouseSavedQuery.objects.filter(pk=saved_query.pk).update(name=stored_name)
+
+        database = Database.create_for(team=self.team)
+
+        assert database.has_table(bare_name) is resolves
+        if resolves:
+            assert database.get_table(bare_name) is database.get_table(stored_name)
+        assert stored_name in database.get_view_names()
+        assert bare_name not in database.get_view_names()
+        assert bare_name not in database.get_visible_table_names()
+        serialized = database.serialize(HogQLContext(team_id=self.team.pk, database=database), include_fields=False)
+        assert stored_name in serialized
+        assert bare_name not in serialized
+
+    @parameterized.expand(
+        [
+            ("stored_bare_table_first", "revenue", True),
+            ("stored_bare_model_first", "revenue", False),
+            ("stored_under_models_table_first", "models.revenue", True),
+            ("stored_under_models_model_first", "models.revenue", False),
+        ]
+    )
+    def test_the_models_name_reaches_the_model_when_a_warehouse_table_holds_the_bare_name(
+        self, _name: str, stored_name: str, table_first: bool
+    ) -> None:
+        def create_table() -> None:
+            credential = DataWarehouseCredential.objects.create(
+                access_key="key", access_secret="secret", team=self.team
+            )
+            DataWarehouseTable.objects.create(
+                name="revenue",
+                format="Parquet",
+                team=self.team,
+                credential=credential,
+                url_pattern="https://bucket.s3/data/*",
+                columns={
+                    "table_only": {
+                        "hogql": "StringDatabaseField",
+                        "clickhouse": "Nullable(String)",
+                        "schema_valid": True,
+                    }
+                },
+            )
+
+        if table_first:
+            create_table()
+        self._create(stored_name)
+        if not table_first:
+            create_table()
 
         database = Database.create_for(team=self.team)
 
         assert isinstance(database.get_table("models.revenue"), SavedQuery)
+        assert not isinstance(database.get_table("revenue"), SavedQuery)
         assert "revenue" in database.get_warehouse_table_names()
         assert database.get_view_names() == ["models.revenue"]
         assert {"revenue", "models.revenue"} <= set(database.get_visible_table_names())
         serialized = database.serialize(HogQLContext(team_id=self.team.pk, database=database))
         assert list(serialized["models.revenue"].fields) == ["id"]
+        assert "table_only" in serialized["revenue"].fields
 
     def test_a_stored_models_name_wins_over_a_derived_one(self) -> None:
         legacy = self._create("arr", query="SELECT 'legacy' AS id")
@@ -302,15 +355,17 @@ class TestModelsNamespaceDualRegistration(BaseTest):
 
     @parameterized.expand(
         [
-            ("stored_name", "revenue", False),
-            ("models_name", "models.revenue", False),
-            ("stored_models_name_wins", "models.revenue", True),
+            ("stored_name", "revenue", "revenue", False),
+            ("models_name", "revenue", "models.revenue", False),
+            ("stored_models_name_wins", "revenue", "models.revenue", True),
+            ("stored_under_models_by_bare_name", "models.revenue", "revenue", False),
+            ("stored_under_models_by_stored_name", "models.revenue", "models.revenue", False),
         ]
     )
     def test_event_modifier_maps_a_model_under_either_name(
-        self, _name: str, modifier_table_name: str, stored_models_name_exists: bool
+        self, _name: str, stored_name: str, modifier_table_name: str, stored_models_name_exists: bool
     ) -> None:
-        self._create("revenue")
+        self._create(stored_name)
         if stored_models_name_exists:
             self._create("models.revenue")
         modifiers = HogQLQueryModifiers(
@@ -335,12 +390,21 @@ class TestModelsNamespaceDualRegistration(BaseTest):
         if stored_models_name_exists:
             assert not isinstance(database.get_table("revenue").fields["id"], ExpressionField)
 
-    @parameterized.expand([("stored_name", "revenue"), ("models_name", "models.revenue")])
-    def test_event_modifier_finds_the_events_join_under_either_name(self, _name: str, modifier_table_name: str) -> None:
-        self._create("revenue")
+    @parameterized.expand(
+        [
+            ("stored_name", "revenue", "revenue", "revenue"),
+            ("models_name", "revenue", "revenue", "models.revenue"),
+            ("stored_under_models_join_on_bare_name", "models.revenue", "revenue", "revenue"),
+            ("stored_under_models_modifier_on_bare_name", "models.revenue", "models.revenue", "revenue"),
+        ]
+    )
+    def test_event_modifier_finds_the_events_join_under_either_name(
+        self, _name: str, stored_name: str, join_source_table_name: str, modifier_table_name: str
+    ) -> None:
+        self._create(stored_name)
         DataWarehouseJoin.objects.create(
             team=self.team,
-            source_table_name="revenue",
+            source_table_name=join_source_table_name,
             source_table_key="id",
             joining_table_name="events",
             joining_table_key="distinct_id",

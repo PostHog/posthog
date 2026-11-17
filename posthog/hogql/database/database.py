@@ -354,20 +354,36 @@ def is_reserved_models_name(name: str) -> bool:
     return name == "models" or name.startswith("models.")
 
 
-def models_namespace_chain(saved_query: Any) -> list[str] | None:
-    """The `models.` path an authored saved query also resolves under, or None when it gets only its stored name.
-
-    `origin` is nullable on old rows, so authored means "not machine-made" rather than an exact origin match.
-    """
+def _is_authored_model(saved_query: Any) -> bool:
+    # `origin` is nullable on old rows, so authored means "not machine-made" rather than an exact origin match.
     origin = getattr(saved_query, "origin", None)
     if origin in (DataWarehouseSavedQueryOrigin.ENDPOINT, DataWarehouseSavedQueryOrigin.MANAGED_VIEWSET):
-        return None
-    if getattr(saved_query, "managed_viewset_id", None) is not None:
-        return None
+        return False
+    return getattr(saved_query, "managed_viewset_id", None) is None
+
+
+def models_namespace_chain(saved_query: Any) -> list[str] | None:
+    """The `models.` path an authored saved query also resolves under, or None when it gets only its stored name."""
     name: str = saved_query.name
-    if is_reserved_models_name(name) or is_reserved_system_name(name):
+    if not _is_authored_model(saved_query) or is_reserved_models_name(name) or is_reserved_system_name(name):
         return None
     return ["models", *name.split(".")]
+
+
+def models_bare_chain(saved_query: Any) -> list[str] | None:
+    """The bare path an authored model stored as `models.x` also resolves under, or None when it gets only its stored name."""
+    name: str = saved_query.name
+    if not _is_authored_model(saved_query) or not name.startswith("models."):
+        return None
+    bare_name = name.removeprefix("models.")
+    if is_reserved_models_name(bare_name) or is_reserved_system_name(bare_name):
+        return None
+    return bare_name.split(".")
+
+
+def models_alias_chain(saved_query: Any) -> list[str] | None:
+    """The second path an authored model answers to: `models.x` for a stored `x`, and `x` for a stored `models.x`."""
+    return models_namespace_chain(saved_query) or models_bare_chain(saved_query)
 
 
 def _revenue_trigger_prefixes(handles: list[SourceHandle]) -> set[str]:
@@ -1014,8 +1030,21 @@ class Database(BaseModel):
         alias_target = self._models_aliases.get(table_name)
         return alias_target is not None and ".".join(alias_target) in self._denied_tables
 
+    def _drop_taken_bare_aliases(self, trees: list[TableNode], deferred_prefixes: set[str]) -> None:
+        """A bare alias only takes a free slot. A table or view that holds the name, or a deferred revenue
+        view that will, keeps it, and the model stays reachable under its stored `models.` name."""
+        self._models_aliases = {
+            alias: chain
+            for alias, chain in self._models_aliases.items()
+            if alias.startswith("models.")
+            or not (
+                any(tree.has_child(alias.split(".")) for tree in trees)
+                or alias.split(".")[0].lower() in deferred_prefixes
+            )
+        }
+
     def _canonical_table_name(self, name: str) -> str:
-        """The stored name of the view a `models.` alias resolves to; any other name comes back unchanged."""
+        """The stored name of the model an alias resolves to; any other name comes back unchanged."""
         alias_target = self._models_aliases.get(name)
         return ".".join(alias_target) if alias_target is not None else name
 
@@ -2526,8 +2555,10 @@ class Database(BaseModel):
         if modifiers.dataWarehouseEventsModifiers:
             with timings.measure("data_warehouse_event_modifiers_fetch", emit_span=True):
                 names = {warehouse_modifier.table_name for warehouse_modifier in modifiers.dataWarehouseEventsModifiers}
-                # A modifier on `models.x` maps onto the stored view `x`, so fetch that row too.
-                names |= {name.removeprefix("models.") for name in names if name.startswith("models.")}
+                # A modifier on `models.x` can map onto a stored `x`, and one on `x` onto a stored `models.x`.
+                names |= {
+                    name.removeprefix("models.") if name.startswith("models.") else f"models.{name}" for name in names
+                }
                 event_modifier_saved_queries = dict.fromkeys(names)
                 for saved_query in DataWarehouseSavedQuery.objects.exclude(deleted=True).filter(
                     team_id=team.pk, name__in=names
@@ -2775,10 +2806,12 @@ class Database(BaseModel):
                 with timings.measure(f"saved_query_{saved_query.name}"):
                     if is_reserved_system_name(saved_query.name):
                         continue
-                    models_chain = models_namespace_chain(saved_query)
-                    if models_chain is not None and ".".join(models_chain) not in stored_names:
-                        database._models_aliases[".".join(models_chain)] = saved_query.name.split(".")
-                        database._models_listed_names[saved_query.name] = ".".join(models_chain)
+                    alias_chain = models_alias_chain(saved_query)
+                    if alias_chain is not None and ".".join(alias_chain) not in stored_names:
+                        database._models_aliases[".".join(alias_chain)] = saved_query.name.split(".")
+                        # Listings show the `models.` name, so only the forward alias renames a row.
+                        if alias_chain[0] == "models":
+                            database._models_listed_names[saved_query.name] = ".".join(alias_chain)
                     if (
                         sources.is_hogql_warehouse_access_control_enabled
                         and not sources.bypass_warehouse_access_control
@@ -2998,6 +3031,12 @@ class Database(BaseModel):
                         database._direct_access_warehouse_table_names.add(table_key)
 
         db_span.set_attribute("warehouse_table_count", len(sources.warehouse_tables))
+
+        # Before the joins, modifiers and foreign keys below match names through the aliases.
+        database._drop_taken_bare_aliases(
+            [database.tables, warehouse_tables, self_managed_warehouse_tables, views],
+            _revenue_trigger_prefixes(deferred_revenue_handles),
+        )
 
         # Index warehouse table models by name, newest wins, mirroring the eager path's `.latest()`.
         warehouse_table_models_by_name: dict[str, DataWarehouseTable] = {}

@@ -2651,21 +2651,26 @@ class TestSavedQuery(APIBaseTest):
                 "The models namespace is reserved for data models. Choose a different name.",
             ),
             ("authored", DataWarehouseSavedQuery.Origin.DATA_WAREHOUSE, 200, None),
+            ("authored_out_of_the_namespace", DataWarehouseSavedQuery.Origin.DATA_WAREHOUSE, 200, None),
         ]
     )
     def test_rename_into_models_namespace(
-        self, _case: str, origin: str, expected_status: int, expected_detail: str | None
+        self, case: str, origin: str, expected_status: int, expected_detail: str | None
     ) -> None:
+        old_name, new_name = (
+            ("models.revenue", "revenue") if case.endswith("out_of_the_namespace") else ("revenue", "models.revenue")
+        )
         saved_query = DataWarehouseSavedQuery.objects.create(
             team=self.team,
             name="revenue",
             origin=origin,
             query={"kind": "HogQLQuery", "query": "select event as event from events LIMIT 100"},
         )
+        DataWarehouseSavedQuery.objects.filter(pk=saved_query.pk).update(name=old_name)
 
         response = self.client.patch(
             f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query.id}",
-            {"name": "models.revenue"},
+            {"name": new_name},
         )
 
         self.assertEqual(response.status_code, expected_status, response.content)
