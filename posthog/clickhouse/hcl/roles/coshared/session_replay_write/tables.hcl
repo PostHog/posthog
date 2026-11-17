@@ -89,9 +89,6 @@ database "posthog" {
       type    = "SimpleAggregateFunction(max, UInt8)"
       default = "0"
     }
-    column "surfacing_score" {
-      type = "SimpleAggregateFunction(max, Nullable(Float32))"
-    }
     engine "distributed" {
       cluster_name    = "posthog"
       remote_database = "posthog"

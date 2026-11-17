@@ -4661,9 +4661,6 @@ database "posthog" {
     column "ai_highlighted" {
       type = "UInt8"
     }
-    column "surfacing_score" {
-      type = "Nullable(Float32)"
-    }
     engine "kafka" {
       collection = "msk_cluster"
       topic_list = "clickhouse_session_replay_events"
@@ -10335,9 +10332,6 @@ SQL
       type    = "SimpleAggregateFunction(max, UInt8)"
       default = "0"
     }
-    column "surfacing_score" {
-      type = "SimpleAggregateFunction(max, Nullable(Float32))"
-    }
     column "snapshot_mode_v2" {
       type = "AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))"
     }
@@ -13826,9 +13820,6 @@ SQL
     column "ai_highlighted" {
       type    = "SimpleAggregateFunction(max, UInt8)"
       default = "0"
-    }
-    column "surfacing_score" {
-      type = "SimpleAggregateFunction(max, Nullable(Float32))"
     }
     column "snapshot_mode_v2" {
       type = "AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))"
@@ -19174,9 +19165,6 @@ SQL
     column "ai_highlighted" {
       type    = "SimpleAggregateFunction(max, UInt8)"
       default = "0"
-    }
-    column "surfacing_score" {
-      type = "SimpleAggregateFunction(max, Nullable(Float32))"
     }
     engine "distributed" {
       cluster_name    = "posthog"
@@ -24896,7 +24884,6 @@ SELECT
   groupUniqArrayArray(ai_tags_fixed) AS ai_tags_fixed,
   groupUniqArrayArray(ai_tags_freeform) AS ai_tags_freeform,
   max(ai_highlighted) AS ai_highlighted,
-  max(surfacing_score) AS surfacing_score,
   argMinState(replay.snapshot_mode, first_timestamp) AS snapshot_mode_v2
 FROM posthog.kafka_session_replay_events AS replay
 GROUP BY
@@ -24989,9 +24976,6 @@ SQL
     }
     column "ai_highlighted" {
       type = "SimpleAggregateFunction(max, UInt8)"
-    }
-    column "surfacing_score" {
-      type = "SimpleAggregateFunction(max, Nullable(Float32))"
     }
   }
 
