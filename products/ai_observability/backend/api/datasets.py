@@ -67,6 +67,7 @@ from products.ai_observability.backend.api.resource_tags import (
     ResourceTagsReadSerializer,
     ResourceTagsWriteSerializer,
 )
+from products.ai_observability.backend.dataset_limits import DatasetConflictResponseResource
 from products.ai_observability.backend.dataset_queries import (
     consistent_dataset_item_versions,
     dataset_item_versions_at_revision,
@@ -186,7 +187,7 @@ class DatasetConflictResponseSerializer(serializers.Serializer):
         help_text="Existing item ID when the conflict concerns a client item ID.",
     )
     resource = serializers.ChoiceField(
-        choices=["datasets", "dataset_items", "dataset_item_versions", "project_dataset_item_versions"],
+        choices=DatasetConflictResponseResource.choices,
         required=False,
         help_text="Resource whose configured limit was reached.",
     )

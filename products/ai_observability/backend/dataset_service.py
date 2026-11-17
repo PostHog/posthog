@@ -16,7 +16,11 @@ from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team, User
 
-from products.ai_observability.backend.dataset_limits import MAX_DATASET_ITEM_PAYLOAD_BYTES, MAX_ITEMS_PER_DATASET
+from products.ai_observability.backend.dataset_limits import (
+    MAX_DATASET_ITEM_PAYLOAD_BYTES,
+    MAX_ITEMS_PER_DATASET,
+    DatasetConflictResponseResource,
+)
 from products.ai_observability.backend.dataset_queries import latest_dataset_revision
 from products.ai_observability.backend.dataset_retention import DatasetUsage
 from products.ai_observability.backend.models.datasets import Dataset, DatasetItem, DatasetItemVersion, DatasetRevision
@@ -84,7 +88,7 @@ class DatasetLimitExceeded(Exception):
     def __init__(
         self,
         *,
-        resource: Literal["datasets", "dataset_items", "dataset_item_versions", "project_dataset_item_versions"],
+        resource: DatasetConflictResponseResource,
         current_count: int,
         limit: int,
         detail: str,
@@ -393,7 +397,7 @@ def _create_item_version(
             )
         )
         raise DatasetLimitExceeded(
-            resource="dataset_item_versions",
+            resource=DatasetConflictResponseResource.DATASET_ITEM_VERSIONS,
             current_count=current_count,
             limit=MAX_VERSIONS_PER_ITEM,
             detail=detail,
@@ -408,7 +412,7 @@ def _create_item_version(
     )
     if retained_versions >= MAX_RETAINED_VERSIONS_PER_TEAM:
         raise DatasetLimitExceeded(
-            resource="project_dataset_item_versions",
+            resource=DatasetConflictResponseResource.PROJECT_DATASET_ITEM_VERSIONS,
             current_count=retained_versions,
             limit=MAX_RETAINED_VERSIONS_PER_TEAM,
             detail=(
@@ -502,7 +506,7 @@ def create_dataset(
     )
     if current_count >= max_datasets:
         raise DatasetLimitExceeded(
-            resource="datasets",
+            resource=DatasetConflictResponseResource.DATASETS,
             current_count=current_count,
             limit=max_datasets,
             detail=(
@@ -673,7 +677,7 @@ def create_dataset_item(
     )
     if current_count >= MAX_ITEMS_PER_DATASET:
         raise DatasetLimitExceeded(
-            resource="dataset_items",
+            resource=DatasetConflictResponseResource.DATASET_ITEMS,
             current_count=current_count,
             limit=MAX_ITEMS_PER_DATASET,
             detail=(
