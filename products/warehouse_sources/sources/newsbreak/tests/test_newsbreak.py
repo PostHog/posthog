@@ -393,6 +393,14 @@ class TestErrors:
                 "NewsBreak API error -1 for /ad-account/getGroupsByOrgIds: Unknown error",
             ),
             (ScriptedResponse(status=503, json={}), "NewsBreak returned HTTP 503"),
+            # A 400 that `raise_for_status()` would otherwise reduce to a generic "Bad Request", losing
+            # the reason NewsBreak put in the body.
+            (
+                ScriptedResponse(status=400, json={"errMsg": "startDate must be within 30 days of endDate"}),
+                "NewsBreak returned HTTP 400 for /ad-account/getGroupsByOrgIds: startDate must be within 30 days of endDate",
+            ),
+            (ScriptedResponse(status=400, json={}), "NewsBreak returned HTTP 400"),
+            (ScriptedResponse(status=404, body=b"not json"), "NewsBreak returned HTTP 404"),
         ],
     )
     def test_maps_vendor_errors(self, answer: ScriptedResponse, expected: str) -> None:

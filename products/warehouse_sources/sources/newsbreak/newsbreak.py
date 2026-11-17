@@ -142,6 +142,17 @@ def _retry_after(response: requests.Response) -> Optional[float]:
         return None
 
 
+def _client_error_message(response: requests.Response, path: str) -> str:
+    try:
+        body = response.json()
+    except ValueError:
+        body = None
+    err_msg = body.get("errMsg") if isinstance(body, dict) else None
+    if err_msg:
+        return f"NewsBreak returned HTTP {response.status_code} for {path}: {err_msg}"
+    return f"NewsBreak returned HTTP {response.status_code} for {path}"
+
+
 _backoff = wait_exponential_jitter(initial=5, max=60)
 
 
@@ -188,7 +199,10 @@ class NewsBreakClient:
             raise NewsBreakRateLimitError(f"NewsBreak returned HTTP 429 for {path}", retry_after=_retry_after(response))
         if response.status_code >= 500:
             raise NewsBreakRetryableError(f"NewsBreak returned HTTP {response.status_code} for {path}")
-        response.raise_for_status()
+        if response.status_code >= 400:
+            # `raise_for_status()` would discard the body and leave only a generic "Bad Request" for the
+            # customer, even though NewsBreak's own body often names what was wrong with the request.
+            raise NewsBreakAPIError(_client_error_message(response, path))
         try:
             body = response.json()
         except ValueError as error:
