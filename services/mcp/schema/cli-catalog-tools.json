@@ -40490,6 +40490,10 @@
                     "key": "model"
                 },
                 {
+                    "param": "custom_image_id",
+                    "key": "custom_image_id"
+                },
+                {
                     "param": "tags",
                     "key": "tags"
                 },
@@ -40785,6 +40789,10 @@
                 {
                     "param": "model",
                     "key": "model"
+                },
+                {
+                    "param": "custom_image_id",
+                    "key": "custom_image_id"
                 },
                 {
                     "param": "auto_pause_exempt",
@@ -43267,6 +43275,10 @@
                     "key": "model"
                 },
                 {
+                    "param": "custom_image_id",
+                    "key": "custom_image_id"
+                },
+                {
                     "param": "tags",
                     "key": "tags"
                 },
@@ -43525,6 +43537,10 @@
                 {
                     "param": "model",
                     "key": "model"
+                },
+                {
+                    "param": "custom_image_id",
+                    "key": "custom_image_id"
                 },
                 {
                     "param": "auto_pause_exempt",
