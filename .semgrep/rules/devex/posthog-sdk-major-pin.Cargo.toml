@@ -17,3 +17,15 @@ posthog-rs = { workspace = true }
 posthog-rs = { git = "https://github.com/PostHog/posthog-rs", rev = "abc123" }
 # ok: posthog-sdk-major-pin-rust
 posthog-symbol-data = "*"
+
+# ruleid: posthog-sdk-major-pin-rust
+[dependencies.posthog-rs]
+features = ["async-client"]
+version = ">=0.30"
+
+# ok: posthog-sdk-major-pin-rust
+[workspace.dependencies.posthog-rs]
+version = "0.33.1"
+
+[dependencies.other]
+version = "*"

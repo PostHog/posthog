@@ -18,7 +18,7 @@ rules:
       # "catalog:", "workspace:*" and "github:" values have a colon, so they do not match.
       pattern-either:
           - pattern-regex: '"(?:posthog-js|posthog-js-lite|posthog-node|posthog-react-native|@posthog/ai|@posthog/react)"\s*:\s*"(?:[*xX]|[A-Za-z][\w.-]*|>[^"<]*)?"'
-          - pattern-regex: '(?m)^[ \t]*[''"]?(?:posthog-js|posthog-js-lite|posthog-node|posthog-react-native|@posthog/ai|@posthog/react)[''"]?[ \t]*:[ \t]*[''"]?(?:[*xX]|[A-Za-z][\w.-]*|>[^''"<\n]*)[''"]?[ \t]*$'
+          - pattern-regex: '(?m)^[ \t]*[''"]?(?:posthog-js|posthog-js-lite|posthog-node|posthog-react-native|@posthog/ai|@posthog/react)[''"]?[ \t]*:[ \t]*[''"]?(?:[*xX]|[A-Za-z][\w.-]*|>[^''"<#\n]*)[''"]?[ \t]*(?:#[^\n]*)?$'
       metadata:
           category: best-practice
           subcategory:
@@ -48,11 +48,12 @@ rules:
                 # requirements.txt / .in lines
                 - pattern-regex: '(?m)^[ \t]*(?:posthoganalytics|posthog)(?:\[[^\]\n]*\])?(?=[ \t]*(?:[<>!~;#]|==|$))(?![^#;\n]*(?:==|~=|<))'
                 # PEP 621 dependency strings
-                - pattern-regex: '"(?![^"\n]*(?:==|~=|<))(?:posthoganalytics(?:\[[^\]"]*\])?(?:\s*[>!;][^"\n]*)?|posthog(?:\[[^\]"]*\])?\s*[>!;][^"\n]*)"'
+                - pattern-regex: '"(?![^";\n]*(?:==|~=|<))(?:posthoganalytics(?:\[[^\]"]*\])?(?:\s*[>!;][^"\n]*)?|posthog(?:\[[^\]"]*\])?\s*[>!;][^"\n]*)"'
+                - pattern-regex: '''(?![^'';\n]*(?:==|~=|<))(?:posthoganalytics(?:\[[^\]'']*\])?(?:\s*[>!;][^''\n]*)?|posthog(?:\[[^\]'']*\])?\s*[>!;][^''\n]*)'''
                 # Poetry-style tables
                 - pattern-regex: '(?m)^[ \t]*(?:posthoganalytics|posthog)[ \t]*=[ \t]*"(?:\*|[>!][^"<\n]*)"'
           # A cap that lives elsewhere in the manifest: a uv constraint, or a pip constraints file.
-          - pattern-not-regex: '(?sm)\A(?=.*(?:constraint-dependencies[^\n]*posthog(?:analytics)?\s*<|^[ \t]*(?:-c|--constraint)[ \t=])).*\z'
+          - pattern-not-regex: '(?sm)\A(?=.*(?:^[ \t]*constraint-dependencies[ \t]*=[ \t]*\[(?:[^\]#]|#[^\n]*\n)*?[''"]posthog(?:analytics)?\s*<|^[ \t]*(?:-c|--constraint)[ \t=])).*\z'
       metadata:
           category: best-practice
           subcategory:
@@ -75,6 +76,7 @@ rules:
           - pattern-regex: '(?m)^[ \t]*posthog-rs[ \t]*=[ \t]*"(?:\*|>[^"<\n]*)"'
           - pattern-regex: '(?m)^[ \t]*posthog-rs[ \t]*=[ \t]*\{[^}\n]*\bversion[ \t]*=[ \t]*"(?:\*|>[^"<\n]*)"'
           - pattern-regex: '(?m)^[ \t]*posthog-rs[ \t]*=[ \t]*\{(?![^}\n]*\b(?:version|rev|tag|workspace|path)[ \t]*=)[^}\n]*\bgit[ \t]*='
+          - pattern-regex: '(?m)^[ \t]*\[(?:[^\]\n]*\.)?(?:dev-|build-)?dependencies\.posthog-rs\][ \t]*$(?:(?!^[ \t]*\[)[\s\S])*?^[ \t]*version[ \t]*=[ \t]*"(?:\*|>[^"<\n]*)"'
       metadata:
           category: best-practice
           subcategory:
