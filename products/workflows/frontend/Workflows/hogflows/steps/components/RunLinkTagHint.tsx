@@ -1,4 +1,4 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 
 import { Link } from '@posthog/lemon-ui'
 
@@ -7,6 +7,7 @@ import { urls } from 'scenes/urls'
 
 export function RunLinkTagHint(): JSX.Element | null {
     const { currentTeam } = useValues(teamLogic)
+    const { refreshCurrentTeam } = useActions(teamLogic)
     if (!currentTeam) {
         return null
     }
@@ -20,6 +21,8 @@ export function RunLinkTagHint(): JSX.Element | null {
             <Link
                 to={urls.settings('environment-workflows', 'workflows-email-run-link-tag')}
                 target="_blank"
+                // The setting changes in another tab, so reload the team when this tab gets focus back.
+                onClick={() => window.addEventListener('focus', () => refreshCurrentTeam(), { once: true })}
                 data-attr="workflows-run-link-tag-settings-link"
             >
                 {enabled ? 'Turn it off in settings' : 'Turn it on in settings'}

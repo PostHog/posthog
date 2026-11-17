@@ -12,7 +12,6 @@ import { IntegrationType } from '~/types'
 import { EmailSetupModal } from '../../Channels/EmailSetup/EmailSetupModal'
 import { AiEmailDraftStatus } from '../../MessageAudience/AiEmailDraftStatus'
 import { buildSampleGlobals } from '../../Workflows/hogflows/steps/components/HogFlowFunctionConfiguration'
-import { RunLinkTagHint } from '../../Workflows/hogflows/steps/components/RunLinkTagHint'
 import { utmKeysFromDefaultAfterEdit } from '../../Workflows/hogflows/steps/components/utmDefaults'
 import { UTM_TAG_KEYS, UtmTagFields } from '../../Workflows/hogflows/steps/components/UtmTagFields'
 import { UtmTeamDefaultControls } from '../../Workflows/hogflows/steps/components/UtmTeamDefaultControls'
@@ -25,6 +24,7 @@ import {
 } from '../broadcastWizardLogic'
 import { BroadcastChannelSwitch } from './BroadcastChannelSwitch'
 import { BroadcastPushComposer } from './BroadcastPushComposer'
+import { BroadcastTrackingSwitch } from './BroadcastTrackingSwitch'
 
 export function BroadcastContentStep(): JSX.Element {
     const {
@@ -177,20 +177,10 @@ export function BroadcastContentStep(): JSX.Element {
                     <code>{'{{ person.properties.email }}'}</code> to send each person their own email.
                 </span>
             ) : null}
-            <LemonSwitch
-                label="Track opens and link clicks"
+            <BroadcastTrackingSwitch
                 checked={emailSettings.trackingEnabled}
                 onChange={(trackingEnabled) => setEmailSettings({ trackingEnabled })}
-                bordered
-                data-attr="broadcast-tracking-toggle"
             />
-            {emailSettings.trackingEnabled ? (
-                <RunLinkTagHint />
-            ) : (
-                <span className="text-xs text-secondary">
-                    Links stay as written and no tracking pixel is added, so this broadcast shows no opens or clicks.
-                </span>
-            )}
             <LemonSwitch
                 label="Add UTM tags to links"
                 checked={emailSettings.utmTagsEnabled}

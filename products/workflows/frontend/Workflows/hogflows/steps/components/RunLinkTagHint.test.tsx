@@ -2,10 +2,11 @@ import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
 import '@testing-library/jest-dom'
 
-import { cleanup, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 
 import { teamLogic } from 'scenes/teamLogic'
 
+import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import { RunLinkTagHint } from './RunLinkTagHint'
@@ -39,5 +40,23 @@ describe('<RunLinkTagHint />', () => {
             'href',
             expect.stringMatching(/\/settings\/environment-workflows#workflows-email-run-link-tag$/)
         )
+    })
+    it('shows the new setting when the user comes back from the settings tab', async () => {
+        useMocks({
+            get: {
+                '/api/projects/:id/': {
+                    ...MOCK_DEFAULT_TEAM,
+                    workflows_config: { email_workflow_run_link_tag_enabled: false },
+                },
+            },
+        })
+        render(<RunLinkTagHint />)
+
+        fireEvent.click(screen.getByText('Turn it off in settings'))
+        await act(async () => {
+            window.dispatchEvent(new Event('focus'))
+        })
+
+        expect(await screen.findByText(/don't get ph_workflow_run/)).toBeInTheDocument()
     })
 })

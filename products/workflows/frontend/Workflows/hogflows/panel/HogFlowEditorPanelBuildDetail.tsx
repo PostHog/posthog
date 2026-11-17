@@ -178,6 +178,7 @@ export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
                                             config: { ...action.config, tracking_enabled: checked },
                                         })
                                     }}
+                                    data-attr="workflow-email-tracking-toggle"
                                 />
                             </div>
                             {action.config.tracking_enabled !== false && (
