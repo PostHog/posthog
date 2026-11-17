@@ -2,14 +2,12 @@ import { BatchCoalescer } from './batch-coalescer'
 
 describe('BatchCoalescer', () => {
     let processed: number[][]
-    let receivedAts: number[]
     let settled: string[]
 
     const coalescer = (windowMs: number, maxBatches: number, fail?: Error): BatchCoalescer<number> =>
         new BatchCoalescer<number>(
-            (items, receivedAt) => {
+            (items) => {
                 processed.push(items)
-                receivedAts.push(receivedAt.getTime())
                 return fail ? Promise.reject(fail) : Promise.resolve()
             },
             windowMs,
@@ -25,7 +23,6 @@ describe('BatchCoalescer', () => {
     beforeEach(() => {
         jest.useFakeTimers()
         processed = []
-        receivedAts = []
         settled = []
     })
 
@@ -44,9 +41,8 @@ describe('BatchCoalescer', () => {
         expect(processed).toEqual([[1], [2]])
     })
 
-    it('processes the batches that arrive within the window together, as of when the first arrived', async () => {
+    it('processes the batches that arrive within the window together, and settles them all after', async () => {
         const batches = coalescer(200, 5)
-        const firstArrivedAt = Date.now()
         const first = track('first', batches.add([1, 2]))
         await jest.advanceTimersByTimeAsync(150)
         const second = track('second', batches.add([3]))
@@ -58,7 +54,6 @@ describe('BatchCoalescer', () => {
         await jest.advanceTimersByTimeAsync(1)
         await Promise.all([first, second])
         expect(processed).toEqual([[1, 2, 3]])
-        expect(receivedAts).toEqual([firstArrivedAt])
         expect(settled).toEqual(['first:ok', 'second:ok'])
     })
 

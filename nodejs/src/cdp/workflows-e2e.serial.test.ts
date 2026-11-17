@@ -2218,7 +2218,7 @@ describe('Workflows E2E (postgres-v2)', () => {
             await matcher.processBatch(
                 [createGlobals({ event: 'conversion_event' })],
                 'events',
-                new Date(expiredAt.getTime() - 1000)
+                () => new Date(expiredAt.getTime() - 1000)
             )
             await waitForExpect(() => {
                 expect(conversionCount()).toBe(1)

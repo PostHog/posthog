@@ -172,6 +172,7 @@ type ParkedCandidate = {
     actionId: string | null
     distinctId: string | null
     personId: string | null
+    scheduled: Date
 }
 
 // A distinct_id repointed by a merge: the distinct_id and the survivor person it now resolves to.
@@ -277,11 +278,12 @@ export class CdpHogflowSubscriptionMatcherConsumer<
     private watcherRefreshNumber = 0
     // An events batch carries few events a flow can act on, so most lookups cost a query for little.
     private eventWakes: BatchCoalescer<HogFunctionInvocationGlobals>
+    private eventArrivals = new WeakMap<HogFunctionInvocationGlobals, Date>()
 
     constructor(config: TConfig, deps: CdpConsumerBaseDeps) {
         super(config, deps)
         this.eventWakes = new BatchCoalescer(
-            (globals, receivedAt) => this.processBatch(globals, 'events', receivedAt),
+            (globals) => this.processBatch(globals, 'events', (g) => this.eventArrivals.get(g)),
             config.CDP_HOGFLOW_SUBSCRIPTION_MATCHER_EVENTS_COALESCE_MS,
             config.CONSUMER_MAX_BACKGROUND_TASKS
         )
@@ -350,18 +352,19 @@ export class CdpHogflowSubscriptionMatcherConsumer<
         })
     }
 
-    // A held batch is judged against waits and goals as they stood when it arrived, so holding it past a
-    // deadline cannot cost its wake or conversion.
+    // An event counts against a wait or goal only if it arrived before that wait's deadline or that goal's
+    // expiry, so holding it for a lookup neither costs nor earns a wake or conversion.
     public async processBatch(
         invocationGlobals: HogFunctionInvocationGlobals[],
         source: WakeSource = 'events',
-        receivedAt: Date = new Date()
+        arrivalOf?: (globals: HogFunctionInvocationGlobals) => Date | undefined
     ): Promise<void> {
         if (!invocationGlobals.length) {
             return
         }
         try {
-            await this.wakeMatchingWorkflows(invocationGlobals, source, receivedAt)
+            const now = new Date()
+            await this.wakeMatchingWorkflows(invocationGlobals, source, (g) => arrivalOf?.(g) ?? now)
         } finally {
             // Flush any `conversion` metrics and `$workflows_conversion` events queued during matching.
             // Best-effort: a flush failure must not crash the batch (which would replay the event
@@ -384,8 +387,10 @@ export class CdpHogflowSubscriptionMatcherConsumer<
     private async wakeMatchingWorkflows(
         invocationGlobals: HogFunctionInvocationGlobals[],
         source: WakeSource,
-        receivedAt: Date
+        arrivedAt: (globals: HogFunctionInvocationGlobals) => Date
     ): Promise<void> {
+        // The lookups take the earliest arrival, then each candidate keeps only the events that beat it.
+        const earliestArrival = new Date(Math.min(...invocationGlobals.map((g) => arrivedAt(g).getTime())))
         const indexed = indexBatch(invocationGlobals)
         const { teamIds, distinctTeamIds, distinctIds, personTeamIds, personIds, byDistinctId, byPersonId } = indexed
         if (byDistinctId.size === 0 && byPersonId.size === 0) {
@@ -433,7 +438,8 @@ export class CdpHogflowSubscriptionMatcherConsumer<
                 indexBatch(watcherGlobals),
                 filterGlobalsFor,
                 eventsOnly,
-                receivedAt
+                earliestArrival,
+                arrivedAt
             )
             counterHogflowMatcherConversionsCounted.inc(conversionsCounted)
         }
@@ -462,7 +468,7 @@ export class CdpHogflowSubscriptionMatcherConsumer<
             personIds,
             Object.keys(hogflows),
             source,
-            receivedAt
+            earliestArrival
         )
         if (candidates.length === 0) {
             return
@@ -476,7 +482,9 @@ export class CdpHogflowSubscriptionMatcherConsumer<
                 continue
             }
 
-            const candidateGlobals = collectCandidateGlobals(candidate, byDistinctId, byPersonId)
+            const candidateGlobals = collectCandidateGlobals(candidate, byDistinctId, byPersonId).filter(
+                (globals) => arrivedAt(globals) < candidate.scheduled
+            )
             if (candidateGlobals.length === 0) {
                 continue
             }
@@ -602,7 +610,7 @@ export class CdpHogflowSubscriptionMatcherConsumer<
         personIds: string[],
         functionIds: string[],
         source: WakeSource,
-        receivedAt: Date
+        earliestArrival: Date
     ): Promise<ParkedCandidate[]> {
         // Two index-friendly branches with UNION (dedupes rows that match both keys).
         // A single OR across distinct_id and person_id often forces Postgres into a
@@ -623,20 +631,20 @@ export class CdpHogflowSubscriptionMatcherConsumer<
         let result
         try {
             result = await this.cyclotronPool.query(
-                `SELECT id, team_id, function_id, parent_run_id, action_id, distinct_id, person_id
+                `SELECT id, team_id, function_id, parent_run_id, action_id, distinct_id, person_id, scheduled
              FROM cyclotron_jobs
              WHERE status = 'available'
                AND scheduled > $6
                AND function_id = ANY($5::uuid[])
                AND (team_id, distinct_id) IN (SELECT * FROM unnest($1::int[], $2::text[]))
              UNION
-             SELECT id, team_id, function_id, parent_run_id, action_id, distinct_id, person_id
+             SELECT id, team_id, function_id, parent_run_id, action_id, distinct_id, person_id, scheduled
              FROM cyclotron_jobs
              WHERE status = 'available'
                AND scheduled > $6
                AND function_id = ANY($5::uuid[])
                AND (team_id, person_id) IN (SELECT * FROM unnest($3::int[], $4::text[]))`,
-                [distinctTeamIds, distinctIds, personTeamIds, personIds, functionIds, receivedAt]
+                [distinctTeamIds, distinctIds, personTeamIds, personIds, functionIds, earliestArrival]
             )
         } finally {
             stopTimer()
@@ -650,6 +658,7 @@ export class CdpHogflowSubscriptionMatcherConsumer<
             actionId: row.action_id,
             distinctId: row.distinct_id,
             personId: row.person_id,
+            scheduled: row.scheduled,
         }))
     }
 
@@ -749,7 +758,8 @@ export class CdpHogflowSubscriptionMatcherConsumer<
         indexed: IndexedBatch,
         filterGlobalsFor: (globals: HogFunctionInvocationGlobals) => FilterGlobals,
         eventsOnly: boolean,
-        receivedAt: Date
+        earliestArrival: Date,
+        arrivedAt: (globals: HogFunctionInvocationGlobals) => Date
     ): Promise<number> {
         const { distinctTeamIds, distinctIds, personTeamIds, personIds, byDistinctId, byPersonId } = indexed
 
@@ -757,16 +767,16 @@ export class CdpHogflowSubscriptionMatcherConsumer<
         let found
         try {
             found = await this.cyclotronPool.query(
-                `SELECT id, team_id, function_id, run_id, parent_run_id, distinct_id, person_id, flow_version, goal, created_at
+                `SELECT id, team_id, function_id, run_id, parent_run_id, distinct_id, person_id, flow_version, goal, created_at, expires_at
                  FROM conversion_watchers
                  WHERE expires_at > $5
                    AND (team_id, distinct_id) IN (SELECT * FROM unnest($1::int[], $2::text[]))
                  UNION
-                 SELECT id, team_id, function_id, run_id, parent_run_id, distinct_id, person_id, flow_version, goal, created_at
+                 SELECT id, team_id, function_id, run_id, parent_run_id, distinct_id, person_id, flow_version, goal, created_at, expires_at
                  FROM conversion_watchers
                  WHERE expires_at > $5
                    AND (team_id, person_id) IN (SELECT * FROM unnest($3::int[], $4::text[]))`,
-                [distinctTeamIds, distinctIds, personTeamIds, personIds, receivedAt]
+                [distinctTeamIds, distinctIds, personTeamIds, personIds, earliestArrival]
             )
         } finally {
             stopTimer()
@@ -794,7 +804,7 @@ export class CdpHogflowSubscriptionMatcherConsumer<
                 { teamId: row.team_id, distinctId: row.distinct_id, personId: row.person_id },
                 byDistinctId,
                 byPersonId
-            )
+            ).filter((globals) => arrivedAt(globals) < row.expires_at)
             const goal: PinnedConversionGoal = eventsOnly
                 ? { events: row.goal.events?.filter((bytecode: unknown) => !readsPerson(bytecode)) }
                 : row.goal
@@ -1403,8 +1413,16 @@ export class CdpHogflowSubscriptionMatcherConsumer<
     ): (messages: Message[]) => Promise<{ backgroundTask: Promise<void> }> {
         return async (messages) =>
             await instrumentFn(instrumentKey, async () => ({
-                backgroundTask: this.eventWakes.add(await this._parseKafkaBatch(messages)),
+                backgroundTask: this.eventWakes.add(this.stampArrival(await this._parseKafkaBatch(messages))),
             }))
+    }
+
+    private stampArrival(invocationGlobals: HogFunctionInvocationGlobals[]): HogFunctionInvocationGlobals[] {
+        const arrivedAt = new Date()
+        for (const globals of invocationGlobals) {
+            this.eventArrivals.set(globals, arrivedAt)
+        }
+        return invocationGlobals
     }
 
     public override async stop(): Promise<void> {

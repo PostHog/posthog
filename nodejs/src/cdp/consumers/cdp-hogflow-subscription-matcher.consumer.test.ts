@@ -40,6 +40,7 @@ type MockRow = {
     distinct_id: string | null
     person_id: string | null
     state?: Buffer | null
+    scheduled?: Date
 }
 
 const eventBytecode = (eventName: string): any[] => ['_H', 1, 32, eventName, 32, 'event', 1, 1, 11]
@@ -154,6 +155,7 @@ class MatcherUnderTest extends CdpHogflowSubscriptionMatcherConsumer {
                 return Promise.resolve({ rows: [], rowCount: 0 })
             }
             this.calls.push({ sql, params })
+            const farFuture = new Date('2100-01-01T00:00:00Z')
             if (sql.startsWith('DELETE FROM conversion_watchers')) {
                 // Deleting the row IS the claim, so only rows this DELETE removed may be counted.
                 // `claimedWatcherIds` models another instance having won some of them first.
@@ -164,10 +166,12 @@ class MatcherUnderTest extends CdpHogflowSubscriptionMatcherConsumer {
             }
             // Checked before the parked-job lookup: both select `id, team_id, function_id`.
             if (sql.includes('FROM conversion_watchers')) {
-                return Promise.resolve({ rows: this.watcherRows, rowCount: this.watcherRows.length })
+                const rows = this.watcherRows.map((r) => ({ expires_at: farFuture, ...r }))
+                return Promise.resolve({ rows, rowCount: rows.length })
             }
             if (sql.includes('SELECT id, team_id, function_id')) {
-                return Promise.resolve({ rows: this.findRows, rowCount: this.findRows.length })
+                const rows = this.findRows.map((r) => ({ scheduled: farFuture, ...r }))
+                return Promise.resolve({ rows, rowCount: rows.length })
             }
             if (sql.includes('SELECT id, state FROM cyclotron_jobs')) {
                 return Promise.resolve({ rows: this.wakeRows, rowCount: this.wakeRows.length })
@@ -239,7 +243,8 @@ class MatcherUnderTest extends CdpHogflowSubscriptionMatcherConsumer {
     }
 
     public async runWake(invocationGlobals: HogFunctionInvocationGlobals[], source?: string): Promise<void> {
-        await (this as any).wakeMatchingWorkflows(invocationGlobals, source ?? 'events', new Date())
+        const now = new Date()
+        await (this as any).wakeMatchingWorkflows(invocationGlobals, source ?? 'events', () => now)
     }
 
     // start() arms the watcher sweep and team-refresh intervals, and only stop() clears them. This
@@ -378,6 +383,51 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
                     )
                     .map(([config]) => config.topic)
                 expect(realtimeOnlyTopics).toEqual(topic ? [topic] : [])
+            }
+        )
+
+        it.each([
+            { waitEventBatch: 'first', woken: true },
+            { waitEventBatch: 'second', woken: false },
+        ])(
+            'judges a held wait event by its own arrival when the wait times out between batches (wait event in the $waitEventBatch batch)',
+            async ({ waitEventBatch, woken }) => {
+                const firstArrival = Date.parse('2026-11-17T12:00:00Z')
+                const coalescing = new MatcherUnderTest({
+                    CDP_HOGFLOW_SUBSCRIPTION_MATCHER_EVENTS_COALESCE_MS: 60_000,
+                    CONSUMER_MAX_BACKGROUND_TASKS: 2,
+                })
+                coalescing.setHogFlows({ 'flow-1': makeHogFlow({ id: 'flow-1', team_id: 1 }) })
+                coalescing.findRows = [
+                    {
+                        id: 'job-1',
+                        team_id: 1,
+                        function_id: 'flow-1',
+                        action_id: 'wait_node',
+                        distinct_id: 'user-1',
+                        person_id: null,
+                        scheduled: new Date(firstArrival + 200),
+                    },
+                ]
+                coalescing.wakeRows = [
+                    { ...coalescing.findRows[0], state: stateBuffer({ currentAction: { id: 'wait_node' } }) },
+                ]
+                coalescing.updateRowCount = 1
+                const handleBatch = (coalescing as any).eventsBatchHandler('test')
+                const eventFor = (batch: string): any =>
+                    rawEvent({ event: batch === waitEventBatch ? 'wuc_subscribed' : 'random_event' })
+
+                jest.useFakeTimers({ now: firstArrival, doNotFake: ['nextTick', 'setImmediate', 'queueMicrotask'] })
+                try {
+                    const first = await handleBatch([eventFor('first')])
+                    jest.setSystemTime(firstArrival + 400)
+                    const second = await handleBatch([eventFor('second')])
+                    await Promise.all([first.backgroundTask, second.backgroundTask])
+                } finally {
+                    jest.useRealTimers()
+                }
+
+                expect(coalescing.calls.some((c) => c.sql.startsWith('UPDATE cyclotron_jobs'))).toBe(woken)
             }
         )
 
@@ -1942,6 +1992,39 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
             )
             expect(lookup?.params.slice(0, 4) ?? null).toEqual(expectedPairs)
         })
+
+        it.each([
+            { goalEventBatch: 'first', counted: true },
+            { goalEventBatch: 'second', counted: false },
+        ])(
+            'judges a held goal event by its own arrival when the goal expires between batches (goal event in the $goalEventBatch batch)',
+            async ({ goalEventBatch, counted }) => {
+                const firstArrival = Date.parse('2026-11-17T12:00:00Z')
+                const coalescing = new MatcherUnderTest({
+                    CDP_HOGFLOW_SUBSCRIPTION_MATCHER_EVENTS_COALESCE_MS: 60_000,
+                    CONSUMER_MAX_BACKGROUND_TASKS: 2,
+                })
+                ;(coalescing as any).liveWatcherFlowsByTeam = new Map([[1, new Map([['flow-1', 0]])]])
+                coalescing.watcherRows = [watcher({ expires_at: new Date(firstArrival + 200) })]
+                const handleBatch = (coalescing as any).eventsBatchHandler('test')
+                const eventFor = (batch: string): any =>
+                    rawEvent({ event: batch === goalEventBatch ? 'wuc_cancelled' : 'wuc_subscribed' })
+
+                jest.useFakeTimers({ now: firstArrival, doNotFake: ['nextTick', 'setImmediate', 'queueMicrotask'] })
+                try {
+                    const first = await handleBatch([eventFor('first')])
+                    jest.setSystemTime(firstArrival + 400)
+                    const second = await handleBatch([eventFor('second')])
+                    await Promise.all([first.backgroundTask, second.backgroundTask])
+                } finally {
+                    jest.useRealTimers()
+                }
+
+                const lookup = coalescing.calls.find((c) => c.sql.includes('FROM conversion_watchers'))
+                expect(lookup?.params[4]).toEqual(new Date(firstArrival))
+                expect(coalescing.calls.some((c) => c.sql.startsWith('DELETE FROM conversion_watchers'))).toBe(counted)
+            }
+        )
 
         it('counts a claimed watcher and emits the conversion event with its run id', async () => {
             matcher.watcherRows = [watcher()]

@@ -1,7 +1,6 @@
 type PendingGroup<T> = {
     items: T[]
     batches: number
-    receivedAt: Date
     timer: NodeJS.Timeout
     done: Promise<void>
     resolve: () => void
@@ -15,14 +14,14 @@ export class BatchCoalescer<T> {
     private pending: PendingGroup<T> | null = null
 
     constructor(
-        private readonly process: (items: T[], receivedAt: Date) => Promise<void>,
+        private readonly process: (items: T[]) => Promise<void>,
         private readonly windowMs: number,
         private readonly maxBatches: number
     ) {}
 
     add(items: T[]): Promise<void> {
         if (!(this.windowMs > 0 && this.maxBatches > 1)) {
-            return this.run(items, new Date())
+            return this.run(items)
         }
         if (!this.pending) {
             if (items.length === 0) {
@@ -47,7 +46,7 @@ export class BatchCoalescer<T> {
         }
         this.pending = null
         clearTimeout(group.timer)
-        this.run(group.items, group.receivedAt).then(group.resolve, group.reject)
+        this.run(group.items).then(group.resolve, group.reject)
     }
 
     private startGroup(): PendingGroup<T> {
@@ -58,10 +57,10 @@ export class BatchCoalescer<T> {
             reject = rej
         })
         const timer = setTimeout(() => this.flush(), this.windowMs)
-        return { items: [], batches: 0, receivedAt: new Date(), timer, done, resolve, reject }
+        return { items: [], batches: 0, timer, done, resolve, reject }
     }
 
-    private run(items: T[], receivedAt: Date): Promise<void> {
-        return Promise.resolve().then(() => this.process(items, receivedAt))
+    private run(items: T[]): Promise<void> {
+        return Promise.resolve().then(() => this.process(items))
     }
 }
