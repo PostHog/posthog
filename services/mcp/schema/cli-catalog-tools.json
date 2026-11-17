@@ -28548,6 +28548,51 @@
             "validators": []
         }
     },
+    "inbox-source-filter-preview": {
+        "name": "inbox-source-filter-preview",
+        "kind": "http",
+        "requires": [],
+        "hooks": null,
+        "uiApp": null,
+        "request": {
+            "method": "POST",
+            "path": "/api/projects/{project_id}/signals/source_configs/filter_preview/",
+            "pathParams": [],
+            "fallbacks": [],
+            "query": null,
+            "body": [
+                {
+                    "param": "source_product",
+                    "key": "source_product"
+                },
+                {
+                    "param": "source_type",
+                    "key": "source_type"
+                },
+                {
+                    "param": "expression",
+                    "key": "expression"
+                }
+            ],
+            "injectBody": {},
+            "softDelete": null,
+            "transformBody": false
+        },
+        "response": {
+            "list": false,
+            "filter": null,
+            "stripNulls": false,
+            "enrich": null,
+            "agentNote": null,
+            "informational": null,
+            "textInclude": []
+        },
+        "input": {
+            "aliases": {},
+            "casts": {},
+            "validators": []
+        }
+    },
     "inbox-steering-instructions-get": {
         "name": "inbox-steering-instructions-get",
         "kind": "http",
