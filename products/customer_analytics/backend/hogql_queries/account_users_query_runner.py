@@ -71,9 +71,9 @@ class AccountUsersPersonsTable(PersonsTable):
         query.settings = (query.settings or HogQLQuerySettings()).model_copy(
             update={"optimize_aggregation_in_order": False}
         )
-        # Do not move the account filter into PREWHERE. ClickHouse runs an IN subquery in PREWHERE on a
-        # distributed table as a separate remote query before the person read, which adds a hop and reads
-        # person twice. In WHERE, the replica that reads person runs the subquery itself.
+        if self.filter is not None and query.where is not None:
+            query.prewhere = query.where
+            query.where = None
         return query
 
 
