@@ -748,9 +748,14 @@ class PostgresDestinationWriter:
         # The probe batch exports uses. `information_schema.tables` would be the obvious
         # query, but it only exists on the leader node of a Redshift cluster, and Redshift
         # inherits this method.
+        #
+        # `_ensure_table` only creates the schema once this returns, so a destination's
+        # first-ever run against a schema it hasn't created yet must read as "table missing"
+        # too, not raise: `InvalidSchemaName` is Postgres's and Redshift's error for a schema
+        # that does not exist, the same way `UndefinedTable` is for a table.
         try:
             await client.aget_table_columns(self._schema, table)
-        except psycopg.errors.UndefinedTable:
+        except (psycopg.errors.UndefinedTable, psycopg.errors.InvalidSchemaName):
             return False
         return True
 
