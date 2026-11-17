@@ -2,7 +2,8 @@
 
 Each function gets one task on the queue the save-time task uses. The tasks score regardless of the team flag,
 record the content hash, and tag their events with this run's ID. Turning off the `cdp-abuse-classifier-backfill`
-flag stops the run before its next function, both here and in tasks already queued.
+flag stops the run before its next function, both here and in tasks already queued. Passing an earlier run's
+`--run-id` resumes it: functions that run already scored are skipped, and failed or dropped ones are queued again.
 """
 
 import time
@@ -27,6 +28,7 @@ class Command(BaseCommand):
         parser.add_argument("--after-id", help="Resume after this hog function ID, as printed by an earlier run.")
         parser.add_argument("--rate", type=float, default=5.0, help="Tasks queued per second. 0 means no limit.")
         parser.add_argument("--dry-run", action="store_true", help="Print the count and queue nothing.")
+        parser.add_argument("--run-id", help="Resume an earlier run, skipping the functions it already scored.")
 
     def handle(self, *args: Any, **options: Any) -> None:
         hog_functions = (
@@ -45,14 +47,16 @@ class Command(BaseCommand):
             self.stdout.write(f"Dry run: {len(targets)} functions would be queued.")
             return
 
-        run_id = uuid.uuid4().hex
-        self.stdout.write(f"run_id {run_id}: queueing {len(targets)} functions")
+        run_id = options["run_id"] or uuid.uuid4().hex
+        self.stdout.write(f"run_id {run_id}: considering {len(targets)} functions")
         queued = 0
         last_id = None
         for hog_function_id, team_id in targets:
             if not shadow.backfill_enabled():
                 self.stdout.write(f"Kill switch {shadow.BACKFILL_FLAG} is off: stopped after {queued}.")
                 break
+            if options["run_id"] and shadow.scored_in_backfill(run_id, str(hog_function_id)):
+                continue
             backfill_hog_function_abuse_score.delay(
                 team_id=team_id, hog_function_id=str(hog_function_id), run_id=run_id
             )
@@ -60,4 +64,6 @@ class Command(BaseCommand):
             last_id = hog_function_id
             if options["rate"] > 0:
                 time.sleep(1 / options["rate"])
-        self.stdout.write(f"run_id {run_id}: queued {queued}. Resume with --after-id {last_id}.")
+        self.stdout.write(
+            f"run_id {run_id}: queued {queued}, last {last_id}. Resume with --run-id {run_id} to retry failures."
+        )

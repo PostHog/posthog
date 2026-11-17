@@ -52,9 +52,12 @@ class FakeGateway:
     def __init__(self) -> None:
         self.requests: list[httpx.Request] = []
         self.response = httpx.Response(200, json=_decision(SCORES))
+        self.error: Exception | None = None
 
     def handle(self, request: httpx.Request) -> httpx.Response:
         self.requests.append(request)
+        if self.error is not None:
+            raise self.error
         return self.response
 
     def bodies(self) -> list[str]:
@@ -223,14 +226,33 @@ class TestAbuseClassification(BaseTest):
         }
         assert SECRET_VALUE not in json.dumps(event, default=str)
 
-    def test_a_gateway_failure_is_captured_as_an_error_event(self) -> None:
-        self.gateway.response = httpx.Response(503, json={"error": "busy"})
+    @parameterized.expand(
+        [
+            ("refused", httpx.Response(503, json={"error": "busy"}), None, "gateway_error"),
+            ("unreachable", None, httpx.ConnectError("connection refused"), "gateway_unreachable"),
+            ("unreadable", httpx.Response(200, json=_decision({"internal_network": 0.1})), None, "invalid_answer"),
+        ]
+    )
+    def test_a_gateway_failure_is_captured_as_an_error_event(
+        self, _name: str, response: httpx.Response | None, error: Exception | None, reason: str
+    ) -> None:
+        if response is not None:
+            self.gateway.response = response
+        self.gateway.error = error
 
         self.create_destination()
 
         [event] = self.captured_events()
-        assert event["properties"]["error"] == "gateway_error"
+        assert event["properties"]["error"] == reason
         assert "risk_score" not in event["properties"]
+
+    def test_an_oversized_function_is_cut_to_the_state_limit_and_flagged(self) -> None:
+        self.create_destination(hog="print('padding')\n" * 10_000 + "fetch('http://169.254.169.254/latest')")
+
+        [body] = self.gateway.bodies()
+        [event] = self.captured_events()
+        assert len(json.dumps(json.loads(body)["state"], ensure_ascii=False, separators=(",", ":"))) <= 65_536
+        assert event["properties"]["state_truncated"] is True
 
     @parameterized.expand([("name_only", {"name": "Renamed"}, 1), ("code", {"hog": "print('changed')"}, 2)])
     def test_a_resave_is_scored_again_only_when_its_content_changes(
@@ -398,3 +420,19 @@ class TestAbuseClassification(BaseTest):
         assert save_event["properties"]["trigger"] == "save"
         assert backfill_event["properties"]["trigger"] == "backfill"
         assert backfill_event["properties"]["backfill_run_id"] == run_id.group(1)
+
+    def test_a_resumed_backfill_run_scores_only_what_it_has_not_scored(self) -> None:
+        self.flags.enabled[TEAM_FLAG] = False
+        self.create_destination()
+        self.create_destination()
+        self.gateway.response = httpx.Response(503, json={"error": "busy"})
+        output = self.run_command("backfill_hog_function_abuse_scores", "--rate", "0")
+        run_id = re.search(r"run_id ([0-9a-f]+)", output)
+        assert run_id is not None
+        self.gateway.response = httpx.Response(200, json=_decision(SCORES))
+
+        for _ in range(2):
+            self.run_command("backfill_hog_function_abuse_scores", "--run-id", run_id.group(1), "--rate", "0")
+
+        assert len(self.gateway.requests) == 4
+        assert {event["properties"]["backfill_run_id"] for event in self.captured_events()} == {run_id.group(1)}

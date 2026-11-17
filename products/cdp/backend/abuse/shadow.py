@@ -46,6 +46,7 @@ BACKFILL_FLAG = "cdp-abuse-classifier-backfill"
 EVENT = "cdp abuse classification"
 CLASSIFIED_TYPES = frozenset({HogFunctionType.DESTINATION, HogFunctionType.TRANSFORMATION})
 _HASH_TTL_SECONDS = 30 * 24 * 60 * 60
+_BACKFILL_RUN_TTL_SECONDS = 14 * 24 * 60 * 60
 
 
 class Trigger(StrEnum):
@@ -130,6 +131,15 @@ def _hash_key(hog_function_id: str) -> str:
     return f"cdp:abuse_classifier:content_hash:{hog_function_id}"
 
 
+def _backfill_scored_key(run_id: str, hog_function_id: str) -> str:
+    return f"cdp:abuse_classifier:backfill:{run_id}:{hog_function_id}"
+
+
+def scored_in_backfill(run_id: str, hog_function_id: str) -> bool:
+    """Whether this run already delivered a verdict for the function, so a resumed run can skip it."""
+    return cache.get(_backfill_scored_key(run_id, hog_function_id)) is not None
+
+
 @receiver(post_save, sender=HogFunction, dispatch_uid="cdp.abuse.shadow_classify")
 def hog_function_saved(
     sender: type[HogFunction], instance: HogFunction, update_fields: Iterable[str] | None = None, **kwargs: object
@@ -179,7 +189,11 @@ def classify_for_backfill(hog_function: HogFunction, run_id: str) -> None:
     """Score regardless of the team flag and of an unchanged hash. The hash is still recorded."""
     if not is_scorable(hog_function) or not backfill_enabled():
         return
-    report(hog_function, score(hog_function), trigger=Trigger.BACKFILL, backfill_run_id=run_id)
+    scored = score(hog_function)
+    report(hog_function, scored, trigger=Trigger.BACKFILL, backfill_run_id=run_id)
+    # Only a delivered verdict counts, so resuming the run retries failures and work the kill switch dropped.
+    if scored.verdict is not None:
+        cache.set(_backfill_scored_key(run_id, str(hog_function.id)), True, _BACKFILL_RUN_TTL_SECONDS)
 
 
 def score(hog_function: HogFunction) -> ScoredHogFunction:
