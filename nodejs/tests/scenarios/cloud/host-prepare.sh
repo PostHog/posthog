@@ -17,7 +17,9 @@ secret=$(jq -r .MasterUserSecret.SecretArn <<<"$cluster")
 credentials=$(aws secretsmanager get-secret-value --secret-id "$secret" --query SecretString --output text)
 user=$(jq -r '.username | @uri' <<<"$credentials")
 password=$(jq -r '.password | @uri' <<<"$credentials")
-export CYCLOTRON_NODE_DATABASE_URL="postgres://${user}:${password}@${endpoint}:5432/cyclotron_node?sslmode=require"
+url="postgres://${user}:${password}@${endpoint}:5432/cyclotron_node"
+# node-postgres reads sslmode=require as verify-full, and Node does not trust the RDS certificate authority.
+export CYCLOTRON_NODE_DATABASE_URL="${url}?uselibpqcompat=true&sslmode=require"
 
-sqlx migrate run -D "$CYCLOTRON_NODE_DATABASE_URL" --source "$repo/rust/cyclotron-node-migrations/"
+sqlx migrate run -D "${url}?sslmode=require" --source "$repo/rust/cyclotron-node-migrations/"
 SCENARIO_RUN_MANIFEST="$input/manifest.json" pnpm --dir "$repo/nodejs" exec tsx tests/scenarios/main.ts seed-backlog --profile "$input/runner-profile.yaml"

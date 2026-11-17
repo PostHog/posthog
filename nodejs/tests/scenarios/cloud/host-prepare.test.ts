@@ -30,6 +30,7 @@ esac
 `
 
 const CLUSTER = '@scn.cluster.example.com:5432/cyclotron_node?sslmode=require'
+const NODE_CLUSTER = '@scn.cluster.example.com:5432/cyclotron_node?uselibpqcompat=true&sslmode=require'
 
 const LOCAL_SQLX = `#!/usr/bin/env bash
 args=()
@@ -40,7 +41,7 @@ exec "$REAL_SQLX" "\${args[@]}"
 `
 
 const LOCAL_PNPM = `#!/usr/bin/env bash
-export CYCLOTRON_NODE_DATABASE_URL="\${CYCLOTRON_NODE_DATABASE_URL/"$CLUSTER"/"@localhost:5432/$LOCAL_DATABASE?sslmode=disable"}"
+export CYCLOTRON_NODE_DATABASE_URL="\${CYCLOTRON_NODE_DATABASE_URL/"$NODE_CLUSTER"/"@localhost:5432/$LOCAL_DATABASE?sslmode=disable"}"
 exec "$REAL_PNPM" "$@"
 `
 
@@ -100,6 +101,7 @@ describe('host-prepare.sh', () => {
                 REAL_SQLX: realSqlx,
                 REAL_PNPM: realPnpm,
                 CLUSTER,
+                NODE_CLUSTER,
                 LOCAL_DATABASE: database,
                 ...env,
             },
