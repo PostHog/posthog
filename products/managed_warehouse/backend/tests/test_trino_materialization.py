@@ -623,6 +623,24 @@ class TestTrinoIncrementalMaterialization(BaseTest):
             assert 'CAST("__ph_output"."flag" AS integer)' in rebuilt[0]
             assert transforms[-1](parse_select("SELECT id, ts FROM orders")).where is None
 
+    def test_merges_when_a_probed_varchar_length_differs_from_the_stored_varchar(self) -> None:
+        latest = dt.datetime(2026, 10, 7, tzinfo=dt.UTC)
+        cursor = _ScriptedCursor(
+            table_exists=True,
+            staged=3,
+            max_key=latest,
+            output_types=[("id", "bigint"), ("flag", "boolean"), ("kind", "varchar(1)")],
+            existing_columns=[("id", "bigint"), ("flag", "integer"), ("kind", "varchar")],
+        )
+
+        result, statements, _ = self.run_build(
+            cursor, self.since, stored_column_types=(StoredColumnType(name="flag", clickhouse_type="UInt8"),)
+        )
+
+        assert isinstance(result, DuckLakeTableResult)
+        assert result.merged
+        assert any(statement.startswith("MERGE") for statement in statements)
+
     def test_skips_the_zero_row_run_when_no_output_can_be_a_row(self) -> None:
         cursor = _ScriptedCursor(table_exists=False, staged=1, output_types=[("tag", "row(bigint)")])
         compiled = TrinoCompiledQuery(sql="SELECT id, ts FROM orders", values={}, needs_row_type_probe=False)
