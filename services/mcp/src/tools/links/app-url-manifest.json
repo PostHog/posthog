@@ -1709,23 +1709,8 @@
         "params": [],
         "scope": "project"
     },
-    "stamphog": {
-        "template": "/stamphog",
-        "params": [],
-        "scope": "project"
-    },
-    "stamphogArea": {
-        "template": "/stamphog/area",
-        "params": [],
-        "scope": "project"
-    },
     "stamphogCallback": {
         "template": "/stamphog/install/callback",
-        "params": [],
-        "scope": "project"
-    },
-    "stamphogRuns": {
-        "template": "/stamphog/runs",
         "params": [],
         "scope": "project"
     },
