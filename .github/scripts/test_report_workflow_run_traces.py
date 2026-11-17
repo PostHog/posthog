@@ -791,6 +791,28 @@ class TestSpanTree:
         alertable = [s for s in spans if s.parent is None or s.kind in (SpanKind.SERVER, SpanKind.CONSUMER)]
         assert [s.name for s in alertable if s.status.status_code.name == "ERROR"] == ["build"]
 
+    def test_a_failed_job_reports_one_alertable_error_span_on_its_branch(self) -> None:
+        # The run is cancelled right after, so only the job may count as an error, and an alert scoped to
+        # queue branches must match it.
+        env = {
+            "FAILED_JOB_NAME": "Backend CI on Depot / Repo checks (depot-ubuntu-24.04)",
+            "FAILED_JOB_RUN_ID": "abc123",
+            "FAILED_JOB_RUN_ATTEMPT": "1",
+            "FAILED_JOB_WORKFLOW": "Backend CI on Depot",
+            "FAILED_JOB_WORKFLOW_PATH": ".depot/workflows/ci-backend.yml",
+            "FAILED_JOB_SHA": "e1718d9c",
+            "FAILED_JOB_BRANCH": "trunk-merge/pr-1/uuid",
+            "FAILED_JOB_EVENT": "pull_request",
+            "FAILED_JOB_URL": "https://github.com/PostHog/posthog/commit/e1718d9c/checks",
+        }
+        run = reporter.failed_job_run(env, RUN_START)
+        exporter = InMemorySpanExporter()
+        reporter.emit_trace(run, "http://unused", "token", exporter=exporter, entry_jobs=True)
+        spans = exporter.get_finished_spans()
+        alertable = [s for s in spans if s.parent is None or s.kind in (SpanKind.SERVER, SpanKind.CONSUMER)]
+        assert [s.name for s in alertable if s.status.status_code.name == "ERROR"] == [env["FAILED_JOB_NAME"]]
+        assert {s.resource.attributes["ci.branch"] for s in spans} == {env["FAILED_JOB_BRANCH"]}
+
     def test_reusable_job_records_caller_and_callee(self) -> None:
         run = reporter.parse_run(_raw_run(), [_raw_job(name="build-images / build cymbal", steps=[])])
         assert run is not None

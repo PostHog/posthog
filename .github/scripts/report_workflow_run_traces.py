@@ -883,6 +883,87 @@ def format_span_tree(run: WorkflowRun) -> Iterator[str]:
 # ---------- CLI ----------
 
 
+FAILED_JOB_ENV_VARS = (
+    "FAILED_JOB_NAME",
+    "FAILED_JOB_RUN_ID",
+    "FAILED_JOB_RUN_ATTEMPT",
+    "FAILED_JOB_WORKFLOW",
+    "FAILED_JOB_WORKFLOW_PATH",
+    "FAILED_JOB_SHA",
+    "FAILED_JOB_BRANCH",
+    "FAILED_JOB_EVENT",
+    "FAILED_JOB_URL",
+)
+
+
+def failed_job_run(env: Mapping[str, str], now: datetime) -> WorkflowRun:
+    """The run in progress with one failed job, for a job that must report itself before its run ends.
+
+    The run is about to be cancelled, so its root span carries `cancelled` and stays out of error counts.
+    The job ends `now`, which keeps the span inside any alert window that is open when it is sent.
+    """
+    if missing := [var for var in FAILED_JOB_ENV_VARS if not env.get(var)]:
+        raise ValueError(f"missing {', '.join(missing)}")
+    run_id = f"depot:{env['FAILED_JOB_RUN_ID']}"
+    job = Job(
+        id=f"{run_id}:{env['FAILED_JOB_NAME']}",
+        name=env["FAILED_JOB_NAME"],
+        status="completed",
+        conclusion="failure",
+        url=env["FAILED_JOB_URL"],
+        runner_name="depot-ci",
+        runner_group_name="",
+        labels=(),
+        created=now,
+        start=now,
+        end=now,
+        steps=(),
+    )
+    return WorkflowRun(
+        id=run_id,
+        attempt=int(env["FAILED_JOB_RUN_ATTEMPT"]),
+        name=env["FAILED_JOB_WORKFLOW"],
+        path=env["FAILED_JOB_WORKFLOW_PATH"],
+        workflow_id="",
+        run_number=0,
+        event=env["FAILED_JOB_EVENT"],
+        status="in_progress",
+        conclusion="cancelled",
+        display_title="",
+        head_sha=env["FAILED_JOB_SHA"],
+        head_branch=env["FAILED_JOB_BRANCH"],
+        actor="",
+        triggering_actor="",
+        repository=env.get("GITHUB_REPOSITORY") or DEFAULT_REPO,
+        html_url=env["FAILED_JOB_URL"],
+        created=now,
+        start=now,
+        end=now,
+        jobs=(job,),
+        provider="depot",
+    )
+
+
+def report_failed_job(endpoint: str, env: Mapping[str, str], now: datetime) -> int:
+    try:
+        run = failed_job_run(env, now)
+    except ValueError:
+        logger.exception("could not describe the failed job; nothing was emitted")
+        return EXIT_INCOMPLETE
+    tokens = emission_tokens(env)
+    if not tokens:
+        logger.error("none of %s set; nothing was emitted", ", ".join(TOKEN_ENV_VARS))
+        return EXIT_INCOMPLETE
+    complete = True
+    for token in tokens:
+        try:
+            emit_trace(run, endpoint, token, entry_jobs=True)
+        except Exception:
+            logger.exception("failed to emit the failed job span for run %s", run.id)
+            complete = False
+    return EXIT_OK if complete else EXIT_INCOMPLETE
+
+
 def emission_tokens(env: Mapping[str, str]) -> list[str]:
     """Distinct project API tokens to emit to, in ``TOKEN_ENV_VARS`` order."""
     tokens = (env.get(var, "") for var in TOKEN_ENV_VARS)
@@ -911,6 +992,11 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         "--entry-jobs",
         action="store_true",
         help="emit each job as an entry span with no step children, so a traces alert counts each failed job once",
+    )
+    parser.add_argument(
+        "--failed-job",
+        action="store_true",
+        help=f"emit one failed job of the run in progress, described by {', '.join(FAILED_JOB_ENV_VARS)}",
     )
     return parser.parse_args(argv)
 
@@ -970,6 +1056,9 @@ def collect_runs(args: argparse.Namespace, token: str, now: datetime) -> Collect
 def main(argv: list[str] | None = None) -> int:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
     args = parse_args(argv if argv is not None else sys.argv[1:])
+
+    if args.failed_job:
+        return report_failed_job(args.otlp_endpoint, os.environ, datetime.now(UTC))
 
     github_token = os.environ.get("GITHUB_TOKEN", "")
     if not github_token:
