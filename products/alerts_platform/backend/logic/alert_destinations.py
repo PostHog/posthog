@@ -100,6 +100,7 @@ def create_alert_destinations(
                 event_kinds=[kind.value for kind in destination.event_kinds],
                 enabled=destination.enabled,
                 legacy_hog_function_ids=list(destination.legacy_hog_function_ids),
+                keeps_legacy_webhook_body=destination.keeps_legacy_webhook_body,
             )
             for destination in destinations
         ]
@@ -328,6 +329,7 @@ def record_source_destination(
     hog_function_ids: Collection[UUID],
     hog_function_groups: Sequence[AlertDestinationGroup],
     enabled: bool = True,
+    keeps_legacy_webhook_body: bool = False,
 ) -> StoredAlertDestination | None:
     """Adds the row for a destination its source has just written as `hog_function_ids`, so the
     destination outlives them. None when the platform has no alert under `public_id`, or when it keeps
@@ -350,6 +352,7 @@ def record_source_destination(
                 event_kinds=tuple(event_kinds),
                 enabled=enabled,
                 legacy_hog_function_ids=tuple(hog_function_ids),
+                keeps_legacy_webhook_body=keeps_legacy_webhook_body,
             ),
         ),
         hog_function_groups=hog_function_groups,
@@ -674,4 +677,5 @@ def _stored(row: AlertDestination) -> StoredAlertDestination:
         enabled=row.enabled,
         consecutive_failures=row.consecutive_failures,
         legacy_hog_function_ids=tuple(row.legacy_hog_function_ids),
+        keeps_legacy_webhook_body=row.keeps_legacy_webhook_body,
     )

@@ -158,13 +158,29 @@ export function loggableOrigin(url: string): string | undefined {
 function scrubUrlFromError(error: unknown, url: string, replacement: string): void {
     const errors = error instanceof AggregateError ? error.errors : []
     for (const e of [error, (error as { cause?: unknown } | null)?.cause, ...errors]) {
-        if (e instanceof Error) {
-            e.message = e.message.split(url).join(replacement)
-            if (e.stack) {
-                e.stack = e.stack.split(url).join(replacement)
-            }
+        // Not `instanceof Error`, which is false for a DOMException created in another realm, such as under Jest.
+        if (typeof e === 'object' && e !== null) {
+            replaceInErrorProperty(e, 'message', url, replacement)
+            replaceInErrorProperty(e, 'stack', url, replacement)
         }
     }
+}
+
+// A DOMException, such as the TimeoutError from AbortSignal.timeout, has a getter-only `message`, so an assignment
+// throws and the fetch error escapes cdpTrackedFetch. Defining an own property on the instance shadows the getter.
+// If the error is frozen, the URL stays in it, because a failed scrub must not stop the caller from getting the error.
+function replaceInErrorProperty(error: object, key: 'message' | 'stack', url: string, replacement: string): void {
+    const value = (error as Partial<Record<typeof key, unknown>>)[key]
+    if (typeof value !== 'string' || !value.includes(url)) {
+        return
+    }
+    try {
+        Object.defineProperty(error, key, {
+            value: value.split(url).join(replacement),
+            writable: true,
+            configurable: true,
+        })
+    } catch {}
 }
 
 export async function cdpTrackedFetch({
