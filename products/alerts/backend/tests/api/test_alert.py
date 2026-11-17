@@ -3912,7 +3912,7 @@ class TestLLMDetectorValidation(TrendsInsightAPITest):
 
         def answer(request: httpx.Request, **_kwargs: Any) -> httpx.Response:
             body = json.loads(request.content)
-            quantiles = {"0.05": [80.0], "0.5": [100.0], "0.95": [120.0]}
+            quantiles = {"0.01": [80.0], "0.5": [100.0], "0.99": [120.0]}
             return httpx.Response(
                 200, json={"predictions": [{"item_id": item["item_id"], **quantiles} for item in body["inputs"]]}
             )
@@ -3932,8 +3932,8 @@ class TestLLMDetectorValidation(TrendsInsightAPITest):
         assert body["scores"] == [None] * 34
         unscored, scored = [None] * 30, [100.0] * 4
         assert body["forecast"] == {
-            "lower_quantile": 0.05,
-            "upper_quantile": 0.95,
+            "lower_quantile": 0.01,
+            "upper_quantile": 0.99,
             "expected": unscored + scored,
             "lower": unscored + [80.0] * 4,
             "upper": unscored + [120.0] * 4,
