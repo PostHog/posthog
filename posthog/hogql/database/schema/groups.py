@@ -19,6 +19,7 @@ from posthog.hogql.database.models import (
     Table,
 )
 from posthog.hogql.database.schema.groups_revenue_analytics import GroupsRevenueAnalyticsTable
+from posthog.hogql.database.schema.util.where_clause_extractor import top_level_conjuncts
 from posthog.hogql.errors import ResolutionError
 from posthog.hogql.parser import parse_select
 from posthog.hogql.visitor import TraversingVisitor, clone_expr
@@ -188,8 +189,8 @@ def join_with_group_n_table(
 
 # Static source-table aliases that resolve to a lazy join. Cloning a WHERE that references one
 # into the inner `SELECT $group_N FROM <source table>` subquery re-triggers the same lazy join during
-# resolution and recurses, so the prefilter is skipped in that case (see `_guarded_aliases`,
-# which also picks up the per-project group-type-name aliases dynamically).
+# resolution and recurses, so the prefilter leaves out each AND term that references one (see
+# `_guarded_aliases`, which also picks up the per-project group-type-name aliases dynamically).
 LAZY_JOIN_ALIASES = frozenset(
     {
         "person",
@@ -212,16 +213,11 @@ LAZY_JOIN_ALIASES = frozenset(
 )
 
 
-# The outer FROM tables whose WHERE the groups subquery can reuse, with the aliases each may carry besides the last
-# part of its chain. The flag call rewrite reads flag_evaluations under the alias `events`.
-_PREFILTER_SOURCE_ALIASES: dict[tuple[str, ...], frozenset[str]] = {
-    ("events",): frozenset(),
-    ("posthog", "flag_evaluations"): frozenset({"events"}),
-}
+_PREFILTER_SOURCES: frozenset[tuple[str, ...]] = frozenset({("events",), ("posthog", "flag_evaluations")})
 
 
 def _guarded_aliases(context: HogQLContext, source_chain: list[str]) -> frozenset[str]:
-    """Source-table aliases whose reference must skip the prefilter: the static lazy joins,
+    """Source-table aliases whose reference must stay out of the prefilter: the static lazy joins,
     plus every FieldTraverser on the source table (this catches the per-project group-type-name
     aliases like `organization`; the always-present `person`/`person_id` traversers are already in
     the static set, so the union just dedupes them)."""
@@ -239,31 +235,32 @@ def _outer_prefilter(
     node: SelectQuery, context: HogQLContext, join_to_add: LazyJoinToAdd
 ) -> tuple[ast.Expr, ast.JoinExpr] | None:
     """
-    Extract a clone of the outer query's WHERE that we can safely embed inside the groups
-    join subquery, together with the FROM that the subquery reads. We only return it when:
+    Extract a clone of the part of the outer query's WHERE that we can safely embed inside the groups
+    join subquery, together with the FROM that the subquery reads.
 
-    1. The outer's `FROM` is a table in `_PREFILTER_SOURCE_ALIASES`, either unaliased or aliased
-       by the last part of its chain or by an alias listed for it. Anything else (custom alias like
-       `FROM events AS e` in funnels, or a subquery) means the WHERE may reference symbols
-       (`e.timestamp`, …) that don't exist in our inner `SELECT $group_N FROM <source table>`
-       subquery — cloning a WHERE that names them would raise `Unable to resolve field` when the
-       resolver walks the clone.
-    2. The WHERE references the `timestamp` field — cheap heuristic for "the matched row
+    The part is the top-level AND terms of the WHERE that do not reference a lazy-join alias on the source
+    table. That includes the per-project group-type-name aliases (e.g. `organization`) that resolve to
+    `group_N`. Cloning a `group_N.X` / `organization.X` / `person.X` reference into the inner subquery would
+    re-trigger the resolver on the same lazy join during inner-subquery resolution. The remaining terms match
+    every row that the full WHERE matches, so the key subquery still returns the key of each row that the
+    outer query keeps. A term below an OR is not a top-level term, because dropping it would lose rows.
+
+    We only return the part when:
+
+    1. The outer's `FROM` is a table in `_PREFILTER_SOURCES`, with or without an alias. The subquery repeats
+       the alias, so a field that the WHERE qualifies by it (`e.timestamp`) resolves there too. A subquery in
+       the FROM has no table for the key subquery to read.
+    2. The part references the `timestamp` field — cheap heuristic for "the matched row
        set is bounded by a date range." Without that guard, a query whose WHERE is only
        `team_id = X` (or empty) would push a key subquery that scans every row for the
        team, which is strictly worse than no filter at all.
     3. The group join hangs off the outer FROM table, not a table the query joins explicitly. The outer
        WHERE bounds only the outer table's rows, so it says nothing about the group keys of a joined table.
-    4. Every field in the WHERE resolves on the outer FROM table, directly or through its lazy joins and
+    4. Every field in the part resolves on the outer FROM table, directly or through its lazy joins and
        virtual tables. A field of an explicitly joined table (`e.event`) or a SELECT or ARRAY JOIN alias does
        not exist in the subquery. A clone that names one fails to compile. The check reads field types rather than
        `select_from.next_join`, because the lazy table resolver links each generated join into `next_join`
        before it builds the next one.
-    5. The WHERE does not reference any lazy-join alias on the source table — including the
-       per-project group-type-name aliases (e.g. `organization`) that resolve to `group_N`.
-       Cloning a `group_N.X` / `organization.X` / `person.X` reference into the inner
-       subquery would re-trigger the resolver on the same lazy join during inner-subquery
-       resolution.
     """
     # Deferred: lazy_tables imports the resolver, which imports database schema modules — circular.
     from posthog.hogql.transforms.lazy_tables import find_field_chains, get_table_alias_for_lazy_join  # noqa: PLC0415
@@ -279,25 +276,29 @@ def _outer_prefilter(
     if not isinstance(table, ast.Field):
         return None
     source_chain = tuple(str(part) for part in table.chain)
-    if source_chain not in _PREFILTER_SOURCE_ALIASES:
+    if source_chain not in _PREFILTER_SOURCES:
         return None
     alias = select_from.alias or source_chain[-1]
-    if alias != source_chain[-1] and alias not in _PREFILTER_SOURCE_ALIASES[source_chain]:
-        return None
     if get_table_alias_for_lazy_join(join_to_add.lazy_join_type) != alias:
         return None
 
-    if not _references_timestamp(where):
-        return None
     guarded_aliases = _guarded_aliases(context, list(source_chain))
-    if any(
-        _chain_hits_guarded_alias(chain, guarded_aliases, source_chain, alias) for chain in find_field_chains(where)
-    ):
+    reusable = [
+        conjunct
+        for conjunct in top_level_conjuncts(where)
+        if not any(
+            _chain_hits_guarded_alias(chain, guarded_aliases, source_chain, alias)
+            for chain in find_field_chains(conjunct)
+        )
+    ]
+    if not reusable:
         return None
-    if select_from.type is None or _references_another_table(where, select_from.type):
+    prefilter = reusable[0] if len(reusable) == 1 else ast.And(exprs=reusable)
+    if not _references_timestamp(prefilter):
         return None
-    # The subquery repeats the outer FROM's alias. A WHERE that qualifies a field by that alias then still resolves.
-    return clone_expr(where), ast.JoinExpr(table=ast.Field(chain=list(table.chain)), alias=select_from.alias)
+    if select_from.type is None or _references_another_table(prefilter, select_from.type):
+        return None
+    return clone_expr(prefilter), ast.JoinExpr(table=ast.Field(chain=list(table.chain)), alias=select_from.alias)
 
 
 def _chain_hits_guarded_alias(chain: list, guarded: frozenset[str], source_chain: tuple[str, ...], alias: str) -> bool:

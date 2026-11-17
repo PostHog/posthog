@@ -83,12 +83,54 @@ class TestGroupsJoinPrefilter(APIBaseTest):
                 "SELECT group_0.properties FROM events ARRAY JOIN [1, 2] AS item WHERE {bound} AND item = 1",
                 0,
             ),
+            (
+                "aliased_from",
+                "SELECT group_0.properties FROM events AS e WHERE e.timestamp > toDateTime('2026-01-01')",
+                1,
+            ),
+            ("physical_group_alias", "SELECT group_0.properties FROM events WHERE {bound} AND {group_0}", 1),
+            ("group_type_name_alias", "SELECT group_0.properties FROM events WHERE {bound} AND {company}", 1),
+            ("person_lazy_join", "SELECT group_0.properties FROM events WHERE {bound} AND {person}", 1),
+            (
+                "qualified_physical_group_alias",
+                "SELECT group_0.properties FROM events WHERE {bound} AND events.{group_0}",
+                1,
+            ),
+            (
+                "qualified_group_type_name_alias",
+                "SELECT group_0.properties FROM events WHERE {bound} AND events.{company}",
+                1,
+            ),
+            (
+                "qualified_person_lazy_join",
+                "SELECT group_0.properties FROM events WHERE {bound} AND events.{person}",
+                1,
+            ),
+            (
+                "alias_qualified_lazy_joins",
+                "SELECT count() FROM events AS e WHERE e.{bound} AND e.{group_0} AND e.{person}",
+                1,
+            ),
+            (
+                "lazy_join_in_nested_and",
+                "SELECT group_0.properties FROM events WHERE {bound} AND ({group_0} AND event = 'x')",
+                1,
+            ),
+            ("lazy_join_below_or", "SELECT group_0.properties FROM events WHERE {bound} OR {group_0}", 0),
+            ("only_lazy_join_terms", "SELECT group_0.properties FROM events WHERE {group_0} AND {person}", 0),
         ]
     )
     def test_bounds_each_group_join_whose_key_subquery_can_reuse_the_where(
         self, _name: str, query: str, expected_bounds: int
     ):
-        sql = self._print(query.format(bound="timestamp > toDateTime('2026-01-01')"))
+        sql = self._print(
+            query.format(
+                bound="timestamp > toDateTime('2026-01-01')",
+                group_0="group_0.properties.industry = 'tech'",
+                company="company.properties.industry = 'tech'",
+                person="person.properties.plan = 'pro'",
+            )
+        )
         self.assertEqual(sql.count("globalIn(key,"), expected_bounds)
 
     def test_skips_filter_when_outer_where_lacks_timestamp(self):
@@ -99,39 +141,4 @@ class TestGroupsJoinPrefilter(APIBaseTest):
 
     def test_skips_filter_when_outer_has_no_where(self):
         sql = self._print("SELECT group_0.properties FROM events")
-        self.assertNotIn("globalIn(key,", sql)
-
-    @parameterized.expand(
-        [
-            # Physical group_N alias, its per-project group-type-name alias (`company` →
-            # group_0, a FieldTraverser), and person.* — each references a lazy join on
-            # events. Cloning that reference into the inner `SELECT $group_N FROM events ...`
-            # subquery would re-trigger the same lazy join during resolution — unbounded
-            # recursion or a `ResolutionError`. The guard skips the prefilter; the outer
-            # group join still resolves and prints normally, just without the key prefilter.
-            ("physical_group_alias", "group_0.properties.industry = 'tech'"),
-            ("group_type_name_alias", "company.properties.industry = 'tech'"),
-            ("person_lazy_join", "person.properties.plan = 'pro'"),
-            # Table-qualified forms (`events.<alias>...`) are legal hand-written HogQL and name
-            # the same lazy joins; the guard must peel the leading `events` segment or they crash.
-            ("qualified_physical_group_alias", "events.group_0.properties.industry = 'tech'"),
-            ("qualified_group_type_name_alias", "events.company.properties.industry = 'tech'"),
-            ("qualified_person_lazy_join", "events.person.properties.plan = 'pro'"),
-        ]
-    )
-    def test_skips_filter_when_outer_where_references_lazy_join(self, _name: str, where_predicate: str):
-        sql = self._print(
-            f"SELECT group_0.properties FROM events WHERE {where_predicate} AND timestamp > toDateTime('2026-01-01')"
-        )
-        self.assertIn("events__group_0", sql)
-        self.assertNotIn("globalIn(key,", sql)
-
-    def test_skips_filter_when_outer_from_events_is_aliased(self):
-        # Funnel queries (and others) build `FROM events AS e ... WHERE e.timestamp > X`.
-        # Cloning that WHERE into the inner `SELECT $group_N FROM events` subquery would
-        # carry references to `e.X` that have no scope in the inner subquery, raising
-        # `Unable to resolve field: e`. Guard skips the optimization for aliased FROMs.
-        sql = self._print("SELECT group_0.properties FROM events AS e WHERE e.timestamp > toDateTime('2026-01-01')")
-        # The lazy join is named after the FROM alias, so `e__group_0` rather than `events__group_0`.
-        self.assertIn("e__group_0", sql)
         self.assertNotIn("globalIn(key,", sql)
