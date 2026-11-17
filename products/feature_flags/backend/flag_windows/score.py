@@ -37,10 +37,10 @@ class ScoreParameters:
     """`condition_match` picks the people that level 1 compares: only those in the watched conditions that this source
     finds, or everyone with the flag when None. An hour is an error rise when its excess over the baseline is at least
     `rise_z` standard deviations, and level 5 has full strength at `full_strength_z`. A rise in exposure share from one
-    hour to the next counts as a step, for level 4 and for the exposure rise, from `min_share_step`. The proximity falls
-    to 1/e when the error rise is `decay` away from the exposure rise. Below `min_exposed` and `min_with_errors`, and in
-    an hour or an earlier week with fewer than `min_active` active people, variation is noise. A group flag counts groups, so one large
-    customer can't meet them alone."""
+    hour to the next is a step, for level 4 and the exposure rise, when it is at least `min_share_step`. The proximity
+    falls to 1/e when the error rise is `decay` away from the exposure rise. Variation is noise below `min_exposed` and
+    `min_with_errors`, and in an hour or earlier week with fewer than `min_active` active people. A group flag counts
+    groups, so one large customer can't meet these minimums alone."""
 
     condition_match: ConditionMatch | None
     alpha: float
@@ -57,7 +57,6 @@ class ScoreParameters:
     min_active: int
 
     def __post_init__(self) -> None:
-        # `_excess_by_hour` divides by the active people of each hour it keeps, and `_level_4` by each share step.
         if self.min_active < 1:
             raise ValueError(f"The score needs at least 1 active person per hour, got {self.min_active}")
         if self.min_share_step <= 0:
@@ -289,7 +288,8 @@ def _excess_by_hour(
         rates = [week.with_errors / week.active for week in earlier.get(start, ()) if week.active >= min_active]
         if start < edit_hour or counts.active < min_active or not rates:
             continue
-        rate = counts.with_errors / counts.active
+        # The two counts are separate `uniq` estimates, so the errors can come out above the active people.
+        rate = min(1.0, counts.with_errors / counts.active)
         excess_rate = rate - statistics.fmean(rates)
         spread = math.hypot(statistics.pstdev(rates), math.sqrt(rate * (1 - rate) / counts.active))
         z = excess_rate / spread if spread else (math.inf if excess_rate > 0 else 0.0)

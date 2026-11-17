@@ -142,6 +142,7 @@ class TestScoreWindow(SimpleTestCase):
         [
             ("with_the_exposure_rise", {0: RISE_RATE}, PARAMETERS, 1.0, True),
             ("two_days_later", {48: RISE_RATE}, PARAMETERS, 1.0, False),
+            ("more_errors_than_active_people", {0: 1.001}, PARAMETERS, 1.0, True),
             (
                 "a_weak_rise_with_the_exposure_rise_and_a_strong_one_later",
                 {0: 0.027, 48: RISE_RATE},
@@ -161,7 +162,7 @@ class TestScoreWindow(SimpleTestCase):
     def test_an_error_rise_over_the_baseline_counts_by_its_distance_from_the_exposure_rise(
         self, _name: str, rises: Mapping[int, float], parameters: ScoreParameters, level_5: float, suspicious: bool
     ) -> None:
-        result = _score(_exposure([0.5, 0.5]), _errors(40, 40), _rates(49, rises), parameters)
+        result = _score(_exposure([0.5, 0.5]), _errors(45, 40), _rates(49, rises), parameters)
 
         assert result.level_1 is not None and not result.level_1.is_significant
         assert result.level_5 == pytest.approx(level_5, abs=1e-3)
