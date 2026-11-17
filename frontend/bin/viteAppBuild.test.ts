@@ -1,4 +1,8 @@
-import { planViteApp } from './viteAppBuild.mjs'
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
+
+import { finishViteAppBuild, planViteApp } from './viteAppBuild.mjs'
 
 const FRONTEND = '/repo/frontend'
 const URL_BASE = '/static/vite/'
@@ -161,5 +165,68 @@ describe('planViteApp', () => {
 
         expect(small.manifest.preload.js).toEqual(roots.map((fileName) => url(fileName, small)))
         expect(large.manifest.preload.js).toEqual([...roots, 'chunk-shared.js'].map((fileName) => url(fileName, large)))
+    })
+
+    // A manifest that names a file the build did not write gives a page that fails to load. The page
+    // then falls back to the esbuild build, so nobody sees an error.
+    it('writes every file that its manifest names, and leaves no build metadata to serve', () => {
+        const frontendDir = fs.mkdtempSync(path.join(os.tmpdir(), 'vite-app-build-'))
+        const outDir = path.join(frontendDir, 'dist', 'vite')
+        fs.mkdirSync(path.join(outDir, 'assets'), { recursive: true })
+        fs.mkdirSync(path.join(outDir, '.vite'))
+        fs.mkdirSync(path.join(frontendDir, 'src', 'scenes'), { recursive: true })
+        fs.writeFileSync(path.join(frontendDir, 'src', 'scenes', 'appScenes.ts'), '')
+        fs.writeFileSync(path.join(frontendDir, 'src', 'productScenes.tsx'), '')
+        // Vite deletes a chunk that held only CSS after the graph was recorded.
+        const cssOnly = chunk('chunk-css-only.js')
+        const graph = [...GRAPH, cssOnly].map((item) => ({
+            ...item,
+            facadeModuleId: item.facadeModuleId?.replace(FRONTEND, frontendDir) ?? null,
+        }))
+        for (const item of GRAPH) {
+            fs.writeFileSync(
+                path.join(outDir, item.fileName),
+                `// ${item.fileName}\n//# sourceMappingURL=${item.fileName}.map\n`
+            )
+            fs.writeFileSync(path.join(outDir, `${item.fileName}.map`), '{}')
+            item.css.forEach((file) => fs.writeFileSync(path.join(outDir, file), ''))
+        }
+        fs.writeFileSync(path.join(outDir, 'vite-app-graph.json'), JSON.stringify(graph))
+        fs.writeFileSync(
+            path.join(outDir, 'importmap.json'),
+            JSON.stringify({
+                imports: Object.fromEntries(
+                    [...Object.entries(PLACEHOLDER), [cssOnly.fileName, 'chunk-css-only-placeholder.js']].map(
+                        ([fileName, placeholder]) => [URL_BASE + placeholder, URL_BASE + fileName]
+                    )
+                ),
+            })
+        )
+        jest.spyOn(console, 'info').mockImplementation(() => {})
+
+        finishViteAppBuild(frontendDir)
+
+        const manifest = JSON.parse(fs.readFileSync(path.join(outDir, 'vite-app-manifest.json'), 'utf8'))
+        const named: string[] = [
+            manifest.entry,
+            manifest.chunkMap,
+            ...Object.values<string>(manifest.imports),
+            ...manifest.eagerCss,
+            ...Object.values<string[]>(manifest.preload).flat(),
+        ]
+        const onDisk = (url: string): string => path.join(outDir, url.replace(manifest.assetPrefix, ''))
+        expect(named.filter((url) => !fs.existsSync(onDisk(url)))).toEqual([])
+        expect(Object.keys(manifest.imports)).not.toContain('static/vite/chunk-css-only-placeholder.js')
+
+        const entry = onDisk(manifest.entry)
+        expect(fs.readFileSync(entry, 'utf8')).toMatch(new RegExp(`sourceMappingURL=${path.basename(entry)}\\.map\\n$`))
+        expect(fs.existsSync(`${entry}.map`)).toBe(true)
+
+        expect(
+            fs
+                .readdirSync(outDir)
+                .filter((file) => /^(\.vite|importmap\.json|vite-app-graph\.json|index-Vi-te001\.js.*)$/.test(file))
+        ).toEqual([])
+        fs.rmSync(frontendDir, { recursive: true, force: true })
     })
 })

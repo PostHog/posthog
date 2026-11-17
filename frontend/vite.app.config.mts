@@ -1,6 +1,6 @@
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { defineConfig, loadConfigFromFile, type Plugin, type PluginOption, type UserConfig } from 'vite'
+import { defineConfig, loadConfigFromFile, type UserConfig } from 'vite'
 
 import { URL_PREFIX, VITE_APP_DIR } from './bin/viteAppBuild.mjs'
 import { chunkGraphPlugin, textFilesPlugin, zodEnLocaleOnlyPlugin } from './plugins/vite-app-build'
@@ -10,23 +10,6 @@ const __dirname = dirname(fileURLToPath(import.meta.url))
 // posthog/vite_app.py reads the manifest from this directory.
 const OUT_DIR = `dist/${VITE_APP_DIR}`
 
-// These plugins of the dev server config write into dist/ and src/assets/ when they start, which a
-// production build must not do: dist/ also holds the esbuild build.
-const DEV_SERVER_ONLY_PLUGINS = new Set(['html-generation', 'posthog-js-copy', 'public-assets-copy', 'startup-message'])
-
-async function flattenPlugins(plugins: PluginOption[] | undefined): Promise<Plugin[]> {
-    const flat: Plugin[] = []
-    for (const plugin of plugins ?? []) {
-        const resolved = await plugin
-        if (Array.isArray(resolved)) {
-            flat.push(...(await flattenPlugins(resolved)))
-        } else if (resolved) {
-            flat.push(resolved as Plugin)
-        }
-    }
-    return flat
-}
-
 export default defineConfig(async (env): Promise<UserConfig> => {
     // The build reuses the dev server config, so a module resolves the same way in both.
     const devServerConfig = await loadConfigFromFile(env, resolve(__dirname, 'vite.config.mts'))
@@ -34,7 +17,6 @@ export default defineConfig(async (env): Promise<UserConfig> => {
         throw new Error('vite app: cannot load vite.config.mts')
     }
     const base = devServerConfig.config
-    const plugins = (await flattenPlugins(base.plugins)).filter((plugin) => !DEV_SERVER_ONLY_PLUGINS.has(plugin.name))
 
     return {
         ...base,
@@ -43,7 +25,8 @@ export default defineConfig(async (env): Promise<UserConfig> => {
         // frontend/public. The dev server avoids this with a copy in src/assets. The build reads
         // frontend/public as source instead.
         publicDir: false,
-        plugins: [textFilesPlugin(), zodEnLocaleOnlyPlugin(), ...plugins, chunkGraphPlugin()],
+        // The plugins of the dev server config that write into dist/ and src/assets/ apply to `serve` only.
+        plugins: [textFilesPlugin(), zodEnLocaleOnlyPlugin(), ...(base.plugins ?? []), chunkGraphPlugin()],
         resolve: {
             ...base.resolve,
             alias: {
