@@ -81,19 +81,33 @@ export type TickResult = 'idle' | 'exported' | 'not_leader' | 'failed'
 export type Sender = (events: CaptureEvent[]) => Promise<void>
 
 /** A fetch-shaped POST over `node:https`. Node's fetch takes no agent, so it cannot use a proxy agent. */
-export function agentFetch(agent: https.Agent): typeof fetch {
+export function agentFetch(agent: https.Agent, timeoutMs: number): typeof fetch {
     return ((url: URL, init: RequestInit) =>
         new Promise<Response>((resolve, reject) => {
             const req = https.request(
                 url,
-                { method: init.method, headers: init.headers as Record<string, string>, agent, signal: init.signal },
+                {
+                    method: init.method,
+                    headers: init.headers as Record<string, string>,
+                    agent,
+                    signal: init.signal ?? undefined,
+                },
                 (res) => {
+                    clearTimeout(timer)
+                    // The promise is settled here, so a later reset only needs to not crash the process.
+                    res.on('error', (err) => logger.debug('audit:export_response_error', { error: err.message }))
                     // The body is never read. Draining it frees the socket.
                     res.resume()
                     resolve(new Response(null, { status: res.statusCode ?? 502 }))
                 }
             )
-            req.on('error', reject)
+            // Neither the abort signal nor a socket timeout fires while the proxy holds the CONNECT
+            // open without answering, because the request has no socket yet.
+            const timer = setTimeout(() => req.destroy(new Error('capture request timed out')), timeoutMs)
+            req.on('error', (err) => {
+                clearTimeout(timer)
+                reject(err)
+            })
             req.end(init.body as string)
         })) as unknown as typeof fetch
 }
@@ -111,7 +125,8 @@ export function captureSender(config: AuditExportConfig, fetchFn?: typeof fetch)
                   new https.Agent({
                       keepAlive: true,
                       proxyEnv: { HTTPS_PROXY: config.proxyUrl },
-                  } as ProxyAwareAgentOptions)
+                  } as ProxyAwareAgentOptions),
+                  config.timeoutMs
               )
             : fetch)
     return async (events) => {

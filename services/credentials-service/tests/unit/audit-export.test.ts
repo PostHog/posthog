@@ -72,6 +72,38 @@ describe('captureSender with a proxy', () => {
         await expect(send([])).rejects.toThrow('capture answered 503')
     })
 
+    it('rejects within the timeout when the proxy never answers', async () => {
+        vi.useFakeTimers()
+        try {
+            vi.spyOn(https, 'request').mockImplementation((() => {
+                const req = new EventEmitter() as EventEmitter & { end: () => void; destroy: (err: Error) => void }
+                req.end = () => undefined
+                req.destroy = (err) => void req.emit('error', err)
+                return req
+            }) as any)
+            const send = captureSender({ ...CONFIG, proxyUrl: 'http://proxy.example.com:3128' })
+            const result = expect(send([])).rejects.toThrow('timed out')
+            await vi.advanceTimersByTimeAsync(CONFIG.timeoutMs)
+            await result
+        } finally {
+            vi.useRealTimers()
+        }
+    })
+
+    it('does not throw when the response errors after the headers', async () => {
+        vi.spyOn(https, 'request').mockImplementation(((_url: unknown, _options: unknown, cb: any) => {
+            const req = new EventEmitter() as EventEmitter & { end: () => void }
+            req.end = () => {
+                const res = Object.assign(new EventEmitter(), { statusCode: 200, resume: () => undefined })
+                cb(res)
+                res.emit('error', new Error('ECONNRESET'))
+            }
+            return req
+        }) as any)
+        const send = captureSender({ ...CONFIG, proxyUrl: 'http://proxy.example.com:3128' })
+        await expect(send([])).resolves.toBeUndefined()
+    })
+
     it('does not use the https module without a proxy', async () => {
         const request = vi.spyOn(https, 'request')
         const fetchFn = vi.fn(async () => new Response(null, { status: 200 })) as unknown as typeof fetch
