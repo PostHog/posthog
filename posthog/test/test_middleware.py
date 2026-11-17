@@ -2,7 +2,7 @@ import hmac
 import json
 import hashlib
 from collections.abc import Mapping
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 
 import pytest
@@ -27,6 +27,7 @@ from django.urls import path, resolve, reverse
 
 import requests
 import structlog
+from django_prometheus.utils import Time
 from loginas import settings as la_settings
 from parameterized import parameterized
 from prometheus_client import REGISTRY
@@ -39,17 +40,19 @@ from structlog.testing import capture_logs
 from posthog.api.current_alias_usage import CURRENT_ALIAS_USED_EVENT, CurrentAliasScope, current_alias_scope
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
-from posthog.clickhouse.query_tagging import get_query_tags
+from posthog.clickhouse.query_tagging import get_query_tag_value, get_query_tags, tag_queries
 from posthog.client_build_middleware import ClientBuildSkewMiddleware
 from posthog.constants import AvailableFeature
 from posthog.ip_restrictions import enforce_ip_restrictions, get_ip_restriction_denial
 from posthog.middleware import (
     ActivityLoggingMiddleware,
+    CHQueries,
     Fix204Middleware,
     ManagedProxyClientIPMiddleware,
     SignedClientIPOutcome,
     UnversionedStaticPathMiddleware,
     per_request_logging_context_middleware,
+    request_queue_seconds,
     request_route,
     user_logging_context_middleware,
 )
@@ -3409,6 +3412,70 @@ def test_chqueries_middleware_api_latency_records_on_raise():
         CHQueries(boom)(request)
 
     assert sample_count() - before == 1.0, "exception path must still record latency at status_class=error"
+
+
+ENVOY_RECEIVED_AT = 1737036339.25
+ENVOY_STAMP = "t=1737036339.250"
+
+
+@parameterized.expand(
+    [
+        ("envoy_stamp", ENVOY_STAMP, 3.2, 3.2),
+        ("last_stamp_wins_over_a_client_value", f"t=1000000000.000,{ENVOY_STAMP}", 3.2, 3.2),
+        ("clock_slightly_behind_envoy", ENVOY_STAMP, -0.002, 0.0),
+        ("no_header", None, 3.2, None),
+        ("not_a_stamp", "garbage", 3.2, None),
+        ("stamp_older_than_any_proxy_timeout", ENVOY_STAMP, 601.0, None),
+        ("stamp_in_the_future", ENVOY_STAMP, -60.0, None),
+    ]
+)
+def test_request_queue_seconds(name, request_start, seconds_since_stamp, expected):
+    waited = request_queue_seconds(request_start, ENVOY_RECEIVED_AT + seconds_since_stamp)
+
+    if expected is None:
+        assert waited is None
+    else:
+        assert waited == pytest.approx(expected)
+
+
+@parameterized.expand(
+    [
+        ("stamped_by_envoy", {"HTTP_X_REQUEST_START": ENVOY_STAMP}, None, 1.0, 5000),
+        ("time_inside_django_is_not_queue_time", {"HTTP_X_REQUEST_START": ENVOY_STAMP}, 0.2, 1.0, 4800),
+        ("not_stamped", {}, None, 0.0, None),
+    ]
+)
+def test_chqueries_middleware_records_request_queue_time(
+    name, headers, seconds_inside_django, expected_observations, expected_tag_ms
+):
+    labels = {"access_method": "personal_api_key"}
+
+    def observations() -> float:
+        return REGISTRY.get_sample_value("posthog_request_queue_time_seconds_count", labels=labels) or 0.0
+
+    before = observations()
+    tagged: dict[str, Any] = {}
+
+    def get_response(req):
+        tag_queries(access_method="personal_api_key")
+        tagged["request_queue_ms"] = get_query_tag_value("request_queue_ms")
+        return HttpResponse("ok")
+
+    request = RequestFactory().get("/api/projects/@current/query/", **headers)
+    request.resolver_match = resolve(request.path)
+    request.user = MagicMock(pk=1, is_authenticated=False)
+    request.session = MagicMock(session_key="abc123")
+    if seconds_inside_django is not None:
+        request.prometheus_before_middleware_event = Time() - seconds_inside_django
+
+    with time_machine.travel(datetime.fromtimestamp(ENVOY_RECEIVED_AT + 5, tz=UTC), tick=False):
+        CHQueries(get_response)(request)
+
+    assert observations() - before == expected_observations
+    if expected_tag_ms is None:
+        assert tagged["request_queue_ms"] is None
+    else:
+        assert tagged["request_queue_ms"] == pytest.approx(expected_tag_ms, abs=20)
 
 
 @parameterized.expand(

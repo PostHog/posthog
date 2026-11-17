@@ -36,6 +36,7 @@ import requests
 import structlog
 import posthoganalytics
 from django_prometheus.middleware import Metrics
+from django_prometheus.utils import TimeSince
 from loginas.utils import is_impersonated_session, restore_original_login
 from opentelemetry import trace
 from prometheus_client import Counter, Histogram
@@ -630,6 +631,35 @@ def request_route(request: HttpRequest) -> str:
     return route_template(match.route)
 
 
+_REQUEST_START_STAMP = re.compile(r"t=(\d+(?:\.\d+)?)")
+_CLOCK_SKEW_SECONDS = 1
+_LONGEST_PROXY_TIMEOUT_SECONDS = 600
+
+
+def request_queue_seconds(request_start_header: str | None, entered_django_at: float) -> float | None:
+    stamps = _REQUEST_START_STAMP.findall(request_start_header or "")
+    if not stamps:
+        return None
+    stamped_by_envoy_at = float(stamps[-1])
+    waited = entered_django_at - stamped_by_envoy_at
+    if not -_CLOCK_SKEW_SECONDS <= waited <= _LONGEST_PROXY_TIMEOUT_SECONDS:
+        return None
+    return max(waited, 0.0)
+
+
+def _seconds_inside_django(request: HttpRequest) -> float:
+    entered = getattr(request, "prometheus_before_middleware_event", None)
+    return 0.0 if entered is None else TimeSince(entered)
+
+
+REQUEST_QUEUE_TIME_SECONDS = Histogram(
+    "posthog_request_queue_time_seconds",
+    "Time a request waited between Envoy and Django, labelled to expose API key vs browser traffic.",
+    labelnames=["access_method"],
+    buckets=(0.01, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 20.0, 30.0, 60.0, 120.0, 300.0, float("inf")),
+)
+
+
 API_REQUESTS_LATENCY_SECONDS = Histogram(
     "posthog_api_requests_latency_seconds",
     "Latency of api/ requests, labelled to expose agent vs browser traffic.",
@@ -670,6 +700,8 @@ class CHQueries:
         If monkey-patch has not been run in for this process (assuming multiple preforked processes),
         then do it now.
         """
+        entered_django_at = time.time() - _seconds_inside_django(request)
+        queue_seconds = request_queue_seconds(request.headers.get("x-request-start"), entered_django_at)
         is_api_request = "api/" in request.path and "capture" not in request.path
 
         user = cast(User, request.user)
@@ -681,6 +713,7 @@ class CHQueries:
 
         tag_queries(
             http_request_id=http_request_id,
+            request_queue_ms=None if queue_seconds is None else round(queue_seconds * 1000),
             user_id=user.pk,
             kind="request",
             id=request.path,
@@ -729,6 +762,10 @@ class CHQueries:
                     status_class=status_class,
                 ).observe(time.perf_counter() - start)
                 record_current_alias_use(request, route=request_route(request), status_class=status_class)
+            if queue_seconds is not None:
+                REQUEST_QUEUE_TIME_SECONDS.labels(access_method=get_query_tag_value("access_method") or "").observe(
+                    queue_seconds
+                )
             reset_query_tags()
 
     def process_view(
