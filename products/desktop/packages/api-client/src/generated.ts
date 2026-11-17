@@ -19079,6 +19079,7 @@ export namespace Schemas {
         role: Record<string, string> | null;
     };
     /**
+     * * `ai_conversation` - PostHog AI conversation
      * * `dashboard` - Dashboard
      * * `experiment` - Experiment
      * * `feature_flag` - Feature flag
@@ -19090,6 +19091,7 @@ export namespace Schemas {
      * * `other` - Other
      */
     export type TicketBriefItemKindEnum =
+        | "ai_conversation"
         | "dashboard"
         | "experiment"
         | "feature_flag"
@@ -19101,8 +19103,9 @@ export namespace Schemas {
         | "other";
     export type TicketBriefAffectedItem = {
         /**
-         * What the customer is asking about: dashboard, experiment, feature_flag, insight, project, replay, survey, external, or other.
+         * What the link points at: ai_conversation, dashboard, experiment, feature_flag, insight, project, replay, survey, external, or other.
          *
+         * * `ai_conversation` - PostHog AI conversation
          * * `dashboard` - Dashboard
          * * `experiment` - Experiment
          * * `feature_flag` - Feature flag
@@ -19115,11 +19118,11 @@ export namespace Schemas {
          */
         kind: TicketBriefItemKindEnum;
         /**
-         * Link to the item in PostHog, so the engineer can open it without a search.
+         * Link the customer sent or was on, so the engineer can open it without a search.
          */
         url: string;
         /**
-         * Name of the item as the customer would recognize it.
+         * Short name for the link, such as the object id from its path or the page it points at.
          */
         label: string;
     };
@@ -19134,15 +19137,18 @@ export namespace Schemas {
          */
         area: string;
         /**
-         * Each question the customer asks, as one short line. Empty when the customer asks nothing explicit.
+         * Each question the customer asks, quoted in their own words from one of their messages. Empty when the customer asks nothing explicit.
          */
         questions: Array<string>;
+        already_answered?: (string | null) | undefined;
         tried?: Array<string> | undefined;
-        error_message?: (string | null) | undefined;
-        affected_items?: Array<TicketBriefAffectedItem> | undefined;
-        screenshot_urls?: Array<string> | undefined;
-        replay_url?: (string | null) | undefined;
+        where_stopped?: (string | null) | undefined;
+        support_reason?: (string | null) | undefined;
         facts?: Array<string> | undefined;
+        affected_items?: Array<TicketBriefAffectedItem> | undefined;
+        replay_url?: (string | null) | undefined;
+        screenshot_urls?: Array<string> | undefined;
+        error_message?: (string | null) | undefined;
     };
     /**
      * Minimal person serializer for embedding in ticket responses.

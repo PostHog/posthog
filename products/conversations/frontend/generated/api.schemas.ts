@@ -480,6 +480,7 @@ export interface TicketAssignmentApi {
 }
 
 /**
+ * * `ai_conversation` - PostHog AI conversation
  * * `dashboard` - Dashboard
  * * `experiment` - Experiment
  * * `feature_flag` - Feature flag
@@ -493,6 +494,7 @@ export interface TicketAssignmentApi {
 export type TicketBriefItemKindEnumApi = (typeof TicketBriefItemKindEnumApi)[keyof typeof TicketBriefItemKindEnumApi]
 
 export const TicketBriefItemKindEnumApi = {
+    AiConversation: 'ai_conversation',
     Dashboard: 'dashboard',
     Experiment: 'experiment',
     FeatureFlag: 'feature_flag',
@@ -505,8 +507,9 @@ export const TicketBriefItemKindEnumApi = {
 } as const
 
 export interface TicketBriefAffectedItemApi {
-    /** What the customer is asking about: dashboard, experiment, feature_flag, insight, project, replay, survey, external, or other.
+    /** What the link points at: ai_conversation, dashboard, experiment, feature_flag, insight, project, replay, survey, external, or other.
      *
+     * * `ai_conversation` - PostHog AI conversation
      * * `dashboard` - Dashboard
      * * `experiment` - Experiment
      * * `feature_flag` - Feature flag
@@ -518,12 +521,12 @@ export interface TicketBriefAffectedItemApi {
      * * `other` - Other */
     kind: TicketBriefItemKindEnumApi
     /**
-     * Link to the item in PostHog, so the engineer can open it without a search.
+     * Link the customer sent or was on, so the engineer can open it without a search.
      * @maxLength 2000
      */
     url: string
     /**
-     * Name of the item as the customer would recognize it.
+     * Short name for the link, such as the object id from its path or the page it points at.
      * @maxLength 120
      */
     label: string
@@ -547,11 +550,17 @@ export interface TicketBriefApi {
      */
     area: string
     /**
-     * Each question the customer asks, as one short line. Empty when the customer asks nothing explicit.
-     * @maxItems 6
+     * Each question the customer asks, quoted in their own words from one of their messages. Empty when the customer asks nothing explicit.
+     * @maxItems 3
      * @items.maxLength 200
      */
     questions: string[]
+    /**
+     * What an AI assistant already told the customer before they reached support. Omitted when no assistant worked on the problem first.
+     * @maxLength 300
+     * @nullable
+     */
+    already_answered?: string | null
     /**
      * The steps the customer says they already took to fix or diagnose the problem.
      * @maxItems 5
@@ -559,22 +568,28 @@ export interface TicketBriefApi {
      */
     tried?: string[]
     /**
-     * The error the customer reported, copied exactly. Omitted when the ticket reports no error.
-     * @maxLength 600
+     * The first thing an AI assistant could not determine, so the engineer starts there. Omitted when no assistant worked on the problem first.
+     * @maxLength 300
      * @nullable
      */
-    error_message?: string | null
+    where_stopped?: string | null
     /**
-     * The items the ticket is about, with a link to each one.
+     * What the customer cannot see or change from outside PostHog, which is why a person has to act. Omitted when the ticket does not say.
+     * @maxLength 300
+     * @nullable
+     */
+    support_reason?: string | null
+    /**
+     * Details the engineer needs to act on, such as region, plan, versions, and ids. One per line.
+     * @maxItems 3
+     * @items.maxLength 160
+     */
+    facts?: string[]
+    /**
+     * Links to what the ticket is about: the page the customer was on, then the links they sent.
      * @maxItems 5
      */
     affected_items?: TicketBriefAffectedItemApi[]
-    /**
-     * Images the customer attached, in the order they sent them.
-     * @maxItems 5
-     * @items.maxLength 2000
-     */
-    screenshot_urls?: string[]
     /**
      * Replay of the session the ticket came from. Null when the ticket has no session.
      * @maxLength 2000
@@ -582,11 +597,17 @@ export interface TicketBriefApi {
      */
     replay_url?: string | null
     /**
-     * Details the engineer needs to act on, such as region, plan, versions, and ids. One per line.
+     * Images the customer attached, in the order they sent them.
      * @maxItems 5
-     * @items.maxLength 160
+     * @items.maxLength 2000
      */
-    facts?: string[]
+    screenshot_urls?: string[]
+    /**
+     * The error the customer reported, copied exactly. Omitted when the ticket reports no error.
+     * @maxLength 600
+     * @nullable
+     */
+    error_message?: string | null
 }
 
 export type TicketPersonApiProperties = { [key: string]: unknown }
