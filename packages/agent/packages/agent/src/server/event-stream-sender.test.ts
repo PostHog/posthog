@@ -675,6 +675,78 @@ describe("TaskRunEventStreamSender", () => {
     expect(completionSequences(requestBodies[1])).toEqual([1]);
   });
 
+  describe("retry backoff", () => {
+    async function collectUploadTimes(
+      failUpload: (attempt: number) => boolean,
+      attempts: number,
+      onAttempt?: (attempt: number, sender: TaskRunEventStreamSender) => void,
+    ): Promise<number[]> {
+      const uploadTimes: number[] = [];
+      const fetchMock = vi.fn(
+        async (_url: string | URL | Request, init?: RequestInit) => {
+          const body = await readRequestBody(init);
+          if (!body) return responseForBody(body);
+          uploadTimes.push(Date.now());
+          return failUpload(uploadTimes.length)
+            ? new Response("temporary failure", { status: 503 })
+            : responseForBody(body);
+        },
+      );
+      vi.stubGlobal("fetch", fetchMock);
+      const sender = createSender({
+        keepProxyStreamOpen: false,
+        retryDelayMs: 1_000,
+        maxRetryDelayMs: 5_000,
+        random: () => 1,
+      });
+      sender.enqueue({ type: "event" });
+      let seen = 0;
+      for (let i = 0; i < 100 && uploadTimes.length < attempts; i++) {
+        await vi.advanceTimersToNextTimerAsync();
+        if (uploadTimes.length > seen) {
+          seen = uploadTimes.length;
+          onAttempt?.(seen, sender);
+        }
+      }
+      return uploadTimes;
+    }
+
+    it.each([
+      [1, 1_000],
+      [2, 2_000],
+      [3, 4_000],
+      [4, 5_000],
+      [5, 5_000],
+    ])(
+      "waits %s-th retry delay of %sms after consecutive failures",
+      async (retry, expectedDelayMs) => {
+        vi.useFakeTimers();
+        try {
+          const times = await collectUploadTimes(() => true, retry + 1);
+          expect(times[retry] - times[retry - 1]).toBe(expectedDelayMs);
+        } finally {
+          vi.useRealTimers();
+        }
+      },
+    );
+
+    it("starts over from the base delay after a successful flush", async () => {
+      vi.useFakeTimers();
+      try {
+        const times = await collectUploadTimes(
+          (attempt) => [1, 2, 4].includes(attempt),
+          5,
+          (attempt, sender) => {
+            if (attempt === 3) sender.enqueue({ type: "event" });
+          },
+        );
+        expect(times[4] - times[3]).toBe(1_000);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+  });
+
   it("retries when the active stream response rejects before shutdown", async () => {
     const requestBodies: string[] = [];
     let failedStream = false;
