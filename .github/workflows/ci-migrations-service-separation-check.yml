@@ -18,11 +18,6 @@ jobs:
         runs-on: ubuntu-24.04
         timeout-minutes: 5
         steps:
-            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-              with:
-                  sparse-checkout: .github/actions/paths-filter
-                  sparse-checkout-cone-mode: false
-
             # Author-attested escape hatch for migrations that change no schema the service reads
             # and ship safely alongside service code. The check is path-only and can't tell a
             # CREATE TABLE from a comment change, so the label opt-in matches the precedent set
@@ -40,6 +35,12 @@ jobs:
                   else
                       echo "skip=false" >> "$GITHUB_OUTPUT"
                   fi
+
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              if: steps.skip-label.outputs.skip != 'true'
+              with:
+                  sparse-checkout: .github/actions/paths-filter
+                  sparse-checkout-cone-mode: false
 
             - uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               id: app-token
