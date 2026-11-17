@@ -17,6 +17,7 @@ describe('CyclotronJobQueueKafka on Kafka', () => {
             {
                 CDP_CYCLOTRON_COMPRESS_KAFKA_DATA: false,
                 CDP_CYCLOTRON_STRIP_PERSON_FROM_STATE_TEAMS: '',
+                CDP_SEALED_STATE_KEYS: '',
                 ENCRYPTION_SALT_KEYS: '',
             },
             10
