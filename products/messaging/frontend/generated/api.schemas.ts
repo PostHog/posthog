@@ -1502,6 +1502,10 @@ export interface TransactionalEmailImpactApi {
     opened: number
     /** Sends with at least one tracked link click. */
     clicked: number
+    /** Delivered sends nobody clicked. */
+    not_clicked: number
+    /** Sends that went out with open and click tracking off, as sensitive emails do. They can't record an open or a click. */
+    untracked: number
     /** How many days after the click or the send the event counts. */
     window_days: number
     /** Clicked sends and how many converted. Null without an event. */
