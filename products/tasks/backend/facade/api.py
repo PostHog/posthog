@@ -3306,6 +3306,8 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         "agent_parent_run_id",
         "agent_started_run_count",
         "resume_from_run_id",
+        # Once another member drove the sandbox, nothing inside it may unlock the creator's memory.
+        "agent_memory_locked",
         "run_source",
         "pr_base_branch",
         "stack_base_branch",
@@ -3349,6 +3351,7 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         "sandbox_url",
         "sandbox_connect_token",
         "sandbox_jwt_kid",
+        "agent_egress_probe",
         DEV_STACK_PREVIEW_STATE_KEY,
         "sandbox_cpu_cores",
         "sandbox_memory_gb",
