@@ -1,9 +1,11 @@
 import re
+import hmac
 import json
 import hashlib
 from datetime import timedelta
 from typing import cast
 
+from django.conf import settings
 from django.core.cache import cache
 from django.db import models
 from django.utils import timezone
@@ -277,15 +279,18 @@ def _recording_was_deleted(team: Team, session_id: str) -> bool:
     return bool(response.results and response.results[0][0])
 
 
-def _snapshot_key(survey: Survey, target: UrlTarget, device: SnapshotDevice) -> str:
-    # The key is stored on the export, which recording viewers can read, so it hides the survey and its targeting.
+def _snapshot_key(team: Team, target: UrlTarget, device: SnapshotDevice) -> str:
+    # The key is stored on the export, which recording viewers can read. A keyed hash stops them guessing the
+    # targeting from it, since a short URL like "pricing" is easy to hash and compare.
     targeting = {
-        "survey_id": str(survey.id),
+        "team_id": team.id,
         "device": device.value,
         "url": target.url,
         "url_match_type": target.match_type.value,
     }
-    return hashlib.sha256(json.dumps(targeting, sort_keys=True).encode()).hexdigest()
+    return hmac.new(
+        settings.SECRET_KEY.encode(), json.dumps(targeting, sort_keys=True).encode(), hashlib.sha256
+    ).hexdigest()
 
 
 def _may_view_recording(user_access_control: UserAccessControl, team: Team, session_id: str) -> bool:
@@ -362,7 +367,7 @@ def get_site_snapshot(
         return UNAVAILABLE
 
     target = target or UrlTarget.of(survey)
-    key = _snapshot_key(survey, target, device)
+    key = _snapshot_key(team, target, device)
     cached = (
         ExportedAsset.objects.filter(
             team_id=team.id,

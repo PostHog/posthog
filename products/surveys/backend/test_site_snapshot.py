@@ -118,7 +118,9 @@ class TestSiteSnapshot(ClickhouseTestMixin, APIBaseTest):
             )
 
     def _survey(self, conditions: dict[str, Any] | None) -> Survey:
-        return Survey.objects.create(team=self.team, name="Draft", type="popover", conditions=conditions)
+        return Survey.objects.create(
+            team=self.team, name=f"Draft {Survey.objects.count()}", type="popover", conditions=conditions
+        )
 
     @parameterized.expand(
         [
@@ -319,6 +321,15 @@ class TestSiteSnapshot(ClickhouseTestMixin, APIBaseTest):
         assert statuses == [SnapshotStatus.RENDERING, SnapshotStatus.RENDERING, SnapshotStatus.UNAVAILABLE]
         assert ExportedAsset.objects.count() == 2
         assert cached.status == SnapshotStatus.RENDERING
+
+    @patch("products.exports.backend.facade.api.async_connect", new_callable=AsyncMock)
+    def test_surveys_with_the_same_targeting_share_a_snapshot(self, _async_connect: AsyncMock) -> None:
+        first = get_site_snapshot(self.team, self._survey({"url": "docs"}), SnapshotDevice.DESKTOP, self.user)
+
+        second = get_site_snapshot(self.team, self._survey({"url": "docs"}), SnapshotDevice.DESKTOP, self.user)
+
+        assert second.exported_asset_id == first.exported_asset_id
+        assert ExportedAsset.objects.count() == 1
 
     @patch("products.exports.backend.facade.api.async_connect", new_callable=AsyncMock)
     def test_a_changed_url_condition_renders_a_new_snapshot(self, _async_connect: AsyncMock) -> None:
