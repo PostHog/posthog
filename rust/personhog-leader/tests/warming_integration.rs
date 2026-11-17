@@ -306,8 +306,9 @@ async fn a_chunk_too_large_to_buffer_is_read_again_in_smaller_spans() {
         .await
         .expect("fill should succeed");
 
-    // Six records, read 15 times: every discarded read is counted.
-    assert_eq!((stats.end, stats.records), (FillEnd::Bound, 15));
+    // The whole range is read and discarded, then each half once: the older half fits
+    // because the records of the two persons already claimed are never buffered.
+    assert_eq!((stats.end, stats.records), (FillEnd::Bound, 12));
     assert_eq!(version_of(&cache, 0, 1), Some(3));
     assert_eq!(version_of(&cache, 0, 2), Some(1));
     assert_eq!(version_of(&cache, 0, 3), None);

@@ -182,8 +182,20 @@ impl PersonCache {
         *self.put_keys.lock().unwrap_or_else(PoisonError::into_inner) = None;
     }
 
+    /// Whether a fill would skip the key; lets it drop a record before buffering or encoding.
+    pub fn was_put(&self, key: &PersonCacheKey) -> bool {
+        self.put_keys
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .as_ref()
+            .is_some_and(|tracking| tracking.keys.contains(key))
+    }
+
     /// Insert unless the key was put since tracking began; a put records its key first.
     pub fn fill(&self, key: PersonCacheKey, person: CachedPerson) -> FillOutcome {
+        let is_deleted = person.is_deleted;
+        // Encoded before the lock: live puts on this partition wait on it.
+        let stored = StoredPerson::new(person, &self.codec);
         let mut put_keys = self.put_keys.lock().unwrap_or_else(PoisonError::into_inner);
         let Some(tracking) = put_keys.as_mut() else {
             return FillOutcome::NotTracking;
@@ -195,11 +207,10 @@ impl PersonCache {
             *put_keys = None;
             return FillOutcome::NotTracking;
         }
-        if person.is_deleted {
+        if is_deleted {
             return FillOutcome::Skipped;
         }
-        self.inner
-            .insert(key, StoredPerson::new(person, &self.codec));
+        self.inner.insert(key, stored);
         FillOutcome::Inserted
     }
 

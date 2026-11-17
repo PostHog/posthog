@@ -965,14 +965,18 @@ pub async fn fill_source(
             chunk_end,
             |_offset, cached| {
                 stats.records += 1;
+                counter!("personhog_leader_cache_fill_records_total").increment(1);
                 if buffered > fill.chunk_max_bytes {
                     return;
                 }
-                buffered += cached.properties.len();
                 let key = PersonCacheKey {
                     team_id: cached.team_id,
                     person_id: cached.id,
                 };
+                if cache.was_put(&key) {
+                    return;
+                }
+                buffered += cached.properties.len();
                 if let Some(replaced) = latest.insert(key, cached) {
                     buffered -= replaced.properties.len();
                 }
@@ -993,7 +997,10 @@ pub async fn fill_source(
                 return Ok(stats);
             }
             match cache.fill(key, person) {
-                FillOutcome::Inserted => stats.inserted += 1,
+                FillOutcome::Inserted => {
+                    stats.inserted += 1;
+                    counter!("personhog_leader_cache_fill_inserted_total").increment(1);
+                }
                 FillOutcome::Skipped => {}
                 FillOutcome::NotTracking => {
                     stats.end = FillEnd::Stopped;
@@ -1034,8 +1041,6 @@ pub async fn run_fill(
         }
     };
     counter!("personhog_leader_cache_fills_total", "end" => end).increment(1);
-    counter!("personhog_leader_cache_fill_records_total").increment(records);
-    counter!("personhog_leader_cache_fill_inserted_total").increment(inserted);
     histogram!("personhog_leader_cache_fill_duration_ms")
         .record(started.elapsed().as_secs_f64() * 1000.0);
     tracing::info!(
