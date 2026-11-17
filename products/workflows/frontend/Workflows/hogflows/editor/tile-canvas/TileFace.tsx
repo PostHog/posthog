@@ -8,6 +8,7 @@ import { TILE_SIZE } from './tileCanvasLayout'
 import type { TileShape, TileStep } from './useTileStep'
 
 const CORNER = 12
+const NEEDS_ATTENTION = 'This step needs attention. Open it to see what is missing.'
 
 function tileRadius(shape: TileShape): string {
     const round = `${TILE_SIZE / 2}px`
@@ -40,11 +41,11 @@ export function TileFace({ tile, count }: { tile: TileStep; count: number | unde
                 </TileBadge>
             )}
             {tile.invalid && (
-                <Tooltip title="This step needs attention. Open it to see what is missing.">
+                <Tooltip title={NEEDS_ATTENTION}>
                     <span
                         className="absolute -left-3 -top-3 z-[2] flex size-6 items-center justify-center rounded-full border-2 border-primary bg-warning text-black shadow-sm"
                         role="img"
-                        aria-label="Needs attention"
+                        aria-label={NEEDS_ATTENTION}
                     >
                         <IconWarning className="size-4" />
                     </span>
