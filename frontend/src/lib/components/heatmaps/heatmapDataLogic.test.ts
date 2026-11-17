@@ -20,7 +20,9 @@ describe('heatmapDataLogic window resize', () => {
             Promise.resolve(new Response(JSON.stringify({ results: [] }), { status: 200 }))
         )
         initKeaTests()
-        toolbarConfigLogic.build({ apiURL: 'http://localhost', accessToken: 'test-token' }).mount()
+        toolbarConfigLogic
+            .build({ apiURL: 'http://localhost', accessToken: 'test-token', teamId: 2, projectId: 1 })
+            .mount()
     })
 
     afterEach(() => {
@@ -88,13 +90,15 @@ describe('heatmapApiPath', () => {
         // in-app requests must pin the team the page was loaded for, not the user's global current project
         ['in-app', 42, '', '/api/projects/42/heatmaps/'],
         ['in-app', 42, 'events/', '/api/projects/42/heatmaps/events/'],
-        // the toolbar has no app context and keeps the legacy unscoped route
-        ['toolbar', 42, '', '/api/heatmap/'],
-        ['toolbar', 42, 'events/', '/api/heatmap/events/'],
+        // the toolbar pins the team its token is scoped to, which differs from its project id here
+        ['toolbar', 42, '', '/api/projects/7/heatmaps/'],
+        ['toolbar', 42, 'events/', '/api/projects/7/heatmaps/events/'],
         // without an app context team there is nothing to scope to, so fall back to the legacy route
         ['in-app', null, '', '/api/heatmap/'],
         ['in-app', null, 'events/', '/api/heatmap/events/'],
     ] as const)('context %s with team %s and endpoint %s resolves %s', (context, teamId, endpoint, expected) => {
+        initKeaTests()
+        toolbarConfigLogic.build({ accessToken: 'token', teamId: 7, projectId: 3 }).mount()
         window.POSTHOG_APP_CONTEXT = (teamId === null
             ? undefined
             : { current_team: { id: teamId } }) as unknown as AppContext

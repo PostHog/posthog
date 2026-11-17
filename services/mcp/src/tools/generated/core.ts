@@ -76,6 +76,7 @@ const fileSystemList = (): ToolBase<
                 path: params.path,
                 ref: params.ref,
                 search: params.search,
+                tags: params.tags,
                 type: params.type,
             },
         })

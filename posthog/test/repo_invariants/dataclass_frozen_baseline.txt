@@ -364,7 +364,6 @@
 1 products/warehouse_sources/sources/upstash/settings.py
 1 products/warehouse_sources/sources/veeqo/settings.py
 1 products/warehouse_sources/sources/veeqo/veeqo.py
-1 products/warehouse_sources/sources/vultr/settings.py
 1 products/warehouse_sources/sources/webflow/settings.py
 1 products/warehouse_sources/sources/webflow/webflow.py
 1 products/warehouse_sources/sources/whop/whop.py
@@ -375,9 +374,7 @@
 1 products/warehouse_sources/sources/yousign/yousign.py
 1 products/warehouse_sources/sources/zapsign/zapsign.py
 1 products/warehouse_sources/sources/zendesk/settings.py
-1 products/warehouse_sources/sources/zendesk_sell/zendesk_sell.py
 1 products/warehouse_sources/sources/zendesk_sunshine/zendesk_sunshine.py
-1 products/warehouse_sources/sources/zenduty/settings.py
 1 products/warehouse_sources/sources/zenloop/settings.py
 1 products/warehouse_sources/sources/zoho_crm/zoho_crm.py
 1 products/warehouse_sources/backend/temporal/data_imports/tests/e2e/test_google_ads_source.py

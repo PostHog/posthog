@@ -24,6 +24,7 @@ class ReportTaskActionKind(LabeledStrEnum):
     # A report action that starts an agent run from the API. See `report_task_actions.py`.
     GET_IT_MERGED = "get_it_merged", "Get it merged"
     MAKE_IT_GREEN = "make_it_green", "Make it green"
+    RESOLVE_CONFLICTS = "resolve_conflicts", "Resolve conflicts"
     SUGGESTED_PROMPT = "suggested_prompt", "Suggested prompt"
     ASK = "ask", "Ask"
 
@@ -198,6 +199,16 @@ class SignalSourceProduct(StrEnum):
     STATUSPAGE = "statuspage"
     CRONITOR = "cronitor"
     INSTATUS = "instatus"
+    # More incident tools (record kind: incident)
+    ROOTLY = "rootly"
+    ZENDUTY = "zenduty"
+    SPLUNK_OBSERVABILITY_CLOUD = "splunk_observability_cloud"
+    UPTIMEROBOT = "uptimerobot"
+    # On-call alert tables, toggled apart from the vendor's incident table (record kind: incident)
+    ROOTLY_ALERTS = "rootly_alerts"
+    INCIDENT_IO_ALERTS = "incident_io_alerts"
+    FIREHYDRANT_ALERTS = "firehydrant_alerts"
+    GRAFANA_IRM_ALERT_GROUPS = "grafana_irm_alert_groups"
     # Tier-2 trackers
     ASANA = "asana"
     MONDAY = "monday"
@@ -393,6 +404,14 @@ SIGNAL_SOURCE_PRODUCT_LABELS: dict[SignalSourceProduct, str] = {
     SignalSourceProduct.STATUSPAGE: "Statuspage",
     SignalSourceProduct.CRONITOR: "Cronitor",
     SignalSourceProduct.INSTATUS: "Instatus",
+    SignalSourceProduct.ROOTLY: "Rootly",
+    SignalSourceProduct.ZENDUTY: "Zenduty",
+    SignalSourceProduct.SPLUNK_OBSERVABILITY_CLOUD: "Splunk Observability Cloud",
+    SignalSourceProduct.UPTIMEROBOT: "UptimeRobot",
+    SignalSourceProduct.ROOTLY_ALERTS: "Rootly alerts",
+    SignalSourceProduct.INCIDENT_IO_ALERTS: "incident.io alerts",
+    SignalSourceProduct.FIREHYDRANT_ALERTS: "FireHydrant alerts",
+    SignalSourceProduct.GRAFANA_IRM_ALERT_GROUPS: "Grafana IRM alert groups",
     SignalSourceProduct.ASANA: "Asana",
     SignalSourceProduct.MONDAY: "monday.com",
     SignalSourceProduct.PLANE: "Plane",

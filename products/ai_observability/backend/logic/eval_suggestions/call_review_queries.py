@@ -3,6 +3,8 @@
 from collections.abc import Sequence
 
 from posthog.hogql import ast
+from posthog.hogql.parser import parse_select
+from posthog.hogql.visitor import TraversingVisitor
 
 from posthog.dataclasses import frozen
 from posthog.models.team import Team
@@ -19,6 +21,8 @@ CALL_TYPE_INPUT_CHARS = 1200
 CANDIDATES_PER_CALL_TYPE = 60
 MAX_INPUT_CHARS = 65536
 MAX_OUTPUT_CHARS = 16384
+# Agent tool catalogs often run to around 100 KB, and the runtime judge formats the whole catalog.
+MAX_TOOLS_CHARS = 262_144
 # A longer input keeps its first message, which holds the system prompt, and its last few messages, each within a cap.
 MAX_FIRST_MESSAGE_CHARS = 49152
 MAX_LAST_MESSAGE_CHARS = 16384
@@ -62,6 +66,7 @@ LIMIT {{limit}}
 # Candidates are chosen by a hash of their uuid, which spreads each call type's candidates over the day. The
 # subquery chooses them from ids and call types alone, so the sort never holds message bodies, and only the chosen
 # rows read their input and output. ai_events can store an event more than once, so both caps count each uuid once.
+# The subquery's `IN` runs as GLOBAL IN, see _calls_query.
 _CALLS_SQL = f"""
 SELECT
     toString(uuid) AS event_uuid,
@@ -95,7 +100,8 @@ SELECT
     left(
         if(coalesce(output_choices, '') NOT IN ('', 'null', '[]'), output_choices, coalesce(output, '')),
         {{max_output}}
-    ) AS output_text
+    ) AS output_text,
+    left(coalesce(tools, ''), {{max_tools}}) AS tools_text
 {_GENERATIONS}
   AND uuid IN (
     SELECT uuid
@@ -112,6 +118,22 @@ ORDER BY cityHash64(event_uuid)
 LIMIT 1 BY event_uuid
 LIMIT {{max_rows}}
 """
+
+
+class _GlobalSubqueryIn(TraversingVisitor):
+    def visit_compare_operation(self, node: ast.CompareOperation) -> None:
+        if node.op == ast.CompareOperationOp.In and isinstance(node.right, ast.SelectQuery):
+            node.op = ast.CompareOperationOp.GlobalIn
+        super().visit_compare_operation(node)
+
+
+def _calls_query() -> ast.SelectQuery:
+    """_CALLS_SQL with its candidate subquery run once, on the node that starts the query. A plain `IN` over the
+    distributed ai_events table runs the subquery again on every shard, and HogQL has no GLOBAL IN syntax."""
+    query = parse_select(_CALLS_SQL)
+    assert isinstance(query, ast.SelectQuery)
+    _GlobalSubqueryIn().visit(query)
+    return query
 
 
 @frozen
@@ -138,6 +160,8 @@ class ReviewCallRow:
     # Raw JSON, cut to the caps above, which can leave it unparseable.
     input: str
     output: str
+    # The `$ai_tools` catalog, which the runtime judge reads beside the call.
+    tools: str = ""
 
 
 def _placeholders(window: ProfileWindow, per_mille: int) -> dict[str, ast.Expr]:
@@ -179,7 +203,7 @@ def load_review_calls(
 ) -> list[ReviewCallRow]:
     rows = run_ai_events_query(
         team,
-        _CALLS_SQL,
+        _calls_query(),
         {
             **_placeholders(window, per_mille),
             "keys": ast.Constant(value=[call_type.key for call_type in call_types]),
@@ -188,6 +212,7 @@ def load_review_calls(
             "max_last": ast.Constant(value=MAX_LAST_MESSAGE_CHARS),
             "last_messages": ast.Constant(value=LAST_MESSAGES),
             "max_output": ast.Constant(value=MAX_OUTPUT_CHARS),
+            "max_tools": ast.Constant(value=MAX_TOOLS_CHARS),
             "per_type": ast.Constant(value=CANDIDATES_PER_CALL_TYPE),
             # Without a limit, HogQL returns its default 100 rows, fewer than the candidates of two call types.
             "max_rows": ast.Constant(value=CANDIDATES_PER_CALL_TYPE * len(call_types)),
@@ -201,6 +226,7 @@ def load_review_calls(
             call_type=f"{row[2]}:{row[3]}",
             input=str(row[4] or ""),
             output=str(row[5] or ""),
+            tools=str(row[6] or ""),
         )
         for row in rows
     ]

@@ -47,7 +47,7 @@ impl DistinctIdLookup for PostgresStorage {
             (Some(cursor), Some(l)) => {
                 sqlx::query_as!(
                     DistinctIdWithVersion,
-                    r#"
+                    r#"/* service='personhog-replica', operation='get_distinct_ids_for_person_cursor_limit' */
                     SELECT distinct_id, version, id
                     FROM posthog_persondistinctid
                     WHERE team_id = $1 AND person_id = $2 AND is_deleted = false
@@ -66,7 +66,7 @@ impl DistinctIdLookup for PostgresStorage {
             (Some(cursor), None) => {
                 sqlx::query_as!(
                     DistinctIdWithVersion,
-                    r#"
+                    r#"/* service='personhog-replica', operation='get_distinct_ids_for_person_cursor' */
                     SELECT distinct_id, version, id
                     FROM posthog_persondistinctid
                     WHERE team_id = $1 AND person_id = $2 AND is_deleted = false
@@ -83,7 +83,7 @@ impl DistinctIdLookup for PostgresStorage {
             (None, Some(l)) => {
                 sqlx::query_as!(
                     DistinctIdWithVersion,
-                    r#"
+                    r#"/* service='personhog-replica', operation='get_distinct_ids_for_person_limit' */
                     SELECT capped.distinct_id, capped.version, capped.id
                     FROM (
                         SELECT distinct_id, version, id
@@ -104,7 +104,7 @@ impl DistinctIdLookup for PostgresStorage {
             (None, None) => {
                 sqlx::query_as!(
                     DistinctIdWithVersion,
-                    r#"
+                    r#"/* service='personhog-replica', operation='get_distinct_ids_for_person' */
                     SELECT distinct_id, version, id
                     FROM posthog_persondistinctid
                     WHERE team_id = $1 AND person_id = $2 AND is_deleted = false
@@ -182,7 +182,7 @@ impl DistinctIdLookup for PostgresStorage {
                     Some(l) => {
                         sqlx::query_as!(
                             DistinctIdMapping,
-                            r#"
+                            r#"/* service='personhog-replica', operation='get_distinct_ids_for_persons_limit' */
                                 SELECT l.person_id, l.distinct_id, l.version
                                 FROM UNNEST($2::bigint[]) AS pid(id)
                                 CROSS JOIN LATERAL (
@@ -207,7 +207,7 @@ impl DistinctIdLookup for PostgresStorage {
                     _ => {
                         sqlx::query_as!(
                             DistinctIdMapping,
-                            r#"
+                            r#"/* service='personhog-replica', operation='get_distinct_ids_for_persons' */
                                 SELECT person_id, distinct_id, version
                                 FROM posthog_persondistinctid
                                 WHERE team_id = $1 AND person_id = ANY($2) AND is_deleted = false
@@ -265,7 +265,7 @@ impl DistinctIdLookup for PostgresStorage {
         let mut conn = PostgresStorage::acquire_timed(pool, pool_label).await?;
         // LEFT JOIN: the mapping foreign key is NOT VALID, so an orphan row can outlive its person.
         let rows = sqlx::query!(
-            r#"
+            r#"/* service='personhog-replica', operation='get_distinct_id_rows' */
             SELECT d.distinct_id as "distinct_id!", d.person_id as "person_id!", p.uuid as "person_uuid?",
                    COALESCE(d.version, 0)::bigint as "version!", d.is_deleted as "is_deleted!",
                    p.is_deleted as "person_is_deleted?"
