@@ -140,6 +140,7 @@ class TestRewriteHogQL(SimpleTestCase):
     @parameterized.expand(
         [
             ("posthog", {}, True),
+            ("posthog_default_target", {"executionTarget": "default"}, True),
             ("direct_connection", {"connectionId": "source"}, False),
             ("hosted_trino", {"executionTarget": "managed_trino"}, False),
         ]

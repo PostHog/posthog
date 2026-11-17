@@ -14,8 +14,10 @@ from posthog.models.cohortmembership.query_rewrite import (
     rewrite_saved_rows,
 )
 
-from products.data_modeling.backend.logic.saved_query_dag_sync import sync_saved_query_to_dag
+from products.data_modeling.backend.logic.saved_query_dag_sync import lineage_database, sync_saved_query_to_dag
+from products.data_modeling.backend.logic.schedule_reconcile import maybe_reconcile_dag
 from products.data_modeling.backend.models import DataWarehouseSavedQuery
+from products.data_modeling.backend.models.dag import DAG
 
 logger = structlog.get_logger(__name__)
 
@@ -39,19 +41,24 @@ def rewrite_cohort_membership_queries(team_id: int, apply: bool) -> list[SavedQu
         extra_updates=lambda: {"query_revision": uuid.uuid4(), "query_updated_at": timezone.now()},
     )
     written = [row.pk for row in results if row.written]
-    for view in DataWarehouseSavedQuery._base_manager.filter(pk__in=written).select_related("team"):
-        _sync_lineage(view)
+    views = DataWarehouseSavedQuery._base_manager.filter(pk__in=written).select_related("team")
+    _sync_lineage([view for view in views if view.engine.has_lineage.available])
     return results
 
 
-def _sync_lineage(view: DataWarehouseSavedQuery) -> None:
+def _sync_lineage(views: list[DataWarehouseSavedQuery]) -> None:
     # The update skips the save path, so the DAG still lists `cohort_membership` as a parent until this sync.
-    if not view.engine.has_lineage.available:
+    if not views:
         return
-    try:
-        with transaction.atomic():
-            sync_saved_query_to_dag(view)
-    except Exception as e:
-        # Best effort, as in the SQL editor: the view keeps its old edges until its next save.
-        capture_exception(e)
-        logger.exception("cohort_membership_rewrite_lineage_sync_failed", saved_query_id=str(view.id))
+    team = views[0].team
+    database = lineage_database(team)
+    for view in views:
+        try:
+            with transaction.atomic():
+                sync_saved_query_to_dag(view, reconcile=False, database=database)
+        except Exception as e:
+            # Best effort, as in the SQL editor: the view keeps its old edges until its next save.
+            capture_exception(e)
+            logger.exception("cohort_membership_rewrite_lineage_sync_failed", saved_query_id=str(view.id))
+    # Once for the batch, because each reconcile reads the whole DAG and updates its schedules.
+    maybe_reconcile_dag(DAG.get_or_create_default(team))

@@ -10,6 +10,7 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.visitor import TraversingVisitor
 
 from posthog.dataclasses import frozen
+from posthog.schema_enums import ExecutionTarget
 
 LEGACY_TABLE = "cohort_membership"
 REPLACEMENT_TABLE = "cohort_people"
@@ -172,7 +173,8 @@ def rewrite_hogql(sql: str) -> Optional[SqlRewrite]:
 
 def _runs_on_posthog(node: dict[str, Any]) -> bool:
     # A direct connection or hosted Trino runs the SQL elsewhere, where `cohort_membership` is another table.
-    return not node.get("connectionId") and node.get("executionTarget") in (None, "clickhouse")
+    # Every other target runs on ClickHouse, as in the HogQL query runner.
+    return not node.get("connectionId") and node.get("executionTarget") != ExecutionTarget.MANAGED_TRINO
 
 
 def rewrite_hogql_node(node: dict[str, Any]) -> tuple[dict[str, Any], Optional[SqlRewrite]]:
