@@ -1356,7 +1356,7 @@ export const FeatureFlagsBulkDeleteCreateBody = /* @__PURE__ */ zod.object({
                 .string()
                 .optional()
                 .describe(
-                    'Search by feature flag key or name (case-insensitive). Spaces, underscores, and hyphens count as the same separator.'
+                    'Search by feature flag key or name (case-insensitive). Spaces, underscores, and hyphens count as the same separator. The words of the term must appear together and in order, so a shorter term matches more flags.'
                 ),
             type: zod
                 .enum(['boolean', 'multivariant', 'experiment', 'remote_config'])

@@ -248,7 +248,7 @@ To call a new endpoint or import a new schema type:
 4. Run `pnpm typecheck`. A call site whose path is not allowlisted fails with `not assignable to keyof GetEndpoints` (or the matching method); add the path and regenerate.
 5. Commit `generated.ts` together with the allowlist change.
 
-Keep desktop and backend changes in separate PRs: the desktop ships on its own auto-update schedule, so a client that calls an endpoint before it is deployed reaches users. A regen from a branch that adds a backend endpoint only carries types for it, which is safe; the call site lands after the endpoint is live. For this reason the desktop/backend coupling check ignores `generated.ts`, but not the allowlist or any call site.
+A desktop or `packages/agent/packages/` change and the Django change it calls may share a PR, because `desktop-tag.yml` and `desktop-agent-tag.yml` hold each release until prod-us and prod-eu run a Django build that contains its commit. Keep desktop and `rust/` changes in separate PRs: the releases do not wait for Rust deploys, so a client could call an endpoint before it is deployed. A regen from a branch that adds a backend endpoint only carries types for it, which is safe. For this reason the desktop/backend coupling check ignores `generated.ts`, but not the allowlist or any call site.
 
 Raw `fetch` calls through `this.api.fetcher.fetch` with a hand-built path do not need an allowlist entry, and endpoints that leave the schema surface as a generator error on the next regen: remove them from the allowlist, and typecheck shows any call site that still used them.
 

@@ -198,6 +198,33 @@ read `FINAL_REPORT.md` there first (config glossary + coverage matrix + ranking)
    rate drops materially (toward ≤50%) on frozen-PR evals with the valid-finding set intact (item 5's
    coverage matrix as the guard); kill if valid findings drop with the noise.
 
+### ✅ BUILT 2026-11-17 — devex lens: its own lane, ownership errors stay local, a matched control
+
+Three points from the #132203 review, settled before the flag goes on. The flag stays off.
+
+- **Own lane.** In the shared selection a devex must-fix took a cap slot and a budget slot, and a devex duplicate could raise a main finding to must-fix and move it out of the cap.
+  Now the devex findings dedup in a third call with the main and lens findings as anchors, raise only a devex survivor, and post up to `DEVEX_LENS_MAX_FINDINGS` (2) in a lane outside the turn cap and the finding budget.
+  A failed devex dedup empties the lane for that turn instead of retrying the activity, because the positional fallback ignores the anchors and could repost a main finding.
+  A routed turn posts the same other findings as an unrouted one, so the lens's effect is only its own lane.
+  Rejected: always posting devex findings. Only 5 of the 9 lens-only root causes on the pilot's second set were valid.
+- **Ownership errors.** `resolve_path_owners` caught only a missing root file and an unreachable repository. An `owners.yaml` that does not parse failed the whole fetch. `_devex_lens_files` now logs the error and returns no files.
+- **A matched control.** The fetch resolves the route on every Standard turn with separate sessions, flag on or off. The started event carries `devex_lens_routed` and `devex_lens_arm`, and the completed event reports the devex session's failure, timeout and duration as `flash_devex_*`, outside the lens counts.
+  The ownership files are cached, so the extra reads on flag-off turns are mostly cache hits.
+- **Arm means assignment.** `devex_lens_arm` is the flag on a routed PR. Delta turns run without the lens in both arms, so a comparison by arm stays intent-to-treat. `flash_devex_*` says whether the session ran.
+- **Known gap.** A turn that posts only devex findings still counts as a review round, so the round note can come one round earlier on a routed PR.
+- **Still open.** The 2026-11-10 entry's "before the flag goes on" (the plan's experiment and its bars), and the routed-lens table before a second lens.
+
+### ✅ BUILT 2026-11-13 — `code_review` identifier namespace (ReviewHog and Stamphog)
+
+Stamphog folds into PostHog Review, and neither product is released, so the rename is hard, with no aliases.
+Entries below this one keep the old names as history.
+
+- **API paths:** `review_hog/<x>` became `code_review/<x>`. Stamphog's `repo_configs`, `review_runs`, `pull_requests`, `digest_runs` and `routing_runs` became `code_review/approvals/{repositories,runs,pull_requests,digests,reviewer_routing}`. The digest endpoint and its MCP tool moved like the rest (`code_review/approvals/digests`, `code-review-approvals-digests-list`); the digest stays paused, not removed.
+- **MCP tools:** `review-hog-reviews-*` became `code-review-reviews-*`, and `stamphog-*` became `code-review-approvals-*`. Both products share the `PostHog Review` category and the `code_review` feature key.
+- **Scopes and access control:** `review_hog` became `code_review`, and `stamphog` became `code_review_approval`, for API scopes and for the access-control resource. `posthog/migrations/1440_rename_code_review_scopes.py` adds the new names next to the old ones in stored keys, OAuth rows and access-control rows; a follow-up migration drops the old ones after deploy.
+- **OAuth:** shipped desktop builds still request the old scope names, so `posthog/scopes/catalog.py::RENAMED_OAUTH_SCOPE_OBJECTS` translates them at `/authorize`, device authorization and refresh. Remove it once those builds age out.
+- **Kept:** the GitHub app and its `stamphog` label, `/stamp`, `.stamphog/` policy files, the webhook path, the `/stamphog/install/callback` route, internal code names, feature flag keys, analytics events, and stored enum values such as `stamphog_approved` and `reviewhog_clean`.
+
 ### ✅ BUILT 2026-11-13 — changed lines in follow-up prompts, outcomes and author responses on the reviews API
 
 - **What.**
