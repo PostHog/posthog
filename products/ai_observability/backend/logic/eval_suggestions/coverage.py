@@ -12,6 +12,7 @@ from collections.abc import Callable, Iterable, Mapping, Sequence
 from datetime import datetime, timedelta
 from typing import Any, Literal
 
+from django.db.models import Q
 from django.utils import timezone
 
 from posthog.dataclasses import frozen
@@ -30,6 +31,7 @@ from products.ai_observability.backend.models.eval_suggestions import EvalSugges
 from products.ai_observability.backend.models.evaluations import Evaluation
 
 from . import catalog
+from .call_review import REVIEW_TEMPLATE_KEY, EarlierCard
 
 DEAD_LOOKBACK = timedelta(days=30)
 MAX_SILENT_EVALUATIONS = 10
@@ -470,6 +472,28 @@ def dismissed_dedupe_keys(team: Team) -> frozenset[str]:
         .filter(status=EvalSuggestionStatus.DISMISSED, decided_at__gte=timezone.now() - DISMISSAL_MEMORY)
         .values_list("dedupe_key", flat=True)
     )
+
+
+def earlier_review_cards(team: Team) -> list[EarlierCard]:
+    """The latest card of each check the call review suggested or the team decided on within DISMISSAL_MEMORY,
+    newest first. A dismissal counts from its decision, as in dismissed_dedupe_keys."""
+    since = timezone.now() - DISMISSAL_MEMORY
+    rows = (
+        EvalSuggestion.objects.for_team(team.pk)
+        .filter(Q(created_at__gte=since) | Q(decided_at__gte=since), template_key=REVIEW_TEMPLATE_KEY)
+        .order_by("dedupe_key", "-created_at")
+        .distinct("dedupe_key")
+        .values_list("dedupe_key", "status", "draft", "created_at")
+    )
+    return [
+        EarlierCard(
+            dedupe_key=dedupe_key,
+            status=status,
+            title=str(draft.get("name", "")),
+            checks=str(draft.get("description", "")),
+        )
+        for dedupe_key, status, draft, _ in sorted(rows, key=lambda row: row[3], reverse=True)
+    ]
 
 
 def fetch_coverage(team: Team, window_start: datetime, window_end: datetime) -> Coverage:

@@ -1721,6 +1721,7 @@ export class CdpApi {
     private transactionalSendsForRequest(): TransactionalSends {
         return new TransactionalSends({
             siteUrl: this.config.SITE_URL ?? 'http://localhost:8000',
+            encryptedFields: this.deps.encryptedFields,
             idempotencyKeys: this.transactionalEmailIdempotencyKeys,
             runIntake: new RunIntake({
                 hogflowQueue: this.hogflowQueue,
@@ -1818,6 +1819,7 @@ export class CdpApi {
                 hogFlows: this.hogFlowManager,
                 invocationResults: this.invocationResultsService,
                 emailStatus: this.emailStatusService,
+                stateOpener: this.deps.encryptedFields,
             })
             return await handle(sends, parseInt(req.params.team_id), req.params.message_id)
         } catch (e) {
