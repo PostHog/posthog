@@ -1072,10 +1072,12 @@ def test_fallback_routes_each_pull_request_once_in_full(
 
 _PROOF_APP_ID = 4242
 _PROOF_PUBLISHER = ".github/workflows/dependency-proof.yml"
+_PROOF_ISSUER = "tools/dependency-proof/issuer.yml"
+_PROOF_ISSUER_MANIFEST = f"paths:\n  - {_PROOF_PUBLISHER}\n  - {_PROOF_ISSUER}\n"
 _ALL_FILES = ["products/alpha/a.py", "products/alpha/new/b.py", "products/beta/b.py", "products/gamma/c.py"]
 
 
-def _proof_policy(paths: str) -> str:
+def _proof_policy(paths: str, *, pin: str = f"publisher_files: ['{_PROOF_PUBLISHER}']") -> str:
     return (
         "attestations:\n"
         "  - name: dependency_proof\n"
@@ -1083,7 +1085,7 @@ def _proof_policy(paths: str) -> str:
         f"    app_id: {_PROOF_APP_ID}\n"
         "    lifts: [deps_toolchain]\n"
         f"    paths: ['{paths}']\n"
-        f"    publisher_files: ['{_PROOF_PUBLISHER}']\n"
+        f"    {pin}\n"
     )
 
 
@@ -1095,7 +1097,7 @@ def _proof_check(
         "pr": PR_NUMBER,
         "head_sha": HEAD_SHA,
         "merge_base": "mergebase000",
-        "blobs": {_PROOF_PUBLISHER: "publisher-blob-1"},
+        "blobs": {_PROOF_PUBLISHER: "publisher-blob-1", _PROOF_ISSUER: "issuer-blob-1"},
     }
     return {
         "id": 1,
@@ -1125,236 +1127,250 @@ def attestation_poll() -> Iterator[MagicMock]:
         yield schedule
 
 
-_PROVEN = "^products/"
+_PROVEN = _proof_policy("^products/")
 _FULL_AFTER_ONE_POLL = (_FULL_AFTER_POLL, [1])
 
 
+_ATTESTED_ROUTING_CASES = [
+    # The upgrader bot requested its owning team itself, so routing adds nobody once the proof verifies.
+    (
+        "proven_with_a_pending_request",
+        _PROVEN,
+        _proof_check(),
+        {},
+        [_CLIENT_LIBRARIES_REQUESTED, _POLL],
+        _ATTESTED,
+        [1],
+    ),
+    ("proven_with_a_standing_approval", _PROVEN, _proof_check(), {}, [_STAMPHOG_APPROVED, _POLL], _ATTESTED, [1]),
+    # The entry pins its publisher through the issuer manifest that routing reads from the default branch.
+    (
+        "proven_by_an_issuer_entry",
+        _proof_policy("^products/", pin=f"issuer: {_PROOF_ISSUER}"),
+        _proof_check(),
+        {},
+        [_STAMPHOG_APPROVED, _POLL],
+        _ATTESTED,
+        [1],
+    ),
+    # No file sits in a new directory, so no owner is pinned and the run requests nobody.
+    (
+        "proven_without_a_pinned_owner",
+        _PROVEN,
+        _proof_check(),
+        {"with_addition": False},
+        [_CLIENT_LIBRARIES_REQUESTED, _POLL],
+        _ATTESTED,
+        [1],
+    ),
+    # The push dismissed the approval that the attested routing counted on, and ALWAYS never routes on a push.
+    (
+        "attested_then_refused_on_a_new_head",
+        _PROVEN,
+        _proof_check(),
+        {},
+        [_STAMPHOG_APPROVED, _POLL, ("push",), ("verdict", ReviewVerdict.REFUSED)],
+        ("done", "full", "verdict:refused", _HEAD_2),
+        [1],
+    ),
+    # The bot's own request still stands, so the pull request keeps a reviewer.
+    (
+        "attested_with_a_pending_request_then_refused_on_a_new_head",
+        _PROVEN,
+        _proof_check(),
+        {},
+        [_CLIENT_LIBRARIES_REQUESTED, _POLL, ("push",), ("verdict", ReviewVerdict.REFUSED)],
+        _ATTESTED,
+        [1],
+    ),
+    (
+        "attested_then_approved_on_a_new_head",
+        _PROVEN,
+        _proof_check(),
+        {},
+        [_STAMPHOG_APPROVED, _POLL, ("push",), ("verdict", ReviewVerdict.APPROVED)],
+        _ATTESTED,
+        [1],
+    ),
+    # In label mode a push to an unlabeled pull request retracts the approval and starts no review.
+    (
+        "attested_then_the_approval_retracted",
+        _PROVEN,
+        _proof_check(),
+        {"review_mode": ReviewMode.LABEL},
+        [_STAMPHOG_APPROVED, _POLL, ("push",), ("retracted",)],
+        ("done", "full", "approval_retracted", _HEAD_2),
+        [1],
+    ),
+    (
+        "attested_with_a_pending_request_then_the_approval_retracted",
+        _PROVEN,
+        _proof_check(),
+        {"review_mode": ReviewMode.LABEL},
+        [_CLIENT_LIBRARIES_REQUESTED, _POLL, ("push",), ("retracted",)],
+        _ATTESTED,
+        [1],
+    ),
+    # A base retarget retracts the approval of the same head.
+    (
+        "attested_then_retargeted_without_a_review_to_come",
+        _PROVEN,
+        _proof_check(),
+        {"review_mode": ReviewMode.LABEL},
+        [_STAMPHOG_APPROVED, _POLL, ("approval_dismissed",), ("retracted",)],
+        ("done", "full", "approval_retracted", HEAD_SHA),
+        [1],
+    ),
+    (
+        "attested_then_retargeted_with_a_review_to_come",
+        _PROVEN,
+        _proof_check(),
+        {},
+        [_STAMPHOG_APPROVED, _POLL, ("approval_dismissed",), ("retracted",)],
+        _ATTESTED,
+        [1],
+    ),
+    # Stamphog reviews a bot's pull request again once the proof reports, so its approval comes after the check.
+    (
+        "proven_and_approved_after_the_check",
+        _PROVEN,
+        _proof_check(),
+        {},
+        [_POLL, _STAMPHOG_APPROVED, _NEXT_POLL],
+        _ATTESTED,
+        [1, 2],
+    ),
+    (
+        "proven_while_stamphog_still_reviews",
+        _PROVEN,
+        _proof_check(),
+        {},
+        [_POLL],
+        ("waiting", None, "opened", HEAD_SHA),
+        [1, 2],
+    ),
+    # Requesting nobody would leave the pull request without a reviewer.
+    (
+        "proven_and_refused_by_stamphog",
+        _PROVEN,
+        _proof_check(),
+        {},
+        [_STAMPHOG_REFUSED, _POLL],
+        *_FULL_AFTER_ONE_POLL,
+    ),
+    (
+        "proven_without_a_reviewer_or_a_review",
+        _PROVEN,
+        _proof_check(),
+        {"review_mode": ReviewMode.LABEL},
+        [_POLL],
+        *_FULL_AFTER_ONE_POLL,
+    ),
+    # An earlier routing made this request, so it is not a reviewer that the pull request keeps on its own.
+    (
+        "proven_with_only_a_request_routing_made",
+        _PROVEN,
+        _proof_check(),
+        {"review_mode": ReviewMode.LABEL},
+        [("routed_before", "team-alpha"), _TEAM_ALPHA_REQUESTED, _POLL],
+        *_FULL_AFTER_ONE_POLL,
+    ),
+    (
+        "nothing_to_attest",
+        _PROVEN,
+        _NOTHING_TO_ATTEST,
+        {},
+        [_CLIENT_LIBRARIES_REQUESTED, _POLL],
+        *_FULL_AFTER_ONE_POLL,
+    ),
+    (
+        "refused",
+        _PROVEN,
+        _proof_check(conclusion="failure"),
+        {},
+        [_CLIENT_LIBRARIES_REQUESTED, _POLL],
+        *_FULL_AFTER_ONE_POLL,
+    ),
+    (
+        "a_file_the_proof_does_not_name",
+        _PROVEN,
+        _proof_check(_ALL_FILES[:-1]),
+        {},
+        [_CLIENT_LIBRARIES_REQUESTED, _POLL],
+        *_FULL_AFTER_ONE_POLL,
+    ),
+    # The files API can answer for a newer head than the one the proof names, so the poll reads the pinned head.
+    (
+        "a_file_only_the_proven_head_changes",
+        _PROVEN,
+        _proof_check(),
+        {},
+        [_CLIENT_LIBRARIES_REQUESTED, ("pinned_head_adds", "products/beta/extra.py"), _POLL],
+        *_FULL_AFTER_ONE_POLL,
+    ),
+    (
+        "a_publisher_the_default_branch_changed",
+        _PROVEN,
+        _proof_check(),
+        {},
+        [_CLIENT_LIBRARIES_REQUESTED, ("publisher_changed",), _POLL],
+        *_FULL_AFTER_ONE_POLL,
+    ),
+    # The proof names the old head, and a push starts no new wait.
+    (
+        "head_moved",
+        _PROVEN,
+        _proof_check(),
+        {},
+        [_CLIENT_LIBRARIES_REQUESTED, ("push",), _POLL],
+        ("done", "full", "attestation", _HEAD_2),
+        [1],
+    ),
+    (
+        "check_still_running",
+        _PROVEN,
+        _proof_check(status="in_progress"),
+        {},
+        [_CLIENT_LIBRARIES_REQUESTED, _POLL],
+        ("waiting", None, "opened", HEAD_SHA),
+        [1, 2],
+    ),
+    # A pull request marked ready on a new head waits anew, and the poll of the older wait leaves it alone.
+    (
+        "poll_of_an_older_wait",
+        _PROVEN,
+        _proof_check(),
+        {},
+        [_CLIENT_LIBRARIES_REQUESTED, ("push",), ("ready",), _POLL],
+        ("waiting", None, "ready_for_review", _HEAD_2),
+        [1, 1],
+    ),
+    # A late success never removes the requests that the safety net made.
+    (
+        "safety_net_before_the_check",
+        _PROVEN,
+        _proof_check(),
+        {},
+        [_CLIENT_LIBRARIES_REQUESTED, ("net",), _POLL],
+        ("done", "full", "safety_net", HEAD_SHA),
+        [1],
+    ),
+    # Each of these can never be proven, so the pull request routes when it opens.
+    ("a_file_outside_every_attestation", _proof_policy("^products/alpha/"), _proof_check(), {}, [], _FULL_AT_OPEN, []),
+    ("a_truncated_file_list", _PROVEN, _proof_check(), {"changed_files": 5}, [], _FULL_AT_OPEN, []),
+    ("a_policy_the_engine_refuses", _proof_policy("("), _proof_check(), {}, [], _FULL_AT_OPEN, []),
+]
+
+
 @pytest.mark.parametrize(
-    "name,paths,check,setup_kwargs,steps,expected_record,expected_polls",
-    [
-        # The upgrader bot requested its owning team itself, so routing adds nobody once the proof verifies.
-        (
-            "proven_with_a_pending_request",
-            _PROVEN,
-            _proof_check(),
-            {},
-            [_CLIENT_LIBRARIES_REQUESTED, _POLL],
-            _ATTESTED,
-            [1],
-        ),
-        ("proven_with_a_standing_approval", _PROVEN, _proof_check(), {}, [_STAMPHOG_APPROVED, _POLL], _ATTESTED, [1]),
-        # No file sits in a new directory, so no owner is pinned and the run requests nobody.
-        (
-            "proven_without_a_pinned_owner",
-            _PROVEN,
-            _proof_check(),
-            {"with_addition": False},
-            [_CLIENT_LIBRARIES_REQUESTED, _POLL],
-            _ATTESTED,
-            [1],
-        ),
-        # The push dismissed the approval that the attested routing counted on, and ALWAYS never routes on a push.
-        (
-            "attested_then_refused_on_a_new_head",
-            _PROVEN,
-            _proof_check(),
-            {},
-            [_STAMPHOG_APPROVED, _POLL, ("push",), ("verdict", ReviewVerdict.REFUSED)],
-            ("done", "full", "verdict:refused", _HEAD_2),
-            [1],
-        ),
-        # The bot's own request still stands, so the pull request keeps a reviewer.
-        (
-            "attested_with_a_pending_request_then_refused_on_a_new_head",
-            _PROVEN,
-            _proof_check(),
-            {},
-            [_CLIENT_LIBRARIES_REQUESTED, _POLL, ("push",), ("verdict", ReviewVerdict.REFUSED)],
-            _ATTESTED,
-            [1],
-        ),
-        (
-            "attested_then_approved_on_a_new_head",
-            _PROVEN,
-            _proof_check(),
-            {},
-            [_STAMPHOG_APPROVED, _POLL, ("push",), ("verdict", ReviewVerdict.APPROVED)],
-            _ATTESTED,
-            [1],
-        ),
-        # In label mode a push to an unlabeled pull request retracts the approval and starts no review.
-        (
-            "attested_then_the_approval_retracted",
-            _PROVEN,
-            _proof_check(),
-            {"review_mode": ReviewMode.LABEL},
-            [_STAMPHOG_APPROVED, _POLL, ("push",), ("retracted",)],
-            ("done", "full", "approval_retracted", _HEAD_2),
-            [1],
-        ),
-        (
-            "attested_with_a_pending_request_then_the_approval_retracted",
-            _PROVEN,
-            _proof_check(),
-            {"review_mode": ReviewMode.LABEL},
-            [_CLIENT_LIBRARIES_REQUESTED, _POLL, ("push",), ("retracted",)],
-            _ATTESTED,
-            [1],
-        ),
-        # A base retarget retracts the approval of the same head.
-        (
-            "attested_then_retargeted_without_a_review_to_come",
-            _PROVEN,
-            _proof_check(),
-            {"review_mode": ReviewMode.LABEL},
-            [_STAMPHOG_APPROVED, _POLL, ("approval_dismissed",), ("retracted",)],
-            ("done", "full", "approval_retracted", HEAD_SHA),
-            [1],
-        ),
-        (
-            "attested_then_retargeted_with_a_review_to_come",
-            _PROVEN,
-            _proof_check(),
-            {},
-            [_STAMPHOG_APPROVED, _POLL, ("approval_dismissed",), ("retracted",)],
-            _ATTESTED,
-            [1],
-        ),
-        # Stamphog reviews a bot's pull request again once the proof reports, so its approval comes after the check.
-        (
-            "proven_and_approved_after_the_check",
-            _PROVEN,
-            _proof_check(),
-            {},
-            [_POLL, _STAMPHOG_APPROVED, _NEXT_POLL],
-            _ATTESTED,
-            [1, 2],
-        ),
-        (
-            "proven_while_stamphog_still_reviews",
-            _PROVEN,
-            _proof_check(),
-            {},
-            [_POLL],
-            ("waiting", None, "opened", HEAD_SHA),
-            [1, 2],
-        ),
-        # Requesting nobody would leave the pull request without a reviewer.
-        (
-            "proven_and_refused_by_stamphog",
-            _PROVEN,
-            _proof_check(),
-            {},
-            [_STAMPHOG_REFUSED, _POLL],
-            *_FULL_AFTER_ONE_POLL,
-        ),
-        (
-            "proven_without_a_reviewer_or_a_review",
-            _PROVEN,
-            _proof_check(),
-            {"review_mode": ReviewMode.LABEL},
-            [_POLL],
-            *_FULL_AFTER_ONE_POLL,
-        ),
-        # An earlier routing made this request, so it is not a reviewer that the pull request keeps on its own.
-        (
-            "proven_with_only_a_request_routing_made",
-            _PROVEN,
-            _proof_check(),
-            {"review_mode": ReviewMode.LABEL},
-            [("routed_before", "team-alpha"), _TEAM_ALPHA_REQUESTED, _POLL],
-            *_FULL_AFTER_ONE_POLL,
-        ),
-        (
-            "nothing_to_attest",
-            _PROVEN,
-            _NOTHING_TO_ATTEST,
-            {},
-            [_CLIENT_LIBRARIES_REQUESTED, _POLL],
-            *_FULL_AFTER_ONE_POLL,
-        ),
-        (
-            "refused",
-            _PROVEN,
-            _proof_check(conclusion="failure"),
-            {},
-            [_CLIENT_LIBRARIES_REQUESTED, _POLL],
-            *_FULL_AFTER_ONE_POLL,
-        ),
-        (
-            "a_file_the_proof_does_not_name",
-            _PROVEN,
-            _proof_check(_ALL_FILES[:-1]),
-            {},
-            [_CLIENT_LIBRARIES_REQUESTED, _POLL],
-            *_FULL_AFTER_ONE_POLL,
-        ),
-        # The files API can answer for a newer head than the one the proof names, so the poll reads the pinned head.
-        (
-            "a_file_only_the_proven_head_changes",
-            _PROVEN,
-            _proof_check(),
-            {},
-            [_CLIENT_LIBRARIES_REQUESTED, ("pinned_head_adds", "products/beta/extra.py"), _POLL],
-            *_FULL_AFTER_ONE_POLL,
-        ),
-        (
-            "a_publisher_the_default_branch_changed",
-            _PROVEN,
-            _proof_check(),
-            {},
-            [_CLIENT_LIBRARIES_REQUESTED, ("publisher_changed",), _POLL],
-            *_FULL_AFTER_ONE_POLL,
-        ),
-        # The proof names the old head, and a push starts no new wait.
-        (
-            "head_moved",
-            _PROVEN,
-            _proof_check(),
-            {},
-            [_CLIENT_LIBRARIES_REQUESTED, ("push",), _POLL],
-            ("done", "full", "attestation", _HEAD_2),
-            [1],
-        ),
-        (
-            "check_still_running",
-            _PROVEN,
-            _proof_check(status="in_progress"),
-            {},
-            [_CLIENT_LIBRARIES_REQUESTED, _POLL],
-            ("waiting", None, "opened", HEAD_SHA),
-            [1, 2],
-        ),
-        # A pull request marked ready on a new head waits anew, and the poll of the older wait leaves it alone.
-        (
-            "poll_of_an_older_wait",
-            _PROVEN,
-            _proof_check(),
-            {},
-            [_CLIENT_LIBRARIES_REQUESTED, ("push",), ("ready",), _POLL],
-            ("waiting", None, "ready_for_review", _HEAD_2),
-            [1, 1],
-        ),
-        # A late success never removes the requests that the safety net made.
-        (
-            "safety_net_before_the_check",
-            _PROVEN,
-            _proof_check(),
-            {},
-            [_CLIENT_LIBRARIES_REQUESTED, ("net",), _POLL],
-            ("done", "full", "safety_net", HEAD_SHA),
-            [1],
-        ),
-        # Each of these can never be proven, so the pull request routes when it opens.
-        ("a_file_outside_every_attestation", "^products/alpha/", _proof_check(), {}, [], _FULL_AT_OPEN, []),
-        ("a_truncated_file_list", _PROVEN, _proof_check(), {"changed_files": 5}, [], _FULL_AT_OPEN, []),
-        ("a_policy_the_engine_refuses", "(", _proof_check(), {}, [], _FULL_AT_OPEN, []),
-    ],
+    "name,policy,check,setup_kwargs,steps,expected_record,expected_polls",
+    _ATTESTED_ROUTING_CASES,
+    ids=[case[0] for case in _ATTESTED_ROUTING_CASES],
 )
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
 def test_always_requests_nobody_only_for_a_verified_proof_that_keeps_a_reviewer(
     name: str,
-    paths: str,
+    policy: str,
     check: dict[str, Any],
     setup_kwargs: dict[str, Any],
     steps: list[tuple[str, ...]],
@@ -1367,9 +1383,11 @@ def test_always_requests_nobody_only_for_a_verified_proof_that_keeps_a_reviewer(
     attestation_poll,
 ) -> None:
     recorder = routing_chain.recorder
-    recorder.policy_files[".stamphog/policy.yml"] = _proof_policy(paths)
+    recorder.policy_files[".stamphog/policy.yml"] = policy
+    recorder.policy_files[_PROOF_ISSUER] = _PROOF_ISSUER_MANIFEST
     recorder.check_runs[(REPO, HEAD_SHA)] = [check]
     recorder.default_branch_blob_shas[_PROOF_PUBLISHER] = "publisher-blob-1"
+    recorder.default_branch_blob_shas[_PROOF_ISSUER] = "issuer-blob-1"
     repo_config = _setup(routing_chain, team, user, **setup_kwargs)
     recorder.compare_files = list(recorder.pr_files[(REPO, PR_NUMBER)])
     _route()

@@ -19,6 +19,7 @@ from products.stamphog.backend.logic.engine_pregate import (
     run_engine_attestation_proof,
 )
 from products.stamphog.backend.logic.github_client import StamphogGitHubClient
+from products.stamphog.backend.logic.issuer_manifests import issuer_manifest_paths
 from products.stamphog.backend.logic.routing.candidates import files_truncated
 from products.stamphog.backend.temporal.constants import STAMPHOG_POLICY_ENTRYPOINT
 
@@ -36,9 +37,28 @@ def _listed_files(client: StamphogGitHubClient, repository: str, pr: Mapping[str
     return files
 
 
-def _run_proof(repository: str, pr: Mapping[str, Any], policy_text: str, context: dict[str, Any]) -> AttestationProof:
+def _policy_files(client: StamphogGitHubClient, repository: str) -> dict[str, str] | None:
+    """The default branch's policy.yml and the issuer manifests it names, or None without a policy.yml.
+
+    The shipped default policy declares no attestations, so without the repo's own policy nothing is proven.
+    An absent manifest is left out, which leaves its entry unusable.
+    """
+    policy_text = client.get_default_branch_file(repository, STAMPHOG_POLICY_ENTRYPOINT)
+    if policy_text is None:
+        return None
+    policy_files = {STAMPHOG_POLICY_ENTRYPOINT: policy_text}
+    for path in issuer_manifest_paths(policy_text):
+        content = client.get_default_branch_file(repository, path)
+        if content is not None:
+            policy_files[path] = content
+    return policy_files
+
+
+def _run_proof(
+    repository: str, pr: Mapping[str, Any], policy_files: dict[str, str], context: dict[str, Any]
+) -> AttestationProof:
     try:
-        return run_engine_attestation_proof(context, {STAMPHOG_POLICY_ENTRYPOINT: policy_text})
+        return run_engine_attestation_proof(context, policy_files)
     except EnginePregateError:
         logger.warning(
             "stamphog_reviewer_routing_attestation_proof_failed", repo=repository, pr_number=int(pr.get("number") or 0)
@@ -53,21 +73,20 @@ def attestation_checks_to_wait_for(
 
     It reads no check run, so the engine only names the checks and proves nothing.
     """
-    policy_text = client.get_default_branch_file(repository, STAMPHOG_POLICY_ENTRYPOINT)
-    if policy_text is None:
-        # The shipped default policy declares no attestations, so without the repo's own policy nothing is proven.
+    policy_files = _policy_files(client, repository)
+    if policy_files is None:
         return ()
     files = _listed_files(client, repository, pr)
     if files is None:
         return ()
     context: dict[str, Any] = {"repo": repository, "pr": dict(pr), "files": files}
-    return _run_proof(repository, pr, policy_text, context).checks
+    return _run_proof(repository, pr, policy_files, context).checks
 
 
 def attestation_proven(client: StamphogGitHubClient, repository: str, pr: Mapping[str, Any]) -> bool:
     """Whether the engine verified that the attestations of the live pull request ``pr`` cover every changed file."""
-    policy_text = client.get_default_branch_file(repository, STAMPHOG_POLICY_ENTRYPOINT)
-    if policy_text is None:
+    policy_files = _policy_files(client, repository)
+    if policy_files is None:
         return False
     head_sha = str((pr.get("head") or {}).get("sha") or "")
     base_sha = str((pr.get("base") or {}).get("sha") or "")
@@ -84,4 +103,4 @@ def attestation_proven(client: StamphogGitHubClient, repository: str, pr: Mappin
         "merge_base_sha": merge_base_sha,
         "files": files,
     }
-    return _run_proof(repository, pr, policy_text, context).proven
+    return _run_proof(repository, pr, policy_files, context).proven

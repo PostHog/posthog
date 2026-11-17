@@ -390,7 +390,7 @@ class GitHubRecorder:
             scripted = repr(sorted(self.policy_files.items()) + sorted(self.repo_files.items()))
             oid = hashlib.sha256(scripted.encode()).hexdigest()
             return FakeResponse(200, json_data={"data": {"repository": {"defaultBranchRef": {"target": {"oid": oid}}}}})
-        if "{ oid }" in query:
+        if "{ __typename oid }" in query:
             return self._default_branch_blob_shas(variables)
         if "object(expression:" in query:
             return self._ownership_blobs(f"{variables.get('owner', '')}/{variables.get('name', '')}", query, variables)
@@ -424,7 +424,7 @@ class GitHubRecorder:
             if name in ("owner", "name"):
                 continue
             sha = self.default_branch_blob_shas.get(str(expression).split(":", 1)[1])
-            field[name] = None if sha is None else {"oid": sha}
+            field[name] = None if sha is None else {"__typename": "Blob", "oid": sha}
         return FakeResponse(200, json_data={"data": {"repository": field}})
 
     def _ownership_blobs(self, repo: str, query: str, variables: dict) -> FakeResponse:

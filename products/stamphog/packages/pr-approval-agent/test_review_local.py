@@ -1161,6 +1161,8 @@ _DOCS_MIGRATION = "docs/migrations/0999_add_col.py"
             _bot_context(["site/a.md"], [_site_proof("Site proof", 80, ["site/a.md"])]),
             None,
             None,
+            ["Site proof"],
+            True,
             id="every-file-proven-by-an-issuer-entry",
         ),
         pytest.param(
@@ -1168,6 +1170,9 @@ _DOCS_MIGRATION = "docs/migrations/0999_add_col.py"
             _bot_context(["www/a.md"], [_site_proof("Site unusable", 81, ["www/a.md"])]),
             "REFUSED",
             "every_file_attested",
+            # An unusable entry can prove nothing, so routing waits for no check of it.
+            [],
+            False,
             id="an-issuer-entry-whose-manifest-is-unusable",
         ),
     ],
