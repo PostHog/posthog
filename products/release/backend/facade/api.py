@@ -10,9 +10,11 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any
+from datetime import datetime
+from typing import TYPE_CHECKING, Any, TypeVar
 from uuid import UUID
 
+from posthog.models.scoping import team_scope
 from posthog.paging import Page, PageRequest
 from posthog.queryset_paging import select_page
 
@@ -24,15 +26,18 @@ from ..logic import (
 from ..models import Release
 from . import contracts
 
+if TYPE_CHECKING:
+    from _typeshed import SupportsRichComparison
+
 ReleaseNotFoundError = contracts.ReleaseNotFoundError
-UnknownFeatureFlagsError = contracts.UnknownFeatureFlagsError
-UnknownBroadcastsError = contracts.UnknownBroadcastsError
-UnknownSurveysError = contracts.UnknownSurveysError
-UnknownInsightsError = contracts.UnknownInsightsError
+UnknownLinkedObjectsError = contracts.UnknownLinkedObjectsError
+InvalidMergeError = contracts.InvalidMergeError
 ImportFlag = contracts.ImportFlag
 
 
 RESTRICTED_NAME = "Release of a restricted flag"
+
+T = TypeVar("T", bound="SupportsRichComparison")
 
 
 FlagVisibilityLookup = Callable[[list[int]], contracts.FlagVisibility]
@@ -55,6 +60,7 @@ class _Hidden:
     broadcasts: frozenset[UUID]
     surveys: frozenset[UUID]
     insights: frozenset[int]
+    survey_summaries: dict[UUID, contracts.LinkedSurveyDTO]
     insight_summaries: dict[int, contracts.LinkedInsightDTO]
     summaries: dict[UUID, contracts.LinkedBroadcastDTO]
 
@@ -65,11 +71,13 @@ def _hidden(lookups: LinkLookups, releases: list[Release]) -> _Hidden:
     survey_ids = sorted({survey_id for obj in releases for survey_id in obj.survey_ids}, key=str)
     insight_ids = sorted({insight_id for obj in releases for insight_id in obj.insight_ids})
     broadcasts = lookups.broadcasts(broadcast_ids)
+    surveys = lookups.surveys(survey_ids)
     insights = lookups.insights(insight_ids)
     return _Hidden(
         flags=lookups.flags(flag_ids).hidden,
         broadcasts=broadcasts.hidden,
-        surveys=frozenset(survey_ids) - lookups.surveys(survey_ids).visible,
+        surveys=frozenset(survey_ids) - surveys.visible,
+        survey_summaries={summary.id: summary for summary in surveys.summaries},
         insights=frozenset(insight_ids) - insights.visible,
         insight_summaries={summary.id: summary for summary in insights.summaries},
         summaries={summary.id: summary for summary in broadcasts.summaries},
@@ -92,6 +100,11 @@ def _to_dto(obj: Release, hidden: _Hidden) -> contracts.ReleaseDTO:
             if broadcast_id not in hidden.broadcasts and broadcast_id in hidden.summaries
         ],
         survey_ids=[survey_id for survey_id in obj.survey_ids if survey_id not in hidden.surveys],
+        surveys=[
+            hidden.survey_summaries[survey_id]
+            for survey_id in obj.survey_ids
+            if survey_id not in hidden.surveys and survey_id in hidden.survey_summaries
+        ],
         insight_ids=[insight_id for insight_id in obj.insight_ids if insight_id not in hidden.insights],
         insights=[
             hidden.insight_summaries[insight_id]
@@ -106,63 +119,25 @@ def _visible_dto(obj: Release, lookups: LinkLookups) -> contracts.ReleaseDTO:
     return _to_dto(obj, _hidden(lookups, [obj]))
 
 
-def _checked_flags(submitted: list[int], linked: list[int], lookup: FlagVisibilityLookup) -> list[int]:
-    linked_set = set(linked)
-    visibility = lookup(sorted(set(submitted) | linked_set))
-    unknown = sorted(
-        flag_id
-        for flag_id in set(submitted)
-        if flag_id in visibility.hidden or (flag_id not in visibility.linkable and flag_id not in linked_set)
-    )
-    if unknown:
-        raise contracts.UnknownFeatureFlagsError(unknown)
-    return [*submitted, *(flag_id for flag_id in linked if flag_id in visibility.hidden)]
-
-
-def _checked_broadcasts(submitted: list[UUID], linked: list[UUID], lookup: BroadcastVisibilityLookup) -> list[UUID]:
+def _checked(field: str, noun: str, submitted: list[T], linked: list[T], lookup: Callable[[list[T]], Any]) -> list[T]:
     linked_set = set(linked)
     visibility = lookup(sorted(set(submitted) | linked_set, key=str))
     unknown = sorted(
-        (
-            broadcast_id
-            for broadcast_id in set(submitted)
-            if broadcast_id in visibility.hidden
-            or (broadcast_id not in visibility.linkable and broadcast_id not in linked_set)
-        ),
-        key=str,
+        item
+        for item in set(submitted)
+        if item in visibility.hidden or (item not in visibility.linkable and item not in linked_set)
     )
     if unknown:
-        raise contracts.UnknownBroadcastsError(unknown)
-    return [*submitted, *(broadcast_id for broadcast_id in linked if broadcast_id in visibility.hidden)]
+        raise contracts.UnknownLinkedObjectsError(field, noun, unknown)
+    return [*submitted, *(item for item in linked if item in visibility.hidden)]
 
 
-def _checked_surveys(submitted: list[UUID], linked: list[UUID], lookup: SurveyVisibilityLookup) -> list[UUID]:
-    linked_set = set(linked)
-    visibility = lookup(sorted(set(submitted) | linked_set, key=str))
-    unknown = sorted(
-        (
-            survey_id
-            for survey_id in set(submitted)
-            if survey_id in visibility.hidden or (survey_id not in visibility.linkable and survey_id not in linked_set)
-        ),
-        key=str,
-    )
-    if unknown:
-        raise contracts.UnknownSurveysError(unknown)
-    return [*submitted, *(survey_id for survey_id in linked if survey_id in visibility.hidden)]
-
-
-def _checked_insights(submitted: list[int], linked: list[int], lookup: InsightVisibilityLookup) -> list[int]:
-    linked_set = set(linked)
-    visibility = lookup(sorted(set(submitted) | linked_set))
-    unknown = sorted(
-        insight_id
-        for insight_id in set(submitted)
-        if insight_id in visibility.hidden or (insight_id not in visibility.linkable and insight_id not in linked_set)
-    )
-    if unknown:
-        raise contracts.UnknownInsightsError(unknown)
-    return [*submitted, *(insight_id for insight_id in linked if insight_id in visibility.hidden)]
+_LINKED_FIELDS: tuple[tuple[str, str], ...] = (
+    ("feature_flag_ids", "flags"),
+    ("broadcast_ids", "broadcasts"),
+    ("survey_ids", "surveys"),
+    ("insight_ids", "insights"),
+)
 
 
 def list_page(team_id: int, page: PageRequest, lookups: LinkLookups) -> Page[contracts.ReleaseDTO]:
@@ -171,43 +146,88 @@ def list_page(team_id: int, page: PageRequest, lookups: LinkLookups) -> Page[con
     return releases.map(lambda obj: _to_dto(obj, hidden))
 
 
+CATALOG_SCAN_BATCH = 200
+
+
+class InvalidCatalogCursorError(Exception):
+    pass
+
+
+def _parse_cursor(cursor: str) -> tuple[datetime, UUID]:
+    created_at, _, release_id = cursor.partition("|")
+    try:
+        return datetime.fromisoformat(created_at), UUID(release_id)
+    except ValueError:
+        raise InvalidCatalogCursorError(cursor)
+
+
+def list_catalog_page(
+    team_id: int, flags: FlagVisibilityLookup, *, search: str, limit: int, cursor: str
+) -> tuple[list[contracts.CatalogReleaseDTO], str | None]:
+    releases = logic.list_catalog_releases(team_id, search, _parse_cursor(cursor) if cursor else None)
+    results: list[contracts.CatalogReleaseDTO] = []
+    position = 0
+    while True:
+        size = CATALOG_SCAN_BATCH if search else limit + 1
+        batch = list(releases[position : position + size])
+        position += len(batch)
+        hidden = flags(sorted({flag_id for obj in batch if obj.auto_named for flag_id in obj.feature_flag_ids})).hidden
+        for obj in batch:
+            restricted = obj.auto_named and bool(hidden & set(obj.feature_flag_ids))
+            if restricted and search:
+                continue
+            if len(results) == limit:
+                last = results[-1]
+                return results, f"{last.created_at.isoformat()}|{last.id}"
+            results.append(
+                contracts.CatalogReleaseDTO(
+                    id=obj.id, name=RESTRICTED_NAME if restricted else obj.name, created_at=obj.created_at
+                )
+            )
+        if len(batch) < size:
+            return results, None
+
+
 def create(input: contracts.CreateReleaseInput, lookups: LinkLookups) -> contracts.ReleaseDTO:
-    feature_flag_ids = _checked_flags(list(input.feature_flag_ids), [], lookups.flags)
-    broadcast_ids = _checked_broadcasts(list(input.broadcast_ids), [], lookups.broadcasts)
+    checked = {
+        field: _checked(field, noun, list(getattr(input, field)), [], getattr(lookups, noun))
+        for field, noun in _LINKED_FIELDS
+    }
     obj = logic.create_release(
         team_id=input.team_id,
         name=input.name,
         description=input.description,
         owner_id=input.owner_id,
-        feature_flag_ids=feature_flag_ids,
-        broadcast_ids=broadcast_ids,
-        survey_ids=_checked_surveys(list(input.survey_ids), [], lookups.surveys),
-        insight_ids=_checked_insights(list(input.insight_ids), [], lookups.insights),
+        **checked,
     )
     return _visible_dto(logic.get_release(input.team_id, obj.id), lookups)
 
 
 def update(team_id: int, release_id: UUID, changes: dict[str, Any], lookups: LinkLookups) -> contracts.ReleaseDTO:
-    if {"feature_flag_ids", "broadcast_ids", "survey_ids", "insight_ids"} & changes.keys():
+    if {field for field, _ in _LINKED_FIELDS} & changes.keys():
         current = logic.get_release(team_id, release_id)
         changes = dict(changes)
-        if "feature_flag_ids" in changes:
-            changes["feature_flag_ids"] = _checked_flags(
-                list(changes["feature_flag_ids"]), list(current.feature_flag_ids), lookups.flags
-            )
-        if "broadcast_ids" in changes:
-            changes["broadcast_ids"] = _checked_broadcasts(
-                list(changes["broadcast_ids"]), list(current.broadcast_ids), lookups.broadcasts
-            )
-        if "survey_ids" in changes:
-            changes["survey_ids"] = _checked_surveys(
-                list(changes["survey_ids"]), list(current.survey_ids), lookups.surveys
-            )
-        if "insight_ids" in changes:
-            changes["insight_ids"] = _checked_insights(
-                list(changes["insight_ids"]), list(current.insight_ids), lookups.insights
-            )
+        for field, noun in _LINKED_FIELDS:
+            if field in changes:
+                changes[field] = _checked(
+                    field, noun, list(changes[field]), list(getattr(current, field)), getattr(lookups, noun)
+                )
     return _visible_dto(logic.update_release(team_id, release_id, changes), lookups)
+
+
+def merge(
+    team_id: int, target_id: UUID, source_ids: list[UUID], lookups: LinkLookups, name: str | None = None
+) -> contracts.ReleaseDTO:
+    sources = [release_id for release_id in dict.fromkeys(source_ids) if release_id != target_id]
+    if not sources:
+        raise contracts.InvalidMergeError("Pick at least one other release to merge into this one.")
+
+    def no_hidden_flags(releases: list[Release]) -> None:
+        flag_ids = sorted({flag_id for release in releases for flag_id in release.feature_flag_ids})
+        if flag_ids and lookups.flags(flag_ids).hidden:
+            raise contracts.InvalidMergeError("These releases link flags you cannot see, so they cannot be merged.")
+
+    return _visible_dto(logic.merge_releases(team_id, target_id, sources, name, no_hidden_flags), lookups)
 
 
 def import_all(team_id: int, load_flags: Callable[[], list[contracts.ImportFlag]]) -> int:
@@ -230,6 +250,7 @@ def releases_enabled(
     distinct_id: str,
     email: str | None,
     raise_on_error: bool = False,
+    only_evaluate_locally: bool = False,
 ) -> bool:
     return feature_flags.is_releases_enabled(
         team_id=team_id,
@@ -238,6 +259,22 @@ def releases_enabled(
         distinct_id=distinct_id,
         email=email,
         raise_on_error=raise_on_error,
+        only_evaluate_locally=only_evaluate_locally,
+    )
+
+
+def get_summary(team_id: int, release_id: UUID) -> contracts.ReleaseSummary:
+    root_id = imports.root_team_id(team_id)
+    with team_scope(root_id):
+        release = logic.get_release(root_id, release_id)
+    return contracts.ReleaseSummary(
+        id=release.id,
+        name=release.name,
+        description=release.description,
+        auto_named=release.auto_named,
+        owner_first_name=release.owner.first_name if release.owner else None,
+        feature_flag_ids=list(release.feature_flag_ids),
+        updated_at=release.updated_at,
     )
 
 

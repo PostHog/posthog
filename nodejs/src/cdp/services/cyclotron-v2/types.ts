@@ -11,13 +11,16 @@ export type CyclotronV2JobStatus = 'available' | 'running' | 'completed' | 'fail
 // SMALLINT ceiling. Dequeue bumps the counter while claiming a batch, so one saturated row aborts the claim for every job in it.
 export const CYCLOTRON_COUNTER_MAX = 32767
 
-// Past this a job is in a retry loop it will not leave on its own. Set above normal work: live p99 is ~5k and the highest row ~19.5k.
 export const CYCLOTRON_TRANSITION_CHURN_THRESHOLD = 20000
+export const CYCLOTRON_TRANSITION_CHURN_RATE_PER_HOUR = 600
 
 export type CyclotronV2PoolConfig = {
     dbUrl: string
     maxConnections?: number
     idleTimeoutMs?: number
+    // Bound how long one query, or the wait for a connection, can take. Unset means no limit.
+    statementTimeoutMs?: number
+    connectionTimeoutMs?: number
 }
 
 export const CyclotronV2JobInitSchema = z.object({
@@ -48,7 +51,10 @@ export type CyclotronV2JobInit = z.infer<typeof CyclotronV2JobInitSchema>
 export type CyclotronV2IdempotentJobInit = {
     job: CyclotronV2JobInit & { id: string }
     fingerprint: string
+    reply?: Record<string, unknown>
 }
+
+export type CyclotronV2IdempotencyKey = { fingerprint: string; reply: Record<string, unknown> | null }
 
 export type CyclotronV2IdempotentOutcome = 'created' | 'replayed' | 'mismatch'
 
@@ -255,6 +261,7 @@ export type CyclotronV2WorkerConfig = {
     pollDelayMaxMs?: number
     heartbeatTimeoutMs?: number
     releaseWriteHeartbeatLimitMs?: number
+    releaseWriteRetry?: boolean
     includeEmptyBatches?: boolean
     boundedPolls?: boolean
     ownershipReadTimeoutMs?: number

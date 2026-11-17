@@ -5,7 +5,8 @@ from django.utils import timezone
 
 from posthog.dataclasses import frozen
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
-from posthog.scopes import clamp_scopes_to_ceiling, scopes_not_covered
+from posthog.scopes.ceilings import clamp_scopes_to_ceiling
+from posthog.scopes.checks import scopes_not_covered
 
 # What a step-up app gets on its first connection to the MCP resource. The list comes from MCP
 # tool usage: a scope is in when the tools that need it are among the ones most OAuth users call,

@@ -94,6 +94,30 @@ class TestImageExporter(APIBaseTest):
         bucket = s3.Bucket(OBJECT_STORAGE_BUCKET)
         bucket.objects.filter(Prefix=TEST_PREFIX).delete()
 
+    @parameterized.expand([("asked", True, {"site_style": {"text_color": "#123456"}}), ("not_asked", False, {})])
+    def test_replay_export_keeps_the_site_style_only_when_asked(
+        self,
+        _remove: Any,
+        _open: Any,
+        mock_screenshot: Any,
+        _name: str,
+        read_site_style: bool,
+        expected: dict,
+    ) -> None:
+        mock_screenshot.return_value = {"text_color": "#123456"}
+        context = {"session_recording_id": "rec-1", "timestamp": 3, "width": 1440, "height": 900}
+        if read_site_style:
+            context["read_site_style"] = True
+        asset = ExportedAsset.objects.create(
+            team=self.team, export_format=ExportedAsset.ExportFormat.PNG, export_context=context
+        )
+
+        image_exporter._export_to_png(asset)
+
+        asset.refresh_from_db()
+        assert asset.export_context == {**context, **expected}
+        assert mock_screenshot.call_args.args[-1] is read_site_style
+
     def test_export_without_renderable_target_raises_invalid_export_context(self, *args: Any) -> None:
         exported_asset = ExportedAsset.objects.create(
             team=self.team,
@@ -244,11 +268,14 @@ class TestImageExporter(APIBaseTest):
 
             assert self.exported_asset.content == b"image_data"
 
+    @parameterized.expand([(None,), ({"date_from": "-90d", "date_to": "2026-01-01"},)])
     @patch("products.exports.backend.tasks.image_exporter.calculate_for_query_based_insight")
-    def test_dashboard_export_calculates_all_insights(self, mock_calculate: Any, *args: Any) -> None:
+    def test_dashboard_export_calculates_all_insights(
+        self, selected_filters: dict | None, mock_calculate: Any, *args: Any
+    ) -> None:
         mock_calculate.return_value = make_insight_result("test_cache_key")
 
-        dashboard = Dashboard.objects.create(team=self.team, name="Test Dashboard")
+        dashboard = Dashboard.objects.create(team=self.team, name="Test Dashboard", filters={"date_from": "-7d"})
         insight_count = 3
 
         insights = []
@@ -269,6 +296,7 @@ class TestImageExporter(APIBaseTest):
             export_format=ExportedAsset.ExportFormat.PNG,
             dashboard=dashboard,
             insight=None,
+            export_context={"filters_override": selected_filters},
         )
 
         with self.settings(OBJECT_STORAGE_ENABLED=False):
@@ -282,6 +310,7 @@ class TestImageExporter(APIBaseTest):
             call_kwargs = call[1]
 
             assert call_kwargs["dashboard"].id == dashboard.id, f"Call {i + 1} missing dashboard"
+            assert call_kwargs["filters_override"] == (selected_filters or dashboard.filters)
 
             assert call_kwargs["execution_mode"] == ExecutionMode.CALCULATE_BLOCKING_ALWAYS, (
                 f"Call {i + 1} should use CALCULATE_BLOCKING_ALWAYS, got {call_kwargs['execution_mode']}"
@@ -1050,6 +1079,20 @@ class TestScreenshotAssetBrowserless(SimpleTestCase):
         # The re-raise preserves the original timeout as its cause (the message carries no secret, so chaining is safe).
         assert isinstance(ctx.exception.__cause__, PlaywrightTimeoutError)
         assert "Timeout 30000ms exceeded" in str(ctx.exception.__cause__)
+
+    @parameterized.expand(
+        [
+            ("all_stylesheets_loaded", [], {"text_color": "#123456"}),
+            ("a_stylesheet_failed", ["https://example.com/site.css"], None),
+        ]
+    )
+    def test_site_style_is_empty_when_a_stylesheet_failed(
+        self, _name: str, failed_stylesheets: list[str], expected: dict | None
+    ) -> None:
+        page = MagicMock()
+        page.evaluate.return_value = {"text_color": "#123456"}
+
+        assert image_exporter._read_site_style(page, failed_stylesheets) == expected
 
     def test_replay_export_finds_the_player_inside_its_frame_document(self) -> None:
         # The player can mount rrweb inside its own frame document. A selector wait or a document query

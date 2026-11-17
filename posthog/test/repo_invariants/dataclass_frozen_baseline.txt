@@ -357,7 +357,6 @@
 1 products/warehouse_sources/sources/travis_ci/travis_ci.py
 1 products/warehouse_sources/sources/trigger_dev/settings.py
 1 products/warehouse_sources/sources/trigger_dev/trigger_dev.py
-1 products/warehouse_sources/sources/twelve_data/twelve_data.py
 1 products/warehouse_sources/sources/twelve_labs/twelve_labs.py
 1 products/warehouse_sources/sources/uk_companies_house/uk_companies_house.py
 1 products/warehouse_sources/sources/unleash/settings.py
@@ -365,10 +364,8 @@
 1 products/warehouse_sources/sources/upstash/settings.py
 1 products/warehouse_sources/sources/veeqo/settings.py
 1 products/warehouse_sources/sources/veeqo/veeqo.py
-1 products/warehouse_sources/sources/vultr/settings.py
 1 products/warehouse_sources/sources/webflow/settings.py
 1 products/warehouse_sources/sources/webflow/webflow.py
-1 products/warehouse_sources/sources/weights_and_biases/weights_and_biases.py
 1 products/warehouse_sources/sources/whop/whop.py
 1 products/warehouse_sources/sources/wikipedia_pageviews/wikipedia_pageviews.py
 1 products/warehouse_sources/sources/woocommerce/woocommerce.py
@@ -377,9 +374,7 @@
 1 products/warehouse_sources/sources/yousign/yousign.py
 1 products/warehouse_sources/sources/zapsign/zapsign.py
 1 products/warehouse_sources/sources/zendesk/settings.py
-1 products/warehouse_sources/sources/zendesk_sell/zendesk_sell.py
 1 products/warehouse_sources/sources/zendesk_sunshine/zendesk_sunshine.py
-1 products/warehouse_sources/sources/zenduty/settings.py
 1 products/warehouse_sources/sources/zenloop/settings.py
 1 products/warehouse_sources/sources/zoho_crm/zoho_crm.py
 1 products/warehouse_sources/backend/temporal/data_imports/tests/e2e/test_google_ads_source.py
@@ -594,8 +589,6 @@
 5 posthog/temporal/ai_observability/evaluation_clustering/models.py
 5 posthog/temporal/ai_observability/run_trace_evaluation.py
 5 posthog/temporal/proxy_service/create.py
-5 posthog/temporal/session_replay/surfacing_score_export_sweep/types.py
-5 posthog/temporal/session_replay/surfacing_scoring_sweep/types.py
 5 products/ai_observability/backend/llm/types.py
 5 products/apm/backend/logic/anomaly_detection/validation/harness.py
 5 products/batch_exports/backend/temporal/backfill_batch_export.py

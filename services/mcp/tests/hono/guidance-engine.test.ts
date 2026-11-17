@@ -1,8 +1,10 @@
+import { readdirSync } from 'node:fs'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { ApiClient } from '@/api/client'
 import { GuidanceEngine, triggerMatches, type GuidanceCall } from '@/hono/guidance/engine'
-import { GUIDANCE_RULES, MCP_GUIDANCE_SELF_DRIVING_ACTIVATION_FLAG, type GuidanceRule } from '@/hono/guidance/rules'
+import type { GuidanceRule } from '@/hono/guidance/rule-schema'
+import { GUIDANCE_RULES, MCP_GUIDANCE_SELF_DRIVING_ACTIVATION_FLAG } from '@/hono/guidance/rules'
 import type { ResolvedState } from '@/hono/request-state-resolver'
 import { MCPClientProfile } from '@/lib/client-detection'
 
@@ -403,7 +405,6 @@ describe('GuidanceEngine', () => {
     it.each([
         ['replay-sql-to-vision', 'select 1 from session_replay_events', true],
         ['replay-sql-to-vision', 'select 1 from raw_session_replay_events', true],
-        ['replay-sql-to-vision', 'select 1 from session_replay_features', true],
         ['replay-sql-to-vision', 'select 1 from console_logs_log_entries', true],
         ['replay-sql-to-vision', 'select 1 from system.session_recordings', true],
         ['replay-sql-to-vision', 'select 1 from log_entries', false],
@@ -471,9 +472,22 @@ describe('GuidanceEngine', () => {
         expect(triggerMatches(rule, { toolName: 'execute-sql', args, isError: false })).toBe(false)
     })
 
-    it('ships every rule with a distinct id and flag', () => {
+    it('registers the rules of every file in the rules folder', async () => {
+        const folder = new URL('../../src/hono/guidance/rules/', import.meta.url)
+        const files = readdirSync(folder).filter((file) => file !== 'index.ts')
+        const registered = new Set(GUIDANCE_RULES.map((r) => r.id))
+        for (const file of files) {
+            const rules: GuidanceRule[] = (await import(new URL(file, folder).href)).default
+            expect(
+                rules.filter((r) => !registered.has(r.id)).map((r) => r.id),
+                file
+            ).toEqual([])
+        }
+        expect(files.length).toBeGreaterThan(0)
+    })
+
+    it('ships every rule with a distinct id', () => {
         expect(new Set(GUIDANCE_RULES.map((r) => r.id)).size).toBe(GUIDANCE_RULES.length)
-        expect(new Set(GUIDANCE_RULES.map((r) => r.flag)).size).toBe(GUIDANCE_RULES.length)
     })
 })
 

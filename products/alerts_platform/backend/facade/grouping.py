@@ -97,12 +97,20 @@ def encoded_length(value: str) -> int:
     return len(json.dumps(value)) - 2
 
 
-def bounded_labels(labels: dict[str, str]) -> dict[str, str]:
-    """The labels a group may carry: the first `MAX_GROUP_LABELS`, each name and value storable and cut to size.
+def bounded_labels(labels: dict[str, str], *, first: Sequence[str] = ()) -> dict[str, str]:
+    """The labels a group may carry: `MAX_GROUP_LABELS` of them, each name and value storable and cut to size.
 
-    Display only. The grouping key is derived from the full values, so a cut label never merges two groups.
+    The names in `first` are kept before the rest, so a label routing reads survives the cut. The
+    grouping key is derived from the full values, so a cut label never merges two groups.
     """
-    return {_bounded_label(name): _bounded_label(value) for name, value in list(labels.items())[:MAX_GROUP_LABELS]}
+    kept = [name for name in dict.fromkeys(first) if name in labels][:MAX_GROUP_LABELS]
+    chosen = set(kept)
+    for name in labels:
+        if len(kept) == MAX_GROUP_LABELS:
+            break
+        if name not in chosen:
+            kept.append(name)
+    return {_bounded_label(name): _bounded_label(labels[name]) for name in kept}
 
 
 # One delivery activity sends every message it holds, to every destination, inside its timeout. An
@@ -243,6 +251,8 @@ def decide_groups(
 
     # Firing groups first, so a cap keeps the groups that announce something.
     judged.sort(key=lambda item: item[2].new_state == AlertState.NOT_FIRING)
+    # Routing sees only the labels a group keeps, so route labels go first, then the grouping keys.
+    kept_first = (*sorted(check.routed_label_names), *check.grouping.keys)
     admission = check.admit([observation.grouping_key for observation, _, _ in judged], now=now)
     verdicts = tuple(
         GroupVerdict(
@@ -256,7 +266,7 @@ def decide_groups(
                 notified=outcome.update_last_notified_at,
                 firing_episode=decide_firing_episode(snapshot, outcome, now, policy=policy),
                 value=observation.value,
-                labels=bounded_labels(observation.labels),
+                labels=bounded_labels(observation.labels, first=kept_first),
                 muted_notification=muted_value(outcome),
             ),
         )

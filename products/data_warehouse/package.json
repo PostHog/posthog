@@ -16,15 +16,21 @@
         "posthog-js": "catalog:"
     },
     "devDependencies": {
+        "@monaco-editor/react": "4.7.0",
+        "@posthog/hogql-parser": "1.3.88",
         "@testing-library/jest-dom": "^7.0.1",
-        "@testing-library/react": "^16.3.3"
+        "@testing-library/react": "^16.3.3",
+        "monaco-editor": "0.55.1"
     },
     "peerDependencies": {
         "@posthog/brand": "catalog:",
         "@posthog/icons": "catalog:",
         "@posthog/lemon-ui": "*",
         "@storybook/react": "catalog:",
+        "@testing-library/dom": "*",
         "@types/react": "*",
-        "react": "*"
+        "msw": "*",
+        "react": "*",
+        "storybook": "catalog:"
     }
 }

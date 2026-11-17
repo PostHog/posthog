@@ -26,8 +26,8 @@ import { urls } from 'scenes/urls'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { TodayPeoplePinButton } from '~/layout/today/TodayPeoplePinButton'
 import { useTodayPeopleTitle } from '~/layout/today/todayPeopleRows'
+import { TodayScenePinButton } from '~/layout/today/TodayScenePinButton'
 import { Query } from '~/queries/Query/Query'
 import type { ActionFilter } from '~/types'
 import {
@@ -93,7 +93,7 @@ export function Group(): JSX.Element {
     return (
         <SceneContent>
             <SceneTitleSection
-                nameAction={<TodayPeoplePinButton />}
+                nameAction={<TodayScenePinButton />}
                 name={groupDisplayId(groupData.group_key, groupData.group_properties)}
                 resourceType={groupTitle?.resourceType ?? { type: 'group' }}
                 forceBackTo={backTo}
