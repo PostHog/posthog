@@ -28,6 +28,9 @@ CHECK_INTERVAL_MINUTES: Final = 1
 # own alerts allow the same number.
 MAX_ALERTS_PER_TEAM: Final = 50
 ROLLOUT_FLAG: Final = "platform-alerts-source-error-tracking"
+# Issue fields the native filters read but a change's snapshot does not carry. A filter on one would
+# read it as unset, so a positive filter never matches and a negated one always does.
+UNSUPPORTED_FILTER_KEYS: Final = frozenset({"description", "issue_description", "fingerprint"})
 
 # Each issue is its own instance, so a message about an issue replies in that issue's thread.
 ISSUE_GROUPING: Final = Grouping(mode=GroupingMode.BY_RESULT_LABELS, keys=(ISSUE_ID_LABEL,))
@@ -87,6 +90,13 @@ def check_filters_in_team(*, team_id: int, edit: PlatformAlertConfigurationEdit)
     )
 
     properties = edit.source_config.get("filters", {}).get("properties") or []
+    unsupported = sorted(
+        {leaf["key"] for leaf in properties if isinstance(leaf, dict) and leaf.get("key") in UNSUPPORTED_FILTER_KEYS}
+    )
+    if unsupported:
+        raise InvalidPlatformAlertEdit(
+            "source_config", f"Error tracking alerts can't filter on {', '.join(unsupported)} yet."
+        )
     try:
         # The native alerts' own checks, so a leaf that would compile to match-all is refused here too.
         compile_alert_filters(team_id, {"properties": properties})

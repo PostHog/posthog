@@ -1228,6 +1228,8 @@ class ErrorTrackingIssueChange(TeamScopedRootMixin, UUIDModel):
                 condition=models.Q(dispatched_at__isnull=True),
             ),
             models.Index(fields=["team", "issue_id", "created_at"], name="idx_et_issue_change_issue"),
+            # A team's recent changes, which each platform alert check reads every minute.
+            models.Index(fields=["team", "created_at"], name="idx_et_issue_change_team_time"),
             # Retention cleanup.
             models.Index(fields=["created_at"], name="idx_et_issue_change_created"),
         ]
