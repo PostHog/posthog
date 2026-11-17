@@ -189,7 +189,7 @@ def _calibrate(
     ]
     if _time_left(deadline) < call_review.max_seconds(judge_calibration.TIMEOUT_SECONDS):
         return _Calibrated(kept=[], record={"status": "skipped", "detail": "not enough time left"}, cost_usd=0.0)
-    client = judge_calibration.build_client(team.pk, str(run.id), judge_model)
+    client = judge_calibration.build_client(team.pk, str(run.id), judge_model, run.trigger)
     reserved = judge_calibration.max_cost_usd(requests)
     if not runs.reserve_spend(run, reserved, budget):
         return _Calibrated(kept=[], record={"status": "skipped", "detail": "budget used up"}, cost_usd=0.0)
@@ -233,7 +233,7 @@ def _reviewed_proposals(
     if not call_types:
         stages.set("drafting", "skipped", detail="no generations with a model and an input in the last day")
         return []
-    client = call_review.build_client(team.pk, str(run.id))
+    client = call_review.build_client(team.pk, str(run.id), run.trigger)
     triage_call = paid_call(run, client, call_review.triage_request(call_types), budget)
     if triage_call is None:
         stages.set("drafting", "skipped", detail="budget used up")
@@ -467,7 +467,7 @@ def screen_stage(
         runs.save_handoff(run, handoff, stages.record, "screening")
         return 0
     try:
-        client = screening.build_client(team)
+        client = screening.build_client(team, run.trigger)
         evals = existing_evals(team)
         unmapped = sorted(
             (e for e in evals if e.enabled and e.template_key is None and e.dedupe_key is None),
