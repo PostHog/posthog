@@ -45,7 +45,11 @@ from posthog.rbac.query_access import assert_user_can_read_query
 from products.access_control.backend.presentation.access_control import UserAccessControlSerializerMixin
 from products.data_modeling.backend.facade import api as modeling_api
 from products.data_modeling.backend.facade.api import has_incremental_history
-from products.data_modeling.backend.facade.modeling import ResolutionCycleError, get_parents_from_model_query
+from products.data_modeling.backend.facade.modeling import (
+    ResolutionCycleError,
+    get_parents_from_model_query,
+    qualify_model_references,
+)
 from products.data_modeling.backend.facade.models import (
     CONNECTION_SAVE_REASON,
     DataWarehouseSavedQuery,
@@ -972,6 +976,12 @@ class DataWarehouseSavedQuerySerializer(
             elif not settings.DEBUG:
                 # We don't want to accidentally expose too much data via errors
                 raise exceptions.ValidationError(detail=f"Unexpected {err.__class__.__name__}")
+
+        # An unchanged legacy body stays as stored, so resaving other fields never turns into a query change.
+        stored_sql = (self.instance.query or {}).get("query") if self.instance is not None else None
+        database = self.context.get("database")
+        if database is not None and query["query"] != stored_sql:
+            query = {**query, "query": qualify_model_references(query["query"], database)}
 
         return query
 
