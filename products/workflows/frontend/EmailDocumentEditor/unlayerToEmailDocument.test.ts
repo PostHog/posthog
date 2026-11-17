@@ -569,7 +569,11 @@ describe('unlayerToEmailDocument', () => {
         const wide = design([content('text', { text: '<p>Hi</p>' })])
         wide.body.values.contentWidth = '100%'
 
-        expect(renderEmailHtml(unlayerToEmailDocument(wide).document?.doc ?? {})).toContain('max-width:600px')
+        // The old editor exports such a design's rows as 100px wide.
+        const exported =
+            '<html><head><style>@media (min-width: 120px) { .u-row { width: 100px !important; } }</style></head><body><div class="u-row-container"><p>Hi</p></div></body></html>'
+
+        expect(renderEmailHtml(unlayerToEmailDocument(wide, exported).document?.doc ?? {})).toContain('max-width:600px')
     })
 
     it('opens an email whose html the old editor did not write exactly as it is sent', () => {

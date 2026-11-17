@@ -1341,16 +1341,13 @@ export function unlayerToEmailDocument(
     const exported = exportedRows(storedHtml)
     // The width the old editor's html actually used wins, as a design can disagree with it. A width in percent can't be
     // a fixed body width, and the old editor's export of it is broken anyway.
+    const percentWidth = String(bodyValues.contentWidth ?? '')
+        .trim()
+        .endsWith('%')
     const exportedWidth = parsePx(
         /\.u-row\s?\{\s{0,20}width:\s?(\d{2,4})px\s?!important/.exec(exported?.css ?? '')?.[1]
     )
-    const bodyWidth =
-        exportedWidth ??
-        (String(bodyValues.contentWidth ?? '')
-            .trim()
-            .endsWith('%')
-            ? 600
-            : (parsePx(bodyValues.contentWidth) ?? 500))
+    const bodyWidth = percentWidth ? 600 : (exportedWidth ?? parsePx(bodyValues.contentWidth) ?? 500)
     const hoverButtons = exportedHoverButtons(storedHtml)
     const styles = exportedStyles(storedHtml)
     const rowHtml = exported && exported.rows.length === rows.length ? exported.rows : null
