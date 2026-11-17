@@ -26,6 +26,7 @@ _SCOPE_FIELDS = (
     "id",
     "team_id",
     "type",
+    "template_id",
     "hog",
     "inputs",
     "inputs_schema",

@@ -3,6 +3,9 @@ from typing import Any
 
 from unittest.mock import patch
 
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
+
 import httpx
 from parameterized import parameterized
 
@@ -169,3 +172,18 @@ class TestBackfillHogFunctionAbuseScores(AbuseClassificationTestCase):
             self.run_command(COMMAND, "--rate", "0")
 
         assert sorted(event["properties"]["hog_function_id"] for event in self.captured_events()) == ids
+
+    def test_a_dry_run_reads_candidates_without_a_query_per_function(self) -> None:
+        self.flags.enabled[TEAM_FLAG] = False
+        self.create_destination(type="transformation")
+
+        def dry_run_queries() -> int:
+            with CaptureQueriesContext(connection) as queries:
+                self.run_command(COMMAND, "--dry-run", "--rate", "0")
+            return len(queries)
+
+        one = dry_run_queries()
+        self.create_destination(type="transformation")
+        self.create_destination(type="transformation")
+
+        assert dry_run_queries() == one
