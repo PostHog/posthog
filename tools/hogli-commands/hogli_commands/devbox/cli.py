@@ -1669,6 +1669,55 @@ def _hint_if_positional_looks_like_username(
         )
 
 
+def _warn_about_claude_login_before_sharing(name: str, workspace: dict[str, Any]) -> None:
+    """Warn that a shared box exposes the owner's Claude Code login, and offer to log out first."""
+    click.echo(
+        click.style(
+            "People you share with get a shell on the box as you, so they can use your Claude Code login there.",
+            fg="yellow",
+        )
+    )
+    if get_workspace_status(workspace) != "running":
+        click.echo("  Couldn't check the box's Claude Code login, because the devbox isn't running.")
+        return
+    login = _read_claude_login(name)
+    if login is None:
+        click.echo("  Couldn't check the box's Claude Code login, because the devbox didn't answer.")
+        return
+    if login.auth_method == "oauth_token":
+        click.echo(f"  The box gets your {CLAUDE_CODE_OAUTH_ENV} user secret as an environment variable.")
+        click.echo("  To remove it, run `hogli devbox:config:rm claude` and restart the box.")
+        return
+    if login.auth_method != "claude.ai":
+        return
+    click.echo(f"  The box is logged in to Claude Code as {login.email or 'your account'}.")
+    if not click.confirm("Log out of Claude Code on the box before sharing?", default=True):
+        return
+    if _logout_claude(name):
+        click.echo("Logged out of Claude Code on the box.")
+        return
+    click.echo(
+        click.style("Couldn't log out. Run `hogli devbox:claude:logout` to try again. Sharing anyway.", fg="yellow")
+    )
+
+
+def _logout_claude_before_destroy(name: str) -> None:
+    """Run `claude auth logout` before destroy deletes the disk.
+
+    Deleting the disk deletes the stored login too. Logging out first also
+    gets any server-side cleanup that `claude auth logout` does.
+    """
+    login = _read_claude_login(name)
+    if login is None or login.auth_method != "claude.ai":
+        return
+    if _logout_claude(name):
+        click.echo("Logged out of Claude Code on the box.")
+        return
+    click.echo(
+        click.style("Couldn't log out of Claude Code on the box. Destroying it deletes the login anyway.", fg="yellow")
+    )
+
+
 @click.command(name="devbox:share", help="Share your devbox with other users")
 @workspace_argument
 @click.option("--user", "users", multiple=True, help="Coder username(s) to share with")
@@ -1685,7 +1734,7 @@ def devbox_share(
     _hint_if_positional_looks_like_username("devbox:share", workspace, users, list_sharing)
 
     name, workspaces = resolve_workspace_name(workspace)
-    _get_workspace_or_fail(name, workspaces)
+    ws = _get_workspace_or_fail(name, workspaces)
 
     if list_sharing:
         result = get_sharing_status(name)
@@ -1697,6 +1746,7 @@ def devbox_share(
     if not users:
         raise click.UsageError("Specify at least one --user. Run 'hogli devbox:users' to find usernames.")
 
+    _warn_about_claude_login_before_sharing(name, ws)
     share_workspace(name, list(users), role)
     click.echo(f"Shared '{name}' with {', '.join(users)} (role: {role}).")
 
@@ -2306,6 +2356,9 @@ def devbox_destroy(workspace: str | None, verbose: bool) -> None:
     if not click.confirm(f"Destroy '{name}'? This deletes the VM and its data"):
         click.echo("Cancelled.")
         return
+
+    if get_workspace_status(ws) == "running":
+        _logout_claude_before_destroy(name)
 
     label = mutagen.workspace_label_selector(name)
     if mutagen.sync_list(label_selector=label):

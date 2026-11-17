@@ -4264,28 +4264,56 @@ class TestWorkspaceTargetParsing:
 class TestDevboxShare:
     """Test the devbox:share command."""
 
-    def test_share_grants_access(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    @pytest.mark.parametrize(
+        "box_status, auth_method, logout_answer, expected_calls, expected_output",
+        [
+            ("running", "claude.ai", "y\n", ["logout", "share"], "Logged out of Claude Code"),
+            ("running", "claude.ai", "n\n", ["share"], "logged in to Claude Code as jane@example.com"),
+            ("running", "none", "", ["share"], "can use your Claude Code login"),
+            ("stopped", None, "", ["share"], "Couldn't check the box's Claude Code login"),
+        ],
+        ids=["logs_out_first", "keeps_login", "not_logged_in", "stopped_box"],
+    )
+    def test_share_grants_access(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        box_status: str,
+        auth_method: str | None,
+        logout_answer: str,
+        expected_calls: list[str],
+        expected_output: str,
+    ) -> None:
         captured: dict[str, object] = {}
+        calls: list[str] = []
+
+        def fake_run_in_workspace(name: str, command: list[str], *, timeout: float) -> subprocess.CompletedProcess[str]:
+            if "logout" in command[-1]:
+                calls.append("logout")
+                return subprocess.CompletedProcess([], 0, "", "")
+            status = {"loggedIn": auth_method != "none", "authMethod": auth_method, "email": "jane@example.com"}
+            return subprocess.CompletedProcess([], 0, json.dumps(status), "")
+
+        def fake_share(name: str, users: list[str], role: str = "use") -> None:
+            calls.append("share")
+            captured.update({"name": name, "users": users, "role": role})
 
         monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
         monkeypatch.setattr(devbox_cli, "resolve_workspace_name", lambda ws, **kw: ("devbox-test-user", []))
         monkeypatch.setattr(
             devbox_cli,
             "get_workspace",
-            lambda name, workspaces=None: {"name": name, "latest_build": {"status": "running"}},
+            lambda name, workspaces=None: {"name": name, "latest_build": {"status": box_status}},
         )
-        monkeypatch.setattr(
-            devbox_cli,
-            "share_workspace",
-            lambda name, users, role="use": captured.update({"name": name, "users": users, "role": role}),
-        )
+        monkeypatch.setattr(devbox_cli, "run_in_workspace", fake_run_in_workspace)
+        monkeypatch.setattr(devbox_cli, "share_workspace", fake_share)
 
-        result = runner.invoke(cli, ["devbox:share", "--user", "alice"])
+        result = runner.invoke(cli, ["devbox:share", "--user", "alice"], input=logout_answer)
 
-        assert result.exit_code == 0
+        assert result.exit_code == 0, result.output
         assert captured == {"name": "devbox-test-user", "users": ["alice"], "role": "use"}
+        assert calls == expected_calls
+        assert expected_output in result.output
         assert "Shared" in result.output
-        assert "alice" in result.output
 
     def test_unshare_revokes_and_warns(self, monkeypatch: pytest.MonkeyPatch) -> None:
         captured: dict[str, object] = {}
@@ -6145,6 +6173,14 @@ class TestDevboxLifecycleSyncIntegration:
             lambda name, workspaces=None: {"name": name, "latest_build": {"status": "running"}},
         )
         monkeypatch.setattr(devbox_cli.click, "confirm", lambda *a, **kw: True)
+
+        def fake_run_in_workspace(name: str, command: list[str], *, timeout: float) -> subprocess.CompletedProcess[str]:
+            if "logout" in command[-1]:
+                calls.append("claude-logout")
+                return subprocess.CompletedProcess([], 0, "", "")
+            return subprocess.CompletedProcess([], 0, json.dumps({"loggedIn": True, "authMethod": "claude.ai"}), "")
+
+        monkeypatch.setattr(devbox_cli, "run_in_workspace", fake_run_in_workspace)
         monkeypatch.setattr(devbox_cli.mutagen, "sync_list", lambda label_selector=None: [{"name": "ph-x"}])
         monkeypatch.setattr(devbox_cli.mutagen, "sync_terminate", lambda sel: calls.append("terminate"))
         monkeypatch.setattr(devbox_cli, "delete_workspace", lambda name, verbose=False: calls.append("delete"))
@@ -6155,7 +6191,7 @@ class TestDevboxLifecycleSyncIntegration:
         assert result.exit_code == 0, result.output
         # terminate MUST run before delete: the remote endpoint disappearing
         # mid-sync produces noisy daemon errors otherwise.
-        assert calls == ["terminate", "delete", "forget-herdr:devbox-test-user"]
+        assert calls == ["claude-logout", "terminate", "delete", "forget-herdr:devbox-test-user"]
 
     def test_destroy_proceeds_when_no_sync_session(self, monkeypatch: pytest.MonkeyPatch) -> None:
         calls: list[str] = []
@@ -6168,6 +6204,11 @@ class TestDevboxLifecycleSyncIntegration:
             lambda name, workspaces=None: {"name": name, "latest_build": {"status": "running"}},
         )
         monkeypatch.setattr(devbox_cli.click, "confirm", lambda *a, **kw: True)
+        monkeypatch.setattr(
+            devbox_cli,
+            "run_in_workspace",
+            lambda name, command, timeout: subprocess.CompletedProcess([], 255, "", "Connection refused"),
+        )
         monkeypatch.setattr(devbox_cli.mutagen, "sync_list", lambda label_selector=None: [])
         monkeypatch.setattr(
             devbox_cli.mutagen,
