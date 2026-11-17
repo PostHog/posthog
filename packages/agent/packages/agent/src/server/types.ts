@@ -4,7 +4,8 @@ import type {
   ServiceTier,
 } from "@posthog/agent-contracts/domain-types";
 import type { ProductSelector } from "../sdk/product";
-import type { AgentMode } from "../types";
+import type { AgentMode, LogLevel } from "../types";
+import type { LogFormat } from "../utils/logger";
 import type { RtkSavingsSummary } from "./rtk-savings";
 
 export interface ClaudeCodeConfig {
@@ -31,6 +32,8 @@ export interface AgentServerConfig {
   eventIngestStreamWindowMs?: number;
   eventIngestKeepStreamOpen?: boolean;
   piConversationFormat?: "acp" | "pi";
+  logLevel?: LogLevel;
+  logFormat?: LogFormat;
   /** Full OTLP logs URL for run telemetry, e.g. https://us.i.posthog.com/i/v1/logs */
   otelLogsUrl?: string;
   /** Project API key for the OTLP logs/traces endpoints */
