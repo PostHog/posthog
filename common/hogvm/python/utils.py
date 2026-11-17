@@ -11,6 +11,9 @@ _CASE_INSENSITIVE_OPTS.case_sensitive = False
 COST_PER_UNIT = 8
 MAX_MEMORY = 64 * 1024 * 1024  # 64 MB
 MAX_REGEX_PATTERN_LENGTH = 16 * 1024
+# The other Hog VMs hold integers in 64 bits or less, and multiplying bigger Python integers takes time the timeout
+# cannot interrupt.
+MAX_INT_BITS = 4096
 
 
 def _temporal_seconds(value: Any) -> float | None:
@@ -194,6 +197,8 @@ def calculate_cost(object, marked: set | None = None) -> int:
             marked.remove(id(object))
     elif isinstance(object, str):
         return COST_PER_UNIT + len(object)
+    elif isinstance(object, int):
+        return COST_PER_UNIT + max(0, object.bit_length() - 64) // 8
     return COST_PER_UNIT
 
 

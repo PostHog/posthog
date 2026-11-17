@@ -21,12 +21,14 @@ from common.hogvm.python.operation import (
 from common.hogvm.python.stl import _MAX_SEQUENCE_LENGTH, STL, _guard_sequence_length, sleep
 from common.hogvm.python.utils import (
     COST_PER_UNIT,
+    MAX_INT_BITS,
     MAX_MEMORY,
     MAX_REGEX_PATTERN_LENGTH,
     HogVMException,
     HogVMMemoryExceededException,
     HogVMRuntimeExceededException,
     UncaughtHogVMException,
+    calculate_cost,
 )
 
 
@@ -419,6 +421,24 @@ class TestBytecodeExecute:
         _guard_sequence_length(_MAX_SEQUENCE_LENGTH)
         with pytest.raises(HogVMMemoryExceededException):
             _guard_sequence_length(_MAX_SEQUENCE_LENGTH + 1)
+
+    @parameterized.expand([("'x' * 100000", "x"), ("100000 * 'x'", "x"), ("[1] * 100000", [1])])
+    def test_repeating_a_sequence_is_refused_before_allocation(self, expression: str, sequence: Any) -> None:
+        # Only the guard counts every repeat at the cost of the whole sequence, so this size proves it fired before
+        # the result was built. A count big enough to matter would take the test process down without it.
+        bytecode = create_bytecode(parse_expr(expression)).bytecode
+        with pytest.raises(HogVMMemoryExceededException) as exc:
+            execute_bytecode(bytecode, {}, memory_limit=2048)
+        assert exc.value.attempted_memory >= calculate_cost(sequence) * 100000
+
+    def test_multiplying_integers_past_the_bit_cap_is_refused(self):
+        big = 2 ** (MAX_INT_BITS // 2)
+        bytecode = [_H, VERSION, op.INTEGER, big, op.INTEGER, big, op.MULTIPLY, op.RETURN]
+        with pytest.raises(HogVMException, match="Integer too large"):
+            execute_bytecode(bytecode, {})
+
+    def test_a_large_integer_costs_its_size(self):
+        assert calculate_cost(2**MAX_INT_BITS) == calculate_cost(1) + (MAX_INT_BITS + 1 - 64) // 8
 
     @parameterized.expand([("range(0, 200)",), ("(range)(0, 200)",)])
     def test_range_checks_remaining_memory_before_allocating(self, expression: str) -> None:

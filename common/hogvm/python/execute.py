@@ -19,6 +19,7 @@ from common.hogvm.python.operation import HOGQL_BYTECODE_IDENTIFIER, HOGQL_BYTEC
 from common.hogvm.python.stl import STL, STLFunction
 from common.hogvm.python.stl.bytecode import BYTECODE_STL
 from common.hogvm.python.utils import (
+    MAX_INT_BITS,
     MAX_MEMORY,
     HogVMException,
     HogVMMemoryExceededException,
@@ -187,6 +188,18 @@ def execute_bytecode(
         if mem_used > memory_limit:
             raise HogVMMemoryExceededException(memory_limit=memory_limit, attempted_memory=mem_used)
 
+    def check_multiply(a: Any, b: Any) -> None:
+        # Python builds a product before push_stack can check its size.
+        if type(a) is int and type(b) is int:
+            if a.bit_length() + b.bit_length() > MAX_INT_BITS:
+                raise HogVMException(f"Integer too large: the product needs more than {MAX_INT_BITS} bits")
+            return
+        for sequence, count in ((a, b), (b, a)):
+            if isinstance(sequence, str | list | tuple) and isinstance(count, int) and count > 1:
+                attempted_memory = mem_used + calculate_cost(sequence) * count
+                if attempted_memory > memory_limit:
+                    raise HogVMMemoryExceededException(memory_limit=memory_limit, attempted_memory=attempted_memory)
+
     def check_timeout():
         if time.monotonic() - start_time > timeout.total_seconds() and not debug:
             raise HogVMRuntimeExceededException(timeout_seconds=timeout.total_seconds(), ops_performed=ops)
@@ -284,7 +297,9 @@ def execute_bytecode(
             case Operation.DIVIDE:
                 push_stack(pop_stack() / pop_stack())
             case Operation.MULTIPLY:
-                push_stack(pop_stack() * pop_stack())
+                factor, other = pop_stack(), pop_stack()
+                check_multiply(factor, other)
+                push_stack(factor * other)
             case Operation.MOD:
                 push_stack(pop_stack() % pop_stack())
             case Operation.EQ:
