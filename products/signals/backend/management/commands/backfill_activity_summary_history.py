@@ -18,8 +18,9 @@ from products.signals.backend.activity_summary.backfill import (
     plan_backfill,
     run_backfill,
 )
-from products.signals.backend.activity_summary.config import parse_limits
+from products.signals.backend.activity_summary.config import parse_limits, parse_variant
 from products.signals.backend.activity_summary.logic import MIN_UNITS
+from products.signals.backend.activity_summary.summaries import DEFAULT_MODEL, ServiceTier
 
 
 def _date(value: str) -> datetime.date:
@@ -80,12 +81,26 @@ class Command(BaseCommand):
         parser.add_argument(
             "--dry-run", action="store_true", help="Count the builds and their highest cost. No model call."
         )
+        parser.add_argument(
+            "--model",
+            default=DEFAULT_MODEL,
+            help="The model of every build in the run. Needs prices.",
+        )
+        parser.add_argument(
+            "--service-tier",
+            choices=[tier.value for tier in ServiceTier],
+            default=ServiceTier.STANDARD.value,
+            help="The service tier of every build in the run. Flex needs a flex-capable model with flex prices.",
+        )
 
     def handle(self, *args, **options):
         has_pair = options["team_id"] is not None and options["user_id"] is not None
         has_id = options["team_id"] is not None or options["user_id"] is not None
         if options["inbox_users"] == has_id or (has_id and not has_pair):
             raise CommandError("Give both --team-id and --user-id, or --inbox-users alone.")
+        variant = parse_variant(options["model"], options["service_tier"])
+        if variant is None:
+            raise CommandError(f"No prices for {options['model']} on the {options['service_tier']} tier.")
         dates = as_of_dates(options["as_of"], options["start"], options["end"], options["every_days"])
         if dates[-1] > timezone.now():
             raise CommandError("An as-of date is in the future.")
@@ -96,6 +111,7 @@ class Command(BaseCommand):
             limits=parse_limits(options["limits"]),
             min_units=options["min_units"],
             exclude_inbox=options["exclude_inbox"],
+            variant=variant,
         )
         if options["dry_run"]:
             plan = plan_backfill(jobs, backfill_options)

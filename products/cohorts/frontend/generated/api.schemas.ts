@@ -887,6 +887,38 @@ export interface CohortUsedInResponseApi {
     workflows: CohortUsedInWorkflowsBlockApi
 }
 
+/**
+ * * `serving` - Serving
+ * * `setting_up` - Setting up
+ * * `available` - Available
+ * * `not_open` - Not open
+ * * `refused` - Refused
+ * * `failed` - Failed
+ */
+export type RealtimeCohortsJoinStateEnumApi =
+    (typeof RealtimeCohortsJoinStateEnumApi)[keyof typeof RealtimeCohortsJoinStateEnumApi]
+
+export const RealtimeCohortsJoinStateEnumApi = {
+    Serving: 'serving',
+    SettingUp: 'setting_up',
+    Available: 'available',
+    NotOpen: 'not_open',
+    Refused: 'refused',
+    Failed: 'failed',
+} as const
+
+export interface RealtimeCohortsJoinStateApi {
+    /** Where this project stands in joining the realtime cohorts beta. `serving`: the project has realtime cohorts. `setting_up`: a join is in progress. `available`: a POST to `join` starts one. `not_open`: this region takes no new projects. `refused`: the project cannot join by itself, and support can turn realtime cohorts on for it. `failed`: the last join did not finish, and a join an hour later tries again.
+     *
+     * * `serving` - Serving
+     * * `setting_up` - Setting up
+     * * `available` - Available
+     * * `not_open` - Not open
+     * * `refused` - Refused
+     * * `failed` - Failed */
+    state: RealtimeCohortsJoinStateEnumApi
+}
+
 export type CohortsStaffListParams = {
     /**
      * Cohort ids to look up (max 50 per request). Repeat the param (?cohort_ids=1&cohort_ids=2) or pass one comma-separated value (?cohort_ids=1,2).

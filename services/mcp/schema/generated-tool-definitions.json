@@ -5266,7 +5266,7 @@
         }
     },
     "data-quality-check-run": {
-        "description": "Run one check now. Returns a suite run to poll; read the outcome from system.information_schema.data_quality_check_runs once it finishes.",
+        "description": "Run one check now. Returns a suite run to poll; read the outcome from system.information_schema.data_quality_check_runs once it finishes. Each caller can send 20 run requests a minute and 60 an hour, and each project 180 an hour, shared with data-quality-run. Over that, the call fails with HTTP 429; wait for the time in Retry-After. To run several checks, call data-quality-run once instead.",
         "category": "Data quality",
         "feature": "data_quality",
         "summary": "Run a data quality check",
@@ -5321,6 +5321,21 @@
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "data-quality-run": {
+        "description": "Run several checks in one call: the checks named by check_ids, every enabled check on one subject (subject_type and subject_uuid), or every enabled check in the project when neither is given. Returns a suite run to poll; read the outcome from system.information_schema.data_quality_check_runs once it finishes. One call is one run request, however many checks it runs. Each caller can send 20 run requests a minute and 60 an hour, and each project 180 an hour, shared with data-quality-check-run. Over that, the call fails with HTTP 429.",
+        "category": "Data quality",
+        "feature": "data_quality",
+        "summary": "Run data quality checks",
+        "title": "Run data quality checks",
+        "required_scopes": ["query:read"],
+        "api_operations": ["POST /api/projects/{project_id}/data_quality_runs/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
             "openWorldHint": true,
             "readOnlyHint": false
         }
@@ -9464,6 +9479,22 @@
         "title": "List inbox source filter catalogs",
         "required_scopes": ["inbox:read"],
         "api_operations": ["GET /api/projects/{project_id}/signals/source_configs/filter_catalogs/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "signals-source-filters"
+    },
+    "inbox-source-filter-preview": {
+        "description": "Check a filter expression before you save it, and see what it does to the source's records from the last 7 days: how many pass, how many it excludes, and the newest records of each with their field values. Use the fields from `inbox-source-filter-catalogs-list`. `status` explains an empty result, for example an invalid expression or a source that has not synced. Records that pass can still be skipped later by guidance or deduplication. Saves nothing.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Preview an inbox source filter",
+        "title": "Preview an inbox source filter",
+        "required_scopes": ["inbox:read", "query:read"],
+        "api_operations": ["POST /api/projects/{project_id}/signals/source_configs/filter_preview/"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
