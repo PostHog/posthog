@@ -194,6 +194,8 @@ import type {
     SignalsScoutScratchpadSearchParams,
     SignalsSourceConfigsListParams,
     SourceFilterCatalogListApi,
+    SourceFilterPreviewRequestApi,
+    SourceFilterPreviewResponseApi,
     SourceSpendApi,
     SpendOverviewApi,
     SubmitMonitoringResultRequestApi,
@@ -3507,6 +3509,27 @@ export const signalsSourceConfigsFilterCatalogsRetrieve = async (
     return apiMutator<SourceFilterCatalogListApi>(getSignalsSourceConfigsFilterCatalogsRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getSignalsSourceConfigsFilterPreviewCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/source_configs/filter_preview/`
+}
+
+/**
+ * Check a filter expression before saving it, and see what it does to the source's records created in the last 7 days: how many pass and how many it excludes, with the newest of each. Reads the records emission would read, with the source's saved team allowlist, and runs with your own warehouse access. Records that pass can still be skipped later by guidance or deduplication. Saves nothing and calls no AI.
+ * @summary Preview a source filter
+ */
+export const signalsSourceConfigsFilterPreviewCreate = async (
+    projectId: string,
+    sourceFilterPreviewRequestApi: SourceFilterPreviewRequestApi,
+    options?: RequestInit
+): Promise<SourceFilterPreviewResponseApi> => {
+    return apiMutator<SourceFilterPreviewResponseApi>(getSignalsSourceConfigsFilterPreviewCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(sourceFilterPreviewRequestApi),
     })
 }
 
