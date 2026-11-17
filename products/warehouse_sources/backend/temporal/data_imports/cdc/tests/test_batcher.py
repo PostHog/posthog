@@ -306,15 +306,26 @@ class TestEventsToTableEdgeCases:
         # Postgres quoted identifiers let two columns differ only by case (e.g. "clickid" and
         # "CLICKID"), which pyarrow keeps distinct but Delta's case-insensitive field-name check
         # rejects as a duplicate. The table must carry no two column names that fold to the same
-        # value.
+        # value. Resolution is by sorted order ("CLICKID" < "clickid"), not event order.
         batcher = ChangeEventBatcher()
         batcher.add(_make_event(columns={"id": 1, "clickid": "a", "CLICKID": "b"}))
         table = batcher.flush()["users"]
 
         folded = [name.lower() for name in table.column_names]
         assert len(folded) == len(set(folded))
-        assert table.column("clickid")[0].as_py() == "a"
-        assert table.column("_clickid")[0].as_py() == "b"
+        assert table.column("CLICKID")[0].as_py() == "b"
+        assert table.column("clickid_dup1")[0].as_py() == "a"
+
+    def test_non_colliding_mixed_case_column_keeps_its_source_name(self):
+        # Only a genuine case collision may rename a column. A column with no colliding
+        # sibling, however it is cased, must reach the table under its exact source name —
+        # TOAST markers and primary-key enrichment elsewhere in the CDC pipeline match columns
+        # by that exact name, and renaming it too would silently break syncs that work today.
+        batcher = ChangeEventBatcher()
+        batcher.add(_make_event(columns={"id": 1, "createdAt": "2025-06-15"}))
+        table = batcher.flush()["users"]
+
+        assert table.column("createdAt")[0].as_py() == "2025-06-15"
 
 
 class TestBuildScd2Table:
