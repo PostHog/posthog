@@ -522,6 +522,8 @@ Sparse checkout enables a blobless fetch by default, which adds on-demand fetchi
 The bot IP updater needs only `bin/update-bots-list` and `nodejs/assets/bot-ips.txt`; its sparse checkout retains the tracked output so Git can detect and commit updates.
 `ci-depot-action-mirrors.yml` checks out `.depot/`, `.github/actions/`, and `depot_mirrors.py`; its Git diff still covers all changed paths.
 The Dagster path validator also uses a sparse checkout of every internal Python source file, its workflow, and the local uv action. Its import resolver needs the complete internal Python tree, including namespace packages.
+The sandbox base-image job keeps `.dockerignore` and the local `COPY` inputs of all three Dockerfiles; built skills arrive as an artifact.
+Update its sparse paths when a Dockerfile adds an input outside those directories.
 `ci-rust.yml` also uses it on the build and test jobs, but that came before this PR.
 The large Python and frontend test jobs do not use it. Their checkout is complete.
 
