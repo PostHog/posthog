@@ -145,9 +145,7 @@ def _sync_access_levels(cursor, from_resource: str, to_resource: str) -> None:
         """)
 
 
-def _drop_access_rows_without_counterpart(
-    cursor, resource: str, counterpart: str
-) -> None:
+def _drop_access_rows_without_counterpart(cursor, resource: str, counterpart: str) -> None:
     """Delete `resource` grant rows whose `counterpart` row is gone, and keep restricting rows.
 
     Forwards gives every old row a copy, so an old row without one was either deleted under the new
