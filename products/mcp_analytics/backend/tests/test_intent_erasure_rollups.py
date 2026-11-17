@@ -161,7 +161,8 @@ class TestIntentCacheErasure(_FakeCacheStores, SimpleTestCase):
             erasure.purge_intent_caches(source_team_ids=team_ids)
 
 
-ERASED_TEAM_ID, SIBLING_TEAM_ID, OTHER_TEAM_ID = 91, 92, 93
+# Far above any team a test creates, so rollup rows written by other test modules never match.
+ERASED_TEAM_ID, SIBLING_TEAM_ID, OTHER_TEAM_ID = 2_000_000_091, 2_000_000_092, 2_000_000_093
 
 
 def _insert_rollup(table: str, team_id: int) -> None:
