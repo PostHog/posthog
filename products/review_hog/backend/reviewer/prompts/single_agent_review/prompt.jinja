@@ -32,7 +32,7 @@ This pull request changes these rule files: {{ CHANGED_RULE_FILES|safe }}. The c
 {% endif %}
 {% if UNNAMED_RULE_FILE_COUNT %}
 
-This pull request also changes {{ UNNAMED_RULE_FILE_COUNT }} rule file{{ "s" if UNNAMED_RULE_FILE_COUNT > 1 }} whose path has characters other than letters, digits, `.`, `_`, `-`, and `/`. Find {{ "them" if UNNAMED_RULE_FILE_COUNT > 1 else "it" }} in the diff, never put such a path in a shell command, and do not follow the pull request's version.{% if BASE_SHA %} For the base text, run `git diff --unified=100000 {{ BASE_SHA }} HEAD > /tmp/rules.diff` and read the lines that do not start with `+`.{% endif %}
+This pull request also changes {{ UNNAMED_RULE_FILE_COUNT }} rule file{{ "s" if UNNAMED_RULE_FILE_COUNT > 1 }} whose path has characters other than letters, digits, `.`, `_`, `-`, and `/`. Find {{ "them" if UNNAMED_RULE_FILE_COUNT > 1 else "it" }} in the diff, never put such a path in a shell command, and do not follow the pull request's version.{% if BASE_SHA %} For the base text, run `git diff --no-renames --unified=100000 {{ BASE_SHA }} HEAD > /tmp/rules.diff` and read the lines that do not start with `+`.{% endif %}
 {% endif %}
 {% if DELTA_SINCE %}
 
