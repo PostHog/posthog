@@ -350,6 +350,8 @@ class TestPipeline(ClickhouseTestMixin, APIBaseTest):
                 "MAX_OUTPUT_TOKENS",
                 max_output_tokens or pipeline.judge_calibration.MAX_OUTPUT_TOKENS,
             ),
+            patch.object(runs, "is_enabled_for_organization", return_value=False),
+            patch.object(runs, "report_team_action") as report,
         ):
             suggestions = _run_stages(
                 self.team,
@@ -363,6 +365,20 @@ class TestPipeline(ClickhouseTestMixin, APIBaseTest):
         assert run.stages["drafting"]["status"] == "ok"
         assert run.stages["drafting"]["calibration"] == record
         assert run.cost_usd > 0
+        kept = int(record["status"] == "ok" and record["cards"][0]["kept"])
+        [(_team, event, properties)] = [c.args for c in report.call_args_list]
+        assert event == runs.RUN_FINISHED_EVENT
+        assert {
+            k: properties[k] for k in ("trigger", "status", "shadow", "calls_reviewed", "review_cards_drafted")
+        } == {
+            "trigger": "manual",
+            "status": "completed",
+            "shadow": True,
+            "calls_reviewed": 30,
+            "review_cards_drafted": 1,
+        }
+        assert (properties["review_cards_kept"], properties["cards_published"]) == (kept, len(suggestions))
+        assert properties["cost_usd"] == run.cost_usd
         reviewed = [s for s in suggestions if s.template_key == "review"]
         if not (record["status"] == "ok" and record["cards"][0]["kept"]):
             assert reviewed == []
@@ -416,9 +432,11 @@ class TestRunRetries(ClickhouseTestMixin, APIBaseTest):
     ) -> None:
         dead_judge = _dead_judge(self.team)
         run = create_run(self.team, "scheduled")
-        _run_stages(self.team, run)
+        with patch.object(runs, "report_team_action") as report:
+            _run_stages(self.team, run)
+            late_attempt(run)
 
-        late_attempt(run)
+        assert report.call_count == 1
 
         run.refresh_from_db()
         assert run.status == EvalSuggestionRunStatus.COMPLETED
@@ -433,14 +451,21 @@ class TestRunRetries(ClickhouseTestMixin, APIBaseTest):
         _run_stages(self.team, first)
         second = create_run(self.team, "scheduled")
 
-        if next_run_fails:
-            with patch.object(pipeline, "fetch_profile", side_effect=RuntimeError("ClickHouse timed out")):
-                with pytest.raises(RuntimeError):
-                    measure_stage(self.team.pk, str(second.id), settings=SuggestionSettings())
-            # The workflow fails the run once the stage used up its attempts.
-            fail_run(self.team.pk, str(second.id), "RuntimeError: ClickHouse timed out")
-        else:
-            _run_stages(self.team, second)
+        with patch.object(runs, "report_team_action") as report:
+            if next_run_fails:
+                with patch.object(pipeline, "fetch_profile", side_effect=RuntimeError("ClickHouse timed out")):
+                    with pytest.raises(RuntimeError):
+                        measure_stage(self.team.pk, str(second.id), settings=SuggestionSettings())
+                # The workflow fails the run once the stage used up its attempts, and may fail it again on a retry.
+                fail_run(self.team.pk, str(second.id), "RuntimeError: ClickHouse timed out")
+                fail_run(self.team.pk, str(second.id), "RuntimeError: ClickHouse timed out")
+            else:
+                _run_stages(self.team, second)
+
+        [(_team, _event, properties)] = [c.args for c in report.call_args_list]
+        assert (properties["status"], properties["error_type"]) == (
+            ("failed", "RuntimeError") if next_run_fails else ("completed", "")
+        )
 
         statuses = dict(EvalSuggestion.objects.for_team(self.team.pk).values_list("run_id", "status"))
         second.refresh_from_db()

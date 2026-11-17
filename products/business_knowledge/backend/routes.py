@@ -7,6 +7,7 @@ from products.business_knowledge.backend.api import (
     BusinessKnowledgeSettingsViewSet,
     KnowledgeDocumentViewSet,
     KnowledgeGapSuggestionViewSet,
+    KnowledgeKeyViewSet,
     KnowledgeLibraryViewSet,
     KnowledgeSourceViewSet,
 )
@@ -50,6 +51,13 @@ def register_routes(routers: RouterRegistry) -> None:
         r"business_knowledge/repositories",
         BusinessKnowledgeRepositoriesViewSet,
         "project_business_knowledge_repositories",
+        ["team_id"],
+    )
+    # Before the settings viewset so `keys` is not captured as that viewset's detail pk.
+    routers.projects.register(
+        r"business_knowledge/keys",
+        KnowledgeKeyViewSet,
+        "project_business_knowledge_keys",
         ["team_id"],
     )
     # Before the settings viewset so `libraries` is not captured as that viewset's detail pk.
