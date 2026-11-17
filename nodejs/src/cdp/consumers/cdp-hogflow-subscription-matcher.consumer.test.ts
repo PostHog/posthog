@@ -40,7 +40,7 @@ type MockRow = {
     distinct_id: string | null
     person_id: string | null
     state?: Buffer | null
-    scheduled?: Date
+    scheduled?: string
 }
 
 const eventBytecode = (eventName: string): any[] => ['_H', 1, 32, eventName, 32, 'event', 1, 1, 11]
@@ -155,7 +155,8 @@ class MatcherUnderTest extends CdpHogflowSubscriptionMatcherConsumer {
                 return Promise.resolve({ rows: [], rowCount: 0 })
             }
             this.calls.push({ sql, params })
-            const farFuture = new Date('2100-01-01T00:00:00Z')
+            // ISO strings, as the hub's Postgres type parsers return timestamps in production.
+            const farFuture = '2100-01-01T00:00:00.000Z'
             if (sql.startsWith('DELETE FROM conversion_watchers')) {
                 // Deleting the row IS the claim, so only rows this DELETE removed may be counted.
                 // `claimedWatcherIds` models another instance having won some of them first.
@@ -406,7 +407,7 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
                         action_id: 'wait_node',
                         distinct_id: 'user-1',
                         person_id: null,
-                        scheduled: new Date(firstArrival + 200),
+                        scheduled: new Date(firstArrival + 200).toISOString(),
                     },
                 ]
                 coalescing.wakeRows = [
@@ -417,14 +418,15 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
                 const eventFor = (batch: string): any =>
                     rawEvent({ event: batch === waitEventBatch ? 'wuc_subscribed' : 'random_event' })
 
-                jest.useFakeTimers({ now: firstArrival, doNotFake: ['nextTick', 'setImmediate', 'queueMicrotask'] })
+                let clock = firstArrival
+                const now = jest.spyOn(Date, 'now').mockImplementation(() => clock)
                 try {
                     const first = await handleBatch([eventFor('first')])
-                    jest.setSystemTime(firstArrival + 400)
+                    clock = firstArrival + 400
                     const second = await handleBatch([eventFor('second')])
                     await Promise.all([first.backgroundTask, second.backgroundTask])
                 } finally {
-                    jest.useRealTimers()
+                    now.mockRestore()
                 }
 
                 expect(coalescing.calls.some((c) => c.sql.startsWith('UPDATE cyclotron_jobs'))).toBe(woken)
@@ -2005,19 +2007,20 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
                     CONSUMER_MAX_BACKGROUND_TASKS: 2,
                 })
                 ;(coalescing as any).liveWatcherFlowsByTeam = new Map([[1, new Map([['flow-1', 0]])]])
-                coalescing.watcherRows = [watcher({ expires_at: new Date(firstArrival + 200) })]
+                coalescing.watcherRows = [watcher({ expires_at: new Date(firstArrival + 200).toISOString() })]
                 const handleBatch = (coalescing as any).eventsBatchHandler('test')
                 const eventFor = (batch: string): any =>
                     rawEvent({ event: batch === goalEventBatch ? 'wuc_cancelled' : 'wuc_subscribed' })
 
-                jest.useFakeTimers({ now: firstArrival, doNotFake: ['nextTick', 'setImmediate', 'queueMicrotask'] })
+                let clock = firstArrival
+                const now = jest.spyOn(Date, 'now').mockImplementation(() => clock)
                 try {
                     const first = await handleBatch([eventFor('first')])
-                    jest.setSystemTime(firstArrival + 400)
+                    clock = firstArrival + 400
                     const second = await handleBatch([eventFor('second')])
                     await Promise.all([first.backgroundTask, second.backgroundTask])
                 } finally {
-                    jest.useRealTimers()
+                    now.mockRestore()
                 }
 
                 const lookup = coalescing.calls.find((c) => c.sql.includes('FROM conversion_watchers'))

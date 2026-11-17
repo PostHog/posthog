@@ -530,7 +530,9 @@ export class CyclotronV2Janitor {
      * catch hides the failure from the run otherwise — a persistent one grows the table unbounded.
      */
     sweepExpiredConversionWatchers(): Promise<number> {
-        return this.sweepExpiredRows('conversion_watchers', conversionWatchersSweptCounter)
+        // The matcher can hold an event for a moment before looking it up, and judges it by when it
+        // arrived, so a watcher has to outlive its expiry by longer than that hold.
+        return this.sweepExpiredRows('conversion_watchers', conversionWatchersSweptCounter, '', 300)
     }
 
     // Keeps a key while its job exists, so a repeat cannot insert a second job with the same id.
@@ -546,19 +548,20 @@ export class CyclotronV2Janitor {
     private async sweepExpiredRows(
         table: 'conversion_watchers' | 'cyclotron_idempotency_keys',
         sweptCounter: Counter,
-        keepCondition = ''
+        keepCondition = '',
+        graceSeconds = 0
     ): Promise<number> {
         try {
             const result = await this.pool.query(
                 `DELETE FROM ${table}
                  WHERE id IN (
                      SELECT id FROM ${table}
-                     WHERE expires_at <= NOW() ${keepCondition}
+                     WHERE expires_at <= NOW() - make_interval(secs => $2) ${keepCondition}
                      LIMIT $1
                      FOR UPDATE SKIP LOCKED
                  )
-                 AND expires_at <= NOW()`,
-                [this.cleanupBatchSize]
+                 AND expires_at <= NOW() - make_interval(secs => $2)`,
+                [this.cleanupBatchSize, graceSeconds]
             )
             const deleted = result.rowCount ?? 0
             if (deleted > 0) {

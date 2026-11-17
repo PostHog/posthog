@@ -4879,8 +4879,11 @@ describe('Cyclotron V2', () => {
             }
             const expired = uuidv7()
             const live = uuidv7()
-            await insertWatcher(expired, new Date(Date.now() - 60_000))
+            // Kept past its expiry while the matcher may still hold an event that arrived before it.
+            const justExpired = uuidv7()
+            await insertWatcher(expired, new Date(Date.now() - 600_000))
             await insertWatcher(live, new Date(Date.now() + 3_600_000))
+            await insertWatcher(justExpired, new Date(Date.now() - 60_000))
             const insertKey = async (id: string, expiresAt: Date): Promise<void> => {
                 await assertPool.query(
                     `INSERT INTO cyclotron_idempotency_keys (id, team_id, fingerprint, expires_at)
@@ -4907,9 +4910,9 @@ describe('Cyclotron V2', () => {
             writer.release()
 
             const remaining = await assertPool.query(`SELECT id FROM conversion_watchers WHERE id = ANY($1::uuid[])`, [
-                [expired, live],
+                [expired, live, justExpired],
             ])
-            expect(remaining.rows.map((r) => r.id)).toEqual([live])
+            expect(remaining.rows.map((r) => r.id).sort()).toEqual([live, justExpired].sort())
             const remainingKeys = await assertPool.query(
                 `SELECT id FROM cyclotron_idempotency_keys WHERE id = ANY($1::uuid[])`,
                 [[expiredKey, liveKey, expiredKeyWithJob, lockedKey]]

@@ -172,7 +172,7 @@ type ParkedCandidate = {
     actionId: string | null
     distinctId: string | null
     personId: string | null
-    scheduled: Date
+    scheduledAt: number
 }
 
 // A distinct_id repointed by a merge: the distinct_id and the survivor person it now resolves to.
@@ -483,7 +483,7 @@ export class CdpHogflowSubscriptionMatcherConsumer<
             }
 
             const candidateGlobals = collectCandidateGlobals(candidate, byDistinctId, byPersonId).filter(
-                (globals) => arrivedAt(globals) < candidate.scheduled
+                (globals) => arrivedAt(globals).getTime() < candidate.scheduledAt
             )
             if (candidateGlobals.length === 0) {
                 continue
@@ -658,7 +658,8 @@ export class CdpHogflowSubscriptionMatcherConsumer<
             actionId: row.action_id,
             distinctId: row.distinct_id,
             personId: row.person_id,
-            scheduled: row.scheduled,
+            // The hub's type parsers return timestamps as ISO strings, not dates.
+            scheduledAt: new Date(row.scheduled).getTime(),
         }))
     }
 
@@ -804,7 +805,7 @@ export class CdpHogflowSubscriptionMatcherConsumer<
                 { teamId: row.team_id, distinctId: row.distinct_id, personId: row.person_id },
                 byDistinctId,
                 byPersonId
-            ).filter((globals) => arrivedAt(globals) < row.expires_at)
+            ).filter((globals) => arrivedAt(globals).getTime() < new Date(row.expires_at).getTime())
             const goal: PinnedConversionGoal = eventsOnly
                 ? { events: row.goal.events?.filter((bytecode: unknown) => !readsPerson(bytecode)) }
                 : row.goal
@@ -1418,7 +1419,7 @@ export class CdpHogflowSubscriptionMatcherConsumer<
     }
 
     private stampArrival(invocationGlobals: HogFunctionInvocationGlobals[]): HogFunctionInvocationGlobals[] {
-        const arrivedAt = new Date()
+        const arrivedAt = new Date(Date.now())
         for (const globals of invocationGlobals) {
             this.eventArrivals.set(globals, arrivedAt)
         }
