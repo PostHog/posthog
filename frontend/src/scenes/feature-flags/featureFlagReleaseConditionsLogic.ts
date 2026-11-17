@@ -49,6 +49,11 @@ export function isDistinctIdFilter(property: AnyPropertyFilter): boolean {
     return property.type === PropertyFilterType.Person && property.key === 'distinct_id'
 }
 
+// A flag dependency fits either aggregation, so it survives a change of the condition's target.
+function keepFlagDependencies(properties: AnyPropertyFilter[] | undefined): AnyPropertyFilter[] {
+    return (properties ?? []).filter((property) => property.type === PropertyFilterType.Flag)
+}
+
 // What we keep from a failed blast-radius request so the UI can pick a message and decide whether
 // a retry is worth offering.
 export interface BlastRadiusError {
@@ -503,7 +508,7 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
                             return {
                                 ...group,
                                 aggregation_group_type_index: undefined,
-                                properties: scopeChanged ? [] : group.properties,
+                                properties: scopeChanged ? keepFlagDependencies(group.properties) : group.properties,
                             }
                         }) as FeatureFlagGroupTypeWithSortKey[],
                     }
@@ -582,9 +587,7 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
                 groups[index] = {
                     ...groups[index],
                     aggregation_group_type_index: groupTypeIndex,
-                    // Reset properties when changing aggregation type to avoid
-                    // stale property filters from the previous aggregation scope
-                    properties: [],
+                    properties: keepFlagDependencies(groups[index].properties),
                 }
                 return { ...state, groups }
             },

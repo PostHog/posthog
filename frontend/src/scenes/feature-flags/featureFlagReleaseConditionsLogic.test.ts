@@ -1296,6 +1296,13 @@ describe('the feature flag release conditions logic', () => {
             },
         ]
 
+        const flagDependency = {
+            key: '12',
+            type: PropertyFilterType.Flag,
+            operator: PropertyOperator.FlagEvaluatesTo,
+            value: true,
+        } as FlagPropertyFilter
+
         it('fully resets conditions when switching between incompatible types (user to group)', async () => {
             logic?.unmount()
 
@@ -1351,16 +1358,20 @@ describe('the feature flag release conditions logic', () => {
                 name: 'mixed → user',
                 targetAggregation: null as number | null,
                 expectedGroups: [
-                    { sort_key: 'user-cond', rollout_percentage: 50, properties: userProperties },
-                    { sort_key: 'group-cond', rollout_percentage: 30, variant: 'test', properties: [] },
+                    { sort_key: 'user-cond', rollout_percentage: 50, properties: [...userProperties, flagDependency] },
+                    { sort_key: 'group-cond', rollout_percentage: 30, variant: 'test', properties: [flagDependency] },
                 ],
             },
             {
                 name: 'mixed → group',
                 targetAggregation: 0 as number | null,
                 expectedGroups: [
-                    { sort_key: 'user-cond', rollout_percentage: 50, properties: [] },
-                    { sort_key: 'group-cond', rollout_percentage: 30, properties: groupProperties },
+                    { sort_key: 'user-cond', rollout_percentage: 50, properties: [flagDependency] },
+                    {
+                        sort_key: 'group-cond',
+                        rollout_percentage: 30,
+                        properties: [...groupProperties, flagDependency],
+                    },
                 ],
             },
         ])('selectively clears properties when switching $name', async ({ targetAggregation, expectedGroups }) => {
@@ -1371,14 +1382,14 @@ describe('the feature flag release conditions logic', () => {
                 filters: {
                     ...generateFeatureFlagFilters([
                         {
-                            properties: userProperties,
+                            properties: [...userProperties, flagDependency],
                             rollout_percentage: 50,
                             variant: null,
                             sort_key: 'user-cond',
                             aggregation_group_type_index: null,
                         },
                         {
-                            properties: groupProperties,
+                            properties: [...groupProperties, flagDependency],
                             rollout_percentage: 30,
                             variant: 'test',
                             sort_key: 'group-cond',
@@ -1400,6 +1411,34 @@ describe('the feature flag release conditions logic', () => {
                     aggregation_group_type_index: targetAggregation,
                     groups: expectedGroups.map((g) => expect.objectContaining(g)),
                 }),
+            })
+        })
+
+        it.each([
+            { name: 'user → group', from: null as number | null, to: 0 as number | null, properties: userProperties },
+            { name: 'group → user', from: 0 as number | null, to: null as number | null, properties: groupProperties },
+        ])('keeps only flag dependencies when one condition switches $name', async ({ from, to, properties }) => {
+            logic?.unmount()
+
+            logic = featureFlagReleaseConditionsLogic({
+                id: 'condition-target-switch',
+                filters: generateFeatureFlagFilters([
+                    {
+                        properties: [...properties, flagDependency],
+                        rollout_percentage: 50,
+                        variant: null,
+                        sort_key: 'cond',
+                        aggregation_group_type_index: from,
+                    },
+                ]),
+            })
+            logic.mount()
+
+            logic.actions.setConditionAggregation(0, to)
+
+            expect(logic.values.filters.groups[0]).toMatchObject({
+                aggregation_group_type_index: to,
+                properties: [flagDependency],
             })
         })
 
