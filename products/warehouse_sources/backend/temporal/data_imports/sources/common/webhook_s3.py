@@ -15,6 +15,7 @@ import pyarrow.compute as pc
 import pyarrow.parquet as pq
 from structlog.types import FilteringBoundLogger
 
+from posthog.dataclasses import frozen
 from posthog.sync import database_sync_to_async_pool
 
 from products.data_warehouse.backend.facade.api import aget_s3_client
@@ -67,6 +68,13 @@ def _stamp_webhook_fallback(job_id: str, team_id: int, fallback: WebhookFallback
             return
         snapshot = {**dict(job.schema_snapshot or {}), WEBHOOK_FALLBACK_SNAPSHOT_KEY: fallback.value}
         ExternalDataJob.objects.filter(id=job.id, team_id=team_id).update(schema_snapshot=snapshot)
+
+
+@frozen
+class StagedWebhookFile:
+    path: str
+    # Each row's arrival is this prefix and its index in the file.
+    arrival_prefix: str
 
 
 def _arrival_prefix(key: str, last_modified: datetime.datetime | None) -> str:
@@ -207,8 +215,8 @@ class WebhookSourceManager:
         )
         return bool(schema.is_webhook)
 
-    async def _list_webhook_parquet_files(self) -> list[tuple[str, str]]:
-        """Each staged file's path and the arrival prefix of its rows, oldest first."""
+    async def _list_webhook_parquet_files(self) -> list[StagedWebhookFile]:
+        """The staged files, oldest first."""
         prefix = self._get_webhook_s3_prefix()
 
         async with aget_s3_client() as s3:
@@ -220,7 +228,12 @@ class WebhookSourceManager:
                 # the loader in arrival order. The leading `is None` flag sends entries without a
                 # LastModified to the end without ever comparing None to a timestamp.
                 entries.sort(key=lambda f: (f.get("LastModified") is None, f.get("LastModified"), f["Key"]))
-                files = [(f"s3://{f['Key']}", _arrival_prefix(f["Key"], f.get("LastModified"))) for f in entries]
+                files = [
+                    StagedWebhookFile(
+                        path=f"s3://{f['Key']}", arrival_prefix=_arrival_prefix(f["Key"], f.get("LastModified"))
+                    )
+                    for f in entries
+                ]
 
                 await self._logger.adebug("list_webhook_parquet_files", prefix=prefix, file_count=len(files))
 
@@ -274,8 +287,8 @@ class WebhookSourceManager:
         batch_number = 0
 
         async with aget_s3_client() as s3:
-            for file, arrival_prefix in files:
-                path = self._strip_s3_protocol(file)
+            for file in files:
+                path = self._strip_s3_protocol(file.path)
 
                 await self._logger.adebug(f"Webhook source reading file {path}")
                 try:
@@ -295,7 +308,7 @@ class WebhookSourceManager:
                     await s3._rm(path)
                     continue
 
-                table = self._transform_webhook_table(table, arrival_prefix if stamps_arrival else None)
+                table = self._transform_webhook_table(table, file.arrival_prefix if stamps_arrival else None)
 
                 if batch.add(table, path):
                     merged = await asyncio.to_thread(finalize_batch, batch.tables)

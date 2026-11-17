@@ -29,6 +29,7 @@ from products.warehouse_sources.backend.models.external_data_schema import Exter
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.db import db_read_with_retry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_s3 import (
+    StagedWebhookFile,
     WebhookFallback,
     WebhookSourceManager,
     WebhookState,
@@ -203,7 +204,7 @@ class TestWebhookSourceManager:
         with _mock_s3_context(mock_s3):
             result = await manager._list_webhook_parquet_files()
 
-        assert [path for path, _ in result] == [
+        assert [file.path for file in result] == [
             "s3://bucket/path/file1.parquet",
             "s3://bucket/path/file2.parquet",
         ]
@@ -232,7 +233,7 @@ class TestWebhookSourceManager:
         with _mock_s3_context(mock_s3):
             result = await manager._list_webhook_parquet_files()
 
-        assert [path for path, _ in result] == ["s3://bucket/path/file1.parquet"]
+        assert [file.path for file in result] == ["s3://bucket/path/file1.parquet"]
 
     async def test_validate_webhook_table_keeps_matching_rows(self):
         manager = _make_manager(team_id=1, schema_id="schema-abc")
@@ -302,7 +303,9 @@ class TestWebhookSourceManager:
 
         with (
             patch.object(
-                manager, "_list_webhook_parquet_files", return_value=[("s3://bucket/file.parquet", "arrival")]
+                manager,
+                "_list_webhook_parquet_files",
+                return_value=[StagedWebhookFile(path="s3://bucket/file.parquet", arrival_prefix="arrival")],
             ),
             _mock_s3_context(mock_s3),
             patch(f"{_WEBHOOK_S3}.settings") as mock_settings,
@@ -337,7 +340,9 @@ class TestWebhookSourceManager:
 
         with (
             patch.object(
-                manager, "_list_webhook_parquet_files", return_value=[("s3://bucket/file.parquet", "arrival")]
+                manager,
+                "_list_webhook_parquet_files",
+                return_value=[StagedWebhookFile(path="s3://bucket/file.parquet", arrival_prefix="arrival")],
             ),
             _mock_s3_context(mock_s3),
         ):
@@ -365,7 +370,9 @@ class TestWebhookSourceManager:
 
         with (
             patch.object(
-                manager, "_list_webhook_parquet_files", return_value=[("s3://bucket/file.parquet", "arrival")]
+                manager,
+                "_list_webhook_parquet_files",
+                return_value=[StagedWebhookFile(path="s3://bucket/file.parquet", arrival_prefix="arrival")],
             ),
             _mock_s3_context(mock_s3),
         ):
@@ -401,7 +408,10 @@ class TestWebhookSourceManager:
             patch.object(
                 manager,
                 "_list_webhook_parquet_files",
-                return_value=[("s3://bucket/gone.parquet", "arrival"), ("s3://bucket/file.parquet", "arrival")],
+                return_value=[
+                    StagedWebhookFile(path="s3://bucket/gone.parquet", arrival_prefix="arrival"),
+                    StagedWebhookFile(path="s3://bucket/file.parquet", arrival_prefix="arrival"),
+                ],
             ),
             _mock_s3_context(mock_s3),
         ):
@@ -437,7 +447,10 @@ class TestWebhookSourceManager:
             patch.object(
                 manager,
                 "_list_webhook_parquet_files",
-                return_value=[("s3://bucket/a.parquet", "arrival"), ("s3://bucket/b.parquet", "arrival")],
+                return_value=[
+                    StagedWebhookFile(path="s3://bucket/a.parquet", arrival_prefix="arrival"),
+                    StagedWebhookFile(path="s3://bucket/b.parquet", arrival_prefix="arrival"),
+                ],
             ),
             _mock_s3_context(mock_s3),
         ):
@@ -683,7 +696,7 @@ class TestWebhookSourceManagerWithMinIO:
         files = await manager._list_webhook_parquet_files()
 
         assert len(files) == 2
-        assert all(path.endswith(".parquet") for path, _ in files)
+        assert all(file.path.endswith(".parquet") for file in files)
 
     async def test_list_parquet_files_returns_empty_when_prefix_missing(self, minio_client):
         manager = _make_manager(team_id=12345, schema_id="nonexistent")
