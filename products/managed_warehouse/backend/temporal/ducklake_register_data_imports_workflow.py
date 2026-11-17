@@ -35,11 +35,10 @@ from posthog.temporal.common.metrics import ExecutionTimeRecorder
 
 from products.data_warehouse.backend.facade.api import get_s3_client
 from products.managed_warehouse.backend.backfill_trino import (
-    data_imports_through_hoglake,
+    data_imports_register_in_hoglake,
     data_imports_through_trino,
     data_imports_trino_flag,
     hoglake_schema,
-    trino_backend_for,
 )
 from products.managed_warehouse.backend.client import make_duckgres_conninfo
 from products.managed_warehouse.backend.common import (
@@ -65,6 +64,12 @@ from products.managed_warehouse.backend.facade.contracts import (
 from products.managed_warehouse.backend.facade.feature_flags import MANAGED_WAREHOUSE_ACCESS_FLAGS
 from products.managed_warehouse.backend.models import ManagedWarehouseSourceJob
 from products.managed_warehouse.backend.storage import connect_to_duckgres, setup_duckgres_session
+from products.managed_warehouse.backend.temporal.ducklake_declared_columns import (
+    DeclaredColumn,
+    columns_missing_from_files,
+    declared_columns,
+    duckdb_type_for_clickhouse,
+)
 from products.managed_warehouse.backend.temporal.ducklake_register_data_imports_trino import (
     cleanup_trino_registration_tables,
     register_prepared_files_through_trino,
@@ -261,6 +266,9 @@ class DuckLakeRegisterDataImportsMetadata:
     ducklake_table_name: str
     engine: str = ENGINE_DUCKGRES
     trino_canary: bool = False
+    # The columns of the table record. Histories recorded before this field have none, which registers the file
+    # columns only.
+    declared_columns: list[DeclaredColumn] = dataclasses.field(default_factory=list)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -392,15 +400,8 @@ async def _trino_target_ready(team_id: int, organization_id: str, logger: typing
 
 
 def _registers_in_hoglake(organization_id: str) -> bool:
-    """Whether the organization's data imports register in its hoglake catalog.
-
-    Only an organization with the hoglake flag asks the control plane for its backend, so every other organization
-    keeps its path without an extra request.
-    """
-    if not data_imports_through_hoglake(organization_id):
-        return False
     try:
-        return trino_backend_for(organization_id, use_cache=True) == "hoglake"
+        return data_imports_register_in_hoglake(organization_id)
     except CPUnavailableError as error:
         raise ApplicationError(str(error), non_retryable=False) from error
 
@@ -500,6 +501,7 @@ async def prepare_ducklake_data_imports_registration_activity(
             ducklake_table_name=ducklake_table_name,
             engine=engine,
             trino_canary=trino_canary,
+            declared_columns=declared_columns(schema.table.columns),
         )
 
 
@@ -796,6 +798,7 @@ def _copy_and_register_through_trino(
                     before_add_files=mark_add_files_started,
                     deadline_monotonic=None if cancel_delay is None else time.monotonic() + cancel_delay,
                     canary=metadata.trino_canary,
+                    declared_columns=metadata.declared_columns,
                 )
         except Exception:
             # No table can reference this execution's files before it adds them, and no other execution writes
@@ -1138,6 +1141,43 @@ def _duckdb_varchar_list_literal(values: Sequence[str]) -> psql.Composed:
     return psql.SQL("[{}]").format(psql.SQL(", ").join(psql.Literal(value) for value in values))
 
 
+def _add_declared_columns_missing_from_files(
+    conn: psycopg.Connection,
+    schema_name: str,
+    table_name: str,
+    declared: Sequence[DeclaredColumn],
+    *,
+    cancel_requested: threading.Event | None,
+) -> None:
+    """Add each declared column that the table, created from the file columns, lacks.
+
+    ducklake_add_data_files with allow_missing reads a column that a file lacks as NULL. The additions share one
+    transaction, because on the autocommit connection each one is its own DuckLake snapshot and catalog commit.
+    """
+    if not declared:
+        return
+    _raise_if_duckgres_cancel_requested(cancel_requested)
+    cursor = conn.execute(
+        psql.SQL("SELECT * FROM {}.{} LIMIT 0").format(psql.Identifier(schema_name), psql.Identifier(table_name))
+    )
+    file_columns = [column.name for column in cursor.description or ()]
+    missing = columns_missing_from_files(declared, file_columns)
+    if not missing:
+        return
+    with conn.transaction():
+        for column in missing:
+            _raise_if_duckgres_cancel_requested(cancel_requested)
+            conn.execute(
+                psql.SQL("ALTER TABLE {}.{} ADD COLUMN {} {}").format(
+                    psql.Identifier(schema_name),
+                    psql.Identifier(table_name),
+                    psql.Identifier(column.name),
+                    # The type comes from a fixed mapping, so it is safe to put in the statement as SQL.
+                    psql.SQL(duckdb_type_for_clickhouse(column.clickhouse_type)),
+                )
+            )
+
+
 def _register_prepared_parquet_files(
     inputs: DuckLakeRegisterDataImportsActivityInputs,
     conn: psycopg.Connection,
@@ -1174,6 +1214,13 @@ def _register_prepared_parquet_files(
                     psql.Identifier(registration_names.shadow_name),
                     parquet_glob,
                 )
+            )
+            _add_declared_columns_missing_from_files(
+                conn,
+                schema_name,
+                registration_names.shadow_name,
+                inputs.metadata.declared_columns,
+                cancel_requested=cancel_requested,
             )
             if partition_columns:
                 _raise_if_duckgres_cancel_requested(cancel_requested)
