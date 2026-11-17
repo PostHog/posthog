@@ -54,6 +54,7 @@ from posthog.models.event.new_events_schema import events_read_settings, events_
 from posthog.models.person.sql import (
     DELETE_PERSON_FROM_STATIC_COHORT,
     DELETE_STALE_STATIC_COHORT_ROWS,
+    DELETE_STATIC_COHORT_ROWS_AT_MARKER,
     INSERT_COHORT_ALL_PEOPLE_FOR_REPLACE,
     INSERT_COHORT_ALL_PEOPLE_THROUGH_PERSON_ID,
     INSERT_PERSON_STATIC_COHORT,
@@ -1510,6 +1511,7 @@ def insert_cohort_people_into_pg(
     written_since: str | None = None,
     replace_marker: datetime | None = None,
     replace_floor: datetime | None = None,
+    on_pg_write: Callable[[], None] | None = None,
 ) -> None:
     """Copy the cohort's ClickHouse rows to Postgres.
 
@@ -1532,6 +1534,7 @@ def insert_cohort_people_into_pg(
             written_since=written_since,
             replace_marker=replace_marker,
             replace_floor=replace_floor,
+            on_pg_write=on_pg_write,
         )
 
     for wait_seconds in (*STATIC_COHORT_READ_BACK_WAITS_SECONDS, None):
@@ -1562,6 +1565,7 @@ def _copy_static_cohort_rows_to_pg(
     written_since: str | None,
     replace_marker: datetime | None = None,
     replace_floor: datetime | None = None,
+    on_pg_write: Callable[[], None] | None = None,
 ) -> tuple[int, bool]:
     """Copy kept rows to Postgres and return ``(counted_rows_read, any_counted_resolved)``.
 
@@ -1658,6 +1662,8 @@ def _copy_static_cohort_rows_to_pg(
     def insert_batch(batch: list[str]) -> None:
         nonlocal any_counted_resolved
         resolved = cohort._insert_batch_via_personhog(batch, insert_in_clickhouse=False, team_id=team_id)
+        if resolved and on_pg_write is not None:
+            on_pg_write()
         if not any_counted_resolved and resolved & counted_in_batch:
             any_counted_resolved = True
 
@@ -2057,6 +2063,32 @@ def prune_stale_static_cohort_rows(
                 "team_id": team_id,
                 "cohort_id": cohort_id,
                 **replace_keeps_row_params(marker, floor),
+            },
+            settings=_static_cohort_delete_settings(),
+            workload=Workload.OFFLINE,
+            team_id=team_id,
+        )
+
+
+def delete_failed_replace_attempt_rows(cohort_id: int, *, team_id: int, marker: datetime) -> None:
+    """Delete ClickHouse rows left at ``marker`` by a failed replace attempt that wrote nothing to Postgres."""
+    tag_queries(
+        product=ProductKey.COHORTS,
+        cohort_id=cohort_id,
+        team_id=team_id,
+        name="delete_failed_replace_attempt_rows",
+        feature=Feature.COHORT,
+        query_type="static_cohort_replace_cleanup",
+    )
+    # Uses the default user and data cluster routing matching prune_stale_static_cohort_rows.
+    with _static_cohort_data_route():
+        sync_execute(
+            DELETE_STATIC_COHORT_ROWS_AT_MARKER,
+            {
+                "team_id": team_id,
+                "cohort_id": cohort_id,
+                "marker": marker,
+                "replace_offset": REPLACE_ROW_OFFSET,
             },
             settings=_static_cohort_delete_settings(),
             workload=Workload.OFFLINE,

@@ -1008,6 +1008,7 @@ def _replace_static_members(
     floor: datetime,
     rows_written: int,
     check_replace_enabled: bool,
+    on_pg_write: Callable[[], None],
     log_prefix: str,
 ) -> None:
     """Sync a replace's new members into Postgres, then prune the members it no longer matches.
@@ -1030,13 +1031,18 @@ def _replace_static_members(
 
     # A replace never empties a cohort. A query that matches nobody is far likelier to be a mistake, such as a
     # misspelled property, than a request to drop every member, and the flags and surveys built on the cohort
-    # would all change at once. Nothing is pruned yet, so both stores keep every member.
+    # would all change at once. Nothing is pruned yet, so Postgres keeps every member.
     if not rows_written:
         raise PopulationEmptyResult(f"Cohort {cohort.pk}: the replace query matched no persons")
     # The replace keeps every member added since the request, across retries and sweep redispatches, and drops
     # the rows its own earlier attempts wrote.
     insert_cohort_people_into_pg(
-        cohort, team_id=team_id, min_rows=rows_written, replace_marker=marker, replace_floor=floor
+        cohort,
+        team_id=team_id,
+        min_rows=rows_written,
+        replace_marker=marker,
+        replace_floor=floor,
+        on_pg_write=on_pg_write,
     )
     require_current_population_marker(cohort.pk, marker)
     # Postgres first: the flags service reads it, and it now holds every new member, so the prune
@@ -1078,6 +1084,7 @@ def _populate_static_cohort(
         PopulationEmptyResult,
         PopulationSuperseded,
         clear_population_run_fields,
+        delete_failed_replace_attempt_rows,
         insert_cohort_people_into_pg,
         mint_population_marker,
         population_marker_is_current,
@@ -1095,6 +1102,7 @@ def _populate_static_cohort(
     superseded: PopulationSuperseded | None = None
     marker: datetime | None = None
     finished_replace: tuple[datetime, datetime] | None = None
+    pg_membership_written = False
     try:
         if team_id is not None:
             cohort = Cohort.objects.get(pk=cohort_id, team_id=team_id)
@@ -1203,6 +1211,11 @@ def _populate_static_cohort(
         # Re-running the sync is safe because InsertCohortMembers ignores existing membership.
         if marker is not None:
             floor = _replace_floor(cohort, marker)
+
+            def _mark_pg_membership_written() -> None:
+                nonlocal pg_membership_written
+                pg_membership_written = True
+
             _replace_static_members(
                 cohort,
                 team=team,
@@ -1211,6 +1224,7 @@ def _populate_static_cohort(
                 floor=floor,
                 rows_written=rows_written,
                 check_replace_enabled=replace_marker is None,
+                on_pg_write=_mark_pg_membership_written,
                 log_prefix=log_prefix,
             )
             finished_replace = (marker, floor)
@@ -1263,6 +1277,7 @@ def _populate_static_cohort(
             # stored ones. Otherwise a newer attempt took over at the last moment, and releasing
             # is_calculating would release that attempt's run.
             finalized_cohort = claimed
+            stored_marker = finalized_cohort.population_marker
             owns_cohort: bool | None = None
 
             def _claim_finalize_ownership() -> None:
@@ -1297,6 +1312,25 @@ def _populate_static_cohort(
                     is_calculating=finalized_cohort.is_calculating,
                     errors_calculating=finalized_cohort.errors_calculating,
                 )
+                # Clean up ClickHouse rows only when nothing in this replace lineage wrote Postgres membership,
+                # so Postgres stays a subset of ClickHouse. Worker interrupts (BaseException) skip cleanup
+                # because the sweep redispatches them.
+                if (
+                    replace_marker is None
+                    and not pg_membership_written
+                    and stored_marker is not None
+                    and isinstance(processing_error, Exception)
+                ):
+                    try:
+                        delete_failed_replace_attempt_rows(
+                            cohort_id, team_id=finalized_cohort.team_id, marker=stored_marker
+                        )
+                    except Exception:
+                        logger.exception(
+                            f"{log_prefix}_failed_replace_cleanup_failed",
+                            cohort_id=cohort_id,
+                            team_id=finalized_cohort.team_id,
+                        )
             else:
                 # Discard history when a newer attempt took ownership; on a DB failure (owns_cohort is None),
                 # still close it so a transient Postgres outage never deletes the run's history row.
