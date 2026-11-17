@@ -6,9 +6,9 @@ import { useStorybookMocks } from '~/mocks/browser'
 
 import type { ProviderImportRunApi } from 'products/messaging/frontend/generated/api.schemas'
 
-import { customerIOImportLogic } from './customerIOImportLogic'
 import type { OptOutSyncConfigResponse } from './customerIOImportLogic'
-import { CustomerIOImportModal } from './CustomerIOImportModal'
+import { providerImportLogic } from './providerImportLogic'
+import { ProviderImportModal } from './ProviderImportModal'
 
 const syncConfigEndpoint = '/api/environments/:team_id/messaging_categories/optout_sync_config/'
 const importRunsEndpoint = '/api/projects/:team_id/messaging_provider_imports/'
@@ -18,6 +18,13 @@ const importProviders = [
     {
         key: 'customerio',
         label: 'Customer.io',
+        retains_credentials: true,
+        api_key_label: 'Customer.io App API Key',
+        api_key_help:
+            'You can generate an App API key in Customer.io under Settings → Account Settings → API Credentials.',
+        api_key_url: null,
+        not_imported: '',
+        next_steps: [],
         steps: [
             {
                 key: 'categories',
@@ -107,7 +114,7 @@ const step2FailedConfig: OptOutSyncConfigResponse = {
 
 const meta: Meta = {
     title: 'Products/Workflows/CustomerIOImportModal',
-    component: CustomerIOImportModal,
+    component: ProviderImportModal,
     parameters: {
         layout: 'fullscreen',
         viewMode: 'story',
@@ -122,13 +129,13 @@ type StoryProps = {
 
 const Template: StoryFn<StoryProps> = ({ syncConfig, importRuns }) => {
     useStorybookMocks(mockSyncConfig(syncConfig, importRuns))
-    const { openImportModal } = useActions(customerIOImportLogic)
+    const { openImportModal } = useActions(providerImportLogic)
 
     useEffect(() => {
         openImportModal()
     }, [openImportModal])
 
-    return <CustomerIOImportModal />
+    return <ProviderImportModal />
 }
 
 export const BothStepsNotCompleted: StoryFn<StoryProps> = Template.bind({})
@@ -246,6 +253,10 @@ ImportRunning.args = {
                 imported: 6,
                 warnings: [],
                 last_error: null,
+                counts: [],
+                items: [],
+                warnings_omitted: 0,
+                items_omitted: 0,
             },
             {
                 key: 'suppressions',
@@ -255,6 +266,10 @@ ImportRunning.args = {
                 imported: 11874,
                 warnings: [],
                 last_error: 'Customer.io returned HTTP 503.',
+                counts: [],
+                items: [],
+                warnings_omitted: 0,
+                items_omitted: 0,
             },
             {
                 key: 'opt_outs',
@@ -264,6 +279,10 @@ ImportRunning.args = {
                 imported: 0,
                 warnings: [],
                 last_error: null,
+                counts: [],
+                items: [],
+                warnings_omitted: 0,
+                items_omitted: 0,
             },
         ]),
     ],
@@ -288,6 +307,10 @@ ImportStepFailed.args = {
                 imported: 2505,
                 warnings: [],
                 last_error: null,
+                counts: [],
+                items: [],
+                warnings_omitted: 0,
+                items_omitted: 0,
             },
             {
                 key: 'opt_outs',
@@ -297,6 +320,10 @@ ImportStepFailed.args = {
                 imported: 1000,
                 warnings: [],
                 last_error: 'Customer.io returned HTTP 503.',
+                counts: [],
+                items: [],
+                warnings_omitted: 0,
+                items_omitted: 0,
             },
         ]),
     ],
@@ -304,4 +331,112 @@ ImportStepFailed.args = {
 ImportStepFailed.parameters = {
     mockDate: '2026-04-13 10:30:00',
     testOptions: { waitForSelector: '[data-attr="customerio-import-run-progress"]' },
+}
+
+const resendProvider = {
+    key: 'resend',
+    label: 'Resend',
+    retains_credentials: false,
+    api_key_label: 'Resend API key',
+    api_key_help:
+        'Resend has no read-only keys, so this needs a key with full access. PostHog only reads from your account, deletes the key as soon as the import ends, and asks for it again next time.',
+    api_key_url: 'https://resend.com/api-keys',
+    not_imported: 'API keys, webhooks, send history and stats stay in Resend.',
+    next_steps: [
+        'Add each sending domain in PostHog and publish its DNS records.',
+        'Open each template with notes and fix what they mention, then send yourself a test.',
+    ],
+    steps: [
+        {
+            key: 'suppressions',
+            label: 'Suppression list',
+            description: 'Adds every address on your Resend suppression list to your PostHog suppression list.',
+        },
+        { key: 'templates', label: 'Templates', description: 'Copies each template into your PostHog library.' },
+    ],
+}
+
+const ResendTemplate: StoryFn<StoryProps> = ({ importRuns }) => {
+    useStorybookMocks({
+        get: {
+            [syncConfigEndpoint]: emptySyncConfig,
+            [importRunsEndpoint]: importRuns ?? [],
+            [importProvidersEndpoint]: [...importProviders, resendProvider],
+        },
+    })
+    const { openImportModal } = useActions(providerImportLogic)
+
+    useEffect(() => {
+        openImportModal('resend')
+    }, [openImportModal])
+
+    return <ProviderImportModal />
+}
+
+export const ResendForm: StoryFn<StoryProps> = ResendTemplate.bind({})
+ResendForm.args = { syncConfig: emptySyncConfig }
+ResendForm.parameters = { testOptions: { waitForSelector: '[data-attr="resend-api-key"]', snapshotBrowsers: [] } }
+
+export const ResendFinishedWithNotes: StoryFn<StoryProps> = ResendTemplate.bind({})
+ResendFinishedWithNotes.args = {
+    syncConfig: emptySyncConfig,
+    importRuns: [
+        {
+            ...importRun('completed', [
+                {
+                    key: 'suppressions',
+                    label: 'Suppression list',
+                    status: 'completed',
+                    processed: 6,
+                    imported: 5,
+                    warnings: [],
+                    last_error: null,
+                    counts: [
+                        { key: 'bounced', label: 'Hard bounces, which block all email', value: 2 },
+                        {
+                            key: 'complained',
+                            label: 'Spam complaints, which block marketing email only. Resend blocks all email to them.',
+                            value: 1,
+                        },
+                    ],
+                    items: [],
+                    warnings_omitted: 0,
+                    items_omitted: 0,
+                },
+                {
+                    key: 'templates',
+                    label: 'Templates',
+                    status: 'completed',
+                    processed: 2,
+                    imported: 1,
+                    warnings: [],
+                    last_error: null,
+                    counts: [{ key: 'needs_review', label: 'New templates to review', value: 1 }],
+                    items: [
+                        {
+                            label: 'Welcome email',
+                            status: 'created',
+                            url: '/workflows/library/templates/1',
+                            notes: [
+                                "Resend fills FIRST_NAME from the contact. PostHog doesn't, so pass them when you send.",
+                            ],
+                        },
+                        {
+                            label: 'Receipt',
+                            status: 'skipped',
+                            url: null,
+                            notes: ['A template with the key receipt exists.'],
+                        },
+                    ],
+                    warnings_omitted: 0,
+                    items_omitted: 0,
+                },
+            ]),
+            provider: 'resend',
+        },
+    ],
+}
+ResendFinishedWithNotes.parameters = {
+    mockDate: '2026-04-13 10:30:00',
+    testOptions: { waitForSelector: '[data-attr="resend-import-next-steps"]', snapshotBrowsers: [] },
 }
