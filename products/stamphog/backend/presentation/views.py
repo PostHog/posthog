@@ -61,6 +61,7 @@ from .serializers import (
     CodeReviewApprovalOwnersFileSerializer,
     CodeReviewApprovalRepositorySerializer,
     CodeReviewApprovalRepositoryWriteSerializer,
+    CodeReviewApprovalRoutingOwnersQuerySerializer,
     CodeReviewApprovalRoutingRunsQuerySerializer,
     CodeReviewApprovalSyncInstallationRequestSerializer,
     CodeReviewApprovalSyncInstallationResponseSerializer,
@@ -71,7 +72,6 @@ from .serializers import (
     RoutingOwnerCountSerializer,
     RoutingRunDetailSerializer,
     RoutingRunSerializer,
-    CodeReviewApprovalRoutingOwnersQuerySerializer,
 )
 
 logger = structlog.get_logger(__name__)
