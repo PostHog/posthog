@@ -113,11 +113,11 @@ const claimedBySameRequest = (fingerprint: TransactionalEmailFingerprint, claime
     claimed !== undefined && fingerprint.alsoMatches.includes(claimed)
 
 // Keyed, because the variables can hold a short login code that anyone who reads a store could guess offline from an
-// unkeyed hash. A record signed under any configured key still matches after a rotation. The first value is the one
-// stored, and stays unkeyed until every pod matches keyed values, so no pod refuses a retry another pod recorded.
+// unkeyed hash. A record signed under any configured key still matches after a rotation. So does the unkeyed hash of a
+// record stored before keying, until the last such record expires.
 const fingerprintsOf = (encryptedFields: EncryptedFields, request: unknown[]): string[] => {
     const unkeyed = IdempotencyKeys.fingerprint(request)
-    return [unkeyed, ...encryptedFields.signatures(FINGERPRINT_PURPOSE, unkeyed)]
+    return [...encryptedFields.signatures(FINGERPRINT_PURPOSE, unkeyed), unkeyed]
 }
 
 const transactionalEmailFingerprint = (
