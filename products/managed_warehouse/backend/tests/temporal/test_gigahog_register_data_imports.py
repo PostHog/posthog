@@ -62,6 +62,8 @@ class _FakeGigahog:
         # Faults the next commit request meets. "lost" commits and drops the response. "conflict" is another
         # writer's commit landing first. "unavailable" refuses without committing. "token_expired" expires the token.
         self.commit_faults: list[str] = []
+        # Faults the next token exchanges meet. "unavailable" answers 503.
+        self.token_faults: list[str] = []
 
     def install(self, mocker: requests_mock.Mocker) -> None:
         mocker.post(TOKEN_URL, json=self._token)
@@ -78,6 +80,10 @@ class _FakeGigahog:
             "client_id": ["hlw_writer"],
             "client_secret": ["writer-secret"],
         }
+        if self.token_faults:
+            assert self.token_faults.pop(0) == "unavailable"
+            context.status_code = 503
+            return {"error": "unavailable"}
         self.tokens_issued += 1
         self.valid_token = f"token-{self.tokens_issued}"
         return {"access_token": self.valid_token, "token_type": "Bearer", "expires_in": 900}
@@ -272,9 +278,25 @@ def test_registration_creates_the_team_table_and_each_sync_replaces_all_its_file
     assert [file["path"] for file in gigahog.live_files[("team_42", TABLE)]] == second
 
 
-@pytest.mark.parametrize("fault", ["lost", "conflict", "unavailable", "token_expired"])
-def test_a_repeated_commit_lands_the_generation_once(gigahog, files, fault: str) -> None:
-    gigahog.commit_faults = [fault]
+@pytest.mark.parametrize(
+    "commit_faults, token_faults",
+    [
+        (["lost"], []),
+        (["conflict"], []),
+        (["unavailable"], []),
+        (["token_expired"], []),
+        # The token expires while the commit is being repeated, after the first attempt.
+        (["unavailable", "token_expired"], []),
+        # Without a repeat, one failed exchange would throw away the whole copy, because the copy activity is not
+        # retried.
+        ([], ["unavailable"]),
+    ],
+)
+def test_a_repeated_commit_lands_the_generation_once(
+    gigahog, files, commit_faults: list[str], token_faults: list[str]
+) -> None:
+    gigahog.commit_faults = commit_faults
+    gigahog.token_faults = token_faults
     landing_uri = _landing_uri()
     paths = _write_generation(files, landing_uri, {"a.parquet": _charges(1, 2)})
 
@@ -360,13 +382,17 @@ def test_an_enabled_writer_marks_a_new_namespace_before_its_first_table(gigahog,
     assert gigahog.tables == {}
 
 
-def test_a_stale_generation_creates_no_table(gigahog, files) -> None:
+@pytest.mark.parametrize("stale_after_a_conflict", [False, True])
+def test_a_stale_generation_commits_nothing(gigahog, files, stale_after_a_conflict: bool) -> None:
+    # The conflict is a newer generation's commit, so a retry would replace newer rows with older ones.
+    gigahog.commit_faults = ["conflict"] if stale_after_a_conflict else []
+    checks = iter([True, False] if stale_after_a_conflict else [False])
     landing_uri = _landing_uri()
     paths = _write_generation(files, landing_uri, {"a.parquet": _charges(1)})
 
-    assert _register(files, landing_uri, paths, should_publish=lambda: False).published is False
-    assert gigahog.tables == {}
+    assert _register(files, landing_uri, paths, should_publish=lambda: next(checks)).published is False
     assert gigahog.commits == 0
+    assert (gigahog.tables == {}) is not stale_after_a_conflict
 
 
 @pytest.mark.parametrize(

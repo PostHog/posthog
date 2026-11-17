@@ -35,7 +35,7 @@ from posthog.temporal.common.metrics import ExecutionTimeRecorder
 
 from products.data_warehouse.backend.facade.api import get_s3_client
 from products.managed_warehouse.backend.backfill_trino import (
-    data_imports_through_gigahog,
+    data_imports_gigahog_flag,
     data_imports_through_hoglake,
     data_imports_through_trino,
     data_imports_trino_flag,
@@ -74,6 +74,7 @@ from products.managed_warehouse.backend.temporal.ducklake_register_data_imports_
 )
 from products.managed_warehouse.backend.temporal.gigahog_client import GigahogConfig
 from products.managed_warehouse.backend.temporal.gigahog_register_data_imports import (
+    gigahog_commit_refused,
     gigahog_config,
     gigahog_landing_uri,
     register_prepared_files_in_gigahog,
@@ -418,15 +419,24 @@ def _registers_in_gigahog(organization_id: str) -> bool:
     """Whether the organization's data imports are written to Gigahog.
 
     A worker without Gigahog settings refuses a flagged organization instead of falling back to another path, so a
-    missing deployment setting shows as failed runs and not as imports that land in the wrong catalog.
+    missing deployment setting shows as failed runs and not as imports that land in the wrong catalog. On a worker
+    with Gigahog settings, a flag lookup without an answer is retried, because reading it as off would send a
+    Gigahog organization to another catalog and leave its Gigahog table stale. A worker without them reads it as
+    off, so a flag that is not defined does not stop data imports where Gigahog is not deployed.
     """
-    if not data_imports_through_gigahog(organization_id):
+    configured = _gigahog_config() is not None
+    flag = data_imports_gigahog_flag(organization_id)
+    if not configured:
+        if flag:
+            raise ApplicationError(
+                "The organization's data imports go to Gigahog, and this worker has no GIGAHOG_URL", non_retryable=True
+            )
         return False
-    if _gigahog_config() is None:
+    if flag is None:
         raise ApplicationError(
-            "The organization's data imports go to Gigahog, and this worker has no GIGAHOG_URL", non_retryable=True
+            f"The Gigahog data imports flag gave no answer for organization {organization_id}", non_retryable=False
         )
-    return True
+    return flag
 
 
 def _registers_in_hoglake(organization_id: str) -> bool:
@@ -915,10 +925,10 @@ def _copy_and_register_in_gigahog(
                     should_publish=lambda: _should_publish_prepared_generation(inputs),
                     before_commit=mark_commit_started,
                 )
-        except Exception:
-            # No table references this execution's files before the commit, and no other execution writes here. A
-            # commit with an unknown outcome may reference them, so they stay.
-            if not commit_started:
+        except Exception as error:
+            # No table references this execution's files before the commit or after Gigahog refuses it, and no other
+            # execution writes here. A commit with an unknown outcome may reference them, so they stay.
+            if not commit_started or gigahog_commit_refused(error):
                 _delete_trino_landing_files(landing_uri, logger=logger)
             raise
         return _finish_prepared_registration(

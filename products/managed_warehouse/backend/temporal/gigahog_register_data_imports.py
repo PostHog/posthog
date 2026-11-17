@@ -277,6 +277,20 @@ def _table_for_commit(
     return table
 
 
+def gigahog_commit_refused(error: BaseException) -> bool:
+    """Whether a failed registration ended on Gigahog's refusal, so none of its commit requests changed the table.
+
+    A commit repeated under the same key returns the first commit's receipt, so a refusal after a lost response means
+    the first request did not commit either.
+    """
+    cause: BaseException | None = error
+    while cause is not None:
+        if isinstance(cause, GigahogError):
+            return cause.refused
+        cause = cause.__cause__
+    return False
+
+
 def register_prepared_files_in_gigahog(
     *,
     config: GigahogConfig,
@@ -326,8 +340,6 @@ def register_prepared_files_in_gigahog(
         _require_org_mark(
             gigahog, namespace, organization_id=organization_id, team_id=team_id, mark=config.mark_namespaces
         )
-        if not should_publish():
-            return GigahogRegistrationResult(published=False, row_count=0)
         files = [
             GigahogFile(
                 path=file.path,
@@ -338,6 +350,9 @@ def register_prepared_files_in_gigahog(
             for file in prepared
         ]
         for attempt in range(1, COMMIT_CONFLICT_ATTEMPTS + 1):
+            # A conflict can be a newer generation's commit, which this one must not replace.
+            if not should_publish():
+                return GigahogRegistrationResult(published=False, row_count=0)
             table = _table_for_commit(gigahog, namespace, table_name, columns)
             if before_commit is not None:
                 before_commit()

@@ -14,8 +14,9 @@ from __future__ import annotations
 import time
 import uuid
 import threading
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import field
+from functools import partial
 from typing import Any
 from urllib.parse import quote
 
@@ -120,6 +121,12 @@ class GigahogError(Exception):
         # server's own trouble. Every other 4xx refuses the request itself, so a repeat fails the same way.
         return self.status_code in (409, 410, 429) or self.status_code >= 500
 
+    @property
+    def refused(self) -> bool:
+        # A 5xx can come after the server applied the request. A 429 can come from a proxy and says nothing about the
+        # server. Every other 4xx is the server's refusal, so the request changed nothing.
+        return 400 <= self.status_code < 500 and self.status_code != 429
+
 
 class _WriterToken:
     """The writer's bearer token, exchanged for the `hlw_` credential and renewed before it expires."""
@@ -139,15 +146,18 @@ class _WriterToken:
             return self._token
 
     def _exchange(self) -> None:
-        response = self._session.post(
-            self._config.token_url,
-            data={
-                "grant_type": "client_credentials",
-                "client_id": self._config.client_id,
-                "client_secret": self._config.client_secret,
-            },
-            headers={"User-Agent": _USER_AGENT},
-            timeout=_REQUEST_TIMEOUT_SECONDS,
+        response = _send_repeating_transient_failures(
+            lambda: self._session.post(
+                self._config.token_url,
+                data={
+                    "grant_type": "client_credentials",
+                    "client_id": self._config.client_id,
+                    "client_secret": self._config.client_secret,
+                },
+                headers={"User-Agent": _USER_AGENT},
+                timeout=_REQUEST_TIMEOUT_SECONDS,
+            ),
+            target="token",
         )
         if response.status_code >= 300:
             raise _error_from_response(response)
@@ -258,40 +268,54 @@ class GigahogClient:
         return GigahogCommit(snapshot_id=int(body["snapshot_id"]), ended_files=body.get("ended_files"))
 
     def _request(self, method: str, path: str, *, json: Any = None) -> Any:
-        """Send the request, repeating it on a lost connection, a 5xx or a 429.
+        """Send the request, repeating it on a lost connection, a 5xx or a 429, and renewing the token on a 401.
 
         Every call this client makes is safe to repeat with the same body: a create answers `already_exists` when
         the first attempt went through, and a commit carries an idempotency key. The author is left out, so the
         server records the token's subject, which is the only author it accepts from a tenant token.
         """
-        renew_token = False
-        for attempt in range(1, _TRANSIENT_ATTEMPTS + 1):
-            headers = {"User-Agent": _USER_AGENT, "Authorization": f"Bearer {self._token.get(renew=renew_token)}"}
-            renew_token = False
-            try:
-                response = self._session.request(
-                    method, f"{self._base}{path}", json=json, headers=headers, timeout=_REQUEST_TIMEOUT_SECONDS
-                )
-            except requests.RequestException as transport_error:
-                if attempt == _TRANSIENT_ATTEMPTS:
-                    raise
-                LOGGER.warning(
-                    "Repeating a Gigahog request after a transport error", path=path, error=str(transport_error)
-                )
-            else:
-                if response.status_code < 300:
-                    return response.json() if response.content else None
-                refusal = _error_from_response(response)
-                # A token can expire between the check and the request, so one 401 renews it.
-                renew_token = refusal.status_code == 401 and attempt == 1
-                repeat = renew_token or refusal.status_code == 429 or refusal.status_code >= 500
-                if not repeat or attempt == _TRANSIENT_ATTEMPTS:
-                    raise refusal
-                LOGGER.warning("Repeating a Gigahog request", path=path, status=refusal.status_code, code=refusal.code)
-                if renew_token:
-                    continue
-            time.sleep(_TRANSIENT_BACKOFF_SECONDS * 2 ** (attempt - 1))
-        raise AssertionError("unreachable")
+        renewed = False
+        while True:
+            # A token can expire between the check and the request, so the first 401 renews it.
+            token = self._token.get(renew=renewed)
+            response = _send_repeating_transient_failures(
+                partial(
+                    self._session.request,
+                    method,
+                    f"{self._base}{path}",
+                    json=json,
+                    headers={"User-Agent": _USER_AGENT, "Authorization": f"Bearer {token}"},
+                    timeout=_REQUEST_TIMEOUT_SECONDS,
+                ),
+                target=path,
+            )
+            if response.status_code < 300:
+                return response.json() if response.content else None
+            refusal = _error_from_response(response)
+            if refusal.status_code != 401 or renewed:
+                raise refusal
+            LOGGER.warning("Renewing the Gigahog token after a 401", path=path)
+            renewed = True
+
+
+def _send_repeating_transient_failures(send: Callable[[], requests.Response], *, target: str) -> requests.Response:
+    """Send, and repeat on a lost connection, a 5xx or a 429. Return the last response, whatever its status."""
+    for attempt in range(1, _TRANSIENT_ATTEMPTS + 1):
+        try:
+            response = send()
+        except requests.RequestException as transport_error:
+            if attempt == _TRANSIENT_ATTEMPTS:
+                raise
+            LOGGER.warning(
+                "Repeating a Gigahog request after a transport error", target=target, error=str(transport_error)
+            )
+        else:
+            transient = response.status_code == 429 or response.status_code >= 500
+            if not transient or attempt == _TRANSIENT_ATTEMPTS:
+                return response
+            LOGGER.warning("Repeating a Gigahog request", target=target, status=response.status_code)
+        time.sleep(_TRANSIENT_BACKOFF_SECONDS * 2 ** (attempt - 1))
+    raise AssertionError("unreachable")
 
 
 def _segment(name: str) -> str:
