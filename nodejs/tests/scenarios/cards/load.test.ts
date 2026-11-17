@@ -122,6 +122,22 @@ describe('load', () => {
             'drive.ramp: the ramp steps must add up to drive.for',
         ],
         [
+            'a ramp that returns to a scale it already ran',
+            {
+                ...card,
+                drive: {
+                    ...card.drive,
+                    ramp: [
+                        { scale: 1, for: '10s' },
+                        { scale: 2, for: '10s' },
+                        { scale: 1, for: '10s' },
+                    ],
+                },
+            },
+            undefined,
+            'drive.ramp: each ramp step must scale higher than the one before',
+        ],
+        [
             'an unknown valve',
             { ...card, valves: [{ ...emailWorkerKill, valve: 'role.melt' }] },
             undefined,
