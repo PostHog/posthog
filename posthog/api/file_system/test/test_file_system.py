@@ -2119,6 +2119,34 @@ class TestFileSystemAPIAdvancedPermissions(APIBaseTest):
             [(str(flag.pk), "Launches/Restored flag", False)],
         )
 
+    @parameterized.expand(
+        [
+            ("report event", "$signals_report_ready", False),
+            ("another internal event", "$activity_log_entry_created", True),
+        ]
+    )
+    def test_undo_delete_keeps_a_destination_on_a_read_guarded_event_disabled(self, _name, event_id, enabled):
+        # The destinations API checks the event's read access before a destination on it is turned on again.
+        destination = HogFunction.objects.create(
+            team=self.team,
+            name="Inbox webhook",
+            hog="return event",
+            type=HogFunctionType.INTERNAL_DESTINATION,
+            enabled=False,
+            deleted=True,
+            filters={"events": [{"id": event_id, "type": "events"}]},
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/file_system/undo_delete/",
+            {"items": [{"type": "hog_function/internal_destination", "ref": str(destination.id)}]},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        destination.refresh_from_db()
+        self.assertEqual((destination.deleted, destination.enabled), (False, enabled))
+
     def test_undo_delete_refuses_an_object_that_is_not_deleted(self):
         flag = FeatureFlag.objects.create(
             team=self.team,
