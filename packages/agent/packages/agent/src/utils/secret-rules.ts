@@ -5,6 +5,7 @@ export interface TokenRule {
   // Replaces prefix and body for a complete string. Streamed chunks keep the prefix,
   // because a chunk can end before the part of the token that the shape requires.
   shape?: RegExp;
+  bodyLength?: number;
   /** The prefix also ends ordinary words ("alpha_"), so it must start one. */
   wordStart?: boolean;
 }
@@ -97,7 +98,14 @@ export const TOKEN_RULES: TokenRule[] = [
     label: "aws access key id",
     prefix: "AKIA",
     body: /[A-Z0-9]/,
-    shape: /AKIA[A-Z0-9]{16}/,
+    bodyLength: 16,
+    wordStart: true,
+  },
+  {
+    label: "aws temporary access key id",
+    prefix: "ASIA",
+    body: /[A-Z0-9]/,
+    bodyLength: 16,
     wordStart: true,
   },
   {

@@ -39,6 +39,8 @@ function gitlabPartialPrefixLength(text: string): number {
 interface CompiledRule {
   head: RegExp;
   tail: RegExp;
+  fixedLength?: boolean;
+  partial?: RegExp;
 }
 
 function escapeLiteral(value: string): string {
@@ -54,12 +56,19 @@ const WORD_START = String.raw`(?<!(?<!\\|%[0-9A-Fa-f]?|\\[ux][0-9A-Fa-f]{0,3}|${
 
 function tokenSource(rule: TokenRule, repeat: "+" | "*"): string {
   const start = rule.wordStart ? WORD_START : "";
-  return `${start}${escapeLiteral(rule.prefix)}${rule.body.source}${repeat}`;
+  const count = rule.bodyLength ? `{${rule.bodyLength}}` : repeat;
+  return `${start}${escapeLiteral(rule.prefix)}${rule.body.source}${count}`;
 }
 
 const RULES: CompiledRule[] = TOKEN_RULES.map((rule) => ({
   head: new RegExp(tokenSource(rule, "*"), "g"),
   tail: new RegExp(`^${rule.body.source}*`),
+  fixedLength: rule.bodyLength !== undefined,
+  partial: rule.bodyLength
+    ? new RegExp(
+        `${rule.wordStart ? WORD_START : ""}${escapeLiteral(rule.prefix)}${rule.body.source}{0,${rule.bodyLength - 1}}$`,
+      )
+    : undefined,
 }));
 
 // A JWT body contains dots, so a match can end in sentence punctuation. The dots belong to
@@ -118,6 +127,18 @@ function loopbackPrefixLength(text: string): number {
     }
   }
   return 0;
+}
+
+function fixedLengthHoldLength(context: string, text: string): number {
+  const source = context + text;
+  let longest = 0;
+  for (const rule of RULES) {
+    const match = rule.partial?.exec(source);
+    if (match && match.index >= context.length) {
+      longest = Math.max(longest, match[0].length);
+    }
+  }
+  return longest;
 }
 
 const SECRET_HEADER_NAMES = new Set(SECRET_HEADERS);
@@ -290,7 +311,7 @@ export class SecretEventRedactor {
         .replace(rule.head, (match, offset: number, source: string) => {
           if (offset < context.length) return match;
           const dots = trailingDots(match);
-          if (offset + match.length === source.length) {
+          if (!rule.fixedLength && offset + match.length === source.length) {
             this.active = rule;
             heldDots = dots.length;
           }
@@ -323,6 +344,7 @@ export class SecretEventRedactor {
       ? heldDots
       : Math.max(
           partialPrefixLength(text),
+          fixedLengthHoldLength(context, text),
           loopbackPrefixLength(text),
           gitlabPartialPrefixLength(text),
         );

@@ -12,11 +12,44 @@ const SAMPLE_BODY = "AAAA1111AAAA1111";
 
 // A shaped rule matches a complete string only in its full shape.
 function sampleToken(rule: TokenRule): string {
-  const token = `${rule.prefix}${SAMPLE_BODY}`;
-  return rule.shape && !rule.shape.test(token)
+  return rule.shape
     ? `${rule.prefix}aaaa.1111`
-    : token;
+    : `${rule.prefix}${SAMPLE_BODY}`;
 }
+
+const awsKeyBody = "B2".repeat(8);
+
+const awsCases: [string, string, string][] = [
+  ["bare ASIA", "ASIA", "ASIA"],
+  ["ASIAN MARKETS", "ASIAN MARKETS", "ASIAN MARKETS"],
+  ["ASIAPAC", "ASIAPAC", "ASIAPAC"],
+  ["ASIA_PACIFIC", "ASIA_PACIFIC", "ASIA_PACIFIC"],
+  ["ASIA in a sentence", "see ASIA today", "see ASIA today"],
+  ["AKIRA", "AKIRA Kurosawa", "AKIRA Kurosawa"],
+  ["bare AKIA", "AKIA", "AKIA"],
+  ...["AKIA", "ASIA"].flatMap((prefix): [string, string, string][] => {
+    const key = `${prefix}${awsKeyBody}`;
+    return [
+      [
+        `a ${prefix} key id mid-sentence`,
+        `use ${key} now`,
+        "use [REDACTED] now",
+      ],
+      [`a ${prefix} key id ending the stream`, `id ${key}`, "id [REDACTED]"],
+      [
+        `a ${prefix} key id followed by capitals`,
+        `${key}EXTRA`,
+        "[REDACTED]EXTRA",
+      ],
+      [
+        `a ${prefix} key id with a short body`,
+        `${key.slice(0, -1)} end`,
+        `${key.slice(0, -1)} end`,
+      ],
+      [`a ${prefix} key id inside a word`, `x${key}`, `x${key}`],
+    ];
+  }),
+];
 
 const chunkCases: [string, string, string, string][] = TOKEN_RULES.flatMap(
   (rule) =>
@@ -191,6 +224,7 @@ describe("redactSecrets", () => {
     ["ghr_", 36],
     ["sk-proj-", 48],
     ["AKIA", 16],
+    ["ASIA", 16],
     ["xoxb-", 30],
     ["xoxp-", 30],
     ["xoxa-", 30],
@@ -219,6 +253,7 @@ describe("redactSecrets", () => {
     ["a github refresh token", "ghrelin_level and ghr"],
     ["an openai project api key", "sk-projects-list and sk-pro"],
     ["an aws access key id", "AKIRA Kurosawa and AKI"],
+    ["an aws temporary access key id", "ASIAN markets and ASI"],
     ["a slack bot token", "xoxo-hugs and xoxb"],
     ["a slack user token", "xoxo-hugs and xoxp"],
     ["a slack legacy workspace token", "xoxo-hugs and xoxa"],
@@ -246,10 +281,36 @@ describe("redactSecrets", () => {
     },
   );
 
-  it("keeps an AWS access key id lookalike with a short body", () => {
-    const short = `AKIA${"A".repeat(15)}`;
-    expect(redactSecrets(`id ${short} end`)).toBe(`id ${short} end`);
-  });
+  it.each(awsCases)(
+    "treats %s the same whole and streamed",
+    (_label, input, expected) => {
+      expect(redactSecrets(input)).toBe(expected);
+      expect(streamText([input])).toBe(expected);
+      for (let cut = 1; cut < input.length; cut++) {
+        expect(streamText([input.slice(0, cut), input.slice(cut)])).toBe(
+          expected,
+        );
+      }
+    },
+  );
+
+  it.each(["AKIA", "ASIA"])(
+    "redacts a %s key id split over three chunks",
+    (prefix) => {
+      const text = `id ${prefix}${"B2".repeat(8)} end`;
+      for (let first = 1; first < text.length; first++) {
+        for (let second = first + 1; second < text.length; second++) {
+          expect(
+            streamText([
+              text.slice(0, first),
+              text.slice(first, second),
+              text.slice(second),
+            ]),
+          ).toBe("id [REDACTED] end");
+        }
+      }
+    },
+  );
 
   it("keeps a prefix-bearing word intact across every chunk split", () => {
     const text = "see alpha_blend graphe_x here";
