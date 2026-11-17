@@ -900,7 +900,22 @@ ${blocks}
 }
 
 function textFromHtml(html: string): string {
-    const doc = new DOMParser().parseFromString(html, 'text/html')
+    // The parser moves text between table rows to before the table, which would take a Liquid tag out of the rows it
+    // wraps. A comment stays where it is, so each tag travels as one and turns back into text afterwards.
+    const tags: string[] = []
+    const marked = html.replace(/\{%[\s\S]*?%\}/g, (tag) => `<!--ph-liquid-${tags.push(tag) - 1}-->`)
+    const doc = new DOMParser().parseFromString(marked, 'text/html')
+    const comments = doc.createTreeWalker(doc, NodeFilter.SHOW_COMMENT)
+    const found: Comment[] = []
+    while (comments.nextNode()) {
+        found.push(comments.currentNode as Comment)
+    }
+    for (const comment of found) {
+        const index = /^ph-liquid-(\d+)$/.exec(comment.data)?.[1]
+        if (index !== undefined) {
+            comment.replaceWith(doc.createTextNode(tags[Number(index)]))
+        }
+    }
     doc.querySelectorAll('style, script, head, title').forEach((element) => element.remove())
     // textContent runs neighboring blocks together, so each one gets a line of its own first.
     doc.querySelectorAll('br, p, div, tr, li, h1, h2, h3, h4, h5, h6').forEach((element) => element.after('\n'))

@@ -253,6 +253,16 @@ describe('renderEmailHtml', () => {
         )
 
         expect(text).toEqual('Hi\n\nGo: https://example.com\n\nOne\nTwo\n\n{% if paid %}Paid only{% endif %}')
+        expect(
+            renderEmailText(
+                doc({
+                    type: 'emailHtml',
+                    attrs: {
+                        html: '<table>{% if vip %}<tr><td>Private</td></tr>{% endif %}<tr><td>All</td></tr></table>',
+                    },
+                })
+            )
+        ).toEqual('{% if vip %}Private\n{% endif %}All')
     })
 
     it('keeps text between Liquid tags in its place, and lets a tag alone on its line sit between rows', () => {
