@@ -1,10 +1,3 @@
-/**
- * Finds the values-over-time series in a tool result and writes them as one JSON block in the
- * named-series shape, `{"series":[{"name":"…","data":[["2026-11-03",123],…]}]}`. Terminal agents
- * that draw charts from tool output read this shape. Our formatted tables and TOON payloads keep
- * the dates and the values in separate columns or arrays, so those agents cannot chart them.
- */
-
 import { isRecord } from '@/lib/plain-object'
 
 type Point = [string, number]
@@ -16,8 +9,6 @@ interface NamedSeries {
 
 type JsonRecord = Record<string, unknown>
 
-// Accepts a date alone, or a date with a time and an optional zone. A chart reader rejects the
-// whole block when one time does not parse, so a series with any other time format is skipped.
 const TIME_PATTERN = /^\d{4}-\d{2}-\d{2}(?:[T ]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}(?::?\d{2})?)?)?$/
 
 // Chart readers refuse data of 64 KiB or more, and every point is also text the model reads.
@@ -77,7 +68,6 @@ function displayBreakdownValue(value: unknown): string {
     return parts.join(', ')
 }
 
-/** Pairs the times and values. Returns undefined when any time is not a date, so a partly dated series is not drawn with gaps. */
 function zipPoints(times: unknown[], values: unknown[]): Point[] | undefined {
     if (times.length !== values.length || !times.every(isTime)) {
         return undefined
@@ -234,7 +224,6 @@ function fromRows(rows: unknown[]): NamedSeries[] {
         }
         kinds.set(key, kind)
     }
-    // SQL columns carry whatever alias the query gave them, so any column of times will do.
     const timeKey =
         ROW_TIME_KEYS.find((key) => kinds.get(key) === 'time') ?? [...keys].find((key) => kinds.get(key) === 'time')
     if (!timeKey) {

@@ -386,7 +386,6 @@ export class MCPClientProfile {
     }
 
     drawsTimeSeriesCharts(): boolean {
-        // Claude Code in the terminal draws charts from tool results in the named-series shape.
         // Through a claude.ai connector, Claude Code sends `x-anthropic-client: ClaudeCode` with the
         // `Claude-User` User-Agent from the terminal and from Desktop alike. Those requests are
         // included too, because most Claude Code sessions connect that way.
