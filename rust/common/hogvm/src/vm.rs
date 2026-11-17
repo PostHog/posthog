@@ -127,8 +127,7 @@ impl<'a> HogVM<'a> {
         })
     }
 
-    /// The finished program's value under [`ExecutionContext::with_raw_result`]. Its heap
-    /// references point into this VM's heap, so read it before the VM is dropped.
+    /// The finished program's value under `with_raw_result`. Its references point into this VM's heap.
     pub fn take_result(&mut self) -> Option<HogValue> {
         self.result.take()
     }
@@ -140,8 +139,7 @@ impl<'a> HogVM<'a> {
         })
     }
 
-    /// The object the reference VM keeps for a closure or a callable value. `None` for any other
-    /// value. Upvalue ids count from 1 within this call, so they can differ from the reference's.
+    /// The reference VM's object for a closure or callable. Upvalue ids count from 1 within this call.
     pub fn closure_json(&self, literal: &HogLiteral) -> Option<JsonValue> {
         let mut registry = CellRegistry::default();
         let header_len = self.context.program_header_len();

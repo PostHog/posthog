@@ -121,9 +121,12 @@ fn a_native_result_that_reaches_a_cycle_or_deep_nesting_does_not_overflow_the_st
 const CYCLIC_AST: &str = r#"["_H", 1, 32, "__hx_ast", 32, "Not", 32, "expr", 31, 42, 2, 36, 0, 32, "expr", 36, 0, 46, 36, 0, 2, "toString", 1, 38, 35]"#;
 const CYCLIC_AST_THROUGH_ARRAY: &str = r#"["_H", 1, 32, "__hx_ast", 32, "Not", 32, "expr", 31, 42, 2, 36, 0, 32, "expr", 36, 0, 43, 1, 46, 36, 0, 2, "toString", 1, 38, 35]"#;
 
+// A `JoinExpr` node with `j.next_join := j`, printed with `toString`.
+const CYCLIC_JOIN: &str = r#"["_H", 1, 32, "__hx_ast", 32, "JoinExpr", 32, "table", 32, "__hx_ast", 32, "Field", 32, "chain", 32, "t", 43, 1, 42, 2, 32, "next_join", 31, 42, 3, 36, 0, 32, "next_join", 36, 0, 46, 36, 0, 2, "toString", 1, 38, 35]"#;
+
 #[test]
 fn printing_a_sql_ast_that_holds_itself_ends() {
-    for bytecode in [CYCLIC_AST, CYCLIC_AST_THROUGH_ARRAY] {
+    for bytecode in [CYCLIC_AST, CYCLIC_AST_THROUGH_ARRAY, CYCLIC_JOIN] {
         let failure = sync_execute(&context(bytecode, json!({})), false).unwrap_err();
         assert!(
             matches!(failure.error, VmError::OutOfResource(_)),

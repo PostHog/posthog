@@ -301,7 +301,7 @@ A parsed `FilterGroupNode` implements `metric_rules::FilterGroupMatcher` with `f
   - A closure in a result converts to the Node closure object. Its upvalue ids count from 1 per conversion, and a native function reference carries Rust's `ip` and `chunk`, so those two can differ from Node's.
   - A panic in one function run fails that invocation (`logs_ingestion_transformations_unexpected_errors_total`) and keeps the record, as Node's catch does for a transformer bug. A panic between function runs also keeps the record and counts the same metric, where an error there in Node fails the message.
 - **The VM time of an input template that fails** counts toward the message and batch budgets. Node does not count it, so there a template that times out on every record runs for the whole message.
-- **A native call whose result is nested more than 512 levels** fails the invocation, because the port walks the result by recursion. So does `toString` of a HogQL AST value nested more than 64 levels, or one that holds itself.
+- **A native call whose result is nested more than 512 levels** fails the invocation, because the port walks the result by recursion. So does `toString` of a HogQL AST value that is nested more than 64 levels or that reaches itself.
 - **Input order with a non-numeric `order`.** Node's comparator returns NaN for it, and the sort result is not defined. The port sorts such an input last.
 - **The `instance_id` of a function log** is a UUID v7. Node writes a `UUIDT`.
 - **A Fernet token dated more than 60 seconds in the future** does not decrypt, because the `fernet` crate checks the timestamp without a TTL. Node and Django do not read it.

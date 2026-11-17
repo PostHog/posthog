@@ -66,6 +66,7 @@ pub(crate) fn assert_repeats_fit(
         seen: HashSet::new(),
         path: Vec::new(),
         inside_repeats: 0,
+        inside_asts: 0,
         repeated_bytes: 0,
         max_depth,
     }
@@ -77,6 +78,7 @@ struct RepeatMeasure<'a> {
     seen: HashSet<HeapReference>,
     path: Vec<HeapReference>,
     inside_repeats: usize,
+    inside_asts: usize,
     repeated_bytes: usize,
     max_depth: usize,
 }
@@ -89,6 +91,16 @@ impl RepeatMeasure<'_> {
         Ok(())
     }
 
+    /// The HogQL printer follows an AST node's fields with no cycle or depth check, so an AST value must need none.
+    fn end_of_walk(&self) -> Result<(), crate::VmError> {
+        if self.inside_asts > 0 {
+            return Err(crate::VmError::OutOfResource(
+                "cyclic or deep sql value".to_string(),
+            ));
+        }
+        Ok(())
+    }
+
     fn count_always(&mut self, bytes: usize) -> Result<(), crate::VmError> {
         self.repeated_bytes = self.repeated_bytes.saturating_add(bytes);
         self.heap.assert_can_allocate(self.repeated_bytes)
@@ -97,7 +109,7 @@ impl RepeatMeasure<'_> {
     fn walk(&mut self, value: &HogValue, depth: usize) -> Result<(), crate::VmError> {
         self.count(1)?;
         if depth > self.max_depth {
-            return Ok(());
+            return self.end_of_walk();
         }
         let lit = value.deref(self.heap)?;
         let container = match value {
@@ -114,12 +126,14 @@ impl RepeatMeasure<'_> {
         let mut repeated = false;
         if let Some(ptr) = container {
             if self.path.contains(&ptr) {
-                return Ok(());
+                return self.end_of_walk();
             }
             self.path.push(ptr);
             repeated = !self.seen.insert(ptr);
             self.inside_repeats += usize::from(repeated);
         }
+        let is_ast = matches!(lit, HogLiteral::Object(map) if map.contains_key("__hx_ast"));
+        self.inside_asts += usize::from(is_ast);
         let result = match lit {
             // The heap charges a shared string as a pointer, so its limit does not bound the text.
             HogLiteral::String(HogStr::Shared(s)) => self.count_always(s.len()),
@@ -133,6 +147,7 @@ impl RepeatMeasure<'_> {
             }),
             _ => Ok(()),
         };
+        self.inside_asts -= usize::from(is_ast);
         if container.is_some() {
             self.path.pop();
             self.inside_repeats -= usize::from(repeated);
@@ -559,10 +574,17 @@ impl<'a> HogQLPrinter<'a> {
         }
 
         let mut current = obj.get("next_join").cloned();
+        let mut joined: Vec<HeapReference> = Vec::new();
         while let Some(join) = current {
             let HogLiteral::Object(jo) = join.deref(self.heap)? else {
                 break;
             };
+            if let HogValue::Ref(ptr) = join {
+                if joined.contains(&ptr) {
+                    return Err(crate::VmError::OutOfResource("cyclic sql join".to_string()));
+                }
+                joined.push(ptr);
+            }
             let jo = jo.clone();
             let join_type = self
                 .str_field(&jo, "join_type")?

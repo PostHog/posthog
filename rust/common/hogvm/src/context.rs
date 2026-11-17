@@ -12,8 +12,7 @@ use crate::{
     HogLiteral, HogValue, Num,
 };
 
-/// A global value whose objects keep their key order, which `serde_json` does not. Object keys
-/// must be unique. Strings are shared, so a read of a global copies its structure but not its text.
+/// A global whose objects keep their key order, which `serde_json` does not. Keys must be unique.
 #[derive(Debug, Clone, PartialEq)]
 pub enum OrderedJson {
     Null,

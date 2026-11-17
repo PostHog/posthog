@@ -27,7 +27,6 @@ pub struct HogFunctionMonitoring {
     aggregator: AppMetricsAggregator,
     outputs: Arc<dyn IngestionOutputs>,
     queued_logs: Mutex<Vec<Vec<u8>>>,
-    /// Shadow mode has no `log_entries` topic, so it drops the entries.
     write_log_entries: bool,
 }
 
