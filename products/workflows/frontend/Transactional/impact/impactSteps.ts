@@ -55,6 +55,18 @@ export function impactFunnelState(
     return recorded === 0 ? 'empty' : 'ready'
 }
 
+const MIN_VISIBLE_BAR_PERCENT = 2
+
+export function stepBarPercents(steps: ImpactStep[]): (number | null)[] {
+    const tallest = Math.max(0, ...steps.map((step) => step.value ?? 0))
+    return steps.map((step) => {
+        if (step.value === null) {
+            return null
+        }
+        return step.value > 0 ? Math.max(MIN_VISIBLE_BAR_PERCENT, (step.value / tallest) * 100) : 0
+    })
+}
+
 export function emptyPeriodMessage(impact: TransactionalEmailImpactApi): string {
     return impact.untracked > 0
         ? 'No sends of this email were recorded in this period.'

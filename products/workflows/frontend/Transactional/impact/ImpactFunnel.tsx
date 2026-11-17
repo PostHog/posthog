@@ -4,17 +4,15 @@ import { Tooltip } from '@posthog/lemon-ui'
 
 import { humanFriendlyNumber, percentage } from 'lib/utils/numbers'
 
-import { ImpactStep } from './impactSteps'
-
-const MIN_VISIBLE_BAR_PERCENT = 2
+import { ImpactStep, stepBarPercents } from './impactSteps'
 
 export function ImpactFunnel({ steps }: { steps: ImpactStep[] }): JSX.Element {
-    const sent = steps[0].value ?? 0
+    const barPercents = stepBarPercents(steps)
     return (
         <ol className="m-0 p-0 list-none grid grid-cols-6 gap-2" data-attr="email-impact-funnel">
-            {steps.map((step) => (
+            {steps.map((step, index) => (
                 <li key={step.key} className="flex flex-col gap-1 min-w-0">
-                    <StepBar step={step} sent={sent} />
+                    <StepBar step={step} percent={barPercents[index]} />
                     <span className="text-xs text-secondary truncate" title={step.label}>
                         {step.label}
                     </span>
@@ -26,21 +24,17 @@ export function ImpactFunnel({ steps }: { steps: ImpactStep[] }): JSX.Element {
     )
 }
 
-function StepBar({ step, sent }: { step: ImpactStep; sent: number }): JSX.Element {
+function StepBar({ step, percent }: { step: ImpactStep; percent: number | null }): JSX.Element {
     return (
         <div className="h-28 rounded bg-surface-secondary flex items-end overflow-hidden">
-            {step.value !== null && sent > 0 && (
+            {percent !== null && percent > 0 && (
                 <div
                     className={step.key === 'converted' ? 'w-full bg-success' : 'w-full bg-accent'}
-                    style={{ height: `${barPercent(step.value, sent)}%` }}
+                    style={{ height: `${percent}%` }}
                 />
             )}
         </div>
     )
-}
-
-function barPercent(value: number, sent: number): number {
-    return value > 0 ? Math.max(MIN_VISIBLE_BAR_PERCENT, (value / sent) * 100) : 0
 }
 
 function StepValue({ step }: { step: ImpactStep }): JSX.Element {

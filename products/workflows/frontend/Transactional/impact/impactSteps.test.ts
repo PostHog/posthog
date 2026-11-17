@@ -6,6 +6,7 @@ import {
     impactFunnelState,
     impactLift,
     impactSteps,
+    stepBarPercents,
     untrackedSendsNote,
 } from './impactSteps'
 
@@ -66,13 +67,8 @@ describe('impactSteps', () => {
         ['the request failed', impact, false, 'Server error', 'error'],
         ['nothing was recorded in the period', nothingRecorded, false, null, 'empty'],
         ['only untracked sends were counted in the period', { ...nothingRecorded, untracked: 3 }, false, null, 'empty'],
-        [
-            'ready when clicks arrived before their sends',
-            { ...nothingRecorded, untracked: 3, clicked: 2 },
-            false,
-            null,
-            'ready',
-        ],
+        ['ready when clicks arrived before their sends', { ...nothingRecorded, clicked: 2 }, false, null, 'ready'],
+        ['ready when opens arrived before their sends', { ...nothingRecorded, opened: 3 }, false, null, 'ready'],
         ['sends answered', impact, false, null, 'ready'],
     ] as const)('shows the funnel as %s', (_, data, loading, error, expected) => {
         expect(impactFunnelState(data, loading, error)).toBe(expected)
@@ -112,15 +108,14 @@ describe('impactSteps', () => {
         expect(steps[3].shareOf).toBeUndefined()
     })
 
-    it.each([
-        ['nothing was recorded or sent untracked', nothingRecorded, 'Nobody was sent this email in this period.'],
-        [
-            'only untracked sends went out',
-            { ...nothingRecorded, untracked: 3 },
-            'No sends of this email were recorded in this period.',
-        ],
-    ])('says why the period is empty when %s', (_, data, expected) => {
-        expect(emptyPeriodMessage(data)).toBe(expected)
+    it('says nobody was sent when no send went out, tracked or not', () => {
+        expect(emptyPeriodMessage(nothingRecorded)).toBe('Nobody was sent this email in this period.')
+    })
+
+    it('draws each bar against the tallest step, so opens and clicks show before their sends', () => {
+        const percents = stepBarPercents(impactSteps({ ...nothingRecorded, opened: 4, clicked: 1 }, 'plan upgraded'))
+
+        expect(percents.slice(0, 4)).toEqual([0, 0, 100, 25])
     })
 
     it('asks for an event until one is picked', () => {
