@@ -8,6 +8,7 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.lazy_join_tags import (
     DEFINITION_TAGS,
     ENDPOINT_CURRENT_VERSION,
+    TASK_LATEST_RUN,
     TICKET_ASSIGNMENT,
     TICKET_TAGS,
 )
@@ -33,7 +34,7 @@ from posthog.hogql.database.models import (
     TableNode,
     UUIDDatabaseField,
 )
-from posthog.hogql.database.postgres_table import PostgresTable
+from posthog.hogql.database.postgres_table import PostgresTable, build_function_call
 from posthog.hogql.database.schema.activity_log_visibility import CANVASES_TABLE, activity_visibility_predicates
 from posthog.hogql.database.schema.information_schema import information_schema_node
 from posthog.hogql.database.schema.integrations import integrations
@@ -3843,7 +3844,7 @@ task_artifacts: PostgresTable = PostgresTable(
     predicates=[
         parse_expr("task_id IN (SELECT id FROM system.tasks)"),
     ],
-    description="Living artifacts produced by tasks in public project spaces; private, unfiled, and internal tasks are excluded.",
+    description="Living artifacts produced by the tasks in system.tasks.",
     fields={
         "id": UUIDDatabaseField(name="id", description="Record UUID."),
         "team_id": IntegerDatabaseField(name="team_id", hidden=True),
@@ -3892,15 +3893,104 @@ task_public_channels: PostgresTable = PostgresTable(
 )
 
 
+task_slack_threads: PostgresTable = PostgresTable(
+    name="_task_slack_threads",
+    postgres_table_name="slack_app_slackthreadtaskmapping",
+    description="Internal list of the Slack threads that tasks answer in, with the kind of conversation each thread is in.",
+    fields={
+        "id": StringDatabaseField(name="id"),
+        "team_id": IntegerDatabaseField(name="team_id", hidden=True),
+        "task_id": StringDatabaseField(name="task_id"),
+        "conversation_type": StringDatabaseField(name="conversation_type", nullable=True),
+    },
+)
+
+
+# A Slack task sits in its creator's personal space, so it is judged by its threads instead, as
+# `_readable_by_team_q` in products/tasks/backend/logic/team_task_summaries.py does: only when every
+# thread it answers in is a public Slack channel. A private channel, a direct message, a group direct
+# message, and a thread nobody classified keep the task out.
+_TASK_VISIBLE_PREDICATE = """
+    channel_id IN (SELECT id FROM system._task_public_channels)
+    OR (
+        origin_product = 'slack'
+        AND id IN (
+            SELECT task_id
+            FROM system._task_slack_threads
+            GROUP BY task_id
+            HAVING countIf(ifNull(conversation_type, '') != 'public_channel') = 0
+        )
+    )
+"""
+
+
+def _task_latest_run_select() -> ast.SelectQuery | ast.SelectSetQuery:
+    # The tuple keeps a NULL summary from making argMax skip the latest run for an older one.
+    return parse_select(
+        """
+        SELECT
+            task_id,
+            tupleElement(latest, 1) AS task_summary,
+            tupleElement(latest, 2) AS task_tags
+        FROM (
+            SELECT task_id, argMax(tuple(task_summary, task_tags), tuple(created_at, id)) AS latest
+            FROM system.task_runs
+            GROUP BY task_id
+        )
+        """
+    )
+
+
+class _TaskLatestRunTable(LazyTable):
+    description: str = "Internal table backing the summary columns of `system.tasks`: the latest run of each task."
+    fields: dict[str, FieldOrTable] = {
+        "task_id": StringDatabaseField(name="task_id", description="Task the run belongs to."),
+        "task_summary": StringDatabaseField(name="task_summary", nullable=True, description="Summary of the run."),
+        "task_tags": StringArrayDatabaseField(name="task_tags", description="Tags of the run."),
+    }
+
+    def lazy_select(
+        self, table_to_add: LazyTableToAdd, context: HogQLContext, node: ast.SelectQuery
+    ) -> ast.SelectQuery | ast.SelectSetQuery:
+        return _task_latest_run_select()
+
+    def to_printed_clickhouse(self, context: HogQLContext) -> str:
+        return "task_latest_run"
+
+    def to_printed_hogql(self) -> str:
+        return "task_latest_run"
+
+
+def task_latest_run_join(join_to_add: LazyJoinToAdd, context: HogQLContext, node: ast.SelectQuery) -> ast.JoinExpr:
+    if not join_to_add.fields_accessed:
+        raise ResolutionError("No fields requested from `tasks.latest_run`")
+    return ast.JoinExpr(
+        alias=join_to_add.to_table,
+        table=_task_latest_run_select(),
+        join_type="LEFT JOIN",
+        constraint=ast.JoinConstraint(
+            constraint_type="ON",
+            expr=ast.CompareOperation(
+                op=ast.CompareOperationOp.Eq,
+                left=ast.Field(chain=[join_to_add.from_table, "id"]),
+                right=ast.Field(chain=[join_to_add.to_table, "task_id"]),
+            ),
+        ),
+    )
+
+
 tasks: PostgresTable = PostgresTable(
     name="tasks",
     postgres_table_name="posthog_task",
     access_scope="task",
     predicates=[
         parse_expr("internal != true"),
-        parse_expr("channel_id IN (SELECT id FROM system._task_public_channels)"),
+        parse_expr(_TASK_VISIBLE_PREDICATE),
     ],
-    description="Tasks filed in public project spaces; private, unfiled, and internal tasks are excluded.",
+    description=(
+        "Tasks the whole project can read: tasks filed in public project spaces, and Slack tasks whose threads "
+        "are all in public Slack channels. Private, unfiled, and internal tasks are excluded."
+    ),
     fields={
         "id": StringDatabaseField(name="id", description="Task UUID."),
         "team_id": IntegerDatabaseField(name="team_id", hidden=True),
@@ -3948,15 +4038,67 @@ tasks: PostgresTable = PostgresTable(
         ),
         "created_at": DateTimeDatabaseField(name="created_at", description="When the task was created."),
         "updated_at": DateTimeDatabaseField(name="updated_at", description="When the task was last updated."),
+        "latest_run": LazyJoin(
+            from_field=["id"],
+            join_table=_TaskLatestRunTable(),
+            resolver=TASK_LATEST_RUN,
+            hidden=True,
+        ),
+        "task_summary": FieldTraverser(
+            chain=["latest_run", "task_summary"],
+            description="Agent-written summary of the task's latest run; same rules as task_runs.task_summary.",
+        ),
+        "task_tags": FieldTraverser(
+            chain=["latest_run", "task_tags"],
+            description="Topic tags of the task's latest run; same rules as task_runs.task_tags.",
+        ),
     },
 )
 
-task_runs: PostgresTable = PostgresTable(
+
+# ClickHouse SQL over `posthog_task_run.state`, a JSONB blob that also holds sandbox credentials. The
+# blob is not a HogQL field, so a query can read only the summary and tags derived from it here.
+def _task_run_state_text(key: str) -> str:
+    value = f"if(JSONType(state, '{key}') = 'String', JSONExtractString(state, '{key}'), '')"
+    return f"nullIf(replaceRegexpAll({value}, '^\\\\s+|\\\\s+$', ''), '')"
+
+
+def _task_run_state_tags(key: str) -> str:
+    return f"JSONExtractArrayRaw(state, '{key}')"
+
+
+# A run that carries `analytics_query_context` keeps its summary private, because reading it needs the
+# viewer's own access to the queries behind it. A workflow run's summary can hold private trigger
+# context. Both match `list_team_task_summaries` and the run state stream. A run with no recorded
+# origin is treated as a workflow run.
+_TASK_RUN_SUMMARY_HIDDEN = "(JSONHas(state, 'analytics_query_context') OR origin_product IN ('workflow', ''))"
+
+# Same fallback rules as `TaskRun.task_summary` and `task_tags_from_state` in products/tasks/backend/models.py:
+# the run's own value, else the one it inherited from the run it resumed. An explicit tag list wins, even an empty one.
+_TASK_RUN_SUMMARY_SQL = (
+    f"if({_TASK_RUN_SUMMARY_HIDDEN}, NULL, "
+    f"coalesce({_task_run_state_text('task_summary')}, {_task_run_state_text('prior_run_summary')}))"
+)
+_TASK_RUN_TAGS_SQL = (
+    f"if({_TASK_RUN_SUMMARY_HIDDEN}, [], arrayMap(tag -> JSONExtractString(tag), arrayFilter(tag -> JSONType(tag) = 'String', "
+    f"if(JSONType(state, 'task_tags') = 'Array', {_task_run_state_tags('task_tags')}, {_task_run_state_tags('prior_run_tags')}))))"
+)
+
+
+class _TaskRunsTable(PostgresTable):
+    """Reads the run rows through a subquery that adds the summary and tags derived from the run state."""
+
+    def to_printed_clickhouse(self, context):
+        source = build_function_call(self.postgres_table_name, context)
+        return f"(SELECT *, {_TASK_RUN_SUMMARY_SQL} AS task_summary, {_TASK_RUN_TAGS_SQL} AS task_tags FROM {source})"
+
+
+task_runs: _TaskRunsTable = _TaskRunsTable(
     name="task_runs",
     postgres_table_name="posthog_task_run",
     access_scope="task",
     predicates=[parse_expr("task_id IN (SELECT id FROM system.tasks)")],
-    description="Execution runs of tasks filed in public project spaces.",
+    description="Execution runs of the tasks in system.tasks.",
     fields={
         "id": StringDatabaseField(name="id", description="Task run UUID."),
         "team_id": IntegerDatabaseField(name="team_id", hidden=True),
@@ -3978,6 +4120,22 @@ task_runs: PostgresTable = PostgresTable(
         "updated_at": DateTimeDatabaseField(name="updated_at", description="When the run row was last updated."),
         "completed_at": DateTimeDatabaseField(
             name="completed_at", nullable=True, description="When the run finished; NULL while running."
+        ),
+        "task_summary": StringDatabaseField(
+            name="task_summary",
+            nullable=True,
+            description=(
+                "Agent-written summary of what was asked and what the run found, or the summary inherited from the run "
+                "it resumed. NULL when the run wrote none, or for runs over analytics query context and workflow runs, "
+                "whose summaries are private."
+            ),
+        ),
+        "task_tags": StringArrayDatabaseField(
+            name="task_tags",
+            description=(
+                "Kebab-case topic tags the agent gave the run, or the tags inherited from the run it resumed. "
+                "Empty when the summary is private."
+            ),
         ),
     },
 )
@@ -4718,6 +4876,7 @@ class SystemTables(TableNode):
         "surveys": TableNode(name="surveys", table=surveys),
         "survey_response_archives": TableNode(name="survey_response_archives", table=survey_response_archives),
         "_task_public_channels": TableNode(name="_task_public_channels", table=task_public_channels, hidden=True),
+        "_task_slack_threads": TableNode(name="_task_slack_threads", table=task_slack_threads, hidden=True),
         "task_artifacts": TableNode(name="task_artifacts", table=task_artifacts),
         "task_runs": TableNode(name="task_runs", table=task_runs),
         "tags": TableNode(name="tags", table=tags),

@@ -98,6 +98,7 @@ class TestQueriedAccessControlledResources(BaseTest):
             ("ticket_assignments", "select * from system._ticket_assignments", {"ticket"}),
             ("ticket_assignee_roles", "select * from system._ticket_assignee_roles", {"ticket"}),
             ("task_public_channels", "select * from system._task_public_channels", {"task"}),
+            ("task_slack_threads", "select * from system._task_slack_threads", {"task"}),
             ("customer_tasks", "select * from system.customer_tasks", {"customer_task", "account"}),
             ("no_access_controlled_table", "select 1", set()),
             ("events_table", "select * from events", set()),

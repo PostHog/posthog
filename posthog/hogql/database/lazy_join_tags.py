@@ -27,6 +27,7 @@ ERROR_TRACKING_FINGERPRINT_ISSUE_STATE = "error_tracking_fingerprint_issue_state
 TICKET_TAGS = "ticket_tags"
 DEFINITION_TAGS = "definition_tags"
 TICKET_ASSIGNMENT = "ticket_assignment"
+TASK_LATEST_RUN = "task_latest_run"
 ENDPOINT_CURRENT_VERSION = "endpoint_current_version"
 ACCOUNT_TAGS = "account_tags"
 ACCOUNT_NOTEBOOKS = "account_notebooks"
