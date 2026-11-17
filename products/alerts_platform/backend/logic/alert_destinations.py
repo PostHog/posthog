@@ -307,13 +307,15 @@ def _refuse_duplicates(
     except_id: UUID | None = None,
 ) -> None:
     """A second destination with the same address would send every message twice. `except_id` is the
-    row being rewritten, which does not count as a second one."""
+    row being rewritten, which does not count as a second one. A row that copies one of the groups is
+    checked through that group's live settings, since an edit to the HogFunctions leaves the row's stale."""
+    groups = [group for group in hog_function_groups if group.hog_function_ids]
+    grouped = {hog_function_id for group in groups for hog_function_id in group.hog_function_ids}
     seen = [
         _receiver(stored.data)
         for stored in list_alert_destinations(team_id=team_id, configuration_id=configuration_id)
-        if stored.id != except_id
+        if stored.id != except_id and grouped.isdisjoint(stored.legacy_hog_function_ids)
     ]
-    groups = [group for group in hog_function_groups if group.hog_function_ids]
     for destination in destinations:
         receiver = _receiver(destination.data)
         copied = set(destination.legacy_hog_function_ids)
