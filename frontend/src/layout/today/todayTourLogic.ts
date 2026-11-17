@@ -16,11 +16,9 @@ export type TodayTourStep = {
     description: string
     kind: 'pane'
     pane: TodayRailPane
-    /** `intro` rests on the note at the top of the pane's sidebar, and on the sidebar while the note isn't there. */
     pointsAt: 'page' | 'sidebar' | 'intro'
 }
 
-/** A step for a pane whose card reads the pane's own intro, so the two never say different things. */
 function introStep(pane: TodayIntroPane, title: string): TodayTourStep {
     const intro = TODAY_PANE_INTROS[pane]
     return { kind: 'pane', pane, pointsAt: 'intro', title, description: `${intro.title} ${intro.description}` }
@@ -55,7 +53,6 @@ const TODAY_TOUR_STEPS: TodayTourStep[] = [
     },
 ]
 
-/** The steps for the panes this person's flags show. */
 export function tourStepsForFlags(featureFlags: FeatureFlagsSet): TodayTourStep[] {
     return TODAY_TOUR_STEPS.filter((step) => isTodayPaneEnabled(step.pane, featureFlags))
 }
@@ -241,8 +238,7 @@ export const todayTourLogic = kea<todayTourLogicType>([
                 return
             }
             const completed = tour.stepIndex === tour.steps.length - 1
-            // pinned: analytics event name and properties. `step` is an index into this person's steps, so `pane` and
-            // `steps` say which step it was and how many there were.
+            // pinned: analytics event name and properties. `step` indexes this person's flag-filtered steps, so `pane` names it.
             posthog.capture('today nav tour ended', {
                 step: tour.stepIndex,
                 pane: tour.steps[tour.stepIndex]?.pane,

@@ -20,7 +20,6 @@ function focusNextAfter(button: HTMLElement): void {
     next?.focus()
 }
 
-/** A short note at the top of a sidebar pane on what the pane is for. Each pane's note is dismissed on its own. */
 export function TodayPaneIntro({ pane }: { pane: TodayIntroPane }): JSX.Element | null {
     const { isIntroShown } = useValues(todayPaneIntroLogic)
     const { dismissIntro } = useActions(todayPaneIntroLogic)

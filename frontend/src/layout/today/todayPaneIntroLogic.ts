@@ -48,7 +48,6 @@ export type todayPaneIntroLogicType = MakeLogicType<
     todayPaneIntroLogicMeta
 >
 
-/** Which pane intros show. Each is dismissed on its own, and the dismissal is saved on the user. */
 export const todayPaneIntroLogic = kea<todayPaneIntroLogicType>([
     path(['layout', 'today', 'todayPaneIntroLogic']),
     connect(() => ({

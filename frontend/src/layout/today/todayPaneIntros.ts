@@ -1,6 +1,5 @@
 import type { TodayRailPane } from './todayShellLogic'
 
-/** A pane that opens a sidebar. Home has none, so it has no intro. */
 export type TodayIntroPane = Exclude<TodayRailPane, 'home'>
 
 export interface TodayPaneIntroCopy {
@@ -8,7 +7,6 @@ export interface TodayPaneIntroCopy {
     description: string
 }
 
-/** What each sidebar pane is for. The pane shows it at its top until dismissed, and the tour reads it too. */
 export const TODAY_PANE_INTROS: Record<TodayIntroPane, TodayPaneIntroCopy> = {
     spaces: {
         title: 'Work with PostHog AI',
