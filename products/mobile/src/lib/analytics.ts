@@ -161,6 +161,8 @@ export type AnalyticsEvent =
     | 'mobile_errors_refreshed'
     | 'mobile_errors_window_changed'
     | 'mobile_errors_filter_changed'
+    | 'mobile_errors_sort_opened'
+    | 'mobile_errors_sort_changed'
     | 'mobile_errors_opened_in_web'
     | 'mobile_errors_error_shown'
     | 'mobile_issue_opened'
