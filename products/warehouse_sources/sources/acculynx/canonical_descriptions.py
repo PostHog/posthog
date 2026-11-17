@@ -102,6 +102,71 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "totalPrice": "Total price of the item.",
         },
     },
+    "job_representatives": {
+        "description": "Users assigned to each job as company representative, sales owner, A/R owner, or additional representative.",
+        "docs_url": "https://apidocs.acculynx.com/reference/getrepresentativesforjob",
+        "columns": {
+            "job_id": "Identifier of the job whose representatives were requested.",
+            "type": "Representative role: CompanyRepresentative, SalesOwner, AROwner, or Additional.",
+            "user": "AccuLynx user assigned to the role.",
+        },
+    },
+    "job_contacts": {
+        "description": "Contacts linked to each job, including the primary contact and how others relate to them.",
+        "docs_url": "https://apidocs.acculynx.com/reference/getjobcontacts",
+        "columns": {
+            "job_id": "Identifier of the job whose contacts were requested.",
+            "isPrimary": "Whether this is the primary contact for the job.",
+            "relationToPrimary": "How this contact is related to the primary contact.",
+            "contact": "Reference to the contact.",
+        },
+    },
+    "job_custom_fields": {
+        "description": "Custom field values set on each job.",
+        "docs_url": "https://apidocs.acculynx.com/reference/getjobcustomfields",
+        "columns": {
+            "job_id": "Identifier of the job whose custom fields were requested.",
+            "customFieldDefinition": "Reference to the custom field definition.",
+            "label": "Custom field label.",
+            "fieldType": "Data type of the custom field: Text, Number, Date, or Boolean.",
+            "values": "Values set for the custom field.",
+            "modifiedDate": "Date and time the custom field was modified, in UTC.",
+        },
+    },
+    "custom_field_definitions": {
+        "description": "Active custom field definitions for jobs and contacts, with their active options.",
+        "docs_url": "https://apidocs.acculynx.com/reference/getcompanysettingscustomfields",
+        "columns": {
+            "id": "Unique custom field definition identifier.",
+            "label": "Custom field label.",
+            "entityType": "Record type the field applies to: job or contact.",
+            "fieldType": "Data type of the custom field: Text, Number, Date, or Boolean.",
+            "options": "Options available for the custom field.",
+        },
+    },
+    "supplements": {
+        "description": "Insurance supplements for jobs, with their state, assigned supplementer, and claim totals.",
+        "docs_url": "https://apidocs.acculynx.com/reference/getfinancialssupplementsforcompany",
+        "columns": {
+            "id": "Unique supplement identifier.",
+            "job": "Reference to the job the supplement belongs to.",
+            "state": "Current state of the supplement.",
+            "itemsToSupplement": "Original claim, requested, approved, and applied totals.",
+            "createdDate": "Date and time the supplement was created.",
+        },
+    },
+    "supplement_items": {
+        "description": "Line items of each supplement, with original claim, requested, approved, and applied amounts.",
+        "docs_url": "https://apidocs.acculynx.com/reference/getfinancialssupplementitemcollection",
+        "columns": {
+            "id": "Unique supplement item identifier.",
+            "supplement_id": "Identifier of the supplement that contains the item.",
+            "originalClaimAmount": "Amount in the original insurance claim.",
+            "requestedAmount": "Amount requested in the supplement.",
+            "approvedAmount": "Amount approved by the insurer.",
+            "appliedAmount": "Amount applied to the job.",
+        },
+    },
     "calendars": {
         "description": "Calendars available for the connected AccuLynx location.",
         "docs_url": "https://apidocs.acculynx.com/reference/getcalendars",
