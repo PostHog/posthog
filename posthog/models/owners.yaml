@@ -8,7 +8,7 @@ rules:
     # Registering an activity-log tuning module is mechanical, and the activity log's owners
     # reviewing every product's registration would put them back in the path of every tuning
     # change. The repo invariant test beside this file is what keeps the list honest.
-    - match: '/activity_logging/activity_log_configs.py'
+    - match: '/activity_logging/activity_log_config_registry.py'
       owners: null
     - match: '/ai/'
       owners: team-self-driving

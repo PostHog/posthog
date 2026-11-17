@@ -1,6 +1,7 @@
 import json
 import dataclasses
-from collections.abc import Callable
+from collections.abc import Callable, Iterable, Mapping
+from types import ModuleType
 from typing import TYPE_CHECKING, Any, Literal, Optional, Required, TypedDict, Union, cast
 from uuid import UUID
 
@@ -22,7 +23,7 @@ from prometheus_client import Counter
 
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
-from posthog.models.activity_logging import activity_log_configs
+from posthog.models.activity_logging import activity_log_config_registry
 from posthog.models.activity_logging.utils import (
     ACTIVITY_LOG_CLIENT_MAX_LENGTH,
     ACTIVITY_LOG_CREDENTIAL_ID_MAX_LENGTH,
@@ -1223,22 +1224,29 @@ field_exclusions: dict[AuditableScope, list[str]] = {
 
 
 # A scope's tuning lives next to the model it configures, in a data-only module, so the team that
-# owns the model owns its tuning. `activity_log_configs` merges those modules, and this merges the
-# result into the registries above, which keep the scopes whose model has no product owner.
-def _merge_scope_config(target: dict[Any, Any], incoming: dict[str, Any], attribute: str) -> None:
-    for scope, value in incoming.items():
-        if scope in target:
-            raise RuntimeError(f"{attribute}: {scope} is tuned in both core and a scope config module")
-        target[scope] = value
+# owns the model owns its tuning. The registry lists those modules; the registries above keep the
+# scopes whose model has no product owner. Merging here rather than in the registry keeps the
+# duplicate check in this reviewed file.
+_SCOPE_CONFIG_REGISTRIES: dict[str, dict[Any, Any]] = {
+    "FIELD_EXCLUSIONS": field_exclusions,
+    "FIELD_NAME_OVERRIDES": field_name_overrides,
+    "FIELD_WITH_MASKED_CONTENTS": field_with_masked_contents,
+    "SIGNAL_EXCLUSIONS": signal_exclusions,
+}
 
 
-for _target, _attribute, _incoming in (
-    (field_exclusions, "FIELD_EXCLUSIONS", activity_log_configs.FIELD_EXCLUSIONS),
-    (field_name_overrides, "FIELD_NAME_OVERRIDES", activity_log_configs.FIELD_NAME_OVERRIDES),
-    (field_with_masked_contents, "FIELD_WITH_MASKED_CONTENTS", activity_log_configs.FIELD_WITH_MASKED_CONTENTS),
-    (signal_exclusions, "SIGNAL_EXCLUSIONS", activity_log_configs.SIGNAL_EXCLUSIONS),
-):
-    _merge_scope_config(_target, _incoming, _attribute)
+def _merge_scope_configs(registries: Mapping[str, dict[Any, Any]], modules: Iterable[ModuleType]) -> None:
+    for module in modules:
+        for attribute, registry in registries.items():
+            for scope, value in getattr(module, attribute, {}).items():
+                if scope in registry:
+                    raise RuntimeError(
+                        f"{attribute}: {scope} is tuned twice, so {module.__name__} cannot tune it again"
+                    )
+                registry[scope] = value
+
+
+_merge_scope_configs(_SCOPE_CONFIG_REGISTRIES, activity_log_config_registry.MODULES)
 
 
 def describe_change(m: Any) -> Union[str, dict]:

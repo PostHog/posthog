@@ -5,24 +5,23 @@ Tuning lives next to the model in a data-only module (`activity_log_config.py`) 
 product team review rights over its own diff config, so a module dropped into another team's tree
 would silently hand those rights to the wrong people.
 
-Registering a module in `activity_log_configs.py` is mechanical, so that file is deliberately
+Registering a module in `activity_log_config_registry.py` is mechanical, so that file is deliberately
 unowned and a product adding one needs no review from the activity log's owners. This guard is what
 makes that safe.
 """
 
+import os
 import types
 import inspect
 from pathlib import Path
 from typing import Any
-
-from unittest.mock import patch
 
 from django.apps import apps
 from django.test import SimpleTestCase
 
 from owners_yaml import OwnersResolver
 
-from posthog.models.activity_logging import activity_log, activity_log_configs
+from posthog.models.activity_logging import activity_log, activity_log_config_registry
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 CONFIG_ATTRIBUTES = (
@@ -31,30 +30,42 @@ CONFIG_ATTRIBUTES = (
     "FIELD_WITH_MASKED_CONTENTS",
     "SIGNAL_EXCLUSIONS",
 )
-# The two locations a tuning module is allowed to take: an app's package, and a core model's
-# directory for a model that has no app of its own.
-CONFIG_FILE_GLOBS = ("products/*/backend/activity_log_config.py", "posthog/models/*activity_log_config.py")
+# A tuning module may sit anywhere in these trees, including beside a model in a core subdirectory,
+# so the guard walks them rather than globbing one level. The skipped directories hold copies of the
+# repository, not code that ships.
+TUNING_TREES = ("posthog", "products", "ee")
+SKIP_DIRS = {"node_modules", "__pycache__", ".venv", "venv", "dist", "build", ".turbo", ".next", ".pytest_cache"}
 
 
 def _repo_path(obj: Any) -> str:
     return Path(inspect.getfile(obj)).resolve().relative_to(REPO_ROOT).as_posix()
 
 
+def _tuning_modules_in_tree() -> set[str]:
+    found: set[str] = set()
+    for tree in TUNING_TREES:
+        for dirpath, dirnames, filenames in os.walk(REPO_ROOT / tree):
+            dirnames[:] = [name for name in dirnames if name not in SKIP_DIRS]
+            for filename in filenames:
+                if filename.endswith("activity_log_config.py"):
+                    found.add((Path(dirpath) / filename).relative_to(REPO_ROOT).as_posix())
+    return found
+
+
 class TestActivityLogConfigOwnership(SimpleTestCase):
-    def test_every_config_file_in_the_tree_is_registered(self) -> None:
-        registered = {_repo_path(module) for module in activity_log_configs.MODULES}
-        tree_files = {
-            path.relative_to(REPO_ROOT).as_posix() for glob in CONFIG_FILE_GLOBS for path in REPO_ROOT.glob(glob)
-        }
-        assert registered == tree_files, (
-            f"A tuning module is not registered: {sorted(tree_files - registered)}. Import it in "
-            "posthog/models/activity_logging/activity_log_configs.py and add it to MODULES."
+    def test_every_config_module_in_the_tree_is_registered(self) -> None:
+        registered = {_repo_path(module) for module in activity_log_config_registry.MODULES}
+        in_tree = _tuning_modules_in_tree()
+        assert registered == in_tree, (
+            f"A tuning module is not registered: {sorted(in_tree - registered)}. Import it in "
+            "posthog/models/activity_logging/activity_log_config_registry.py and add it to MODULES."
         )
 
     def test_the_registry_file_is_unowned(self) -> None:
-        resolution = OwnersResolver(repo_root=REPO_ROOT).resolve(_repo_path(activity_log_configs))
+        registry_path = _repo_path(activity_log_config_registry)
+        resolution = OwnersResolver(repo_root=REPO_ROOT).resolve(registry_path)
         assert resolution.unowned_by_design, (
-            f"{_repo_path(activity_log_configs)} resolves to {resolution.owners}. Mark it `owners: null` in "
+            f"{registry_path} resolves to {resolution.owners}. Mark it `owners: null` in "
             "posthog/models/owners.yaml: a product registering its own tuning must not need that team's review."
         )
 
@@ -63,7 +74,7 @@ class TestActivityLogConfigOwnership(SimpleTestCase):
         model_by_scope = {model.__name__: model for model in apps.get_models()}
         checked = 0
 
-        for module in activity_log_configs.MODULES:
+        for module in activity_log_config_registry.MODULES:
             config_path = _repo_path(module)
             config_owners = set(resolver.resolve(config_path).owners or [])
             assert config_owners, f"{config_path} has no owner, so nobody reviews its tuning"
@@ -88,21 +99,22 @@ class TestActivityLogConfigOwnership(SimpleTestCase):
 
 
 class TestScopeConfigMerging(SimpleTestCase):
-    """One scope is tuned in exactly one place, and both merges enforce it.
+    """One scope is tuned in exactly one place, and the merge is what enforces it.
 
-    Each raise fires while the module is imported, so these call the merge helper rather than
-    reloading two modules: deleting the second definition without a raise would otherwise let it
-    silently replace the first.
+    Each case drives the merge with its own registries, because the real ones are filled when the
+    module is imported: deleting the check would otherwise let the later definition silently replace
+    the earlier one.
     """
 
     def test_two_modules_tuning_the_same_scope_raise(self) -> None:
         first = types.SimpleNamespace(__name__="first", FIELD_EXCLUSIONS={"Thing": ["a"]})
         second = types.SimpleNamespace(__name__="second", FIELD_EXCLUSIONS={"Thing": ["b"]})
 
-        with patch.object(activity_log_configs, "MODULES", (first, second)):
-            with self.assertRaisesMessage(RuntimeError, "Thing is tuned twice"):
-                activity_log_configs._merge("FIELD_EXCLUSIONS")
+        with self.assertRaisesMessage(RuntimeError, "Thing is tuned twice"):
+            activity_log._merge_scope_configs({"FIELD_EXCLUSIONS": {}}, (first, second))
 
     def test_a_scope_tuned_in_core_and_in_a_module_raises(self) -> None:
-        with self.assertRaisesMessage(RuntimeError, "Thing is tuned in both core"):
-            activity_log._merge_scope_config({"Thing": ["core"]}, {"Thing": ["module"]}, "field_exclusions")
+        module = types.SimpleNamespace(__name__="module", FIELD_EXCLUSIONS={"Thing": ["b"]})
+
+        with self.assertRaisesMessage(RuntimeError, "Thing is tuned twice"):
+            activity_log._merge_scope_configs({"FIELD_EXCLUSIONS": {"Thing": ["core"]}}, (module,))

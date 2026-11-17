@@ -133,9 +133,10 @@ The registries are:
 - `field_with_masked_contents` - record that the field changed, never its values. Use it for secrets and encrypted inputs.
 - `field_name_overrides` - rename a field in the stored change so the describer shows the user-facing label.
 
-A new scope's tuning goes next to its model as `products/<name>/backend/activity_log_config.py`, and registering it is two mechanical lines in `posthog/models/activity_logging/activity_log_configs.py`: an import and an entry in `MODULES`.
-That file builds the merged registries and `posthog/models/owners.yaml` marks it `owners: null`, so a product registering its own tuning does not wait on the activity log's owners.
-The guard tests beside the activity log fail when a config module in the tree is not registered, and when that registry file gains an owner.
+A new scope's tuning goes next to its model as `products/<name>/backend/activity_log_config.py`, and registering it is two mechanical lines in `posthog/models/activity_logging/activity_log_config_registry.py`: an import and an entry in `MODULES`.
+That file holds nothing but those two things, and `posthog/models/owners.yaml` marks it `owners: null`, so a product registering its own tuning does not wait on the activity log's owners.
+The merge and its check for a scope tuned twice stay in `activity_log.py`, which the activity log's team owns and reviews.
+The guard tests beside the activity log fail when a config module anywhere under `posthog/`, `products/`, or `ee/` is not registered, when that registry file gains an owner, and when a scope is tuned twice.
 A config module holds no imports, because its contents are merged at `django.setup()` in every process.
 
 `changes_between` also reads named reverse relations.
