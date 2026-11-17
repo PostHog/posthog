@@ -173,5 +173,27 @@ describe('manualCosts', () => {
 
             expect(result.properties.$ai_output_cost_usd).toBeCloseTo(0.03, 8)
         })
+
+        it.each([
+            { exclusive: false, inputTokens: 600 },
+            { exclusive: true, inputTokens: 300 },
+        ])('prices cached image and text separately with exclusive=$exclusive', ({ exclusive, inputTokens }) => {
+            const result = processCost(
+                createAIEvent({
+                    $ai_provider: 'openai',
+                    $ai_model: 'gpt-image-2',
+                    $ai_input_tokens: inputTokens,
+                    $ai_image_input_tokens: 450,
+                    $ai_cache_read_input_tokens: 300,
+                    $ai_cache_read_image_tokens: 250,
+                    $ai_cache_reporting_exclusive: exclusive,
+                })
+            )
+
+            expect(result.properties.$ai_input_cost_usd).toBeCloseTo(
+                100 * 0.000005 + 200 * 0.000008 + 50 * 0.00000125 + 250 * 0.000002,
+                10
+            )
+        })
     })
 })

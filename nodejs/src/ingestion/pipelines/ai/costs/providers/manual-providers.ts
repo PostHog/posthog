@@ -53,6 +53,7 @@ const manualProviderCosts: ModelCostRow[] = [
                 completion_token: 0.00003,
                 cache_read_token: 0.00000125,
                 image: 0.000008,
+                input_image_cache: 0.000002,
                 image_output: 0.00003,
             },
         },
