@@ -48,6 +48,7 @@ from products.managed_warehouse.backend.facade.api import (
 from products.managed_warehouse.backend.facade.contracts import (
     DuckLakeCompiledQuery,
     DuckLakeS3Secret,
+    StoredColumnType,
     TrinoIncrementalWrite,
 )
 from products.managed_warehouse.backend.facade.feature_flags import DATA_MODELING_SHADOW_FLAG
@@ -331,6 +332,7 @@ async def _materialize_view_managed_warehouse(
                 saved_query_id=saved_query.id,
                 source_query=saved_query.query,
                 incremental=_trino_incremental_write(plan),
+                stored_column_types=_stored_column_types(saved_query.columns),
                 on_processed_bytes=processed_bytes.append,
                 on_cpu_milliseconds=cpu_milliseconds.append,
             )
@@ -475,6 +477,18 @@ def _total_read_bytes(processed_bytes: list[int]) -> int | None:
 
 def _total_cpu_microseconds(cpu_milliseconds: list[int]) -> int | None:
     return sum(cpu_milliseconds) * 1_000 if cpu_milliseconds else None
+
+
+def _stored_column_types(columns: object) -> tuple[StoredColumnType, ...]:
+    """The ClickHouse type stored for each output column of a saved query, from ``saved_query.columns``."""
+    if not isinstance(columns, dict):
+        return ()
+    stored: list[StoredColumnType] = []
+    for name, column in columns.items():
+        clickhouse_type = column.get("clickhouse") if isinstance(column, dict) else column
+        if isinstance(clickhouse_type, str) and clickhouse_type:
+            stored.append(StoredColumnType(name=str(name), clickhouse_type=clickhouse_type))
+    return tuple(stored)
 
 
 def _trino_incremental_write(plan: WritePlan) -> TrinoIncrementalWrite | None:
