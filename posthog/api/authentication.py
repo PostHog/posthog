@@ -1214,6 +1214,8 @@ class TwoFactorPasskeyViewSet(NonCreatingViewSetMixin, viewsets.GenericViewSet):
 
 
 def _complete_idp_login(request: Request, user: User, pending: PendingIdPEmailVerification) -> None:
+    if _sso_access_refused(request, user):
+        raise exceptions.PermissionDenied(ACCOUNT_BLOCKED_DETAIL, code=SECURITY_REFUSAL_CODE)
     try:
         # `associate_user` runs after the gate, so the row is created only once the code accepted.
         UserSocialAuth.objects.get_or_create(user=user, provider=pending["provider"], uid=pending["uid"])
@@ -1674,17 +1676,20 @@ def social_access_rules_allow(
         # A new account is checked where it is created: the signup serializer, or the SSO invite
         # and verified-domain joins in posthog/api/signup.py.
         return
+    if _sso_access_refused(strategy.request, user):
+        raise AuthFailed(backend, SECURITY_REFUSAL_CODE)
+
+
+def _sso_access_refused(request: HttpRequest, user: User) -> bool:
     try:
-        refused = security_access_refused(
-            SecuritySubject(email=user.email, user_uuid=str(user.uuid), ip=get_trusted_client_ip(strategy.request)),
+        return security_access_refused(
+            SecuritySubject(email=user.email, user_uuid=str(user.uuid), ip=get_trusted_client_ip(request)),
             SecuritySurface.APP,
             call_site="sso_login",
         )
     except Exception:
         logger.exception("security_access_check_site_failed", call_site="sso_login")
-        refused = False
-    if refused:
-        raise AuthFailed(backend, SECURITY_REFUSAL_CODE)
+        return False
 
 
 @frozen
@@ -1752,7 +1757,7 @@ def social_require_idp_email_verification(
         return redirect(sso_failure_redirect_url(strategy.request, "improperly_configured_sso"))
 
     if IdentityProviderEmailVerification.objects.filter(
-        provider=identity.provider, issuer=identity.issuer, subject=identity.subject, email=email
+        user=user, provider=identity.provider, issuer=identity.issuer, subject=identity.subject, email=email
     ).exists():
         if is_reauth and not UserSocialAuth.objects.filter(user=user, provider=identity.provider, uid=uid).exists():
             raise AuthFailed(backend, "reauth_user_mismatch")
