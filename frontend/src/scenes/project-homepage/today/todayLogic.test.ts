@@ -25,8 +25,6 @@ import { todayVerdictLogic } from './todayVerdictLogic'
 
 describe('todayLogic', () => {
     let frequentResponse: [number, unknown]
-    let fileSystemParams: URLSearchParams | null
-    let fileSystemResponse: [number, unknown]
     let listResponse: [number, any]
     let listParams: URLSearchParams | null
     let reportResponse: [number, any] | null
@@ -35,8 +33,6 @@ describe('todayLogic', () => {
 
     beforeEach(() => {
         frequentResponse = [200, []]
-        fileSystemParams = null
-        fileSystemResponse = [200, { results: [], count: 0 }]
         highlightResponses = [[200, makeHighlights()]]
         listResponse = [200, { results: [], count: 0 }]
         highlightCalls = 0
@@ -45,10 +41,6 @@ describe('todayLogic', () => {
         useMocks({
             get: {
                 '/api/projects/:team_id/file_system/frequent/': () => frequentResponse,
-                '/api/projects/:team_id/file_system/': ({ request }) => {
-                    fileSystemParams = new URL(request.url).searchParams
-                    return fileSystemResponse
-                },
                 '/api/projects/:team_id/signals/reports/': ({ request }) => {
                     listParams = new URL(request.url).searchParams
                     return listResponse
@@ -84,7 +76,7 @@ describe('todayLogic', () => {
         expect(logic.values.recentObjects.map((item) => item.id)).toEqual(
             mixed ? ['a', 'b', 'daily', 'weekly', 'c', 'd'] : ['a', 'b', 'c', 'd']
         )
-        logic.actions.jumpBackOpened(logic.values.recentObjects[2], 3, logic.values.recentObjects[2].jumpBackReason)
+        logic.actions.jumpBackOpened(logic.values.recentObjects[2], 3, mixed)
         expect(posthog.capture).toHaveBeenCalledWith(
             'today jump back opened',
             expect.objectContaining({
@@ -93,36 +85,6 @@ describe('todayLogic', () => {
             })
         )
     })
-
-    it.each([
-        { status: 200, shown: true },
-        { status: 500, shown: false },
-    ])(
-        'leads Jump back with the primary dashboard: $shown when the lookup returns $status',
-        async ({ status, shown }) => {
-            const entry = (id: string): { id: string; path: string; type: string; ref: string } => ({
-                id,
-                path: `Dashboards/${id}`,
-                type: 'dashboard',
-                ref: id,
-            })
-            fileSystemResponse = [status, status === 200 ? { results: [entry('1')], count: 1 } : {}]
-            const logic = todayLogic()
-            logic.mount()
-            await expectLogic(logic).toFinishAllListeners()
-            recentItemsModel.actions.loadRecentsSuccess(['a', '1', 'b'].map(entry))
-            expect(fileSystemParams?.get('type')).toEqual('dashboard')
-            expect(fileSystemParams?.get('ref')).toEqual('1')
-            expect(logic.values.recentObjects.map((item) => `${item.jumpBackReason}:${item.id}`)).toEqual(
-                shown ? ['primary:1', 'recent:a', 'recent:b'] : ['recent:a', 'recent:1', 'recent:b']
-            )
-            logic.actions.jumpBackOpened(logic.values.recentObjects[0], 1, logic.values.recentObjects[0].jumpBackReason)
-            expect(posthog.capture).toHaveBeenCalledWith(
-                'today jump back opened',
-                expect.objectContaining({ position: 1, reason: shown ? 'primary' : 'recent' })
-            )
-        }
-    )
 
     afterEach(() => {
         jest.useRealTimers()

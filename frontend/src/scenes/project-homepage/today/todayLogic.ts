@@ -16,13 +16,14 @@ import { featureFlagLogic, getFeatureFlagPayload } from 'lib/logic/featureFlagLo
 import { preflightLogic } from 'lib/logic/preflightLogic'
 import { getProductAccessDisabledReason } from 'lib/utils/accessControlUtils'
 import { withTimeout } from 'lib/utils/async'
+import { isObject } from 'lib/utils/guards'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { objectsEqual } from 'lib/utils/objects'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { fileSystemFrequentList, fileSystemList } from '~/generated/core/api'
+import { fileSystemFrequentList } from '~/generated/core/api'
 import { recentItemsModel } from '~/models/recentItemsModel'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 import { TeamPublicType, TeamType, UserType } from '~/types'
@@ -55,7 +56,7 @@ import {
 } from './todayForYouRows'
 import { greetingFor } from './todayGreeting'
 import { todayHighlightsLogic } from './todayHighlightsLogic'
-import { JumpBackObject, JumpBackReason, fileSystemEntryFromApi, jumpBackObjectsForHome } from './todayRecentObjects'
+import { JumpBackObject, jumpBackObjectsForHome } from './todayRecentObjects'
 import { type TodayReportPreview, reportPreview } from './todayReportPreviews'
 import type { TodayReportState } from './todayReportState'
 import { isSampleReportId, parseSampleParam, sampleTopReports } from './todaySampleReports'
@@ -196,6 +197,7 @@ export interface todayLogicValues {
     frequentObjectsLoading: boolean
     greeting: string
     growthSlotCard: NavPanelSlotCard | null
+    homeEditing: boolean
     homeScrollTop: number | null
     isNewProject: boolean
     listExpanded: Record<TodayList, boolean>
@@ -205,8 +207,6 @@ export interface todayLogicValues {
     moreReportsInInbox: number
     moreReportsLoading: boolean
     now: number
-    primaryDashboard: FileSystemEntry | null
-    primaryDashboardLoading: boolean
     promoBanner: TodayPromoBanner | null
     recentObjects: JumpBackObject[]
     reportId: string | null
@@ -275,11 +275,11 @@ export interface todayLogicActions {
     jumpBackOpened: (
         entry: FileSystemEntry,
         position: number,
-        reason: JumpBackReason
+        frequent: boolean
     ) => {
         entry: FileSystemEntry
+        frequent: boolean
         position: number
-        reason: JumpBackReason
     }
     loadFrequentObjects: () => any
     loadFrequentObjectsFailure: (
@@ -311,21 +311,6 @@ export interface todayLogicActions {
         moreReports: TodayMoreReports | null
         payload?: any
     }
-    loadPrimaryDashboard: () => any
-    loadPrimaryDashboardFailure: (
-        error: string,
-        errorObject?: any
-    ) => {
-        error: string
-        errorObject?: any
-    }
-    loadPrimaryDashboardSuccess: (
-        primaryDashboard: FileSystemEntry | null,
-        payload?: any
-    ) => {
-        primaryDashboard: FileSystemEntry | null
-        payload?: any
-    }
     loadTopReports: () => any
     loadTopReportsFailure: (
         error: string,
@@ -350,6 +335,9 @@ export interface todayLogicActions {
     }
     retryFailedLoads: () => {
         value: true
+    }
+    setHomeEditing: (editing: boolean) => {
+        editing: boolean
     }
     setHomeScrollTop: (top: number | null) => {
         top: number | null
@@ -392,11 +380,7 @@ export interface todayLogicMeta {
         reports: (topReports: TodayReports | null) => SignalReport[]
         moreReportCount: (topReports: TodayReports | null) => number
         greeting: (now: number, user: UserType | null) => string
-        recentObjects: (
-            recents: FileSystemEntry[],
-            frequentObjects: FileSystemEntry[],
-            primaryDashboard: FileSystemEntry | null
-        ) => JumpBackObject[]
+        recentObjects: (recents: FileSystemEntry[], frequentObjects: FileSystemEntry[]) => JumpBackObject[]
         shownReportIds: (reports: SignalReport[]) => string[]
         currentMoreReports: (
             moreReports: TodayMoreReports | null,
@@ -504,14 +488,15 @@ export const todayLogic = kea<todayLogicType>([
         reportOpened: (report: SignalReport, source: TodayReportOpenSource) => ({ report, source }),
         toggleReportRow: (rowKey: string, reportId: string) => ({ rowKey, reportId }),
         exploreOpened: (product: string, position: number) => ({ product, position }),
+        setHomeEditing: (editing: boolean) => ({ editing }),
         setHomeScrollTop: (top: number | null) => ({ top }),
         setReturnFocusReportId: (reportId: string | null) => ({ reportId }),
         setReportOpenContext: (context: TodayReportOpenContext | null) => ({ context }),
         setListExpanded: (list: TodayList, expanded: boolean) => ({ list, expanded }),
-        jumpBackOpened: (entry: FileSystemEntry, position: number, reason: JumpBackReason) => ({
+        jumpBackOpened: (entry: FileSystemEntry, position: number, frequent: boolean) => ({
             entry,
             position,
-            reason,
+            frequent,
         }),
         showMoreForYou: true,
         retryFailedLoads: true,
@@ -536,46 +521,20 @@ export const todayLogic = kea<todayLogicType>([
                         if (values.currentProjectId !== projectId) {
                             return []
                         }
-                        return entries.map(fileSystemEntryFromApi)
+                        return entries.map((entry) => ({
+                            id: entry.id,
+                            path: entry.path,
+                            type: entry.type,
+                            ref: entry.ref ?? undefined,
+                            href: entry.href ?? undefined,
+                            meta: isObject(entry.meta) ? entry.meta : undefined,
+                            last_viewed_at: entry.last_viewed_at,
+                        }))
                     } catch (error) {
                         if (!(error instanceof ApiError && error.status === 403)) {
                             posthog.captureException(error)
                         }
                         return []
-                    }
-                },
-            },
-        ],
-        primaryDashboard: [
-            null as FileSystemEntry | null,
-            {
-                loadPrimaryDashboard: async (): Promise<FileSystemEntry | null> => {
-                    const dashboardId = values.currentTeam?.primary_dashboard
-                    if (values.useSampleData || values.currentProjectId === null || !dashboardId) {
-                        return null
-                    }
-                    try {
-                        const projectId = values.currentProjectId
-                        const response = await withTimeout(
-                            (signal) =>
-                                fileSystemList(
-                                    String(projectId),
-                                    { type: 'dashboard', ref: String(dashboardId), limit: 1 },
-                                    { signal }
-                                ),
-                            10_000,
-                            'loadPrimaryDashboard timed out'
-                        )
-                        const entry = response.results[0]
-                        if (values.currentProjectId !== projectId || !entry) {
-                            return null
-                        }
-                        return fileSystemEntryFromApi(entry)
-                    } catch (error) {
-                        if (!(error instanceof ApiError && error.status === 403)) {
-                            posthog.captureException(error)
-                        }
-                        return null
                     }
                 },
             },
@@ -688,6 +647,13 @@ export const todayLogic = kea<todayLogicType>([
         topReports: {
             setUseSampleData: () => null,
         },
+        // Shows each section's edit control. Edits save as they happen, so leaving edit mode has nothing to commit.
+        homeEditing: [
+            false,
+            {
+                setHomeEditing: (_, { editing }) => editing,
+            },
+        ],
         listExpanded: [
             { for_you: false, recents: false } as Record<TodayList, boolean>,
             {
@@ -714,13 +680,9 @@ export const todayLogic = kea<todayLogicType>([
             (now: number, user: UserType | null): string => greetingFor(new Date(now), user?.first_name),
         ],
         recentObjects: [
-            (s) => [s.recents, s.frequentObjects, s.primaryDashboard],
-            (
-                recents: FileSystemEntry[],
-                frequentObjects: FileSystemEntry[],
-                primaryDashboard: FileSystemEntry | null
-            ): JumpBackObject[] =>
-                jumpBackObjectsForHome(recents, frequentObjects, RECENT_OBJECT_MORE_COUNT, primaryDashboard),
+            (s) => [s.recents, s.frequentObjects],
+            (recents: FileSystemEntry[], frequentObjects: FileSystemEntry[]): JumpBackObject[] =>
+                jumpBackObjectsForHome(recents, frequentObjects, RECENT_OBJECT_MORE_COUNT),
         ],
         shownReportIds: [(s) => [s.reports], (reports: SignalReport[]): string[] => reports.map((report) => report.id)],
         currentMoreReports: [
@@ -943,17 +905,14 @@ export const todayLogic = kea<todayLogicType>([
             })
         }
         return {
-            loadCurrentTeamSuccess: () => {
-                actions.loadFrequentObjects()
-                actions.loadPrimaryDashboard()
-            },
-            jumpBackOpened: ({ entry, position, reason }) => {
+            loadCurrentTeamSuccess: () => actions.loadFrequentObjects(),
+            jumpBackOpened: ({ entry, position, frequent }) => {
                 if (!values.useSampleData) {
                     posthog.capture('today jump back opened', {
                         object_type: entry.type,
                         object_ref: entry.ref ?? entry.id,
                         position,
-                        reason,
+                        reason: frequent ? 'frequent' : 'recent',
                     })
                 }
             },
@@ -987,7 +946,6 @@ export const todayLogic = kea<todayLogicType>([
             setUseSampleData: () => {
                 actions.loadTopReports()
                 actions.loadFrequentObjects()
-                actions.loadPrimaryDashboard()
             },
             exploreOpened: ({ product, position }) => {
                 posthog.capture('today explore opened', { product, position })
@@ -1116,7 +1074,6 @@ export const todayLogic = kea<todayLogicType>([
             actions.loadTopReports()
         }
         actions.loadFrequentObjects()
-        actions.loadPrimaryDashboard()
         cache.disposables.add(() => {
             const clock = window.setInterval(() => actions.tick(), CLOCK_MS)
             return () => clearInterval(clock)

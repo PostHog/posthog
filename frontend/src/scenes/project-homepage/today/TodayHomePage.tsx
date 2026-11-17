@@ -1,8 +1,8 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { Suspense, useLayoutEffect, useRef } from 'react'
+import { Suspense, useEffect, useLayoutEffect, useRef } from 'react'
 
-import { Text } from '@posthog/quill'
+import { Button, Text } from '@posthog/quill'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { lazyWithRetry } from 'lib/utils/retryImport'
@@ -16,6 +16,7 @@ import { TodayForYou } from './TodayForYou'
 import { todayHighlightsLogic } from './todayHighlightsLogic'
 import { TodayHomeComposer } from './TodayHomeComposer'
 import { reportIdFromPath, todayLogic } from './todayLogic'
+import { TodayPrimaryDashboard } from './TodayPrimaryDashboard'
 import { TodayPromoBanner } from './TodayPromoBanner'
 import { TodayPulseSection } from './TodayPulseSection'
 import { TodayRecents } from './TodayRecents'
@@ -49,8 +50,9 @@ export function TodayHomePage(): JSX.Element {
         frequentObjectsLoading,
         returnFocusReportId,
         useSampleData,
+        homeEditing,
     } = useValues(todayLogic)
-    const { setReturnFocusReportId } = useActions(todayLogic)
+    const { setReturnFocusReportId, setHomeEditing } = useActions(todayLogic)
     const {
         currentProjectId,
         highlights,
@@ -66,6 +68,8 @@ export function TodayHomePage(): JSX.Element {
     const { currentOrganization } = useValues(organizationLogic)
     const postHogAiTasks = useFeatureFlag('PHAI_SANDBOX_MODE')
     const homeComposer = !!currentOrganization?.is_ai_data_processing_approved
+
+    useEffect(() => () => setHomeEditing(false), [setHomeEditing])
 
     useLayoutEffect(() => {
         pulseViewMounted(useSampleData)
@@ -120,6 +124,15 @@ export function TodayHomePage(): JSX.Element {
                     <Text render={<h1 />} className="m-0 text-[21px] font-[560] tracking-[-0.015em]">
                         {greeting}
                     </Text>
+                    <Button
+                        variant={homeEditing ? 'primary' : 'outline'}
+                        size="sm"
+                        className="ms-auto"
+                        onClick={() => setHomeEditing(!homeEditing)}
+                        data-attr={homeEditing ? 'today-home-edit-save' : 'today-home-edit'}
+                    >
+                        {homeEditing ? 'Save' : 'Edit'}
+                    </Button>
                 </div>
                 <TodayMetaLine />
                 {homeComposer &&
@@ -140,6 +153,7 @@ export function TodayHomePage(): JSX.Element {
             <div className="TodayHome__body">
                 {isNewProject ? <TodayFirstEventWatcher /> : <TodayPulseSection />}
                 {isNewProject ? <TodayForYou /> : null}
+                {isNewProject ? null : <TodayPrimaryDashboard />}
                 {recentsHasLoaded && !frequentObjectsLoading && recentObjects.length === 0 ? (
                     <TodayExplore />
                 ) : (

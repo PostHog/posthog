@@ -1,21 +1,7 @@
-import { isObject } from 'lib/utils/guards'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { baseObjectType, libraryObjectHref } from 'scenes/library/libraryUtils'
 
-import type { FileSystemApi } from '~/generated/core/api.schemas'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
-
-export function fileSystemEntryFromApi(entry: FileSystemApi): FileSystemEntry {
-    return {
-        id: entry.id,
-        path: entry.path,
-        type: entry.type,
-        ref: entry.ref ?? undefined,
-        href: entry.href ?? undefined,
-        meta: isObject(entry.meta) ? entry.meta : undefined,
-        last_viewed_at: entry.last_viewed_at,
-    }
-}
 
 function objectKey(entry: FileSystemEntry): string {
     const href = libraryObjectHref({ type: baseObjectType(entry.type), ref: entry.ref }) ?? libraryObjectHref(entry)
@@ -47,29 +33,9 @@ export function recentObjectsForHome(recents: FileSystemEntry[], limit: number):
         .slice(0, limit)
 }
 
-export type JumpBackReason = 'primary' | 'recent' | 'frequent'
+export type JumpBackObject = FileSystemEntry & { jumpBackReason: 'recent' | 'frequent' }
 
-export type JumpBackObject = FileSystemEntry & { jumpBackReason: JumpBackReason }
-
-/** The project's primary dashboard leads, so people with a dashboard home can get back to it from Today in one click. */
 export function jumpBackObjectsForHome(
-    recents: FileSystemEntry[],
-    frequent: FileSystemEntry[],
-    limit: number,
-    primaryDashboard: FileSystemEntry | null
-): JumpBackObject[] {
-    if (!primaryDashboard || libraryObjectHref(primaryDashboard) === null) {
-        return mixRecentAndFrequent(recents, frequent, limit)
-    }
-    const primaryKey = objectKey(primaryDashboard)
-    const isNotPrimary = (entry: FileSystemEntry): boolean => objectKey(entry) !== primaryKey
-    return [
-        { ...primaryDashboard, jumpBackReason: 'primary' as const },
-        ...mixRecentAndFrequent(recents.filter(isNotPrimary), frequent.filter(isNotPrimary), limit - 1),
-    ].slice(0, limit)
-}
-
-function mixRecentAndFrequent(
     recents: FileSystemEntry[],
     frequent: FileSystemEntry[],
     limit: number

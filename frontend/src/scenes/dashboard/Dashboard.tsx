@@ -76,6 +76,8 @@ interface DashboardProps {
     compact?: boolean
     /** The parent page reloads the dashboard when PostHog AI adds charts to it, so the header does not. */
     parentReloadsOnAIChanges?: boolean
+    /** False for a preview embedded elsewhere, so seeing it does not count as opening the dashboard. */
+    recordsView?: boolean
 }
 
 export const parseDashboardId = (id: string | undefined): number => {
@@ -111,6 +113,7 @@ export function Dashboard({
     headerActions,
     compact,
     parentReloadsOnAIChanges,
+    recordsView = true,
 }: DashboardProps): JSX.Element {
     useMountedLogic(dataThemeLogic({ themes }))
 
@@ -122,6 +125,7 @@ export function Dashboard({
                 headerActions={headerActions}
                 compact={compact}
                 parentReloadsOnAIChanges={parentReloadsOnAIChanges}
+                recordsView={recordsView}
             />
         </BindLogic>
     )
@@ -133,12 +137,14 @@ function DashboardScene({
     headerActions,
     compact,
     parentReloadsOnAIChanges,
+    recordsView = true,
 }: {
     backTo?: { url: string; name: string }
     showCreateAnomalyAlertButton?: boolean
     headerActions?: JSX.Element
     compact?: boolean
     parentReloadsOnAIChanges?: boolean
+    recordsView?: boolean
 }): JSX.Element {
     const {
         placement,
@@ -177,11 +183,15 @@ function DashboardScene({
     useFileSystemLogView({
         type: 'dashboard',
         ref: dashboard?.id,
-        enabled: Boolean(currentTeamId && dashboard?.id && !dashboardFailedToLoad && !accessDeniedToDashboard),
+        enabled: Boolean(
+            recordsView && currentTeamId && dashboard?.id && !dashboardFailedToLoad && !accessDeniedToDashboard
+        ),
     })
 
     useOnMountEffect(() => {
-        reportDashboardViewed()
+        if (recordsView) {
+            reportDashboardViewed()
+        }
 
         // request cancellation of any running insight, widget and tile group loads when this component is no longer in the dom
         return () => cancelDashboardRefresh()

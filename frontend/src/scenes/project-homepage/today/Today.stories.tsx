@@ -977,7 +977,6 @@ const meta: Meta = {
                     return [200, { results, count: results.length }]
                 },
                 '/api/projects/:team_id/file_system/frequent/': [],
-                '/api/projects/:team_id/file_system/': { results: [], count: 0 },
                 '/api/environments/:team_id/file_system/unfiled/': { results: [], count: 0 },
                 '/api/projects/:team_id/canvases/canvas-building/': VIEW_CANVASES[1],
                 '/api/projects/:team_id/tasks/task-canvas-building/': {
@@ -1090,53 +1089,6 @@ export const HomeWithFrequentItems: Story = {
         keepNumbers([]),
         mswDecorator({
             get: {
-                '/api/projects/:team_id/file_system/frequent/': [
-                    {
-                        id: 'fs-frequent-1',
-                        path: 'Dashboards/Daily operations',
-                        type: 'dashboard',
-                        ref: '81',
-                        href: '/dashboard/81',
-                        last_viewed_at: '2026-09-27T09:00:00Z',
-                    },
-                    {
-                        id: 'fs-frequent-2',
-                        path: 'Notebooks/Weekly review',
-                        type: 'notebook',
-                        ref: 'weekly-review',
-                        href: '/notebooks/weekly-review',
-                        last_viewed_at: '2026-09-21T09:00:00Z',
-                    },
-                ],
-            },
-        }),
-    ],
-}
-
-export const HomeWithPrimaryDashboard: Story = {
-    parameters: {
-        featureFlags: {
-            [FEATURE_FLAGS.TODAY_RAIL_NAV]: true,
-            [FEATURE_FLAGS.POSTHOG_CODE_TASK_ANALYSIS]: true,
-        },
-        testOptions: { snapshotBrowsers: [] },
-    },
-    decorators: [
-        keepNumbers([]),
-        mswDecorator({
-            get: {
-                '/api/projects/:team_id/file_system/': {
-                    results: [
-                        {
-                            id: 'fs-primary-dashboard',
-                            path: 'Dashboards/Product overview',
-                            type: 'dashboard',
-                            ref: String(MOCK_DEFAULT_TEAM.primary_dashboard),
-                            href: `/dashboard/${MOCK_DEFAULT_TEAM.primary_dashboard}`,
-                        },
-                    ],
-                    count: 1,
-                },
                 '/api/projects/:team_id/file_system/frequent/': [
                     {
                         id: 'fs-frequent-1',
