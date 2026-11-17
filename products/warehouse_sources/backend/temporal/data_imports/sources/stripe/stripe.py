@@ -1504,8 +1504,42 @@ def _with_all_lines(obj: dict[str, Any], lines: ListObject[Any]) -> dict[str, An
     return {**obj, "lines": {**obj["lines"], "data": list(lines.auto_paging_iter()), "has_more": False, "url": None}}
 
 
-# Each entry adds back what the event payload leaves out. Invoices and credit notes keep the event's
-# fields and only fetch their lines, which is one request per object instead of two.
+def _with_tiers(obj: dict[str, Any], fetched: Mapping[str, Any]) -> dict[str, Any]:
+    return {**obj, "tiers": fetched.get("tiers")}
+
+
+def _with_expanded_discounts(subscription: dict[str, Any], fetched: Mapping[str, Any]) -> dict[str, Any]:
+    fetched_items = (fetched.get("items") or {}).get("data") or []
+    expanded = {
+        discount["id"]: discount
+        for discount in [
+            *(fetched.get("discounts") or []),
+            *(d for item in fetched_items for d in (item.get("discounts") or [])),
+        ]
+        if isinstance(discount, Mapping)
+    }
+
+    # An id the subscription no longer lists stays an id, so a later removal does not reach the event's state.
+    def expand(discounts: list[Any]) -> list[Any]:
+        return [expanded.get(d, d) if isinstance(d, str) else d for d in discounts]
+
+    merged = {**subscription}
+    if subscription.get("discounts"):
+        merged["discounts"] = expand(subscription["discounts"])
+    items = subscription.get("items")
+    if isinstance(items, Mapping) and items.get("data"):
+        merged["items"] = {
+            **items,
+            "data": [
+                {**item, "discounts": expand(item["discounts"])} if item.get("discounts") else item
+                for item in items["data"]
+            ],
+        }
+    return merged
+
+
+# Each entry adds back only the field the event payload leaves out. The API returns the object as it
+# is now, so taking any other field from it would put today's state under the event's time.
 WEBHOOK_REFETCH: dict[str, WebhookRefetch] = {
     INVOICE_RESOURCE_NAME: WebhookRefetch(
         is_incomplete=_lines_truncated,
@@ -1521,16 +1555,21 @@ WEBHOOK_REFETCH: dict[str, WebhookRefetch] = {
     ),
     PRICE_RESOURCE_NAME: WebhookRefetch(
         is_incomplete=_tiers_missing,
-        complete=lambda client, price: client.prices.retrieve(price["id"], params={"expand": ["tiers"]}),
+        complete=lambda client, price: _with_tiers(
+            price, client.prices.retrieve(price["id"], params={"expand": ["tiers"]})
+        ),
     ),
     PLAN_RESOURCE_NAME: WebhookRefetch(
         is_incomplete=_tiers_missing,
-        complete=lambda client, plan: client.plans.retrieve(plan["id"], params={"expand": ["tiers"]}),
+        complete=lambda client, plan: _with_tiers(
+            plan, client.plans.retrieve(plan["id"], params={"expand": ["tiers"]})
+        ),
     ),
     SUBSCRIPTION_RESOURCE_NAME: WebhookRefetch(
         is_incomplete=_discounts_unexpanded,
-        complete=lambda client, subscription: client.subscriptions.retrieve(
-            subscription["id"], params={"expand": ["discounts", "items.data.discounts"]}
+        complete=lambda client, subscription: _with_expanded_discounts(
+            subscription,
+            client.subscriptions.retrieve(subscription["id"], params={"expand": ["discounts", "items.data.discounts"]}),
         ),
     ),
 }

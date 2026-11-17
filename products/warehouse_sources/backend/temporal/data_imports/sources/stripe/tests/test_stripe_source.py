@@ -1977,9 +1977,9 @@ class TestWebhookRefetch:
                 lambda row: len(orjson.loads(row["lines"])["data"]) == len(_ALL_LINES),
             ),
             (
-                "tiers of a tiered price",
+                "tiers of a price archived since the event",
                 PRICE_RESOURCE_NAME,
-                {"id": "price_1", "object": "price", "billing_scheme": "tiered"},
+                {"id": "price_1", "object": "price", "billing_scheme": "tiered", "active": True},
                 {
                     "/v1/prices/price_1": (
                         {"expand[0]": "tiers"},
@@ -1987,27 +1987,52 @@ class TestWebhookRefetch:
                             "id": "price_1",
                             "object": "price",
                             "billing_scheme": "tiered",
+                            "active": False,
                             "tiers": [{"up_to": 10, "unit_amount": 5}, {"up_to": None, "unit_amount": 3}],
                         },
                     )
                 },
-                lambda row: len(orjson.loads(row["tiers"])) == 2,
+                lambda row: row["active"] is True and len(orjson.loads(row["tiers"])) == 2,
             ),
             (
-                "expanded subscription discounts",
+                "discounts of a subscription changed since the event",
                 SUBSCRIPTION_RESOURCE_NAME,
-                {"id": "sub_1", "object": "subscription", "discounts": ["di_1"]},
+                {
+                    "id": "sub_1",
+                    "object": "subscription",
+                    "status": "active",
+                    "discounts": ["di_1", "di_removed"],
+                    "items": {"object": "list", "data": [{"id": "si_1", "discounts": ["di_2"]}]},
+                },
                 {
                     "/v1/subscriptions/sub_1": (
                         {"expand[0]": "discounts", "expand[1]": "items.data.discounts"},
                         {
                             "id": "sub_1",
                             "object": "subscription",
-                            "discounts": [{"id": "di_1", "object": "discount", "coupon": {"id": "co_1"}}],
+                            "status": "canceled",
+                            "discounts": [
+                                {"id": "di_1", "object": "discount", "coupon": {"id": "co_1"}},
+                                {"id": "di_added", "object": "discount", "coupon": {"id": "co_3"}},
+                            ],
+                            "items": {
+                                "object": "list",
+                                "data": [
+                                    {
+                                        "id": "si_1",
+                                        "discounts": [{"id": "di_2", "object": "discount", "coupon": {"id": "co_2"}}],
+                                    }
+                                ],
+                            },
                         },
                     )
                 },
-                lambda row: orjson.loads(row["discounts"])[0]["coupon"]["id"] == "co_1",
+                lambda row: (
+                    row["status"] == "active"
+                    and orjson.loads(row["discounts"])
+                    == [{"id": "di_1", "object": "discount", "coupon": {"id": "co_1"}}, "di_removed"]
+                    and orjson.loads(row["items"])["data"][0]["discounts"][0]["coupon"]["id"] == "co_2"
+                ),
             ),
         ]
     )
