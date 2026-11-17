@@ -4,6 +4,7 @@ import uuid
 import asyncio
 import dataclasses
 from collections.abc import Callable
+from copy import deepcopy
 from typing import ClassVar, Optional
 
 from django.conf import settings
@@ -17,6 +18,7 @@ from posthog.schema import SubscriptionAIContextLimit
 
 from posthog.cloud_utils import is_cloud
 from posthog.constants import SUBSCRIPTION_AI_PROMPT_FEATURE_FLAG_KEY
+from posthog.dataclasses import frozen
 from posthog.event_usage import AnalyticsProps, groups
 from posthog.exceptions_capture import capture_exception
 from posthog.integrations import IntegrationManager, IntegrationNotFound
@@ -50,6 +52,7 @@ from products.subscriptions.backend.facade.contracts import (
     ManualDeliveryResult,
     ProcessSubscriptionWorkflowInputs,
     PromptRejectedError,
+    SubscriptionConflictError,
     SubscriptionContextTarget,
     SubscriptionPermissionDeniedError,
     SubscriptionQuotaExceededError,
@@ -143,6 +146,33 @@ def owner_unavailable_message(owner: User | None, error: Exception) -> str:
     return f"Can't re-enable this subscription. {describe_owner_unavailable(owner, error)}"
 
 
+@frozen
+class _OwnershipSnapshot:
+    values: dict[str, object]
+    export_insight_ids: frozenset[int]
+    contexts: frozenset[tuple[int | None, int | None]]
+
+    @classmethod
+    def of(cls, instance: Subscription) -> "_OwnershipSnapshot":
+        # Delivery workers update these without changing the configuration being validated.
+        runtime_fields = {"next_delivery_date", "ai_query_plan"}
+        return cls(
+            values=deepcopy(
+                {
+                    field.attname: getattr(instance, field.attname)
+                    for field in instance._meta.concrete_fields
+                    if field.attname not in runtime_fields
+                }
+            ),
+            export_insight_ids=frozenset(instance.dashboard_export_insights.values_list("pk", flat=True)),
+            contexts=frozenset(
+                SubscriptionContext.objects.for_team(instance.team_id)
+                .filter(subscription_id=instance.pk)
+                .values_list("dashboard_id", "insight_id")
+            ),
+        )
+
+
 class _SubscriptionWrite:
     """One create or update, checked against the rules that span fields, the team and the plan."""
 
@@ -168,6 +198,7 @@ class _SubscriptionWrite:
         is_create_request: bool,
         analytics_props: AnalyticsProps,
         actor: User | None = None,
+        ownership_snapshot: _OwnershipSnapshot | None = None,
     ) -> None:
         self.team = team
         self.team_id = team.id
@@ -179,6 +210,7 @@ class _SubscriptionWrite:
         self.partial = partial
         self.is_create_request = is_create_request
         self.analytics_props = analytics_props
+        self.ownership_snapshot = ownership_snapshot
 
     def _caller_distinct_id(self) -> str:
         if self.user and getattr(self.user, "distinct_id", None):
@@ -753,8 +785,11 @@ class _SubscriptionWrite:
         contexts_changed = False
         context_change: tuple[list[str], list[str]] | None = None
         with transaction.atomic():
+            if contexts_in_payload or self.ownership_snapshot is not None:
+                instance = Subscription.objects.select_for_update().get(pk=instance.pk, team_id=self.team_id)
+            if self.ownership_snapshot is not None and _OwnershipSnapshot.of(instance) != self.ownership_snapshot:
+                raise SubscriptionConflictError("The subscription changed. Retry the ownership transfer.")
             if contexts_in_payload:
-                instance = Subscription.objects.select_for_update().get(pk=instance.pk)
                 stored_identifiers = self._stored_context_identifiers(instance)
                 preserved_identifiers = stored_identifiers - self._replaceable_context_identifiers(instance)
                 updated_identifiers = preserved_identifiers | self._context_identifiers(contexts)
@@ -1071,6 +1106,7 @@ def take_subscription_ownership(
     owner_requirement = "You need" if owner.pk == actor.pk else "The new owner needs"
     owner_access = viewer if owner.pk == actor.pk else UserAccessControl(user=owner, team=team)
     instance = Subscription.objects.get(pk=subscription_id, team_id=team.id)
+    snapshot = _OwnershipSnapshot.of(instance)
     if owner.pk != actor.pk and not viewer.is_organization_admin:
         raise SubscriptionPermissionDeniedError(
             "Only an organization admin can assign a subscription to another person. "
@@ -1116,6 +1152,7 @@ def take_subscription_ownership(
         organization=organization,
         user=owner,
         actor=actor,
+        ownership_snapshot=snapshot,
         viewer=owner_access,
         instance=instance,
         partial=True,
@@ -1123,6 +1160,7 @@ def take_subscription_ownership(
         analytics_props=analytics_props,
     )
     validated_data = subscription_write.validate(_write_attrs(SubscriptionWrite(enabled=True)))
+    validated_data["created_by"] = owner
     updated = subscription_write.update(instance, validated_data)
     # `created_by` is excluded from the save diff, so the takeover gets its own activity.
     log_activity(

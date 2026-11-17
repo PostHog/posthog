@@ -632,6 +632,10 @@ def _raise_for_refusal(call: Callable[[], contracts.SubscriptionRecord]) -> cont
         return call()
     except contracts.SubscriptionRequestInvalidError as refusal:
         raise ValidationError(as_serializer_error(ValidationError(refusal.detail, code=refusal.code)))
+    except contracts.SubscriptionConflictError as refusal:
+        error = exceptions.APIException(str(refusal), code="conflict")
+        error.status_code = status.HTTP_409_CONFLICT
+        raise error from refusal
     except contracts.SubscriptionPermissionDeniedError as refusal:
         raise exceptions.PermissionDenied(refusal.message)
     except contracts.SubscriptionQuotaExceededError as refusal:

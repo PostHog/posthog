@@ -1,5 +1,6 @@
 import json
 from collections.abc import Callable
+from contextlib import nullcontext
 from datetime import UTC, datetime, timedelta
 from typing import Optional
 from uuid import uuid4
@@ -44,8 +45,13 @@ from products.subscriptions.backend.facade.api import (
     MAX_INSIGHTS,
     TEAMS_WEBHOOK_URL_ERROR,
     TEAMS_WEBHOOK_URL_MASKED_ERROR,
+    take_subscription_ownership,
 )
-from products.subscriptions.backend.facade.contracts import ProcessSubscriptionWorkflowInputs, SubscriptionTriggerType
+from products.subscriptions.backend.facade.contracts import (
+    ProcessSubscriptionWorkflowInputs,
+    SubscriptionConflictError,
+    SubscriptionTriggerType,
+)
 from products.subscriptions.backend.facade.testing import AI_QUERY_PLAN_VERSION
 from products.subscriptions.backend.logic.visibility import viewable_deliveries, viewable_subscriptions
 from products.subscriptions.backend.models.subscription import (
@@ -1192,6 +1198,67 @@ class TestSubscriptionTemporal(APILicensedTest):
         subscription.refresh_from_db()
         assert subscription.created_by != self.user
         assert subscription.enabled is False
+
+    @parameterized.expand(["recipients", "contexts", "scheduler"])
+    def test_take_ownership_preserves_concurrent_changes(self, change: str) -> None:
+        subscription = self._disabled_subscription_of_a_former_member()
+        previous_owner = subscription.created_by
+        changed = False
+        next_delivery = timezone.now() + timedelta(days=7)
+
+        def edit_during_validation(execute, sql, params, many, context):
+            nonlocal changed
+            result = execute(sql, params, many, context)
+            if not changed and 'FROM "posthog_subscription"' in sql and 'AS "a"' in sql:
+                changed = True
+                if change == "recipients":
+                    Subscription.objects.filter(pk=subscription.pk).update(target_value="changed@example.com")
+                elif change == "contexts":
+                    SubscriptionContext.objects.for_team(self.team.id).create(
+                        team=self.team, subscription=subscription, insight=self.insight
+                    )
+                else:
+                    Subscription.objects.filter(pk=subscription.pk).update(next_delivery_date=next_delivery)
+            return result
+
+        if change == "scheduler":
+            subscription.enabled = True
+            subscription.save()
+        with (
+            connection.execute_wrapper(edit_during_validation),
+            pytest.raises(SubscriptionConflictError) if change != "scheduler" else nullcontext(),
+        ):
+            take_subscription_ownership(
+                team=self.team,
+                organization=self.organization,
+                actor=self.user,
+                owner=self.user,
+                viewer=UserAccessControl(user=self.user, team=self.team),
+                subscription_id=subscription.id,
+                analytics_props={"source": "backend"},
+            )
+
+        assert changed
+        subscription.refresh_from_db()
+        if change == "scheduler":
+            assert subscription.created_by == self.user
+            assert subscription.next_delivery_date == next_delivery
+        else:
+            assert subscription.created_by == previous_owner
+            assert subscription.enabled is False
+            assert not ActivityLog.objects.filter(
+                scope="Subscription",
+                item_id=str(subscription.id),
+                activity__in=["took_ownership", "transferred_ownership"],
+            ).exists()
+            if change == "recipients":
+                assert subscription.target_value == "changed@example.com"
+            else:
+                assert (
+                    SubscriptionContext.objects.for_team(self.team.id)
+                    .filter(subscription=subscription, insight=self.insight)
+                    .exists()
+                )
 
     @parameterized.expand(
         [

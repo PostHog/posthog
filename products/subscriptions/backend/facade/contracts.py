@@ -99,6 +99,10 @@ class SubscriptionRequestInvalidError(ValueError):
         self.code = code
 
 
+class SubscriptionConflictError(Exception):
+    pass
+
+
 class SubscriptionPermissionDeniedError(PermissionError):
     """The requester may not do this. The API answers 403 with the message."""
 
