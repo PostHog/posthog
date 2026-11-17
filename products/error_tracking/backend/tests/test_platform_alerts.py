@@ -80,6 +80,8 @@ class TestErrorTrackingAlertCreate(APIBaseTest):
             ("not_an_event_property", {"key": "not_a_function(1)", "type": "hogql"}),
             # It would compile to a constant true, so the alert would match every issue.
             ("without_a_value", {"key": "environment", "type": "event", "operator": "exact"}),
+            # A change's snapshot has no description, so the filter would read it as unset.
+            ("not_in_the_snapshot", {"key": "description", "type": "event", "operator": "icontains", "value": "x"}),
         ]
     )
     def test_filters_that_cannot_run_are_refused(self, _name: str, property_filter: dict[str, Any]) -> None:

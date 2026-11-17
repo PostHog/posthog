@@ -8,10 +8,13 @@ This reads and decides. It writes nothing, so a retried attempt reads the same c
 the same decisions. The platform records the outcomes in its own activity.
 """
 
+import time
 from collections.abc import Sequence
 from dataclasses import replace
 from datetime import datetime, timedelta
 from typing import Any, Final
+
+from django.db.models import Q
 
 import structlog
 from pydantic import ValidationError
@@ -20,7 +23,6 @@ from posthog.dataclasses import frozen
 from posthog.models import Team
 
 from products.alerts_platform.backend.facade.api import due_checks, slot_of
-from products.alerts_platform.backend.facade.check_errors import classify_check_error
 from products.alerts_platform.backend.facade.contracts import (
     AlertDeliveryRequest,
     AlertEventKind,
@@ -50,8 +52,9 @@ from products.alerts_platform.backend.facade.lifecycle import (
 from products.alerts_platform.backend.facade.payload import MAX_BATCH_PAYLOAD_BYTES, payload_bytes
 from products.alerts_platform.backend.facade.scheduling import is_utc_datetime_blocked, parse_blocked_windows_tuples
 from products.error_tracking.backend.facade.contracts import LifecycleFilterOutcome
-from products.error_tracking.backend.logic.alerts import compile_alert_filters
+from products.error_tracking.backend.logic.alerts import AlertValidationError, compile_alert_filters
 from products.error_tracking.backend.logic.assignees import assignee_property
+from products.error_tracking.backend.logic.lifecycle_events import status_label
 from products.error_tracking.backend.models import ErrorTrackingIssueChange
 from products.error_tracking.backend.platform_alerts.source_config import (
     ErrorTrackingPlatformAlertConfig,
@@ -74,15 +77,19 @@ logger = structlog.get_logger(__name__)
 
 SOURCE: Final = SourceKind.ERROR_TRACKING
 # A change is announced when it happens, and an issue with no new change resolves without a message.
-POLICY: Final = replace(PLATFORM_DEFAULT_ALERT_POLICY, notify_resolve=False)
+# A firing issue is announced again for each new change, which cooldown can still hold back.
+POLICY: Final = replace(PLATFORM_DEFAULT_ALERT_POLICY, notify_resolve=False, renotify_while_firing=True)
 
 # A change row commits after its `created_at`, so a window that ended now would miss a row still in
 # its transaction and never read it again.
 SETTLE: Final = timedelta(seconds=60)
 # How far back a check that ran late reads. Older changes are no longer news.
 MAX_WINDOW: Final = timedelta(hours=24)
-# Rows one check reads. A check that finds more reports what it read and says the results were cut.
+# Issues one check reads. A check that finds more reports what it read and says the results were cut.
 MAX_CHANGES_PER_CHECK: Final = 1_000
+# The batch's read time, which `EVALUATE_START_TO_CLOSE` in the workflow sits above. A check the
+# budget has no room for records nothing, so it keeps its due time and a later tick reads its window.
+BATCH_BUDGET_SECONDS: Final = 25
 
 EVENT_IDS_BY_KIND: Final[dict[str, str]] = {
     AlertEventKind.FIRING.value: "$error_tracking_alert_firing",
@@ -97,15 +104,33 @@ _TRIGGER_EVENTS: Final[dict[ErrorTrackingPlatformAlertTrigger, str]] = {
     ErrorTrackingPlatformAlertTrigger.ISSUE_REOPENED: "$error_tracking_issue_reopened",
     ErrorTrackingPlatformAlertTrigger.ISSUE_ASSIGNED: "$error_tracking_issue_assigned",
 }
-_TRIGGER_KINDS: Final[dict[ErrorTrackingPlatformAlertTrigger, str]] = {
-    ErrorTrackingPlatformAlertTrigger.ISSUE_CREATED: ErrorTrackingIssueChange.Kind.CREATED,
-    ErrorTrackingPlatformAlertTrigger.ISSUE_REOPENED: ErrorTrackingIssueChange.Kind.STATUS_CHANGED,
-    ErrorTrackingPlatformAlertTrigger.ISSUE_ASSIGNED: ErrorTrackingIssueChange.Kind.ASSIGNEE_CHANGED,
+
+# Each trigger's rows, so the read returns only changes the alert can announce.
+_TRIGGER_ROWS: Final[dict[ErrorTrackingPlatformAlertTrigger, Q]] = {
+    ErrorTrackingPlatformAlertTrigger.ISSUE_CREATED: Q(kind=ErrorTrackingIssueChange.Kind.CREATED),
+    ErrorTrackingPlatformAlertTrigger.ISSUE_REOPENED: Q(
+        kind=ErrorTrackingIssueChange.Kind.STATUS_CHANGED, snapshot__status="active"
+    )
+    & ~Q(data__previous="active"),
+    ErrorTrackingPlatformAlertTrigger.ISSUE_ASSIGNED: Q(kind=ErrorTrackingIssueChange.Kind.ASSIGNEE_CHANGED)
+    & ~Q(snapshot__assignee=None),
 }
 
 _INVALID_CONFIG: Final = "The alert's configuration is no longer valid. Edit the alert to fix it."
 
 Decision = tuple[PlatformAlertOutcome, AlertDeliveryRequest | None]
+
+
+class _OutOfTime(Exception):
+    pass
+
+
+@frozen
+class ChangeWindow:
+    """The `created_at` range one check reads, start included and end excluded."""
+
+    start: datetime
+    end: datetime
 
 
 @frozen
@@ -132,12 +157,19 @@ def evaluate_error_tracking_alert_batch(team_id: int, slot: str, cutoff: datetim
     team = Team.objects.filter(id=team_id).first()
     if team is None:
         return SourceBatchEvaluation(outcomes=(), deliveries=())
-    decided = [_evaluate(team, check, now=cutoff) for check in checks]
-    return _collect(decided, team_id=team_id, slot=slot)
+    deadline = time.monotonic() + BATCH_BUDGET_SECONDS
+    decided: list[Decision] = []
+    for check in checks:
+        if time.monotonic() >= deadline:
+            break
+        decision = _evaluate(team, check, now=cutoff, deadline=deadline)
+        if decision is not None:
+            decided.append(decision)
+    return _collect(decided, team_id=team_id, slot=slot, unrecorded=len(checks) - len(decided))
 
 
-def change_window(check: PlatformAlertCheckInput, now: datetime) -> tuple[datetime, datetime]:
-    """The `created_at` range one check reads.
+def change_window(check: PlatformAlertCheckInput, now: datetime) -> ChangeWindow:
+    """The range one check reads.
 
     It starts where the previous check's window ended, which is one interval before this check's due
     time. A check that runs late reads everything since then, so a missed tick loses no change.
@@ -145,23 +177,30 @@ def change_window(check: PlatformAlertCheckInput, now: datetime) -> tuple[dateti
     due = check.next_check_at or now
     end = now - SETTLE
     start = due - timedelta(minutes=check.check_interval_minutes) - SETTLE
-    return max(start, end - MAX_WINDOW), end
+    return ChangeWindow(start=max(start, end - MAX_WINDOW), end=end)
 
 
-def _evaluate(team: Team, check: PlatformAlertCheckInput, *, now: datetime) -> Decision:
-    start, end = change_window(check, now)
+def _evaluate(team: Team, check: PlatformAlertCheckInput, *, now: datetime, deadline: float) -> Decision | None:
+    """The check's decision, or None when it must keep its due time so a later tick reads its window again."""
+    window = change_window(check, now)
     muted = _in_quiet_hours(check, now, team.timezone)
     try:
         config = ErrorTrackingPlatformAlertConfig.model_validate(check.source_config)
-    except ValidationError:
-        # Saved through the same model, so this is a config an older version accepted.
-        return _failed(check, _INVALID_CONFIG, transient=False, end=end, now=now, muted=muted)
+        filters = _compiled_filters(team, config)
+    except (ValidationError, AlertValidationError):
+        # Saved through the same checks, so this is a config an older version accepted.
+        return _failed(check, _INVALID_CONFIG, transient=False, end=window.end, now=now, muted=muted)
     try:
-        observations, cut = _observe_changes(team, config, start, end)
-    except Exception as error:
-        classified = classify_check_error(error)
+        observations, cut = _observe_changes(team, config, filters, window, deadline=deadline)
+    except _OutOfTime:
+        return None
+    except Exception:
+        # Recording a failure would move the due time past this window, and its changes would never
+        # be read. The check stays due instead, and the overdue gauge shows one that keeps failing.
         logger.exception("Error tracking alert check failed", check_id=str(check.id))
-        return _failed(check, classified.user_message, transient=classified.is_transient, end=end, now=now, muted=muted)
+        return None
+    if cut:
+        logger.warning("Error tracking alert check read its row limit", check_id=str(check.id))
 
     decision = decide_groups(
         check,
@@ -173,7 +212,7 @@ def _evaluate(team: Team, check: PlatformAlertCheckInput, *, now: datetime) -> D
     )
     recorded = decision.as_outcome(
         configuration_id=check.id,
-        evaluation_key=_evaluation_key(check, end, now),
+        evaluation_key=_evaluation_key(check, window.end, now),
         grouping=check.grouping,
         query_duration_ms=None,
         results_cut=cut,
@@ -183,32 +222,44 @@ def _evaluate(team: Team, check: PlatformAlertCheckInput, *, now: datetime) -> D
 
 
 def _observe_changes(
-    team: Team, config: ErrorTrackingPlatformAlertConfig, start: datetime, end: datetime
+    team: Team,
+    config: ErrorTrackingPlatformAlertConfig,
+    filters: dict[str, Any] | None,
+    window: ChangeWindow,
+    *,
+    deadline: float,
 ) -> tuple[list[GroupObservation], bool]:
-    """One firing observation per issue with a matching change, newest change first, and whether rows were cut."""
+    """One firing observation per issue with a matching change, and whether the read hit its limit."""
     triggers = set(config.condition.triggers)
+    matches_trigger = Q()
+    for wanted in triggers:
+        matches_trigger |= _TRIGGER_ROWS[wanted]
+    # The newest change of each issue, so the row limit counts issues, which the group cap also counts.
     rows = list(
         ErrorTrackingIssueChange.objects.for_team(team.id)
         .filter(
-            created_at__gte=start,
-            created_at__lt=end,
-            kind__in={_TRIGGER_KINDS[trigger] for trigger in triggers},
+            matches_trigger,
+            created_at__gte=window.start,
+            created_at__lt=window.end,
             # A bulk action over many issues would announce each one, so only single changes announce.
             bulk=False,
         )
-        .order_by("-created_at")[: MAX_CHANGES_PER_CHECK + 1]
+        .order_by("issue_id", "-created_at")
+        .distinct("issue_id")[: MAX_CHANGES_PER_CHECK + 1]
     )
     cut = len(rows) > MAX_CHANGES_PER_CHECK
-    filters = _compiled_filters(team, config)
     observed: dict[str, GroupObservation] = {}
     for row in rows[:MAX_CHANGES_PER_CHECK]:
         trigger = _trigger_of(row)
-        key = bounded_grouping_key(str(row.issue_id))
-        if trigger is None or trigger not in triggers or key in observed:
+        if trigger is None or trigger not in triggers:
             continue
         inputs = _filter_inputs(team.id, row, trigger)
-        if filters is not None and not _passes(team, filters, inputs, row):
-            continue
+        if filters is not None:
+            if time.monotonic() >= deadline:
+                raise _OutOfTime
+            if not _passes(team, filters, inputs, row):
+                continue
+        key = bounded_grouping_key(str(row.issue_id))
         observed[key] = GroupObservation(
             grouping_key=key,
             current_breached=True,
@@ -253,7 +304,8 @@ def _filter_inputs(
         issue_id=str(row.issue_id),
         event=_TRIGGER_EVENTS[trigger],
         issue_name=snapshot.get("name"),
-        status=snapshot.get("status"),
+        # Display-cased, as the native producers send it, so a filter on status matches both.
+        status=status_label(snapshot["status"]) if snapshot.get("status") else None,
         severity=snapshot.get("severity"),
         assignee=assignee_property(assignee) if assignee else None,
         first_seen=snapshot.get("first_seen"),
@@ -362,8 +414,8 @@ def _request(
     )
 
 
-def _collect(decided: Sequence[Decision], *, team_id: int, slot: str) -> SourceBatchEvaluation:
-    """The batch, held to one payload. A check past the payload keeps its due time for a later tick."""
+def _collect(decided: Sequence[Decision], *, team_id: int, slot: str, unrecorded: int) -> SourceBatchEvaluation:
+    """The batch, held to one payload. A check past the payload or the budget keeps its due time for a later tick."""
     outcomes: list[PlatformAlertOutcome] = []
     deliveries: list[AlertDeliveryRequest] = []
     spent = 0
@@ -377,6 +429,12 @@ def _collect(decided: Sequence[Decision], *, team_id: int, slot: str) -> SourceB
         outcomes.append(outcome)
         if delivery is not None:
             deliveries.append(delivery)
-    if deferred:
-        logger.warning("Deferred error tracking alert checks", team_id=team_id, slot=slot, over_payload=deferred)
-    return SourceBatchEvaluation(outcomes=tuple(outcomes), deliveries=tuple(deliveries), omitted=deferred)
+    if deferred or unrecorded:
+        logger.warning(
+            "Deferred error tracking alert checks",
+            team_id=team_id,
+            slot=slot,
+            over_payload=deferred,
+            unrecorded=unrecorded,
+        )
+    return SourceBatchEvaluation(outcomes=tuple(outcomes), deliveries=tuple(deliveries), omitted=deferred + unrecorded)
