@@ -3901,6 +3901,7 @@ describe('EmailService', () => {
                 sensitive: boolean
                 send?: { sensitive: boolean }
                 teamOptedOut?: boolean
+                html?: string
                 tagged: boolean
             }>([
                 {
@@ -3920,12 +3921,13 @@ describe('EmailService', () => {
                     tagged: false,
                 },
                 {
-                    case: 'leaves the links of a team that turned link tagging off',
+                    case: 'drops the run ids of earlier sends from the links of a team that turned link tagging off',
                     trackingEnabled: true,
                     allowlisted: true,
                     isTest: false,
                     sensitive: false,
                     teamOptedOut: true,
+                    html: '<a href="https://app.posthog-test.com/?ph_workflow_run=earlier-run">b</a>',
                     tagged: false,
                 },
                 {
@@ -3972,7 +3974,7 @@ describe('EmailService', () => {
                 },
             ])(
                 '$case with the workflow run id',
-                async ({ trackingEnabled, allowlisted, isTest, sensitive, send, teamOptedOut, tagged }) => {
+                async ({ trackingEnabled, allowlisted, isTest, sensitive, send, teamOptedOut, html, tagged }) => {
                     if (teamOptedOut) {
                         await hub.postgres.query(
                             PostgresUse.COMMON_WRITE,
@@ -3991,7 +3993,8 @@ describe('EmailService', () => {
                     invocation.state.send = send && { ...send, tracking: { captureEngagement: true } }
                     invocation.queueParameters = createEmailParams({
                         from: { integrationId: 1 },
-                        html: '<a href="https://app.posthog-test.com/">a</a><a href="https://example.com/">b</a>',
+                        html:
+                            html ?? '<a href="https://app.posthog-test.com/">a</a><a href="https://example.com/">b</a>',
                     })
                     const result = await taggingService.executeSendEmail(invocation, isTest)
                     expect(result.error).toBeUndefined()
@@ -4002,7 +4005,7 @@ describe('EmailService', () => {
                 }
             )
 
-            it('sends with untagged links when the link tag lookup fails', async () => {
+            it('sends without any run id when the link tag lookup fails', async () => {
                 const teamConfigDb = await postgresThatDropsConnections(hub.DATABASE_URL, () => true)
                 const taggingService = createService(
                     { workflowRunLinkTagTeams: String(team.id) },
@@ -4017,11 +4020,10 @@ describe('EmailService', () => {
                 }
                 invocation.queueParameters = createEmailParams({
                     from: { integrationId: 1 },
-                    html: '<a href="https://example.com/">b</a>',
+                    html: '<a href="https://app.posthog-test.com/?ph_workflow_run=earlier-run">b</a>',
                 })
 
-                const result = await taggingService.executeSendEmail(invocation)
-                await teamConfigDb.close()
+                const result = await taggingService.executeSendEmail(invocation).finally(() => teamConfigDb.close())
 
                 expect(result.error).toBeUndefined()
                 expect(ses.sent).toHaveLength(1)
