@@ -591,7 +591,9 @@ def resolve_slack_user(
         # membership
         membership = (
             OrganizationMembership.objects.filter(
-                organization_id=integration.team.organization_id, user__email__iexact=slack_email
+                organization_id=integration.team.organization_id,
+                user__email__iexact=slack_email,
+                user__is_active=True,
             )
             .select_related("user")
             .first()
