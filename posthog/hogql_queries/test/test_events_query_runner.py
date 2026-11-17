@@ -1637,6 +1637,19 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 },
                 EVERY_EVENT_FROM_EVENTS,
             ),
+            # A computed event name may name flag calls, so the union refuses this subquery instead of skipping it.
+            (
+                "flag_evaluations_only_with_a_computed_event_subquery_joined_after_another_table",
+                FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
+                {
+                    "where": [
+                        "distinct_id IN (WITH concat('$page', 'view') AS n SELECT pdi.distinct_id"
+                        " FROM person_distinct_ids pdi INNER JOIN events e ON e.distinct_id = pdi.distinct_id"
+                        " WHERE e.event = n)"
+                    ]
+                },
+                EVERY_EVENT_FROM_EVENTS,
+            ),
         ]
     )
     def test_list_without_an_event_filter_merges_flag_calls_by_timestamp(

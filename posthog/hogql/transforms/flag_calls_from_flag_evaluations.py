@@ -279,9 +279,10 @@ def _resolve_with_swaps(
     *,
     every_scan: bool,
 ) -> FlagCallSwap[_T_AST] | None:
-    """With `every_scan`, returns None when the union cannot read every `events` scan of the query. The caller then
-    reads the query as if it had not opted in. A scan that stayed on events while another scan reads the union would
-    select different rows, such as the outer scan of a list that pages by `uuid IN (...)` over the inner scan."""
+    """With `every_scan`, returns None where it would otherwise raise, and when the union cannot read every `events`
+    scan of the query. The caller then reads the query as if it had not opted in. A scan that stayed on events while another scan
+    reads the union would select different rows, such as the outer scan of a list that pages by `uuid IN (...)` over
+    the inner scan."""
     only_in_flag_evaluations = context.flag_calls_only_in_flag_evaluations()
     # Deferred: flag_calls_union imports this module.
     from posthog.hogql.transforms.flag_calls_union import (  # noqa: PLC0415
@@ -305,7 +306,7 @@ def _resolve_with_swaps(
         )
         swapper.visit(rewritten)
         union = read_flag_calls_with_union(rewritten, context, compares_as_string, every_scan=every_scan)
-    if union.left_scan_on_events:
+    if union.left_scan_on_events or (every_scan and (swapper.refusals or union.refusals)):
         return None
     if only_in_flag_evaluations and swapper.refusals:
         raise flag_calls_only_in_flag_evaluations_error(swapper.refusals[0], scope)
@@ -328,6 +329,8 @@ def _resolve_with_swaps(
             None,
         )
         if refusal is not None:
+            if every_scan:
+                return None
             raise flag_calls_only_in_flag_evaluations_error(refusal, scope)
     if not swapper.swapped and not union.renamed:
         return FlagCallSwap(
