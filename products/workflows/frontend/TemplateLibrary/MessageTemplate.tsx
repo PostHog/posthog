@@ -181,7 +181,7 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
             activeKey={
                 !sendLinks && transactionalTab === 'sends'
                     ? 'runs'
-                    : !impact && transactionalTab === 'impact'
+                    : (!impact || !transactionalHogFlowId) && transactionalTab === 'impact'
                       ? 'design'
                       : transactionalTab
             }

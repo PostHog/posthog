@@ -27,7 +27,7 @@ export function ConversionEventBar(): JSX.Element {
             />
             {event && (
                 <span className="text-secondary text-sm">
-                    within {impact?.window_days ?? 7} days of the {tracked ? 'click' : 'send'}
+                    within <span>{impact?.window_days ?? 7}</span> days of the <span>{tracked ? 'click' : 'send'}</span>
                 </span>
             )}
             <LemonSelect

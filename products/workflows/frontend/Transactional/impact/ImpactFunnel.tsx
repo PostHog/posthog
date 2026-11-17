@@ -27,7 +27,10 @@ export function ImpactFunnel({ steps }: { steps: ImpactStep[] }): JSX.Element {
                         <span className="font-semibold text-base">{humanFriendlyNumber(step.value)}</span>
                     ) : step.missingDetail ? (
                         <Tooltip title={step.missingDetail}>
-                            <span className="text-xs text-secondary underline decoration-dotted cursor-help">
+                            <span
+                                tabIndex={0}
+                                className="text-xs text-secondary underline decoration-dotted cursor-help"
+                            >
                                 {step.missing}
                             </span>
                         </Tooltip>
@@ -36,8 +39,16 @@ export function ImpactFunnel({ steps }: { steps: ImpactStep[] }): JSX.Element {
                     )}
                     {step.share !== null && (
                         <span className="text-xs text-secondary">
-                            {percentage(step.share, 1)}
-                            {step.shareOf ? ` of ${step.shareOf}` : ''}
+                            <span>{percentage(step.share, 1)}</span>
+                            {step.shareOf && step.shareDetail ? (
+                                <Tooltip title={step.shareDetail}>
+                                    <span tabIndex={0} className="underline decoration-dotted cursor-help">
+                                        {` of ${step.shareOf}`}
+                                    </span>
+                                </Tooltip>
+                            ) : step.shareOf ? (
+                                <span>{` of ${step.shareOf}`}</span>
+                            ) : null}
                         </span>
                     )}
                 </li>

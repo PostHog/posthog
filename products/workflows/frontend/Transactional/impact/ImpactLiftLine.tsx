@@ -16,31 +16,39 @@ export function ImpactLiftLine(): JSX.Element | null {
     if (!tracked) {
         return lift.notClicked === null ? null : (
             <p className="text-sm m-0">
-                <strong>{percentage(lift.notClicked, 1)}</strong> of recipients did <strong>{event}</strong> within{' '}
-                {days} days of the send. Without click tracking, PostHog can't tell whether the email led there.
+                <strong>{percentage(lift.notClicked, 1)}</strong> of delivered sends were followed by{' '}
+                <strong>{event}</strong> within <span>{days}</span> days of the send. Without click tracking, PostHog
+                can't tell whether the email led there.
             </p>
         )
     }
     if (lift.clicked === null) {
         return lift.notClicked === null ? null : (
             <p className="text-sm m-0">
-                Nobody clicked in this period. <strong>{percentage(lift.notClicked, 1)}</strong> of recipients did{' '}
-                <strong>{event}</strong> within {days} days of the send.
+                <span>
+                    {impact.clicked === 0
+                        ? 'Nobody clicked in this period.'
+                        : "None of the clicks name a person, so PostHog can't follow them."}
+                </span>{' '}
+                <strong>{percentage(lift.notClicked, 1)}</strong> of sends nobody clicked were followed by{' '}
+                <strong>{event}</strong> within <span>{days}</span> days of the send.
             </p>
         )
     }
     return (
         <p className="text-sm m-0">
-            <strong>{percentage(lift.clicked, 1)}</strong> of recipients who clicked did <strong>{event}</strong> within{' '}
-            {days} days
+            <strong>{percentage(lift.clicked, 1)}</strong> of clicked sends were followed by <strong>{event}</strong>{' '}
+            within <span>{days}</span> days of the click
             {lift.notClicked !== null && (
-                <>
-                    , against <strong>{percentage(lift.notClicked, 1)}</strong> of recipients who didn't click
-                </>
+                <span>
+                    , against <strong>{percentage(lift.notClicked, 1)}</strong> of sends nobody clicked
+                </span>
             )}
             .{' '}
-            <Tooltip title="People who click are often more likely to convert anyway, so the email may not be what caused it. Recipients who didn't click count from the send.">
-                <span className="text-secondary underline decoration-dotted cursor-help">How to read this</span>
+            <Tooltip title="People who click are often more likely to convert anyway, so the email may not be what caused it. Sends nobody clicked count from the send.">
+                <span tabIndex={0} className="text-secondary underline decoration-dotted cursor-help">
+                    How to read this
+                </span>
             </Tooltip>
         </p>
     )

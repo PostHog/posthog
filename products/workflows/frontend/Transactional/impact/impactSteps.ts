@@ -1,3 +1,5 @@
+import { humanFriendlyNumber } from 'lib/utils/numbers'
+
 import type { TransactionalEmailImpactApi } from 'products/messaging/frontend/generated/api.schemas'
 
 export type ImpactStepKey = 'sent' | 'delivered' | 'opened' | 'clicked' | 'session' | 'converted'
@@ -13,6 +15,7 @@ export interface ImpactStep {
     share: number | null
     /** Names the step `share` compares to, when it isn't the one before. */
     shareOf?: string
+    shareDetail?: string
 }
 
 export interface ImpactLift {
@@ -40,7 +43,8 @@ export function clicksTracked(impact: TransactionalEmailImpactApi): boolean {
     return !(impact.delivered > 0 && impact.opened === 0 && impact.clicked === 0)
 }
 
-export function impactSteps(impact: TransactionalEmailImpactApi, event: string | null, tracked: boolean): ImpactStep[] {
+export function impactSteps(impact: TransactionalEmailImpactApi, event: string | null): ImpactStep[] {
+    const tracked = clicksTracked(impact)
     const notTracked = { value: null, share: null, missing: 'Not tracked', missingDetail: NOT_TRACKED_DETAIL }
     const steps: ImpactStep[] = [
         { key: 'sent', label: 'Sent', value: impact.sent, share: null },
@@ -48,9 +52,7 @@ export function impactSteps(impact: TransactionalEmailImpactApi, event: string |
         tracked
             ? { key: 'opened', label: 'Opened', value: impact.opened, share: share(impact.opened, impact.delivered) }
             : { key: 'opened', label: 'Opened', ...notTracked },
-        tracked
-            ? { key: 'clicked', label: 'Clicked', value: impact.clicked, share: share(impact.clicked, impact.opened) }
-            : { key: 'clicked', label: 'Clicked', ...notTracked },
+        tracked ? clickedStep(impact) : { key: 'clicked', label: 'Clicked', ...notTracked },
         tracked
             ? {
                   key: 'session',
@@ -71,11 +73,30 @@ export function impactSteps(impact: TransactionalEmailImpactApi, event: string |
                   label: event,
                   value: conversions.converted,
                   share: share(conversions.converted, conversions.sends),
-                  shareOf: tracked ? 'clicked' : 'delivered',
+                  ...conversionBase(conversions.sends, tracked ? impact.clicked : impact.delivered, tracked),
               }
             : { key: 'converted', label: 'Converted', value: null, share: null, missing: 'Pick an event' }
     )
     return steps
+}
+
+/** Opens and clicks are counted apart, and a click with images blocked records no open, so clicks can outnumber opens. */
+function clickedStep(impact: TransactionalEmailImpactApi): ImpactStep {
+    const step = { key: 'clicked', label: 'Clicked', value: impact.clicked } as const
+    return impact.clicked > impact.opened
+        ? { ...step, share: share(impact.clicked, impact.delivered), shareOf: 'delivered' }
+        : { ...step, share: share(impact.clicked, impact.opened) }
+}
+
+function conversionBase(followed: number, of: number, tracked: boolean): Pick<ImpactStep, 'shareOf' | 'shareDetail'> {
+    const step = tracked ? 'clicked' : 'delivered'
+    if (followed >= of) {
+        return { shareOf: step }
+    }
+    return {
+        shareOf: `${humanFriendlyNumber(followed)} followed`,
+        shareDetail: `PostHog follows the sends that name a person, and only the most recent ones on a busy email, so this counts ${humanFriendlyNumber(followed)} of ${humanFriendlyNumber(of)} ${step} sends.`,
+    }
 }
 
 export function impactLift(impact: TransactionalEmailImpactApi): ImpactLift | null {

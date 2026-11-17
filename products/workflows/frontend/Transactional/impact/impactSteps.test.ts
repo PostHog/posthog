@@ -28,8 +28,8 @@ describe('impactSteps', () => {
         expect(clicksTracked(data)).toBe(expected)
     })
 
-    it('ends with the conversion event as a share of the clicked sends that named a person', () => {
-        const steps = impactSteps(impact, 'plan upgraded', true)
+    it('ends with the conversion event as a share of the clicked sends it could follow', () => {
+        const steps = impactSteps(impact, 'plan upgraded')
 
         expect(steps.map((step) => [step.label, step.value, step.share, step.missing])).toEqual([
             ['Sent', 100, null, undefined],
@@ -39,20 +39,30 @@ describe('impactSteps', () => {
             ['Started a session', null, null, 'Needs link tagging'],
             ['plan upgraded', 4, 0.25, undefined],
         ])
-        expect(steps[5].shareOf).toBe('clicked')
+        expect(steps[5]).toMatchObject({ shareOf: '16 followed', shareDetail: expect.stringContaining('16 of 20') })
+        expect(impactSteps({ ...impact, after_click: { sends: 20, converted: 4 } }, 'plan upgraded')[5]).toMatchObject({
+            share: 0.2,
+            shareOf: 'clicked',
+        })
+    })
+
+    it('compares clicks to delivered when they outnumber opens', () => {
+        const steps = impactSteps({ ...impact, opened: 10 }, 'plan upgraded')
+
+        expect(steps[3]).toMatchObject({ value: 20, share: 20 / 90, shareOf: 'delivered' })
     })
 
     it('asks for an event until one is picked', () => {
-        const steps = impactSteps({ ...impact, after_click: null, without_click: null }, null, true)
+        const steps = impactSteps({ ...impact, after_click: null, without_click: null }, null)
 
         expect(steps[5]).toMatchObject({ label: 'Converted', value: null, missing: 'Pick an event' })
     })
 
     it('counts conversions from the send against delivered when clicks are not tracked', () => {
-        const steps = impactSteps(untracked, 'plan upgraded', false)
+        const steps = impactSteps({ ...untracked, without_click: { sends: 90, converted: 1 } }, 'plan upgraded')
 
         expect(steps.slice(2, 5).map((step) => step.missing)).toEqual(['Not tracked', 'Not tracked', 'Not tracked'])
-        expect(steps[5]).toMatchObject({ value: 1, share: 1 / 50, shareOf: 'delivered' })
+        expect(steps[5]).toMatchObject({ value: 1, share: 1 / 90, shareOf: 'delivered' })
     })
 
     it('compares clicked against not clicked, and leaves out a side with no sends', () => {
