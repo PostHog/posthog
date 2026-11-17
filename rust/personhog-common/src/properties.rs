@@ -22,7 +22,7 @@ use serde_json::Value;
 
 /// Every pass over a parsed document recurses once per level, so this
 /// must stay within what a 2 MiB worker stack can carry.
-pub const MAX_JSON_DEPTH: usize = 1024;
+pub const MAX_JSON_DEPTH: usize = 512;
 
 fn json_nesting_depth(bytes: &[u8]) -> usize {
     let mut depth = 0usize;
@@ -623,16 +623,9 @@ mod tests {
     use super::*;
     use serde_json::json;
 
+    // The parser uses the most stack when the nesting is not an object's first member.
     fn nested(depth: usize) -> String {
-        let mut text = String::new();
-        for level in 0..depth {
-            text.push_str(if level % 2 == 0 { "{\"a\":" } else { "[" });
-        }
-        text.push('1');
-        for level in (0..depth).rev() {
-            text.push_str(if level % 2 == 0 { "}" } else { "]" });
-        }
-        text
+        format!("{}1{}", "{\"a\":0,\"z\":".repeat(depth), "}".repeat(depth))
     }
 
     #[test]
@@ -666,7 +659,7 @@ mod tests {
     #[test]
     fn a_document_at_the_depth_cap_fits_a_worker_stack() {
         let text = format!(
-            r#"{{"custom":{},"email":"user@example.com"}}"#,
+            r#"{{"email":"user@example.com","custom":{}}}"#,
             nested(MAX_JSON_DEPTH - 1)
         );
         std::thread::Builder::new()
