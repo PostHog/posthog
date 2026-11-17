@@ -485,13 +485,14 @@ class TestRecomputeEmailSendingTiers(BaseTest):
 
     @parameterized.expand(
         [
-            ("sending", 5, {"workflow_emails": 7}),
-            ("before its first send", 0, {"workflow_emails": 7}),
-            ("paid only for another product", 5, {"workflow_emails": 0, "product_analytics": 7}),
+            ("sending", 5, {"workflow_emails": 7}, 3),
+            ("before its first send", 0, {"workflow_emails": 7}, 3),
+            ("paid only for another product", 5, {"workflow_emails": 0, "product_analytics": 7}, 3),
+            ("scored only on a credit product", 5, {"product_analytics": 3, "ai_credits": 7}, 0),
         ]
     )
     def test_sweep_lifts_an_established_paying_account_to_the_trusted_floor(
-        self, _name: str, sent: int, trust_scores: dict[str, int]
+        self, _name: str, sent: int, trust_scores: dict[str, int], expected_tier: int
     ) -> None:
         self.organization.has_active_subscription = True
         self.organization.customer_trust_scores = trust_scores
@@ -507,9 +508,14 @@ class TestRecomputeEmailSendingTiers(BaseTest):
             {self.team.id: history(team_id=self.team.id, sent=sent, daily_sends=clean_days(1, sent))} if sent else {}
         )
 
-        assert TeamWorkflowsConfig.objects.get(team=self.team).email_sending_tier == 3
-        entry = ActivityLog.objects.get(scope="Team", team_id=self.team.id, activity="email_sending_tier_changed")
-        assert (entry.detail or {})["context"] == {"reason": "trusted_account"}
+        assert TeamWorkflowsConfig.objects.get(team=self.team).email_sending_tier == expected_tier
+        reasons = [
+            (entry.detail or {})["context"]["reason"]
+            for entry in ActivityLog.objects.filter(
+                scope="Team", team_id=self.team.id, activity="email_sending_tier_changed"
+            )
+        ]
+        assert reasons == (["trusted_account"] if expected_tier else [])
 
     @parameterized.expand(
         [

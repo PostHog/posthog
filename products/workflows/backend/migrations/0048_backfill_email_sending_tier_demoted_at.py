@@ -1,5 +1,5 @@
 from django.db import migrations
-from django.db.models import Max
+from django.db.models import F, Max
 from django.db.models.functions import Coalesce, Now
 
 BATCH_SIZE = 500
@@ -11,8 +11,9 @@ def stamp_past_suspensions(apps, schema_editor):
     TeamWorkflowsConfig = apps.get_model("workflows", "TeamWorkflowsConfig")
     ActivityLog = apps.get_model("posthog", "ActivityLog")
 
-    candidates = TeamWorkflowsConfig.objects.filter(
-        email_sending_tier_demoted_at__isnull=True, email_sending_suspended_at__isnull=True
+    candidates = TeamWorkflowsConfig.objects.filter(email_sending_tier_demoted_at__isnull=True)
+    candidates.filter(email_sending_suspended_at__isnull=False).update(
+        email_sending_tier_demoted_at=F("email_sending_suspended_at")
     )
     team_ids = list(candidates.values_list("team_id", flat=True).order_by("team_id"))
     for start in range(0, len(team_ids), BATCH_SIZE):

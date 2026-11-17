@@ -132,9 +132,19 @@ class AccountTrust:
 
     @classmethod
     def from_organization(cls, organization: Organization) -> "AccountTrust":
+        from ee.billing.quota_limiting import (  # noqa: PLC0415 — keeps the quota limiting stack off the import path
+            GRACE_PERIOD_EXEMPT_RESOURCES,
+        )
+
         # Billing scores each product separately, and a team on tier 0 cannot send enough to be billed
-        # for workflow email, so a payment for any product counts.
-        scores = [score for score in (organization.customer_trust_scores or {}).values() if isinstance(score, int)]
+        # for workflow email, so a payment for any product counts. Billing can score a credit product
+        # from a default spend limit with no payment behind it, so those do not count.
+        credit_resources = {resource.value for resource in GRACE_PERIOD_EXEMPT_RESOURCES}
+        scores = [
+            score
+            for product, score in (organization.customer_trust_scores or {}).items()
+            if product not in credit_resources and isinstance(score, int)
+        ]
         return cls(
             has_active_subscription=organization.has_active_subscription,
             highest_trust_score=max(scores, default=None),
