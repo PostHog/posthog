@@ -17,6 +17,7 @@ from products.alerts_platform.backend.facade import testing as platform_testing
 from products.alerts_platform.backend.facade.api import delete_source_destination_rows, list_alert_destinations
 from products.alerts_platform.backend.facade.contracts import AlertEventKind
 from products.alerts_platform.backend.facade.enums import PlatformAlertOwner
+from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cdp.backend.templates.fixtures import template_slack
 from products.cdp.backend.templates.hog_function_template import sync_template_to_db
@@ -24,6 +25,7 @@ from products.logs.backend.models import LogsAlertConfiguration
 from products.logs.backend.platform_cutover import NATIVE_CREATE_FLAG
 
 SLACK = {"type": "slack", "slack_workspace_id": 42, "slack_channel_id": "C123", "slack_channel_name": "alerts"}
+WEBHOOK = {"type": "webhook", "webhook_url": "https://example.com/hook"}
 
 
 class TestConvertLogsAlertDestinations(APIBaseTest):
@@ -120,6 +122,42 @@ class TestConvertLogsAlertDestinations(APIBaseTest):
 
         assert "no HogFunction destinations" in again
         assert [r.id for r in self._rows(alert_id)] == [row.id]
+
+    def test_a_webhook_on_an_alert_held_on_hog_functions_keeps_the_legacy_body_it_was_sent(self) -> None:
+        HogFunctionTemplate.objects.get_or_create(
+            template_id="template-webhook",
+            defaults={
+                "sha": "1.0.0",
+                "name": "Webhook",
+                "code": "return event",
+                "code_language": "hog",
+                "inputs_schema": [{"key": "url", "type": "string"}, {"key": "body", "type": "json"}],
+                "type": "destination",
+                "status": "stable",
+            },
+        )
+        held_alert, slack_ids = self._alert_with_slack(name="Held by its Slack")
+        native_alert, _ = self._alert_with_slack(name="Native")
+        for alert_id in (held_alert, native_alert):
+            created = self.client.post(f"{self.base_url}{alert_id}/destinations/", WEBHOOK, format="json")
+            assert created.status_code == status.HTTP_201_CREATED, created.json()
+        edited = self.client.patch(
+            f"/api/projects/{self.team.pk}/hog_functions/{slack_ids[0]}/",
+            {"hog": "fetch('https://relay.example.com')"},
+            format="json",
+        )
+        assert edited.status_code == status.HTTP_200_OK, edited.json()
+
+        self._run("--apply")
+
+        assert {row.data["type"]: row.keeps_legacy_webhook_body for row in self._rows(held_alert)} == {
+            "slack": False,
+            "webhook": True,
+        }
+        assert {row.data["type"]: row.keeps_legacy_webhook_body for row in self._rows(native_alert)} == {
+            "slack": False,
+            "webhook": False,
+        }
 
     def test_customized_groups_firing_alerts_and_alerts_the_logs_stack_owns_keep_their_hog_functions(self) -> None:
         customized_alert, customized_ids = self._alert_with_slack()
