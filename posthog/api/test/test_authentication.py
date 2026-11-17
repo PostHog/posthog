@@ -832,11 +832,11 @@ class TestLoginRadar(APIBaseTest):
     def test_radar_gets_the_stored_address_when_the_typed_one_is_a_variant(self, mock_call_api):
         with override_instance_config("WORKOS_RADAR_LOGIN_MODE", "shadow"):
             response = self.client.post(
-                "/api/login", {"email": self.CONFIG_EMAIL.upper(), "password": self.CONFIG_PASSWORD}
+                "/api/login", {"email": self.user.email.upper(), "password": self.CONFIG_PASSWORD}
             )
 
         assert response.status_code == status.HTTP_200_OK
-        assert mock_call_api.call_args[1]["email"] == self.CONFIG_EMAIL
+        assert mock_call_api.call_args[1]["email"] == self.user.email
 
     @patch("posthog.workos_radar._call_radar_api", return_value=RadarVerdict.BLOCK)
     def test_reauth_from_a_signed_in_session_skips_radar(self, mock_call_api):
