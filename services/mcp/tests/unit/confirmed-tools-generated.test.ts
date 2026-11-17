@@ -38,7 +38,6 @@ const confirmedEmail = {
     capture_engagement: false,
 }
 
-// Prepared by a build whose `workflows-send-email` input schema differs from this one's, with the codec the test sets.
 const SEND_EMAIL_CONFIRMATION_FROM_OLDER_SCHEMA = {
     hash: 'eyJhbGciOiJIUzI1NiIsInR5cCI6Ik1DUC1TSUdORUQtU1RBVEUifQ.eyJwYXlsb2FkIjp7ImRpZ2VzdCI6ImJmMmNlZTcwODNiMjNiOTQ1YzMwODExMTlmZjE4ZjVhOTU4MWQ1YmNiMzkzYWQ1YmMwNzcyZjZmOWY5YTRhZWQifSwic3ViIjoidGVzdC1kaXN0aW5jdC1pZCIsImF1ZCI6IndvcmtmbG93cy1zZW5kLWVtYWlsQDZkZWQyY2MwOTYyZmQyNDAiLCJpYXQiOjE3MDAwMDAwMDAsImV4cCI6MTcwMDAwMDMwMCwianRpIjoibm9uY2UtZml4ZWQifQ.cymNk3iDfbQPDR-oVP1AOHjZjCRptl473TV6L6ZLuP8',
     stash: {
@@ -127,7 +126,7 @@ describe('Generated confirmed tools', () => {
 
             expect(result).toMatchObject({
                 isError: true,
-                content: [{ text: expect.stringContaining('Run the prepare step again') }],
+                content: [{ text: expect.stringContaining('by a different version of this tool') }],
             })
             expect(received).toEqual([])
         } finally {
