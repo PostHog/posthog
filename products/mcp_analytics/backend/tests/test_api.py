@@ -702,6 +702,23 @@ class TestGenerateIntentDigest(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestM
         assert result == contracts.IntentDigest(digest=None, intent_count=0)
         mock_summarize.assert_not_called()
 
+    def test_refused_generation_does_not_leave_a_pending_writer(self) -> None:
+        # The LLM refusal happens before the digest is cached, so it must not block an erasure.
+        self._seed_intent_event("check the signups funnel")
+        operation = uuid4()
+
+        def refuse(*_args: object, **_kwargs: object) -> None:
+            freeze_writes(self.team, invalidation_id=operation)
+            raise contracts.IntentGenerationUnavailable("AI data processing is not approved for this organization")
+
+        with (
+            patch.object(intent_generation, "summarize_project_intents", side_effect=refuse),
+            self.assertRaises(contracts.IntentGenerationUnavailable),
+        ):
+            api.generate_intent_digest(self.team)
+
+        assert not has_pending_registered_writers(self.team, invalidation_id=operation)
+
     def test_generates_then_serves_from_cache_for_same_corpus(self) -> None:
         cache.clear()
         self._seed_intent_event("check the signups funnel")
@@ -1211,6 +1228,25 @@ class TestGenerateSessionIntent(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTest
         )
         if freeze_during_inference:
             assert not has_pending_registered_writers(self.team, invalidation_id=operation)
+
+    def test_refused_generation_does_not_leave_a_pending_writer(self) -> None:
+        # The LLM refusal happens before the summary is persisted, so it must not block an erasure.
+        session_id = str(uuid7())
+        self._seed_intent_event(session_id, "check the signups funnel")
+        operation = uuid4()
+
+        def refuse(*_args: object, **_kwargs: object) -> str:
+            freeze_writes(self.team, invalidation_id=operation)
+            raise contracts.IntentGenerationUnavailable("AI data processing is not approved for this organization")
+
+        with (
+            patch.object(intent_generation, "summarize_intents", side_effect=refuse),
+            self.assertRaises(contracts.IntentGenerationUnavailable),
+        ):
+            api.generate_session_intent(self.team, session_id=session_id)
+
+        assert not has_pending_registered_writers(self.team, invalidation_id=operation)
+        assert not MCPSession.objects.filter(team=self.team, session_id=session_id).exists()
 
     def test_second_call_returns_persisted_without_regenerating(self) -> None:
         session_id = str(uuid7())

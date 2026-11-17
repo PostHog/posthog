@@ -570,7 +570,9 @@ def generate_session_intent(team: Team, session_id: str, date_from: datetime | N
     ``date_from`` bounds the event scan; the UI passes the session's start (the same bound
     ``list_mcp_tool_calls`` uses) so any listed session stays summarisable.
     """
-    with registered_intent_writer(team, purpose="session_intent"):
+    with registered_intent_writer(
+        team, purpose="session_intent", no_write_errors=(contracts.IntentGenerationUnavailable,)
+    ):
         existing = MCPSession.objects.filter(team=team, session_id=session_id).values_list("intent", flat=True).first()
         if existing:
             return existing
@@ -631,7 +633,9 @@ def generate_intent_digest(team: Team) -> contracts.IntentDigest:
     A project with no recorded intents returns a null digest without an LLM call. Raises
     ``contracts.IntentGenerationUnavailable`` if the LLM is unreachable.
     """
-    with registered_intent_writer(team, purpose="intent_digest"):
+    with registered_intent_writer(
+        team, purpose="intent_digest", no_write_errors=(contracts.IntentGenerationUnavailable,)
+    ):
         intents = intent_generation.fetch_recent_project_intents(team)
         if not intents:
             return contracts.IntentDigest(digest=None, intent_count=0)
