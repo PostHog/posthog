@@ -11,9 +11,28 @@ import {
  * array results the array is wrapped as `{ results, _posthogUrl }` — spreading an array into
  * an object (`{ ...arr }`) would otherwise corrupt it into `{ 0: …, 1: …, _posthogUrl: … }`.
  */
+type ResultProject = { _project?: { id: string; name: string } }
 export type WithPostHogUrl<T = unknown> = T extends readonly (infer U)[]
-    ? { results: U[]; _posthogUrl: string }
-    : T & { _posthogUrl: string }
+    ? { results: U[]; _posthogUrl: string } & ResultProject
+    : T & { _posthogUrl: string } & ResultProject
+
+export const MCP_RESULT_PROJECT_FLAG = 'mcp-result-project'
+
+/** The project that a list result came from, as a field to spread into it. Empty when the flag is off. */
+export async function resultProject(context: Context): Promise<ResultProject> {
+    if (context.featureFlags?.[MCP_RESULT_PROJECT_FLAG] !== true) {
+        return {}
+    }
+    const [id, project] = await Promise.all([
+        context.stateManager.getProjectId(),
+        context.stateManager.getCachedOrFetchProject().catch(() => undefined),
+    ])
+    return project?.name ? { _project: { id: String(id), name: project.name } } : {}
+}
+
+function isListResult(result: unknown): boolean {
+    return typeof result === 'object' && result !== null && Array.isArray((result as { results?: unknown }).results)
+}
 
 /** Adds _posthogUrl to a result. Wraps raw arrays in `{ results, _posthogUrl }` (see type above). */
 export async function withPostHogUrl<T>(context: Context, result: T, path: string): Promise<WithPostHogUrl<T>> {
@@ -23,10 +42,16 @@ export async function withPostHogUrl<T>(context: Context, result: T, path: strin
     const fullUrl = `${baseUrl}${path}`
 
     if (Array.isArray(result)) {
-        return { results: result, _posthogUrl: fullUrl } as unknown as WithPostHogUrl<T>
+        return {
+            results: result,
+            _posthogUrl: fullUrl,
+            ...(await resultProject(context)),
+        } as unknown as WithPostHogUrl<T>
     }
 
-    return { ...result, _posthogUrl: fullUrl } as WithPostHogUrl<T>
+    // A row of a list also passes through here, so only the list itself names its project.
+    const project = isListResult(result) ? await resultProject(context) : {}
+    return { ...result, _posthogUrl: fullUrl, ...project } as WithPostHogUrl<T>
 }
 
 /**

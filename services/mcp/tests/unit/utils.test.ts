@@ -7,6 +7,7 @@ import {
     pickResponseFields,
     stripNullFields,
     withInformationalResponse,
+    MCP_RESULT_PROJECT_FLAG,
     withPostHogUrl,
     withTextProjection,
 } from '@/tools/tool-utils'
@@ -540,6 +541,20 @@ describe('utils', () => {
             const arr = [{ id: 1 }, { id: 2 }]
             const result = await withPostHogUrl(context, arr, '/inbox')
             expect(result).toEqual({ results: [{ id: 1 }, { id: 2 }], _posthogUrl: 'https://app/project/42/inbox' })
+        })
+
+        it.each([
+            ['a raw array', [{ id: 1 }], true, { id: '42', name: 'Shop' }],
+            ['a list envelope', { results: [], count: 0 }, true, { id: '42', name: 'Shop' }],
+            ['one row of a list', { id: 1 }, true, undefined],
+            ['a list with the flag off', { results: [] }, false, undefined],
+        ])('names the project on %s', async (_label, input, flagOn, expected) => {
+            const flagged = {
+                ...context,
+                featureFlags: { [MCP_RESULT_PROJECT_FLAG]: flagOn },
+                stateManager: { getProjectId: async () => 42, getCachedOrFetchProject: async () => ({ name: 'Shop' }) },
+            } as unknown as Context
+            expect((await withPostHogUrl(flagged, input, '/x'))._project).toEqual(expected)
         })
 
         it('does not corrupt the array into numeric-keyed object fields', async () => {

@@ -158,6 +158,8 @@ export type Context = {
      * stateManager when not provided.
      */
     trackEvent: (event: AnalyticsEvent, properties?: Record<string, unknown>) => Promise<void>
+    /** The caller's evaluated feature flags, for a handler that changes its result under a flag. */
+    featureFlags?: Record<string, string | boolean | undefined>
     /**
      * Which PostHog connection this context runs through, when it runs through one at all. Set only
      * by the forwarded context (see lib/connection-forwarding.ts); absent on a local call.

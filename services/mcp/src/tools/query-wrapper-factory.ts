@@ -2,6 +2,7 @@ import { z } from 'zod'
 
 import { type TraceDetail, compactTraceResponse } from '@/lib/trace-compaction'
 import { redactTraceResults } from '@/lib/trace-redaction'
+import { resultProject } from '@/tools/tool-utils'
 import {
     POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY,
     POSTHOG_META_KEY,
@@ -244,6 +245,7 @@ export function createQueryWrapper<T extends ZodObjectAny>(config: QueryWrapperC
             // `trendsFilter.display`.
             const response = {
                 _posthogUrl: buildInsightUrl('InsightVizNode', query, baseUrl, config.urlPrefix),
+                ...(await resultProject(context)),
                 query,
                 results: isTraceQuery ? redactTraceResults(data.results) : data.results,
                 // Table queries (e.g. WebStatsTableQuery) return positional rows, so the
