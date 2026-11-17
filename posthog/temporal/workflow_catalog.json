@@ -50,6 +50,11 @@
     "task_queues": "AEO_TASK_QUEUE"
   },
   {
+    "temporal_workflow_type": "agent-egress-probe",
+    "product": "tasks",
+    "task_queues": "TASKS_TASK_QUEUE"
+  },
+  {
     "temporal_workflow_type": "ai-observability-trace-summary",
     "product": "ai_observability",
     "task_queues": "LLMA_TASK_QUEUE"
@@ -911,6 +916,16 @@
   },
   {
     "temporal_workflow_type": "mcpa-intent-clustering-coordinator",
+    "product": "temporal/mcp_analytics",
+    "task_queues": "MCPA_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "mcpa-intent-topics",
+    "product": "temporal/mcp_analytics",
+    "task_queues": "MCPA_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "mcpa-intent-topics-coordinator",
     "product": "temporal/mcp_analytics",
     "task_queues": "MCPA_TASK_QUEUE"
   },
