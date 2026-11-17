@@ -7,7 +7,12 @@ from django.test import override_settings
 
 from parameterized import parameterized
 
-from posthog.schema import DataWarehouseEventsModifier, HogQLQueryModifiers
+from posthog.schema import (
+    DatabaseSchemaQuery,
+    DatabaseSchemaQueryResponse,
+    DataWarehouseEventsModifier,
+    HogQLQueryModifiers,
+)
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
@@ -23,6 +28,8 @@ from posthog.hogql.errors import QueryError
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.query import create_default_modifiers_for_team
+
+from posthog.api.services.query import process_query_model
 
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.data_tools.backend.models.join import DataWarehouseJoin
@@ -230,10 +237,25 @@ class TestModelsNamespaceDualRegistration(BaseTest):
         assert database.has_table(qualified_name) is resolves
         if resolves:
             assert database.get_table(qualified_name) is database.get_table(stored_name)
-        assert database.get_view_names().count(stored_name) == 1
-        assert qualified_name not in database.get_view_names()
+        listed_name, unlisted_name = (qualified_name, stored_name) if resolves else (stored_name, qualified_name)
+        assert database.get_view_names().count(listed_name) == 1
+        assert unlisted_name not in database.get_view_names()
+        serialized = database.serialize(HogQLContext(team_id=self.team.pk, database=database), include_fields=False)
+        assert serialized[listed_name].name == listed_name
+        assert unlisted_name not in serialized
+        for requested in (stored_name, listed_name):
+            partial = database.serialize(
+                HogQLContext(team_id=self.team.pk, database=database), include_only={requested}
+            )
+            assert list(partial) == [listed_name]
+        hydrated = cast(
+            DatabaseSchemaQueryResponse, process_query_model(self.team, DatabaseSchemaQuery(tables=[listed_name]))
+        )
+        assert list(hydrated.tables) == [listed_name]
         assert qualified_name not in database.get_all_table_names()
         assert qualified_name not in database.tables.resolve_visible_table_names()
+        assert listed_name in database.get_visible_table_names()
+        assert unlisted_name not in database.get_visible_table_names()
 
     def test_the_models_name_reaches_the_model_when_a_warehouse_table_holds_the_bare_name(self) -> None:
         credential = DataWarehouseCredential.objects.create(access_key="key", access_secret="secret", team=self.team)
@@ -243,13 +265,20 @@ class TestModelsNamespaceDualRegistration(BaseTest):
             team=self.team,
             credential=credential,
             url_pattern="https://bucket.s3/data/*",
-            columns={"id": {"hogql": "StringDatabaseField", "clickhouse": "Nullable(String)", "schema_valid": True}},
+            columns={
+                "table_only": {"hogql": "StringDatabaseField", "clickhouse": "Nullable(String)", "schema_valid": True}
+            },
         )
         self._create("revenue")
 
         database = Database.create_for(team=self.team)
 
         assert isinstance(database.get_table("models.revenue"), SavedQuery)
+        assert "revenue" in database.get_warehouse_table_names()
+        assert database.get_view_names() == ["models.revenue"]
+        assert {"revenue", "models.revenue"} <= set(database.get_visible_table_names())
+        serialized = database.serialize(HogQLContext(team_id=self.team.pk, database=database))
+        assert list(serialized["models.revenue"].fields) == ["id"]
 
     def test_a_stored_models_name_wins_over_a_derived_one(self) -> None:
         legacy = self._create("arr", query="SELECT 'legacy' AS id")
@@ -259,7 +288,7 @@ class TestModelsNamespaceDualRegistration(BaseTest):
 
         assert cast(SavedQuery, database.get_table("models.arr")).id == str(stored.id)
         assert cast(SavedQuery, database.get_table("arr")).id == str(legacy.id)
-        assert "models.arr" in database.get_view_names()
+        assert sorted(database.get_view_names()) == ["arr", "models.arr"]
 
     def test_a_stored_model_nested_under_a_derived_name_does_not_hide_it(self) -> None:
         revenue = self._create("revenue")

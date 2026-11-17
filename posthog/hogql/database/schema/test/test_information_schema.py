@@ -647,13 +647,17 @@ class TestInformationSchema(ClickhouseTestMixin, APIBaseTest):
         # misclassified as posthog/data_warehouse), descriptions wired onto them later never reach the AI.
         self._create_saved_query_view(name="revenue_view")
         response = execute_hogql_query(
-            "SELECT table_type, table_schema FROM system.information_schema.tables WHERE table_name = 'revenue_view'",
+            "SELECT table_type, table_schema FROM system.information_schema.tables WHERE table_name = 'models.revenue_view'",
             team=self.team,
         )
         results = response.results or []
         assert len(results) == 1
         assert results[0][0] == "view"
         assert results[0][1] == "views"
+        bare = execute_hogql_query(
+            "SELECT 1 FROM system.information_schema.tables WHERE table_name = 'revenue_view'", team=self.team
+        )
+        assert bare.results == []
 
     def test_saved_query_view_columns_appear_with_types(self):
         # The view's columns (built from the model's `columns` JSONField via `hogql_definition`) must be
@@ -663,7 +667,7 @@ class TestInformationSchema(ClickhouseTestMixin, APIBaseTest):
         response = execute_hogql_query(
             """
             SELECT column_name, data_type FROM system.information_schema.columns
-            WHERE table_name = 'revenue_view'
+            WHERE table_name = 'models.revenue_view'
             """,
             team=self.team,
         )
@@ -695,7 +699,7 @@ class TestInformationSchema(ClickhouseTestMixin, APIBaseTest):
 
         table_rows = (
             execute_hogql_query(
-                "SELECT description FROM system.information_schema.tables WHERE table_name = 'revenue_view'",
+                "SELECT description FROM system.information_schema.tables WHERE table_name = 'models.revenue_view'",
                 team=self.team,
             ).results
             or []
@@ -705,7 +709,7 @@ class TestInformationSchema(ClickhouseTestMixin, APIBaseTest):
 
         column_rows = (
             execute_hogql_query(
-                "SELECT column_name, description FROM system.information_schema.columns WHERE table_name = 'revenue_view'",
+                "SELECT column_name, description FROM system.information_schema.columns WHERE table_name = 'models.revenue_view'",
                 team=self.team,
             ).results
             or []
@@ -723,7 +727,7 @@ class TestInformationSchema(ClickhouseTestMixin, APIBaseTest):
         self._create_saved_query_view(name="revenue_view_materialized", table=backing, is_materialized=True)
         response = execute_hogql_query(
             "SELECT table_type, row_count FROM system.information_schema.tables "
-            "WHERE table_name = 'revenue_view_materialized'",
+            "WHERE table_name = 'models.revenue_view_materialized'",
             team=self.team,
         )
         results = response.results or []

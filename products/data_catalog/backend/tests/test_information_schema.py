@@ -268,7 +268,7 @@ class TestInformationSchemaCertificationsAndRelationships(ClickhouseTestMixin, A
 
         response = execute_hogql_query(
             "SELECT table_type, certification FROM system.information_schema.tables "
-            "WHERE table_name = 'certified_view'",
+            "WHERE table_name = 'models.certified_view'",
             team=self.team,
             context=self._context(),
         )
@@ -351,11 +351,12 @@ class TestInformationSchemaCertificationsAndRelationships(ClickhouseTestMixin, A
         certify(propose_certification(team=self.team, user=self.user, saved_query_id=str(view.id)), self.user)
 
         response = execute_hogql_query(
-            "SELECT table_type, certification FROM system.information_schema.tables WHERE table_name = 'orders'",
+            "SELECT table_name, table_type, certification FROM system.information_schema.tables "
+            "WHERE table_name IN ('orders', 'models.orders') ORDER BY table_name",
             team=self.team,
             context=self._context(),
         )
-        assert response.results == [("data_warehouse", None)]
+        assert response.results == [("models.orders", "view", "certified"), ("orders", "data_warehouse", None)]
 
     def test_columns_query_does_not_load_unrelated_catalog_models(self) -> None:
         with CaptureQueriesContext(connection) as queries:
