@@ -388,6 +388,8 @@ class TestErrors:
             (ScriptedResponse(json={"code": 4033, "errMsg": "Invalid access token"}), INVALID_TOKEN_ERROR),
             (ScriptedResponse(json={"code": 4031, "errMsg": "Not login"}), INVALID_TOKEN_ERROR),
             (ScriptedResponse(status=401, json={}), INVALID_TOKEN_ERROR),
+            # NewsBreak can send the vendor code with an HTTP 400 instead of 401.
+            (ScriptedResponse(status=400, json={"code": 4033, "errMsg": "Invalid access token"}), INVALID_TOKEN_ERROR),
             (ScriptedResponse(json={"code": 403, "errMsg": "Permission denied"}), PERMISSION_ERROR),
             (
                 ScriptedResponse(json={"code": -1, "errMsg": "Unknown error"}),
