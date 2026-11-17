@@ -281,12 +281,9 @@ def _is_popular(choice: PulseChoice) -> bool:
 def _with_popular(
     context: Context, excluded: Collection[str], own: list[PulseChoice], fill_popular: bool
 ) -> tuple[list[PulseChoice], int]:
-    if not fill_popular:
+    if not fill_popular or own or context.pinned or _key_metric_places(context):
         return own, 0
-    room = ROW_TILES - len(context.pinned) - (0 if own or context.pinned else _key_metric_places(context))
-    if room <= 0:
-        return own, 0
-    return [*own, *_popular_choices(context, excluded, own)], room
+    return _popular_choices(context, excluded, own), ROW_TILES
 
 
 def _popular_choices(context: Context, excluded: Collection[str], own: Sequence[PulseChoice]) -> list[PulseChoice]:
