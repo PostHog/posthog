@@ -22,8 +22,6 @@ export function isProjectSecretKey(token: string | undefined): boolean {
     return token?.startsWith(PROJECT_SECRET_KEY_PREFIX) === true
 }
 
-// The path this server answers a project secret API key on. `/mcp` refuses these keys, and this
-// path refuses every other credential.
 export const BUSINESS_KNOWLEDGE_PATH = '/business-knowledge'
 
 // `@current` resolves to the key's own project, so the key is the only thing a caller sends.
@@ -36,8 +34,7 @@ export function isBusinessKnowledgePath(pathname: string): boolean {
     return pathname === BUSINESS_KNOWLEDGE_PATH || pathname.startsWith(`${BUSINESS_KNOWLEDGE_PATH}/`)
 }
 
-// A project secret API key reads business knowledge only, so it has its own path. Returns the
-// refusal for a credential on the wrong path, or null when the pair is allowed.
+// `/mcp` refuses a project secret API key, and the business knowledge path refuses every other credential.
 export function validateCredentialForPath(token: string | undefined, request: Request): Response | null {
     const url = new URL(request.url)
     const onKnowledgePath = isBusinessKnowledgePath(url.pathname)
