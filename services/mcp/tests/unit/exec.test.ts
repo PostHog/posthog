@@ -368,6 +368,33 @@ describe('exec tool', () => {
             }
         )
 
+        it.each([
+            ['call mock-tool', { appendTimeSeriesChartData: true }, true],
+            ['call mock-tool', undefined, false],
+            ['call --json mock-tool', { appendTimeSeriesChartData: true }, false],
+        ])('for %s with options %j, appends the time series block: %s', async (command, options, appended) => {
+            const handlerResult = {
+                results: [{ data: [5, 7], days: ['2026-11-10', '2026-11-11'], label: 'signups' }],
+                [POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]: 'Date|signups\n2026-11-10|5\n2026-11-11|7',
+            }
+            const exec = createExec([makeMockTool({ handler: async () => handlerResult })], undefined, options)
+
+            const result = await exec.handler(mockContext, { command })
+
+            const block = JSON.stringify({
+                series: [
+                    {
+                        name: 'signups',
+                        data: [
+                            ['2026-11-10', 5],
+                            ['2026-11-11', 7],
+                        ],
+                    },
+                ],
+            })
+            expect((result as string).endsWith(`\n\n${block}`)).toBe(appended)
+        })
+
         it('returns raw JSON when --json flag is passed in command', async () => {
             const exec = createExec()
             const result = await exec.handler(mockContext, { command: 'call --json mock-tool' })

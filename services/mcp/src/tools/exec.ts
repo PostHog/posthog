@@ -21,6 +21,7 @@ import { isChatGptAppConnection } from '@/lib/oauth-constants'
 import type { RequestProperties } from '@/lib/request-properties'
 import { formatResponse } from '@/lib/response'
 import { API_KEY_CACHE_TTL_MS } from '@/lib/StateManager'
+import { buildTimeSeriesChartData } from '@/lib/time-series-chart-data'
 import { LearnLookupError } from '@/skills/skill-catalog'
 import { APP_DATA_META_KEY } from '@/ui-apps/types'
 
@@ -271,6 +272,7 @@ export interface ExecToolOptions {
      * re-homed onto `_meta`. Computed from the client profile at the call site.
      */
     isInlineExecUiHost?: boolean
+    appendTimeSeriesChartData?: boolean
     mcpClientName?: string | undefined
     /**
      * Resolves the caller's third-party MCP tools (see `lib/gateway-tools.ts`). Awaited
@@ -2386,6 +2388,7 @@ export function createExecTool(
                                 mcpClientName: options.mcpClientName,
                                 includeUiResponseMeta: isInlineUiAppHost,
                                 includeRenderNote: isInlineUiAppHost,
+                                appendTimeSeriesChartData: options.appendTimeSeriesChartData,
                             })
                         )
                         trackInnerCall?.(tool.name, {
@@ -2414,6 +2417,12 @@ export function createExecTool(
                         // and crowd it out — buildToolResultPayload makes the same choice for
                         // the non-exec path, this keeps exec consistent.
                         outputText = typeof formattedOverride === 'string' ? formattedOverride : formatResponse(result)
+                        const chartData = options.appendTimeSeriesChartData
+                            ? buildTimeSeriesChartData(result)
+                            : undefined
+                        if (chartData) {
+                            outputText = `${outputText}\n\n${chartData}`
+                        }
                     }
                     trackInnerCall?.(tool.name, {
                         duration_ms: durationMs,
