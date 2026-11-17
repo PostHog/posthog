@@ -124,7 +124,7 @@ class TestTaggerEvaluationPayload(SimpleTestCase):
         )
 
         result = run_hog_eval(
-            compile_ai_observability_hog(payload["evaluation_config"]["source"], "evaluation"),
+            compile_ai_observability_hog(payload["evaluation_config"]["source"], "destination"),
             GENERATION,
             output_type="categorical",
             output_config=payload["output_config"],

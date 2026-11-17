@@ -1,5 +1,6 @@
 from dataclasses import replace
 from enum import StrEnum
+from functools import partial
 from types import SimpleNamespace
 from typing import Any
 
@@ -183,8 +184,6 @@ def migrate_taggers(team: Team, *, acting_user: User) -> list[TaggerMigrationSte
             # A queryset update skips Tagger.save(), which would re-validate and recompile a config that is about to
             # stop running. So the reload the save signal sends goes out here.
             still_pending.update(enabled=False, migrated_to_evaluation_id=evaluation_id)
-            transaction.on_commit(
-                lambda tagger_id=step.tagger_id: reload_taggers_on_workers(team_id=team.pk, tagger_ids=[tagger_id])
-            )
+            transaction.on_commit(partial(reload_taggers_on_workers, team_id=team.pk, tagger_ids=[step.tagger_id]))
         results.append(replace(step, evaluation_id=evaluation_id))
     return results
