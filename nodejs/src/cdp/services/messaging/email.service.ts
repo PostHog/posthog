@@ -591,8 +591,6 @@ type EmailSendSkip = {
     blockedSendReport: 'missing_recipient' | null
 }
 
-// `error` carries what a gate threw back to the caller's error handling, with the sender when it
-// was already resolved, because a failed send's status row names the sending domain.
 type EmailSendDecision =
     | {
           kind: 'proceed'
@@ -1083,8 +1081,6 @@ export class EmailService {
         return result
     }
 
-    // The gates that run before any limit is claimed. They return what to do as data, so that
-    // executeSendEmail is the one place that writes the result, and the gate order is in one place.
     private async decideSend(
         invocation: CyclotronJobInvocationHogFunction,
         params: CyclotronInvocationQueueParametersEmailType,
