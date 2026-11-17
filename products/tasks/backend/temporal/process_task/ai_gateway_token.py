@@ -116,9 +116,6 @@ MINTABLE_PRODUCTS = frozenset(
     }
 )
 
-# Every task profile with billing_product="background_agents" needs its origin here, and the origin
-# must be in Task.SERVER_ONLY_ORIGIN_PRODUCTS. A run whose origin is missing gets no token and falls
-# back to the legacy Python gateway.
 BACKGROUND_AGENTS_ORIGINS = frozenset(
     {"autoresearch", "business_knowledge", "context_layer", "knowledge_writer", "task_analysis"}
 )
