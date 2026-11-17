@@ -79,8 +79,12 @@ struct RepeatMeasure<'a> {
     inside_repeats: usize,
     inside_asts: usize,
     repeated_bytes: usize,
+    repeat_visits: usize,
     max_depth: usize,
 }
+
+/// The walk itself runs with no clock, and values that hold each other twice make it long.
+const MAX_REPEAT_VISITS: usize = 1 << 20;
 
 impl<'a> RepeatMeasure<'a> {
     fn new(heap: &'a VmHeap, max_depth: usize) -> Self {
@@ -91,6 +95,7 @@ impl<'a> RepeatMeasure<'a> {
             inside_repeats: 0,
             inside_asts: 0,
             repeated_bytes: 0,
+            repeat_visits: 0,
             max_depth,
         }
     }
@@ -119,6 +124,12 @@ impl<'a> RepeatMeasure<'a> {
 
     fn walk(&mut self, value: &HogValue, depth: usize) -> Result<(), crate::VmError> {
         self.count(1)?;
+        if self.inside_repeats > 0 {
+            self.repeat_visits += 1;
+            if self.repeat_visits > MAX_REPEAT_VISITS {
+                return Err(crate::VmError::OutOfResource("Heap Memory".to_string()));
+            }
+        }
         if depth > self.max_depth {
             return self.end_of_walk();
         }

@@ -414,7 +414,6 @@ pub fn hog_to_js(
     hog_values_to_js(vm, std::slice::from_ref(value), sensitive).map(|mut values| values.remove(0))
 }
 
-/// The values share one node and byte limit, so many arguments cannot each use a full limit.
 pub fn hog_values_to_js(
     vm: &HogVM,
     values: &[HogValue],

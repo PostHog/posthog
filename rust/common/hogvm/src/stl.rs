@@ -854,21 +854,24 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
                     usize::MAX
                 };
                 // JavaScript `split('')` gives one element per UTF-16 unit, which would split a surrogate pair.
-                let pieces: Vec<&str> = if sep.is_empty() {
-                    s.char_indices()
-                        .map(|(i, c)| &s[i..i + c.len_utf8()])
-                        .take(max)
-                        .collect()
-                } else {
-                    s.split(sep).take(max).collect()
+                let pieces = || -> Box<dyn Iterator<Item = &str> + '_> {
+                    if sep.is_empty() {
+                        let chars = s.char_indices().map(|(i, c)| &s[i..i + c.len_utf8()]);
+                        Box::new(chars.take(max))
+                    } else {
+                        Box::new(s.split(sep).take(max))
+                    }
                 };
-                let bytes = pieces
-                    .len()
-                    .saturating_mul(std::mem::size_of::<HogValue>())
-                    .saturating_add(pieces.iter().map(|p| p.len()).sum::<usize>());
-                vm.heap.assert_can_allocate(bytes)?;
-                let parts: Vec<HogValue> = pieces
-                    .into_iter()
+                // The pieces are counted before any is stored, because one element per character is many times the string.
+                let (count, text) = pieces().fold((0usize, 0usize), |(count, text), piece| {
+                    (count + 1, text + piece.len())
+                });
+                vm.heap.assert_can_allocate(
+                    count
+                        .saturating_mul(std::mem::size_of::<HogValue>())
+                        .saturating_add(text),
+                )?;
+                let parts: Vec<HogValue> = pieces()
                     .map(|p| HogLiteral::from(p.to_string()).into())
                     .collect();
                 Ok(HogLiteral::Array(parts).into())

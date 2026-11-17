@@ -398,6 +398,19 @@ async fn a_native_call_does_not_read_many_references_to_one_large_string() {
     assert!(failed(&records[0]));
 }
 
+// `a := [a, a]` 21 times, then `rec.attributes.n := length(a)`.
+const LENGTH_OF_SHARED_PAIRS: &str = r#"["_H", 1, 33, 1, 43, 1, 33, 0, 33, 21, 36, 1, 15, 40, 17, 36, 0, 36, 0, 43, 2, 37, 0, 33, 1, 36, 1, 6, 37, 1, 39, -24, 35, 32, "record", 1, 1, 36, 1, 32, "attributes", 45, 32, "n", 36, 0, 2, "length", 1, 46, 36, 1, 38, 35, 35]"#;
+
+#[tokio::test]
+async fn the_check_before_a_native_call_stops_on_values_that_hold_each_other() {
+    let records = run_one(
+        function(LENGTH_OF_SHARED_PAIRS, "{}", None),
+        vec![record("api")],
+    )
+    .await;
+    assert!(failed(&records[0]));
+}
+
 #[tokio::test]
 async fn print_arguments_share_one_size_limit() {
     let staged = StagedRecord::fresh(record_from_js(&js(&format!(
