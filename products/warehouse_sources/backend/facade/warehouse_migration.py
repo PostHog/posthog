@@ -369,6 +369,7 @@ def plan_migration_schemas(
         webhook_only=list(planned.webhook_only),
         planned=list(planned.planned),
         kept_off=list(planned.kept_off),
+        keyless=list(planned.keyless),
     )
 
 

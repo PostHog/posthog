@@ -6680,6 +6680,9 @@ export interface ExternalDataSourceSyncSchema {
     /** True when only a full refresh keeps the table equal to the origin (e.g. file imports), so the
      *  wizard defaults it to `full_refresh` even though incremental or append is available. */
     prefers_full_refresh?: boolean
+    /** True when the source reads the table's key from the table's definition (e.g. a Custom source
+     *  manifest), so a table without `detected_primary_keys` has no key even though it lists no columns. */
+    declares_primary_keys?: boolean
     description?: string | null
     should_sync_default: boolean
     primary_key_columns: string[] | null
