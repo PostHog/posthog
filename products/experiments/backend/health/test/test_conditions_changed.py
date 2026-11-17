@@ -29,7 +29,7 @@ from products.experiments.backend.health.context import (
     HealthContext,
     parse_flag_state,
 )
-from products.experiments.backend.health.skips import CheckSkip, not_checked
+from products.experiments.backend.health.skips import SPLIT_ASSIGNS_NOBODY, CheckSkip, not_applicable, not_checked
 from products.experiments.backend.health.test.factories import RUNNING_CONTEXT, flag_history
 from products.feature_flags.backend.facade.edits import ConditionsChange, parse_release_conditions
 
@@ -535,6 +535,11 @@ class TestReleaseConditionsChangedMidRun(TestCase):
                 "no_history_access",
                 _context([PRO], not_checked=FlagHistoryNotCheckedReason.NO_HISTORY_ACCESS),
                 not_checked("Couldn't check because you can't view the linked feature flag's history"),
+            ),
+            (
+                "list_of_a_pinned_set_edited_while_every_set_pins",
+                _context([PRO_PINNED, {**TEAM, "variant": "test"}], [PRO_OR_TEAM_PINNED, {**TEAM, "variant": "test"}]),
+                not_applicable(SPLIT_ASSIGNS_NOBODY),
             ),
             # The forced-variant check reports an override in place, with the time it was set.
             ("override_added", _context([PRO, EVERYONE], [PRO_PINNED, EVERYONE]), None),

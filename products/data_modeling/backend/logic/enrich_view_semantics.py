@@ -132,17 +132,26 @@ def _gather_lineage(team: Team, saved_query: DataWarehouseSavedQuery, query_str:
     descriptions: dict[str, str] = {}
 
     # Parent saved queries (other views this one reads from) → their view-level description.
+    stored_names = parent_names | {name.removeprefix("models.") for name in parent_names}
     parent_views = {
         sq.id: sq.name
-        for sq in DataWarehouseSavedQuery.objects.filter(team=team, deleted=False, name__in=parent_names).only(
+        for sq in DataWarehouseSavedQuery.objects.filter(team=team, deleted=False, name__in=stored_names).only(
             "id", "name"
         )
     }
     if parent_views:
-        for annotation in DataWarehouseSavedQueryColumnAnnotation.objects.for_team(team.id).filter(
-            saved_query_id__in=list(parent_views), column_name=""
-        ):
-            descriptions[parent_views[annotation.saved_query_id]] = annotation.description
+        view_descriptions = {
+            parent_views[annotation.saved_query_id]: annotation.description
+            for annotation in DataWarehouseSavedQueryColumnAnnotation.objects.for_team(team.id).filter(
+                saved_query_id__in=list(parent_views), column_name=""
+            )
+        }
+        stored_view_names = set(parent_views.values())
+        for name in parent_names:
+            # A view stored under the exact name wins, as in HogQL. Otherwise `models.<name>` reads the view `<name>`.
+            stored_name = name if name in stored_view_names else name.removeprefix("models.")
+            if stored_name in view_descriptions:
+                descriptions[name] = view_descriptions[stored_name]
 
     # Physical warehouse tables → their table-level description. Use values_list rather than .only():
     # the default manager eager-loads created_by/external_data_source via select_related, which conflicts
