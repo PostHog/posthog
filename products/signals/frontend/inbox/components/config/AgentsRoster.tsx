@@ -514,7 +514,7 @@ function Expansion({
                                     size="xsmall"
                                     icon={<IconGear />}
                                     onClick={onSteer}
-                                    tooltip="Focus on signals that matter"
+                                    tooltip="Focus on signals that matter."
                                     data-attr="signal-source-steering-open"
                                 >
                                     {steeringIsSet ? 'Edit guidance' : 'Add guidance'}
