@@ -18,7 +18,7 @@ declare module 'storybook/internal/types' {
         /** @default 'padded' */
         layout?: 'padded' | 'fullscreen' | 'centered'
         testOptions?: {
-            /** Replace the fixed settle delay only when all async content registers scene readiness holds. */
+            /** Defaults to true. Set false to retain the fixed settle delay while missing content holds are repaired. */
             waitForSceneReady?: boolean
             /**
              * Whether we should wait for all loading indicators to disappear before taking a snapshot.

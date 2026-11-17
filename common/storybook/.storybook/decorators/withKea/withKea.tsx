@@ -11,7 +11,7 @@ export const withKea: Decorator = (Story, context) => {
     useAvailableFeatures([])
     return (
         <KeaStory>
-            {context.parameters.testOptions?.waitForSceneReady ? (
+            {context.parameters.testOptions?.waitForSceneReady !== false ? (
                 <StorySceneReady key={context.id} storyId={context.id}>
                     <Story />
                 </StorySceneReady>

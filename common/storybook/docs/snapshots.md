@@ -19,7 +19,7 @@ Set them in `parameters.testOptions` on the meta or on a story. A story's keys m
 
 | Key                         | Default                | What it does                                                                                                               |
 | --------------------------- | ---------------------- | -------------------------------------------------------------------------------------------------------------------------- |
-| `waitForSceneReady`         | `false`                | Replaces the one-second settle delay with the scene readiness signal. Requires all asynchronous content to register holds. |
+| `waitForSceneReady`         | `true`                 | Replaces the one-second settle delay with the scene readiness signal. Requires all asynchronous content to register holds. |
 | `waitForLoadersToDisappear` | `true`                 | Waits until no loader shows, for 5 seconds (10 for dashboard and Max stories). See the loader list below.                  |
 | `waitForSelector`           | none                   | Waits until the selector matches. An array waits for every selector. `'iframe.X >>> .inner'` waits inside an iframe.       |
 | `waitForSelectorTimeout`    | the Playwright timeout | The timeout for `waitForSelector`, in milliseconds.                                                                        |
@@ -38,7 +38,7 @@ The runner counts these as loaders: `.Spinner`, `.quill-spinner`, `.LemonSkeleto
 
 ### Scene readiness
 
-Set `testOptions.waitForSceneReady: true` only after auditing all asynchronous content in the story.
+Scene readiness is enabled by default for every story. The runner does not add a fixed one-second settle delay.
 Storybook reuses the product's scene-rendered tracker with a fresh instance per story. Its performance mark is `posthog:storybook:scene_rendered`; it does not enable boot analytics.
 The runner waits for the current story's live readiness, since an earlier performance mark cannot tell whether more work started.
 
@@ -46,9 +46,9 @@ Suspense boundaries must use `SceneContentFallback`. For data, debounces, worker
 Start with `ready = false`, keep it false through the entire operation, and release it only when the final content has committed. Include dependent requests and deferred work; `!loading` is insufficient if loading starts after the initial render.
 Every pending component holds readiness independently. Unmounting releases its hold. The app shell shares the story's tracker through its scene boundary.
 
-A synchronous story can opt in without a hold. An awaited `play` function still finishes before snapshotting.
+A synchronous story needs no hold. An awaited `play` function still finishes before snapshotting.
 The runner checks readiness before each theme and capture, retains image, font, loader and chart waits, and requires matching captures from the same ready version.
-Missing signals, unresolved holds and unstable captures fail the opted-in story. Stories without the option retain the one-second delay.
+Missing signals, unresolved holds and unstable captures fail the story. If a story exposes loading work that is not tracked yet, register the missing hold. A temporary `testOptions.waitForSceneReady: false` restores the one-second delay for that story while the hold is repaired; it does not prove that the content is ready.
 
 ### Viewport and target
 
@@ -95,10 +95,10 @@ You don't need to add waits for any of this. Knowing the order helps when a stor
    - waits up to 8 seconds for iframes, plus 1 second;
    - scrolls the window and the scroll containers back to the top;
    - waits until the body size stops changing, for up to 3 seconds;
-   - waits for scene readiness in opted-in stories, or 1 more second otherwise;
+   - waits for scene readiness, or 1 more second for stories that explicitly disable it;
    - waits until no quill chart canvas is still painting.
 6. It runs the loader wait again and captures the target. A component snapshot grows to include a popover or a tooltip that overflows the root.
-7. It waits 100 ms, waits for chart paint, animations and loaders again, and captures again. It keeps the capture when two in a row match and no loader shows after the capture. After four unstable captures, an opted-in readiness story fails. Other stories keep the last capture and log that the story is still changing.
+7. It waits 100 ms, waits for chart paint, animations and loaders again, and captures again. It keeps the capture when two in a row match and no loader shows after the capture. After four unstable captures, a story using readiness fails. Other stories keep the last capture and log that the story is still changing.
 
 Chromium runs with `--disable-partial-raster`. Without it, Chromium paints a partly changed tile again in place, and the anti-aliased edges in that tile can differ by a color level from run to run.
 

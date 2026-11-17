@@ -23,7 +23,7 @@ const VIEWPORT_WIDTHS = {
 
 const RETRY_TIMES = 2
 // A snapshot is kept when two captures in a row match. The cap ends the loop on a page that never stops
-// changing; opted-in readiness stories fail instead of keeping an unstable capture.
+// changing; readiness stories fail instead of keeping an unstable capture.
 const MAX_SNAPSHOT_CAPTURES = 4
 const RECAPTURE_SETTLE_MS = 100
 const FRAME_SELECTOR_SEPARATOR = ' >>> '
@@ -249,7 +249,7 @@ export default {
             return
         }
         const storyContext = await getStoryContext(page, context)
-        if (storyContext.parameters?.testOptions?.waitForSceneReady) {
+        if (storyContext.parameters?.testOptions?.waitForSceneReady !== false) {
             sceneReadyStories.set(page, storyContext.id)
         } else {
             sceneReadyStories.delete(page)
