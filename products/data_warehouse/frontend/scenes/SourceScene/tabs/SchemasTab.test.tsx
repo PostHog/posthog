@@ -55,9 +55,15 @@ describe('SchemaRowMore', () => {
         expect(screen.getByText('Sync now')).toBeInTheDocument()
     })
 
-    it('disables the menu for a user without editor access to the table', () => {
-        render(rowMenu(makeSchema({ user_access_level: AccessControlLevel.Viewer })))
+    it('closes and disables the menu when a poll revokes editor access', () => {
+        const schema = makeSchema()
+        const { rerender } = render(rowMenu(schema))
+        fireEvent.click(screen.getByLabelText('more'))
+        expect(screen.getByText('Sync now')).toBeInTheDocument()
 
+        rerender(rowMenu({ ...schema, user_access_level: AccessControlLevel.Viewer }))
+
+        expect(screen.queryByText('Sync now')).not.toBeInTheDocument()
         expect(screen.getByLabelText('more')).toHaveAttribute('aria-disabled', 'true')
     })
 })

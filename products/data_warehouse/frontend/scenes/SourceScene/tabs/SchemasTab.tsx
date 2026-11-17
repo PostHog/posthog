@@ -1106,6 +1106,7 @@ export function SchemaRowMore({
 
     return (
         <More
+            key={disabledReason ? 'locked' : 'editable'}
             disabledReason={disabledReason}
             overlay={
                 <>
