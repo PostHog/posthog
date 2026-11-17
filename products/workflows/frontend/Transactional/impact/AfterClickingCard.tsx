@@ -7,7 +7,6 @@ import { urls } from 'scenes/urls'
 
 import { emailImpactLogic } from './emailImpactLogic'
 
-/** Replay vision will summarize the sessions this email starts; until it does, this says what it needs. */
 export function AfterClickingCard(): JSX.Element {
     const { replayEnabled } = useValues(emailImpactLogic)
 

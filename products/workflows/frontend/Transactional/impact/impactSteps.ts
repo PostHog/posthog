@@ -7,21 +7,16 @@ export type ImpactStepKey = 'sent' | 'delivered' | 'opened' | 'clicked' | 'sessi
 export interface ImpactStep {
     key: ImpactStepKey
     label: string
-    /** Null when the step can't be counted; `missing` says why. */
     value: number | null
     missing?: string
     missingDetail?: string
-    /** Share of the step it compares to, from 0 to 1. */
     share: number | null
-    /** Names the step `share` compares to, when it isn't the one before. */
     shareOf?: string
     shareDetail?: string
 }
 
 export interface ImpactLift {
-    /** Share of clicked sends whose recipient converted. Null when nobody clicked. */
     clicked: number | null
-    /** Share of delivered sends nobody clicked whose recipient converted. Null when there were none. */
     notClicked: number | null
 }
 
@@ -35,10 +30,6 @@ function share(value: number, of: number): number | null {
     return of > 0 ? value / of : null
 }
 
-/**
- * Tracking is decided per send and isn't stored, so a run of deliveries with no open and no click is the sign it was
- * off. The email's sensitive setting isn't used: it describes the email today, not the sends being counted.
- */
 export function clicksTracked(impact: TransactionalEmailImpactApi): boolean {
     return !(impact.delivered > 0 && impact.opened === 0 && impact.clicked === 0)
 }
@@ -64,7 +55,6 @@ export function impactSteps(impact: TransactionalEmailImpactApi, event: string |
               }
             : { key: 'session', label: 'Started a session', ...notTracked },
     ]
-    // Without click tracking every delivered send counts from when it was sent, so the share is of delivered.
     const conversions = tracked ? impact.after_click : impact.without_click
     steps.push(
         event && conversions
@@ -80,7 +70,6 @@ export function impactSteps(impact: TransactionalEmailImpactApi, event: string |
     return steps
 }
 
-/** Opens and clicks are counted apart, and a click with images blocked records no open, so clicks can outnumber opens. */
 function clickedStep(impact: TransactionalEmailImpactApi): ImpactStep {
     const step = { key: 'clicked', label: 'Clicked', value: impact.clicked } as const
     return impact.clicked > impact.opened

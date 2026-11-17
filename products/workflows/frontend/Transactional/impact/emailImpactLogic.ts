@@ -89,6 +89,11 @@ export type emailImpactLogicType = MakeLogicType<
     emailImpactLogicMeta
 >
 
+function impactErrorMessage(error: { status?: number; detail?: string | null } | undefined): string {
+    const missingAccess = error?.status === 403 && error.detail
+    return missingAccess || "This email's impact couldn't load. Try again, or pick a shorter period."
+}
+
 export const emailImpactLogic = kea<emailImpactLogicType>([
     props({} as EmailImpactLogicProps),
     key((props) => props.workflowId),
@@ -102,7 +107,6 @@ export const emailImpactLogic = kea<emailImpactLogicType>([
         setDays: (days: number) => ({ days }),
     }),
     reducers({
-        // Kept per email in this browser until the email can store its own conversion event.
         event: [null as string | null, { persist: true }, { setEvent: (_, { event }) => event }],
         days: [30 as number, { setDays: (_, { days }) => days }],
         impactError: [
@@ -110,11 +114,7 @@ export const emailImpactLogic = kea<emailImpactLogicType>([
             {
                 loadImpact: () => null,
                 loadImpactSuccess: () => null,
-                loadImpactFailure: (_, { errorObject }) =>
-                    // A 403 says which access is missing, and a shorter period won't fix it.
-                    errorObject?.status === 403 && errorObject.detail
-                        ? errorObject.detail
-                        : "This email's impact couldn't load. Try again, or pick a shorter period.",
+                loadImpactFailure: (_, { errorObject }) => impactErrorMessage(errorObject),
             },
         ],
     }),
@@ -134,7 +134,6 @@ export const emailImpactLogic = kea<emailImpactLogicType>([
                             date_from: dayjs().subtract(values.days, 'day').toISOString(),
                         })
                     } finally {
-                        // Checked on failure too, so a superseded failure can't replace newer numbers.
                         breakpoint()
                     }
                 },
@@ -168,7 +167,6 @@ export const emailImpactLogic = kea<emailImpactLogicType>([
         setEvent: () => actions.loadImpact(),
         setDays: () => actions.loadImpact(),
         loadCurrentTeamSuccess: () => {
-            // A cold load can mount the tab before the team is known, and the first load then stops early.
             if (!values.impact && !values.impactLoading) {
                 actions.loadImpact()
             }

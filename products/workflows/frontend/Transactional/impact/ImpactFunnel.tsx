@@ -4,7 +4,8 @@ import { humanFriendlyNumber, percentage } from 'lib/utils/numbers'
 
 import { ImpactStep } from './impactSteps'
 
-/** Columns that shrink from sent to the conversion event, each scaled against sent. */
+const MIN_VISIBLE_BAR_PERCENT = 2
+
 export function ImpactFunnel({ steps }: { steps: ImpactStep[] }): JSX.Element {
     const sent = steps[0].value ?? 0
     return (
@@ -15,8 +16,9 @@ export function ImpactFunnel({ steps }: { steps: ImpactStep[] }): JSX.Element {
                         {step.value !== null && sent > 0 && (
                             <div
                                 className={step.key === 'converted' ? 'w-full bg-success' : 'w-full bg-accent'}
-                                // A floor keeps a small non-zero step visible next to a large one.
-                                style={{ height: `${step.value > 0 ? Math.max(2, (step.value / sent) * 100) : 0}%` }}
+                                style={{
+                                    height: `${step.value > 0 ? Math.max(MIN_VISIBLE_BAR_PERCENT, (step.value / sent) * 100) : 0}%`,
+                                }}
                             />
                         )}
                     </div>

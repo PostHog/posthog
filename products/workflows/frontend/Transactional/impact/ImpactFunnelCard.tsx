@@ -23,7 +23,6 @@ export function ImpactFunnelCard(): JSX.Element {
                     {impactError}
                 </LemonBanner>
             ) : impactLoading || !impact || !steps ? (
-                // A reload hides the old counts, which would otherwise show under the newly picked event.
                 <LemonSkeleton className="h-44" />
             ) : impact.sent === 0 ? (
                 <p className="text-secondary text-sm m-0">Nobody was sent this email in this period.</p>
