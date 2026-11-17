@@ -54,7 +54,7 @@ logger = structlog.get_logger(__name__)
 # would close a forbidden product-dependency cycle; dispatch by registered task name instead. The
 # task pins the same string via ``name=`` so moving its module can't silently rename it out from
 # under us; test_finalize.py asserts the two still agree.
-FLAGS_CACHE_TASK = "products.feature_flags.backend.tasks.update_team_service_flags_cache"
+FLAGS_CACHE_TASK = "products.feature_flags.backend.tasks.invalidate_team_flags_cache_for_cohorts"
 
 READINESS_STAMPS_COUNTER = Counter(
     "posthog_cohort_backfill_readiness_stamps_total",

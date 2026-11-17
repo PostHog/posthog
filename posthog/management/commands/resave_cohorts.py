@@ -234,7 +234,7 @@ class Command(BaseCommand):
         raise StaleFlagsCacheError(
             f"{len(team_ids)} teams kept a stale flags cache: {_summarize_ids(team_ids)}. "
             "A rerun changes nothing, so enqueue update_team_flags_cache and "
-            "update_team_service_flags_cache for them."
+            "invalidate_team_flags_cache_for_cohorts for them."
         )
 
     def _existing_team_ids(self, requested: list[int]) -> tuple[int, ...]:
