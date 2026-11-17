@@ -265,7 +265,11 @@ def _reviewed_proposals(
         return []
     cards = call_review.parse_cards(review_call.answer, rendering)
     spent += review_call.cost_usd
-    calibrated = _calibrate(team, run, cards, rendering, judge_model, budget, deadline)
+    # A rule broken in most calls needs a prompt change, so its card skips the judge and its calibration cost.
+    prompt_bugs = [card for card in cards if ranking.is_prompt_bug(card)]
+    calibrated = _calibrate(
+        team, run, [card for card in cards if card not in prompt_bugs], rendering, judge_model, budget, deadline
+    )
     snippets = _prompt_snippets(team, day, per_mille, call_types, [card for card, _ in calibrated.kept], deadline)
     proposals = [
         ranking.review_proposal(
@@ -286,11 +290,14 @@ def _reviewed_proposals(
         reviewed=len(calls),
         cards=len(cards),
         calibration=calibrated.record,
+        prompt_bugs=len(prompt_bugs),
         # Kept cards whose generations no filter selects, which the run leaves out.
         unscoped=len(proposals) - len(scoped),
         cost_usd=round(spent + calibrated.cost_usd, 4),
     )
-    return scoped
+    named = {c.name for card in prompt_bugs for c in card.call_types if c.source == "prompt_name"}
+    managed = coverage_stage.managed_prompt_names(team, named) if named else frozenset()
+    return [*scoped, *(ranking.prompt_fix_proposal(card, managed) for card in prompt_bugs)]
 
 
 def _prompt_snippets(

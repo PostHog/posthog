@@ -41,12 +41,19 @@ class TestSubscriptionsTasksUtils(APIBaseTest):
 
         self.subscription = create_subscription(team=self.team, insight=self.insight, created_by=self.user)
 
-    def test_generate_assets_for_insight(self, mock_export_task: MagicMock, _mock_group: MagicMock) -> None:
+    @parameterized.expand([("automatic", {}), ("custom", {"width": 1200, "height": 630})])
+    def test_generate_assets_for_insight(
+        self, mock_export_task: MagicMock, _mock_group: MagicMock, _name, size
+    ) -> None:
+        self.subscription.delivery_config = {"image_size": size}
         with self.settings(PARALLEL_ASSET_GENERATION_MAX_TIMEOUT_MINUTES=1):
             insights, assets = generate_assets(self.subscription)
 
             assert insights == [self.insight]
             assert len(assets) == 1
+            assets[0].refresh_from_db()
+            assert assets[0].export_context is not None
+            assert assets[0].export_context["image_size"] == size
             assert mock_export_task.si.call_count == 1
 
     def test_generate_assets_for_dashboard(self, mock_export_task: MagicMock, _mock_group: MagicMock) -> None:

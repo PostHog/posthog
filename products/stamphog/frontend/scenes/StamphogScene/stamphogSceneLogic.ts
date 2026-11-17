@@ -12,23 +12,23 @@ import { urls } from 'scenes/urls'
 import { AccessControlLevel } from '~/types'
 
 import {
-    stamphogRepoConfigsAddRepositoryCreate,
-    stamphogRepoConfigsAvailableRepositoriesRetrieve,
-    stamphogRepoConfigsInstallInfoRetrieve,
-    stamphogRepoConfigsList,
-    stamphogRepoConfigsOwnersFileRetrieve,
-    stamphogRepoConfigsPartialUpdate,
-    stamphogRepoConfigsSyncInstallationCreate,
+    codeReviewApprovalsRepositoriesAddRepositoryCreate,
+    codeReviewApprovalsRepositoriesAvailableRepositoriesRetrieve,
+    codeReviewApprovalsRepositoriesInstallInfoRetrieve,
+    codeReviewApprovalsRepositoriesList,
+    codeReviewApprovalsRepositoriesOwnersFileRetrieve,
+    codeReviewApprovalsRepositoriesPartialUpdate,
+    codeReviewApprovalsRepositoriesSyncInstallationCreate,
 } from '../../generated/api'
 import {
     OwnersFileStatusEnumApi,
-    type PatchedStamphogRepoConfigWriteApi,
-    type StamphogAvailableRepositoriesApi,
-    type StamphogDiscoveredInstallationApi,
-    type StamphogInstallInfoApi,
-    type StamphogRepoConfigApi,
-    type StamphogSyncInstallationRequestApi,
-    type StamphogSyncInstallationResponseApi,
+    type PatchedCodeReviewApprovalRepositoryWriteApi,
+    type CodeReviewApprovalAvailableRepositoriesApi,
+    type CodeReviewApprovalDiscoveredInstallationApi,
+    type CodeReviewApprovalInstallInfoApi,
+    type CodeReviewApprovalRepositoryApi,
+    type CodeReviewApprovalSyncInstallationRequestApi,
+    type CodeReviewApprovalSyncInstallationResponseApi,
 } from '../../generated/api.schemas'
 import { editorDisabledReason } from './repoAccess'
 
@@ -46,7 +46,7 @@ const AVAILABLE_SEARCH_DEBOUNCE_MS = 300
 // 'checking' while the request is in flight. A repository nobody expanded yet has no entry at all.
 export type OwnersFileCheck = OwnersFileStatusEnumApi | 'checking'
 
-function sortByRepository(repos: StamphogRepoConfigApi[]): StamphogRepoConfigApi[] {
+function sortByRepository(repos: CodeReviewApprovalRepositoryApi[]): CodeReviewApprovalRepositoryApi[] {
     return [...repos].sort((a, b) => a.repository.localeCompare(b.repository))
 }
 
@@ -54,7 +54,7 @@ function sortByRepository(repos: StamphogRepoConfigApi[]): StamphogRepoConfigApi
 // redirect fetches a fresh URL instead of reading the one the page loaded on mount.
 async function redirectToGitHub(projectId: string, target: 'authorize_url' | 'install_url'): Promise<boolean> {
     try {
-        const info = await stamphogRepoConfigsInstallInfoRetrieve(projectId)
+        const info = await codeReviewApprovalsRepositoriesInstallInfoRetrieve(projectId)
         const url = info[target]
         if (url) {
             window.location.href = url
@@ -74,23 +74,23 @@ export interface stamphogSceneLogicValues {
     addedRepoIds: string[]
     addingRepository: boolean
     appNotInstalled: boolean
-    availableRepositories: StamphogAvailableRepositoriesApi | null
+    availableRepositories: CodeReviewApprovalAvailableRepositoriesApi | null
     availableRepositoriesFailed: boolean
     availableRepositoriesLoading: boolean
     availableRepositoryOptions: LemonInputSelectOption[]
     availableSearch: string
     connectDisabledReason: string | null
-    discoveredInstallations: readonly StamphogDiscoveredInstallationApi[]
+    discoveredInstallations: readonly CodeReviewApprovalDiscoveredInstallationApi[]
     expandedRepoIds: string[]
-    filteredRepoConfigs: StamphogRepoConfigApi[]
+    filteredRepoConfigs: CodeReviewApprovalRepositoryApi[]
     hasInstallation: boolean | null
-    installInfo: StamphogInstallInfoApi | null
+    installInfo: CodeReviewApprovalInstallInfoApi | null
     installInfoLoading: boolean
     installUrl: string
     openingInstallPage: boolean
     ownersFileChecks: Record<string, OwnersFileCheck>
     refreshingFromGitHub: boolean
-    repoConfigs: StamphogRepoConfigApi[]
+    repoConfigs: CodeReviewApprovalRepositoryApi[]
     repoConfigsFailed: boolean
     repoConfigsLoading: boolean
     repoSearch: string
@@ -98,7 +98,7 @@ export interface stamphogSceneLogicValues {
     savingTriggerLabelRepoIds: string[]
     skippedRepos: readonly string[]
     stamphogAccessLevel: AccessControlLevel | undefined
-    syncResult: StamphogSyncInstallationResponseApi | null
+    syncResult: CodeReviewApprovalSyncInstallationResponseApi | null
     syncResultLoading: boolean
     triggerLabelFieldResets: Record<string, number>
     updatingRepoIds: string[]
@@ -112,8 +112,8 @@ export interface stamphogSceneLogicActions {
     addRepositoryFailure: () => {
         value: true
     }
-    addRepositorySuccess: (config: StamphogRepoConfigApi) => {
-        config: StamphogRepoConfigApi
+    addRepositorySuccess: (config: CodeReviewApprovalRepositoryApi) => {
+        config: CodeReviewApprovalRepositoryApi
     }
     checkOwnersFile: (id: string) => {
         id: string
@@ -132,12 +132,12 @@ export interface stamphogSceneLogicActions {
         errorObject?: any
     }
     loadAvailableRepositoriesSuccess: (
-        availableRepositories: StamphogAvailableRepositoriesApi,
+        availableRepositories: CodeReviewApprovalAvailableRepositoriesApi,
         payload?: {
             search: string
         }
     ) => {
-        availableRepositories: StamphogAvailableRepositoriesApi
+        availableRepositories: CodeReviewApprovalAvailableRepositoriesApi
         payload?: {
             search: string
         }
@@ -151,10 +151,10 @@ export interface stamphogSceneLogicActions {
         errorObject?: any
     }
     loadInstallInfoSuccess: (
-        installInfo: StamphogInstallInfoApi,
+        installInfo: CodeReviewApprovalInstallInfoApi,
         payload?: any
     ) => {
-        installInfo: StamphogInstallInfoApi
+        installInfo: CodeReviewApprovalInstallInfoApi
         payload?: any
     }
     loadRepoConfigs: () => {
@@ -168,12 +168,12 @@ export interface stamphogSceneLogicActions {
         errorObject?: any
     }
     loadRepoConfigsSuccess: (
-        repoConfigs: StamphogRepoConfigApi[],
+        repoConfigs: CodeReviewApprovalRepositoryApi[],
         payload?: {
             value: true
         }
     ) => {
-        repoConfigs: StamphogRepoConfigApi[]
+        repoConfigs: CodeReviewApprovalRepositoryApi[]
         payload?: {
             value: true
         }
@@ -197,8 +197,8 @@ export interface stamphogSceneLogicActions {
     refreshFromGitHubFailed: () => {
         value: true
     }
-    repoConfigUpdated: (config: StamphogRepoConfigApi) => {
-        config: StamphogRepoConfigApi
+    repoConfigUpdated: (config: CodeReviewApprovalRepositoryApi) => {
+        config: CodeReviewApprovalRepositoryApi
     }
     repoUpdateDone: (id: string) => {
         id: string
@@ -245,14 +245,14 @@ export interface stamphogSceneLogicActions {
         errorObject?: any
     }
     syncInstallationSuccess: (
-        syncResult: StamphogSyncInstallationResponseApi,
+        syncResult: CodeReviewApprovalSyncInstallationResponseApi,
         payload?: {
             installationId?: string
             code: string
             state: string
         }
     ) => {
-        syncResult: StamphogSyncInstallationResponseApi
+        syncResult: CodeReviewApprovalSyncInstallationResponseApi
         payload?: {
             installationId?: string
             code: string
@@ -267,34 +267,37 @@ export interface stamphogSceneLogicActions {
     }
     updateRepoConfig: (
         id: string,
-        patch: PatchedStamphogRepoConfigWriteApi
+        patch: PatchedCodeReviewApprovalRepositoryWriteApi
     ) => {
         id: string
-        patch: PatchedStamphogRepoConfigWriteApi
+        patch: PatchedCodeReviewApprovalRepositoryWriteApi
     }
 }
 
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface stamphogSceneLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
-        installUrl: (installInfo: StamphogInstallInfoApi | null) => string
-        appNotInstalled: (syncResult: StamphogSyncInstallationResponseApi | null) => boolean
+        installUrl: (installInfo: CodeReviewApprovalInstallInfoApi | null) => string
+        appNotInstalled: (syncResult: CodeReviewApprovalSyncInstallationResponseApi | null) => boolean
         discoveredInstallations: (
-            syncResult: StamphogSyncInstallationResponseApi | null
-        ) => readonly StamphogDiscoveredInstallationApi[]
-        skippedRepos: (syncResult: StamphogSyncInstallationResponseApi | null) => readonly string[]
-        hasInstallation: (availableRepositories: StamphogAvailableRepositoriesApi | null) => boolean | null
+            syncResult: CodeReviewApprovalSyncInstallationResponseApi | null
+        ) => readonly CodeReviewApprovalDiscoveredInstallationApi[]
+        skippedRepos: (syncResult: CodeReviewApprovalSyncInstallationResponseApi | null) => readonly string[]
+        hasInstallation: (availableRepositories: CodeReviewApprovalAvailableRepositoriesApi | null) => boolean | null
         availableRepositoryOptions: (
-            availableRepositories: StamphogAvailableRepositoriesApi | null,
+            availableRepositories: CodeReviewApprovalAvailableRepositoriesApi | null,
             availableRepositoriesFailed: boolean
         ) => LemonInputSelectOption[]
-        stamphogAccessLevel: (repoConfigs: StamphogRepoConfigApi[]) => AccessControlLevel | undefined
+        stamphogAccessLevel: (repoConfigs: CodeReviewApprovalRepositoryApi[]) => AccessControlLevel | undefined
         connectDisabledReason: (
-            installInfo: StamphogInstallInfoApi | null,
+            installInfo: CodeReviewApprovalInstallInfoApi | null,
             installInfoLoading: boolean,
             stamphogAccessLevel: AccessControlLevel | undefined
         ) => string | null
-        filteredRepoConfigs: (repoConfigs: StamphogRepoConfigApi[], repoSearch: string) => StamphogRepoConfigApi[]
+        filteredRepoConfigs: (
+            repoConfigs: CodeReviewApprovalRepositoryApi[],
+            repoSearch: string
+        ) => CodeReviewApprovalRepositoryApi[]
     }
 }
 
@@ -316,12 +319,12 @@ export const stamphogSceneLogic = kea<stamphogSceneLogicType>([
         // Declared here because the loader takes a breakpoint: typegen would otherwise infer a required
         // payload from its first parameter, and every `loadRepoConfigs()` call would stop compiling.
         loadRepoConfigs: true,
-        updateRepoConfig: (id: string, patch: PatchedStamphogRepoConfigWriteApi) => ({ id, patch }),
+        updateRepoConfig: (id: string, patch: PatchedCodeReviewApprovalRepositoryWriteApi) => ({ id, patch }),
         triggerLabelEditStarted: (id: string) => ({ id }),
         resetTriggerLabelField: (id: string) => ({ id }),
         triggerLabelSaveDone: (id: string) => ({ id }),
         repoUpdateDone: (id: string) => ({ id }),
-        repoConfigUpdated: (config: StamphogRepoConfigApi) => ({ config }),
+        repoConfigUpdated: (config: CodeReviewApprovalRepositoryApi) => ({ config }),
         setRepoSearch: (search: string) => ({ search }),
         setRepoExpanded: (id: string, expanded: boolean) => ({ id, expanded }),
         connectInstallation: (installationId: string) => ({ installationId }),
@@ -332,7 +335,7 @@ export const stamphogSceneLogic = kea<stamphogSceneLogicType>([
         setAvailableSearch: (search: string) => ({ search }),
         setRepositoryToAdd: (repository: string | null) => ({ repository }),
         addRepository: true,
-        addRepositorySuccess: (config: StamphogRepoConfigApi) => ({ config }),
+        addRepositorySuccess: (config: CodeReviewApprovalRepositoryApi) => ({ config }),
         addRepositoryFailure: true,
         checkOwnersFile: (id: string) => ({ id }),
         ownersFileChecked: (id: string, status: OwnersFileStatusEnumApi) => ({ id, status }),
@@ -340,14 +343,14 @@ export const stamphogSceneLogic = kea<stamphogSceneLogicType>([
 
     loaders(({ values }) => ({
         repoConfigs: [
-            [] as StamphogRepoConfigApi[],
+            [] as CodeReviewApprovalRepositoryApi[],
             {
                 loadRepoConfigs: async (_, breakpoint) => {
                     // Fetch every page, because the table searches this list client-side and a truncated
                     // first page would hide repositories that nobody could then find.
-                    const all: StamphogRepoConfigApi[] = []
+                    const all: CodeReviewApprovalRepositoryApi[] = []
                     for (let offset = 0; ; offset += REPO_CONFIGS_PAGE_SIZE) {
-                        const response = await stamphogRepoConfigsList(String(values.currentProjectId), {
+                        const response = await codeReviewApprovalsRepositoriesList(String(values.currentProjectId), {
                             limit: REPO_CONFIGS_PAGE_SIZE,
                             offset,
                         })
@@ -367,19 +370,19 @@ export const stamphogSceneLogic = kea<stamphogSceneLogicType>([
             },
         ],
         installInfo: [
-            null as StamphogInstallInfoApi | null,
+            null as CodeReviewApprovalInstallInfoApi | null,
             {
                 loadInstallInfo: async () => {
-                    return stamphogRepoConfigsInstallInfoRetrieve(String(values.currentProjectId))
+                    return codeReviewApprovalsRepositoriesInstallInfoRetrieve(String(values.currentProjectId))
                 },
             },
         ],
         // Null until the first answer, so the page can tell "not connected" apart from "not known yet".
         availableRepositories: [
-            null as StamphogAvailableRepositoriesApi | null,
+            null as CodeReviewApprovalAvailableRepositoriesApi | null,
             {
                 loadAvailableRepositories: async ({ search }: { search: string }, breakpoint) => {
-                    const response = await stamphogRepoConfigsAvailableRepositoriesRetrieve(
+                    const response = await codeReviewApprovalsRepositoriesAvailableRepositoriesRetrieve(
                         String(values.currentProjectId),
                         { search: search.trim(), limit: AVAILABLE_REPOSITORIES_LIMIT }
                     )
@@ -392,7 +395,7 @@ export const stamphogSceneLogic = kea<stamphogSceneLogicType>([
         // Sync is a loader so the button can wire its in-flight state off
         // syncResultLoading and guard double-submission during the callback.
         syncResult: [
-            null as StamphogSyncInstallationResponseApi | null,
+            null as CodeReviewApprovalSyncInstallationResponseApi | null,
             {
                 syncInstallation: async ({
                     installationId,
@@ -405,11 +408,11 @@ export const stamphogSceneLogic = kea<stamphogSceneLogicType>([
                     code: string
                     state: string
                 }) => {
-                    const body: StamphogSyncInstallationRequestApi = { code, state }
+                    const body: CodeReviewApprovalSyncInstallationRequestApi = { code, state }
                     if (installationId) {
                         body.installation_id = installationId
                     }
-                    return stamphogRepoConfigsSyncInstallationCreate(String(values.currentProjectId), body)
+                    return codeReviewApprovalsRepositoriesSyncInstallationCreate(String(values.currentProjectId), body)
                 },
             },
         ],
@@ -535,33 +538,36 @@ export const stamphogSceneLogic = kea<stamphogSceneLogicType>([
     selectors({
         installUrl: [
             (s) => [s.installInfo],
-            (installInfo: StamphogInstallInfoApi | null): string => installInfo?.install_url ?? '',
+            (installInfo: CodeReviewApprovalInstallInfoApi | null): string => installInfo?.install_url ?? '',
         ],
         appNotInstalled: [
             (s) => [s.syncResult],
-            (syncResult: StamphogSyncInstallationResponseApi | null): boolean => syncResult?.app_not_installed ?? false,
+            (syncResult: CodeReviewApprovalSyncInstallationResponseApi | null): boolean =>
+                syncResult?.app_not_installed ?? false,
         ],
         // Non-empty only when discovery found several installations and bound nothing: the user must
         // pick which one this team connects (reachability is not intent).
         discoveredInstallations: [
             (s) => [s.syncResult],
-            (syncResult: StamphogSyncInstallationResponseApi | null): readonly StamphogDiscoveredInstallationApi[] =>
-                syncResult?.installations ?? [],
+            (
+                syncResult: CodeReviewApprovalSyncInstallationResponseApi | null
+            ): readonly CodeReviewApprovalDiscoveredInstallationApi[] => syncResult?.installations ?? [],
         ],
         skippedRepos: [
             (s) => [s.syncResult],
-            (syncResult: StamphogSyncInstallationResponseApi | null): readonly string[] => syncResult?.skipped ?? [],
+            (syncResult: CodeReviewApprovalSyncInstallationResponseApi | null): readonly string[] =>
+                syncResult?.skipped ?? [],
         ],
         hasInstallation: [
             (s) => [s.availableRepositories],
-            (availableRepositories: StamphogAvailableRepositoriesApi | null): boolean | null =>
+            (availableRepositories: CodeReviewApprovalAvailableRepositoriesApi | null): boolean | null =>
                 availableRepositories?.has_installation ?? null,
         ],
         // A failed search keeps the loader's previous answer, which belongs to another search.
         availableRepositoryOptions: [
             (s) => [s.availableRepositories, s.availableRepositoriesFailed],
             (
-                availableRepositories: StamphogAvailableRepositoriesApi | null,
+                availableRepositories: CodeReviewApprovalAvailableRepositoriesApi | null,
                 availableRepositoriesFailed: boolean
             ): LemonInputSelectOption[] =>
                 availableRepositoriesFailed
@@ -575,7 +581,7 @@ export const stamphogSceneLogic = kea<stamphogSceneLogicType>([
         // Undefined until a repository loads, which sends the access checks back to the app context.
         stamphogAccessLevel: [
             (s) => [s.repoConfigs],
-            (repoConfigs: StamphogRepoConfigApi[]): AccessControlLevel | undefined =>
+            (repoConfigs: CodeReviewApprovalRepositoryApi[]): AccessControlLevel | undefined =>
                 repoConfigs.length > 0 ? toAccessControlLevel(repoConfigs[0].user_access_level) : undefined,
         ],
         // Connecting, granting access, and refreshing all record the member's repositories for the team.
@@ -583,7 +589,7 @@ export const stamphogSceneLogic = kea<stamphogSceneLogicType>([
         connectDisabledReason: [
             (s) => [s.installInfo, s.installInfoLoading, s.stamphogAccessLevel],
             (
-                installInfo: StamphogInstallInfoApi | null,
+                installInfo: CodeReviewApprovalInstallInfoApi | null,
                 installInfoLoading: boolean,
                 stamphogAccessLevel: AccessControlLevel | undefined
             ): string | null => {
@@ -602,7 +608,7 @@ export const stamphogSceneLogic = kea<stamphogSceneLogicType>([
         ],
         filteredRepoConfigs: [
             (s) => [s.repoConfigs, s.repoSearch],
-            (repoConfigs: StamphogRepoConfigApi[], repoSearch: string): StamphogRepoConfigApi[] => {
+            (repoConfigs: CodeReviewApprovalRepositoryApi[], repoSearch: string): CodeReviewApprovalRepositoryApi[] => {
                 const needle = repoSearch.trim().toLowerCase()
                 return needle
                     ? repoConfigs.filter((repo) => repo.repository.toLowerCase().includes(needle))
@@ -615,7 +621,7 @@ export const stamphogSceneLogic = kea<stamphogSceneLogicType>([
         updateRepoConfig: async ({ id, patch }) => {
             try {
                 actions.repoConfigUpdated(
-                    await stamphogRepoConfigsPartialUpdate(String(values.currentProjectId), id, patch)
+                    await codeReviewApprovalsRepositoriesPartialUpdate(String(values.currentProjectId), id, patch)
                 )
                 // The event names are frozen: insights on settings usage break if one is renamed. The label
                 // text is left out because it is free text a team typed.
@@ -648,7 +654,10 @@ export const stamphogSceneLogic = kea<stamphogSceneLogicType>([
         },
         checkOwnersFile: async ({ id }) => {
             try {
-                const response = await stamphogRepoConfigsOwnersFileRetrieve(String(values.currentProjectId), id)
+                const response = await codeReviewApprovalsRepositoriesOwnersFileRetrieve(
+                    String(values.currentProjectId),
+                    id
+                )
                 actions.ownersFileChecked(id, response.owners_file)
             } catch {
                 actions.ownersFileChecked(id, OwnersFileStatusEnumApi.Unavailable)
@@ -668,9 +677,12 @@ export const stamphogSceneLogic = kea<stamphogSceneLogicType>([
                 return
             }
             try {
-                const config = await stamphogRepoConfigsAddRepositoryCreate(String(values.currentProjectId), {
-                    repository,
-                })
+                const config = await codeReviewApprovalsRepositoriesAddRepositoryCreate(
+                    String(values.currentProjectId),
+                    {
+                        repository,
+                    }
+                )
                 actions.addRepositorySuccess(config)
                 lemonToast.success(`Stamphog now reviews ${config.repository}`)
             } catch (error: any) {
