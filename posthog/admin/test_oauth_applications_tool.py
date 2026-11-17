@@ -8,6 +8,7 @@ from posthog.models.oauth_provisioning import ProvisioningConfig
 from posthog.models.oauth_provisioning_review import CIMDProvisioningReview, ProvisioningReviewStatus
 
 TOOL_URL = "/admin/console/tools/oauth-applications/"
+ALL_APPS = ("Waiting Partner", "Active Partner", "Blocked Partner", "Plain Client", "Bare Partner")
 
 
 class TestOAuthApplicationsTool(BaseTest):
@@ -61,16 +62,20 @@ class TestOAuthApplicationsTool(BaseTest):
 
     @parameterized.expand(
         [
-            ("everything", "", {"Waiting Partner", "Active Partner", "Blocked Partner", "Plain Client"}),
+            ("everything", "", set(ALL_APPS)),
             ("name", "q=active", {"Active Partner"}),
             ("client_id", "q=app.example.com", {"Waiting Partner"}),
-            ("staff_created", "kind=staff", {"Active Partner", "Blocked Partner", "Plain Client"}),
-            ("any_partner", "provisioning=partner", {"Waiting Partner", "Active Partner", "Blocked Partner"}),
+            ("staff_created", "kind=staff", {"Active Partner", "Blocked Partner", "Plain Client", "Bare Partner"}),
+            (
+                "any_partner",
+                "provisioning=partner",
+                {"Waiting Partner", "Active Partner", "Blocked Partner", "Bare Partner"},
+            ),
             ("on", "provisioning=on", {"Active Partner"}),
-            ("off", "provisioning=off", {"Waiting Partner"}),
+            ("off", "provisioning=off", {"Waiting Partner", "Bare Partner"}),
             ("blocked", "provisioning=blocked", {"Blocked Partner"}),
             ("waiting_for_staff", "review=needs_human", {"Waiting Partner"}),
-            ("no_review", "review=none", {"Active Partner", "Blocked Partner", "Plain Client"}),
+            ("no_review", "review=none", {"Active Partner", "Blocked Partner", "Plain Client", "Bare Partner"}),
         ]
     )
     def test_the_list_filters_applications(self, _name, query, expected) -> None:
@@ -86,10 +91,10 @@ class TestOAuthApplicationsTool(BaseTest):
             _provisioning_config=ProvisioningConfig(disabled=True).model_dump(mode="json"),
         )
         self._staff_app("Plain Client")
+        # Written before the flags existed, so its config has no key for either.
+        self._staff_app("Bare Partner", is_provisioning_partner=True, _provisioning_config={})
 
         content = self.client.get(f"{TOOL_URL}?{query}").content.decode()
 
-        shown = {
-            name for name in ("Waiting Partner", "Active Partner", "Blocked Partner", "Plain Client") if name in content
-        }
+        shown = {name for name in ALL_APPS if name in content}
         assert shown == expected

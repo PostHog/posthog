@@ -114,13 +114,18 @@ KIND_FILTERS = {
     "dcr": Q(is_dcr_client=True),
     "staff": Q(is_cimd_client=False, is_dcr_client=False),
 }
+
+
+# A config written before a flag existed has no key for it, and the model reads that as False.
+ACTIVE_OFF = Q(_provisioning_config__active=False) | Q(_provisioning_config__active__isnull=True)
+DISABLED_OFF = Q(_provisioning_config__disabled=False) | Q(_provisioning_config__disabled__isnull=True)
+
+# These follow the partner gates, which read `active` alone. `provisioning_status` labels the same states.
 PROVISIONING_FILTERS = {
     "partner": Q(is_provisioning_partner=True),
-    "on": Q(is_provisioning_partner=True, _provisioning_config__active=True) & ~Q(_provisioning_config__disabled=True),
-    "off": Q(is_provisioning_partner=True)
-    & ~Q(_provisioning_config__active=True)
-    & ~Q(_provisioning_config__disabled=True),
-    "blocked": Q(_provisioning_config__disabled=True),
+    "on": Q(is_provisioning_partner=True, _provisioning_config__active=True),
+    "off": Q(is_provisioning_partner=True) & ACTIVE_OFF & DISABLED_OFF,
+    "blocked": Q(_provisioning_config__disabled=True) & (ACTIVE_OFF | Q(is_provisioning_partner=False)),
 }
 
 

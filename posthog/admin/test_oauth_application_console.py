@@ -94,6 +94,17 @@ class TestOAuthApplicationConsole(BaseTest):
             assert review.decided_stage == ProvisioningReviewStage.STAFF
             assert review.run_log[-1]["message"] == expected_log
 
+    def test_block_reaches_a_partner_left_active_and_disabled(self) -> None:
+        app = self._app(config=ProvisioningConfig(active=True, disabled=True))
+
+        page = self.client.get(f"/admin/console/oauth-applications/{app.pk}/").content.decode()
+        response = self._post(app, "provisioning/block", {"reason": "Finish the old block"})
+
+        assert "On, though marked blocked" in page
+        assert response.status_code == 302, response.content
+        app.refresh_from_db()
+        assert (app.provisioning.active, app.provisioning.disabled) == (False, True)
+
     @parameterized.expand([("active", True, False, "accept"), ("blocked", False, True, "block")])
     def test_the_current_decision_is_not_offered_again(self, _name, active, disabled, operation) -> None:
         app = self._app(config=ProvisioningConfig(active=active, disabled=disabled))

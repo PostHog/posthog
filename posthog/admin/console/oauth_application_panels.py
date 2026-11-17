@@ -76,12 +76,14 @@ def _authentication(app: OAuthApplication) -> str:
 def provisioning_status(app: OAuthApplication, review: CIMDProvisioningReview | None) -> tuple[str, Tone | None]:
     """Whether the app can provision right now, in a few words, for the app page and the list of apps."""
     config = app.provisioning
+    # Follows what the partner gates enforce: they read `active` alone, so an active partner is on
+    # even when `disabled` is set too.
+    if app.is_provisioning_partner and config.active:
+        return ("On, though marked blocked", Tone.WARNING) if config.disabled else ("On", Tone.SUCCESS)
     if config.disabled:
         return "Blocked", Tone.DESTRUCTIVE
     if not app.is_provisioning_partner:
         return "Not a partner", None
-    if config.active:
-        return "On", Tone.SUCCESS
     if review is not None and review.status == ProvisioningReviewStatus.PENDING:
         return "Waiting for the review", Tone.INFO
     if review is not None and review.status == ProvisioningReviewStatus.NEEDS_HUMAN:
@@ -91,7 +93,7 @@ def provisioning_status(app: OAuthApplication, review: CIMDProvisioningReview | 
 
 def _provisioning_fact(app: OAuthApplication, review: CIMDProvisioningReview | None) -> Fact:
     status, tone = provisioning_status(app, review)
-    if app.provisioning.disabled:
+    if status == "Blocked":
         status = "Blocked. Registering again does not lift it."
     return Fact(label="Provisioning", value=status, tone=tone)
 
@@ -179,16 +181,18 @@ def change_capabilities(request: HttpRequest, obj: Model, form: forms.Form | Non
     assert isinstance(obj, OAuthApplication) and form is not None
     is_partner = form.cleaned_data["is_provisioning_partner"]
     capabilities = {name: form.cleaned_data[name] for name in CAPABILITIES}
-    after = copy.copy(obj)
-    after.is_provisioning_partner = is_partner
-    after.provisioning = obj.provisioning.model_copy(update=capabilities)
-    if breaks_provisioning_signature(obj, after):
-        messages.error(request, SIGNING_REQUIRED_MESSAGE)
-        return HttpResponse(status=400)
     with transaction.atomic():
-        obj.is_provisioning_partner = is_partner
-        obj.save(update_fields=["is_provisioning_partner"])
-        obj.update_provisioning(**capabilities)
+        # Checked on the locked row, so a key removed in Django admin since the page loaded is seen.
+        app = OAuthApplication.objects.select_for_update().get(pk=obj.pk)
+        after = copy.copy(app)
+        after.is_provisioning_partner = is_partner
+        after.provisioning = app.provisioning.model_copy(update=capabilities)
+        if breaks_provisioning_signature(app, after):
+            messages.error(request, SIGNING_REQUIRED_MESSAGE)
+            return HttpResponse(status=400)
+        app.is_provisioning_partner = is_partner
+        app.save(update_fields=["is_provisioning_partner"])
+        app.update_provisioning(**capabilities)
     messages.success(request, f"Saved the capabilities of {obj.name}.")
     return None
 
@@ -312,7 +316,7 @@ class OAuthApplicationProvisioningPanel(Panel):
                     description=description,
                 )
             )
-        if obj.is_provisioning_partner and not config.disabled:
+        if obj.is_provisioning_partner and (config.active or not config.disabled):
             operations.append(
                 Operation(
                     key="block",
