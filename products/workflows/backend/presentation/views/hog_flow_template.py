@@ -16,7 +16,10 @@ from posthog.helpers.impersonation import is_impersonated
 from posthog.models import User
 from posthog.models.activity_logging.activity_log import Detail, log_activity
 
-from products.cdp.backend.presentation.serializers import HogFunctionFiltersSerializer
+from products.cdp.backend.presentation.serializers import (
+    HogFlowConditionFiltersSerializer,
+    HogFunctionFiltersSerializer,
+)
 from products.workflows.backend.facade.contracts import WorkflowTemplate, WorkflowTemplateNotFound
 from products.workflows.backend.facade.enums import HogFlowTemplateExitCondition, HogFlowTemplateScope
 from products.workflows.backend.facade.sandbox_email import SANDBOX_EMAIL_ACTION_TYPE
@@ -159,7 +162,12 @@ class HogFlowTemplateActionSerializer(serializers.Serializer):
                     if "events" in filters:
                         raise serializers.ValidationError("Event filters are not allowed in conditionals")
 
-                    serializer = HogFunctionFiltersSerializer(data=filters, context=self.context)
+                    filters_serializer_class = (
+                        HogFlowConditionFiltersSerializer
+                        if data.get("type") == "conditional_branch"
+                        else HogFunctionFiltersSerializer
+                    )
+                    serializer = filters_serializer_class(data=filters, context=self.context)
                     serializer.is_valid(raise_exception=True)
                     condition["filters"] = serializer.validated_data
 
