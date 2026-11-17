@@ -266,6 +266,24 @@ test.describe('Message preferences page', () => {
                     [eventInvitesId]: 'OPTED_IN',
                 })
             })
+
+            await test.step('a failed save whose read-back stalls still turns the switch back', async () => {
+                const read = responseGate()
+                await recipientPage.route(
+                    UPDATE_URL,
+                    (route) => route.fulfill({ status: 500, json: { error: 'Something went wrong' } }),
+                    { times: 1 }
+                )
+                await recipientPage.route(isPageRead, () => read.open(), { times: 1 })
+                await allMarketing.click()
+                await read.opened
+                await expect(allMarketing).not.toBeChecked()
+                await recipientPage.clock.runFor(10_000)
+                await expect(status('$all')).toHaveText('Subscribed')
+                await expect(allMarketing).toBeChecked()
+                await expect(eventInvites).toBeEnabled()
+                await expect(eventInvites).toBeChecked()
+            })
         } finally {
             await recipientContext.close()
         }

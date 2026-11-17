@@ -176,8 +176,9 @@
                         savesPending--
                         if (savesPending === 0) {
                             const savesBeforeRead = savesStarted
-                            // Overlapping saves can answer out of commit order, so read back what the server stored
-                            const storedForm = await fetch(window.location.pathname)
+                            // Overlapping saves can answer out of commit order, so read back what the server stored.
+                            // A read that stalls counts as failed, so the page never stays saving.
+                            const storedForm = await fetch(window.location.pathname, { signal: AbortSignal.timeout(10000) })
                                 .then((response) => response.text())
                                 .then((html) => new DOMParser().parseFromString(html, 'text/html').getElementById('preferences-form'))
                                 .catch(() => null)
