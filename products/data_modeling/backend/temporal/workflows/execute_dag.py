@@ -13,7 +13,9 @@ from temporalio.workflow import ParentClosePolicy
 
 from posthog.exceptions_capture import capture_exception
 from posthog.temporal.common.base import PostHogWorkflow
-from posthog.temporal.data_modeling.activities import (
+
+from products.data_modeling.backend.facade.models import DataModelingJobEngine
+from products.data_modeling.backend.temporal.activities import (
     UPSTREAM_NAMES_IN_SKIP_REASON,
     GetDAGStructureInputs,
     NotifyDAGMaterializationFailuresInputs,
@@ -27,22 +29,20 @@ from posthog.temporal.data_modeling.activities import (
     preempt_dag_run_activity,
     record_skipped_data_modeling_jobs_activity,
 )
-from posthog.temporal.data_modeling.activities.utils import strip_hostname_from_error
-from posthog.temporal.data_modeling.metrics import (
+from products.data_modeling.backend.temporal.activities.utils import strip_hostname_from_error
+from products.data_modeling.backend.temporal.metrics import (
     get_dag_duration_metric,
     get_dag_finished_metric,
     get_dag_node_count_metric,
     get_trino_shadow_start_metric,
     tier_label,
 )
-from posthog.temporal.data_modeling.workflows.materialize_view import (
+from products.data_modeling.backend.temporal.workflows.materialize_view import (
     MaterializeViewWorkflow,
     MaterializeViewWorkflowInputs,
     MaterializeViewWorkflowResult,
     _is_cancellation,
 )
-
-from products.data_modeling.backend.facade.models import DataModelingJobEngine
 from products.data_quality.backend.facade.contracts import CHECK_SUITE_WORKFLOW_NAME, MATERIALIZATION_GATE_ACTIVITY_NAME
 from products.data_quality.backend.facade.enums import SuiteRunTrigger
 

@@ -9,7 +9,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import temporalio.workflow
 from temporalio.exceptions import CancelledError, ChildWorkflowError, WorkflowAlreadyStartedError
 
-from posthog.temporal.data_modeling.activities import (
+from products.customer_analytics.backend.facade.temporal_contracts import StageAccountPropertySyncInput
+from products.data_modeling.backend.temporal.activities import (
     FailMaterializationInputs,
     ManagedWarehouseShadowResult,
     MaterializeViewResult,
@@ -18,20 +19,18 @@ from posthog.temporal.data_modeling.activities import (
     SucceedMaterializationResult,
     fail_materialization_activity,
 )
-from posthog.temporal.data_modeling.activities.enrich_view_semantics import EnrichViewSemanticsInputs
-from posthog.temporal.data_modeling.workflows.materialize_view import (
+from products.data_modeling.backend.temporal.activities.enrich_view_semantics import EnrichViewSemanticsInputs
+from products.data_modeling.backend.temporal.workflows.materialize_view import (
     MaterializeViewWorkflow,
     MaterializeViewWorkflowInputs,
     _StagedAuditVerdict,
 )
-
-from products.customer_analytics.backend.facade.temporal_contracts import StageAccountPropertySyncInput
 from products.data_quality.backend.facade.contracts import CHECK_SUITE_WORKFLOW_NAME, QualityAuditMode
 from products.warehouse_sources.backend.facade.hooks import PersonPropertySyncActivityInputs
 
 pytestmark = pytest.mark.asyncio
 
-WORKFLOW_MODULE = "posthog.temporal.data_modeling.workflows.materialize_view"
+WORKFLOW_MODULE = "products.data_modeling.backend.temporal.workflows.materialize_view"
 
 
 def _inputs() -> MaterializeViewWorkflowInputs:
@@ -423,7 +422,7 @@ class TestMaybeStageAccountProperties:
         with (
             patch.object(temporalio.workflow, "start_child_workflow", new=start_child),
             patch.object(temporalio.workflow, "logger", new=MagicMock()),
-            patch("posthog.temporal.data_modeling.workflows.materialize_view.capture_exception"),
+            patch("products.data_modeling.backend.temporal.workflows.materialize_view.capture_exception"),
         ):
             await workflow._maybe_stage_account_properties(_inputs(), result, "job-123")
 

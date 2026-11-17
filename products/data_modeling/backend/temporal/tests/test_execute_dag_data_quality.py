@@ -11,10 +11,9 @@ from temporalio import (
 )
 from temporalio.testing import WorkflowEnvironment
 
-from posthog.temporal.data_modeling.activities import GetDAGStructureInputs
-from posthog.temporal.data_modeling.activities.get_dag_structure import DAG as DAGPlan
-from posthog.temporal.data_modeling.workflows.execute_dag import ExecuteDAGInputs, ExecuteDAGResult, ExecuteDAGWorkflow
-from posthog.temporal.tests.data_modeling.test_execute_dag_workflow import (
+from products.data_modeling.backend.temporal.activities import GetDAGStructureInputs
+from products.data_modeling.backend.temporal.activities.get_dag_structure import DAG as DAGPlan
+from products.data_modeling.backend.temporal.tests.test_execute_dag_workflow import (
     MockMaterializeViewWorkflow,
     _mock_workflow_should_block_on_quality,
     _mock_workflow_should_fail,
@@ -24,7 +23,11 @@ from posthog.temporal.tests.data_modeling.test_execute_dag_workflow import (
     stub_preempt_dag_run,
     stub_record_skipped_data_modeling_jobs,
 )
-
+from products.data_modeling.backend.temporal.workflows.execute_dag import (
+    ExecuteDAGInputs,
+    ExecuteDAGResult,
+    ExecuteDAGWorkflow,
+)
 from products.data_quality.backend.facade.contracts import MATERIALIZATION_GATE_ACTIVITY_NAME
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]

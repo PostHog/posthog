@@ -6,7 +6,7 @@ from django.db import OperationalError
 import pyarrow as pa
 from parameterized import parameterized
 
-from posthog.temporal.data_modeling.activities.materialize_view import (
+from products.data_modeling.backend.temporal.activities.materialize_view import (
     AccountPropertyRowSink,
     PersonPropertyRowSink,
     _account_property_sync_enabled,
@@ -80,7 +80,9 @@ class TestCDPRowSinkStage:
         sink = _CDPRowSink(producer, MagicMock(awarning=AsyncMock()))
         sink.enabled = True
 
-        with patch("posthog.temporal.data_modeling.activities.materialize_view.capture_exception") as mock_capture:
+        with patch(
+            "products.data_modeling.backend.temporal.activities.materialize_view.capture_exception"
+        ) as mock_capture:
             await sink.stage(_batch())
 
         assert mock_capture.called is expect_capture
@@ -104,7 +106,9 @@ class TestPropertySinkResolutionReportsOnlyNonTransientFailures:
 
         with (
             patch.object(PersonPropertyRowSink, "should_run", AsyncMock(side_effect=error)),
-            patch("posthog.temporal.data_modeling.activities.materialize_view.capture_exception") as mock_capture,
+            patch(
+                "products.data_modeling.backend.temporal.activities.materialize_view.capture_exception"
+            ) as mock_capture,
         ):
             result = await _build_person_property_sink(objects, "job-1", logger, incremental=False)
 
@@ -123,7 +127,9 @@ class TestPropertySinkResolutionReportsOnlyNonTransientFailures:
 
         with (
             patch.object(AccountPropertyRowSink, "should_run", AsyncMock(side_effect=error)),
-            patch("posthog.temporal.data_modeling.activities.materialize_view.capture_exception") as mock_capture,
+            patch(
+                "products.data_modeling.backend.temporal.activities.materialize_view.capture_exception"
+            ) as mock_capture,
         ):
             result = await _account_property_sync_enabled(objects, "job-1", logger)
 
@@ -141,7 +147,9 @@ class TestPropertySinkResolutionReportsOnlyNonTransientFailures:
         producer.should_run = AsyncMock(side_effect=error)
         sink = _CDPRowSink(producer, MagicMock(awarning=AsyncMock()))
 
-        with patch("posthog.temporal.data_modeling.activities.materialize_view.capture_exception") as mock_capture:
+        with patch(
+            "products.data_modeling.backend.temporal.activities.materialize_view.capture_exception"
+        ) as mock_capture:
             await sink.prepare()
 
         assert sink.enabled is False

@@ -1,6 +1,6 @@
 from parameterized import parameterized
 
-from posthog.temporal.data_modeling.activities.utils import strip_hostname_from_error
+from products.data_modeling.backend.temporal.activities.utils import strip_hostname_from_error
 
 
 class TestStripHostnameFromError:

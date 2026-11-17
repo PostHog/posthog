@@ -7,11 +7,6 @@ import pytest_asyncio
 from temporalio.testing import ActivityEnvironment
 
 from posthog.sync import database_sync_to_async
-from posthog.temporal.data_modeling.activities.create_data_modeling_job import (
-    RecordSkippedDataModelingJobsInputs,
-    SkippedDataModelingNode,
-    record_skipped_data_modeling_jobs_activity,
-)
 
 from products.data_modeling.backend.facade.models import (
     DAG,
@@ -21,6 +16,11 @@ from products.data_modeling.backend.facade.models import (
     DataWarehouseSavedQuery,
     Node,
     NodeType,
+)
+from products.data_modeling.backend.temporal.activities.create_data_modeling_job import (
+    RecordSkippedDataModelingJobsInputs,
+    SkippedDataModelingNode,
+    record_skipped_data_modeling_jobs_activity,
 )
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]

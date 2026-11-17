@@ -1,4 +1,4 @@
-from posthog.temporal.data_modeling.activities import (
+from products.data_modeling.backend.temporal.activities import (
     check_managed_warehouse_shadow_eligibility_activity,
     check_managed_warehouse_shadow_enabled_activity,
     check_team_managed_warehouse_shadow_eligibility_activity,
@@ -19,7 +19,7 @@ from posthog.temporal.data_modeling.activities import (
     stage_queryable_files_activity,
     succeed_materialization_activity,
 )
-from posthog.temporal.data_modeling.workflows import (
+from products.data_modeling.backend.temporal.workflows import (
     EnrichViewSemanticsWorkflow,
     ExecuteDAGWorkflow,
     MaterializeViewWorkflow,
