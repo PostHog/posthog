@@ -223,6 +223,24 @@ describe('AiIngestionPipeline', () => {
         expect(producedForTopic(DLQ_TOPIC)).toHaveLength(0)
     })
 
+    it('stamps the received size as $ai_event_bytes on both copies, over client and transform values', async () => {
+        mockHogTransformer.transformEventAndProduceMessages.mockImplementation((event) =>
+            Promise.resolve({
+                event: { ...event, properties: { ...event.properties, $ai_event_bytes: 2 } },
+                invocationResults: [],
+            })
+        )
+        const message = createMessage('$ai_generation', { $ai_event_bytes: 1, $ai_input: 'café ☕' })
+        const receivedBytes = Buffer.byteLength(parseJSON(message.value!.toString()).data, 'utf8')
+
+        await runPipeline([message])
+
+        const [eventsCopy] = producedForTopic(EVENTS_TOPIC)
+        const [aiCopy] = producedForTopic(AI_EVENTS_TOPIC)
+        expect(parseJSON(eventsCopy.properties).$ai_event_bytes).toBe(receivedBytes)
+        expect(parseJSON(aiCopy.properties).$ai_event_bytes).toBe(receivedBytes)
+    })
+
     it('nulls invalid AI token properties before emitting', async () => {
         await runPipeline([createMessage('$ai_generation', { $ai_input_tokens: 'not-a-number' })])
 
