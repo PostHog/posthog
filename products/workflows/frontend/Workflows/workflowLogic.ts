@@ -4910,7 +4910,9 @@ export const workflowLogic = kea<workflowLogicType>([
             const merged = { ...(keepsFormEdits && stored ? withStagedDraft(stored) : values.workflow), ...workflow }
             if (merged.status === 'active' && values.workflowHasActionErrors) {
                 const names = values.actionsWithErrors.map((action) => action.name).join(', ')
-                lemonToast.error(`Fix these steps before enabling: ${names}`)
+                lemonToast.error(`Fix these steps before enabling: ${names}`, {
+                    capturedMessage: 'Fix these steps before enabling',
+                })
                 actions.enableBlocked()
                 return
             }
