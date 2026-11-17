@@ -132,6 +132,16 @@ export const AlertsDestinationsWebhookCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * Take ownership of this alert and enable it. Only organization admins can assign another member. The new owner needs access to its content. Checks run with the owner's access, so this is how an alert continues after its owner left.
+ */
+export const AlertsTakeOwnershipCreateBody = /* @__PURE__ */ zod.object({
+    user_uuid: zod
+        .uuid()
+        .optional()
+        .describe("New owner's user UUID. Must be an active organization member. Defaults to yourself."),
+})
+
+/**
  * Simulate a detector on an insight's historical data. No AlertCheck records are created. The AI and forecast detectors make real model calls, so those modes need the 'alert:write' scope. The forecast detector scores every point with a one-step forecast from the points before it.
  */
 export const AlertsSimulateCreateBody = /* @__PURE__ */ zod
