@@ -43,7 +43,7 @@ from products.stamphog.backend.models import (
     StamphogInstallation,
     StamphogRepoConfig,
 )
-from products.stamphog.backend.presentation.serializers import StamphogRepoConfigWriteSerializer
+from products.stamphog.backend.presentation.serializers import CodeReviewApprovalRepositoryWriteSerializer
 from products.stamphog.backend.presentation.views import _INSTALL_STATE_SALT
 from products.stamphog.backend.tests import fakes
 from products.stamphog.backend.tests.conftest import PRODUCT_DATABASES, StamphogTeamScopedTestMixin
@@ -65,7 +65,7 @@ class TestStamphogRepoConfigAPI(StamphogTeamScopedTestMixin, APIBaseTest):
 
     def setUp(self) -> None:
         super().setUp()
-        self.url = f"/api/projects/{self.team.id}/stamphog/repo_configs/"
+        self.url = f"/api/projects/{self.team.id}/code_review/approvals/repositories/"
         # Flipping the review-gating fields takes the manager level, which org admins hold
         # everywhere. The plain-member cases below cover the other side.
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
@@ -84,7 +84,7 @@ class TestStamphogRepoConfigAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         if stamphog_level is not None:
             AccessControl.objects.create(
                 team=grant_team or self.team,
-                resource="stamphog",
+                resource="code_review_approval",
                 resource_id=None,
                 access_level=stamphog_level,
                 organization_member=OrganizationMembership.objects.get(user=member, organization=self.organization),
@@ -210,14 +210,16 @@ class TestStamphogRepoConfigAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         # "none" on the other team, so the request can only pass on the grant under test.
         AccessControl.objects.create(
             team=env if grant_on_parent else self.team,
-            resource="stamphog",
+            resource="code_review_approval",
             resource_id=None,
             access_level="none",
             organization_member=OrganizationMembership.objects.get(user=member, organization=self.organization),
         )
 
         response = self.client.patch(
-            f"/api/projects/{env.id}/stamphog/repo_configs/{config_id}/", {"digest_enabled": True}, format="json"
+            f"/api/projects/{env.id}/code_review/approvals/repositories/{config_id}/",
+            {"digest_enabled": True},
+            format="json",
         )
 
         assert response.status_code == expected_status, response.content
@@ -238,7 +240,7 @@ class TestStamphogRepoConfigAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         )
 
         response = self.client.patch(
-            f"/api/projects/{env.id}/stamphog/repo_configs/{config_id}/", {"enabled": False}, format="json"
+            f"/api/projects/{env.id}/code_review/approvals/repositories/{config_id}/", {"enabled": False}, format="json"
         )
 
         assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
@@ -261,7 +263,7 @@ class TestStamphogRepoConfigAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         self._login_as_member(stamphog_level="manager", grant_team=self.team if grant_on_parent else env)
 
         response = self.client.patch(
-            f"/api/projects/{env.id}/stamphog/repo_configs/{config_id}/", {"enabled": False}, format="json"
+            f"/api/projects/{env.id}/code_review/approvals/repositories/{config_id}/", {"enabled": False}, format="json"
         )
 
         assert response.status_code == expected_status, response.content
@@ -415,7 +417,7 @@ class TestStamphogRepoConfigAPI(StamphogTeamScopedTestMixin, APIBaseTest):
             team_id=self.team.id, repository="PostHog/posthog", installation_id="7"
         )
 
-        response = self.client.get(f"/api/projects/{env.id}/stamphog/repo_configs/")
+        response = self.client.get(f"/api/projects/{env.id}/code_review/approvals/repositories/")
 
         assert response.status_code == status.HTTP_200_OK, response.content
         repos = [row["repository"] for row in response.json()["results"]]
@@ -434,13 +436,13 @@ class TestStamphogRepoConfigAPI(StamphogTeamScopedTestMixin, APIBaseTest):
             label="child-scoped",
             user=self.user,
             secure_value=hash_key_value(key_value),
-            scopes=["stamphog:read"],
+            scopes=["code_review_approval:read"],
             scoped_teams=[env.id],
         )
         self.client.logout()
 
         response = self.client.get(
-            f"/api/projects/{env.id}/stamphog/repo_configs/", HTTP_AUTHORIZATION=f"Bearer {key_value}"
+            f"/api/projects/{env.id}/code_review/approvals/repositories/", HTTP_AUTHORIZATION=f"Bearer {key_value}"
         )
 
         assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
@@ -453,12 +455,10 @@ class TestStamphogRepoConfigAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         response = self.client.get(f"{self.url}{theirs.id}/")
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
-    @parameterized.expand(
-        [("repo_configs",), ("review_runs",), ("pull_requests",), ("digest_runs",), ("routing_runs",)]
-    )
+    @parameterized.expand([("repositories",), ("runs",), ("pull_requests",), ("digests",), ("reviewer_routing",)])
     def test_malformed_id_is_a_404(self, resource: str) -> None:
         # An id that is not a UUID has to read as a miss, or a bad URL becomes a 500.
-        response = self.client.get(f"/api/projects/{self.team.id}/stamphog/{resource}/not-a-uuid/")
+        response = self.client.get(f"/api/projects/{self.team.id}/code_review/approvals/{resource}/not-a-uuid/")
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
     def test_cannot_delete_other_teams_config(self) -> None:
@@ -644,7 +644,7 @@ class TestStamphogRepoConfigSerializerValidation(SimpleTestCase):
     def test_asking_for_digest_without_reviews_is_rejected(
         self, _name: str, current: contracts.RepoConfigDTO | None, data: dict
     ) -> None:
-        serializer = StamphogRepoConfigWriteSerializer(
+        serializer = CodeReviewApprovalRepositoryWriteSerializer(
             data=data, partial=current is not None, partial_update=current is not None, current=current
         )
         assert not serializer.is_valid()
@@ -653,7 +653,7 @@ class TestStamphogRepoConfigSerializerValidation(SimpleTestCase):
     def test_disabling_reviews_clears_the_digest(self) -> None:
         # The Enabled toggle PATCHes only `enabled`, so rejecting the write would leave an admin
         # unable to turn reviews off on any digest-enabled repo, with a generic failure toast.
-        serializer = StamphogRepoConfigWriteSerializer(
+        serializer = CodeReviewApprovalRepositoryWriteSerializer(
             data={"enabled": False},
             partial=True,
             partial_update=True,
@@ -683,7 +683,7 @@ class TestStamphogRepoConfigSerializerValidation(SimpleTestCase):
                 review_mode=stored_mode,
                 review_on_clean_external_review=True,
             )
-        serializer = StamphogRepoConfigWriteSerializer(
+        serializer = CodeReviewApprovalRepositoryWriteSerializer(
             data=data, partial=current is not None, partial_update=current is not None, current=current
         )
 
@@ -706,7 +706,7 @@ class TestStamphogRepoConfigSerializerValidation(SimpleTestCase):
     def test_fork_labels_take_only_team_slugs_and_github_label_names(
         self, _name: str, labels: dict[str, str], valid: bool
     ) -> None:
-        serializer = StamphogRepoConfigWriteSerializer(
+        serializer = CodeReviewApprovalRepositoryWriteSerializer(
             data={"routing_fork_labels": labels},
             partial=True,
             partial_update=True,
@@ -721,7 +721,7 @@ class TestReviewRunAPI(StamphogTeamScopedTestMixin, APIBaseTest):
 
     def setUp(self) -> None:
         super().setUp()
-        self.url = f"/api/projects/{self.team.id}/stamphog/review_runs/"
+        self.url = f"/api/projects/{self.team.id}/code_review/approvals/runs/"
         self.repo_config = StamphogRepoConfig.objects.unscoped().create(
             team_id=self.team.id, repository="PostHog/posthog", installation_id="1"
         )
@@ -875,7 +875,7 @@ class TestReviewRunAPI(StamphogTeamScopedTestMixin, APIBaseTest):
             response = self.client.get(self.url)
             assert response.status_code == status.HTTP_200_OK
             output = response.json()["results"][0]["output"]
-        assert output == {"stamphog_version": "test-1.0.0", "reviewer_exit_code": 0}
+        assert output == {"engine_version": "test-1.0.0", "reviewer_exit_code": 0}
         for leaked in ("reviewer_raw", "pr", "files", "policy_files"):
             assert leaked not in output
 
@@ -885,7 +885,7 @@ class TestReviewRequestAPI(StamphogTeamScopedTestMixin, APIBaseTest):
 
     def setUp(self) -> None:
         super().setUp()
-        self.url = f"/api/projects/{self.team.id}/stamphog/review_runs/"
+        self.url = f"/api/projects/{self.team.id}/code_review/approvals/runs/"
         self.repo_config = StamphogRepoConfig.objects.unscoped().create(
             team_id=self.team.id,
             repository="PostHog/posthog",
@@ -1010,7 +1010,10 @@ class TestReviewRequestAPI(StamphogTeamScopedTestMixin, APIBaseTest):
     def test_request_needs_the_write_scope(self) -> None:
         key_value = generate_random_token_personal()
         PersonalAPIKey.objects.create(
-            label="read-only", user=self.user, secure_value=hash_key_value(key_value), scopes=["stamphog:read"]
+            label="read-only",
+            user=self.user,
+            secure_value=hash_key_value(key_value),
+            scopes=["code_review_approval:read"],
         )
         self.client.logout()
 
@@ -1068,7 +1071,7 @@ class TestSyncInstallationAPI(StamphogTeamScopedTestMixin, APIBaseTest):
 
     def setUp(self) -> None:
         super().setUp()
-        self.url = f"/api/projects/{self.team.id}/stamphog/repo_configs/sync_installation/"
+        self.url = f"/api/projects/{self.team.id}/code_review/approvals/repositories/sync_installation/"
         self.state = _install_state(self.team.id, self.user.id)
 
     @patch(f"{_GITHUB_FACADE}.list_user_accessible_repositories")
@@ -1361,7 +1364,7 @@ class TestRoutingRunAPI(StamphogTeamScopedTestMixin, APIBaseTest):
 
     def setUp(self) -> None:
         super().setUp()
-        self.url = f"/api/projects/{self.team.id}/stamphog/routing_runs/"
+        self.url = f"/api/projects/{self.team.id}/code_review/approvals/reviewer_routing/"
         repo_config = StamphogRepoConfig.objects.unscoped().create(
             team_id=self.team.id, repository="PostHog/posthog", installation_id="1"
         )
@@ -1548,7 +1551,9 @@ class TestRoutingRunAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         PullRequest.objects.unscoped().filter(team_id=self.team.id, pr_number=1).update(routing=stored)
         StamphogRepoConfig.objects.unscoped().filter(team_id=self.team.id).update(routing_mode=RoutingMode.FALLBACK)
 
-        response = self.client.get(f"/api/projects/{self.team.id}/stamphog/pull_requests/", {"pr_number": 1})
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/code_review/approvals/pull_requests/", {"pr_number": 1}
+        )
 
         assert response.status_code == status.HTTP_200_OK, response.content
         pull_request = response.json()["results"][0]
@@ -1610,7 +1615,7 @@ class TestDigestRunAPI(StamphogTeamScopedTestMixin, APIBaseTest):
                 summary=summary,
             )
 
-        url = f"/api/projects/{self.team.id}/stamphog/digest_runs/"
+        url = f"/api/projects/{self.team.id}/code_review/approvals/digests/"
         body = self.client.get(url).json()
         assert {r["slack_channel_id"] for r in body["results"]} == {"C1", "C2", "C3"}
         assert {r["audience_key"] for r in body["results"]} == {"team-x", "team-y", "team-z"}

@@ -25,14 +25,14 @@ class RoutingMode(LabeledStrEnum):
     # Request owners when a pull request opens ready for review or is marked ready.
     ALWAYS = "always", "Always"
     # Request owners only when stamphog does not approve. An approval requests only pinned owners.
-    FALLBACK = "fallback", "When stamphog does not approve"
+    FALLBACK = "fallback", "When auto-approval does not approve"
 
 
 class RoutingStatus(LabeledStrEnum):
     """The phase of a pull request's latest reviewer routing record."""
 
     # FALLBACK only: the head waits for stamphog's verdict or for the safety net.
-    WAITING = "waiting", "Waiting for stamphog's verdict"
+    WAITING = "waiting", "Waiting for auto-approval's verdict"
     # A task holds the claim and has not requested anybody yet.
     ROUTING = "routing", "Routing"
     # The review requests went out and the routing comment is not finished yet.
@@ -80,7 +80,7 @@ class LlmSkipReason(LabeledStrEnum):
     NOTHING_CUTTABLE = "nothing_cuttable", "Nothing cuttable"
     NO_ANSWER = "no_answer", "No answer"
     # Kept for older runs: an approved head once skipped the model. Approved heads now ask it like any other.
-    STAMPHOG_APPROVED = "stamphog_approved", "Stamphog approved"
+    STAMPHOG_APPROVED = "stamphog_approved", "Auto-approved"
     # GitHub listed fewer files than the pull request changes, so the model would judge a partial diff.
     FILES_TRUNCATED = "files_truncated", "Files truncated"
 
@@ -117,7 +117,7 @@ class RoutingOwnerReason(LabeledStrEnum):
     MODEL_KEPT = "model_kept", "Kept by the model"
     MODEL_CUT = "model_cut", "Cut by the model"
     # Kept for older runs, which logged every unpinned owner of an approved head with this reason.
-    STAMPHOG_APPROVED = "stamphog_approved", "Stamphog approved"
+    STAMPHOG_APPROVED = "stamphog_approved", "Auto-approved"
 
 
 # The pull_request actions that start a reviewer routing run. The webhook consumer imports this at

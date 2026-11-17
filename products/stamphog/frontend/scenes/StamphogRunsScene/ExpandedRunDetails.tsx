@@ -89,7 +89,7 @@ export function ExpandedRunDetails({ run }: { run: ReviewRunApi }): JSX.Element 
                             <LemonTag type="success">Passed</LemonTag>
                         )}
                     </Field>
-                    <Field label="Engine version">{run.output?.stamphog_version || null}</Field>
+                    <Field label="Engine version">{run.output?.engine_version || null}</Field>
                     <Field label="Exit code">{run.output?.reviewer_exit_code ?? null}</Field>
                 </Section>
 
