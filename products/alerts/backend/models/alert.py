@@ -14,6 +14,7 @@ if TYPE_CHECKING:
     from posthog.models.organization import Organization
     from posthog.models.user import User
 
+    from products.alerts.backend.facade.contracts import AlertValidationState
     from products.alerts_platform.backend.facade.contracts import PlatformAlertConfigurationView
 
 import pydantic
@@ -273,6 +274,22 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
         )
 
         return presented_alerts(views, team_id=team_id)
+
+    def validation_state(self) -> AlertValidationState:
+        from products.alerts.backend.facade.contracts import AlertValidationState
+
+        return AlertValidationState(
+            id=self.id,
+            enabled=self.enabled,
+            condition=self.condition,
+            config=self.config,
+            threshold_configuration=self.threshold.configuration if self.threshold else None,
+            calculation_interval=self.calculation_interval,
+            detector_config=self.detector_config,
+            evaluation_delay_intervals=self.evaluation_delay_intervals,
+            investigation_agent_enabled=self.investigation_agent_enabled,
+            investigation_gates_notifications=self.investigation_gates_notifications,
+        )
 
     @property
     def has_no_insight_row(self) -> bool:

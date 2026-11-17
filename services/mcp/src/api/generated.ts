@@ -15721,6 +15721,11 @@ export namespace Schemas {
       failed_delivery_channels: FailedDeliveryChannelsEnum[];
     }
 
+    export interface AlertTransferOwnership {
+      /** New owner's user UUID. Must be an active organization member. Defaults to yourself. */
+      user_uuid?: string;
+    }
+
     export interface AmazonCloudwatchIncidentSignalExtra {
       alarm_name: string | null;
       alarm_kind: string | null;
@@ -39429,6 +39434,50 @@ export namespace Schemas {
     export interface DestinationConnectionTestResponse {
       /** The steps of the connection test, in order. The test stops at the first failed step. */
       steps: DestinationConnectionTestStep[];
+    }
+
+    export interface DestinationDeliveryFailure {
+      /** ID of the sync run that could not deliver to this destination. */
+      job_id: string;
+      /** ID of the source the run belongs to. */
+      source_id: string;
+      /** Name of the source: its prefix, if any, and its type. */
+      source_name: string;
+      /** Type of the source, for example `Stripe` or `MetaAds`. */
+      source_type: string;
+      /**
+         * ID of the table the run synced.
+         * @nullable
+         */
+      schema_id: string | null;
+      /**
+         * Name of the table the run synced.
+         * @nullable
+         */
+      schema_name: string | null;
+      /** Why the delivery failed, as the destination reported it. Stored credentials of the source and of the destination are masked. */
+      error: string;
+      /** Whether the destination's own settings caused the failure, for example a wrong password or a missing permission. Configuration errors do not go away until the settings change. */
+      is_configuration_error: boolean;
+      /** When the run started. */
+      created_at: string;
+      /**
+         * When the run stopped.
+         * @nullable
+         */
+      finished_at: string | null;
+      /**
+         * ID that the run's log lines carry, to find the logs of this run.
+         * @nullable
+         */
+      workflow_run_id: string | null;
+    }
+
+    export interface DestinationDeliveryFailuresResponse {
+      /** Sync runs that could not deliver to this destination, newest first. At most 50 runs from the last 14 days, from sources you have access to. */
+      results: DestinationDeliveryFailure[];
+      /** How many days back the runs go. */
+      window_days: number;
     }
 
     export interface DetectableEffectCheckpoint {
@@ -119518,6 +119567,11 @@ export namespace Schemas {
        * * `errored` - Errored
        * * `inconclusive` - Inconclusive */
       outcome: SignalReportCheckOutcomeEnum;
+    }
+
+    export interface SubscriptionTransferOwnership {
+      /** New owner's user UUID. Must be an active organization member. Defaults to yourself. */
+      user_uuid?: string;
     }
 
     export type SubscriptionWriteContextsItem = {

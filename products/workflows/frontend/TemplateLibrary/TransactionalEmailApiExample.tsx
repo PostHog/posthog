@@ -18,8 +18,8 @@ const LANGUAGE_OPTIONS: { value: SnippetLanguage; label: string; 'data-attr': st
 ]
 
 const INSTALL_COMMANDS: Partial<Record<SnippetLanguage, string>> = {
-    node: 'npm install posthog-node@^5.61.2',
-    python: 'pip install "posthog>=7.81.2"',
+    node: 'npm install posthog-node@6',
+    python: 'pip install posthog~=8.0',
 }
 
 export function TransactionalEmailApiExample({
