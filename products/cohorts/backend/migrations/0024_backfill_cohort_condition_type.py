@@ -29,13 +29,13 @@ def _flags_routing_can_change(cohort) -> bool:
     )
 
 
-def _refresh_flags_caches(team_ids: set[int]) -> int | None:
-    """Return how many refreshes were dispatched, or None when the deadline passed first."""
+def _refresh_flags_caches(team_ids: set[int]) -> tuple[set[int], bool]:
+    """Return the teams whose refresh was dispatched, and whether the deadline passed first."""
     # The flags service reads cohorts from the team's flags cache, and `bulk_update` fires none of the
     # cohort save receivers that rebuild it. Without the flags cache there is nothing to rebuild, and
     # an unreachable broker could stall the deploy, so this follows the save receiver's guard.
     if not settings.FLAGS_REDIS_URL:
-        return 0
+        return set(), False
     from products.cohorts.backend.backfill.finalize import refresh_readiness_caches
 
     dispatched: list[int] = []
@@ -56,9 +56,7 @@ def _refresh_flags_caches(team_ids: set[int]) -> int | None:
     worker = threading.Thread(target=refresh_all, daemon=True)
     worker.start()
     worker.join(REFRESH_DEADLINE_SECONDS)
-    if worker.is_alive():
-        return None
-    return len(dispatched)
+    return set(dispatched), worker.is_alive()
 
 
 def backfill_condition_type(apps, schema_editor):
@@ -121,15 +119,14 @@ def backfill_condition_type(apps, schema_editor):
         if teams and refresh_stalled:
             unrefreshed_team_ids |= teams
         elif teams:
-            dispatched = _refresh_flags_caches(teams)
-            if dispatched is None:
+            dispatched, stalled = _refresh_flags_caches(teams)
+            refreshes += len(dispatched)
+            if stalled:
                 # Later refreshes would wait on the same unresponsive Redis. The skipped teams pick up
                 # the new value when their cache entries expire.
                 refresh_stalled = True
-                unrefreshed_team_ids |= teams
+                unrefreshed_team_ids |= teams - dispatched
                 logger.warning("cohort_condition_type_backfill_cache_refresh_stalled", batch=batches + 1)
-            else:
-                refreshes += dispatched
 
         batches += 1
         if batches % LOG_EVERY_BATCHES == 0:
