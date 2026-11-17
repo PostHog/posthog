@@ -1,5 +1,7 @@
 import re
+import html
 import uuid
+from urllib.parse import parse_qsl
 
 import time_machine
 from posthog.test.base import BaseTest
@@ -99,12 +101,12 @@ class TestEvalSuggestionReviewTool(BaseTest):
     @parameterized.expand(
         [
             # The first visit shows only unlabeled cards, and a label leaves the next one in the same place.
-            ("first_visit", "", "check:b", "Card waiting for a label", "card=1&unlabeled=on"),
-            ("every_card", "?days=30", "check:a", "Already labeled card", "card=2"),
+            ("first_visit", "", "check:b", "Card waiting for a label", {"days": "30", "unlabeled": "on", "card": "1"}),
+            ("every_card", "?days=30", "check:a", "Already labeled card", {"days": "30", "card": "2"}),
         ]
     )
     def test_the_page_shows_one_card_with_buttons_that_label_it(
-        self, _name: str, query: str, key: str, headline: str, after_label: str
+        self, _name: str, query: str, key: str, headline: str, after_label: dict[str, str]
     ) -> None:
         response = self.client.get(f"/admin/console/tools/eval-suggestion-review/{query}")
 
@@ -115,7 +117,7 @@ class TestEvalSuggestionReviewTool(BaseTest):
         assert f"Checks the {key} rule." in content and f"Measured the {key} rule." in content
         assert "/ai-observability/traces/trace%252F1%253Fstep%253D2%2523end%25252F" in content
         form = re.search(r'action="/admin/console/tools/eval-suggestion-review/label/\?([^"]*)"', content)
-        assert form is not None and form.group(1).endswith(after_label.replace("&", "&amp;"))
+        assert form is not None and dict(parse_qsl(html.unescape(form.group(1)))) == after_label
         assert 'data-console-key="ArrowRight"' in content and 'data-console-key="ArrowLeft"' in content
         # Staff label from the card, so the page has no form that asks for a suggestion ID.
         assert "tool-actions-title" not in content
