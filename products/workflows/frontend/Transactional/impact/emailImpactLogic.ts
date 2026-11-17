@@ -109,7 +109,7 @@ function impactErrorMessage(error: { status?: number; detail?: string | null } |
         return error.detail
     }
     if (error?.status === 429) {
-        return 'Too many queries are running for this project. Wait a minute, then try again.'
+        return 'Too many queries are running right now. Wait a few seconds, then try again.'
     }
     return !error?.status || error.status >= 500
         ? "This email's impact couldn't load. Try again, or pick a shorter period."

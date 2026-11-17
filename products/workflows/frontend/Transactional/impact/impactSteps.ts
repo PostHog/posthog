@@ -51,12 +51,13 @@ export function impactFunnelState(
     if (!impact) {
         return 'loading'
     }
-    return impact.sent === 0 ? 'empty' : 'ready'
+    const recorded = impact.sent + impact.delivered + impact.opened + impact.clicked
+    return recorded === 0 ? 'empty' : 'ready'
 }
 
 export function emptyPeriodMessage(impact: TransactionalEmailImpactApi): string {
     return impact.untracked > 0
-        ? 'No sends of this email were queued in this period.'
+        ? 'No sends of this email were recorded in this period.'
         : 'Nobody was sent this email in this period.'
 }
 

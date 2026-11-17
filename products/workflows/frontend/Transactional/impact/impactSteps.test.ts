@@ -20,6 +20,14 @@ const impact: TransactionalEmailImpactApi = {
     after_click: { sends: 16, converted: 4 },
     without_click: { sends: 50, converted: 1 },
 }
+const nothingRecorded: TransactionalEmailImpactApi = {
+    ...impact,
+    sent: 0,
+    delivered: 0,
+    opened: 0,
+    clicked: 0,
+    not_clicked: 0,
+}
 
 const untracked: TransactionalEmailImpactApi = {
     ...impact,
@@ -56,8 +64,15 @@ describe('impactSteps', () => {
         ['a request is in flight over an earlier answer', impact, true, null, 'loading'],
         ['nothing has answered yet', null, false, null, 'loading'],
         ['the request failed', impact, false, 'Server error', 'error'],
-        ['nothing was sent in the period', { ...impact, sent: 0 }, false, null, 'empty'],
-        ['only untracked sends were counted in the period', { ...impact, sent: 0, untracked: 3 }, false, null, 'empty'],
+        ['nothing was recorded in the period', nothingRecorded, false, null, 'empty'],
+        ['only untracked sends were counted in the period', { ...nothingRecorded, untracked: 3 }, false, null, 'empty'],
+        [
+            'ready when clicks arrived before their sends',
+            { ...nothingRecorded, untracked: 3, clicked: 2 },
+            false,
+            null,
+            'ready',
+        ],
         ['sends answered', impact, false, null, 'ready'],
     ] as const)('shows the funnel as %s', (_, data, loading, error, expected) => {
         expect(impactFunnelState(data, loading, error)).toBe(expected)
@@ -98,11 +113,11 @@ describe('impactSteps', () => {
     })
 
     it.each([
-        ['nothing was queued or sent untracked', { ...impact, sent: 0 }, 'Nobody was sent this email in this period.'],
+        ['nothing was recorded or sent untracked', nothingRecorded, 'Nobody was sent this email in this period.'],
         [
             'only untracked sends went out',
-            { ...impact, sent: 0, untracked: 3 },
-            'No sends of this email were queued in this period.',
+            { ...nothingRecorded, untracked: 3 },
+            'No sends of this email were recorded in this period.',
         ],
     ])('says why the period is empty when %s', (_, data, expected) => {
         expect(emptyPeriodMessage(data)).toBe(expected)
