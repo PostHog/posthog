@@ -14,6 +14,7 @@ from posthog.auth import (
 )
 
 from products.feature_flags.backend.api import remote_config_shadow as shadow
+from products.feature_flags.backend.api.feature_flag import _JSONNullResponse
 
 # Matches REDACTED_PAYLOAD_VALUE on the Django and Rust sides: a quoted string returned to a
 # secret-key caller on an encrypted flag — the most parity-sensitive value the shadow compares.
@@ -114,6 +115,7 @@ def test_builds_canonical_rust_url():
         (Response("v", status=200), _rust_response(200, b'"other"', "other"), "mismatch"),
         (Response(status=404), _rust_response(200, b'"v"', "v"), "mismatch"),
         (Response(None, status=200), _rust_response(200, b"", None), "match"),
+        (_JSONNullResponse(), _rust_response(200, b"null", None), "match"),
         (Response(status=404), _rust_response(404, b"", None), "match"),
         (Response(REDACTED, status=200), _rust_response(200, REDACTED.encode(), REDACTED), "match"),
         (Response({"a": 1}, status=200), _rust_response(200, b'{"a": 1}', {"a": 1}), "match"),

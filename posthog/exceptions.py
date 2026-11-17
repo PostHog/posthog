@@ -13,12 +13,9 @@ from rest_framework.response import Response
 from posthog.clickhouse.query_tagging import get_query_tags
 from posthog.cloud_utils import is_cloud
 from posthog.exceptions_capture import capture_exception
-from posthog.scopes import (
-    INTERNAL_API_SCOPE_OBJECTS,
-    scopes_covered_by_legacy_fallback,
-    scopes_not_covered,
-    scopes_within_ceiling,
-)
+from posthog.scopes.ceilings import scopes_within_ceiling
+from posthog.scopes.checks import scopes_covered_by_legacy_fallback, scopes_not_covered
+from posthog.scopes.exposure import INTERNAL_API_SCOPE_OBJECTS
 
 logger = structlog.get_logger(__name__)
 

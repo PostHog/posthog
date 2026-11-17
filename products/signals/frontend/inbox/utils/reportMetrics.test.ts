@@ -244,7 +244,19 @@ describe('reportMetrics', () => {
             'a currency amount',
             { kind: 'revenue', unit: 'USD', value_format: 'currency' } as const,
             1200,
-            { value: '$1,200.00', unit: 'revenue' },
+            { value: '$1,200', unit: 'revenue' },
+        ],
+        [
+            'a large currency amount',
+            { kind: 'revenue', unit: 'USD', value_format: 'currency' } as const,
+            38_082_034.98,
+            { value: '$38.1M', unit: 'revenue' },
+        ],
+        [
+            'a large count',
+            { kind: 'affected_users', unit: null, value_format: 'count' } as const,
+            12_345,
+            { value: '12.3K', unit: 'users' },
         ],
         [
             'a plain number',

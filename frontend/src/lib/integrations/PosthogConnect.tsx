@@ -27,7 +27,7 @@ const REGION_OPTIONS: { value: PosthogConnectRegion; label: string }[] = [
     { value: 'EU', label: 'European Union (EU)' },
 ]
 
-// Only offer scopes an OAuth client can actually be granted (mirrors get_oauth_scopes_supported on
+// Only offer scopes an OAuth client can actually be granted (mirrors OAUTH_SCOPES_SUPPORTED on
 // the backend, which excludes privileged/internal/hidden scopes). openid/email are added server-side.
 const GRANTABLE_SCOPES = API_SCOPES.filter((scope) => !scope.unprivilegedExcluded)
 

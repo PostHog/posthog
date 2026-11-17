@@ -1,7 +1,7 @@
 """Stage 7: a strong model reads a sample of the team's own LLM calls and drafts at most two judges for it.
 
 Triage first: a cheap model sees the busiest call types and picks the few whose output reaches the end user,
-or excludes the team. The review model then reads about REVIEW_CALLS calls of those types, rendered compactly,
+or excludes the team. The review model then reads about review_calls calls of those types, rendered compactly,
 and proposes a judge only for a failure it saw at least MIN_CARD_FAILURES times. Both calls go through the Go
 AI gateway in privacy mode, because they carry the team's raw traffic.
 """
@@ -23,7 +23,7 @@ from posthog.dataclasses import frozen
 from posthog.llm.gateway_client import build_ai_gateway_anthropic_client, team_distinct_id
 
 from .call_review_queries import CallTypeRow, ReviewCallRow
-from .config import AI_PRODUCT
+from .config import AI_PRODUCT, REVIEW_CALLS
 from .measure import TOOL_CALL_TYPES, has_tool_call
 from .prices import MODEL_PRICES
 
@@ -34,13 +34,12 @@ REVIEW_MODEL = "claude-opus-5-5"
 # Opus 5.5 always thinks, and its default effort is medium.
 REVIEW_EFFORT: Literal["high"] = "high"
 MAX_PICKED_CALL_TYPES = 5
-REVIEW_CALLS = 70
 CALLS_PER_TRACE = 2
 MAX_CARDS = 2
 EXAMPLES_PER_CARD = 2
 MIN_CARD_FAILURES = 3
 # The rendering must stay far below the review model's context, so input tokens and the reserved cost stay bounded.
-MAX_RENDERED_CHARS = 140_000
+RENDERED_CHARS_PER_CALL = 2000
 MAX_SYSTEM_PROMPT_CHARS = 8000
 # A call whose system prompt differs from its call type's first one shows this much of its own.
 MAX_OTHER_SYSTEM_PROMPT_CHARS = 1000
@@ -226,13 +225,14 @@ class SampledCall:
     system: str
     conversation: str
     output: str
+    row: ReviewCallRow
 
 
 @frozen
 class RenderedCall:
     call_type: str
-    # The call's block as the review read it, after its call type's system prompt, which the review read once.
-    text: str
+    # The stored call, so a judge drafted for it can read it as the runtime evaluation will.
+    row: ReviewCallRow
 
 
 @frozen
@@ -384,6 +384,7 @@ def parse_call(row: ReviewCallRow) -> SampledCall | None:
         system=parts.system,
         conversation=parts.conversation,
         output=_content_text(output),
+        row=row,
     )
 
 
@@ -450,10 +451,13 @@ def _system_section(system: str) -> str:
     return _tagged("system_prompt", _clip(system, MAX_SYSTEM_PROMPT_CHARS)) if system else "No system prompt."
 
 
-def render(call_types: Sequence[CallTypeRow], calls: Sequence[SampledCall]) -> Rendering:
+def render(
+    call_types: Sequence[CallTypeRow], calls: Sequence[SampledCall], review_calls: int = REVIEW_CALLS
+) -> Rendering:
     """The calls as the review model reads them. Each call type's system prompt appears once, and the text stays
-    within MAX_RENDERED_CHARS: each call gets an equal part of what the system prompts leave, and the last calls
-    drop when the headings still push the text over."""
+    within RENDERED_CHARS_PER_CALL for each of `review_calls` calls: each call gets an equal part of what the system
+    prompts leave, and the last calls drop when the headings still push the text over."""
+    max_chars = RENDERED_CHARS_PER_CALL * review_calls
     ids = {call_type.key: f"T{index}" for index, call_type in enumerate(call_types, start=1)}
     systems: dict[str, str] = {}
     for call in calls:
@@ -466,7 +470,7 @@ def render(call_types: Sequence[CallTypeRow], calls: Sequence[SampledCall]) -> R
         header.append("</call_type>")
     header.append("\n# Calls")
     head = "\n".join(header)
-    per_call = (MAX_RENDERED_CHARS - len(head)) // max(len(calls), 1)
+    per_call = (max_chars - len(head)) // max(len(calls), 1)
     input_chars = min(MAX_CALL_INPUT_CHARS, per_call * 2 // 5)
     output_chars = max(200, min(MAX_CALL_OUTPUT_CHARS, per_call - input_chars - 200))
     blocks = []
@@ -484,7 +488,7 @@ def render(call_types: Sequence[CallTypeRow], calls: Sequence[SampledCall]) -> R
             f"{_tagged('call_input', _clip(call.conversation, input_chars))}\n"
             f"{_tagged('call_output', _clip(call.output, output_chars))}\n</call>"
         )
-    while blocks and len(head) + sum(len(block) + 1 for block in blocks) > MAX_RENDERED_CHARS:
+    while blocks and len(head) + sum(len(block) + 1 for block in blocks) > max_chars:
         blocks.pop()
     kept = calls[: len(blocks)]
     traces: defaultdict[str, set[str]] = defaultdict(set)
@@ -495,10 +499,7 @@ def render(call_types: Sequence[CallTypeRow], calls: Sequence[SampledCall]) -> R
         call_types={ids[call_type.key]: call_type for call_type in call_types},
         trace_ids={key: frozenset(trace_ids) for key, trace_ids in traces.items()},
         calls={
-            number: RenderedCall(
-                call_type=call.call_type, text=f"{_system_section(systems.get(call.call_type, ''))}\n{block}"
-            )
-            for number, (call, block) in enumerate(zip(kept, blocks), start=1)
+            number: RenderedCall(call_type=call.call_type, row=call.row) for number, call in enumerate(kept, start=1)
         },
     )
 
