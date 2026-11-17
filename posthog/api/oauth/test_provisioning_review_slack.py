@@ -8,7 +8,9 @@ from unittest.mock import MagicMock, patch
 from django.core.cache import cache
 from django.test import override_settings
 
+from celery.exceptions import Retry
 from parameterized import parameterized
+from slack_sdk.errors import SlackApiError
 
 from posthog.api.oauth.provisioning_review import decide_partner, settle_review
 from posthog.api.oauth.provisioning_review_slack import (
@@ -17,8 +19,12 @@ from posthog.api.oauth.provisioning_review_slack import (
     BLOCK_MODAL_CALLBACK_ID,
     BLOCK_MODAL_REASON_BLOCK,
     BLOCK_MODAL_REASON_INPUT,
+    THREAD_LOCK_PREFIX,
+    THREAD_RETRY_SECONDS,
+    _retry_countdown,
     block_partner_from_slack,
     interaction_ownership,
+    sync_review_slack_thread,
 )
 from posthog.ingress.contracts import DeliveryOwnership
 from posthog.ingress.dispatch.loading import reset_consumer_registry
@@ -105,6 +111,32 @@ class TestProvisioningReviewSlack(APIBaseTest):
         reply = client.chat_postMessage.call_args.kwargs
         assert reply["thread_ts"] == "1700000000.000100"
         assert reply["text"] == "Needs staff review → Rejected: Staff: Malicious usage"
+
+    def test_a_held_thread_lock_defers_the_post(self, _send_email) -> None:
+        client = _slack_client()
+        cache.add(f"{THREAD_LOCK_PREFIX}:{self.review.pk}", True, 60)
+
+        with (
+            patch("posthog.api.oauth.provisioning_review_slack.SlackWebClient", return_value=client),
+            self.assertRaises(Retry),
+        ):
+            sync_review_slack_thread(str(self.review.pk), ProvisioningReviewStatus.NEEDS_HUMAN)
+
+        client.chat_postMessage.assert_not_called()
+
+    @parameterized.expand(
+        [
+            (
+                "rate_limited",
+                SlackApiError("ratelimited", MagicMock(status_code=429, headers={"Retry-After": "30"})),
+                2,
+                30,
+            ),
+            ("other_error", RuntimeError("boom"), 2, THREAD_RETRY_SECONDS * 4),
+        ]
+    )
+    def test_retry_waits_as_long_as_slack_asks(self, _send_email, _name, error, retries, countdown) -> None:
+        assert _retry_countdown(error, retries) == countdown
 
     @parameterized.expand(
         [

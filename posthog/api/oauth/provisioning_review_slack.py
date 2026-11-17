@@ -19,7 +19,8 @@ from django.core.cache import cache
 from django.db import transaction
 
 import structlog
-from celery import shared_task
+from celery import Task, shared_task
+from slack_sdk.errors import SlackApiError
 
 from posthog.egress.slack.client import SlackWebClient
 from posthog.ingress.contracts import DeliveryOwnership
@@ -42,6 +43,10 @@ BLOCK_MODAL_REASON_INPUT = "reason"
 # region that holds the review before anything reads the database.
 BLOCK_ID_PREFIX = "cimd_review"
 WORKSPACE_CACHE_KEY = "cimd_review_slack_workspace_id"
+THREAD_LOCK_PREFIX = "cimd_review_slack_thread"
+THREAD_LOCK_SECONDS = 60
+THREAD_RETRY_SECONDS = 5
+THREAD_MAX_RETRIES = 5
 WORKSPACE_CACHE_SECONDS = 60 * 60
 
 STATUS_HEADINGS = {
@@ -126,14 +131,37 @@ def render_review_message(review: CIMDProvisioningReview) -> tuple[str, list[dic
     return heading, blocks
 
 
-@shared_task(ignore_result=True, autoretry_for=(Exception,), retry_backoff=True, max_retries=3)
-def sync_review_slack_thread(review_id: str, previous_status: str | None = None) -> None:
+def _retry_countdown(error: Exception, retries: int) -> int:
+    if isinstance(error, SlackApiError) and error.response.status_code == 429:
+        # Slack names how long to wait, and a backoff shorter than that spends every retry inside the limit.
+        return int(error.response.headers.get("Retry-After", THREAD_RETRY_SECONDS))
+    return THREAD_RETRY_SECONDS * 2**retries
+
+
+@shared_task(bind=True, ignore_result=True, max_retries=THREAD_MAX_RETRIES)
+def sync_review_slack_thread(
+    self: Task, review_id: str, status: str, previous_status: str | None = None, reason: str = ""
+) -> None:
     """Post the review's thread the first time it settles, then keep the first message current and reply
-    with each change. Runs after the decision commits, so it reads the decision it was queued for."""
+    with each decision. The reply describes the decision this task was queued for, which a later one may
+    already have replaced."""
     if not slack_thread_configured():
         return
+    lock_key = f"{THREAD_LOCK_PREFIX}:{review_id}"
+    # One task per review talks to Slack at a time, so two first decisions can't post two threads.
+    if not cache.add(lock_key, True, THREAD_LOCK_SECONDS):
+        raise self.retry(countdown=THREAD_RETRY_SECONDS)
+    try:
+        _sync_review_slack_thread(review_id, status=status, previous_status=previous_status, reason=reason)
+    except Exception as error:
+        raise self.retry(exc=error, countdown=_retry_countdown(error, self.request.retries))
+    finally:
+        cache.delete(lock_key)
+
+
+def _sync_review_slack_thread(review_id: str, *, status: str, previous_status: str | None, reason: str) -> None:
     review = CIMDProvisioningReview.objects.select_related("application").filter(pk=review_id).first()
-    if review is None or review.status == ProvisioningReviewStatus.PENDING:
+    if review is None or status == ProvisioningReviewStatus.PENDING:
         return
     client = _client()
     text, blocks = render_review_message(review)
@@ -142,26 +170,24 @@ def sync_review_slack_thread(review_id: str, previous_status: str | None = None)
         response = client.chat_postMessage(
             channel=settings.PROVISIONING_REVIEW_SLACK_CHANNEL, text=text, blocks=blocks, unfurl_links=False
         )
-        # Conditional, so a second task that raced this one can't overwrite the thread it started.
-        CIMDProvisioningReview.objects.filter(pk=review.pk, slack_message_ts="").update(
+        CIMDProvisioningReview.objects.filter(pk=review.pk).update(
             slack_channel_id=response["channel"], slack_message_ts=response["ts"]
         )
         return
 
     client.chat_update(channel=review.slack_channel_id, ts=review.slack_message_ts, text=text, blocks=blocks)
-    previous = ProvisioningReviewStatus(previous_status).label if previous_status else None
-    change = ProvisioningReviewStatus(review.status).label
-    reply = f"{previous} → {change}" if previous else change
-    if review.reason:
-        reply = f"{reply}: {_escape(review.reason)}"
+    change = ProvisioningReviewStatus(status).label
+    reply = f"{ProvisioningReviewStatus(previous_status).label} → {change}" if previous_status else change
+    if reason:
+        reply = f"{reply}: {_escape(reason)}"
     client.chat_postMessage(channel=review.slack_channel_id, thread_ts=review.slack_message_ts, text=reply[:3000])
 
 
 def queue_review_slack_thread(review: CIMDProvisioningReview, *, previous_status: str | None) -> None:
     if not slack_thread_configured():
         return
-    review_id = str(review.pk)
-    transaction.on_commit(lambda: sync_review_slack_thread.delay(review_id, previous_status))
+    args = (str(review.pk), str(review.status), previous_status, review.reason)
+    transaction.on_commit(lambda: sync_review_slack_thread.delay(*args))
 
 
 def _workspace_id(client: SlackWebClient) -> str | None:
