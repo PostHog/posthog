@@ -90,6 +90,11 @@ install_phrocs() {
     (cd "$repo/tools/phrocs" && GOTOOLCHAIN=local /usr/local/go/bin/go build -o /usr/local/bin/phrocs .)
 }
 
+install_workspace() {
+    pnpm --dir "$repo" install --frozen-lockfile
+    (cd "$repo" && PATH="$HOME/.cargo/bin:$PATH" bin/turbo --filter=@posthog/nodejs prepare)
+}
+
 start_poolers() {
     pnpm --dir "$repo/nodejs" exec tsx tests/scenarios/cloud/host-pooler.ts "$input/cloud-profile.yaml"
 }
@@ -112,7 +117,7 @@ install_node_and_pnpm
 install_sqlx_cli
 install_uv_and_python
 install_phrocs
-pnpm --dir "$repo" install --frozen-lockfile
+install_workspace
 start_poolers
 check_ready
 mark ready
