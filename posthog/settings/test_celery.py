@@ -112,6 +112,9 @@ def test_broker_visibility_timeout(env: dict[str, str], expected: dict[str, int]
 @pytest.mark.usefixtures("reload_celery_settings")
 def test_broker_pool_limit(env: dict[str, str], expected: int) -> None:
     with mock.patch.dict(os.environ, env):
+        if not env:
+            # patch.dict restores the variable afterwards, so a value exported in the shell can't leak in.
+            os.environ.pop("CELERY_BROKER_POOL_LIMIT", None)
         importlib.reload(celery_settings)
 
     assert celery_settings.CELERY_BROKER_POOL_LIMIT == expected
