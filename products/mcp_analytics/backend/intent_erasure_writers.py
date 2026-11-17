@@ -4,10 +4,12 @@ from uuid import uuid4
 
 from django.utils import timezone
 
+from posthog.clickhouse.cluster import ClickhouseCluster
 from posthog.models.scoping import team_scope
 from posthog.models.team.team import Team
 from posthog.sync import database_sync_to_async
 
+from products.mcp_analytics.backend.facade.contracts import IntentErasure, IntentErasurePending
 from products.mcp_analytics.backend.intent_topics.invalidation import admit_writer
 from products.mcp_analytics.backend.models import MCPIntentClusteringRun
 
@@ -51,3 +53,20 @@ async def registered_intent_writer_async(team: Team, *, purpose: str) -> AsyncIt
     run = await database_sync_to_async(_register_writer)(team, purpose=purpose)
     yield
     await database_sync_to_async(_complete_writer)(run)
+
+
+def assert_writers_drained(*, erasure: IntentErasure, cluster: ClickhouseCluster) -> None:
+    """Erasure provider: raise unless every intent writer in the project has confirmed its writes.
+
+    The coordinator calls this while it holds the frozen barrier row, so it reads the runs directly
+    instead of taking the barrier lock again. Writes here are synchronous, so the ClickHouse cluster
+    is not needed to prove them.
+    """
+    for team_id in {erasure.project_id, *erasure.source_team_ids}:
+        with team_scope(team_id, canonical=True):
+            runs = MCPIntentClusteringRun.objects.filter(team_id=team_id)
+            if runs.filter(writer_registered_at__isnull=False, writer_completed_at__isnull=True).exists():
+                raise IntentErasurePending("An intent writer has not confirmed that its writes finished")
+            # A run from before writer registration may have queued output that nothing tracked.
+            if runs.filter(writer_registered_at__isnull=True).exists():
+                raise IntentErasurePending("A run from before writer registration may still have queued output")
