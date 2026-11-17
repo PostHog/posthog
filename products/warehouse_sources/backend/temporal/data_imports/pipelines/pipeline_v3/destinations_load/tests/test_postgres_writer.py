@@ -534,6 +534,39 @@ class TestIncremental:
         finally:
             _drop(dsn, table_name)
 
+    async def test_an_untyped_null_batch_column_merges_against_an_already_typed_destination_column(
+        self, dsn, table_name
+    ) -> None:
+        """Regression test: a batch whose rows are all null for a column carries no real type
+        for it -- Arrow infers such a column as `null`, which `sql_types` falls back to mapping
+        as TEXT -- but an earlier run already gave the destination column a real type (BIGINT).
+        The merge stage used to derive its own columns straight from the current batch, so this
+        run's stage would recreate the column as TEXT, and the upsert's `INSERT ... SELECT`
+        then refused to assign the stage's TEXT output into the destination's BIGINT column.
+        """
+        first_run = _ctx(table_name, "incremental", primary_keys=("id",))
+        first_writer = LocalPostgresWriter(first_run, dsn)
+        second_run = _ctx(table_name, "incremental", primary_keys=("id",))
+        second_writer = LocalPostgresWriter(second_run, dsn)
+        try:
+            typed = pa.RecordBatch.from_pydict({"id": [1], "name": ["a"], "count": [5]})
+            await first_writer.write_batch(
+                _batches(typed), DestinationBatchContext(run=first_run, batch_index=0, is_final_batch=True)
+            )
+            await first_writer.finalize_run(first_run)
+
+            untyped = pa.RecordBatch.from_pydict({"id": [2], "name": ["b"], "count": [None]})
+            await second_writer.write_batch(
+                _batches(untyped), DestinationBatchContext(run=second_run, batch_index=0, is_final_batch=True)
+            )
+            await second_writer.finalize_run(second_run)
+
+            with psycopg.connect(dsn, autocommit=True) as conn:
+                rows = conn.execute(f'SELECT id, count FROM public."{table_name}" ORDER BY id').fetchall()
+            assert rows == [(1, 5), (2, None)]
+        finally:
+            _drop(dsn, table_name)
+
     async def test_a_table_name_already_at_the_identifier_limit_still_merges_correctly(self, dsn) -> None:
         """Regression test for the merge-stage aliasing bug: an incremental run's live table
         name is never truncated by this writer (unlike a full refresh's staging name), so it
