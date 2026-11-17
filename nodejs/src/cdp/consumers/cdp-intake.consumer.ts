@@ -113,10 +113,7 @@ export class CdpIntakeConsumer extends CdpConsumerBase {
             if (decoded.status !== 'decoded') {
                 throw new Error(`Dead letter at offset ${message.offset} still fails: ${decoded.reason}`)
             }
-            // The route already inserted a shadow copy's run, and its claim may have expired by now.
-            if (!decoded.message.shadow) {
-                replays.push(message)
-            }
+            replays.push(message)
         }
         await this.processBatch(replays)
     }
