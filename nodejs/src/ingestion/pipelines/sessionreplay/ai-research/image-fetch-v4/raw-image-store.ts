@@ -52,7 +52,7 @@ export class RawImageStore implements RefreshingImageSink {
     }
 
     /** Bounds images held in memory while S3 is slow. */
-    public async publishImage(candidate: FetchCandidate, result: ImageFetchResult): Promise<StoredImage> {
+    public async publishImage(candidate: FetchCandidate, result: ImageFetchResult): Promise<StoredImage | null> {
         return await ImageFetchProcessingMetrics.runLimited(
             this.writes,
             'image_publish_admission',
@@ -226,22 +226,22 @@ export class RawImageStore implements RefreshingImageSink {
         return true
     }
 
-    private async store(candidate: FetchCandidate, result: ImageFetchResult): Promise<StoredImage> {
+    private async store(candidate: FetchCandidate, result: ImageFetchResult): Promise<StoredImage | null> {
         const ref = parseV4UrlRef(candidate.originalRef)
         // A throw keeps the URL unfinished, and these inputs come back the same on every fetch.
         if (!ref) {
             storedImages.labels('unknown', 'foreign_ref').inc()
-            return {}
+            return null
         }
         const { asset } = ref
         if (!result.bytes) {
             storedImages.labels(asset, 'invalid').inc()
-            return {}
+            return null
         }
         // Every team reads this one object, so it must hold the file its reference names and not a redirect target.
         if (ref.scope === 'public' && publicFontRefOf(candidate.currentUrl) !== candidate.originalRef) {
             storedImages.labels(asset, 'not_public').inc()
-            return {}
+            return null
         }
         const rules = URL_ASSET_RULES[asset]
         let body: Buffer
@@ -251,7 +251,7 @@ export class RawImageStore implements RefreshingImageSink {
             // A body that is not the image it claims to be is handled: fetching it again returns the same body.
             if (error instanceof InvalidImageTransportError) {
                 storedImages.labels(asset, 'invalid').inc()
-                return {}
+                return null
             }
             throw error
         }
@@ -263,7 +263,7 @@ export class RawImageStore implements RefreshingImageSink {
         const key = await this.keys.get(ref.teamId, ref.keyMonth)
         if (key.status !== 'ok') {
             storedImages.labels(asset, key.status === 'deleted' ? 'deleted' : 'missing_key').inc()
-            return {}
+            return null
         }
         const frame = await sealFetchedImage(key.key, candidate.originalRef, body)
         const stored = await this.place(candidate, ref, frame, result.contentType ?? CONTENT_TYPE, body.length)

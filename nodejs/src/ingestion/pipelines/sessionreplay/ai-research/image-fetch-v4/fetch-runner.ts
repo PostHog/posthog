@@ -735,6 +735,7 @@ export class FetchRunner implements FetchPass {
         // A missing or broken response leaves the stored image in place, so the lane keeps it alive. An opt-out does not.
         let storedAtMs = result.outcome === 'opt_out' ? undefined : previousUrl?.storedAtMs
         let pack = result.outcome === 'opt_out' ? undefined : packOfStoredCopy(previousUrl)
+        let replaced = false
         if (result.outcome === 'ok' || result.outcome === 'not_modified') {
             releaseRegistrableDomainSlot()
             let stored: StoredImage | null
@@ -759,7 +760,7 @@ export class FetchRunner implements FetchPass {
                     'transient_backoff'
                 )
             }
-            if (!stored) {
+            if (!stored && result.outcome === 'not_modified') {
                 return await this.refetchWithoutValidators(
                     republishBatch,
                     attemptedCandidate,
@@ -767,9 +768,14 @@ export class FetchRunner implements FetchPass {
                     configurationUpdates
                 )
             }
-            pack = stored.pack
-            storedAtMs = stored.pack?.storedAtMs ?? Date.now()
-        } else if (pack && previousUrl && this.imageSink.indexStoredImage) {
+            // A 200 that stored nothing, such as a body that is not an image, leaves the earlier copy in place.
+            if (stored) {
+                pack = stored.pack
+                storedAtMs = stored.pack?.storedAtMs ?? Date.now()
+                replaced = true
+            }
+        }
+        if (!replaced && pack && previousUrl && this.imageSink.indexStoredImage) {
             // The job's write days read the copy it keeps only through their own index rows.
             releaseRegistrableDomainSlot()
             try {

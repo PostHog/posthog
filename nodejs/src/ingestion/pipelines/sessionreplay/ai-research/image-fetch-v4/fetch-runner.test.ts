@@ -67,7 +67,7 @@ interface Harness {
     check: jest.Mock<Promise<OriginPolicyDecision>, [string, Map<string, ConfigurationCacheItem>, number]>
     createPass: jest.Mock
     republish: jest.Mock<Promise<RepublishResult>, any[]>
-    publishImage: jest.Mock<Promise<StoredImage>, any[]>
+    publishImage: jest.Mock<Promise<StoredImage | null>, any[]>
     indexStoredImage: jest.Mock<Promise<void>, any[]>
     topHogRecords: Map<string, RecordedTopHogMetric[]>
 }
@@ -94,7 +94,7 @@ function build(
     const createPass = jest.fn(() => ({ check }))
     const republish = jest.fn(() => Promise.resolve(republishResult))
     const createRepublishBatch = jest.fn(() => ({ republish, flush: () => Promise.resolve({ failedUrls: 0 }) }))
-    const publishImage = jest.fn((): Promise<StoredImage> => Promise.resolve({}))
+    const publishImage = jest.fn((): Promise<StoredImage | null> => Promise.resolve({}))
     const indexStoredImage = jest.fn((): Promise<void> => Promise.resolve())
     const scheduler = {
         runImage: async (_url: URL, _deadlineMs: number, request: () => Promise<ImageFetchResult>) => ({
@@ -236,12 +236,18 @@ describe('FetchRunner', () => {
     })
 
     it.each([
-        ['a new image the sink packed', { outcome: 'ok', bytes: Buffer.from('image'), contentType: 'image/png' }, PACK],
+        [
+            'a new image the sink packed',
+            { outcome: 'ok', bytes: Buffer.from('image'), contentType: 'image/png' },
+            { pack: PACK },
+            PACK,
+        ],
         // The stored copy stays in place, so the history keeps naming it.
-        ['a missing response for a packed copy', { outcome: 'not_found' }, PACKED_EARLIER],
-    ])('records where %s is stored', async (_case, result, pack) => {
+        ['a missing response for a packed copy', { outcome: 'not_found' }, null, PACKED_EARLIER],
+        ['a packed copy after a body the sink does not store', { outcome: 'ok' }, null, PACKED_EARLIER],
+    ])('records where %s is stored', async (_case, result, published, pack) => {
         const harness = build(result as Partial<ImageFetchResult>)
-        harness.publishImage.mockResolvedValue({ pack: PACK })
+        harness.publishImage.mockResolvedValue(published)
         const previous = {
             kind: 'url' as const,
             key: candidate().originalRef,
@@ -258,10 +264,12 @@ describe('FetchRunner', () => {
     })
 
     it.each([
-        ['indexes the packed copy it keeps', 'ok'],
-        ['retries the job when that copy cannot be indexed', 'fails'],
-    ])('after a missing response, %s', async (_case, indexing) => {
-        const harness = build({ outcome: 'not_found' })
+        ['a missing response', 'indexes the packed copy it keeps', { outcome: 'not_found' }, 'ok'],
+        ['a missing response', 'retries the job when that copy cannot be indexed', { outcome: 'not_found' }, 'fails'],
+        ['a body the sink does not store', 'indexes the packed copy it keeps', { outcome: 'ok' }, 'ok'],
+    ])('after %s, %s', async (_response, _case, result, indexing) => {
+        const harness = build(result as Partial<ImageFetchResult>)
+        harness.publishImage.mockResolvedValue(null)
         if (indexing === 'fails') {
             harness.indexStoredImage.mockRejectedValue(new Error('index unavailable'))
         }

@@ -216,9 +216,9 @@ describe('RawImageStore', () => {
             candidate(PUBLIC_FONT_REF),
             fetched(WOFF2, 'font/woff2'),
         ],
-    ] as const)('resolves without a new object for %s', async (_name, key, job, result) => {
+    ] as const)('stores nothing and resolves to null for %s', async (_name, key, job, result) => {
         const { sink, puts } = store(key)
-        await expect(sink.publishImage(job, result)).resolves.toEqual({})
+        await expect(sink.publishImage(job, result)).resolves.toBeNull()
         expect(puts).toHaveLength(0)
     })
 
@@ -270,10 +270,10 @@ describe('RawImageStore', () => {
                 [first, PNG],
                 [second, PNG_2],
             ] as const) {
-                const { key, byteStart, byteEnd } = stored.pack!
+                const { key, byteStart, byteEnd } = stored!.pack!
                 expect(key).toBe(puts()[0])
                 expect(open(pack.subarray(byteStart, byteEnd + 1)).body).toEqual(bytes)
-                expect(stored.pack).toMatchObject({ mime: 'image/png', byteSize: bytes.length, storedAtMs: NOON_MS })
+                expect(stored!.pack).toMatchObject({ mime: 'image/png', byteSize: bytes.length, storedAtMs: NOON_MS })
             }
             expect(
                 rows.map(({ topic, key, headers, value }) => [
@@ -292,8 +292,8 @@ describe('RawImageStore', () => {
                         key_month: '2026-10',
                         image_ref: REF,
                         pack_s3_key: puts()[0],
-                        byte_start: first.pack!.byteStart,
-                        byte_end: first.pack!.byteEnd,
+                        byte_start: first!.pack!.byteStart,
+                        byte_end: first!.pack!.byteEnd,
                         mime: 'image/png',
                         byte_size: PNG.length,
                     },
@@ -302,7 +302,7 @@ describe('RawImageStore', () => {
                     'ai_research_v4_index',
                     REF_2,
                     { 'ml-index': 'images', 'ml-write-day': '2026-10-14' },
-                    expect.objectContaining({ image_ref: REF_2, byte_start: second.pack!.byteStart }),
+                    expect.objectContaining({ image_ref: REF_2, byte_start: second!.pack!.byteStart }),
                 ],
             ])
         })
@@ -346,7 +346,7 @@ describe('RawImageStore', () => {
             const stored = await sink.publishImage(job(REF), fetched())
             jest.setSystemTime(NOON_MS + 1)
 
-            const refreshed = await sink.refreshImage(job(REF), packedHistory(REF, stored.pack!))
+            const refreshed = await sink.refreshImage(job(REF), packedHistory(REF, stored!.pack!))
 
             expect(puts()).toHaveLength(2)
             expect(refreshed!.pack!.key).toBe(puts()[1])
@@ -374,18 +374,18 @@ describe('RawImageStore', () => {
             const stored = await sink.publishImage(job(REF), fetched())
             rows.length = 0
 
-            await sink.indexStoredImage(job(REF, ['2026-10-14']), packedHistory(REF, stored.pack!))
+            await sink.indexStoredImage(job(REF, ['2026-10-14']), packedHistory(REF, stored!.pack!))
             expect(puts()).toHaveLength(1)
             expect(rows.map((row) => row.headers)).toEqual([{ 'ml-index': 'images', 'ml-write-day': '2026-10-14' }])
 
-            await sink.indexStoredImage(job(REF, null), packedHistory(REF, stored.pack!))
+            await sink.indexStoredImage(job(REF, null), packedHistory(REF, stored!.pack!))
             expect(puts()[1]).toBe('images/url/month=2026-10/7/abcdefghijklmnopqrstuv')
             expect(open(objects.get(puts()[1])!).body).toEqual(PNG)
             expect(rows).toHaveLength(1)
 
             // The caller retries a job whose copy it could not make readable.
             state.failPuts = true
-            await expect(sink.indexStoredImage(job(REF, null), packedHistory(REF, stored.pack!))).rejects.toThrow(
+            await expect(sink.indexStoredImage(job(REF, null), packedHistory(REF, stored!.pack!))).rejects.toThrow(
                 'SlowDown'
             )
         })

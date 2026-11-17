@@ -15,7 +15,8 @@ export interface StoredImage {
  * `replay_core_v4::fetch_history` without one, and the image lives as long as the data that references it.
  */
 export interface RefreshingImageSink {
-    publishImage(candidate: FetchCandidate, result: ImageFetchResult): Promise<StoredImage>
+    /** Resolves to null if the fetch stored nothing, for example a body that is not an image, so any earlier copy stays. */
+    publishImage(candidate: FetchCandidate, result: ImageFetchResult): Promise<StoredImage | null>
     /** Resets the age of the stored image of a reference, with no origin request. Resolves to null if none is stored. */
     refreshImage(candidate: FetchCandidate, history: UrlCrawlHistoryItem | undefined): Promise<StoredImage | null>
     indexStoredImage?(candidate: FetchCandidate, history: UrlCrawlHistoryItem): Promise<void>
