@@ -83,7 +83,7 @@ from posthog.models.project_secret_api_key import ProjectSecretAPIKey
 from posthog.models.team.team import Team
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.test.authentication_checks import covers_authentication
-from posthog.workos_radar import RadarVerdict
+from posthog.workos_radar import RadarAttempt, RadarVerdict
 
 from products.exports.backend.models.exported_asset import ExportedAsset
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
@@ -799,7 +799,7 @@ class TestLoginRadar(APIBaseTest):
         self.user.is_email_verified = True
         self.user.save()
 
-    @patch("posthog.workos_radar._call_radar_api", return_value=RadarVerdict.BLOCK)
+    @patch("posthog.workos_radar._call_radar_api", return_value=RadarAttempt(verdict=RadarVerdict.BLOCK))
     def test_enforced_block_refuses_the_login_with_the_browser_signals(self, mock_call_api):
         with override_instance_config("WORKOS_RADAR_LOGIN_MODE", "enforce"):
             response = self.client.post(
@@ -812,7 +812,7 @@ class TestLoginRadar(APIBaseTest):
         assert mock_call_api.call_args[1]["signals_id"] == "signals_abc"
         assert self.client.get("/api/users/@me/").status_code == status.HTTP_401_UNAUTHORIZED
 
-    @patch("posthog.workos_radar._call_radar_api", return_value=RadarVerdict.BLOCK)
+    @patch("posthog.workos_radar._call_radar_api", return_value=RadarAttempt(verdict=RadarVerdict.BLOCK))
     def test_enforced_blocks_count_toward_the_lockout(self, mock_call_api):
         credentials = {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD}
 
@@ -828,7 +828,7 @@ class TestLoginRadar(APIBaseTest):
         assert codes == ["suspicious_attempt_blocked", "too_many_failed_attempts", "too_many_failed_attempts"]
         assert mock_call_api.call_count == 2
 
-    @patch("posthog.workos_radar._call_radar_api", return_value=RadarVerdict.ALLOW)
+    @patch("posthog.workos_radar._call_radar_api", return_value=RadarAttempt(verdict=RadarVerdict.ALLOW))
     def test_radar_gets_the_stored_address_when_the_typed_one_is_a_variant(self, mock_call_api):
         with override_instance_config("WORKOS_RADAR_LOGIN_MODE", "shadow"):
             response = self.client.post(
@@ -838,7 +838,44 @@ class TestLoginRadar(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert mock_call_api.call_args[1]["email"] == self.user.email
 
-    @patch("posthog.workos_radar._call_radar_api", return_value=RadarVerdict.BLOCK)
+    @parameterized.expand([("correct_password", True, 1), ("wrong_password", False, 0)])
+    @patch("posthog.workos_radar.requests.put")
+    @patch(
+        "posthog.workos_radar._call_radar_api",
+        return_value=RadarAttempt(verdict=RadarVerdict.ALLOW, attempt_id="radar_att_01ABC"),
+    )
+    def test_a_login_reports_its_radar_attempt_only_when_it_signs_in(
+        self, _name, correct_password, expected_reports, _mock_call_api, mock_put
+    ):
+        mock_put.return_value.status_code = 200
+        password = self.CONFIG_PASSWORD if correct_password else "not-the-password"
+
+        with override_instance_config("WORKOS_RADAR_LOGIN_MODE", "shadow"):
+            self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": password})
+
+        assert mock_put.call_count == expected_reports
+        if expected_reports:
+            assert mock_put.call_args[0][0] == "https://api.workos.com/radar/attempts/radar_att_01ABC"
+            assert mock_put.call_args[1]["json"] == {"attempt_status": "success"}
+
+    @patch("posthog.workos_radar.requests.put")
+    @patch(
+        "posthog.workos_radar._call_radar_api",
+        return_value=RadarAttempt(verdict=RadarVerdict.ALLOW, attempt_id="radar_att_01ABC"),
+    )
+    def test_a_login_with_2fa_reports_its_radar_attempt_after_the_second_factor(self, _mock_call_api, mock_put):
+        mock_put.return_value.status_code = 200
+        device = self.user.totpdevice_set.create(name="default", key=random_hex(), digits=6)  # type: ignore
+
+        with override_instance_config("WORKOS_RADAR_LOGIN_MODE", "shadow"):
+            first = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
+        assert first.json()["code"] == "2fa_required"
+        mock_put.assert_not_called()
+
+        assert self.client.post("/api/login/token", {"token": totp_str(device.bin_key)}).status_code == 200
+        assert [c[0][0] for c in mock_put.call_args_list] == ["https://api.workos.com/radar/attempts/radar_att_01ABC"]
+
+    @patch("posthog.workos_radar._call_radar_api", return_value=RadarAttempt(verdict=RadarVerdict.BLOCK))
     def test_reauth_from_a_signed_in_session_skips_radar(self, mock_call_api):
         self.client.force_login(self.user)
 
