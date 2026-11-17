@@ -1213,8 +1213,12 @@ def _read_claude_login(name: str, *, stored_only: bool = False) -> ClaudeLogin |
     except subprocess.TimeoutExpired:
         return None
     # `claude auth status` exits 1 when nobody is logged in, so the JSON on stdout decides, not the exit code.
+    # The login shell's profile can print before it, so parse from the first brace.
+    start = result.stdout.find("{")
+    if start == -1:
+        return None
     try:
-        payload = json.loads(result.stdout)
+        payload = json.loads(result.stdout[start:])
     except json.JSONDecodeError:
         return None
     if not isinstance(payload, dict):
@@ -1788,30 +1792,39 @@ def _can_prompt() -> bool:
     return sys.stdin.isatty()
 
 
-def _warn_about_claude_login_before_sharing(name: str, workspace: dict[str, Any]) -> None:
-    """Warn that a shared box exposes the owner's Claude Code login, and offer to log out first."""
+_KEEP_LOGIN_HINT = "Start the box and run the command again, or pass --keep-claude-login to share anyway."
+
+
+def _warn_about_claude_login_before_sharing(name: str, workspace: dict[str, Any], *, keep_login: bool) -> None:
+    """Warn that a shared box exposes the owner's Claude Code login, and log out first unless told to keep it.
+
+    Fails when the login can't be ruled out and ``keep_login`` is not set, so a box is never shared
+    with a login the owner didn't decide about.
+    """
     click.echo(
         click.style(
             "People you share with get a shell on the box as you, so they can use your Claude Code login there.",
             fg="yellow",
         )
     )
-    if get_workspace_status(workspace) != "running":
-        click.echo("  Couldn't check the box's Claude Code login, because the devbox isn't running.")
+    if keep_login:
         return
+    if get_workspace_status(workspace) != "running":
+        _fail(f"Couldn't check the box's Claude Code login, because the devbox isn't running. {_KEEP_LOGIN_HINT}")
     if _claude_token_secret_is_set():
         click.echo(f"  The box gets your {CLAUDE_CODE_OAUTH_ENV} user secret as an environment variable.")
         click.echo("  To remove it, run `hogli devbox:config:rm claude` and restart the box.")
     login = _read_claude_login(name, stored_only=True)
     if login is None:
-        click.echo("  Couldn't check the box's Claude Code login, because the devbox didn't answer.")
-        return
+        _fail(f"Couldn't check the box's Claude Code login, because the devbox didn't answer. {_KEEP_LOGIN_HINT}")
     if login.auth_method != "claude.ai":
         return
     click.echo(f"  The box is logged in to Claude Code as {login.email or 'your account'}.")
     if not _can_prompt():
-        click.echo("  To log out first, run `hogli devbox:claude:logout`. Sharing anyway.")
-        return
+        _fail(
+            "The box is logged in to Claude Code. Run `hogli devbox:claude:logout` first, "
+            "or pass --keep-claude-login to share anyway."
+        )
     if not click.confirm("Log out of Claude Code on the box before sharing?", default=True):
         return
     if not _logout_claude(name):
@@ -1841,11 +1854,18 @@ def _logout_claude_before_destroy(name: str) -> None:
 @click.option("--user", "users", multiple=True, help="Coder username(s) to share with")
 @click.option("--role", type=click.Choice(["use", "admin"]), default="use", help="Access role to grant")
 @click.option("--list", "list_sharing", is_flag=True, help="Show who has access")
+@click.option(
+    "--keep-claude-login",
+    "keep_claude_login",
+    is_flag=True,
+    help="Share without checking for or logging out a Claude Code login on the box",
+)
 def devbox_share(
     workspace: str | None,
     users: tuple[str, ...],
     role: str,
     list_sharing: bool,
+    keep_claude_login: bool,
 ) -> None:
     """Share your devbox with other Coder users."""
     ensure_runtime_ready()
@@ -1864,7 +1884,7 @@ def devbox_share(
     if not users:
         raise click.UsageError("Specify at least one --user. Run 'hogli devbox:users' to find usernames.")
 
-    _warn_about_claude_login_before_sharing(name, ws)
+    _warn_about_claude_login_before_sharing(name, ws, keep_login=keep_claude_login)
     share_workspace(name, list(users), role)
     click.echo(f"Shared '{name}' with {', '.join(users)} (role: {role}).")
 

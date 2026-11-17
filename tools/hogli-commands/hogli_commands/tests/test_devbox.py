@@ -4269,11 +4269,11 @@ class TestDevboxShare:
         [
             ("running", "claude.ai", True, "y\n", ["logout", "share"], "Logged out of Claude Code"),
             ("running", "claude.ai", True, "n\n", ["share"], "logged in to Claude Code as jane@example.com"),
-            ("running", "claude.ai", False, "", ["share"], "run `hogli devbox:claude:logout`. Sharing anyway."),
+            ("running", "claude.ai", False, "", [], "Run `hogli devbox:claude:logout` first"),
             ("running", "none", True, "", ["share"], "can use your Claude Code login"),
-            ("stopped", None, True, "", ["share"], "Couldn't check the box's Claude Code login"),
+            ("stopped", None, True, "", [], "--keep-claude-login"),
         ],
-        ids=["logs_out_first", "keeps_login", "no_terminal_keeps_login", "not_logged_in", "stopped_box"],
+        ids=["logs_out_first", "keeps_login", "no_terminal_refuses", "not_logged_in", "stopped_box_refuses"],
     )
     def test_share_grants_access(
         self,
@@ -4313,11 +4313,12 @@ class TestDevboxShare:
 
         result = runner.invoke(cli, ["devbox:share", "--user", "alice"], input=logout_answer)
 
-        assert result.exit_code == 0, result.output
-        assert captured == {"name": "devbox-test-user", "users": ["alice"], "role": "use"}
+        shared = "share" in expected_calls
+        assert (result.exit_code == 0) == shared, result.output
         assert calls == expected_calls
         assert expected_output in result.output
-        assert "Shared" in result.output
+        if shared:
+            assert captured == {"name": "devbox-test-user", "users": ["alice"], "role": "use"}
 
     @pytest.mark.parametrize(
         "token_secret_set, logout_exit, expected_calls, expected_exit",
@@ -5167,7 +5168,8 @@ class TestDevboxClaudeCommands:
             devbox_cli,
             "run_in_workspace",
             lambda name, command, timeout: (
-                commands.append(command) or subprocess.CompletedProcess([], 0, json.dumps(status), "")
+                commands.append(command)
+                or subprocess.CompletedProcess([], 0, "banner from a login profile\n" + json.dumps(status), "")
             ),
         )
 

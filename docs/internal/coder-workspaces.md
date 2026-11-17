@@ -65,7 +65,7 @@ hogli devbox:share bob-box --list           # see who has access
 
 Once shared, the teammate can target your workspace with `@user[/label]` syntax (e.g. `hogli devbox:ssh @bob/bob-box`).
 A teammate you share with gets a shell on the box as you, so they can also use your Claude Code login there.
-When the box is running and logged in, `devbox:share` offers to log out of Claude Code first.
+When the box is logged in, `devbox:share` offers to log out of Claude Code first. It refuses to share when it can't check the login, for example on a stopped box or without a terminal to ask in. Pass `--keep-claude-login` to share with the login on the box.
 
 **Editing locally while running on the devbox** —
 Mirror your local PostHog checkout to a devbox with `hogli devbox:sync`. Local is the source of truth (one-way-safe); remote-only files like the AMI's prewarmed `node_modules` and `.venv` are left untouched. Useful for agentic loops or when you want to keep using your normal local editor without pushing every iteration:
