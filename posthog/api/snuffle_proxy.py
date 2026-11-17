@@ -10,6 +10,7 @@ HTTP Basic auth and never exposed to the API caller.
 
 import re
 import json
+import time
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from typing import ClassVar
@@ -83,6 +84,10 @@ def _read_bytes_from(upstream: requests.Response) -> int | None:
         logger.warning("snuffle_proxy_invalid_read_bytes", value=value)
         return None
     return bytes_read if bytes_read >= 0 else None
+
+
+def _elapsed_ms(start: float, end: float | None = None) -> int:
+    return round(((time.monotonic() if end is None else end) - start) * 1000)
 
 
 def _get_snuffle_budget_debit_executor() -> ThreadPoolExecutor:
@@ -227,6 +232,7 @@ class SnuffleProxyViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 status.HTTP_501_NOT_IMPLEMENTED, "unavailable", "PromQL/LogQL query API is not configured"
             )
 
+        started = time.monotonic()
         team_id = self.team_id
         enforcement_enabled = self._is_api_queries_budget_enforced()
         budget_status = get_api_queries_budget_status(self.team) if enforcement_enabled else None
@@ -242,7 +248,10 @@ class SnuffleProxyViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         self.before_forward(request, path)
         method = request.method or "GET"
         body = _forwardable(request.data) if method == "POST" and isinstance(request.data, QueryDict) else None
+        timeout = settings.SNUFFLE_METRICS_TIMEOUT_SECONDS if self.workload == Workload.METRICS else None
 
+        forwarded = time.monotonic()
+        pre_forward_ms = _elapsed_ms(started, forwarded)
         try:
             upstream = snuffle_request(
                 team_id,
@@ -251,14 +260,38 @@ class SnuffleProxyViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 params=_forwardable(request.query_params),
                 data=body,
                 accept=request.headers.get("Accept", "application/json"),
+                timeout=timeout,
                 workload=self.workload,
             )
         except requests.Timeout:
-            logger.warning("snuffle_proxy_timeout", team_id=team_id, path=path)
+            logger.warning(
+                "snuffle_proxy_timeout",
+                team_id=team_id,
+                path=path,
+                pre_forward_ms=pre_forward_ms,
+                upstream_ms=_elapsed_ms(forwarded),
+            )
             return _error_response(status.HTTP_504_GATEWAY_TIMEOUT, "timeout", "query timed out")
         except requests.RequestException:
-            logger.exception("snuffle_proxy_unreachable", team_id=team_id, path=path)
+            logger.exception(
+                "snuffle_proxy_unreachable",
+                team_id=team_id,
+                path=path,
+                pre_forward_ms=pre_forward_ms,
+                upstream_ms=_elapsed_ms(forwarded),
+            )
             return _error_response(status.HTTP_502_BAD_GATEWAY, "unavailable", "query backend is unreachable")
+
+        bytes_read = _read_bytes_from(upstream)
+        logger.info(
+            "snuffle_proxy_forwarded",
+            team_id=team_id,
+            path=path,
+            status=upstream.status_code,
+            pre_forward_ms=pre_forward_ms,
+            upstream_ms=_elapsed_ms(forwarded),
+            read_bytes=bytes_read,
+        )
 
         if upstream.status_code in (status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN):
             # Snuffle only rejects the ClickHouse credential we sent, never the caller, so this is
@@ -273,7 +306,6 @@ class SnuffleProxyViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             status=upstream.status_code,
             content_type=upstream.headers.get("Content-Type", "application/json"),
         )
-        bytes_read = _read_bytes_from(upstream)
         if bytes_read is not None:
             response["X-PostHog-Query-Bytes-Read"] = str(bytes_read)
         return response

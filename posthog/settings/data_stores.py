@@ -435,6 +435,9 @@ SNUFFLE_APM_TIMEOUT_SECONDS: int = get_from_env("SNUFFLE_APM_TIMEOUT_SECONDS", 6
 SNUFFLE_METRICS_URL: str = os.getenv("SNUFFLE_METRICS_URL", SNUFFLE_APM_URL)
 SNUFFLE_METRICS_USER: str = os.getenv("SNUFFLE_METRICS_USER", SNUFFLE_APM_USER)
 SNUFFLE_METRICS_PASSWORD: str = os.getenv("SNUFFLE_METRICS_PASSWORD", SNUFFLE_APM_PASSWORD)
+# The Prometheus API's upstream timeout. It stays below Grafana's default 30s data source timeout, so a slow query
+# returns the proxy's 504 instead of being aborted by the client.
+SNUFFLE_METRICS_TIMEOUT_SECONDS: int = get_from_env("SNUFFLE_METRICS_TIMEOUT_SECONDS", 25, type_cast=int)
 
 CLICKHOUSE_KAFKA_NAMED_COLLECTION: str = os.getenv("CLICKHOUSE_KAFKA_NAMED_COLLECTION", "msk_cluster")
 CLICKHOUSE_KAFKA_WARPSTREAM_INGESTION_NAMED_COLLECTION: str = os.getenv(
