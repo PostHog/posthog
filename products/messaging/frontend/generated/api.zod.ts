@@ -117,7 +117,7 @@ export const MessagingSendEmailCreateBody = /* @__PURE__ */ zod.object({
         .max(messagingSendEmailCreateBodyDistinctIdMax)
         .nullish()
         .describe(
-            "Distinct ID the email's engagement events (sent, delivered, opened, clicked, bounced) are captured under. Defaults to the recipient's email address. The events join the person who has this ID, or start a new person when nobody has it. No events are captured when the project's engagement events setting is off, or when `tracking` turns engagement off for a send with `template_key`. The template can't read the person's properties, so pass everything it needs in `message_data`."
+            "Distinct ID the email's engagement events (sent, delivered, opened, clicked, bounced) are captured under. Defaults to the recipient's email address. The events join the person who has this ID, or start a new person when nobody has it. No events are captured when the project's engagement events setting is off, or when `tracking` or `capture_engagement` turns engagement off for a send with `template_key`. The template can't read the person's properties, so pass everything it needs in `message_data`."
         ),
     subject: zod.string().optional().describe('Subject of the email your code rendered.'),
     html: zod.string().optional().describe('HTML body of the email your code rendered, at most 5 MiB as UTF-8.'),
@@ -1595,7 +1595,7 @@ export const MessagingTemplatesSendCreateBody = /* @__PURE__ */ zod.object({
                 .max(messagingTemplatesSendCreateBodyIdentifiersOneDistinctIdMax)
                 .nullish()
                 .describe(
-                    "Distinct ID the email's engagement events (sent, delivered, opened, clicked, bounced) are captured under. Defaults to the recipient's email address. The events join the person who has this ID, or start a new person when nobody has it. No events are captured when the project's engagement events setting is off, or when `tracking` turns engagement off for a send with `template_key`. The template can't read the person's properties, so pass everything it needs in `message_data`."
+                    "Distinct ID the email's engagement events (sent, delivered, opened, clicked, bounced) are captured under. Defaults to the recipient's email address. The events join the person who has this ID, or start a new person when nobody has it. No events are captured when the project's engagement events setting is off, or when `tracking` or `capture_engagement` turns engagement off for a send with `template_key`. The template can't read the person's properties, so pass everything it needs in `message_data`."
                 ),
         })
         .optional()

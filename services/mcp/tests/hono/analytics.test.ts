@@ -255,6 +255,14 @@ describe('Hono MCP analytics contexts', () => {
         ['an email log search', 'workflows-transactional-emails-list', { search: 'jane@example.com' }, false, false],
         ['an opt-out removal', 'opt-outs-remove', { identifier: 'ada@example.com' }, false, false],
         ['an opt-out search', 'opt-outs-list', { search: 'reader@example.org' }, false, false],
+        ['a suppression search', 'suppressions-list', { search: 'ada@example.com' }, false, false],
+        [
+            'a suppression removal through exec',
+            'exec',
+            { command: 'call suppressions-remove {"identifiers":["ada@example.com"]}' },
+            false,
+            false,
+        ],
         [
             'an opt-out search through exec',
             'exec',
@@ -781,6 +789,7 @@ describe('Hono MCP analytics contexts', () => {
             ],
             ['email delivery stats', 'workflows-transactional-email-stats', { group_by: 'template' }, true],
             ['an opt-out search', 'opt-outs-list', { search: 'reader@example.org' }, false],
+            ['a suppression removal', 'suppressions-remove', { identifiers: ['ada@example.com'] }, false],
             [
                 'an opt-out search through exec',
                 'exec',
