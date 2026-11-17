@@ -574,7 +574,7 @@ def test_a_finished_writer_run_opens_one_linked_docs_pull_request_and_a_same_sec
 
 
 async def _temporal_that_hangs_on_connect():
-    await asyncio.sleep(10)
+    await asyncio.Event().wait()
 
 
 def _temporal_whose_start(start_workflow: Callable):
@@ -585,7 +585,7 @@ def _temporal_whose_start(start_workflow: Callable):
 
 
 async def _start_that_hangs(*args, **kwargs):
-    await asyncio.sleep(10)
+    await asyncio.Event().wait()
 
 
 async def _start_that_is_refused(*args, **kwargs):
