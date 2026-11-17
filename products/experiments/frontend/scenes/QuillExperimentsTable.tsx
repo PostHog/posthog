@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { type ReactNode, useEffect, useState } from 'react'
 
-import { IconEllipsis } from '@posthog/icons'
+import { IconEllipsis, IconPlus } from '@posthog/icons'
 import {
     Badge,
     Button,
@@ -13,6 +13,7 @@ import {
     DropdownMenuContent,
     DropdownMenuGroup,
     DropdownMenuItem,
+    DropdownMenuLabel,
     DropdownMenuSeparator,
     DropdownMenuTrigger,
     Progress,
@@ -26,12 +27,15 @@ import type { DataTableProps } from '@posthog/quill'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { BulkUpdateTagsButton } from 'lib/components/BulkActions/BulkUpdateTagsButton'
+import { QuillEmptyCell, QuillTimeCell } from 'lib/components/QuillTableCells/QuillTableCells'
 import { QuillTablePagination } from 'lib/components/QuillTablePagination/QuillTablePagination'
-import { TZLabel } from 'lib/components/TZLabel'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { Link, LinkPrimitive } from 'lib/lemon-ui/Link'
+import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { pluralize } from 'lib/utils/strings'
 import { AnalyticsOwner } from 'scenes/analytics/AnalyticsOwner'
+import { AnalyticsTagIcon } from 'scenes/analytics/AnalyticsTagIcon'
+import { ROW_HOVER_REVEAL } from 'scenes/analytics/analyticsUtils'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { urls } from 'scenes/urls'
 
@@ -67,10 +71,12 @@ import {
     duplicateExperimentDisabledReason,
     experimentSelectionDisabledReason,
     formatExperimentDuration,
+    getExperimentDuration,
     getExperimentConclusionTooltip,
     getExperimentRemainingTime,
     startExperimentSurvey,
 } from './experimentsTable'
+import { QuillExperimentTagsDialog } from './QuillExperimentTagsDialog'
 
 type ExperimentsDataTable = DataTableProps<Experiment, unknown>
 type SortingState = NonNullable<ExperimentsDataTable['sorting']>
@@ -116,11 +122,103 @@ function BadgeWithTooltip({
     )
 }
 
-function TimeCell({ time }: { time: string | null | undefined }): JSX.Element {
+function TagsCell({
+    experiment,
+    onManageTags,
+}: {
+    experiment: Experiment
+    onManageTags: (experiment: Experiment) => void
+}): JSX.Element {
+    const { filters } = useValues(experimentsLogic)
+    const { setExperimentsFilters } = useActions(experimentsLogic)
+    const tags = experiment.tags ?? []
+    const editDisabledReason = getAccessControlDisabledReason(
+        AccessControlResourceType.Experiment,
+        AccessControlLevel.Editor,
+        experiment.user_access_level
+    )
+
+    if (!tags.length) {
+        return editDisabledReason ? (
+            <QuillEmptyCell />
+        ) : (
+            <Button
+                size="icon-xs"
+                tooltip="Add tags"
+                aria-label={`Add tags to ${experiment.name}`}
+                className={ROW_HOVER_REVEAL}
+                onClick={() => onManageTags(experiment)}
+                data-attr="experiments-list-row-tags-add"
+            >
+                <IconPlus />
+            </Button>
+        )
+    }
+
+    const activeTags = filters.tags ?? []
+    const filtered = tags.find((tag) => activeTags.includes(tag))
+    const toggle = (tag: string): void => {
+        const next = activeTags.includes(tag) ? activeTags.filter((other) => other !== tag) : [...activeTags, tag]
+        setExperimentsFilters({ tags: next.length > 0 ? next : undefined, page: 1 })
+    }
+
     return (
-        <Text size="xs" variant="muted" render={<span />}>
-            {time ? <TZLabel time={time} /> : '—'}
-        </Text>
+        <DropdownMenu>
+            <DropdownMenuTrigger
+                render={
+                    <Button
+                        variant="outline"
+                        size="xs"
+                        aria-label={pluralize(tags.length, 'tag')}
+                        className="max-w-48 shrink-0 gap-1 px-1.5"
+                        data-attr="experiments-list-row-tags"
+                    />
+                }
+            >
+                <AnalyticsTagIcon />
+                {filtered ? (
+                    <>
+                        <span className="min-w-0 truncate">{filtered}</span>
+                        {tags.length > 1 && (
+                            <span className="shrink-0 text-muted-foreground">{`+${tags.length - 1}`}</span>
+                        )}
+                    </>
+                ) : (
+                    <span>{tags.length}</span>
+                )}
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" className="min-w-56 max-w-80">
+                <DropdownMenuGroup>
+                    <div className="flex items-center justify-between gap-2">
+                        <DropdownMenuLabel>{pluralize(tags.length, 'tag')}</DropdownMenuLabel>
+                        <DropdownMenuItem
+                            className="w-auto shrink-0"
+                            disabledReason={editDisabledReason ?? undefined}
+                            onClick={() => onManageTags(experiment)}
+                            data-attr="experiments-list-row-tags-manage"
+                        >
+                            Manage
+                        </DropdownMenuItem>
+                    </div>
+                    {tags.map((tag) => {
+                        const active = activeTags.includes(tag)
+                        return (
+                            <DropdownMenuItem
+                                key={tag}
+                                onClick={() => toggle(tag)}
+                                data-attr="experiments-list-row-tag"
+                            >
+                                <AnalyticsTagIcon className="size-3.5" />
+                                <span className="min-w-0 flex-1 break-all text-left">{tag}</span>
+                                <Text size="xs" variant="muted" className="ml-2 shrink-0">
+                                    {active ? 'Remove filter' : 'Filter'}
+                                </Text>
+                            </DropdownMenuItem>
+                        )
+                    })}
+                </DropdownMenuGroup>
+            </DropdownMenuContent>
+        </DropdownMenu>
     )
 }
 
@@ -199,11 +297,7 @@ function RemainingCell({ experiment }: { experiment: Experiment }): JSX.Element 
 
 function ResultCell({ experiment }: { experiment: Experiment }): JSX.Element {
     if (!experiment.conclusion) {
-        return (
-            <Text size="xs" variant="muted" render={<span />}>
-                —
-            </Text>
-        )
+        return <QuillEmptyCell />
     }
     const config = CONCLUSION_DISPLAY_CONFIG[experiment.conclusion]
     return (
@@ -248,7 +342,7 @@ function ActionsCell({
             >
                 <IconEllipsis />
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="min-w-48">
+            <DropdownMenuContent align="end" className="min-w-56">
                 <DropdownMenuGroup>
                     <DropdownMenuItem onClick={() => router.actions.push(urls.experiment(`${experiment.id}`))}>
                         View
@@ -338,9 +432,13 @@ function ActionsCell({
     )
 }
 
-function experimentColumns(
-    actions: ExperimentsTableActions & { hasMultipleProjects: boolean }
-): ExperimentsDataTable['columns'] {
+function experimentColumns({
+    onManageTags,
+    ...actions
+}: ExperimentsTableActions & {
+    hasMultipleProjects: boolean
+    onManageTags: (experiment: Experiment) => void
+}): ExperimentsDataTable['columns'] {
     return [
         {
             id: 'name',
@@ -353,18 +451,11 @@ function experimentColumns(
             id: 'tags',
             header: 'Tags',
             enableSorting: false,
-            cell: ({ row }) =>
-                row.original.tags?.length ? (
-                    <div className="flex flex-wrap gap-1">
-                        {row.original.tags.map((tag) => (
-                            <Badge key={tag}>{tag}</Badge>
-                        ))}
-                    </div>
-                ) : null,
+            cell: ({ row }) => <TagsCell experiment={row.original} onManageTags={onManageTags} />,
         },
         {
             id: 'created_by',
-            header: 'Created by',
+            header: 'Owner',
             accessorFn: (experiment) => experiment.created_by?.first_name ?? '',
             cell: ({ row }) => <AnalyticsOwner owner={row.original.created_by ?? null} />,
         },
@@ -372,24 +463,27 @@ function experimentColumns(
             id: 'created_at',
             header: 'Created',
             accessorFn: (experiment) => experiment.created_at,
-            cell: ({ row }) => <TimeCell time={row.original.created_at} />,
+            cell: ({ row }) => <QuillTimeCell time={row.original.created_at} />,
         },
         {
             id: 'start_date',
             header: 'Started',
             accessorFn: (experiment) => experiment.start_date,
-            cell: ({ row }) => <TimeCell time={row.original.start_date} />,
+            cell: ({ row }) => <QuillTimeCell time={row.original.start_date} />,
         },
         {
             id: 'duration',
             header: 'Duration',
             meta: { align: 'right' },
-            accessorFn: (experiment) => formatExperimentDuration(experiment),
-            cell: ({ row }) => (
-                <Text size="xs" render={<span />}>
-                    {formatExperimentDuration(row.original)}
-                </Text>
-            ),
+            accessorFn: (experiment) => getExperimentDuration(experiment) ?? -1,
+            cell: ({ row }) =>
+                getExperimentDuration(row.original) === undefined ? (
+                    <QuillEmptyCell />
+                ) : (
+                    <Text size="xs" render={<span />}>
+                        {formatExperimentDuration(row.original)}
+                    </Text>
+                ),
         },
         {
             id: 'remaining_time',
@@ -433,6 +527,7 @@ export function QuillExperimentsTable({
     const { currentOrganization } = useValues(organizationLogic)
     const hasMultipleProjects = (currentOrganization?.projects?.length ?? 0) > 1
     const [rowSelection, setRowSelection] = useState<RowSelectionState>({})
+    const [tagsExperiment, setTagsExperiment] = useState<Experiment | null>(null)
 
     useEffect(() => {
         setRowSelection({})
@@ -503,6 +598,7 @@ export function QuillExperimentsTable({
                     <DataTable
                         columns={experimentColumns({
                             hasMultipleProjects,
+                            onManageTags: setTagsExperiment,
                             openDuplicateModal,
                             openSurveyModal,
                             openCopyToProjectModal,
@@ -510,6 +606,7 @@ export function QuillExperimentsTable({
                         data={experiments.results}
                         fullWidth
                         size="sm"
+                        rowClassName={() => 'group/row'}
                         sorting={sortingFromOrder(filters.order)}
                         onSortingChange={([sort]) => {
                             if (sort && SORTABLE_ORDER_KEYS.has(sort.id)) {
@@ -539,6 +636,14 @@ export function QuillExperimentsTable({
                     />
                 )}
             </Card>
+            <QuillExperimentTagsDialog
+                experiment={tagsExperiment}
+                onClose={() => setTagsExperiment(null)}
+                onSaved={() => {
+                    setTagsExperiment(null)
+                    loadExperiments()
+                }}
+            />
         </div>
     )
 }
