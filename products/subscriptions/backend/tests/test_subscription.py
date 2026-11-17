@@ -1182,6 +1182,7 @@ class TestSubscriptionTemporal(APILicensedTest):
 
     @parameterized.expand(
         [
+            (True, OrganizationMembership.Level.MEMBER, False, False),
             (False, OrganizationMembership.Level.MEMBER, False),
             (False, OrganizationMembership.Level.MEMBER, True),
             (True, OrganizationMembership.Level.MEMBER, False),
@@ -1190,7 +1191,9 @@ class TestSubscriptionTemporal(APILicensedTest):
             (True, OrganizationMembership.Level.ADMIN, True),
         ]
     )
-    def test_take_ownership_permissions(self, another_member: bool, requester_level: int, ai_prompt: bool) -> None:
+    def test_take_ownership_permissions(
+        self, another_member: bool, requester_level: int, ai_prompt: bool, member_exists: bool = True
+    ) -> None:
         subscription = self._disabled_subscription_of_a_former_member()
         if ai_prompt:
             subscription.insight = None
@@ -1200,7 +1203,8 @@ class TestSubscriptionTemporal(APILicensedTest):
         owner = self.user
         if another_member:
             owner = User.objects.create_user(email="new-owner@example.com", first_name="New owner", password=None)
-            OrganizationMembership.objects.create(organization=self.organization, user=owner)
+            if member_exists:
+                OrganizationMembership.objects.create(organization=self.organization, user=owner)
         self.organization_membership.level = requester_level
         self.organization_membership.save()
 

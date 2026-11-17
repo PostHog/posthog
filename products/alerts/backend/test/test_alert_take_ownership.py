@@ -47,18 +47,22 @@ class TestAlertTakeOwnership(APIBaseTest):
 
     @parameterized.expand(
         [
+            (True, OrganizationMembership.Level.MEMBER, False),
             (False, OrganizationMembership.Level.MEMBER),
             (True, OrganizationMembership.Level.MEMBER),
             (True, OrganizationMembership.Level.ADMIN),
         ]
     )
-    def test_take_ownership_permissions(self, another_member: bool, requester_level: int) -> None:
+    def test_take_ownership_permissions(
+        self, another_member: bool, requester_level: int, member_exists: bool = True
+    ) -> None:
         alert = self._disabled_alert_of_a_former_member()
         previous_owner = alert.created_by
         owner = self.user
         if another_member:
             owner = User.objects.create_user(email="new-owner@example.com", first_name="New owner", password=None)
-            OrganizationMembership.objects.create(organization=self.organization, user=owner)
+            if member_exists:
+                OrganizationMembership.objects.create(organization=self.organization, user=owner)
         self.organization_membership.level = requester_level
         self.organization_membership.save()
 

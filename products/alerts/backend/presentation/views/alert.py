@@ -1893,8 +1893,15 @@ class AlertTransferOwnershipSerializer(serializers.Serializer):
     )
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        requester = self.context["request"].user
+        owner_uuid = attrs.get("user_uuid", requester.uuid)
+        if owner_uuid != requester.uuid and not self.context["view"].user_access_control.is_organization_admin:
+            raise PermissionDenied(
+                "Only an organization admin can assign an alert to another person. "
+                "Take ownership yourself or ask an admin to transfer it."
+            )
         owner = User.objects.filter(
-            uuid=attrs.get("user_uuid", self.context["request"].user.uuid),
+            uuid=owner_uuid,
             is_active=True,
             organization_membership__organization=self.context["get_organization"](),
         ).first()
