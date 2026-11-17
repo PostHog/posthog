@@ -165,6 +165,25 @@ function ToolRowsSkeleton(): JSX.Element {
     )
 }
 
+function ToolRowsError(): JSX.Element {
+    const { loadToolRowsPage } = useActions(mcpAnalyticsToolQualityLogic)
+    return (
+        <TableEmpty className="py-6">
+            <div className="flex flex-col items-center gap-2 text-center text-secondary">
+                <span>Couldn't load your tools. Try again, or pick a shorter date range.</span>
+                <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => loadToolRowsPage()}
+                    data-attr="mcp-tool-quality-rows-retry"
+                >
+                    Try again
+                </Button>
+            </div>
+        </TableEmpty>
+    )
+}
+
 function ToolRows(): JSX.Element {
     const { toolRows, toolRowsTotalSessions, toolRowsPreviousTotalSessions, selectedTool, dateFilter, pinnedInterval } =
         useValues(mcpAnalyticsToolQualityLogic)
@@ -254,6 +273,7 @@ export function ToolQualityTable(): JSX.Element {
         toolRows,
         toolRowsPage,
         toolRowsPageLoading,
+        toolRowsLoadFailed,
         toolRowsTotalCount,
         searchTerm,
     } = useValues(mcpAnalyticsToolQualityLogic)
@@ -300,7 +320,7 @@ export function ToolQualityTable(): JSX.Element {
                             <TableHead />
                         </TableRow>
                     </TableHeader>
-                    {showSkeleton ? <ToolRowsSkeleton /> : <ToolRows />}
+                    {showSkeleton ? <ToolRowsSkeleton /> : toolRowsLoadFailed ? <ToolRowsError /> : <ToolRows />}
                 </Table>
                 {toolRowsPageLoading && !showSkeleton ? (
                     <div className="absolute inset-0 z-10 flex items-center justify-center bg-background/60">
