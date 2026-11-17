@@ -1192,6 +1192,34 @@ _FULL_AFTER_ONE_POLL = (_FULL_AFTER_POLL, [1])
             ("done", "full", "approval_retracted", _HEAD_2),
             [1],
         ),
+        (
+            "attested_with_a_pending_request_then_the_approval_retracted",
+            _PROVEN,
+            _proof_check(),
+            {"review_mode": ReviewMode.LABEL},
+            [_CLIENT_LIBRARIES_REQUESTED, _POLL, ("push",), ("retracted",)],
+            _ATTESTED,
+            [1],
+        ),
+        # A base retarget retracts the approval of the same head.
+        (
+            "attested_then_retargeted_without_a_review_to_come",
+            _PROVEN,
+            _proof_check(),
+            {"review_mode": ReviewMode.LABEL},
+            [_STAMPHOG_APPROVED, _POLL, ("approval_dismissed",), ("retracted",)],
+            ("done", "full", "approval_retracted", HEAD_SHA),
+            [1],
+        ),
+        (
+            "attested_then_retargeted_with_a_review_to_come",
+            _PROVEN,
+            _proof_check(),
+            {},
+            [_STAMPHOG_APPROVED, _POLL, ("approval_dismissed",), ("retracted",)],
+            _ATTESTED,
+            [1],
+        ),
         # Stamphog reviews a bot's pull request again once the proof reports, so its approval comes after the check.
         (
             "proven_and_approved_after_the_check",
@@ -1360,6 +1388,9 @@ def test_always_requests_nobody_only_for_a_verified_proof_that_keeps_a_reviewer(
             _post_approval(routing_chain, 902)
         elif step[0] == "refused":
             _save_finished_run(team.id, ReviewVerdict.REFUSED)
+        elif step[0] == "approval_dismissed":
+            for review in recorder.pr_reviews[(REPO, PR_NUMBER)]:
+                review["state"] = "DISMISSED"
         elif step[0] == "next_poll":
             latest_poll = attestation_poll.call_args_list[-1].kwargs["kwargs"]
             route_reviewers_after_attestation.apply(kwargs=latest_poll, throw=True)

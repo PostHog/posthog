@@ -68,7 +68,6 @@ def attestation_proven(client: StamphogGitHubClient, repository: str, pr: Mappin
     """Whether the engine verified that the attestations of the live pull request ``pr`` cover every changed file."""
     policy_text = client.get_default_branch_file(repository, STAMPHOG_POLICY_ENTRYPOINT)
     if policy_text is None:
-        # The shipped default policy declares no attestations, so without the repo's own policy nothing is proven.
         return False
     head_sha = str((pr.get("head") or {}).get("sha") or "")
     base_sha = str((pr.get("base") or {}).get("sha") or "")
