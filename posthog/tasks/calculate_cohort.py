@@ -1494,7 +1494,7 @@ def finalize_cohort_backfill_runs() -> None:
 
 @shared_task(ignore_result=True)
 @skip_team_scope_audit
-def reconcile_static_cohorts() -> None:
+def dispatch_static_cohort_reconciliations() -> None:
     """Dispatch a repair for the static cohorts whose Postgres membership lags ClickHouse."""
     if not get_instance_setting("STATIC_COHORT_RECONCILIATION_ENABLED"):
         return

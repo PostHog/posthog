@@ -14,9 +14,9 @@ from posthog.models.async_deletion.celery_fallback import celery_sweeps_enabled
 from posthog.tasks.ai_observability_usage_report import send_ai_observability_usage_reports
 from posthog.tasks.auth_token_cache_verification import verify_and_fix_auth_token_cache_task
 from posthog.tasks.calculate_cohort import (
+    dispatch_static_cohort_reconciliations,
     finalize_cohort_backfill_runs,
     publish_cohort_backfill_run_gauges,
-    reconcile_static_cohorts,
 )
 from posthog.tasks.email import EXTERNAL_DATA_DIGEST_DAY_BOUNDARY_HOUR_UTC, send_hog_functions_daily_digest
 from posthog.tasks.gateway_credential import drain_gateway_credential_last_used_task, refresh_gateway_credentials
@@ -1426,8 +1426,8 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
     add_periodic_task_with_expiry(
         sender,
         crontab(minute="*/30"),
-        reconcile_static_cohorts.s(),
-        name="reconcile static cohort membership",
+        dispatch_static_cohort_reconciliations.s(),
+        name="dispatch static cohort reconciliations",
     )
 
     # Poll PandaDoc for legal documents we still think are unsigned and archive

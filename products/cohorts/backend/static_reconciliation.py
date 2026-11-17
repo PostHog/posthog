@@ -2,6 +2,8 @@
 
 A population writes `person_static_cohort` first and Postgres second. When the second step reads nothing back, the
 cohort finishes with an empty Postgres membership, so flags match nobody and the cohort shows a count of 0.
+
+The sweep drains the cohorts that broke this way and then keeps running as a safety net for any later gap.
 """
 
 from collections.abc import Callable
@@ -95,8 +97,12 @@ def _removed_members_key(cohort_id: int) -> str:
     return f"static-cohort-reconcile:removed:{cohort_id}"
 
 
-# Same clock and format as the `_timestamp` that static cohort inserts write, so ClickHouse compares them directly.
+# The removal time only decides when a mark expires, so each mark ages out on its own.
 _REMOVED_AT_FORMAT = "%Y-%m-%d %H:%M:%S"
+
+
+def _removal_field(person_id: int, person_uuid: str) -> str:
+    return f"{person_id}:{person_uuid}"
 
 
 def record_static_cohort_member_removal(*, cohort_id: int, person_id: int, person_uuid: str) -> None:
@@ -106,43 +112,37 @@ def record_static_cohort_member_removal(*, cohort_id: int, person_id: int, perso
     """
     key = _removed_members_key(cohort_id)
     pipeline = get_client().pipeline(transaction=False)
-    pipeline.hset(key, f"{person_id}:{person_uuid}", datetime.now().strftime(_REMOVED_AT_FORMAT))
+    pipeline.hset(key, _removal_field(person_id, person_uuid), datetime.now().strftime(_REMOVED_AT_FORMAT))
     pipeline.expire(key, int(RECONCILE_REMOVAL_TTL.total_seconds()))
     pipeline.execute()
 
 
+def clear_static_cohort_member_removals(*, cohort_id: int, members: list[tuple[int, str]]) -> None:
+    """Forget the removal of members that were added again, so a repair does not delete them.
+
+    Call it for explicit additions only. The repair's own copy must keep the marks.
+    """
+    if members:
+        get_client().hdel(
+            _removed_members_key(cohort_id), *(_removal_field(person_id, uuid) for person_id, uuid in members)
+        )
+
+
 def _delete_recently_removed_members(cohort: StaticCohortToReconcile) -> None:
-    """Delete members removed within RECONCILE_REMOVAL_TTL from Postgres, unless they were added again since."""
+    """Delete from Postgres every member removed within RECONCILE_REMOVAL_TTL and not added again since."""
     client = get_client()
     key = _removed_members_key(cohort.cohort_id)
     expired_before = (datetime.now() - RECONCILE_REMOVAL_TTL).strftime(_REMOVED_AT_FORMAT)
-    removed: dict[str, tuple[int, str]] = {}
+    removed: list[int] = []
     expired: list[bytes] = []
-    for field, removed_at_raw in client.hgetall(key).items():
-        removed_at = removed_at_raw.decode()
-        if removed_at < expired_before:
+    for field, removed_at in client.hgetall(key).items():
+        if removed_at.decode() < expired_before:
             expired.append(field)
-            continue
-        person_id, person_uuid = field.decode().split(":", 1)
-        removed[person_uuid] = (int(person_id), removed_at)
+        else:
+            removed.append(int(field.decode().split(":", 1)[0]))
     if expired:
         client.hdel(key, *expired)
-    if not removed:
-        return
-
-    tag_queries(product=ProductKey.COHORTS, feature=Feature.COHORT)
-    # nosemgrep: clickhouse-fstring-param-audit - table name from constant, values parameterized
-    rows = sync_execute(
-        f"SELECT toString(person_id), formatDateTime(max(_timestamp), '%%Y-%%m-%%d %%H:%%i:%%S') FROM {PERSON_STATIC_COHORT_TABLE} WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s AND person_id IN %(person_uuids)s GROUP BY person_id",
-        {"team_id": cohort.team_id, "cohort_id": cohort.cohort_id, "person_uuids": list(removed)},
-        workload=Workload.OFFLINE,  # background repair, no person waits for it
-        ch_user=ClickHouseUser.COHORTS,
-    )
-    last_written: dict[str, str] = dict(rows)
-    for person_uuid, (person_id, removed_at) in removed.items():
-        # A row written at or after the removal means the person was added again, which this must not undo.
-        if last_written.get(person_uuid, "") >= removed_at:
-            continue
+    for person_id in removed:
         delete_cohort_member(cohort.team_id, cohort.cohort_id, person_id)
 
 
@@ -185,7 +185,7 @@ def _candidates(queryset: QuerySet[Cohort], *, limit: int | None) -> list[_Candi
     rows = queryset.order_by("-id").values_list("team_id", "id", "count")
     return [
         _Candidate(team_id=team_id, cohort_id=cohort_id, stored_count=count)
-        for team_id, cohort_id, count in (rows[:limit] if limit is not None else rows)
+        for team_id, cohort_id, count in rows[:limit]
     ]
 
 
@@ -335,7 +335,8 @@ def reconcile_static_cohort(cohort: StaticCohortToReconcile) -> None:
         return
     # A retry after a failed cleanup would otherwise find the cohort complete and return before cleaning up.
     _delete_recently_removed_members(cohort)
-    # Rows deleted since the selection would make its count unreachable, and every read-back wait would copy again.
+    # Count again instead of reusing the selection's count. A member removed since then would leave `min_rows` above
+    # what ClickHouse holds, so the copy would repeat after every read-back wait and then fail.
     members = _clickhouse_members(cohort)
     postgres_count = count_cohort_members(cohort.team_id, cohort.cohort_id, consistency="strong")
     decision = decide(stored_count=postgres_count, clickhouse_count=members.people)
@@ -350,9 +351,12 @@ def reconcile_static_cohort(cohort: StaticCohortToReconcile) -> None:
         return
 
     # min_rows makes the copy wait for a replica that holds every row instead of storing a partial copy.
-    insert_cohort_people_into_pg(row, team_id=cohort.team_id, min_rows=members.people)
-    # A member removed during the copy may still be in ClickHouse, so the copy can bring it back.
-    _delete_recently_removed_members(cohort)
+    try:
+        insert_cohort_people_into_pg(row, team_id=cohort.team_id, min_rows=members.people)
+    finally:
+        # A member removed during the copy may still be in ClickHouse, so the copy can bring it back, also when it
+        # fails partway.
+        _delete_recently_removed_members(cohort)
     # Recount here: the copy logs a failed recount and keeps the old count, which would park a repaired cohort.
     reconciled_count = count_cohort_members(cohort.team_id, cohort.cohort_id, consistency="strong")
     _write_count(row, reconciled_count)

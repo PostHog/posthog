@@ -17,8 +17,8 @@ from prometheus_client import REGISTRY
 from posthog.models.instance_setting import override_instance_config
 from posthog.redis import get_client
 from posthog.tasks.calculate_cohort import (
+    dispatch_static_cohort_reconciliations,
     reconcile_static_cohort_membership,
-    reconcile_static_cohorts,
     reset_stuck_cohorts,
 )
 from posthog.test.persons import create_person
@@ -72,7 +72,7 @@ class TestStaticCohortReconciliation(BaseTest):
         cohort = self._static_cohort(person_uuids=tuple(person.uuid for person in people))
 
         with override_instance_config("STATIC_COHORT_RECONCILIATION_ENABLED", enabled):
-            reconcile_static_cohorts()
+            dispatch_static_cohort_reconciliations()
 
         expected = 2 if enabled else 0
         cohort.refresh_from_db()
@@ -90,6 +90,8 @@ class TestStaticCohortReconciliation(BaseTest):
             ("too_large", 0, 300, {}, False),
             ("still_calculating", 0, 3, {"is_calculating": True}, False),
             ("calculated_within_settle_delay", 0, 3, {"last_calculation_ago": timedelta(minutes=10)}, False),
+            ("never_calculated_settled", 0, 3, {"last_calculation": None, "created_at_ago": timedelta(hours=2)}, True),
+            ("never_calculated_new", 0, 3, {"last_calculation": None, "created_at_ago": timedelta(minutes=10)}, False),
             ("errored_within_settle_delay", 0, 3, {"last_error_at_ago": timedelta(minutes=10)}, False),
             ("deleted", 0, 3, {"deleted": True}, False),
             ("last_population_failed", 0, 3, {"errors_calculating": 1}, False),
@@ -105,10 +107,13 @@ class TestStaticCohortReconciliation(BaseTest):
         expected_dispatched: bool,
     ) -> None:
         fields = dict(fields)
-        for field in ("last_calculation", "last_error_at"):
+        for field in ("last_calculation", "last_error_at", "created_at"):
             if f"{field}_ago" in fields:
                 fields[field] = self.now - fields.pop(f"{field}_ago")
+        created_at = fields.pop("created_at", None)
         cohort = self._static_cohort(clickhouse_members=clickhouse_members, count=stored_count, **fields)
+        if created_at is not None:
+            Cohort.objects.filter(pk=cohort.pk).update(created_at=created_at)
 
         expected = StaticCohortToReconcile(team_id=self.team.pk, cohort_id=cohort.pk)
         self.assertEqual(self._dispatched(), [expected] if expected_dispatched else [])
@@ -258,7 +263,8 @@ class TestStaticCohortReconciliation(BaseTest):
 
         self.assertEqual(self._dispatched(), [])
 
-    def test_a_member_removed_during_a_repair_stays_removed(self) -> None:
+    @parameterized.expand([("copy_succeeds", False), ("copy_fails_after_writing", True)])
+    def test_a_member_removed_during_a_repair_stays_removed(self, _name: str, copy_fails: bool) -> None:
         removed, kept = (create_person(team=self.team, distinct_ids=[f"member-{i}"]) for i in range(2))
         cohort = self._static_cohort(person_uuids=(removed.uuid, kept.uuid))
         self.addCleanup(get_client().delete, static_reconciliation._removed_members_key(cohort.pk))
@@ -268,18 +274,26 @@ class TestStaticCohortReconciliation(BaseTest):
             with patch("products.cohorts.backend.models.util.remove_person_from_static_cohort"):
                 cohort.remove_user_by_uuid(str(removed.uuid), team_id=self.team.pk)
             insert_cohort_people_into_pg(*args, **kwargs)
+            if copy_fails:
+                raise StaticCohortReadBackIncomplete("read 1 of 2 rows")
 
+        target = StaticCohortToReconcile(team_id=self.team.pk, cohort_id=cohort.pk)
         with patch.object(static_reconciliation, "insert_cohort_people_into_pg", side_effect=remove_then_copy):
-            reconcile_static_cohort(StaticCohortToReconcile(team_id=self.team.pk, cohort_id=cohort.pk))
+            if copy_fails:
+                with self.assertRaises(StaticCohortReadBackIncomplete):
+                    reconcile_static_cohort(target)
+            else:
+                reconcile_static_cohort(target)
 
-        cohort.refresh_from_db()
-        self.assertEqual((count_cohort_members(self.team.pk, cohort.pk), cohort.count), (1, 1))
+        self.assertEqual(count_cohort_members(self.team.pk, cohort.pk), 1)
 
     def test_a_member_removed_and_added_again_stays_added(self) -> None:
         person, other = (create_person(team=self.team, distinct_ids=[f"member-{i}"]) for i in range(2))
         cohort = self._static_cohort(person_uuids=(person.uuid, other.uuid))
         self.addCleanup(get_client().delete, static_reconciliation._removed_members_key(cohort.pk))
-        cohort.remove_user_by_uuid(str(person.uuid), team_id=self.team.pk)
+        # The ClickHouse delete has not applied yet, so the re-add writes no new ClickHouse row.
+        with patch("products.cohorts.backend.models.util.remove_person_from_static_cohort"):
+            cohort.remove_user_by_uuid(str(person.uuid), team_id=self.team.pk)
         cohort.insert_users_list_by_uuid([str(person.uuid)], team_id=self.team.pk, save_state=False)
         Cohort.objects.filter(pk=cohort.pk).update(count=0)
 
@@ -310,6 +324,10 @@ class TestStaticCohortReconciliation(BaseTest):
         reconcile_static_cohort(StaticCohortToReconcile(team_id=self.team.pk, cohort_id=cohort.pk))
 
         self.assertEqual(count_cohort_members(self.team.pk, cohort.pk), expected_members)
+        self.assertEqual(
+            get_client().hexists(static_reconciliation._removed_members_key(cohort.pk), f"{removed.id}:{removed.uuid}"),
+            removed_ago < static_reconciliation.RECONCILE_REMOVAL_TTL,
+        )
 
     def test_a_failed_recount_does_not_park_the_cohort(self) -> None:
         person = create_person(team=self.team, distinct_ids=["member"])
@@ -350,3 +368,10 @@ class TestStaticCohortReconciliation(BaseTest):
 
         failed_after = REGISTRY.get_sample_value("cohort_static_reconcile_total", {"outcome": "failed"}) or 0
         self.assertEqual(failed_after - failed_before, 0 if retries else 1)
+
+    @patch("posthog.tasks.calculate_cohort.reconcile_static_cohort")
+    def test_a_queued_repair_does_nothing_once_switched_off(self, repair: MagicMock) -> None:
+        with override_instance_config("STATIC_COHORT_RECONCILIATION_ENABLED", False):
+            reconcile_static_cohort_membership.run(team_id=self.team.pk, cohort_id=1)
+
+        repair.assert_not_called()
