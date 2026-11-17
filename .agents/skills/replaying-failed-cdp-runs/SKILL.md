@@ -47,19 +47,25 @@ Write the window and the error text from the data, not from the alert: query `ho
 ## Check the outcome
 
 The tool's "Requests sent" and "Requests failed" count the rerun jobs it queued, not whether the destination accepted them.
-After the status shows done, count the final status of the replayed runs:
+The failed attempts can drop out of `hog_invocation_results` once a rerun lands, so save the run IDs before anyone sends.
+Right after the preview, list the failed runs it covers and keep the IDs:
+
+```sql
+SELECT DISTINCT invocation_id
+FROM hog_invocation_results
+WHERE function_kind = 'hog_function' AND status = 'failed'
+  AND scheduled_at >= '<window_start>' AND scheduled_at < '<window_end>'
+  AND positionCaseInsensitive(error_message, '<error text>') > 0
+```
+
+After the status shows done, count the latest status of those IDs:
 
 ```sql
 SELECT final_status, count() AS runs, uniq(team_id) AS teams
 FROM (
     SELECT team_id, invocation_id, argMax(status, version) AS final_status
     FROM hog_invocation_results
-    WHERE function_kind = 'hog_function' AND scheduled_at >= '<window_start>'
-      AND invocation_id IN (
-        SELECT invocation_id FROM hog_invocation_results
-        WHERE function_kind = 'hog_function' AND status = 'failed'
-          AND scheduled_at >= '<window_start>' AND scheduled_at < '<window_end>'
-          AND positionCaseInsensitive(error_message, '<error text>') > 0)
+    WHERE function_kind = 'hog_function' AND invocation_id IN (<saved ids>)
     GROUP BY team_id, invocation_id
 )
 GROUP BY final_status
@@ -67,6 +73,6 @@ GROUP BY final_status
 
 Then group the runs that still failed by their latest `error_message`.
 Rate limits from the replay's own burst can be sent again; errors in the customer's own data cannot.
-Run it with `/querying-production-databases`.
+Run both with `/querying-production-databases`.
 
-A preview with the same filters is a quick check too: it lists only runs whose latest attempt still failed.
+A preview with the original window is not an outcome check: a rerun's latest attempt falls after the window, so the preview leaves it out whether it succeeded or failed.
