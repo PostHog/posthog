@@ -30,7 +30,9 @@ import {
 import { useHealthFindingReporting } from 'products/experiments/frontend/health/useHealthFindingReporting'
 
 import { experimentLogic } from '../experimentLogic'
-import { resolveMultipleVariantHandling } from '../utils'
+import { experimentMetricsLogic } from '../experimentMetricsLogic'
+import { isSignificant, isWinning } from '../MetricsView/shared/utils'
+import { metricResults, resolveMultipleVariantHandling } from '../utils'
 import { exposureCriteriaModalLogic } from './exposureCriteriaModalLogic'
 import { buildExposureSeries, getExposureCriteriaLabel } from './exposuresTransforms'
 import { VariantTag } from './VariantTag'
@@ -147,7 +149,10 @@ export function Exposures(): JSX.Element {
         excludedVariants,
         resolvedExposureEvent,
         healthUi,
+        isSingleVariantShipped,
+        shippedVariantKey,
     } = useValues(experimentLogic)
+    const { primaryMetricsResults, primaryMetricsResultsErrors } = useValues(experimentMetricsLogic({ experiment }))
     const { openExposureCriteriaModal } = useActions(exposureCriteriaModalLogic)
     const { refreshExperimentResults } = useActions(experimentLogic)
 
@@ -158,6 +163,20 @@ export function Exposures(): JSX.Element {
 
     const isEnded = hasEnded(experiment)
     const exposureCriteriaLabel = getExposureCriteriaLabel(exposureCriteria, resolvedExposureEvent)
+    const winnerKey = isEnded && isSingleVariantShipped ? shippedVariantKey : null
+    const leadingMetric = metricResults(experiment)(primaryMetricsResults, primaryMetricsResultsErrors, 'primary')[0]
+    const winningKeys = new Set(
+        !isEnded && leadingMetric?.result
+            ? (leadingMetric.result.variant_results ?? [])
+                  .filter((variant) => isSignificant(variant) && isWinning(variant, leadingMetric.metric.goal))
+                  .map((variant) => variant.key)
+            : []
+    )
+    const winningTooltip = leadingMetric
+        ? `Significantly better than ${leadingMetric.result?.baseline?.key ?? 'the baseline'} on ${
+              leadingMetric.metric.name || 'the first primary metric'
+          } so far.`
+        : ''
 
     const resolvedHandling = resolveMultipleVariantHandling(exposureCriteria?.multiple_variant_handling)
     const multipleTreatmentLabel =
@@ -302,6 +321,20 @@ export function Exposures(): JSX.Element {
                                         return (
                                             <div className="flex items-center gap-1.5">
                                                 <VariantTag variantKey={series.variant} />
+                                                {series.variant === winnerKey && (
+                                                    <Tooltip title="Rolled out to 100% of users when this experiment ended.">
+                                                        <LemonTag type="success" size="small">
+                                                            Winner
+                                                        </LemonTag>
+                                                    </Tooltip>
+                                                )}
+                                                {winningKeys.has(series.variant) && (
+                                                    <Tooltip title={winningTooltip}>
+                                                        <LemonTag type="highlight" size="small">
+                                                            Winning
+                                                        </LemonTag>
+                                                    </Tooltip>
+                                                )}
                                                 {isMultiple && (
                                                     <>
                                                         <span className="text-xs text-secondary">
