@@ -178,12 +178,14 @@ SCOUT_SUGGESTIONS = replace(
     network=NetworkPolicy(levels=(NetworkAccess.TRUSTED,)),
     mcp_agent="scout",
     mcp_scopes="read_only",
+    done_on_turn_close=True,
 )
 
 SCOUT_TRIAL_JUDGE = replace(
     SCOUT_SUGGESTIONS,
     key="signals.scout_trial_judge",
     network=NetworkPolicy(levels=(NetworkAccess.CUSTOM,)),
+    done_on_turn_close=False,
 )
 
 SCOUT_PROFILES = {

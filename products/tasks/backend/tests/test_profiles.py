@@ -21,6 +21,7 @@ from products.tasks.backend.facade.profiles import (
     public_profile_for_origin,
     register_task_profile,
     resolve_task_origin,
+    task_profiles,
 )
 
 BUSINESS_KNOWLEDGE = get_task_profile("business_knowledge")
@@ -101,6 +102,11 @@ class TestTaskProfileRegistry(SimpleTestCase):
 
         with patch.dict("products.tasks.backend.facade.profiles._profiles"), self.assertRaises(TaskProfileError):
             register_task_profile(second)
+
+    def test_only_the_reviewed_profiles_finish_on_turn_close(self) -> None:
+        finishing = {profile.key for profile in task_profiles() if profile.done_on_turn_close}
+
+        self.assertEqual(finishing, {"conversations.support_reply", "review_hog", "signals.scout_suggestions"})
 
     @parameterized.expand(
         [

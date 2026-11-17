@@ -161,6 +161,7 @@ A done task refuses new runs, cloud resumes, and follow-up messages with `409`.
 `POST /api/projects/{team_id}/tasks/{task_id}/close/` moves an idle task to done.
 A task can become done only while its profile is set to `enforce` in the `tasks-task-done` feature flag payload.
 Every profile is off until the payload names it.
+With `enforce`, a task on the `review_hog`, `signals.scout_suggestions` or `conversations.support_reply` profile becomes done when a run completes.
 
 A task with a cloud run in progress refuses another run or a cloud resume with `409`.
 A run that is being canceled does not count.
