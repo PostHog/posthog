@@ -14,9 +14,10 @@ conflict with it.
 
 from __future__ import annotations
 
-import re
 from collections.abc import Iterable, Mapping, Sequence
 from typing import Any
+
+from posthog.hogql.type_system import RuntimeType, parse_clickhouse_type
 
 from posthog.dataclasses import frozen
 
@@ -24,45 +25,15 @@ from posthog.dataclasses import frozen
 # so no value is lost.
 FALLBACK_TYPE = "VARCHAR"
 _MAX_DECIMAL_PRECISION = 38
-_WRAPPER_PATTERN = re.compile(r"^(?:Nullable|LowCardinality)\((.*)\)$")
-_DATETIME_PATTERN = re.compile(r"^DateTime(?:64)?(?:\((.*)\))?$")
-_DECIMAL_PATTERN = re.compile(r"^Decimal\(\s*(\d+)\s*(?:,\s*(\d+)\s*)?\)$")
-_SIZED_DECIMAL_PATTERN = re.compile(r"^Decimal(32|64|128|256)\(\s*(\d+)\s*\)$")
-_SIZED_DECIMAL_PRECISION = {"32": 9, "64": 18, "128": 38, "256": 76}
+_SIGNED_INTEGER_TYPES = {8: "TINYINT", 16: "SMALLINT", 32: "INTEGER", 64: "BIGINT"}
+_FLOAT_TYPES = {32: "REAL", 64: "DOUBLE"}
+_TIMESTAMP_WITH_TIME_ZONE = "TIMESTAMP(6) WITH TIME ZONE"
 
 
 @frozen
 class DeclaredColumn:
     name: str
     clickhouse_type: str
-
-
-@frozen
-class _DuckLakeType:
-    trino: str
-    duckdb: str
-
-
-# Each type is the one that the Arrow type of the same data maps to on the registration paths, so a column has the
-# same type when a later sync writes values for it. Trino has no unsigned integer type, so an unsigned column uses
-# the fallback type there.
-_SCALAR_TYPES: dict[str, _DuckLakeType] = {
-    "String": _DuckLakeType(trino="VARCHAR", duckdb="VARCHAR"),
-    "Int8": _DuckLakeType(trino="TINYINT", duckdb="TINYINT"),
-    "Int16": _DuckLakeType(trino="SMALLINT", duckdb="SMALLINT"),
-    "Int32": _DuckLakeType(trino="INTEGER", duckdb="INTEGER"),
-    "Int64": _DuckLakeType(trino="BIGINT", duckdb="BIGINT"),
-    "UInt8": _DuckLakeType(trino=FALLBACK_TYPE, duckdb="UTINYINT"),
-    "UInt16": _DuckLakeType(trino=FALLBACK_TYPE, duckdb="USMALLINT"),
-    "UInt32": _DuckLakeType(trino=FALLBACK_TYPE, duckdb="UINTEGER"),
-    "UInt64": _DuckLakeType(trino=FALLBACK_TYPE, duckdb="UBIGINT"),
-    "Float32": _DuckLakeType(trino="REAL", duckdb="FLOAT"),
-    "Float64": _DuckLakeType(trino="DOUBLE", duckdb="DOUBLE"),
-    "Bool": _DuckLakeType(trino="BOOLEAN", duckdb="BOOLEAN"),
-    "Date": _DuckLakeType(trino="DATE", duckdb="DATE"),
-    "Date32": _DuckLakeType(trino="DATE", duckdb="DATE"),
-}
-_FALLBACK = _DuckLakeType(trino=FALLBACK_TYPE, duckdb=FALLBACK_TYPE)
 
 
 def declared_columns(columns: Mapping[str, Any] | None) -> list[DeclaredColumn]:
@@ -100,35 +71,42 @@ def columns_missing_from_files(declared: Sequence[DeclaredColumn], file_columns:
 
 
 def trino_type_for_clickhouse(clickhouse_type: str) -> str:
-    return _ducklake_type(clickhouse_type).trino
+    """The Trino type that reads like the ClickHouse type, or VARCHAR when no exact type exists.
+
+    Each type is the one that the Arrow type of the same data maps to on the registration paths, so a column has the
+    same type when a later sync writes values for it. Trino has no unsigned integer type, and the nested types have
+    no exact match, so those use the fallback type.
+    """
+    runtime_type = parse_clickhouse_type(clickhouse_type)
+    match runtime_type.family:
+        case "integer" if runtime_type.signed:
+            return _SIGNED_INTEGER_TYPES.get(runtime_type.bits or 0, FALLBACK_TYPE)
+        case "float":
+            return _FLOAT_TYPES.get(runtime_type.bits or 0, FALLBACK_TYPE)
+        case "boolean":
+            return "BOOLEAN"
+        case "date":
+            return "DATE"
+        case "datetime":
+            # The precision is always 6, because the registration paths read only microsecond timestamps.
+            return _TIMESTAMP_WITH_TIME_ZONE if runtime_type.timezone else "TIMESTAMP(6)"
+        case "decimal":
+            return _decimal_type(runtime_type)
+        case _:
+            return FALLBACK_TYPE
 
 
 def duckdb_type_for_clickhouse(clickhouse_type: str) -> str:
-    return _ducklake_type(clickhouse_type).duckdb
+    """The DuckDB type for the same column.
+
+    DuckDB accepts the Trino type names, except that it takes no precision on a time zone timestamp.
+    """
+    trino_type = trino_type_for_clickhouse(clickhouse_type)
+    return "TIMESTAMPTZ" if trino_type == _TIMESTAMP_WITH_TIME_ZONE else trino_type
 
 
-def _ducklake_type(clickhouse_type: str) -> _DuckLakeType:
-    base = clickhouse_type.strip()
-    while (wrapper := _WRAPPER_PATTERN.fullmatch(base)) is not None:
-        base = wrapper.group(1).strip()
-
-    if (scalar := _SCALAR_TYPES.get(base)) is not None:
-        return scalar
-    if (datetime := _DATETIME_PATTERN.fullmatch(base)) is not None:
-        # A ClickHouse time zone argument is a quoted string, as in DateTime64(6, 'UTC'). The precision is always 6
-        # because the registration paths read only microsecond timestamps from the files.
-        if "'" in (datetime.group(1) or ""):
-            return _DuckLakeType(trino="TIMESTAMP(6) WITH TIME ZONE", duckdb="TIMESTAMPTZ")
-        return _DuckLakeType(trino="TIMESTAMP(6)", duckdb="TIMESTAMP")
-    if (decimal := _DECIMAL_PATTERN.fullmatch(base)) is not None:
-        return _decimal_type(int(decimal.group(1)), int(decimal.group(2) or 0))
-    if (sized_decimal := _SIZED_DECIMAL_PATTERN.fullmatch(base)) is not None:
-        return _decimal_type(_SIZED_DECIMAL_PRECISION[sized_decimal.group(1)], int(sized_decimal.group(2)))
-    return _FALLBACK
-
-
-def _decimal_type(precision: int, scale: int) -> _DuckLakeType:
-    if not 1 <= precision <= _MAX_DECIMAL_PRECISION or not 0 <= scale <= precision:
-        return _FALLBACK
-    decimal_type = f"DECIMAL({precision}, {scale})"
-    return _DuckLakeType(trino=decimal_type, duckdb=decimal_type)
+def _decimal_type(runtime_type: RuntimeType) -> str:
+    precision, scale = runtime_type.precision, runtime_type.scale or 0
+    if precision is None or not 1 <= precision <= _MAX_DECIMAL_PRECISION or not 0 <= scale <= precision:
+        return FALLBACK_TYPE
+    return f"DECIMAL({precision}, {scale})"

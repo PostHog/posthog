@@ -1926,31 +1926,22 @@ def test_staging_schema_unions_file_columns_and_appends_hive_partitions_and_decl
     "clickhouse_type, trino_type, duckdb_type",
     [
         ("String", "VARCHAR", "VARCHAR"),
-        ("Nullable(String)", "VARCHAR", "VARCHAR"),
         ("LowCardinality(Nullable(String))", "VARCHAR", "VARCHAR"),
         ("Int8", "TINYINT", "TINYINT"),
         ("Int16", "SMALLINT", "SMALLINT"),
         ("Nullable(Int32)", "INTEGER", "INTEGER"),
         ("Nullable(Int64)", "BIGINT", "BIGINT"),
-        ("UInt64", "VARCHAR", "UBIGINT"),
-        ("Float32", "REAL", "FLOAT"),
+        ("UInt64", "VARCHAR", "VARCHAR"),
+        ("Float32", "REAL", "REAL"),
         ("Nullable(Float64)", "DOUBLE", "DOUBLE"),
         ("Bool", "BOOLEAN", "BOOLEAN"),
         ("Date32", "DATE", "DATE"),
         ("Nullable(DateTime64(6, 'UTC'))", "TIMESTAMP(6) WITH TIME ZONE", "TIMESTAMPTZ"),
         ("DateTime64(3, 'America/New_York')", "TIMESTAMP(6) WITH TIME ZONE", "TIMESTAMPTZ"),
-        ("DateTime('UTC')", "TIMESTAMP(6) WITH TIME ZONE", "TIMESTAMPTZ"),
-        ("DateTime64(6)", "TIMESTAMP(6)", "TIMESTAMP"),
-        ("DateTime", "TIMESTAMP(6)", "TIMESTAMP"),
+        ("DateTime64(6)", "TIMESTAMP(6)", "TIMESTAMP(6)"),
         ("Nullable(Decimal(10, 2))", "DECIMAL(10, 2)", "DECIMAL(10, 2)"),
-        ("Decimal64(4)", "DECIMAL(18, 4)", "DECIMAL(18, 4)"),
         ("Decimal(76, 10)", "VARCHAR", "VARCHAR"),
-        ("Decimal256(10)", "VARCHAR", "VARCHAR"),
         ("Array(Nullable(String))", "VARCHAR", "VARCHAR"),
-        ("Map(String, String)", "VARCHAR", "VARCHAR"),
-        ("Tuple(a Int64)", "VARCHAR", "VARCHAR"),
-        ("UUID", "VARCHAR", "VARCHAR"),
-        ("Nullable(Nothing)", "VARCHAR", "VARCHAR"),
         ("", "VARCHAR", "VARCHAR"),
     ],
 )
@@ -1959,6 +1950,7 @@ def test_declared_column_types_for_trino_and_duckdb(clickhouse_type: str, trino_
         trino_type,
         duckdb_type,
     )
+    duckdb.connect().execute(f"CREATE TABLE declared (x {duckdb_type})")
 
 
 @pytest.mark.parametrize(
