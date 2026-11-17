@@ -28,6 +28,9 @@ path_callees = [
   "run_module", "importorskip", "register_assert_rewrite", "set_forkserver_preload",
   "setattr", "patch.dict", "patch.multiple", "_patch", "mock_patch",
 ]
+# Uses of these names are reference edges: facade-no-state reads where a facade opens a transaction
+# or leaves the team scope.
+reference_names = ["django.db.transaction.atomic", "posthog.models.scoping.unscoped"]
 # Migration packages: their files get the `migration` context. `posthog/rbac/migrations` holds
 # frozen data migrations run by hand. ClickHouse (`posthog/clickhouse/migrations`) and async
 # migrations stay prod, labelled as history below.
@@ -73,6 +76,13 @@ only-registers = "src.wiring == 'registration' and edge.listed == '1'"
 # members, `source_vendor`), under the tree's own package.
 in-sources-tree = "dst.path startswith 'products/warehouse_sources/sources/'"
 sources-member  = "src.source_vendor != none"
+# What a facade may not do (D115), on a model use or a reference by `[discovery] reference_names`.
+# A write or a row lock reads the Django pack's shape of the use, the shape of the local it flows
+# into (`flow_shape`) and the instance writes on its value (`instance_write`); leaving the team
+# scope reads the chain as written (`chain`).
+facade-writes            = "edge.shape in ['write', 'lock'] or edge.flow_shape startswith 'write' or edge.flow_shape == 'lock' or edge.instance_write != none"
+facade-opens-transaction = "dst.symbol == 'django.db.transaction.atomic'"
+facade-leaves-team-scope = "edge.chain startswith '.objects.unscoped()' or edge.chain == '.all_teams' or edge.chain startswith '.all_teams.' or dst.symbol == 'posthog.models.scoping.unscoped'"
 
 # ── Fields ─────────────────────────────────────────────────────
 # required_on is the field's domain: inside it a missing value is unknown, outside it a known none.
@@ -658,6 +668,26 @@ select     = "edge.body == '1' and src.scope == none and dst.name not in ['__get
 identity   = ["dst.symbol", "src.module"]
 growth_key = ["dst.symbol", "src.package"]
 
+[rules.facade-no-state]
+primitive  = "edge"
+doc        = "A facade changes no state (D115). In facade code, a write (create, save, update, delete and their bulk and async forms, also through a local the use flows into), a transaction or a row lock (`transaction.atomic`, `select_for_update`) or a read that leaves the team scope (`objects.unscoped()`, the `all_teams` manager, the `unscoped()` context) is a finding. A read by id, by team or by the caller's filters is allowed. Not seen: a decision on what the database returned that leads to no write; a definition carried in a read's filter; a write on a value that came from a parameter, a helper, a loop or a related manager; a scope-leaving call later in a chain or on a local."
+why        = "A facade calls the internals of its product and maps the result to contract types. A write, a lock or a transaction in the facade puts the rules that change the data of the product into the facade. A read that leaves the team scope there skips the scope that the internals keep."
+ways       = [
+  { safety = "care", text = "Move the whole operation into the internals of the product, for example backend/logic/: its checks, its transaction or lock, and its write. In the facade, call that function and map its result to a contract type." },
+  { safety = "note", text = "Do not move only the ORM line into a helper. The facade then keeps the checks around the write, and the operation is still in the facade." },
+  { safety = "person", text = "If the operation must stay in the facade, stop and tell the person." },
+]
+example    = { finding = "Invoice.objects.for_team(team_id).filter(id=invoice_id).update(paid=True)  # in backend/facade/api.py", fixed = "return _to_row(invoices.mark_paid(team_id, invoice_id))  # backend/logic/invoices.py checks, locks and writes" }
+kinds      = ["reference"]
+from       = "facade-code and src.testcode != true"
+select     = "(dst.kind == 'model' and edge.shape != none) or (edge.resolution in ['resolved', 'external'] and dst.symbol in ['django.db.transaction.atomic', 'posthog.models.scoping.unscoped'])"
+deny       = "facade-writes or facade-opens-transaction or facade-leaves-team-scope"
+contexts   = { exclude = ["test", "migration"] }
+requires   = ["django.uses"]
+identity   = "module-symbol"
+counted    = true
+growth_key = ["dst.symbol", "edge.label", "src.package"]
+
 # ── Layers inside a product ────────────────────────────────────
 
 [rules.presentation-uses-facade]
@@ -726,17 +756,6 @@ deny       = "dst.package == src.package and dst.zone in ['models', 'logic', 'ta
 unless     = "surface.zone == 'facade'"
 identity   = "module-pair"
 growth_key = ["dst.module", "src.package"]
-
-# Off for now (D118): atomic-outside-views cannot fire; it is revisited after the switch.
-# [rules.atomic-outside-views]
-# primitive   = "use-shape"
-# doc         = "Views do not open transactions (B10); counted per function."
-# kinds       = ["reference"]
-# select      = "src.zone == 'presentation' and dst.symbol == 'django.db.transaction.atomic'"
-# deny_shapes = ["call", "with", "decorator"]
-# identity    = "scope-symbol"
-# counted     = true
-# growth_key  = ["dst.symbol", "edge.label", "src.package"]
 
 [rules.prod-imports-test]
 primitive  = "edge"
