@@ -4,7 +4,7 @@ import { initKeaTests } from '~/test/init'
 
 import { MessageAsset } from '../Workflows/messageAssetsApi'
 import { broadcastSendingLogic } from './broadcastSendingLogic'
-import { broadcastSentLogic } from './broadcastSentLogic'
+import { BroadcastSentLogicProps, broadcastSentLogic } from './broadcastSentLogic'
 
 const sends = (prefix: string, count: number): MessageAsset[] =>
     Array.from({ length: count }, (_, i) => ({
@@ -82,7 +82,7 @@ describe('broadcastSentLogic', () => {
         jest.useRealTimers()
     })
 
-    const mountRun = (props = {}): ReturnType<typeof broadcastSentLogic.build> => {
+    const mountRun = (props: Partial<BroadcastSentLogicProps> = {}): ReturnType<typeof broadcastSentLogic.build> => {
         const logic = broadcastSentLogic({ ...RECENT_RUN, ...props })
         logic.mount()
         return logic
