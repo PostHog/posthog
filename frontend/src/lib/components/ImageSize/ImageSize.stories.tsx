@@ -26,6 +26,6 @@ export default meta
 type Story = StoryObj<typeof ImageSize>
 export const Custom: Story = {
     play: async ({ canvasElement }) => {
-        await userEvent.click(within(canvasElement).getByText('Size: 1200 × 630 px'))
+        await userEvent.click(await within(canvasElement).findByText('Size: 1200 × 630 px'))
     },
 }

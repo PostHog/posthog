@@ -33,7 +33,7 @@ from posthog.api.pagination import (
     facade_page_response,
 )
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.api.shared import UserBasicSerializer
+from posthog.api.shared import ImageSizeSerializer, UserBasicSerializer
 from posthog.event_usage import get_request_analytics_properties, groups
 from posthog.exceptions import QuotaLimitExceeded
 from posthog.models.integer_field_bounds import INTEGER_FIELD_MAX, INTEGER_FIELD_MIN
@@ -44,7 +44,6 @@ from posthog.utils import str_to_bool
 
 from products.access_control.backend.facade.contracts import ObjectAccessRef
 from products.dashboards.backend.facade import api as dashboards_api
-from products.exports.backend.facade.image_size import ImageSizeSerializer
 from products.product_analytics.backend.facade.models import Insight
 from products.subscriptions.backend.facade import api, contracts
 from products.subscriptions.backend.facade.api import (

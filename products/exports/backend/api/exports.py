@@ -20,6 +20,7 @@ from rest_framework.throttling import BaseThrottle
 from temporalio.common import RetryPolicy, SearchAttributePair, TypedSearchAttributes, WorkflowIDReusePolicy
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.shared import ImageSizeSerializer
 from posthog.api.utils import action
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded, ConcurrencySlot, RateLimit
 from posthog.event_usage import EventSource, get_event_source, groups
@@ -44,7 +45,6 @@ from products.access_control.backend.presentation.access_control import (
 )
 from products.exports.backend.asset_access import can_user_view_exported_asset
 from products.exports.backend.facade.exporters import get_export_content_path, is_product_export
-from products.exports.backend.facade.image_size import ImageSizeSerializer
 from products.exports.backend.models.exported_asset import (
     ExportedAsset,
     get_content_response,

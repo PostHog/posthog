@@ -70,7 +70,7 @@ export interface sharingLogicValues {
     embedLink: string
     iframeKey: number
     iframeProperties: {
-        allowFullScreen: boolean
+        allowFullScreen: true
         frameBorder: number
         height: string
         key: number
@@ -310,7 +310,7 @@ export interface sharingLogicMeta {
             hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean
         ) => boolean
         sharingAllowed: (currentOrganization: OrganizationType | null) => boolean
-        params: (arg: any, linkSize: any) => any
+        params: (arg: any, linkSize: ImageSizeApi) => any
         shareLink: (
             siteUrl: string | undefined,
             sharingConfiguration: SharingConfigurationType | null,
@@ -324,9 +324,9 @@ export interface sharingLogicMeta {
         iframeProperties: (
             embedLink: string,
             iframeKey: number,
-            linkSize: any
+            linkSize: ImageSizeApi
         ) => {
-            allowFullScreen: boolean
+            allowFullScreen: true
             frameBorder: number
             height: string
             key: number

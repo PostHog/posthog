@@ -26,6 +26,7 @@ from posthog.schema import ChartDisplayType, FunnelLayout, NodeKind
 from posthog.hogql.errors import TableAccessDeniedError
 
 from posthog.api.services.query import process_query_dict
+from posthog.api.shared import ImageSizeSerializer
 from posthog.caching.calculate_results import calculate_for_query_based_insight
 from posthog.caching.insight_result import InsightResult
 from posthog.event_usage import AnalyticsProps, EventSource
@@ -39,7 +40,6 @@ from posthog.utils import absolute_uri
 from products.access_control.backend.facade.user_access_control import UserAccessControlError
 from products.dashboards.backend.facade import api as dashboards_api
 from products.exports.backend.facade.api import export_execution_mode, export_limit_context
-from products.exports.backend.facade.image_size import ImageSizeSerializer
 from products.exports.backend.models.exported_asset import ExportedAsset, get_render_access_token, save_content
 from products.exports.backend.tasks.exporter_utils import log_error_if_site_url_not_reachable
 from products.exports.backend.tasks.failure_handler import (
