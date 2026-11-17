@@ -1,0 +1,84 @@
+rules:
+    - id: posthog-sdk-major-pin-js
+      message: |
+          This PostHog SDK dependency has no upper bound on the major version, so the next major
+          release (with breaking changes) installs on the next lockfile refresh.
+          Use a range that stops at the current major: "^1.450.0", "~1.450.0", an exact version,
+          or "catalog:" to take the version from pnpm-workspace.yaml.
+          The SDK team upgrades each major on purpose and moves the call sites in the same PR.
+      languages: [generic]
+      severity: ERROR
+      paths:
+          include:
+              - '**/package.json'
+              - '/pnpm-workspace.yaml'
+              - '*.package.json'
+              - '*.pnpm-workspace.yaml'
+      # An empty value, "*", "x", a dist-tag such as "latest", or a ">" range with no "<" cap.
+      # "catalog:", "workspace:*" and "github:" values have a colon, so they do not match.
+      pattern-either:
+          - pattern-regex: '"(?:posthog-js|posthog-js-lite|posthog-node|posthog-react-native|@posthog/ai|@posthog/react)"\s*:\s*"(?:[*xX]|[A-Za-z][\w.-]*|>[^"<]*)?"'
+          - pattern-regex: '(?m)^[ \t]*[''"]?(?:posthog-js|posthog-js-lite|posthog-node|posthog-react-native|@posthog/ai|@posthog/react)[''"]?[ \t]*:[ \t]*[''"]?(?:[*xX]|[A-Za-z][\w.-]*|>[^''"<#\n]*)[''"]?[ \t]*(?:#[^\n]*)?$'
+      metadata:
+          category: best-practice
+          subcategory:
+              - audit
+
+    - id: posthog-sdk-major-pin-python
+      message: |
+          This PostHog SDK dependency has no upper bound on the major version, so the next major
+          release (with breaking changes) installs on the next lock or install.
+          Cap it at the current major: "posthoganalytics>=7.91.1,<8", "~=7.91", or an exact
+          "==" pin. A uv `constraint-dependencies` cap or a pip `-c` constraints file in the
+          same manifest also counts.
+          The SDK team upgrades each major on purpose and moves the call sites in the same PR.
+      languages: [generic]
+      severity: ERROR
+      paths:
+          include:
+              - '**/pyproject.toml'
+              - '**/requirements*.txt'
+              - '**/requirements*.in'
+              - '*.pyproject.toml'
+              - '*.requirements.txt'
+      # A bare "posthog" string in pyproject.toml is usually a module name (ruff, mypy), so
+      # "posthog" matches there only with a version specifier. "posthoganalytics" always matches.
+      patterns:
+          - pattern-either:
+                # requirements.txt / .in lines
+                - pattern-regex: '(?m)^[ \t]*(?:posthoganalytics|posthog)(?:\[[^\]\n]*\])?(?=[ \t]*(?:[(<>!~;#]|==|$))(?![^#;\n]*(?:==|~=|<))'
+                # PEP 621 dependency strings
+                - pattern-regex: '"(?![^";\n]*(?:==|~=|<))(?:posthoganalytics(?:\[[^\]"]*\])?(?:\s*[(>!;][^"\n]*)?|posthog(?:\[[^\]"]*\])?\s*[(>!;][^"\n]*)"'
+                - pattern-regex: '''(?![^'';\n]*(?:==|~=|<))(?:posthoganalytics(?:\[[^\]'']*\])?(?:\s*[(>!;][^''\n]*)?|posthog(?:\[[^\]'']*\])?\s*[(>!;][^''\n]*)'''
+                # Poetry-style tables
+                - pattern-regex: '(?m)^[ \t]*(?:posthoganalytics|posthog)[ \t]*=[ \t]*"(?:\*|[>!][^"<\n]*)"'
+          # A cap that lives elsewhere in the manifest: a uv constraint, or a pip constraints file.
+          - pattern-not-regex: '(?sm)\A(?=.*(?:^[ \t]*constraint-dependencies[ \t]*=[ \t]*\[(?:[^\]#]|#[^\n]*\n)*?[''"]posthog(?:analytics)?\s*<|^[ \t]*(?:-c|--constraint)[ \t=])).*\z'
+      metadata:
+          category: best-practice
+          subcategory:
+              - audit
+
+    - id: posthog-sdk-major-pin-rust
+      message: |
+          This posthog-rs dependency has no upper bound on the version, so the next breaking
+          release installs on the next `cargo update`.
+          Use a plain version such as "0.33.1" (Cargo reads it as a caret range), an exact
+          "=0.33.1", or `workspace = true`. A git dependency needs a `rev` or a `tag`.
+          The SDK team upgrades each breaking release on purpose and moves the call sites in the same PR.
+      languages: [generic]
+      severity: ERROR
+      paths:
+          include:
+              - '**/Cargo.toml'
+              - '*.Cargo.toml'
+      pattern-either:
+          - pattern-regex: '(?m)^[ \t]*posthog-rs[ \t]*=[ \t]*"(?:\*|>[^"<\n]*)"'
+          - pattern-regex: '(?m)^[ \t]*posthog-rs[ \t]*=[ \t]*\{[^}\n]*\bversion[ \t]*=[ \t]*"(?:\*|>[^"<\n]*)"'
+          - pattern-regex: '(?m)^[ \t]*posthog-rs[ \t]*=[ \t]*\{(?![^}\n]*\b(?:version|rev|tag|workspace|path)[ \t]*=)[^}\n]*\bgit[ \t]*='
+          - pattern-regex: '(?m)^[ \t]*\[(?:[^\]\n]*\.)?(?:dev-|build-)?dependencies\.posthog-rs\][ \t]*(?:#[^\n]*)?$(?:(?!^[ \t]*\[)[\s\S])*?^[ \t]*version[ \t]*=[ \t]*"(?:\*|>[^"<\n]*)"'
+          - pattern-regex: '(?m)^[ \t]*\[(?:[^\]\n]*\.)?(?:dev-|build-)?dependencies\.posthog-rs\][ \t]*(?:#[^\n]*)?$(?!(?:(?!^[ \t]*\[)[\s\S])*?^[ \t]*(?:version|rev|tag|workspace|path)[ \t]*=)(?:(?!^[ \t]*\[)[\s\S])*?^[ \t]*git[ \t]*='
+      metadata:
+          category: best-practice
+          subcategory:
+              - audit

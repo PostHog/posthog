@@ -11419,13 +11419,13 @@ snapshots:
     scenes-app-data-warehouse-settings-api-version-deprecation-banner--without-sunset-date--light:
         hash: v1.k794b7964.5538a3b913cdaf075ffa11b124181028792db175d494b4ddfc464b7c136abad1.lRLOGn7WM05iOpm8oCLLc5FkYge6teK_L_hm0JgjlLE
     scenes-app-data-warehouse-settings-failing-destinations--failing--dark:
-        hash: v1.k794b7964.a651994f6cd70bc511e6fba3bdd4c78c15645b00976629e0bbc4c5adfa2afc15.vOV5UFp5NoRhaH55e7JHcrFTB9AEDgC55uSvQSZmw5A
+        hash: v1.k794b7964.af7bb12a0cce6122497c5776dd7a195e77396e311a47ebfba9eabf334afaba6e.D3qkM4GHzRpyIcCpnMP__IcKAMJPu86HyAToLy0Ow60
     scenes-app-data-warehouse-settings-failing-destinations--failing--light:
-        hash: v1.k794b7964.340eb07d7104bbcc935d852f2e36e316c3e6cd2e4e452cb66cc8600b0d89b9fb.J-QMiEKZrFdW7aSWLOJ8EtIlNI3mbQiB7WzCP6XsxVY
+        hash: v1.k794b7964.038d83bb1e71775f5efa7974956b65d1d431f4204be801620e06d1796bf7b9f8.WI7eI33OObtqqKWKsdev2xBvW1cF7JB3JImRXwYISf0
     scenes-app-data-warehouse-settings-failing-destinations--failing-and-paused--dark:
-        hash: v1.k794b7964.14e7d94f4b4e90f88eecffd71df505932db9101ad4eaf48191b4fefbfa540577.4v_pI4tzZqr0OTiibkrdqZmT0niWJ6Ruey1SnkJeH4U
+        hash: v1.k794b7964.25b5711d1b188999a0e3bda28bfb315791c8b0782b5bcf9fa8498c1c7d1181ee.Oanp5HVdoMKEistvnxWdRJGfwIoX1pu9hdJAyZRP24A
     scenes-app-data-warehouse-settings-failing-destinations--failing-and-paused--light:
-        hash: v1.k794b7964.e0605c560a64a89ad334131ba40d07641ec1bc61d370452177a49ba494c83889.82lARqhfzYriD2Ybd-kaWw_VOqeIvicyK4DSsRHIEiM
+        hash: v1.k794b7964.df74a5b3b4dd31af3fd0e78dd7a1d7bde86d5526ce198fd0eb8a60c739ff663a.ik8360nBcxWjpZh3aVHN5TqB0VjPpZeBcuZg46nZoxs
     scenes-app-data-warehouse-settings-failing-destinations--paused--dark:
         hash: v1.k794b7964.f9f8fa8cc5110f61d298be468c1297dec857277af660fe9a2e1eced57dbf4f51.4akPWjaPOB4FuYiqYbuhoIvDyVBbS5_HP-WJfzarEjw
     scenes-app-data-warehouse-settings-failing-destinations--paused--light:
@@ -12746,10 +12746,6 @@ snapshots:
         hash: v1.k794b7964.0dffb93a1236a45a35d92aed9f908fd652af606925aa2e4559791b5568448ac4.XEreadigKpR62pKMB_aI-tObYOasZvqwc8SLPSLLPjg
     scenes-app-inbox-detail--report-without-code-access--light:
         hash: v1.k794b7964.196a6be770e6b24bd93a709756918c1fe357405a181baba848c2c32d85c3283f.yTEG4DAPJqTHRm3etbN8rkzkdoHJJgfwT-mzPakguXs
-    scenes-app-inbox-detail--report-without-post-hog-ai-access--dark:
-        hash: v1.k794b7964.cb8c3aee07cd75cab4549a8bab9c4c1c195b839d97c34d82e6e6c9fe933106dc.LkNYaxXe7KRgOL-whSzGaYh0UdCcfyZnH5yIzQJddik
-    scenes-app-inbox-detail--report-without-post-hog-ai-access--light:
-        hash: v1.k794b7964.cde610bc762d059c97d085d24f1261416e6570ab4502187f0717e4340ad2f4dd.ZA9WJRIrQqWV8iYzNr3QReBOV_C7McsG2cZb9aiaIZI
     scenes-app-inbox-detail--run-failed--dark:
         hash: v1.k794b7964.e82d63bd21d2d441d8c2c13cc22279805acdec1bb01ec04f2fbef3ad418adaeb.hXPwtY6-D5RdgQZYCCVXmnz_VtcZdDkAGuQlkAizdvY
     scenes-app-inbox-detail--run-failed--light:

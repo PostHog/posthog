@@ -5,9 +5,7 @@ import { IconCopy, IconPullRequest } from '@posthog/icons'
 import { LemonButton, LemonMenuOverlay, LemonSelect, lemonToast } from '@posthog/lemon-ui'
 
 import type { AgentPromptDestination } from 'lib/components/AgentPromptButton'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { GitHubRepositoryPicker } from 'lib/integrations/GitHubIntegrationHelpers'
-import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { addProjectIdIfMissing } from 'lib/utils/kea-router'
@@ -40,8 +38,7 @@ export function ImplementButton({
     reportTaskToOpen,
     openChoicesFromLink = false,
     onChoicesOpenedFromLink,
-}: ImplementButtonProps): JSX.Element | null {
-    const hasPostHogAiAccess = useFeatureFlag('PHAI_SANDBOX_MODE')
+}: ImplementButtonProps): JSX.Element {
     const { isCreatingPr, isDiscussing, createPrDisabledReason } = useValues(inboxTaskKickoffLogic)
     const {
         disabledReason: githubDisabledReason,
@@ -69,10 +66,10 @@ export function ImplementButton({
         }
     }, [openChoicesFromLink, onChoicesOpenedFromLink])
     useEffect(() => {
-        if (hasPostHogAiAccess && repositoryRequired) {
+        if (repositoryRequired) {
             setChoicesOpen(true)
         }
-    }, [hasPostHogAiAccess, repositoryRequired])
+    }, [repositoryRequired])
     const reportUrl = `${window.location.origin}${addProjectIdIfMissing(urls.inboxReport('reports', report.id))}`
 
     const disabledReason =
@@ -135,44 +132,6 @@ export function ImplementButton({
             extra: { agent: agentKey },
         })
         run(prompt)
-    }
-
-    const agentMenuItems = IMPLEMENTATION_AGENTS.map((agent) => ({
-        key: agent.key,
-        label: agent.name,
-        icon: agent.icon,
-        onClick: () => runImplementationPrompt(agent.key, agent.open),
-    }))
-
-    if (!hasPostHogAiAccess) {
-        return (
-            <LemonMenu
-                placement="bottom-end"
-                visible={choicesOpen}
-                onVisibilityChange={setChoicesOpen}
-                items={[
-                    {
-                        label: 'Copy prompt for your agent',
-                        icon: <IconCopy />,
-                        onClick: () =>
-                            runImplementationPrompt('clipboard', (prompt) => {
-                                void copyToClipboard(prompt, 'prompt for your agent')
-                            }),
-                    },
-                    ...agentMenuItems,
-                ]}
-            >
-                <LemonButton
-                    type="primary"
-                    size="small"
-                    icon={<IconPullRequest />}
-                    tooltip="Choose an agent to implement this report"
-                    data-attr={surface === 'triage_mode' ? 'inbox-triage-create-pr' : 'inbox-report-create-pr'}
-                >
-                    Implement
-                </LemonButton>
-            </LemonMenu>
-        )
     }
 
     if (reportTaskToOpen?.task.latest_run) {
@@ -301,7 +260,17 @@ export function ImplementButton({
                                             'aria-label': 'Open prompt in an agent',
                                             dropdown: {
                                                 placement: 'bottom-start',
-                                                overlay: <LemonMenuOverlay items={agentMenuItems} />,
+                                                overlay: (
+                                                    <LemonMenuOverlay
+                                                        items={IMPLEMENTATION_AGENTS.map((agent) => ({
+                                                            key: agent.key,
+                                                            label: agent.name,
+                                                            icon: agent.icon,
+                                                            onClick: () =>
+                                                                runImplementationPrompt(agent.key, agent.open),
+                                                        }))}
+                                                    />
+                                                ),
                                             },
                                         }}
                                     >
