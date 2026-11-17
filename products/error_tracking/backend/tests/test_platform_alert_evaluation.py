@@ -20,6 +20,7 @@ from products.alerts_platform.backend.facade.contracts import (
 from products.error_tracking.backend.models import ErrorTrackingIssueChange
 from products.error_tracking.backend.platform_alerts.evaluation import evaluate_error_tracking_alert_batch
 from products.error_tracking.backend.platform_alerts.source_config import ISSUE_GROUPING
+from products.error_tracking.backend.temporal.lifecycle.event_properties import IssueCreatedEventNotFoundError
 
 DUE_AT = dt.datetime(2026, 11, 17, 9, 0, tzinfo=dt.UTC)
 _ON_TIME = DUE_AT
@@ -40,8 +41,10 @@ class TestErrorTrackingAlertEvaluation(BaseTest):
         data: dict[str, Any] | None = None,
         bulk: bool = False,
         event_uuid: uuid.UUID | None = None,
+        issue_id: uuid.UUID | None = None,
+        assignee: dict[str, str] | None = None,
     ) -> str:
-        issue_id = uuid.uuid4()
+        issue_id = issue_id or uuid.uuid4()
         change = ErrorTrackingIssueChange.objects.for_team(self.team.id).create(
             team_id=self.team.id,
             issue_id=issue_id,
@@ -51,7 +54,7 @@ class TestErrorTrackingAlertEvaluation(BaseTest):
                 "status": status,
                 "severity": None,
                 "name": name,
-                "assignee": None,
+                "assignee": assignee,
                 "first_seen": "2026-11-01T00:00:00+00:00",
             },
             operation_id=uuid.uuid4(),
@@ -194,3 +197,51 @@ class TestErrorTrackingAlertEvaluation(BaseTest):
         self.enterContext(patch("products.error_tracking.backend.platform_alerts.evaluation.BATCH_BUDGET_SECONDS", 0))
 
         assert self._outcomes({"condition": {"triggers": ["issue_created"]}}) == ()
+
+    def test_an_older_change_that_matches_the_filters_still_fires_its_issue(self) -> None:
+        issue = uuid.uuid4()
+        self._change(
+            "assignee_changed",
+            at=DUE_AT - dt.timedelta(seconds=100),
+            issue_id=issue,
+            assignee={"type": "user", "id": "1"},
+        )
+        self._change(
+            "assignee_changed",
+            at=DUE_AT - dt.timedelta(seconds=80),
+            issue_id=issue,
+            assignee={"type": "user", "id": "2"},
+        )
+
+        fired = self._fired(
+            {
+                "condition": {"triggers": ["issue_assigned"]},
+                "filters": {
+                    "properties": [
+                        {"key": "assignee", "value": ['{"type":"user","id":1}'], "operator": "exact", "type": "event"}
+                    ]
+                },
+            }
+        )
+
+        assert fired == {str(issue)}
+
+    def test_a_missing_exception_leaves_issue_filters_to_decide(self) -> None:
+        issue = self._change("created", at=DUE_AT - dt.timedelta(seconds=90), event_uuid=uuid.uuid4())
+        self.enterContext(
+            patch(
+                "products.error_tracking.backend.platform_alerts.evaluation.fetch_event_properties",
+                side_effect=IssueCreatedEventNotFoundError("gone"),
+            )
+        )
+
+        fired = self._fired(
+            {
+                "condition": {"triggers": ["issue_created"]},
+                "filters": {
+                    "properties": [{"key": "name", "value": "TypeError", "operator": "icontains", "type": "event"}]
+                },
+            }
+        )
+
+        assert fired == {issue}

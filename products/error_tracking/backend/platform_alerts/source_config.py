@@ -91,7 +91,11 @@ def check_filters_in_team(*, team_id: int, edit: PlatformAlertConfigurationEdit)
 
     properties = edit.source_config.get("filters", {}).get("properties") or []
     unsupported = sorted(
-        {leaf["key"] for leaf in properties if isinstance(leaf, dict) and leaf.get("key") in UNSUPPORTED_FILTER_KEYS}
+        {
+            key
+            for leaf in properties
+            if isinstance(leaf, dict) and isinstance(key := leaf.get("key"), str) and key in UNSUPPORTED_FILTER_KEYS
+        }
     )
     if unsupported:
         raise InvalidPlatformAlertEdit(
