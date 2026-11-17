@@ -60,7 +60,7 @@ class RoleQuerySet(models.QuerySet["Role"]):
             ids = list(self.select_for_update(of=("self",)).order_by("pk").values_list("pk", flat=True))
             affected = self.model.objects.filter(pk__in=ids)
             members = set(affected.values_list("organization_id", "role__user_id"))
-            updated = super(RoleQuerySet, affected).update(**kwargs)
+            updated = models.QuerySet.update(affected, **kwargs)
             authorization.invalidate_session()
             affected.invalidate_organization_access(members)
             return updated
@@ -127,7 +127,7 @@ class RoleMembershipQuerySet(models.QuerySet["RoleMembership"]):
             ids = list(self.select_for_update(of=("self",)).order_by("pk").values_list("pk", flat=True))
             affected = self.model.objects.filter(pk__in=ids)
             members = set(affected.values_list("role__organization_id", "user_id"))
-            updated = super(RoleMembershipQuerySet, affected).update(**kwargs)
+            updated = models.QuerySet.update(affected, **kwargs)
             authorization.invalidate_session()
             members.update(affected.values_list("role__organization_id", "user_id"))
             invalidate_organization_membership_access_caches(members)

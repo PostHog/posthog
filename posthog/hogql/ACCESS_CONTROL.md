@@ -72,6 +72,8 @@ At schema build time, `_compute_system_table_access_decision()` checks `UserAcce
 
 `system.data_deletion_requests` uses the dedicated `data_deletion` resource.
 The resource defaults to no access for project members, while organization admins retain their standard highest access.
+Organization admin access includes applicable roles granting admin access in the same organization.
+Effective access is the higher of the direct membership level and the role grant; roles cannot grant ownership.
 Admins can delegate resource-level access, but the table does not support per-request access rules.
 
 Removed tables are tracked in `Database._denied_tables`, so referencing one raises a clear error instead of pretending the table doesn't exist — that way the user knows the table is there and can request access from an admin if they need it:
