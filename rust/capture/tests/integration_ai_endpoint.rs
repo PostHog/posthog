@@ -1102,10 +1102,12 @@ async fn test_event_exceeds_32kb_returns_413() {
 }
 
 const RAISED_TOKEN_CAPS: &str = "phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3=24000000";
+const OTHER_TOKEN_CAPS: &str = "phc_other=24000000";
 
 #[rstest::rstest]
 #[case::the_default_cap_refuses_it("", StatusCode::PAYLOAD_TOO_LARGE)]
 #[case::a_raised_token_cap_accepts_it(RAISED_TOKEN_CAPS, StatusCode::OK)]
+#[case::another_tokens_raised_cap_refuses_it(OTHER_TOKEN_CAPS, StatusCode::PAYLOAD_TOO_LARGE)]
 #[tokio::test]
 async fn combined_event_properties_over_960kb_follow_the_token_cap(
     #[case] by_token: &str,
@@ -1136,6 +1138,7 @@ async fn combined_event_properties_over_960kb_follow_the_token_cap(
 #[rstest::rstest]
 #[case::the_default_cap_refuses_it("", StatusCode::PAYLOAD_TOO_LARGE)]
 #[case::a_raised_token_cap_accepts_it(RAISED_TOKEN_CAPS, StatusCode::OK)]
+#[case::another_tokens_raised_cap_refuses_it(OTHER_TOKEN_CAPS, StatusCode::PAYLOAD_TOO_LARGE)]
 #[tokio::test]
 async fn ai_batch_events_over_960kb_follow_the_token_cap(
     #[case] by_token: &str,

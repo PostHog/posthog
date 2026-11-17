@@ -951,8 +951,15 @@ async fn oversized_spans_are_shed_and_warn_while_the_export_succeeds() {
     );
 }
 
+#[rstest::rstest]
+#[case::listed_token_keeps_it(TOKEN, 1, 0)]
+#[case::other_token_still_sheds_it("phc_other", 0, 1)]
 #[tokio::test]
-async fn a_raised_token_cap_keeps_a_span_over_the_default() {
+async fn a_raised_token_cap_keeps_a_span_over_the_default(
+    #[case] raised_token: &str,
+    #[case] expected_events: usize,
+    #[case] expected_warnings: usize,
+) {
     let sink = CapturingSink::new();
     let emitter = Arc::new(CollectingEmitter::default());
     let client = make_test_client_with_options(
@@ -961,7 +968,7 @@ async fn a_raised_token_cap_keeps_a_span_over_the_default() {
             ingestion_warning_emitter: Some(emitter.clone()),
             ai_max_event_bytes: Some(AiEventSizeCaps::parse(
                 64,
-                &format!("{TOKEN}=24000000"),
+                &format!("{raised_token}=24000000"),
                 AI_MAX_EVENT_BYTES_CEILING,
             )),
             ..Default::default()
@@ -970,9 +977,14 @@ async fn a_raised_token_cap_keeps_a_span_over_the_default() {
 
     let status = send_request_with_client(&client, &make_single_span_request()).await;
 
-    assert_eq!(status, 200);
-    assert_eq!(sink.get_events().await.len(), 1);
-    assert!(emitter.emitted().is_empty());
+    assert_eq!(status, 200, "the export must still be accepted");
+    assert_eq!(sink.get_events().await.len(), expected_events);
+    let emitted = emitter.emitted();
+    assert_eq!(emitted.len(), expected_warnings);
+    if let Some(warning) = emitted.first() {
+        assert_eq!(warning.warning, WarningType::MessageSizeTooLarge);
+        assert_eq!(warning.extra_details.get("droppedSpans"), Some(&json!(1)));
+    }
 }
 
 // The warning is the only feedback channel for this outcome: the OTLP contract
