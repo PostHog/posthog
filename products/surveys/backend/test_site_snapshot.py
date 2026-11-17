@@ -322,14 +322,47 @@ class TestSiteSnapshot(ClickhouseTestMixin, APIBaseTest):
         assert ExportedAsset.objects.count() == 2
         assert cached.status == SnapshotStatus.RENDERING
 
+    @parameterized.expand(
+        [
+            ("same_url", {"url": "docs"}, {"url": "docs"}),
+            ("match_type_without_a_url", {"urlMatchType": "exact"}, {"urlMatchType": "regex"}),
+        ]
+    )
     @patch("products.exports.backend.facade.api.async_connect", new_callable=AsyncMock)
-    def test_surveys_with_the_same_targeting_share_a_snapshot(self, _async_connect: AsyncMock) -> None:
-        first = get_site_snapshot(self.team, self._survey({"url": "docs"}), SnapshotDevice.DESKTOP, self.user)
+    def test_surveys_with_the_same_targeting_share_a_snapshot(
+        self, _name: str, conditions: dict[str, Any], other_conditions: dict[str, Any], _async_connect: AsyncMock
+    ) -> None:
+        first = get_site_snapshot(self.team, self._survey(conditions), SnapshotDevice.DESKTOP, self.user)
 
-        second = get_site_snapshot(self.team, self._survey({"url": "docs"}), SnapshotDevice.DESKTOP, self.user)
+        second = get_site_snapshot(self.team, self._survey(other_conditions), SnapshotDevice.DESKTOP, self.user)
 
         assert second.exported_asset_id == first.exported_asset_id
         assert ExportedAsset.objects.count() == 1
+
+    @patch("products.exports.backend.facade.api.async_connect", new_callable=AsyncMock)
+    def test_renders_again_when_a_teammate_cached_a_recording_the_user_cannot_view(
+        self, _async_connect: AsyncMock
+    ) -> None:
+        asset = self._rendered_snapshot(self._survey(None), READ_STYLE)
+        assert asset.export_context is not None
+        asset.export_context = {**asset.export_context, "session_recording_id": "pricing"}
+        asset.save()
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        hidden = SessionRecording.objects.create(team=self.team, session_id="pricing", distinct_id="pricing")
+        AccessControl.objects.create(
+            team=self.team,
+            resource="session_recording",
+            resource_id=str(hidden.id),
+            access_level="none",
+            organization_member=OrganizationMembership.objects.get(user=self.user, organization=self.organization),
+        )
+
+        snapshot = get_site_snapshot(self.team, self._survey(None), SnapshotDevice.DESKTOP, self.user)
+
+        assert (snapshot.status, snapshot.page_url) == (SnapshotStatus.RENDERING, DOCS)
 
     @patch("products.exports.backend.facade.api.async_connect", new_callable=AsyncMock)
     def test_a_changed_url_condition_renders_a_new_snapshot(self, _async_connect: AsyncMock) -> None:

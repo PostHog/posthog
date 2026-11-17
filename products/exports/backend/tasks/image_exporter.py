@@ -62,7 +62,7 @@ IMAGE_EXPORT_RENDER_DURATION = Histogram(
 )
 IMAGE_EXPORT_RENDER_STAGE_DURATION = Histogram(
     "image_export_render_stage_duration_seconds",
-    "Image export render time per stage of a successful render, by the content it waits for",
+    "Image export render time per completed stage, by the content the render waits for",
     labelnames=["content", "stage"],
     buckets=(0.25, 0.5, 1, 2, 5, 10, 20, 30, 60, float("inf")),
 )
@@ -577,6 +577,16 @@ def _save_debug_screenshot(take_screenshot: Callable[[str], object], image_path:
         pass
 
 
+# Exports can set their own selector, so the metric label maps the known ones and buckets the rest.
+_RENDER_STAGE_CONTENT = {
+    ".InsightCard": "dashboard",
+    ".ExportedInsight": "insight",
+    REPLAY_WRAPPER_SELECTOR: "replay",
+    ".heatmap-exporter": "heatmap",
+    ".heatmaps-ready": "heatmap",
+}
+
+
 class _RenderStages:
     def __init__(self, content: str) -> None:
         self._content = content
@@ -604,7 +614,7 @@ def _screenshot_asset_browserless(
         settings.BROWSERLESS_CDP_URL, settings.BROWSERLESS_TOKEN, settings.BROWSERLESS_SESSION_TIMEOUT_MS
     )
 
-    stages = _RenderStages(content=wait_for_css_selector.lstrip("."))
+    stages = _RenderStages(content=_RENDER_STAGE_CONTENT.get(str(wait_for_css_selector), "other"))
     with sync_playwright() as p:
         try:
             browser = p.chromium.connect_over_cdp(endpoint, timeout=settings.BROWSERLESS_CONNECT_TIMEOUT_MS)

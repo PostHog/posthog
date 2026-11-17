@@ -286,7 +286,8 @@ def _snapshot_key(team: Team, target: UrlTarget, device: SnapshotDevice) -> str:
         "team_id": team.id,
         "device": device.value,
         "url": target.url,
-        "url_match_type": target.match_type.value,
+        # The match type is ignored without a URL, so it must not split the snapshots of surveys shown on every page.
+        "url_match_type": target.match_type.value if target.url else None,
     }
     return hmac.new(
         settings.SECRET_KEY.encode(), json.dumps(targeting, sort_keys=True).encode(), hashlib.sha256
@@ -382,9 +383,11 @@ def get_site_snapshot(
     )
     if cached is not None:
         session_id = (cached.export_context or {})["session_recording_id"]
-        if not _may_view_recording(user_access_control, team, session_id):
-            return UNAVAILABLE
-        if not _is_abandoned(cached) and not _recording_was_deleted(team, session_id):
+        if (
+            _may_view_recording(user_access_control, team, session_id)
+            and not _is_abandoned(cached)
+            and not _recording_was_deleted(team, session_id)
+        ):
             return _snapshot_of(cached)
 
     no_snapshot_key = _snapshot_cache_key("none", team, key)
