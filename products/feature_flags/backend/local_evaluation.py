@@ -58,6 +58,7 @@ from products.experiments.backend.facade.contracts import ExperimentChanged
 from products.experiments.backend.facade.feature_flags import flag_ids_with_live_experiment
 from products.feature_flags.backend.cache_keys import EU_CROSS_REGION_MIRROR_CACHE_KEY
 from products.feature_flags.backend.facade.config import ConfigFormatError
+from products.feature_flags.backend.facade.filters import condition_aggregation
 from products.feature_flags.backend.facade.references import flag_dependency_properties, referenced_cohort_ids
 from products.feature_flags.backend.flags_cache import (
     _compare_flag_fields,
@@ -274,7 +275,22 @@ def _build_all_dependency_chains(
             # Always add the dependency_chain property, even if empty (for self-dependencies, missing dependencies, etc.)
             flag_prop["dependency_chain"] = dependency_chain
 
+        _send_group_condition_dependencies_to_server(filters)
+
     return flags_data
+
+
+def _send_group_condition_dependencies_to_server(filters: dict[str, Any]) -> None:
+    # The SDKs evaluate a dependency with the identity and properties of the condition that holds it.
+    # In a group condition, a user-targeted dependency would then be evaluated against the group.
+    # Every SDK treats an empty chain as inconclusive and asks /flags, which evaluates it correctly.
+    flag_aggregation = filters.get("aggregation_group_type_index")
+    for condition in filters.get("groups") or []:
+        if not isinstance(condition, dict) or condition_aggregation(condition, flag_aggregation) is None:
+            continue
+        for prop in condition.get("properties") or []:
+            if isinstance(prop, dict) and prop.get("type") == "flag":
+                prop["dependency_chain"] = []
 
 
 def _transform_flag_property_dependencies(

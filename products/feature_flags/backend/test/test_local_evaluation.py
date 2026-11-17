@@ -2426,6 +2426,45 @@ class TestFlagDependencyChainTransformation(BaseTest):
         self.assertEqual(flag_properties[0]["key"], non_existent_flag_id)
         self.assertEqual(flag_properties[0]["dependency_chain"], [])
 
+    @parameterized.expand(
+        [
+            ("user_condition", None, {}, ["dependency-target"]),
+            ("group_condition", None, {"aggregation_group_type_index": 0}, []),
+            ("flag_level_group", 0, {}, []),
+            ("user_condition_in_group_flag", 0, {"aggregation_group_type_index": None}, ["dependency-target"]),
+        ]
+    )
+    def test_dependency_in_group_condition_has_empty_chain(
+        self, _name: str, flag_aggregation: int | None, condition_aggregation: dict, expected_chain: list[str]
+    ) -> None:
+        target = FeatureFlag.objects.create(
+            team=self.team,
+            key="dependency-target",
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="dependent",
+            filters={
+                "aggregation_group_type_index": flag_aggregation,
+                "groups": [
+                    {
+                        **condition_aggregation,
+                        "properties": [
+                            {"key": str(target.id), "type": "flag", "value": True, "operator": "flag_evaluates_to"}
+                        ],
+                        "rollout_percentage": 100,
+                    }
+                ],
+            },
+        )
+
+        flags = _get_flags_response_for_local_evaluation(self.team)["flags"]
+
+        prop = self._find_flag(flags, "dependent")["filters"]["groups"][0]["properties"][0]
+        self.assertEqual(prop["key"], "dependency-target")
+        self.assertEqual(prop["dependency_chain"], expected_chain)
+
     def test_shared_dependencies(self):
         """Multiple flags depending on the same shared flag each get the same chain."""
         shared_flag = FeatureFlag.objects.create(
