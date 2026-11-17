@@ -21,6 +21,8 @@ from django.db import transaction
 
 from pydantic import ValidationError
 
+from posthog.dataclasses import frozen
+
 from products.signals.backend.artefact_schemas import (
     SIGNALS_PRODUCT,
     TASK_RUN_TYPE_DISCUSSION,
@@ -242,6 +244,33 @@ def implementation_in_flight_report_ids(*, team_id: int, report_ids: Sequence[st
         for (report_id, _task_id), runs in runs_by_task.items()
         if _runs_claim_implementation_slot(runs) is _ImplementationSlotClaim.IN_FLIGHT
     }
+
+
+@frozen
+class InFlightImplementation:
+    task_id: str
+    # None while the task waits for its first run.
+    run_id: str | None
+
+
+def in_flight_implementation(*, team_id: int, report_id: str) -> InFlightImplementation | None:
+    """The report's implementation that is still working, by the same rule as the slot, or None."""
+    rows = (
+        SignalReportTask.objects.filter(team_id=team_id, report_id=report_id, relationship=TASK_RUN_TYPE_IMPLEMENTATION)
+        .exclude(task__deleted=True)
+        .values_list("task_id", "task__runs__id", "task__runs__status", "task__runs__output__pr_url")
+    )
+    runs_by_task: dict[str, list[tuple[str | None, str | None, object]]] = {}
+    for row_task_id, run_id, status, pr_url in rows:
+        runs_by_task.setdefault(str(row_task_id), []).append((str(run_id) if run_id else None, status, pr_url))
+    for task_id, runs in runs_by_task.items():
+        if _runs_claim_implementation_slot([(status, pr_url) for _, status, pr_url in runs]) is not (
+            _ImplementationSlotClaim.IN_FLIGHT
+        ):
+            continue
+        working = [run_id for run_id, status, _ in runs if status is not None and status not in _TERMINAL_RUN_STATUSES]
+        return InFlightImplementation(task_id=task_id, run_id=working[0] if working else None)
+    return None
 
 
 def _release_settled_task_claim(*, team_id: int, report_id: str, task_id: str) -> None:

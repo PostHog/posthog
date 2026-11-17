@@ -65,7 +65,8 @@ pub enum LoadError {
     /// A retry reads the same bytes.
     UnprocessableProperties {
         reason: String,
-        version: i64,
+        /// The row without its properties.
+        row: Box<CachedPerson>,
     },
 }
 
@@ -175,7 +176,17 @@ pub async fn load_person_from_pg(
     let properties = parse_stored_properties(properties_text, team_id, id).map_err(|reason| {
         LoadError::UnprocessableProperties {
             reason,
-            version: version.unwrap_or(0),
+            row: Box::new(CachedPerson {
+                id,
+                uuid: uuid.clone(),
+                team_id: team_id as i64,
+                properties: Vec::new(),
+                created_at: created_at.timestamp_millis(),
+                version: version.unwrap_or(0),
+                is_identified,
+                is_deleted: false,
+                last_seen_at: last_seen_at.map(|t| t.timestamp_millis()),
+            }),
         }
     })?;
 
