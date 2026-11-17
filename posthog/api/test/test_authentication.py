@@ -1,6 +1,7 @@
 import json
 import uuid
 from collections.abc import Callable
+from contextlib import nullcontext
 from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 
@@ -866,29 +867,66 @@ class TestLoginRadar(APIBaseTest):
             assert mock_put.call_args[0][0] == self.RADAR_ATTEMPT_URL
             assert mock_put.call_args[1]["json"] == {"attempt_status": "success"}
 
-    @parameterized.expand([("without_2fa", False), ("with_2fa", True)])
+    @parameterized.expand(
+        [("without_2fa", False, False), ("with_2fa", True, False), ("while_the_cache_is_down", False, True)]
+    )
     @patch("posthog.workos_radar.requests.put")
     @patch(
         "posthog.workos_radar._call_radar_api",
         return_value=RadarAttempt(verdict=RadarVerdict.ALLOW, attempt_id="radar_att_01ABC"),
     )
     def test_a_login_reports_its_radar_attempt_after_the_second_factor(
-        self, _name, two_factor, _mock_call_api, mock_put
+        self, _name, two_factor, cache_down, _mock_call_api, mock_put
     ):
         mock_put.return_value.status_code = 200
         device = self.user.totpdevice_set.create(name="default", key=random_hex(), digits=6) if two_factor else None  # type: ignore
         # Signing in to another account first makes login() flush the session that holds the attempt
         other = User.objects.create_and_join(self.organization, "other@posthog.com", "a-password-for-other")
         self.client.force_login(other)
+        broken_cache = MagicMock(
+            **{f"{op}.side_effect": ConnectionError("cache down") for op in ("get", "set", "delete")}
+        )
 
-        first = self._password_login(self.CONFIG_PASSWORD)
-        if device:
-            assert first.json()["code"] == "2fa_required"
-            mock_put.assert_not_called()
-            assert self._totp_login(device).status_code == 200
-        else:
-            assert first.status_code == 200
+        with patch("posthog.workos_radar_signal_handlers.cache", broken_cache) if cache_down else nullcontext():
+            first = self._password_login(self.CONFIG_PASSWORD)
+            if device:
+                assert first.json()["code"] == "2fa_required"
+                mock_put.assert_not_called()
+                assert self._totp_login(device).status_code == 200
+            else:
+                assert first.status_code == 200
 
+        assert [c[0][0] for c in mock_put.call_args_list] == [self.RADAR_ATTEMPT_URL]
+
+    @parameterized.expand([("without_a_resend", None, 20), ("after_a_resend", 25, 50)])
+    @pytest.mark.disable_mock_code_based_verifier
+    @patch("posthog.workos_radar.requests.put")
+    @patch(
+        "posthog.workos_radar._call_radar_api",
+        return_value=RadarAttempt(verdict=RadarVerdict.ALLOW, attempt_id="radar_att_01ABC"),
+    )
+    def test_an_emailed_code_login_reports_its_radar_attempt_while_the_code_is_valid(
+        self, _name, resend_after_minutes, verify_after_minutes, _mock_call_api, mock_put
+    ):
+        mock_put.return_value.status_code = 200
+
+        with (
+            patch("posthog.helpers.two_factor_session.is_email_available", return_value=True),
+            patch("posthog.helpers.two_factor_session.is_http_email_service_available", return_value=True),
+            patch("posthog.tasks.email.send_code_based_verification") as mock_send,
+        ):
+            assert self._password_login(self.CONFIG_PASSWORD).json()["code"] == "code_based_verification_required"
+            if resend_after_minutes is not None:
+                with time_machine.travel(timedelta(minutes=resend_after_minutes)):
+                    assert self.client.post("/api/login/code-based-verification/resend/").status_code == 200
+            with (
+                time_machine.travel(timedelta(minutes=verify_after_minutes)),
+                self.captureOnCommitCallbacks(execute=True),
+            ):
+                code = mock_send.call_args[0][1]
+                response = self.client.post("/api/login/code-based-verification/", {"code": code})
+
+        assert response.status_code == 200
         assert [c[0][0] for c in mock_put.call_args_list] == [self.RADAR_ATTEMPT_URL]
 
     @patch("posthog.workos_radar.requests.put")

@@ -12,6 +12,10 @@ from django.db import transaction
 from django.dispatch import receiver
 from django.http import HttpRequest
 
+import structlog
+
+logger = structlog.get_logger(__name__)
+
 RADAR_LOGIN_ATTEMPT_SESSION_KEY = "radar_login_attempt"
 _REQUEST_ATTRIBUTE = "_radar_login_attempt"
 # The password form and every second factor after it sign in with this backend; a passkey or SSO login does not
@@ -26,14 +30,29 @@ def _cache_key(session_key: str) -> str:
     return f"radar_login_attempt:{hashlib.sha256(session_key.encode()).hexdigest()}"
 
 
-def remember_login_attempt(request: HttpRequest, attempt_id: str, user_pk: int) -> None:
+def remember_login_attempt(request: HttpRequest, attempt_id: str, user_pk: int, valid_for_seconds: int) -> None:
     """Keep the attempt of a correct password until the session signs in as that user."""
-    pending = {"attempt_id": attempt_id, "user_pk": user_pk, "at": time.time()}
+    _store_pending(request, {"attempt_id": attempt_id, "user_pk": user_pk}, valid_for_seconds)
+
+
+def extend_login_attempt(request: HttpRequest, valid_for_seconds: int) -> None:
+    """Keep a pending attempt for as long as the login code sent now stays valid."""
+    pending = request.session.get(RADAR_LOGIN_ATTEMPT_SESSION_KEY)
+    if isinstance(pending, dict):
+        _store_pending(request, pending, valid_for_seconds)
+
+
+def _store_pending(request: HttpRequest, pending: dict[str, Any], valid_for_seconds: int) -> None:
+    ttl_seconds = max(valid_for_seconds, _pending_ttl_seconds())
+    pending = {**pending, "expires_at": time.time() + ttl_seconds}
     request.session[RADAR_LOGIN_ATTEMPT_SESSION_KEY] = pending
     # login() flushes a session signed in as another account, so these copies carry the attempt past it
     setattr(request, _REQUEST_ATTRIBUTE, pending)
     if request.session.session_key:
-        cache.set(_cache_key(request.session.session_key), pending, timeout=_pending_ttl_seconds())
+        try:
+            cache.set(_cache_key(request.session.session_key), pending, timeout=ttl_seconds)
+        except Exception:
+            logger.warning("workos_radar_login_attempt_not_cached", exc_info=True)
 
 
 def _take_pending(request: HttpRequest) -> Optional[dict[str, Any]]:
@@ -43,8 +62,12 @@ def _take_pending(request: HttpRequest) -> Optional[dict[str, Any]]:
     ]
     incoming_session_key = request.COOKIES.get(settings.SESSION_COOKIE_NAME)
     if incoming_session_key:
-        candidates.append(cache.get(_cache_key(incoming_session_key)))
-        cache.delete(_cache_key(incoming_session_key))
+        # The report is optional, so a cache outage must not fail the login that fires this signal
+        try:
+            candidates.append(cache.get(_cache_key(incoming_session_key)))
+            cache.delete(_cache_key(incoming_session_key))
+        except Exception:
+            logger.warning("workos_radar_login_attempt_cache_unavailable", exc_info=True)
     return next((candidate for candidate in candidates if isinstance(candidate, dict)), None)
 
 
@@ -57,7 +80,7 @@ def report_radar_login_success(sender: Any, user: Any, request: Optional[HttpReq
         return
     if request.session.get(BACKEND_SESSION_KEY) != _PASSWORD_FLOW_BACKEND:
         return
-    if time.time() - float(pending.get("at") or 0) > _pending_ttl_seconds():
+    if time.time() > float(pending.get("expires_at") or 0):
         return
     attempt_id = str(pending.get("attempt_id") or "")
     # posthog.tasks imports every task module, so it loads at a login that has an attempt, not at startup
