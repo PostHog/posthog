@@ -139,6 +139,6 @@ describe('HogFlowEditorPanelBuildDetail', () => {
 
         fireEvent.click(container.querySelector('[data-attr="workflow-email-tracking-toggle"]') as HTMLElement)
 
-        expect(screen.queryByText(/connected to sessions/)).not.toBeInTheDocument()
+        expect(container.querySelector('[data-attr="workflows-run-link-tag-hint"]')).not.toBeInTheDocument()
     })
 })

@@ -27,7 +27,7 @@ describe('<BroadcastTrackingSwitch />', () => {
 
         fireEvent.click(container.querySelector('[data-attr="broadcast-tracking-toggle"]') as HTMLElement)
 
-        expect(screen.queryByText(/connected to sessions/)).not.toBeInTheDocument()
+        expect(container.querySelector('[data-attr="workflows-run-link-tag-hint"]')).not.toBeInTheDocument()
         expect(screen.getByText(/Links stay as written/)).toBeInTheDocument()
     })
 })
