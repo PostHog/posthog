@@ -58,15 +58,16 @@ FLAG_EVALUATIONS_HOGQL_TABLE = "posthog.flag_evaluations"
 # this table reads the same person.
 # The table and its `poe` subtable each take their own copy. The tests in test_flag_evaluations.py select
 # `person_id` and `person.id` together, so the two drifting apart fails there.
-def _person_id() -> ExpressionField:
+def _person_id(name: str = "person_id", hidden: bool = False) -> ExpressionField:
     return ExpressionField(
-        name="person_id",
+        name=name,
         expr=parse_expr(
             # NOTE: assumes `join_use_nulls = 0` (the default), as ``override.distinct_id`` is not Nullable
             "if(not(empty(override.distinct_id)), override.person_id, flag_evaluation_person_id)",
             start=None,
         ),
         isolate_scope=True,
+        hidden=hidden,
         description="The person the evaluation is attributed to, corrected for any later identify or merge, so "
         "`uniq(person_id)` counts a merged person once.",
     )
@@ -182,6 +183,9 @@ class FlagEvaluationsTable(EventsRetentionTable):
             hidden=True,
         ),
         "person_id": _person_id(),
+        # `follow_persons_on_events_mode` replaces `person_id` and leaves this field as it is. The events list joins
+        # each row to the merge-corrected person in every mode, so it keys on this field.
+        "merged_person_id": _person_id(name="merged_person_id", hidden=True),
         "flag_key": StringDatabaseField(
             name="flag_key",
             nullable=False,
@@ -311,9 +315,12 @@ class FlagEvaluationsTable(EventsRetentionTable):
 EVENTS_LIST_JOINED_FIELDS = frozenset({"person", "session", *(f"group_{index}" for index in range(GROUP_TYPES_LIMIT))})
 
 
-def join_persons_to_flag_evaluations(database: "Database") -> None:
-    """Make `person` on `posthog.flag_evaluations` in `database` a join to `persons` on the merge-corrected
-    `person_id`, as `events.person` is under PERSON_ID_OVERRIDE_PROPERTIES_JOINED.
+def join_persons_to_flag_evaluations(database: "Database", person_id_field: str = "person_id") -> None:
+    """Make `person` on `posthog.flag_evaluations` in `database` a join to `persons` on `person_id_field`, as
+    `events.person` is under PERSON_ID_OVERRIDE_PROPERTIES_JOINED.
+
+    `person_id_field` defaults to `person_id`, so the join matches the one on `events` under that mode. A caller that
+    needs the merge-corrected person under every mode passes `merged_person_id`.
 
     This changes the table instance that `database` holds. Every later query compiled against `database` reads each
     person's current properties instead of the stored ones.
@@ -321,12 +328,12 @@ def join_persons_to_flag_evaluations(database: "Database") -> None:
     flag_evaluations = database.get_table(["posthog", "flag_evaluations"])
     # The join is lazy. A query that reads no person field skips it.
     flag_evaluations.fields["person"] = LazyJoin(
-        from_field=["person_id"],
+        from_field=[person_id_field],
         join_table=database.get_table("persons"),
         resolver=PERSONS,
-        description="The person the evaluation is attributed to, joined on `person_id`, which is corrected for any "
-        "later identify or merge. `person.properties` and `person.created_at` are the person's current values, not "
-        "the values stored at evaluation time.",
+        description="The person the evaluation is attributed to, corrected for any later identify or merge. "
+        "`person.properties` and `person.created_at` are the person's current values, not the values stored at "
+        "evaluation time.",
     )
 
 
