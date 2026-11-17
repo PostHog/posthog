@@ -478,12 +478,6 @@ export interface hogFunctionConfigurationLogicActions {
         onContinue: () => void
         template: HogFunctionTemplateType
     } // destinationWorkflowSuggestionLogic
-    clearFiltersDiff: () => {
-        value: true
-    }
-    clearHogCodeDiff: () => {
-        value: true
-    }
     acceptInputsDiff: () => {
         value: true
     }
@@ -491,11 +485,23 @@ export interface hogFunctionConfigurationLogicActions {
         key: string,
         input: CyclotronJobInputType
     ) => {
-        input: CyclotronJobInputType
+        input: {
+            bytecode?: any
+            order?: number | undefined
+            secret?: boolean | undefined
+            templating?: 'hog' | 'liquid' | undefined
+            value: any
+        }
         key: string
     }
     changeInputsSchema: (inputsSchema: CyclotronJobInputSchemaType[]) => {
         inputsSchema: CyclotronJobInputSchemaType[]
+    }
+    clearFiltersDiff: () => {
+        value: true
+    }
+    clearHogCodeDiff: () => {
+        value: true
     }
     clearInputsDiff: () => {
         value: true
@@ -643,7 +649,16 @@ export interface hogFunctionConfigurationLogicActions {
         newHogCode: string
     }
     setNewInputValues: (newInputValues: Record<string, CyclotronJobInputType>) => {
-        newInputValues: Record<string, CyclotronJobInputType>
+        newInputValues: Record<
+            string,
+            {
+                bytecode?: any
+                order?: number | undefined
+                secret?: boolean | undefined
+                templating?: 'hog' | 'liquid' | undefined
+                value: any
+            }
+        >
     }
     setNewInputs: (newInputs: CyclotronJobInputSchemaType[]) => {
         newInputs: CyclotronJobInputSchemaType[]
