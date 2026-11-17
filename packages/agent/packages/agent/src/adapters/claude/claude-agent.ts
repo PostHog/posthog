@@ -2525,6 +2525,11 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
           `Conversation clear timed out after ${SESSION_VALIDATION_TIMEOUT_MS}ms`,
         );
       }
+      await this.awaitStartupControl(
+        "attribution update",
+        newQuery.applyFlagSettings({ attribution: { commit: "", pr: "" } }),
+        { sessionId: params.sessionId },
+      );
       return await this.finishClear(
         params,
         session,
@@ -2884,6 +2889,11 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
           `Session refresh timed out after ${SESSION_VALIDATION_TIMEOUT_MS}ms`,
         );
       }
+      await this.awaitStartupControl(
+        "attribution update",
+        newQuery.applyFlagSettings({ attribution: { commit: "", pr: "" } }),
+        { sessionId: this.sessionId },
+      );
     } catch (error) {
       // The old query is already retired and the new one is unproven, so any
       // failure here — retireQuery, timeout, or SDK init rejection — leaves
