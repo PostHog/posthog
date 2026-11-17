@@ -4,7 +4,6 @@ import '@testing-library/jest-dom'
 
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { BindLogic } from 'kea'
-import { expectLogic } from 'kea-test-utils'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -135,21 +134,20 @@ describe('workflows settings save', () => {
             renderSetting: async () => {
                 const logic = workflowLogic({ id: 'new' })
                 logic.mount()
-                logic.actions.loadHogFunctionTemplatesById()
-                await expectLogic(logic).toDispatchActions(['loadHogFunctionTemplatesByIdSuccess'])
+                await waitFor(() => expect(logic.values.hogFunctionTemplatesById['template-email']).toBeTruthy())
                 render(
                     <BindLogic logic={workflowLogic} props={{ id: 'new' }}>
                         <HogFlowFunctionConfiguration templateId="template-email" inputs={{}} setInputs={() => {}} />
                     </BindLogic>
                 )
             },
-            save: () => fireEvent.click(screen.getByText('Enable engagement events')),
+            save: async () => fireEvent.click(await screen.findByText('Enable engagement events')),
             saved: { capture_workflows_engagement_events: true },
         },
     ])('saving $setting keeps what another tab saved', async ({ renderSetting, save, saved }) => {
         await renderSetting()
 
-        save()
+        await save()
 
         await waitFor(() => expect(saves).toBe(1))
         expect(storedConfig).toEqual({ ...OTHER_TAB_CONFIG, ...saved })
