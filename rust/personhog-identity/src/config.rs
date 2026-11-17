@@ -99,10 +99,12 @@ pub struct Config {
     pub router_initial_connection_window_bytes: WindowSize,
 
     /// Per-attempt timeout for leader-routed property writes and strong reads (ms).
+    /// A lifecycle fence, release or fold call gets this once, across all its attempts.
     #[envconfig(default = "5000")]
     pub leader_request_timeout_ms: u64,
 
-    /// Attempts per leader-routed write or strong read, each under `leader_request_timeout_ms`.
+    /// Attempts per leader-routed write, strong read or lifecycle call. A write or read gets
+    /// `leader_request_timeout_ms` per attempt.
     #[envconfig(default = "2")]
     pub leader_request_attempts: u32,
 
