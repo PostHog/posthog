@@ -72,16 +72,38 @@ def lock_organization_sender_domains(cursor: Any, organization_id: str) -> None:
     )
 
 
-def _refuse_another_unverified_domain(organization_id: str) -> None:
+class UnverifiedEmailDomainLimitReached(ValidationError):
+    pass
+
+
+@frozen
+class OrganizationEmailDomains:
+    verified: frozenset[str]
+    unverified: frozenset[str]
+
+    @property
+    def unverified_slots_left(self) -> int:
+        return max(0, MAX_UNVERIFIED_EMAIL_DOMAINS_PER_ORGANIZATION - len(self.unverified))
+
+    def takes_unverified_slot(self, domain: str) -> bool:
+        return domain not in self.verified and domain not in self.unverified
+
+
+def organization_email_domains(organization_id: str) -> OrganizationEmailDomains:
     senders = model.Integration.objects.filter(kind="email", team__organization_id=organization_id).values_list(
         "config__domain", "config__verified"
     )
     # A sender added in a second project starts unverified, even when the first project verified its domain.
-    verified_domains = {domain for domain, verified in senders if verified is True}
-    unverified_domains = {domain for domain, verified in senders if verified is not True} - verified_domains
-    if len(unverified_domains) >= MAX_UNVERIFIED_EMAIL_DOMAINS_PER_ORGANIZATION:
-        raise ValidationError(
-            f"Your organization has {len(unverified_domains)} email domains waiting for verification. "
+    verified = frozenset(domain for domain, is_verified in senders if is_verified is True)
+    unverified = frozenset(domain for domain, is_verified in senders if is_verified is not True) - verified
+    return OrganizationEmailDomains(verified=verified, unverified=unverified)
+
+
+def _refuse_another_unverified_domain(organization_id: str) -> None:
+    domains = organization_email_domains(organization_id)
+    if domains.unverified_slots_left == 0:
+        raise UnverifiedEmailDomainLimitReached(
+            f"Your organization has {len(domains.unverified)} email domains waiting for verification. "
             "Verify or remove one of them before you add another domain."
         )
 

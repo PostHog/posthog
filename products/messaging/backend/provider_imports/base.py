@@ -55,6 +55,17 @@ class ImportStepSpec:
 
 
 @frozen
+class DomainSetupCheck:
+    """What the domain setup step would add, given the organization's limit on domains waiting for verification."""
+
+    # In the order the step adds them. Domains another project in the organization already has don't use a slot.
+    fits: tuple[str, ...]
+    wont_fit: tuple[str, ...]
+    unverified_slots_left: int
+    unverified_limit: int
+
+
+@frozen
 class ImportCredentials:
     api_key: str = field(repr=False)
 
@@ -138,6 +149,11 @@ class ImportProvider(ABC):
         not run for a provider with `retains_credentials = False`.
         """
         raise NotImplementedError(f"{self.key} keeps its credentials on the run.")
+
+    def check_domain_setup(self, team_id: int, organization_id: str, api_key: str | None) -> DomainSetupCheck:
+        """Say which domains the domain setup step would add. Raises the ImportCredentials* errors like
+        `check_credentials`, and ImportProviderUnavailable."""
+        raise UnknownImportStep(f"{self.label} can't add sending domains.")
 
     @abstractmethod
     def run_step(self, step: str, context: ImportContext, checkpoint: StepCheckpoint | None) -> Iterator[ImportPage]:

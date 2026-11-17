@@ -19,7 +19,7 @@ from posthog.integrations import IntegrationManager, IntegrationRecord
 from products.cdp.backend.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
 from products.cdp.backend.templates.hog_function_template import sync_template_to_db
 from products.cohorts.backend.models.cohort import Cohort
-from products.messaging.backend.facade.provider_imports import get_provider_import_run
+from products.messaging.backend.facade.provider_imports import check_domain_setup, get_provider_import_run
 from products.messaging.backend.models.email_hard_bounce import EmailHardBounce
 from products.messaging.backend.models.message_category import MessageCategory
 from products.messaging.backend.models.message_preferences import (
@@ -28,7 +28,7 @@ from products.messaging.backend.models.message_preferences import (
 )
 from products.messaging.backend.models.message_suppression import MessageSuppression, SuppressionSource
 from products.messaging.backend.models.message_template import MessageTemplate
-from products.messaging.backend.models.provider_import_run import ProviderImportRun
+from products.messaging.backend.models.provider_import_run import ProviderImportRun, ProviderImportStatus
 from products.messaging.backend.models.transactional_email_key import TransactionalEmailKey
 from products.messaging.backend.provider_imports import resend, runs
 from products.messaging.backend.provider_imports.base import ImportCredentialsInvalid, ImportProviderUnavailable
@@ -566,9 +566,19 @@ class TestResendImport(BaseTest):
         assert len(IntegrationManager.email.credentials.list(self.team.id)) == 2
         assert create_ses_domain.call_count == 2
 
-    def test_domain_setup_keeps_the_organization_limit_on_unverified_domains(self) -> None:
+    @parameterized.expand(
+        [
+            ("no_slots_left", 3, [], ["example.com", "mail.example.org"]),
+            ("a_partial_fit", 2, ["example.com"], ["mail.example.org"]),
+            ("everything_fits", 0, ["example.com", "mail.example.org"], []),
+        ]
+    )
+    def test_domain_setup_check_says_which_domains_the_organization_limit_leaves_out(
+        self, _name: str, pending: int, fits: list[str], wont_fit: list[str]
+    ) -> None:
         self._patch("products.workflows.backend.facade.api.create_ses_email_domain")
-        for domain in ("first.example", "second.example"):
+        for index in range(pending):
+            domain = f"pending-{index}.example"
             IntegrationManager.email.credentials.create(
                 self.team.id,
                 external_id=f"hello@{domain}",
@@ -577,12 +587,19 @@ class TestResendImport(BaseTest):
                 created_by_id=self.user.id,
             )
 
+        check = check_domain_setup(self.team.id, str(self.organization.id), "resend", API_KEY)
+
+        assert (list(check.fits), list(check.wont_fit)) == (fits, wont_fit)
+        assert check.unverified_slots_left == 3 - pending
+
         run = self._run(["domain_setup"])
 
-        items = {item["label"]: item for item in run.progress["domain_setup"]["items"]}
-        assert items["example.com"]["status"] == "created"
-        assert items["mail.example.org"]["status"] == "failed"
-        assert "waiting for verification" in items["mail.example.org"]["notes"][0]
+        items = run.progress["domain_setup"]["items"]
+        assert run.status == ProviderImportStatus.COMPLETED
+        assert [item["label"] for item in items if item["status"] == "created"] == fits
+        assert [
+            item["label"] for item in items if any("once one of them verifies" in note for note in item["notes"])
+        ] == wont_fit
 
     def test_run_state_exposes_summary_for_the_ui(self) -> None:
         run = self._run(["suppressions", "domains"])

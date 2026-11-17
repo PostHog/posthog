@@ -26,8 +26,9 @@ from products.messaging.backend.provider_imports.base import (
     ImportProvider,
     ImportProviderUnavailable,
     ImportStepSpec,
+    UnknownImportStep,
 )
-from products.messaging.backend.provider_imports.registry import PROVIDERS, UnknownImportProvider
+from products.messaging.backend.provider_imports.registry import PROVIDERS, UnknownImportProvider, get_provider
 from products.messaging.backend.provider_imports.resend import DOMAIN_SETUP_STEP as DOMAIN_SETUP_STEP
 
 IMPORT_PROVIDER_CHOICES: list[tuple[str, str]] = [(value, str(label)) for value, label in ImportProviderKey.choices]
@@ -165,6 +166,36 @@ def start_provider_import(
     except ImportProviderUnavailable as e:
         raise ProviderImportUnavailable(f"{e} Try again in a few minutes.") from e
     return _to_state(run)
+
+
+@frozen
+class DomainSetupCheckResult:
+    fits: tuple[str, ...]
+    wont_fit: tuple[str, ...]
+    unverified_slots_left: int
+    unverified_limit: int
+
+
+def check_domain_setup(
+    team_id: int, organization_id: str, provider: str, api_key: str | None
+) -> DomainSetupCheckResult:
+    """Say which domains an import's domain setup step would add before the organization's limit stops it.
+
+    Raises ProviderImportRejected for an unknown provider or a missing or rejected key, and ProviderImportUnavailable
+    when the provider can't answer.
+    """
+    try:
+        check = get_provider(provider).check_domain_setup(team_id, organization_id, api_key)
+    except (UnknownImportProvider, UnknownImportStep, ImportCredentialsMissing, ImportCredentialsInvalid) as e:
+        raise ProviderImportRejected(_rejection_message(e)) from e
+    except ImportProviderUnavailable as e:
+        raise ProviderImportUnavailable(f"{e} Try again in a few minutes.") from e
+    return DomainSetupCheckResult(
+        fits=check.fits,
+        wont_fit=check.wont_fit,
+        unverified_slots_left=check.unverified_slots_left,
+        unverified_limit=check.unverified_limit,
+    )
 
 
 def list_provider_import_runs(team_id: int, limit: int = 20) -> list[ProviderImportRunState]:

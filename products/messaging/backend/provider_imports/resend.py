@@ -21,7 +21,14 @@ from rest_framework.exceptions import ValidationError
 from posthog.dataclasses import frozen
 from posthog.integrations import IntegrationManager, IntegrationRecord
 from posthog.models import Team, User
-from posthog.models.integration.email import EmailIntegration
+from posthog.models.integration.email import (
+    MAX_UNVERIFIED_EMAIL_DOMAINS_PER_ORGANIZATION,
+    EmailIntegration,
+    UnverifiedEmailDomainLimitReached,
+    disposable_email_domains_list,
+    free_email_domains_list,
+    organization_email_domains,
+)
 
 from products.messaging.backend.models.message_preferences import (
     ALL_MESSAGE_PREFERENCE_CATEGORY_ID,
@@ -32,6 +39,7 @@ from products.messaging.backend.models.message_suppression import SuppressionSou
 from products.messaging.backend.models.message_template import MessageTemplate
 from products.messaging.backend.models.provider_import_run import ImportProviderKey
 from products.messaging.backend.provider_imports.base import (
+    DomainSetupCheck,
     ImportContext,
     ImportCredentials,
     ImportCredentialsInvalid,
@@ -190,6 +198,7 @@ class ResendImportProvider(ImportProvider):
                 ("ready", "Already in PostHog and ready to send"),
                 ("pending", "Already in PostHog, waiting for DNS records"),
                 ("not_verified", "Not verified in Resend, left out"),
+                ("over_limit", "Add later, once a domain verifies"),
                 ("failed", "Couldn't be added"),
             ),
             opt_in=True,
@@ -243,6 +252,48 @@ class ResendImportProvider(ImportProvider):
         with _translated_errors():
             client.check_access()
         return ImportCredentials(api_key=api_key)
+
+    def check_domain_setup(self, team_id: int, organization_id: str, api_key: str | None) -> DomainSetupCheck:
+        if not api_key:
+            raise ImportCredentialsMissing(MISSING_KEY_MESSAGE)
+        if not api_key.isascii():
+            raise ImportCredentialsInvalid(INVALID_KEY_MESSAGE)
+        client = ResendClient(
+            api_key,
+            timeout=CREDENTIAL_CHECK_TIMEOUT_SECONDS,
+            max_rate_limit_waits=0,
+            max_transient_retries=0,
+        )
+        team_domains = set(_senders_by_domain(team_id))
+        with _translated_errors():
+            names = [
+                name
+                for page in client.pages("/domains")
+                for domain in page.data
+                if (name := str(domain.get("name") or "").strip().lower())
+                and domain.get("status") == "verified"
+                and name not in team_domains
+                and name not in free_email_domains_list
+                and name not in disposable_email_domains_list
+            ]
+        organization_domains = organization_email_domains(organization_id)
+        slots_left = organization_domains.unverified_slots_left
+        fits: list[str] = []
+        wont_fit: list[str] = []
+        for name in dict.fromkeys(names):
+            if not organization_domains.takes_unverified_slot(name):
+                fits.append(name)
+            elif slots_left > 0:
+                slots_left -= 1
+                fits.append(name)
+            else:
+                wont_fit.append(name)
+        return DomainSetupCheck(
+            fits=tuple(fits),
+            wont_fit=tuple(wont_fit),
+            unverified_slots_left=organization_domains.unverified_slots_left,
+            unverified_limit=MAX_UNVERIFIED_EMAIL_DOMAINS_PER_ORGANIZATION,
+        )
 
     def run_step(self, step: str, context: ImportContext, checkpoint: StepCheckpoint | None) -> Iterator[ImportPage]:
         if not context.api_key:
@@ -918,6 +969,20 @@ def _save_domain_setup(context: ImportContext, domains: list[dict[str, Any]]) ->
                 organization_id=str(team.organization_id),
                 created_by=created_by,
             )
+        except UnverifiedEmailDomainLimitReached:
+            counts["over_limit"] += 1
+            items.append(
+                ImportItem(
+                    label=name,
+                    status="listed",
+                    url=_sender_url([]),
+                    notes=(
+                        f"Your organization can have {MAX_UNVERIFIED_EMAIL_DOMAINS_PER_ORGANIZATION} domains waiting "
+                        "for verification. Add this one once one of them verifies.",
+                    ),
+                )
+            )
+            continue
         except ValidationError as e:
             counts["failed"] += 1
             items.append(ImportItem(label=name, status="failed", url=_sender_url([]), notes=(_error_text(e),)))
@@ -950,14 +1015,13 @@ def _free_mail_from_label(domain: dict[str, Any]) -> str:
 
 def _error_text(error: ValidationError) -> str:
     detail = error.detail
-    if isinstance(detail, list):
-        return " ".join(map(str, detail))
     if isinstance(detail, dict):
         return " ".join(
             " ".join(map(str, messages)) if isinstance(messages, list) else str(messages)
             for messages in detail.values()
         )
-    return str(detail)
+    else:
+        return " ".join(map(str, detail))
 
 
 def _uses_mail_from_label(domain: dict[str, Any], label: str) -> bool:

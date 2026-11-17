@@ -19,8 +19,10 @@ import type {
     BulkAddSuppressionsResultApi,
     BulkRemoveSuppressionsRequestApi,
     BulkRemoveSuppressionsResponseApi,
+    CheckDomainSetupApi,
     CodeEmailApi,
     CodeEmailSourceCandidatesApi,
+    DomainSetupCheckApi,
     EmailStatusApi,
     GenerateLinkRequestApi,
     ImportProviderOptionApi,
@@ -688,6 +690,29 @@ export const messagingProviderImportsRetrieve = async (
     return apiMutator<ProviderImportRunApi>(getMessagingProviderImportsRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getMessagingProviderImportsDomainSetupCheckCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/messaging_provider_imports/domain_setup_check/`
+}
+
+/**
+ * Background imports from other messaging tools, such as Customer.io and Resend suppressions and unsubscribes.
+ *
+ * A run executes outside the request, so a long provider list does not time out. Poll a run to show its progress.
+ * @summary Check which sending domains an import would add
+ */
+export const messagingProviderImportsDomainSetupCheckCreate = async (
+    projectId: string,
+    checkDomainSetupApi: CheckDomainSetupApi,
+    options?: RequestInit
+): Promise<DomainSetupCheckApi> => {
+    return apiMutator<DomainSetupCheckApi>(getMessagingProviderImportsDomainSetupCheckCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(checkDomainSetupApi),
     })
 }
 

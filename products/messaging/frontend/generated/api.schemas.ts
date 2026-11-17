@@ -635,6 +635,30 @@ export interface StartProviderImportApi {
     api_key?: string
 }
 
+export interface CheckDomainSetupApi {
+    /** The provider to import from.
+     *
+     * * `customerio` - Customer.io
+     * * `resend` - Resend */
+    provider: ImportProviderKeyEnumApi
+    /**
+     * The provider's API key, the same one you'd start the import with. It isn't stored.
+     * @maxLength 512
+     */
+    api_key: string
+}
+
+export interface DomainSetupCheckApi {
+    /** Domains the Add sending domains step would add, in the order it adds them. */
+    fits: string[]
+    /** Domains the step would leave out, because the organization reached its limit of domains waiting for verification. Add them once a domain verifies. */
+    wont_fit: string[]
+    /** How many more domains the organization can add before its domains waiting for verification reach the limit. */
+    unverified_slots_left: number
+    /** How many domains an organization can have waiting for verification at a time. */
+    unverified_limit: number
+}
+
 export interface ImportStepOptionApi {
     /** Step key to send in `steps` when starting an import, for example `suppressions`. */
     key: string

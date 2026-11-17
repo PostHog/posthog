@@ -290,6 +290,41 @@ describe('providerImportLogic', () => {
         expect(statusRefreshes.slice(-2)).toEqual(['true', 'true'])
     })
 
+    it('checks which sending domains fit only while that step is picked and a key is typed', async () => {
+        const checkBodies: Record<string, unknown>[] = []
+        const check = {
+            fits: ['a.example.com'],
+            wont_fit: ['b.example.com'],
+            unverified_slots_left: 1,
+            unverified_limit: 3,
+        }
+        useMocks({
+            post: {
+                '/api/projects/:team_id/messaging_provider_imports/domain_setup_check/': async ({ request }) => {
+                    checkBodies.push((await request.json()) as Record<string, unknown>)
+                    return [200, check]
+                },
+            },
+        })
+        await expectLogic(logic, () => logic.actions.openImportModal()).toFinishAllListeners()
+        jest.useFakeTimers()
+
+        logic.actions.setImportFormValue('api_key', 're_example_key')
+        await jest.advanceTimersByTimeAsync(1000)
+        expect(checkBodies).toEqual([])
+
+        logic.actions.toggleImportStep('domain_setup')
+        await jest.advanceTimersByTimeAsync(1000)
+        await expectLogic(logic).toFinishAllListeners()
+        expect(checkBodies).toEqual([{ provider: 'customerio', api_key: 're_example_key' }])
+        expect(logic.values.domainSetupCheck).toEqual(check)
+
+        logic.actions.toggleImportStep('domain_setup')
+        await jest.advanceTimersByTimeAsync(1000)
+        expect(logic.values.domainSetupCheck).toBeNull()
+        expect(checkBodies).toHaveLength(1)
+    })
+
     it('asks which tool to import from only when there is more than one', async () => {
         await expectLogic(logic).toFinishAllListeners()
         expect(logic.values.selectedProvider?.key).toBe('customerio')
