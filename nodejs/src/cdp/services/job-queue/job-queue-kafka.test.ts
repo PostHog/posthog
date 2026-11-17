@@ -1,6 +1,29 @@
-import { migrateKafkaCyclotronInvocation } from './job-queue-kafka'
+import { DateTime } from 'luxon'
+
+import { deserializeInvocation, migrateKafkaCyclotronInvocation, serializeInvocation } from './job-queue-kafka'
 
 describe('CyclotronJobQueueKafka', () => {
+    describe('deserializeInvocation', () => {
+        it.each([
+            ['set', DateTime.utc(2025, 1, 1, 12, 30)],
+            ['unset', undefined],
+        ])('round-trips queueScheduledAt when it is %s', (_, scheduledAt) => {
+            const json = JSON.stringify(
+                serializeInvocation({
+                    id: 'invocation-id',
+                    teamId: 1,
+                    functionId: 'function-id',
+                    state: null,
+                    queue: 'hog',
+                    queuePriority: 0,
+                    queueScheduledAt: scheduledAt,
+                })
+            )
+
+            expect(deserializeInvocation(json).queueScheduledAt?.toISO()).toEqual(scheduledAt?.toISO())
+        })
+    })
+
     describe('migrateKafkaCyclotronInvocation', () => {
         // Pulled from a real job in kafka
         const legacyFormat = {
