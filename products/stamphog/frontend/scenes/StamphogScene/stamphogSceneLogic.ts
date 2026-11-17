@@ -1,6 +1,6 @@
 import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { router, urlToAction } from 'kea-router'
+import { actionToUrl, router, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
 
 import { LemonInputSelectOption } from 'lib/lemon-ui/LemonInputSelect'
@@ -86,6 +86,7 @@ export interface stamphogSceneLogicValues {
     availableRepositoryOptions: LemonInputSelectOption[]
     availableSearch: string
     connectDisabledReason: string | null
+    digestHistoryOpen: boolean
     discoveredInstallations: readonly CodeReviewApprovalDiscoveredInstallationApi[]
     filteredRepoConfigs: CodeReviewApprovalRepositoryApi[]
     githubAccountNames: string[]
@@ -130,6 +131,9 @@ export interface stamphogSceneLogicActions {
         id: string
     }
     checkVisibleOwnersFiles: () => {
+        value: true
+    }
+    closeDigestHistory: () => {
         value: true
     }
     connectInstallation: (installationId: string) => {
@@ -191,6 +195,9 @@ export interface stamphogSceneLogicActions {
         payload?: {
             value: true
         }
+    }
+    openDigestHistory: () => {
+        value: true
     }
     openInstallPage: () => {
         value: true
@@ -313,12 +320,12 @@ export interface stamphogSceneLogicMeta {
         filteredRepoConfigs: (
             repoConfigs: CodeReviewApprovalRepositoryApi[],
             repoSearch: string,
-            repoView: any
+            repoView: RepoView
         ) => CodeReviewApprovalRepositoryApi[]
         repoPageCount: (filteredRepoConfigs: CodeReviewApprovalRepositoryApi[]) => number
         visibleRepoConfigs: (
             filteredRepoConfigs: CodeReviewApprovalRepositoryApi[],
-            repoPage: any
+            repoPage: number
         ) => CodeReviewApprovalRepositoryApi[]
         githubAccountNames: (
             repoConfigs: CodeReviewApprovalRepositoryApi[],
@@ -366,6 +373,8 @@ export const stamphogSceneLogic = kea<stamphogSceneLogicType>([
         setAvailableSearch: (search: string) => ({ search }),
         setRepositoryToAdd: (repository: string | null) => ({ repository }),
         setAddRepositoryOpen: (open: boolean) => ({ open }),
+        openDigestHistory: true,
+        closeDigestHistory: true,
         addRepository: true,
         addRepositorySuccess: (config: CodeReviewApprovalRepositoryApi) => ({ config }),
         addRepositoryFailure: true,
@@ -536,6 +545,7 @@ export const stamphogSceneLogic = kea<stamphogSceneLogicType>([
                 addRepositorySuccess: () => null,
             },
         ],
+        digestHistoryOpen: [false, { openDigestHistory: () => true, closeDigestHistory: () => false }],
         addRepositoryOpen: [
             false,
             {
@@ -823,7 +833,33 @@ export const stamphogSceneLogic = kea<stamphogSceneLogicType>([
         },
     })),
 
-    urlToAction(({ actions }) => ({
+    // The digest history mirrors to `?digests=1`, so a link can open it. Both directions push, so the
+    // back button closes a history that was opened and reopens one that was closed.
+    actionToUrl(() => {
+        const withDigests = (open: boolean): [string, Record<string, any>, Record<string, any>] => [
+            router.values.location.pathname,
+            {
+                ...router.values.searchParams,
+                digests: open ? '1' : undefined,
+                digests_page: open ? router.values.searchParams.digests_page : undefined,
+            },
+            router.values.hashParams,
+        ]
+        return {
+            openDigestHistory: () => withDigests(true),
+            closeDigestHistory: () => withDigests(false),
+        }
+    }),
+
+    urlToAction(({ actions, values }) => ({
+        [urls.codeReview()]: (_, searchParams) => {
+            const open = String(searchParams.digests) === '1'
+            if (open && !values.digestHistoryOpen) {
+                actions.openDigestHistory()
+            } else if (!open && values.digestHistoryOpen) {
+                actions.closeDigestHistory()
+            }
+        },
         [urls.stamphogCallback()]: (_, searchParams) => {
             // Two redirects land here, both carrying the state token we minted in install_info:
             //   - authorize/fresh-install: a user OAuth code (+ installation_id on a fresh install). The

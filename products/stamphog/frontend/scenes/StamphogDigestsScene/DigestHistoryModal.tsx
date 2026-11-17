@@ -1,21 +1,15 @@
 import { useActions, useValues } from 'kea'
-import { useEffect, useRef } from 'react'
 
-import { LemonBanner, LemonTable, LemonTag } from '@posthog/lemon-ui'
+import { LemonBanner, LemonModal, LemonTable, LemonTag } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 
-import { SceneSection } from '~/layout/scenes/components/SceneSection'
-
 import { DigestRunApi } from '../../generated/api.schemas'
-import { stamphogRunsSceneLogic } from '../StamphogRunsScene/stamphogRunsSceneLogic'
+import { stamphogSceneLogic } from '../StamphogScene/stamphogSceneLogic'
 import { digestDestinationLabel, digestRunHasDetails, digestStatusDisplay } from './digestDisplay'
 import { DigestRunDetails } from './DigestRunDetails'
 import { DIGESTS_PAGE_SIZE, stamphogDigestsSceneLogic } from './stamphogDigestsSceneLogic'
-
-// pinned: the /stamphog/digests redirect in the stamphog manifest links to this id.
-const DAILY_DIGEST_ID = 'daily-digest'
 
 function DigestsTable(): JSX.Element {
     const { digestRuns, digestRunsCount, digestRunsResponseLoading, digestRunsFailed, page } =
@@ -95,39 +89,36 @@ function DigestsTable(): JSX.Element {
     )
 }
 
-export function DailyDigestSection(): JSX.Element {
-    const { repoConfigs, repoConfigsLoading } = useValues(stamphogRunsSceneLogic)
-    const sectionRef = useRef<HTMLDivElement>(null)
-    // Nothing posts while no repository is in the digest, so the section says it is paused.
+export function DigestHistoryModal(): JSX.Element {
+    const { repoConfigs, repoConfigsLoading, digestHistoryOpen } = useValues(stamphogSceneLogic)
+    const { closeDigestHistory } = useActions(stamphogSceneLogic)
+    // Nothing posts while no repository is in the digest, so the history says it is paused.
     const paused = !repoConfigsLoading && !repoConfigs.some((repo) => repo.digest_enabled)
 
-    useEffect(() => {
-        if (window.location.hash === `#${DAILY_DIGEST_ID}`) {
-            sectionRef.current?.scrollIntoView()
-        }
-    }, [])
-
     return (
-        <div id={DAILY_DIGEST_ID} ref={sectionRef}>
-            <SceneSection
-                title={
-                    <span className="flex flex-wrap items-center gap-2">
-                        Daily digests
-                        {paused && (
-                            <LemonTag type="muted" size="small">
-                                Paused
-                            </LemonTag>
-                        )}
-                    </span>
-                }
-                description={
-                    paused
-                        ? 'Each Slack post of the merged pull requests that auto-approval approved. No repository is in the digest, so nothing is posted.'
-                        : 'Each Slack post of the merged pull requests that auto-approval approved.'
-                }
-            >
-                <DigestsTable />
-            </SceneSection>
-        </div>
+        <LemonModal
+            isOpen={digestHistoryOpen}
+            onClose={closeDigestHistory}
+            title={
+                <span className="flex flex-wrap items-center gap-2">
+                    Digest history
+                    {paused && (
+                        <LemonTag type="muted" size="small">
+                            Paused
+                        </LemonTag>
+                    )}
+                </span>
+            }
+            description={
+                paused
+                    ? 'Each Slack post of the merged pull requests that auto-approval approved. No repository is in the digest, so nothing is posted.'
+                    : 'Each Slack post of the merged pull requests that auto-approval approved.'
+            }
+            width={960}
+            data-attr="stamphog-digest-history-modal"
+        >
+            {/* Mounted only while open, so the digests load and the view event fires when someone looks. */}
+            {digestHistoryOpen && <DigestsTable />}
+        </LemonModal>
     )
 }

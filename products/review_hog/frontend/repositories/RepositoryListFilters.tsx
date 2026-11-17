@@ -9,6 +9,7 @@ export function RepositoryListFilters<V extends string>({
     views,
     onViewChange,
     children,
+    actions,
     'data-attr': dataAttr,
 }: {
     search: string
@@ -17,6 +18,7 @@ export function RepositoryListFilters<V extends string>({
     views: { value: V; label: string }[]
     onViewChange: (view: V) => void
     children?: React.ReactNode
+    actions?: React.ReactNode
     'data-attr': string
 }): JSX.Element {
     return (
@@ -33,6 +35,7 @@ export function RepositoryListFilters<V extends string>({
             />
             {children}
             <LemonSegmentedButton size="small" value={view} options={views} onChange={onViewChange} />
+            {actions && <div className="ml-auto flex items-center gap-1">{actions}</div>}
         </div>
     )
 }

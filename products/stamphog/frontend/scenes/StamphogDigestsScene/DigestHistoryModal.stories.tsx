@@ -1,5 +1,6 @@
 import type { Meta, StoryObj } from '@storybook/react'
 import { waitFor } from '@testing-library/dom'
+import { combineUrl } from 'kea-router'
 
 import { urls } from 'scenes/urls'
 
@@ -8,7 +9,7 @@ import { mswDecorator } from '~/mocks/browser'
 import { expect, userEvent } from 'storybook/test'
 
 import type { CodeReviewApprovalRepositoryApi, DigestRunApi } from '../../generated/api.schemas'
-import { DailyDigestSection } from './DailyDigestSection'
+import { DigestHistoryModal } from './DigestHistoryModal'
 
 const EMPTY_SUMMARY: DigestRunApi['summary'] = { headline: '', prs: [] }
 
@@ -134,13 +135,13 @@ const repositories = {
 }
 
 const meta: Meta = {
-    component: DailyDigestSection,
-    title: 'Scenes-App/Code review/Daily digest',
+    component: DigestHistoryModal,
+    title: 'Scenes-App/Code review/Digest history',
     parameters: {
         layout: 'padded',
         viewMode: 'story',
         mockDate: '2026-08-18 12:00:00',
-        pageUrl: urls.codeReview('approval_history'),
+        pageUrl: combineUrl(urls.codeReview('approval_settings'), { digests: '1' }).url,
         testOptions: { waitForSelector: '[data-attr="stamphog-digests-table"]' },
     },
     decorators: [
@@ -148,11 +149,15 @@ const meta: Meta = {
             get: {
                 '/api/projects/:team_id/code_review/approvals/digests/': digestRuns,
                 '/api/projects/:team_id/code_review/approvals/repositories/': repositories,
-                '/api/projects/:team_id/code_review/approvals/runs/': {
-                    count: 0,
-                    next: null,
-                    previous: null,
-                    results: [],
+                '/api/projects/:team_id/code_review/approvals/repositories/available_repositories/': {
+                    repositories: [],
+                    total_count: 0,
+                    has_installation: true,
+                },
+                '/api/projects/:team_id/code_review/approvals/repositories/install_info/': {
+                    app_slug: 'example-app',
+                    install_url: 'https://github.com/apps/example-app/installations/new',
+                    authorize_url: 'https://github.com/login/oauth/authorize',
                 },
             },
         }),
@@ -164,9 +169,10 @@ export default meta
 export const DigestsList: StoryObj = {}
 
 export const DigestExpanded: StoryObj = {
-    play: async ({ canvasElement }) => {
+    play: async () => {
         const toggle = await waitFor(() => {
-            const button = canvasElement.querySelector<HTMLElement>('.LemonTable__toggle button')
+            // The modal renders in a portal outside the story root.
+            const button = document.body.querySelector<HTMLElement>('.LemonTable__toggle button')
             expect(button).not.toBeNull()
             return button as HTMLElement
         })

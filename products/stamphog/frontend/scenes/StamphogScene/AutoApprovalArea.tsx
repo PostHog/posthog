@@ -1,6 +1,7 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonBanner, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
+import { IconClock } from '@posthog/icons'
+import { LemonBanner, LemonButton, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 
@@ -10,6 +11,7 @@ import { RepositoryListFilters } from 'products/review_hog/frontend/repositories
 import { RepositoryPageControls } from 'products/review_hog/frontend/repositories/RepositoryPageControls'
 
 import { type CodeReviewApprovalRepositoryApi } from '../../generated/api.schemas'
+import { DigestHistoryModal } from '../StamphogDigestsScene/DigestHistoryModal'
 import { ApproveCell } from './ApproveCell'
 import { AutoApprovalConnectionCard } from './AutoApprovalConnectionCard'
 import { DigestCell } from './DigestCell'
@@ -122,7 +124,7 @@ function RepositoryPager(): JSX.Element | null {
 
 function RepositoriesTable(): JSX.Element | null {
     const { repoConfigs, repoConfigsLoading, repoSearch, repoView, hasInstallation } = useValues(stamphogSceneLogic)
-    const { setRepoSearch, setRepoView } = useActions(stamphogSceneLogic)
+    const { setRepoSearch, setRepoView, openDigestHistory } = useActions(stamphogSceneLogic)
 
     // Without the app nothing can be added, and the connection card above says how to install it.
     if (hasInstallation === false && repoConfigs.length === 0 && !repoConfigsLoading) {
@@ -138,6 +140,17 @@ function RepositoriesTable(): JSX.Element | null {
                     view={repoView}
                     views={VIEW_OPTIONS}
                     onViewChange={setRepoView}
+                    actions={
+                        <LemonButton
+                            type="tertiary"
+                            size="small"
+                            icon={<IconClock />}
+                            onClick={openDigestHistory}
+                            data-attr="stamphog-open-digest-history"
+                        >
+                            Digest history
+                        </LemonButton>
+                    }
                     data-attr="stamphog-repo-search"
                 />
                 <RepositoryColumnHeaders
@@ -175,6 +188,7 @@ export function AutoApprovalArea(): JSX.Element {
             <SyncedBanner />
             <AutoApprovalConnectionCard />
             <RepositoriesTable />
+            <DigestHistoryModal />
         </SceneSection>
     )
 }

@@ -730,18 +730,21 @@ const paginated = <T,>(results: T[]): { count: number; next: null; previous: nul
 function OpenTab({
     tab,
     review,
+    digests,
     children,
 }: {
     tab?: CodeReviewTab
     review?: string
+    digests?: boolean
     children: JSX.Element
 }): JSX.Element {
     useEffect(() => {
         router.actions.replace(urls.codeReview(), {
             ...(tab ? { tab } : {}),
             ...(review ? { review } : {}),
+            ...(digests ? { digests: '1' } : {}),
         })
-    }, [tab, review])
+    }, [tab, review, digests])
     return children
 }
 
@@ -765,7 +768,11 @@ const meta: Meta<typeof CodeReviewScene> = {
     },
     decorators: [
         (Story, context): JSX.Element => (
-            <OpenTab tab={context.parameters.tab} review={context.parameters.review}>
+            <OpenTab
+                tab={context.parameters.tab}
+                review={context.parameters.review}
+                digests={context.parameters.digests}
+            >
                 <div className="p-4">
                     <Story />
                 </div>
@@ -807,9 +814,7 @@ const meta: Meta<typeof CodeReviewScene> = {
                         200,
                         { owners_file: String(params.id).endsWith('4') ? 'missing' : 'found' },
                     ],
-                    '/api/projects/:team_id/code_review/approvals/digests/': paginated(
-                        context.parameters.withDigests ? digestRuns : []
-                    ),
+                    '/api/projects/:team_id/code_review/approvals/digests/': paginated(digestRuns),
                     '/api/projects/:team_id/code_review/approvals/runs/': paginated(approvalRuns),
                     '/api/projects/:team_id/code_review/approvals/reviewer_routing/owners/': [
                         { owner: 'team-web', kind: 'team', pr_count: 12 },
@@ -1147,12 +1152,22 @@ export const ApprovalSettingsNotConnected: Story = {
 }
 
 export const ApprovalHistory: Story = {
-    parameters: { tab: 'approval_history', withDigests: true },
+    parameters: { tab: 'approval_history' },
     play: async ({ canvasElement }) => {
         const canvas = within(canvasElement)
         await expect(await canvas.findByText('Cache the billing summary')).toBeVisible()
-        await expect(await canvas.findByText('repo:example-org/api')).toBeVisible()
         await expect(canvas.queryByText('Review a pull request')).not.toBeInTheDocument()
+    },
+}
+
+export const ApprovalSettingsDigestHistory: Story = {
+    parameters: { tab: 'approval_settings', digests: true },
+    play: async () => {
+        // The modal renders in a portal outside the story root.
+        const body = within(document.body)
+        await waitFor(() => expect(body.getByText('repo:example-org/api')).toBeVisible())
+        await expect(body.getByText('Nothing to post')).toBeVisible()
+        await expect(body.getByText('Failed')).toBeVisible()
     },
 }
 
