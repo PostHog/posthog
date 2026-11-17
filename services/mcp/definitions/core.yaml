@@ -403,7 +403,9 @@ tools:
             - organization
         param_overrides:
             id:
-                description: Project ID, or `@current` to target the caller's active project.
+                description: Project ID. If omitted, updates the caller's active project.
+                optional: true
+                fallback: projectId
                 cast: string-int
         response:
             exclude:

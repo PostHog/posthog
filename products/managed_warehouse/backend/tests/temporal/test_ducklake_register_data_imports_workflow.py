@@ -9,6 +9,7 @@ import dataclasses
 from collections.abc import Callable, Iterator
 from functools import partial
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, cast
 
 import pytest
@@ -17,9 +18,11 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from django.conf import settings
 
 import s3fs
+import duckdb
 import pyarrow as pa
 import pyarrow.parquet as pq
 from parameterized import parameterized
+from psycopg import sql as psql
 from temporalio.exceptions import ApplicationError
 from trino.exceptions import TrinoUserError
 
@@ -32,6 +35,11 @@ from products.managed_warehouse.backend.temporal import (
     ducklake_register_data_imports_trino as trino_module,
     ducklake_register_data_imports_workflow as registration_module,
     hoglake_register_data_imports as hoglake_module,
+)
+from products.managed_warehouse.backend.temporal.ducklake_declared_columns import (
+    DeclaredColumn,
+    duckdb_type_for_clickhouse,
+    trino_type_for_clickhouse,
 )
 from products.managed_warehouse.backend.temporal.ducklake_register_data_imports_workflow import (
     ENGINE_DUCKGRES,
@@ -192,7 +200,11 @@ async def test_prepare_registration_pins_the_import_jobs_prepared_generation(ate
         url_pattern="s3://bucket/path",
         credential=credential,
         external_data_source=source,
-        columns={"id": {"clickhouse": "Int64", "hogql": "IntegerDatabaseField"}},
+        columns={
+            "id": {"clickhouse": "Int64", "hogql": "IntegerDatabaseField"},
+            "closed_at": {"clickhouse": "Nullable(DateTime64(6, 'UTC'))", "hogql": "DateTimeDatabaseField"},
+            "unreadable": {"clickhouse": "String", "hogql": "StringDatabaseField", "valid": False},
+        },
         queryable_folder=prepared_queryable_folder,
     )
     schema = await database_sync_to_async(ExternalDataSchema.objects.create)(
@@ -231,6 +243,10 @@ async def test_prepare_registration_pins_the_import_jobs_prepared_generation(ate
     )
     assert metadata.ducklake_schema_name == f"posthog_data_imports_team_{ateam.id}"
     assert metadata.ducklake_table_name == "postgres_customers"
+    assert metadata.declared_columns == [
+        DeclaredColumn(name="id", clickhouse_type="Int64"),
+        DeclaredColumn(name="closed_at", clickhouse_type="Nullable(DateTime64(6, 'UTC'))"),
+    ]
 
 
 @parameterized.expand(
@@ -648,6 +664,124 @@ def test_registration_splits_add_data_files_across_path_batches(monkeypatch):
     assert landing_paths[0] not in registration_queries[1]
     assert not any(parquet_glob in query for query in registration_queries)
     assert sum(parquet_glob in query for query in executed) == 2
+
+
+class _DuckLakeConnection:
+    closed = False
+
+    def __init__(self, connection: duckdb.DuckDBPyConnection) -> None:
+        self._connection = connection
+        self.description: list[SimpleNamespace] | None = None
+
+    def execute(self, query: object) -> "_DuckLakeConnection":
+        statement = query.as_string() if isinstance(query, psql.Composable) else str(query)
+        self._connection.execute(statement)
+        description = self._connection.description
+        self.description = None if description is None else [SimpleNamespace(name=column[0]) for column in description]
+        return self
+
+    def fetchone(self) -> tuple[Any, ...] | None:
+        return self._connection.fetchone()
+
+    @contextlib.contextmanager
+    def transaction(self) -> Iterator[None]:
+        self._connection.execute("BEGIN TRANSACTION")
+        try:
+            yield
+        except BaseException:
+            self._connection.execute("ROLLBACK")
+            raise
+        self._connection.execute("COMMIT")
+
+
+def _duckdb_lake(tmp_path: Path) -> duckdb.DuckDBPyConnection:
+    lake = duckdb.connect()
+    lake.execute("INSTALL ducklake")
+    lake.execute("LOAD ducklake")
+    lake.execute(f"ATTACH 'ducklake:{tmp_path / 'catalog.ducklake'}' AS ducklake (DATA_PATH '{tmp_path / 'data'}')")
+    lake.execute("USE ducklake")
+    return lake
+
+
+@pytest.mark.parametrize("partitioned", [False, True])
+def test_duckgres_registration_adds_declared_columns_the_files_lack(partitioned: bool, monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(registration_module, "setup_duckgres_session", MagicMock())
+    monkeypatch.setattr(registration_module, "_should_publish_prepared_generation", lambda inputs: True)
+    lake = _duckdb_lake(tmp_path)
+    conn = cast(Any, _DuckLakeConnection(lake))
+    declared = [
+        DeclaredColumn(name="id", clickhouse_type="Int64"),
+        DeclaredColumn(name="closed_at", clickhouse_type="Nullable(DateTime64(6, 'UTC'))"),
+    ]
+
+    def register(job_id: str, generation: str, files: pa.Table) -> list[tuple[Any, ...]]:
+        job_uri = f"{tmp_path}/landing/{job_id}"
+        relative_path = "_ph_partition_key=2026-07/part-0.parquet" if partitioned else "part-0.parquet"
+        landing_paths = _write_parquet_files(Path(job_uri) / generation, {relative_path: files})
+        base = _activity_inputs()
+        inputs = dataclasses.replace(
+            base,
+            job_id=job_id,
+            metadata=dataclasses.replace(
+                base.metadata,
+                prepared_queryable_folder=f"customers__query_{generation}",
+                landing_uri=job_uri,
+                declared_columns=declared,
+            ),
+            registration_table_names=registration_module.registration_table_names_from_token(uuid.uuid4().hex),
+        )
+        registration_module._register_prepared_parquet_files(inputs, conn, landing_paths)
+        table = "posthog_data_imports_team_1.postgres_customers"
+        selected = "id, closed_at, _ph_partition_key" if partitioned else "id, closed_at"
+        return [
+            *lake.execute(f"SELECT column_name, column_type FROM (DESCRIBE {table})").fetchall(),
+            *lake.execute(f"SELECT {selected} FROM {table} ORDER BY id").fetchall(),
+        ]
+
+    first = register("job1", "1234567890_abcdef12", pa.table({"id": pa.array([1, 2], pa.int64())}))
+    # The next sync writes values for the column, with a type that differs from the declared one.
+    second = register(
+        "job2",
+        "1234567891_abcdef13",
+        pa.table({"id": pa.array([3], pa.int64()), "closed_at": pa.array(["2026-11-16"])}),
+    )
+
+    partition_type = [("_ph_partition_key", "VARCHAR")] if partitioned else []
+    partition_value = ("2026-07",) if partitioned else ()
+    assert first == [
+        ("id", "BIGINT"),
+        *partition_type,
+        ("closed_at", "TIMESTAMP WITH TIME ZONE"),
+        (1, None, *partition_value),
+        (2, None, *partition_value),
+    ]
+    assert second == [
+        ("id", "BIGINT"),
+        ("closed_at", "VARCHAR"),
+        *partition_type,
+        (3, "2026-11-16", *partition_value),
+    ]
+
+
+def test_duckgres_registration_adds_declared_columns_in_one_snapshot(tmp_path) -> None:
+    lake = _duckdb_lake(tmp_path)
+    lake.execute("CREATE TABLE shadow (id BIGINT)")
+    declared = [
+        DeclaredColumn(name="id", clickhouse_type="Int64"),
+        DeclaredColumn(name="closed_at", clickhouse_type="Nullable(String)"),
+        DeclaredColumn(name="amount", clickhouse_type="Nullable(Decimal(10, 2))"),
+        DeclaredColumn(name="growth%", clickhouse_type="Nullable(Float64)"),
+    ]
+    snapshots_before = lake.execute("SELECT count(*) FROM ducklake_snapshots('ducklake')").fetchall()[0][0]
+
+    registration_module._add_declared_columns_missing_from_files(
+        cast(Any, _DuckLakeConnection(lake)), "main", "shadow", declared, cancel_requested=None
+    )
+
+    columns = lake.execute("SELECT column_name, column_type FROM (DESCRIBE shadow)").fetchall()
+    snapshots_after = lake.execute("SELECT count(*) FROM ducklake_snapshots('ducklake')").fetchall()[0][0]
+    assert columns == [("id", "BIGINT"), ("closed_at", "VARCHAR"), ("amount", "DECIMAL(10,2)"), ("growth%", "DOUBLE")]
+    assert snapshots_after - snapshots_before == 1
 
 
 @pytest.mark.parametrize(
@@ -1589,6 +1723,7 @@ def _register_through_trino(
     before_add_files: Callable[[], None] | None = None,
     deadline_monotonic: float | None = None,
     canary: bool = False,
+    declared_columns: tuple[DeclaredColumn, ...] = (),
 ) -> trino_module.TrinoRegistrationResult:
     connect = MagicMock(return_value=contextlib.nullcontext(fake))
     monkeypatch.setattr(trino_module, "connect_managed_warehouse_trino", connect)
@@ -1607,6 +1742,7 @@ def _register_through_trino(
         before_add_files=before_add_files,
         deadline_monotonic=deadline_monotonic,
         canary=canary,
+        declared_columns=declared_columns,
     )
 
 
@@ -1655,13 +1791,19 @@ def test_trino_registration_runs_the_expected_statements(
         hive_partition_columns=hive_partition_columns,
         before_add_files=lambda: statements_before_add_files.append(len(fake.statements)),
         canary=canary,
+        declared_columns=(
+            DeclaredColumn(name="note", clickhouse_type="Nullable(Int64)"),
+            DeclaredColumn(name="closed_at", clickhouse_type="Nullable(DateTime64(6, 'UTC'))"),
+        ),
     )
 
     assert result == trino_module.TrinoRegistrationResult(published=True, row_count=4)
     assert cast(MagicMock, trino_module.connect_managed_warehouse_trino).call_args.kwargs["canary"] is canary
     create = fake.statements_matching("CREATE TABLE")[0]
-    columns = '"id" BIGINT, "amount" DECIMAL(10, 2), "created" TIMESTAMP(6) WITH TIME ZONE, "note" VARCHAR' + (
-        ', "_ph_partition_key" VARCHAR' if hive_partition_columns else ""
+    columns = (
+        '"id" BIGINT, "amount" DECIMAL(10, 2), "created" TIMESTAMP(6) WITH TIME ZONE, "note" VARCHAR'
+        + ', "closed_at" TIMESTAMP(6) WITH TIME ZONE'
+        + (', "_ph_partition_key" VARCHAR' if hive_partition_columns else "")
     )
     assert create.startswith(f'CREATE TABLE IF NOT EXISTS "lake"."schema_a"."{SHADOW_NAME}" ({columns})')
     assert "COMMENT" not in create
@@ -1794,22 +1936,89 @@ def test_trino_type_for_arrow(_name: str, arrow_type: pa.DataType, expected: str
     assert trino_module.trino_type_for_arrow(arrow_type) == expected
 
 
-def test_staging_schema_unions_file_columns_and_appends_hive_partitions() -> None:
+_FILE_COLUMNS = (
+    ("id", "BIGINT"),
+    ("name", "VARCHAR"),
+    ("created_at", "TIMESTAMP(6)"),
+)
+_PARTITION_COLUMN = ("_ph_partition_key", "VARCHAR")
+_UNION_COLUMNS = (*_FILE_COLUMNS, _PARTITION_COLUMN)
+
+
+@pytest.mark.parametrize(
+    "_name, declared, expected_columns",
+    [
+        ("no_declared_columns", [], _UNION_COLUMNS),
+        (
+            "declared_columns_no_file_has",
+            [
+                DeclaredColumn(name="id", clickhouse_type="Int64"),
+                DeclaredColumn(name="closed_at", clickhouse_type="Nullable(DateTime64(6, 'UTC'))"),
+                DeclaredColumn(name="tags", clickhouse_type="Array(String)"),
+            ],
+            (*_FILE_COLUMNS, ("closed_at", "TIMESTAMP(6) WITH TIME ZONE"), ("tags", "VARCHAR"), _PARTITION_COLUMN),
+        ),
+        # A later sync whose files carry the column keeps the file type, whatever the record declares.
+        ("file_type_wins", [DeclaredColumn(name="created_at", clickhouse_type="Nullable(String)")], _UNION_COLUMNS),
+        ("file_column_differs_in_case", [DeclaredColumn(name="Name", clickhouse_type="String")], _UNION_COLUMNS),
+        ("partition_column", [DeclaredColumn(name="_ph_partition_key", clickhouse_type="Int64")], _UNION_COLUMNS),
+        (
+            "declared_names_differ_in_case",
+            [
+                DeclaredColumn(name="Owner", clickhouse_type="Int64"),
+                DeclaredColumn(name="owner", clickhouse_type="String"),
+            ],
+            (*_FILE_COLUMNS, ("Owner", "BIGINT"), _PARTITION_COLUMN),
+        ),
+    ],
+)
+def test_staging_schema_unions_file_columns_and_appends_hive_partitions_and_declared_columns(
+    _name: str, declared: list[DeclaredColumn], expected_columns: tuple[tuple[str, str], ...]
+) -> None:
     schema = trino_module.staging_table_schema(
         [
             _footer("a.parquet", id=pa.int64(), name=pa.string()),
             _footer("b.parquet", id=pa.int64(), name=pa.string_view(), created_at=pa.timestamp("us")),
         ],
         ["_ph_partition_key"],
+        declared,
     )
 
-    assert schema.columns == (
-        trino_module.StagingColumn(name="id", trino_type="BIGINT"),
-        trino_module.StagingColumn(name="name", trino_type="VARCHAR"),
-        trino_module.StagingColumn(name="created_at", trino_type="TIMESTAMP(6)"),
-        trino_module.StagingColumn(name="_ph_partition_key", trino_type="VARCHAR"),
+    assert schema.columns == tuple(
+        trino_module.StagingColumn(name=name, trino_type=trino_type) for name, trino_type in expected_columns
     )
     assert schema.partition_columns == ("_ph_partition_key",)
+
+
+@pytest.mark.parametrize(
+    "clickhouse_type, trino_type, duckdb_type",
+    [
+        ("String", "VARCHAR", "VARCHAR"),
+        ("LowCardinality(Nullable(String))", "VARCHAR", "VARCHAR"),
+        ("Int8", "TINYINT", "TINYINT"),
+        ("Int16", "SMALLINT", "SMALLINT"),
+        ("Nullable(Int32)", "INTEGER", "INTEGER"),
+        ("Nullable(Int64)", "BIGINT", "BIGINT"),
+        ("UInt64", "VARCHAR", "VARCHAR"),
+        ("Float32", "REAL", "REAL"),
+        ("Nullable(Float64)", "DOUBLE", "DOUBLE"),
+        ("Bool", "BOOLEAN", "BOOLEAN"),
+        ("Date32", "DATE", "DATE"),
+        ("Nullable(DateTime64(6, 'UTC'))", "TIMESTAMP(6) WITH TIME ZONE", "TIMESTAMPTZ"),
+        ("DateTime64(3, 'America/New_York')", "TIMESTAMP(6) WITH TIME ZONE", "TIMESTAMPTZ"),
+        ("DateTime64(6)", "TIMESTAMP(6)", "TIMESTAMP(6)"),
+        ("Nullable(Decimal(10, 2))", "DECIMAL(10, 2)", "DECIMAL(10, 2)"),
+        ("Decimal(76, 10)", "VARCHAR", "VARCHAR"),
+        ("Array(Nullable(String))", "VARCHAR", "VARCHAR"),
+        ("", "VARCHAR", "VARCHAR"),
+    ],
+)
+def test_declared_column_types_for_trino_and_duckdb(clickhouse_type: str, trino_type: str, duckdb_type: str) -> None:
+    assert (trino_type_for_clickhouse(clickhouse_type), duckdb_type_for_clickhouse(clickhouse_type)) == (
+        trino_type,
+        duckdb_type,
+    )
+    duckdb.connect().execute(f"CREATE TABLE declared (x {duckdb_type})")
 
 
 @pytest.mark.parametrize(
@@ -2190,7 +2399,11 @@ def test_trino_copy_activity_copies_under_the_attempt_token_and_reports_stalenes
     inputs = dataclasses.replace(
         base,
         metadata=dataclasses.replace(
-            base.metadata, engine=ENGINE_TRINO, source_schema_id=str(uuid.UUID(int=5)), trino_canary=trino_canary
+            base.metadata,
+            engine=ENGINE_TRINO,
+            source_schema_id=str(uuid.UUID(int=5)),
+            trino_canary=trino_canary,
+            declared_columns=[DeclaredColumn(name="closed_at", clickhouse_type="Nullable(String)")],
         ),
         registration_table_names=(
             registration_module._new_trino_registration_table_names(minted_at, "a1b2c3d4e5f60718")
@@ -2217,6 +2430,7 @@ def test_trino_copy_activity_copies_under_the_attempt_token_and_reports_stalenes
     assert kwargs["hive_partition_columns"] == ["k"]
     assert kwargs["filesystem"] is s3
     assert kwargs["canary"] is trino_canary
+    assert kwargs["declared_columns"] == [DeclaredColumn(name="closed_at", clickhouse_type="Nullable(String)")]
     assert kwargs["deadline_monotonic"] == pytest.approx(time.monotonic() + 99.0, abs=30.0)
 
 

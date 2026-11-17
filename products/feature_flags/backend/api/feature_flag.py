@@ -4023,7 +4023,8 @@ class BulkDeleteFiltersSerializer(serializers.Serializer):
         required=False,
         help_text=(
             "Search by feature flag key or name (case-insensitive). "
-            "Spaces, underscores, and hyphens count as the same separator."
+            "Spaces, underscores, and hyphens count as the same separator. "
+            "The words of the term must appear together and in order, so a shorter term matches more flags."
         ),
     )
     type = serializers.ChoiceField(
@@ -4617,7 +4618,8 @@ class FeatureFlagViewSet(
                 required=False,
                 description=(
                     "Search by feature flag key or name. Case insensitive. "
-                    "Spaces, underscores, and hyphens count as the same separator."
+                    "Spaces, underscores, and hyphens count as the same separator. "
+                    "The words of the term must appear together and in order, so a shorter term matches more flags."
                 ),
             ),
             OpenApiParameter(
