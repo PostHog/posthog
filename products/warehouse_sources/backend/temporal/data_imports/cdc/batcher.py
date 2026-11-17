@@ -10,6 +10,9 @@ from posthog.dataclasses import frozen
 from products.warehouse_sources.backend.temporal.data_imports.cdc.errors import CDCReservedColumnError
 from products.warehouse_sources.backend.temporal.data_imports.cdc.types import ChangeEvent
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
+    normalize_table_column_names,
+)
 
 # CDC metadata column names — database-agnostic
 CDC_OP_COLUMN = "_ph_cdc_op"
@@ -665,4 +668,8 @@ def _events_to_table(events: list[ChangeEvent], position_to_seq: Callable[[str],
         fields.append(pa.field(CDC_SEQ_COLUMN, pa.int64(), metadata=CDC_SEQ_PROVENANCE))
 
     schema = pa.schema(fields)
-    return pa.table(arrays, schema=schema)
+    # Postgres lets quoted identifiers differ only by case (e.g. "clickid" and "ClickID" as
+    # distinct columns), which Delta's case-insensitive field-name check rejects as a duplicate.
+    # `reserved_column_collisions` above already checked the raw names against the normalized form
+    # of the metadata columns above, so normalizing here can't introduce a new collision with them.
+    return normalize_table_column_names(pa.table(arrays, schema=schema))

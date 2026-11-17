@@ -302,6 +302,20 @@ class TestEventsToTableEdgeCases:
         table = batcher.flush()["users"]
         assert table.column("seats").type == pa.string()
 
+    def test_source_columns_differing_only_by_case_are_deduped(self):
+        # Postgres quoted identifiers let two columns differ only by case (e.g. "clickid" and
+        # "CLICKID"), which pyarrow keeps distinct but Delta's case-insensitive field-name check
+        # rejects as a duplicate. The table must carry no two column names that fold to the same
+        # value.
+        batcher = ChangeEventBatcher()
+        batcher.add(_make_event(columns={"id": 1, "clickid": "a", "CLICKID": "b"}))
+        table = batcher.flush()["users"]
+
+        folded = [name.lower() for name in table.column_names]
+        assert len(folded) == len(set(folded))
+        assert table.column("clickid")[0].as_py() == "a"
+        assert table.column("_clickid")[0].as_py() == "b"
+
 
 class TestBuildScd2Table:
     def _make_raw_table(self, events):
