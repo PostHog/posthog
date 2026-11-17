@@ -86,6 +86,9 @@ RESTORE_MAX_DISTINCT_IDS = 1000
 # The identity server's cap on person ids per lifecycle DeletePersons request.
 LIFECYCLE_DELETE_MAX_PERSON_IDS = 250
 
+# The replica's cap on person ids per DeleteCohortMembersByPersonIds request.
+DELETE_COHORT_MEMBERS_BY_PERSON_IDS_MAX = 10_000
+
 # team_id is narrowed to i32 server-side.
 _MAX_TEAM_ID = 2**31 - 1
 
@@ -464,6 +467,11 @@ class FakePersonHogClient:
         self, request: cohort_pb2.DeleteCohortMembersByPersonIdsRequest, timeout: float | None = None
     ) -> cohort_pb2.DeleteCohortMembersByPersonIdsResponse:
         self.calls.append(_Call("delete_cohort_members_by_person_ids", request))
+        if len(request.person_ids) > DELETE_COHORT_MEMBERS_BY_PERSON_IDS_MAX:
+            raise _FakeRpcError(
+                grpc.StatusCode.INVALID_ARGUMENT,
+                f"Maximum {DELETE_COHORT_MEMBERS_BY_PERSON_IDS_MAX} person IDs per request",
+            )
         deleted = 0
         for pid in set(request.person_ids):
             key = (request.cohort_id, pid)

@@ -212,6 +212,7 @@ class TestFakePersonHogClientCohorts:
         [
             ("subset", [10, 11], 2, {12}),
             ("skips_non_members_and_repeats", [10, 10, 99], 1, {11, 12}),
+            ("empty", [], 0, {10, 11, 12}),
         ]
     )
     def test_delete_cohort_members_by_person_ids(self, _name, person_ids, expected_deleted, expected_remaining):
@@ -229,6 +230,16 @@ class TestFakePersonHogClientCohorts:
         assert set(remaining.person_ids) == expected_remaining
         other = self.client.list_cohort_member_ids(cohort_pb2.ListCohortMemberIdsRequest(cohort_id=6))
         assert set(other.person_ids) == {10, 11, 12}
+
+    def test_delete_cohort_members_by_person_ids_rejects_more_than_the_service_accepts(self):
+        # The service refuses the request, so a fake that accepted it would pass tests production fails.
+        for person_ids in (list(range(1, 10_002)), [10] * 10_001):
+            with pytest.raises(grpc.RpcError) as excinfo:
+                self.client.delete_cohort_members_by_person_ids(
+                    cohort_pb2.DeleteCohortMembersByPersonIdsRequest(cohort_id=5, person_ids=person_ids)
+                )
+            assert excinfo.value.code() == grpc.StatusCode.INVALID_ARGUMENT
+            assert "Maximum 10000 person IDs per request" in (excinfo.value.details() or "")
 
 
 class TestCallTracking:
