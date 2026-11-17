@@ -1208,6 +1208,8 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             # clear only reopens that rare race, so it must not fail the addition.
             try:
                 clear_static_cohort_member_removals(cohort_id=self.pk, members=deduped_pairs)
+            except SoftTimeLimitExceeded:
+                raise
             except Exception as clear_err:
                 capture_exception(clear_err, additional_properties={"cohort_id": self.pk, "team_id": team_id})
             existing_uuids = self._get_existing_ch_member_uuids(person_uuids, team_id, PERSON_STATIC_COHORT_TABLE)
@@ -1277,6 +1279,8 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
                 record_static_cohort_member_removal(
                     cohort_id=self.id, person_id=person.id, person_uuid=str(person.uuid)
                 )
+            except SoftTimeLimitExceeded:
+                raise
             except Exception as record_err:
                 capture_exception(record_err, additional_properties={"cohort_id": self.id, "team_id": team_id})
 

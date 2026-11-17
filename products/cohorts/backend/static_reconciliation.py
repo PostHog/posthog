@@ -16,6 +16,7 @@ from django.utils import timezone
 
 import structlog
 from prometheus_client import Counter
+from redis import Redis
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import ClickHouseUser, Workload
@@ -55,6 +56,9 @@ RECONCILE_PARK_FOR = timedelta(days=30)
 # Longer than a ClickHouse delete of a removed member takes to apply.
 RECONCILE_REMOVAL_TTL = timedelta(hours=24)
 
+# Removals and additions are user actions, so a slow Redis must not hold them up for the default timeout.
+_USER_PATH_REDIS_TIMEOUT_SECONDS = 1.0
+
 RECONCILE_CURSOR_CACHE_KEY = "static-cohort-reconcile:cursor"
 RECONCILE_CURSOR_TTL = timedelta(days=30)
 
@@ -93,6 +97,12 @@ def _hold(cohort_id: int, duration: timedelta) -> None:
     cache.set(_hold_cache_key(cohort_id), True, timeout=int(duration.total_seconds()))
 
 
+def _user_path_redis() -> Redis:
+    return get_client(
+        socket_timeout=_USER_PATH_REDIS_TIMEOUT_SECONDS, socket_connect_timeout=_USER_PATH_REDIS_TIMEOUT_SECONDS
+    )
+
+
 def _removed_members_key(cohort_id: int) -> str:
     return f"static-cohort-reconcile:removed:{cohort_id}"
 
@@ -111,7 +121,7 @@ def record_static_cohort_member_removal(*, cohort_id: int, person_id: int, perso
     Call it before the Postgres delete, so a repair that copies the member back afterwards removes it again.
     """
     key = _removed_members_key(cohort_id)
-    pipeline = get_client().pipeline(transaction=False)
+    pipeline = _user_path_redis().pipeline(transaction=False)
     pipeline.hset(key, _removal_field(person_id, person_uuid), datetime.now().strftime(_REMOVED_AT_FORMAT))
     pipeline.expire(key, int(RECONCILE_REMOVAL_TTL.total_seconds()))
     pipeline.execute()
@@ -123,7 +133,7 @@ def clear_static_cohort_member_removals(*, cohort_id: int, members: list[tuple[i
     Call it for explicit additions only. The repair's own copy must keep the marks.
     """
     if members:
-        get_client().hdel(
+        _user_path_redis().hdel(
             _removed_members_key(cohort_id), *(_removal_field(person_id, uuid) for person_id, uuid in members)
         )
 

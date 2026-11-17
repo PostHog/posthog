@@ -375,3 +375,15 @@ class TestStaticCohortReconciliation(BaseTest):
             reconcile_static_cohort_membership.run(team_id=self.team.pk, cohort_id=1)
 
         repair.assert_not_called()
+
+    def test_a_soft_time_limit_while_clearing_a_removal_stops_the_import(self) -> None:
+        person = create_person(team=self.team, distinct_ids=["member"])
+        cohort = Cohort.objects.create(team=self.team, name="static", is_static=True)
+
+        with (
+            patch.object(
+                static_reconciliation, "clear_static_cohort_member_removals", side_effect=SoftTimeLimitExceeded()
+            ),
+            self.assertRaises(SoftTimeLimitExceeded),
+        ):
+            cohort.insert_users_list_by_uuid([str(person.uuid)], team_id=self.team.pk)
