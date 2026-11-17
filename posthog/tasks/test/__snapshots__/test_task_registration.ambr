@@ -42,6 +42,7 @@
     'posthog.tasks.email.send_conversation_restore_email',
     'posthog.tasks.email.send_discussions_mentioned',
     'posthog.tasks.email.send_email_change_emails',
+    'posthog.tasks.email.send_email_sender_domain_sending_stopped',
     'posthog.tasks.email.send_email_sending_reputation_finding',
     'posthog.tasks.email.send_email_sending_suspended',
     'posthog.tasks.email.send_email_sending_tier_demoted',
