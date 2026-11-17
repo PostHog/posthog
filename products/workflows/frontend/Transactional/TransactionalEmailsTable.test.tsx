@@ -77,44 +77,6 @@ describe('TransactionalEmailsTable', () => {
         }
     )
 
-    const renderListWithOneEmail = async (preflight?: Record<string, unknown>): Promise<void> => {
-        useMocks({
-            get: {
-                '/api/projects/:team_id/messaging_templates/': { results: [] },
-                '/api/projects/:team_id/transactional_code_emails/': [
-                    codeEmail('password-reset', AccessControlLevel.Editor),
-                ],
-                '/api/projects/:team_id/tags': [],
-                ...(preflight ? { '/_preflight': preflight } : {}),
-            } as Record<string, any>,
-        })
-        initKeaTests()
-        render(
-            <Provider>
-                <TransactionalEmailsTable />
-            </Provider>
-        )
-        expect(await screen.findByText('password-reset')).toBeInTheDocument()
-    }
-
-    it('tells a cloud team with emails that transactional emails never wait for the sending allowance', async () => {
-        await renderListWithOneEmail()
-
-        expect(
-            await screen.findByText(/count toward your daily sending allowance and are still sent after it's used up/)
-        ).toBeInTheDocument()
-        expect(screen.getByText('How sending allowances work').closest('a')).toHaveAttribute(
-            'href',
-            'https://posthog.com/docs/workflows/sending-reputation#do-transactional-emails-count-against-the-allowance'
-        )
-    })
-
-    it('says nothing about a sending allowance on a self-hosted instance, which has none', async () => {
-        await renderListWithOneEmail({ cloud: false, is_debug: false })
-
-        await waitFor(() => expect(screen.queryByText(/sending allowance/)).not.toBeInTheDocument())
-    })
-
     it('says the emails failed to load instead of showing the first-run intro, and loads them on retry', async () => {
         let templatesLoad: 'fails' | 'succeeds' = 'fails'
         useMocks({
@@ -225,6 +187,32 @@ describe('TransactionalEmailsTable', () => {
             </Provider>
         )
     }
+
+    it.each([
+        ['tells a cloud team with emails that transactional emails never wait for the sending allowance', false],
+        ['says nothing about a sending allowance on a self-hosted instance, which has none', true],
+    ])('%s', async (_case, selfHosted) => {
+        renderWithCodeSends(
+            {
+                '/api/projects/:team_id/transactional_code_emails/': [
+                    codeEmail('password-reset', AccessControlLevel.Editor),
+                ],
+            },
+            { selfHosted }
+        )
+        expect(await screen.findByText('password-reset')).toBeInTheDocument()
+
+        await waitFor(() =>
+            expect(Boolean(screen.queryByText(/count toward your daily sending allowance and are still sent/))).toBe(
+                !selfHosted
+            )
+        )
+        expect(screen.queryByText('How sending allowances work')?.closest('a')?.getAttribute('href')).toBe(
+            selfHosted
+                ? undefined
+                : 'https://posthog.com/docs/workflows/sending-reputation#do-transactional-emails-count-against-the-allowance'
+        )
+    })
 
     it('keeps the first send from code on screen in the empty tab', async () => {
         jest.useFakeTimers()
