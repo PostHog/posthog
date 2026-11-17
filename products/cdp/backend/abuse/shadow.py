@@ -7,7 +7,7 @@ from typing import Any
 
 from django.core.cache import cache
 from django.db import transaction
-from django.db.models import QuerySet
+from django.db.models import F, Q, QuerySet
 from django.db.models.signals import post_save
 from django.dispatch import receiver
 
@@ -45,6 +45,8 @@ FLAG = "cdp-abuse-classifier"
 BACKFILL_FLAG = "cdp-abuse-classifier-backfill"
 EVENT = "cdp abuse classification"
 CLASSIFIED_TYPES = frozenset({HogFunctionType.DESTINATION, HogFunctionType.TRANSFORMATION})
+# A legacy plugin runs PostHog's plugin code, chosen by its template id. Its `hog` field never runs.
+_LEGACY_PLUGIN_PREFIX = "plugin-"
 _HASH_TTL_SECONDS = 30 * 24 * 60 * 60
 _BACKFILL_RUN_TTL_SECONDS = 14 * 24 * 60 * 60
 
@@ -155,6 +157,9 @@ def _queue_if_enabled(hog_function: HogFunction) -> None:
     try:
         if not shadow_enabled(hog_function.team, only_evaluate_locally=True):
             return
+        # Checked after the flag, so the query runs only for enrolled teams.
+        if not scorable_hog_functions().filter(pk=hog_function.pk).exists():
+            return
 
         from products.cdp.backend.tasks.abuse_classification import classify_hog_function_for_abuse  # noqa: PLC0415
 
@@ -169,8 +174,19 @@ def is_scorable(hog_function: HogFunction) -> bool:
 
 
 def scorable_hog_functions() -> QuerySet[HogFunction]:
-    return HogFunction.objects.select_related("team__organization").filter(
-        enabled=True, deleted=False, type__in=CLASSIFIED_TYPES
+    """Enabled destinations, and enabled transformations that run code a customer wrote or edited.
+
+    A transformation runs without network access, so one that runs a template's code unchanged is PostHog's code.
+    A destination from a template is still scored: its inputs, such as a webhook URL, can make it abusive.
+    """
+    # No linked template, or code that differs from it. A blank template's own starter code counts as stock.
+    runs_custom_code = ~Q(template_id__startswith=_LEGACY_PLUGIN_PREFIX) & (
+        Q(hog_function_template__isnull=True) | ~Q(hog=F("hog_function_template__code"))
+    )
+    return (
+        HogFunction.objects.select_related("team__organization")
+        .filter(enabled=True, deleted=False)
+        .filter(Q(type=HogFunctionType.DESTINATION) | (Q(type=HogFunctionType.TRANSFORMATION) & runs_custom_code))
     )
 
 

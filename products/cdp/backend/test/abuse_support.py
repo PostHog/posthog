@@ -14,6 +14,7 @@ from django.test import override_settings
 
 import httpx
 
+from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 
 GATEWAY_SETTINGS = {"AI_GATEWAY_URL": "https://gateway.example.com/v1", "AI_GATEWAY_API_KEY": "phs_test"}
@@ -159,6 +160,27 @@ class AbuseClassificationTestCase(BaseTest):
                     **overrides,
                 }
             )
+
+    def create_template(self, function_type: str) -> HogFunctionTemplate:
+        return HogFunctionTemplate.objects.create(
+            template_id=f"template-stock-{function_type}",
+            sha="1",
+            name="Stock template",
+            code="return event",
+            inputs_schema=[],
+            type=function_type,
+        )
+
+    def create_from_template(self, template: HogFunctionTemplate, **overrides: Any) -> HogFunction:
+        return self.create_destination(
+            **{
+                "type": template.type,
+                "template_id": template.template_id,
+                "hog_function_template": template,
+                "hog": template.code,
+                **overrides,
+            }
+        )
 
     def run_command(self, name: str, *args: str) -> str:
         out = StringIO()

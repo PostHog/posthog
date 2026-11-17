@@ -128,3 +128,14 @@ class TestBackfillHogFunctionAbuseScores(AbuseClassificationTestCase):
             self.run_command(COMMAND, "--rate", "4")
 
         assert slept == [0.25, 0.25]
+
+    def test_skips_transformations_that_run_template_code(self) -> None:
+        self.flags.enabled[TEAM_FLAG] = False
+        self.create_from_template(self.create_template("transformation"))
+        custom = self.create_destination(type="transformation")
+
+        dry_run = self.run_command(COMMAND, "--dry-run", "--rate", "0")
+        self.run_command(COMMAND, "--rate", "0")
+
+        assert "1 functions" in dry_run
+        assert [event["properties"]["hog_function_id"] for event in self.captured_events()] == [str(custom.id)]

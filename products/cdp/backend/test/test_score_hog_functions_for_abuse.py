@@ -67,3 +67,11 @@ class TestScoreHogFunctionsForAbuse(AbuseClassificationTestCase):
     def test_needs_ids_or_a_team(self) -> None:
         with pytest.raises(CommandError, match="--id or --team-id"):
             self.run_command(COMMAND)
+
+    def test_skips_a_transformation_that_runs_template_code(self) -> None:
+        stock = self.create_from_template(self.create_template("transformation"))
+
+        output = self.run_command(COMMAND, "--id", str(stock.id))
+
+        assert self.gateway.requests == []
+        assert str(stock.id) not in output

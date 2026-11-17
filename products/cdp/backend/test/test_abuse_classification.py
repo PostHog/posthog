@@ -185,3 +185,29 @@ class TestAbuseClassification(AbuseClassificationTestCase):
             hog_function.save()
 
         assert len(self.gateway.requests) == 1
+
+    @parameterized.expand(
+        [
+            ("stock_template_transformation", "transformation", "stock", {}, 0),
+            ("edited_template_transformation", "transformation", "stock", {"hog": "return event // edited"}, 1),
+            (
+                "blank_template_transformation",
+                "transformation",
+                None,
+                {"template_id": "template-blank-transformation"},
+                1,
+            ),
+            ("custom_transformation", "transformation", None, {}, 1),
+            ("legacy_plugin_transformation", "transformation", None, {"template_id": "plugin-posthog-plugin-geoip"}, 0),
+            ("stock_template_destination", "destination", "stock", {}, 1),
+        ]
+    )
+    def test_a_transformation_is_scored_only_when_it_runs_custom_code(
+        self, _name: str, function_type: str, template: str | None, overrides: dict[str, Any], expected_requests: int
+    ) -> None:
+        if template == "stock":
+            self.create_from_template(self.create_template(function_type), **overrides)
+        else:
+            self.create_destination(type=function_type, **overrides)
+
+        assert len(self.gateway.requests) == expected_requests
