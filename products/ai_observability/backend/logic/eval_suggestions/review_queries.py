@@ -9,7 +9,12 @@ from django.utils import timezone
 
 from posthog.dataclasses import frozen
 
-from ...models.eval_suggestions import EvalSuggestion, EvalSuggestionReviewVerdict, EvalSuggestionRunStatus
+from ...models.eval_suggestions import (
+    EvalSuggestion,
+    EvalSuggestionReviewVerdict,
+    EvalSuggestionRunStatus,
+    EvalSuggestionStatus,
+)
 
 MAX_REVIEW_CARDS = 200
 
@@ -121,6 +126,36 @@ def label_card(
         .update(review_verdict=verdict, review_note=note, reviewed_at=timezone.now(), reviewed_by_id=reviewer_id)
     )
     return updated > 0
+
+
+@frozen
+class UnlabeledCards:
+    proposed: int
+    expired: int
+    teams: int
+
+
+def _unlabeled() -> QuerySet[EvalSuggestion]:
+    # Cross-team by design. Labeled cards hold staff notes, accepted ones link to the evaluations they made, and
+    # dismissed ones stop a run from proposing the same card again, so all of those stay.
+    return EvalSuggestion.objects.unscoped().filter(
+        review_verdict__isnull=True, status__in=(EvalSuggestionStatus.PROPOSED, EvalSuggestionStatus.EXPIRED)
+    )
+
+
+def count_unlabeled_cards() -> UnlabeledCards:
+    cards = _unlabeled()
+    return UnlabeledCards(
+        proposed=cards.filter(status=EvalSuggestionStatus.PROPOSED).count(),
+        expired=cards.filter(status=EvalSuggestionStatus.EXPIRED).count(),
+        teams=cards.values("team_id").distinct().count(),
+    )
+
+
+def delete_unlabeled_cards() -> int:
+    """Deletes every unlabeled card that is still proposed or expired, across teams, and returns how many."""
+    deleted, _ = _unlabeled().delete()
+    return deleted
 
 
 @frozen

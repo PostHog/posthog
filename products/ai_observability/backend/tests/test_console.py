@@ -12,6 +12,7 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
+from posthog.models.team import Team
 from posthog.models.user import User
 
 from products.access_control.backend.facade.api import replace_object_access_rules
@@ -24,6 +25,7 @@ from products.ai_observability.backend.models.eval_suggestions import (
     EvalSuggestionReviewVerdict,
     EvalSuggestionRun,
     EvalSuggestionRunStatus,
+    EvalSuggestionStatus,
 )
 from products.ai_observability.backend.models.evaluation_config import EvaluationConfig
 from products.ai_observability.backend.models.evaluations import Evaluation
@@ -79,6 +81,11 @@ class TestAIObservabilityConsoleTool(BaseTest):
             assert "already dispatched" in response.content.decode()
 
 
+def _first_card(content: str) -> str:
+    """The title of the first card on the review page, after the tool's Actions card."""
+    return next(title for title in re.findall(r'data-slot="card-title">([^<]*)</h2>', content) if title != "Actions")
+
+
 class TestEvalSuggestionReviewTool(BaseTest):
     def setUp(self) -> None:
         super().setUp()
@@ -123,15 +130,16 @@ class TestEvalSuggestionReviewTool(BaseTest):
 
         assert response.status_code == 200
         content = response.content.decode()
-        assert re.findall(r'data-slot="card-title">([^<]*)</h2>', content)[0] == headline
+        assert _first_card(content) == headline
         assert (headline == "Already labeled card") is ("Card waiting for a label" not in content)
         assert f"Checks the {key} rule." in content and f"Measured the {key} rule." in content
         assert "/ai-observability/traces/trace%252F1%253Fstep%253D2%2523end%25252F" in content
         form = re.search(r'action="/admin/console/tools/eval-suggestion-review/label/\?([^"]*)"', content)
         assert form is not None and dict(parse_qsl(html.unescape(form.group(1)))) == after_label
         assert 'data-console-key="ArrowRight"' in content and 'data-console-key="ArrowLeft"' in content
-        # Staff label from the card, so the page has no form that asks for a suggestion ID.
-        assert "tool-actions-title" not in content
+        # Staff label from the card, so the page offers no label form that asks for a suggestion ID.
+        assert 'href="/admin/console/tools/eval-suggestion-review/label/' not in content
+        assert 'href="/admin/console/tools/eval-suggestion-review/delete-unlabeled-cards/' in content
 
     def test_the_labeled_cards_list_every_label_and_open_each_card(self) -> None:
         content = self.client.get("/admin/console/tools/eval-suggestion-review/").content.decode()
@@ -139,7 +147,7 @@ class TestEvalSuggestionReviewTool(BaseTest):
         link = f"/admin/console/tools/eval-suggestion-review/?days=30&amp;suggestion={self.labeled.id}"
         assert link in content and "Examples are summaries" in content
         opened = self.client.get(link.replace("&amp;", "&")).content.decode()
-        assert re.findall(r'data-slot="card-title">([^<]*)</h2>', opened)[0] == "Already labeled card"
+        assert _first_card(opened) == "Already labeled card"
         assert "Examples are summaries" in opened
 
     @parameterized.expand([("known_card", True, 302), ("unknown_card", False, 404)])
@@ -170,6 +178,31 @@ class TestEvalSuggestionReviewTool(BaseTest):
         # Saving the form unchanged keeps the card's label.
         assert re.search(r'<option value="bad"\s+selected>', content) and "Examples are summaries" in content
 
+    def test_deleting_unlabeled_cards_keeps_labeled_accepted_and_dismissed_ones(self) -> None:
+        other_team = Team.objects.create(organization=self.organization)
+        run = EvalSuggestionRun.objects.for_team(other_team.pk).create(team=other_team, trigger="weekly")
+        kept = {self.labeled.id}
+        for key, status in (
+            ("check:accepted", EvalSuggestionStatus.ACCEPTED),
+            ("check:dismissed", EvalSuggestionStatus.DISMISSED),
+            ("check:expired", EvalSuggestionStatus.EXPIRED),
+            ("check:proposed", EvalSuggestionStatus.PROPOSED),
+        ):
+            card = EvalSuggestion.objects.for_team(other_team.pk).create(
+                team=other_team, run=run, kind=EvalSuggestionKind.NEW_HOG, dedupe_key=key, status=status, score=1.0
+            )
+            if status in (EvalSuggestionStatus.ACCEPTED, EvalSuggestionStatus.DISMISSED):
+                kept.add(card.id)
+        url = "/admin/console/tools/eval-suggestion-review/delete-unlabeled-cards/"
+
+        preview = self.client.post(url, {"reason": "Cards revamped"})
+        assert preview.status_code == 200
+        assert EvalSuggestion.objects.unscoped().count() == 6
+        response = self.client.post(url, {"confirm_token": preview.context["confirm_token"]})
+
+        assert response.status_code == 302
+        assert set(EvalSuggestion.objects.unscoped().values_list("id", flat=True)) == kept
+
     def test_a_named_card_outside_the_loaded_cards_says_so(self) -> None:
         with patch("products.ai_observability.backend.logic.eval_suggestions.review_queries.MAX_REVIEW_CARDS", 1):
             response = self.client.get(
@@ -178,7 +211,7 @@ class TestEvalSuggestionReviewTool(BaseTest):
 
         content = response.content.decode()
         assert "That card is not among the 1 newest cards" in content
-        assert re.findall(r'data-slot="card-title">([^<]*)</h2>', content)[0] == "Already labeled card"
+        assert _first_card(content) == "Already labeled card"
 
 
 class TestTaggersPanel(BaseTest):
