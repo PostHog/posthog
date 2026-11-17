@@ -826,6 +826,58 @@ class TestGetTaskProcessingContextActivity:
         assert kwargs["group_properties"] == {"organization": {"id": org_id}}
 
     @pytest.mark.django_db(transaction=True)
+    @pytest.mark.parametrize(
+        "actor, expected",
+        [
+            ("creator", True),
+            ("other_member", False),
+            (None, True),
+        ],
+    )
+    def test_agent_memory_follows_only_the_task_creator(self, activity_environment, test_task, actor, expected):
+        extra_state: dict[str, Any] = {}
+        if actor is not None:
+            actor_user = (
+                test_task.created_by
+                if actor == "creator"
+                else User.objects.create_and_join(test_task.team.organization, "teammate@example.com", None)
+            )
+            extra_state = {"interaction_origin": "slack", "slack_actor_user_id": actor_user.id}
+        task_run = test_task.create_run(extra_state=extra_state)
+
+        with patch(ALL_FLAGS_TARGET, return_value=_flags({"tasks-persist-agent-memory": True})):
+            result = async_to_sync(activity_environment.run)(
+                get_task_processing_context, GetTaskProcessingContextInput(run_id=str(task_run.id))
+            )
+
+        assert result.persist_agent_memory_enabled is expected
+
+    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.parametrize(
+        "origin_product, extra_state, expected",
+        [
+            (Task.OriginProduct.USER_CREATED, {}, True),
+            (Task.OriginProduct.WORKFLOW, {}, False),
+            (Task.OriginProduct.ONBOARDING, {}, False),
+            (Task.OriginProduct.HOGDESK, {}, False),
+            (Task.OriginProduct.USER_CREATED, {"agent_memory_locked": True}, False),
+        ],
+    )
+    def test_agent_memory_is_off_for_runs_any_member_can_drive(
+        self, activity_environment, test_task, origin_product, extra_state, expected
+    ):
+        test_task.origin_product = origin_product
+        test_task.save(update_fields=["origin_product"])
+        task_run = test_task.create_run(extra_state=extra_state)
+
+        with patch(ALL_FLAGS_TARGET, return_value=_flags({"tasks-persist-agent-memory": True})):
+            result = async_to_sync(activity_environment.run)(
+                get_task_processing_context, GetTaskProcessingContextInput(run_id=str(task_run.id))
+            )
+
+        assert result.persist_agent_memory_enabled is expected
+
+    @pytest.mark.django_db(transaction=True)
     def test_get_task_processing_context_keeps_stamped_event_ingest_off(self, activity_environment, test_task):
         task_run = test_task.create_run(extra_state={"sandbox_event_ingest_enabled": False})
         input_data = GetTaskProcessingContextInput(run_id=str(task_run.id))
