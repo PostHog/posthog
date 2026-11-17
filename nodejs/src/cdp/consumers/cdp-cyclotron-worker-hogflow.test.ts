@@ -606,7 +606,11 @@ describe('CdpCyclotronWorkerHogFlow', () => {
                 })
             )
 
-            const unreadableInvocation = { ...lateInvocation, id: new UUIDT().toString(), state: null }
+            const unreadableInvocation = {
+                ...lateInvocation,
+                id: new UUIDT().toString(),
+                stateUnreadable: true as const,
+            }
 
             const results = await processor.processInvocations([
                 lateInvocation,
@@ -614,14 +618,25 @@ describe('CdpCyclotronWorkerHogFlow', () => {
                 unreadableInvocation,
             ])
 
-            expect(results).toHaveLength(1)
-            expect(results[0]).toMatchObject({
-                finished: true,
-                invocation: { hogFlow: { id: lateFlow.id } },
-            })
-            expect(jobQueue.dequeueInvocations).toHaveBeenLastCalledWith(
-                expect.arrayContaining([missingInvocation, unreadableInvocation])
+            expect(results).toHaveLength(2)
+            expect(results).toEqual(
+                expect.arrayContaining([
+                    expect.objectContaining({
+                        finished: true,
+                        invocation: expect.objectContaining({ id: lateInvocation.id }),
+                    }),
+                    expect.objectContaining({
+                        finished: true,
+                        error: 'The run state could not be decrypted',
+                        invocation: expect.objectContaining({
+                            id: unreadableInvocation.id,
+                            hogFlow: expect.objectContaining({ id: lateFlow.id }),
+                            state: expect.objectContaining({ sensitive: true }),
+                        }),
+                    }),
+                ])
             )
+            expect(jobQueue.dequeueInvocations).toHaveBeenLastCalledWith([missingInvocation])
         })
 
         it.each([

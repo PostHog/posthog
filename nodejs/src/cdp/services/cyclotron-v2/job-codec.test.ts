@@ -156,11 +156,19 @@ describe('job codec', () => {
         ['a key the reader does not hold', sealFor(codeSend, new EncryptedFields('11beef0000beef0000beef0000beef11'))],
         ['no key at all', 'not-a-token'],
         ['a reader with no keys', sealFor(codeSend), new EncryptedFields('')],
+        [
+            'a field outside state and queueParameters',
+            keys.encrypt(
+                JSON.stringify({ teamId: 2, id: codeSend.id, fields: [[['queueMetadata'], { attempt: 99 }]] })
+            ),
+        ],
     ])('runs nothing from a code send sealed for %s', (_desc, sealed, opener = keys) => {
         const invocation = v2JobToInvocation(rowWith(codeSend, sealedCodeSend(sealed)), opener)
 
-        expect(invocation.state).toBeNull()
+        expect(invocation.stateUnreadable).toBe(true)
+        expect(invocation.state?.send).toBeUndefined()
         expect(invocation.queueParameters).toBeUndefined()
+        expect(invocation.queueMetadata).toEqual(codeSend.queueMetadata)
     })
 
     it.each([
