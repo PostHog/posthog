@@ -2,6 +2,7 @@ import { MOCK_DEFAULT_TEAM, MOCK_TEAM_ID } from 'lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
 
+import { dayjs } from 'lib/dayjs'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { useMocks } from '~/mocks/jest'
@@ -29,17 +30,20 @@ const IMPACT: TransactionalEmailImpactApi = {
 describe('emailImpactLogic', () => {
     let logic: ReturnType<typeof emailImpactLogic.build>
     let requestedFrom: string[]
+    let requestedParams: URLSearchParams[]
     let answer: [number, unknown] | Promise<[number, unknown]>
     let onRequest: () => void
 
     beforeEach(() => {
         requestedFrom = []
+        requestedParams = []
         answer = [200, IMPACT]
         onRequest = () => {}
         useMocks({
             get: {
-                '/api/projects/:team_id/transactional_email_log/impact/': ({ params }) => {
+                '/api/projects/:team_id/transactional_email_log/impact/': ({ params, request }) => {
                     requestedFrom.push(String(params.team_id))
+                    requestedParams.push(new URL(request.url).searchParams)
                     onRequest()
                     return answer
                 },
@@ -72,9 +76,9 @@ describe('emailImpactLogic', () => {
     })
 
     it.each([
-        ['period', (): void => logic.actions.setDays(7)],
-        ['event', (): void => logic.actions.setEvent('plan upgraded')],
-    ])('shows the funnel as pending until a new %s answers', async (_, change) => {
+        ['period', (): void => logic.actions.setDays(7), null, 7],
+        ['event', (): void => logic.actions.setEvent('plan upgraded'), 'plan upgraded', 30],
+    ])('shows the funnel as pending until a new %s answers', async (_, change, event, days) => {
         initKeaTests(true, ENVIRONMENT)
         logic = emailImpactLogic({ workflowId: 'workflow-1' })
         logic.mount()
@@ -90,6 +94,10 @@ describe('emailImpactLogic', () => {
         await requested
 
         expect(logic.values.funnelState).toBe('loading')
+        const params = requestedParams[requestedParams.length - 1]
+        expect(params.get('workflow_id')).toBe('workflow-1')
+        expect(params.get('event')).toBe(event)
+        expect(dayjs().diff(dayjs(params.get('date_from')), 'day')).toBe(days)
         answerNewSends()
         await expectLogic(logic).toFinishAllListeners()
         expect(logic.values.funnelState).toBe('ready')

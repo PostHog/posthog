@@ -32,7 +32,14 @@ function share(value: number, of: number): number | null {
 }
 
 export function clicksTracked(impact: TransactionalEmailImpactApi): boolean {
-    return !(impact.untracked > 0 && impact.opened === 0 && impact.clicked === 0)
+    return !(impact.untracked > 0 && impact.untracked >= impact.sent && impact.opened === 0 && impact.clicked === 0)
+}
+
+export function untrackedSendsNote(impact: TransactionalEmailImpactApi): string | null {
+    if (impact.untracked === 0 || !clicksTracked(impact)) {
+        return null
+    }
+    return `${humanFriendlyNumber(impact.untracked)} sends in this period went out with open and click tracking off, so opens and clicks leave them out.`
 }
 
 export function impactFunnelState(

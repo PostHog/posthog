@@ -1,6 +1,13 @@
 import type { TransactionalEmailImpactApi } from 'products/messaging/frontend/generated/api.schemas'
 
-import { clicksTracked, followedSendsNote, impactFunnelState, impactLift, impactSteps } from './impactSteps'
+import {
+    clicksTracked,
+    followedSendsNote,
+    impactFunnelState,
+    impactLift,
+    impactSteps,
+    untrackedSendsNote,
+} from './impactSteps'
 
 const impact: TransactionalEmailImpactApi = {
     sent: 100,
@@ -27,7 +34,7 @@ describe('impactSteps', () => {
     it.each([
         ['every send went out tracked', impact, true],
         ['every send went out untracked', untracked, false],
-        ['fewer sends counted untracked than sent, and none opened or clicked', { ...untracked, untracked: 97 }, false],
+        ['some sends went out untracked and the tracked rest recorded no opens', { ...untracked, untracked: 97 }, true],
         ['some sends went out untracked and others recorded opens', { ...impact, untracked: 40 }, true],
         [
             'an untracked send counted in the period sits beside a recorded click',
@@ -38,6 +45,18 @@ describe('impactSteps', () => {
         ['nothing was sent', { ...impact, sent: 0 }, true],
     ])('reads click tracking when %s', (_, data, expected) => {
         expect(clicksTracked(data)).toBe(expected)
+    })
+
+    it.each([
+        ['every send went out tracked', impact, null],
+        ['every send went out untracked', untracked, null],
+        [
+            'some sends went out untracked',
+            { ...untracked, untracked: 97 },
+            '97 sends in this period went out with open and click tracking off, so opens and clicks leave them out.',
+        ],
+    ])('notes the untracked sends when %s', (_, data, expected) => {
+        expect(untrackedSendsNote(data)).toBe(expected)
     })
 
     it.each([
