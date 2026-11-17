@@ -20,6 +20,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { ExperimentExposureQueryResponse } from '~/queries/schema/schema-general'
 
 import { EXPERIMENT_VARIANT_MULTIPLE } from 'products/experiments/frontend/constants'
+import { hasEnded } from 'products/experiments/frontend/experimentStatus'
 import {
     getTotalExposures,
     reportsMismatch,
@@ -155,6 +156,9 @@ export function Exposures(): JSX.Element {
 
     const totalExposures = getTotalExposures(exposures)
 
+    const isEnded = hasEnded(experiment)
+    const exposureCriteriaLabel = getExposureCriteriaLabel(exposureCriteria, resolvedExposureEvent)
+
     const resolvedHandling = resolveMultipleVariantHandling(exposureCriteria?.multiple_variant_handling)
     const multipleTreatmentLabel =
         resolvedHandling === 'first_seen' ? 'using first seen variant' : 'excluded from analysis'
@@ -199,15 +203,21 @@ export function Exposures(): JSX.Element {
                         <LemonTag type="option">{experiment.holdout.name}</LemonTag>
                     </Tooltip>
                 )}
-                <LemonButton
-                    type="tertiary"
-                    size="xsmall"
-                    className="ml-auto"
-                    tooltip={getExposureCriteriaLabel(exposureCriteria, resolvedExposureEvent)}
-                    onClick={() => openExposureCriteriaModal(exposureCriteria)}
-                >
-                    Exposure criteria
-                </LemonButton>
+                {isEnded ? (
+                    <span className="ml-auto text-xs text-secondary">
+                        Exposure criteria: <span className="text-primary">{exposureCriteriaLabel}</span>
+                    </span>
+                ) : (
+                    <LemonButton
+                        type="tertiary"
+                        size="xsmall"
+                        className="ml-auto"
+                        tooltip={exposureCriteriaLabel}
+                        onClick={() => openExposureCriteriaModal(exposureCriteria)}
+                    >
+                        Exposure criteria
+                    </LemonButton>
+                )}
             </div>
             <div className="space-y-4">
                 {/* Chart Section */}
@@ -237,20 +247,22 @@ export function Exposures(): JSX.Element {
                             <p className="text-sm text-center text-balance text-tertiary">
                                 Exposures will appear here once the first participant has been exposed.
                             </p>
-                            <div className="flex justify-center mt-4">
-                                <LemonButton
-                                    icon={<IconPencil fontSize="12" />}
-                                    size="xsmall"
-                                    className="flex items-center gap-2"
-                                    type="secondary"
-                                    onClick={() => {
-                                        reportZeroExposuresActedOn('edit_exposure_criteria')
-                                        openExposureCriteriaModal(exposureCriteria)
-                                    }}
-                                >
-                                    Edit exposure criteria
-                                </LemonButton>
-                            </div>
+                            {!isEnded && (
+                                <div className="flex justify-center mt-4">
+                                    <LemonButton
+                                        icon={<IconPencil fontSize="12" />}
+                                        size="xsmall"
+                                        className="flex items-center gap-2"
+                                        type="secondary"
+                                        onClick={() => {
+                                            reportZeroExposuresActedOn('edit_exposure_criteria')
+                                            openExposureCriteriaModal(exposureCriteria)
+                                        }}
+                                    >
+                                        Edit exposure criteria
+                                    </LemonButton>
+                                </div>
+                            )}
                         </div>
                     </div>
                 ) : (
@@ -295,12 +307,16 @@ export function Exposures(): JSX.Element {
                                                         <span className="text-xs text-secondary">
                                                             ({multipleTreatmentLabel})
                                                         </span>
-                                                        <LemonButton
-                                                            icon={<IconPencil fontSize="12" />}
-                                                            size="xsmall"
-                                                            type="secondary"
-                                                            onClick={() => openExposureCriteriaModal(exposureCriteria)}
-                                                        />
+                                                        {!isEnded && (
+                                                            <LemonButton
+                                                                icon={<IconPencil fontSize="12" />}
+                                                                size="xsmall"
+                                                                type="secondary"
+                                                                onClick={() =>
+                                                                    openExposureCriteriaModal(exposureCriteria)
+                                                                }
+                                                            />
+                                                        )}
                                                     </>
                                                 )}
                                             </div>

@@ -14,7 +14,7 @@ import { AccessControlLevel, AccessControlResourceType, ExperimentStatsMethod } 
 
 import { SummarizeExperimentButton } from 'products/experiments/frontend/components/SummarizeExperimentButton'
 import { DEFAULT_LOOKBACK_DAYS } from 'products/experiments/frontend/constants'
-import { isLaunched } from 'products/experiments/frontend/experimentStatus'
+import { hasEnded, isLaunched } from 'products/experiments/frontend/experimentStatus'
 import { CupedModal } from 'products/experiments/frontend/modals/CupedModal/CupedModal'
 import { StatsMethodModal } from 'products/experiments/frontend/modals/StatsMethodModal/StatsMethodModal'
 
@@ -30,12 +30,14 @@ function SettingRow({
     children,
     onEdit,
     editLabel,
+    editDisabledReason,
 }: {
     label: string
     info?: string
     children: ReactNode
     onEdit?: () => void
     editLabel?: string
+    editDisabledReason?: string
 }): JSX.Element {
     return (
         <>
@@ -56,6 +58,7 @@ function SettingRow({
                         icon={<IconPencil className="text-secondary" />}
                         tooltip={editLabel}
                         aria-label={editLabel}
+                        disabledReason={editDisabledReason}
                         onClick={onEdit}
                     />
                 )}
@@ -105,6 +108,7 @@ export function Hypothesis(): JSX.Element {
 
     const tags = experiment.tags ?? []
     const showResults = isLaunched(experiment) && getSectionMetricUuids(experiment, false).length > 0
+    const lockedReason = hasEnded(experiment) ? 'Settings are locked because this experiment has ended.' : undefined
 
     return (
         <div className="h-full border border-primary rounded bg-[var(--color-bg-table)] px-3 py-2.5 flex flex-col gap-3">
@@ -148,6 +152,7 @@ export function Hypothesis(): JSX.Element {
                             label="Statistics"
                             onEdit={openStatsEngineModal}
                             editLabel="Edit statistics settings"
+                            editDisabledReason={lockedReason}
                         >
                             <span>
                                 {isBayesian ? 'Bayesian' : 'Frequentist'} · {confidenceDisplay}
@@ -159,6 +164,7 @@ export function Hypothesis(): JSX.Element {
                             info="Uses pre-experiment data to detect significant effects faster. Supported for mean and funnel metrics."
                             onEdit={openCupedModal}
                             editLabel="Edit CUPED settings"
+                            editDisabledReason={lockedReason}
                         >
                             <LemonTag type={cupedEnabled ? 'success' : 'default'}>
                                 {cupedEnabled ? 'Enabled' : 'Disabled'}
@@ -181,6 +187,7 @@ export function Hypothesis(): JSX.Element {
                                 size="xsmall"
                                 value={getBaselineVariantKey(experiment)}
                                 loading={experimentUpdateLoading}
+                                disabledReason={lockedReason}
                                 options={variants.map((v) => ({ value: v.key, label: v.key }))}
                                 onChange={(value) => {
                                     updateExperimentSettings({
@@ -197,7 +204,7 @@ export function Hypothesis(): JSX.Element {
                                 label="Required"
                                 labelClassName="font-normal"
                                 checked={experiment.only_count_matured_users ?? false}
-                                disabled={experimentUpdateLoading}
+                                disabledReason={lockedReason ?? (experimentUpdateLoading ? 'Saving' : undefined)}
                                 onChange={(checked) => {
                                     updateExperimentSettings({ only_count_matured_users: checked })
                                 }}
