@@ -3398,7 +3398,7 @@ export namespace Schemas {
       /** Remove provably redundant casts and nullability wrappers (e.g. `toString(String)`, `assumeNotNull(non_nullable)`, dead `ifNull` fallbacks) using inferred expression types */
       typeAwareCastSimplification?: boolean | null;
       useMaterializedViews?: boolean | null;
-      /** Read events from the native JSON events table (`true`) or the legacy events table (`false`). When unset, a staff person's `ph_new_events_schema` cookie applies, then the project's listing in the `CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS` instance setting, then the `CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA` instance setting. This is an internal rollout switch, and the project settings API ignores it. */
+      /** Read events from the native JSON events table (`true`) or the legacy events table (`false`). When unset, a staff person's tab switch or `ph_new_events_schema` cookie applies, then the project. A project reads the native table once PostHog has moved it there. Before that, it can opt in early by storing `true` here in its project settings. A stored `false` is ignored. */
       useNewEventsSchema?: boolean | null;
       usePreaggregatedIntermediateResults?: boolean | null;
       /** Try to automatically convert HogQL queries to use preaggregated tables at the AST level * */
@@ -15238,6 +15238,19 @@ export namespace Schemas {
       webhook_url: string;
     }
 
+    export interface AlertCustomizeDestination {
+      /**
+         * The destination's `id` from the destinations list. Use it for a destination with no HogFunctions.
+         * @nullable
+         */
+      destination_id?: string | null;
+      /**
+         * The destination's `hog_function_ids` from the destinations list, when it has HogFunctions.
+         * @maxItems 100
+         */
+      hog_function_ids?: string[];
+    }
+
     export interface AlertDeleteDestination {
       /**
          * HogFunction IDs of the destination, as returned when it was created.
@@ -15462,6 +15475,20 @@ export namespace Schemas {
       slack_channel_name?: string;
       /** HTTPS endpoint to post to. Required for webhook, teams and discord. Send it again on every update that changes the destination, because reads return it redacted. */
       webhook_url?: string;
+    }
+
+    export interface AlertResetDestination {
+      /**
+         * Every HogFunction of the customized destination, from the destinations list.
+         * @minItems 1
+         * @maxItems 100
+         */
+      hog_function_ids: string[];
+    }
+
+    export interface AlertResetDestinationResponse {
+      /** The destination's new ID on the alerts platform, which now sends it. */
+      id: string;
     }
 
     export interface AlertRouteMatcher {
@@ -16402,6 +16429,18 @@ export namespace Schemas {
       Recent: 'recent',
     } as const;
 
+    export interface AnomalySeriesPoint {
+      /** The start of the scored bucket, in the project timezone. */
+      bucket_start: string;
+      /**
+         * The series value of the bucket at scoring time.
+         * @nullable
+         */
+      value: number | null;
+      /** Whether the detector flagged the bucket. */
+      flag: boolean;
+    }
+
     export interface AnomalySeries {
       /** The numeric id of the insight. */
       insight_id: number;
@@ -16469,6 +16508,8 @@ export namespace Schemas {
       last_flagged_bucket: string | null;
       /** Up to 5 flagged buckets in the range, newest first. */
       flagged_points: AnomalyFlaggedPoint[];
+      /** Only with `include_points`. The newest 400 scored buckets of the series in the range, oldest first. A bucket that was not scored, or only has a warm-up row, has no point: it is unknown, not 0. Fewer points than `scored_buckets` means the cap left older buckets out. */
+      points?: AnomalySeriesPoint[];
     }
 
     export interface AnomalySearchResponse {
@@ -28409,6 +28450,17 @@ export namespace Schemas {
 
     export interface CliAuthorize {
       /**
+         * Most the token can spend, in USD, within the bounds `usage` reports. Omit for the default.
+         * @nullable
+         * @pattern ^-?\d{0,8}(?:\.\d{0,2})?$
+         */
+      cap_usd?: string | null;
+      /**
+         * Token lifetime in seconds, within the bounds `usage` reports. Omit for the default.
+         * @nullable
+         */
+      ttl_seconds?: number | null;
+      /**
          * base64url SHA-256 of the CLI's PKCE code_verifier, without padding.
          * @pattern ^[A-Za-z0-9_-]{43}$
          */
@@ -38626,7 +38678,7 @@ export namespace Schemas {
       /** Tokens minted in the last 30 days that were revoked. */
       revoked_30d: number;
       /**
-         * Budget counted for tokens minted in the last 24 hours, in USD.
+         * Budget counted against the user's limit, in USD: tokens minted in the last 24 hours and older unexpired ones.
          * @pattern ^-?\d{0,8}(?:\.\d{0,2})?$
          */
       reserved_usd_24h: string;
@@ -38760,6 +38812,20 @@ export namespace Schemas {
       remaining_usd: string | null;
     }
 
+    export interface DevTokenCreate {
+      /**
+         * Most the token can spend, in USD, within the bounds `usage` reports. Omit for the default.
+         * @nullable
+         * @pattern ^-?\d{0,8}(?:\.\d{0,2})?$
+         */
+      cap_usd?: string | null;
+      /**
+         * Token lifetime in seconds, within the bounds `usage` reports. Omit for the default.
+         * @nullable
+         */
+      ttl_seconds?: number | null;
+    }
+
     export interface DevTokenRefusal {
       /** Stable refusal code, for example daily_limit or not_staff. */
       code: string;
@@ -38790,12 +38856,12 @@ export namespace Schemas {
 
     export interface DevTokenUsage {
       /**
-         * Most budget one user can use in 24 hours, in USD.
+         * Most budget one user can hold, in USD, counting tokens minted in the last 24 hours and older unexpired ones.
          * @pattern ^-?\d{0,8}(?:\.\d{0,2})?$
          */
       daily_cap_usd: string;
       /**
-         * Budget used in the last 24 hours, in USD: spend for revoked tokens, the full cap otherwise.
+         * Budget used, in USD, by tokens minted in the last 24 hours and older tokens not yet expired: spend for revoked tokens, the full cap otherwise.
          * @pattern ^-?\d{0,8}(?:\.\d{0,2})?$
          */
       used_usd: string;
@@ -38805,13 +38871,22 @@ export namespace Schemas {
          */
       token_cap_usd: string;
       /**
-         * Budget that must be left to create a token, in USD.
+         * Smallest cap of a new token, and the budget that must be left to create one, in USD.
          * @pattern ^-?\d{0,8}(?:\.\d{0,2})?$
          */
       token_cap_min_usd: string;
-      /** Lifetime of each new token, in seconds. */
+      /**
+         * Cap of a new token when the request names none, in USD.
+         * @pattern ^-?\d{0,8}(?:\.\d{0,2})?$
+         */
+      default_cap_usd: string;
+      /** Lifetime of a new token when the request names none, in seconds. */
       ttl_seconds: number;
-      /** Tokens the user minted in the last 24 hours, newest first, including revoked and expired ones. */
+      /** Shortest lifetime of a new token, in seconds. */
+      ttl_min_seconds: number;
+      /** Longest lifetime of a new token, in seconds. */
+      ttl_max_seconds: number;
+      /** Tokens the user minted in the last 24 hours, including revoked and expired ones, plus older tokens not yet expired, newest first. */
       tokens: DevToken[];
     }
 
@@ -54917,6 +54992,11 @@ export namespace Schemas {
       readonly notebook: string | null;
     }
 
+    export interface FirehydrantAlertsIncidentSignalExtra {
+      status: string | null;
+      starts_at: string | null;
+    }
+
     export interface FirehydrantIncidentSignalExtra {
       severity: string | null;
       priority: string | null;
@@ -56354,6 +56434,13 @@ export namespace Schemas {
       channel: string | null;
       tags: unknown[];
       created_datetime: string | null;
+    }
+
+    export interface GrafanaIrmAlertGroupsIncidentSignalExtra {
+      state: string | null;
+      alerts_count: string | null;
+      integration_id: string | null;
+      created_at: string | null;
     }
 
     export interface GrafanaIrmIncidentSignalExtra {
@@ -63482,6 +63569,14 @@ export namespace Schemas {
      * * `statuspage` - Statuspage
      * * `cronitor` - Cronitor
      * * `instatus` - Instatus
+     * * `rootly` - Rootly
+     * * `zenduty` - Zenduty
+     * * `splunk_observability_cloud` - Splunk Observability Cloud
+     * * `uptimerobot` - UptimeRobot
+     * * `rootly_alerts` - Rootly alerts
+     * * `incident_io_alerts` - incident.io alerts
+     * * `firehydrant_alerts` - FireHydrant alerts
+     * * `grafana_irm_alert_groups` - Grafana IRM alert groups
      * * `asana` - Asana
      * * `monday` - monday.com
      * * `plane` - Plane
@@ -63632,6 +63727,14 @@ export namespace Schemas {
       Statuspage: 'statuspage',
       Cronitor: 'cronitor',
       Instatus: 'instatus',
+      Rootly: 'rootly',
+      Zenduty: 'zenduty',
+      SplunkObservabilityCloud: 'splunk_observability_cloud',
+      Uptimerobot: 'uptimerobot',
+      RootlyAlerts: 'rootly_alerts',
+      IncidentIoAlerts: 'incident_io_alerts',
+      FirehydrantAlerts: 'firehydrant_alerts',
+      GrafanaIrmAlertGroups: 'grafana_irm_alert_groups',
       Asana: 'asana',
       Monday: 'monday',
       Plane: 'plane',
@@ -63832,6 +63935,14 @@ export namespace Schemas {
        * * `statuspage` - Statuspage
        * * `cronitor` - Cronitor
        * * `instatus` - Instatus
+       * * `rootly` - Rootly
+       * * `zenduty` - Zenduty
+       * * `splunk_observability_cloud` - Splunk Observability Cloud
+       * * `uptimerobot` - UptimeRobot
+       * * `rootly_alerts` - Rootly alerts
+       * * `incident_io_alerts` - incident.io alerts
+       * * `firehydrant_alerts` - FireHydrant alerts
+       * * `grafana_irm_alert_groups` - Grafana IRM alert groups
        * * `asana` - Asana
        * * `monday` - monday.com
        * * `plane` - Plane
@@ -64122,6 +64233,12 @@ export namespace Schemas {
          * @nullable
          */
       people: InboxSummaryPerson[] | null;
+    }
+
+    export interface IncidentIoAlertsIncidentSignalExtra {
+      status: string | null;
+      alert_source_id: string | null;
+      created_at: string | null;
     }
 
     export interface IncidentIoIncidentSignalExtra {
@@ -68294,9 +68411,10 @@ export namespace Schemas {
     export type LogsAlertConfigurationDetailAnnotations = {[key: string]: string};
 
     export interface LogsAlertDestinationConfig {
+      /** The HogFunction IDs that delete this destination as a group. A destination moved off HogFunctions keeps the IDs it had, though those HogFunctions are deleted. */
       hog_function_ids: string[];
       /**
-         * The destination's ID on the alerts platform. Null for a destination added before the platform kept one, which `hog_function_ids` identifies instead. A destination whose HogFunctions are gone has an empty `hog_function_ids`, and is deleted by this ID.
+         * The destination's ID on the alerts platform. Null for a destination added before the platform kept one, which `hog_function_ids` identifies instead. A destination added with no HogFunctions has an empty `hog_function_ids`, and is deleted by this ID.
          * @nullable
          */
       id: string | null;
@@ -68479,6 +68597,19 @@ export namespace Schemas {
       pagerduty_region?: PagerDutyRegionEnum;
     }
 
+    export interface LogsAlertCustomizeDestination {
+      /**
+         * The destination's `destinations[].id`. Use it for a destination with no HogFunctions.
+         * @nullable
+         */
+      destination_id?: string | null;
+      /**
+         * The destination's `destinations[].hog_function_ids`, for a destination that has HogFunctions.
+         * @maxItems 100
+         */
+      hog_function_ids?: string[];
+    }
+
     export interface LogsAlertDeleteDestination {
       /** HogFunction IDs to delete as one atomic destination group. */
       hog_function_ids?: string[];
@@ -68551,6 +68682,20 @@ export namespace Schemas {
       readonly error_message: string | null;
       /** @nullable */
       readonly query_duration_ms: number | null;
+    }
+
+    export interface LogsAlertResetDestination {
+      /**
+         * Every HogFunction of the customized destination, from `destinations[].hog_function_ids`.
+         * @minItems 1
+         * @maxItems 100
+         */
+      hog_function_ids: string[];
+    }
+
+    export interface LogsAlertResetDestinationResponse {
+      /** The destination's new ID on the alerts platform, which now sends it. */
+      id: string;
     }
 
     export interface LogsAlertSimulateBucket {
@@ -108238,6 +108383,14 @@ export namespace Schemas {
      * * `statuspage` - statuspage
      * * `cronitor` - cronitor
      * * `instatus` - instatus
+     * * `rootly` - rootly
+     * * `zenduty` - zenduty
+     * * `splunk_observability_cloud` - splunk_observability_cloud
+     * * `uptimerobot` - uptimerobot
+     * * `rootly_alerts` - rootly_alerts
+     * * `incident_io_alerts` - incident_io_alerts
+     * * `firehydrant_alerts` - firehydrant_alerts
+     * * `grafana_irm_alert_groups` - grafana_irm_alert_groups
      * * `asana` - asana
      * * `monday` - monday
      * * `plane` - plane
@@ -108388,6 +108541,14 @@ export namespace Schemas {
       Statuspage: 'statuspage',
       Cronitor: 'cronitor',
       Instatus: 'instatus',
+      Rootly: 'rootly',
+      Zenduty: 'zenduty',
+      SplunkObservabilityCloud: 'splunk_observability_cloud',
+      Uptimerobot: 'uptimerobot',
+      RootlyAlerts: 'rootly_alerts',
+      IncidentIoAlerts: 'incident_io_alerts',
+      FirehydrantAlerts: 'firehydrant_alerts',
+      GrafanaIrmAlertGroups: 'grafana_irm_alert_groups',
       Asana: 'asana',
       Monday: 'monday',
       Plane: 'plane',
@@ -108735,6 +108896,40 @@ export namespace Schemas {
       created_at: string | null;
     }
 
+    export interface RootlyIncidentSignalExtra {
+      status: string | null;
+      severity_name: string | null;
+      kind: string | null;
+      url: string | null;
+      created_at: string | null;
+    }
+
+    export interface ZendutyIncidentSignalExtra {
+      incident_number: string | null;
+      status: string | null;
+      urgency: string | null;
+      creation_date: string | null;
+    }
+
+    export interface SplunkObservabilityCloudIncidentSignalExtra {
+      severity: string | null;
+      anomaly_state: string | null;
+      triggered_at: string | null;
+    }
+
+    export interface UptimerobotIncidentSignalExtra {
+      status: string | null;
+      type: string | null;
+      started_at: string | null;
+    }
+
+    export interface RootlyAlertsIncidentSignalExtra {
+      status: string | null;
+      source: string | null;
+      url: string | null;
+      created_at: string | null;
+    }
+
     export interface SonarcloudScannerFindingSignalExtra {
       severity: string | null;
       type: string | null;
@@ -108855,7 +109050,7 @@ export namespace Schemas {
       created_at: string | null;
     }
 
-    export type SignalExtra = SessionProblemSignalExtra | LlmEvalSignalExtra | LlmEvalReportSignalExtra | ZendeskTicketSignalExtra | GithubIssueSignalExtra | LinearIssueSignalExtra | JiraIssueSignalExtra | ConversationsTicketSignalExtra | ErrorTrackingSignalExtra | PgAnalyzeIssueSignalExtra | EndpointExecutionFailedSignalExtra | EndpointBreakdownLimitExceededSignalExtra | SignalsScoutSignalExtra | CheckFailedSignalExtra | MonitoringUnresolvedSignalExtra | LogsAlertStateChangeSignalExtra | ReplayVisionScannerFindingSignalExtra | AnalyticsAnomalyInvestigationSignalExtra | AnalyticsAlertFiringSignalExtra | HealthCheckSignalExtra | EngineeringAnalyticsCIFlakyCheckSignalExtra | EngineeringAnalyticsCIBrokenDefaultBranchSignalExtra | EngineeringAnalyticsCIDurationRegressionSignalExtra | FreshdeskTicketSignalExtra | FreshserviceTicketSignalExtra | FrontConversationSignalExtra | GorgiasTicketSignalExtra | KustomerConversationSignalExtra | DixaConversationSignalExtra | PlainThreadSignalExtra | GitlabIssueSignalExtra | GiteaIssueSignalExtra | ShortcutStorySignalExtra | ClickupTaskSignalExtra | WrikeTaskSignalExtra | TrelloCardSignalExtra | BugherdTaskSignalExtra | SentryIssueSignalExtra | RollbarItemSignalExtra | BugsnagErrorSignalExtra | HoneybadgerFaultSignalExtra | RaygunErrorGroupSignalExtra | DatadogSignalExtra | SnykScannerFindingSignalExtra | SonarqubeScannerFindingSignalExtra | SemgrepScannerFindingSignalExtra | Rapid7InsightvmScannerFindingSignalExtra | FeaturebaseFeedbackSignalExtra | FrillFeedbackSignalExtra | AhaFeedbackSignalExtra | UservoiceFeedbackSignalExtra | ProductboardFeedbackSignalExtra | CannyFeedbackSignalExtra | AsknicelyFeedbackSignalExtra | RetentlyFeedbackSignalExtra | UsersnapFeedbackSignalExtra | TypeformFeedbackSignalExtra | QualtricsFeedbackSignalExtra | SurveymonkeyFeedbackSignalExtra | FormbricksFeedbackSignalExtra | SurvicateFeedbackSignalExtra | SurveysparrowFeedbackSignalExtra | AppfiguresReviewSignalExtra | AppfollowReviewSignalExtra | JudgemeReviewsReviewSignalExtra | IntercomTicketSignalExtra | HubspotTicketSignalExtra | Dynamics365TicketSignalExtra | ZohoCrmTicketSignalExtra | GoogleSearchConsoleSearchOpportunitySignalExtra | HelpscoutConversationSignalExtra | DecagonConversationSignalExtra | VitallyConversationSignalExtra | IntercomTicketsTicketSignalExtra | PylonTicketSignalExtra | PagerdutyIncidentSignalExtra | OpsgenieAlertSignalExtra | IncidentIoIncidentSignalExtra | FirehydrantIncidentSignalExtra | SquadcastIncidentSignalExtra | ServicenowIncidentSignalExtra | SolarwindsServiceDeskIncidentSignalExtra | GrafanaIrmIncidentSignalExtra | XmattersIncidentSignalExtra | LaceworkScannerFindingSignalExtra | OrcaSecurityScannerFindingSignalExtra | TenableVulnerabilityManagementScannerFindingSignalExtra | BetterstackIncidentSignalExtra | AsanaIssueSignalExtra | MondayIssueSignalExtra | PlaneIssueSignalExtra | AzureDevopsIssueSignalExtra | MonteCarloAlertSignalExtra | BigeyeIssueSignalExtra | DynatraceIncidentSignalExtra | StatuspageIncidentSignalExtra | CronitorIncidentSignalExtra | InstatusIncidentSignalExtra | GooglePlayConsoleIssueSignalExtra | AzureApplicationInsightsIssueSignalExtra | AppsignalIssueSignalExtra | CursorIssueSignalExtra | SonarcloudScannerFindingSignalExtra | CheckmarxScannerFindingSignalExtra | VeracodeScannerFindingSignalExtra | VeracodeScaScannerFindingSignalExtra | SemgrepScaScannerFindingSignalExtra | GitguardianScannerFindingSignalExtra | InfisicalScannerFindingSignalExtra | AwsMacieScannerFindingSignalExtra | SentineloneScannerFindingSignalExtra | JfrogXrayScannerFindingSignalExtra | DynatraceSecurityScannerFindingSignalExtra | TriggerDevErrorSignalExtra | ChecklyErrorGroupSignalExtra | RoarkIssueSignalExtra | SleekplanFeedbackSignalExtra | BettermodeFeedbackSignalExtra | DiscourseFeedbackSignalExtra | MintlifyFeedbackSignalExtra | LangsmithFeedbackSignalExtra | SprigFeedbackSignalExtra | GainsightPxFeedbackSignalExtra | TrustpilotReviewSignalExtra | OkendoReviewSignalExtra | BeamerFeedbackSignalExtra | BeamerNpsFeedbackSignalExtra | ChameleonFeedbackSignalExtra | FeaturebaseSurveysFeedbackSignalExtra | UservoiceNpsFeedbackSignalExtra | VitallyNpsFeedbackSignalExtra | EtsyReviewSignalExtra | G2ReviewSignalExtra | GumroadReviewSignalExtra | TrustpilotProductReviewsReviewSignalExtra | WoocommerceReviewSignalExtra | YotpoReviewSignalExtra | AwsSecurityHubScannerFindingSignalExtra | AwsGuarddutyScannerFindingSignalExtra | AwsInspectorScannerFindingSignalExtra | MicrosoftDefenderCloudAppsScannerFindingSignalExtra | GithubDependabotScannerFindingSignalExtra | GithubCodeScanningScannerFindingSignalExtra | GithubSecretScanningScannerFindingSignalExtra | NewrelicIssueSignalExtra | AmazonCloudwatchIncidentSignalExtra | LogicmonitorIncidentSignalExtra | AirbrakeIssueSignalExtra | MuxIssueSignalExtra;
+    export type SignalExtra = SessionProblemSignalExtra | LlmEvalSignalExtra | LlmEvalReportSignalExtra | ZendeskTicketSignalExtra | GithubIssueSignalExtra | LinearIssueSignalExtra | JiraIssueSignalExtra | ConversationsTicketSignalExtra | ErrorTrackingSignalExtra | PgAnalyzeIssueSignalExtra | EndpointExecutionFailedSignalExtra | EndpointBreakdownLimitExceededSignalExtra | SignalsScoutSignalExtra | CheckFailedSignalExtra | MonitoringUnresolvedSignalExtra | LogsAlertStateChangeSignalExtra | ReplayVisionScannerFindingSignalExtra | AnalyticsAnomalyInvestigationSignalExtra | AnalyticsAlertFiringSignalExtra | HealthCheckSignalExtra | EngineeringAnalyticsCIFlakyCheckSignalExtra | EngineeringAnalyticsCIBrokenDefaultBranchSignalExtra | EngineeringAnalyticsCIDurationRegressionSignalExtra | FreshdeskTicketSignalExtra | FreshserviceTicketSignalExtra | FrontConversationSignalExtra | GorgiasTicketSignalExtra | KustomerConversationSignalExtra | DixaConversationSignalExtra | PlainThreadSignalExtra | GitlabIssueSignalExtra | GiteaIssueSignalExtra | ShortcutStorySignalExtra | ClickupTaskSignalExtra | WrikeTaskSignalExtra | TrelloCardSignalExtra | BugherdTaskSignalExtra | SentryIssueSignalExtra | RollbarItemSignalExtra | BugsnagErrorSignalExtra | HoneybadgerFaultSignalExtra | RaygunErrorGroupSignalExtra | DatadogSignalExtra | SnykScannerFindingSignalExtra | SonarqubeScannerFindingSignalExtra | SemgrepScannerFindingSignalExtra | Rapid7InsightvmScannerFindingSignalExtra | FeaturebaseFeedbackSignalExtra | FrillFeedbackSignalExtra | AhaFeedbackSignalExtra | UservoiceFeedbackSignalExtra | ProductboardFeedbackSignalExtra | CannyFeedbackSignalExtra | AsknicelyFeedbackSignalExtra | RetentlyFeedbackSignalExtra | UsersnapFeedbackSignalExtra | TypeformFeedbackSignalExtra | QualtricsFeedbackSignalExtra | SurveymonkeyFeedbackSignalExtra | FormbricksFeedbackSignalExtra | SurvicateFeedbackSignalExtra | SurveysparrowFeedbackSignalExtra | AppfiguresReviewSignalExtra | AppfollowReviewSignalExtra | JudgemeReviewsReviewSignalExtra | IntercomTicketSignalExtra | HubspotTicketSignalExtra | Dynamics365TicketSignalExtra | ZohoCrmTicketSignalExtra | GoogleSearchConsoleSearchOpportunitySignalExtra | HelpscoutConversationSignalExtra | DecagonConversationSignalExtra | VitallyConversationSignalExtra | IntercomTicketsTicketSignalExtra | PylonTicketSignalExtra | PagerdutyIncidentSignalExtra | OpsgenieAlertSignalExtra | IncidentIoIncidentSignalExtra | FirehydrantIncidentSignalExtra | SquadcastIncidentSignalExtra | ServicenowIncidentSignalExtra | SolarwindsServiceDeskIncidentSignalExtra | GrafanaIrmIncidentSignalExtra | XmattersIncidentSignalExtra | LaceworkScannerFindingSignalExtra | OrcaSecurityScannerFindingSignalExtra | TenableVulnerabilityManagementScannerFindingSignalExtra | BetterstackIncidentSignalExtra | AsanaIssueSignalExtra | MondayIssueSignalExtra | PlaneIssueSignalExtra | AzureDevopsIssueSignalExtra | MonteCarloAlertSignalExtra | BigeyeIssueSignalExtra | DynatraceIncidentSignalExtra | StatuspageIncidentSignalExtra | CronitorIncidentSignalExtra | InstatusIncidentSignalExtra | RootlyIncidentSignalExtra | ZendutyIncidentSignalExtra | SplunkObservabilityCloudIncidentSignalExtra | UptimerobotIncidentSignalExtra | RootlyAlertsIncidentSignalExtra | IncidentIoAlertsIncidentSignalExtra | FirehydrantAlertsIncidentSignalExtra | GrafanaIrmAlertGroupsIncidentSignalExtra | GooglePlayConsoleIssueSignalExtra | AzureApplicationInsightsIssueSignalExtra | AppsignalIssueSignalExtra | CursorIssueSignalExtra | SonarcloudScannerFindingSignalExtra | CheckmarxScannerFindingSignalExtra | VeracodeScannerFindingSignalExtra | VeracodeScaScannerFindingSignalExtra | SemgrepScaScannerFindingSignalExtra | GitguardianScannerFindingSignalExtra | InfisicalScannerFindingSignalExtra | AwsMacieScannerFindingSignalExtra | SentineloneScannerFindingSignalExtra | JfrogXrayScannerFindingSignalExtra | DynatraceSecurityScannerFindingSignalExtra | TriggerDevErrorSignalExtra | ChecklyErrorGroupSignalExtra | RoarkIssueSignalExtra | SleekplanFeedbackSignalExtra | BettermodeFeedbackSignalExtra | DiscourseFeedbackSignalExtra | MintlifyFeedbackSignalExtra | LangsmithFeedbackSignalExtra | SprigFeedbackSignalExtra | GainsightPxFeedbackSignalExtra | TrustpilotReviewSignalExtra | OkendoReviewSignalExtra | BeamerFeedbackSignalExtra | BeamerNpsFeedbackSignalExtra | ChameleonFeedbackSignalExtra | FeaturebaseSurveysFeedbackSignalExtra | UservoiceNpsFeedbackSignalExtra | VitallyNpsFeedbackSignalExtra | EtsyReviewSignalExtra | G2ReviewSignalExtra | GumroadReviewSignalExtra | TrustpilotProductReviewsReviewSignalExtra | WoocommerceReviewSignalExtra | YotpoReviewSignalExtra | AwsSecurityHubScannerFindingSignalExtra | AwsGuarddutyScannerFindingSignalExtra | AwsInspectorScannerFindingSignalExtra | MicrosoftDefenderCloudAppsScannerFindingSignalExtra | GithubDependabotScannerFindingSignalExtra | GithubCodeScanningScannerFindingSignalExtra | GithubSecretScanningScannerFindingSignalExtra | NewrelicIssueSignalExtra | AmazonCloudwatchIncidentSignalExtra | LogicmonitorIncidentSignalExtra | AirbrakeIssueSignalExtra | MuxIssueSignalExtra;
 
     export type SignalMatchMetadata = MatchedMetadata | NoMatchMetadata;
 
@@ -108965,6 +109160,14 @@ export namespace Schemas {
        * * `statuspage` - statuspage
        * * `cronitor` - cronitor
        * * `instatus` - instatus
+       * * `rootly` - rootly
+       * * `zenduty` - zenduty
+       * * `splunk_observability_cloud` - splunk_observability_cloud
+       * * `uptimerobot` - uptimerobot
+       * * `rootly_alerts` - rootly_alerts
+       * * `incident_io_alerts` - incident_io_alerts
+       * * `firehydrant_alerts` - firehydrant_alerts
+       * * `grafana_irm_alert_groups` - grafana_irm_alert_groups
        * * `asana` - asana
        * * `monday` - monday
        * * `plane` - plane
@@ -145190,6 +145393,10 @@ export namespace Schemas {
      * @minLength 1
      */
     group_by?: SignalsAnomaliesSearchRetrieveGroupBy;
+    /**
+     * Add `points` to each series row: its newest 400 scored buckets in the range, oldest first. Costs one more query. Has no effect with `group_by: insight`.
+     */
+    include_points?: boolean;
     /**
      * Only the series of this insight, by numeric id.
      */

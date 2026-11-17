@@ -127,6 +127,7 @@ From there the seeder takes over.
 
 A cohort carries a realtime switch, `realtime_enabled_at`, which is null while realtime is off.
 The save path, both run creators, the team runs and `realtime_cohort_team_access enable` skip a cohort that is off, and the finalizer refuses to stamp it.
+The processor does not load it, and the shuffler forwards no event for a team whose cohorts are all off.
 `products/cohorts/backend/cohort_enablement.py` turns the switch on and off.
 
 - **On.** It refuses a team the pipeline does not process, and a cohort that can never be ready.
