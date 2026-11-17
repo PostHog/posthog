@@ -9,6 +9,7 @@ from posthog.api.query_access_check import denied_query_resources
 from posthog.constants import AvailableFeature
 from posthog.dataclasses import frozen
 from posthog.event_usage import AnalyticsProps
+from posthog.exceptions_capture import capture_exception
 from posthog.models import User
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.activity_logging.model_activity import ActingUserContext
@@ -153,6 +154,7 @@ def _validate_query_access(alert: AlertConfiguration, actor: User, owner: User) 
         with transaction.atomic():
             denied = denied_query_resources(owner, alert.team, [query])
     except DatabaseError as error:
+        capture_exception(error)
         raise AlertWriteRefused(
             "Couldn't check access for this ownership change. Try again.",
             code="ownership_access_check_unavailable",
