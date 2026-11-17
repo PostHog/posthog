@@ -1,4 +1,5 @@
 import time
+from collections.abc import Iterator
 
 from django.core.management.base import BaseCommand
 from django.db import connections
@@ -78,39 +79,21 @@ class Command(BaseCommand):
         """
         count_sql = f"SELECT count(*) FROM posthog_oauthapplication WHERE id = ANY(%(ids)s) AND ({needs_scopes} OR {needs_optional})"
 
-        last_id = None
         totals = {"scanned": 0, "updated": 0}
         started = time.monotonic()
-        while True:
+        for ids in self._id_batches("posthog_oauthapplication", "id", "TRUE"):
             with self.connection.cursor() as cursor:
-                if last_id is None:
-                    cursor.execute("SELECT id FROM posthog_oauthapplication ORDER BY id LIMIT %s", [self.batch_size])
-                else:
-                    cursor.execute(
-                        "SELECT id FROM posthog_oauthapplication WHERE id > %s ORDER BY id LIMIT %s",
-                        [last_id, self.batch_size],
-                    )
-                ids = [row[0] for row in cursor.fetchall()]
-                if not ids:
-                    break
                 self._run_batch(cursor, update_sql, count_sql, ids, totals)
-            last_id = ids[-1]
             self._progress("applications", totals, started)
         self._progress("applications", totals, started, done=True)
 
     def backfill_access_tokens(self) -> None:
         # Only tokens that can still be used: unexpired ones, and the ones an unrevoked refresh token
         # points at (a refresh reads the old token's scope). Expired tokens are never read again.
-        with self.connection.cursor() as cursor:
-            cursor.execute("""
-                SELECT id FROM posthog_oauthaccesstoken WHERE application_id IS NOT NULL AND expires > now()
-                UNION
-                SELECT access_token_id FROM posthog_oauthrefreshtoken
-                WHERE revoked IS NULL AND access_token_id IS NOT NULL
-                ORDER BY 1
-            """)
-            all_ids = [row[0] for row in cursor.fetchall()]
-        self.stdout.write(f"access_tokens: {len(all_ids)} usable tokens to check")
+        sources = [
+            ("posthog_oauthaccesstoken", "id", "application_id IS NOT NULL AND expires > now()"),
+            ("posthog_oauthrefreshtoken", "access_token_id", "revoked IS NULL AND access_token_id IS NOT NULL"),
+        ]
 
         missing = _missing_text_scopes("scope")
         needs = f"{missing} <> ''"
@@ -122,12 +105,36 @@ class Command(BaseCommand):
 
         totals = {"scanned": 0, "updated": 0}
         started = time.monotonic()
-        for start in range(0, len(all_ids), self.batch_size):
-            ids = all_ids[start : start + self.batch_size]
-            with self.connection.cursor() as cursor:
-                self._run_batch(cursor, update_sql, count_sql, ids, totals)
-            self._progress("access_tokens", totals, started)
+        for table, id_column, where in sources:
+            for ids in self._id_batches(table, id_column, where):
+                with self.connection.cursor() as cursor:
+                    self._run_batch(cursor, update_sql, count_sql, ids, totals)
+                self._progress("access_tokens", totals, started)
         self._progress("access_tokens", totals, started, done=True)
+
+    def _id_batches(self, table: str, id_column: str, where: str) -> Iterator[list]:
+        """Batches of `id_column` values from rows matching `where`, walked in order of that column."""
+        # A short query per batch, not one long cursor: an open transaction on the writer would hold
+        # back vacuum for the whole run.
+        last_id = None
+        while True:
+            params: dict = {"limit": self.batch_size}
+            cursor_filter = ""
+            if last_id is not None:
+                cursor_filter = f"AND {id_column} > %(last_id)s"
+                params["last_id"] = last_id
+            with self.connection.cursor() as cursor:
+                cursor.execute(
+                    f"SELECT {id_column} FROM {table} WHERE {where} {cursor_filter} ORDER BY {id_column} LIMIT %(limit)s",
+                    params,
+                )
+                ids = [row[0] for row in cursor.fetchall()]
+            if not ids:
+                return
+            yield ids
+            if len(ids) < self.batch_size:
+                return
+            last_id = ids[-1]
 
     def _run_batch(self, cursor, update_sql: str, count_sql: str, ids: list, totals: dict[str, int]) -> None:
         params = {**self.params, "ids": ids}
