@@ -180,14 +180,16 @@ class _Reader:
         if isinstance(node, ast.Constant) and isinstance(node.value, str):
             if isinstance(parent, ast.Expr):
                 return False
-            if node.value in {"alert_configuration", "alert_configurations"}:
+            # `order_by` marks a descending field with a leading `-`, which is not part of the lookup.
+            field = node.value.removeprefix("-")
+            if field in {"alert_configuration", "alert_configurations"}:
                 return self._names_a_relation(parent)
-            if self.uses_logs_row_children and LOGS_ROW_LOOKUP.search(node.value):
+            if self.uses_logs_row_children and LOGS_ROW_LOOKUP.search(field):
                 # A lookup through `alert` joins the logs row in any query call, not only the relation loaders.
-                if node.value != "alert":
+                if field != "alert":
                     return isinstance(parent, ast.Call)
                 return self._names_a_relation(parent)
-            return bool(LEGACY_STRING.search(node.value) or LOOKUP.search(node.value))
+            return bool(LEGACY_STRING.search(node.value) or LOOKUP.search(field))
         return False
 
     def _model_is_read(self, node: ast.AST, parent: ast.AST | None) -> bool:
@@ -334,6 +336,8 @@ def test_legacy_alert_configurations_are_read_only_by_listed_code() -> None:
         ("from m import LogsAlertCheck\nchecks.annotate(name=F('alert__name'))", ["<module>"]),
         ("AlertCheck.objects.order_by('alert_configuration')", ["<module>"]),
         ("from m import LogsAlertCheck\nchecks.order_by('-created_at')", []),
+        ("from m import LogsAlertEvent\nLogsAlertEvent.objects.order_by('-alert__name')", ["<module>"]),
+        ("AlertCheck.objects.order_by('-alert_configuration__name')", ["<module>"]),
         ("apps.get_model('alerts', 'AlertConfiguration').objects.all()", ["<module>"]),
         ("apps.get_model('logs', 'LogsAlertConfiguration')", ["<module>"]),
         ("apps.get_model('alerts', 'AlertCheck')", []),
