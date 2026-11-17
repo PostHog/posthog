@@ -15,7 +15,7 @@ import { useEmailJourneyPrototype } from './useEmailJourneyPrototype'
 
 function Highlight({ icon, title, children }: { icon: JSX.Element; title: string; children: ReactNode }): JSX.Element {
     return (
-        <section className="flex-1 min-w-64 border rounded bg-surface-primary p-3 flex flex-col gap-1">
+        <section className="flex-1 min-w-52 border rounded bg-surface-primary p-3 flex flex-col gap-1">
             <span className="flex items-center gap-1 text-xs text-secondary font-semibold uppercase tracking-wide">
                 {icon}
                 {title}
