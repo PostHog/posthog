@@ -85,13 +85,17 @@ class SourceDriver:
     around the run: it commits the resume cursor when the source hands over a row or reaches a safe
     point, which is what makes a cursor saved after the last row fail to persist, as in production.
 
-    The schema is a webhook schema only when the run is given `webhook_files`. Otherwise a source that
+    The schema is a webhook schema only when the driver is given `webhook_files`. Otherwise a source that
     can read webhook rows polls the API instead, as it does before its webhook is live.
     """
 
-    def __init__(self, source: _BaseSource[Any], config: Any) -> None:
+    def __init__(
+        self, source: _BaseSource[Any], config: Any, *, webhook_files: Sequence[Sequence[dict[str, Any]]] | None = None
+    ) -> None:
+        """`webhook_files` turns the webhook on and stages each list of payloads as one file, in arrival order."""
         self._source = source
         self._config = config
+        self._webhook_files = webhook_files
 
     def run(
         self,
@@ -99,14 +103,12 @@ class SourceDriver:
         script: Script,
         *,
         resume_state: Any = None,
-        webhook_files: Sequence[Sequence[dict[str, Any]]] | None = None,
         **inputs: Any,
     ) -> DriveResult:
         """Run one extraction to its end or its first error.
 
         `script` answers the requests, in order or by request. `resume_state` is a cursor a previous
-        attempt left behind, so the source resumes from it. `webhook_files` turns the webhook on and
-        stages each list of payloads as one file, in arrival order. Other keywords go to `source_inputs`.
+        attempt left behind, so the source resumes from it. Other keywords go to `source_inputs`.
         """
         with fake_environment(ScriptedResponder(script), SCRIPTED_REQUEST_LIMIT) as network:
             built = source_inputs(schema_name, **inputs)
@@ -119,7 +121,7 @@ class SourceDriver:
 
             with (
                 self._recording_saves(saved),
-                _webhooks_off() if webhook_files is None else _staged_webhook_files(built, webhook_files),
+                _webhooks_off() if self._webhook_files is None else _staged_webhook_files(built, self._webhook_files),
             ):
                 manager = self._manager(built)
                 if manager is not None and resume_state is not None:

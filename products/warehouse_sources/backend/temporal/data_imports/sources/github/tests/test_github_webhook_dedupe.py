@@ -225,8 +225,8 @@ def _webhook_rows(*, webhook_history: bool) -> pa.Table:
         repository="acme/widgets",
         repositories=None,
     )
-    result = SourceDriver(GithubSource(), config).run(
-        "workflow_jobs", [], webhook_files=_JOB_FILES, webhook_history=webhook_history
+    result = SourceDriver(GithubSource(), config, webhook_files=_JOB_FILES).run(
+        "workflow_jobs", [], webhook_history=webhook_history
     )
     assert result.raised is None
     return pa.concat_tables(result.items)

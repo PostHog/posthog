@@ -1937,8 +1937,8 @@ class TestWebhookEventRows:
         config = StripeSourceConfig(
             auth_method=StripeAuthMethodConfig(selection="api_key", stripe_secret_key="sk_test")
         )
-        result = SourceDriver(StripeSource(), config).run(
-            INVOICE_RESOURCE_NAME, [], webhook_files=self._FILES, webhook_history=webhook_history
+        result = SourceDriver(StripeSource(), config, webhook_files=self._FILES).run(
+            INVOICE_RESOURCE_NAME, [], webhook_history=webhook_history
         )
         assert result.raised is None
         return pa.concat_tables(result.items)
