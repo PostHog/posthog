@@ -14,6 +14,7 @@ from types import FrameType
 from typing import Any
 
 import structlog
+from billiard.common import _shutdown_cleanup
 
 from posthog.api.cohort import validate_filters_and_compute_realtime_support
 from posthog.dataclasses import frozen
@@ -61,7 +62,10 @@ def termination_unwinds() -> Iterator[bool]:
         return
 
     dispositions = {signum: signal.getsignal(signum) for signum in UNWIND_SIGNALS}
-    if any(disposition not in (signal.SIG_DFL, signal.SIG_IGN) for disposition in dispositions.values()):
+    # billiard's handler in a prefork Celery child raises `SystemExit`, which unwinds the same way.
+    if any(
+        disposition not in (signal.SIG_DFL, signal.SIG_IGN, _shutdown_cleanup) for disposition in dispositions.values()
+    ):
         # Something else owns one of them, a web worker serving the admin view for one. Taking it
         # over would replace that shutdown path, and a handler installed outside Python reads
         # back as `None`, which cannot be restored afterwards.

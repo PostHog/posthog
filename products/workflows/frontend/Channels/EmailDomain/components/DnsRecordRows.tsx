@@ -18,6 +18,7 @@ export const RECORD_KIND_LABEL: Record<EmailDomainSetupRecordKindEnumApi, string
     mail_from_mx: 'Routes bounces back to you (MAIL FROM)',
     mail_from_spf: 'Lists who may send bounces (MAIL FROM SPF)',
     dmarc: 'Tells inboxes what to do with fakes (DMARC)',
+    organization: 'Proves your organization owns the domain',
 }
 
 const RECORD_KIND_HINT: Partial<Record<EmailDomainSetupRecordKindEnumApi, string>> = {
@@ -25,6 +26,7 @@ const RECORD_KIND_HINT: Partial<Record<EmailDomainSetupRecordKindEnumApi, string
     mail_from_spf:
         'Already have an SPF record at this name? Add include:amazonses.com to it instead of adding a second one.',
     dmarc: 'Already have a DMARC record? Keep yours and skip this one.',
+    organization: 'Another organization also added this domain. This record shows which one owns it.',
 }
 
 type RowStatus = EmailDomainStatusRecordApi['status'] | 'missing'

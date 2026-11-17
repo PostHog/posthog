@@ -34,6 +34,8 @@ const DELIVERY_WEBHOOK_BODY = {
     data: {
         created_at: '{event.timestamp}',
         email_id: '{event.properties.$workflow_invocation_id}',
+        template_id: '{event.properties.$email_template_id}',
+        template_key: '{event.properties.$email_template_key}',
         to: ['{event.properties.$email_to}'],
         subject: '{event.properties.$email_subject}',
         distinct_id: '{event.distinct_id}',

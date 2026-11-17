@@ -203,7 +203,6 @@ _FACTS = {
     "strong_familiarity": False,
     "unresolved_substantive_concerns": [],
     "other_refusal_grounds": [],
-    "rejected_bot_concerns": [],
     "reasoning": "Touches a migration without a reviewer.",
     "change_summary": "x" * 700,
 }

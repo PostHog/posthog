@@ -8,7 +8,6 @@ import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
 from unittest.mock import patch
 
-from django.conf import settings
 from django.utils.timezone import now
 
 from dateutil.relativedelta import relativedelta
@@ -500,6 +499,22 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand([("too_large", 201), ("time_unit", "day")])
     def test_rejects_invalid_volume_resolution_with_accepted_values(self, _name: str, value: object) -> None:
+        query_response = self.client.post(
+            f"/api/environments/{self.team.id}/query/",
+            data={
+                "query": {
+                    "kind": "ErrorTrackingQuery",
+                    "orderBy": "last_seen",
+                    "dateRange": {"date_from": "-7d"},
+                    "volumeResolution": value,
+                    "withAggregations": True,
+                }
+            },
+            format="json",
+        )
+        assert query_response.status_code == 400
+        assert "volumeResolution" in query_response.json()["detail"]
+
         list_response = self.client.post(
             f"/api/environments/{self.team.id}/error_tracking/query/issues",
             data={"volumeResolution": value},
@@ -825,8 +840,18 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
             "timestamp": "2026-03-31T09:00:00Z",
         }
 
+    @parameterized.expand(
+        [
+            (3, [0, 1, 1, 2], "2026-04-22T12:00:00+00:00"),
+            (101, [16, 42, 58, 84], "2026-04-22T11:59:59.968000+00:00"),
+            (199, [33, 82, 116, 165], "2026-04-22T11:59:59.944000+00:00"),
+            (200, [33, 83, 116, 166], "2026-04-22T12:00:00+00:00"),
+        ]
+    )
     @time_machine.travel("2026-04-24T12:00:00Z", tick=False)
-    def test_issue_detail_trend_splits_an_odd_volume_resolution_at_the_midpoint(self) -> None:
+    def test_issue_detail_trend_splits_volume_resolution_at_the_midpoint(
+        self, resolution: int, occupied_buckets: list[int], current_from: str
+    ) -> None:
         self.create_issue()
         for timestamp in [
             "2026-04-21T12:00:00Z",
@@ -843,17 +868,17 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
                 "issueId": self.issue_id,
                 "dateRange": {"date_from": "2026-04-21T00:00:00Z", "date_to": "2026-04-24T00:00:00Z"},
                 "includeSparkline": True,
-                "volumeResolution": 3,
+                "volumeResolution": resolution,
             },
             format="json",
         )
 
         assert response.status_code == 200
         data = response.json()
-        assert data["sparkline"] == [1, 2, 1]
+        assert data["sparkline"] == [occupied_buckets.count(index) for index in range(resolution)]
         assert data["trend"]["previous_occurrences"] == 2
         assert data["trend"]["current_occurrences"] == 2
-        assert data["trend"]["current_from"] == "2026-04-22T12:00:00+00:00"
+        assert data["trend"]["current_from"] == current_from
 
     @parameterized.expand(
         [
@@ -1023,9 +1048,7 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
         flush_persons_and_events()
 
         with (
-            summary_state(
-                self, self.issue_id, flag=flag, readable=readable, approved=approved, stored=stored
-            ) as publish,
+            summary_state(self, self.issue_id, flag=flag, readable=readable, approved=approved, stored=stored),
             patch("posthog.event_usage.posthoganalytics.capture") as mock_capture,
         ):
             response = self.client.post(
@@ -1043,7 +1066,6 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
             {**STORED_CONTENT, "generated_at": "2026-10-20T12:00:00+00:00"} if expected_status == "ready" else None
         )
         assert body.get("summary") == expected_summary
-        publish.assert_not_called()
         assert not lock_held(self.team.id, self.issue_id)
         [read_event] = [
             call.kwargs["properties"]
@@ -1395,13 +1417,7 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
         stack_frame = stack_properties["$exception_list"][0]["stacktrace"]["frames"][0]
         variables_frame = variables_properties["$exception_list"][0]["stacktrace"]["frames"][0]
         assert "code_variables" not in stack_frame
-        # The native-JSON table does not store a null leaf, so the null variable is absent there.
-        expected_variables = (
-            {"order": {"total": 42}}
-            if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA
-            else {"order": {"customer": None, "total": 42}}
-        )
-        assert variables_frame["code_variables"] == expected_variables
+        assert variables_frame["code_variables"] == {"order": {"customer": None, "total": 42}}
         assert variables_properties["$exception_level"] == "error"
         assert variables_properties["$exception_handled"] is False
         assert variables_properties["$exception_release"] == {"id": "release-id", "version": "2026.04.24"}

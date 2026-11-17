@@ -42,6 +42,7 @@ POPULATION_KINDS = api.POPULATION_KINDS
 PIPELINE_STATUS_CHOICES = api.PIPELINE_STATUS_CHOICES
 TEMPLATE_KEY_CHOICES = api.TEMPLATE_KEY_CHOICES
 VALIDATION_WARNING_CODES = api.VALIDATION_WARNING_CODES
+VALIDATION_ERROR_CODE_CHOICES = api.VALIDATION_ERROR_CODE_CHOICES
 MODEL_ROLE_CHOICES = api.MODEL_ROLE_CHOICES
 RUN_STATUS_CHOICES = api.RUN_STATUS_CHOICES
 RUN_TYPE_CHOICES = api.RUN_TYPE_CHOICES
@@ -533,6 +534,24 @@ class TrainingTrendPointSerializer(DataclassSerializer):
 @extend_schema_serializer(component_name="AutoresearchLiveTrainingRun")
 class LiveTrainingRunSerializer(DataclassSerializer):
     id = serializers.UUIDField(read_only=True, help_text="Unique UUID of the live training run.")
+    task_id = serializers.UUIDField(
+        read_only=True,
+        allow_null=True,
+        help_text="Parent Task ID of the run's sandbox. Null for a run that an external agent opened.",
+    )
+    task_run_id = serializers.UUIDField(
+        read_only=True,
+        allow_null=True,
+        help_text=(
+            "Task run ID of the run's sandbox, which holds its log, cost and failure reason. "
+            "Null for a run that an external agent opened."
+        ),
+    )
+    task_url = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text="Relative URL to the run's Task detail page. Null for a run that an external agent opened.",
+    )
     iteration_budget = serializers.IntegerField(read_only=True, help_text="Maximum experiments allowed for this run.")
     experiment_count = serializers.IntegerField(
         read_only=True, help_text="Experiments the agent has recorded so far in this run."
@@ -561,6 +580,9 @@ class LiveTrainingRunSerializer(DataclassSerializer):
         dataclass = LiveTrainingRun
         fields = [
             "id",
+            "task_id",
+            "task_run_id",
+            "task_url",
             "iteration_budget",
             "experiment_count",
             "best_holdout_score",
@@ -2023,6 +2045,17 @@ class ValidatePipelineResponseSerializer(serializers.Serializer):
         help_text=(
             "Why validation did not run, or null when it did. A query error in the definition itself "
             "is passed through; any other failure is a generic message and the detail is logged."
+        ),
+    )
+    error_code = serializers.ChoiceField(
+        choices=VALIDATION_ERROR_CODE_CHOICES,
+        allow_null=True,
+        help_text=(
+            "Why validation did not run, or null when it did. 'invalid_definition': a query error in the "
+            "definition, so fix it before retrying. 'too_expensive': the counts ran out of time or memory on this "
+            "project's data, so a retry fails the same way; narrow the population, for example to people who "
+            "performed a specific event, or shorten training_lookback_days. 'unavailable': anything else, worth "
+            "a retry."
         ),
     )
 

@@ -26,14 +26,10 @@ The stamphog product in [`products/stamphog/`](../../../stamphog/) runs `review_
 
 These are the values of `Pipeline.final_verdict`, which both entrypoints return.
 The nested LLM reviewer does not choose a verdict.
-It reports facts in a fixed schema: the risky territory the diff enters, the reviews on the current head, whether the author is on the owning team or has STRONG familiarity, the unresolved substantive concerns, the reviewer-bot findings the author rejected with the reviewer's judgment of each rejection, and any other refusal ground the policy names.
+It reports facts in a fixed schema: the risky territory the diff enters, the reviews on the current head, whether the author is on the owning team or has STRONG familiarity, the unresolved substantive concerns, and any other refusal ground the policy names.
 `verdict_rule.py` derives `APPROVE`, `REFUSE` or `ESCALATE` from those facts, and the pipeline maps that onto the names above:
 
 - any refusal ground or unresolved concern: `REFUSE`
-  - A reviewer-bot finding that the author rejected in its thread counts as resolved when the reviewer, reading the current head, finds the rejection sound.
-    This holds only in a thread that a login GitHub marks as a bot opened, that only that bot and the PR author wrote in, and never for a security, auth, data-loss or migration finding.
-    Each such finding is named in the posted review.
-    Every other rejected finding stays an unresolved concern, as does a person's comment.
 - risky territory with no current-head review, no owning-team author and no STRONG familiarity: `ESCALATE`
 - everything else: `APPROVE`
 
@@ -201,6 +197,8 @@ Top-level sections:
 | `overrides`       | The keys a folder file may override, and each key's ceiling               |
 | `familiarity`     | The author-familiarity bands, a judgment input and never a gate           |
 | `ownership`       | The ownership sources that feed the reviewer's advisory team context      |
+| `attestations`    | Optional CI checks that may lift deny categories for the files they prove |
+| `bot_authors`     | Optional bots whose PRs the hosted server may admit, by login and id      |
 
 A rule may carry a `rationale`.
 It records why the rule became what it is, which false positives drove an exclusion and when.
@@ -409,6 +407,11 @@ If a check that could lift every deny hasn't reported yet, `review_local.py` ret
 `review_pr.py` has no such caller and returns `REFUSED` instead.
 The deny-list only matched because the engine could not tell a safe migration from a risky one, so a refusal would be a verdict on a race with CI rather than on the PR.
 A retry against the now-classified head commit reviews it properly.
+
+A bot named under `bot_authors` is refused unless the hosted server admitted it, which the context carries as `admitted_bot`.
+The engine checks that login against the policy again, keeps every gate, and adds `every_file_attested`.
+That gate refuses the PR unless an attestation that declares `publisher_files` proved every file in it, because a bot carries no author trust for a file no such check covers.
+A pending attestation of that kind makes the gate wait like a deny.
 
 ### Ownership
 

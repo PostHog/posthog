@@ -6,6 +6,7 @@ node by storing a `subscribed=True` row, and the creator stops watching by stori
 a saved query, a managed viewset, or a creator whose user was deleted.
 """
 
+from collections.abc import Collection
 from uuid import UUID
 
 from django.db.models import Q
@@ -57,10 +58,10 @@ def set_watching(team_id: int, node_id: UUID, user_id: int, watching: bool) -> N
     )
 
 
-def watched_node_ids(team_id: int, user_id: int) -> frozenset[UUID]:
-    """The live nodes in the team that this user watches, by a stored row or as the creator."""
+def watched_node_ids(team_id: int, user_id: int, node_ids: Collection[UUID]) -> frozenset[UUID]:
+    """The live nodes among `node_ids` that this user watches, by a stored row or as the creator."""
     user_rows = NodeSubscription.objects.for_team(team_id).filter(user_id=user_id)
     watched = Q(id__in=user_rows.filter(subscribed=True).values("node_id")) | (
         Q(saved_query__created_by_id=user_id) & ~Q(id__in=user_rows.filter(subscribed=False).values("node_id"))
     )
-    return frozenset(_live_nodes(team_id).filter(watched).values_list("id", flat=True))
+    return frozenset(_live_nodes(team_id).filter(id__in=node_ids).filter(watched).values_list("id", flat=True))

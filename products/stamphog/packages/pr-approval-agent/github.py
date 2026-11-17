@@ -36,6 +36,8 @@ class PRData:
     review_comments: list[dict]
     check_runs: list[dict]
     author_is_bot: bool = False
+    # GitHub's numeric account id, which survives a login rename. 0 when the source carried none.
+    author_id: int = 0
     pr_reactions: list[dict] = field(default_factory=list)
     body: str = ""
     discussion: list[dict] = field(default_factory=list)
@@ -183,31 +185,6 @@ def drop_abandoned_bot_eyes(reactions: list[dict] | None) -> list[dict]:
     the reaction because it belongs to the bot.
     """
     return [r for r in reactions or [] if not _is_bot_eyes(r) or is_in_flight_bot_eyes(r)]
-
-
-def bot_handle(login: str) -> str:
-    handle = login.strip().lstrip("@").lower()
-    return handle.removesuffix("[bot]")
-
-
-def rebuttable_threads(pr: PRData) -> dict[str, str]:
-    author = bot_handle(pr.author)
-    by_thread: dict[str, list[dict]] = {}
-    for comment in pr.review_comments:
-        if thread := comment.get("thread"):
-            by_thread.setdefault(thread, []).append(comment)
-    rebuttable: dict[str, str] = {}
-    for thread, comments in by_thread.items():
-        root = comments[0]
-        bot = bot_handle(root.get("user") or "")
-        if root.get("in_reply_to_id") is not None or not root.get("is_bot") or not bot or bot == author:
-            continue
-        if any(c.get("hides_person") for c in comments):
-            continue
-        actors = {(bot_handle(c.get("user") or ""), bool(c.get("is_bot"))) for c in comments}
-        if actors == {(bot, True), (author, pr.author_is_bot)}:
-            rebuttable[thread] = bot
-    return rebuttable
 
 
 def is_bot_author(user: dict) -> bool:
@@ -489,7 +466,6 @@ def _fetch_threads_and_reactions(repo: str, pr_number: int, author: str) -> tupl
 
     comments: list[dict] = []
     pr_reactions: list[dict] = []
-    thread_number = 0
     while True:
         data = _gh_graphql(_REVIEW_THREADS_QUERY, variables)
         pull_request = data["data"]["repository"]["pullRequest"]
@@ -500,18 +476,12 @@ def _fetch_threads_and_reactions(repo: str, pr_number: int, author: str) -> tupl
         threads = review_threads["nodes"]
 
         for thread in threads:
-            thread_number += 1
             comment_page = thread["comments"]
             if comment_page["pageInfo"]["hasNextPage"]:
                 raise RuntimeError(
                     f"Review thread on {thread.get('path')}:{thread.get('line')} "
                     f"has >50 comments — pagination not implemented, escalate to human review"
                 )
-            hides_person = any(
-                (c.get("author") or {}).get("__typename") != "Bot"
-                and not _prompt_worthy_author((c.get("author") or {}).get("login"), c.get("authorAssociation"), False)
-                for c in comment_page["nodes"]
-            )
             for c in comment_page["nodes"]:
                 # Same author-trust gate as reviews and discussion: stamphog's
                 # own inline comments describe an earlier snapshot (feeding them
@@ -527,9 +497,6 @@ def _fetch_threads_and_reactions(repo: str, pr_number: int, author: str) -> tupl
                 comments.append(
                     {
                         "user": comment_author.get("login", "ghost"),
-                        "is_bot": comment_author.get("__typename") == "Bot",
-                        "thread": f"T{thread_number}",
-                        "hides_person": hides_person,
                         "body": c.get("body", ""),
                         "path": thread.get("path", ""),
                         "line": thread.get("line"),
@@ -833,6 +800,7 @@ def fetch_pr(pr_number: int, repo: str, repo_root: Path | None = None) -> PRData
         review_comments=review_comments,
         check_runs=check_runs_resp.get("check_runs", []),
         author_is_bot=author_is_bot,
+        author_id=int((pr.get("user") or {}).get("id") or 0),
         pr_reactions=pr_reactions,
         body=pr.get("body") or "",
         discussion=discussion,

@@ -93,7 +93,7 @@ const SuggestForm = (): JSX.Element => {
     return (
         <div className="flex flex-col gap-4">
             {startError ? <LemonBanner type="error">{startError}</LemonBanner> : null}
-            <LemonField.Pure label="Site" help="Claude reads this site to understand what you do and who it is for.">
+            <LemonField.Pure label="Site" help="PostHog reads this site to understand what you do and who it is for.">
                 <LemonInput
                     value={form.domain}
                     onChange={(domain) => setForm({ domain })}
@@ -128,7 +128,7 @@ const SuggestForm = (): JSX.Element => {
                     placeholder="Open source product analytics for engineers at startups"
                 />
             </LemonField.Pure>
-            <LemonField.Pure label="Competitors" help="Optional. Claude picks the main ones when empty.">
+            <LemonField.Pure label="Competitors" help="Optional. PostHog picks the main ones when empty.">
                 <LemonInputSelect
                     mode="multiple"
                     allowCustomValues
@@ -137,7 +137,7 @@ const SuggestForm = (): JSX.Element => {
                     placeholder="Add a name or domain"
                 />
             </LemonField.Pure>
-            <LemonField.Pure label="Topics" help="Optional. Claude picks 3 to 6 when empty.">
+            <LemonField.Pure label="Topics" help="Optional. PostHog picks 3 to 6 when empty.">
                 <LemonInputSelect
                     mode="multiple"
                     allowCustomValues
@@ -159,8 +159,8 @@ const SuggestReview = (): JSX.Element => {
     if (suggestions.length === 0) {
         return (
             <p className="m-0 text-muted">
-                No new prompts came back. Claude's ideas may already be tracked, or its answer had none to keep. Change
-                the topics or competitors and try again.
+                No new prompts came back. The ideas may already be tracked, or none were worth keeping. Change the
+                topics or competitors and try again.
             </p>
         )
     }
@@ -268,7 +268,7 @@ export const ContentAutopilotPromptSuggestModal = (): JSX.Element => {
             isOpen={suggestOpen}
             onClose={adding ? undefined : closeSuggest}
             title="Suggest prompts"
-            description="Claude reads your site and writes questions your buyers would ask an AI assistant. You pick which ones to track."
+            description="PostHog reads your site and writes questions your buyers would ask an AI assistant. You pick which ones to track."
             width={720}
             footer={footer}
         >

@@ -44,6 +44,7 @@ from products.alerts_platform.backend.delivery.transport import (
     DeliveryError,
     DeliveryTransport,
     DestinationMisconfigured,
+    RefusedEverywhere,
     RootImageEditor,
 )
 from products.alerts_platform.backend.delivery.webhook import WebhookTransport
@@ -69,7 +70,13 @@ from products.alerts_platform.backend.logic.alert_destinations import (
     INCIDENT_DESTINATION_TYPES,
     enabled_alert_destinations,
 )
-from products.alerts_platform.backend.logic.platform_alert_events import announced_kinds, announcement
+from products.alerts_platform.backend.logic.platform_alert_events import (
+    AnnouncementStatus,
+    announced_kinds,
+    announcement,
+    read_announcement,
+)
+from products.alerts_platform.backend.logic.platform_reads import rule_metadata
 from products.alerts_platform.backend.models import PlatformAlertConfiguration
 from products.alerts_platform.backend.temporal.metrics import DeliveryOutcomeLabel, increment_deliveries, safe_record
 
@@ -108,11 +115,11 @@ class DeliveryOutcome:
 
 
 class _WebhookTransports:
-    """The webhook transport for one evaluation, with the legacy body when the team keeps it.
+    """The webhook transport for one evaluation, with the legacy body when the team or the destination keeps it.
 
-    The flag is read once, and only when a webhook destination is about to be sent to. A failed read
-    is a failed delivery: a guess either way sends a body some receiver cannot parse, and a retry
-    costs only time.
+    The flag is read once, and only when a webhook destination that does not keep the legacy body
+    itself is about to be sent to. A failed read is a failed delivery: a guess either way sends a
+    body some receiver cannot parse, and a retry costs only time.
     """
 
     def __init__(self, team: Team, request: AlertDeliveryRequest, announced: EvaluationAnnouncement) -> None:
@@ -120,9 +127,16 @@ class _WebhookTransports:
         self._request = request
         self._announced = announced
         self._transport: WebhookTransport | None = None
+        self._legacy_transport: WebhookTransport | None = None
         self._failure: DeliveryError | None = None
 
-    def get(self) -> WebhookTransport:
+    def get(self, *, keeps_legacy_body: bool = False) -> WebhookTransport:
+        if keeps_legacy_body:
+            legacy_body = self._source_legacy_body()
+            if legacy_body is not None:
+                if self._legacy_transport is None:
+                    self._legacy_transport = WebhookTransport(legacy_body=legacy_body)
+                return self._legacy_transport
         # A failed read is kept too, so a flags outage costs one lookup per evaluation rather than
         # one per webhook, inside an activity whose time is shared by every destination.
         if self._failure is not None:
@@ -136,8 +150,7 @@ class _WebhookTransports:
         return self._transport
 
     def _legacy_body(self) -> Callable[[AlertMessage], dict[str, Any]] | None:
-        body = legacy_webhook.body_for(self._request.source)
-        if body is None:
+        if legacy_webhook.body_for(self._request.source) is None:
             return None
         try:
             keeps_legacy_body = legacy_webhook.keeps_legacy_webhook_body(self._team)
@@ -146,6 +159,12 @@ class _WebhookTransports:
         if keeps_legacy_body is None:
             raise DeliveryError("Could not read which webhook body this team receives.")
         if not keeps_legacy_body:
+            return None
+        return self._source_legacy_body()
+
+    def _source_legacy_body(self) -> Callable[[AlertMessage], dict[str, Any]] | None:
+        body = legacy_webhook.body_for(self._request.source)
+        if body is None:
             return None
         team_id = self._team.id
         alert_id = self._request.destination_alert_id
@@ -157,6 +176,51 @@ class _WebhookTransports:
             consecutive_failures=consecutive_failures,
             transition=message.transition,
         )
+
+
+def announcement_to_deliver(request: AlertDeliveryRequest, *, path: str) -> EvaluationAnnouncement | None:
+    """What this part of the evaluation announces, or None when there is nothing to send.
+
+    The history row is written after the Postgres commit and read back here, so a row that is late
+    or whose insert failed would otherwise look like an evaluation that announced nothing, and a
+    committed firing would go unsent with no trace. Each None is counted under its reason instead:
+    `announcement_empty` when the evaluation is recorded and announced nothing (a mute held it, or
+    this part has no groups), `announcement_superseded` when the platform no longer owns the alert,
+    and `announcement_missing` when no record of the evaluation turned up after the retries.
+    """
+    read = read_announcement(
+        request.team_id,
+        request.configuration_id,
+        request.evaluation_key,
+        source=request.source,
+        incident_grouping_keys=request.incident_actions.keys(),
+        part=request.part,
+        parts=request.parts,
+    )
+    if read.status is AnnouncementStatus.FOUND:
+        return read.announcement
+    outcome: DeliveryOutcomeLabel = "announcement_empty"
+    if read.status is AnnouncementStatus.MISSING:
+        owner = (
+            PlatformAlertConfiguration.objects.for_team(request.team_id)
+            .filter(id=request.configuration_id)
+            .values_list("owner", flat=True)
+            .first()
+        )
+        # Handed back to its source or deleted after the check read it: the record that would
+        # have written the row was refused, and the source sends its own message now.
+        outcome = "announcement_superseded" if owner != PlatformAlertOwner.PLATFORM else "announcement_missing"
+        if outcome == "announcement_missing":
+            logger.warning(
+                "alerts_platform_announcement_missing",
+                source=request.source.value,
+                path=path,
+                configuration_id=request.configuration_id,
+                evaluation_key=request.evaluation_key,
+                part=request.part,
+            )
+    safe_record(increment_deliveries, request.source.value, "-", path, outcome)
+    return None
 
 
 def deliver_evaluation(request: AlertDeliveryRequest) -> DeliveryOutcome:
@@ -175,17 +239,10 @@ def deliver_evaluation(request: AlertDeliveryRequest) -> DeliveryOutcome:
         )
         return DeliveryOutcome(live=True, sent=0, skipped_without_transport=0)
 
-    announced = announcement(
-        request.team_id,
-        request.configuration_id,
-        request.evaluation_key,
-        source=request.source,
-        incident_grouping_keys=request.incident_actions.keys(),
-        part=request.part,
-        parts=request.parts,
-    )
+    announced = announcement_to_deliver(request, path=DeliveryPath.NATIVE.value)
     if announced is None:
         return DeliveryOutcome(live=True, sent=0, skipped_without_transport=0)
+    announced = replace(announced, rule=rule_metadata(request.team_id, request.configuration_id))
     if stale := delivery_holds.stale_held_triggers(request, announced.transitions):
         logger.info(
             "alerts_platform_delivery_stale_trigger_dropped",
@@ -220,6 +277,7 @@ def deliver_evaluation(request: AlertDeliveryRequest) -> DeliveryOutcome:
     busy: list[str] = []
     failures: list[str] = []
     first_refusal: DeliveryError | None = None
+    retryable = False
     # Per subscription rather than per destination. A destination subscribes to some of the
     # kinds an alert can announce, so one that asked for firings must not be handed the resolve
     # that another group produced in the same evaluation.
@@ -260,7 +318,11 @@ def deliver_evaluation(request: AlertDeliveryRequest) -> DeliveryOutcome:
                 )
                 continue
             try:
-                transport = webhook_transports.get() if transport_class is WebhookTransport else transport_class()
+                transport = (
+                    webhook_transports.get(keeps_legacy_body=subscribed_destination.keeps_legacy_webhook_body)
+                    if transport_class is WebhookTransport
+                    else transport_class()
+                )
             except DeliveryError as error:
                 # Fails before a send starts, where `deliver` counts its failures, so it is counted here.
                 for _ in transitions:
@@ -282,6 +344,7 @@ def deliver_evaluation(request: AlertDeliveryRequest) -> DeliveryOutcome:
                 )
                 failures.append(str(error))
                 first_refusal = first_refusal or error
+                retryable = True
                 continue
             try:
                 deliver(
@@ -312,8 +375,10 @@ def deliver_evaluation(request: AlertDeliveryRequest) -> DeliveryOutcome:
             except DeliveryError as error:
                 failures.append(str(error))
                 first_refusal = first_refusal or error
+                retryable = retryable or not isinstance(error, DestinationMisconfigured)
             except Exception as error:
                 failures.append(type(error).__name__)
+                retryable = True
             else:
                 sent += 1
     # Emitted last and only without a held thread, because the workflow runs a held delivery again
@@ -351,6 +416,7 @@ def deliver_evaluation(request: AlertDeliveryRequest) -> DeliveryOutcome:
                     exc_info=True,
                 )
                 failures.append(f"legacy events: {type(error).__name__}")
+                retryable = True
                 _count_emissions(request, "failed", len(emissions))
             else:
                 thread_store.delivered(emission, None)
@@ -363,7 +429,8 @@ def deliver_evaluation(request: AlertDeliveryRequest) -> DeliveryOutcome:
         # The failures ride along, so a wait that ends still says which destinations refused.
         raise ThreadBusy("; ".join([*busy, *failures]))
     if failures:
-        raise DeliveryError(f"{len(failures)} destination(s) failed: " + "; ".join(failures)) from first_refusal
+        failed = DeliveryError if retryable else RefusedEverywhere
+        raise failed(f"{len(failures)} destination(s) failed: " + "; ".join(failures)) from first_refusal
     return DeliveryOutcome(
         live=True,
         sent=sent,
@@ -616,6 +683,7 @@ class _SubscribedDestination:
     data: AlertDestinationData
     # Whether the destination hears the events the source emits for its HogFunctions.
     receives_emitted_events: bool
+    keeps_legacy_webhook_body: bool = False
 
 
 @frozen
@@ -773,7 +841,12 @@ def _platform_subscribers(event_id: str, platform: _PlatformDestinations) -> lis
         return []
     incident = event_id in platform.incident_event_ids
     subscribers = [
-        _SubscribedDestination(id=str(destination.id), data=destination.data, receives_emitted_events=False)
+        _SubscribedDestination(
+            id=str(destination.id),
+            data=destination.data,
+            receives_emitted_events=False,
+            keeps_legacy_webhook_body=destination.keeps_legacy_webhook_body,
+        )
         for destination in platform.destinations
         if (destination.data["type"] in INCIDENT_DESTINATION_TYPES) == incident
         and (incident or kind.delivered_as in destination.event_kinds)

@@ -1,7 +1,10 @@
 import re
+import json
+import struct
 import datetime as dt
 import threading
 from typing import Any
+from urllib.parse import parse_qs
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -34,9 +37,11 @@ from products.metrics.backend.metric_query_runner import (
     attribute_field,
 )
 from products.metrics.backend.metric_samples_query_runner import MetricSamplesQueryRunner, build_metric_query_runner
-from products.metrics.backend.metrics4_samples import METRICS4_CUTOVER
+from products.metrics.backend.metrics4_samples import METRICS4_CUTOVER, STALE_NAN_BITS
 from products.metrics.backend.query_counts import list_metric_query_counts
 from products.metrics.backend.tests._seeder import seed_metric, truncate_metrics_tables
+
+STALE_NAN = struct.unpack("<d", struct.pack("<Q", STALE_NAN_BITS))[0]
 
 
 @pytest.mark.usefixtures("clickhouse_database")
@@ -242,6 +247,33 @@ class TestMetricQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
 
         self.assertEqual([row["value"] for row in runner.run()], [expected])
+
+    @parameterized.expand([("sum",), ("avg",), ("count",)])
+    def test_skips_prometheus_stale_markers(self, aggregation: str):
+        anchor = timezone.now().replace(second=0, microsecond=0)
+        seed_metric(
+            team_id=self.team.id,
+            metric_name="m_stale",
+            points=[(anchor - dt.timedelta(minutes=20), 2.0), (anchor - dt.timedelta(minutes=5), STALE_NAN)],
+            labels={"pod": "a"},
+        )
+        seed_metric(
+            team_id=self.team.id,
+            metric_name="m_stale",
+            points=[(anchor - dt.timedelta(minutes=5), 3.0)],
+            labels={"pod": "b"},
+        )
+
+        rows = self.runner_class(
+            team=self.team,
+            metric_name="m_stale",
+            aggregation=aggregation,
+            date_from=anchor - dt.timedelta(hours=1),
+            date_to=anchor,
+        ).run()
+
+        expected = [1.0, 1.0] if aggregation == "count" else [2.0, 3.0]
+        self.assertEqual([row["value"] for row in rows], expected)
 
     def test_unaligned_date_from_reads_the_whole_first_bucket(self):
         # Relative presets can start inside a bucket. The whole bucket must count.
@@ -1326,6 +1358,106 @@ class TestGroupBy(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(body.get("omitted_empty_series"), omitted_empty)
         self.assertEqual(body.get("omitted_by_limit"), omitted_by_limit)
 
+    def _query_via_api(self, **options: Any) -> dict[str, Any]:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/metrics/query",
+            data={"query": {"metricName": "req", "aggregation": "sum", "groupBy": [{"key": "env"}], **options}},
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        return response.json()
+
+    @parameterized.expand(
+        [
+            # The bucket at anchor-4m is still filling at that time, so the last complete one is anchor-5m.
+            ("last_bucket_has_samples", 4, {"prod": 2.0, "dev": 10.0}, 5),
+            ("last_bucket_is_empty", 3, {"prod": None, "dev": None}, None),
+        ]
+    )
+    def test_instant_builder_query_returns_the_last_complete_bucket(
+        self, _name: str, minutes_before: int, expected: dict[str, float | None], bucket_minutes_before: int | None
+    ) -> None:
+        body = self._query_via_api(
+            instant=True, interval="minute", time=(self.anchor - dt.timedelta(minutes=minutes_before)).isoformat()
+        )
+
+        by_env = {s["labels"]["env"]: s for s in body["results"]}
+        self.assertEqual({env: s["value"] for env, s in by_env.items()}, expected)
+        expected_time = (
+            None if bucket_minutes_before is None else self.anchor - dt.timedelta(minutes=bucket_minutes_before)
+        )
+        time = by_env["prod"]["time"]
+        self.assertEqual(time and dt.datetime.fromisoformat(time), expected_time)
+        self.assertNotIn("points", by_env["prod"])
+
+    def test_summary_builder_query_reduces_each_series(self) -> None:
+        body = self._query_via_api(
+            interval="minute",
+            dateFrom=(self.anchor - dt.timedelta(hours=1)).isoformat(),
+            dateTo=self.anchor.isoformat(),
+            output="summary",
+        )
+
+        by_env = {s["labels"]["env"]: s for s in body["results"]}
+        self.assertEqual(
+            {env: (s["last"], s["min"], s["max"], s["avg"]) for env, s in by_env.items()},
+            {"prod": (2.0, 1.0, 2.0, 1.5), "dev": (10.0, 0.0, 10.0, 5.0)},
+        )
+
+    def test_builder_query_links_to_the_metrics_viewer(self) -> None:
+        body = self._query_via_api(
+            filters=[{"key": "env", "op": "neq", "value": "staging"}],
+            dateFrom="-1h",
+            interval="minute",
+        )
+
+        params = parse_qs(body["url_params"])
+        self.assertEqual(
+            (params["activeTab"], params["dateFrom"], params["interval"]), (["viewer"], ["-1h"], ["minute"])
+        )
+        self.assertEqual(
+            json.loads(params["clauses"][0]),
+            [
+                {
+                    "name": "a",
+                    "metricName": "req",
+                    "aggregation": "sum",
+                    "groupBy": ["env"],
+                    "filterGroup": {
+                        "type": "AND",
+                        "values": [
+                            {
+                                "type": "AND",
+                                "values": [
+                                    {
+                                        "type": "metric_attribute",
+                                        "key": "env",
+                                        "value": ["staging"],
+                                        "operator": "is_not",
+                                    }
+                                ],
+                            }
+                        ],
+                    },
+                }
+            ],
+        )
+
+    @parameterized.expand(
+        [
+            ("non_auto_scope", {"metricName": "req", "groupBy": [{"key": "env", "scope": "resource"}]}),
+            ("empty_filter_value", {"metricName": "req", "filters": [{"key": "env", "op": "neq", "value": ""}]}),
+            ("uppercase_clause_name", {"clauses": [{"name": "A", "metricName": "req"}], "formula": "A * 2"}),
+        ]
+    )
+    def test_builder_query_the_viewer_cannot_show_links_to_the_viewer(self, _name: str, query: dict) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/metrics/query", data={"query": query}, content_type="application/json"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        self.assertEqual(response.json()["url_params"], "activeTab=viewer")
+
     def test_series_cap_keeps_largest(self):
         with patch("products.metrics.backend.facade.api.MAX_SERIES_PER_CLAUSE", 1):
             series = self._run()
@@ -1843,6 +1975,55 @@ class TestHistogramQuantileRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertAlmostEqual(points[0]["value"], 0.3)
         # The chart reads the edges to tell how coarse the estimate is.
         self.assertEqual(response.json()["results"][0]["histogram_bounds"], self.BOUNDS)
+
+    @parameterized.expand(
+        [
+            ("single_query", {"metricName": "latency", "aggregation": "histogram_quantile", "quantile": 0.99}, 1),
+            (
+                "formula",
+                {
+                    "clauses": [
+                        {"name": "a", "metricName": "latency", "aggregation": "histogram_quantile", "quantile": 0.99}
+                    ],
+                    "formula": "a * 1000",
+                },
+                1000,
+            ),
+        ]
+    )
+    def test_histogram_quantile_via_api_merges_layouts_and_says_so(self, _name, query, scale):
+        # Two workloads export one histogram name with different buckets. The coarse layout
+        # holds 0.7% of observations above 8.1, and the fine one holds 1% of them, all below 0.5.
+        self._seed_histogram(
+            [(self.anchor, [900, 50, 30, 7, 6, 7])], temporality="delta", bounds=[0.1, 0.3, 0.9, 2.7, 8.1]
+        )
+        self._seed_histogram(
+            [(self.anchor, [10, 0, 0])],
+            temporality="delta",
+            bounds=[0.5, 75.0],
+            resource_labels={"k8s.namespace.name": "billing"},
+        )
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/metrics/query",
+            data={
+                "query": {
+                    **query,
+                    "interval": "minute",
+                    "dateFrom": (self.anchor - dt.timedelta(minutes=1)).isoformat(),
+                    "dateTo": (self.anchor + dt.timedelta(minutes=2)).isoformat(),
+                }
+            },
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        [series] = response.json()["results"]
+        [point] = series["points"]
+        # Summing the two layouts by le, as PromQL does, leaves the fine layout out of every bucket from
+        # 0.9 up and puts p99 in +Inf, read as 75. Merged by width, 1003 of 1010 are at or below 8.1.
+        self.assertAlmostEqual(point["value"], (2.7 + 5.4 * 2.9 / 6) * scale)
+        self.assertEqual(series["histogram_layout_count"], 2)
+        self.assertIn("2 bucket layouts", response.json()["hint"])
 
     def test_histogram_quantile_via_api_requires_quantile(self):
         response = self.client.post(

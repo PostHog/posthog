@@ -9,9 +9,12 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
-from products.commands.backend.logic.follow_ups import FollowUp, remember, task_run_key
+from products.commands.backend.logic.follow_ups import FollowUp, docs_check_key, remember, task_run_key
 from products.commands.backend.logic.results import stamphog_result
-from products.commands.backend.receivers import on_task_run_saved
+from products.commands.backend.receivers import on_docs_check_finished, on_task_run_saved
+from products.knowledge_writer.backend.facade.contracts import IntakeStatus
+from products.knowledge_writer.backend.facade.enums import MergeCheckFailure
+from products.knowledge_writer.backend.facade.finished_check_hooks import FinishedDocsCheck
 from products.stamphog.backend.facade.enums import ReviewRunStatus, ReviewVerdict
 from products.stamphog.backend.facade.finished_review_hooks import FinishedReviewRun
 
@@ -90,3 +93,57 @@ class TestQaResult(BaseTest):
         deliver.assert_called_once()
         assert deliver.call_args.kwargs["address"]["thread_ts"] == "1"
         assert "finished" in deliver.call_args.kwargs["message"]
+
+
+class TestDocsCheckResult(SimpleTestCase):
+    def setUp(self) -> None:
+        super().setUp()
+        cache.clear()
+
+    @parameterized.expand(
+        [
+            ("no_docs", "no_docs", None, None, "found nothing in [acme/widgets#7]"),
+            (
+                "joined",
+                "joined",
+                None,
+                "https://github.com/PostHog/posthog.com/pull/9",
+                "[its docs pull request](https://github.com/PostHog/posthog.com/pull/9)",
+            ),
+            ("check_failed", "no_docs", MergeCheckFailure.RETRIES_EXHAUSTED, None, "Try `docs` again"),
+            ("writer_not_set_up", "no_docs", MergeCheckFailure.NO_DOCS_GITHUB, None, "isn't fully set up"),
+            ("check_capped", "no_docs", MergeCheckFailure.CHECK_CAPPED, None, "hit its docs check limit"),
+        ]
+    )
+    def test_a_docs_check_reports_once_when_it_ends(
+        self,
+        _name: str,
+        status: IntakeStatus,
+        failure_reason: MergeCheckFailure | None,
+        pull_request_url: str | None,
+        expected: str,
+    ) -> None:
+        remember(docs_check_key("waiter-1"), FOLLOW_UP)
+        finished = FinishedDocsCheck(
+            waiter_ids=("waiter-1",), status=status, failure_reason=failure_reason, pull_request_url=pull_request_url
+        )
+
+        with patch(DELIVER_FOLLOW_UP) as deliver:
+            on_docs_check_finished(finished)
+            on_docs_check_finished(finished)
+
+        deliver.assert_called_once()
+        assert deliver.call_args.kwargs["address"]["thread_ts"] == "1"
+        assert expected in deliver.call_args.kwargs["message"]
+
+    def test_a_failed_delivery_still_tells_the_waiters_after_it(self) -> None:
+        for waiter_id in ("first-waiter", "second-waiter"):
+            remember(docs_check_key(waiter_id), FOLLOW_UP)
+        finished = FinishedDocsCheck(
+            waiter_ids=("first-waiter", "second-waiter"), status="no_docs", failure_reason=None, pull_request_url=None
+        )
+
+        with patch(DELIVER_FOLLOW_UP, side_effect=[ConnectionError("broker is down"), None]) as deliver:
+            on_docs_check_finished(finished)
+
+        assert deliver.call_count == 2

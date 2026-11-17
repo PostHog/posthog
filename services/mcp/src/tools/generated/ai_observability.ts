@@ -6,6 +6,7 @@ import * as orvalSchemas from '@/generated/ai_observability/api'
 import {
     OfflineExperimentUploadItemsSchema,
     OfflineExperimentUploadResultsSchema,
+    OptionalScoreDefinitionConfigSchema,
     PromptListInputSchema,
     ScoreDefinitionConfigSchema,
 } from '@/schema/tool-inputs'
@@ -2699,6 +2700,12 @@ const llmaScoreDefinitionCreate = (): ToolBase<
         if (params.tags !== undefined) {
             body['tags'] = params.tags
         }
+        if (params.calculation !== undefined) {
+            body['calculation'] = params.calculation
+        }
+        if (params.composition !== undefined) {
+            body['composition'] = params.composition
+        }
         if (params.name !== undefined) {
             body['name'] = params.name
         }
@@ -2765,7 +2772,9 @@ const llmaScoreDefinitionList = (): ToolBase<
             path: `/api/projects/${encodeURIComponent(String(projectId))}/llm_analytics/score_definitions/`,
             query: {
                 archived: params.archived,
+                calculation: params.calculation,
                 created_by: params.created_by,
+                input_definition_id: params.input_definition_id,
                 kind: params.kind,
                 limit: params.limit,
                 offset: params.offset,
@@ -2798,6 +2807,9 @@ const llmaScoreDefinitionNewVersion = (): ToolBase<
     handler: async (context: Context, params: z.infer<ReturnType<typeof LlmaScoreDefinitionNewVersionSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
+        if (params.composition !== undefined) {
+            body['composition'] = params.composition
+        }
         if (params.short_name !== undefined) {
             body['short_name'] = params.short_name
         }
@@ -2858,6 +2870,41 @@ const llmaScoreDefinitionUpdate = (): ToolBase<
         const result = await context.api.request<Schemas.ScoreDefinition>({
             method: 'PATCH',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/llm_analytics/score_definitions/${encodeURIComponent(String(params.id))}/`,
+            body,
+        })
+        return result
+    },
+})
+
+const LlmaScoreDefinitionValidateSchema = () => {
+    const LlmAnalyticsScoreDefinitionsValidateCompositionCreateBody =
+        orvalSchemas.LlmAnalyticsScoreDefinitionsValidateCompositionCreateBody()
+    return LlmAnalyticsScoreDefinitionsValidateCompositionCreateBody.extend({
+        config: OptionalScoreDefinitionConfigSchema,
+    })
+}
+
+const llmaScoreDefinitionValidate = (): ToolBase<
+    ReturnType<typeof LlmaScoreDefinitionValidateSchema>,
+    Schemas.CompositeValidationResponse
+> => ({
+    name: 'llma-score-definition-validate',
+    schema: LlmaScoreDefinitionValidateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof LlmaScoreDefinitionValidateSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.kind !== undefined) {
+            body['kind'] = params.kind
+        }
+        if (params.composition !== undefined) {
+            body['composition'] = params.composition
+        }
+        if (params.config !== undefined) {
+            body['config'] = params.config
+        }
+        const result = await context.api.request<Schemas.CompositeValidationResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/llm_analytics/score_definitions/validate_composition/`,
             body,
         })
         return result
@@ -3609,6 +3656,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'llma-score-definition-list': llmaScoreDefinitionList,
     'llma-score-definition-new-version': llmaScoreDefinitionNewVersion,
     'llma-score-definition-update': llmaScoreDefinitionUpdate,
+    'llma-score-definition-validate': llmaScoreDefinitionValidate,
     'llma-score-definition-version-get': llmaScoreDefinitionVersionGet,
     'llma-score-definition-version-list': llmaScoreDefinitionVersionList,
     'llma-summarization-create': llmaSummarizationCreate,

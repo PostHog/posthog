@@ -14,6 +14,7 @@ import { CustomerTasksTabContent } from '../CustomerTasks/CustomerTasksTabConten
 import { AccountAutomationsExpansion } from './AccountAutomationsExpansion'
 import { AccountBillingExpansion } from './AccountBillingExpansion'
 import { AccountConversationsExpansion } from './AccountConversationsExpansion'
+import { AccountDotMatrixTile } from './AccountDotMatrixTile'
 import { AccountFeatureRequestsExpansion } from './AccountFeatureRequestsExpansion'
 import { AccountMeetingsExpansion } from './AccountMeetingsExpansion'
 import { AccountNotesExpansion } from './AccountNotesExpansion'
@@ -21,7 +22,6 @@ import { AccountOpportunitiesExpansion } from './AccountOpportunitiesExpansion'
 import { AccountRelatedUsersExpansion } from './AccountRelatedUsersExpansion'
 import { AccountRelationshipsExpansion } from './AccountRelationshipsExpansion'
 import { AccountSessionReplays } from './AccountSessionReplays'
-import type { AccountExpansionTab } from './accountsExpansionLogic'
 import { AccountUsersTable } from './AccountUsersTable'
 import type {
     AccountViewTileConfig,
@@ -31,7 +31,20 @@ import type {
 } from './accountViewTileConfig'
 import { AccountsEvents } from './constants'
 
-export type AccountViewComponentKind = AccountExpansionTab | 'properties' | 'session_replays'
+export type AccountSystemTabKind =
+    | 'notes'
+    | 'tasks'
+    | 'users'
+    | 'relationships'
+    | 'feature_requests'
+    | 'usage'
+    | 'spend'
+    | 'opportunities'
+    | 'conversations'
+    | 'meetings'
+    | 'automations'
+
+export type AccountViewComponentKind = AccountSystemTabKind | 'properties' | 'session_replays' | 'dot_matrix'
 
 interface AccountViewComponentBase {
     tagName: string
@@ -41,17 +54,19 @@ interface AccountViewComponentBase {
     ConfigEditor?: (props: AccountViewTileConfigEditorProps) => JSX.Element
     onConfigSaved?: (config: AccountViewTileConfig) => void
     tileInsetClassName?: string
+    tileContentClassName?: string
+    remountOnConfigReload?: boolean
 }
 
 export interface AccountSystemTabDefinition extends AccountViewComponentBase {
-    kind: AccountExpansionTab
-    systemTabId: `system:${AccountExpansionTab}`
+    kind: AccountSystemTabKind
+    systemTabId: `system:${AccountSystemTabKind}`
 }
 
 export type AccountViewComponentDefinition =
     | AccountSystemTabDefinition
     | (AccountViewComponentBase & {
-          kind: 'properties' | 'session_replays'
+          kind: 'properties' | 'session_replays' | 'dot_matrix'
           systemTabId?: never
       })
 
@@ -112,6 +127,21 @@ export const ACCOUNT_VIEW_COMPONENTS: AccountViewComponentDefinition[] = [
                 {...getTileLogicProps(props)}
             />
         ),
+    },
+    {
+        kind: 'dot_matrix',
+        tagName: 'DotMatrix',
+        label: 'Dot matrix',
+        featureFlag: FEATURE_FLAGS.CUSTOMER_ANALYTICS_DOT_MATRIX,
+        Component: (props) => (
+            <AccountDotMatrixTile
+                accountId={props.accountId}
+                externalId={props.externalId}
+                {...getTileLogicProps(props)}
+            />
+        ),
+        tileContentClassName: '',
+        remountOnConfigReload: false,
     },
     {
         kind: 'notes',

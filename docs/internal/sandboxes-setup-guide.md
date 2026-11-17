@@ -15,6 +15,11 @@ flag for every team, and builds the agent skills bundle.
 > workspace and app once this guide is working — see
 > [slack-local-setup-guide.md](./slack-local-setup-guide.md).
 
+## Test egress identity
+
+Run `go -C products/tasks/services/egress-proxy test -race ./...` from the repository root.
+See the [egress README](../../products/tasks/services/egress-proxy/README.md) for behavior and limits.
+
 ## GitHub App
 
 Each engineer needs their own GitHub App. The setup command will print these
@@ -133,6 +138,8 @@ ends bypasses heartbeat throttling so a quick follow-up cannot look idle.
 Activity during snapshot capture or replacement startup abandons the handoff and
 keeps the live sandbox. The event relay stays active until startup finishes, and
 an abandoned handoff with new activity requests a fresh snapshot.
+For workflow histories with the `tasks-end-run-at-sandbox-limit` patch, a run that stays on its sandbox ends when the sandbox reaches its time limit.
+If the session was saved, the run ends as soon as the agent is idle and no message is queued, so the task can start a new run.
 Directory resume snapshots cover `/tmp/workspace`, including nested Git worktrees
 and agent state. Paths outside that directory are not included.
 Cloud launches set `POSTHOG_AGENT_STATE_DIR=/tmp/workspace/.posthog/agent-state`.

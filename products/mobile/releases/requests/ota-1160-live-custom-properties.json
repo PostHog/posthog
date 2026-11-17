@@ -1,0 +1,8 @@
+{
+    "schemaVersion": 1,
+    "id": "ota-1160-live-custom-properties",
+    "kind": "ota",
+    "runtimeVersion": "1.16.0",
+    "previousRelease": "ota-1160-header-halfway",
+    "notes": "Show custom properties when opening an event in the Live feed. Verify text, numbers, booleans, lists and nested values, plus loading, empty and retry states on iOS and Android."
+}
