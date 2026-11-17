@@ -195,7 +195,9 @@ async function claimRuns(runs: IntakeRun[], services: IntakeBatchServices, optio
     const claimedAt = Date.now()
     runs.forEach((run, i) => {
         claimsCounter.labels({ kind: options.kind, outcome: outcomes[i] }).inc()
-        if (run.producedAt !== undefined) {
+        // Only a run's first insert counts, so a redelivered batch never records the same run's delay twice.
+        const firstClaim = run.message.shadow ? outcomes[i] === 'replayed' : outcomes[i] === 'created'
+        if (firstClaim && run.producedAt !== undefined) {
             claimDelayMs
                 .labels({ kind: options.kind, mode: run.message.shadow ? 'shadow' : 'async' })
                 .observe(claimedAt - run.producedAt)
