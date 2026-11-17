@@ -106,8 +106,9 @@ from products.managed_warehouse.backend.temporal.metrics import (
 )
 from products.managed_warehouse.backend.temporal.source_job_state import record_managed_warehouse_source_job_activity
 from products.managed_warehouse.backend.trino_compiler import get_trino_target_readiness
+from products.warehouse_sources.backend.facade.api import earliest_import_table_named
 from products.warehouse_sources.backend.facade.ducklake import query_folder_publishing_job_id
-from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSchema
+from products.warehouse_sources.backend.facade.models import ExternalDataSchema
 
 LOGGER = get_logger(__name__)
 DATA_IMPORTS_GENERATIONS_PREFIX = "_imports"
@@ -610,14 +611,7 @@ def _import_table_name_holder(*, team_id: int, table_name: str) -> uuid.UUID | N
     HogQL does not keep import table names unique within a team, and Gigahog holds one table per name. A later import
     is refused from its first sync on, so the earliest one is the first holder and keeps syncing.
     """
-    return (
-        DataWarehouseTable.objects.filter(team_id=team_id, name__iexact=table_name, external_data_source__isnull=False)
-        .exclude(deleted=True)
-        .exclude(external_data_source__deleted=True)
-        .order_by("created_at", "id")
-        .values_list("id", flat=True)
-        .first()
-    )
+    return earliest_import_table_named(team_id, table_name)
 
 
 @activity.defn
