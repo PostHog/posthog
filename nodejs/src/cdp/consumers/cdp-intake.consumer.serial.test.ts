@@ -20,10 +20,11 @@ describe('CdpIntakeConsumer', () => {
     let pool: Pool
     let consumer: CdpIntakeConsumer
 
-    const sendMessage = (id: string): Buffer => {
+    const sendMessage = (id: string, shadow?: boolean): Buffer => {
         const encoded = encodeIntakeMessage({
             kind: 'transactional-email',
             fingerprint: 'fingerprint-a',
+            shadow,
             job: {
                 id,
                 teamId: 7,
@@ -82,15 +83,16 @@ describe('CdpIntakeConsumer', () => {
     const ownGroup = 'cdp-intake-transactional-email-consumer'
     const stillInvalid = Buffer.from(JSON.stringify({ v: 1, kind: 'transactional-email' }))
 
-    it("drains its own dead letters, but not another group's", async () => {
-        const [own, other] = [new UUIDT().toString(), new UUIDT().toString()]
+    it("drains its own dead letters, but not another group's or a shadow copy the route already inserted", async () => {
+        const [own, other, shadow] = [new UUIDT().toString(), new UUIDT().toString(), new UUIDT().toString()]
 
         await consumer.drainBatch([
             dlq(sendMessage(own), ownGroup, 1),
             dlq(sendMessage(other), 'cdp-intake-workflow-webhook-consumer', 2),
+            dlq(sendMessage(shadow, true), ownGroup, 3),
         ])
 
-        const jobs = await pool.query('SELECT id FROM cyclotron_jobs WHERE id = ANY($1)', [[own, other]])
+        const jobs = await pool.query('SELECT id FROM cyclotron_jobs WHERE id = ANY($1)', [[own, other, shadow]])
         expect(jobs.rows).toEqual([{ id: own }])
     })
 
