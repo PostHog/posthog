@@ -1355,8 +1355,9 @@ describe('runner through seed, drive and judge', () => {
 
         expect({
             status: result.status,
+            readPastTwoReads: wiringReads > 2,
             databases: (evidenceOf(result, 'topology.json') as Wiring).databases.map(({ database }) => database),
-        }).toEqual({ status: 'passed', databases: [expect.stringMatching(/^cyclotron-\d+$/)] })
+        }).toEqual({ status: 'passed', readPastTwoReads: true, databases: [`cyclotron-${wiringReads - 1}`] })
     }, 30_000)
 
     it('calls a run invalid before its drive when a valve targets a node its topology lacks, and names the nodes found', async () => {
