@@ -11,7 +11,7 @@ from posthog.test.base import (
 from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
 
@@ -150,15 +150,25 @@ class TestSdkVersionsFromRollup(ClickhouseTestMixin, BaseTest):
 
     @parameterized.expand(
         [
-            ("events_with_fork", FlagEvaluationsMode.EVENTS, True, True),
-            ("read_flag_evaluations_with_fork", FlagEvaluationsMode.READ_FLAG_EVALUATIONS, True, True),
-            ("read_flag_evaluations_without_fork", FlagEvaluationsMode.READ_FLAG_EVALUATIONS, True, False),
-            ("flag_evaluations_only", FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY, False, True),
-            ("flag_evaluations_only_with_older_events_copy", FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY, True, True),
+            (f"{schema}_{name}", mode, call_in_events, call_in_flag_evaluations, schema == "json")
+            for schema in ("legacy", "json")
+            for name, mode, call_in_events, call_in_flag_evaluations in [
+                ("events_with_fork", FlagEvaluationsMode.EVENTS, True, True),
+                ("read_flag_evaluations_with_fork", FlagEvaluationsMode.READ_FLAG_EVALUATIONS, True, True),
+                ("read_flag_evaluations_without_fork", FlagEvaluationsMode.READ_FLAG_EVALUATIONS, True, False),
+                ("flag_evaluations_only", FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY, False, True),
+                ("flag_evaluations_only_with_older_events_copy", FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY, True, True),
+            ]
+            if schema == "legacy" or call_in_flag_evaluations
         ]
     )
     def test_counts_each_flag_call_once(
-        self, _name: str, mode: FlagEvaluationsMode, call_in_events: bool, call_in_flag_evaluations: bool
+        self,
+        _name: str,
+        mode: FlagEvaluationsMode,
+        call_in_events: bool,
+        call_in_flag_evaluations: bool,
+        use_json_events: bool,
     ) -> None:
         OrganizationFeatureFlagsConfig.objects.update_or_create(
             organization=self.organization, defaults={"flag_evaluations_mode": mode}
@@ -177,7 +187,8 @@ class TestSdkVersionsFromRollup(ClickhouseTestMixin, BaseTest):
         if call_in_flag_evaluations:
             _create_flag_evaluations(self.team.id, "beta", timestamp=now, properties=sdk)
 
-        result = get_sdk_versions_for_team(self.team.id)
+        with override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=use_json_events):
+            result = get_sdk_versions_for_team(self.team.id)
 
         assert result is not None
         assert {
