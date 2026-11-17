@@ -21,6 +21,8 @@ posthog/hogql/** @PostHog/hogql
 posthog/hogql/database/schema/**
 # ...and the generated schema snapshot, which changes when those definitions are regenerated
 posthog/hogql/database/test/__snapshots__/test_database.ambr
+# ...and documentation, which does not change HogQL behavior
+posthog/hogql/**/*.md
 
 # Being open source brings us unwanted problems because Github Actions are untrusted and inherently unsafe
 # so we have to be extra careful with changes here. Let's have the security team own these checks.
@@ -33,6 +35,9 @@ posthog/hogql/database/test/__snapshots__/test_database.ambr
 # We must be careful to only execute code from this repo's default branch, and never execute code from the PR's branch.
 .github/workflows/auto-assign-reviewers.yml @PostHog/team-security
 .github/scripts/assign-reviewers.js @PostHog/team-security
+# The auto-labeler runs on the same event with a write token, so the same rule applies.
+.github/workflows/auto-assign-labels.yml @PostHog/team-security
+.github/scripts/label-pr-from-title.js @PostHog/team-security
 # The vendored CODEOWNERS matcher the auto-assigner (and the ownership skill) depend on.
 .github/scripts/codeowners.js @PostHog/team-security
 # The distributed-ownership resolver the auto-assigner executes on that same
@@ -78,6 +83,10 @@ bin/dev-sandbox* @PostHog/team-security
 # probe only verifies liveness, so PR review is the vendor-identity gate.
 products/mcp_store/backend/catalog.py @PostHog/team-context-and-mcp
 
+# MCP guidance rules write text into the context of every customer's agent mid-session, steering
+# what it calls next, so review is the gate on what we tell agents.
+services/mcp/src/hono/guidance/rules.ts @PostHog/team-context-and-mcp
+
 # Adding a line here exempts a product from isolation, so the full Django backend suite
 # keeps running on every change it makes — a cost paid by everyone, not just its team.
 # `hogli product:bootstrap` scaffolds a sealed product, so a new one should never need an
@@ -104,5 +113,15 @@ docs/internal/ci-things-already-tried.md @PostHog/team-devex
 
 # The mobile owner reviews app changes and the workflows that build and release it.
 products/mobile/** @cvolzer3
+# Documentation, tests, and local development tools do not need required app review.
+products/mobile/docs/**
+products/mobile/**/*.md
+products/mobile/**/*.test.*
+products/mobile/.argent/**
+products/mobile/jest.config.js
+products/mobile/jest.setup.ts
+products/mobile/biome.json
+products/mobile/.gitignore
+products/mobile/app/** @cvolzer3
 products/desktop/apps/mobile/** @cvolzer3
 .github/workflows/*mobile*.yml @cvolzer3

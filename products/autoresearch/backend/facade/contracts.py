@@ -121,6 +121,9 @@ class LiveTrainingRun:
     """Progress of the pipeline's pending or running training run, read from its live iteration rows."""
 
     id: UUID
+    task_id: UUID | None
+    task_run_id: UUID | None
+    task_url: str | None
     iteration_budget: int
     experiment_count: int
     best_holdout_score: float | None
@@ -452,6 +455,8 @@ class PipelineValidation:
     inference_population_size: int | None
     warnings: list[ValidationWarning]
     error: str | None
+    # One of VALIDATION_ERROR_CODE_CHOICES when `error` is set.
+    error_code: str | None
 
 
 @dataclass(frozen=True)

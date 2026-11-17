@@ -2,9 +2,9 @@ import {
     PinReasonEnumApi,
     RoutingOwnerOutcomeEnumApi,
     RoutingOwnerReasonEnumApi,
-    StamphogRoutingRunApi,
-    StamphogRoutingRunOwnerApi,
-    type StamphogRoutingRunsListParams,
+    CodeReviewApprovalRoutingRunApi,
+    CodeReviewApprovalRoutingRunOwnerApi,
+    type CodeReviewApprovalsReviewerRoutingListParams,
 } from '../../generated/api.schemas'
 
 export type AreaFilter = 'all' | 'merged_without_team' | 'team_asked'
@@ -28,7 +28,7 @@ const ASKED_OUTCOMES: RoutingOwnerOutcomeEnumApi[] = [
 ]
 
 /** The outcome filter each segment sends. "All changes" sends none. */
-export const AREA_FILTER_OUTCOMES: Record<AreaFilter, StamphogRoutingRunsListParams['outcome']> = {
+export const AREA_FILTER_OUTCOMES: Record<AreaFilter, CodeReviewApprovalsReviewerRoutingListParams['outcome']> = {
     all: undefined,
     // Matches isMergedWithoutTeam, so the segment lists every pull request the headline counts.
     merged_without_team: [RoutingOwnerOutcomeEnumApi.NotRequested, RoutingOwnerOutcomeEnumApi.Refused],
@@ -59,11 +59,11 @@ const AREA_GROUPS: { key: AreaGroup; title: string }[] = [
 
 /** One pull request as the area page shows it: the run, and the run's decision about the picked owner. */
 export interface AreaRow {
-    run: StamphogRoutingRunApi
-    decision: StamphogRoutingRunOwnerApi
+    run: CodeReviewApprovalRoutingRunApi
+    decision: CodeReviewApprovalRoutingRunOwnerApi
 }
 
-export function ownerDecision(run: StamphogRoutingRunApi, owner: string): StamphogRoutingRunOwnerApi | null {
+export function ownerDecision(run: CodeReviewApprovalRoutingRunApi, owner: string): CodeReviewApprovalRoutingRunOwnerApi | null {
     return run.owners.find((entry) => entry.owner === owner) ?? null
 }
 
@@ -76,7 +76,7 @@ export function ownedShare(row: AreaRow): number | null {
     return Math.min(1, (row.decision.lines ?? 0) / (additions + deletions))
 }
 
-export function touchesSensitivePath(decision: StamphogRoutingRunOwnerApi): boolean {
+export function touchesSensitivePath(decision: CodeReviewApprovalRoutingRunOwnerApi): boolean {
     return decision.pins.some((pin) => pin.reason === PinReasonEnumApi.Sensitive)
 }
 
@@ -107,7 +107,7 @@ export function areaGroup(row: AreaRow): AreaGroup {
 
 /** Rows in display groups, each group sorted by the owner's changed lines, largest first. Empty groups are left out. */
 export function groupAreaRows(
-    runs: StamphogRoutingRunApi[],
+    runs: CodeReviewApprovalRoutingRunApi[],
     owner: string
 ): { key: AreaGroup; title: string; rows: AreaRow[] }[] {
     const rows: AreaRow[] = []
@@ -159,7 +159,7 @@ const REASON_PHRASE: Record<RoutingOwnerReasonEnumApi, string> = {
     [RoutingOwnerReasonEnumApi.StamphogApproved]: 'stamphog approved it',
 }
 
-const WHY_BY_OUTCOME: Record<RoutingOwnerOutcomeEnumApi, (decision: StamphogRoutingRunOwnerApi) => string> = {
+const WHY_BY_OUTCOME: Record<RoutingOwnerOutcomeEnumApi, (decision: CodeReviewApprovalRoutingRunOwnerApi) => string> = {
     [RoutingOwnerOutcomeEnumApi.Requested]: (decision) =>
         `Your team was asked because ${REASON_PHRASE[decision.reason]}.`,
     [RoutingOwnerOutcomeEnumApi.AlreadyRequested]: () =>
@@ -180,6 +180,6 @@ export function whyTitle(outcome: RoutingOwnerOutcomeEnumApi): string {
     return isTeamAsked(outcome) ? 'Why your team was asked' : "Why your team wasn't asked"
 }
 
-export function whySentence(decision: StamphogRoutingRunOwnerApi): string {
+export function whySentence(decision: CodeReviewApprovalRoutingRunOwnerApi): string {
     return WHY_BY_OUTCOME[decision.outcome](decision)
 }

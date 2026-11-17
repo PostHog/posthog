@@ -254,7 +254,7 @@ def schedule_delegation_side_effects(
             send_invite_task.apply_async(kwargs={"invite_id": invite_id})
             # Do not mark emailing_attempt_made here. The flag is stamped by `send_invite`
             # after `message.send()` returns, so a worker-side failure (SMTP outage,
-            # Customer.io rejection) leaves the flag False and the next re-submit retries
+            # Workflows rejection) leaves the flag False and the next re-submit retries
             # the email dispatch rather than silently stranding the delegator.
         except Exception as exc:  # noqa: BLE001 - broker outage must not 500 a committed delegation
             capture_exception(exc)

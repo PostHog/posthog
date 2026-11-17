@@ -559,6 +559,11 @@ def _validate_behavioral_cohort_for_feature_flag(
                 detail=f"Cohort '{cohort.name}' has an event-based condition{condition_clause} and cannot be used in feature flags.",
                 code=BEHAVIOURAL_COHORT_FOUND_ERROR_CODE,
             )
+        if not cohort.realtime_enabled:
+            raise serializers.ValidationError(
+                detail=f"Realtime is off for cohort '{cohort.name}'. Turn it on from the cohort's page, and feature flags can target the cohort once it's ready.",
+                code=BEHAVIOURAL_COHORT_FOUND_ERROR_CODE,
+            )
         raise serializers.ValidationError(
             detail=f"Cohort '{cohort.name}' isn't ready for feature flags yet. Open the cohort to see whether PostHog is still preparing it, and try again once it shows as realtime.",
             code=BEHAVIOURAL_COHORT_FOUND_ERROR_CODE,
@@ -835,6 +840,19 @@ def check_flag_limits_for_team(
         )
 
 
+class _JSONNullResponse(Response):
+    # DRF renders Response(None) as an empty body, and the SDKs' JSON parsers reject an empty body.
+    # This response renders the JSON literal null. Its .data stays None, so the Rust shadow comparison,
+    # which reads .data, still sees no payload.
+    def __init__(self) -> None:
+        super().__init__(None, headers={"Content-Type": "application/json"})
+
+    # django-stubs types rendered_content as str, but DRF's Response returns bytes from it.
+    @property
+    def rendered_content(self) -> bytes:  # type: ignore[override]
+        return b"null"
+
+
 # Default per-key and per-team cap for remote_config. Both throttles below respect
 # per-team overrides from REMOTE_CONFIG_RATE_LIMITS.
 REMOTE_CONFIG_DEFAULT_RATE = "600/minute"
@@ -1034,6 +1052,58 @@ class EvaluationContextSerializerMixin(serializers.Serializer):
 # entire cached flag set. person_metadata is here because Rust accepts it — the narrower
 # four-type set the structural tier enforces is a policy choice, not a serde limit.
 _RUST_PROPERTY_TYPES: frozenset[str] = frozenset({*FEATURE_FLAG_PROPERTY_TYPES, "person_metadata"})
+
+
+def _iter_raw_condition_properties(properties: object) -> Iterator[object]:
+    # Classifies each node the way parse_property_group_data does at that position, but yields each property
+    # as sent. The parser drops a property it can't build, so a check over its output never sees an unknown or
+    # missing type. A node that this walk reads as a group but the parser builds as a property skips the check.
+    if isinstance(properties, dict) and "type" in properties and "values" in properties:
+        yield from _iter_raw_group_values(properties["values"])
+    elif isinstance(properties, list):
+        # The parser builds every item of a top-level list as a property, even an item with a "values" key.
+        yield from properties
+    elif isinstance(properties, dict):
+        # The parser reads any other dict as legacy {key: value} filters and builds each key as an event property.
+        yield from ({"key": key, "type": "event"} for key in properties)
+    elif properties:
+        yield properties
+
+
+def _iter_raw_group_values(values: object) -> Iterator[object]:
+    if not isinstance(values, list):
+        if values:
+            yield values
+        return
+    for item in values:
+        # Inside a group, the parser reads an item with "type" and "values" as a nested group, and it rejects
+        # a group type other than AND or OR.
+        if isinstance(item, dict) and "type" in item and "values" in item:
+            yield from _iter_raw_group_values(item["values"])
+        else:
+            yield item
+
+
+def _validate_blast_radius_property_types(condition: object) -> None:
+    # Sizing runs the caller's condition as a query, so it accepts only the property types a saved flag accepts.
+    # The check sits here and not in user_blast_radius.py, because workflows size event and hogql filters
+    # through those helpers.
+    if not isinstance(condition, dict):
+        raise exceptions.ValidationError({"condition": "The condition must be an object."})
+    supported = ", ".join(sorted(_RUST_PROPERTY_TYPES))
+    for prop in _iter_raw_condition_properties(condition.get("properties")):
+        prop_type = prop.get("type") if isinstance(prop, dict) else None
+        if not isinstance(prop_type, str):
+            raise exceptions.ValidationError(
+                {"filters": f"Each release condition property needs a type. Use one of: {supported}."}
+            )
+        if prop_type not in _RUST_PROPERTY_TYPES:
+            raise exceptions.ValidationError(
+                {
+                    "filters": f"Property type '{prop_type}' isn't supported in release conditions. "
+                    f"Use one of: {supported}."
+                }
+            )
 
 
 def _variant_keys(filters: Mapping[str, Any]) -> Iterator[str]:
@@ -3894,7 +3964,7 @@ class EvaluationFeatureFlagSerializer(MinimalFeatureFlagSerializer):
         fields = [*MinimalFeatureFlagSerializer.Meta.fields, "has_experiment"]
 
     def get_has_experiment(self, feature_flag: FeatureFlag) -> bool:
-        # The evaluation/cache batch queries annotate `_has_experiment` via a bulk Exists,
+        # The evaluation/cache batch queries set `_has_experiment` from one bulk read,
         # so this avoids an N+1. The exists() fallback only fires for unannotated callers.
         cached = getattr(feature_flag, "_has_experiment", None)
         if cached is not None:
@@ -6009,6 +6079,10 @@ class FeatureFlagViewSet(
             raise exceptions.ValidationError("Missing condition for which to get blast radius")
 
         condition = request.data.get("condition") or {}
+        _validate_blast_radius_property_types(condition)
+        # The query also reads filter_test_accounts, which adds the team's test account filters,
+        # and the check above doesn't see those.
+        condition = {"properties": condition.get("properties")}
         group_type_index = request.data.get("group_type_index", None)
 
         if group_type_index is None and use_blast_radius_query_v2(self.team):
@@ -6619,11 +6693,13 @@ class FeatureFlagViewSet(
         # usage numbers.
         should_count = is_service_auth(request)
 
-        if not feature_flag.has_encrypted_payloads:
-            payloads = feature_flag.filters.get("payloads", {})
+        if not feature_flag.active or not feature_flag.has_encrypted_payloads:
             if should_count:
                 increment_request_count(self.team.pk, 1, FlagRequestType.REMOTE_CONFIG)
-            return Response(payloads.get("true") or None)
+            # A disabled flag evaluates as off in local evaluation and /flags, so it serves no payload here either.
+            if not feature_flag.active:
+                return _JSONNullResponse()
+            return Response(feature_flag.filters.get("payloads", {}).get("true") or None)
 
         # Note: This decryption step is protected by the feature_flag:read scope, so we can assume the
         # user has access to the flag. However get_decrypted_flag_payloads_protected will also check the authentication

@@ -2,6 +2,7 @@ import { DateTime } from 'luxon'
 
 import { PluginsServerConfig } from '~/types'
 
+import { sendsOnSandboxSender } from '../services/hogflows/actions/email_sandbox'
 import { JobQueue } from '../services/job-queue/job-queue.interface'
 import { CyclotronJobInvocation, CyclotronJobInvocationHogFlow, CyclotronJobInvocationResult } from '../types'
 import { createInvocationResult } from '../utils/invocation-utils'
@@ -45,7 +46,9 @@ export class CdpCyclotronWorkerEmailSandbox extends CdpCyclotronWorkerHogFlow {
 
 function isStillOnSandboxEmailStep(invocation: CyclotronJobInvocationHogFlow): boolean {
     const currentActionId = invocation.state?.currentAction?.id
-    return invocation.hogFlow.actions.some((action) => action.id === currentActionId && action.type === 'email_sandbox')
+    return invocation.hogFlow.actions.some(
+        (action) => action.id === currentActionId && sendsOnSandboxSender(invocation, action)
+    )
 }
 
 function routeBackToHogFlowQueue(

@@ -226,7 +226,7 @@ class RoutingPullRequestDTO:
     # The reviewer's sentence about the whole change, from the newest completed review that wrote one.
     summary: str | None = None
     # Whether a standing stamphog approval covers the head that routing last decided on.
-    approved_by_stamphog: bool = False
+    auto_approved: bool = False
 
 
 @dataclass(frozen=True)

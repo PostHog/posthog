@@ -27,6 +27,10 @@ __all__ = [
     "DuckLakeDayReplacement",
     "DuckLakeTableLayoutError",
     "DuckLakeTableReplacement",
+    "HoglakeBackfillCatalog",
+    "TrinoBackend",
+    "DuckgresConnectionRefused",
+    "DuckgresOrganizationUnavailable",
     "DuckgresQueryServerConfig",
     "DuckgresServerSummary",
     "DuckgresStoredBucketConfig",
@@ -63,6 +67,14 @@ __all__ = [
 
 class CPUnavailableError(RuntimeError):
     pass
+
+
+class DuckgresConnectionRefused(Exception):
+    """duckgres refused the connection because of its hostname, so no retry can succeed."""
+
+
+class DuckgresOrganizationUnavailable(DuckgresConnectionRefused):
+    """duckgres has no organization for the managed warehouse hostname of the connection."""
 
 
 @frozen
@@ -199,6 +211,15 @@ class DuckgresStoredBucketConfig:
 
     bucket: str
     region: str | None
+
+
+@dataclass(frozen=True, kw_only=True)
+class ControlPlaneStorage:
+    """The bucket and data path of a managed warehouse, both from one control-plane status."""
+
+    bucket: str
+    # `s3://<bucket>/`, or `s3://<bucket>/<prefix>/` for a warehouse under a prefix of a shared bucket.
+    data_path: str
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -456,6 +477,10 @@ class DuckLakeTableLayoutError(ValueError):
     """The table's column types differ from the backfill export, so add_files refuses the export's files."""
 
 
+# The connector behind an organization's managed Trino catalog. The backend is fixed when the warehouse is created.
+TrinoBackend = Literal["ducklake", "hoglake"]
+
+
 class DuckLakeBackfillCatalog(Protocol):
     """The DuckLake statements a backfill runs in the organization's Trino catalog."""
 
@@ -532,3 +557,24 @@ class ViewTranslationSummary:
     active: bool
     # The latest job, when it has failed or stale views to retry. None otherwise.
     retry_job_id: UUID | None
+
+
+class HoglakeBackfillCatalog(Protocol):
+    """The hoglake statements of one team's backfill, run in the organization's Trino catalog."""
+
+    def ensure_table(
+        self, table: str, columns: Mapping[str, str], *, drop_first: bool, create_if_missing: bool, validate: bool
+    ) -> None: ...
+
+    def replace_table(self, table: str, columns: Mapping[str, str]) -> None: ...
+
+    def register_export(
+        self,
+        table: str,
+        *,
+        location: str,
+        file_prefix: str,
+        import_id: str,
+        expected_rows: int,
+        replacement: DuckLakeDayReplacement | DuckLakeTableReplacement | None,
+    ) -> int: ...

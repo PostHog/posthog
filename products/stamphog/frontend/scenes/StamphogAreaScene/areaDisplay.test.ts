@@ -1,19 +1,19 @@
 import {
     RoutingOwnerOutcomeEnumApi,
-    type StamphogRoutingRunApi,
-    type StamphogRoutingRunOwnerApi,
+    type CodeReviewApprovalRoutingRunApi,
+    type CodeReviewApprovalRoutingRunOwnerApi,
 } from '../../generated/api.schemas'
 import { AREA_FILTER_OUTCOMES, AreaGroup, areaGroup, groupAreaRows, isMergedWithoutTeam } from './areaDisplay'
 
-const run = (size: number | null, decision: Partial<StamphogRoutingRunOwnerApi>, id = 'run'): StamphogRoutingRunApi =>
+const run = (size: number | null, decision: Partial<CodeReviewApprovalRoutingRunOwnerApi>, id = 'run'): CodeReviewApprovalRoutingRunApi =>
     ({
         id,
         pull_request: { additions: size, deletions: size === null ? null : 0 },
         owners: [{ owner: 'team-devex', outcome: 'not_requested', pins: [], lines: 50, ...decision }],
-    }) as unknown as StamphogRoutingRunApi
+    }) as unknown as CodeReviewApprovalRoutingRunApi
 
 describe('areaDisplay', () => {
-    test.each<[string, StamphogRoutingRunApi, AreaGroup]>([
+    test.each<[string, CodeReviewApprovalRoutingRunApi, AreaGroup]>([
         [
             'a sensitive pin needs a look even when the team was asked',
             run(1000, { outcome: 'requested', pins: [{ reason: 'sensitive', path: '.github/workflows/ci.yml' }] }),

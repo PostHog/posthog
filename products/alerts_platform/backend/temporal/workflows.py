@@ -44,6 +44,7 @@ with workflow.unsafe.imports_passed_through():
     from products.alerts_platform.backend.delivery.evaluation import deliver_evaluation
     from products.alerts_platform.backend.delivery.routing import deliver_routes
     from products.alerts_platform.backend.delivery.thread_store import PENDING_CLAIM_TTL, ThreadBusy
+    from products.alerts_platform.backend.delivery.transport import RefusedEverywhere
     from products.alerts_platform.backend.facade.contracts import (
         AlertBatchKey,
         AlertDeliveryRequest,
@@ -91,7 +92,11 @@ SOURCE_DISPATCH_HEADROOM = dt.timedelta(seconds=1)
 NOOP_EVALUATION_TIMEOUT = dt.timedelta(seconds=75)
 
 THREAD_BUSY = "AlertsPlatformThreadBusy"
-DELIVERY_START_TO_CLOSE = dt.timedelta(seconds=10)
+REFUSED_EVERYWHERE = "AlertsPlatformRefusedEverywhere"
+# One attempt can wait up to 3s for a lagging announcement (`read_announcement`) and then spend up to
+# 8s on a webhook's connect and read timeouts (`wire.py`). Below that sum, Temporal times the attempt
+# out while the send still runs, and the retry finds the thread claimed.
+DELIVERY_START_TO_CLOSE = dt.timedelta(seconds=15)
 DELIVERY_SCHEDULE_TO_CLOSE = dt.timedelta(seconds=30)
 # The workflow waits out a held thread because the activity's retries end inside
 # DELIVERY_SCHEDULE_TO_CLOSE, which is shorter than PENDING_CLAIM_TTL. A claim that a dead
@@ -207,6 +212,10 @@ async def alerts_platform_deliver_preview_activity(request: AlertDeliveryRequest
         # Non-retryable so that the wait does not use the retries a provider failure needs, and
         # non-reportable because a held thread is expected contention. The workflow waits it out.
         raise NonReportableApplicationError(str(error), type=THREAD_BUSY, non_retryable=True) from error
+    except RefusedEverywhere as error:
+        # A retry is refused the same way, and the creator was told. Non-reportable because the
+        # fix is the destination owner's, which the deliveries metric counts as `misconfigured`.
+        raise NonReportableApplicationError(str(error), type=REFUSED_EVERYWHERE, non_retryable=True) from error
     if not outcome.live:
         await LOGGER.ainfo(
             "alerts_platform_delivery_preview",
@@ -242,6 +251,8 @@ async def alerts_platform_deliver_routes_activity(request: AlertDeliveryRequest)
             evaluation_key=request.evaluation_key,
         )
         raise NonReportableApplicationError(str(error), type=THREAD_BUSY, non_retryable=True) from error
+    except RefusedEverywhere as error:
+        raise NonReportableApplicationError(str(error), type=REFUSED_EVERYWHERE, non_retryable=True) from error
     if sent:
         await LOGGER.ainfo(
             "alerts_platform_routed_delivered",

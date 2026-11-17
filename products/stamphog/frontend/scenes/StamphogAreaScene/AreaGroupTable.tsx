@@ -61,7 +61,7 @@ export function AreaGroupTable({ group, rows }: { group: AreaGroup; rows: AreaRo
                                     <TZLabel time={run.pull_request.merged_at} />
                                 </>
                             ) : null}
-                            {run.pull_request.approved_by_stamphog ? ' · approved by stamphog' : null}
+                            {run.pull_request.auto_approved ? ' · auto-approved' : null}
                         </div>
                     </div>
                 )

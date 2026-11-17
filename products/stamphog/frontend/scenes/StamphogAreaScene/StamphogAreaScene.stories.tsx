@@ -9,15 +9,15 @@ import { urls } from 'scenes/urls'
 import { mswDecorator } from '~/mocks/browser'
 
 import type {
-    PaginatedStamphogRoutingRunListApi,
-    StamphogRoutingFileApi,
-    StamphogRoutingOwnerCountApi,
-    StamphogRoutingRunApi,
-    StamphogRoutingRunDetailApi,
-    StamphogRoutingRunOwnerApi,
+    PaginatedCodeReviewApprovalRoutingRunListApi,
+    CodeReviewApprovalRoutingFileApi,
+    CodeReviewApprovalRoutingOwnerCountApi,
+    CodeReviewApprovalRoutingRunApi,
+    CodeReviewApprovalRoutingRunDetailApi,
+    CodeReviewApprovalRoutingRunOwnerApi,
 } from '../../generated/api.schemas'
 
-const file = (path: string, additions: number, deletions = 0): StamphogRoutingFileApi => ({
+const file = (path: string, additions: number, deletions = 0): CodeReviewApprovalRoutingFileApi => ({
     path,
     previous_path: null,
     status: 'modified',
@@ -26,7 +26,7 @@ const file = (path: string, additions: number, deletions = 0): StamphogRoutingFi
     owners_source: 'owners.yaml',
 })
 
-const owner = (overrides: Partial<StamphogRoutingRunOwnerApi>): StamphogRoutingRunOwnerApi =>
+const owner = (overrides: Partial<CodeReviewApprovalRoutingRunOwnerApi>): CodeReviewApprovalRoutingRunOwnerApi =>
     ({
         owner: 'team-devex',
         kind: 'team',
@@ -38,7 +38,7 @@ const owner = (overrides: Partial<StamphogRoutingRunOwnerApi>): StamphogRoutingR
         file_count: 3,
         summary: null,
         ...overrides,
-    }) as StamphogRoutingRunOwnerApi
+    }) as CodeReviewApprovalRoutingRunOwnerApi
 
 interface RunInput {
     id: string
@@ -49,7 +49,7 @@ interface RunInput {
     size: [number, number, number]
     summary: string
     approved: boolean
-    owners: StamphogRoutingRunOwnerApi[]
+    owners: CodeReviewApprovalRoutingRunOwnerApi[]
 }
 
 const run = ({
@@ -62,7 +62,7 @@ const run = ({
     summary,
     approved,
     owners,
-}: RunInput): StamphogRoutingRunApi =>
+}: RunInput): CodeReviewApprovalRoutingRunApi =>
     ({
         id: `00000000-0000-0000-0000-0000000000${id}`,
         repository: 'PostHog/posthog',
@@ -76,7 +76,7 @@ const run = ({
             deletions: size[1],
             changed_files: size[2],
             summary,
-            approved_by_stamphog: approved,
+            auto_approved: approved,
         },
         head_sha: 'a91f3cd8e2b1447fa0c2d9e5b7318fa4c02d1e77',
         mode: 'fallback',
@@ -90,7 +90,7 @@ const run = ({
         owners_sha: '4fe8b2077c1a9e3d5b06f8241ac93de70b115f6a',
         owners,
         created_at: '2026-08-13T09:12:00Z',
-    }) as StamphogRoutingRunApi
+    }) as CodeReviewApprovalRoutingRunApi
 
 const storybookSplitFiles = [
     file('common/storybook/.storybook/main.ts', 41, 212),
@@ -113,7 +113,7 @@ const storybookSplit = run({
     owners: [owner({ lines: 559, file_count: 5 })],
 })
 
-const runs: StamphogRoutingRunApi[] = [
+const runs: CodeReviewApprovalRoutingRunApi[] = [
     run({
         id: 'a1',
         prNumber: 83799,
@@ -241,14 +241,14 @@ const runs: StamphogRoutingRunApi[] = [
     }),
 ]
 
-const page = (results: StamphogRoutingRunApi[]): PaginatedStamphogRoutingRunListApi => ({
+const page = (results: CodeReviewApprovalRoutingRunApi[]): PaginatedCodeReviewApprovalRoutingRunListApi => ({
     count: results.length,
     next: null,
     previous: null,
     results,
 })
 
-const owners: StamphogRoutingOwnerCountApi[] = [
+const owners: CodeReviewApprovalRoutingOwnerCountApi[] = [
     { owner: 'team-devex', kind: 'team', pr_count: 31 },
     { owner: 'team-infra', kind: 'team', pr_count: 24 },
     { owner: 'team-feature-flags', kind: 'team', pr_count: 17 },
@@ -259,7 +259,7 @@ const owners: StamphogRoutingOwnerCountApi[] = [
 const storybookSplitDetail = {
     ...storybookSplit,
     owners: [{ ...storybookSplit.owners[0], files: storybookSplitFiles }],
-} as StamphogRoutingRunDetailApi
+} as CodeReviewApprovalRoutingRunDetailApi
 
 const meta: Meta = {
     component: App,
@@ -274,14 +274,14 @@ const meta: Meta = {
 }
 export default meta
 
-const story = (team: string | null, response: PaginatedStamphogRoutingRunListApi): StoryObj => ({
+const story = (team: string | null, response: PaginatedCodeReviewApprovalRoutingRunListApi): StoryObj => ({
     parameters: { pageUrl: combineUrl(urls.stamphogArea(), team ? { team } : {}).url },
     decorators: [
         mswDecorator({
             get: {
-                '/api/projects/:team_id/stamphog/routing_runs/owners/': owners,
-                [`/api/projects/:team_id/stamphog/routing_runs/${storybookSplit.id}/`]: storybookSplitDetail,
-                '/api/projects/:team_id/stamphog/routing_runs/': response,
+                '/api/projects/:team_id/code_review/approvals/reviewer_routing/owners/': owners,
+                [`/api/projects/:team_id/code_review/approvals/reviewer_routing/${storybookSplit.id}/`]: storybookSplitDetail,
+                '/api/projects/:team_id/code_review/approvals/reviewer_routing/': response,
             },
         }),
     ],

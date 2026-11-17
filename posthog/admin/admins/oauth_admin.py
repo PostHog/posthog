@@ -17,6 +17,7 @@ from posthog.admin.console.oauth_tool import RevokeSessionsForm
 from posthog.api.oauth.cimd import is_cimd_client_id
 from posthog.models.oauth import OAuthApplication
 from posthog.models.oauth_provisioning import PROVISIONING_CAPABILITIES, UNLIMITED_OVERRIDE, ProvisioningConfig
+from posthog.models.oauth_provisioning_review import CIMDProvisioningReview, ProvisioningReviewStatus
 
 # The provisioning config is one JSONB column, but an operator should still get the checkboxes
 # they had when it was a column each: a raw JSON textarea turns a mistyped capability key into
@@ -245,6 +246,7 @@ class OAuthApplicationAdmin(admin.ModelAdmin):  # nosemgrep: admin-modeladmin-ne
         "is_cimd_client",
         "is_first_party",
         "supports_step_up",
+        "can_manage_ema_issuer",
         "auth_brand",
         "is_provisioning_partner",
         ProvisioningCapabilityFilter,
@@ -320,7 +322,7 @@ class OAuthApplicationAdmin(admin.ModelAdmin):  # nosemgrep: admin-modeladmin-ne
 
     def get_readonly_fields(self, request, obj=None):
         if obj:
-            readonly = ["id", "client_id", "is_dcr_client", "is_cimd_client"]
+            readonly = ["id", "client_id", "is_dcr_client", "is_cimd_client", "provisioning_review"]
             if obj.is_cimd_client:
                 # A CIMD client's scope ceiling is derived from its own metadata document and
                 # re-applied on every refresh, so a manual edit here would be silently reverted.
@@ -341,6 +343,7 @@ class OAuthApplicationAdmin(admin.ModelAdmin):  # nosemgrep: admin-modeladmin-ne
         if obj:
             provisioning_fields = [
                 "is_provisioning_partner",
+                "provisioning_review",
                 *PROVISIONING_FORM_FIELD_NAMES,
                 *_rate_limit_form_fields(),
             ]
@@ -368,6 +371,7 @@ class OAuthApplicationAdmin(admin.ModelAdmin):  # nosemgrep: admin-modeladmin-ne
                             "is_verified",
                             "is_first_party",
                             "supports_step_up",
+                            "can_manage_ema_issuer",
                             "is_dcr_client",
                             "is_cimd_client",
                         )
@@ -413,7 +417,7 @@ class OAuthApplicationAdmin(admin.ModelAdmin):  # nosemgrep: admin-modeladmin-ne
                     },
                 ),
                 ("Ownership", {"fields": ("user", "organization")}),
-                ("Status", {"fields": ("is_verified", "is_first_party", "supports_step_up")}),
+                ("Status", {"fields": ("is_verified", "is_first_party", "supports_step_up", "can_manage_ema_issuer")}),
             )
 
     def get_form(self, request, obj=None, change=False, **kwargs):
@@ -437,6 +441,16 @@ class OAuthApplicationAdmin(admin.ModelAdmin):  # nosemgrep: admin-modeladmin-ne
                 form.base_fields["organization"].initial = request.user.organization
 
         return form
+
+    @admin.display(description="Provisioning review")
+    def provisioning_review(self, obj: OAuthApplication) -> str:
+        review = CIMDProvisioningReview.objects.filter(application=obj).first()
+        if review is None:
+            return "-"
+        summary = f"{review.get_status_display()}: {review.reason}" if review.reason else review.get_status_display()
+        if review.status == ProvisioningReviewStatus.NEEDS_HUMAN:
+            return f"{summary}. Accept or reject it in PostHog Admin, under Provisioning partner reviews."
+        return summary
 
     @admin.display(description="CIMD URL")
     def cimd_url(self, obj: OAuthApplication):

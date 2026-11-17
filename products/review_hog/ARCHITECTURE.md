@@ -2,9 +2,10 @@
 
 ## Terms
 
-**PostHog Review** is the product name on every outward surface: GitHub comments, MCP tools, API docs, and UI prose.
-**Code review** is the name of the in-app page and its nav entry only.
-**ReviewHog** is the internal codename. Code, logs, metric names, keys, and developer docs use it.
+**PostHog Review** is the product name in prose (GitHub comments, MCP category, API docs).
+**Code review** is the page name and the identifier namespace (`code_review` in the API and scopes, `code-review` in MCP tool names).
+**ReviewHog** and **Stamphog** are internal code names; Stamphog is also the name of the GitHub app.
+Code, logs, metric names, keys, and developer docs use the code names.
 An `@posthog review` comment starts a Standard review, and `@posthog review --deep` starts a Deep review. No label starts a review.
 The comment is the primary GitHub-side trigger.
 Requesting the `posthog-review` GitHub team as a reviewer is an optional shortcut (`review_team_requests.py`, trigger source `review_request`).
@@ -306,6 +307,9 @@ sessions, all on the PR's arm set (below) and all returning `SingleAgentReview`:
   and image assets, and `max_migration.txt`. One session runs per lens and part, so a turn opens at most 9 sessions, under one
   `MAX_CONCURRENT_SANDBOXES` semaphore. A lens session gets `FLASH_LENS_SESSION_TIMEOUT` (10 minutes, retry
   included) instead of the sandbox timeout. A failed or timed-out lens session costs only its own findings.
+- **Follow-up prompts name the changed lines.** On a follow-up turn that reviews the whole PR, every session's prompt
+  lists the lines changed since the last reviewed head and says which levels the `old_code` drop discards elsewhere
+  (P2 and P3 on an automatic turn, P3 on a requested one).
 - **The devex lens session** (`DEVEX_LENS`, `lens_devex.md`) reviews the changed files that the devex team owns.
   It is not in `FLASH_LENSES`.
   It runs only when the repository's `owners.yaml` files give a changed file to `DEVEX_OWNER_TEAM` and the per-PR flag `reviewhog-devex-lens` is on.
@@ -546,6 +550,7 @@ pr_metadata.head_branch` is threaded (as explicit kwargs, alongside `team_id` / 
     The body's Other-findings section uses the same heading, then the file and lines, then the same paragraph.
     The outcome sweep (`find_finding_comment`) matches a finding to its comment by the whole first line, for any P level and for the older `### {title}` heading.
     A reply or reaction counts as engagement unless ReviewHog's own app left it (`engagement_method`), so the resolution stage's 👀 queue marker never marks a finding `reacted`.
+    Each outcome also stores the reactions' tone (`reaction_sentiment`), the first reply ReviewHog did not write (`first_reply_excerpt`), and whether the comment was outdated (`comment_outdated`). The reviews API returns all three on `findings[].outcome`. The event carries only the tone and the outdated flag.
     The validator's argumentation stays out of GitHub; the reviews API returns it as `validator_note`.
     When every publishable finding posts inline, a Deep review body is only the hidden publish marker, because the tally repeats the comments.
     A Standard review body then carries one summary line instead (`render_review_summary`, "PostHog Review · Standard · reviewed `abc1234`: 1 Must fix."), because Standard has no status comment.
@@ -971,7 +976,7 @@ also carries the review-without-resolving, resolve-only, and **Flash** variants;
 `TaskRun` receiver auto-reviews self-driving Signals implementations once their PR exists — a pushed branch without
 a PR is not reviewed, and the PR must sit in the task's own repository because `output.pr_url` is written by
 whoever controls the run, the sandbox agent included), **MCP tools**
-(`review-hog-reviews-{trigger,list,get}`, defined in `products/review_hog/mcp/tools.yaml` and gated on the
+(`code-review-reviews-{trigger,list,get}`, defined in `products/review_hog/mcp/tools.yaml` and gated on the
 `review-hog` feature flag) that drive the same reviews viewset with a personal API key or OAuth token, and **automatic authored-PR Flash reviews**.
 The automatic trigger consumes signed GitHub `pull_request` deliveries through `review_hog_authored_prs` and queues a Celery task for the ownership, identity, and rule checks.
 It accepts `opened`, `synchronize`, and `ready_for_review` for open PRs whose head and base belong to the delivery's repository, including drafts.
@@ -989,8 +994,8 @@ The Stamphog handoff queues `process_stamphog_handoff`, which finds the project 
 The review runs as the PR owner, else as the user who connected the installation (`Integration.created_by`) with default settings and no resolution; a running resolution drops the handoff.
 Counters: `posthog_review_hog_authored_pr_review_total` and `posthog_review_hog_stamphog_handoff_total`, keyed by outcome.
 `facade/github.py::owning_team_id(installation_id, repository)` answers the same ownership question for other products, for example a PR comment command dispatcher.
-The UI and MCP paths are one surface: the viewset carries the grantable `review_hog` scope (`review_hog:read` for list /
-retrieve / perspective_stats, `review_hog:write` for trigger). Both require the `review-hog` feature flag,
+The UI and MCP paths are one surface: the viewset carries the grantable `code_review` scope (`code_review:read` for list /
+retrieve / perspective_stats, `code_review:write` for trigger). Both require the `review-hog` feature flag,
 and the trigger action checks the URL, GitHub App access, fork status, and open state regardless of caller.
 The trigger action and the `@posthog review` comment (`facade/reviews.py`) both call `requested_reviews.request_pr_review()`, which applies the owner rule for resolution and the no-Flash-after-Full refusal.
 Settings: an automatic review follows the owner's rules (Flash reads no personal settings), the UI / MCP Review button

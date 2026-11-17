@@ -103,6 +103,37 @@ class TestEnrichViewSemanticsSync:
         assert mock_llm.call_count == 1
         assert result["status"] == "done"
 
+    @parameterized.expand(
+        [
+            ("the_view_it_reads", False, True),
+            ("not_a_view_that_only_shares_the_name", True, False),
+        ]
+    )
+    def test_a_parent_view_brings_only_its_own_description_into_the_prompt(
+        self, _name: str, models_name_is_stored: bool, described: bool
+    ):
+        team = _team()
+        accounts = _saved_query(team, name="accounts", columns=_columns("id"), query="SELECT 1 AS id")
+        DataWarehouseSavedQueryColumnAnnotation.objects.for_team(team.pk).create(
+            team=team,
+            saved_query=accounts,
+            column_name="",
+            description="Paying accounts",
+            description_source=_SOURCE.USER_EDITED,
+        )
+        if models_name_is_stored:
+            _saved_query(team, name="models.accounts", columns=_columns("id"), query="SELECT 2 AS id")
+        sq = _saved_query(team, columns=_columns("id"), query="SELECT id FROM models.accounts")
+        generated = {"view_description": "v", "columns": {"id": "i"}}
+
+        with (
+            patch.object(enrich, "get_team_business_context", return_value=""),
+            patch.object(enrich, "generate_json_completion", return_value=(generated, _USAGE)) as mock_llm,
+        ):
+            enrich_view_semantics_sync(team.pk, str(sq.id))
+
+        assert ("— Paying accounts" in mock_llm.call_args.kwargs["prompt"]) is described
+
     def test_a_reply_without_a_view_description_does_not_spend_another_batch(self):
         """The view description is asked for once. Re-asking carries the same definition, so a reply
         that omitted it will omit it again, and looping on that would burn the budget."""

@@ -91,6 +91,7 @@ export function BoxPlotChart({ showPersonsModal = true, context }: ChartParams):
                             timezone={timezone}
                             weekStartDay={weekStartDay}
                             date={day}
+                            showFullDate
                         />
                     </>
                 ),

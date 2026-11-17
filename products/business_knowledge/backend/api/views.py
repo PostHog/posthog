@@ -21,9 +21,10 @@ from rest_framework.response import Response
 
 from posthog.api.pagination import BoundedLimitOffsetPagination
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.auth import ProjectSecretAPIKeyAuthentication
 from posthog.event_usage import groups
 from posthog.models.user import User
-from posthog.permissions import APIScopePermission, PostHogFeatureFlagPermission
+from posthog.permissions import APIScopePermission, PostHogFeatureFlagPermission, get_authenticator_client
 from posthog.rate_limit import BurstRateThrottle, SustainedRateThrottle
 from posthog.temporal.common.client import sync_connect
 
@@ -31,6 +32,8 @@ from .. import libraries, logic
 from ..constants import (
     BK_DRILLDOWN_DEFAULT_RADIUS,
     BK_DRILLDOWN_MAX_RADIUS,
+    BK_RERANK_REQUEST_MAX_RETRIES,
+    BK_RERANK_REQUEST_TIMEOUT,
     BK_SEARCH_DEFAULT_LIMIT,
     BK_SEARCH_MAX_LIMIT,
     MAX_URLS_PER_SOURCE,
@@ -42,6 +45,7 @@ from ..llm_telemetry import RetrievalTrace
 from ..models import AddedBy, GapStatus, KnowledgeDocument, KnowledgeGapSuggestion, KnowledgeSource, SourceType
 from ..models.constants import CrawlMode
 from ..temporal.coordinator import IngestSourceInputs, RefreshSourceInputs
+from ..usage import attach_source_citations, knowledge_usage
 from .serializers import (
     AggregatedGapSerializer,
     CreateCrawlSourceSerializer,
@@ -57,10 +61,13 @@ from .serializers import (
     KnowledgeSearchResultSerializer,
     KnowledgeSourceDocumentSerializer,
     KnowledgeSourceSerializer,
+    KnowledgeUsageQuerySerializer,
+    KnowledgeUsageSerializer,
     UpdateTextSourceSerializer,
     UpdateUrlSourceSerializer,
 )
 from .settings import CanonicalTeamTokenPermission, canonical_user_access_control
+from .throttles import KNOWLEDGE_THROTTLES
 
 logger = structlog.get_logger(__name__)
 
@@ -182,6 +189,7 @@ class KnowledgeSourceViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             unfiled=unfiled,
         )
         page = self.paginate_queryset(sources)
+        attach_source_citations(self.team_id, page if page is not None else sources)
         if page is not None:
             return self.get_paginated_response(KnowledgeSourceSerializer(instance=page, many=True).data)
         return Response(KnowledgeSourceSerializer(instance=sources, many=True).data)
@@ -502,6 +510,29 @@ class KnowledgeSourceViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             ).data
         )
 
+    @extend_schema(
+        parameters=[KnowledgeUsageQuerySerializer],
+        responses={200: KnowledgeUsageSerializer},
+        description="How much support agent runs cited the project's knowledge sources over a period.",
+    )
+    @action(
+        detail=False,
+        methods=["get"],
+        url_path="usage",
+        pagination_class=None,
+        required_scopes=["business_knowledge:read"],
+    )
+    def usage(self, request: Request, **kwargs) -> Response:
+        # A grant on one source passes this viewset's permissions, but usage describes the whole resource.
+        if not (
+            self.user_access_control.check_access_level_for_resource("business_knowledge", "viewer")
+            and _can_read_parent_knowledge(self, request)
+        ):
+            raise exceptions.PermissionDenied(detail="You need access to business knowledge in this project.")
+        query = KnowledgeUsageQuerySerializer(data=request.query_params)
+        query.is_valid(raise_exception=True)
+        return Response(KnowledgeUsageSerializer(knowledge_usage(self.team_id, days=query.validated_data["days"])).data)
+
     @extend_schema(responses={200: KnowledgeSourceDocumentSerializer(many=True)})
     @action(
         detail=True,
@@ -616,9 +647,11 @@ class KnowledgeDocumentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     scope_object = "business_knowledge"
     queryset = KnowledgeDocument.objects.unscoped()
     serializer_class = KnowledgeDocumentWindowSerializer
+    authentication_classes = [ProjectSecretAPIKeyAuthentication]
+    psak_allowed_actions = ["search", "window"]
     permission_classes = [IsAuthenticated, APIScopePermission, PostHogFeatureFlagPermission]
     posthog_feature_flag = "product-business-knowledge"
-    throttle_classes = [BurstRateThrottle, SustainedRateThrottle]
+    throttle_classes = KNOWLEDGE_THROTTLES
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         return queryset.filter(team_id=self.team_id)
@@ -741,7 +774,15 @@ class KnowledgeDocumentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             self.team, query.strip(), limit=search_limit, trace=trace, library_id=library_id
         )
         if rerank:
-            results = logic.rerank_chunks(self.team, query.strip(), results, top_k=limit, trace=trace)
+            results = logic.rerank_chunks(
+                self.team,
+                query.strip(),
+                results,
+                top_k=limit,
+                trace=trace,
+                timeout=BK_RERANK_REQUEST_TIMEOUT,
+                max_retries=BK_RERANK_REQUEST_MAX_RETRIES,
+            )
         # `search_knowledge` expands each anchor with its ordinal neighbours, so it
         # can return up to ~3x the anchor limit. Trim to honor the requested bound.
         results = results[:limit]
@@ -753,6 +794,7 @@ class KnowledgeDocumentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     "result_count": len(results),
                     "surface": "api",
                     "library_scoped": library_id is not None,
+                    "credential_type": get_authenticator_client(request.successful_authenticator)["credential_type"],
                 },
                 groups=groups(team=self.team),
             )

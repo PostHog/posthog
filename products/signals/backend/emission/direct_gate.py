@@ -85,8 +85,9 @@ async def steering_filters_signal(
     """Whether this team's steering says to drop the signal.
 
     Returns False without an LLM call when the team has written no steering for the source. A dropped
-    signal reports itself as ``signal_data_source_filtered`` with ``steering_applied``, the same stage
-    event the batch pipeline fires, so a filtered signal is distinguishable from one lost to a failure.
+    signal reports itself as ``signal_data_source_filtered`` with ``filter_reason`` ``steering_rejected``,
+    the same stage event the batch pipeline fires, so a filtered signal is distinguishable from one lost
+    to a failure.
     """
     # Text only, dropping any `default_not_actionable` the row carries. See the module docstring.
     steering = SourceSteering(
@@ -153,5 +154,11 @@ async def steering_filters_signal(
         signal_source_type=source_type,
         signal_source_id=source_id,
     )
-    capture_pipeline_stage("signal_data_source_filtered", team, organization, output, {"steering_applied": True})
+    capture_pipeline_stage(
+        "signal_data_source_filtered",
+        team,
+        organization,
+        output,
+        {"filter_reason": "steering_rejected", "steering_applied": True},
+    )
     return True

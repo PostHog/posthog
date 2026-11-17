@@ -11,6 +11,7 @@ import type { ReplayScannerApi } from '../generated/api.schemas'
 // The server's error codes for a turn-on that needs the person's decision first.
 const AI_CONSENT_REQUIRED_CODE = 'ai_data_processing_not_approved'
 const CREATOR_LOST_ACCESS_CODE = 'scanner_creator_lost_access'
+const FREE_CREDITS_USED_CODE = 'scanner_free_credits_used'
 
 interface ConfirmDialog {
     title: string
@@ -33,6 +34,14 @@ export const TAKE_OVER_DIALOG: ConfirmDialog = {
         "The person who created this scanner can no longer view recordings, so it can't run as them. Turning it on makes you its creator, and it will scan recordings as you.",
     confirmLabel: 'Take over and turn on',
     confirmDataAttr: 'vision-scanner-turn-on-take-over',
+}
+
+export const PAID_SCANNING_DIALOG: ConfirmDialog = {
+    title: 'Turn off free credits only and start scanning?',
+    description:
+        "Your free credits for this billing period are used up. Scans past them are billed, up to the scanner's limit or your organization's spend limit.",
+    confirmLabel: 'Turn off and scan',
+    confirmDataAttr: 'vision-scanner-turn-on-paid',
 }
 
 export function confirmDialogProps(dialog: ConfirmDialog): LemonDialogProps {
@@ -111,19 +120,30 @@ async function allowAIAnalysis(): Promise<boolean> {
     }
 }
 
-async function enable(teamId: string, scannerId: string, takeOver: boolean): Promise<ReplayScannerApi | null> {
+async function enable(
+    teamId: string,
+    scannerId: string,
+    takeOver: boolean,
+    paid = false
+): Promise<ReplayScannerApi | null> {
     try {
         return await visionScannersPartialUpdate(teamId, scannerId, {
             enabled: true,
             ...(takeOver && { take_over_as_creator: true }),
+            ...(paid && { free_only: false }),
         })
     } catch (error: any) {
         if (error?.code === AI_CONSENT_REQUIRED_CODE) {
-            return (await allowAIAnalysis()) ? enable(teamId, scannerId, takeOver) : null
+            return (await allowAIAnalysis()) ? enable(teamId, scannerId, takeOver, paid) : null
         }
         if (error?.code === CREATOR_LOST_ACCESS_CODE && !takeOver) {
             return (await openForDecision(confirmDialogProps(TAKE_OVER_DIALOG)))
-                ? enable(teamId, scannerId, true)
+                ? enable(teamId, scannerId, true, paid)
+                : null
+        }
+        if (error?.code === FREE_CREDITS_USED_CODE && !paid) {
+            return (await openForDecision(confirmDialogProps(PAID_SCANNING_DIALOG)))
+                ? enable(teamId, scannerId, takeOver, true)
                 : null
         }
         throw error
