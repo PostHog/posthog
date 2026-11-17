@@ -369,6 +369,13 @@ def test_a_request_that_could_end_past_the_deadline_never_starts() -> None:
 @parameterized.expand(
     [
         ("gives_the_review_labels", "return not match(output, '^Reply [0-4]$')", True, (5, 50)),
+        (
+            "loops",
+            "for (let reply in ['Reply 0', 'Reply 1', 'Reply 2', 'Reply 3', 'Reply 4']) {\n"
+            "  if (output == reply) {\n    return false\n  }\n}\nreturn true",
+            True,
+            (5, 50),
+        ),
         # Five of the review's passes are not JSON, so jsonParse raises on them, and each error counts against the code.
         (
             "raises_on_some_passes",

@@ -449,6 +449,8 @@ _CODE_CHECK_FUNCTIONS = frozenset(
         "toString",
         "empty",
         "notEmpty",
+        # A `for … in` loop compiles to a call to it.
+        "values",
     }
 )
 
