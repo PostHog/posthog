@@ -87,7 +87,10 @@ from products.alerts_platform.backend.facade.contracts import (
     SourceKind,
 )
 from products.alerts_platform.backend.facade.enums import PlatformAlertOwner, PlatformAlertState
-from products.product_analytics.backend.facade.api import insights_including_soft_deleted_for_team
+from products.product_analytics.backend.facade.api import (
+    insights_including_soft_deleted_for_team,
+    live_insight_ids_by_team,
+)
 from products.product_analytics.backend.facade.models import Insight
 
 logger = structlog.get_logger(__name__)
@@ -213,20 +216,16 @@ def enabled_alerts_created_by(*, team_ids: Collection[int], user_id: int) -> lis
     ]
 
 
-def _live_insights(configurations: Iterable[EnabledNativeConfiguration]) -> dict[int, set[int]]:
+def _live_insights(configurations: Collection[EnabledNativeConfiguration]) -> dict[int, set[int]]:
     """The ids of the insights these alerts watch that are not deleted, by team."""
-    by_team: dict[int, set[int]] = {}
-    for configuration in configurations:
-        if isinstance(insight_id := configuration.source_config.get("insight_id"), int):
-            by_team.setdefault(configuration.team_id, set()).add(insight_id)
-    return {
-        team_id: {
-            insight.id
-            for insight in insights_including_soft_deleted_for_team(team_id=team_id, insight_ids=insight_ids)
-            if not insight.deleted
-        }
-        for team_id, insight_ids in by_team.items()
+    insight_ids = {
+        insight_id
+        for configuration in configurations
+        if isinstance(insight_id := configuration.source_config.get("insight_id"), int)
     }
+    return live_insight_ids_by_team(
+        team_ids={configuration.team_id for configuration in configurations}, insight_ids=insight_ids
+    )
 
 
 def alert_inventory(*, team_id: int, recent_limit: int) -> contracts.AlertInventory:

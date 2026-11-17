@@ -229,6 +229,17 @@ def insights_including_soft_deleted_for_team(*, team_id: int, insight_ids: Colle
     return logic.insights_including_soft_deleted_for_team(team_id=team_id, insight_ids=insight_ids)
 
 
+def live_insight_ids_by_team(*, team_ids: Collection[int], insight_ids: Collection[int]) -> dict[int, set[int]]:
+    """Which of the given insights in these teams are not deleted, by team, in one query."""
+    live: dict[int, set[int]] = {}
+    if not team_ids or not insight_ids:
+        return live
+    rows = Insight.objects.filter(team_id__in=list(team_ids), id__in=list(insight_ids))
+    for team_id, insight_id in rows.values_list("team_id", "id"):
+        live.setdefault(team_id, set()).add(insight_id)
+    return live
+
+
 def _visible_insight_rows(
     insight_ids: Collection[int],
     *,

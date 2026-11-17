@@ -265,6 +265,16 @@ class TestOrganizationOffboarding(APIBaseTest):
                 legacy_configuration_id=None,
                 created_by=self.departing,
             )
+            platform_testing.create_configuration(
+                team_id=self.team.id,
+                name="On a deleted insight",
+                source_kind="insight",
+                source_config={"insight_id": Insight.objects.create(team=self.team, deleted=True).id},
+                check_interval_minutes=1440,
+                owner="platform",
+                legacy_configuration_id=None,
+                created_by=self.departing,
+            )
         response = self.client.get(self.url + "offboarding_preview/")
         assert response.status_code == 200
         assert sorted(item["id"] for item in response.json()) == sorted([f"alert:{kept.pk}", f"alert:{native.id}"])
