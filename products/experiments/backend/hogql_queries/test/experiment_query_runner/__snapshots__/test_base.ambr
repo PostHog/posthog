@@ -1879,7 +1879,10 @@
                groups.group_type_index AS index,
                groups.group_key AS key
         FROM groups
-        WHERE and(equals(groups.team_id, 99999), equals(index, 0))
+        WHERE and(equals(groups.team_id, 99999), equals(index, 0), globalIn(key,
+                                                                              (SELECT DISTINCT events.`$group_0` AS `$group_0`
+                                                                               FROM events
+                                                                               WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-31 00:00:00', 'UTC'))), in(events.event, ['$feature_flag_called', '$experiment_exposure']), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test'])))))
         GROUP BY groups.group_type_index,
                  groups.group_key) AS events__group_0 ON equals(events.`$group_0`, events__group_0.key)
      WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-31 00:00:00', 'UTC'))), and(in(events.event, ['$feature_flag_called', '$experiment_exposure']), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0)), ifNull(equals(events__group_0.properties___name, 'Test Group'), 0), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']))

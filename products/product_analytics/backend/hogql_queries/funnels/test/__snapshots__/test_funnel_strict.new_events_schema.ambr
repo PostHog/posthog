@@ -333,7 +333,10 @@
                      groups.group_type_index AS index,
                      groups.group_key AS key
               FROM groups
-              WHERE and(equals(groups.team_id, 99999), equals(index, 0))
+              WHERE and(equals(groups.team_id, 99999), equals(index, 0), globalIn(key,
+                                                                                    (SELECT DISTINCT e.properties.`$group_0` AS `$group_0`
+                                                                                     FROM events_json AS e
+                                                                                     WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))))))
               GROUP BY groups.group_type_index,
                        groups.group_key) AS e__group_0 ON equals(e.properties.`$group_0`, e__group_0.key)
            WHERE and(equals(e.team_id, 99999), and(greaterOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))))
@@ -404,7 +407,10 @@
                      groups.group_type_index AS index,
                      groups.group_key AS key
               FROM groups
-              WHERE and(equals(groups.team_id, 99999), equals(index, 0))
+              WHERE and(equals(groups.team_id, 99999), equals(index, 0), globalIn(key,
+                                                                                    (SELECT DISTINCT e.properties.`$group_0` AS `$group_0`
+                                                                                     FROM events_json AS e
+                                                                                     WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))))))
               GROUP BY groups.group_type_index,
                        groups.group_key) AS e__group_0 ON equals(e.properties.`$group_0`, e__group_0.key)
            WHERE and(equals(e.team_id, 99999), and(greaterOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))))
@@ -475,7 +481,10 @@
                      groups.group_type_index AS index,
                      groups.group_key AS key
               FROM groups
-              WHERE and(equals(groups.team_id, 99999), equals(index, 0))
+              WHERE and(equals(groups.team_id, 99999), equals(index, 0), globalIn(key,
+                                                                                    (SELECT DISTINCT e.properties.`$group_0` AS `$group_0`
+                                                                                     FROM events_json AS e
+                                                                                     WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))))))
               GROUP BY groups.group_type_index,
                        groups.group_key) AS e__group_0 ON equals(e.properties.`$group_0`, e__group_0.key)
            WHERE and(equals(e.team_id, 99999), and(greaterOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))))
@@ -546,7 +555,10 @@
                      groups.group_type_index AS index,
                      groups.group_key AS key
               FROM groups
-              WHERE and(equals(groups.team_id, 99999), equals(index, 0))
+              WHERE and(equals(groups.team_id, 99999), equals(index, 0), globalIn(key,
+                                                                                    (SELECT DISTINCT e.properties.`$group_0` AS `$group_0`
+                                                                                     FROM events_json AS e
+                                                                                     WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))))))
               GROUP BY groups.group_type_index,
                        groups.group_key) AS e__group_0 ON equals(e.properties.`$group_0`, e__group_0.key)
            WHERE and(equals(e.team_id, 99999), and(greaterOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))))
@@ -631,7 +643,10 @@
                      groups.group_type_index AS index,
                      groups.group_key AS key
               FROM groups
-              WHERE and(equals(groups.team_id, 99999), equals(index, 0))
+              WHERE and(equals(groups.team_id, 99999), equals(index, 0), globalIn(key,
+                                                                                    (SELECT DISTINCT e.properties.`$group_0` AS `$group_0`
+                                                                                     FROM events_json AS e
+                                                                                     WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))))))
               GROUP BY groups.group_type_index,
                        groups.group_key) AS e__group_0 ON equals(e.properties.`$group_0`, e__group_0.key)
            WHERE and(equals(e.team_id, 99999), and(greaterOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))))

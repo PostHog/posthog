@@ -151,7 +151,10 @@
                      groups.group_type_index AS index,
                      groups.group_key AS key
               FROM groups
-              WHERE and(equals(groups.team_id, 99999), equals(index, 0))
+              WHERE and(equals(groups.team_id, 99999), equals(index, 0), globalIn(key,
+                                                                                    (SELECT DISTINCT e.properties.`$group_0` AS `$group_0`
+                                                                                     FROM events_json AS e
+                                                                                     WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-12 23:59:59', 'UTC'))), equals(e.event, 'sign up')))))
               GROUP BY groups.group_type_index,
                        groups.group_key) AS e__group_0 ON equals(e.properties.`$group_0`, e__group_0.key)
            WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-12 23:59:59', 'UTC'))), equals(e.event, 'sign up'))
@@ -207,7 +210,10 @@
                      groups.group_type_index AS index,
                      groups.group_key AS key
               FROM groups
-              WHERE and(equals(groups.team_id, 99999), equals(index, 0))
+              WHERE and(equals(groups.team_id, 99999), equals(index, 0), globalIn(key,
+                                                                                    (SELECT DISTINCT e.properties.`$group_0` AS `$group_0`
+                                                                                     FROM events_json AS e
+                                                                                     WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-12 23:59:59', 'UTC'))), equals(e.event, 'sign up')))))
               GROUP BY groups.group_type_index,
                        groups.group_key) AS e__group_0 ON equals(e.properties.`$group_0`, e__group_0.key)
            WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-12 23:59:59', 'UTC'))), equals(e.event, 'sign up'), ifNull(equals(CAST(e.person_properties.key, 'Nullable(String)'), 'value'), 0))
@@ -597,7 +603,10 @@
                      groups.group_type_index AS index,
                      groups.group_key AS key
               FROM groups
-              WHERE and(equals(groups.team_id, 99999), equals(index, 0))
+              WHERE and(equals(groups.team_id, 99999), equals(index, 0), globalIn(key,
+                                                                                    (SELECT DISTINCT e.properties.`$group_0` AS `$group_0`
+                                                                                     FROM events_json AS e
+                                                                                     WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-12 23:59:59', 'UTC'))), equals(e.event, 'sign up')))))
               GROUP BY groups.group_type_index,
                        groups.group_key) AS e__group_0 ON equals(e.properties.`$group_0`, e__group_0.key)
            WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-12 23:59:59', 'UTC'))), equals(e.event, 'sign up'), ifNull(equals(e__group_0.properties___industry, 'finance'), 0))
@@ -660,7 +669,10 @@
                      groups.group_type_index AS index,
                      groups.group_key AS key
               FROM groups
-              WHERE and(equals(groups.team_id, 99999), equals(index, 0))
+              WHERE and(equals(groups.team_id, 99999), equals(index, 0), globalIn(key,
+                                                                                    (SELECT DISTINCT e.properties.`$group_0` AS `$group_0`
+                                                                                     FROM events_json AS e
+                                                                                     WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-12 23:59:59', 'UTC'))), equals(e.event, 'sign up')))))
               GROUP BY groups.group_type_index,
                        groups.group_key) AS e__group_0 ON equals(e.properties.`$group_0`, e__group_0.key)
            WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-12 23:59:59', 'UTC'))), equals(e.event, 'sign up'), ifNull(equals(e__group_0.properties___industry, 'finance'), 0))
@@ -1068,7 +1080,10 @@
                   groups.group_type_index AS index,
                   groups.group_key AS key
            FROM groups
-           WHERE and(equals(groups.team_id, 99999), equals(index, 2))
+           WHERE and(equals(groups.team_id, 99999), equals(index, 2), globalIn(key,
+                                                                                 (SELECT DISTINCT e.properties.`$group_2` AS `$group_2`
+                                                                                  FROM events_json AS e
+                                                                                  WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-12 23:59:59', 'UTC'))), equals(e.event, 'sign up')))))
            GROUP BY groups.group_type_index,
                     groups.group_key) AS e__group_2 ON equals(e.properties.`$group_2`, e__group_2.key)
         LEFT JOIN
@@ -1076,7 +1091,10 @@
                   groups.group_type_index AS index,
                   groups.group_key AS key
            FROM groups
-           WHERE and(equals(groups.team_id, 99999), equals(index, 0))
+           WHERE and(equals(groups.team_id, 99999), equals(index, 0), globalIn(key,
+                                                                                 (SELECT DISTINCT e.properties.`$group_0` AS `$group_0`
+                                                                                  FROM events_json AS e
+                                                                                  WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-12 23:59:59', 'UTC'))), equals(e.event, 'sign up')))))
            GROUP BY groups.group_type_index,
                     groups.group_key) AS e__group_0 ON equals(e.properties.`$group_0`, e__group_0.key)
         WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-12 23:59:59', 'UTC'))), equals(e.event, 'sign up'), and(ifNull(equals(e__group_0.properties___industry, 'finance'), 0), ifNull(equals(e__group_2.properties___name, 'six'), 0)))
@@ -1117,7 +1135,10 @@
                   groups.group_type_index AS index,
                   groups.group_key AS key
            FROM groups
-           WHERE and(equals(groups.team_id, 99999), equals(index, 0))
+           WHERE and(equals(groups.team_id, 99999), equals(index, 0), globalIn(key,
+                                                                                 (SELECT DISTINCT e.properties.`$group_0` AS `$group_0`
+                                                                                  FROM events_json AS e
+                                                                                  WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-12 23:59:59', 'UTC'))), equals(e.event, '$pageview')))))
            GROUP BY groups.group_type_index,
                     groups.group_key) AS e__group_0 ON equals(e.properties.`$group_0`, e__group_0.key)
         WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-12 23:59:59', 'UTC'))), equals(e.event, '$pageview'), and(ifNull(equals(e__group_0.properties___industry, 'finance'), 0), ifNull(equals(CAST(e.person_properties.key, 'Nullable(String)'), 'value'), 0)))
