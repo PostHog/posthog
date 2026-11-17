@@ -127,16 +127,16 @@ class ZohoCRMAuthError(Exception):
         return TOKEN_ERROR_MESSAGES.get(self.error_code or "", REFRESH_TOKEN_REJECTED_MESSAGE)
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class ZohoCRMResumeConfig:
     # 1-based page number for the `page` pagination window.
     page: int = 1
     # One `next_page_token` per field slice, in slice order. Empty until Zoho starts
     # returning tokens (i.e. once the page window is exhausted).
     page_tokens: list[str] = dataclasses.field(default_factory=list)
-    # Fan-out tables only: parents of the current parent page already read, and the next page
-    # token inside the parent being read.
-    parent_offset: int = 0
+    # Fan-out tables only: the last parent read, and the next page token inside it. An empty
+    # token means that parent is done.
+    parent_id: str = ""
     child_page_token: str = ""
 
 
@@ -469,6 +469,14 @@ def _timeline_filters(since: Any, until: datetime) -> str:
     )
 
 
+def _compare_ids(left: str, right: str) -> int:
+    """Order two Zoho record ids. They are numeric strings, so compare them as numbers."""
+    if left.isdigit() and right.isdigit():
+        left_key, right_key = int(left), int(right)
+        return (left_key > right_key) - (left_key < right_key)
+    return (left > right) - (left < right)
+
+
 def get_deal_timeline_rows(
     client: ZohoCRMClient,
     api_version: str,
@@ -496,14 +504,14 @@ def get_deal_timeline_rows(
         "sort_order": "asc",
     }
 
-    page, page_token, offset, child_token = 1, "", 0, ""
+    page, page_token, resume_deal_id, child_token = 1, "", "", ""
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     if resume is not None:
         page = max(resume.page, 1)
         page_token = resume.page_tokens[0] if resume.page_tokens else ""
-        offset, child_token = resume.parent_offset, resume.child_page_token
+        resume_deal_id, child_token = resume.parent_id, resume.child_page_token
         if not page_token and page > MAX_PAGE:
-            page, offset, child_token = 1, 0, ""
+            page, resume_deal_id, child_token = 1, "", ""
 
     while True:
         params = dict(deal_params)
@@ -515,8 +523,16 @@ def get_deal_timeline_rows(
         deal_ids = [str(deal["id"]) for deal in deals if deal.get("id") is not None]
         current_tokens = [page_token] if page_token else []
 
-        for index in range(offset, len(deal_ids)):
-            deal_id = deal_ids[index]
+        for deal_id in deal_ids:
+            # Deals come in id order, so the saved id still places the resume point when deals
+            # before it were deleted or added between attempts.
+            if resume_deal_id:
+                order = _compare_ids(deal_id, resume_deal_id)
+                if order < 0 or (order == 0 and not child_token):
+                    continue
+                if order > 0:
+                    child_token = ""
+                resume_deal_id = ""
             while True:
                 request_params = dict(timeline_params)
                 if child_token:
@@ -532,7 +548,7 @@ def get_deal_timeline_rows(
                     ZohoCRMResumeConfig(
                         page=page,
                         page_tokens=current_tokens,
-                        parent_offset=index if child_token else index + 1,
+                        parent_id=deal_id,
                         child_page_token=child_token,
                     )
                 )
@@ -542,7 +558,6 @@ def get_deal_timeline_rows(
                     resumable_source_manager.safe_point()
                 if not child_token:
                     break
-        offset, child_token = 0, ""
 
         if not deals or not info.get("more_records"):
             break

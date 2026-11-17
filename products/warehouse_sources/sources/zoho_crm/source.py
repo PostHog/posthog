@@ -1,7 +1,5 @@
 from typing import Optional, cast
 
-import structlog
-
 from products.warehouse_sources.sources.sdk import (
     CanonicalDescriptions,
     DataWarehouseSourceCategory,
@@ -39,8 +37,6 @@ from products.warehouse_sources.sources.zoho_crm.zoho_crm import (
     validate_credentials as validate_zoho_crm_credentials,
     zoho_crm_source,
 )
-
-logger = structlog.get_logger(__name__)
 
 SCOPE_MISMATCH_MESSAGE = (
     "Your Zoho CRM token is missing a scope for this table. Territories need ZohoCRM.settings.territories.READ, "
@@ -187,20 +183,17 @@ In the [Zoho API console](https://api-console.zoho.com), create a **Self Client*
         if names is not None and not any(name.startswith(CUSTOM_MODULE_SCHEMA_PREFIX) for name in names):
             return schemas
         # Custom and linking modules differ per org. Without credentials (the public-docs catalog
-        # path) there is nothing to discover, and a failed discovery keeps the static tables.
+        # path) there is nothing to discover.
         if not (config.region and config.client_id and config.client_secret and config.refresh_token):
             return schemas
-        try:
-            custom_modules = discover_custom_modules(
-                region=config.region,
-                client_id=config.client_id,
-                client_secret=config.client_secret,
-                refresh_token=config.refresh_token,
-                api_version=self.resolve_api_version(api_version),
-            )
-        except Exception as e:
-            logger.debug("Zoho CRM: failed to discover custom modules, returning static modules only", exc_info=e)
-            return schemas
+        # A discovery error must propagate: a schema missing from the result gets its sync paused.
+        custom_modules = discover_custom_modules(
+            region=config.region,
+            client_id=config.client_id,
+            client_secret=config.client_secret,
+            refresh_token=config.refresh_token,
+            api_version=self.resolve_api_version(api_version),
+        )
 
         modules = [custom_module_config(name) for name in custom_modules]
         return schemas + build_endpoint_schemas(

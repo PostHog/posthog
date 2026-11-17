@@ -3,6 +3,8 @@ from typing import Any
 import pytest
 from unittest import mock
 
+from requests.exceptions import RequestException
+
 from products.warehouse_sources.sources.sdk import ResumableSourceManager
 from products.warehouse_sources.sources.sdk.testing import RecordedRequest, ScriptedResponse, scripted_network
 from products.warehouse_sources.sources.zoho_crm._config import ZohoCRMSourceConfig
@@ -207,11 +209,10 @@ class TestCustomModuleDiscovery:
         assert network.requests_log == []
         assert [schema.name for schema in schemas] == (names or list(ENDPOINTS))
 
-    def test_failed_discovery_keeps_the_static_tables(self) -> None:
+    def test_failed_discovery_raises_instead_of_dropping_custom_modules(self) -> None:
         with scripted_network(_zoho(modules_status=500)):
-            schemas = self.source.get_schemas(self.config, team_id=1)
-
-        assert [schema.name for schema in schemas] == list(ENDPOINTS)
+            with pytest.raises(RequestException):
+                self.source.get_schemas(self.config, team_id=1)
 
     def test_names_filter_finds_a_discovered_module(self) -> None:
         with scripted_network(_zoho()):

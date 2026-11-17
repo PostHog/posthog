@@ -494,18 +494,30 @@ class TestDealTimeline:
         assert "if-modified-since" not in deals_request.headers
         assert timeline_request.param("filters") is None
 
-    def test_resumes_inside_the_deal_it_stopped_in(self) -> None:
+    @pytest.mark.parametrize(
+        ("deal_ids", "saved_token", "expected_calls"),
+        [
+            (["998", "999", "1000"], "tl-999", [("999", "tl-999"), ("1000", None)]),
+            (["999", "1000"], "tl-999", [("999", "tl-999"), ("1000", None)]),
+            (["998", "999", "1000"], "", [("1000", None)]),
+            (["998", "1000"], "tl-999", [("1000", None)]),
+        ],
+        ids=["inside_deal", "earlier_deal_deleted", "deal_finished", "saved_deal_deleted"],
+    )
+    def test_resumes_at_the_saved_deal(
+        self, deal_ids: list[str], saved_token: str, expected_calls: list[tuple[str, Optional[str]]]
+    ) -> None:
         result = _run(
             "Deal_Timeline",
-            [_deals_response(["D1", "D2", "D3"]), _timeline_response(["t2b"]), _timeline_response(["t3"])],
-            resume_state=ZohoCRMResumeConfig(page=1, parent_offset=1, child_page_token="tl-D2"),
+            [_deals_response(deal_ids), *[_timeline_response([f"t{index}"]) for index in range(len(expected_calls))]],
+            resume_state=ZohoCRMResumeConfig(page=1, parent_id="999", child_page_token=saved_token),
         )
 
-        requests_made = _crm_requests(result)
-        assert result.rows == [{"id": "t2b", "deal_id": "D2"}, {"id": "t3", "deal_id": "D3"}]
-        assert requests_made[1].path == "/crm/v8/Deals/D2/__timeline"
-        assert requests_made[1].param("page_token") == "tl-D2"
-        assert requests_made[2].param("page_token") is None
+        timeline_calls = [
+            (request.path.split("/")[-2], request.param("page_token")) for request in _crm_requests(result)[1:]
+        ]
+        assert result.raised is None
+        assert timeline_calls == expected_calls
 
     def test_saves_the_position_inside_a_deal_before_yielding_its_page(self) -> None:
         result = _run(
@@ -513,8 +525,8 @@ class TestDealTimeline:
             [_deals_response(["D1", "D2"]), _timeline_response(["t1"], next_page_token="tl-2"), _timeline_response([])],
         )
 
-        assert result.saved_states[0] == ZohoCRMResumeConfig(page=1, parent_offset=0, child_page_token="tl-2")
-        assert result.saved_states[1] == ZohoCRMResumeConfig(page=1, parent_offset=1)
+        assert result.saved_states[0] == ZohoCRMResumeConfig(page=1, parent_id="D1", child_page_token="tl-2")
+        assert result.saved_states[1] == ZohoCRMResumeConfig(page=1, parent_id="D1")
 
 
 class TestValidateCredentials:
