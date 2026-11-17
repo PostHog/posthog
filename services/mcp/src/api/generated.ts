@@ -66862,6 +66862,47 @@ export namespace Schemas {
       readonly created_at: string;
     }
 
+    export interface KnowledgeKey {
+      /** Project secret API key id. */
+      id: string;
+      /** Name of the key. Unique in this project. */
+      label: string;
+      /**
+         * First and last characters of the key.
+         * @nullable
+         */
+      mask_value: string | null;
+      /**
+         * The key itself. Returned once, in the response that creates the key. Null everywhere else.
+         * @nullable
+         */
+      value: string | null;
+      /** When the key was created. */
+      created_at: string;
+      /**
+         * When the key last made a request, to the hour. Null when it never has.
+         * @nullable
+         */
+      last_used_at: string | null;
+      /** True when the key reads one library. False when it reads all business knowledge in the project. */
+      is_limited: boolean;
+      /**
+         * The library a limited key reads. Null on a limited key means its library was deleted, so the key reads nothing.
+         * @nullable
+         */
+      library_id: string | null;
+    }
+
+    export interface KnowledgeKeyCreate {
+      /**
+         * Name for the key. Must be unique in this project.
+         * @maxLength 40
+         */
+      label: string;
+      /** The library this key reads. It cannot be changed later. */
+      library_id: string;
+    }
+
     export interface KnowledgeLibrary {
       /** Library id. */
       id: string;
