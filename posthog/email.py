@@ -397,6 +397,10 @@ class _RenderedEmail:
             _send_via_smtp(to, campaign_key, self.subject, "", self.html, {}, self.reply_to)
 
 
+def _workflows_pin_key(campaign_key: str, raw_email: str) -> str:
+    return f"email_workflows_pin:{_workflows_idempotency_key(campaign_key, raw_email)}"
+
+
 def _smtp_email_via_workflows(dest: dict[str, str], template_name: str) -> bool:
     person_properties = {"email": dest["raw_email"], "transactional_email_template": template_name}
     if region := get_instance_region():
@@ -461,8 +465,10 @@ def _send_rendered_via_workflows(
             {"template_name": template_name, "campaign_key": campaign_key, "error": str(err)[:500], "fallback": "smtp"},
         )
         try:
+            # Unpinned first, so a retry after a transient SMTP error can still fall back.
+            caches["email_workflows_pins"].delete(_workflows_pin_key(campaign_key, dest["raw_email"]))
             rendered.send_over_smtp([dest], campaign_key)
-        except (*_TRANSIENT_SMTP_ERRORS, smtplib.SMTPException) as smtp_err:
+        except Exception as smtp_err:
             raise WorkflowsEmailError(str(smtp_err), code="smtp_unavailable") from smtp_err
         return "smtp"
     return {"message_id": result.id, "replayed": result.replayed}
@@ -525,10 +531,7 @@ def _send_via_http(
 
     if rendered:
         pins = caches["email_workflows_pins"]
-        pin_keys = {
-            dest["raw_email"]: f"email_workflows_pin:{_workflows_idempotency_key(campaign_key, dest['raw_email'])}"
-            for dest in to
-        }
+        pin_keys = {dest["raw_email"]: _workflows_pin_key(campaign_key, dest["raw_email"]) for dest in to}
         # Cache errors raise before any send, because a pin read as missing could send a queued email again over SMTP.
         pinned = frozenset(email for email, key in pin_keys.items() if pins.get(key))
         workflows_to = [d for d in to if d["raw_email"] in pinned or _smtp_email_via_workflows(d, template_name)]

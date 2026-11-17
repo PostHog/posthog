@@ -917,6 +917,31 @@ class TestEmail(BaseTest):
         self.assertEqual([email.to for email in mail.outbox], [["first@posthog.com"]])
         self.assertTrue(was_email_delivered("refused_campaign", "second@posthog.com"))
 
+    @override_settings(POSTHOG_TRANSACTIONAL_EMAIL_API_KEY="phs_test", POSTHOG_HOST="https://us.posthog.com")
+    @patch("posthog.email.posthoganalytics.feature_enabled", return_value=True)
+    @patch("requests.adapters.HTTPAdapter.send", autospec=True)
+    def test_a_fallback_that_hits_a_transient_smtp_error_falls_back_again_on_retry(
+        self, mock_send: MagicMock, _mock_flag: MagicMock
+    ) -> None:
+        mock_send.side_effect = lambda *_args, **_kwargs: _workflows_response(429, {"code": "throttled"})
+
+        with override_instance_config("EMAIL_HOST", "localhost"):
+            message = EmailMessage(
+                campaign_key="smtp_blip_campaign", subject="Subject", template_name="async_migration_error"
+            )
+            message.add_recipient("test@posthog.com")
+            with (
+                patch(
+                    "django.core.mail.backends.locmem.EmailBackend.send_messages",
+                    side_effect=ConnectionResetError("reset"),
+                ),
+                self.assertRaises(WorkflowsEmailError),
+            ):
+                message.send(send_async=False, retry=False)
+            message.send(send_async=False, retry=False)
+
+        self.assertEqual(len(mail.outbox), 1)
+
     @parameterized.expand([("pin_read", "get"), ("pin_write", "set_many")])
     @override_settings(POSTHOG_TRANSACTIONAL_EMAIL_API_KEY="phs_test", POSTHOG_HOST="https://us.posthog.com")
     @patch("posthog.email.posthoganalytics.feature_enabled", return_value=True)
