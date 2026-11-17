@@ -20,6 +20,7 @@ export class GuidanceProductState {
     private deadlineAt: number | undefined
     private ingestedData: Promise<boolean | undefined> | undefined
     private errorTrackingIssues: Promise<boolean | undefined> | undefined
+    private sessionRecordingEnabled: Promise<boolean | undefined> | undefined
 
     constructor(
         private readonly redis: RedisLike,
@@ -29,6 +30,14 @@ export class GuidanceProductState {
     hasIngestedData(): Promise<boolean | undefined> {
         this.ingestedData ??= this.withinBudget('ingested_data', () => this.readIngestedData())
         return this.ingestedData
+    }
+
+    isSessionRecordingEnabled(): Promise<boolean | undefined> {
+        this.sessionRecordingEnabled ??= this.withinBudget('session_recording_enabled', async () => {
+            const project = await this.state.context.stateManager.getCachedOrFetchProject()
+            return project?.session_recording_opt_in ?? undefined
+        })
+        return this.sessionRecordingEnabled
     }
 
     hasErrorTrackingIssues(): Promise<boolean | undefined> {
