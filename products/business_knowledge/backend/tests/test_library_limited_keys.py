@@ -115,6 +115,18 @@ class TestLibraryLimitedKeys(APIBaseTest):
         )
         assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
 
+    def test_key_deleted_during_a_request_reads_nothing(self, _ff: Any, _embed: Any) -> None:
+        key = self._use_key(self.public)
+
+        def find_then_delete(_token: str) -> ProjectSecretAPIKey:
+            ProjectSecretAPIKey.objects.filter(pk=key.pk).delete()
+            return key
+
+        with patch("posthog.auth.find_project_secret_api_key", side_effect=find_then_delete):
+            response = self.client.get(f"{self.base}/documents/search/?query=lorem")
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED, response.content
+        assert not KnowledgeKeyLibrary.objects.unscoped().filter(key_id=key.pk).exists()
+
     def _create_key(self, library_id: Any, label: str = "Docs agent") -> Any:
         return self.client.post(f"{self.base}/keys/", {"label": label, "library_id": str(library_id)}, format="json")
 

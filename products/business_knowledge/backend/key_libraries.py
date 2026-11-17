@@ -3,6 +3,8 @@
 from typing import cast
 from uuid import UUID
 
+from django.db.models import Exists, OuterRef, Subquery
+
 from rest_framework import exceptions
 from rest_framework.request import Request
 
@@ -17,6 +19,7 @@ from .models import KnowledgeKeyLibrary, KnowledgeLibrary
 LIBRARY_DELETED_DETAIL = (
     "The library this project secret API key was limited to no longer exists. Create a new key for another library."
 )
+KEY_DELETED_DETAIL = "This project secret API key no longer exists."
 
 
 def key_library_id(request: Request) -> UUID | None:
@@ -24,12 +27,22 @@ def key_library_id(request: Request) -> UUID | None:
     if not is_authenticated_via_project_secret_api_key(request):
         return None
     key = cast(ProjectSecretAPIKeyAuthentication, request.successful_authenticator).project_secret_api_key
-    limits = list(KnowledgeKeyLibrary.objects.filter(key_id=key.id).values_list("library_id", flat=True)[:1])
-    if not limits:
+    limit = KnowledgeKeyLibrary.objects.filter(key_id=OuterRef("pk"))
+    # One statement reads the key and its limit together. Deleting a key also deletes its limit, so a separate
+    # lookup of the limit during that delete finds no row and would let the request read the whole project.
+    rows = list(
+        ProjectSecretAPIKey.objects.filter(pk=key.pk)
+        .annotate(is_limited=Exists(limit), limit_library_id=Subquery(limit.values("library_id")[:1]))
+        .values_list("is_limited", "limit_library_id")
+    )
+    if not rows:
+        raise exceptions.AuthenticationFailed(KEY_DELETED_DETAIL)
+    is_limited, library_id = rows[0]
+    if not is_limited:
         return None
-    if limits[0] is None:
+    if library_id is None:
         raise exceptions.PermissionDenied(LIBRARY_DELETED_DETAIL)
-    return limits[0]
+    return library_id
 
 
 def readable_library_id(request: Request, requested: UUID | None) -> UUID | None:
