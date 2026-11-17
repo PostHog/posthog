@@ -17,10 +17,8 @@ export function EngagementEventsBanner(): JSX.Element | null {
     return (
         <LemonBanner
             type="info"
-            // pinned: localStorage key, renaming shows the banner again to everyone who dismissed it
             dismissKey={`workflows-engagement-events-banner-${currentTeam.id}`}
             onClose={() => {
-                // pinned: analytics event name
                 posthog.capture('workflows engagement events banner dismissed')
             }}
             action={{
@@ -32,7 +30,6 @@ export function EngagementEventsBanner(): JSX.Element | null {
                         : undefined,
                 'data-attr': 'workflows-engagement-events-banner-turn-off',
                 onClick: () => {
-                    // pinned: analytics event name
                     posthog.capture('workflows engagement events banner turned off')
                     updateCurrentTeam({ workflows_config: { capture_workflows_engagement_events: false } })
                 },
