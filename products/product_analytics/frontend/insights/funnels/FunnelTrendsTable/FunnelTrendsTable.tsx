@@ -127,7 +127,6 @@ export function FunnelTrendsTable(): JSX.Element | null {
 
     const rowColor = (row: FunnelTrendSeries): string =>
         getFunnelsColor(row as unknown as FlattenedFunnelStepByBreakdown)
-    // :HACKY: Experiments can't save colors, and mark their funnels with `disable_baseline`.
     const onChangeColor = disableFunnelBreakdownBaseline
         ? undefined
         : (row: FunnelTrendSeries): void =>
