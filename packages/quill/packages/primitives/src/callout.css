@@ -21,7 +21,10 @@
         color: var(--quill-item-accent, var(--muted-foreground));
     }
 
-    .quill-callout:has(> [data-slot='callout-content'] > [data-slot='callout-title']) > .quill-callout__icon {
+    .quill-callout:has(
+            > [data-slot='callout-content'] > [data-slot='callout-title'] + [data-slot='callout-description']
+        )
+        > .quill-callout__icon {
         translate: 0 0.125rem;
     }
 
@@ -57,7 +60,10 @@
         margin-inline: auto -0.375rem;
     }
 
-    .quill-callout:has(> [data-slot='callout-content'] > [data-slot='callout-title']) > .quill-callout__close {
+    .quill-callout:has(
+            > [data-slot='callout-content'] > [data-slot='callout-title'] + [data-slot='callout-description']
+        )
+        > .quill-callout__close {
         translate: 0 0.0625rem;
     }
 
@@ -69,6 +75,11 @@
      * the first row.
      */
     @container (max-width: 28rem) {
+        /* Without an icon, the text and the actions basis fit on one row and the text collapses, so reserve half the row for the text to force the wrap */
+        .quill-callout__content {
+            min-width: 50%;
+        }
+
         .quill-callout__actions {
             /* Too wide to share the first row, but leaves room for the close button (1.5rem) and Item's sm gap after it */
             flex-basis: calc(100% - 2.125rem);

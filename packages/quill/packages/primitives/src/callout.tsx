@@ -64,10 +64,10 @@ const Callout = React.forwardRef<HTMLDivElement, CalloutProps>(function Callout(
                 variant="outline"
                 tone={tone}
                 size="sm"
-                // With a title the text runs over two or more lines, so pin the icon and close button to the first line.
-                // A utility, not callout.css, because Item's `items-center` utility beats the components layer.
+                // A title over a description makes at least two lines, so pin the icon and close button to the title.
+                // A title alone stays centered. A utility, not callout.css, because Item's `items-center` utility beats the components layer.
                 className={cn(
-                    'quill-callout [&:has(>[data-slot=callout-content]>[data-slot=callout-title])]:items-start',
+                    'quill-callout [&:has(>[data-slot=callout-content]>[data-slot=callout-title]+[data-slot=callout-description])]:items-start',
                     className
                 )}
                 {...props}
