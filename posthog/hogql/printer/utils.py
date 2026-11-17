@@ -51,6 +51,7 @@ from posthog.hogql.transforms.type_aware_simplification import (
     simplify_argmax_over_non_nullable,
     simplify_redundant_type_operations,
 )
+from posthog.hogql.transforms.union_global_in_pushdown import push_global_in_into_union_branches
 from posthog.hogql.visitor import clone_expr
 from posthog.hogql.workload import WorkloadCollector
 
@@ -304,6 +305,20 @@ def prepare_ast_for_printing(
             rewritten = rewrite_negated_person_filters(node, context)
         if rewritten is not None:
             with context.timings.measure("resolve_types_after_negated_person_filters"):
+                node = resolve_types(
+                    rewritten,
+                    context,
+                    dialect=dialect,
+                    scopes=[scope.type for scope in stack if scope.type is not None] if stack else None,
+                    resolver_factory=resolver_factory,
+                )
+
+    # A GLOBAL IN on a UNION ALL of events_json reads can lose the rows of every branch but the last, so it moves into
+    # each branch. The rewrite needs resolved types to find the union columns.
+    if dialect == "clickhouse":
+        rewritten = push_global_in_into_union_branches(node, context)
+        if rewritten is not None:
+            with context.timings.measure("resolve_types_after_union_global_in_pushdown"):
                 node = resolve_types(
                     rewritten,
                     context,
