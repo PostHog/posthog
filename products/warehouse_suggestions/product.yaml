@@ -1,3 +1,4 @@
 name: Warehouse suggestions
 owners:
     - team-data-modeling
+isolated: true

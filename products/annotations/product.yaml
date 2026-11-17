@@ -1,3 +1,4 @@
 name: Annotations
 owners:
     - team-product-analytics
+isolated: true

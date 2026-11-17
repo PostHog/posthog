@@ -1,3 +1,4 @@
 name: Canvas
 owners:
     - team-product-analytics
+isolated: true

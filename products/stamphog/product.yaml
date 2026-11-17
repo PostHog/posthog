@@ -1,3 +1,4 @@
 name: Stamphog
 owners:
     - team-devex
+isolated: true

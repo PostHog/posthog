@@ -1,3 +1,4 @@
 name: Groups
 owners:
     - team-product-analytics
+isolated: true

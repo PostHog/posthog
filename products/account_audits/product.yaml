@@ -1,3 +1,4 @@
 name: Account audits
 owners:
     - team-growth
+isolated: true

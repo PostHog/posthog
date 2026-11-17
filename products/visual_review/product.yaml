@@ -1,3 +1,4 @@
 name: Visual review
 owners:
     - team-devex
+isolated: true

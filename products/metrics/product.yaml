@@ -1,3 +1,4 @@
 name: Metrics
 owners:
     - team-apm
+isolated: true

@@ -1,3 +1,4 @@
 name: Alerts platform
 owners:
     - team-apm
+isolated: true

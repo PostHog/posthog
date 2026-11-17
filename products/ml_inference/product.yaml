@@ -1,3 +1,4 @@
 name: ML inference
 owners:
     - ai-research
+isolated: true

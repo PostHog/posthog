@@ -1,3 +1,4 @@
 name: AI training
 owners:
     - ai-research
+isolated: true

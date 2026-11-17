@@ -1,3 +1,4 @@
 name: Error tracking
 owners:
     - team-error-tracking
+isolated: true

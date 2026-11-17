@@ -1,3 +1,4 @@
 name: Engineering analytics
 owners:
     - team-devex
+isolated: true

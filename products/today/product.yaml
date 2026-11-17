@@ -1,3 +1,4 @@
 name: Today
 owners:
     - team-surfaces
+isolated: true

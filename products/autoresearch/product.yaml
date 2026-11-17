@@ -1,3 +1,4 @@
 name: Autoresearch
 owners:
     - team-self-driving
+isolated: true

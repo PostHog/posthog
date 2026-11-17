@@ -1,3 +1,4 @@
 name: UI customization
 owners:
     - team-surfaces
+isolated: true
