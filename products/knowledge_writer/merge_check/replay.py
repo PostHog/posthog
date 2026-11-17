@@ -15,8 +15,8 @@ from posthog.egress.limiter.policies import Priority
 
 from ..backend.facade.contracts import MergeCheckReport
 from ..backend.settings import DocsSource, docs_source_for
-from .check import merge_reports_by_variant, run_merge_check
-from .judge import Variant, judge_client
+from .check import run_merge_check
+from .judge import judge_client
 from .sources import (
     GitHubReader,
     LandedChange,
@@ -31,7 +31,6 @@ EVAL_JOBS = 8
 ERROR_MESSAGE_LIMIT = 200
 GITHUB_CACHE_DIRECTORY = Path.home() / ".cache" / "posthog" / "knowledge-writer-eval" / "github"
 CACHED_STATUS_CODES = frozenset({200, 404})
-DEGRADED_REASONS = frozenset({"facts_unavailable", "page_check_unavailable"})
 EVAL_ROW_ERRORS = (requests.RequestException, httpx.HTTPError, APIError, UnexpectedGitHubResponse)
 SCORED_CRITERION_BY_TRUTH_KEY = {
     "release_state": "release_state",
@@ -69,7 +68,6 @@ def replay_command(arguments: argparse.Namespace) -> int:
                     anthropic_client=anthropic_client,
                     source=source,
                     writer_login=arguments.writer_login,
-                    variant=arguments.variant or Variant.JUDGE,
                 )
             flagged += report.needs_docs
             page_hits = sorted(set(report.page_urls) & set(merge.get("page_urls", [])))
@@ -86,10 +84,9 @@ def environment_github() -> PersonalTokenGitHub:
 def eval_command(arguments: argparse.Namespace) -> int:
     github = CachedGitHub(environment_github(), GITHUB_CACHE_DIRECTORY)
     source = docs_source_for(arguments.docs_repository)
-    variants = (arguments.variant,) if arguments.variant else tuple(Variant)
     eval_rows = read_merges(arguments.eval)
-    scored_rows_by_variant: dict[Variant, list[tuple[dict, MergeCheckReport]]] = {variant: [] for variant in variants}
-    failed_count_by_variant = dict.fromkeys(variants, 0)
+    scored_rows: list[tuple[dict, MergeCheckReport]] = []
+    failed_count = 0
     with httpx.Client(timeout=30) as http, ThreadPoolExecutor(max_workers=EVAL_JOBS) as pool:
         pending_checks = {
             pool.submit(
@@ -99,7 +96,6 @@ def eval_command(arguments: argparse.Namespace) -> int:
                 http=http,
                 source=source,
                 writer_login=arguments.writer_login,
-                variants=variants,
             ): eval_row
             for eval_row in eval_rows
         }
@@ -107,10 +103,9 @@ def eval_command(arguments: argparse.Namespace) -> int:
             for finished_check in as_completed(pending_checks):
                 eval_row = pending_checks[finished_check]
                 try:
-                    report_by_variant = finished_check.result()
+                    report = finished_check.result()
                 except EVAL_ROW_ERRORS as error:
-                    for variant in variants:
-                        failed_count_by_variant[variant] += 1
+                    failed_count += 1
                     error_line = {
                         "commit_sha": eval_row["commit_sha"],
                         "error": type(error).__name__,
@@ -119,18 +114,15 @@ def eval_command(arguments: argparse.Namespace) -> int:
                     }
                     print(json.dumps(error_line), flush=True)  # noqa: T201 — eval row
                     continue
-                for variant, report in report_by_variant.items():
-                    print(json.dumps(eval_line(variant, eval_row, report)), flush=True)  # noqa: T201 — one eval row per variant
-                    if is_degraded(report):
-                        failed_count_by_variant[variant] += 1
-                        continue
-                    scored_rows_by_variant[variant].append((eval_row, report))
+                print(json.dumps(eval_line(eval_row, report)), flush=True)  # noqa: T201 — eval row
+                if is_degraded(report):
+                    failed_count += 1
+                    continue
+                scored_rows.append((eval_row, report))
         except BaseException:
             pool.shutdown(cancel_futures=True)
             raise
-    for variant, scored_rows in scored_rows_by_variant.items():
-        summary = {"variant": variant, "failed": failed_count_by_variant[variant], **eval_score(scored_rows)}
-        print(json.dumps(summary))  # noqa: T201 — eval summary per variant
+    print(json.dumps({"failed": failed_count, **eval_score(scored_rows)}))  # noqa: T201 — eval summary
     return 0
 
 
@@ -223,15 +215,14 @@ def check_eval_row(
     http: httpx.Client,
     source: DocsSource,
     writer_login: str | None,
-    variants: tuple[Variant, ...],
-) -> dict[Variant, MergeCheckReport]:
+) -> MergeCheckReport:
     change = LandedChange(
         repository=eval_row["repository"],
         after=eval_row["commit_sha"],
         pull_request_number=eval_row["pull_request_number"],
     )
     with judge_client(change.after) as anthropic_client:
-        return merge_reports_by_variant(
+        return run_merge_check(
             change,
             is_final_attempt=True,
             github=github,
@@ -239,7 +230,6 @@ def check_eval_row(
             anthropic_client=anthropic_client,
             source=source,
             writer_login=writer_login,
-            variants=variants,
             is_pinned_to_merge=True,
         )
 
@@ -253,13 +243,11 @@ def error_status_code(error: Exception) -> int | None:
 
 
 def is_degraded(report: MergeCheckReport) -> bool:
-    has_unavailable_facts = any(row.criterion == "facts" and row.value == "unavailable" for row in report.criteria)
-    return has_unavailable_facts or report.reason in DEGRADED_REASONS
+    return any(row.criterion == "facts" and row.value == "unavailable" for row in report.criteria)
 
 
-def eval_line(variant: Variant, eval_row: dict, report: MergeCheckReport) -> dict:
+def eval_line(eval_row: dict, report: MergeCheckReport) -> dict:
     return {
-        "variant": variant,
         "commit_sha": report.commit_sha,
         "truth": eval_row["truth"],
         "needs_docs": report.needs_docs,
@@ -340,7 +328,7 @@ def main(argv: list[str] | None = None) -> int:
     merge_source = replay.add_mutually_exclusive_group(required=True)
     merge_source.add_argument("merges", type=Path, nargs="?")
     merge_source.add_argument(
-        "--eval", type=Path, help="score each variant against a labelled jsonl such as evals/needs_docs.jsonl"
+        "--eval", type=Path, help="score the merge check against a labelled jsonl such as evals/needs_docs.jsonl"
     )
     merge_source.add_argument(
         "--recent", type=recent_merge_count, help="replay the merged pull requests among the last N closed ones"
@@ -353,13 +341,6 @@ def main(argv: list[str] | None = None) -> int:
     )
     replay.add_argument(
         "--writer-login", help="GitHub login whose docs pull requests block a verdict, such as app-slug[bot]"
-    )
-    replay.add_argument(
-        "--variant",
-        type=Variant,
-        choices=list(Variant),
-        help="judge decides with one model call; rules decides from quoted facts and a page check. "
-        "Replay defaults to judge; --eval scores every variant unless one is named",
     )
     replay.set_defaults(handler=replay_command)
     arguments = parser.parse_args(argv)
