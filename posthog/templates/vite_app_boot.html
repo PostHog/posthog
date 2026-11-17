@@ -79,6 +79,10 @@
             reloadOnDefaultBuild()
         })
 
+        // Vite fires this event when a stylesheet of a lazy chunk fails to load. It then rejects the
+        // import with an error that the app does not treat as a failed chunk, so the page recovers here.
+        window.addEventListener('vite:preloadError', reloadOnDefaultBuild)
+
         // The chunk map lists every chunk that each lazy module needs, so the scene loader can ask
         // for them all at once and not level by level. It only saves time: import() of the scene
         // resolves the same chunks without it.
