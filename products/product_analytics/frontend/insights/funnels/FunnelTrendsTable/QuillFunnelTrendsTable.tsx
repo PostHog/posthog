@@ -1,6 +1,6 @@
 import { useValues } from 'kea'
 
-import { TableCell, TableHead, TableRow } from '@posthog/quill'
+import { Button, TableCell, TableHead, TableRow } from '@posthog/quill'
 
 import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -21,6 +21,7 @@ interface QuillFunnelTrendsTableProps {
     loading: boolean
     seriesLabel: (row: FunnelTrendSeries) => string
     rowColor: (row: FunnelTrendSeries) => string
+    onChangeColor?: (row: FunnelTrendSeries) => void
     onOpenPersons?: (row: FunnelTrendSeries, periodIndex: number) => void
 }
 
@@ -30,9 +31,10 @@ export function QuillFunnelTrendsTable({
     loading,
     seriesLabel,
     rowColor,
+    onChangeColor,
     onOpenPersons,
 }: QuillFunnelTrendsTableProps): JSX.Element {
-    const { insightProps } = useValues(insightLogic)
+    const { insightProps, editingDisabledReason } = useValues(insightLogic)
     const { breakdownFilter, insightData, interval } = useValues(funnelDataLogic(insightProps))
     const { weekStartDay, timezone } = useValues(teamLogic)
 
@@ -65,7 +67,22 @@ export function QuillFunnelTrendsTable({
                             label={seriesLabel(row)}
                             breakdownFilter={breakdownFilter}
                             compareValue={row.compare_label && capitalizeFirstLetter(row.compare_label)}
-                            swatch={<QuillSeriesSwatch color={rowColor(row)} />}
+                            swatch={
+                                onChangeColor ? (
+                                    <Button
+                                        size="icon-xs"
+                                        aria-label="Change color"
+                                        tooltip="Change color"
+                                        disabledReason={editingDisabledReason}
+                                        onClick={() => onChangeColor(row)}
+                                        data-attr="funnel-trends-series-color"
+                                    >
+                                        <QuillSeriesSwatch color={rowColor(row)} />
+                                    </Button>
+                                ) : (
+                                    <QuillSeriesSwatch color={rowColor(row)} />
+                                )
+                            }
                         />
                     </TableCell>
                     {periods.map((period, index) => (

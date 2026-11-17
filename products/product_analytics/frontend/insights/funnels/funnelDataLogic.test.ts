@@ -1894,6 +1894,11 @@ describe('funnelDataLogic', () => {
             expect(currentUs.colorIndex).toBe(previousUs.colorIndex)
             expect(currentUk.colorIndex).toBe(previousUk.colorIndex)
             expect(currentUs.colorIndex).not.toBe(currentUk.colorIndex)
+
+            const colorOf = (row: Record<string, unknown>): string =>
+                logic.values.getFunnelsColor(row as unknown as Parameters<typeof logic.values.getFunnelsColor>[0])
+            expect(colorOf(currentUs)).not.toBe(colorOf(currentUk))
+            expect(colorOf(currentUs)).not.toBe('#000000')
         })
     })
 

@@ -9,13 +9,14 @@ import { buildTrendsLineTimeSeriesConfig, buildTrendsSeries } from '../../trends
 import type { FunnelSeriesMeta } from '../shared/funnelSeriesMeta'
 import type { FunnelTrendsCounts } from '../shared/funnelTrendsCounts'
 
-// `colorIndex`, `compare`, and `compare_label` are added at runtime by `funnelDataLogic.indexedSteps`
+// `colorIndex`, `breakdownIndex`, `compare`, and `compare_label` are added at runtime by `funnelDataLogic.indexedSteps`
 // (the base FunnelStep types don't declare them).
 export type IndexedFunnelStep = FunnelStepWithNestedBreakdown &
     FunnelTrendsCounts & {
         id: number
         seriesIndex: number
         colorIndex: number
+        breakdownIndex: number
         compare?: boolean
         compare_label?: string | null
     }
