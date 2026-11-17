@@ -13,7 +13,6 @@ import {
 } from '@posthog/icons'
 import { Button } from '@posthog/quill'
 
-import { useAddToNotebookAction } from 'lib/components/Scenes/useAddToNotebookAction'
 import { useSceneFileActions } from 'lib/components/Scenes/useSceneFileActions'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
@@ -26,6 +25,7 @@ import {
 } from 'scenes/cohorts/cohortUtils'
 import { openDeleteCohortDialog } from 'scenes/cohorts/DeleteCohortDialog'
 import { NotebookNodeType } from 'scenes/notebooks/types'
+import { useAddToNotebookAction } from 'scenes/notebooks/useAddToNotebookAction'
 import { interProjectCopyLogic } from 'scenes/resource-transfer/interProjectCopyLogic'
 import { urls } from 'scenes/urls'
 

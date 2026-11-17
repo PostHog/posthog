@@ -1,6 +1,6 @@
-import { useAddToNotebookAction } from 'lib/components/Scenes/useAddToNotebookAction'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { NotebookNodeType } from 'scenes/notebooks/types'
+import { useAddToNotebookAction } from 'scenes/notebooks/useAddToNotebookAction'
 
 import type { SceneAction } from '~/layout/scenes/sceneActions/sceneActionModel'
 import { SceneActions } from '~/layout/scenes/sceneActions/SceneActions'

@@ -2,9 +2,9 @@ import { useValues } from 'kea'
 
 import { IconExternal, IconTrash } from '@posthog/icons'
 
-import { useAddToNotebookAction } from 'lib/components/Scenes/useAddToNotebookAction'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { NotebookNodeType } from 'scenes/notebooks/types'
+import { useAddToNotebookAction } from 'scenes/notebooks/useAddToNotebookAction'
 import { userLogic } from 'scenes/userLogic'
 
 import type { SceneAction } from '~/layout/scenes/sceneActions/sceneActionModel'

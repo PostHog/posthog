@@ -107,7 +107,7 @@ The scene keeps its `actions` prop on `<SceneTitleSection>` for the flag-off tit
 | `useAddToNotebookAction(key, { notebookSelectButtonProps, … })` | The "Add to notebook" submenu                                |
 | `useAnalyticsCollectionActions(target, key, { … })`             | Add to, move between, or remove from a collection            |
 
-The first three live in `lib/components/Scenes/`, the last in `scenes/analytics/`.
+`useSceneFileActions` lives in `lib/components/Scenes/`, `useAddToNotebookAction` in `scenes/notebooks/`, and the other two in `scenes/analytics/`.
 
 ## Rich inputs and optimistic saves
 

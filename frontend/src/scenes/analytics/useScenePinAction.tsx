@@ -2,6 +2,7 @@ import { useActions, useMountedLogic, useValues } from 'kea'
 
 import { IconPin, IconPinFilled } from '@posthog/icons'
 
+import { sceneFileLogic } from 'lib/components/Scenes/sceneFileLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { scenePinTarget } from 'scenes/analytics/analyticsPinnedLogic'
@@ -9,8 +10,6 @@ import { scenePinTarget } from 'scenes/analytics/analyticsPinnedLogic'
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
 import type { SceneAction, SceneActionGroup } from '~/layout/scenes/sceneActions/sceneActionModel'
 import { pinTargetKey, sidebarPinsLogic } from '~/layout/today/sidebar/sidebarPinsLogic'
-
-import { sceneFileLogic } from './sceneFileLogic'
 
 /** Pins an analytics item to the Today sidebar. The Today layout drops the File menu's tree items, so it lives in Edit. */
 export function useScenePinAction(

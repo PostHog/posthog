@@ -15,13 +15,13 @@ import {
 } from '@posthog/icons'
 
 import { SceneTagsCombobox } from 'lib/components/Scenes/SceneTagsCombobox'
-import { useAddToNotebookAction } from 'lib/components/Scenes/useAddToNotebookAction'
 import { useSceneFileActions } from 'lib/components/Scenes/useSceneFileActions'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { NotebookNodeType } from 'scenes/notebooks/types'
+import { useAddToNotebookAction } from 'scenes/notebooks/useAddToNotebookAction'
 import { urls } from 'scenes/urls'
 
 import type { SceneAction } from '~/layout/scenes/sceneActions/sceneActionModel'

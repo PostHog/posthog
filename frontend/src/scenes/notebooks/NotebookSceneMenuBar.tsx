@@ -3,10 +3,10 @@ import { router } from 'kea-router'
 
 import { IconCopy, IconDownload, IconOpenSidebar, IconShare, IconTrash } from '@posthog/icons'
 
-import { useScenePinAction } from 'lib/components/Scenes/useScenePinAction'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
+import { useScenePinAction } from 'scenes/analytics/useScenePinAction'
 import { urls } from 'scenes/urls'
 
 import type { SceneAction } from '~/layout/scenes/sceneActions/sceneActionModel'
