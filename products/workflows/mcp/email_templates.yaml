@@ -231,10 +231,11 @@ tools:
             only after the user replies with the literal word 'confirm'. The message doesn't show message_data, so show
             the user its values with the message before they confirm. A success means PostHog queued the email, not that
             it arrived: pass the returned message_id as id to workflows-transactional-email-get to see whether it was
-            sent and delivered. Each execute call sends an email, so never repeat one that succeeded. A 503, a timeout
-            or a connection error means PostHog did not confirm the send, and the email may still go out: do not try
-            again on your own, tell the user. A 404 means the template doesn't exist, or sending transactional email is
-            not enabled for this project.
+            sent and delivered. For a few seconds after the send, that read answers 404 until PostHog records the email,
+            so read again shortly before you report it missing. Each execute call sends an email, so never repeat one
+            that succeeded. A 503, a timeout or a connection error means PostHog did not confirm the send, and the email
+            may still go out: do not try again on your own, tell the user. A 404 from execute means the template
+            doesn't exist, or sending transactional email is not enabled for this project.
         include_params:
             - to
             - template_id
