@@ -336,6 +336,11 @@ describe('cloud controller', () => {
             'runnerProfile',
         ],
         [
+            'a launch template version CloudFormation does not resolve',
+            { profile: (p) => ({ ...p, baseline: { ...p.baseline, hostLaunchTemplateVersion: '$Latest' } }) },
+            'baseline.hostLaunchTemplateVersion',
+        ],
+        [
             'a pooler image not pinned by digest',
             { profile: (p) => ({ ...p, pooler: { ...p.pooler, image: 'registry.example.com/pgbouncer:1' } }) },
             'pooler.image',
@@ -595,6 +600,11 @@ describe('cloud controller', () => {
             'only its teardown allowance',
         ],
         ['the stack rolls back its creation', { cloud: { rollsBack: 'create' } }, 'not CREATE_COMPLETE'],
+        [
+            'the baseline denies a host from another launch template',
+            { profile: (p) => ({ ...p, baseline: { ...p.baseline, hostLaunchTemplateId: 'lt-0000000000000000b' } }) },
+            'not CREATE_COMPLETE',
+        ],
         ['the stack rolls back the reader', { cloud: { rollsBack: 'update' } }, 'not UPDATE_COMPLETE'],
         ['the seed refuses its footprint', { cloud: { seed: { exitCode: 1 } } }, 'host/prepare.log'],
         ['the seed outlasts the lease', { cloud: { seed: { takesMs: 10 * HOUR_MS } } }, 'TimedOut'],
