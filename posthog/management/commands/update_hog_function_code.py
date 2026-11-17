@@ -1,3 +1,4 @@
+import re
 import time
 from typing import NotRequired, TypedDict, cast
 
@@ -25,8 +26,9 @@ class _ReplaceOption(TypedDict):
     # purpose), this pins the run to the intended cohort.
     only_if_contains: NotRequired[str]
     function_type: NotRequired[str]
-    # Skip a function unless every replacement matches, so a variable renamed across lines is never half renamed.
-    all_or_nothing: NotRequired[bool]
+    # The variable the replacements rename. A function is updated only when every replacement matches and no use of
+    # the old name is left, so hand-edited code never ends up reading a variable that no longer exists.
+    renamed_variable: NotRequired[str]
 
 
 class Command(BaseCommand):
@@ -172,7 +174,7 @@ class Command(BaseCommand):
             "stripe-signature-header-parsing": {
                 "template_id": "template-source-stripe-webhook",
                 "function_type": "source_webhook",
-                "all_or_nothing": True,
+                "renamed_variable": "v1Signature",
                 "replacements": [
                     {"from_string": "let v1Signature := null", "to_string": "let v1Signatures := []"},
                     {"from_string": "if (trimmed like 't=%') {", "to_string": "if (startsWith(trimmed, 't=')) {"},
@@ -283,6 +285,7 @@ if (not empty(inputs.phone)) {
 
         updated_count = 0
         failed: list[tuple[str, int, bool, str]] = []
+        needs_manual_update: list[tuple[str, int, bool]] = []
         total_found = queryset.count()
         paginator = Paginator(queryset.order_by("id"), 1000)
 
@@ -302,11 +305,6 @@ if (not empty(inputs.phone)) {
                 if not destination.hog:
                     continue
 
-                if replaceOption.get("all_or_nothing") and not all(
-                    replacement["from_string"] in destination.hog for replacement in replaceOption["replacements"]
-                ):
-                    continue
-
                 required_marker = replaceOption.get("only_if_contains")
                 if required_marker and required_marker not in destination.hog:
                     continue
@@ -317,6 +315,16 @@ if (not empty(inputs.phone)) {
                         new_hog = new_hog.replace(replacement["from_string"], replacement["to_string"])
 
                 if new_hog == destination.hog:
+                    continue
+
+                renamed_variable = replaceOption.get("renamed_variable")
+                if renamed_variable and (
+                    not all(
+                        replacement["from_string"] in destination.hog for replacement in replaceOption["replacements"]
+                    )
+                    or re.search(rf"\b{renamed_variable}\b", new_hog)
+                ):
+                    needs_manual_update.append((str(destination.id), destination.team_id, destination.enabled))
                     continue
 
                 # A single destination with uncompilable (e.g. hand-edited) hog must not abort the whole run.
@@ -340,6 +348,15 @@ if (not empty(inputs.phone)) {
                 f"Update completed in {duration:.2f}s. Found: {total_found}, Updated: {updated_count}, Failed: {len(failed)}"
             )
         )
+
+        if needs_manual_update:
+            self.stdout.write(
+                self.style.WARNING(
+                    f"{len(needs_manual_update)} function(s) were edited by hand and need a manual update:"
+                )
+            )
+            for fn_id, team_id, enabled in needs_manual_update:
+                self.stdout.write(f"  id={fn_id} team={team_id} enabled={enabled}")
 
         if failed:
             self.stdout.write(self.style.WARNING(f"{len(failed)} destination(s) failed to compile and were skipped:"))

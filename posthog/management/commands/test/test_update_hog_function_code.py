@@ -172,11 +172,14 @@ if (computedSignature != v1Signature) {
 }
 """
 
-# A function whose owner rewrote the comparison. A partial rewrite would leave it reading a variable that no longer
-# exists, so the migration must leave it alone.
-STRIPE_HAND_EDITED_PARSING = STRIPE_STALE_PARSING.replace(
-    "if (computedSignature != v1Signature) {", "if (lower(computedSignature) != lower(v1Signature)) {"
-)
+# Functions whose owners edited the parser. A rewrite would leave either one reading a variable that no longer exists,
+# so the migration must leave both alone and name them.
+STRIPE_HAND_EDITED_PARSING = [
+    STRIPE_STALE_PARSING.replace(
+        "if (computedSignature != v1Signature) {", "if (lower(computedSignature) != lower(v1Signature)) {"
+    ),
+    STRIPE_STALE_PARSING + "print(v1Signature)\n",
+]
 
 
 class TestUpdateHogFunctionCode(BaseTest):
@@ -655,7 +658,7 @@ class TestUpdateHogFunctionCode(BaseTest):
 
     def test_stripe_signature_header_parsing_migration(self) -> None:
         with patch("products.cdp.backend.models.hog_functions.hog_function.reload_hog_functions_on_workers"):
-            stale, hand_edited = (
+            stale, *hand_edited = (
                 HogFunction.objects.create(
                     team=self.team,
                     name="Stripe webhook",
@@ -665,7 +668,7 @@ class TestUpdateHogFunctionCode(BaseTest):
                     bytecode=compile_hog_for_check(hog, "source_webhook"),
                     enabled=True,
                 )
-                for hog in (STRIPE_STALE_PARSING, STRIPE_HAND_EDITED_PARSING)
+                for hog in (STRIPE_STALE_PARSING, *STRIPE_HAND_EDITED_PARSING)
             )
         assert _run_stripe_delivery(stale) == {"httpResponse": {"status": 400, "body": "Bad signature"}}
 
@@ -673,14 +676,17 @@ class TestUpdateHogFunctionCode(BaseTest):
             out = StringIO()
             call_command("update_hog_function_code", replace_key="stripe-signature-header-parsing", stdout=out)
             self.assertIn(expected, out.getvalue())
+            for function in hand_edited:
+                self.assertIn(f"id={function.id}", out.getvalue())
 
         stale.refresh_from_db()
-        hand_edited.refresh_from_db()
         assert _run_stripe_delivery(stale) is None
         assert _run_stripe_delivery(stale, signed_with="whsec_forged") == {
             "httpResponse": {"status": 400, "body": "Bad signature"}
         }
-        assert hand_edited.hog == STRIPE_HAND_EDITED_PARSING
+        for function, hog in zip(hand_edited, STRIPE_HAND_EDITED_PARSING):
+            function.refresh_from_db()
+            assert function.hog == hog
 
 
 def _run_stripe_delivery(function: HogFunction, signed_with: str = "whsec_test") -> object:
