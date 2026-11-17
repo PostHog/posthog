@@ -1,0 +1,26 @@
+{
+    "dependencies": {
+        // ruleid: posthog-sdk-major-pin-js
+        "posthog-js": "*",
+        // ruleid: posthog-sdk-major-pin-js
+        "posthog-node": "latest",
+        // ruleid: posthog-sdk-major-pin-js
+        "@posthog/react": ">=1.11.3",
+        // ruleid: posthog-sdk-major-pin-js
+        "posthog-js-lite": "",
+        // ok: posthog-sdk-major-pin-js
+        "posthog-react-native": "^4.84.2",
+        // ok: posthog-sdk-major-pin-js
+        "posthog-js": "catalog:",
+        // ok: posthog-sdk-major-pin-js
+        "posthog-node": "5.74.0",
+        // ok: posthog-sdk-major-pin-js
+        "posthog-node": "~5.74.0",
+        // ok: posthog-sdk-major-pin-js
+        "posthog-js": ">=1.400.0 <2",
+        // ok: posthog-sdk-major-pin-js
+        "@posthog/core": "workspace:*",
+        // ok: posthog-sdk-major-pin-js
+        "@posthog/icons": "*"
+    }
+}
