@@ -649,6 +649,18 @@ export interface AnomalyFlaggedPointApi {
     score: number | null
 }
 
+export interface AnomalySeriesPointApi {
+    /** The start of the scored bucket, in the project timezone. */
+    bucket_start: string
+    /**
+     * The series value of the bucket at scoring time.
+     * @nullable
+     */
+    value: number | null
+    /** Whether the detector flagged the bucket. */
+    flag: boolean
+}
+
 export interface AnomalySeriesApi {
     /** The numeric id of the insight. */
     insight_id: number
@@ -716,6 +728,8 @@ export interface AnomalySeriesApi {
     last_flagged_bucket: string | null
     /** Up to 5 flagged buckets in the range, newest first. */
     flagged_points: AnomalyFlaggedPointApi[]
+    /** Only with `include_points`. The newest 400 scored buckets of the series in the range, oldest first. A bucket that was not scored, or only has a warm-up row, has no point: it is unknown, not 0. Fewer points than `scored_buckets` means the cap left older buckets out. */
+    points?: AnomalySeriesPointApi[]
 }
 
 export interface AnomalyTopSeriesApi {
@@ -1202,6 +1216,14 @@ export const InboxOnboardingSetupModeEnumApi = {
  * * `statuspage` - Statuspage
  * * `cronitor` - Cronitor
  * * `instatus` - Instatus
+ * * `rootly` - Rootly
+ * * `zenduty` - Zenduty
+ * * `splunk_observability_cloud` - Splunk Observability Cloud
+ * * `uptimerobot` - UptimeRobot
+ * * `rootly_alerts` - Rootly alerts
+ * * `incident_io_alerts` - incident.io alerts
+ * * `firehydrant_alerts` - FireHydrant alerts
+ * * `grafana_irm_alert_groups` - Grafana IRM alert groups
  * * `asana` - Asana
  * * `monday` - monday.com
  * * `plane` - Plane
@@ -1351,6 +1373,14 @@ export const SignalSourceProductEnumApi = {
     Statuspage: 'statuspage',
     Cronitor: 'cronitor',
     Instatus: 'instatus',
+    Rootly: 'rootly',
+    Zenduty: 'zenduty',
+    SplunkObservabilityCloud: 'splunk_observability_cloud',
+    Uptimerobot: 'uptimerobot',
+    RootlyAlerts: 'rootly_alerts',
+    IncidentIoAlerts: 'incident_io_alerts',
+    FirehydrantAlerts: 'firehydrant_alerts',
+    GrafanaIrmAlertGroups: 'grafana_irm_alert_groups',
     Asana: 'asana',
     Monday: 'monday',
     Plane: 'plane',
@@ -1551,6 +1581,14 @@ export interface InboxOnboardingSourceApi {
      * * `statuspage` - Statuspage
      * * `cronitor` - Cronitor
      * * `instatus` - Instatus
+     * * `rootly` - Rootly
+     * * `zenduty` - Zenduty
+     * * `splunk_observability_cloud` - Splunk Observability Cloud
+     * * `uptimerobot` - UptimeRobot
+     * * `rootly_alerts` - Rootly alerts
+     * * `incident_io_alerts` - incident.io alerts
+     * * `firehydrant_alerts` - FireHydrant alerts
+     * * `grafana_irm_alert_groups` - Grafana IRM alert groups
      * * `asana` - Asana
      * * `monday` - monday.com
      * * `plane` - Plane
@@ -4503,6 +4541,14 @@ export interface SignalReportLeaveReviewersApi {
  * * `statuspage` - statuspage
  * * `cronitor` - cronitor
  * * `instatus` - instatus
+ * * `rootly` - rootly
+ * * `zenduty` - zenduty
+ * * `splunk_observability_cloud` - splunk_observability_cloud
+ * * `uptimerobot` - uptimerobot
+ * * `rootly_alerts` - rootly_alerts
+ * * `incident_io_alerts` - incident_io_alerts
+ * * `firehydrant_alerts` - firehydrant_alerts
+ * * `grafana_irm_alert_groups` - grafana_irm_alert_groups
  * * `asana` - asana
  * * `monday` - monday
  * * `plane` - plane
@@ -4652,6 +4698,14 @@ export const SignalSourceProductApi = {
     Statuspage: 'statuspage',
     Cronitor: 'cronitor',
     Instatus: 'instatus',
+    Rootly: 'rootly',
+    Zenduty: 'zenduty',
+    SplunkObservabilityCloud: 'splunk_observability_cloud',
+    Uptimerobot: 'uptimerobot',
+    RootlyAlerts: 'rootly_alerts',
+    IncidentIoAlerts: 'incident_io_alerts',
+    FirehydrantAlerts: 'firehydrant_alerts',
+    GrafanaIrmAlertGroups: 'grafana_irm_alert_groups',
     Asana: 'asana',
     Monday: 'monday',
     Plane: 'plane',
@@ -5722,6 +5776,58 @@ export interface InstatusIncidentSignalExtraApi {
     components: string[]
 }
 
+export interface RootlyIncidentSignalExtraApi {
+    status: string | null
+    severity_name: string | null
+    kind: string | null
+    url: string | null
+    created_at: string | null
+}
+
+export interface ZendutyIncidentSignalExtraApi {
+    incident_number: string | null
+    status: string | null
+    urgency: string | null
+    creation_date: string | null
+}
+
+export interface SplunkObservabilityCloudIncidentSignalExtraApi {
+    severity: string | null
+    anomaly_state: string | null
+    triggered_at: string | null
+}
+
+export interface UptimerobotIncidentSignalExtraApi {
+    status: string | null
+    type: string | null
+    started_at: string | null
+}
+
+export interface RootlyAlertsIncidentSignalExtraApi {
+    status: string | null
+    source: string | null
+    url: string | null
+    created_at: string | null
+}
+
+export interface IncidentIoAlertsIncidentSignalExtraApi {
+    status: string | null
+    alert_source_id: string | null
+    created_at: string | null
+}
+
+export interface FirehydrantAlertsIncidentSignalExtraApi {
+    status: string | null
+    starts_at: string | null
+}
+
+export interface GrafanaIrmAlertGroupsIncidentSignalExtraApi {
+    state: string | null
+    alerts_count: string | null
+    integration_id: string | null
+    created_at: string | null
+}
+
 export interface GooglePlayConsoleIssueSignalExtraApi {
     issue_type: string | null
     code_location: string | null
@@ -6268,6 +6374,14 @@ export type SignalExtraApi =
     | StatuspageIncidentSignalExtraApi
     | CronitorIncidentSignalExtraApi
     | InstatusIncidentSignalExtraApi
+    | RootlyIncidentSignalExtraApi
+    | ZendutyIncidentSignalExtraApi
+    | SplunkObservabilityCloudIncidentSignalExtraApi
+    | UptimerobotIncidentSignalExtraApi
+    | RootlyAlertsIncidentSignalExtraApi
+    | IncidentIoAlertsIncidentSignalExtraApi
+    | FirehydrantAlertsIncidentSignalExtraApi
+    | GrafanaIrmAlertGroupsIncidentSignalExtraApi
     | GooglePlayConsoleIssueSignalExtraApi
     | AzureApplicationInsightsIssueSignalExtraApi
     | AppsignalIssueSignalExtraApi
@@ -6457,6 +6571,14 @@ export interface SignalNodeApi {
      * * `statuspage` - statuspage
      * * `cronitor` - cronitor
      * * `instatus` - instatus
+     * * `rootly` - rootly
+     * * `zenduty` - zenduty
+     * * `splunk_observability_cloud` - splunk_observability_cloud
+     * * `uptimerobot` - uptimerobot
+     * * `rootly_alerts` - rootly_alerts
+     * * `incident_io_alerts` - incident_io_alerts
+     * * `firehydrant_alerts` - firehydrant_alerts
+     * * `grafana_irm_alert_groups` - grafana_irm_alert_groups
      * * `asana` - asana
      * * `monday` - monday
      * * `plane` - plane
@@ -12608,6 +12730,10 @@ export type SignalsAnomaliesSearchRetrieveParams = {
      * @minLength 1
      */
     group_by?: SignalsAnomaliesSearchRetrieveGroupBy
+    /**
+     * Add `points` to each series row: its newest 400 scored buckets in the range, oldest first. Costs one more query. Has no effect with `group_by: insight`.
+     */
+    include_points?: boolean
     /**
      * Only the series of this insight, by numeric id.
      */

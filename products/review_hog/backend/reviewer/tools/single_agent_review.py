@@ -107,9 +107,13 @@ class SingleAgentPrompt:
         scope_files: list[str] | None = None,
         for_lens: bool = False,
         delta_since: str | None = None,
+        changed_since_review: "ChangedSinceReview | None" = None,
+        changed_code_only: bool = False,
     ) -> None:
         self.repository = repository
         self.delta_since = delta_since
+        self.changed_since_review = changed_since_review
+        self.changed_code_only = changed_code_only
         self.guidelines = guidelines
         self.pr_metadata = pr_metadata
         self.merge_base_sha = merge_base_sha
@@ -192,6 +196,11 @@ class SingleAgentPrompt:
         # A part that covers the whole PR needs no scope section, because no other session reviews its files.
         scope = [f.filename for f in in_scope] if len(in_scope) < len(self.pr_files) else None
         covered = self._covered_findings()
+        changed_since_review = (
+            self.changed_since_review.describe()
+            if self.changed_since_review is not None and not self.delta_since
+            else None
+        )
         return template.render(
             PR_NUMBER=self.pr_metadata.number,
             REPOSITORY=self.repository,
@@ -205,6 +214,9 @@ class SingleAgentPrompt:
             SCOPE=without_cache_marker(", ".join(f"`{path}`" for path in scope)) if scope else None,
             DIFF=without_cache_marker(self._diff(shown)),
             DIFF_NOT_SHOWN=bool(not_shown),
+            CHANGED_SINCE_REVIEW=without_cache_marker(changed_since_review) if changed_since_review else None,
+            DISCARDED_LEVELS="P2 or P3" if self.changed_code_only else "P3",
+            CHANGE_MARGIN=FLASH_FOLLOW_UP_CHANGE_MARGIN_LINES,
             COVERED_FINDINGS=without_cache_marker(covered) if covered else None,
             CACHE_MARKER=PROMPT_CACHE_MARKER,
             GUIDELINES=self.guidelines,
@@ -620,6 +632,21 @@ def _count_delta(pr_file: PRFile | None, earlier: PRFile | None) -> int:
     return abs(additions - earlier_additions) + abs(deletions - earlier_deletions)
 
 
+def _line_ranges(lines: set[int]) -> str:
+    """`{1, 2, 3, 7}` as `1-3, 7`."""
+    ranges: list[str] = []
+    ordered = sorted(lines)
+    start = previous = ordered[0]
+    for line in [*ordered[1:], None]:
+        if line is not None and line == previous + 1:
+            previous = line
+            continue
+        ranges.append(str(start) if start == previous else f"{start}-{previous}")
+        if line is not None:
+            start = previous = line
+    return ", ".join(ranges)
+
+
 def _within_margin(start: int, end: int | None, lines: set[int]) -> bool:
     """Whether any of `lines` falls in `start`..`end`, widened by the follow-up change margin."""
     margin = FLASH_FOLLOW_UP_CHANGE_MARGIN_LINES
@@ -654,6 +681,14 @@ class ChangedSinceReview:
             if earlier.filename not in current_names:
                 changed_line_counts[earlier.filename] = _count_delta(None, earlier)
         return cls(lines=lines, files_without_patch=files_without_patch, changed_line_counts=changed_line_counts)
+
+    def describe(self) -> str | None:
+        """The changed lines per file as a Markdown list, or None when no line changed."""
+        entries = [f"- `{filename}`: the whole file" for filename in sorted(self.files_without_patch)]
+        entries.extend(
+            f"- `{filename}`: lines {_line_ranges(lines)}" for filename, lines in sorted(self.lines.items()) if lines
+        )
+        return "\n".join(entries) or None
 
     def reviewable_line_count(self) -> int:
         """How many diff lines of reviewable files changed, in the units of `flash_reviewable_lines`."""

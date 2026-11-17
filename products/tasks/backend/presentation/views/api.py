@@ -394,6 +394,21 @@ def _task_done_response() -> Response:
     )
 
 
+def _run_in_progress_response() -> Response:
+    return Response(
+        TaskRunErrorResponseSerializer({"error": str(tasks_facade.TaskRunAlreadyLiveError())}).data,
+        status=status.HTTP_409_CONFLICT,
+    )
+
+
+def _wake_refusal_response(code: str | None) -> Response | None:
+    if code == "task_done":
+        return _task_done_response()
+    if code == "run_in_progress":
+        return _run_in_progress_response()
+    return None
+
+
 def _is_internal_debug_team(team_id: int | None) -> bool:
     if settings.DEBUG and not settings.TEST:
         return team_id == 1
@@ -1625,7 +1640,10 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 ),
             ),
             404: OpenApiResponse(description="Task not found"),
-            409: OpenApiResponse(response=TaskRunErrorResponseSerializer, description="The task is done"),
+            409: OpenApiResponse(
+                response=TaskRunErrorResponseSerializer,
+                description="The task is done, or it already has a run in progress",
+            ),
             503: OpenApiResponse(
                 response=TaskRunErrorResponseSerializer,
                 description=(
@@ -2059,8 +2077,8 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             if error.missing_artifact_ids is not None:
                 body["missing_artifact_ids"] = error.missing_artifact_ids
             return Response(body, status=status.HTTP_400_BAD_REQUEST)
-        if error.code == "task_done":
-            return _task_done_response()
+        if (refusal := _wake_refusal_response(error.code)) is not None:
+            return refusal
         return Response(
             {"type": "validation_error", "code": error.code, "detail": error.detail, "attr": error.attr},
             status=status.HTTP_400_BAD_REQUEST,
@@ -2424,8 +2442,8 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def _validation_error_response(self, error: tasks_contracts.TaskRunValidationError) -> Response:
         if error.kind == "detail":
             return Response({"detail": error.detail}, status=status.HTTP_400_BAD_REQUEST)
-        if error.code == "task_done":
-            return _task_done_response()
+        if (refusal := _wake_refusal_response(error.code)) is not None:
+            return refusal
         return Response(
             {"type": "validation_error", "code": error.code, "detail": error.detail, "attr": error.attr},
             status=status.HTTP_400_BAD_REQUEST,
@@ -2440,7 +2458,10 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 response=TaskRunErrorResponseSerializer,
                 description="PostHog Desktop access is required, or Pi cloud runtime is disabled",
             ),
-            409: OpenApiResponse(response=TaskRunErrorResponseSerializer, description="The task is done"),
+            409: OpenApiResponse(
+                response=TaskRunErrorResponseSerializer,
+                description="The task is done, or it already has a run in progress",
+            ),
             429: OpenApiResponse(
                 response=TaskRunErrorResponseSerializer, description="Team is over its posthog_code usage limit"
             ),
@@ -3954,6 +3975,8 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 return compute_quota_limit_response(error.reason)
             except tasks_facade.TaskDoneError:
                 return _task_done_response()
+            except tasks_facade.TaskRunAlreadyLiveError:
+                return _run_in_progress_response()
             except Exception:
                 logger.warning("Failed to queue user message for task run %s", pk)
                 return Response(
@@ -4396,7 +4419,10 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 response=TaskRunErrorResponseSerializer,
                 description="PostHog Desktop access is required, or Pi cloud runtime is disabled",
             ),
-            409: OpenApiResponse(response=TaskRunErrorResponseSerializer, description="The task is done"),
+            409: OpenApiResponse(
+                response=TaskRunErrorResponseSerializer,
+                description="The task is done, or it already has a run in progress",
+            ),
             429: OpenApiResponse(
                 response=TaskRunErrorResponseSerializer, description="Team is over its posthog_code usage limit"
             ),
@@ -4433,8 +4459,8 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         outcome, run, _ = tasks_facade.resume_task_run_in_cloud(pk, task_id, self.team_id, self._user_id())
         if outcome == "not_found":
             raise NotFound()
-        if outcome == "task_done":
-            return _task_done_response()
+        if (refusal := _wake_refusal_response(outcome)) is not None:
+            return refusal
         if outcome == "already_active":
             return Response(
                 TaskRunErrorResponseSerializer({"error": "Run is already active in cloud"}).data,

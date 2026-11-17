@@ -312,7 +312,7 @@ class TestWrappedEventJoins(SimpleTestCase):
             assert "JSONExtractString(ifNull(joined.properties___a, ''), %(hogql_val_" in outer, printed
             assert "JSONExtractRaw(ifNull(joined.properties___amount, ''))" in outer, printed
             assert self._export_counts(printed, "joined", native) == {"properties___a": 2, "properties___amount": 2}
-            assert "toJSONString(joined.properties.^a)" in inner, printed
+            assert "toJSONString(joined.properties.a)" in inner, printed
             assert "JSONExtractKeysAndValuesRaw" not in inner, printed
         else:
             assert "JSONExtractRaw(joined.properties, %(hogql_val_" in outer, printed
@@ -345,8 +345,8 @@ class TestWrappedEventJoins(SimpleTestCase):
                 "properties___label",
                 "properties___arr",
             }
-            assert "toString(joined.properties.a)" in inner, printed
-            assert "toString(joined.properties.arr)" not in inner, printed
+            assert "CAST(joined.properties.a, 'Nullable(String)') AS properties___a" in inner, printed
+            assert "CAST(joined.properties.arr, 'Nullable(String)') AS properties___arr" not in inner, printed
         else:
             assert "JSONExtractString(joined.properties, %(hogql_val_" in outer, printed
             assert self._exports(printed, "joined", native) == {"properties___a", "properties", "properties___arr"}
