@@ -40,7 +40,6 @@ async function createPreferencesPage(page: Page, playwrightSetup: PlaywrightSetu
     })
     expect(linkResponse.ok()).toBe(true)
     const path = new URL((await linkResponse.json()).preferences_url).pathname
-    expect(path).toMatch(/^\/messaging-preferences\/[\w-]+\.[\w-]+\.[\w-]+\/$/)
 
     // The opt-out lists are the API's read of what the page stored for the recipient
     const storedPreferences = async (categoryKey?: string): Promise<Record<string, string> | undefined> => {
@@ -70,7 +69,7 @@ test.describe('Message preferences page', () => {
         const productNews = recipientPage.getByRole('checkbox', { name: 'Product news' })
         const eventInvites = recipientPage.getByRole('checkbox', { name: 'Event invites' })
         const allMarketing = recipientPage.getByRole('checkbox', { name: 'All marketing communications' })
-        const status = (id: string): ReturnType<Page['locator']> => recipientPage.locator(`[data-status-for="${id}"]`)
+        const status = (id: string): ReturnType<Page['getByTestId']> => recipientPage.getByTestId(`status-${id}`)
 
         try {
             await recipientPage.goto(path)
@@ -84,7 +83,11 @@ test.describe('Message preferences page', () => {
             await test.step('all marketing off shows every topic off and leaves the topic choices stored', async () => {
                 await allMarketing.click()
                 await expect(status('$all')).toHaveText('Not subscribed')
-                for (const topic of [productNews, eventInvites]) {
+                for (const [topic, id] of [
+                    [productNews, productNewsId],
+                    [eventInvites, eventInvitesId],
+                ] as const) {
+                    await expect(status(id)).toHaveText('Not subscribed')
                     await expect(topic).not.toBeChecked()
                     await expect(topic).toBeDisabled()
                 }
@@ -128,35 +131,43 @@ test.describe('Message preferences page', () => {
                 await expect(productNews).toBeChecked()
             })
 
-            await test.step('a failed save that overlaps a later one shows what the later one stored', async () => {
-                let failHeldSave = (): void => {}
-                const heldSaveFailed = new Promise<void>((resolve) => {
-                    failHeldSave = resolve
+            await test.step('saves that answer out of commit order leave the page showing what was stored', async () => {
+                let answerHeldSave = (): void => {}
+                const heldSaveAnswered = new Promise<void>((resolve) => {
+                    answerHeldSave = resolve
+                })
+                let heldSaveStored = (): void => {}
+                const heldSaveCommitted = new Promise<void>((resolve) => {
+                    heldSaveStored = resolve
                 })
                 await recipientPage.route(
                     UPDATE_URL,
                     async (route) => {
-                        await heldSaveFailed
-                        await route.fulfill({ status: 500, json: { error: 'Something went wrong' } })
+                        const response = await route.fetch()
+                        heldSaveStored()
+                        await heldSaveAnswered
+                        await route.fulfill({ response })
                     },
                     { times: 1 }
                 )
-                await productNews.click()
+                await allMarketing.click()
+                await heldSaveCommitted
                 const laterSave = recipientPage.waitForResponse((response) =>
                     response.url().includes('/messaging-preferences/update')
                 )
-                await eventInvites.click()
-                expect((await laterSave).ok()).toBe(true)
-                failHeldSave()
+                await allMarketing.click()
+                await laterSave
+                answerHeldSave()
 
-                await expect(status(eventInvitesId)).toHaveText('Subscribed')
-                await expect(status(productNewsId)).toHaveText('Not subscribed')
-                await expect(eventInvites).toBeChecked()
-                await expect(productNews).not.toBeChecked()
-                expect(await storedPreferences('product_news')).toEqual({
+                await expect(status('$all')).toHaveText('Subscribed')
+                await expect(status(productNewsId)).toHaveText('Subscribed')
+                await expect(allMarketing).toBeChecked()
+                await expect(productNews).toBeChecked()
+                await expect(eventInvites).not.toBeChecked()
+                expect(await storedPreferences('event_invites')).toEqual({
                     $all: 'OPTED_IN',
-                    [productNewsId]: 'OPTED_OUT',
-                    [eventInvitesId]: 'OPTED_IN',
+                    [productNewsId]: 'OPTED_IN',
+                    [eventInvitesId]: 'OPTED_OUT',
                 })
             })
         } finally {

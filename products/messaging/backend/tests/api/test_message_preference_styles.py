@@ -40,7 +40,7 @@ _SCRIPT_UTILITIES = frozenset(
         "px-6",
         "py-4",
         "right-4",
-        "text-amber-600",
+        "text-amber-700",
         "text-white",
         "top-4",
         "transform",

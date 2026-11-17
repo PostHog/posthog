@@ -48,7 +48,7 @@
                                                 </label>
                                             </div>
                                             <span class="text-xs font-medium mt-1 text-right {% if email_tracking_allowed %}text-green-700{% else %}text-gray-500{% endif %}"
-                                                  data-status-for="$email_tracking">
+                                                  data-attr="status-$email_tracking">
                                                 {% if email_tracking_allowed %}Tracking allowed{% else %}Tracking off{% endif %}
                                             </span>
                                         </div>
@@ -68,16 +68,20 @@
                 const allMarketingToggle = document.getElementById('{{ all_marketing.id }}')
                 const allMarketingOffNote = document.getElementById('all-marketing-off-note')
                 // A topic keeps its choice while all marketing is off, even though it shows off
-                const wanted = {}
-                toggles.forEach((toggle) => {
-                    wanted[toggle.name] = toggle.hasAttribute('data-topic') ? toggle.dataset.savedStatus !== 'OPTED_OUT' : toggle.checked
-                })
+                function savedChoices(page) {
+                    const choices = {}
+                    page.querySelectorAll('.toggle-checkbox').forEach((toggle) => {
+                        choices[toggle.name] = toggle.hasAttribute('data-topic') ? toggle.dataset.savedStatus !== 'OPTED_OUT' : toggle.checked
+                    })
+                    return choices
+                }
+                const wanted = savedChoices(document)
                 const stored = { ...wanted }
                 const saving = new Set()
                 let savesPending = 0
 
                 function updateStatusLabel(toggle, text, colorClass) {
-                    const statusLabel = document.querySelector('[data-status-for="' + toggle.name + '"]')
+                    const statusLabel = document.querySelector('[data-attr="status-' + toggle.name + '"]')
                     if (!statusLabel) return
                     statusLabel.textContent = text
                     statusLabel.className = 'text-xs font-medium mt-1 text-right ' + colorClass
@@ -159,13 +163,20 @@
                             throw new Error(data.error)
                         }
 
-                        // Saves can overlap. The server answers each one after it commits, so the last answer holds
                         Object.assign(stored, choices)
                         showToast('Preferences updated successfully', false)
                     } catch (error) {
                         showToast(error.message || 'Failed to update preferences', true)
                     } finally {
                         savesPending--
+                        // Overlapping saves can answer out of commit order, so read back what the server stored.
+                        // If the read fails, the answers stand in for it.
+                        if (savesPending === 0) {
+                            await fetch(window.location.pathname)
+                                .then((response) => response.text())
+                                .then((html) => Object.assign(stored, savedChoices(new DOMParser().parseFromString(html, 'text/html'))))
+                                .catch(() => {})
+                        }
                         // Once every save has answered, show what the server stored, which undoes a failed change
                         if (savesPending === 0) {
                             Object.assign(wanted, stored)
