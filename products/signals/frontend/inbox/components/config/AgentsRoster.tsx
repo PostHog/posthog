@@ -1,7 +1,15 @@
 import { useActions, useValues } from 'kea'
 import { memo, useCallback, useMemo, useState } from 'react'
 
-import { IconArrowUpRight, IconChevronDown, IconChevronRight, IconGear, IconPlus } from '@posthog/icons'
+import {
+    IconArrowUpRight,
+    IconChevronDown,
+    IconChevronRight,
+    IconFilter,
+    IconGear,
+    IconPlus,
+    IconRefresh,
+} from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
@@ -403,7 +411,7 @@ function Expansion({
     const steeringIsSet = state.steeringConfigs.some(sourceSteeringIsSet)
     // `ProductDataStatus` renders nothing for an unavailable status, so the meta line would be empty.
     const hasProductLine = !!product && (productOff || product.dataStatus !== 'unavailable')
-    const hasMetaLine = hasProductLine || !!onSteer
+    const hasMetaLine = hasProductLine || !!onSteer || !!expressionFilter
     const newEntityButton = agent.manageUrl ? (
         <LemonButton size="xsmall" type="secondary" to={agent.manageUrl} icon={<IconPlus />} targetBlank>
             New {agent.entityNounSingular}
@@ -453,12 +461,43 @@ function Expansion({
                         )}
                         <div className="flex flex-wrap items-center gap-2">
                             {docsLink}
+                            {expressionFilter &&
+                                (expressionFilter.catalogState === 'failed' ? (
+                                    <LemonButton
+                                        type="secondary"
+                                        size="xsmall"
+                                        icon={<IconRefresh />}
+                                        onClick={expressionFilter.onRetry}
+                                        tooltip="Couldn't load the filter fields. A saved filter still applies. Click to try again."
+                                        data-attr="signal-source-filter-retry"
+                                    >
+                                        Retry filter
+                                    </LemonButton>
+                                ) : (
+                                    <LemonButton
+                                        type="secondary"
+                                        size="xsmall"
+                                        icon={<IconFilter />}
+                                        onClick={expressionFilter.onOpen}
+                                        loading={expressionFilter.catalogState === 'loading'}
+                                        tooltip="Deterministically limit the signals that fire."
+                                        disabledReason={
+                                            expressionFilter.catalogState === 'loading'
+                                                ? 'Loading filter fields'
+                                                : expressionFilter.disabledReason
+                                        }
+                                        data-attr="signal-source-filter-open"
+                                    >
+                                        {expressionFilter.isSet ? 'Edit filter' : 'Set filter'}
+                                    </LemonButton>
+                                ))}
                             {onSteer && (
                                 <LemonButton
                                     type="secondary"
                                     size="xsmall"
                                     icon={<IconGear />}
                                     onClick={onSteer}
+                                    tooltip="Focus on signals that matter"
                                     data-attr="signal-source-steering-open"
                                 >
                                     {steeringIsSet ? 'Edit guidance' : 'Add guidance'}
@@ -481,34 +520,6 @@ function Expansion({
                         </LemonButton>
                     </div>
                 )}
-                {expressionFilter &&
-                    (expressionFilter.catalogState === 'failed' ? (
-                        <div className="flex flex-wrap items-center gap-2">
-                            <span className="text-xs text-secondary">
-                                Couldn't load the filter fields. A saved filter still applies.
-                            </span>
-                            <LemonButton type="secondary" size="xsmall" onClick={expressionFilter.onRetry}>
-                                Retry
-                            </LemonButton>
-                        </div>
-                    ) : (
-                        <div>
-                            <LemonButton
-                                type="secondary"
-                                size="xsmall"
-                                onClick={expressionFilter.onOpen}
-                                loading={expressionFilter.catalogState === 'loading'}
-                                disabledReason={
-                                    expressionFilter.catalogState === 'loading'
-                                        ? 'Loading filter fields'
-                                        : expressionFilter.disabledReason
-                                }
-                                data-attr="signal-source-filter-open"
-                            >
-                                {expressionFilter.isSet ? 'Edit filter' : 'Add filter'}
-                            </LemonButton>
-                        </div>
-                    ))}
                 {alertScope && (
                     <div className="flex flex-col gap-1.5 pt-1">
                         <span className="text-xs font-semibold text-default">Alerts that become signals</span>
