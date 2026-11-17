@@ -555,6 +555,17 @@ _METADATA_PROBE_TIMEOUT_EXHAUSTED_MESSAGE = (
     "will run again on its next schedule."
 )
 
+# Twin of `_METADATA_PROBE_TIMEOUT_EXHAUSTED_MESSAGE` for a sustained lock conflict
+# (`psycopg.errors.LockNotAvailable`) rather than a statement timeout: PostHog's read waited past
+# the source's lock_timeout for a lock a concurrent DDL change, a VACUUM FULL, or another
+# long-running transaction held on the table, and it kept happening on every retry.
+_LOCK_TIMEOUT_EXHAUSTED_MESSAGE = (
+    "PostHog's read kept hitting your database's lock timeout, and it did so again on every "
+    "retry. This usually means another session is holding a long-running lock on this table, such "
+    "as a schema change (DDL), a VACUUM FULL, or a long transaction. Check your database for one of "
+    "those on this table. This sync is still enabled and will run again on its next schedule."
+)
+
 _SERIALIZATION_CONFLICT_EXHAUSTED_MESSAGE = (
     "Your database kept aborting PostHog's read with a transaction serialization conflict, and the "
     "conflict outlasted every retry. This is common on CockroachDB and similar databases under "
@@ -1883,10 +1894,22 @@ class PostgresSource(
         # statement on different backends, or a lock another session holds), not a query doomed to
         # repeat the same failure. A fresh connection on retry can land on a backend without that
         # problem, so it's self-recovering like the other entries here.
+        #
+        # "canceling statement due to lock timeout" (`psycopg.errors.LockNotAvailable`) is a
+        # concurrent DDL/VACUUM FULL holding ACCESS EXCLUSIVE against our ACCESS SHARE — transient,
+        # since the lock frees once that other transaction ends. `get_rows`'s server-cursor DECLARE
+        # and keyset-page reads already retry it in-process with backoff
+        # (`_MAX_INITIAL_READ_LOCK_TIMEOUT_RETRIES`, `_MAX_KEYSET_PAGE_LOCK_RETRIES` in postgres.py)
+        # and only re-raise the raw error once that budget is spent; `_has_duplicate_primary_keys`'s
+        # cheap pre-read probe doesn't retry in-process at all and re-raises immediately via its own
+        # `except psycopg.OperationalError: raise`. Without this entry, every one of those re-raises
+        # floods error tracking at `exception` level instead of the self-recovering whole-activity
+        # retry this condition actually gets.
         return {
             CLIENT_DEADLINE_ERROR,
             "canceling statement due to user request",
             "canceling statement due to statement timeout",
+            "canceling statement due to lock timeout",
             *_CONNECTION_DROPPED_ERROR_SUBSTRINGS,
             *_POOLER_CONNECTION_DROPPED_ERROR_SUBSTRINGS,
             *_SERVER_STARTING_UP_ERROR_SUBSTRINGS,
@@ -1923,6 +1946,7 @@ class PostgresSource(
             CLIENT_DEADLINE_ERROR: _CLIENT_DEADLINE_EXHAUSTED_MESSAGE,
             "canceling statement due to user request": _SPURIOUS_CANCEL_EXHAUSTED_MESSAGE,
             "canceling statement due to statement timeout": _METADATA_PROBE_TIMEOUT_EXHAUSTED_MESSAGE,
+            "canceling statement due to lock timeout": _LOCK_TIMEOUT_EXHAUSTED_MESSAGE,
             HOST_RESOLUTION_TIMEOUT_ERROR: HOST_RESOLUTION_EXHAUSTED_MESSAGE,
             TEMPORARY_HOST_RESOLUTION_ERROR: HOST_RESOLUTION_EXHAUSTED_MESSAGE,
             _SSH_FORWARD_FAILED_ERROR: _SSH_FORWARD_FAILED_EXHAUSTED_MESSAGE,
