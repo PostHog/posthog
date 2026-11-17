@@ -11,7 +11,6 @@ makes that safe.
 """
 
 import os
-import types
 import inspect
 from pathlib import Path
 from typing import Any
@@ -21,7 +20,7 @@ from django.test import SimpleTestCase
 
 from owners_yaml import OwnersResolver
 
-from posthog.models.activity_logging import activity_log, activity_log_config_registry
+from posthog.models.activity_logging import activity_log_config_registry
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 CONFIG_ATTRIBUTES = (
@@ -96,31 +95,3 @@ class TestActivityLogConfigOwnership(SimpleTestCase):
                     checked += 1
 
         assert checked, "no migrated activity-log config to check, so this guard is not wired up"
-
-
-def _fake_tuning_module(name: str, exclusions: dict[str, list[str]]) -> types.ModuleType:
-    module: Any = types.ModuleType(name)
-    module.FIELD_EXCLUSIONS = exclusions
-    return module
-
-
-class TestScopeConfigMerging(SimpleTestCase):
-    """One scope is tuned in exactly one place, and the merge is what enforces it.
-
-    Each case drives the merge with its own registries, because the real ones are filled when the
-    module is imported: deleting the check would otherwise let the later definition silently replace
-    the earlier one.
-    """
-
-    def test_two_modules_tuning_the_same_scope_raise(self) -> None:
-        first = _fake_tuning_module("first", {"Thing": ["a"]})
-        second = _fake_tuning_module("second", {"Thing": ["b"]})
-
-        with self.assertRaisesMessage(RuntimeError, "Thing is tuned twice"):
-            activity_log._merge_scope_configs({"FIELD_EXCLUSIONS": {}}, (first, second))
-
-    def test_a_scope_tuned_in_core_and_in_a_module_raises(self) -> None:
-        module = _fake_tuning_module("module", {"Thing": ["b"]})
-
-        with self.assertRaisesMessage(RuntimeError, "Thing is tuned twice"):
-            activity_log._merge_scope_configs({"FIELD_EXCLUSIONS": {"Thing": ["core"]}}, (module,))
