@@ -146,16 +146,19 @@ export function membersOf(rpkDescribe: string): number | null {
     return members ? Number(members[1]) : null
 }
 
-async function rpk(docker: string, args: string[]): Promise<string> {
-    try {
-        const { stdout } = await promisify(execFile)(docker, ['exec', STACK.kafkaContainer, 'rpk', ...args], {
-            timeout: 10_000,
-        })
-        return stdout
-    } catch (error) {
+export async function rpkOrThrow(docker: string, args: string[], signal?: AbortSignal): Promise<string> {
+    const { stdout } = await promisify(execFile)(docker, ['exec', STACK.kafkaContainer, 'rpk', ...args], {
+        timeout: 10_000,
+        signal,
+    })
+    return stdout
+}
+
+export function rpk(docker: string, args: string[]): Promise<string> {
+    return rpkOrThrow(docker, args).catch((error: unknown) => {
         const { stdout = '', stderr = '' } = error as { stdout?: string; stderr?: string }
         return `${stdout}${stderr}` || String(error)
-    }
+    })
 }
 
 export async function groupMembers(group: string, docker: string): Promise<number> {

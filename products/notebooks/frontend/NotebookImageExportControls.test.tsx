@@ -82,6 +82,7 @@ describe('NotebookImageExportControls', () => {
             )
 
             await userEvent.click(screen.getByText('Download PNG'))
+            await userEvent.click(await screen.findByText('Export PNG', { selector: '.LemonButton__content' }))
 
             expect(
                 await screen.findByText(captureFails ? 'Could not create the image. Try again.' : 'Image downloaded')
