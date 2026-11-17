@@ -1,6 +1,7 @@
 import { querySelectorAllDeep } from 'query-selector-shadow-dom'
 import { CSSProperties } from 'react'
 
+import { asToolbarProject, ToolbarProject } from 'lib/toolbar/toolbarProject'
 import { CLICK_TARGETS, CLICK_TARGET_SELECTOR, TAGS_TO_IGNORE, escapeRegex } from 'lib/utils/actions'
 
 import { patch } from '~/toolbar/shared/patch'
@@ -78,6 +79,8 @@ export const PKCE_STORAGE_KEY = '_postHogToolbarPKCE'
 export interface ToolbarAuthParams {
     code: string
     clientId: string
+    /** Null when the PostHog that issued the code does not name the project in the callback. */
+    project: ToolbarProject | null
 }
 
 /**
@@ -99,9 +102,11 @@ export function parseToolbarAuthHash(rawHash: string): ToolbarAuthParams | null 
     if (!codeMatch) {
         return null
     }
+    const projectMatch = hash.match(/__posthog_toolbar=code:[^,]+,client_id:[^,&]+,team_id:(\d+),project_id:(\d+)/)
     return {
         code: codeMatch[1],
         clientId: codeMatch[2],
+        project: projectMatch ? asToolbarProject(projectMatch[1], projectMatch[2]) : null,
     }
 }
 

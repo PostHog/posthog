@@ -124,6 +124,7 @@ depends_on = [
     "ee",
     "products.access_control",
     "products.aeo",
+    "products.ai_gateway",
     "products.analytics_platform",
     "products.approvals",
     "products.authorization",
@@ -996,7 +997,7 @@ depends_on = [
 layer = "modules"
 
 [[modules]]
-# Skills imports ai_observability's shared markdown_outline + API metrics helpers —
+# Skills imports ai_observability's shared markdown_outline —
 # temporary coupling from the standalone-product extraction, slated for cleanup.
 path = "products.skills"
 depends_on = [
@@ -1022,6 +1023,7 @@ depends_on = [
     "products.feature_flags",
     "products.notebooks",
     "products.product_analytics",
+    "products.release",
     "products.security",
     "products.signals",
     "products.surveys",

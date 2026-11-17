@@ -6,6 +6,9 @@ from unittest.mock import patch
 
 from django.utils import timezone
 
+from posthog.hogql import ast
+from posthog.hogql.visitor import TraversingVisitor
+
 from posthog.models.ai_events.test_util import bulk_create_ai_events
 
 from products.ai_observability.backend.logic.eval_suggestions import call_review_queries
@@ -43,3 +46,17 @@ class TestCallReviewQueries(ClickhouseTestMixin, BaseTest):
 
         assert [(call_type.key, call_type.calls) for call_type in call_types] == [("prompt_name:support-reply", 3)]
         assert len({call.event_uuid for call in calls}) == len(calls) == 2
+
+
+def test_the_calls_query_runs_its_candidate_subquery_once_across_shards() -> None:
+    ops: list[ast.CompareOperationOp] = []
+
+    class Subqueries(TraversingVisitor):
+        def visit_compare_operation(self, node: ast.CompareOperation) -> None:
+            if isinstance(node.right, ast.SelectQuery):
+                ops.append(node.op)
+            super().visit_compare_operation(node)
+
+    Subqueries().visit(call_review_queries._calls_query())
+
+    assert ops == [ast.CompareOperationOp.GlobalIn]

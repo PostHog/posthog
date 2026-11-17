@@ -3,6 +3,7 @@ import uuid
 import hashlib
 import datetime
 import collections
+from collections.abc import Collection
 from enum import Enum
 from typing import Any, Literal, Optional, cast
 
@@ -117,13 +118,17 @@ def send_message_to_all_staff_users(message: EmailMessage) -> None:
     message.send()
 
 
-def get_members_to_notify(team: Team, notification_setting: NotificationSettingType) -> list[OrganizationMembership]:
+def get_members_to_notify(
+    team: Team, notification_setting: NotificationSettingType, *, user_ids: Collection[int] | None = None
+) -> list[OrganizationMembership]:
+    """Members who turned this email on and may open the project. `user_ids` limits the check to those people."""
     memberships_to_email = []
-    memberships = list(
-        OrganizationMembership.objects.prefetch_related("user", "organization").filter(
-            organization_id=team.organization_id, user__is_active=True
-        )
+    queryset = OrganizationMembership.objects.prefetch_related("user", "organization").filter(
+        organization_id=team.organization_id, user__is_active=True
     )
+    if user_ids is not None:
+        queryset = queryset.filter(user_id__in=user_ids)
+    memberships = list(queryset)
     # Resolved once, or this is a query per member on every fan-out.
     locks_by_user = notification_locks_for_users(
         [membership.user_id for membership in memberships], organization_id=team.organization_id
@@ -1091,6 +1096,27 @@ def send_email_sending_unsuspended(team_id: int, unsuspended_at: str) -> None:
             "team": team,
             "reputation_path": f"/project/{team.id}/workflows/reputation",
         },
+    )
+    for membership in memberships_to_email:
+        message.add_user_recipient(membership.user)
+    message.send()
+
+
+@shared_task(**EMAIL_TASK_KWARGS)
+@with_team_scope()
+def send_email_sender_domain_sending_stopped(team_id: int, domain: str, stopped_at: str) -> None:
+    if not is_email_available(with_absolute_urls=True):
+        return
+    team = Team.objects.get(id=team_id)
+    memberships_to_email = _get_project_admins_to_notify_of_email_sending_suspension(team)
+    if not memberships_to_email:
+        return
+    stop_digest = hashlib.sha256(f"{domain}|{stopped_at}".encode()).hexdigest()[:32]
+    message = EmailMessage(
+        campaign_key=f"email_sender_domain_sending_stopped_{team_id}_{stop_digest}",
+        subject=f"Emails from {domain} are failing in project '{single_line(str(team))}'",
+        template_name="email_sender_domain_sending_stopped",
+        template_context={"team": team, "domain": domain, "channels_path": f"/project/{team.id}/workflows/channels"},
     )
     for membership in memberships_to_email:
         message.add_user_recipient(membership.user)

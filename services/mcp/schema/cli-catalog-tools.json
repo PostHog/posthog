@@ -4570,8 +4570,23 @@
                     "csv": false
                 },
                 {
+                    "param": "offset",
+                    "key": "offset",
+                    "csv": false
+                },
+                {
                     "param": "only_flagged",
                     "key": "only_flagged",
+                    "csv": false
+                },
+                {
+                    "param": "order",
+                    "key": "order",
+                    "csv": false
+                },
+                {
+                    "param": "search",
+                    "key": "search",
                     "csv": false
                 }
             ],
@@ -6502,6 +6517,9 @@
                     "iteration_count",
                     "best_holdout_score",
                     "error",
+                    "task_id",
+                    "task_run_id",
+                    "task_url",
                     "started_at",
                     "completed_at",
                     "created_at"
@@ -7975,7 +7993,9 @@
                     "next_refresh_at",
                     "created_at",
                     "updated_at",
-                    "library_ids"
+                    "library_ids",
+                    "cited_run_count",
+                    "last_cited_at"
                 ],
                 "selectable": false
             },
@@ -15334,6 +15354,11 @@
                 {
                     "param": "offset",
                     "key": "offset",
+                    "csv": false
+                },
+                {
+                    "param": "search",
+                    "key": "search",
                     "csv": false
                 }
             ],
@@ -24817,6 +24842,11 @@
                 {
                     "param": "search",
                     "key": "search",
+                    "csv": false
+                },
+                {
+                    "param": "tags",
+                    "key": "tags",
                     "csv": false
                 },
                 {
@@ -46971,6 +47001,98 @@
             "validators": []
         }
     },
+    "suppressions-list": {
+        "name": "suppressions-list",
+        "kind": "http",
+        "requires": [],
+        "hooks": null,
+        "uiApp": null,
+        "request": {
+            "method": "GET",
+            "path": "/api/projects/{project_id}/messaging_suppressions/suppressions/",
+            "pathParams": [],
+            "fallbacks": [],
+            "query": [
+                {
+                    "param": "page",
+                    "key": "page",
+                    "csv": false
+                },
+                {
+                    "param": "page_size",
+                    "key": "page_size",
+                    "csv": false
+                },
+                {
+                    "param": "search",
+                    "key": "search",
+                    "csv": false
+                }
+            ],
+            "body": null,
+            "injectBody": {},
+            "softDelete": null,
+            "transformBody": false
+        },
+        "response": {
+            "list": true,
+            "filter": null,
+            "stripNulls": false,
+            "enrich": {
+                "kind": "list",
+                "baseUrl": "/workflows"
+            },
+            "agentNote": null,
+            "informational": null,
+            "textInclude": []
+        },
+        "input": {
+            "aliases": {},
+            "casts": {},
+            "validators": []
+        }
+    },
+    "suppressions-remove": {
+        "name": "suppressions-remove",
+        "kind": "http",
+        "requires": [],
+        "hooks": null,
+        "uiApp": null,
+        "request": {
+            "method": "POST",
+            "path": "/api/projects/{project_id}/messaging_suppressions/bulk_remove_suppressions/",
+            "pathParams": [],
+            "fallbacks": [],
+            "query": null,
+            "body": [
+                {
+                    "param": "identifiers",
+                    "key": "identifiers"
+                },
+                {
+                    "param": "confirm_complaints",
+                    "key": "confirm_complaints"
+                }
+            ],
+            "injectBody": {},
+            "softDelete": null,
+            "transformBody": false
+        },
+        "response": {
+            "list": false,
+            "filter": null,
+            "stripNulls": false,
+            "enrich": null,
+            "agentNote": null,
+            "informational": null,
+            "textInclude": []
+        },
+        "input": {
+            "aliases": {},
+            "casts": {},
+            "validators": []
+        }
+    },
     "survey-create": {
         "name": "survey-create",
         "kind": "http",
@@ -56874,6 +56996,11 @@
                 {
                     "param": "offset",
                     "key": "offset",
+                    "csv": false
+                },
+                {
+                    "param": "reason",
+                    "key": "reason",
                     "csv": false
                 },
                 {
