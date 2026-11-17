@@ -630,11 +630,7 @@ export const QueryWrapperToolConfigSchema = z
          * filled from the query body, e.g. `/ai-observability/traces/{traceId}`.
          */
         url_prefix: z.string().optional(),
-        /**
-         * Module with custom logic around the query, relative to `src/tools/` and without extension.
-         * A wrapper sends no request body of its own, so only `beforeRequest`, `afterResponse` and
-         * `onError` run; see `ToolHooks` in `src/tools/tool-hooks.ts`.
-         */
+        /** As `hooks` on a tool. A wrapper builds no request body, so `transformBody` never runs. */
         hooks: z
             .string()
             .regex(/^[A-Za-z0-9_-]+(?:\/[A-Za-z0-9_-]+)*$/, 'hooks must be a path like "insights/myToolHooks"')

@@ -58,7 +58,6 @@ interface QueryWrapperConfig<T extends ZodObjectAny> {
      * `/ai-observability/traces/{traceId}`.
      */
     urlPrefix?: string
-    /** Custom logic around the query, from the wrapper's `hooks:` module. */
     hooks?: ToolHooks<unknown>
 }
 

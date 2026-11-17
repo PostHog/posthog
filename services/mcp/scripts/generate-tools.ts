@@ -1218,7 +1218,6 @@ function hooksVarName(toolName: string): string {
     return `hooks_${toCamelCase(toolName)}`
 }
 
-/** Emits one import per query wrapper that names a `hooks:` module. */
 function wrapperHooksImportLines(wrappers: [string, { hooks?: string }][]): string {
     return wrappers
         .filter(([, wrapperConfig]) => wrapperConfig.hooks)

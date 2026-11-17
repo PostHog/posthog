@@ -19,7 +19,6 @@ function contextReturning(response: unknown): Context {
     } as unknown as Context
 }
 
-/** The JSON a client reads from the tool's text, the way the server sends it. */
 async function textOf(
     tools: Record<string, () => any>,
     name: string,
