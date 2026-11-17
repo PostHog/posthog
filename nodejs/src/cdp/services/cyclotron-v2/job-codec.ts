@@ -73,11 +73,12 @@ export function openSealedState<T extends Sealable>(
     try {
         const decrypted = opener.tryDecrypt(sealed)
         const content: SealedContent | undefined = decrypted.ok ? parseJSON(decrypted.value) : undefined
-        if (content?.teamId === job.teamId && content.id === job.id) {
+        if (
+            content?.teamId === job.teamId &&
+            content.id === job.id &&
+            content.fields.every(([path]) => path[0] === 'state' || path[0] === 'queueParameters')
+        ) {
             for (const [path, value] of content.fields) {
-                if (path[0] !== 'state' && path[0] !== 'queueParameters') {
-                    throw new Error('Sealed field outside the sealable roots')
-                }
                 set(opened, path, value)
             }
             return opened as T
