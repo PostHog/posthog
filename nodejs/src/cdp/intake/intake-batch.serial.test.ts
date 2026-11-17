@@ -240,7 +240,9 @@ describe('insertIntakeBatch', () => {
 
         await insertIntakeBatch([run.message], services, OPTIONS)
         await insertIntakeBatch([run.message], services, OPTIONS)
-        await insertIntakeBatch([send({ shadow: true, producedAt: Date.now() - 2_000 }).message], services, OPTIONS)
+        const shadow = send({ shadow: true, producedAt: Date.now() - 2_000 })
+        await insertIntakeBatch([shadow.message], services, OPTIONS)
+        await insertIntakeBatch([shadow.message], services, OPTIONS)
 
         const after = await claimDelay()
         expect(after.count - before.count).toBe(1)
