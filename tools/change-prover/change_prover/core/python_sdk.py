@@ -16,6 +16,7 @@ import json
 import base64
 import tomllib
 from collections.abc import Mapping
+from dataclasses import dataclass
 from typing import Any
 
 from change_prover.core.policy import PLAIN_VERSION, Refused, check_bump
@@ -36,11 +37,27 @@ EXTRA_MARKER = re.compile(r"\bextra\s*==")
 Named = dict[tuple[str, str], str]
 
 
+@dataclass(frozen=True, kw_only=True)
+class Move:
+    """A first-party package's version before and after the bump."""
+
+    old: str
+    new: str
+
+
+@dataclass(frozen=True, kw_only=True)
+class FileMoves:
+    """The first-party moves in one changed file, and its new first-party entries when it is a lockfile."""
+
+    moves: dict[str, Move]
+    entries: dict[str, dict[str, Any]]
+
+
 def release_key(version: str) -> tuple[int, ...]:
     return tuple(int(part) for part in version.split("."))
 
 
-def add_move(moves: dict[str, tuple[str, str]], where: str, name: str, old: str, new: str) -> None:
+def add_move(moves: dict[str, Move], where: str, name: str, old: str, new: str) -> None:
     """Adds a move of ``name``. Every move of one name must reach one version.
 
     The newest version any file moves from is kept, because that is the release the lockfile held,
@@ -48,18 +65,18 @@ def add_move(moves: dict[str, tuple[str, str]], where: str, name: str, old: str,
     """
     check_bump(f"{where} {name}", old, new)
     previous = moves.get(name)
-    if previous is not None and previous[1] != new:
+    if previous is not None and previous.new != new:
         raise Refused(f"{where} moves {name} to more than one version")
-    if previous is None or release_key(old) > release_key(previous[0]):
-        moves[name] = (old, new)
+    if previous is None or release_key(old) > release_key(previous.old):
+        moves[name] = Move(old=old, new=new)
 
 
-def check_manifest(path: str, base: bytes, head: bytes) -> dict[str, tuple[str, str]]:
+def check_manifest(path: str, base: bytes, head: bytes) -> dict[str, Move]:
     """The first-party moves in a pyproject.toml or requirements file whose only changes are their versions."""
     base_lines, head_lines = base.split(b"\n"), head.split(b"\n")
     if len(base_lines) != len(head_lines):
         raise Refused(f"{path} adds or removes lines")
-    moves: dict[str, tuple[str, str]] = {}
+    moves: dict[str, Move] = {}
     for before, after in zip(base_lines, head_lines):
         if before == after:
             continue
@@ -145,7 +162,7 @@ def without_release(path: str, lock: dict[str, Any], named: Named) -> Any:
     return stripped
 
 
-def check_lock(path: str, base: bytes, head: bytes) -> tuple[dict[str, tuple[str, str]], dict[str, dict[str, Any]]]:
+def check_lock(path: str, base: bytes, head: bytes) -> FileMoves:
     """The first-party moves in a uv.lock whose only changes follow them, and the new first-party entries."""
     base_lock, head_lock = load_lock(path, base), load_lock(path, head)
     old_named: Named = {}
@@ -157,7 +174,7 @@ def check_lock(path: str, base: bytes, head: bytes) -> tuple[dict[str, tuple[str
         before, after = first_party_entry(path, base_lock, name), first_party_entry(path, head_lock, name)
         if before is not None and after is not None and before["version"] == after["version"] and before != after:
             raise Refused(f"{path} changes the files of {name} without moving its version")
-    released: dict[str, tuple[str, str]] = {}
+    released: dict[str, Move] = {}
     # Equal stripped trees name the same keys on both sides.
     for key, old in old_named.items():
         if old != new_named[key]:
@@ -165,7 +182,7 @@ def check_lock(path: str, base: bytes, head: bytes) -> tuple[dict[str, tuple[str
     if not released:
         raise Refused(f"{path} changes no first-party version")
     entries = {name: entry for name in released if (entry := first_party_entry(path, head_lock, name)) is not None}
-    return released, entries
+    return FileMoves(moves=released, entries=entries)
 
 
 def lock_files(path: str, entry: Mapping[str, Any]) -> dict[str, dict[str, Any]]:
@@ -201,16 +218,15 @@ def require_document(path: str, document: Any | None) -> Any:
     return document
 
 
-def check_file(path: str, base: bytes, head: bytes) -> tuple[dict[str, tuple[str, str]], dict[str, dict[str, Any]]]:
-    """The first-party moves in one changed file, and the new first-party entries when it is a lockfile."""
+def check_file(path: str, base: bytes, head: bytes) -> FileMoves:
     if path.rpartition("/")[2] == LOCKFILE_NAME:
         return check_lock(path, base, head)
-    return check_manifest(path, base, head), {}
+    return FileMoves(moves=check_manifest(path, base, head), entries={})
 
 
-def check_one_version(moves: Mapping[str, tuple[str, str]]) -> None:
+def check_one_version(moves: Mapping[str, Move]) -> None:
     """The SDK publishes posthoganalytics and posthog from one release, so both move to one version."""
-    if len({new for _, new in moves.values()}) > 1:
+    if len({move.new for move in moves.values()}) > 1:
         raise Refused("the pull request moves the first-party packages to different versions")
 
 

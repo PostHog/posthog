@@ -362,23 +362,23 @@ def prove_python_sdk(
 
     It reads no setting besides the files it changes, and PyPI.
     """
-    moves: dict[str, tuple[str, str]] = {}
+    moves: dict[str, python_sdk.Move] = {}
     locked: dict[str, list[tuple[str, Mapping[str, Any]]]] = {}
     for path in files:
-        released, entries = python_sdk.check_file(path, read(merge_base, path), read(head, path))
-        for name, entry in entries.items():
+        changed = python_sdk.check_file(path, read(merge_base, path), read(head, path))
+        for name, entry in changed.entries.items():
             locked.setdefault(name, []).append((path, entry))
-        for name, (old, new) in released.items():
-            python_sdk.add_move(moves, path, name, old, new)
+        for name, move in changed.moves.items():
+            python_sdk.add_move(moves, path, name, move.old, move.new)
     python_sdk.check_one_version(moves)
-    for name, (old, new) in sorted(moves.items()):
+    for name, move in sorted(moves.items()):
         held = locked.get(name, [])
-        release = pypi.release(name, new)
+        release = pypi.release(name, move.new)
         # A lockfile holds the old release's requirements. A package no lockfile holds has none to go stale.
-        old_release = pypi.release(name, old) if held else None
-        served = python_sdk.check_release(name, new, held, release, old_release)
+        old_release = pypi.release(name, move.old) if held else None
+        served = python_sdk.check_release(name, move.new, held, release, old_release)
         for filename, sha256 in served.items():
-            python_sdk.check_provenance(filename, sha256, pypi.provenance(name, new, filename))
+            python_sdk.check_provenance(filename, sha256, pypi.provenance(name, move.new, filename))
 
 
 def prove(
