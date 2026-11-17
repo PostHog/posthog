@@ -2060,6 +2060,11 @@ class Method(StrEnum):
     MEDIAN = "median"
 
 
+class LLMDetectorModel(StrEnum):
+    CLAUDE_HAIKU_5_5 = "claude-haiku-5-5"
+    GPT_6_LUNA = "gpt-6-luna"
+
+
 class LifecycleToggle(StrEnum):
     NEW = "new"
     RESURRECTING = "resurrecting"

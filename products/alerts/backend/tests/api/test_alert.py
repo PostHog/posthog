@@ -3432,6 +3432,7 @@ class TestLLMDetectorValidation(TrendsInsightAPITest):
             ),
             ("instructions_too_long", {"type": "llm", "instructions": "x" * 2001}, "characters or fewer"),
             ("instructions_not_text", {"type": "llm", "instructions": 5}, "must be text"),
+            ("unknown_model", {"type": "llm", "model": "claude-opus-5-5"}, "claude-haiku-5-5, gpt-6-luna"),
             ("removed_threshold", {"type": "llm", "threshold": 0.7}, "Invalid detector configuration"),
             ("removed_window", {"type": "llm", "window": 90}, "Invalid detector configuration"),
             ("forecast_empty_side", {"type": "forecast", "above": {}}, "above needs at least one condition"),
