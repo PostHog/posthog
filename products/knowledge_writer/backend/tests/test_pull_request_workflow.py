@@ -132,8 +132,23 @@ def _outcomes(scoped_capture: MagicMock) -> list[dict]:
             True,
             204,
             [],
-            {"merged": True, "approved": True, "hours_to_first_approval": 6.0, "hours_open": 48.0},
+            {
+                "close_reason": "merged",
+                "merged": True,
+                "approved": True,
+                "hours_to_first_approval": 6.0,
+                "hours_open": 48.0,
+            },
             id="merged_after_a_closed_signal",
+        ),
+        pytest.param(
+            _pull_request(state="closed", closed_at=STALE_CLOSED_AT),
+            [],
+            True,
+            204,
+            [("DELETE", f"/repos/{DOCS_REPOSITORY}/git/refs/heads/{WRITER_BRANCH}")],
+            {"close_reason": "closed_by_reviewer", "merged": False, "hours_open": 168.0},
+            id="closed_by_a_reviewer_deletes_its_branch",
         ),
         pytest.param(
             _pull_request(),
@@ -141,7 +156,13 @@ def _outcomes(scoped_capture: MagicMock) -> list[dict]:
             False,
             204,
             [("PATCH", PULL_REQUEST_PATH), ("DELETE", f"/repos/{DOCS_REPOSITORY}/git/refs/heads/{WRITER_BRANCH}")],
-            {"merged": False, "approved": False, "hours_to_first_approval": None, "hours_open": 168.0},
+            {
+                "close_reason": "closed_stale",
+                "merged": False,
+                "approved": False,
+                "hours_to_first_approval": None,
+                "hours_open": 168.0,
+            },
             id="unapproved_and_stale",
         ),
         pytest.param(
@@ -150,7 +171,7 @@ def _outcomes(scoped_capture: MagicMock) -> list[dict]:
             False,
             403,
             [("PATCH", PULL_REQUEST_PATH), ("DELETE", f"/repos/{DOCS_REPOSITORY}/git/refs/heads/{WRITER_BRANCH}")],
-            {"merged": False, "approved": False, "hours_open": 168.0},
+            {"close_reason": "closed_stale", "merged": False, "approved": False, "hours_open": 168.0},
             id="unapproved_and_stale_with_a_forbidden_branch_delete",
         ),
     ],
@@ -189,10 +210,9 @@ async def test_a_closed_writer_pull_request_captures_one_outcome(
                 await start_pull_request_workflow(env.client, inputs)
                 await signal_pull_request_closed_workflow(DOCS_REPOSITORY, PULL_REQUEST_NUMBER, client=env.client)
 
-    close_reason = "merged" if expected_outcome["merged"] else "closed_stale"
     assert github.writes == expected_writes
     assert [(outcome["event"], outcome["close_reason"]) for outcome in _outcomes(scoped_capture)] == [
-        (OUTCOME_EVENT, close_reason)
+        (OUTCOME_EVENT, expected_outcome["close_reason"])
     ]
     outcome = _outcomes(scoped_capture)[0]
     assert {key: outcome[key] for key in expected_outcome} == expected_outcome

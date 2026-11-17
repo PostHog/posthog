@@ -85,7 +85,7 @@ def build_writer_prompt(request: DocsRequest, routing: PageRouting, *, base_sha:
         "Keep each page's existing structure, headings and wording where they are still true.",
         "Keep changes inside the docs folder. A change to any other file is published only when that file already "
         "exists and links many docs pages, such as a nav or redirect file, and each changed block names a page "
-        "this branch adds, removes or renames.",
+        "this branch adds, removes or renames. A new redirect must start from a page this branch removes or renames.",
         "If the repository documents a style guide or writing rules, for example in AGENTS.md, CONTRIBUTING "
         "or a docs README, follow them. If it documents a lint or format command for docs, run it on the files "
         "you changed before you write the change file. Do not assume either exists, and do not add one.",
@@ -122,6 +122,7 @@ def start_writer(
     writer: WriterSettings,
     base_sha: str,
     start_workflow: bool = True,
+    before_task_create: Callable[[], None] | None = None,
 ) -> UUID:
     state_entries = {
         REQUEST_STATE_KEY: request_json.dump_python(
@@ -134,14 +135,27 @@ def start_writer(
     }
     description = build_writer_prompt(request, routing, base_sha=base_sha)
     with transaction.atomic():
-        task_id = create_writer_task(request, description, team=team, writer=writer, start_workflow=start_workflow)
+        task_id = create_writer_task(
+            request,
+            description,
+            team=team,
+            writer=writer,
+            start_workflow=start_workflow,
+            before_task_create=before_task_create,
+        )
         for key, value in state_entries.items():
             tasks_facade.update_task_state_entry(task_id, team.id, key, replace_entry_with(value))
     return task_id
 
 
 def create_writer_task(
-    request: DocsRequest, description: str, *, team: Team, writer: WriterSettings, start_workflow: bool
+    request: DocsRequest,
+    description: str,
+    *,
+    team: Team,
+    writer: WriterSettings,
+    start_workflow: bool,
+    before_task_create: Callable[[], None] | None,
 ) -> UUID:
     return tasks_facade.create_and_run_task(
         team=team,
@@ -157,4 +171,5 @@ def create_writer_task(
         start_workflow=start_workflow,
         inactivity_timeout_seconds=WRITER_IDLE_TIMEOUT_SECONDS,
         github_token_scope=WRITER_GITHUB_TOKEN_SCOPE,
+        before_task_create=before_task_create,
     ).task_id

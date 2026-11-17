@@ -1,6 +1,6 @@
 import dataclasses
 
-from django.db import IntegrityError
+from django.db import IntegrityError, connection
 
 import structlog
 from pydantic import TypeAdapter, ValidationError
@@ -13,9 +13,16 @@ from products.tasks.backend.facade import api as tasks_facade
 from ..facade.contracts import AdapterVerdict, IntakeOutcome, InvalidAdapterVerdict
 from ..feature_flags import is_agent_launch_enabled
 from ..settings import WriterSettings, writer_settings
-from .caps import OPEN_PULL_REQUEST_CAP, alert_cap_reached, daily_run_cap_reached, in_flight_writer_run_count
+from .caps import (
+    OPEN_PULL_REQUEST_CAP,
+    WriterCapReached,
+    alert_cap_reached,
+    daily_run_cap_reached,
+    in_flight_writer_run_count,
+)
 from .launch import start_writer
 from .pull_requests import (
+    GITHUB_READ_ERRORS,
     OpenPullRequestsUnavailable,
     capture_writer_event,
     docs_github,
@@ -63,7 +70,12 @@ def intake_outcome(verdict: AdapterVerdict, *, team_id: int) -> IntakeOutcome:
     writer = writer_settings()
     if writer is None or writer.team_id != team_id:
         return IntakeOutcome(status="unconfigured")
+    outcome = launch_outcome(verdict, writer, team_id=team_id)
     capture_verdict(verdict, team_id=team_id)
+    return outcome
+
+
+def launch_outcome(verdict: AdapterVerdict, writer: WriterSettings, *, team_id: int) -> IntakeOutcome:
     request = verdict.request
     if request is None:
         return IntakeOutcome(status="no_docs")
@@ -79,24 +91,42 @@ def intake_outcome(verdict: AdapterVerdict, *, team_id: int) -> IntakeOutcome:
     routing = route_request(request, team_id=team_id, github=source_repository_github(team_id))
     if routing.is_every_page_in_source_repository:
         return IntakeOutcome(status="docs_in_source_repo")
-    base_sha = docs_base_sha(writer)
+    try:
+        base_sha = docs_base_sha(writer)
+        open_pull_requests = open_writer_pull_requests(writer)
+    except (*GITHUB_READ_ERRORS, OpenPullRequestsUnavailable) as error:
+        raise WriterLaunchDeferred("the docs repository could not be read") from error
     if base_sha is None:
         return IntakeOutcome(status="unconfigured")
-    try:
-        open_pull_requests = open_writer_pull_requests(writer)
-    except OpenPullRequestsUnavailable as error:
-        raise WriterLaunchDeferred("open writer pull requests could not be listed") from error
     if open_pull_requests is None:
         alert_cap_reached("open_pull_request_lookup", team_id=team_id, dedupe_id=request.dedupe_id)
         return IntakeOutcome(status="capped")
-    if len(open_pull_requests) + in_flight_writer_run_count(writer) >= OPEN_PULL_REQUEST_CAP:
+    listed_open_count = len(open_pull_requests)
+    try:
+        task_id = start_writer(
+            request,
+            routing,
+            team=team,
+            writer=writer,
+            base_sha=base_sha,
+            before_task_create=lambda: admit_under_open_pull_request_cap(writer, listed_open_count),
+        )
+    except WriterCapReached:
         alert_cap_reached("open_pull_request", team_id=team_id, dedupe_id=request.dedupe_id)
         return IntakeOutcome(status="capped")
-    try:
-        task_id = start_writer(request, routing, team=team, writer=writer, base_sha=base_sha)
     except IntegrityError:
         return IntakeOutcome(status="duplicate")
     return IntakeOutcome(status="started", task_id=task_id)
+
+
+def admit_under_open_pull_request_cap(writer: WriterSettings, open_pull_request_count: int) -> None:
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))",
+            [f"knowledge-writer-open-pull-request-cap:{writer.team_id}:{writer.user_id}"],
+        )
+    if open_pull_request_count + in_flight_writer_run_count(writer) >= OPEN_PULL_REQUEST_CAP:
+        raise WriterCapReached("open_pull_request")
 
 
 def docs_base_sha(writer: WriterSettings) -> str | None:

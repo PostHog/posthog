@@ -128,6 +128,25 @@ def record_unchecked_merge(
     return submit_verdict(inputs, verdict)
 
 
+def record_judged_merge_check_failed(
+    inputs: MergeCheckInputs, judged_verdict: AdapterVerdict, failure_reason: MergeCheckFailure
+) -> FinishedDocsCheck:
+    logger.warning(
+        "knowledge_writer_merge_unchecked",
+        commit_sha=inputs.commit_sha,
+        repository=inputs.repository,
+        pull_request_number=inputs.pull_request_number,
+        team_id=inputs.team_id,
+        installation_id=inputs.installation_id,
+        reason=judged_verdict.reason,
+        failure_reason=failure_reason,
+    )
+    intake.capture_verdict(
+        replace(judged_verdict, check_id=inputs.check_id, failure_reason=failure_reason), team_id=inputs.team_id
+    )
+    return FinishedDocsCheck(status="no_docs", failure_reason=failure_reason, pull_request_url=None)
+
+
 def submit_verdict(inputs: MergeCheckInputs, verdict: AdapterVerdict) -> FinishedDocsCheck:
     outcome = intake.submit(replace(verdict, check_id=inputs.check_id), team_id=inputs.team_id)
     return FinishedDocsCheck(
@@ -195,15 +214,19 @@ def check_merge(inputs: MergeCheckInputs, *, is_final_attempt: bool) -> Finished
         return record_merge_check_failed(inputs, MergeCheckFailure.PULL_REQUEST_NOT_MERGED)
     if report is None:
         return record_merge_check_failed(inputs, MergeCheckFailure.JUDGE_CLIENT_UNAVAILABLE)
+    judged_verdict: AdapterVerdict | None = None
     try:
-        return submit_verdict(inputs, RepoMergeAdapter().assess(report, inputs))
-    except intake.WriterLaunchDeferred as error:
+        judged_verdict = RepoMergeAdapter().assess(report, inputs)
+        return submit_verdict(inputs, judged_verdict)
+    except Exception as error:
         if not is_final_attempt:
             defer_report(inputs, report)
             refund(merge_check_budget_key(inputs.team_id), MERGE_CHECK_BUDGET)
             raise
         capture_exception(error, {"commit_sha": inputs.commit_sha})
-        return record_merge_check_failed(inputs, MergeCheckFailure.RETRIES_EXHAUSTED)
+        if judged_verdict is None:
+            return record_merge_check_failed(inputs, MergeCheckFailure.RETRIES_EXHAUSTED)
+        return record_judged_merge_check_failed(inputs, judged_verdict, MergeCheckFailure.RETRIES_EXHAUSTED)
 
 
 def landed_change_for(inputs: MergeCheckInputs, pull_request_number: int, github: GitHubReader) -> LandedChange | None:

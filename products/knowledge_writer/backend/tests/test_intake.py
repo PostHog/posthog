@@ -3,6 +3,8 @@ import json
 import uuid
 import base64
 import hashlib
+import threading
+import contextlib
 import dataclasses
 from collections.abc import Mapping
 from datetime import UTC
@@ -11,11 +13,12 @@ from types import SimpleNamespace
 import pytest
 from unittest.mock import MagicMock, patch
 
+from django.db import connection
 from django.utils import timezone
 
 from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.models.instance_setting import override_instance_config
-from posthog.models.integration import GitHubIntegrationError, Integration
+from posthog.models.integration import Integration
 
 from products.knowledge_writer.backend.adapters.repo_merge import RepoMergeAdapter
 from products.knowledge_writer.backend.facade.contracts import MergeCheckReport
@@ -40,6 +43,8 @@ from products.knowledge_writer.backend.logic.records import (
 )
 from products.knowledge_writer.backend.logic.writer_change import (
     MAX_CHANGED_FILES,
+    MAX_WRITER_CHANGE_BYTES,
+    MAX_WRITTEN_FILE_BYTES,
     MAX_WRITTEN_FILE_LINES,
     WRITER_CHANGE_ARTIFACT_NAME,
 )
@@ -78,7 +83,7 @@ EXISTING_REDIRECTS = [
     {"source": "/docs/:path*", "destination": "/docs"},
     {"source": "/docs/session-replay", "destination": "/docs/session-replay/retention"},
 ]
-NEW_PAGE_REDIRECT = {"source": "/docs/session-replay/presets", "destination": "/docs/session-replay/retention-presets"}
+RENAME_REDIRECT = {"source": "/docs/session-replay/retention", "destination": "/docs/session-replay/retention-presets"}
 BASE_FILES = {
     DOCS_PAGE_PATH: "Retention lasts 30 days.\n",
     NAV_PATH: NAV_BASE,
@@ -110,6 +115,10 @@ GROUNDING_DID_NOT_RUN = "Grounding did not run"
 SUPPORTED_QUOTES = {NEW_PAGE_HEADING: "Retention presets keep", NEW_PAGE_LINE: "keep recordings for 90 days"}
 
 COMMIT_URL = f"https://github.com/PostHog/posthog/commit/{'a' * 40}"
+OPENED_PULL_REQUEST_NUMBER = 9
+OPENED_PULL_REQUEST_URL = f"https://github.com/PostHog/posthog.com/pull/{OPENED_PULL_REQUEST_NUMBER}"
+OPENED = {"success": True, "pr_url": OPENED_PULL_REQUEST_URL, "pr_number": OPENED_PULL_REQUEST_NUMBER}
+ALREADY_EXISTS = {"success": False, "status_code": 422, "error": "A pull request already exists"}
 UPLOADED_ARTIFACTS: dict[str, bytes] = {}
 
 
@@ -133,8 +142,30 @@ DOCS_CHANGE = _change({DOCS_PAGE_PATH: "Retention lasts 90 days.\n"})
 NEW_PAGE_FILES = {
     NEW_PAGE_PATH: f"{NEW_PAGE_HEADING}\n{NEW_PAGE_LINE}\n",
     NAV_PATH: _nav(NEW_PAGE_NAV_LINE),
-    "vercel.json": json.dumps({**VERCEL_BASE, "redirects": [NEW_PAGE_REDIRECT]}),
 }
+MULTI_LINE_NAV_BASE = (
+    "export default [\n"
+    "  {\n"
+    "    name: 'Retention',\n"
+    "    url: '/docs/session-replay/retention',\n"
+    "  },\n"
+    "  {\n"
+    "    name: 'Pricing',\n"
+    "    url: '/pricing',\n"
+    "  },\n"
+    "]\n"
+)
+NESTED_NAV_BASE = (
+    "export default [\n"
+    "  {\n"
+    "    name: 'Pricing',\n"
+    "    url: '/pricing',\n"
+    "    children: [\n"
+    "      { name: 'Getting started' },\n"
+    "    ],\n"
+    "  },\n"
+    "]\n"
+)
 NEW_PAGE_AND_UNROUTED_PAGE_FILES = {**NEW_PAGE_FILES, SHARING_PAGE_PATH: f"{NEW_PAGE_LINE}\n"}
 
 
@@ -153,9 +184,10 @@ class DocsGitHub:
         graphql_failing_paths: frozenset[str] = frozenset(),
         review_status_code: int = 201,
         review_interruptions: int = 0,
+        is_review_response_lost: bool = False,
         listing_status_code: int = 200,
     ) -> None:
-        self.listed = [
+        self.listed: list[dict] = [
             {
                 "number": number,
                 "html_url": f"https://github.com/PostHog/posthog.com/pull/{number}",
@@ -176,6 +208,8 @@ class DocsGitHub:
         self.review_status_code = review_status_code
         self.review_requests: list[dict] = []
         self.review_interruptions = review_interruptions
+        self.is_review_response_lost = is_review_response_lost
+        self.requested_reviewers: list[str] = []
         self.listing_status_code = listing_status_code
         self.trees: list[dict] = []
         self.commits: list[dict] = []
@@ -191,6 +225,10 @@ class DocsGitHub:
         if path.endswith("/requested_reviewers"):
             self.review_requests.append(kwargs["json_body"])
             requested = [{"login": login} for login in kwargs["json_body"]["reviewers"]]
+            if self.review_status_code == 201:
+                self.requested_reviewers.extend(kwargs["json_body"]["reviewers"])
+            if self.is_review_response_lost:
+                raise ConnectionError("GitHub response lost")
             return MagicMock(
                 status_code=self.review_status_code,
                 text="Reviews may only be requested from collaborators.",
@@ -224,9 +262,19 @@ class DocsGitHub:
                 raise self.lookup_error
             is_published = any(f"/docs/published/docs/{page}." in path for page in self.published_page_paths)
             return MagicMock(status_code=200 if is_published else 404)
+        if path.endswith(f"/pulls/{OPENED_PULL_REQUEST_NUMBER}"):
+            return _replied(
+                {"number": OPENED_PULL_REQUEST_NUMBER, "requested_reviewers": self.requested_logins_payload()}
+            )
         if self.listing_status_code != 200:
             return MagicMock(status_code=self.listing_status_code)
+        head = (kwargs.get("params") or {}).get("head")
+        if head is not None:
+            return _replied([listed for listed in self.listed if f"PostHog:{listed['head']['ref']}" == head])
         return _replied(self.listed)
+
+    def requested_logins_payload(self) -> list[dict]:
+        return [{"login": login} for login in self.requested_reviewers]
 
     def graphql(self, body: dict) -> MagicMock:
         if self.graphql_status_code != 200:
@@ -534,8 +582,10 @@ def _new_page_with(companion_path: str, companion_text: str) -> bytes:
     return _change({NEW_PAGE_PATH: "# Retention presets\n", companion_path: companion_text})
 
 
-def _new_page_with_redirects(vercel_config: dict) -> bytes:
-    return _new_page_with("vercel.json", json.dumps(vercel_config))
+def _renamed_page_with_redirects(vercel_config: dict) -> bytes:
+    return _change(
+        {NEW_PAGE_PATH: "# Retention presets\n", "vercel.json": json.dumps(vercel_config)}, deleted=(DOCS_PAGE_PATH,)
+    )
 
 
 REFUSED_CHANGES: tuple[tuple[bytes, dict, str], ...] = (
@@ -548,6 +598,8 @@ REFUSED_CHANGES: tuple[tuple[bytes, dict, str], ...] = (
         "too_many_changed_files",
     ),
     (_change({DOCS_PAGE_PATH: "line\n" * MAX_WRITTEN_FILE_LINES}), {}, "too_many_changed_lines"),
+    (_change({DOCS_PAGE_PATH: "x" * (MAX_WRITTEN_FILE_BYTES + 1)}), {}, "file_too_large"),
+    (b" " * (MAX_WRITER_CHANGE_BYTES + 1), {}, "change_too_large"),
     (_change({"contents/docs/../../.github/workflows/deploy.yml": "x"}), {}, "unsafe_path"),
     (_change({"contents/docs/.git/config": "x"}), {}, "unsafe_path"),
     (_change({"contents/docs/Retention.mdx": "x", "contents/docs/retention.mdx": "y"}), {}, "unsafe_path"),
@@ -594,11 +646,34 @@ REFUSED_CHANGES: tuple[tuple[bytes, dict, str], ...] = (
         "changed_paths_outside_docs",
     ),
     (
-        _new_page_with_redirects({**VERCEL_BASE, "redirects": [*reversed(EXISTING_REDIRECTS), NEW_PAGE_REDIRECT]}),
+        _new_page_with(
+            NAV_PATH,
+            MULTI_LINE_NAV_BASE.replace("[\n", f"[\n{NEW_PAGE_NAV_LINE}\n", 1).replace("'Pricing'", "'Plans'"),
+        ),
+        {"base_files": {**BASE_FILES, NAV_PATH: MULTI_LINE_NAV_BASE}},
+        "changed_paths_outside_docs",
+    ),
+    (
+        _new_page_with(
+            NAV_PATH,
+            NESTED_NAV_BASE.replace("[\n", f"[\n{NEW_PAGE_NAV_LINE}\n", 1).replace(
+                "'Getting started'", "'Visit attacker.example'"
+            ),
+        ),
+        {"base_files": {**BASE_FILES, NAV_PATH: NESTED_NAV_BASE}},
+        "changed_paths_outside_docs",
+    ),
+    (
+        _new_page_with("vercel.json", json.dumps({**VERCEL_BASE, "redirects": [RENAME_REDIRECT]})),
+        {},
+        "changed_paths_outside_docs",
+    ),
+    (
+        _renamed_page_with_redirects({**VERCEL_BASE, "redirects": [*reversed(EXISTING_REDIRECTS), RENAME_REDIRECT]}),
         {"base_files": {**BASE_FILES, "vercel.json": json.dumps({**VERCEL_BASE, "redirects": EXISTING_REDIRECTS})}},
         "changed_paths_outside_docs",
     ),
-    (_new_page_with_redirects({"headers": [], "redirects": [NEW_PAGE_REDIRECT]}), {}, "changed_paths_outside_docs"),
+    (_renamed_page_with_redirects({"headers": [], "redirects": [RENAME_REDIRECT]}), {}, "changed_paths_outside_docs"),
     *(
         (_new_page_with(NAV_PATH, _nav(line)), {}, "changed_paths_outside_docs")
         for line in (
@@ -610,12 +685,12 @@ REFUSED_CHANGES: tuple[tuple[bytes, dict, str], ...] = (
         )
     ),
     *(
-        (_new_page_with_redirects({**VERCEL_BASE, "redirects": [redirect]}), {}, "changed_paths_outside_docs")
+        (_renamed_page_with_redirects({**VERCEL_BASE, "redirects": [redirect]}), {}, "changed_paths_outside_docs")
         for redirect in (
-            {**NEW_PAGE_REDIRECT, "source": "/(.*)"},
-            {"source": NEW_PAGE_REDIRECT["destination"], "destination": "/\\attacker.example"},
-            {"source": f"{NEW_PAGE_REDIRECT['destination']}(.*)", "destination": NEW_PAGE_REDIRECT["source"]},
-            {**NEW_PAGE_REDIRECT, "destination": "https://example.com"},
+            {**RENAME_REDIRECT, "source": "/(.*)"},
+            {**RENAME_REDIRECT, "destination": "/\\attacker.example"},
+            {**RENAME_REDIRECT, "source": f"{RENAME_REDIRECT['source']}(.*)"},
+            {**RENAME_REDIRECT, "destination": "https://example.com"},
         )
     ),
     (DOCS_CHANGE, {"branch_tip": "c" * 40}, "branch_moved"),
@@ -623,13 +698,13 @@ REFUSED_CHANGES: tuple[tuple[bytes, dict, str], ...] = (
 
 
 @pytest.mark.parametrize(
-    "author_login, review_status_code, review_interruptions, expected_review, published_files, quotes, "
+    "author_login, docs_github_state, create_reply, expected_review, published_files, quotes, "
     "expected_draft, expected_body_flags, expected_event_flags",
     [
         pytest.param(
             "octo-person",
-            201,
-            0,
+            {},
+            OPENED,
             ("octo-person", None, None),
             NEW_PAGE_FILES,
             SUPPORTED_QUOTES,
@@ -640,8 +715,8 @@ REFUSED_CHANGES: tuple[tuple[bytes, dict, str], ...] = (
         ),
         pytest.param(
             None,
-            201,
-            0,
+            {},
+            OPENED,
             (None, "no_human_author", None),
             NEW_PAGE_FILES,
             None,
@@ -652,8 +727,8 @@ REFUSED_CHANGES: tuple[tuple[bytes, dict, str], ...] = (
         ),
         pytest.param(
             "octo-person",
-            422,
-            0,
+            {"review_status_code": 422},
+            OPENED,
             (None, "review_request_failed", 422),
             NEW_PAGE_AND_UNROUTED_PAGE_FILES,
             {NEW_PAGE_HEADING: "Retention presets last forever", NEW_PAGE_LINE: "github.com/PostHog/posthog/pull"},
@@ -664,8 +739,8 @@ REFUSED_CHANGES: tuple[tuple[bytes, dict, str], ...] = (
         ),
         pytest.param(
             "octo-person",
-            201,
-            1,
+            {"review_interruptions": 1},
+            OPENED,
             ("octo-person", None, None),
             NEW_PAGE_AND_UNROUTED_PAGE_FILES,
             SUPPORTED_QUOTES,
@@ -673,6 +748,30 @@ REFUSED_CHANGES: tuple[tuple[bytes, dict, str], ...] = (
             [SHARING_PAGE_PATH],
             (None, None, None),
             id="worker_killed_mid_review_is_asked_once_on_retry_and_an_unrouted_page_opens_a_draft",
+        ),
+        pytest.param(
+            "octo-person",
+            {},
+            ALREADY_EXISTS,
+            ("octo-person", None, None),
+            NEW_PAGE_FILES,
+            SUPPORTED_QUOTES,
+            False,
+            [],
+            (True, [], []),
+            id="pull_request_whose_create_response_was_lost_is_adopted_and_review_is_asked_once",
+        ),
+        pytest.param(
+            "octo-person",
+            {"is_review_response_lost": True},
+            OPENED,
+            ("octo-person", None, None),
+            NEW_PAGE_FILES,
+            SUPPORTED_QUOTES,
+            False,
+            [],
+            (True, [], []),
+            id="review_request_whose_response_was_lost_is_read_back_as_requested",
         ),
     ],
 )
@@ -683,8 +782,8 @@ def test_a_finished_writer_run_commits_only_a_gated_change_and_opens_one_linked_
     django_capture_on_commit_callbacks,
     monkeypatch,
     author_login: str | None,
-    review_status_code: int,
-    review_interruptions: int,
+    docs_github_state: dict,
+    create_reply: dict,
     expected_review: tuple[str | None, str | None, int | None],
     published_files: Mapping[str, str],
     quotes: Mapping[str, str] | None,
@@ -696,7 +795,6 @@ def test_a_finished_writer_run_commits_only_a_gated_change_and_opens_one_linked_
     monkeypatch.setattr(GROUNDING_GATEWAY, _grounding_gateway(quotes))
     monkeypatch.setattr(START_PUBLISH, _run_publish_workflow_inline)
     monkeypatch.setenv("KNOWLEDGE_WRITER_DOCS_PATHS", "contents/docs")
-    opened = {"success": True, "pr_url": "https://github.com/PostHog/posthog.com/pull/9", "pr_number": 9}
     with (
         patch(FLAG_CHECK, return_value=True),
         patch(START_WORKFLOW),
@@ -723,28 +821,40 @@ def test_a_finished_writer_run_commits_only_a_gated_change_and_opens_one_linked_
         assert tasks_facade.read_task_state_entry(started.task_id, team.id, PULL_REQUEST_FAILURE_STATE_KEY) == refusal
     docs_github = DocsGitHub(
         graphql_text_limit=40,
-        review_status_code=review_status_code,
-        review_interruptions=review_interruptions,
         base_files={**BASE_FILES, SHARING_PAGE_PATH: "Share a recording.\n"},
+        **docs_github_state,
     )
-    with patch(CREATE_PULL_REQUEST, side_effect=ConnectionError("GitHub unreachable")) as create_for_new_page:
+    with (
+        patch(CREATE_PULL_REQUEST, return_value={"success": False, "status_code": 502}) as create_for_new_page,
+        patch(CAPTURE_DRAFT) as failed_capture,
+    ):
         _finish_run(
             started.task_id, django_capture_on_commit_callbacks, change=_change(published_files), github=docs_github
         )
     create_for_new_page.assert_called_once()
+    [failed_draft] = failed_capture.return_value.__enter__.return_value.call_args_list
+    assert failed_draft.kwargs["properties"]["outcome"] == "failed"
+    issued_branch = _issued_branch(started.task_id)
+    if create_reply is ALREADY_EXISTS:
+        docs_github.listed.append(
+            {
+                "number": OPENED_PULL_REQUEST_NUMBER,
+                "html_url": OPENED_PULL_REQUEST_URL,
+                "head": {"ref": issued_branch, "repo": {"full_name": "PostHog/posthog.com"}},
+            }
+        )
     with (
         patch(GITHUB_REQUEST, side_effect=docs_github),
-        patch(CREATE_PULL_REQUEST, return_value=opened) as create_pull_request,
+        patch(CREATE_PULL_REQUEST, return_value=create_reply) as create_pull_request,
         patch(CAPTURE_DRAFT) as scoped_capture,
     ):
-        for _ in range(review_interruptions):
+        for _ in range(docs_github_state.get("review_interruptions", 0)):
             with pytest.raises(WorkerKilled), django_capture_on_commit_callbacks(execute=True):
                 TaskRun.objects.get(task_id=started.task_id).save(update_fields=["output"])
         for _ in range(2):
             with django_capture_on_commit_callbacks(execute=True):
                 TaskRun.objects.get(task_id=started.task_id).save(update_fields=["output"])
 
-    issued_branch = _issued_branch(started.task_id)
     assert issued_branch.startswith("knowledge-writer/")
     commit_sha = docs_github.commit_shas[0]
     assert docs_github.commit_shas == [commit_sha, commit_sha]
@@ -775,14 +885,16 @@ def test_a_finished_writer_run_commits_only_a_gated_change_and_opens_one_linked_
     assert [flag for flag in flaggable if flag in body] == expected_body_flags
     stored = tasks_facade.read_task_state_entry(started.task_id, team.id, PULL_REQUEST_STATE_KEY)
     assert isinstance(stored, dict)
-    assert stored["number"] == 9
+    assert stored["number"] == OPENED_PULL_REQUEST_NUMBER
     assert docs_github.review_requests == ([{"reviewers": [author_login]}] if author_login else [])
-    [draft_properties] = [
-        captured.kwargs["properties"]
+    [opened_draft] = [
+        captured
         for captured in scoped_capture.return_value.__enter__.return_value.call_args_list
         if captured.args[0] == DRAFT_EVENT
     ]
+    draft_properties = opened_draft.kwargs["properties"]
     assert draft_properties["outcome"] == "opened"
+    assert opened_draft.kwargs["uuid"] != failed_draft.kwargs["uuid"]
     assert (
         draft_properties["grounding_ran"],
         draft_properties["unsupported_lines"],
@@ -890,8 +1002,9 @@ def test_with_pull_requests_off_a_finished_run_is_logged_with_its_patches_and_cr
             ),
             "logged",
         ),
+        (None, _renamed_page_with_redirects({**VERCEL_BASE, "redirects": [RENAME_REDIRECT]}), "logged"),
     ],
-    ids=["page_in_found_root", "page_outside_found_root", "page_in_route_group_root"],
+    ids=["page_in_found_root", "page_outside_found_root", "page_in_route_group_root", "renamed_page_with_redirect"],
 )
 def test_without_configured_docs_paths_publish_allows_only_the_docs_folder_the_merge_check_found(
     team,
@@ -992,7 +1105,7 @@ def test_a_failed_docs_base_read_raises_for_a_retry_and_a_missing_docs_integrati
     ):
         with (
             patch(GITHUB_REQUEST, side_effect=DocsGitHub(graphql_status_code=502)),
-            pytest.raises(GitHubIntegrationError),
+            pytest.raises(intake.WriterLaunchDeferred),
         ):
             intake.submit(_verdict(), team_id=team.id)
         Integration.objects.filter(team=team, kind="github").delete()
@@ -1053,8 +1166,41 @@ def test_no_agent_starts_past_a_cap_and_the_cap_raises_an_alert(
         assert capture_alert.call_args.kwargs["additional_properties"]["cap"] == cap
 
 
+@pytest.mark.django_db(transaction=True)
+def test_concurrent_requests_at_the_open_pull_request_cap_start_one_writer(team, writer_env, monkeypatch) -> None:
+    monkeypatch.setattr(intake, "OPEN_PULL_REQUEST_CAP", 1)
+    both_counted = threading.Barrier(2, timeout=2)
+    count_in_flight_runs = intake.in_flight_writer_run_count
+
+    def count_then_wait_for_the_other_request(writer) -> int:
+        in_flight_count = count_in_flight_runs(writer)
+        with contextlib.suppress(threading.BrokenBarrierError):
+            both_counted.wait()
+        return in_flight_count
+
+    monkeypatch.setattr(intake, "in_flight_writer_run_count", count_then_wait_for_the_other_request)
+    outcomes: list[str] = []
+
+    def submit(pull_request_number: int) -> None:
+        try:
+            outcomes.append(intake.submit(_verdict(pull_request_number), team_id=team.id).status)
+        finally:
+            connection.close()
+
+    with patch(FLAG_CHECK, return_value=True), patch(START_WORKFLOW), patch(CAPTURE_ALERT):
+        requests = [threading.Thread(target=submit, args=(number,)) for number in (123, 456)]
+        for request_thread in requests:
+            request_thread.start()
+        for request_thread in requests:
+            request_thread.join()
+
+    assert sorted(outcomes) == ["capped", "started"]
+
+
 @pytest.mark.django_db
-@pytest.mark.parametrize("failing_listing", ["open_pull_request_listing", "open_pull_request_listing_raises"])
+@pytest.mark.parametrize(
+    "failing_listing", ["open_pull_request_listing", "open_pull_request_listing_raises", "docs_base_read"]
+)
 def test_a_transient_launch_lookup_failure_retries_on_the_same_report_and_records_a_failure_on_the_last_attempt(
     team, writer_env, failing_listing
 ) -> None:
@@ -1065,6 +1211,8 @@ def test_a_transient_launch_lookup_failure_retries_on_the_same_report_and_record
             return MagicMock(status_code=502)
         if failing_listing == "open_pull_request_listing_raises" and path.endswith("/pulls"):
             raise GitHubRateLimitError("rate limited")
+        if failing_listing == "docs_base_read" and "defaultBranchRef" in str(kwargs.get("json_body")):
+            return MagicMock(status_code=502, text="unavailable")
         return healthy_github(method, path, **kwargs)
 
     inputs = MergeCheckInputs(
@@ -1077,6 +1225,7 @@ def test_a_transient_launch_lookup_failure_retries_on_the_same_report_and_record
         patch(f"{MERGE_WORKFLOW_MODULE}.judge_client", return_value=MagicMock()),
         patch(f"{MERGE_WORKFLOW_MODULE}.run_merge_check", return_value=_needs_docs_report()) as run_merge_check,
         patch(START_WORKFLOW) as start_workflow,
+        patch(CAPTURE_DRAFT) as scoped_capture,
     ):
         with patch(GITHUB_REQUEST, side_effect=failing_github):
             exhausted = check_merge(exhausted_inputs, is_final_attempt=True)
@@ -1088,3 +1237,17 @@ def test_a_transient_launch_lookup_failure_retries_on_the_same_report_and_record
     assert exhausted.failure_reason == MergeCheckFailure.RETRIES_EXHAUSTED
     assert (retried.status, run_merge_check.call_count) == ("started", 2)
     start_workflow.assert_called_once()
+    verdicts = [
+        (
+            captured.kwargs["uuid"],
+            captured.kwargs["properties"]["needs_docs"],
+            captured.kwargs["properties"]["failure_reason"],
+        )
+        for captured in scoped_capture.return_value.__enter__.return_value.call_args_list
+        if captured.args[0] == intake.VERDICT_EVENT
+    ]
+    assert [(needs_docs, failure_reason) for _uuid, needs_docs, failure_reason in verdicts] == [
+        (True, MergeCheckFailure.RETRIES_EXHAUSTED),
+        (True, None),
+    ]
+    assert len({event_uuid for event_uuid, _needs_docs, _failure_reason in verdicts}) == 2

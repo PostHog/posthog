@@ -7,6 +7,8 @@ from posthog.dataclasses import frozen
 
 WRITER_CHANGE_ARTIFACT_NAME = "writer-change.json"
 MAX_WRITER_CHANGE_BYTES = 8 * 1024 * 1024
+MAX_WRITTEN_FILE_BYTES = 1024 * 1024
+MAX_WRITTEN_BYTES = 4 * 1024 * 1024
 MAX_CHANGED_FILES = 300
 MAX_PATH_BYTES = 255
 MAX_WRITTEN_FILE_LINES = 15_000
@@ -45,7 +47,7 @@ def writer_change_artifact(artifacts: list) -> dict | None:
 
 def parse_writer_change(raw: bytes) -> WriterChange:
     if len(raw) > MAX_WRITER_CHANGE_BYTES:
-        raise WriterChangeRefused("too_many_changed_files")
+        raise WriterChangeRefused("change_too_large")
     try:
         manifest = json.loads(raw)
     except (ValueError, UnicodeDecodeError) as error:
@@ -62,6 +64,10 @@ def parse_writer_change(raw: bytes) -> WriterChange:
     if any(is_unsafe_path(path) for path in all_paths) or has_colliding_paths(all_paths):
         raise WriterChangeRefused("unsafe_path")
     written = {path: decoded_content(content) for path, content in written_entries.items()}
+    if any(len(content) > MAX_WRITTEN_FILE_BYTES for content in written.values()):
+        raise WriterChangeRefused("file_too_large")
+    if sum(len(content) for content in written.values()) > MAX_WRITTEN_BYTES:
+        raise WriterChangeRefused("change_too_large")
     line_counts = [content.count(b"\n") + 1 for content in written.values()]
     if any(line_count > MAX_WRITTEN_FILE_LINES for line_count in line_counts) or sum(line_counts) > MAX_WRITTEN_LINES:
         raise WriterChangeRefused("too_many_changed_lines")
