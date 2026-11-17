@@ -29,7 +29,10 @@ from posthog.temporal.common.heartbeat_sync import HeartbeaterSync
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.common.metrics import Attributes, ExecutionTimeRecorder
 
-from products.managed_warehouse.backend.backfill_trino import data_imports_through_trino
+from products.managed_warehouse.backend.backfill_trino import (
+    data_imports_register_in_hoglake,
+    data_imports_through_trino,
+)
 from products.managed_warehouse.backend.common import (
     _get_org_id_for_team,
     attach_catalog,
@@ -300,10 +303,14 @@ class DuckLakeCopyDataImportsVerificationResult:
     error: str | None = None
 
 
-async def _organization_registers_through_trino(organization_id: object) -> bool:
+def _registers_without_duckgres(organization_id: str) -> bool:
+    return data_imports_through_trino(organization_id) or data_imports_register_in_hoglake(organization_id)
+
+
+async def _organization_registers_without_duckgres(organization_id: object) -> bool:
     # This workflow runs DuckDB statements on duckgres, which an organization whose data imports register through
-    # Trino does not have.
-    return await asyncio.to_thread(data_imports_through_trino, str(organization_id))
+    # Trino or in a hoglake catalog does not have.
+    return await asyncio.to_thread(_registers_without_duckgres, str(organization_id))
 
 
 @activity.defn
@@ -323,7 +330,7 @@ async def ducklake_copy_data_imports_gate_activity(inputs: DuckLakeCopyWorkflowG
 
         if not await database_sync_to_async(internal_loading_enabled)(team.organization_id):
             return False
-        return not await _organization_registers_through_trino(team.organization_id)
+        return not await _organization_registers_without_duckgres(team.organization_id)
 
     try:
         copy_enabled = feature_enabled_or_false(
@@ -346,7 +353,7 @@ async def ducklake_copy_data_imports_gate_activity(inputs: DuckLakeCopyWorkflowG
         )
         if not copy_enabled:
             return False
-        return not await _organization_registers_through_trino(team.organization_id)
+        return not await _organization_registers_without_duckgres(team.organization_id)
     except Exception as error:
         await logger.awarning(
             "Failed to evaluate DuckLake data imports feature flag",
