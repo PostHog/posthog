@@ -46,7 +46,8 @@ FLAG = "cdp-abuse-classifier"
 BACKFILL_FLAG = "cdp-abuse-classifier-backfill"
 EVENT = "cdp abuse classification"
 CLASSIFIED_TYPES = frozenset({HogFunctionType.DESTINATION, HogFunctionType.TRANSFORMATION})
-# A legacy plugin runs PostHog's plugin code, chosen by its template id. Its `hog` field never runs.
+# A legacy plugin transformation runs PostHog's plugin code, chosen by its template id, so its `hog` field never
+# runs. Its inputs are still evaluated first.
 _LEGACY_PLUGIN_PREFIX = "plugin-"
 _HASH_TTL_SECONDS = 30 * 24 * 60 * 60
 _BACKFILL_RUN_TTL_SECONDS = 14 * 24 * 60 * 60
@@ -196,13 +197,12 @@ def scorable_hog_functions() -> QuerySet[HogFunction]:
     Input expressions cannot be told apart in SQL, and secret inputs are encrypted, so a template transformation
     with any inputs or a secret input is a candidate, and `runs_customer_code` decides.
     """
-    # No linked template, code that differs from it, or inputs. A blank template's starter code counts as stock.
-    may_run_custom_code = ~Q(template_id__startswith=_LEGACY_PLUGIN_PREFIX) & (
-        Q(hog_function_template__isnull=True)
-        | ~Q(hog=F("hog_function_template__code"))
-        | (Q(inputs__isnull=False) & ~Q(inputs={}))
-        | Q(inputs_schema__contains=[{"secret": True}])
+    # Code with no linked template or edited from it. A blank template's starter code counts as stock.
+    may_run_custom_hog = ~Q(template_id__startswith=_LEGACY_PLUGIN_PREFIX) & (
+        Q(hog_function_template__isnull=True) | ~Q(hog=F("hog_function_template__code"))
     )
+    has_inputs = (Q(inputs__isnull=False) & ~Q(inputs={})) | Q(inputs_schema__contains=[{"secret": True}])
+    may_run_custom_code = may_run_custom_hog | has_inputs
     return (
         HogFunction.objects.select_related("team__organization", "hog_function_template")
         .filter(enabled=True, deleted=False)
@@ -213,14 +213,18 @@ def scorable_hog_functions() -> QuerySet[HogFunction]:
 def runs_customer_code(hog_function: HogFunction) -> bool:
     """For a candidate from `scorable_hog_functions`: a destination, or a transformation whose code was written or
     edited by the customer or whose inputs hold an expression. Secret inputs are checked here but never sent to Jev."""
-    if hog_function.type != HogFunctionType.TRANSFORMATION:
-        return True
-    template = hog_function.hog_function_template
-    if template is None or hog_function.hog != template.code:
+    if hog_function.type != HogFunctionType.TRANSFORMATION or _runs_custom_hog(hog_function):
         return True
     return has_input_expression(hog_function.inputs, hog_function.inputs_schema) or has_input_expression(
         hog_function.encrypted_inputs, hog_function.inputs_schema
     )
+
+
+def _runs_custom_hog(hog_function: HogFunction) -> bool:
+    if (hog_function.template_id or "").startswith(_LEGACY_PLUGIN_PREFIX):
+        return False
+    template = hog_function.hog_function_template
+    return template is None or hog_function.hog != template.code
 
 
 def classify_if_due(hog_function: HogFunction) -> None:

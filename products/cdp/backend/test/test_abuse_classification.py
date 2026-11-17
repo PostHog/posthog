@@ -201,6 +201,17 @@ class TestAbuseClassification(AbuseClassificationTestCase):
             ("legacy_plugin_transformation", "transformation", None, {"template_id": "plugin-posthog-plugin-geoip"}, 0),
             ("stock_template_destination", "destination", "stock", {}, 1),
             (
+                "legacy_plugin_with_an_input_expression",
+                "transformation",
+                None,
+                {
+                    "template_id": "plugin-posthog-plugin-geoip",
+                    "inputs_schema": [{"key": "value", "type": "string"}],
+                    "inputs": {"value": {"value": "{event.uuid}"}},
+                },
+                1,
+            ),
+            (
                 "stock_template_with_an_input_expression",
                 "transformation",
                 "stock",
