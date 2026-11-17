@@ -93,6 +93,8 @@ export interface EmailPageStyle {
     previewText: string
     /** A lone full HTML document normally goes out as written. This puts it in the email's body instead. */
     wrapFullHtml: boolean
+    /** A lone HTML block goes out as written even when it isn't a full document, as an email saved as raw html did. */
+    htmlAsWritten: boolean
     /** Set on converted emails: the old editor's page-wide styles, which custom HTML in the email may rely on. */
     oldEditorStyles: boolean
     textColor: string
@@ -160,6 +162,7 @@ export const DEFAULT_EMAIL_PAGE_STYLE: EmailPageStyle = {
     fontUrl: '',
     previewText: '',
     wrapFullHtml: false,
+    htmlAsWritten: false,
     oldEditorStyles: false,
     textColor: '#111111',
     fontSize: 16,

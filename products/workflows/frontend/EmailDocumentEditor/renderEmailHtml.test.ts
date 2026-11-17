@@ -230,11 +230,29 @@ describe('renderEmailHtml', () => {
                     attrs: { href: 'https://example.com' },
                     content: [{ type: 'text', text: 'Go' }],
                 },
-                { type: 'emailHtml', attrs: { html: '<table><tr><td>One</td></tr><tr><td>Two</td></tr></table>' } }
+                { type: 'emailHtml', attrs: { html: '<table><tr><td>One</td></tr><tr><td>Two</td></tr></table>' } },
+                {
+                    type: 'emailColumns',
+                    content: [
+                        {
+                            type: 'emailColumn',
+                            content: [
+                                {
+                                    ...paragraph('Paid only'),
+                                    attrs: {
+                                        emailVisibility: {
+                                            condition: { before: '{% if paid %}', after: '{% endif %}' },
+                                        },
+                                    },
+                                },
+                            ],
+                        },
+                    ],
+                }
             )
         )
 
-        expect(text).toEqual('Hi\n\nGo: https://example.com\n\nOne\nTwo')
+        expect(text).toEqual('Hi\n\nGo: https://example.com\n\nOne\nTwo\n\n{% if paid %}Paid only{% endif %}')
     })
 
     it('keeps text between Liquid tags in its place, and lets a tag alone on its line sit between rows', () => {

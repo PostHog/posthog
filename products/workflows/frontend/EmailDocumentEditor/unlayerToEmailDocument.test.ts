@@ -316,7 +316,9 @@ describe('unlayerToEmailDocument', () => {
                     content('text', { text: '<p>Everyone</p>' }),
                 ],
                 { hideDesktop: true, displayCondition: { ...condition, label: 'Row rule' } }
-            )
+            ),
+            // The old editor's export puts each condition around a row's markup, not between table rows.
+            `<html><body>${condition.before}<div class="u-row-container hide-desktop"><div class="hide-mobile">${condition.before}<p>Thanks for paying</p>${condition.after}<p>Everyone</p></div></div>${condition.after}</body></html>`
         )
         const [section] = document?.doc.content as Record<string, any>[]
         const [paid, everyone] = section.content[0].content
@@ -331,6 +333,15 @@ describe('unlayerToEmailDocument', () => {
             hideMobile: true,
         })
         expect(everyone.attrs.emailVisibility).toBeFalsy()
+    })
+
+    it("drops a screen-size setting the old editor's html never carried out", () => {
+        const { document } = unlayerToEmailDocument(
+            design([content('text', { text: '<p>Hidden on phones</p>', hideMobile: true })], { hideDesktop: true }),
+            '<html><body><div class="u-row-container"><p>Hidden on phones</p></div></body></html>'
+        )
+
+        expect(document?.doc.content?.[0].attrs?.emailVisibility).toBeFalsy()
     })
 
     it.each([
@@ -394,6 +405,25 @@ describe('unlayerToEmailDocument', () => {
 
         expect(renderEmailHtml(conversion.document?.doc ?? {})).toBe(exported)
         expect(conversion.keptAsHtml).toEqual([reason])
+    })
+
+    it("keeps the old editor's page styles for an HTML block holding its row markup, so the row shrinks on phones", () => {
+        const html = '<div class="u-row" style="max-width:500px"><p>Pasted row</p></div>'
+        const exported = `<html><head><style>@media (max-width: 520px) { .u-row { width: 100% !important; } }</style></head><body><div class="u-row-container">${html}</div></body></html>`
+
+        const { document } = unlayerToEmailDocument(design([content('html', { html })]), exported)
+
+        expect(document?.doc.attrs?.page.globalCss).toContain('.u-row { width: 100% !important; }')
+    })
+
+    it('opens an email saved as raw html exactly as it is sent, even when it has no <html> tag', () => {
+        const wrapped = design([content('html', { html: '<p>Hi</p>' })])
+        wrapped.body.id = 'html-wrap-body'
+        const stored = '<p style="color:#d00">Hi</p>'
+
+        const conversion = unlayerToEmailDocument(wrapped, `${stored}\n`)
+
+        expect(renderEmailHtml(conversion.document?.doc ?? {})).toBe(stored)
     })
 
     it('reads text kept only in textJson, and prefers text when a block has both', () => {

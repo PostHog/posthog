@@ -669,8 +669,17 @@ function isRightToLeft(values: Record<string, any>): boolean {
     return values.direction === 'rtl' || /\bdir=["']?rtl/i.test(String(values.text ?? ''))
 }
 
-/** The old editor's display condition and screen-size settings, which the new editor keeps as they are. */
-function visibilityFrom(values: Record<string, any>): EmailVisibility | null {
+/** Which screen-size settings the old editor wrote into its html. It leaves some out, such as hiding a row on desktops. */
+type ExportedScreens = { desktop: boolean; mobile: boolean } | null
+
+function exportedScreens(html: string | null | undefined): ExportedScreens {
+    return html?.trim()
+        ? { desktop: /class="[^"]*\bhide-desktop\b/.test(html), mobile: /class="[^"]*\bhide-mobile\b/.test(html) }
+        : null
+}
+
+/** The old editor's display condition and screen-size settings, as far as its html carries them out. */
+function visibilityFrom(values: Record<string, any>, screens: ExportedScreens): EmailVisibility | null {
     const visibility: EmailVisibility = {}
     const condition = values.displayCondition
     if (condition && typeof condition === 'object' && typeof condition.before === 'string') {
@@ -680,10 +689,10 @@ function visibilityFrom(values: Record<string, any>): EmailVisibility | null {
             ...(condition.label && condition.label !== condition.before ? { label: String(condition.label) } : {}),
         }
     }
-    if (values.hideDesktop === true) {
+    if (values.hideDesktop === true && (screens?.desktop ?? true)) {
         visibility.hideDesktop = true
     }
-    if (values.hideMobile === true) {
+    if (values.hideMobile === true && (screens?.mobile ?? true)) {
         visibility.hideMobile = true
     }
     return Object.keys(visibility).length ? visibility : null
@@ -704,6 +713,7 @@ interface ConvertContext {
     unsupported: Set<string>
     /** Buttons whose hover colors the old editor's export actually has. Most exports leave them out. */
     hoverButtons: Set<string>
+    screens: ExportedScreens
 }
 
 function exportedHoverButtons(storedHtml: string | null | undefined): Set<string> {
@@ -720,7 +730,10 @@ function convertContent(
     if (hasUnknownCondition(values)) {
         context.unsupported.add('blocks shown on a condition')
     }
-    return withVisibility(convertContentBlocks(content, contentWidth, rowSidePadding, context), visibilityFrom(values))
+    return withVisibility(
+        convertContentBlocks(content, contentWidth, rowSidePadding, context),
+        visibilityFrom(values, context.screens)
+    )
 }
 
 function convertContentBlocks(
@@ -936,11 +949,29 @@ function sentContent(html: string): string {
         .map((link) => (link.getAttribute('href') ?? '').trim())
         .filter(Boolean)
         .sort()
-    const text = (doc.body?.textContent ?? '') + links.join(' ')
-    return text
-        .replace(/\{[{%][\s\S]*?[}%]\}/g, (tag) => tag.replace(/"/g, "'").replace(/\|\s*default:\s*''/g, ''))
-        .replace(/[\s\u00a0\u200b-\u200f\u034f\u2060\ufeff\u00ad]+/g, '')
+    const space = /[\s\u00a0\u200b-\u200f\u034f\u2060\ufeff\u00ad]+/g
+    // Compared as a set, because the parser moves a tag that sits between table rows to before the table.
+    const tags: string[] = []
+    const words = ((doc.body?.textContent ?? '') + links.join(' ')).replace(/\{[{%][\s\S]*?[}%]\}/g, (tag) => {
+        tags.push(
+            tag
+                .replace(/"/g, "'")
+                .replace(/\|\s*default:\s*''/g, '')
+                .replace(space, '')
+        )
+        return ''
+    })
+    return words.replace(space, '') + tags.sort().join('')
 }
+
+function hasOldRowMarkup(node: JSONContent): boolean {
+    return node.type === 'emailHtml'
+        ? /class="[^"]*\bu-(row|col)\b/.test(String(node.attrs?.html ?? ''))
+        : (node.content ?? []).some(hasOldRowMarkup)
+}
+
+/** Set by `buildHtmlWrapDesign` in the email templater. */
+const HTML_WRAP_BODY_ID = 'html-wrap-body'
 
 /** The whole email as one HTML block, sent exactly as the old editor exported it. */
 function wholeEmailAsHtml(storedHtml: string, reasons: string[]): EmailDocumentConversion {
@@ -949,7 +980,7 @@ function wholeEmailAsHtml(storedHtml: string, reasons: string[]): EmailDocumentC
             version: EMAIL_DOCUMENT_VERSION,
             doc: {
                 type: 'doc',
-                attrs: { page: { oldEditorStyles: true } },
+                attrs: { page: { oldEditorStyles: true, htmlAsWritten: true } },
                 content: [{ type: 'emailHtml', attrs: { html: storedHtml.trim(), emailStyle: null } }],
             },
         },
@@ -975,6 +1006,14 @@ export function unlayerToEmailDocument(
             unsupported: [],
             notKept: [],
         }
+    }
+    // The app's own wrapper around an email saved as raw html, so the html is the whole email. Once the old editor
+    // added rows to it, it's an ordinary design.
+    const contents = body?.rows?.flatMap((row: any) =>
+        (row.columns ?? []).flatMap((column: any) => column.contents ?? [])
+    )
+    if (body?.id === HTML_WRAP_BODY_ID && contents?.length === 1 && contents[0].type === 'html' && storedHtml?.trim()) {
+        return wholeEmailAsHtml(storedHtml, [])
     }
     if (!body || !Array.isArray(body.rows)) {
         return storedHtml?.trim()
@@ -1037,7 +1076,8 @@ export function unlayerToEmailDocument(
     for (const [rowIndex, row] of rows.entries()) {
         const rowValues = row.values ?? {}
         const rowUnsupported = new Set<string>()
-        const rowVisibility = visibilityFrom(rowValues)
+        const screens = exportedScreens(rowHtml?.[rowIndex] ?? storedHtml)
+        const rowVisibility = visibilityFrom(rowValues, screens)
         if (hasUnknownCondition(rowValues)) {
             rowUnsupported.add('rows shown on a condition')
         }
@@ -1090,6 +1130,7 @@ export function unlayerToEmailDocument(
                 convertContent(item, width, (parsedRowPadding?.left ?? 0) + (parsedRowPadding?.right ?? 0), {
                     unsupported: rowUnsupported,
                     hoverButtons,
+                    screens,
                 })
             )
             const background = column.values?.backgroundColor
@@ -1189,8 +1230,10 @@ export function unlayerToEmailDocument(
             ? wholeEmailAsHtml(storedHtml, [...unsupported])
             : { document: null, unsupported: [...unsupported], notKept: [...notKept] }
     }
-    if (keptAsHtml.size && exported?.css) {
-        // The old editor's rows lay out with the page styles it exported, such as its column widths.
+    // The old editor's rows lay out with the page styles it exported, such as its column widths. An HTML block can hold
+    // a copy of that markup too.
+    const usesOldRowMarkup = content.some(hasOldRowMarkup)
+    if ((keptAsHtml.size || usesOldRowMarkup) && exported?.css) {
         page.globalCss = exported.css
     }
     const doc: JSONContent = {

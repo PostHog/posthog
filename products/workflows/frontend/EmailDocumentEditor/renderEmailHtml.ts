@@ -831,7 +831,7 @@ export function renderEmailHtml(doc: JSONContent): string {
     if (
         nodes.length === 1 &&
         nodes[0].type === 'emailHtml' &&
-        FULL_HTML_DOCUMENT.test(nodes[0].attrs?.html ?? '') &&
+        (FULL_HTML_DOCUMENT.test(nodes[0].attrs?.html ?? '') || doc.attrs?.page?.htmlAsWritten === true) &&
         !doc.attrs?.page?.wrapFullHtml
     ) {
         // The API trims html when it's saved, and the stored copy in the design has to keep matching it.
@@ -928,6 +928,15 @@ function inlineText(nodes: JSONContent[] | undefined): string {
         .join('')
 }
 
+/** The plain-text part goes out too, so a block's condition has to gate its text as well. */
+function visibleText(node: JSONContent): string {
+    const text = blockText(node)
+    const condition = safeEmailVisibility(node.attrs?.emailVisibility)?.condition
+    return text && condition && !isEmptyCondition(condition.before)
+        ? `${condition.before}${text}${condition.after}`
+        : text
+}
+
 function blockText(node: JSONContent): string {
     switch (node.type) {
         case 'paragraph':
@@ -954,9 +963,9 @@ function blockText(node: JSONContent): string {
             return href && label ? `${label}: ${href}` : label
         }
         case 'emailColumns':
-            return (node.content ?? []).map(blockText).filter(Boolean).join('\n\n')
+            return (node.content ?? []).map(visibleText).filter(Boolean).join('\n\n')
         case 'emailColumn':
-            return (node.content ?? []).map(blockText).filter(Boolean).join('\n\n')
+            return (node.content ?? []).map(visibleText).filter(Boolean).join('\n\n')
         case 'emailHtml':
             return textFromHtml(String(node.attrs?.html ?? ''))
         default:
@@ -969,7 +978,7 @@ export function renderEmailText(doc: JSONContent): string {
         return ''
     }
     return withoutTrailingEmptyParagraphs(doc.content ?? [])
-        .map(blockText)
+        .map(visibleText)
         .filter(Boolean)
         .join('\n\n')
 }
