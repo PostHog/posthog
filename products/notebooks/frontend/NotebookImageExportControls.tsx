@@ -1,9 +1,9 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonBanner } from '@posthog/lemon-ui'
-import { Button } from '@posthog/quill'
+import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
 
 import { captureImageLogic } from 'lib/components/Scenes/InsightOrDashboard/captureImageLogic'
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
 
 const EXPORT_CONTROLS = [
     '.Notebook__image-controls',
@@ -35,7 +35,7 @@ const EXPORT_CONTROLS = [
     '.NotebookNode__meta button',
 ].join(', ')
 
-export default function NotebookImageExportControls({
+export function NotebookImageExportControls({
     shortId,
     title,
     onCancel,
@@ -50,24 +50,30 @@ export default function NotebookImageExportControls({
         <LemonBanner type="info" className="Notebook__image-controls mb-4">
             <p>Review the notebook's results before exporting. Charts outside the screen are loading too.</p>
             <div className="flex flex-wrap gap-2">
-                <Button
-                    variant="primary"
+                <LemonButton
+                    type="primary"
                     disabled={isCapturing}
-                    onClick={() =>
+                    onClick={() => {
+                        const selector = `.Notebook[data-notebook-short-id="${CSS.escape(shortId)}"]`
+                        if (document.querySelector(selector)?.querySelector('iframe')) {
+                            lemonToast.error('PNG export cannot include embedded frames. Use Print / save PDF instead.')
+                            return
+                        }
                         downloadImage({
-                            selector: `.Notebook[data-notebook-short-id="${CSS.escape(shortId)}"]`,
+                            selector,
                             excludeSelector: EXPORT_CONTROLS,
                             screenshotKey: `notebook-${shortId}`,
                             name: title,
+                            onSuccess: onCancel,
                         })
-                    }
+                    }}
                     data-attr="notebook-confirm-image"
                 >
                     {isCapturing ? 'Creating image' : 'Download PNG'}
-                </Button>
-                <Button variant="secondary" disabled={isCapturing} onClick={onCancel}>
+                </LemonButton>
+                <LemonButton disabled={isCapturing} onClick={onCancel}>
                     Cancel
-                </Button>
+                </LemonButton>
             </div>
         </LemonBanner>
     )

@@ -7,7 +7,11 @@ import { notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
 
 import { notebookExportLogic } from './notebookExportLogic'
 
-const NotebookImageExportControls = lazy(() => import('./NotebookImageExportControls'))
+const NotebookImageExportControls = lazy(() =>
+    import('./NotebookImageExportControls').then(({ NotebookImageExportControls }) => ({
+        default: NotebookImageExportControls,
+    }))
+)
 
 export function NotebookPrintControls({ shortId }: { shortId: string }): JSX.Element | null {
     const { preparingPrint, exportFormat } = useValues(notebookExportLogic({ shortId }))
