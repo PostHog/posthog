@@ -1,4 +1,5 @@
 import re
+from dataclasses import replace
 
 import pytest
 from unittest.mock import AsyncMock, patch
@@ -460,7 +461,11 @@ class TestDedupeFlashFindings:
         [
             pytest.param(
                 ("2003-1-1", "2000-1-1"),
-                [("2000-1-1", IssuePriority.CONSIDER), ("2002-1-1", IssuePriority.SHOULD_FIX)],
+                [
+                    ("2000-1-1", IssuePriority.CONSIDER),
+                    ("2002-1-1", IssuePriority.SHOULD_FIX),
+                    ("2003-1-2", IssuePriority.CONSIDER),
+                ],
                 id="devex_p1_drops_into_a_main_p3_without_raising_it",
             ),
             pytest.param(
@@ -469,8 +474,18 @@ class TestDedupeFlashFindings:
                     ("2000-1-1", IssuePriority.CONSIDER),
                     ("2002-1-1", IssuePriority.SHOULD_FIX),
                     ("2003-1-1", IssuePriority.MUST_FIX),
+                    ("2003-1-2", IssuePriority.CONSIDER),
                 ],
                 id="a_lens_finding_never_drops_into_a_devex_finding",
+            ),
+            pytest.param(
+                ("2003-1-1", "2003-1-2"),
+                [
+                    ("2000-1-1", IssuePriority.CONSIDER),
+                    ("2002-1-1", IssuePriority.SHOULD_FIX),
+                    ("2003-1-2", IssuePriority.MUST_FIX),
+                ],
+                id="devex_p1_still_raises_a_devex_p3",
             ),
         ],
     )
@@ -483,11 +498,32 @@ class TestDedupeFlashFindings:
             _issue("2000-1-1", IssuePriority.CONSIDER),
             _issue("2002-1-1", IssuePriority.SHOULD_FIX, _LENS_SOURCE),
             _issue("2003-1-1", IssuePriority.MUST_FIX, DEVEX_LENS.source),
+            _issue("2003-1-2", IssuePriority.CONSIDER, DEVEX_LENS.source),
         ]
 
         kept = (await self._dedupe(pr_metadata, issues, _flash_dedup(llm_duplicate))).kept
 
         assert sorted((issue.id, issue.priority) for issue in kept) == sorted(expected)
+
+    @pytest.mark.asyncio
+    async def test_a_failed_devex_dedup_costs_only_the_devex_lane(self, pr_metadata: PRMetadata) -> None:
+        # The devex lane is optional, so its dedup failing must not retry or fail the turn's dedup, and its
+        # positional fallback ignores the anchors, so a kept devex finding could repeat a main one.
+        async def dedup_llm(**kwargs: object) -> IssueDeduplication:
+            if "2003-1-1" in str(kwargs["prompt"]):
+                raise RuntimeError("dedup call failed")
+            return IssueDeduplication(duplicates=[])
+
+        issues = [
+            _issue("2000-1-1", IssuePriority.CONSIDER),
+            _issue("2003-1-1", IssuePriority.MUST_FIX, DEVEX_LENS.source),
+        ]
+
+        selection = await self._dedupe(pr_metadata, issues, AsyncMock(side_effect=dedup_llm))
+
+        assert [issue.id for issue in selection.kept] == ["2000-1-1"]
+        assert [(drop.issue.id, drop.disposition) for drop in selection.dropped] == [("2003-1-1", "cap")]
+        assert not selection.dedup_fell_back
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
@@ -795,6 +831,12 @@ def test_turn_stats_count_every_candidate_once_per_session() -> None:
     devex = _issue("2003-1-1", IssuePriority.CONSIDER, DEVEX_LENS.source)
     assert flash_turn_stats([main], selection, reviewable_lines=120, devex_lens=True).candidates["devex"] == 0
     assert flash_turn_stats([main, devex], selection, reviewable_lines=120, devex_lens=True).candidates["devex"] == 1
+    lane_drop = replace(selection, dropped=[*selection.dropped, DroppedIssue(issue=devex, disposition="cap", rank=3)])
+    assert flash_turn_stats([main, devex], lane_drop, reviewable_lines=120).dropped == {
+        "dedup_anchor": 1,
+        "cap": 1,
+        "devex_lane": 1,
+    }
 
 
 def test_turn_stats_split_posted_must_fix_by_whether_the_push_changed_its_code() -> None:

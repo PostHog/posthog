@@ -1150,9 +1150,7 @@ class ReviewPRWorkflow:
                     )
                 finally:
                     elapsed = (workflow.now() - started).total_seconds()
-                    session_seconds.append(elapsed)
-                    if lens == DEVEX_LENS_NAME:
-                        devex_seconds.append(elapsed)
+                    (devex_seconds if lens == DEVEX_LENS_NAME else session_seconds).append(elapsed)
 
         # The main session goes first, so it never waits for a semaphore slot behind a lens session.
         main_result, *lens_results = await asyncio.gather(
@@ -1179,7 +1177,11 @@ class ReviewPRWorkflow:
             lens_failures=lens_failures,
             lens_timeouts=lens_timeouts,
             slowest_session_seconds=round(max(session_seconds, default=0.0), 1),
-            arm_fallbacks=sum(result is True for result in (main_result, *lens_results)),
+            arm_fallbacks=sum(
+                result is True
+                for (lens, _), result in [(("main", 1), main_result), *zip(lens_units, lens_results)]
+                if lens != DEVEX_LENS_NAME
+            ),
             devex_failed=devex_failed if stage.devex_lens else None,
             devex_timed_out=devex_timed_out if stage.devex_lens else None,
             devex_session_seconds=round(devex_seconds[0], 1) if devex_seconds else None,

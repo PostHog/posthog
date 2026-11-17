@@ -617,10 +617,12 @@ class AppendCodeReviewArtefactInput:
 
 @frozen
 class FlashSessionStats:
-    """How a single-agent turn's sandbox sessions went, as the workflow saw them."""
+    """How a single-agent turn's sandbox sessions went, as the workflow saw them.
+
+    The devex lens session counts only in the `devex_*` fields, so the others compare routed and unrouted turns.
+    """
 
     # Lens sessions that failed for another reason than their timeout, and the ones that timed out.
-    # The devex lens session counts on its own below, so these stay comparable between routed and other turns.
     lens_failures: int
     lens_timeouts: int
     # The longest session, main or lens, from its start to its result or failure.

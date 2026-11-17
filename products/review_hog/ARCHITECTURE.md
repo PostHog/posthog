@@ -320,10 +320,12 @@ sessions, all on the PR's arm set (below) and all returning `SingleAgentReview`:
   The started event carries both as `devex_lens_routed` and `devex_lens_arm`, so a routed turn without the flag is a matched control.
   A renamed file is routed by its new path.
   The session is one more lens unit of `lens_review_activity` under pass 2003, so a turn that runs it opens at most 10 sessions.
-  Its failure, timeout and duration report on their own (`flash_devex_*`), outside the lens counts.
+  Its failure, timeout and duration report on their own (`flash_devex_*`), outside the lens counts, the slowest session and the arm fallbacks.
   Its diff holds only the owned files.
-  Its findings dedup in a third call with the main and lens findings as anchors, so they can lose to any other finding but never take its place, and a devex duplicate raises no survivor's priority.
+  Its findings dedup in a third call with the main and lens findings as anchors, so they can lose to any other finding but never take its place, and a devex duplicate raises only a devex survivor.
+  When that call fails, the turn posts no devex finding, because the positional fallback ignores the anchors. The main and lens dedup do not retry for it.
   They post in their own lane of `DEVEX_LENS_MAX_FINDINGS`, outside the turn cap and the pull request's finding budget, so a routed turn posts the same other findings as an unrouted one.
+  A lane drop is stored as `cap` and counted as `devex_lane` on the completed event.
   A coordinated turn and a delta turn run without it.
   Only a turn that runs it hashes `lens_devex.md` into its fingerprint, so every other turn keeps its cohort.
 

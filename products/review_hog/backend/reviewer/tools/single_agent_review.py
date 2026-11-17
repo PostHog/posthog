@@ -382,6 +382,13 @@ class FlashTurnStats:
     must_fix_off_change: int | None = None
 
 
+def _stats_disposition(drop: DroppedIssue) -> str:
+    """The drop reason the completed event counts. A devex lane drop is not a turn cap drop, so cap pressure compares."""
+    if drop.disposition == "cap" and drop.issue.source_perspective == DEVEX_LENS.source:
+        return "devex_lane"
+    return drop.disposition
+
+
 def flash_turn_stats(
     candidates: list[Issue],
     selection: FlashSelection,
@@ -419,7 +426,7 @@ def flash_turn_stats(
         candidates=per_session,
         must_fix=must_fix,
         after_dedup=len(selection.kept) + cut,
-        dropped=dict(Counter(drop.disposition for drop in selection.dropped)),
+        dropped=dict(Counter(_stats_disposition(drop) for drop in selection.dropped)),
         kept=len(selection.kept),
         dedup_fell_back=selection.dedup_fell_back,
         budget_left=selection.budget_left,
@@ -544,14 +551,16 @@ def _raise_survivors(kept: list[Issue], duplicates: list[Duplicate]) -> dict[str
     takes that level, so its comment leads with it; the turn stats count both levels as must-fix.
     Across stored priorities the survivor keeps its session's level, which the turn stats count.
 
-    A devex lens duplicate raises nothing. Its survivor is another session's finding, and a raise to must-fix
-    would move that finding out of the cap, so a routed turn would post a different set than an unrouted one.
+    A devex lens duplicate raises only a devex survivor. A raise of another session's finding to must-fix would move
+    that finding out of the cap, so a routed turn would post a different set than an unrouted one.
     """
     kept_by_id = {issue.id: issue for issue in kept}
     group_levels: dict[str, int] = {}
     for duplicate in duplicates:
         survivor = kept_by_id.get(duplicate.duplicate_of or "")
-        if survivor is None or duplicate.issue.source_perspective == DEVEX_LENS.source:
+        if survivor is None or (
+            duplicate.issue.source_perspective == DEVEX_LENS.source and survivor.source_perspective != DEVEX_LENS.source
+        ):
             continue
         group_levels[survivor.id] = max(
             group_levels.get(survivor.id, _reported_level(survivor)), _reported_level(duplicate.issue)
@@ -844,9 +853,14 @@ async def dedupe_flash_findings(
             workflow_id_prefix=workflow_id_prefix,
             anchors=[*main, *lens],
             for_flash=True,
-            fall_back_on_any_error=fall_back_on_any_error,
+            # The optional lane must never fail or retry the turn's dedup.
+            fall_back_on_any_error=True,
         ),
     )
+    # The positional fallback ignores the anchors, so its devex findings could repeat a main or lens finding.
+    lost_devex = devex if devex_outcome.fell_back else []
+    if lost_devex:
+        logger.warning("The devex dedup fell back, so the devex lane posts nothing on this turn")
     prior_keys = {finding.issue_key for finding, _ in prior_findings}
     held = _resolve_duplicates(
         main,
@@ -855,12 +869,12 @@ async def dedupe_flash_findings(
         lens_outcome,
         earlier_ids=prior_keys,
         devex=devex,
-        devex_outcome=devex_outcome,
+        devex_outcome=None if lost_devex else devex_outcome,
     )
     removed_ids = {removal.duplicate.issue.id for removal in held}
     kept_main = [issue for issue in main if issue.id not in removed_ids]
     kept_lens = [issue for issue in lens if issue.id not in removed_ids]
-    kept_devex = [issue for issue in devex if issue.id not in removed_ids]
+    kept_devex = [issue for issue in devex if issue.id not in removed_ids and not lost_devex]
     group_levels = _raise_survivors([*kept_main, *kept_lens, *kept_devex], [removal.duplicate for removal in held])
     composed = compose_flash_findings(
         kept_main,
@@ -885,8 +899,9 @@ async def dedupe_flash_findings(
         len(old_code),
     )
     old_code_drops = [DroppedIssue(issue=issue, disposition="old_code") for issue in old_code]
+    lost_devex_drops = [DroppedIssue(issue=issue, disposition="cap") for issue in lost_devex]
     return replace(
         composed,
-        dropped=[*old_code_drops, *dedup_drops, *composed.dropped],
-        dedup_fell_back=main_outcome.fell_back or lens_outcome.fell_back or devex_outcome.fell_back,
+        dropped=[*old_code_drops, *dedup_drops, *composed.dropped, *lost_devex_drops],
+        dedup_fell_back=main_outcome.fell_back or lens_outcome.fell_back,
     )
