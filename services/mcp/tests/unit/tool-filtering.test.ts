@@ -1128,6 +1128,7 @@ describe('Tool Filtering - Feature Flags', () => {
     it('getRequiredFeatureFlags should return flags used by current definitions', () => {
         const allFlags = getRequiredFeatureFlags()
         const branchFlags = [
+            'warehouse-partitioning-controls',
             'workflows-supabase-auth-emails',
             'scout-trials',
             'signals-report-monitoring',
@@ -1165,7 +1166,6 @@ describe('Tool Filtering - Feature Flags', () => {
             'platform-alerts-source-warehouse',
             'dwh-custom-source-ai-builder',
             'workflows-bulk-suppressions-mcp',
-            'warehouse-partitioning-controls',
         ]
         expect(allFlags).toEqual(expect.arrayContaining(branchFlags))
         // The flags branches add are asserted on the line above and held out of the list and
