@@ -2,6 +2,7 @@ from django.db import models
 from django.db.models import Q
 from django.utils.functional import Promise
 
+from posthog.helpers.encrypted_fields import EncryptedTextField
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.utils import UUIDModel
 
@@ -53,6 +54,8 @@ class ProviderImportRun(TeamScopedRootMixin, UUIDModel):
     integration = models.ForeignKey(
         "posthog.Integration", on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
     )
+    # The vendor key of a provider that doesn't store one. Cleared in the transaction that ends the run.
+    temporary_api_key = EncryptedTextField(null=True, blank=True)
     # Step keys in the order they run.
     steps = models.JSONField(default=list)
     status = models.CharField(max_length=16, choices=ProviderImportStatus.choices, default=ProviderImportStatus.QUEUED)
