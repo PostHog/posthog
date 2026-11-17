@@ -720,6 +720,13 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
 
         assert self.client.get(self._url(f"{message_id}/activity/")).status_code == status.HTTP_403_FORBIDDEN
 
+    def test_impact_answers_only_teams_with_the_impact_flag(self, flag):
+        flag.side_effect = lambda key, *args, **kwargs: key != "workflows-email-impact"
+
+        response = self.client.get(self._url("impact/"), {"workflow_id": self.workflow_id})
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
     def test_impact_counts_conversions_only_with_query_access(self, _flag):
         self._deny_member("query")
 

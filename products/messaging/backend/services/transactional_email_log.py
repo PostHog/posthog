@@ -658,7 +658,6 @@ def _sends_to_follow(team: Team, user: User | None, workflow_id: str, period: _P
             SELECT
                 {_MESSAGE_COLUMNS},
                 minIf(status_at, status = 'clicked') AS first_clicked_at,
-                -- A scheduled send leaves the queue later. With no sent row this is the epoch, and the queue time wins.
                 minIf(status_at, status = 'sent') AS first_sent_at
             FROM {EMAIL_STATUS_EVENTS_TABLE}
             WHERE team_id = %(team_id)s AND created_at >= %(start)s AND created_at < %(end)s
