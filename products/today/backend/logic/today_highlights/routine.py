@@ -526,13 +526,9 @@ def insight_metric(
         or insight.decimal_places is not None
         else None
     )
-    title = short(insight.name or pretty(name), 40)
-    if len(series) > 1 and insight.name:
-        measured = short(pretty(name), 18)
-        title = f"{short(insight.name, 37 - len(measured))} ({measured})"
     return contracts.HighlightMetric(
         key=f"insight:{short_id}",
-        name=title,
+        name=insight.name or "Untitled insight",
         value=values[-1],
         unit=HighlightUnit.NUMBER,
         change_pct=round((values[-1] - values[-2]) / abs(values[-2]) * 100, 1) if values[-2] else None,

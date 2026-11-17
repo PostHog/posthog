@@ -552,7 +552,7 @@ def get_insight_series(
         team,
         user,
         short_id=insight.short_id,
-        name=insight.name,
+        name=insight.name or insight.derived_name,
         query=insight.query or {},
         dashboard=dashboard,
         blocking=blocking,
