@@ -141,6 +141,7 @@ from products.signals.backend.enums import ReportPriority, ReportTaskActionKind,
 from products.signals.backend.facade.api import emit_signal
 from products.signals.backend.facade.source_configs import AlertNamePatterns, evaluate_alert_filter
 from products.signals.backend.feedback_notes import forward_feedback_note
+from products.signals.backend.free_trial import FREE_TRIAL_PR_MESSAGE
 from products.signals.backend.hybrid_search import SearchMode, SemanticSearchUnavailable
 from products.signals.backend.implementation_pr import (
     ImplementationPr,
@@ -262,16 +263,20 @@ from products.signals.backend.report_search import (
 )
 from products.signals.backend.report_task_actions import (
     AI_CONSENT_DISABLED_REASON,
+    IMPLEMENT_RUN_ACTIVE_DETAIL,
     INBOX_REPORT_ACTION_EVENT,
     PULL_REQUEST_ACTION_KINDS,
     PULL_REQUEST_RUN_ACTIVE_DETAIL,
     ReportActionState,
     ReportTaskActionContext,
     ReportTaskActionStartError,
+    active_implementation_run,
     active_pull_request_run,
     inbox_report_action_properties,
     list_report_task_actions,
+    repository_connected,
     resolve_report_task_action,
+    select_implementation_repository,
     start_report_task_action,
 )
 from products.signals.backend.reviewer_correction_notes import ReviewerCorrection, forward_reviewer_correction_note
@@ -373,6 +378,7 @@ from products.signals.backend.task_attribution import (
     resolve_external_agent_name,
     resolve_request_attribution,
 )
+from products.signals.backend.task_profiles import INBOX
 from products.signals.backend.task_run_artefacts import ReportTaskCapExceeded, implementation_in_flight_report_ids
 from products.signals.backend.tasks import send_reviewer_added_slack_notifications, sync_signals_refund_credit
 from products.signals.backend.temporal.backfill_error_tracking import (
@@ -4171,6 +4177,8 @@ class SignalReportViewSet(
             "conflicts with its base branch. "
             "`resolve_conflicts` is available only while the report's open pull request conflicts with its base "
             "branch. "
+            "`implement` is available only while the report is ready and actionable, or waiting on input, has no "
+            "pull request, is not a plan, has no implementation run in progress, and nobody else holds its claim. "
             "`suggested_prompt` has one entry per prompt the report suggests. Start one with the run endpoint."
         ),
         operation_id="signals_reports_actions_list",
@@ -4203,21 +4211,31 @@ class SignalReportViewSet(
             201: OpenApiResponse(response=SignalReportTaskActionRunResponseSerializer, description="Task created"),
             400: OpenApiResponse(
                 response=SignalReportTaskActionErrorSerializer,
-                description="The action is not available on this report now (code `report_action_unavailable`)",
+                description=(
+                    "The action is not available on this report now (code `report_action_unavailable`), the "
+                    "`repository` is not connected to this project (code `report_action_repository_unavailable`), "
+                    "or no repository could be resolved for `implement` (code "
+                    "`report_implementation_repository_unresolved`)"
+                ),
             ),
             402: OpenApiResponse(
-                description="The organization is on a Self-driving free trial (code `self_driving_free_trial`)"
+                response=SignalReportTaskActionErrorSerializer,
+                description="The organization is on a Self-driving free trial (code `self_driving_free_trial`)",
             ),
             403: OpenApiResponse(
                 response=SignalReportTaskActionErrorSerializer,
-                description="AI data processing is not approved, or the request came from a task sandbox",
+                description=(
+                    "AI data processing is not approved, the request came from a task sandbox, or `implement` "
+                    "needs code access the caller does not have"
+                ),
             ),
             404: OpenApiResponse(description="The report has no suggested prompt at that index"),
             409: OpenApiResponse(
                 response=SignalReportTaskActionErrorSerializer,
                 description=(
-                    "A run is already working on this report's pull request (code `report_action_run_active`). "
-                    "The body carries its `task_id` and `run_id`."
+                    "A run is already working on this report's pull request, or for `implement`, an "
+                    "implementation run is still in progress (code `report_action_run_active`). The body carries "
+                    "its `task_id` and `run_id` once that run has started."
                 ),
             ),
             429: OpenApiResponse(
@@ -4232,7 +4250,8 @@ class SignalReportViewSet(
         description=(
             "Create a task linked to the report and start its first run in the background, with the "
             "instructions the inbox uses for the same action. `ask` sends your own message with the framing "
-            "of the inbox's Ask AI. The run shows in the report's runs and counts "
+            "of the inbox's Ask AI. `implement` starts the run the inbox's Implement button starts: it claims the "
+            "report, and the pull request it opens is attached to the report. The run shows in the report's runs and counts "
             "toward the report's task limit. Nobody can answer questions in a background run, so the agent "
             "writes a note to the report's work log when it needs a decision."
         ),
@@ -4258,9 +4277,16 @@ class SignalReportViewSet(
         context = ReportTaskActionContext(team=self.team, user=user)
         data = request.validated_data
         kind = ReportTaskActionKind(data["action"])
+        repository = data.get("repository")
         state = ReportActionState.read(report)
         report_action = resolve_report_task_action(
-            context, report, kind, data.get("suggested_prompt_index"), state=state, message=data.get("message")
+            context,
+            report,
+            kind,
+            data.get("suggested_prompt_index"),
+            state=state,
+            message=data.get("message"),
+            repository=repository,
         )
         if report_action is None:
             raise exceptions.NotFound("This report has no suggested prompt at that index.")
@@ -4277,8 +4303,24 @@ class SignalReportViewSet(
                 request=request,
             )
 
+        if kind == ReportTaskActionKind.IMPLEMENT and (
+            implementation := active_implementation_run(team_id=self.team.id, report_id=str(report.id))
+        ):
+            capture("limited", "report_action_run_active")
+            return self._task_action_error(
+                "report_action_run_active",
+                IMPLEMENT_RUN_ACTIVE_DETAIL,
+                status.HTTP_409_CONFLICT,
+                task_id=implementation.task_id,
+                run_id=implementation.run_id,
+            )
+
         if report_action.disabled_reason is not None:
             capture("blocked")
+            if report_action.disabled_reason == FREE_TRIAL_PR_MESSAGE:
+                return self._task_action_error(
+                    "self_driving_free_trial", report_action.disabled_reason, status.HTTP_402_PAYMENT_REQUIRED
+                )
             error_status: int = (
                 status.HTTP_403_FORBIDDEN
                 if report_action.disabled_reason == AI_CONSENT_DISABLED_REASON
@@ -4304,9 +4346,32 @@ class SignalReportViewSet(
                 str(limit_response.data["code"]), str(limit_response.data["error"]), limit_response.status_code
             )
 
-        # The run starts repo-less unless the caller passes the Desktop gate, the same rule the tasks
-        # create endpoint applies to an inbox discussion.
-        code_access_allowed = code_access_required_response(request, self.organization) is None
+        if kind == ReportTaskActionKind.IMPLEMENT:
+            # An implementation always works in a repository, so it needs code access, the same rule the
+            # tasks create endpoint applies to Create PR.
+            if access_response := code_access_required_response(
+                request, self.organization, origin_product=INBOX.origin_product
+            ):
+                capture("blocked")
+                return self._task_action_error(
+                    str(access_response.data.get("code", "code_access_required")),
+                    str(access_response.data.get("error") or access_response.data.get("detail")),
+                    access_response.status_code,
+                )
+            if repository is not None:
+                if not repository_connected(self.team.id, repository):
+                    capture("blocked")
+                    return self._task_action_error(
+                        "report_action_repository_unavailable",
+                        "This repository is not connected to this project. Connect it in the GitHub integration first.",
+                        status.HTTP_400_BAD_REQUEST,
+                    )
+                select_implementation_repository(report, repository, self._request_attribution())
+            code_access_allowed = True
+        else:
+            # The run starts repo-less unless the caller passes the Desktop gate, the same rule the tasks
+            # create endpoint applies to an inbox discussion.
+            code_access_allowed = code_access_required_response(request, self.organization) is None
         try:
             started = start_report_task_action(context, report, report_action, code_access_allowed=code_access_allowed)
         except ReportTaskCapExceeded as error:
@@ -4314,7 +4379,7 @@ class SignalReportViewSet(
             return self._task_action_error("signal_report_task_cap", error.detail, status.HTTP_429_TOO_MANY_REQUESTS)
         except ReportTaskActionStartError as error:
             capture("failure")
-            return self._task_action_error("report_action_start_failed", error.detail, status.HTTP_400_BAD_REQUEST)
+            return self._task_action_error(error.code, error.detail, status.HTTP_400_BAD_REQUEST)
         capture("failure" if started.run_error else "success")
         return Response(
             SignalReportTaskActionRunResponseSerializer(

@@ -3721,6 +3721,7 @@ export interface SignalReportDeletionStatusApi {
  * * `get_it_merged` - Get it merged
  * * `make_it_green` - Make it green
  * * `resolve_conflicts` - Resolve conflicts
+ * * `implement` - Implement
  * * `suggested_prompt` - Suggested prompt
  * * `ask` - Ask
  */
@@ -3730,6 +3731,7 @@ export const ReportTaskActionKindEnumApi = {
     GetItMerged: 'get_it_merged',
     MakeItGreen: 'make_it_green',
     ResolveConflicts: 'resolve_conflicts',
+    Implement: 'implement',
     SuggestedPrompt: 'suggested_prompt',
     Ask: 'ask',
 } as const
@@ -3738,11 +3740,12 @@ export const ReportTaskActionKindEnumApi = {
  * One report action that starts an agent run, with whether the report offers it now.
  */
 export interface SignalReportTaskActionApi {
-    /** The action. `get_it_merged` fixes CI on the report's open, approved pull request and merges it. `make_it_green` fixes failing CI and resolves merge conflicts on the report's open pull request, and stops without merging it. `resolve_conflicts` updates the report's open pull request from its base branch, resolves the conflicts, pushes, and stops without merging it or fixing unrelated CI. `suggested_prompt` sends one of the prompts the report suggests.
+    /** The action. `get_it_merged` fixes CI on the report's open, approved pull request and merges it. `make_it_green` fixes failing CI and resolves merge conflicts on the report's open pull request, and stops without merging it. `resolve_conflicts` updates the report's open pull request from its base branch, resolves the conflicts, pushes, and stops without merging it or fixing unrelated CI. `implement` starts the run the inbox's Implement button starts: it claims the report, implements the fix, and opens a pull request that is attached to the report. `suggested_prompt` sends one of the prompts the report suggests.
      *
      * * `get_it_merged` - Get it merged
      * * `make_it_green` - Make it green
      * * `resolve_conflicts` - Resolve conflicts
+     * * `implement` - Implement
      * * `suggested_prompt` - Suggested prompt
      * * `ask` - Ask */
     action: ReportTaskActionKindEnumApi
@@ -3773,6 +3776,7 @@ export interface SignalReportTaskActionRunRequestApi {
      * * `get_it_merged` - Get it merged
      * * `make_it_green` - Make it green
      * * `resolve_conflicts` - Resolve conflicts
+     * * `implement` - Implement
      * * `suggested_prompt` - Suggested prompt
      * * `ask` - Ask */
     action: ReportTaskActionKindEnumApi
@@ -3782,10 +3786,16 @@ export interface SignalReportTaskActionRunRequestApi {
      */
     suggested_prompt_index?: number
     /**
-     * Your own request for the run. Required for `ask`, where it is the question or the work you want done on the report. Optional for `get_it_merged`, `make_it_green`, and `resolve_conflicts`, where it replaces the action's fixed request and keeps its instructions and gates: pass it when you know something the report does not, such as a merge order, a failure that is already on the base branch, or an expected conflict. Not accepted for `suggested_prompt`.
+     * Your own request for the run. Required for `ask`, where it is the question or the work you want done on the report. Optional for `get_it_merged`, `make_it_green`, and `resolve_conflicts`, where it replaces the action's fixed request and keeps its instructions and gates: pass it when you know something the report does not, such as a merge order, a failure that is already on the base branch, or an expected conflict. Optional for `implement`, where it is added to the prompt as extra instructions. Not accepted for `suggested_prompt`.
      * @maxLength 2000
      */
     message?: string
+    /**
+     * Only for `implement`: the repository to implement in, in 'owner/repo' format (case-insensitive). It must be connected to the project, and it becomes the report's repo selection. Omit it to use the report's own repository. A report whose repository cannot be resolved returns `report_implementation_repository_unresolved`.
+     * @minLength 1
+     * @maxLength 140
+     */
+    repository?: string
 }
 
 export interface SignalReportTaskActionRunResponseApi {
