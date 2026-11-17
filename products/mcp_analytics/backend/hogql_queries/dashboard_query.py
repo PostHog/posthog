@@ -10,6 +10,8 @@ from typing import TYPE_CHECKING, Any, Optional
 from django.conf import settings
 from django.db import connections
 
+import posthoganalytics
+
 from posthog.schema import (
     CachedMCPDashboardQueryResponse,
     CacheMissResponse,
@@ -28,6 +30,7 @@ from posthog.hogql.database.database import Database
 from posthog.hogql.errors import ExposedHogQLError, QueryError
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.query import execute_hogql_query
+from posthog.hogql.timings import HogQLTimings
 
 from posthog.api_queries_budget import (
     QueryCost,
@@ -41,9 +44,11 @@ from posthog.errors import ExposedCHQueryError
 from posthog.exceptions import ClickHouseAtCapacity
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner, ExecutionMode
 from posthog.hogql_queries.utils.parallel import run_in_parallel_threads
+from posthog.models.group_type_mapping import get_group_types_for_project
 from posthog.models.instance_setting import get_instance_setting
 
 from products.access_control.backend.facade.user_access_control import UserAccessControlError
+from products.mcp_analytics.backend.custom_harnesses import custom_harness_rules
 from products.mcp_analytics.backend.hogql_queries.base import (
     EFFECTIVE_TOOL_SQL,
     HarnessLabelQueryRunner,
@@ -75,7 +80,8 @@ SELECT
     countDistinctIf($session_id, $session_id != '') AS sessions,
     count() AS tool_calls,
     countIf(toBool(properties.$mcp_is_error)) AS errors,
-    round(quantile(0.95)(toFloat(properties.$mcp_duration_ms))) AS p95
+    round(quantile(0.95)(toFloat(properties.$mcp_duration_ms))) AS p95,
+    uniq(distinct_id) AS users
 FROM events
 WHERE event = '$mcp_tool_call'
     AND properties.$mcp_tool_name IS NOT NULL
@@ -122,21 +128,44 @@ ORDER BY tool_calls DESC
 LIMIT 500
 """
 
-TOOL_ROWS_SQL = """
-SELECT
-    toString(properties.$mcp_tool_name) AS tool,
-    count() AS total_calls,
-    countIf(toBool(properties.$mcp_is_error)) AS errors,
-    round(countIf(toBool(properties.$mcp_is_error)) * 100.0 / count(), 1) AS error_rate_pct,
-    round(quantile(0.95)(toFloat(properties.$mcp_duration_ms))) AS p95_duration_ms
-FROM events
-WHERE event = '$mcp_tool_call'
-    AND properties.$mcp_tool_name IS NOT NULL
-    AND properties.$mcp_tool_name != ''
-    AND {filters}
-GROUP BY tool
-ORDER BY total_calls DESC
-LIMIT 50
+# A tool with a handful of calls swings to 100% on one failure, and its p95 is one slow call, so the
+# error-rate and p95 rankings need a minimum sample. Keep in step with MIN_CALLS_TO_RANK_TOOLS in
+# mcpDashboardOverviewLogic.ts, which words the empty states.
+MIN_CALLS_TO_RANK_TOOLS = 20
+TOOLS_PER_RANKING = 8
+
+# Each card reads its own top tools: by calls, by error rate, and by p95. Ranking all three from one
+# aggregate reads the events once. A cap by call volume before ranking would drop a slow or flaky tool
+# that is not among the busiest. The ranking goes last so the first five columns keep their meaning for
+# cached rows from before it and for browsers still running the previous parser.
+TOOL_ROWS_SQL = f"""
+SELECT tool, total_calls, errors, error_rate_pct, p95_duration_ms, ranking
+FROM (
+    SELECT
+        {EFFECTIVE_TOOL_SQL} AS tool,
+        count() AS total_calls,
+        countIf(toBool(properties.$mcp_is_error)) AS errors,
+        round(countIf(toBool(properties.$mcp_is_error)) * 100.0 / count(), 1) AS error_rate_pct,
+        round(quantile(0.95)(toFloat(properties.$mcp_duration_ms))) AS p95_duration_ms
+    FROM events
+    WHERE event = '$mcp_tool_call'
+        AND properties.$mcp_tool_name IS NOT NULL
+        AND properties.$mcp_tool_name != ''
+        AND {{filters}}
+    GROUP BY tool
+)
+ARRAY JOIN ['calls', 'error_rate', 'p95'] AS ranking
+WHERE ranking = 'calls'
+    OR (total_calls >= {MIN_CALLS_TO_RANK_TOOLS} AND (ranking = 'error_rate' OR p95_duration_ms > 0))
+ORDER BY
+    ranking,
+    multiIf(
+        ranking = 'calls', toFloat(total_calls),
+        ranking = 'error_rate', toFloat(error_rate_pct),
+        toFloat(p95_duration_ms)
+    ) DESC,
+    tool
+LIMIT {TOOLS_PER_RANKING} BY ranking
 """
 
 TOOL_CALL_WHERE = """event = '$mcp_tool_call'
@@ -275,6 +304,7 @@ TYPED_SECTIONS: dict[MCPDashboardSection, TypedSection] = {
 }
 
 GENERIC_SECTION_ERROR = "This section could not be loaded."
+LEAN_DATABASE_FLAG = "mcp-analytics-dashboard-lean-database"
 
 
 def public_error(error: Exception) -> str:
@@ -340,8 +370,63 @@ class MCPDashboardQueryRunner(HarnessLabelQueryRunner[MCPDashboardQueryResponse]
 
     @property
     def shared_database(self) -> Database:
-        # A batch's sections build the database once between them, and only when one misses the cache.
-        return self._batch.shared_database if self._batch else super().shared_database
+        batch = self._batch
+        if batch is None or not get_instance_setting("HOGQL_SHARED_INSIGHT_DATABASE_ENABLED"):
+            return super().shared_database
+        # A batch's sections build the database once between them, and only when one misses the cache. The batch
+        # emits no `query executed` of its own, so the section that builds it measures the build.
+        with batch._shared_database_build_lock:
+            if batch._shared_database is None:
+                batch._shared_database = super().shared_database
+        return batch._shared_database
+
+    def _on_user_changed(self) -> None:
+        self.__dict__.pop("_lean_database", None)
+        super()._on_user_changed()
+
+    def _create_database(self, *, timings: HogQLTimings | None = None, trigger: str) -> Database:
+        if not self._lean_database:
+            return super()._create_database(timings=timings, trigger=trigger)
+        return Database.create_for_posthog_tables(
+            self.team,
+            modifiers=self.modifiers,
+            timings=timings,
+            group_types=get_group_types_for_project(self.team.project_id),
+            mcp_custom_harness_rules=custom_harness_rules(self.team),
+        )
+
+    @cached_property
+    def _lean_database(self) -> bool:
+        # A batch's sections share one database across threads, so batches keep the full build.
+        if self._is_batch or self._batch is not None:
+            return False
+        return self._filters_fit_lean_database() and self._lean_database_flag_enabled()
+
+    def _filters_fit_lean_database(self) -> bool:
+        filters = [prop.model_dump() for prop in self.query.properties or []]
+        if self.query.filterTestAccounts:
+            filters += self.team.test_account_filters or []
+        # Any other filter can reach tables the lean database lacks, such as the warehouse views behind `$virt_revenue`.
+        return all(
+            prop.get("type") in {"event", "person"} and not str(prop.get("key", "")).startswith("$virt_")
+            for prop in filters
+        )
+
+    def _lean_database_flag_enabled(self) -> bool:
+        distinct_id = (self.user and self.user.distinct_id) or str(self.team.uuid)
+        try:
+            return bool(
+                posthoganalytics.feature_enabled(
+                    LEAN_DATABASE_FLAG,
+                    distinct_id,
+                    groups={"organization": str(self.team.organization_id), "project": str(self.team.uuid)},
+                    person_properties={"email": self.user.email} if self.user else None,
+                    only_evaluate_locally=False,
+                    send_feature_flag_events=False,
+                )
+            )
+        except Exception:
+            return False
 
     def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         raise NotImplementedError("The dashboard is many queries, not one.")
@@ -352,6 +437,9 @@ class MCPDashboardQueryRunner(HarnessLabelQueryRunner[MCPDashboardQueryResponse]
         # so the others keep their entries across page loads.
         if COMPARISON_SECTIONS.isdisjoint(self._sections):
             payload["query"].pop("comparison")
+        # Keeps rows built on the lean database apart, so turning the flag off never serves them.
+        if self._lean_database:
+            payload["lean_database"] = True
         return payload
 
     @cached_property

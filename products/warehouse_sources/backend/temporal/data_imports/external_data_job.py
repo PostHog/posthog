@@ -329,16 +329,17 @@ TRANSIENT_VENDOR_UNAVAILABLE_MESSAGE = (
     "Your source's API was temporarily unavailable, so this sync couldn't finish. The next sync runs on schedule."
 )
 
-# An activity that ran past its start-to-close (or schedule-to-close) budget. Those budgets are a
-# day for a full refresh and a week for an incremental run, so reaching one means the extraction
+# The import activity ran past its start-to-close (or schedule-to-close) budget. Those budgets are
+# a day for a full refresh and a week for an incremental run, so reaching one means the extraction
 # itself cannot finish in the window rather than that something stalled.
 SYNC_RUN_TOO_LONG_MESSAGE = (
     "This sync ran longer than PostHog allows and stopped before it finished. Switch this table to "
     "incremental sync, or sync less data, so the next run finishes in time."
 )
 
-# An activity that stopped heartbeating, or that no worker picked up in time. Both are PostHog-side
-# and clear on their own, so the copy asks nothing of the customer.
+# An activity that stopped heartbeating, that no worker picked up in time, or a bookkeeping activity
+# (job creation, billing check) that ran past its one-minute budget. All are PostHog-side and clear
+# on their own, so the copy asks nothing of the customer.
 SYNC_RUN_STALLED_MESSAGE = (
     "This sync stopped making progress on PostHog's side and did not finish. The next sync runs on schedule."
 )
@@ -441,7 +442,10 @@ TRANSIENT_SOURCE_ERROR_MESSAGE = (
 RETRYABLE_STATUS_ERROR_MARKER = "(retryable): status="
 
 
-def _customer_facing_error(cause: BaseException | None) -> str:
+IMPORT_ACTIVITY_TYPE = import_data_activity_sync.__name__
+
+
+def _customer_facing_error(cause: BaseException | None, activity_type: str | None = None) -> str:
     """`latest_error` text a customer reads, without the leaked internal exception class name.
 
     Temporal renders a wrapped activity failure as ``<ExceptionClass>: <message>`` (see
@@ -469,11 +473,14 @@ def _customer_facing_error(cause: BaseException | None) -> str:
     if getattr(cause, "type", None) == "RESTClientRetryableError":
         return TRANSIENT_SOURCE_ERROR_MESSAGE
     # A timed-out activity carries Temporal's own wording for its message ("activity StartToClose
-    # timeout"), which names our orchestration rather than anything the customer can act on. Which
-    # budget ran out decides the guidance: an exhausted run budget needs less data per run, while a
-    # stalled or unclaimed activity is ours and recovers by itself.
+    # timeout"), which names our orchestration rather than anything the customer can act on. Only the
+    # import activity's run budget means the customer has too much data per run. Every other activity
+    # has a budget of minutes, so running past it is a slow step on our side that recovers by itself.
     if isinstance(cause, exceptions.TimeoutError):
-        if cause.type in (TimeoutType.START_TO_CLOSE, TimeoutType.SCHEDULE_TO_CLOSE):
+        if (
+            cause.type in (TimeoutType.START_TO_CLOSE, TimeoutType.SCHEDULE_TO_CLOSE)
+            and activity_type == IMPORT_ACTIVITY_TYPE
+        ):
             return SYNC_RUN_TOO_LONG_MESSAGE
         return SYNC_RUN_STALLED_MESSAGE
     message = getattr(cause, "message", None)
@@ -1533,13 +1540,13 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 # `_customer_facing_error` here too (like the else branch): a non-retryable error whose
                 # friendly mapping is None keeps its raw message, and the finalization activity won't
                 # overwrite it — so `str(e.cause.cause)` would leak the wrapped exception class name.
-                update_inputs.latest_error = _customer_facing_error(e.cause.cause)
+                update_inputs.latest_error = _customer_facing_error(e.cause.cause, e.activity_type)
                 raise
             else:
                 # Handle other activity errors normally
                 update_inputs.status = ExternalDataJob.Status.FAILED
                 update_inputs.internal_error = str(e.cause)
-                update_inputs.latest_error = _customer_facing_error(e.cause)
+                update_inputs.latest_error = _customer_facing_error(e.cause, e.activity_type)
                 raise
         except Exception as e:
             # Catch all

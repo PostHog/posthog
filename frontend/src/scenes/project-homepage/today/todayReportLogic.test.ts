@@ -161,6 +161,8 @@ describe('todayReportLogic', () => {
             },
         })
         initKeaTests()
+        featureFlagLogic.mount()
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.PHAI_SANDBOX_MODE]: true })
         const kickoffLogic = inboxTaskKickoffLogic()
         kickoffLogic.mount()
         const logic = todayReportLogic({ reportId: report.id })

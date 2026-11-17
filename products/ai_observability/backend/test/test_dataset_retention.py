@@ -7,6 +7,7 @@ from unittest.mock import patch
 
 from django.db import DatabaseError, IntegrityError, connection, transaction
 from django.db.migrations.executor import MigrationExecutor
+from django.db.models import QuerySet
 from django.test import TestCase, TransactionTestCase
 from django.utils import timezone
 
@@ -159,12 +160,16 @@ class TestDatasetRetention(TestCase):
             DatasetUsage.read_revision(self.dataset, first.version.dataset_revision.revision)
 
     def test_obsolete_versions_are_deleted_and_numbers_are_not_reused(self) -> None:
-        first = self.create_item()
+        first = self.create_item("café")
+        DatasetItemVersion.objects.for_team(self.team.id, canonical=True).filter(id=first.version.id).update(
+            expected_output={"ok": True}, source_output=["雪"], metadata={"tag": "blue"}
+        )
         second = self.update_item(first)
         self.age_history()
         sweep = DatasetRetention()
         sweep.run()
         self.assertEqual(sweep.versions_deleted, 1)
+        self.assertEqual(sweep.payload_bytes_deleted, len('"café"{"ok": true}["雪"]{"tag": "blue"}'.encode()))
         self.assertFalse(
             DatasetItemVersion.objects.for_team(self.team.id, canonical=True).filter(id=first.version.id).exists()
         )
@@ -534,6 +539,7 @@ class TestDatasetRetention(TestCase):
                     revisions_expired=0,
                     versions_deleted=1,
                     datasets_deleted=0,
+                    payload_bytes_deleted=len(b'"First input"{}'),
                 )
             self.assertEqual(sweep.versions_deleted, 1)
             self.dataset.refresh_from_db()
@@ -580,6 +586,7 @@ class TestDatasetRetention(TestCase):
         self.assertFalse(any(call.kwargs.get("dataset_id") == str(self.dataset.id) for call in log.call_args_list))
         self.assertEqual(sweep.datasets_failed, 1)
         self.assertEqual(sweep.versions_deleted, 0)
+        self.assertEqual(sweep.payload_bytes_deleted, 0)
         self.dataset.refresh_from_db()
         first.item.refresh_from_db()
         self.assertIsNone(self.dataset.expired_at)
@@ -591,6 +598,30 @@ class TestDatasetRetention(TestCase):
             with patch("products.ai_observability.backend.dataset_retention.MAX_DATASETS_PER_RUN", 1):
                 DatasetRetention().run()
             self.assertFalse(Dataset.objects.for_team(self.team.id, canonical=True).filter(id=other.id).exists())
+
+    def test_revision_deletion_failure_does_not_count_rolled_back_payload_bytes(self) -> None:
+        first = self.create_item("café")
+        self.update_item(first)
+        self.age_history()
+        original_delete = QuerySet.delete
+
+        def fail_revision_delete(queryset: QuerySet) -> tuple[int, dict[str, int]]:
+            if queryset.model is DatasetRevision:
+                raise DatabaseError("Injected revision deletion failure")
+            return original_delete(queryset)
+
+        sweep = DatasetRetention()
+        with patch("django.db.models.query.QuerySet.delete", autospec=True, side_effect=fail_revision_delete):
+            sweep.run()
+        self.assertEqual(sweep.datasets_failed, 1)
+        self.assertEqual(sweep.payload_bytes_deleted, 0)
+        self.assertTrue(
+            DatasetItemVersion.objects.for_team(self.team.id, canonical=True).filter(id=first.version.id).exists()
+        )
+
+        retry = DatasetRetention()
+        retry.run()
+        self.assertEqual(retry.payload_bytes_deleted, len('"café"{}'.encode()))
 
     @parameterized.expand([(8, False), (7, True), (1, True)])
     def test_expiring_soon_window(self, days: int, expected: bool) -> None:
@@ -640,10 +671,11 @@ class TestDatasetRetentionMigration(TransactionTestCase):
     def test_existing_content_receives_a_full_retention_period(self) -> None:
         _, _, team = Organization.objects.bootstrap(None)
         executor = MigrationExecutor(connection)
+        latest = executor.loader.graph.leaf_nodes()
         before = [("ai_observability", "0070_offline_payload_expiry_indexes")]
         after = [("ai_observability", "0074_release_expired_dataset_names")]
-        executor.migrate(before)
         try:
+            executor.migrate(before)
             apps = executor.loader.project_state(before).apps
             legacy_dataset = apps.get_model("ai_observability", "Dataset").objects.create(
                 team_id=team.id, name="Existing dataset"
@@ -682,4 +714,4 @@ class TestDatasetRetentionMigration(TransactionTestCase):
             replacement = Dataset.objects.for_team(team.id, canonical=True).create(team_id=team.id, name=dataset.name)
             self.assertNotEqual(dataset.id, replacement.id)
         finally:
-            MigrationExecutor(connection).migrate(after)
+            MigrationExecutor(connection).migrate(latest)

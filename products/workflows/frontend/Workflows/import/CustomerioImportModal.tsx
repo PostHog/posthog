@@ -1,5 +1,6 @@
 import { useActions, useValues } from 'kea'
 
+import { IconUpload } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonModal, LemonTable, LemonTag, LemonTagType, Link } from '@posthog/lemon-ui'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
@@ -115,7 +116,12 @@ export function CustomerioImportModal(): JSX.Element {
                         onChange={setFiles}
                         disabledReason={resultsLoading ? 'Wait for the import to finish' : undefined}
                         showUploadedFiles
-                        callToAction="Drop .json files here or click to browse"
+                        callToAction={
+                            <div className="flex w-full items-center justify-center gap-2 rounded border-2 border-dashed border-secondary bg-surface-primary p-6 hover:border-accent">
+                                <IconUpload className="text-lg" />
+                                Drop .json files here or click to browse
+                            </div>
+                        }
                     />
                     {parseError ? (
                         <LemonBanner

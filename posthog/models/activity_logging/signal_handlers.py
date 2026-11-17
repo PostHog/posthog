@@ -907,7 +907,7 @@ def handle_project_secret_api_key_change(
     sender, scope, before_update, after_update, activity, user, was_impersonated=False, **kwargs
 ):
     changes = changes_between(scope, previous=before_update, current=after_update)
-    log_project_secret_api_key_activity(after_update, activity, user, was_impersonated, changes)
+    log_project_secret_api_key_activity(after_update, activity, user, was_impersonated, changes, previous=before_update)
 
 
 @receiver(pre_delete, sender=ProjectSecretAPIKey)

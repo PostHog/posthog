@@ -98,7 +98,6 @@ describe('replayScannerLogic', () => {
                 scanner_type: 'monitor',
                 scanner_config: { prompt: '' },
                 sampling_rate: 0.2,
-                sampling_mode: 'balanced',
             })
         })
 
@@ -256,7 +255,7 @@ describe('replayScannerLogic', () => {
                     query: null,
                     free_only: freeOnly,
                     credit_limit: freeOnly ? null : 4000,
-                    ...(solved ? { sampling_mode: 'balanced', sampling_rate: 0.5 } : {}),
+                    ...(solved ? { sampling_rate: 0.5 } : {}),
                 },
             ])
             router.actions.push(urls.replayVisionScannerGoal('new'))
@@ -1405,7 +1404,18 @@ describe('replayScannerLogic', () => {
             })
         })
 
-        it('turns off free credits only with a patch of that one field and clears the stopped state', async () => {
+        it.each([
+            ['while capped, a patch of that one field', true, null, { free_only: false }],
+            [
+                'after the free credits turned it off, it turns on too',
+                false,
+                'free_credits_used' as const,
+                {
+                    free_only: false,
+                    enabled: true,
+                },
+            ],
+        ])('turns off free credits only %s', async (_name, enabled, disabled_reason, expectedBody) => {
             let patchedBody: any
             useMocks({
                 patch: {
@@ -1415,7 +1425,8 @@ describe('replayScannerLogic', () => {
                             200,
                             {
                                 ...loadedScanner,
-                                free_only: false,
+                                ...patchedBody,
+                                disabled_reason: null,
                                 limit_reached: false,
                                 limit_from_free_credits: false,
                             },
@@ -1424,18 +1435,30 @@ describe('replayScannerLogic', () => {
                 },
             })
             await expectLogic(editLogic, () => editLogic.actions.loadScanner()).toFinishAllListeners()
-            editLogic.actions.setScannerValues({ free_only: true, limit_reached: true, limit_from_free_credits: true })
+            editLogic.actions.setScannerValues({
+                enabled,
+                disabled_reason,
+                free_only: true,
+                limit_reached: true,
+                limit_from_free_credits: true,
+            })
             await expectLogic(editLogic, () => editLogic.actions.turnOffFreeOnly()).toDispatchActions([
                 'turnOffFreeOnlySuccess',
             ])
-            expect(patchedBody).toEqual({ free_only: false })
-            const running = { free_only: false, limit_reached: false, limit_from_free_credits: false }
+            expect(patchedBody).toEqual(expectedBody)
+            const running = {
+                enabled: true,
+                disabled_reason: null,
+                free_only: false,
+                limit_reached: false,
+                limit_from_free_credits: false,
+            }
             expect(editLogic.values.scanner).toMatchObject(running)
             expect(editLogic.values.originalScanner).toMatchObject(running)
             expect(editLogic.values.turningOffFreeOnly).toBe(false)
         })
 
-        it('turning a blocked scanner on takes the saved blocker and creator, not just the flag', async () => {
+        it('turning a blocked scanner on takes the saved blocker, creator and free-only, not just the flag', async () => {
             const newCreator = {
                 id: 99,
                 uuid: 'taker',
@@ -1447,16 +1470,26 @@ describe('replayScannerLogic', () => {
                 patch: {
                     '/api/projects/:team/vision/scanners/:id/': () => [
                         200,
-                        { ...loadedScanner, enabled: true, unrunnable_reason: null, created_by: newCreator },
+                        {
+                            ...loadedScanner,
+                            enabled: true,
+                            disabled_reason: null,
+                            created_by: newCreator,
+                            free_only: false,
+                        },
                     ],
                 },
             })
             await expectLogic(editLogic, () => editLogic.actions.loadScanner()).toFinishAllListeners()
-            editLogic.actions.setScannerValues({ enabled: false, unrunnable_reason: 'creator_lost_access' })
+            editLogic.actions.setScannerValues({
+                enabled: false,
+                disabled_reason: 'creator_lost_access',
+                free_only: true,
+            })
             await expectLogic(editLogic, () => editLogic.actions.toggleEnabled()).toDispatchActions([
                 'toggleEnabledSuccess',
             ])
-            const runnable = { enabled: true, unrunnable_reason: null, created_by: newCreator }
+            const runnable = { enabled: true, disabled_reason: null, created_by: newCreator, free_only: false }
             expect(editLogic.values.scanner).toMatchObject(runnable)
             expect(editLogic.values.originalScanner).toMatchObject(runnable)
         })

@@ -112,6 +112,7 @@ from posthog.query_cache.failures import (
     QueryFailureCache,
     WarmingQueryFailureCache,
 )
+from posthog.query_cache.read_history import days_read_at_this_time
 from posthog.query_cache.single_flight import (
     QUERY_SINGLE_FLIGHT_FLAG,
     FlightWait,
@@ -533,6 +534,21 @@ class TestQueryRunner(BaseTest):
         assert consumed["calculation_trigger"] == "warmingV2"
         assert consumed["request_trigger"] is None
         assert warmer_hit["request_trigger"] == "warmingV2"
+
+    @parameterized.expand([("warming_run", "warmingV2", 0), ("user_read", None, 1)])
+    def test_only_reads_outside_warming_enter_the_read_history(
+        self, _name: str, trigger: Optional[str], expected_days: int
+    ) -> None:
+        Runner = self.setup_test_query_runner_class()
+        runner = Runner(query={"some_attr": f"read-history-{_name}"}, team=self.team)
+        with mock.patch("posthog.hogql_queries.query_runner.get_query_tag_value", return_value=trigger):
+            runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS, insight_id=4242)
+
+        days = days_read_at_this_time(
+            team_id=self.team.pk, identifiers=["4242:"], now=datetime.now(UTC) + timedelta(days=1)
+        )
+
+        assert days == {"4242:": expected_days}
 
     @parameterized.expand([("failed_write", LimitContext.QUERY), ("uncached_export", LimitContext.EXPORT)])
     def test_failed_cache_write_is_not_reported_as_a_warmed_version(
@@ -1889,7 +1905,7 @@ class TestSharedInsightsExecutionMode(BaseTest):
         assert mock_enqueue.call_args.kwargs["sharing_configuration_id"] == expected
 
     @mock.patch("posthog.hogql_queries.query_runner.enqueue_process_query_task")
-    def test_async_payload_pins_a_resolved_native_table(self, mock_enqueue: mock.MagicMock) -> None:
+    def test_async_payload_pins_the_resolved_events_table(self, mock_enqueue: mock.MagicMock) -> None:
         with override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True):
             direct = HogQLQueryRunner(query=HogQLQuery(query="SELECT 1"), team=self.team)
             direct.query = direct.query.model_copy(update={"connectionId": "direct"})
@@ -1904,10 +1920,13 @@ class TestSharedInsightsExecutionMode(BaseTest):
             runner.enqueue_async_calculation(cache_manager=mock.MagicMock(), user=self.user)
             legacy = HogQLQueryRunner(query=HogQLQuery(query="SELECT 1"), team=self.team)
             legacy.enqueue_async_calculation(cache_manager=mock.MagicMock(), user=self.user)
+        with override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True):
+            legacy_worker = HogQLQueryRunner(query=mock_enqueue.call_args.kwargs["query_json"], team=self.team)
 
         assert worker.modifiers.useNewEventsSchema is True
         assert worker.get_cache_key() == runner.get_cache_key()
-        assert mock_enqueue.call_args.kwargs["query_json"] == legacy.query.model_dump()
+        assert legacy_worker.modifiers.useNewEventsSchema is False
+        assert legacy_worker.get_cache_key() == legacy.get_cache_key()
         assert legacy.get_cache_key() != runner.get_cache_key()
         assert "useNewEventsSchema" not in legacy.get_cache_payload()["hogql_modifiers"]
 

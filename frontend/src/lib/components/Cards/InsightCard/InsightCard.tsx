@@ -9,6 +9,7 @@ import { useInView } from 'react-intersection-observer'
 
 import { ApiError } from 'lib/api'
 import { Resizeable } from 'lib/components/Cards/CardMeta'
+import { useQuillSurface } from 'lib/components/QuillSurface/quillSurfaceContext'
 import { useInterval } from 'lib/hooks/useInterval'
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
 import { getCapacityRetryAt, getRetryCooldown } from 'lib/insights/sharedUtils'
@@ -256,6 +257,7 @@ function InsightCardInternal(
     const mergedRefs = useMergeRefs([ref, inViewRef])
 
     const { theme } = useValues(themeLogic)
+    const quillSurface = useQuillSurface()
 
     const canEditInsight = insight.user_access_level
         ? accessLevelSatisfied(AccessControlResourceType.Insight, insight.user_access_level, AccessControlLevel.Editor)
@@ -478,12 +480,14 @@ function InsightCardInternal(
     return (
         <div
             className={clsx(
-                'DashboardTileCard InsightCard border',
+                'DashboardTileCard InsightCard',
+                quillSurface ? 'InsightCard--quill' : 'border',
                 highlighted && 'InsightCard--highlighted',
                 areDetailsShown && 'InsightCard--details-shown',
                 className
             )}
             data-attr="insight-card"
+            data-not-quill={quillSurface || undefined}
             {...{ [INSIGHT_CARD_KEY_ATTR]: insightCardKey(insight, tile) }}
             {...divProps}
             // eslint-disable-next-line react/forbid-dom-props

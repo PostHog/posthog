@@ -39,16 +39,22 @@ export type PersonHogConfig = Pick<
     | 'PLUGIN_SERVER_MODE'
 >
 
-export function createPersonHogClient(config: PersonHogConfig): PersonHogClient | null {
-    if (!config.PERSONHOG_ENABLED || !config.PERSONHOG_ADDR) {
+export function createPersonHogClient(
+    config: PersonHogConfig,
+    target: { addr: string; clientName: string } = {
+        addr: config.PERSONHOG_ADDR,
+        clientName: config.PLUGIN_SERVER_MODE ?? 'unknown',
+    }
+): PersonHogClient | null {
+    if (!config.PERSONHOG_ENABLED || !target.addr) {
         return null
     }
 
-    logger.info('🔌', `PersonHog gRPC client connecting to ${config.PERSONHOG_ADDR}`)
+    logger.info('🔌', `PersonHog gRPC client connecting to ${target.addr}`)
 
     return PersonHogClient.fromConfig({
-        addr: config.PERSONHOG_ADDR,
-        clientName: config.PLUGIN_SERVER_MODE ?? 'unknown',
+        addr: target.addr,
+        clientName: target.clientName,
         useTls: config.PERSONHOG_TLS,
         timeoutMs: config.PERSONHOG_TIMEOUT_MS,
         readMaxBytes: config.PERSONHOG_READ_MAX_BYTES,

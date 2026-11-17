@@ -18,12 +18,14 @@ import {
     MinimalLogEntry,
 } from '../../../types'
 import { HogExecutorExecuteAsyncOptions } from '../../hog-executor-async.service'
+import { isLiquidRenderTimeout } from '../../hog-inputs.service'
 import { EmailSkipReason, EmailStatusService } from '../../messaging/email-status.service'
 import { EmailValidationService } from '../../messaging/email-validation.service'
 import { FrequencyCapCheck, RecipientPreferencesService } from '../../messaging/recipient-preferences.service'
 import { CdpUsageReporterService } from '../../usage/cdp-usage-reporter.service'
 import { trackHogFlowBillableInvocation } from '../billing-utils'
 import { HogFlowFunctionsService } from '../hogflow-functions.service'
+import { loadMissingPersonProperties, personPropertiesInTemplates } from '../hogflow-person-property-usage'
 import { isSensitiveMessage } from '../hogflow-sensitivity'
 import { actionIdForLogging, aiTaskLogToken, findContinueAction } from '../hogflow-utils'
 import { observeMissingVariableReferences } from '../hogflow-variable-usage'
@@ -107,6 +109,19 @@ const readWarnings = (resumeResult: unknown): string[] => {
 }
 
 // Unlabelled: how often a step degrades fleet-wide. Which flow and field goes to the warn log.
+export const RENDER_TIMEOUT_RETRY_DELAYS_SECONDS = [10, 60, 300]
+
+// Only 'failed' loses the message.
+const counterHogflowRenderTimeout = new Counter({
+    name: 'cdp_hogflow_render_timeout_total',
+    help: 'Workflow steps whose inputs ran out of render time, by outcome.',
+    labelNames: ['outcome'],
+})
+// Exported at 0 from startup, so a failure before the pod's first scrape still counts.
+for (const outcome of ['retried', 'failed']) {
+    counterHogflowRenderTimeout.inc({ outcome }, 0)
+}
+
 const counterAwaitedStepResumedWithWarnings = new Counter({
     name: 'cdp_hogflow_awaited_step_resumed_with_warnings',
     help: 'A parked step resumed and continued, but the product that ran the job reported a warning.',
@@ -188,18 +203,39 @@ export class HogFunctionHandler implements ActionHandler {
         // rendered state in hogFunctionState) - so this also fires at most once per step per run
         if (
             !invocation.state.currentAction?.hogFunctionState &&
-            !invocation.state.currentAction?.frequencyCapHoldDeadlineAt
+            !invocation.state.currentAction?.frequencyCapHoldDeadlineAt &&
+            !invocation.state.currentAction?.renderTimeoutAttempts
         ) {
             observeMissingVariableReferences(invocation, action, result)
+        }
+        // A hold wake and a render retry render the inputs again, so they need the property too.
+        if (!invocation.state.currentAction?.hogFunctionState) {
+            await loadMissingPersonProperties(invocation, result, () =>
+                personPropertiesInTemplates(action.config as { inputs?: unknown; mappings?: unknown })
+            )
         }
 
         const wokeFromHold =
             !!invocation.state.currentAction?.frequencyCapHoldDeadlineAt &&
             !invocation.state.currentAction?.hogFunctionState
-        const functionResult = await this.executeHogFunction(invocation, action, hogExecutorOptions)
+        let functionResult: Awaited<ReturnType<HogFunctionHandler['executeHogFunction']>>
+        try {
+            functionResult = await this.executeHogFunction(invocation, action, hogExecutorOptions)
+        } catch (error) {
+            if (isLiquidRenderTimeout(error) && !hogExecutorOptions?.isTest) {
+                return retryOrFailRenderTimeout(invocation, action, result, error)
+            }
+            throw error
+        }
+        if (invocation.state.currentAction) {
+            delete invocation.state.currentAction.renderTimeoutAttempts
+        }
 
         if (functionResult.emailSendResult) {
             result.emailSendResult = functionResult.emailSendResult
+        }
+        if (functionResult.parked) {
+            result.parked = true
         }
 
         // Add all logs
@@ -648,6 +684,32 @@ export class HogFunctionHandler implements ActionHandler {
             this.hogFlowFunctionsService.executeWithAsyncFunctions(hogFunctionInvocation, hogExecutorOptions)
         )
     }
+}
+
+// Re-running is safe: nothing is sent or counted against a cap before the inputs render.
+function retryOrFailRenderTimeout(
+    invocation: CyclotronJobInvocationHogFlow,
+    action: Action,
+    result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>,
+    error: unknown
+): ActionHandlerResult {
+    const currentAction = invocation.state.currentAction
+    const failedAttempts = (currentAction?.renderTimeoutAttempts ?? 0) + 1
+    const retryDelaySeconds = RENDER_TIMEOUT_RETRY_DELAYS_SECONDS[failedAttempts - 1]
+
+    if (currentAction && retryDelaySeconds !== undefined) {
+        currentAction.renderTimeoutAttempts = failedAttempts
+        counterHogflowRenderTimeout.labels('retried').inc()
+        result.logs.push({
+            level: 'warn',
+            timestamp: DateTime.now(),
+            message: `${actionIdForLogging(action)} ${(error as Error).message}. Retrying in ${retryDelaySeconds}s`,
+        })
+        return { scheduledAt: DateTime.now().plus({ seconds: retryDelaySeconds }) }
+    }
+
+    counterHogflowRenderTimeout.labels('failed').inc()
+    throw error
 }
 
 type FrequencyCapHold = { until: DateTime; deadlineAt: string; firstHold: boolean }

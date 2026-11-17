@@ -375,6 +375,7 @@ jobs:
             # missing, so a failed upload costs one narrowing opportunity rather
             # than the build and the whole visual-regression matrix behind it.
             - name: Upload module-graph artifact
+              if: github.event_name == 'pull_request'
               continue-on-error: true
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               with:
@@ -385,6 +386,7 @@ jobs:
 
             # Consumed by check-baseline-removals, which needs only the story index.
             - name: Upload story index artifact
+              if: github.event_name == 'pull_request' && needs.changes.outputs.snapshots_baseline == 'true'
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               with:
                   name: storybook-index
@@ -991,15 +993,13 @@ jobs:
 
     # Verify changed story files are stable by re-running them multiple times.
     # Catches flaky snapshots and webkit-only breaks before they land on master.
-    # Story files the diff affects without changing them run too, warn only (see the script).
     flake-verification:
         name: Storybook flake verification
         runs-on: ubuntu-24.04
-        needs: [changes, build-storybook, select-stories]
+        needs: [changes, build-storybook]
         # Skipped on trunk-merge/**: the job diffs against the merge base to find changed stories,
         # which on a queue branch is the same set the PR's own run already verified.
-        # `!cancelled()` keeps the job running when select-stories is skipped (run-ci-frontend
-        # label) or fails. The affected list is then empty and only changed story files run.
+        # Changed files come from git, so this job can start before story selection finishes.
         if: |
             !cancelled()
             && needs.build-storybook.result == 'success'
@@ -1095,7 +1095,8 @@ jobs:
                   REPO: ${{ github.repository }}
                   BASE_SHA: ${{ github.event.pull_request.base.sha }}
                   HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-                  AFFECTED_FILES_JSON: ${{ needs.select-stories.outputs.affected_files_json || '[]' }}
+                  # Empty even on old PR heads: their verifier then runs changed stories only.
+                  AFFECTED_FILES_JSON: '[]'
               # The merge base comes from the API because the depth-1 checkout cannot compute it.
               # It is resolved here, not in the script, because unrebased branches keep their old script.
               run: |

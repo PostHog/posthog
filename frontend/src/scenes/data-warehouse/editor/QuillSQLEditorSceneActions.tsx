@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconBook, IconChevronDown, IconDownload, IconNotebook, IconX } from '@posthog/icons'
+import { IconBook, IconChevronDown, IconDownload, IconNotebook, IconWarning, IconX } from '@posthog/icons'
 import {
     Button,
     ButtonGroup,
@@ -34,6 +34,8 @@ export interface QuillSQLEditorSceneActionsProps {
     editingViewDisabledReason: string | undefined
     editingViewLoading: boolean
     onUpdateView: () => void
+    confirmSave: (save: () => void) => void
+    needsSaveConfirmation: boolean
     saveAsInsightDisabledReason: string | undefined
     saveAsDisabledReason: string | undefined
     continueInNotebookAccessDisabledReason: string | null
@@ -54,6 +56,8 @@ export function QuillSQLEditorSceneActions({
     editingViewDisabledReason,
     editingViewLoading,
     onUpdateView,
+    confirmSave,
+    needsSaveConfirmation,
     saveAsInsightDisabledReason,
     saveAsDisabledReason,
     continueInNotebookAccessDisabledReason,
@@ -168,6 +172,10 @@ export function QuillSQLEditorSceneActions({
         </DropdownMenuTrigger>
     )
 
+    const saveWarning = needsSaveConfirmation ? (
+        <IconWarning data-attr="sql-editor-save-warning" aria-hidden="true" />
+    ) : null
+
     return (
         <div className="flex flex-wrap items-center gap-2">
             {editingView ? (
@@ -189,7 +197,8 @@ export function QuillSQLEditorSceneActions({
                                     disabledReason={editingViewDisabledReason}
                                 >
                                     {!editingViewLoading && <IconDownload />}
-                                    {isMaterializedView ? 'Update and re-materialize view' : 'Update view'}
+                                    <span>{isMaterializedView ? 'Update and re-materialize view' : 'Update view'}</span>
+                                    {saveWarning}
                                 </Button>
                             </AccessControlAction>
                             {saveOptionsTrigger()}
@@ -221,14 +230,15 @@ export function QuillSQLEditorSceneActions({
                         <ButtonGroup>
                             <Button
                                 variant="primary"
-                                onClick={() => updateInsight()}
+                                onClick={() => confirmSave(updateInsight)}
                                 loading={insightLoading}
                                 disabledReason={
                                     saveAsInsightDisabledReason ??
                                     (!updateInsightButtonEnabled ? 'No updates to save' : undefined)
                                 }
                             >
-                                Update insight
+                                <span>Update insight</span>
+                                {saveWarning}
                             </Button>
                             {saveOptionsTrigger('sql-editor-save-options-button')}
                         </ButtonGroup>
@@ -258,12 +268,13 @@ export function QuillSQLEditorSceneActions({
                         <ButtonGroup>
                             <Button
                                 variant="primary"
-                                onClick={() => updateEditingMetric()}
+                                onClick={() => confirmSave(updateEditingMetric)}
                                 loading={metricUpdating}
                                 disabledReason={saveAsDisabledReason}
                                 data-attr="sql-editor-update-metric"
                             >
-                                Update metric
+                                <span>Update metric</span>
+                                {saveWarning}
                             </Button>
                             {saveOptionsTrigger()}
                         </ButtonGroup>
@@ -303,7 +314,8 @@ export function QuillSQLEditorSceneActions({
                             <DropdownMenuTrigger
                                 render={<Button variant="primary" data-attr="sql-editor-save-options-button" />}
                             >
-                                Save as
+                                <span>Save as</span>
+                                {saveWarning}
                                 <IconChevronDown />
                             </DropdownMenuTrigger>
                             <DropdownMenuContent align="end" className="w-80" data-attr="sql-editor-save-as-dialog">
@@ -318,7 +330,8 @@ export function QuillSQLEditorSceneActions({
                                     onClick={onPrimarySaveClick}
                                     disabledReason={primarySaveDisabledReason}
                                 >
-                                    {saveAsMenuItems.primary.label}
+                                    <span>{saveAsMenuItems.primary.label}</span>
+                                    {saveWarning}
                                 </Button>
                                 {saveOptionsTrigger('sql-editor-save-options-button')}
                             </ButtonGroup>

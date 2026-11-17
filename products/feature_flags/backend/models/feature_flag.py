@@ -21,7 +21,7 @@ from posthog.models.tagged_items_relation import Taggable
 from posthog.models.utils import RootTeamManager, RootTeamMixin, RootTeamQuerySet
 
 from products.cohorts.backend.models.cohort import Cohort, CohortOrEmpty
-from products.experiments.backend.models.experiment import live_experiment_exists
+from products.experiments.backend.facade.feature_flags import flag_ids_with_live_experiment
 from products.feature_flags.backend.facade.config import ConfigFormatError, ConfigV1, decode_config, require_v1_config
 from products.feature_flags.backend.facade.references import InvalidIds, references
 from products.feature_flags.backend.variant_rollout import format_variant_rollout_sum, variant_rollout_sum_is_100
@@ -238,8 +238,8 @@ class FeatureFlag(Taggable, FileSystemSyncMixin, ModelActivityMixin, RootTeamMix
     # when accessing evaluation context names for many flags at once.
     _evaluation_tag_names: Optional[list[str]] = None
 
-    # Cache projection: whether the flag backs an experiment. Annotated via a bulk
-    # Exists query (or read from cache) to avoid a per-flag experiment lookup.
+    # Cache projection: whether the flag backs an experiment, set by one bulk read after the flag read. It can be newer
+    # than the flags, and the `connect_experiment_changed` receivers rebuild the caches after every experiment write.
     _has_experiment: Optional[bool] = None
 
     # The flag API sets this to the flag's experiments that are not deleted, loaded for all flags of a response in one
@@ -322,17 +322,23 @@ class FeatureFlag(Taggable, FileSystemSyncMixin, ModelActivityMixin, RootTeamMix
         try:
             self._v1_filters()
         except ConfigFormatError as exc:
-            return {"created_at": self.created_at, "config_format": exc.config_format.kind}
+            return {
+                "feature_flag_id": self.id,
+                "created_at": self.created_at,
+                "config_format": exc.config_format.kind,
+            }
         filter_count = sum(len(condition.get("properties", [])) for condition in self.conditions)
         variants_count = len(self.variants)
         payload_count = len(self._payloads)
 
         return {
+            "feature_flag_id": self.id,
             "groups_count": len(self.conditions),
             "has_variants": variants_count > 0,
             "variants_count": variants_count,
             "has_filters": filter_count > 0,
             "has_rollout_percentage": any(condition.get("rollout_percentage") for condition in self.conditions),
+            "condition_rollout_percentages": [condition.get("rollout_percentage") for condition in self.conditions],
             "filter_count": filter_count,
             "created_at": self.created_at,
             "aggregating_by_groups": self.aggregation_group_type_index is not None,
@@ -633,10 +639,10 @@ def get_feature_flags(
             filter=Q(flag_evaluation_contexts__isnull=False),
             distinct=True,
         ),
-        has_experiment_agg=live_experiment_exists(),
     )
 
     all_feature_flags = list(qs)
+    live_experiment_flag_ids = flag_ids_with_live_experiment([flag.pk for flag in all_feature_flags], using=qs.db)
 
     # Transfer the aggregated tag names to the _evaluation_tag_names attribute
     # so the serializer can access them without additional queries. This is a
@@ -648,7 +654,7 @@ def get_feature_flags(
         except AttributeError:
             # evaluation_tag_names_agg field missing from aggregation query
             _flag._evaluation_tag_names = None
-        _flag._has_experiment = _flag.has_experiment_agg
+        _flag._has_experiment = _flag.pk in live_experiment_flag_ids
 
     return all_feature_flags
 

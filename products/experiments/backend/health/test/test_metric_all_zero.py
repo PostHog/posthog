@@ -37,7 +37,10 @@ CODE = ExperimentHealthFindingCode.METRIC_ALL_ZERO
 WARNING = ExperimentHealthFindingSeverity.WARNING
 INFO = ExperimentHealthFindingSeverity.INFO
 NO_QUERIES = ExperimentHealthReaderAccess(
-    can_read_flag_history=False, can_query_events=False, denied_event_properties=frozenset()
+    can_read_flag_history=False,
+    can_query_events=False,
+    denied_event_properties=frozenset(),
+    restricted_properties=frozenset(),
 )
 LAST_ARRIVED = datetime(2026, 10, 1, 9, 30, tzinfo=UTC)
 MEAN = {"metric_type": "mean"}
@@ -359,6 +362,19 @@ class TestMetricAllZero(TestCase):
         )
         self.assertEqual(outcome.evidence["metric_2_exposures"], 20000)
         self.assertIsNone(outcome.evidence["metric_2_cause"])
+
+    @parameterized.expand([("running", {}, True), ("ended", ENDED, False)])
+    def test_names_an_outcome_that_comes_later_while_the_experiment_runs(
+        self, _name: str, status: dict[str, Any], names_it: bool
+    ) -> None:
+        outcome = _outcome(_metric(), **status)
+
+        assert isinstance(outcome, ExperimentHealthFinding)
+        self.assertEqual(
+            "The results cover 4 days since the start date. An outcome that comes days after exposure, such as a "
+            "trial that converts when it ends, reads 0 until it happens." in outcome.detail,
+            names_it,
+        )
 
     def test_says_the_usual_causes_once(self) -> None:
         outcome = _outcome(

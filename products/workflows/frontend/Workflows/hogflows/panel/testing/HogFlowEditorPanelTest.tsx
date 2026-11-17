@@ -9,7 +9,7 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LogsViewerTable } from 'scenes/hog-functions/logs/LogsViewer'
 
 import { renderWorkflowLogMessage } from '../../../logs/log-utils'
-import { TRIGGER_NODE_ID, workflowLogic } from '../../../workflowLogic'
+import { workflowLogic } from '../../../workflowLogic'
 import { hogFlowEditorLogic } from '../../hogFlowEditorLogic'
 import { HogFlowEditorTestEvent } from './HogFlowEditorTestEvent'
 import { hogFlowEditorTestLogic } from './hogFlowEditorTestLogic'
@@ -27,7 +27,7 @@ export function HogFlowTestPanelNonSelected(): JSX.Element {
 
 export function HogFlowEditorPanelTest(): JSX.Element | null {
     const { workflow, selectedNode } = useValues(hogFlowEditorLogic)
-    const { setSelectedNodeId } = useActions(hogFlowEditorLogic)
+    const { selectTrigger, setSelectedNodeId } = useActions(hogFlowEditorLogic)
     const { logicProps } = useValues(workflowLogic)
 
     const { sampleGlobals, isTestInvocationSubmitting, testResult, nextActionId, showTestEvent } = useValues(
@@ -49,7 +49,7 @@ export function HogFlowEditorPanelTest(): JSX.Element | null {
 
                 <p>Step through each action in your workflow and see how it behaves.</p>
 
-                <LemonButton type="primary" onClick={() => setSelectedNodeId(TRIGGER_NODE_ID)}>
+                <LemonButton type="primary" onClick={() => selectTrigger()}>
                     Start testing
                 </LemonButton>
             </div>

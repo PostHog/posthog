@@ -11,6 +11,7 @@ The MCP tools for the workflows product, grouped by job. The lifecycle that stri
 - `workflows-patch-action-email` — **the way to edit the email inside a `function_email` step.** The template patch's design ops (id-addressed Unlayer blocks) plus an `email_patch` merge for subject/preheader/text/recipients; HTML is re-rendered server-side so it can't go stale. Stages a draft on active workflows, same as `workflows-patch-graph`.
 - `workflows-update` — **fallback editor.** Top-level metadata a graph patch can't express (renaming), or an escape hatch to replace the whole workflow when `workflows-patch-graph` won't land a change. On an active workflow, content fields stage a draft; name/description apply live.
 - `workflows-enable` — draft → `active`. It starts running on real people, so test first and get the user's explicit approval before enabling. Later changes stage as drafts and take effect only on publish.
+- `workflows-disable` — stop an active workflow by returning it to `draft`. Content edits after disabling still stage as a draft and need the normal test and publish cycle before they take effect.
 - `workflows-publish` — apply an active workflow's staged draft to its live config. Call without `confirm` first: it echoes `in_flight_runs` + `draft_updated_at` and changes nothing. Get the user's go-ahead, then confirm with that exact `draft_updated_at` (409 = draft changed under you; re-read).
 - `workflows-discard-draft` — throw the staged draft away; live config untouched. Idempotent.
 - `workflows-archive` — retire a workflow.
@@ -27,7 +28,7 @@ The MCP tools for the workflows product, grouped by job. The lifecycle that stri
 - `workflows-run-batch` — one-off broadcast to the batch audience (one run per matching person).
 - `workflows-schedule-create` — attach a recurring schedule (RRULE) to a batch/schedule workflow.
 - `workflows-update-schedule` — change a schedule's RRULE, start time, timezone, or variable overrides.
-- `workflows-list-batch-jobs` — past batch runs (one-off + schedule-triggered), with the audience filters and variable overrides each used. No per-run status here — use logs/stats for outcomes.
+- `workflows-list-batch-jobs` — past batch runs (one-off + schedule-triggered), with the audience filters and variable overrides each used. No per-run status here. A run's sends, steps, outcomes and logs are keyed on the run's id, so `workflows-stats` and `workflows-logs` never show them: read a run's counts from `app_metrics` with `execute-sql` (`app_source = 'hog_flow' AND app_source_id = '<run id>'`), and who it reached from `posthog.hog_invocation_results` (`function_id = '<workflow id>' AND parent_run_id = '<run id>' AND scheduled_at >= '<run created_at>'`, `argMax(status, version)` per `invocation_id`; rows last 30 days). Bookkeeping counters such as `masked`, `quota_limited` and `billable_invocation` stay keyed on the workflow. `workflows-list-invocations` has no run filter, so it mixes every run.
 - `workflows-blast-radius` — preview how many people a set of audience filters matches before dispatching.
 
 **Monitor & debug**

@@ -448,7 +448,7 @@ func (m Model) renderInfo() string {
 	if p == nil {
 		return ""
 	}
-	snap := p.Snapshot()
+	snap := p.LastSnapshot()
 
 	titleStyle := lipgloss.NewStyle().Bold(true).Foreground(colorYellow)
 	labelStyle := lipgloss.NewStyle().Foreground(colorBrightBlack).Width(20)

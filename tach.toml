@@ -124,6 +124,7 @@ depends_on = [
     "ee",
     "products.access_control",
     "products.aeo",
+    "products.ai_gateway",
     "products.analytics_platform",
     "products.approvals",
     "products.authorization",
@@ -296,6 +297,9 @@ depends_on = [
     "posthog",
     "products.actions",
     "products.batch_exports",
+    # Facade-only: the admin replay of failed runs reads workflows through
+    # products.workflows.backend.facade.workflows.
+    "products.workflows",
 ]
 layer = "modules"
 
@@ -363,6 +367,12 @@ depends_on = [
     "products.data_warehouse",
     "products.revenue_analytics",
     "products.warehouse_sources", "products.access_control",
+    # The materialization workflows and activities in backend/temporal/ call these facades.
+    "products.customer_analytics",
+    "products.data_quality",
+    "products.endpoints",
+    "products.managed_warehouse",
+    "products.notifications",
 ]
 layer = "modules"
 
@@ -553,6 +563,7 @@ depends_on = [
     "products.approvals",
     "products.ai_observability",
     "products.analytics_platform",
+    "products.cdp",
     "products.data_tools",
     "products.event_definitions",
     "products.feature_flags",
@@ -598,6 +609,7 @@ path = "products.growth"
 depends_on = [
     "ee",
     "posthog", "products.access_control",
+    "products.feature_flags",
     "products.signals", "products.tasks",
     "products.warehouse_sources", "products.wizard",
 ]
@@ -723,8 +735,8 @@ depends_on = [
     # Facade-only: the recipient preferences page reads EmailTrackingConsentMode through
     # products.workflows.backend.facade.enums.
     "products.workflows",
-    # Presentation-only: the template design action wraps HTML through
-    # products.cdp.backend.presentation.hog_functions.
+    # Design helpers only: the template design action and imported templates wrap HTML through
+    # products.cdp.backend.presentation.hog_functions and products.cdp.backend.validation.
     "products.cdp",
 ]
 layer = "modules"
@@ -991,7 +1003,7 @@ depends_on = [
 layer = "modules"
 
 [[modules]]
-# Skills imports ai_observability's shared markdown_outline + API metrics helpers —
+# Skills imports ai_observability's shared markdown_outline —
 # temporary coupling from the standalone-product extraction, slated for cleanup.
 path = "products.skills"
 depends_on = [
@@ -1017,6 +1029,8 @@ depends_on = [
     "products.feature_flags",
     "products.notebooks",
     "products.product_analytics",
+    "products.release",
+    "products.security",
     "products.signals",
     "products.surveys",
     "products.tasks", "products.access_control",
@@ -1343,18 +1357,6 @@ from = [
     "products.dashboards",
 ]
 
-# TODO: Experiments-specific temporary interface
-# Remove this block once all ViewSets are migrated to products/experiments/backend/presentation/views.py
-
-[[interfaces]]
-expose = [
-    "backend\\.presentation\\.experiments.*",
-    "backend\\.presentation\\.saved_metrics.*",
-]
-from = [
-    "products.experiments",
-]
-
 # Billing alerts registers product-owned workflows and a schedule with the shared billing worker,
 # and its platform evaluation with the alerts platform's evaluation worker.
 
@@ -1368,30 +1370,6 @@ expose = [
 ]
 from = [
     "products.billing_alerts",
-]
-
-# Experiments is the first isolated product to register a Temporal workflow, so the canonical interface
-# doesn't cover the registration surface yet. Narrowly expose the symbols core imports (worker registration,
-# schedule registration, and the worker interceptor) rather than widening every isolated product's surface.
-
-[[interfaces]]
-expose = [
-    "backend\\.temporal\\.ACTIVITIES",
-    "backend\\.temporal\\.EXPERIMENT_CANARY_ACTIVITIES",
-    "backend\\.temporal\\.EXPERIMENT_CANARY_WORKFLOWS",
-    "backend\\.temporal\\.EXPERIMENT_ENROLLMENT_CENSUS_ACTIVITIES",
-    "backend\\.temporal\\.EXPERIMENT_ENROLLMENT_CENSUS_WORKFLOWS",
-    "backend\\.temporal\\.EXPERIMENT_RECALCULATION_ACTIVITY_QUEUE_ACTIVITIES",
-    "backend\\.temporal\\.EXPERIMENT_SCHEDULED_RECALCULATION_ACTIVITIES",
-    "backend\\.temporal\\.EXPERIMENT_SCHEDULED_RECALCULATION_WORKFLOWS",
-    "backend\\.temporal\\.WORKFLOWS",
-    "backend\\.temporal\\.recalculation_metrics.*",
-    "backend\\.temporal\\.schedule\\.create_experiment_precompute_canary_schedule",
-    "backend\\.temporal\\.schedule\\.create_experiment_precompute_enrollment_census_schedule",
-    "backend\\.temporal\\.schedule\\.create_experiment_scheduled_recalculation_schedules",
-]
-from = [
-    "products.experiments",
 ]
 
 # streamlit_apps exposes the HogQL bridge view, routed directly from posthog/urls.py.
@@ -1412,12 +1390,8 @@ from = [
 [[interfaces]]
 expose = [
     "backend\\.experiment_saved_metric_service.*",
-    "backend\\.experiment_service.*",
-    "backend\\.hogql_queries.*",
-    "backend\\.llm_metric_templates.*",
     "backend\\.metric_utils.*",
     "backend\\.models.*",
-    "stats\\..*",
 ]
 from = [
     "products.experiments",
@@ -1742,6 +1716,8 @@ from = [
 path = "products.data_catalog"
 depends_on = [
     "posthog",
+    # Facade-only: the usage tab checks object access on the dashboards its charts sit on.
+    "products.dashboards",
     "products.data_quality",
     "products.data_tools",
     "products.product_analytics",
@@ -2075,7 +2051,7 @@ from = [
 
 [[modules]]
 path = "products.release"
-depends_on = ["posthog", "products.feature_flags", "products.workflows"]
+depends_on = ["posthog", "products.feature_flags", "products.product_analytics", "products.surveys", "products.workflows"]
 layer = "modules"
 
 [[interfaces]]

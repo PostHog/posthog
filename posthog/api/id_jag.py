@@ -29,7 +29,8 @@ from posthog.jwt import ASYMMETRIC_SIGNING_ALGORITHMS
 from posthog.models.id_jag_identity import IDENTITY_FIELD_MAX_LENGTH, IdJagIdentity
 from posthog.models.identity_provider_config import IdentityProviderConfig
 from posthog.models.user import User
-from posthog.scopes import get_oauth_scopes_supported
+from posthog.scopes.catalog import translate_renamed_scopes
+from posthog.scopes.oauth import OAUTH_SCOPES_SUPPORTED
 from posthog.security.url_validation import is_url_allowed
 
 logger = structlog.get_logger(__name__)
@@ -114,6 +115,7 @@ class IdJagClaims(TypedDict, total=False):
     resource: str
     jti: str
     tenant: str
+    aud_tenant: str
     iat: int
     nbf: int
     exp: int
@@ -329,6 +331,19 @@ def _verify_and_extract_id_jag_token(
         raise InvalidGrantError(GENERIC_ID_JAG_REJECTION)
 
     idp_config = resolution.identity_provider_config
+
+    # An issuer registered through EMA setup is trusted only while staff keep the registering
+    # application approved, so removing the flag cuts off every organization that client set up.
+    registering_application = idp_config.id_jag_registered_by_application
+    if registering_application is not None and not registering_application.can_manage_ema_issuer:
+        logger.info(
+            "id_jag_token_rejected",
+            reason="The application that registered this issuer is no longer approved for EMA setup",
+            issuer=issuer,
+            stage="pre_signature_registering_application_check",
+        )
+        raise InvalidGrantError(GENERIC_ID_JAG_REJECTION)
+
     organization_domain = resolution.organization_domain
     expected_issuer = (idp_config.id_jag_issuer_url or "").rstrip("/")
     provider_name = organization_domain.domain
@@ -387,6 +402,21 @@ def _verify_and_extract_id_jag_token(
             claim_issuer=claim_issuer,
             expected_issuer=expected_issuer,
             stage="post_signature_iss_check",
+        )
+        raise InvalidGrantError(GENERIC_ID_JAG_REJECTION)
+
+    # For an issuer registered through EMA setup, `aud_tenant` is the organization ID the setup
+    # endpoint returned, and every assertion must name the organization trusting the issuer.
+    # Manually configured IdPs may fill the claim with their own value, so it isn't checked there.
+    aud_tenant = claims.get("aud_tenant")
+    if idp_config.id_jag_registered_by_application_id is not None and str(aud_tenant) != str(
+        idp_config.organization_id
+    ):
+        logger.info(
+            "id_jag_token_rejected",
+            reason="ID-JAG aud_tenant is missing or does not name the organization that trusts this issuer",
+            issuer=expected_issuer,
+            stage="post_signature_aud_tenant_check",
         )
         raise InvalidGrantError(GENERIC_ID_JAG_REJECTION)
 
@@ -575,8 +605,8 @@ def _parse_scope_list(value: str | list[str] | None) -> list[str]:
     if value is None:
         return []
     if isinstance(value, list):
-        return [s for s in value if s]
-    return [s for s in value.split() if s]
+        return translate_renamed_scopes(s for s in value if s)
+    return translate_renamed_scopes(value.split())
 
 
 def issue_access_token(
@@ -602,7 +632,7 @@ def issue_access_token(
     id_jag_scopes = _parse_scope_list(verified_id_jag.claims.get("scope"))
     parsed_requested = _parse_scope_list(requested_scope) if requested_scope is not None else None
 
-    known_scopes = set(get_oauth_scopes_supported())
+    known_scopes = set(OAUTH_SCOPES_SUPPORTED)
     sanitized_id_jag_scopes = [s for s in id_jag_scopes if s in known_scopes]
 
     granted = _get_scopes(sanitized_id_jag_scopes, parsed_requested)

@@ -9,16 +9,24 @@ import { SuggestionList } from './SuggestionList'
 
 /** A collapsed bar to suggest ideas for the next run, next to the button that starts one. */
 export function SteerAgentBar(): JSX.Element {
-    const { pipeline, startTrainingResultLoading, hasLiveTrainingRun, queuedSuggestionCount, stoppingTraining } =
-        useValues(autoresearchPipelineLogic)
-    const { startTraining, steerOpened, stopTraining } = useActions(autoresearchPipelineLogic)
+    const {
+        pipeline,
+        startTrainingResultLoading,
+        firstRunCheckRunning,
+        hasLiveTrainingRun,
+        queuedSuggestionCount,
+        stoppingTraining,
+    } = useValues(autoresearchPipelineLogic)
+    const { requestTraining, steerOpened, stopTraining } = useActions(autoresearchPipelineLogic)
     const { props } = useMountedLogic(autoresearchPipelineLogic)
     const { trainDisabledByLimitReason } = useValues(trainingScheduleLogic(props))
-    const trainDisabledReason = startTrainingResultLoading
-        ? 'Starting…'
-        : pipeline?.status === 'paused'
-          ? 'Resume the model to train it'
-          : trainDisabledByLimitReason
+    const trainDisabledReason = firstRunCheckRunning
+        ? 'Checking your data'
+        : startTrainingResultLoading
+          ? 'Starting…'
+          : pipeline?.status === 'paused'
+            ? 'Resume the model to train it'
+            : trainDisabledByLimitReason
     return (
         <div className="flex flex-col @md:flex-row @md:items-start gap-2">
             <LemonCollapse
@@ -80,9 +88,9 @@ export function SteerAgentBar(): JSX.Element {
             ) : (
                 <LemonButton
                     type="primary"
-                    onClick={() => void startTraining()}
+                    onClick={() => requestTraining()}
                     data-attr="autoresearch-model-train"
-                    loading={startTrainingResultLoading}
+                    loading={startTrainingResultLoading || firstRunCheckRunning}
                     disabledReason={trainDisabledReason}
                     className="self-start"
                 >
