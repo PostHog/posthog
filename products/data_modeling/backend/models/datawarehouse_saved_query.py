@@ -526,12 +526,12 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
                 )
 
         return {
-            name: {
-                "hogql": hogql_type_name_for_clickhouse_type(clickhouse_type),
-                "clickhouse": clickhouse_type,
+            column.name: {
+                "hogql": hogql_type_name_for_clickhouse_type(column.ch_type),
+                "clickhouse": column.ch_type,
                 "valid": True,
             }
-            for name, clickhouse_type in described_columns
+            for column in described_columns
         }
 
     def get_clickhouse_column_type(self, column_name: str) -> Optional[str]:

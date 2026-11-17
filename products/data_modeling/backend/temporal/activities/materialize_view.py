@@ -36,7 +36,6 @@ from posthog.hogql.resolver import ResolverFactory
 
 from posthog.clickhouse.client.execute import ClickHouseExternalTable, KillSwitchLevel, resolve_kill_switch_level
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries, tags_context
-from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
@@ -57,6 +56,7 @@ from posthog.temporal.common.logger import get_logger
 from products.data_modeling.backend.facade.api import (
     DESCRIBE_QUERY_SETTINGS,
     THERE_IS_NO_COLUMN_ERROR_CODE,
+    DescribedColumn,
     IncrementalFilterError,
     WritePlan,
     clear_incremental_state,
@@ -109,12 +109,6 @@ def _print_untouched(
     return print_prepared_ast(prepared_query, context=context, dialect="clickhouse", settings=settings, stack=[])
 
 
-@frozen
-class _DescribedColumn:
-    name: str
-    ch_type: str
-
-
 def _plan_prompt_jev(
     query_node: ast.SelectQuery | ast.SelectSetQuery,
     team: Team,
@@ -146,7 +140,7 @@ async def _describe_columns(
     query_settings: dict[str, str],
     external_tables: list[ClickHouseExternalTable],
     retry_with_untouched_query: bool,
-) -> list[_DescribedColumn]:
+) -> list[DescribedColumn]:
     """A select list is ordered and may repeat a name, so the probe returns a list, not a mapping.
     `_reject_duplicate_output_columns` is what turns a repeat into a readable error."""
     try:
@@ -163,14 +157,14 @@ async def _describe_columns(
         if error.code != THERE_IS_NO_COLUMN_ERROR_CODE or not retry_with_untouched_query:
             raise
         raise ClickHouseQueryPlanningError(str(error), query=error.query, query_id=error.query_id) from error
-    columns: list[_DescribedColumn] = []
+    columns: list[DescribedColumn] = []
     for line in table_describe_response.decode("utf-8").splitlines():
         column_name, ch_type = line.strip().split("\t")
-        columns.append(_DescribedColumn(name=column_name, ch_type=ch_type))
+        columns.append(DescribedColumn(name=column_name, ch_type=ch_type))
     return columns
 
 
-def _reject_duplicate_output_columns(columns: list[_DescribedColumn]) -> None:
+def _reject_duplicate_output_columns(columns: list[DescribedColumn]) -> None:
     duplicates = duplicate_output_columns(column.name for column in columns)
     if duplicates:
         raise DuplicateOutputColumnError(duplicates)
