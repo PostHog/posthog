@@ -828,6 +828,7 @@ async function expectLocatorToMatchStorySnapshot(
 
     expect(image).toMatchImageSnapshot({
         customSnapshotsDir,
+        runInProcess: true,
         customSnapshotIdentifier,
         // Compare structural similarity instead of raw pixels - reducing false positives
         // See https://github.com/americanexpress/jest-image-snapshot#recommendations-when-using-ssim-comparison
