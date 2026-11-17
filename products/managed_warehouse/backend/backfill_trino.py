@@ -37,6 +37,7 @@ from products.managed_warehouse.backend.facade.contracts import (
 from products.managed_warehouse.backend.facade.feature_flags import (
     DATA_IMPORTS_TRINO_REGISTRATION_FLAG,
     DUCKLAKE_TRINO_REGISTRATION_FLAG,
+    GIGAHOG_DATA_IMPORTS_FLAG,
     HOGLAKE_BACKFILL_REGISTRATION_FLAG,
     HOGLAKE_DATA_IMPORTS_REGISTRATION_FLAG,
 )
@@ -110,6 +111,10 @@ def backfills_through_hoglake(organization_id: str) -> bool:
 
 def data_imports_through_hoglake(organization_id: str) -> bool:
     return _organization_flag_enabled(HOGLAKE_DATA_IMPORTS_REGISTRATION_FLAG, organization_id)
+
+
+def data_imports_through_gigahog(organization_id: str) -> bool:
+    return _organization_flag_enabled(GIGAHOG_DATA_IMPORTS_FLAG, organization_id)
 
 
 def data_imports_through_trino(organization_id: str) -> bool:

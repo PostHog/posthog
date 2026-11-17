@@ -16,3 +16,6 @@ HOGLAKE_BACKFILL_REGISTRATION_FLAG = "managed-warehouse-hoglake-backfill-registr
 # Marks an organization whose data imports may register in its hoglake catalog, in each team's `team_<id>` namespace.
 # The organization's Trino backend picks the path, and this flag only allows it.
 HOGLAKE_DATA_IMPORTS_REGISTRATION_FLAG = "managed-warehouse-hoglake-data-imports-registration"
+# Marks an organization whose data imports are written to Gigahog, PostHog's multi-tenant hoglake, in each team's
+# `team_<id>` namespace. It takes precedence over the hoglake flag, so an organization on both moves to Gigahog.
+GIGAHOG_DATA_IMPORTS_FLAG = "managed-warehouse-gigahog-imports"

@@ -93,6 +93,20 @@ HOGTOWER_INTERNAL_SECRET: str | None = get_from_env("HOGTOWER_INTERNAL_SECRET", 
 # exchanged at. HOGLAKE_OAUTH_TOKEN_URL unset turns hoglake credentials off (501).
 HOGLAKE_PUBLIC_URL: str | None = get_from_env("HOGLAKE_PUBLIC_URL", optional=True)
 HOGLAKE_OAUTH_TOKEN_URL: str | None = get_from_env("HOGLAKE_OAUTH_TOKEN_URL", optional=True)
+# Gigahog, PostHog's multi-tenant hoglake, holds each team's data imports in namespace `team_<id>` of the
+# imports catalog, with the files under the imports data path (an `s3://` prefix). The import writer
+# exchanges its hogtower writer credential (an `hlw_` id and secret) for a token at GIGAHOG_IMPORTS_TOKEN_URL.
+# Data imports reach Gigahog only for an organization with the `managed-warehouse-gigahog-imports` flag, and
+# only on a worker with GIGAHOG_URL set.
+GIGAHOG_URL: str | None = get_from_env("GIGAHOG_URL", optional=True)
+GIGAHOG_IMPORTS_CATALOG: str | None = get_from_env("GIGAHOG_IMPORTS_CATALOG", optional=True)
+GIGAHOG_IMPORTS_DATA_PATH: str | None = get_from_env("GIGAHOG_IMPORTS_DATA_PATH", optional=True)
+GIGAHOG_IMPORTS_TOKEN_URL: str | None = get_from_env("GIGAHOG_IMPORTS_TOKEN_URL", optional=True)
+GIGAHOG_IMPORTS_CLIENT_ID: str | None = get_from_env("GIGAHOG_IMPORTS_CLIENT_ID", optional=True)
+GIGAHOG_IMPORTS_CLIENT_SECRET: str | None = get_from_env("GIGAHOG_IMPORTS_CLIENT_SECRET", optional=True)
+# Lets the writer set a missing org mark on `team_<id>`, which needs a credential that Gigahog's operator-only
+# containment route accepts. Off, an operator or the provisioner marks each namespace before its first import.
+GIGAHOG_IMPORTS_MARK_NAMESPACES: bool = get_from_env("GIGAHOG_IMPORTS_MARK_NAMESPACES", False, type_cast=str_to_bool)
 # Push each member's visible projects, with their warehouse access level, to hogtower, which
 # mints team-scoped hoglake tokens from its copy. Needs HOGTOWER_API_URL.
 HOGTOWER_MEMBER_TEAMS_PUSH_ENABLED: bool = get_from_env(

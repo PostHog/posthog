@@ -35,6 +35,7 @@ from products.managed_warehouse.backend.temporal import (
 )
 from products.managed_warehouse.backend.temporal.ducklake_register_data_imports_workflow import (
     ENGINE_DUCKGRES,
+    ENGINE_GIGAHOG,
     ENGINE_HOGLAKE,
     ENGINE_TRINO,
     S3_COPY_BATCH_SIZE,
@@ -84,6 +85,7 @@ def _trino_engine_off(monkeypatch):
     monkeypatch.setattr(registration_module, "data_imports_through_trino", lambda organization_id: False)
     monkeypatch.setattr(registration_module, "data_imports_trino_flag", lambda organization_id: False)
     monkeypatch.setattr(registration_module, "data_imports_through_hoglake", lambda organization_id: False)
+    monkeypatch.setattr(registration_module, "data_imports_through_gigahog", lambda organization_id: False)
 
 
 @pytest.mark.asyncio
@@ -168,9 +170,13 @@ async def test_registration_gate_requires_provisioned_duckgres_server_and_retrie
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
-@pytest.mark.parametrize("in_hoglake", [False, True])
-async def test_prepare_registration_pins_the_import_jobs_prepared_generation(ateam, monkeypatch, in_hoglake):
-    monkeypatch.setattr(registration_module, "_registers_in_hoglake", lambda organization_id: in_hoglake)
+@pytest.mark.parametrize("engine", [ENGINE_DUCKGRES, ENGINE_HOGLAKE, ENGINE_GIGAHOG])
+async def test_prepare_registration_pins_the_import_jobs_prepared_generation(ateam, monkeypatch, settings, engine):
+    monkeypatch.setattr(registration_module, "_registers_in_hoglake", lambda organization_id: engine == ENGINE_HOGLAKE)
+    monkeypatch.setattr(
+        registration_module, "data_imports_through_gigahog", lambda organization_id: engine == ENGINE_GIGAHOG
+    )
+    _configure_gigahog(settings, url="http://gigahog.test")
     monkeypatch.setattr(registration_module, "get_control_plane_data_path", lambda organization_id: "s3://mw/org-1/")
     credential = await database_sync_to_async(DataWarehouseCredential.objects.create)(
         team=ateam,
@@ -214,7 +220,37 @@ async def test_prepare_registration_pins_the_import_jobs_prepared_generation(ate
     assert metadata is not None
     folder_path = await database_sync_to_async(schema.folder_path)()
     assert metadata.prepared_source_uri.endswith(f"/{folder_path}/{prepared_queryable_folder}")
-    if in_hoglake:
+    if engine == ENGINE_GIGAHOG:
+        assert (metadata.engine, metadata.ducklake_schema_name, metadata.ducklake_table_name) == (
+            ENGINE_GIGAHOG,
+            f"team_{ateam.id}",
+            "dev_postgres_customers",
+        )
+        assert metadata.landing_uri == (
+            f"s3://gigahog-bucket/imports/org_id={ateam.organization_id}/team_id={ateam.id}/dev_postgres_customers/"
+            f"{schema.id}/job-123/1234567890_abcdef12"
+        )
+        # A second import table with the same HogQL name would replace this one's rows in Gigahog.
+        await database_sync_to_async(DataWarehouseTable.objects.create)(
+            team=ateam,
+            name="DEV_postgres_customers",
+            format="Delta",
+            url_pattern="s3://bucket/other",
+            credential=credential,
+            external_data_source=source,
+        )
+        with pytest.raises(ApplicationError, match="has the name") as raised:
+            await prepare_ducklake_data_imports_registration_activity(
+                DuckLakeRegisterDataImportsInputs(
+                    team_id=ateam.id,
+                    job_id="job-123",
+                    schema_id=schema.id,
+                    prepared_queryable_folder=prepared_queryable_folder,
+                )
+            )
+        assert raised.value.non_retryable is True
+        return
+    if engine == ENGINE_HOGLAKE:
         assert (metadata.engine, metadata.ducklake_schema_name, metadata.ducklake_table_name) == (
             ENGINE_HOGLAKE,
             f"team_{ateam.id}",
@@ -2830,3 +2866,107 @@ def test_hoglake_copy_activity_lands_under_the_attempt_and_deletes_unpublished_f
     )
     # An unpublished generation's files are referenced by no table, so they are deleted.
     assert (fake_s3.keys == source_keys) is not published
+
+
+@pytest.mark.parametrize(
+    "flag_on, url, expected",
+    [
+        (False, None, False),
+        (True, "http://gigahog.test", True),
+        # A flagged organization on a worker without Gigahog fails instead of landing in another catalog.
+        (True, None, "refused"),
+    ],
+)
+def test_registers_in_gigahog_needs_the_flag_and_a_configured_worker(
+    flag_on: bool, url: str | None, expected: bool | str, monkeypatch, settings
+) -> None:
+    monkeypatch.setattr(registration_module, "data_imports_through_gigahog", lambda organization_id: flag_on)
+    _configure_gigahog(settings, url=url)
+
+    if expected == "refused":
+        with pytest.raises(ApplicationError) as raised:
+            registration_module._registers_in_gigahog("org")
+        assert raised.value.non_retryable is True
+    else:
+        assert registration_module._registers_in_gigahog("org") is expected
+
+
+@pytest.mark.asyncio
+async def test_registration_gate_sends_a_gigahog_organization_past_trino_and_duckgres(monkeypatch) -> None:
+    team = MagicMock(organization_id=uuid.UUID(int=9))
+    monkeypatch.setattr(registration_module.Team.objects, "only", lambda *fields: MagicMock(get=lambda id: team))
+    monkeypatch.setattr(registration_module, "feature_enabled_or_false", lambda *args, **kwargs: True)
+    monkeypatch.setattr(
+        "products.managed_warehouse.backend.facade.access.background_loading_configured", lambda organization_id: False
+    )
+    monkeypatch.setattr(registration_module, "_registers_in_gigahog", lambda organization_id: True)
+    monkeypatch.setattr(registration_module, "_registers_in_hoglake", MagicMock(side_effect=AssertionError))
+    monkeypatch.setattr(registration_module, "get_trino_target_readiness", MagicMock(side_effect=AssertionError))
+    monkeypatch.setattr(registration_module, "get_duckgres_server_by_team_org", MagicMock(side_effect=AssertionError))
+
+    assert await ducklake_register_data_imports_gate_activity(DuckLakeRegisterDataImportsGateInputs(team_id=1)) is True
+
+
+@pytest.mark.parametrize("published", [True, False])
+def test_gigahog_copy_activity_lands_under_the_attempt_and_deletes_unpublished_files(
+    monkeypatch, settings, published
+) -> None:
+    _configure_gigahog(settings, url="http://gigahog.test")
+    base = _activity_inputs()
+    source_prefix = base.metadata.prepared_source_uri.removeprefix("s3://").rstrip("/")
+    source_keys = {f"{source_prefix}/a.parquet"}
+    fake_s3 = _FakeS3(source_keys)
+    register = MagicMock(return_value=MagicMock(published=published, row_count=3))
+    monkeypatch.setattr(registration_module, "get_s3_client", lambda: fake_s3)
+    monkeypatch.setattr(registration_module, "register_prepared_files_in_gigahog", register)
+    monkeypatch.setattr(
+        registration_module, "register_prepared_files_in_hoglake", MagicMock(side_effect=AssertionError)
+    )
+    monkeypatch.setattr(registration_module, "_get_org_id_for_team", lambda team_id: "org")
+    monkeypatch.setattr(registration_module, "HeartbeaterSync", lambda **kwargs: contextlib.nullcontext())
+    _mock_activity_workload_metrics(monkeypatch)
+    names = registration_module.registration_table_names_from_token("0123456789abcdef0123456789abcdef")
+    landing = "s3://gigahog-bucket/imports/org_id=org/team_id=1/stripe_invoices/schema/job"
+    inputs = dataclasses.replace(
+        base,
+        metadata=dataclasses.replace(
+            base.metadata,
+            engine=ENGINE_GIGAHOG,
+            source_schema_id=str(uuid.UUID(int=5)),
+            landing_uri=landing,
+            ducklake_schema_name="team_1",
+            ducklake_table_name="stripe_invoices",
+        ),
+        registration_table_names=names,
+    )
+
+    assert copy_and_register_ducklake_data_imports_activity(inputs) is published
+
+    kwargs = register.call_args.kwargs
+    assert kwargs["attempt_token"] == "0123456789abcdef0123456789abcdef"
+    assert re.fullmatch(
+        rf"{re.escape(landing)}/1234567890_abcdef12/0123456789abcdef0123456789abcdef/[0-9a-f]{{16}}",
+        kwargs["landing_uri"],
+    )
+    assert (fake_s3.keys == source_keys) is not published
+
+    # The replacement leaves no staging tables, so the cleanup finalizer must not fall through to duckgres.
+    monkeypatch.setattr(registration_module, "_connect_to_duckgres_for_team", MagicMock(side_effect=AssertionError))
+    registration_module.cleanup_ducklake_registration_tables_activity(
+        registration_module.DuckLakeRegisterCleanupInputs(
+            team_id=1,
+            schema_name="team_1",
+            table_names=[names.shadow_name, names.previous_name],
+            engine=ENGINE_GIGAHOG,
+            table_name="stripe_invoices",
+        )
+    )
+
+
+def _configure_gigahog(settings, *, url: str | None) -> None:
+    settings.GIGAHOG_URL = url
+    settings.GIGAHOG_IMPORTS_CATALOG = "imports-dev"
+    settings.GIGAHOG_IMPORTS_DATA_PATH = "s3://gigahog-bucket/imports"
+    settings.GIGAHOG_IMPORTS_TOKEN_URL = "http://hogtower.test/oauth/token"
+    settings.GIGAHOG_IMPORTS_CLIENT_ID = "hlw_writer"
+    settings.GIGAHOG_IMPORTS_CLIENT_SECRET = "writer-secret"
