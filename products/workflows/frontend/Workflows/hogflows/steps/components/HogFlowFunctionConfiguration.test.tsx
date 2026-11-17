@@ -238,7 +238,6 @@ describe('HogFlowFunctionConfiguration', () => {
             cleanup()
         })
 
-        // The panel can replace the button after mount, so each check queries it again.
         const engagementButton = (): HTMLElement =>
             screen.getByText('Enable engagement events').closest('button') as HTMLElement
 
@@ -248,7 +247,6 @@ describe('HogFlowFunctionConfiguration', () => {
                 effective_membership_level: level,
                 workflows_config: { ...MOCK_DEFAULT_TEAM.workflows_config, capture_workflows_engagement_events: false },
             })
-            workflowLogic(logicProps).mount()
             render(
                 <BindLogic logic={workflowLogic} props={logicProps}>
                     <HogFlowFunctionConfiguration templateId="template-email" inputs={{}} setInputs={() => {}} />
