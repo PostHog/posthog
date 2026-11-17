@@ -2886,6 +2886,12 @@ export const OrganizationsProjectsCreateBody = () => zod
                     .describe(
                         'Default UTM values that new email steps and broadcasts copy. An empty value keeps the built-in default for that tag.'
                     ),
+                email_workflow_run_link_tag_enabled: zod
+                    .boolean()
+                    .optional()
+                    .describe(
+                        "Whether tracked links in emails this project sends get a ph_workflow_run parameter with the send's run ID. When the landing page runs posthog-js, the parameter links each click to the session it starts. Links with click tracking turned off never get it. On by default."
+                    ),
                 workflow_task_rate_limit_per_day: zod
                     .number()
                     .min(organizationsProjectsCreateBodyWorkflowsConfigWorkflowTaskRateLimitPerDayMin)
@@ -5784,6 +5790,12 @@ export const OrganizationsProjectsPartialUpdateBody = () => zod
                     .optional()
                     .describe(
                         'Default UTM values that new email steps and broadcasts copy. An empty value keeps the built-in default for that tag.'
+                    ),
+                email_workflow_run_link_tag_enabled: zod
+                    .boolean()
+                    .optional()
+                    .describe(
+                        "Whether tracked links in emails this project sends get a ph_workflow_run parameter with the send's run ID. When the landing page runs posthog-js, the parameter links each click to the session it starts. Links with click tracking turned off never get it. On by default."
                     ),
                 workflow_task_rate_limit_per_day: zod
                     .number()

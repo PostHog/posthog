@@ -19,6 +19,7 @@ from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.team.team import Team
 
 from products.experiments.backend.hogql_queries.base_query_utils import event_or_action_to_filter
+from products.experiments.backend.hogql_queries.experiment_cuped_query_builder import extend_date_from_for_cuped
 from products.experiments.backend.hogql_queries.experiment_metric_values import build_value_expr
 
 METRIC_EVENTS_TABLE = "experiment_metric_events_preaggregated"
@@ -32,6 +33,7 @@ def build_metric_events_precompute_query(
     date_range_query: QueryDateRange,
     conversion_window_seconds: int,
     distinct_id_column_sql: str,
+    cuped_lookback_days: int | None = None,
 ) -> tuple[str, dict[str, ast.Expr]]:
     """
     Returns the SELECT query that the lazy computation system wraps in an
@@ -55,6 +57,11 @@ def build_metric_events_precompute_query(
     distinct_id_column_sql comes from
     ExperimentQueryContext.precompute_distinct_id_column_sql(). It is empty, or
     it is the column that stores the distinct_id of the event.
+
+    With cuped_lookback_days the scan starts that many days before the experiment,
+    so the stored rows also cover the CUPED pre-exposure window. The rolled-back
+    date is part of the job hash, so a CUPED metric builds its own jobs and a
+    metric without CUPED keeps the jobs it has.
     """
     # The job hash includes the parser source position of each node, so a change to
     # this template's whitespace invalidates every cached job. Keep it byte for byte.
@@ -92,7 +99,7 @@ def build_metric_events_precompute_query(
     placeholders: dict[str, ast.Expr] = {
         "entity_key": parse_expr(entity_key),
         "value_expr": value_expr,
-        "experiment_date_from": date_range_query.date_from_as_hogql(),
+        "experiment_date_from": extend_date_from_for_cuped(date_range_query.date_from_as_hogql(), cuped_lookback_days),
         "experiment_date_to": date_range_query.date_to_as_hogql(),
         "conversion_window_seconds": ast.Constant(value=conversion_window_seconds),
         "metric_event_filter": event_or_action_to_filter(team, source),
@@ -155,11 +162,18 @@ def build_precomputed_metric_events_placeholders(
     team: Team,
     date_range_query: QueryDateRange,
     conversion_window_seconds: int,
+    cuped_lookback_days: int | None = None,
 ) -> dict[str, ast.Expr]:
-    """The placeholders every build_precomputed_metric_events_cte() CTE of one query shares."""
+    """
+    The placeholders every build_precomputed_metric_events_cte() CTE of one query shares.
+    With cuped_lookback_days the read starts that many days before the experiment, matching
+    the build, so the CUPED pre-exposure window comes from the precomputed rows.
+    """
     return {
         "metric_events_team_id": ast.Constant(value=team.id),
-        "metric_events_date_from": date_range_query.date_from_as_hogql(),
+        "metric_events_date_from": extend_date_from_for_cuped(
+            date_range_query.date_from_as_hogql(), cuped_lookback_days
+        ),
         "metric_events_date_to": date_range_query.date_to_as_hogql(),
         "metric_events_conversion_window_seconds": ast.Constant(value=conversion_window_seconds),
     }

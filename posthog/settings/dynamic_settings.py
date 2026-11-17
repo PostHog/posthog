@@ -443,6 +443,14 @@ CONSTANCE_CONFIG = {
         "run rather than at the end of the cache TTL.",
         bool,
     ),
+    "REALTIME_COHORT_JOIN_OPEN": (
+        False,
+        "Whether a project in this region joins the realtime cohorts beta when a member opts in. "
+        "Turning it off stops new joins within about a minute. Projects already in keep access. "
+        "Turn it on only once ingestion's PERSON_MERGE_EVENTS_TEAM_ALLOWLIST is * (every team) in this region, because "
+        "realtime cohorts miss the person merges of a project that list leaves out.",
+        bool,
+    ),
 }
 
 SETTINGS_ALLOWING_API_OVERRIDE = (
@@ -513,6 +521,7 @@ SETTINGS_ALLOWING_API_OVERRIDE = (
     "WEB_ANALYTICS_WARMING_SHARD_THREADS",
     "WEB_ANALYTICS_WARMING_SHARDS",
     "WEB_ANALYTICS_WARMING_PRESET_LANE_ENABLED",
+    "REALTIME_COHORT_JOIN_OPEN",
 )
 
 # SECRET_SETTINGS can only be updated but will never be exposed through the API (we do store them plain text in the DB)
