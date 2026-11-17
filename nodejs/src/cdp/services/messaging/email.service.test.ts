@@ -3900,6 +3900,7 @@ describe('EmailService', () => {
                 isTest: boolean
                 sensitive: boolean
                 send?: { sensitive: boolean }
+                teamOptedOut?: boolean
                 tagged: boolean
             }>([
                 {
@@ -3916,6 +3917,15 @@ describe('EmailService', () => {
                     allowlisted: false,
                     isTest: false,
                     sensitive: false,
+                    tagged: false,
+                },
+                {
+                    case: 'leaves the links of a team that turned link tagging off',
+                    trackingEnabled: true,
+                    allowlisted: true,
+                    isTest: false,
+                    sensitive: false,
+                    teamOptedOut: true,
                     tagged: false,
                 },
                 {
@@ -3962,7 +3972,18 @@ describe('EmailService', () => {
                 },
             ])(
                 '$case with the workflow run id',
-                async ({ trackingEnabled, allowlisted, isTest, sensitive, send, tagged }) => {
+                async ({ trackingEnabled, allowlisted, isTest, sensitive, send, teamOptedOut, tagged }) => {
+                    if (teamOptedOut) {
+                        await hub.postgres.query(
+                            PostgresUse.COMMON_WRITE,
+                            `INSERT INTO workflows_teamworkflowsconfig
+                                (team_id, capture_workflows_engagement_events, email_tracking_consent_mode,
+                                 email_sending_suspension_reason, email_workflow_run_link_tag_enabled)
+                             VALUES ($1, false, 'off', '', false)`,
+                            [team.id],
+                            'test-opt-out-of-workflow-run-link-tag'
+                        )
+                    }
                     const taggingService = createService({
                         workflowRunLinkTagTeams: allowlisted ? String(team.id) : '',
                     })

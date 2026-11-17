@@ -657,13 +657,27 @@ export class EmailService {
             : null
     }
 
-    private tagsLinksWithWorkflowRun(
+    private async tagsLinksWithWorkflowRun(
         invocation: CyclotronJobInvocationHogFunction,
         trackingEnabled: boolean,
         isTest: boolean
-    ): boolean {
-        const sensitive = isSensitiveMessage(invocation)
-        return trackingEnabled && !isTest && !sensitive && this.workflowRunLinkTagTeams(invocation.teamId)
+    ): Promise<boolean> {
+        if (!trackingEnabled || isTest || isSensitiveMessage(invocation)) {
+            return false
+        }
+        if (!this.workflowRunLinkTagTeams(invocation.teamId)) {
+            return false
+        }
+        try {
+            return await this.teamWorkflowsConfigService.tagsEmailLinksWithWorkflowRun(invocation.teamId)
+        } catch (error) {
+            logger.warn('Workflow run link tag lookup failed - sending without the tag', {
+                teamId: invocation.teamId,
+                functionId: invocation.functionId,
+                error: error instanceof Error ? error.message : String(error),
+            })
+            return false
+        }
     }
 
     // Send email. `isTest` flags sends from the editor's "Run test" path so the tracking code
@@ -815,7 +829,7 @@ export class EmailService {
                       html: tagEmailLinks(
                           paramsWithReplyTo.html,
                           this.utmTaggingFor(invocation, addLog),
-                          this.tagsLinksWithWorkflowRun(invocation, trackingEnabled, isTest)
+                          (await this.tagsLinksWithWorkflowRun(invocation, trackingEnabled, isTest))
                               ? { runId: invocation.id, senderEmail: from.email, siteUrl: this.siteUrl }
                               : null
                       ),
