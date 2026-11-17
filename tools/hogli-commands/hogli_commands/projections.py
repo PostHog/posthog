@@ -90,7 +90,7 @@ PROJECTIONS: tuple[Projection, ...] = (
     Projection(
         name="oauth-scopes",
         renderer="posthog/scopes_projection.py",
-        inputs=("posthog/scopes.py",),
+        inputs=("posthog/scopes/*",),
         outputs=(
             "services/mcp/src/lib/oauth-scopes.generated.ts",
             "frontend/src/lib/oauthScopes.generated.ts",
@@ -99,7 +99,7 @@ PROJECTIONS: tuple[Projection, ...] = (
     Projection(
         name="scope-docs",
         renderer="posthog/scope_docs_projection.py",
-        inputs=("posthog/scope_docs.py", "posthog/scopes.py", "products/*/backend/scopes.py"),
+        inputs=("posthog/scope_docs.py", "posthog/scopes/*", "products/*/backend/scopes.py"),
         outputs=("frontend/src/lib/scopeDocs.generated.ts",),
     ),
     Projection(
@@ -120,6 +120,15 @@ PROJECTIONS: tuple[Projection, ...] = (
             "posthog/integrations/enums.py",
         ),
         outputs=("posthog/integrations/kinds_generated.py",),
+    ),
+    Projection(
+        name="credentials-catalogue",
+        renderer="posthog/integrations/catalogue_projection.py",
+        inputs=(
+            "services/credentials-service/src/catalogue.ts",
+            "services/credentials-service/src/providers/*",
+        ),
+        outputs=("posthog/integrations/catalogue_generated.json",),
     ),
 )
 

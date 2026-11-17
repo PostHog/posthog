@@ -5,11 +5,13 @@ import type {
     HeatmapFixedPositionMode,
     ScrollDepthPosthogJsError,
 } from 'lib/components/heatmaps/types'
+import type { ToolbarProject } from 'lib/toolbar/toolbarProject'
 
 import type { SelectorMatchCounts } from '~/toolbar/shared/actions/SelectorCountContext'
 import type { EventCategory } from '~/toolbar/shared/debug/eventCategories'
 import type { PosthogDebugInfo } from '~/toolbar/shared/debug/posthogDebugInfo'
 import type { ElementSelectorType } from '~/toolbar/shared/experiments/elementSelectorTypes'
+import type { FlagComparison, FlagComparisonFailureReason } from '~/toolbar/shared/flags/flagComparisonLogic'
 import type { FlagInfo } from '~/toolbar/shared/flags/flagInfo'
 import type { ActionForm, WebExperimentForm } from '~/toolbar/shared/types'
 import type { WebVitalsMetrics } from '~/toolbar/shared/web-vitals/webVitalsToolbarLogic'
@@ -80,6 +82,7 @@ export interface PageToolbarTokens {
     accessToken: string
     refreshToken: string | null
     clientId: string
+    project: ToolbarProject
 }
 
 export interface PageToolbarSession extends PageToolbarTokens {
@@ -224,6 +227,9 @@ export interface PageToolbarFlagsState {
     mutationError: string | null
     /** Goes up when the page finishes applying an override, whether it worked or not. */
     mutationRevision: number
+    /** The flag the page is comparing. The page refuses other flag changes until the comparison ends. */
+    comparingFlagKey: string | null
+    comparisonError: FlagComparisonFailureReason | null
 }
 
 export interface DebugEventRow {
@@ -302,6 +308,7 @@ export type PageToolbarMessage =
     | { type: 'tokens'; tokens: PageToolbarTokens }
     | { type: 'token-expired' }
     | { type: 'screenshot-preview'; dataUrl: string }
+    | { type: 'flag-comparison'; comparison: FlagComparison | null }
 
 function isObject(message: unknown): message is Record<string, unknown> {
     return !!message && typeof message === 'object'

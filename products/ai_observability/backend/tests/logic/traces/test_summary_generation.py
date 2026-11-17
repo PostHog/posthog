@@ -97,7 +97,7 @@ class TestGenerateSummary(ClickhouseTestMixin, BaseTest):
                     "properties": {
                         "$ai_trace_id": "trace-1",
                         "$ai_parent_id": "span-1",
-                        "$ai_model": "gpt-4.1-mini",
+                        "$ai_model": "gpt-6-luna",
                         "$ai_input": [
                             {"role": "user", "content": QUESTION},
                             {"role": "system", "content": PRIVATE_NOTE},

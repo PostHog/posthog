@@ -8,6 +8,7 @@ import { AccessDenied } from 'lib/components/AccessDenied'
 import { dashboardTileScreenshotKey } from 'lib/components/Cards/InsightCard/insightCardImageCapture'
 import { NotFound } from 'lib/components/NotFound'
 import { ScreenShotEditor } from 'lib/components/TakeScreenshot/ScreenShotEditor'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { useFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
@@ -20,6 +21,7 @@ import { InsightErrorState } from 'scenes/insights/EmptyStates'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
+import { isSharedView } from '~/exporter/exporterViewLogic'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneStickyBar } from '~/layout/scenes/components/SceneStickyBar'
 import { ProductKey } from '~/queries/schema/schema-general'
@@ -27,16 +29,15 @@ import { DashboardPlacement, DashboardType, DataColorThemeModel } from '~/types'
 
 import { addInsightToDashboardLogic } from 'products/dashboards/frontend/addInsightToDashboardModalLogic'
 import { DashboardFilterBar } from 'products/dashboards/frontend/DashboardFilters'
-import { DashboardFlagCalledBanner } from 'products/dashboards/frontend/DashboardFlagCalledBanner'
 import { DashboardEmbeddedShareButton } from 'products/dashboards/frontend/DashboardHeaderActions'
 import { DashboardItems } from 'products/dashboards/frontend/DashboardItems'
 import { DashboardModalLoading } from 'products/dashboards/frontend/DashboardModalLoading'
 import { dashboardPerformanceLogic } from 'products/dashboards/frontend/dashboardPerformanceLogic'
 import { DashboardQueryScanBanner } from 'products/dashboards/frontend/DashboardQueryScanBanner'
+import { DashboardQuerySharingDebug } from 'products/dashboards/frontend/DashboardQuerySharingDebug'
 import { DashboardRetentionBanner } from 'products/dashboards/frontend/DashboardRetentionBanner'
 import { dashboardSubscribeNudgeLogic } from 'products/dashboards/frontend/dashboardSubscribeNudgeLogic'
 import { DashboardWarehouseSyncBanner } from 'products/dashboards/frontend/DashboardWarehouseSyncBanner'
-import { DashboardZoomControl } from 'products/dashboards/frontend/DashboardZoomControl'
 import { EmptyDashboardComponent } from 'products/dashboards/frontend/EmptyDashboardComponent'
 import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
 import { SubscriptionSummaries } from 'products/subscriptions/frontend/components/SubscriptionSummaries/SubscriptionSummaries'
@@ -147,19 +148,19 @@ function DashboardScene({
         itemsLoading,
         dashboardLoading,
         dashboardStreaming,
-        layoutEditMode,
         dashboardFailedToLoad,
         internetConnectionIssue,
         accessDeniedToDashboard,
         error404,
         hasInvalidDashboardId,
+        featureFlags,
+        querySharingDebug,
+        querySharingDebugSummary,
     } = useValues(dashboardLogic)
-    const { layoutZoom } = useValues(dashboardLogic)
     const { id: dashboardId } = useMountedLogic(dashboardLogic).props
     useMountedLogic(dashboardPerformanceLogic({ dashboardId, placement }))
     const { currentTeamId } = useValues(teamLogic)
-    const { reportDashboardViewed, cancelDashboardRefresh, retryDashboardLoad, setLayoutZoom } =
-        useActions(dashboardLogic)
+    const { reportDashboardViewed, cancelDashboardRefresh, retryDashboardLoad } = useActions(dashboardLogic)
     const { addInsightToDashboardModalVisible } = useValues(addInsightToDashboardLogic)
     const { hideAddInsightToDashboardModal } = useActions(addInsightToDashboardLogic)
     const closeAddInsightToDashboardModal = (): void => {
@@ -280,23 +281,22 @@ function DashboardScene({
                         </LemonBanner>
                     )}
                     <DashboardRetentionBanner />
-                    <DashboardFlagCalledBanner />
                     <DashboardQueryScanBanner />
                     <DashboardWarehouseSyncBanner />
 
                     <SceneStickyBar showBorderBottom={false} className={cn('flex gap-2 space-y-0', compact && 'py-1')}>
                         <DashboardFilterBar backTo={backTo} />
-                        {layoutEditMode &&
-                            canEditDashboard &&
-                            [
-                                DashboardPlacement.Dashboard,
-                                DashboardPlacement.ProjectHomepage,
-                                DashboardPlacement.Builtin,
-                            ].includes(placement) && (
-                                <DashboardZoomControl layoutZoom={layoutZoom} setLayoutZoom={setLayoutZoom} />
-                            )}
                     </SceneStickyBar>
 
+                    {placement === DashboardPlacement.Dashboard &&
+                        !isSharedView() &&
+                        featureFlags[FEATURE_FLAGS.HOGQL_QUERY_SHARING] === true && (
+                            <DashboardQuerySharingDebug
+                                dashboardName={dashboard?.name || 'Dashboard'}
+                                run={querySharingDebug}
+                                summary={querySharingDebugSummary}
+                            />
+                        )}
                     <DashboardItems showCreateAnomalyAlertButton={showCreateAnomalyAlertButton} />
                 </div>
             )}

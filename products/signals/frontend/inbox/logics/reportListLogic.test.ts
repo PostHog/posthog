@@ -53,6 +53,33 @@ function makeReport(id: string): SignalReport {
 }
 
 describe('reportListLogic', () => {
+    it('recovers when the first report page fails transiently', async () => {
+        let pageAttempts = 0
+        useMocks({
+            get: {
+                '/api/projects/:team_id/signals/reports/available_reviewers': {},
+                [REPORTS_URL]: ({ request }) => {
+                    const isPageRequest = new URL(request.url).searchParams.get('limit') !== '1'
+                    if (isPageRequest && ++pageAttempts === 1) {
+                        return [503, {}]
+                    }
+                    return [200, { count: 1, next: null, previous: null, results: [makeReport('recovered')] }]
+                },
+            },
+        })
+        initKeaTests()
+        const logic = reportListLogic(sectionListLogicProps('needs-decision'))
+        logic.mount()
+        await expectLogic(logic, () => logic.actions.ensureLoaded()).toFinishAllListeners()
+
+        expect(pageAttempts).toBe(2)
+        expect(logic.values).toMatchObject({
+            reports: [makeReport('recovered')],
+            reportsLoadFailed: false,
+        })
+        logic.unmount()
+    })
+
     it('loads monitoring from the server without a browser rollout flag', async () => {
         const requests: string[] = []
         useMocks({

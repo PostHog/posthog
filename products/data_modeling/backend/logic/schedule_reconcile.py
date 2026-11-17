@@ -39,6 +39,7 @@ from posthog.temporal.common.client import async_connect
 from posthog.temporal.common.schedule import a_create_schedule, a_delete_schedule, a_update_schedule
 from posthog.temporal.common.search_attributes import POSTHOG_DAG_ID_KEY
 
+from products.data_modeling.backend.facade.contracts import UnsupportedFrequencyTargetError
 from products.data_modeling.backend.logic.cohort_scheduling import (
     MINUTES_PER_WEEK,
     ScheduleReconcilePlan,
@@ -51,7 +52,6 @@ from products.data_modeling.backend.logic.freshness import (
     SCHEDULABLE_BUCKETS,
     ClampedCadence,
     InvalidTarget,
-    UnsupportedFrequencyTargetError,
     format_cadence,
     validate_declared_target,
     validate_pin,
@@ -546,7 +546,7 @@ async def _list_execute_dag_schedule_ids(temporal: Client, dag_id: str) -> set[s
 def _build_tier_schedule(
     dag_id: str, team_id: int, team_timezone: str, tier: Tier, node_ids: Iterable[str]
 ) -> Schedule:
-    from posthog.temporal.data_modeling.workflows.execute_dag import (  # noqa: PLC0415 — the workflows package imports this product's models back; importing it lazily keeps this module importable from models code and temporal off django.setup()
+    from products.data_modeling.backend.temporal.workflows.execute_dag import (  # noqa: PLC0415 — the workflows package imports this product's models back; importing it lazily keeps this module importable from models code and temporal off django.setup()
         ExecuteDAGInputs,
     )
 

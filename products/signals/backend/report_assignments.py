@@ -44,8 +44,8 @@ from products.signals.backend.report_claims import (
     actor_works_under_claim,
     claim_from_artefact,
     get_active_claim,
-    is_user_claim_of,
-    is_user_claim_of_task_creator,
+    is_claim_of_person,
+    is_claim_of_task_creator,
 )
 from products.signals.backend.report_monitoring_attempts import complete_implementation
 from products.tasks.backend.facade import api as tasks_facade
@@ -209,7 +209,7 @@ def claim_report_for_task(*, team_id: int, report_id: str, task_id: str, for_tas
         import_report_pull_requests(report)
         claim = get_active_claim(team_id=team_id, report_id=report_id)
         actor = ArtefactAttribution.from_task(task_id)
-        if claim is not None and is_user_claim_of_task_creator(claim, task_id):
+        if claim is not None and is_claim_of_task_creator(claim, task_id):
             # The person who claimed the report started this task, so the task works under their
             # claim. Replacing it would remove the person from the report while they still own the work.
             claim_artefact = SignalReportArtefact.objects.filter(team_id=team_id, id=claim.claim_id).first()
@@ -247,7 +247,7 @@ def hand_off_task_claims(*, team_id: int, task_id: str, previous_user_id: int) -
         with transaction.atomic():
             report = SignalReport.objects.select_for_update().filter(id=report_id, team_id=team_id).first()
             claim = get_active_claim(team_id=team_id, report_id=str(report_id)) if report is not None else None
-            if report is None or claim is None or not is_user_claim_of(claim, previous_user_id):
+            if report is None or claim is None or not is_claim_of_person(claim, previous_user_id):
                 continue
             tasks_under_claim = {
                 str(other)
@@ -481,6 +481,32 @@ def _claim_holder(claim: ReportClaim) -> ArtefactAttribution:
     return ArtefactAttribution.system()
 
 
+def _all_pull_requests_attached(report: SignalReport, details: list[PullRequestDetails]) -> bool:
+    existing_prs = set(
+        SignalReportArtefact.objects.filter(
+            team_id=report.team_id, report_id=report.id, pull_request__isnull=False
+        ).values_list("pull_request__repository", "pull_request__number")
+    )
+    return all((pr.repository, pr.number) in existing_prs for pr in details)
+
+
+def _repeats_attach_under_ended_claim(
+    report: SignalReport, claim_id: str, actor: ArtefactAttribution, details: list[PullRequestDetails]
+) -> bool:
+    """Whether the call only repeats pull requests already attached under a claim that has ended.
+
+    Dismissing releases the claim, so an agent that retries its attach after the dismissal still names the old claim.
+    """
+    if not details or report.effective_status in CLAIMABLE_REPORT_STATUSES:
+        return False
+    claim = SignalReportArtefact.objects.filter(
+        team_id=report.team_id, report_id=report.id, id=claim_id, type="work_claim"
+    ).first()
+    if claim is None or not actor_works_under_claim(claim_from_artefact(claim), actor):
+        return False
+    return _all_pull_requests_attached(report, details)
+
+
 def claim_report(
     *,
     report: SignalReport,
@@ -517,6 +543,8 @@ def claim_report(
         include_pull_request = bool(details) or actor.task_id is not None
         before = assignment_snapshot(locked_report, assignment, include_pull_request=include_pull_request)
         if claim_id and (assignment is None or str(assignment.claim_id) != claim_id):
+            if not release and _repeats_attach_under_ended_claim(locked_report, claim_id, actor, details):
+                return None
             raise ReportClaimConflict("This claim is no longer active.")
         if claim_id and assignment is not None and not release and not actor_works_under_claim(assignment, actor):
             raise ReportClaimConflict("This claim belongs to another actor.")
@@ -531,16 +559,11 @@ def claim_report(
         else:
             report_status = locked_report.effective_status
             if report_status not in CLAIMABLE_REPORT_STATUSES:
-                existing_prs = set(
-                    SignalReportArtefact.objects.filter(
-                        team_id=report.team_id, report_id=report.id, pull_request__isnull=False
-                    ).values_list("pull_request__repository", "pull_request__number")
-                )
                 if (
                     not takeover
                     and assignment is not None
                     and actor_works_under_claim(assignment, actor)
-                    and all((pr.repository, pr.number) in existing_prs for pr in details)
+                    and _all_pull_requests_attached(locked_report, details)
                 ):
                     return assignment
                 raise ReportClaimConflict(f"Reports with status '{report_status}' cannot be claimed.")

@@ -104,6 +104,7 @@ export interface SignalReport extends Pick<SignalReportApi, 'monitoring_started_
     repo_slug?: SignalReportApi['repo_slug']
     pull_requests?: readonly SignalReportPullRequestApi[]
     assignee?: SignalReportAssigneeApi | null
+    implementation_in_flight?: SignalReportApi['implementation_in_flight']
     id: string
     title: string | null
     summary: string | null
@@ -119,6 +120,8 @@ export interface SignalReport extends Pick<SignalReportApi, 'monitoring_started_
     /** Charts the report shows, placed by `[label](chart:<chart_id>)` links in the summary. */
     charts?: ReportChartApi[]
     metrics?: ReportMetricApi[]
+    /** Progress of the current Monitoring period, on list rows only. */
+    monitoring_summary?: SignalReportListApi['monitoring_summary']
     /** Prompts the report's author suggests sending about it (questions or next-step actions), offered above the "Ask AI" box. */
     suggested_prompts?: string[]
     /** A product the team doesn't use that would have given this report better evidence. Detail responses only. */

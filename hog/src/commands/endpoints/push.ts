@@ -1,4 +1,5 @@
 import { defineCommand } from '@/core/command'
+import { EXIT_FAILURE, EXIT_SUCCESS } from '@/core/errors'
 import { escapeControls, Output } from '@/core/output'
 import { plural } from '@/core/text'
 import { findEndpoints, findInsightVariables } from '@/endpoints/api'
@@ -12,7 +13,7 @@ import {
     confirm,
     endpointPaths,
     indent,
-    problemLines,
+    problemWarnings,
     SCOPES_WRITE,
     variableLines,
     type Styler,
@@ -89,36 +90,44 @@ export default defineCommand({
             return { status: 'cancelled', plan, outcomes: [], problems }
         }
         await ctx.ensureScopes(pushScopes(items, variables))
-        return { status: 'applied', plan, outcomes: await applyPush(api, items, variables), problems }
+        return { status: 'applied', plan, outcomes: await applyPush(api, items, variables, ctx.mode.isCI), problems }
     },
 
     human({ result, out }) {
         const style: Styler = (text, ...styles) => out.style(text, ...styles)
-        problemLines(result.problems, style).forEach((line) => out.line(line))
+        const warnings = problemWarnings(result.problems)
+        const invalid = result.problems.length > 0 || result.plan.some((item) => item.invalid)
+
         if (result.status === 'applied') {
-            for (const outcome of result.outcomes) {
-                if (outcome.status === 'failed') {
-                    out.line(
-                        `${out.style('Failed', 'red', 'bold')}   ${outcome.name}: ${escapeControls(outcome.error ?? '')}`
-                    )
-                } else {
-                    const verb = outcome.status === 'created' ? 'Created' : 'Updated'
-                    out.line(
-                        `${out.style(verb, 'green', 'bold')}  ${outcome.name}  ${out.style(outcome.uiUrl ?? '', 'dim')}`
-                    )
-                }
-            }
-            const saved = result.outcomes.filter((outcome) => outcome.status !== 'failed').length
-            out.line(out.style(`${plural(saved, 'endpoint')} pushed`, 'dim'))
+            const failed = result.outcomes.filter((outcome) => outcome.status === 'failed').length
+            const saved = result.outcomes.length - failed
+            out.report({
+                status: failed === 0 ? (invalid ? 'partial' : 'done') : saved === 0 ? 'failed' : 'partial',
+                result:
+                    failed === 0
+                        ? `Pushed ${plural(saved, 'endpoint')}`
+                        : `Pushed ${saved} of ${plural(result.outcomes.length, 'endpoint')}`,
+                effects: result.outcomes.map((outcome) =>
+                    outcome.status === 'failed'
+                        ? `${out.style('Failed', 'red', 'bold')}   ${outcome.name}: ${escapeControls(outcome.error ?? '')}`
+                        : `${out.style(outcome.status === 'created' ? 'Created' : 'Updated', 'green', 'bold')}  ${outcome.name}  ${out.style(escapeControls(outcome.uiUrl ?? ''), 'dim')}`
+                ),
+                warnings,
+            })
             return
         }
-        pushPlanLines(result.plan, style).forEach((line) => out.line(line))
+
         const messages = {
-            preview: 'Dry run: nothing changed in PostHog.',
-            cancelled: 'Cancelled: nothing changed in PostHog.',
-            nothing_to_do: 'Nothing to push.',
+            preview: 'Dry run: nothing changed in PostHog',
+            cancelled: 'Cancelled: nothing changed in PostHog',
+            nothing_to_do: 'Nothing to push',
         }
-        out.line(out.style(messages[result.status], 'dim'))
+        out.report({
+            status: invalid ? 'partial' : 'unchanged',
+            result: messages[result.status],
+            effects: pushPlanLines(result.plan, style),
+            warnings,
+        })
     },
 
     agent({ result, out }) {
@@ -129,8 +138,8 @@ export default defineCommand({
         result.problems.length > 0 ||
         result.plan.some((item) => item.invalid) ||
         result.outcomes.some((outcome) => outcome.status === 'failed')
-            ? 1
-            : 0,
+            ? EXIT_FAILURE
+            : EXIT_SUCCESS,
 
     telemetry: ({ result }) => ({
         status: result.status,

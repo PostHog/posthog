@@ -118,6 +118,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         projectBased: false,
         organizationBased: false,
         layout: 'plain',
+        allowUnauthenticated: true,
     },
     [Scene.CLILive]: {
         name: 'Authorize Live',
@@ -505,6 +506,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     [Scene.SessionProfile]: { projectBased: true, name: 'Session profile', iconType: 'session_profile' },
     [Scene.Settings]: { projectBased: true, name: 'Settings' },
     [Scene.IdentityProviderConfig]: { projectBased: true, name: 'Configure identity provider' },
+    [Scene.DataDeletionRequestNew]: { projectBased: true, name: 'New deletion request' },
     [Scene.Signup]: { onlyUnauthenticated: true, name: 'Sign up', layout: 'plain' },
     [Scene.Site]: { projectBased: true, hideProjectNotice: true, layout: 'app-raw' },
     [Scene.StartupProgram]: { name: 'PostHog for Startups', organizationBased: true, layout: 'plain' },
@@ -651,6 +653,8 @@ export const redirects: Record<
     '/views/new': urls.analyticsList(),
     // Analytics opens on View all; the bare path stays as the pane's prefix.
     [urls.analytics()]: urls.analyticsList(),
+    // Collections were called spaces; this keeps old links working.
+    '/analytics/spaces': urls.analyticsSpaces(),
     '/action/:id': ({ id }) => urls.action(id),
     '/actions': urls.actions(),
     '/activity': urls.activity(),
@@ -803,7 +807,6 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.savedInsights()]: [Scene.SavedInsights, 'savedInsights'],
     [urls.webAnalytics()]: [Scene.WebAnalytics, 'webAnalytics'],
     [urls.webAnalyticsWebVitals()]: [Scene.WebAnalytics, 'webAnalyticsWebVitals'],
-    [urls.webAnalyticsBotAnalytics()]: [Scene.WebAnalytics, 'webAnalyticsBotAnalytics'],
     [urls.webAnalyticsPagePerformance()]: [Scene.WebAnalytics, 'webAnalyticsPagePerformance'],
     [urls.webAnalyticsAgents()]: [Scene.WebAnalytics, 'webAnalyticsAgents'],
     [urls.webAnalyticsHealth()]: [Scene.WebAnalyticsHealth, 'webAnalyticsHealth'],
@@ -951,6 +954,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.notebooks()]: [Scene.Notebooks, 'notebooks'],
     [urls.canvas()]: [Scene.Canvas, 'canvas'],
     [urls.identityProviderConfig(':feature', ':configId')]: [Scene.IdentityProviderConfig, 'identityProviderConfig'],
+    [urls.dataDeletionRequestNew()]: [Scene.DataDeletionRequestNew, 'dataDeletionRequestNew'],
     [urls.settings(':section' as any)]: [Scene.Settings, 'settings'],
     [urls.moveToPostHogCloud()]: [Scene.MoveToPostHogCloud, 'moveToPostHogCloud'],
     [urls.advancedActivityLogs()]: [Scene.AdvancedActivityLogs, 'advancedActivityLogs'],

@@ -35,9 +35,11 @@ posthog:inbox-reports-claim
 Save the returned `assignee.claim_id` and pass it on subsequent work updates and artefact writes.
 Taking over another actor requires `takeover=true`; stale claim IDs are rejected.
 The claim is attributed to the current internal task or external MCP client. Claims do not expire, so
-release the report whenever you walk away without landing a fix — including when you dismiss it instead.
-Release clears ownership only; an attached pull request stays on the report, and release works from any
-status, so a dismissed report can be released too.
+release the report whenever you walk away without landing a fix.
+Dismissing a report releases its claim for you.
+A resolved, closed, or Monitoring report keeps its claim, because a late open pull request moves it back to ready.
+Release clears ownership only; an attached pull request stays on the report.
+An MCP client that acts for a person can release that person's own claim.
 
 ### Step 2 — Verify the diagnosis against the code (do not skip)
 
@@ -94,7 +96,9 @@ so resolve those reports manually after the work lands. Also reference the repor
 in the PR description so the loop is traceable from either side.
 
 **Don't resolve a report because you opened a PR.** A report resolves when all linked PRs are closed
-or merged and at least one merged. If all closed without merging, it is suppressed. Any open, draft,
+or merged and at least one merged.
+Where the organization has Monitoring on and the report has open follow-up checks, it enters `monitoring` instead (see [Monitoring](report-state.md#monitoring)).
+If all closed without merging, it is suppressed. Any open, draft,
 or unknown PR prevents automatic completion. Resolving by hand at PR-open
 time asserts work that hasn't landed, and a reviewer looking at the inbox can't tell the difference.
 Manual resolve is for fixes a PR merge will never cover — a skill-body change, a config change, a

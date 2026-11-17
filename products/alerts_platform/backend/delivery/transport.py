@@ -32,10 +32,45 @@ class DeliveryError(Exception):
     """A send the provider refused. The caller decides whether to retry."""
 
 
+class DeliveryAmbiguous(DeliveryError):
+    """The whole request was sent and no answer came back, so the provider may have posted it.
+
+    A refused connection or a DNS failure sent nothing, so it stays a plain `DeliveryError` and a
+    retry is safe. A provider without an idempotency key posts a second copy on a retry, so
+    dispatch records this send as delivered rather than repeating it.
+    """
+
+
 class DestinationMisconfigured(DeliveryError):
     """A refusal that only the destination's owner can fix, such as a channel the bot is not in.
 
     The platform did its part, so its own reliability metrics count this apart from a failure.
+    """
+
+
+# What an HTTP destination's owner checks. A provider whose fix lies elsewhere names its own.
+CHECK_THE_URL = "Check the destination's URL and the format it accepts, then update the destination on the alert."
+
+
+class DestinationRefused(DestinationMisconfigured):
+    """A destination rejected the request itself, so every retry and every later message fails the same way.
+
+    The alert's creator is told, with `remedy` saying what to change. For an HTTP destination only a
+    4xx answer the owner can fix counts, and never 408 or 429, which a later attempt can get past. A
+    4xx that rejects the body PostHog built is PostHog's fix, not the owner's. Slack names its own
+    refusals, such as a channel the app is not in.
+    """
+
+    def __init__(self, refusal: str, *, remedy: str = CHECK_THE_URL) -> None:
+        super().__init__(refusal)
+        self.remedy = remedy
+
+
+class RefusedEverywhere(DeliveryError):
+    """A delivery whose every failed send was a refusal only the destination's owner can fix.
+
+    Running the delivery again sends to the same refusing destinations and is refused the same way,
+    so the caller does not retry it.
     """
 
 

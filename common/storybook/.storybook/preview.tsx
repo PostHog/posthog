@@ -60,12 +60,15 @@ setupPosthogJs()
 
 // Canvas charts measure text at paint time and never repaint when fonts finish loading, so hold
 // every story's render until the app fonts (the set the visual-regression runner preloads) are in.
+// RoundHog's italic faces are separate files. A data grid that sizes its columns from italic text
+// before the italic face arrives keeps the fallback font's widths, so the italic faces load here too.
 const loaders: Preview['loaders'] = [
     async () => {
         await Promise.all(
             ['400', '500', '700', '800'].flatMap((weight) => [
                 document.fonts.load(`${weight} 16px Inter`),
                 document.fonts.load(`${weight} 16px RoundHog`),
+                document.fonts.load(`italic ${weight} 16px RoundHog`),
             ])
         )
             .then(() => document.fonts.ready)

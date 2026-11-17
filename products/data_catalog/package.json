@@ -5,10 +5,12 @@
     },
     "dependencies": {
         "@posthog/quill": "workspace:*",
+        "@posthog/quill-charts": "workspace:*",
         "kea": "catalog:",
         "kea-forms": "catalog:",
         "kea-loaders": "catalog:",
         "kea-router": "catalog:",
+        "kea-subscriptions": "catalog:",
         "posthog-js": "catalog:",
         "yaml": "catalog:"
     },

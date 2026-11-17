@@ -23,9 +23,11 @@ import { Navigation } from '~/layout/navigation-3000/Navigation'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
 import { ImpersonationNoticeSlot } from '~/layout/navigation/ImpersonationNotice/ImpersonationNoticeSlot'
+import { NewEventsTableBar } from '~/layout/navigation/NewEventsTableBar'
 
 import { webmcpLogic } from 'products/webmcp/frontend/logics/webmcpLogic'
 
+import { mountRealtimeCohortsJoin } from './mountRealtimeCohortsJoin'
 import { sceneLogic } from './sceneLogic'
 
 const TerminalDock = lazyWithRetry(() =>
@@ -49,6 +51,7 @@ export default function AuthenticatedShell({ children }: { children: React.React
     useMountedLogic(billingLogic)
     // Resolves product setup statuses on idle, so gated scenes open without a spinner.
     useMountedLogic(productSetupPreloadLogic)
+    useEffect(() => mountRealtimeCohortsJoin(), [])
     useSetupHighlight()
 
     const { sceneConfig } = useValues(sceneLogic)
@@ -103,6 +106,7 @@ export default function AuthenticatedShell({ children }: { children: React.React
                     </ErrorBoundary>
                 )}
                 <ImpersonationNoticeSlot />
+                <NewEventsTableBar />
                 {featureFlags[FEATURE_FLAGS.EXPERIMENTS_FREEZE_EXPOSURE_AA_TEST] === 'test' && (
                     <div data-attr="experiments-freeze-exposure-aa-test-variant" className="hidden" />
                 )}

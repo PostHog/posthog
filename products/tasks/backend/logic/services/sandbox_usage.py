@@ -11,7 +11,7 @@ The write helpers swallow and log every failure: the ledger must never break
 sandbox provisioning, cleanup, or user-message delivery.
 """
 
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from decimal import ROUND_HALF_EVEN, Decimal
@@ -44,6 +44,24 @@ logger = structlog.get_logger(__name__)
 
 P = ParamSpec("P")
 R = TypeVar("R")
+
+SESSION_SCAN_CHUNK_SIZE = 20_000
+
+
+def iter_sandbox_sessions(
+    queryset: QuerySet[SandboxSession], *, chunk_size: int = SESSION_SCAN_CHUNK_SIZE
+) -> Iterator[SandboxSession]:
+    cursor: UUID | None = None
+    while True:
+        batch = queryset.order_by("id")
+        if cursor is not None:
+            batch = batch.filter(id__gt=cursor)
+        sessions = list(batch[:chunk_size])
+        if not sessions:
+            return
+        yield from sessions
+        cursor = sessions[-1].id
+        del sessions
 
 
 @frozen
@@ -261,6 +279,7 @@ def _capture_sandbox_session_closed(
     task_run.capture_event(
         "sandbox_session_closed",
         {
+            "$update_person_last_seen_at": False,
             "sandbox_id": sandbox_session.sandbox_id,
             "ended_reason": reason,
             "runtime_seconds": _elapsed_seconds(sandbox_session.created_at, effective_end),
@@ -452,7 +471,7 @@ def get_billable_sandbox_compute_usage_by_team(
 
     usage: dict[int, list[Decimal]] = {}
     calculated_at = timezone.now()
-    for session in sessions.iterator():
+    for session in iter_sandbox_sessions(sessions):
         if not is_billable_sandbox_session(session):
             continue
         cost = calculate_sandbox_compute_cost(session, begin, end, calculated_at=calculated_at, rate_cards=cards)

@@ -1,6 +1,14 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
+        "created_by_id": {
+            "description": "Comma-separated user IDs. Only features created by one of them are listed.",
+            "type": "string"
+        },
+        "ids": {
+            "description": "Comma-separated early access feature IDs, at most 200.",
+            "type": "string"
+        },
         "limit": {
             "description": "Number of results to return per page.",
             "type": "number"
@@ -8,6 +16,14 @@
         "offset": {
             "description": "The initial index from which to return the results.",
             "type": "number"
+        },
+        "order": {
+            "description": "Sort by creation time: -created_at (default) for newest first, created_at for oldest first.",
+            "type": "string"
+        },
+        "search": {
+            "description": "Case-insensitive match on the feature name.",
+            "type": "string"
         }
     },
     "type": "object"

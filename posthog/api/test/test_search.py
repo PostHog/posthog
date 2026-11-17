@@ -233,15 +233,20 @@ class TestSearch(APIBaseTest):
             ("shared word", "event", {"first event", "second event", "third event"}),
             ("word inside a snake_case name", "view", {"page_view_v2"}),
             ("dotted capital I folded like the rank", "istanbul", {"İstanbul office"}),
+            ("dotted capital I query", "İstanbul", {"İstanbul office"}),
             ("mixed case", "SeCoNd", {"second event"}),
             ("short prefix", "s", {"second event"}),
             ("no match", "missing", set()),
         ]
     )
     def test_definitions(self, _name: str, query: str, expected: set[str]) -> None:
+        other_team = Team.objects.create(organization=self.organization)
         for name in ("first event", "second event", "third event", "page_view_v2", "İstanbul office"):
-            EventDefinition.objects.create(name=name, team=self.team)
-            PropertyDefinition.objects.create(name=name, team=self.team)
+            project_id = self.team.project_id if name != "second event" else None
+            EventDefinition.objects.create(name=name, team=self.team, project_id=project_id)
+            PropertyDefinition.objects.create(name=name, team=self.team, project_id=project_id)
+            EventDefinition.objects.create(name=name, team=other_team, project_id=other_team.project_id)
+            PropertyDefinition.objects.create(name=name, team=other_team, project_id=other_team.project_id)
 
         with CaptureQueriesContext(connection) as queries:
             response = self.client.get(
@@ -263,7 +268,8 @@ class TestSearch(APIBaseTest):
             )
         definition_sql = next(q["sql"] for q in queries.captured_queries if "UNION" in q["sql"])
         for table in ("posthog_eventdefinition", "posthog_propertydefinition"):
-            self.assertIn(f'"{table}"."name"::text ILIKE', definition_sql)
+            self.assertIn(f'LOWER("{table}"."name")::text LIKE', definition_sql)
+            self.assertNotIn(f'"{table}"."name"::text ILIKE', definition_sql)
         self.assertLess(
             definition_sql.index('FROM "posthog_eventdefinition"'),
             definition_sql.index('FROM "posthog_propertydefinition"'),
@@ -389,8 +395,8 @@ class TestSearch(APIBaseTest):
             )
 
         assert len(ctx_with) - len(ctx_without) >= 13
-        # One query for the unioned entities, and one each for the actions and workflows merged in through their facades.
-        assert len(ctx_without) == 3
+        # One query for the unioned entities, and one per facade search: actions, dashboards and workflows.
+        assert len(ctx_without) == 4
 
     def test_search_entities_returns_total_count(self):
         for i in range(5):

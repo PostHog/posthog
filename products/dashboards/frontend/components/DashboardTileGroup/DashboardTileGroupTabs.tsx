@@ -1,15 +1,18 @@
+import { IconPlusSmall } from '@posthog/icons'
+import { Button, Tabs, TabsContent, TabsList, TabsTrigger } from '@posthog/quill'
+
 import type { DashboardWidgetPlacementDestination } from 'lib/components/Cards/InsightCard/DashboardWidgetPlacementMenu'
-import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 import type { TileGroupDisplay } from '~/types'
 
 import { type DashboardSection, getTileGroupLabel } from '../../dashboardTileSections'
-import { DashboardTileGroupContextMenu } from './DashboardTileGroupContextMenu'
 import { DashboardTileGroupEmptyTab } from './DashboardTileGroupEmptyTab'
-import { DashboardTileGroupMenu } from './DashboardTileGroupMenu'
 import { type DashboardTileGroupMenuActions, hasTileGroupMenuActions } from './DashboardTileGroupMenuOverlay'
+import { DashboardTileGroupMoveButtons, type TileGroupMoveActions } from './DashboardTileGroupMoveButtons'
 import { DashboardTileGroupTitleInput } from './DashboardTileGroupTitleInput'
+import { QuillDashboardTileGroupContextMenu } from './QuillDashboardTileGroupContextMenu'
+import { QuillDashboardTileGroupMenu } from './QuillDashboardTileGroupMenu'
 import { TileGroupColorDot } from './TileGroupColorDot'
 
 interface DashboardTileGroupTabsProps {
@@ -19,6 +22,7 @@ interface DashboardTileGroupTabsProps {
     onRenameGroup?: (groupKey: string, title: string) => void
     renamingGroupKey?: string | null
     onRenamingGroupKeyChange?: (groupKey: string | null) => void
+    getMoveActions?: (groupKey: string) => TileGroupMoveActions | undefined
     onRemoveGroup?: (groupKey: string) => void
     copyToDestinations?: DashboardWidgetPlacementDestination[]
     onCopyGroupToDashboard?: (groupKey: string, dashboardId: number, dashboardName: string) => void
@@ -26,6 +30,7 @@ interface DashboardTileGroupTabsProps {
     onChangeGroupDisplay?: (groupDisplay: TileGroupDisplay) => void
     getAddTileOptions?: (groupKey: string) => DashboardTileGroupMenuActions['addTileOptions']
     getEmptyGroupAddAction?: (groupKey: string) => React.ReactNode
+    onAddGroup?: () => void
     children: React.ReactNode
 }
 
@@ -36,6 +41,7 @@ export function DashboardTileGroupTabs({
     onRenameGroup,
     renamingGroupKey = null,
     onRenamingGroupKeyChange,
+    getMoveActions,
     onRemoveGroup,
     copyToDestinations,
     onCopyGroupToDashboard,
@@ -43,9 +49,12 @@ export function DashboardTileGroupTabs({
     onChangeGroupDisplay,
     getEmptyGroupAddAction,
     getAddTileOptions,
+    onAddGroup,
     children,
 }: DashboardTileGroupTabsProps): JSX.Element {
     const activeSection = sections.find((section) => section.key === activeSectionKey)
+    // Next to group tabs, "Overview" can repeat a group's own title, so the tab of tiles outside any group is "Other".
+    const ungroupedTabLabel = sections.some((section) => section.kind === 'group') ? 'Other' : 'Overview'
 
     const getMenuActions = (section: DashboardSection | undefined): DashboardTileGroupMenuActions => {
         if (section?.kind !== 'group') {
@@ -70,58 +79,98 @@ export function DashboardTileGroupTabs({
     }
 
     const activeMenuActions = getMenuActions(activeSection)
+    const activeMoveActions = activeSection?.kind === 'group' ? getMoveActions?.(activeSection.groupKey) : undefined
 
     return (
-        <section data-attr="dashboard-tile-group-tabs">
-            <LemonTabs
-                activeKey={activeSectionKey}
-                onChange={onSelect}
-                tabs={sections.map((section) => ({
-                    key: section.key,
-                    label:
-                        section.kind === 'group' && section.groupKey === renamingGroupKey && onRenameGroup ? (
-                            <DashboardTileGroupTitleInput
-                                initialTitle={section.group.title ?? ''}
-                                placeholder={getTileGroupLabel({}, section.tiles.length)}
-                                onSave={(title) => onRenameGroup(section.groupKey, title)}
-                                onDone={() => onRenamingGroupKeyChange?.(null)}
+        <Tabs
+            value={activeSectionKey}
+            onValueChange={(value) => onSelect(String(value))}
+            render={<section data-attr="dashboard-tile-group-tabs" />}
+        >
+            <div className="group/tile-group-tabs flex items-center gap-1 border-b">
+                <div className="flex min-w-0 items-center gap-1 overflow-x-auto">
+                    <TabsList variant="line">
+                        {sections.map((section) =>
+                            section.kind === 'group' && section.groupKey === renamingGroupKey && onRenameGroup ? (
+                                // An input can't sit inside the tab's button, so the tab gives way to the field while renaming.
+                                <span
+                                    key={section.key}
+                                    className="inline-flex flex-none items-center px-1.5 font-medium"
+                                >
+                                    <DashboardTileGroupTitleInput
+                                        initialTitle={section.group.title ?? ''}
+                                        placeholder={getTileGroupLabel({}, section.tiles.length)}
+                                        onSave={(title) => onRenameGroup(section.groupKey, title)}
+                                        onDone={() => onRenamingGroupKeyChange?.(null)}
+                                        // Inside quill's scope `rounded` reads quill's larger --radius, so match the tab buttons.
+                                        className="rounded-sm"
+                                    />
+                                </span>
+                            ) : (
+                                <TabsTrigger key={section.key} value={section.key} className="flex-none">
+                                    {section.kind === 'group' ? (
+                                        <QuillDashboardTileGroupContextMenu
+                                            className="flex items-center gap-2"
+                                            onDoubleClick={
+                                                onRenameGroup && onRenamingGroupKeyChange
+                                                    ? () => onRenamingGroupKeyChange(section.groupKey)
+                                                    : undefined
+                                            }
+                                            {...getMenuActions(section)}
+                                        >
+                                            {section.group.color && <TileGroupColorDot color={section.group.color} />}
+                                            {/* Long titles cut off so one tab can't push the others out of the bar. */}
+                                            <Tooltip title={section.group.title || undefined}>
+                                                <span className="max-w-50 truncate">
+                                                    {getTileGroupLabel(section.group, section.tiles.length)}
+                                                </span>
+                                            </Tooltip>
+                                        </QuillDashboardTileGroupContextMenu>
+                                    ) : (
+                                        ungroupedTabLabel
+                                    )}
+                                </TabsTrigger>
+                            )
+                        )}
+                    </TabsList>
+                    {onAddGroup && (
+                        <Button
+                            size="icon-xs"
+                            aria-label="Add tab"
+                            tooltip="Add tab"
+                            onClick={onAddGroup}
+                            data-attr="dashboard-tile-group-tabs-add"
+                        >
+                            <IconPlusSmall />
+                        </Button>
+                    )}
+                </div>
+                {(activeMoveActions || hasTileGroupMenuActions(activeMenuActions)) && (
+                    <div className="ml-auto flex shrink-0 items-center gap-1">
+                        {activeMoveActions && activeSection?.kind === 'group' && (
+                            <DashboardTileGroupMoveButtons
+                                groupDisplay="tabs"
+                                moveActions={activeMoveActions}
+                                groupHasTiles={activeSection.tiles.length > 0}
+                                className="opacity-0 transition-opacity focus-within:opacity-100 group-hover/tile-group-tabs:opacity-100 motion-reduce:transition-none"
                             />
-                        ) : section.kind === 'group' ? (
-                            <DashboardTileGroupContextMenu
-                                className="flex items-center gap-2"
-                                onDoubleClick={
-                                    onRenameGroup && onRenamingGroupKeyChange
-                                        ? () => onRenamingGroupKeyChange(section.groupKey)
-                                        : undefined
-                                }
-                                {...getMenuActions(section)}
-                            >
-                                {section.group.color && <TileGroupColorDot color={section.group.color} />}
-                                {/* Long titles cut off so one tab can't push the others out of the bar. */}
-                                <Tooltip title={section.group.title || undefined}>
-                                    <span className="max-w-50 truncate">
-                                        {getTileGroupLabel(section.group, section.tiles.length)}
-                                    </span>
-                                </Tooltip>
-                            </DashboardTileGroupContextMenu>
-                        ) : (
-                            'Overview'
-                        ),
-                }))}
-                rightSlotClassName="pr-0"
-                trackTabSizes
-                rightSlot={
-                    hasTileGroupMenuActions(activeMenuActions) && <DashboardTileGroupMenu {...activeMenuActions} />
-                }
-            />
-            {activeSection?.kind === 'group' && activeSection.tiles.length === 0 ? (
-                <DashboardTileGroupEmptyTab
-                    addAction={getEmptyGroupAddAction?.(activeSection.groupKey)}
-                    onRemove={activeMenuActions.onRemove}
-                />
-            ) : (
-                children
-            )}
-        </section>
+                        )}
+                        {hasTileGroupMenuActions(activeMenuActions) && (
+                            <QuillDashboardTileGroupMenu {...activeMenuActions} />
+                        )}
+                    </div>
+                )}
+            </div>
+            <TabsContent value={activeSectionKey}>
+                {activeSection?.kind === 'group' && activeSection.tiles.length === 0 ? (
+                    <DashboardTileGroupEmptyTab
+                        addAction={getEmptyGroupAddAction?.(activeSection.groupKey)}
+                        onRemove={activeMenuActions.onRemove}
+                    />
+                ) : (
+                    children
+                )}
+            </TabsContent>
+        </Tabs>
     )
 }

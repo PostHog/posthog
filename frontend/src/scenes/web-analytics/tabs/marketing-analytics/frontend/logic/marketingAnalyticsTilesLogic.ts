@@ -12,6 +12,7 @@ import {
     CompareFilter,
     ConversionGoalFilter,
     CurrencyCode,
+    DatabaseSchemaDataWarehouseTable,
     DataTableNode,
     DataWarehouseNode,
     IntegrationFilter,
@@ -97,6 +98,7 @@ export interface marketingAnalyticsTilesLogicValues {
     integrationFilter: IntegrationFilter // marketingAnalyticsLogic
     loading: boolean // marketingAnalyticsLogic
     marketingChartSourceIds: string[] // marketingAnalyticsLogic
+    marketingDataWarehouseTables: DatabaseSchemaDataWarehouseTable[] | null // marketingAnalyticsLogic
     shouldFilterTestAccounts: boolean // marketingAnalyticsLogic
     sourcesInitialLoading: boolean // marketingAnalyticsLogic
     tileColumnSelection: validColumnsForTiles // marketingAnalyticsLogic
@@ -148,7 +150,8 @@ export interface marketingAnalyticsTilesLogicMeta {
         tiles: (
             overviewTile: QueryTile,
             marketingChartTile: QueryTile,
-            campaignBreakdownTile: QueryTile | null
+            campaignBreakdownTile: QueryTile | null,
+            marketingDataWarehouseTables: DatabaseSchemaDataWarehouseTable[] | null
         ) => QueryTile[]
         tableColumns: (
             defaultColumns: string[],
@@ -193,6 +196,7 @@ export const marketingAnalyticsTilesLogic = kea<marketingAnalyticsTilesLogicType
                 'marketingChartSourceIds',
                 'loading',
                 'sourcesInitialLoading',
+                'marketingDataWarehouseTables',
                 'draftConversionGoal',
                 'chartDisplayType',
                 'chartBreakdown',
@@ -442,12 +446,17 @@ export const marketingAnalyticsTilesLogic = kea<marketingAnalyticsTilesLogicType
                     : null,
         ],
         tiles: [
-            (s) => [s.overviewTile, s.marketingChartTile, s.campaignBreakdownTile],
+            (s) => [s.overviewTile, s.marketingChartTile, s.campaignBreakdownTile, s.marketingDataWarehouseTables],
             (
                 overviewTile: QueryTile,
                 marketingChartTile: QueryTile,
-                campaignBreakdownTile: QueryTile | null
-            ): QueryTile[] => [overviewTile, marketingChartTile, campaignBreakdownTile].filter(isNotNil) as QueryTile[],
+                campaignBreakdownTile: QueryTile | null,
+                marketingDataWarehouseTables: DatabaseSchemaDataWarehouseTable[] | null
+            ): QueryTile[] =>
+                // Without a schema the chart has no series and would query the "no sources" placeholder.
+                [overviewTile, marketingDataWarehouseTables ? marketingChartTile : null, campaignBreakdownTile].filter(
+                    isNotNil
+                ) as QueryTile[],
         ],
         tableColumns: [
             (s) => [s.defaultColumns, s.includeConversionGoals, s.drillDownLevel],

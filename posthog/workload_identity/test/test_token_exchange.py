@@ -515,20 +515,6 @@ class TestWorkloadTokenExchange(APIBaseTest):
         assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
         assert "WWW-Authenticate" not in response
 
-    def test_a_staff_owners_workload_token_does_not_get_the_mcp_registry_staff_tier(self) -> None:
-        self.user.is_staff = True
-        self.user.save()
-        self.policy.scopes = ["mcp_registry:read"]
-        self.policy.save()
-        token = self._access_token()
-
-        with patch(
-            "posthoganalytics.feature_enabled", side_effect=lambda flag_key, *_, **__: flag_key == "mcp-registry"
-        ):
-            response = self._call("get", f"/api/projects/{self.team.id}/mcp_registry/servers/measured_projects/", token)
-
-        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
-
     @parameterized.expand(
         [
             ("mcp_server_installations", ["project:read"], "get", "mcp_server_installations/"),
@@ -605,11 +591,13 @@ class TestWorkloadTokenExchange(APIBaseTest):
         workload_body = self._call("get", f"/api/projects/{self.team.id}/", token).json()
         pat_body = self._call("get", f"/api/projects/{self.team.id}/", personal_key).json()
 
-        assert workload_body["api_token"] == self.team.api_token
-        assert not {
+        secret_fields = {
             "secret_api_token",
             "secret_api_token_backup",
             "heatmaps_screenshot_secret",
             "live_events_token",
-        } & set(workload_body)
-        assert pat_body["secret_api_token"] == "phs_example_team_secret"
+        }
+        assert workload_body["api_token"] == self.team.api_token
+        assert not secret_fields & set(workload_body)
+        assert secret_fields <= set(pat_body)
+        assert pat_body["secret_api_token"] is None

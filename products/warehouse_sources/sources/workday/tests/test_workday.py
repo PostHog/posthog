@@ -10,6 +10,7 @@ from products.warehouse_sources.sources.sdk.testing import (
     RecordedRequest,
     ScriptedResponse,
     SourceDriver,
+    route,
     scripted_network,
 )
 from products.warehouse_sources.sources.workday._config import WorkdaySourceConfig
@@ -86,10 +87,18 @@ class TestUrlHelpers:
             ("supervisory_organizations", "/staffing/v7/acme_pt1/supervisoryOrganizations"),
             ("job_changes", "/staffing/v7/acme_pt1/jobChanges"),
             ("organization_assignment_changes", "/staffing/v7/acme_pt1/organizationAssignmentChanges"),
+            ("locations", "/staffing/v7/acme_pt1/values/jobChangesGroup/locations/"),
+            ("worker_pay_slips", "/v1/acme_pt1/workers/{worker_id}/paySlips"),
+            ("worker_history", "/v1/acme_pt1/workers/{worker_id}/history"),
+            # Time Tracking has its own version, which the Staffing pin must not move.
+            ("worker_time_blocks", "/timeTracking/v7/acme_pt1/workerTimeBlocks"),
         ],
     )
-    def test_build_endpoint_path(self, endpoint: str, expected: str) -> None:
-        assert build_endpoint_path(WORKDAY_ENDPOINTS[endpoint], "acme_pt1", "v7") == expected
+    @pytest.mark.parametrize("staffing_version", ["v7", "v6"])
+    def test_build_endpoint_path(self, endpoint: str, expected: str, staffing_version: str) -> None:
+        assert build_endpoint_path(WORKDAY_ENDPOINTS[endpoint], "acme_pt1", staffing_version) == expected.replace(
+            "/staffing/v7/", f"/staffing/{staffing_version}/"
+        )
 
 
 class TestMintAccessToken:
@@ -216,6 +225,23 @@ class TestValidateCredentials:
         assert ok is False
         assert error == HOST_NOT_ALLOWED_ERROR
 
+    @pytest.mark.parametrize("schema_name", ["worker_pay_slips", "worker_history"])
+    def test_per_worker_schema_probes_the_worker_listing(self, schema_name: str) -> None:
+        responses = [_token_response(), _json_response({"total": 1, "data": []})]
+        with scripted_network(responses) as network:
+            ok, _ = validate_credentials(
+                hostname=HOSTNAME,
+                tenant=TENANT,
+                client_id="client",
+                client_secret="secret",
+                refresh_token="refresh",
+                staffing_version="v7",
+                schema_name=schema_name,
+            )
+
+        assert ok is True
+        assert _data_requests(network.requests_log)[0].path == f"/ccx/api/v1/{TENANT}/workers"
+
     def test_token_failure_is_surfaced(self) -> None:
         ok, error = self._validate(token=_json_response({"error": "invalid_client"}, status_code=401))
         assert ok is False
@@ -254,3 +280,100 @@ class TestWorkdaySource:
 
         assert isinstance(result.raised, WorkdayHostNotAllowedError)
         assert result.requests == []
+
+
+def _ids(prefix: str, count: int, start: int = 0) -> list[dict[str, Any]]:
+    return [{"id": f"{prefix}{i}"} for i in range(start, start + count)]
+
+
+WORKERS_PATH = f"/v1/{TENANT}/workers"
+
+
+class TestPerWorkerTables:
+    @pytest.mark.parametrize("endpoint, sub_path", [("worker_pay_slips", "paySlips"), ("worker_history", "history")])
+    def test_fans_out_over_every_worker_page_and_child_page(self, endpoint: str, sub_path: str) -> None:
+        result = _driver().run(
+            endpoint,
+            route(
+                {
+                    "/token": [_token_response()] * 3,
+                    WORKERS_PATH: [_page(_ids("w", 100), total=101), _page([{"id": "w100"}], total=101)],
+                    f"{WORKERS_PATH}/w0/{sub_path}": [
+                        _page(_ids("a", 100), total=101),
+                        _page(_ids("a", 1, start=100), total=101),
+                    ],
+                    **{f"{WORKERS_PATH}/w{n}/{sub_path}": [_page([], total=0)] for n in range(1, 100)},
+                    f"{WORKERS_PATH}/w100/{sub_path}": [_page([{"id": "a0"}], total=1)],
+                }
+            ),
+        )
+
+        assert result.raised is None
+        keys = [(row["worker_id"], row["id"]) for row in result.rows]
+        assert len(keys) == 102
+        assert keys[0] == ("w0", "a0") and keys[100] == ("w0", "a100")
+        # The same child id under another worker stays a distinct row through the worker in the key.
+        assert keys[-1] == ("w100", "a0")
+        assert all("_workers_id" not in row for row in result.rows)
+        child_requests = [r for r in _data_requests(result.requests) if r.path.endswith(f"/w0/{sub_path}")]
+        assert [(r.param("limit"), r.param("offset")) for r in child_requests] == [("100", "0"), ("100", "100")]
+
+    def test_resume_restarts_the_worker_listing_a_page_back_and_skips_finished_workers(self) -> None:
+        worker_pages = [
+            _page(_ids("w", 100), total=202),
+            _page(_ids("w", 100, start=100), total=202),
+            _page(_ids("w", 2, start=200), total=202),
+        ]
+        pay_slips = {f"{WORKERS_PATH}/w{n}/paySlips": [_page([{"id": f"p{n}"}], total=1)] for n in range(202)}
+        first = _driver().run(
+            "worker_pay_slips",
+            route({"/token": [_token_response()] * 3, WORKERS_PATH: list(worker_pages), **pay_slips}),
+        )
+        assert first.raised is None
+        after_w200 = next(
+            state
+            for state in first.saved_states
+            if state.fanout_state and f"{WORKERS_PATH}/w200/paySlips" in state.fanout_state["completed"]
+        )
+
+        result = _driver().run(
+            "worker_pay_slips",
+            route(
+                {
+                    "/token": [_token_response()] * 3,
+                    WORKERS_PATH: worker_pages[1:],
+                    f"{WORKERS_PATH}/w201/paySlips": [_page([{"id": "p201"}], total=1)],
+                }
+            ),
+            resume_state=after_w200,
+        )
+
+        assert result.raised is None
+        worker_requests = [r for r in _data_requests(result.requests) if r.path == f"/ccx/api{WORKERS_PATH}"]
+        assert [r.param("offset") for r in worker_requests] == ["100", "200"]
+        assert [(row["worker_id"], row["id"]) for row in result.rows] == [("w201", "p201")]
+
+
+class TestTopLevelTables:
+    def test_locations_are_read_in_one_request_without_paging_params(self) -> None:
+        result = _driver().run("locations", _tenant_api([_page(_ids("loc", 3), total=3)]))
+
+        assert result.raised is None
+        assert [row["id"] for row in result.rows] == ["loc0", "loc1", "loc2"]
+        (request,) = _data_requests(result.requests)
+        assert request.path == f"/ccx/api/staffing/v7/{TENANT}/values/jobChangesGroup/locations/"
+        assert request.param("limit") is None and request.param("offset") is None
+
+    def test_time_blocks_page_through_the_time_tracking_service(self) -> None:
+        result = _driver().run(
+            "worker_time_blocks",
+            _tenant_api([_page(_ids("tb", 100), total=101), _page(_ids("tb", 1, start=100), total=101)]),
+        )
+
+        assert result.raised is None
+        assert len(result.rows) == 101
+        requests = _data_requests(result.requests)
+        assert {r.path for r in requests} == {f"/ccx/api/timeTracking/v7/{TENANT}/workerTimeBlocks"}
+        assert [r.param("offset") for r in requests] == ["0", "100"]
+        # Full refresh: no date window, which would filter on the block date, not on changes.
+        assert all(r.param("fromDate") is None and r.param("toDate") is None for r in requests)

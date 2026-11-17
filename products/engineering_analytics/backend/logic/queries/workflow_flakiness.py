@@ -1,4 +1,4 @@
-"""Immutable workflow-job observations that failed and passed on a later attempt."""
+"""Jobs that failed and then passed on a later attempt of the same run."""
 
 from dataclasses import dataclass
 from datetime import datetime
@@ -13,10 +13,9 @@ from products.engineering_analytics.backend.logic.queries._workflow_filters impo
     run_started_floor_constant,
 )
 
-# A job that failed in under this many seconds did no real work: it's a required-check aggregator
-# echoing a dependency's failure, which double-counts every real flake. The floor separates a job
-# that only reads its dependencies' results from one that runs anything. Run-level twin:
-# NO_OP_RUN_MAX_SECONDS.
+# A job that failed in under this many seconds is a required-check aggregator that repeats a
+# dependency's failure, so counting it would count every real flake twice. The run-level
+# equivalent is NO_OP_RUN_MAX_SECONDS.
 NO_OP_JOB_MAX_SECONDS = 10
 
 # These jobs commit an artifact, then exit 1 so the merge waits for review. The rerun passes because
@@ -90,9 +89,6 @@ def query_workflow_flakiness(
             "date_from": ast.Constant(value=date_from),
             "min_failed_duration_seconds": ast.Constant(value=min_failed_duration_seconds),
             "by_design_failures": ast.Constant(value=list(BY_DESIGN_FAILURES)),
-            # Same date-only floor for both tables — each query filters the column it floors, so both
-            # take the tight one-day slack: the runs subquery (run_started_floor) and the jobs
-            # subquery (job_created_floor).
             "run_started_floor": run_started_floor_constant(date_from),
             "job_created_floor": job_created_floor_constant(date_from),
         },

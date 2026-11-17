@@ -228,3 +228,12 @@ RECORD_TYPES: dict[str, RecordType] = {
     record.key: record
     for record in (TeamRecord(), OrganizationRecord(), ProjectRecord(), UserRecord(), DeletionRequestRecord())
 }
+
+
+def console_url_for(obj: Model) -> str | None:
+    """The console page of a record, for the Django admin change form of the same row. None when the console has
+    no page for its model."""
+    for record_type in RECORD_TYPES.values():
+        if isinstance(obj, record_type.queryset().model) and obj.pk is not None:
+            return record_type.url(obj)
+    return None

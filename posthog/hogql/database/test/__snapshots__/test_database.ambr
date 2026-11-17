@@ -2185,6 +2185,61 @@
                   "schema_valid": true,
                   "table": null,
                   "type": "integer"
+              },
+              "$virt_is_bot": {
+                  "chain": null,
+                  "description": null,
+                  "fields": null,
+                  "hogql_value": "`$virt_is_bot`",
+                  "id": null,
+                  "name": "$virt_is_bot",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "boolean"
+              },
+              "$virt_traffic_type": {
+                  "chain": null,
+                  "description": null,
+                  "fields": null,
+                  "hogql_value": "`$virt_traffic_type`",
+                  "id": null,
+                  "name": "$virt_traffic_type",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "$virt_traffic_category": {
+                  "chain": null,
+                  "description": null,
+                  "fields": null,
+                  "hogql_value": "`$virt_traffic_category`",
+                  "id": null,
+                  "name": "$virt_traffic_category",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "$virt_bot_name": {
+                  "chain": null,
+                  "description": null,
+                  "fields": null,
+                  "hogql_value": "`$virt_bot_name`",
+                  "id": null,
+                  "name": "$virt_bot_name",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "$virt_bot_operator": {
+                  "chain": null,
+                  "description": null,
+                  "fields": null,
+                  "hogql_value": "`$virt_bot_operator`",
+                  "id": null,
+                  "name": "$virt_bot_operator",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
               }
           },
           "id": "logs",
@@ -2868,6 +2923,115 @@
           "row_count": null,
           "type": "system"
       },
+      "system.aeo_brands": {
+          "certification": null,
+          "description": "AEO brand catalog: one row per company whose domain the answer engines cite, labeled as the team's own brand, a competitor, a publisher, or unknown. Join a cited URL's host to `domain` to tell own pages from competitor pages.",
+          "fields": {
+              "id": {
+                  "chain": null,
+                  "description": "Brand id.",
+                  "fields": null,
+                  "hogql_value": "id",
+                  "id": null,
+                  "name": "id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "name": {
+                  "chain": null,
+                  "description": "Brand name as people say it.",
+                  "fields": null,
+                  "hogql_value": "name",
+                  "id": null,
+                  "name": "name",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "domain": {
+                  "chain": null,
+                  "description": "Registrable domain, for example 'example.com'. Citations on its subdomains count for the brand.",
+                  "fields": null,
+                  "hogql_value": "domain",
+                  "id": null,
+                  "name": "domain",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "kind": {
+                  "chain": null,
+                  "description": "What the brand is to the team: 'own', 'competitor', 'publisher' or 'unknown'.",
+                  "fields": null,
+                  "hogql_value": "kind",
+                  "id": null,
+                  "name": "kind",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "status": {
+                  "chain": null,
+                  "description": "Whether a person confirmed the brand ('confirmed'), ignored it ('ignored'), or has not looked at it yet ('suggested').",
+                  "fields": null,
+                  "hogql_value": "status",
+                  "id": null,
+                  "name": "status",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "source": {
+                  "chain": null,
+                  "description": "How the brand entered the catalog: 'citations' or 'manual'.",
+                  "fields": null,
+                  "hogql_value": "source",
+                  "id": null,
+                  "name": "source",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "aliases": {
+                  "chain": null,
+                  "description": "JSON array of other names for the brand, used to find it in answer text.",
+                  "fields": null,
+                  "hogql_value": "aliases",
+                  "id": null,
+                  "name": "aliases",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "json"
+              },
+              "created_at": {
+                  "chain": null,
+                  "description": "When the brand entered the catalog.",
+                  "fields": null,
+                  "hogql_value": "created_at",
+                  "id": null,
+                  "name": "created_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "updated_at": {
+                  "chain": null,
+                  "description": "When the brand was last edited.",
+                  "fields": null,
+                  "hogql_value": "updated_at",
+                  "id": null,
+                  "name": "updated_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              }
+          },
+          "id": "system.aeo_brands",
+          "name": "system.aeo_brands",
+          "row_count": null,
+          "type": "system"
+      },
       "system.aeo_citation_checks": {
           "certification": null,
           "description": "AEO citation checks: one row per prompt x answer engine per run, recording whether the team's target domain was cited. Written only by the citation runner.",
@@ -2993,6 +3157,28 @@
                   "table": null,
                   "type": "string"
               },
+              "mode": {
+                  "chain": null,
+                  "description": "How the engine answered: 'web_search' with its search tool, or 'no_search' from training data alone. No-search answers never cite, so filter mode = 'web_search' for citation rates.",
+                  "fields": null,
+                  "hogql_value": "mode",
+                  "id": null,
+                  "name": "mode",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "mode_config": {
+                  "chain": null,
+                  "description": "JSON object of settings the mode ran with, such as a locale. Empty when the mode used its defaults.",
+                  "fields": null,
+                  "hogql_value": "mode_config",
+                  "id": null,
+                  "name": "mode_config",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "json"
+              },
               "check_failed": {
                   "chain": null,
                   "description": "The engine did not answer, so the row is not evidence that citations disappeared.",
@@ -3022,6 +3208,17 @@
                   "hogql_value": "cited",
                   "id": null,
                   "name": "cited",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "boolean"
+              },
+              "names_brand": {
+                  "chain": null,
+                  "description": "The answer text names one of the project's own brands. An answer with `cited` true also counts as a mention. Null when the check failed, and on older checks not yet filled in.",
+                  "fields": null,
+                  "hogql_value": "names_brand",
+                  "id": null,
+                  "name": "names_brand",
                   "schema_valid": true,
                   "table": null,
                   "type": "boolean"
@@ -3536,11 +3733,11 @@
       },
       "system.alerts": {
           "certification": null,
-          "description": "Insight alert configurations that notify users when an insight's value crosses a threshold; one row per alert.",
+          "description": "Insight alert configurations that notify users when an insight's value crosses a threshold; one row per alert. An alert the alerts platform owns shows its settings and state from the platform.",
           "fields": {
               "id": {
                   "chain": null,
-                  "description": "Alert UUID.",
+                  "description": "Alert UUID: the insight alert's id, or the platform alert's id for an alert created on the platform.",
                   "fields": null,
                   "hogql_value": "id",
                   "id": null,
@@ -3628,7 +3825,7 @@
               },
               "created_at": {
                   "chain": null,
-                  "description": "When the alert was created.",
+                  "description": "When the alert was created. For an alert moved to the alerts platform, when it moved.",
                   "fields": null,
                   "hogql_value": "created_at",
                   "id": null,
@@ -3650,7 +3847,7 @@
               },
               "last_checked_at": {
                   "chain": null,
-                  "description": "When the alert was last evaluated.",
+                  "description": "When the alert was last evaluated. NULL for an alert the alerts platform evaluates.",
                   "fields": null,
                   "hogql_value": "last_checked_at",
                   "id": null,
@@ -9637,17 +9834,6 @@
                   "table": null,
                   "type": "string"
               },
-              "confidence": {
-                  "chain": null,
-                  "description": "AI author's confidence for a proposed metric, 0-1.",
-                  "fields": null,
-                  "hogql_value": "confidence",
-                  "id": null,
-                  "name": "confidence",
-                  "schema_valid": true,
-                  "table": null,
-                  "type": "float"
-              },
               "reasoning": {
                   "chain": null,
                   "description": "AI author's design decisions and trade-offs behind the definition, as review context.",
@@ -12221,11 +12407,11 @@
       },
       "system.logs_alerts": {
           "certification": null,
-          "description": "Alerts that fire when matching log volume crosses a threshold; one row per logs alert.",
+          "description": "Alerts that fire when matching log volume crosses a threshold; one row per logs alert. An alert the alerts platform owns shows its settings and state from the platform.",
           "fields": {
               "id": {
                   "chain": null,
-                  "description": "Alert UUID.",
+                  "description": "Alert UUID: the logs alert's id, or the platform alert's id for an alert created on the platform.",
                   "fields": null,
                   "hogql_value": "id",
                   "id": null,
@@ -12390,7 +12576,7 @@
               },
               "last_checked_at": {
                   "chain": null,
-                  "description": "When the alert was last evaluated.",
+                  "description": "When the alert was last evaluated. NULL for an alert the alerts platform evaluates.",
                   "fields": null,
                   "hogql_value": "last_checked_at",
                   "id": null,
@@ -12412,7 +12598,7 @@
               },
               "created_at": {
                   "chain": null,
-                  "description": "When the alert was created.",
+                  "description": "When the alert was created. For an alert moved to the alerts platform, when it moved.",
                   "fields": null,
                   "hogql_value": "created_at",
                   "id": null,
@@ -13590,17 +13776,6 @@
                   "schema_valid": true,
                   "table": null,
                   "type": "float"
-              },
-              "sampling_mode": {
-                  "chain": null,
-                  "description": "Quality pre-filter: focused, balanced or comprehensive.",
-                  "fields": null,
-                  "hogql_value": "sampling_mode",
-                  "id": null,
-                  "name": "sampling_mode",
-                  "schema_valid": true,
-                  "table": null,
-                  "type": "string"
               },
               "model": {
                   "chain": null,
@@ -18820,6 +18995,61 @@
                   "schema_valid": true,
                   "table": null,
                   "type": "integer"
+              },
+              "$virt_is_bot": {
+                  "chain": null,
+                  "description": null,
+                  "fields": null,
+                  "hogql_value": "`$virt_is_bot`",
+                  "id": null,
+                  "name": "$virt_is_bot",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "boolean"
+              },
+              "$virt_traffic_type": {
+                  "chain": null,
+                  "description": null,
+                  "fields": null,
+                  "hogql_value": "`$virt_traffic_type`",
+                  "id": null,
+                  "name": "$virt_traffic_type",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "$virt_traffic_category": {
+                  "chain": null,
+                  "description": null,
+                  "fields": null,
+                  "hogql_value": "`$virt_traffic_category`",
+                  "id": null,
+                  "name": "$virt_traffic_category",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "$virt_bot_name": {
+                  "chain": null,
+                  "description": null,
+                  "fields": null,
+                  "hogql_value": "`$virt_bot_name`",
+                  "id": null,
+                  "name": "$virt_bot_name",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "$virt_bot_operator": {
+                  "chain": null,
+                  "description": null,
+                  "fields": null,
+                  "hogql_value": "`$virt_bot_operator`",
+                  "id": null,
+                  "name": "$virt_bot_operator",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
               }
           },
           "id": "logs",
@@ -19503,6 +19733,115 @@
           "row_count": null,
           "type": "system"
       },
+      "system.aeo_brands": {
+          "certification": null,
+          "description": "AEO brand catalog: one row per company whose domain the answer engines cite, labeled as the team's own brand, a competitor, a publisher, or unknown. Join a cited URL's host to `domain` to tell own pages from competitor pages.",
+          "fields": {
+              "id": {
+                  "chain": null,
+                  "description": "Brand id.",
+                  "fields": null,
+                  "hogql_value": "id",
+                  "id": null,
+                  "name": "id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "name": {
+                  "chain": null,
+                  "description": "Brand name as people say it.",
+                  "fields": null,
+                  "hogql_value": "name",
+                  "id": null,
+                  "name": "name",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "domain": {
+                  "chain": null,
+                  "description": "Registrable domain, for example 'example.com'. Citations on its subdomains count for the brand.",
+                  "fields": null,
+                  "hogql_value": "domain",
+                  "id": null,
+                  "name": "domain",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "kind": {
+                  "chain": null,
+                  "description": "What the brand is to the team: 'own', 'competitor', 'publisher' or 'unknown'.",
+                  "fields": null,
+                  "hogql_value": "kind",
+                  "id": null,
+                  "name": "kind",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "status": {
+                  "chain": null,
+                  "description": "Whether a person confirmed the brand ('confirmed'), ignored it ('ignored'), or has not looked at it yet ('suggested').",
+                  "fields": null,
+                  "hogql_value": "status",
+                  "id": null,
+                  "name": "status",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "source": {
+                  "chain": null,
+                  "description": "How the brand entered the catalog: 'citations' or 'manual'.",
+                  "fields": null,
+                  "hogql_value": "source",
+                  "id": null,
+                  "name": "source",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "aliases": {
+                  "chain": null,
+                  "description": "JSON array of other names for the brand, used to find it in answer text.",
+                  "fields": null,
+                  "hogql_value": "aliases",
+                  "id": null,
+                  "name": "aliases",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "json"
+              },
+              "created_at": {
+                  "chain": null,
+                  "description": "When the brand entered the catalog.",
+                  "fields": null,
+                  "hogql_value": "created_at",
+                  "id": null,
+                  "name": "created_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "updated_at": {
+                  "chain": null,
+                  "description": "When the brand was last edited.",
+                  "fields": null,
+                  "hogql_value": "updated_at",
+                  "id": null,
+                  "name": "updated_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              }
+          },
+          "id": "system.aeo_brands",
+          "name": "system.aeo_brands",
+          "row_count": null,
+          "type": "system"
+      },
       "system.aeo_citation_checks": {
           "certification": null,
           "description": "AEO citation checks: one row per prompt x answer engine per run, recording whether the team's target domain was cited. Written only by the citation runner.",
@@ -19628,6 +19967,28 @@
                   "table": null,
                   "type": "string"
               },
+              "mode": {
+                  "chain": null,
+                  "description": "How the engine answered: 'web_search' with its search tool, or 'no_search' from training data alone. No-search answers never cite, so filter mode = 'web_search' for citation rates.",
+                  "fields": null,
+                  "hogql_value": "mode",
+                  "id": null,
+                  "name": "mode",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "mode_config": {
+                  "chain": null,
+                  "description": "JSON object of settings the mode ran with, such as a locale. Empty when the mode used its defaults.",
+                  "fields": null,
+                  "hogql_value": "mode_config",
+                  "id": null,
+                  "name": "mode_config",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "json"
+              },
               "check_failed": {
                   "chain": null,
                   "description": "The engine did not answer, so the row is not evidence that citations disappeared.",
@@ -19657,6 +20018,17 @@
                   "hogql_value": "cited",
                   "id": null,
                   "name": "cited",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "boolean"
+              },
+              "names_brand": {
+                  "chain": null,
+                  "description": "The answer text names one of the project's own brands. An answer with `cited` true also counts as a mention. Null when the check failed, and on older checks not yet filled in.",
+                  "fields": null,
+                  "hogql_value": "names_brand",
+                  "id": null,
+                  "name": "names_brand",
                   "schema_valid": true,
                   "table": null,
                   "type": "boolean"
@@ -20171,11 +20543,11 @@
       },
       "system.alerts": {
           "certification": null,
-          "description": "Insight alert configurations that notify users when an insight's value crosses a threshold; one row per alert.",
+          "description": "Insight alert configurations that notify users when an insight's value crosses a threshold; one row per alert. An alert the alerts platform owns shows its settings and state from the platform.",
           "fields": {
               "id": {
                   "chain": null,
-                  "description": "Alert UUID.",
+                  "description": "Alert UUID: the insight alert's id, or the platform alert's id for an alert created on the platform.",
                   "fields": null,
                   "hogql_value": "id",
                   "id": null,
@@ -20263,7 +20635,7 @@
               },
               "created_at": {
                   "chain": null,
-                  "description": "When the alert was created.",
+                  "description": "When the alert was created. For an alert moved to the alerts platform, when it moved.",
                   "fields": null,
                   "hogql_value": "created_at",
                   "id": null,
@@ -20285,7 +20657,7 @@
               },
               "last_checked_at": {
                   "chain": null,
-                  "description": "When the alert was last evaluated.",
+                  "description": "When the alert was last evaluated. NULL for an alert the alerts platform evaluates.",
                   "fields": null,
                   "hogql_value": "last_checked_at",
                   "id": null,
@@ -26272,17 +26644,6 @@
                   "table": null,
                   "type": "string"
               },
-              "confidence": {
-                  "chain": null,
-                  "description": "AI author's confidence for a proposed metric, 0-1.",
-                  "fields": null,
-                  "hogql_value": "confidence",
-                  "id": null,
-                  "name": "confidence",
-                  "schema_valid": true,
-                  "table": null,
-                  "type": "float"
-              },
               "reasoning": {
                   "chain": null,
                   "description": "AI author's design decisions and trade-offs behind the definition, as review context.",
@@ -28856,11 +29217,11 @@
       },
       "system.logs_alerts": {
           "certification": null,
-          "description": "Alerts that fire when matching log volume crosses a threshold; one row per logs alert.",
+          "description": "Alerts that fire when matching log volume crosses a threshold; one row per logs alert. An alert the alerts platform owns shows its settings and state from the platform.",
           "fields": {
               "id": {
                   "chain": null,
-                  "description": "Alert UUID.",
+                  "description": "Alert UUID: the logs alert's id, or the platform alert's id for an alert created on the platform.",
                   "fields": null,
                   "hogql_value": "id",
                   "id": null,
@@ -29025,7 +29386,7 @@
               },
               "last_checked_at": {
                   "chain": null,
-                  "description": "When the alert was last evaluated.",
+                  "description": "When the alert was last evaluated. NULL for an alert the alerts platform evaluates.",
                   "fields": null,
                   "hogql_value": "last_checked_at",
                   "id": null,
@@ -29047,7 +29408,7 @@
               },
               "created_at": {
                   "chain": null,
-                  "description": "When the alert was created.",
+                  "description": "When the alert was created. For an alert moved to the alerts platform, when it moved.",
                   "fields": null,
                   "hogql_value": "created_at",
                   "id": null,
@@ -30225,17 +30586,6 @@
                   "schema_valid": true,
                   "table": null,
                   "type": "float"
-              },
-              "sampling_mode": {
-                  "chain": null,
-                  "description": "Quality pre-filter: focused, balanced or comprehensive.",
-                  "fields": null,
-                  "hogql_value": "sampling_mode",
-                  "id": null,
-                  "name": "sampling_mode",
-                  "schema_valid": true,
-                  "table": null,
-                  "type": "string"
               },
               "model": {
                   "chain": null,

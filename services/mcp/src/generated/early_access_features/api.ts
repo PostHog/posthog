@@ -17,8 +17,18 @@ export const EarlyAccessFeatureListParams = () => zod.object({
 })
 
 export const EarlyAccessFeatureListQueryParams = () => zod.object({
+    created_by_id: zod
+        .string()
+        .optional()
+        .describe('Comma-separated user IDs. Only features created by one of them are listed.'),
+    ids: zod.string().optional().describe('Comma-separated early access feature IDs, at most 200.'),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
+    order: zod
+        .string()
+        .optional()
+        .describe('Sort by creation time: -created_at (default) for newest first, created_at for oldest first.'),
+    search: zod.string().optional().describe('Case-insensitive match on the feature name.'),
 })
 
 export const EarlyAccessFeatureCreateParams = () => zod.object({
@@ -34,6 +44,10 @@ export const earlyAccessFeatureCreateBodyNameMax = 200
 export const earlyAccessFeatureCreateBodyDocumentationUrlOneMax = 800
 
 export const earlyAccessFeatureCreateBodyDocumentationUrlTwoMax = 0
+
+export const earlyAccessFeatureCreateBodyImageUrlOneMax = 800
+
+export const earlyAccessFeatureCreateBodyImageUrlTwoMax = 0
 
 export const EarlyAccessFeatureCreateBody = () => zod
     .object({
@@ -57,6 +71,13 @@ export const EarlyAccessFeatureCreateBody = () => zod
             ])
             .optional()
             .describe('URL to external documentation for this feature. Shown to users in the opt-in UI.'),
+        image_url: zod
+            .union([
+                zod.url().max(earlyAccessFeatureCreateBodyImageUrlOneMax),
+                zod.string().max(earlyAccessFeatureCreateBodyImageUrlTwoMax),
+            ])
+            .optional()
+            .describe('URL of an image that shows the feature, such as a screenshot. Shown to users in the opt-in UI.'),
         payload: zod.unknown().optional().describe('Arbitrary JSON metadata associated with this feature.'),
         feature_flag_id: zod
             .number()
@@ -92,6 +113,10 @@ export const earlyAccessFeaturePartialUpdateBodyDocumentationUrlOneMax = 800
 
 export const earlyAccessFeaturePartialUpdateBodyDocumentationUrlTwoMax = 0
 
+export const earlyAccessFeaturePartialUpdateBodyImageUrlOneMax = 800
+
+export const earlyAccessFeaturePartialUpdateBodyImageUrlTwoMax = 0
+
 export const EarlyAccessFeaturePartialUpdateBody = () => zod
     .object({
         name: zod
@@ -119,6 +144,13 @@ export const EarlyAccessFeaturePartialUpdateBody = () => zod
             ])
             .optional()
             .describe('URL to external documentation for this feature. Shown to users in the opt-in UI.'),
+        image_url: zod
+            .union([
+                zod.url().max(earlyAccessFeaturePartialUpdateBodyImageUrlOneMax),
+                zod.string().max(earlyAccessFeaturePartialUpdateBodyImageUrlTwoMax),
+            ])
+            .optional()
+            .describe('URL of an image that shows the feature, such as a screenshot. Shown to users in the opt-in UI.'),
     })
     .describe('Mixin for serializers to add user access control fields')
 

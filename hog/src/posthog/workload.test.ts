@@ -9,6 +9,7 @@ import { FAKE_WORKLOAD_PROVIDER, fakeRuntime, type FakeRuntimeOptions } from '@/
 import { PostHogApi } from './api'
 import { resolveCredentials } from './credentials'
 import { parseHost } from './host'
+import { parseProjectId } from './ids'
 import { KeySession } from './key-session'
 
 const OIDC_TOKEN = 'eyJoZWFkZXIi.eyJwYXlsb2FkIi.c2lnbmF0dXJl'
@@ -22,7 +23,7 @@ const STORED_LOGIN = {
             'https://us.posthog.com': {
                 store: 'file',
                 type: 'personal_api_key',
-                projectId: '9',
+                projectId: '42',
                 host: 'https://us.posthog.com',
             },
         },
@@ -82,7 +83,7 @@ describe('workload credentials', () => {
 
         const credentials = await resolveCredentials(runtime, {
             workloadProviders: [FAKE_PROVIDER],
-            configProjectId: '42',
+            configProjectId: parseProjectId('42'),
         })
 
         expect(credentials.source).toBe('workload')
@@ -192,7 +193,7 @@ describe('workload credentials', () => {
             format: 'json',
             color: false,
             columns: undefined,
-            ci: true,
+            isCI: true,
         } as const
         const telemetry = new Telemetry(runtime, mode, true)
         telemetry.credentials = async () => credentials

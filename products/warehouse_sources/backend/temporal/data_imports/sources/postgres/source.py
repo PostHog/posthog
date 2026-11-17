@@ -196,6 +196,22 @@ _DATABASE_NOT_FOUND_VALIDATION_ERROR = (
     "correct and try again."
 )
 
+# A source past the SSL cutoff connects with sslmode=require, so a server built without SSL support
+# fails the moment the sync — or a direct query — opens its connection. An SSH tunnel with
+# `require_tls` off is the supported way to reach such a server.
+_SSL_UNSUPPORTED_ERROR = (
+    "Your database doesn't support the encrypted connection PostHog requires. Enable SSL/TLS on "
+    "your database server, or connect through an SSH tunnel instead."
+)
+
+# libpq reports "server does not support SSL, but SSL was required" without `SSLRequiredError` only
+# when the SSL requirement is off, so the sslmode that demanded SSL came from the source's own
+# certificate settings (verification or a client certificate). An SSH tunnel doesn't relax those.
+_SSL_UNSUPPORTED_BY_CERTIFICATE_SETTINGS_ERROR = (
+    "Your database doesn't support encrypted connections, but your certificate settings need one. "
+    "Enable SSL/TLS on your database, or clear this source's certificate settings."
+)
+
 # The source type the managed-warehouse host exemption is keyed on. It names the listener
 # set the exemption applies to, and both the validation and the connect path pass it.
 POSTGRES_HOST_CHECK_SOURCE_TYPE = "postgres"
@@ -341,8 +357,8 @@ PostgresErrors = {
     'database "': _DATABASE_NOT_FOUND_VALIDATION_ERROR,
     "timeout expired": _CONNECT_TIMEOUT_VALIDATION_ERROR,
     "the database system is starting up": "Your database is starting up or recovering. Wait a moment and try again.",
-    "SSL/TLS connection is required": "SSL/TLS connection is required but your database does not support it. Please enable SSL/TLS on your PostgreSQL server.",
-    "server does not support SSL, but SSL was required": "SSL/TLS connection is required but your database does not support it. Please enable SSL/TLS on your PostgreSQL server.",
+    "SSL/TLS connection is required": _SSL_UNSUPPORTED_ERROR,
+    "server does not support SSL, but SSL was required": _SSL_UNSUPPORTED_BY_CERTIFICATE_SETTINGS_ERROR,
     # The plaintext half of the SNI rejection mapped above: with sslmode=prefer libpq retries
     # without SSL after a failed encrypted attempt, and a provider that requires TLS refuses that
     # too with "FATAL: SSL/TLS connection required. Connect with sslmode=require or higher." The
@@ -455,14 +471,6 @@ _SSH_FORWARD_FAILED_EXHAUSTED_MESSAGE = (
     "enabled and will run again on its next schedule."
 )
 
-# A source past the SSL cutoff connects with sslmode=require, so a server built without SSL support
-# fails the moment the sync — or a direct query — opens its connection. An SSH tunnel with
-# `require_tls` off is the supported way to reach such a server.
-_SSL_UNSUPPORTED_ERROR = (
-    "Your database doesn't support the encrypted connection PostHog requires. Enable SSL/TLS on "
-    "your database server, or connect through an SSH tunnel instead."
-)
-
 # Terminal messages for the transient classes in `get_retryable_errors`. Those stay retryable, but
 # once every retry is spent the job stores whatever the driver said — a raw libpq or pooler string
 # carrying the customer's host and IP and no next action. Each message below names the class and
@@ -529,6 +537,22 @@ _SPURIOUS_CANCEL_EXHAUSTED_MESSAGE = (
     "mid-query, or someone or something on your database canceled it. Check your database and "
     "pooler logs around the time of the failure. This sync is still enabled and will run again on "
     "its next schedule."
+)
+
+# Twin of `_SPURIOUS_CANCEL_EXHAUSTED_MESSAGE` for a genuine statement_timeout hit by one of the
+# cheap, single-table catalog lookups `_get_table` runs during setup (the materialized-view/view
+# checks, the column metadata SELECT). Those normally finish in milliseconds, so a timeout here on
+# every retry points at something external rather than a doomed query: a connection pooler that ran
+# the setup's own `SET statement_timeout` and the next statement on different backends (see
+# client_deadline.py's module docstring), or a lock another session holds on the table.
+_METADATA_PROBE_TIMEOUT_EXHAUSTED_MESSAGE = (
+    "PostHog's own check of this table's metadata hit your database's statement timeout, and it "
+    "kept happening on every retry, even though that check normally finishes in milliseconds. This "
+    "usually means a connection pooler is routing PostHog's statements to different backend "
+    "connections, so the longer timeout PostHog sets never applies to the next one, or something "
+    "else is holding a long-running lock on this table. Check your pooler's session affinity and "
+    "your database for long-running transactions on this table. This sync is still enabled and "
+    "will run again on its next schedule."
 )
 
 _SERIALIZATION_CONFLICT_EXHAUSTED_MESSAGE = (
@@ -1844,9 +1868,25 @@ class PostgresSource(
         # rather than the direct connection. Without it here, every occurrence of an otherwise
         # transient foreign-server blip would still be logged at `exception` and flood error
         # tracking, the exact failure mode this set exists to avoid.
+        #
+        # "canceling statement due to statement timeout" reaching here is a genuine server-side
+        # statement_timeout cancellation that nothing converted first — unlike the data-read path
+        # (`get_rows`'s offset chunking and server-cursor FETCH), which always converts this into a
+        # more specific exception (`_statement_timeout_as_non_retryable`, `_full_table_timeout_error`,
+        # `_keyset_page_timeout_error`) before it can propagate, and unlike the whole-schema catalog
+        # scan in `_schemas_from_conn`, which converts it to the non-retryable
+        # `_schema_discovery_timeout_error` because its cost scales with the schema. The one place
+        # that currently leaves this raw is `_get_table`'s own per-table catalog probes (the
+        # materialized-view/view checks, the column metadata SELECT) — each a cheap, single-table
+        # lookup that normally finishes in milliseconds, so a timeout there points at something
+        # external (a pooler that ran `_get_table`'s own `SET statement_timeout` and the next
+        # statement on different backends, or a lock another session holds), not a query doomed to
+        # repeat the same failure. A fresh connection on retry can land on a backend without that
+        # problem, so it's self-recovering like the other entries here.
         return {
             CLIENT_DEADLINE_ERROR,
             "canceling statement due to user request",
+            "canceling statement due to statement timeout",
             *_CONNECTION_DROPPED_ERROR_SUBSTRINGS,
             *_POOLER_CONNECTION_DROPPED_ERROR_SUBSTRINGS,
             *_SERVER_STARTING_UP_ERROR_SUBSTRINGS,
@@ -1882,6 +1922,7 @@ class PostgresSource(
             "TransactionRetryWithProtoRefreshError": _SERIALIZATION_CONFLICT_EXHAUSTED_MESSAGE,
             CLIENT_DEADLINE_ERROR: _CLIENT_DEADLINE_EXHAUSTED_MESSAGE,
             "canceling statement due to user request": _SPURIOUS_CANCEL_EXHAUSTED_MESSAGE,
+            "canceling statement due to statement timeout": _METADATA_PROBE_TIMEOUT_EXHAUSTED_MESSAGE,
             HOST_RESOLUTION_TIMEOUT_ERROR: HOST_RESOLUTION_EXHAUSTED_MESSAGE,
             TEMPORARY_HOST_RESOLUTION_ERROR: HOST_RESOLUTION_EXHAUSTED_MESSAGE,
             _SSH_FORWARD_FAILED_ERROR: _SSH_FORWARD_FAILED_EXHAUSTED_MESSAGE,

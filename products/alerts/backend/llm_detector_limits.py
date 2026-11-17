@@ -11,6 +11,7 @@ their order, and the lock they need live there, so the API and the Max tool cann
 
 import json
 from typing import TYPE_CHECKING, Any, Literal
+from uuid import UUID
 
 from django.db import connection
 
@@ -21,6 +22,12 @@ from posthog.schema import AlertCalculationInterval, DetectorType
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 
+from products.alerts.backend.forecast.access import (
+    FORECAST_DETECTOR_NO_CREATOR_MESSAGE,
+    forecast_detector_access_error,
+    forecast_detector_interval_error,
+    is_forecast_detector_config,
+)
 from products.alerts.backend.judge.contract import LLMDetectorUnavailableError
 
 if TYPE_CHECKING:
@@ -118,8 +125,11 @@ def admit_llm_alert_write(write: LLMAlertWrite) -> LLMAlertRefusal | None:
     Call it inside the transaction that will save, after the writer holds the alert's row
     lock: when the write adds an enabled AI alert it takes the team's cap lock and counts
     under it, and it must not queue behind that lock otherwise. A write that leaves the
-    alert on a statistical detector passes without a check.
+    alert on a statistical detector passes without a check. A write that puts the alert on the
+    forecast detector runs the forecast's rules instead.
     """
+    if is_forecast_detector_config(write.detector_config):
+        return _admit_forecast_alert_write(write)
     if not write.is_llm:
         return None
     if error := llm_detector_interval_error(write.calculation_interval):
@@ -146,6 +156,31 @@ def admit_llm_alert_write(write: LLMAlertWrite) -> LLMAlertRefusal | None:
         cap=cap,
     ):
         return LLMAlertRefusal(message=error, reason="cap", field="detector_config")
+    return None
+
+
+def _admit_forecast_alert_write(write: LLMAlertWrite) -> LLMAlertRefusal | None:
+    """The forecast detector's cadence and rollout rules. It has no per-project cap.
+
+    The rollout is checked when the write adds a forecast alert: a create, a switch to the forecast
+    detector, or an enable. An edit of an enabled forecast alert passes, because its checks pause on
+    their own when the rollout is off.
+    """
+    if error := forecast_detector_interval_error(write.calculation_interval):
+        return LLMAlertRefusal(message=error, reason="cadence", field="calculation_interval")
+    existing = write.existing
+    if (
+        existing is not None
+        and is_forecast_detector_config(existing.detector_config)
+        and (existing.enabled or not write.enabled)
+    ):
+        return None
+    if write.principal is None:
+        return LLMAlertRefusal(message=FORECAST_DETECTOR_NO_CREATOR_MESSAGE, reason="access")
+    if error := forecast_detector_access_error(
+        distinct_id=str(write.principal.distinct_id), organization=write.organization
+    ):
+        return LLMAlertRefusal(message=error, reason="access", field="detector_config")
     return None
 
 
@@ -181,6 +216,15 @@ def llm_detector_access_error(*, distinct_id: str, organization: Any) -> str | N
 
 def is_llm_detector_config(detector_config: Any) -> bool:
     return isinstance(detector_config, dict) and detector_config.get("type") == DetectorType.LLM.value
+
+
+def calls_ai_gateway(detector_config: Any) -> bool:
+    """Whether scoring with this detector calls the AI gateway: the AI judge and the forecast do.
+
+    A check of such a detector runs on the AI worker, because only that worker holds the gateway
+    credentials. The evaluate inputs carry this as ``uses_llm_detector``.
+    """
+    return is_llm_detector_config(detector_config) or is_forecast_detector_config(detector_config)
 
 
 def llm_detector_interval_error(calculation_interval: Any) -> str | None:
@@ -265,7 +309,7 @@ def _id_keyed_configs(raw: object) -> dict[str, dict]:
 
 
 def count_enabled_llm_alerts(*, team_id: int, exclude_alert_id: str | None = None) -> int:
-    """How many enabled AI-detector alerts the team already has.
+    """How many enabled AI-detector alerts the team already has, with or without an insight row.
 
     ``exclude_alert_id`` leaves the alert being edited out of its own count, so saving an
     unrelated change to an existing AI alert while the team sits at the cap still works.
@@ -273,13 +317,23 @@ def count_enabled_llm_alerts(*, team_id: int, exclude_alert_id: str | None = Non
     # Imported here to keep this module importable from the serializer without pulling the
     # alert model's own import graph into every reader of the cap.
     from products.alerts.backend.models.alert import AlertConfiguration  # noqa: PLC0415
+    from products.alerts_platform.backend.facade.api import count_configurations  # noqa: PLC0415
+    from products.alerts_platform.backend.facade.contracts import SOURCE_CONDITION_KEY, SourceKind  # noqa: PLC0415
 
     queryset = AlertConfiguration.objects.filter(
         team_id=team_id, enabled=True, detector_config__type=DetectorType.LLM.value
     )
     if exclude_alert_id is not None:
         queryset = queryset.exclude(id=exclude_alert_id)
-    return queryset.count()
+    native = count_configurations(
+        team_id=team_id,
+        source_kind=SourceKind.INSIGHT,
+        native_only=True,
+        enabled_only=True,
+        exclude_id=UUID(exclude_alert_id) if exclude_alert_id else None,
+        source_config_contains={SOURCE_CONDITION_KEY: {"detector": {"type": DetectorType.LLM.value}}},
+    )
+    return queryset.count() + native
 
 
 def _read_payload() -> dict | None:

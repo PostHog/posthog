@@ -1,4 +1,4 @@
-import { wrapWithPosthogContext } from 'products/posthog_ai/frontend/api/logics'
+import { wrapWithPosthogContext } from 'products/posthog_ai/frontend/api/launch'
 
 import { getNotebookBtwContext } from './notebookBtwContext'
 

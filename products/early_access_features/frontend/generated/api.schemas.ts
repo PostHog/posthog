@@ -179,6 +179,8 @@ export interface EarlyAccessFeatureApi {
     stage: EarlyAccessFeatureStageEnumApi
     /** URL to external documentation for this feature. Shown to users in the opt-in UI. */
     documentation_url?: string
+    /** URL of an image that shows the feature, such as a screenshot. Shown to users in the opt-in UI. */
+    image_url?: string
     /** Feature flag payload for this early access feature */
     readonly payload: EarlyAccessFeatureApiPayload
     readonly created_at: string
@@ -237,6 +239,8 @@ export interface EarlyAccessFeatureSerializerCreateOnlyApi {
     stage: EarlyAccessFeatureStageEnumApi
     /** URL to external documentation for this feature. Shown to users in the opt-in UI. */
     documentation_url?: string
+    /** URL of an image that shows the feature, such as a screenshot. Shown to users in the opt-in UI. */
+    image_url?: string
     /** Arbitrary JSON metadata associated with this feature. */
     payload?: unknown
     readonly created_at: string
@@ -296,6 +300,8 @@ export interface PatchedEarlyAccessFeatureApi {
     stage?: EarlyAccessFeatureStageEnumApi
     /** URL to external documentation for this feature. Shown to users in the opt-in UI. */
     documentation_url?: string
+    /** URL of an image that shows the feature, such as a screenshot. Shown to users in the opt-in UI. */
+    image_url?: string
     /** Feature flag payload for this early access feature */
     readonly payload?: PatchedEarlyAccessFeatureApiPayload
     readonly created_at?: string
@@ -315,6 +321,14 @@ export interface PatchedEarlyAccessFeatureApi {
 
 export type EarlyAccessFeatureListParams = {
     /**
+     * Comma-separated user IDs. Only features created by one of them are listed.
+     */
+    created_by_id?: string
+    /**
+     * Comma-separated early access feature IDs, at most 200.
+     */
+    ids?: string
+    /**
      * Number of results to return per page.
      */
     limit?: number
@@ -322,4 +336,12 @@ export type EarlyAccessFeatureListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+    /**
+     * Sort by creation time: -created_at (default) for newest first, created_at for oldest first.
+     */
+    order?: string
+    /**
+     * Case-insensitive match on the feature name.
+     */
+    search?: string
 }

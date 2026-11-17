@@ -23,6 +23,7 @@ from contextlib import contextmanager
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from typing import Any, Final
+from uuid import UUID
 
 from django.conf import settings
 
@@ -58,32 +59,40 @@ from products.alerts.backend.insight_alert_state_machine import (
     insight_snapshot,
 )
 from products.alerts.backend.judge.contract import (
-    LLM_DETECTOR_PAUSED_ERROR_CODE,
-    LLM_DETECTOR_UNAVAILABLE_ERROR_CODE,
-    LLM_DETECTOR_UNAVAILABLE_MESSAGE,
+    UNAVAILABLE_ERRORS_BY_NAME,
     LLMDetectorMisconfiguredError,
     LLMDetectorPausedError,
     LLMDetectorUnavailableError,
 )
-from products.alerts.backend.llm_detector_limits import is_llm_detector_config
+from products.alerts.backend.llm_detector_limits import calls_ai_gateway
 from products.alerts.backend.logic.alert_email import INSIGHT_ALERT_ERRORED_EVENT_ID
 from products.alerts.backend.logic.destinations import configured_destination_template_ids
 from products.alerts.backend.models.alert import AlertConfiguration
 from products.alerts.backend.platform_alert_wording import insight_alert_url
 from products.alerts.backend.platform_chart_detail import CHART_PENDING_KEY, RenderedChart
+from products.alerts.backend.platform_firing_signal import with_firing_signal
 from products.alerts.backend.platform_insight_alert import (
     RECURRENCE,
     evaluation_alert,
     insight_of,
     insight_row_settings,
     interval_of,
+    investigated_alert,
 )
 from products.alerts.backend.platform_investigation import with_investigation
-from products.alerts_platform.backend.facade.api import due_check_ids, due_checks, refresh_settings, slot_of
+from products.alerts_platform.backend.facade.api import (
+    destination_hears_kind,
+    due_check_ids,
+    due_checks,
+    has_incident_destination,
+    refresh_settings,
+    slot_of,
+)
 from products.alerts_platform.backend.facade.contracts import (
     SOURCE_CONDITION_KEY,
     AlertDeliveryRequest,
     AlertEventKind,
+    DestinationType,
     GroupingMode,
     IncidentAction,
     InstanceCheckState,
@@ -259,6 +268,7 @@ def platform_upsert_of(alert: AlertConfiguration) -> PlatformAlertUpsert | None:
         next_check_at=alert.next_check_at,
         snooze_until=alert.snoozed_until,
         created_by_id=alert.created_by_id,
+        created_at=alert.created_at,
     )
 
 
@@ -522,10 +532,15 @@ def evaluate_insight_check(
             release_evaluation_slot(configuration_id, held_until=held_until, key=INFLIGHT_KEY)
     # After the slot is free, because the investigation's reads need no ClickHouse slot.
     try:
-        return with_investigation(checks[0], evaluation)
+        evaluation = with_investigation(checks[0], evaluation)
     except Exception:
         # The firing still goes out, uninvestigated, rather than the check being lost as errored.
         logger.exception("Failed to decide a platform insight firing's investigation", check_id=configuration_id)
+    try:
+        return with_firing_signal(checks[0], evaluation)
+    except Exception:
+        # The signal is best effort, so the firing goes out without one.
+        logger.exception("Failed to decide a platform insight firing's signal", check_id=configuration_id)
         return evaluation
 
 
@@ -553,9 +568,10 @@ def fail_insight_check(
     # As production: switching an alert off mid-check is not a failure of the alert.
     if alert is None or not alert.enabled:
         return None
-    if error_type == LLMDetectorUnavailableError.__name__:
+    unavailable = UNAVAILABLE_ERRORS_BY_NAME.get(error_type or "")
+    if unavailable is not None:
         # As production: the raw transport error is not the owner's configuration, so it gets its own wording.
-        error_message = LLM_DETECTOR_UNAVAILABLE_MESSAGE
+        error_message = unavailable.owner_message
     outcome = _verdict(
         checks[0],
         _snapshot(checks[0]),
@@ -598,11 +614,7 @@ def _delivery(check: PlatformAlertCheckInput, outcome: PlatformAlertOutcome) -> 
         kinds.append(outcome.failure.kind)
     sends_messages = any(kind.value in _EVENT_IDS_BY_KIND for kind in kinds)
     actions = _incident_actions(check, outcome)
-    if actions and not configured_destination_template_ids(
-        team_id=check.team_id,
-        alert_id=alert_id,
-        allowed_event_ids=tuple(INSIGHT_EVENT_IDS_BY_INCIDENT_ACTION.values()),
-    ):
+    if actions and not _has_incident_destination(check):
         actions = {}
     if not sends_messages and not actions:
         return None
@@ -623,6 +635,19 @@ def _delivery(check: PlatformAlertCheckInput, outcome: PlatformAlertOutcome) -> 
         overflow_is_lower_bound=outcome.overflow_is_lower_bound,
         parts=delivery_parts(outcome, actions),
     )
+
+
+def _has_incident_destination(check: PlatformAlertCheckInput) -> bool:
+    """Whether a destination of this alert follows the incident events, as a HogFunction or as a
+    destination the platform keeps. Read only on a firing edge. It decides only that the edge starts a
+    delivery: which destinations that delivery reaches is the delivery's to decide."""
+    if configured_destination_template_ids(
+        team_id=check.team_id,
+        alert_id=str(check.destination_alert_id),
+        allowed_event_ids=tuple(INSIGHT_EVENT_IDS_BY_INCIDENT_ACTION.values()),
+    ):
+        return True
+    return has_incident_destination(team_id=check.team_id, configuration_id=check.id)
 
 
 def _incident_actions(check: PlatformAlertCheckInput, outcome: PlatformAlertOutcome) -> dict[str, IncidentAction]:
@@ -721,7 +746,7 @@ def _decide(
         return _broken(check, snapshot, alert, now=now, message=entitlement_error)
     if skip_because_of_weekend(alert) or is_utc_datetime_blocked(alert, now):
         return _skipped(check, snapshot, now=now)
-    if is_llm_detector_config(alert.detector_config) != uses_llm_detector:
+    if calls_ai_gateway(alert.detector_config) != uses_llm_detector:
         # As production: an edit since the plan means this worker may not hold the model
         # credentials. No outcome keeps the check due, so the next tick plans and routes it again.
         return None
@@ -761,7 +786,7 @@ def _decide(
         )
     except ClickHouseBudgetFull:
         return None
-    except LLMDetectorUnavailableError:
+    except LLMDetectorUnavailableError as error:
         if not final_attempt:
             # As production: a judge that reached no verdict gets another attempt, and only the
             # last one records the failure.
@@ -769,12 +794,12 @@ def _decide(
         return _verdict(
             check,
             snapshot,
-            CheckInput(threshold_breached=False, error_message=LLM_DETECTOR_UNAVAILABLE_MESSAGE),
+            CheckInput(threshold_breached=False, error_message=error.owner_message),
             now=now,
             skip=SkipReason.QUERY_FAILED,
             context=_context(alert),
             # History shows this reason by its code, and an errored check that repeats announces nothing.
-            check_detail={ERROR_CODE_KEY: LLM_DETECTOR_UNAVAILABLE_ERROR_CODE},
+            check_detail={ERROR_CODE_KEY: error.error_code},
         )
     except LLMDetectorPausedError as error:
         # As production: no retry, and the alert stays enabled so it resumes once access or credits return.
@@ -784,7 +809,7 @@ def _decide(
             alert,
             now=now,
             message=str(error),
-            check_detail={ERROR_CODE_KEY: LLM_DETECTOR_PAUSED_ERROR_CODE},
+            check_detail={ERROR_CODE_KEY: error.error_code},
         )
     except AlertDataUnavailableError as error:
         return _errored_stays_enabled(check, snapshot, alert, now=now, message=str(error))
@@ -810,15 +835,15 @@ def _decide(
 
 
 def _ai_detector_not_copied(check: PlatformAlertCheckInput, alert: AlertConfiguration) -> bool:
-    """Whether a parallel-run copy made without the AI detector would now run one.
+    """Whether a parallel-run copy made without a gateway detector (the AI or forecast detector) would now run one.
 
-    A check reads the alert's live detector, so an alert switched to the AI detector after the
-    backfill copied it would make a model call the project pays for twice. The backfill copies
+    A check reads the alert's live detector, so an alert switched to a gateway detector after the
+    backfill copied it would make a gateway call the project pays for twice. The backfill copies
     AI detector alerts only on request, and a copy it made that way stores the AI detector.
     """
-    if check.owned_by_platform or not is_llm_detector_config(alert.detector_config):
+    if check.owned_by_platform or not calls_ai_gateway(alert.detector_config):
         return False
-    return not is_llm_detector_config(check.condition.get("detector"))
+    return not calls_ai_gateway(check.condition.get("detector"))
 
 
 def _run_as_copy_creator(check: PlatformAlertCheckInput, alert: AlertConfiguration) -> None:
@@ -1079,12 +1104,23 @@ def render_firing_chart(team_id: int, alert_id: str, *, held_until: float) -> Re
     ):
         raise ChartRenderPoolFull()
     try:
-        alert = AlertConfiguration.objects.filter(team_id=team_id, id=alert_id).select_related("team").first()
+        # The id a firing names its chart by, which is the platform alert's own for an alert with no insight row.
+        alert = investigated_alert(team_id, UUID(alert_id))
         if alert is None:
             return None
         started = time.monotonic()
         try:
-            chart = render_alert_insight_chart_or_raise(alert)
+            chart = render_alert_insight_chart_or_raise(
+                alert,
+                # Destinations the platform keeps are keyed by its own id, which only a built alert carries.
+                platform_slack_destination=alert._state.adding
+                and destination_hears_kind(
+                    team_id=team_id,
+                    configuration_id=alert.id,
+                    destination_type=DestinationType.SLACK,
+                    event_kind=AlertEventKind.FIRING,
+                ),
+            )
         except InsightChartRenderFailed as error:
             # A timed-out export fails like any other, so only its duration tells the two apart.
             if time.monotonic() - started >= CHART_RENDER_TIMEOUT.total_seconds():

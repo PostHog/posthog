@@ -182,8 +182,13 @@ def _build_list_url(
     locator_dimensions: dict[str, str],
     fields: str,
 ) -> str:
-    params = {"locator": _build_locator(locator_dimensions), "fields": fields}
+    params = {"locator": _build_locator(locator_dimensions)} if locator_dimensions else {}
+    params["fields"] = fields
     return f"{api_base}{path}?{urlencode(params)}"
+
+
+def _page_size_dimension(config: TeamCityEndpointConfig) -> dict[str, str]:
+    return {"count": str(config.page_size)} if config.page_size is not None else {}
 
 
 @retry_with_deadline(
@@ -314,7 +319,7 @@ def _top_level_rows(
         locator_dimensions = {
             **config.locator_defaults,
             **_incremental_locator_dimensions(config, db_incremental_field_last_value),
-            "count": str(config.page_size),
+            **_page_size_dimension(config),
         }
         first_url = _build_list_url(_api_base(host), config.path, locator_dimensions, config.fields)
 
@@ -327,7 +332,7 @@ def _top_level_rows(
             resumable_source_manager.save_state(TeamCityResumeConfig(next_href=next_href))
 
 
-def _occurrence_rows_for_build(
+def _child_rows_for_build(
     session: requests.Session,
     host: str,
     headers: dict[str, str],
@@ -337,8 +342,14 @@ def _occurrence_rows_for_build(
 ) -> Iterator[list[dict[str, Any]]]:
     build_id = build["id"]
     build_finish_date = _parse_teamcity_datetime(build.get("finishDate"))
-    locator_dimensions = {"build": f"(id:{build_id})", "count": str(config.page_size)}
-    first_url = _build_list_url(_api_base(host), config.path, locator_dimensions, config.fields)
+    if f"{{{FAN_OUT_BUILD_ID_FIELD}}}" in config.path:
+        # Build ids are numeric; int() stops a server-supplied id from rewriting the path.
+        path = config.path.format(**{FAN_OUT_BUILD_ID_FIELD: int(build_id)})
+        locator_dimensions = _page_size_dimension(config)
+    else:
+        path = config.path
+        locator_dimensions = {"build": f"(id:{build_id})", **_page_size_dimension(config)}
+    first_url = _build_list_url(_api_base(host), path, locator_dimensions, config.fields)
 
     pages = 0
     for items, next_href in _paginate(session, _server_root(host), first_url, headers, config.response_key, logger):
@@ -385,7 +396,7 @@ def _fan_out_rows(
 
     for builds, next_href in _paginate(session, server_root, first_url, headers, builds_config.response_key, logger):
         for build in builds:
-            yield from _occurrence_rows_for_build(session, host, headers, config, build, logger)
+            yield from _child_rows_for_build(session, host, headers, config, build, logger)
         # Checkpoint at parent-page granularity, after every child of the page has been
         # yielded: a resume re-fans the interrupted page at worst, and merge dedupes.
         if next_href:

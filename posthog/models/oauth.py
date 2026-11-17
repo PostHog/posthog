@@ -36,6 +36,7 @@ from posthog.models.utils import (
     hash_key_value,
     mask_key_value,
 )
+from posthog.scopes.catalog import translate_renamed_scopes
 
 if TYPE_CHECKING:
     from posthog.models import Organization, User
@@ -167,6 +168,18 @@ class OAuthApplication(ModelActivityMixin, AbstractApplication):  # type: ignore
         ),
     )
 
+    # Set only by PostHog staff in the admin, like `supports_step_up`. An admin who grants the
+    # scope makes PostHog trust this client's issuer to sign in members of their organization.
+    can_manage_ema_issuer: models.BooleanField = models.BooleanField(
+        default=False,
+        db_default=False,
+        help_text=(
+            "True if this client may request ema_issuer:manage, which registers its ID-JAG issuer as trusted "
+            "for an organization. Only grant this to clients PostHog has agreed enterprise-managed auth with. "
+            "Removing it also makes PostHog reject assertions from every issuer this client registered."
+        ),
+    )
+
     auth_brand: models.CharField = models.CharField(
         max_length=32,
         choices=[(brand.value, brand.value) for brand in OAuthApplicationAuthBrand],
@@ -205,8 +218,8 @@ class OAuthApplication(ModelActivityMixin, AbstractApplication):  # type: ignore
 
     @property
     def ceiling_scopes(self) -> list[str]:
-        """The full grantable set: `scopes` plus `optional_scopes`, deduplicated."""
-        return list(dict.fromkeys([*self.scopes, *self.optional_scopes]))
+        """The full grantable set: `scopes` plus `optional_scopes`, deduplicated, renamed scopes translated."""
+        return translate_renamed_scopes([*self.scopes, *self.optional_scopes])
 
     @property
     def required_scopes(self) -> list[str]:
@@ -215,7 +228,7 @@ class OAuthApplication(ModelActivityMixin, AbstractApplication):  # type: ignore
         # (MCP / `*` / empty) so nothing is required and the user picks freely. Self-registered
         # (DCR / CIMD) ceilings are already filtered to grantable scopes and shown as locked rows
         # the user can decline by cancelling, so they carry the same required floor as any other app.
-        return list(self.scopes)
+        return translate_renamed_scopes(self.scopes)
 
     # Generation marker for app-wide session revocation. A refresh presenting a token issued
     # before this timestamp is rejected at mint time, so a refresh racing revoke_application_sessions

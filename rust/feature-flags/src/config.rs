@@ -1013,25 +1013,13 @@ pub struct Config {
     #[envconfig(from = "SKIP_PG_TEAM_FALLBACK", default = "false")]
     pub skip_pg_team_fallback: FlexBool,
 
-    // Kill switch for legacy Team.secret_api_token auth (PostHog/posthog#66179).
-    // When false, phs_ bearer lookups skip posthog_team and validate against
-    // ProjectSecretAPIKey only; migrated legacy tokens then match their backfilled
-    // mirror rows. Cached legacy entries survive until AUTH_TOKEN_CACHE_TTL_SECONDS,
-    // so a flip (either direction) settles within that window.
-    #[envconfig(from = "ACCEPT_TEAM_SECRET_TOKENS", default = "true")]
-    pub accept_team_secret_tokens: FlexBool,
-
-    // Transitional (#66179): after a successful legacy-token auth, verify in the
-    // background that the PSAK mirror row resolves the same token to the same team.
-    // Emits flags_legacy_token_mirror_shadow_total; a sustained zero rate of missing
-    // and team_mismatch results is the evidence gate for flipping
-    // ACCEPT_TEAM_SECRET_TOKENS off. Only runs while legacy auth is on, and only on
-    // auth-cache misses.
-    #[envconfig(from = "LEGACY_TOKEN_MIRROR_SHADOW", default = "true")]
-    pub legacy_token_mirror_shadow: FlexBool,
-
     #[envconfig(from = "SERVICE_MODE", default = "all")]
     pub service_mode: ServiceMode,
+
+    // Self-hosted installs turn this off: only the cloud billing task reads and
+    // deletes the request counters, so elsewhere they grow in Redis forever.
+    #[envconfig(from = "FLAGS_BILLING_COUNTERS_ENABLED", default = "true")]
+    pub billing_counters_enabled: FlexBool,
 
     // BillingAggregator tuning knobs. `BillingAggregatorConfig::validate`
     // rejects zero values at boot — see the module docs on
@@ -1420,14 +1408,13 @@ impl Config {
             definitions_billable_cache_ttl_seconds: 3_600,
             hypercache_read_repair_ttl_seconds: 600,
             skip_pg_team_fallback: FlexBool(false),
-            accept_team_secret_tokens: FlexBool(true),
-            legacy_token_mirror_shadow: FlexBool(true),
             service_mode: ServiceMode::All,
             auth_token_cache_ttl_seconds: 300,
             internal_request_token: None,
             batch_flag_eval_max_limit: 10_000,
             batch_flag_eval_timeout_ms: 120_000,
             batch_flag_eval_scan_statement_timeout_ms: 10_000,
+            billing_counters_enabled: FlexBool(true),
             billing_flush_interval_ms: 100,
             billing_max_pending_entries: 500_000,
             billing_per_flush_batch_size: 200,
@@ -1511,6 +1498,7 @@ impl Config {
                 self.billing_shutdown_flush_timeout_ms,
             ),
             jitter_override: None,
+            enabled: *self.billing_counters_enabled,
         }
     }
 
@@ -1620,14 +1608,12 @@ mod tests {
         assert!(!config.flags_session_replay_quota_check);
         assert!(!config.flags_v4_response_enabled);
         assert_eq!(config.skip_writes, FlexBool(false));
+        // Cloud billing reads these counters, so they must stay on unless a deploy turns them off.
+        assert_eq!(config.billing_counters_enabled, FlexBool(true));
         // Bot filter ships in LogOnly mode by default — pin the safe
         // posture so a future env-var rename / refactor can't silently
         // flip it back to Enforced.
         assert_eq!(config.bot_filter_mode, BotFilterMode::LogOnly);
-        // Legacy tokens must stay accepted by default: a default of false would 401
-        // every legacy token without a mirror row while CI stays green, because the
-        // integration tests build their config from default_test_config() instead.
-        assert_eq!(config.accept_team_secret_tokens, FlexBool(true));
     }
 
     #[test]
@@ -2167,6 +2153,7 @@ mod service_mode_tests {
         config.billing_max_pending_entries = 99;
         config.billing_per_flush_batch_size = 7;
         config.billing_shutdown_flush_timeout_ms = 5_000;
+        config.billing_counters_enabled = FlexBool(false);
 
         let bcfg = config.get_billing_aggregator_config();
 
@@ -2175,6 +2162,7 @@ mod service_mode_tests {
         assert_eq!(bcfg.per_flush_batch_size, 7);
         assert_eq!(bcfg.shutdown_flush_timeout, Duration::from_millis(5_000));
         assert_eq!(bcfg.jitter_override, None);
+        assert!(!bcfg.enabled);
     }
 }
 

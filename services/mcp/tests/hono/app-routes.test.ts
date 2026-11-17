@@ -108,13 +108,19 @@ describe('Hono App Routes', () => {
         })
     })
 
-    describe('GET /.well-known/openai-apps-challenge', () => {
-        it('should return the challenge token', async () => {
+    describe('domain verification challenges', () => {
+        it.each([
+            ['/.well-known/openai-apps-challenge', 'pRLV9JYbPOF5Dy039v3Rn3-qrMuKqZ2_4SsX9GoL9aU'],
+            [
+                '/.well-known/muse-challenge/5e793573d164f4dde673230b30b881493267f7e5036340c31bdef7d50ee73afc',
+                'muse-challenge=5e793573d164f4dde673230b30b881493267f7e5036340c31bdef7d50ee73afc',
+            ],
+        ])('GET %s returns the challenge token', async (path, expected) => {
             const { app } = createApp(mockRedis)
-            const res = await app.request('/.well-known/openai-apps-challenge')
+            const res = await app.request(path)
             expect(res.status).toBe(200)
             const body = await res.text()
-            expect(body).toBe('pRLV9JYbPOF5Dy039v3Rn3-qrMuKqZ2_4SsX9GoL9aU')
+            expect(body).toBe(expected)
         })
     })
 
@@ -366,6 +372,30 @@ describe('Hono App Routes', () => {
             })
             expect(res.status).toBe(401)
             expect(await res.text()).toContain('Invalid token')
+        })
+
+        it('sends a project secret API key to the business knowledge URL', async () => {
+            const { app } = createApp(mockRedis)
+            const res = await app.request('/mcp?project_id=1', {
+                method: 'POST',
+                headers: { Authorization: 'Bearer phs_test_key' },
+            })
+            expect(res.status).toBe(400)
+            expect(await res.text()).toContain('/mcp/business-knowledge')
+        })
+
+        it.each([
+            ['no credential', undefined],
+            ['a personal API key', 'Bearer phx_test_key'],
+        ])('asks for a project secret API key on the business knowledge URL with %s', async (_, authorization) => {
+            const { app } = createApp(mockRedis)
+            const res = await app.request('/mcp/business-knowledge', {
+                method: 'POST',
+                headers: authorization ? { Authorization: authorization } : {},
+            })
+            expect(res.status).toBe(401)
+            expect(await res.text()).toContain('project secret API key')
+            expect(res.headers.get('WWW-Authenticate')).toBeNull()
         })
     })
 

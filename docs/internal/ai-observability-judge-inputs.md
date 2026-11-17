@@ -222,10 +222,13 @@ Existing backfills keep their stored windows; **Retry remaining** applies the bo
 
 Generation references get up to three lookup attempts.
 A final miss for a backfill reference records the evaluation as skipped with `generation_not_found`, emits no `$ai_evaluation` event, and reports no exception to error tracking.
-Live references marked `awaiting_ingestion` wait 15 seconds between misses and still report the final miss.
+Live references marked `awaiting_ingestion` wait 30 seconds after the first miss and 90 seconds after the second, and still report the final miss.
 
 A backfill that stops on its own shows as **Interrupted**, with a stop reason.
 A backfill a user stops shows as **Cancelled**.
+A running backfill with no reported dispatches or outcomes shows **Waiting for progress** below its progress count.
+The tooltip explains that evaluations may already be running before progress appears.
+The label disappears when the run reports progress or leaves the running state.
 Backfills read a page of units (500 by default, bounded between 1 and 1,000) and wait for every outcome before advancing progress.
 A backfill runs at most 16 evaluations at once (`LLMA_EVAL_BACKFILL_MAX_IN_FLIGHT`).
 A run that fails because the provider stayed rate limited or unavailable through every retry halves that backfill's cap, down to 1.
