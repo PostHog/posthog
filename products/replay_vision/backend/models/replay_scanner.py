@@ -1,5 +1,6 @@
 import hashlib
 import datetime as dt
+from collections.abc import Iterable
 from typing import TYPE_CHECKING, Any
 
 from django.core.validators import MaxValueValidator, MinValueValidator
@@ -532,9 +533,13 @@ class ReplayScanner(Taggable, ModelActivityMixin, UUIDModel):
         # Any save can be the edit that unblocks a paused sweep, such as a raised credit limit or a fixed
         # filter, so it resumes the sweep. The reconciler then recreates the schedule and it fires at once.
         self.sweep_paused_until = None
+        # Mirrored here rather than in the serializer, because the scout writer and the MaxTool
+        # layer both save scanners without one. Must run before the version comparison below, so
+        # a scope that moves with its source store bumps `scanner_version`.
         update_fields = kwargs.get("update_fields")
+        mirrored = self._mirror_scope_from_legacy_stores(update_fields)
         if update_fields is not None:
-            update_fields = [*update_fields, "sweep_paused_until"]
+            update_fields = [*update_fields, "sweep_paused_until", *(["scope"] if mirrored else [])]
             kwargs["update_fields"] = update_fields
             relevant = [f for f in self._VERSION_TRACKED_FIELDS if f in update_fields]
             track_enabled = "enabled" in update_fields
@@ -563,11 +568,7 @@ class ReplayScanner(Taggable, ModelActivityMixin, UUIDModel):
                         self.scanner_version = old.scanner_version + 1
                         extra_fields.append("scanner_version")
                     estimate_stale = bool(changed & self._ESTIMATE_FIELDS)
-                    if (
-                        not estimate_stale
-                        and "scanner_config" in changed
-                        and self.scanner_type == ScannerType.EXPERIMENT
-                    ):
+                    if not estimate_stale and "scanner_config" in changed:
                         # The experiment type keeps its targeting in scanner_config, so a scope
                         # change there moves the estimate the way an experiment_targeting change
                         # does; a prompt-only config edit does not.
@@ -628,10 +629,62 @@ class ReplayScanner(Taggable, ModelActivityMixin, UUIDModel):
         The experiment scanner type keeps `experiment_id` and `variants` in `scanner_config`; the
         other types use the legacy `experiment_targeting` column. Both stores are access-checked on
         write and redacted on read, so this is the one place code may read a scanner's experiment.
+
+        Still reads the older stores directly, not `scope`: callers here consume the legacy shape,
+        including the singular `variant` that the scope shape folds into `variants`. `scope_for` is
+        the reader for new code.
         """
         if self.scanner_type == ScannerType.EXPERIMENT:
             return config_experiment_scope(self.scanner_config)
         return self.experiment_targeting
+
+    _SCOPE_SOURCE_FIELDS = frozenset({"scanner_type", "scanner_config", "experiment_targeting"})
+
+    def _mirror_scope_from_legacy_stores(self, update_fields: "Iterable[str] | None" = None) -> bool:
+        """Track the `scope` column to whichever older store holds this scanner's experiment.
+
+        The mirror follows its source store in every direction, so a retarget moves the scope and a
+        cleared targeting clears it. A stale scope would outlive the edit, and the readout and
+        access checks that move onto `scope` would then gate on an experiment the scanner no longer
+        watches.
+
+        A scope that matches no older store is left alone: it was set directly, which is how the
+        API writes one once it accepts a scope as input.
+
+        A partial save that persists none of the source fields leaves `scope` alone and returns
+        False. Such a save keeps whatever the row already holds, and this instance can be older
+        than the row: a sweep that loaded the scanner before a retarget would otherwise write the
+        experiment it still holds in memory over the one the row now targets.
+        """
+        from products.replay_vision.backend.scope.load import derive_scope  # noqa: PLC0415
+
+        if update_fields is not None and not (self._SCOPE_SOURCE_FIELDS & set(update_fields)):
+            return False
+        derived = derive_scope(self)
+        if derived is None and not self._scope_came_from_a_legacy_store():
+            return False
+        self.scope = derived
+        return True
+
+    def _scope_came_from_a_legacy_store(self) -> bool:
+        """Whether the stored `scope` is this row's own mirror of an older store.
+
+        Distinguishes a scope the mirror wrote, which must follow its source, from one set
+        directly, which the mirror must not clear.
+        """
+        from products.replay_vision.backend.scope.load import derive_scope  # noqa: PLC0415
+
+        if not isinstance(self.scope, dict):
+            return False
+        if self._state.adding:
+            return False
+        old = (
+            type(self)
+            .all_origins.filter(pk=self.pk)
+            .only("scanner_type", "scanner_config", "experiment_targeting")
+            .first()
+        )
+        return old is not None and derive_scope(old) == self.scope
 
     def targeted_recordings_query(self) -> "RecordingsQuery":
         """The query every scan and estimate must run: the persisted filter plus the exposure
