@@ -188,6 +188,7 @@ export type SettingId =
     | 'environment-experiment-stats-method'
     | 'environment-secret-api-keys'
     | 'environment-trusted-workloads'
+    | 'error-tracking-ai-features'
     | 'error-tracking-alerting'
     | 'error-tracking-auto-assignment'
     | 'error-tracking-custom-grouping'

@@ -1144,6 +1144,12 @@ export const ErrorTrackingSettingsUpdateSettingsPartialUpdateBody = /* @__PURE__
         .describe(
             'Whether the project ingests exception events. When false, ingestion drops every $exception event for this project before it is stored or billed, and the events cannot be recovered.'
         ),
+    ai_issue_summaries_enabled: zod
+        .boolean()
+        .optional()
+        .describe(
+            "Whether PostHog writes an AI summary of each new issue in this project. Each summary uses the organization's AI credits. Summaries also need the organization to approve AI data processing."
+        ),
 })
 
 export const errorTrackingSeverityRulesCreateBodyOrderKeyDefault = 0

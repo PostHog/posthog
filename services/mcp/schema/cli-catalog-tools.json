@@ -17722,6 +17722,10 @@
                 {
                     "param": "ingestion_enabled",
                     "key": "ingestion_enabled"
+                },
+                {
+                    "param": "ai_issue_summaries_enabled",
+                    "key": "ai_issue_summaries_enabled"
                 }
             ],
             "injectBody": {},
