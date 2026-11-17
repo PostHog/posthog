@@ -118268,6 +118268,12 @@ export namespace Schemas {
       description?: string | null;
       /** Whether a synced source should also be live-queryable via direct connection. Defaults to false; ignored for pure direct-query sources. */
       direct_query_enabled?: boolean;
+      /** Where the request came from: `web`, `api`, or `mcp`. Defaults to `api`.
+       *
+       * * `web` - web
+       * * `api` - api
+       * * `mcp` - mcp */
+      created_via?: ExternalDataSourceCreateCreatedViaEnum;
     }
 
     export interface SourceSetupWebhook {
