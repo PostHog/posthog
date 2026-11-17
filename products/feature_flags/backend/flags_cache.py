@@ -1372,7 +1372,7 @@ def publish_shadow_invalidation(team_id: int) -> None:
 def _produce_invalidation(
     team_id: int,
     shadow: bool = False,
-    source: Literal["edit", "refresh"] = "edit",
+    source: Literal["edit", "cohort", "refresh"] = "edit",
     raise_on_error: bool = False,
 ) -> None:
     """Produce a single invalidation message; log Kafka errors, and propagate them
@@ -1425,13 +1425,18 @@ def _produce_invalidation(
             raise
 
 
-def _enqueue_invalidation(team_id: int) -> None:
+def _enqueue_invalidation(
+    team_id: int,
+    source: Literal["edit", "cohort"] = "edit",
+    raise_on_error: bool = False,
+) -> None:
     """Run from `transaction.on_commit`: route to Kafka if enabled, otherwise Celery.
 
     Signal handlers defer this until commit so the Celery worker can't read
-    pre-commit state; callers with no open transaction (staff tooling, via
-    `enqueue_evaluation_cache_invalidation`) call it directly. Cohort
-    invalidation stays on its own topic.
+    pre-commit state. Callers with no open transaction call it directly: staff
+    tooling through `enqueue_evaluation_cache_invalidation`, and the cohort
+    finalizer task through `enqueue_cohort_cache_invalidation`. `source` and
+    `raise_on_error` apply only to the Kafka message (see `_produce_invalidation`).
 
     The two paths are mutually exclusive so the rollout proves the Kafka path
     end to end: a broken Kafka path shows up as a stale cache instead of being
@@ -1459,7 +1464,7 @@ def _enqueue_invalidation(team_id: int) -> None:
     from products.feature_flags.backend.tasks import update_team_service_flags_cache
 
     if _route_to_kafka(team_id):
-        _produce_invalidation(team_id)
+        _produce_invalidation(team_id, source=source, raise_on_error=raise_on_error)
     else:
         update_team_service_flags_cache.delay(team_id)
 
@@ -1469,6 +1474,12 @@ def enqueue_evaluation_cache_invalidation(team_id: int) -> None:
     (e.g. staff tooling) that want a rebuild to raise the exact same invalidation signal (Kafka
     or Celery routing) that an organic flag create/update/delete raises."""
     _enqueue_invalidation(team_id)
+
+
+def enqueue_cohort_cache_invalidation(team_id: int) -> None:
+    """Raise the flags-service cache invalidation for a cohort change that no cohort save
+    reports, such as the cohort backfill finalizer stamping readiness."""
+    _enqueue_invalidation(team_id, source="cohort")
 
 
 # The two caches a cohort save rebuilds: the local-evaluation definitions cache and the
