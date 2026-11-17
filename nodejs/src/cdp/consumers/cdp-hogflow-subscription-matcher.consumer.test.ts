@@ -135,12 +135,12 @@ class MatcherUnderTest extends CdpHogflowSubscriptionMatcherConsumer {
     public updateRowCount = 0
     public pubSubHandlers: Record<string, (message: any) => void>
 
-    constructor() {
+    constructor(config: Record<string, unknown> = {}) {
         const pubSubHandlers: Record<string, (message: any) => void> = {}
         // Non-empty URL satisfies the constructor's fail-fast guard; the real Pool (mocked
         // via jest.mock('pg')) is immediately replaced below with a fixture-dispatching fake.
         super(
-            { CYCLOTRON_NODE_DATABASE_URL: 'postgres://test' } as any,
+            { CYCLOTRON_NODE_DATABASE_URL: 'postgres://test', ...config } as any,
             {
                 pubSub: {
                     on: (channel: string, handler: (message: any) => void) => (pubSubHandlers[channel] = handler),
@@ -380,6 +380,24 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
                 expect(realtimeOnlyTopics).toEqual(topic ? [topic] : [])
             }
         )
+
+        it('looks up the events of consecutive events batches in one query when coalescing is on', async () => {
+            const coalescing = new MatcherUnderTest({
+                CDP_HOGFLOW_SUBSCRIPTION_MATCHER_EVENTS_COALESCE_MS: 60_000,
+                CONSUMER_MAX_BACKGROUND_TASKS: 2,
+            })
+            coalescing.setHogFlows({ 'flow-1': makeHogFlow({ id: 'flow-1', team_id: 1 }) })
+            const handleBatch = (coalescing as any).eventsBatchHandler('test')
+
+            const results = [
+                await handleBatch([rawEvent({ distinct_id: 'user-1', uuid: 'e1' })]),
+                await handleBatch([rawEvent({ distinct_id: 'user-2', uuid: 'e2' })]),
+            ]
+            await Promise.all(results.map((r: { backgroundTask: Promise<void> }) => r.backgroundTask))
+
+            const lookups = coalescing.calls.filter((c) => c.sql.includes('FROM cyclotron_jobs'))
+            expect(lookups.map((c) => c.params[1])).toEqual([['user-1', 'user-2']])
+        })
     })
 
     describe('wakeMatchingWorkflows', () => {

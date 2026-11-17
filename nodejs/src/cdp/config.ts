@@ -67,6 +67,9 @@ export type CdpConfig = ClickhouseConfig & {
     // cdp_events_unmatched_event_name_invoked stays at zero.
     CDP_EVENTS_SKIP_UNMATCHED_EVENT_NAMES: boolean
     CDP_HOGFLOW_SUBSCRIPTION_MATCHER_REALTIME_ONLY_EVENTS_TOPIC: string
+    // How long the matcher holds an event batch to look it up together with the batches after it.
+    // 0 looks up every batch alone. It can only merge as many batches as CONSUMER_MAX_BACKGROUND_TASKS.
+    CDP_HOGFLOW_SUBSCRIPTION_MATCHER_EVENTS_COALESCE_MS: number
 
     CDP_CYCLOTRON_BATCH_DELAY_MS: number
     CDP_CYCLOTRON_BATCH_DELAY_MAX_MS: number
@@ -398,6 +401,7 @@ export function getDefaultCdpConfig(): CdpConfig {
         CDP_EVENTS_CONSUMER_GROUP_ID: 'cdp-processed-events-consumer',
         CDP_EVENTS_SKIP_UNMATCHED_EVENT_NAMES: false,
         CDP_HOGFLOW_SUBSCRIPTION_MATCHER_REALTIME_ONLY_EVENTS_TOPIC: '',
+        CDP_HOGFLOW_SUBSCRIPTION_MATCHER_EVENTS_COALESCE_MS: 0,
 
         CDP_CYCLOTRON_BATCH_DELAY_MS: 50,
         CDP_CYCLOTRON_BATCH_DELAY_MAX_MS: 0,

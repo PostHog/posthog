@@ -54,6 +54,7 @@ import {
     convertToHogFunctionInvocationGlobals,
     getPersonDisplayName,
 } from '../utils'
+import { BatchCoalescer } from '../utils/batch-coalescer'
 import { convertToHogFunctionFilterGlobal, rejectsEventName } from '../utils/hog-function-filtering'
 import { CdpConsumerBase, CdpConsumerBaseDeps } from './cdp-base.consumer'
 import { convertCohortMembershipChangeToGlobals } from './cdp-cohort-membership-trigger.consumer'
@@ -274,9 +275,16 @@ export class CdpHogflowSubscriptionMatcherConsumer<
     // A worker still running the old version can write a watcher for some time after the change.
     private teamsWithChangedFlows: Map<number, { refreshNumber: number; at: number }> = new Map()
     private watcherRefreshNumber = 0
+    // An events batch carries few events a flow can act on, so most lookups cost a query for little.
+    private eventWakes: BatchCoalescer<HogFunctionInvocationGlobals>
 
     constructor(config: TConfig, deps: CdpConsumerBaseDeps) {
         super(config, deps)
+        this.eventWakes = new BatchCoalescer(
+            (globals) => this.processBatch(globals, 'events'),
+            config.CDP_HOGFLOW_SUBSCRIPTION_MATCHER_EVENTS_COALESCE_MS,
+            config.CONSUMER_MAX_BACKGROUND_TASKS
+        )
         deps.pubSub.on<{ teamId: number }>('reload-hog-flows', ({ teamId }) => {
             this.teamsWithChangedFlows.set(teamId, { refreshNumber: this.watcherRefreshNumber, at: Date.now() })
         })
@@ -1387,7 +1395,7 @@ export class CdpHogflowSubscriptionMatcherConsumer<
     ): (messages: Message[]) => Promise<{ backgroundTask: Promise<void> }> {
         return async (messages) =>
             await instrumentFn(instrumentKey, async () => ({
-                backgroundTask: this.processBatch(await this._parseKafkaBatch(messages), 'events'),
+                backgroundTask: this.eventWakes.add(await this._parseKafkaBatch(messages)),
             }))
     }
 
@@ -1396,6 +1404,8 @@ export class CdpHogflowSubscriptionMatcherConsumer<
         if (this.watcherTeamsRefreshTimer) {
             clearInterval(this.watcherTeamsRefreshTimer)
         }
+        // The consumers wait for their batches' background tasks before committing on disconnect.
+        this.eventWakes.flush()
         await Promise.all([
             this.kafkaConsumer.disconnect(),
             this.personKafkaConsumer.disconnect(),
