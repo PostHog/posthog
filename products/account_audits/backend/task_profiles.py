@@ -11,7 +11,16 @@ from products.tasks.backend.facade.profiles import (
     register_task_profiles,
 )
 
-ACCOUNT_AUDIT_MCP_SCOPES = ["user:read", "query:read", "insight:read", "notebook:read", "notebook:write"]
+# billing:read lets an audit cover the bill, forecast and spend limits. The billing endpoints still
+# check the acting member's role, so a member without billing access gets nothing from it.
+ACCOUNT_AUDIT_MCP_SCOPES = [
+    "user:read",
+    "query:read",
+    "insight:read",
+    "notebook:read",
+    "notebook:write",
+    "billing:read",
+]
 
 ACCOUNT_AUDIT = TaskProfile(
     key="account_audit",
