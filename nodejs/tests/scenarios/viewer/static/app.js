@@ -44,19 +44,26 @@ const s = (tag, attrs = {}, ...children) => {
 }
 
 let navigation = 0
+let leaving = []
 
-const renderFor =
-    (token, onPaint) =>
-    (...children) => {
-        if (token !== navigation) {
-            return false
+function viewFor(token) {
+    const current = () => token === navigation
+    const paint = (children) => {
+        if (current()) {
+            app.replaceChildren(
+                ...children.flat(Infinity).filter((child) => child !== null && child !== undefined && child !== false)
+            )
         }
-        onPaint()
-        app.replaceChildren(
-            ...children.flat(Infinity).filter((child) => child !== null && child !== undefined && child !== false)
-        )
-        return true
     }
+    const loading = setTimeout(() => paint([h('p', { class: 'muted' }, 'Loading…')]), 300)
+    return {
+        render: (...children) => {
+            clearTimeout(loading)
+            paint(children)
+        },
+        onLeave: (leave) => (current() ? leaving.push(leave) : leave()),
+    }
+}
 
 const getJson = async (url) => {
     // oxlint-disable-next-line no-restricted-globals
@@ -794,12 +801,12 @@ function findingOf(detail) {
     return lines.slice(0, 3)
 }
 
-async function cardsPage(render) {
+async function cardsPage({ render, onLeave }) {
     const [all, runs] = await Promise.all([cards(), getJson('/api/runs')])
     const running = h('div', { class: 'panel running-now' }, h('span', { class: 'muted' }, 'Checking for a run…'))
     const diagram = deliveryPath()
     diagram.paint({ nodes: {}, links: {} })
-    const painted = render(
+    render(
         h('h1', {}, 'Scenario dashboard'),
         h(
             'p',
@@ -855,11 +862,8 @@ async function cardsPage(render) {
                   ].filter(Boolean))
         )
     }
-    if (!painted) {
-        return
-    }
     const timer = setInterval(() => void showLive(), 2000)
-    stopReplay = () => clearInterval(timer)
+    onLeave(() => clearInterval(timer))
     await showLive()
     await Promise.all(
         all.map(async (card) => {
@@ -945,7 +949,7 @@ function runsTable(runs) {
     )
 }
 
-async function runsPage(render) {
+async function runsPage({ render }) {
     const runs = await getJson('/api/runs')
     render(h('h1', {}, 'Runs'), h('p', { class: 'sub' }, 'Every run on this box, newest first.'), runsTable(runs))
 }
@@ -956,7 +960,7 @@ const latencyOf = (run, key) =>
 const fmtWhen = (t) =>
     new Date(t).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
 
-async function cardPage(id, render) {
+async function cardPage(id, { render }) {
     const [all, runs] = await Promise.all([cards(), getJson('/api/runs')])
     const card = all.find((c) => c.id === id)
     if (!card) {
@@ -1247,8 +1251,6 @@ function timelineTable(windows, from) {
     )
 }
 
-let stopReplay = () => undefined
-
 function runCharts(detail, windows, from, to) {
     const perSecond = 1000 / detail.series.bucketMs
     const flow = detail.series.flow
@@ -1357,8 +1359,7 @@ const happeningsOf = (windows, roles) =>
         .filter(Boolean)
         .sort((a, b) => a.at - b.at)
 
-async function runPage(runId, startAtSeconds, render) {
-    stopReplay()
+async function runPage(runId, startAtSeconds, { render, onLeave }) {
     const [detail, all] = await Promise.all([getJson(`/api/runs/${runId}`), cards()])
     const cardView = all.find((c) => c.id === detail.cardId)
     const windows = valveWindows(detail, cardView)
@@ -1427,7 +1428,7 @@ async function runPage(runId, startAtSeconds, render) {
     })
     slider.addEventListener('input', () => show(Number(slider.value)))
     const reason = detail.statusReason
-    const painted = render(
+    render(
         h('a', { href: `#/cards/${detail.cardId}` }, `← ${detail.cardId}`),
         h('h1', {}, detail.cardId, ' ', statusPill(detail.status)),
         h(
@@ -1478,10 +1479,7 @@ async function runPage(runId, startAtSeconds, render) {
         h('h2', {}, 'Measurements'),
         h('div', { class: 'panel', style: 'padding:0' }, measurementsTable(detail))
     )
-    if (!painted) {
-        return
-    }
-    stopReplay = pause
+    onLeave(pause)
     const start = Math.min(from + startAtSeconds * 1000, to)
     slider.value = start
     show(start)
@@ -1506,8 +1504,7 @@ const liveDetail = (live) => ({
 
 const LIVE_TITLES = { running: 'Live: ', ended: 'Just ended: ', stopped: 'Stopped: ' }
 
-async function livePage(render) {
-    stopReplay()
+async function livePage({ render, onLeave }) {
     const all = await cards()
     const diagram = deliveryPath()
     const header = h('div')
@@ -1552,9 +1549,7 @@ async function livePage(render) {
         h('h2', {}, 'So far'),
         chartsEl
     )
-    if (!render(header, empty, body)) {
-        return
-    }
+    render(header, empty, body)
     body.hidden = true
     const stoppedLine = h('span')
     let shownRun
@@ -1676,15 +1671,15 @@ async function livePage(render) {
         }
     }
     const timer = setInterval(() => void poll(), LIVE_POLL_MS)
-    stopReplay = () => clearInterval(timer)
+    onLeave(() => clearInterval(timer))
     await poll()
 }
 
 async function route() {
-    const token = ++navigation
-    let loading
-    const render = renderFor(token, () => clearTimeout(loading))
-    stopReplay()
+    const view = viewFor(++navigation)
+    for (const leave of leaving.splice(0)) {
+        leave()
+    }
     hideTooltip()
     const [path, query] = location.hash.split('?')
     const [, page, id] = path.split('/')
@@ -1697,21 +1692,20 @@ async function route() {
                 a.dataset.nav === (page || 'cards') || (page === 'cards' && a.dataset.nav === 'cards')
             )
         )
-    loading = setTimeout(() => render(h('p', { class: 'muted' }, 'Loading…')), 300)
     try {
         if (page === 'live') {
-            await livePage(render)
+            await livePage(view)
         } else if (page === 'runs' && id) {
-            await runPage(id, startAt, render)
+            await runPage(id, startAt, view)
         } else if (page === 'runs') {
-            await runsPage(render)
+            await runsPage(view)
         } else if (page === 'cards' && id) {
-            await cardPage(id, render)
+            await cardPage(id, view)
         } else {
-            await cardsPage(render)
+            await cardsPage(view)
         }
     } catch (error) {
-        render(h('h1', {}, 'Something went wrong'), h('div', { class: 'reason failed' }, error.message))
+        view.render(h('h1', {}, 'Something went wrong'), h('div', { class: 'reason failed' }, error.message))
     }
 }
 
