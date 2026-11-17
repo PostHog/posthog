@@ -169,8 +169,9 @@ Exception files use the same default-branch trust boundary as the rest of `polic
 A repository may list under `bot_authors` the bots whose PRs stamphog reviews, each as a `name`, the bot's `login` and its numeric account `id`.
 A matching PR skips the bot-author refusal, the review mode and the write-permission check, because the policy entry replaces them.
 Every other gate stays, and one more applies.
-An attestation that lists `publisher_files` must vouch for every file in the PR, so a bot can only land the kinds of change a pinned check proves.
-A check without `publisher_files` proves nothing for a bot, because its marker does not name the PR it proved.
+An attestation that pins its publisher must vouch for every file in the PR, so a bot can only land the kinds of change a pinned check proves.
+An entry pins its publisher through an `issuer` manifest, the file in which the publisher lists the default-branch paths it runs from, or through a `publisher_files` list in the policy.
+A check that pins neither proves nothing for a bot, because its marker does not name the PR it proved.
 That proof is also the PR's independent assurance, because a bot has no reviewer and no owning team.
 Name a bot only when each such check is published by a dedicated GitHub App whose key the default branch alone can use, for example through an Environment restricted to that branch.
 Anyone who can post a check run as that App can approve the bot's PRs.

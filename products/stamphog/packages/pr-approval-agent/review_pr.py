@@ -348,12 +348,12 @@ class Pipeline:
     def _attestations(self) -> tuple[Attestation, ...]:
         """The policy attestations that count for this PR's author.
 
-        For an admitted bot only an entry that declares `publisher_files` counts, because a job of
-        any PR can post the check of every other entry.
+        For an admitted bot only an entry that pins its publisher counts, because a job of any PR
+        can post the check of every other entry.
         """
         if not self.admitted_bot:
             return POLICY.attestations
-        return tuple(attestation for attestation in POLICY.attestations if attestation.publisher_files)
+        return tuple(attestation for attestation in POLICY.attestations if attestation.pins_publisher)
 
     def refuses_bot_author(self) -> bool:
         """True when the PR author is a bot that neither carve-out admits.
@@ -761,7 +761,7 @@ class Pipeline:
 
         A human author is trusted for the files no check covers. A bot has no such trust, so a file
         outside every proof, a workflow edit for example, refuses the PR. Only a proof from an
-        attestation that declares `publisher_files` counts, because a check that a job of the PR
+        attestation that pins its publisher counts, because a check that a job of the PR
         can post proves nothing about a PR nobody wrote. A rename's old path counts as a file too,
         so content cannot leave a proven path unproven.
         """
