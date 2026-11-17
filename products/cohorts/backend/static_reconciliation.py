@@ -37,7 +37,6 @@ RECONCILE_MIN_MISSING_RATIO = 0.01
 RECONCILE_SETTLE_DELAY = timedelta(hours=1)
 RECONCILE_RECENT_WINDOW = timedelta(hours=48)
 RECONCILE_RETRY_AFTER = timedelta(hours=48)
-# A recent cohort found in sync is counted again after this, not on every run of the recent window.
 RECONCILE_RECHECK_IN_SYNC_AFTER = timedelta(hours=6)
 # A parked cohort is left alone until its ClickHouse count changes or this expires.
 RECONCILE_PARK_FOR = timedelta(days=30)
