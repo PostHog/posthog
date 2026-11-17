@@ -2055,15 +2055,25 @@ def persist_schema_metadata(
         extract_available_column_names,
     )
     from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.projection import (  # noqa: PLC0415
+        PrunedColumns,
         prune_enabled_columns,
     )
 
     available_names = extract_available_column_names(schema_metadata)
+
+    def _prune(enabled_columns: list[str] | None) -> PrunedColumns:
+        pruned = prune_enabled_columns(enabled_columns, available_names)
+        # An empty selection projects as `SELECT *` and would read the columns the user left out.
+        # Keeping the stale selection makes the next read fail on the dropped column instead.
+        if pruned.removed and not pruned.kept:
+            return PrunedColumns(kept=enabled_columns, removed=[])
+        return pruned
+
     stored = schema.sync_type_config if isinstance(schema.sync_type_config, dict) else {}
     if (
         stored.get("schema_metadata") == schema_metadata
         and (not detected_primary_keys or stored.get("primary_key_columns"))
-        and not prune_enabled_columns(schema.enabled_columns, available_names).removed
+        and not _prune(schema.enabled_columns).removed
     ):
         return []
 
@@ -2075,7 +2085,7 @@ def persist_schema_metadata(
 
     with transaction.atomic():
         locked = ExternalDataSchema.objects.select_for_update().get(id=schema.id, team_id=schema.team_id)
-        pruned = prune_enabled_columns(locked.enabled_columns, available_names)
+        pruned = _prune(locked.enabled_columns)
         if pruned.removed:
             locked.enabled_columns = pruned.kept
             locked.save(update_fields=["enabled_columns", "updated_at"])

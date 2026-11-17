@@ -189,7 +189,10 @@ def reconcile_snowflake_schemas(
     default_catalog = get_default_snowflake_catalog(source)
     default_schema = get_default_snowflake_schema(source)
     schema_models = {
-        s.name: s for s in ExternalDataSchema.objects.filter(team_id=team_id, source_id=source.id, deleted=False)
+        s.name: s
+        for s in ExternalDataSchema.objects.filter(team_id=team_id, source_id=source.id, deleted=False).select_related(
+            "table"
+        )
     }
 
     schema_models_by_location: dict[SnowflakeSourceLocation, ExternalDataSchema] = {}

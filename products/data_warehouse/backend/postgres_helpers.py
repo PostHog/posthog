@@ -170,7 +170,10 @@ def reconcile_postgres_schemas(
     source_schema_names = [s.name for s in source_schemas]
     default_schema = SourceInputsStore.load_settings(source).get("schema")
     schema_models = {
-        s.name: s for s in ExternalDataSchema.objects.filter(team_id=team_id, source_id=source.id, deleted=False)
+        s.name: s
+        for s in ExternalDataSchema.objects.filter(team_id=team_id, source_id=source.id, deleted=False).select_related(
+            "table"
+        )
     }
 
     # Location-indexed fallback so unqualified legacy rows still resolve to their qualified

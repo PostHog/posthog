@@ -447,6 +447,24 @@ class TestDiscoveryStoresColumnMetadata(BaseTest):
             c[0] for c in later_columns
         ]
 
+    @parameterized.expand(
+        [
+            ("one_selected_column_dropped", ["id", "total"], ["id"]),
+            ("last_selected_column_dropped", ["total"], ["total"]),
+        ]
+    )
+    def test_a_dropped_column_leaves_the_selection(
+        self, _name: str, enabled_columns: list[str], expected_enabled_columns: list[str]
+    ) -> None:
+        source = self._make_source()
+        ExternalDataSchema.objects.filter(id=self._discover(source, _ORDERS_COLUMNS).id).update(
+            enabled_columns=enabled_columns
+        )
+
+        schema = self._discover(source, [("id", "integer", False)])
+
+        assert schema.enabled_columns == expected_enabled_columns
+
     def test_a_key_written_after_the_row_was_read_survives(self) -> None:
         source = self._make_source()
         schema = ExternalDataSchema.objects.create(team_id=self.team.pk, source=source, name="orders")
