@@ -29,6 +29,7 @@ from products.cdp.backend.abuse.classifier import (
     Thresholds,
     classify,
     content_hash,
+    has_input_expression,
     public_inputs,
     public_mappings,
     public_schema,
@@ -187,25 +188,40 @@ def is_scorable(hog_function: HogFunction) -> bool:
 
 
 def scorable_hog_functions() -> QuerySet[HogFunction]:
-    """Enabled destinations, and enabled transformations that run code a customer wrote or edited.
+    """Enabled destinations, and enabled transformations that may run code a customer wrote.
 
     A transformation runs without network access, so one that runs a template's code unchanged is PostHog's code.
     A destination from a template is still scored: its inputs, such as a webhook URL, can make it abusive.
+    Input expressions cannot be told apart in SQL, so a template transformation with any inputs is a candidate,
+    and `runs_customer_code` decides.
     """
-    # No linked template, or code that differs from it. A blank template's own starter code counts as stock.
-    runs_custom_code = ~Q(template_id__startswith=_LEGACY_PLUGIN_PREFIX) & (
-        Q(hog_function_template__isnull=True) | ~Q(hog=F("hog_function_template__code"))
+    # No linked template, code that differs from it, or inputs. A blank template's starter code counts as stock.
+    may_run_custom_code = ~Q(template_id__startswith=_LEGACY_PLUGIN_PREFIX) & (
+        Q(hog_function_template__isnull=True)
+        | ~Q(hog=F("hog_function_template__code"))
+        | (Q(inputs__isnull=False) & ~Q(inputs={}))
     )
     return (
-        HogFunction.objects.select_related("team__organization")
+        HogFunction.objects.select_related("team__organization", "hog_function_template")
         .filter(enabled=True, deleted=False)
-        .filter(Q(type=HogFunctionType.DESTINATION) | (Q(type=HogFunctionType.TRANSFORMATION) & runs_custom_code))
+        .filter(Q(type=HogFunctionType.DESTINATION) | (Q(type=HogFunctionType.TRANSFORMATION) & may_run_custom_code))
     )
+
+
+def runs_customer_code(hog_function: HogFunction) -> bool:
+    """For a candidate from `scorable_hog_functions`: a destination, or a transformation whose code was written or
+    edited by the customer or whose inputs hold an expression."""
+    if hog_function.type != HogFunctionType.TRANSFORMATION:
+        return True
+    template = hog_function.hog_function_template
+    if template is None or hog_function.hog != template.code:
+        return True
+    return has_input_expression(hog_function.inputs, hog_function.inputs_schema)
 
 
 def classify_if_due(hog_function: HogFunction) -> None:
     """Score and report a saved function, unless the flag went off or its content was scored since it was queued."""
-    if not is_scorable(hog_function) or not shadow_enabled(hog_function.team):
+    if not is_scorable(hog_function) or not runs_customer_code(hog_function) or not shadow_enabled(hog_function.team):
         return
     content = content_of(hog_function, hog_function.template)
     if cache.get(_hash_key(str(hog_function.id))) == content_hash(content):
@@ -216,7 +232,7 @@ def classify_if_due(hog_function: HogFunction) -> None:
 
 def classify_for_backfill(hog_function: HogFunction, run_id: str) -> None:
     """Score regardless of the team flag and of an unchanged hash. The hash is still recorded."""
-    if not is_scorable(hog_function) or not backfill_enabled():
+    if not is_scorable(hog_function) or not runs_customer_code(hog_function) or not backfill_enabled():
         return
     scored = score(hog_function)
     report(hog_function, scored, trigger=Trigger.BACKFILL, backfill_run_id=run_id)

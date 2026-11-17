@@ -128,6 +128,29 @@ def public_inputs(inputs: object, inputs_schema: object) -> dict[str, JsonValue]
     return {key: entry for key, entry in inputs.items() if key not in secret_keys}
 
 
+def has_input_expression(inputs: object, inputs_schema: object) -> bool:
+    """Whether an input holds a Hog or Liquid expression, which runs on every event like the function's code."""
+    if not isinstance(inputs, dict):
+        return False
+    schema = inputs_schema if isinstance(inputs_schema, list) else []
+    literal_keys = {item.get("key") for item in schema if isinstance(item, dict) and item.get("templating") is False}
+    return any(
+        _holds_expression(entry.get("value"))
+        for key, entry in inputs.items()
+        if key not in literal_keys and isinstance(entry, dict)
+    )
+
+
+def _holds_expression(value: object) -> bool:
+    if isinstance(value, str):
+        return "{" in value
+    if isinstance(value, dict):
+        return any(_holds_expression(item) for item in value.values())
+    if isinstance(value, list):
+        return any(_holds_expression(item) for item in value)
+    return False
+
+
 def public_schema(inputs_schema: object) -> list[JsonValue]:
     """The schema without the default value of a secret input."""
     if not isinstance(inputs_schema, list):

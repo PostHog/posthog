@@ -31,6 +31,8 @@ class Command(BaseCommand):
 
         self.stdout.write("\t".join(["hog_function_id", "type", "template_id", "verdict", "risk", *QUESTIONS]))
         for hog_function in hog_functions.order_by("team_id", "created_at"):
+            if not shadow.runs_customer_code(hog_function):
+                continue
             scored = shadow.score(hog_function)
             if options["capture"]:
                 shadow.report(hog_function, scored, trigger=shadow.Trigger.EVAL)

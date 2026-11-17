@@ -200,6 +200,30 @@ class TestAbuseClassification(AbuseClassificationTestCase):
             ("custom_transformation", "transformation", None, {}, 1),
             ("legacy_plugin_transformation", "transformation", None, {"template_id": "plugin-posthog-plugin-geoip"}, 0),
             ("stock_template_destination", "destination", "stock", {}, 1),
+            (
+                "stock_template_with_an_input_expression",
+                "transformation",
+                "stock",
+                {"inputs_schema": [{"key": "value", "type": "string"}], "inputs": {"value": {"value": "{event.uuid}"}}},
+                1,
+            ),
+            (
+                "stock_template_with_literal_inputs",
+                "transformation",
+                "stock",
+                {"inputs_schema": [{"key": "value", "type": "string"}], "inputs": {"value": {"value": "literal"}}},
+                0,
+            ),
+            (
+                "stock_template_with_templating_off",
+                "transformation",
+                "stock",
+                {
+                    "inputs_schema": [{"key": "value", "type": "string", "templating": False}],
+                    "inputs": {"value": {"value": "{not code}"}},
+                },
+                0,
+            ),
         ]
     )
     def test_a_transformation_is_scored_only_when_it_runs_custom_code(

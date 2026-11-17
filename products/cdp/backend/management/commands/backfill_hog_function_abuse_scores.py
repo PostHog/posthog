@@ -8,6 +8,7 @@ flag stops the run before its next function, both here and in tasks already queu
 
 import time
 import uuid
+from itertools import islice
 from typing import Any
 
 from django.core.management.base import BaseCommand
@@ -39,9 +40,12 @@ class Command(BaseCommand):
         )
         if options["after_id"]:
             hog_functions = hog_functions.filter(id__gt=options["after_id"])
-        if options["limit"] is not None:
-            hog_functions = hog_functions[: options["limit"]]
-        targets = list(hog_functions.values_list("id", "team_id"))
+        in_scope = (
+            (hog_function.id, hog_function.team_id)
+            for hog_function in hog_functions.iterator(chunk_size=500)
+            if shadow.runs_customer_code(hog_function)
+        )
+        targets = list(islice(in_scope, options["limit"]))
 
         if options["dry_run"]:
             self.stdout.write(f"Dry run: {len(targets)} functions would be queued.")
