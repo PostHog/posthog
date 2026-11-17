@@ -52,8 +52,9 @@ def workflow_inputs(workflow: Path) -> set[str]:
 
 def test_the_issuer_manifest_covers_every_path_the_workflows_run_from() -> None:
     paths = issuer.parse_manifest((REPO_ROOT / issuer.MANIFEST_PATH).read_bytes(), issuer.MANIFEST_PATH)
-    workflows = sorted((REPO_ROOT / ".github" / "workflows").glob("dependency-proof*.yml"))
-    assert workflows
+    workflow_dir = REPO_ROOT / ".github" / "workflows"
+    workflows = sorted([*workflow_dir.glob("dependency-proof*.yml"), *workflow_dir.glob("revert-proof*.yml")])
+    assert len(workflows) == 4
     needed = set().union(*(workflow_inputs(workflow) for workflow in workflows))
     # A sparse-checkout entry is a directory or a file, so either form of it may cover it.
     uncovered = {

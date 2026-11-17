@@ -1,6 +1,17 @@
 # Change prover
 
-## What the prover proves
+The change prover is the one publisher of proofs that stamphog reads.
+Each kind of claim is a lane, and each lane posts its own check run:
+
+- The dependency lane posts `Dependency proof`.
+- The revert lane posts `Revert proof`.
+
+All lanes use one GitHub App, one `dependency-proof` environment and one `issuer.yml`.
+Each lane marks its proof with the same `stamphog:v1` marker.
+A proof lifts a deny category only when a `.stamphog/policy.yml` attestation entry names its check.
+That entry, and not the prover, decides what the proof lifts and for which paths.
+
+## What the dependency proof proves
 
 The prover checks a dependency update that a bot opened, and it does not trust the bot's result.
 It replays the update with pnpm, starting from the merge base of the pull request.
@@ -15,6 +26,32 @@ The pull request must come from Renovate and change only `package.json`, `pnpm-l
 Each version must move up without a breaking change, and each new release must be at least seven days old.
 Every pnpm settings file must equal the default branch's copy.
 The core refuses anything outside this class, and a refusal lifts nothing.
+
+## What the revert proof proves
+
+The revert proof shows that a pull request is a clean revert of one commit on the default branch, and holds nothing else.
+Any author may open the pull request, because the proof is about the content.
+The head branch must be in this repository.
+
+`revert-proof-trigger.yml` runs its job only when the pull request title starts with `Revert`.
+`revert-proof.yml` then runs three jobs, with the same permissions as the dependency lane:
+
+- `identify` finds the open pull request at the head and its merge base through the API. It reads the `This reverts commit <sha>.` lines of the pull request's own commits. No such line means nothing to attest. Two or more different commits are refused.
+- `identify` also checks the reverted commit. It must be an ancestor of the merge base, and a merged pull request must have landed it on the default branch as its merge commit. That pull request must be merged no more than 30 days before the proof runs.
+- `prove` fetches the merge base, the head, the reverted commit and its parent without a credential. It refuses a reverted commit that is a merge commit, a root commit, or a revert itself. It then runs `git merge-tree --write-tree --merge-base=<reverted> <merge base> <parent>`, which is the merge that `git revert` does. A conflict is refused. The result tree must equal the head tree.
+- `publish` posts the `Revert proof` check. The proof names each file that the revert changes.
+
+A merge of the default branch into the pull request is allowed, because the tree comparison proves the content.
+git reads no `.gitattributes` for the merge, so a file in the pull request cannot select a merge driver such as `union` that hides a conflict.
+
+The 30-day window is a staleness check, not a security control.
+Later code builds on an old commit, and a revert can break that code without a conflict.
+The window counts from the time of the run and from the merge time that GitHub records, because an author can set a commit time to any value.
+
+The proof does not show that the revert is safe.
+It shows that the content is a clean revert, and nothing about what the revert does.
+A revert of a security fix brings the vulnerability back, and a revert of a migration can lose data or break the schema.
+So the policy entry must not let a revert lift deny categories such as `migrations` or `auth`.
 
 ## How it runs
 
