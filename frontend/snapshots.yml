@@ -14147,9 +14147,17 @@ snapshots:
     scenes-app-llm-observability-tagger-creation-retired-modal--turn-back-on--light:
         hash: v1.k794b7964.dd4d8aef334145fa385feb77f79a384b7ffbe718f93d6f347b2f65a97d2d11aa.pSRDtGAxPvPj7aSzrg0OHapd58TfcJksaMcu2rVLUbA
     scenes-app-llm-observability-taggers-deprecation-banner--default--dark:
-        hash: v1.k794b7964.4e5e8fcbc5e9ff76ccda6b84a6bfb7a99d28334c6b2afc4ee6bb08e221fde8e6.Euz0mSfdHk2e8kSuHfbkcOEuljQWO8FJAMneFQE5EHk
+        hash: v1.k794b7964.19abd47481e490932895a9a0e90b2edf3b1774a1dcfe6a636fc80ea62d37d309.hbbfREqpXyCiBXqD9_AmpHN6mZaM512cJrJRODcKaKs
     scenes-app-llm-observability-taggers-deprecation-banner--default--light:
-        hash: v1.k794b7964.4afb0ca40061311438558a25b30e8afe725a6645742a036410f3803dcb7ce3b1.I-UIHserKVYTZtQOJ1HTlRwwhbn-uFPSzYzjgdbUGK0
+        hash: v1.k794b7964.911cfbcac79ffe146ac1632770e61b5f08cd24df1dfab0bbe2dfdbfbd1307f68.dc8Avi0xv32PMNYlblEhqqbyBBnM9vfNN74IWi2krr0
+    scenes-app-llm-observability-taggers-deprecation-banner--some-taggers-migrated--dark:
+        hash: v1.k794b7964.c57c4c12813d2307573b8eae0c5d073998c23573c4ab1ab5792a9541027f36f4.eIN1kpwtzlJ27V2BV0NcwM_ALiP7NsIlcA51FxvgPK0
+    scenes-app-llm-observability-taggers-deprecation-banner--some-taggers-migrated--light:
+        hash: v1.k794b7964.178c9b9d77e1cba7c9adbed0484a6c88078d126c053c34dbd4b08a3e6176795c.gzHtR-NmhuUcHmdqsh3S8JpWKhbSEd8uaH_Ey3JLNSE
+    scenes-app-llm-observability-taggers-deprecation-banner--tagger-migrated--dark:
+        hash: v1.k794b7964.58e08a9ea5dcca7645df6daa71158cd7193a41e1d02d419641e54be59f190429.Q6WI42nULysyf2bq4Bxe0iEseY2XMcAva7JIe8ATJ2A
+    scenes-app-llm-observability-taggers-deprecation-banner--tagger-migrated--light:
+        hash: v1.k794b7964.38c902cc99110394e1da08a79d5740bd9d1d1dae7a76647b160d7b854abea514.-r7G1xDdie9nJsh6WXzdefjt6AqaP40oAZWuNrmLb0k
     scenes-app-logs-alerts-destination-recent-sends--both-paths--dark:
         hash: v1.k794b7964.3bb4a9da0eade0ef5f796131e57c13648db672ab33d95b04b0a5b1625a120938.8lvCSL27-TQR53BixqjvwDy7sSZHQ3iXIG-leLgKcNE
     scenes-app-logs-alerts-destination-recent-sends--both-paths--light:
