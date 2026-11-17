@@ -4,6 +4,7 @@ import hashlib
 from contextlib import nullcontext
 from datetime import UTC, datetime, timedelta
 from typing import Any, Literal
+from uuid import uuid4
 
 import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events, materialized
@@ -35,6 +36,7 @@ from products.access_control.backend.property_access_control import PropertyAcce
 from products.event_definitions.backend.models import PropertyDefinition
 from products.mcp_analytics.backend import intent_generation, logic, mcp_harness
 from products.mcp_analytics.backend.facade import api, contracts, enums
+from products.mcp_analytics.backend.intent_topics.invalidation import freeze_writes, has_pending_registered_writers
 from products.mcp_analytics.backend.models import MCPAnalyticsSubmission, MCPCustomHarness, MCPSession
 from products.mcp_analytics.backend.tests import _MCPAnalyticsTeamScopedTestMixin
 
@@ -1186,22 +1188,29 @@ class TestGenerateSessionIntent(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTest
         assert result == "already summarised"
         mock_summarize.assert_not_called()
 
-    def test_generates_persists_and_returns_summary(self) -> None:
+    @parameterized.expand([("unfrozen", False), ("freeze_during_inference", True)])
+    def test_generates_persists_and_returns_summary(self, _name: str, freeze_during_inference: bool) -> None:
         session_id = str(uuid7())
         self._seed_intent_event(session_id, "check the signups funnel")
         self._seed_intent_event(session_id, "compare to last week")
+        operation = uuid4()
 
-        with patch.object(
-            intent_generation, "summarize_intents", return_value="Investigating signup funnel trends."
-        ) as mock:
+        def infer(*_args: object, **_kwargs: object) -> str:
+            if freeze_during_inference:
+                freeze_writes(self.team, invalidation_id=operation)
+                assert has_pending_registered_writers(self.team, invalidation_id=operation)
+            return "Investigating signup funnel trends."
+
+        with patch.object(intent_generation, "summarize_intents", side_effect=infer):
             result = api.generate_session_intent(self.team, session_id=session_id)
 
         assert result == "Investigating signup funnel trends."
-        mock.assert_called_once()
         assert (
             MCPSession.objects.get(team=self.team, session_id=session_id).intent
             == "Investigating signup funnel trends."
         )
+        if freeze_during_inference:
+            assert not has_pending_registered_writers(self.team, invalidation_id=operation)
 
     def test_second_call_returns_persisted_without_regenerating(self) -> None:
         session_id = str(uuid7())
