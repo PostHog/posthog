@@ -379,7 +379,8 @@ class TestAgenticAuthorizeConfirm(AgenticAuthorizeMultiOrgBase):
         TeamProvisioningConfig.objects.create(team=team, application=self.partner)
         if subscription_started:
             BillingManager(license=None).update_org_details(
-                organization, cast(BillingStatus, {"customer": {"customer_id": "cus_partner_subscription"}})
+                organization,
+                cast(BillingStatus, {"customer": {"customer_id": "cus_partner_subscription", "paid_by_partner": True}}),
             )
             organization.refresh_from_db()
             assert organization.customer_id == "cus_partner_subscription"

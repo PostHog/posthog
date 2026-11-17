@@ -1,5 +1,4 @@
 import uuid
-from collections.abc import Collection
 from typing import TYPE_CHECKING
 
 from django.db import models
@@ -42,8 +41,8 @@ class OrganizationProvisioning(models.Model):
         related_name="provisioned_organizations",
     )
     created_at = models.DateTimeField(auto_now_add=True)
-    # Set when the organization's first Stripe customer arrives while its partner pays for it. That
-    # customer is the partner's, so the billing lock stays on after billing fills customer_id.
+    # Set while billing says a partner pays for the organization. A partner-paid organization still
+    # gets its own Stripe customer, so this keeps the billing lock on after billing fills customer_id.
     partner_paid_since = models.DateTimeField(null=True, blank=True)
 
     objects = OrganizationProvisioningQuerySet.as_manager()
@@ -69,12 +68,11 @@ def get_billing_lock_partner(organization: "Organization") -> OAuthApplication |
     return row.application if row is not None else None
 
 
-def mark_partner_paid(organization_ids: Collection[uuid.UUID]) -> int:
-    """Billing sync calls this for an organization's first customer_id. Until then a paying partner locks the
-    organization's billing, so it can't add a payment method, and that first Stripe customer is the one
-    billing created for the partner's subscription. Returns how many organizations it marked."""
-    return (
-        OrganizationProvisioning.objects.paid_by_partner()
-        .filter(organization_id__in=organization_ids, partner_paid_since__isnull=True)
-        .update(partner_paid_since=timezone.now())
-    )
+def record_partner_paid(organization_id: uuid.UUID, paid_by_partner: bool) -> None:
+    """Billing sync calls this with billing's `paid_by_partner`. Billing sends every organization's status at
+    least daily, so a mark that is wrong, or that outlived the partner's payer link, corrects itself."""
+    rows = OrganizationProvisioning.objects.filter(organization_id=organization_id)
+    if paid_by_partner:
+        rows.paid_by_partner().filter(partner_paid_since__isnull=True).update(partner_paid_since=timezone.now())
+    else:
+        rows.filter(partner_paid_since__isnull=False).update(partner_paid_since=None)

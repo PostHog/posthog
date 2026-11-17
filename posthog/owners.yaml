@@ -44,10 +44,6 @@ rules:
           - '/management/commands/test/test_backfill_code_review_scopes.py'
       owners: team-devex
     - match:
-          - '/management/commands/mark_partner_paid_organizations.py'
-          - '/management/commands/test/test_mark_partner_paid_organizations.py'
-      owners: team-billing
-    - match:
           - '/management/commands/rewrite_cohort_membership_queries.py'
           - '/management/commands/test/test_rewrite_cohort_membership_queries.py'
       owners: team-feature-flags

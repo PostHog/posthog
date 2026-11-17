@@ -14,6 +14,7 @@ from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase, override_settings
+from django.utils import timezone
 
 import jwt
 import requests
@@ -1056,35 +1057,63 @@ class TestBillingManager(BaseTest):
         organization.refresh_from_db()
         assert organization.has_active_subscription is expected
 
-    @parameterized.expand(
-        [
-            ("partner_paid_customer_keeps_the_lock", None, True, True),
-            ("customer_from_before_the_partner_paid_stays_unlocked", "cus_own", True, False),
-            ("customer_while_the_partner_did_not_pay_stays_unlocked", None, False, False),
-        ]
-    )
-    def test_update_org_details_keeps_the_partner_lock_only_for_the_partners_customer(
-        self, _name: str, customer_id_before: str | None, partner_pays_at_sync: bool, expect_lock: bool
-    ) -> None:
+    def _provision_by_partner(self, *, partner_pays: bool = True, marked: bool = False) -> OAuthApplication:
         partner = _create_partner_app()
-        partner.update_provisioning(pays_for_customers=partner_pays_at_sync)
+        partner.update_provisioning(pays_for_customers=partner_pays)
         OrganizationProvisioning.objects.create(
             organization=self.organization,
             partner=OrganizationProvisioning.Partner.PROVISIONING_API,
             application=partner,
+            partner_paid_since=timezone.now() if marked else None,
         )
+        return partner
+
+    @parameterized.expand(
+        [
+            ("partner_paid_customer_keeps_the_lock", None, False, True, True, True),
+            ("billing_restores_the_lock_of_a_customer_synced_before_it_said", "cus_synced", False, True, True, True),
+            ("ended_payer_link_releases_the_lock", "cus_synced", True, False, True, False),
+            ("self_paid_customer_stays_unlocked", None, False, False, True, False),
+            ("partner_that_does_not_pay_never_locks", None, False, True, False, False),
+            ("older_billing_without_the_flag_leaves_a_mark", "cus_synced", True, None, True, True),
+            ("older_billing_without_the_flag_leaves_no_mark", "cus_synced", False, None, True, False),
+        ]
+    )
+    def test_update_org_details_takes_the_partner_lock_from_billing(
+        self,
+        _name: str,
+        customer_id_before: str | None,
+        marked_before: bool,
+        paid_by_partner: bool | None,
+        partner_pays: bool,
+        expect_lock: bool,
+    ) -> None:
+        partner = self._provision_by_partner(partner_pays=partner_pays, marked=marked_before)
         self.organization.customer_id = customer_id_before
         self.organization.save()
+        customer: dict[str, Any] = {"customer_id": "cus_synced"}
+        if paid_by_partner is not None:
+            customer["paid_by_partner"] = paid_by_partner
 
-        BillingManager(license=None).update_org_details(
-            self.organization, cast(BillingStatus, {"customer": {"customer_id": "cus_synced"}})
-        )
-        # With the partner paying now, only the mark that the sync set or skipped decides the lock.
-        partner.update_provisioning(pays_for_customers=True)
+        BillingManager(license=None).update_org_details(self.organization, cast(BillingStatus, {"customer": customer}))
 
         self.organization.refresh_from_db()
         assert self.organization.customer_id == "cus_synced"
         assert get_billing_lock_partner(self.organization) == (partner if expect_lock else None)
+
+    def test_update_org_details_ignores_the_partner_flag_of_an_out_of_order_status(self) -> None:
+        partner = self._provision_by_partner()
+        manager = BillingManager(license=None)
+        newer = self._billing_status("2026-08-02T12:00:00Z", 0)
+        newer["customer"].update({"customer_id": "cus_synced", "paid_by_partner": True})
+        manager.update_org_details(self.organization, newer)
+        older = self._billing_status("2026-08-02T11:00:00Z", 0)
+        older["customer"].update({"customer_id": "cus_synced", "paid_by_partner": False})
+
+        manager.update_org_details(self.organization, older)
+
+        self.organization.refresh_from_db()
+        assert get_billing_lock_partner(self.organization) == partner
 
     def _billing_status(
         self,
