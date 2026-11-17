@@ -149,7 +149,7 @@ import (
 
     "github.com/anthropics/anthropic-sdk-go"
     "github.com/anthropics/anthropic-sdk-go/option"
-    posthogotel "github.com/posthog/posthog-go/otel"
+    posthogotel "github.com/posthog/posthog-go/otel/v2"
     "go.opentelemetry.io/otel"
     "go.opentelemetry.io/otel/attribute"
     "go.opentelemetry.io/otel/propagation"
@@ -321,7 +321,7 @@ const SdkTracing = ({ ctx }: { ctx: OnboardingComponentsContext }): JSX.Element 
                     {
                         language: 'bash',
                         file: 'Go',
-                        code: 'go get github.com/posthog/posthog-go/otel go.opentelemetry.io/otel go.opentelemetry.io/otel/sdk',
+                        code: 'go get github.com/posthog/posthog-go/otel/v2 go.opentelemetry.io/otel go.opentelemetry.io/otel/sdk',
                     },
                     { language: 'kotlin', file: 'Java', code: JAVA_INSTALL },
                     {

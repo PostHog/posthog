@@ -144,14 +144,14 @@ export const getManualSteps = (ctx: OnboardingComponentsContext): StepDefinition
                                                 <Markdown>### 1. Install</Markdown>
                                                 <CodeBlock
                                                     language="bash"
-                                                    code="go get github.com/posthog/posthog-go"
+                                                    code="go get github.com/posthog/posthog-go/v2"
                                                 />
 
                                                 <Markdown>### 2. Initialize PostHog</Markdown>
                                                 <CodeBlock
                                                     language="go"
                                                     code={dedent`
-                                                        import "github.com/posthog/posthog-go"
+                                                        import "github.com/posthog/posthog-go/v2"
 
                                                         client, _ := posthog.NewWithConfig("<ph_project_token>", posthog.Config{
                                                             Endpoint: "<ph_client_api_host>",

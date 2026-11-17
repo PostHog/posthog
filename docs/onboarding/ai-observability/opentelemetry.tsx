@@ -50,7 +50,7 @@ export const getOpenTelemetrySteps = (ctx: OnboardingComponentsContext): StepDef
                                 language: 'bash',
                                 file: 'Go',
                                 code: dedent`
-                                    go get github.com/posthog/posthog-go/otel go.opentelemetry.io/otel go.opentelemetry.io/otel/sdk
+                                    go get github.com/posthog/posthog-go/otel/v2 go.opentelemetry.io/otel go.opentelemetry.io/otel/sdk
                                 `,
                             },
                         ]}
@@ -133,7 +133,7 @@ export const getOpenTelemetrySteps = (ctx: OnboardingComponentsContext): StepDef
                                     import (
                                         "context"
 
-                                        posthogotel "github.com/posthog/posthog-go/otel"
+                                        posthogotel "github.com/posthog/posthog-go/otel/v2"
                                         "go.opentelemetry.io/otel"
                                         "go.opentelemetry.io/otel/attribute"
                                         sdkresource "go.opentelemetry.io/otel/sdk/resource"

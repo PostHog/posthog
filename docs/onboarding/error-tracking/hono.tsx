@@ -29,12 +29,15 @@ export const getHonoSteps = (ctx: OnboardingComponentsContext): StepDefinition[]
                               import { PostHog } from 'posthog-node'
                               const posthog = new PostHog(process.env.POSTHOG_TOKEN, { host: 'https://us.i.posthog.com' })
                               app.onError(async (err, c) => {
-                                posthog.captureException(err, 'user_distinct_id_with_err_rethrow', {
-                                  path: c.req.path,
-                                  method: c.req.method,
-                                  url: c.req.url,
-                                  headers: c.req.header(),
-                                  // ... other properties
+                                posthog.captureException(err, {
+                                  distinctId: 'user_distinct_id_with_err_rethrow',
+                                  properties: {
+                                    path: c.req.path,
+                                    method: c.req.method,
+                                    url: c.req.url,
+                                    headers: c.req.header(),
+                                    // ... other properties
+                                  },
                                 })
                                 await posthog.flush()
                                 // other error handling logic
