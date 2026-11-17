@@ -1,6 +1,6 @@
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID
 
 from posthog.dataclasses import frozen
@@ -106,6 +106,39 @@ class RecipientUnreachable(TransactionalEmailError):
     code = "recipient_unreachable"
 
 
+class RecipientOptedOut(TransactionalEmailError):
+    code = "recipient_opted_out"
+
+
+class CategoriesNotEnabled(TransactionalEmailError):
+    code = "categories_not_enabled"
+    attr = "category"
+
+    def __init__(self) -> None:
+        super().__init__(
+            "Sending in a message category isn't available for this project yet. Leave `category` out, or send "
+            "`transactional`."
+        )
+
+
+class CategoryMismatch(TransactionalEmailError):
+    code = "category_mismatch"
+    attr = "category"
+
+
+class TooManyCategories(TransactionalEmailError):
+    code = "too_many_categories"
+    attr = "category"
+
+
+class CopiesNotAllowed(TransactionalEmailError):
+    code = "copies_not_allowed"
+
+
+class UnsubscribeLinkRequired(TransactionalEmailError):
+    code = "unsubscribe_link_required"
+
+
 class SenderNotVerified(TransactionalEmailError):
     code = "sender_not_verified"
 
@@ -205,6 +238,23 @@ class InvalidRequest(TransactionalEmailError):
     code = "invalid_request"
 
 
+MessageCategoryKind = Literal["marketing", "transactional"]
+
+
+@frozen
+class SendCategoryDefinition:
+    key: str
+    type: MessageCategoryKind
+    name: str
+    description: str | None = None
+
+
+@frozen
+class SendCategory:
+    id: UUID
+    type: MessageCategoryKind
+
+
 class SandboxFieldsUnsupported(TransactionalEmailError):
     code = "sandbox_fields_unsupported"
 
@@ -241,6 +291,7 @@ class CodeEmail:
     cc: tuple[str, ...] = ()
     bcc: tuple[str, ...] = ()
     attachments: tuple[EmailAttachment, ...] = ()
+    category: Literal["transactional"] | SendCategoryDefinition | None = None
 
 
 class DeliveryUnavailable(Exception):

@@ -30,6 +30,17 @@ class TestTextFromHtml(SimpleTestCase):
 
     @parameterized.expand(
         [
+            ("marketing_send", True, "Unsubscribe ({{unsubscribe_url}})"),
+            ("transactional_send", False, "Unsubscribe"),
+        ]
+    )
+    def test_keeps_the_unsubscribe_placeholder_link_only_when_asked(self, _name, keep, expected):
+        html = '<a href="{{unsubscribe_url}}">Unsubscribe</a>'
+
+        assert text_from_html(html, keep_unsubscribe_link=keep) == expected
+
+    @parameterized.expand(
+        [
             (
                 "links_that_show_their_address",
                 '<a href="https://example.com">' * 5000 + "https://example.com" + "</a>" * 5000,

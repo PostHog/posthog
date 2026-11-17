@@ -13,6 +13,10 @@ import requests
 from posthog.dataclasses import frozen
 from posthog.models.integration import Integration
 
+from products.messaging.backend.models.message_preferences import MessageRecipientPreference
+
+CDP_SEND_ROUTE = re.compile(r".*/api/projects/(?P<team_id>\d+)/hog_flows/[^/]+/transactional_email(/send)?$")
+
 RECIPIENT_ADDRESS_PATTERN = re.compile(
     r"^[a-zA-Z0-9!#$%&'*+/=?^_`{|}~-]+(?:\.[a-zA-Z0-9!#$%&'*+/=?^_`{|}~-]+)*"
     r"@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)+$"
@@ -56,6 +60,13 @@ def _integer(value: Any, path: list[Any]) -> Issues:
 def _literal(expected: Any) -> Check:
     def check(value: Any, path: list[Any]) -> Issues:
         return [] if value is expected else [_issue("invalid_value", path)]
+
+    return check
+
+
+def _one_of(*expected: str) -> Check:
+    def check(value: Any, path: list[Any]) -> Issues:
+        return [] if value in expected else [_issue("invalid_value", path)]
 
     return check
 
@@ -122,10 +133,16 @@ _ATTACHMENT = _object(
 )
 
 
-def _accepted_send(tracking: Check, *, takes_sensitive: bool, takes_attachments: bool) -> Check:
+_SEND_CATEGORY = _object(
+    {"id": _Key(_string(min_length=1)), "type": _Key(_one_of("marketing", "transactional"))}, strict=True
+)
+
+
+def _accepted_send(tracking: Check, *, takes_sensitive: bool, takes_attachments: bool, takes_categories: bool) -> Check:
     copies = _Key(_array(_email, max_items=10), optional=True)
     sensitive = {"sensitive": _Key(_boolean, optional=True)} if takes_sensitive else {}
     attachments = {"attachments": _Key(_array(_ATTACHMENT, max_items=10), optional=True)} if takes_attachments else {}
+    categories = {"message_category": _Key(_SEND_CATEGORY, optional=True)} if takes_categories else {}
     return _object(
         {
             "content": _Key(
@@ -156,6 +173,7 @@ def _accepted_send(tracking: Check, *, takes_sensitive: bool, takes_attachments:
             "bcc": copies,
             **sensitive,
             **attachments,
+            **categories,
             "tracking": _Key(tracking),
         },
         strict=True,
@@ -190,8 +208,10 @@ def _is_recipient_format_issue(issue: dict[str, Any]) -> bool:
 
 @frozen
 class FakeCdpApi:
+    refusal: tuple[int, str] | None = None
     before_the_contract: bool = False
     takes_attachments: bool = True
+    takes_categories: bool = True
     received: list[dict[str, Any]] = field(default_factory=list)
     queued: list[dict[str, Any]] = field(default_factory=list)
     idempotency_keys: dict[str, tuple[str, dict[str, Any]]] = field(default_factory=dict)
@@ -208,6 +228,7 @@ class FakeCdpApi:
             TRACKING_BEFORE_THE_CONTRACT if self.before_the_contract else TRACKING,
             takes_sensitive=not self.before_the_contract,
             takes_attachments=self.takes_attachments,
+            takes_categories=self.takes_categories,
         )
         keys = {**_TEMPLATE_REQUEST_KEYS, **({"send": _Key(send)} if is_code_send else {})}
         issues = _object(keys, strict=False)(request, [])
@@ -222,6 +243,10 @@ class FakeCdpApi:
             if stored_fingerprint != fingerprint:
                 return _response(422, {"error": "idempotency_key_reused"})
             return _response(202, {"status": "queued", "replayed": True, **reply})
+        refusal = self.refusal or (_sandbox_refusal(request["send"]) if is_code_send else None)
+        refusal = refusal or _opt_out_refusal(url, request)
+        if refusal:
+            return _response(refusal[0], {"error": refusal[1]})
         self.queued.append({name: value for name, value in request.items() if name in keys})
         reply = {"invocation_id": str(uuid.uuid4()), **(_sender_kind(request["send"]) if is_code_send else {})}
         if key is not None:
@@ -243,6 +268,9 @@ class FakeCdpApi:
             for send in self.queued_sends
         ]
 
+    def categories(self) -> list[dict[str, str] | None]:
+        return [(request.get("send") or {}).get("message_category") for request in self.queued]
+
     def deliver(self) -> list[tuple[str, str]]:
         delivered = [request for request in self.queued if "send" in request]
         self.queued[:] = [request for request in self.queued if "send" not in request]
@@ -251,6 +279,21 @@ class FakeCdpApi:
             for request in delivered
             if request["send"]["tracking"]["captureEngagement"] is not False
         ]
+
+
+def _opt_out_refusal(url: str, request: dict[str, Any]) -> tuple[int, str] | None:
+    category = (request.get("send") or {}).get("message_category") or {}
+    if category.get("type") != "marketing":
+        return None
+    route = CDP_SEND_ROUTE.search(url)
+    assert route is not None
+    recipient = MessageRecipientPreference.objects.filter(
+        team_id=int(route["team_id"]), identifier=request["to"]
+    ).first()
+    preferences = recipient.preferences if recipient else {}
+    if "OPTED_OUT" in (preferences.get(category["id"]), preferences.get("$all")):
+        return 422, "recipient_opted_out"
+    return None
 
 
 @frozen
@@ -275,6 +318,22 @@ def _code_send_fingerprint(url: str, request: dict[str, Any]) -> str:
     return _json_dumps(
         [url, request["to"], request["distinct_id"], request.get("variables"), {**request["send"], "from": chosen}]
     )
+
+
+def _sandbox_refusal(send: dict[str, Any]) -> tuple[int, str] | None:
+    if not _sender_kind(send):
+        return None
+    sender = send.get("from") or {}
+    fields = (
+        send.get("cc"),
+        send.get("bcc"),
+        send.get("replyTo"),
+        send.get("attachments"),
+        send.get("message_category"),
+    )
+    if any(fields) or sender.get("email") or sender.get("name"):
+        return 400, "sandbox_fields_unsupported"
+    return None
 
 
 def _sender_kind(send: dict[str, Any]) -> dict[str, str]:

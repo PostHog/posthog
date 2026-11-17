@@ -107,7 +107,7 @@ export interface EmailStatusApi {
     /** When the email reached its current status. */
     status_at: string
     /**
-     * Why a failed email was not sent, or the bounce type of a bounced email. A failed send has `provider_error`, or `provider_rejected` when the provider refused the email after it accepted the send. A skipped send has `recipient_suppressed`, `recipient_unreachable`, `recipient_opted_out`, `missing_recipient`, `sending_paused`, `sending_suspended` or `frequency_capped`. A run that stopped before the send has `canceled`, `workflow_unavailable` or an error kind such as `timeout`, and more error kinds can be added. A bounce has `hard`, `soft` or `unknown`. Null otherwise.
+     * Why a failed email was not sent, or the bounce type of a bounced email. A failed send has `provider_error`, or `provider_rejected` when the provider refused the email after it accepted the send. A skipped send has `recipient_suppressed`, `recipient_unreachable`, `recipient_opted_out`, `missing_recipient`, `sending_paused`, `sending_suspended`, `frequency_capped`, `unsubscribe_link_required` or `copies_not_allowed`. A run that stopped before the send has `canceled`, `workflow_unavailable` or an error kind such as `timeout`, and more error kinds can be added. A bounce has `hard`, `soft` or `unknown`. Null otherwise.
      * @nullable
      */
     reason: string | null
@@ -153,6 +153,29 @@ export interface TopicPreferencesApi {
 export type SendEmailApiMessageData = { [key: string]: unknown }
 
 /**
+ * Message category of the email. Leave it out or send `transactional` for a transactional email with no category, which skips opt-outs. Or define the category in code with `key`, `type`, `name` and an optional `description`. The send creates the category when the project has none with that key, and restores it when it was archived. It never changes an existing category's name or description. An existing category must have the same `type`. A `marketing` email skips recipients who opted out of its category or of all marketing, gets unsubscribe headers, and can't have `cc` or `bcc`. Its `html` needs a link whose `href` is `{{ unsubscribe_url }}`, or its `text` needs `{{ unsubscribe_url }}` when it has no `html`. PostHog replaces the placeholder with the recipient's unsubscribe link. A send with `template_id`, or with a `template_key` that names a template, follows the template's category: leave it out there, or send the template's own.
+ */
+export type SendEmailApiCategory =
+    | 'transactional'
+    | {
+          /**
+           * The category's key, unique within the project, such as `newsletter`. Opt-outs and the preferences page refer to the category by it.
+           * @maxLength 64
+           */
+          key: string
+          /** `marketing`: recipients can opt out, and the send skips those who did. `transactional`: for email a recipient must get, which skips opt-outs. */
+          type: 'marketing' | 'transactional'
+          /**
+           * The category's name, shown in the PostHog app. Used only when the send creates the category: rename it in the app.
+           * @maxLength 128
+           */
+          name: string
+          /** Notes about which emails belong to the category. Recipients don't see it. */
+          description?: string
+      }
+    | null
+
+/**
  * What PostHog tracks for the email your code rendered. `true` tracks opens and clicks and captures engagement events. `false` turns off all of it, now and for any kind of tracking added later. An object sets each kind on its own, and a kind it leaves out keeps its default. Without this field, PostHog tracks opens and captures engagement events, and tracks clicks only when the email isn't sensitive (see `sensitive`). Turn on `clicks` for a sensitive email only when its links are safe to send through a redirect. A link with `data-ph-no-track` keeps its own address either way. Click tracking needs open tracking. A project whose admin turned engagement capture off captures nothing, whatever the send says. The object form needs a JSON body.
  */
 export type SendEmailApiTracking =
@@ -194,6 +217,8 @@ export interface SendEmailApi {
     to: string
     /** Data for the template's Liquid placeholders, available as `variables`. For example `{"reset_link": "https://..."}` fills `{{ variables.reset_link }}`. */
     message_data?: SendEmailApiMessageData
+    /** Message category of the email. Leave it out or send `transactional` for a transactional email with no category, which skips opt-outs. Or define the category in code with `key`, `type`, `name` and an optional `description`. The send creates the category when the project has none with that key, and restores it when it was archived. It never changes an existing category's name or description. An existing category must have the same `type`. A `marketing` email skips recipients who opted out of its category or of all marketing, gets unsubscribe headers, and can't have `cc` or `bcc`. Its `html` needs a link whose `href` is `{{ unsubscribe_url }}`, or its `text` needs `{{ unsubscribe_url }}` when it has no `html`. PostHog replaces the placeholder with the recipient's unsubscribe link. A send with `template_id`, or with a `template_key` that names a template, follows the template's category: leave it out there, or send the template's own. */
+    category?: SendEmailApiCategory
     /** ID of the email template to send. The template must be made transactional first. Send either `template_id` or `template_key`. */
     template_id?: string
     /**
@@ -1176,6 +1201,29 @@ export interface MessageTemplatePlacementApi {
  */
 export type SendTransactionalEmailApiMessageData = { [key: string]: unknown }
 
+/**
+ * Message category of the email. Leave it out or send `transactional` for a transactional email with no category, which skips opt-outs. Or define the category in code with `key`, `type`, `name` and an optional `description`. The send creates the category when the project has none with that key, and restores it when it was archived. It never changes an existing category's name or description. An existing category must have the same `type`. A `marketing` email skips recipients who opted out of its category or of all marketing, gets unsubscribe headers, and can't have `cc` or `bcc`. Its `html` needs a link whose `href` is `{{ unsubscribe_url }}`, or its `text` needs `{{ unsubscribe_url }}` when it has no `html`. PostHog replaces the placeholder with the recipient's unsubscribe link. A send with `template_id`, or with a `template_key` that names a template, follows the template's category: leave it out there, or send the template's own.
+ */
+export type SendTransactionalEmailApiCategory =
+    | 'transactional'
+    | {
+          /**
+           * The category's key, unique within the project, such as `newsletter`. Opt-outs and the preferences page refer to the category by it.
+           * @maxLength 64
+           */
+          key: string
+          /** `marketing`: recipients can opt out, and the send skips those who did. `transactional`: for email a recipient must get, which skips opt-outs. */
+          type: 'marketing' | 'transactional'
+          /**
+           * The category's name, shown in the PostHog app. Used only when the send creates the category: rename it in the app.
+           * @maxLength 128
+           */
+          name: string
+          /** Notes about which emails belong to the category. Recipients don't see it. */
+          description?: string
+      }
+    | null
+
 export interface TransactionalEmailIdentifiersApi {
     /**
      * Distinct ID of the recipient's person. The email's engagement events (sent, delivered, opened, clicked, bounced) and the send itself are recorded against that person. Defaults to the recipient's email address. The template can't read the person's properties, so pass everything it needs in `message_data`.
@@ -1190,6 +1238,8 @@ export interface SendTransactionalEmailApi {
     to: string
     /** Data for the template's Liquid placeholders, available as `variables`. For example `{"reset_link": "https://..."}` fills `{{ variables.reset_link }}`. */
     message_data?: SendTransactionalEmailApiMessageData
+    /** Message category of the email. Leave it out or send `transactional` for a transactional email with no category, which skips opt-outs. Or define the category in code with `key`, `type`, `name` and an optional `description`. The send creates the category when the project has none with that key, and restores it when it was archived. It never changes an existing category's name or description. An existing category must have the same `type`. A `marketing` email skips recipients who opted out of its category or of all marketing, gets unsubscribe headers, and can't have `cc` or `bcc`. Its `html` needs a link whose `href` is `{{ unsubscribe_url }}`, or its `text` needs `{{ unsubscribe_url }}` when it has no `html`. PostHog replaces the placeholder with the recipient's unsubscribe link. A send with `template_id`, or with a `template_key` that names a template, follows the template's category: leave it out there, or send the template's own. */
+    category?: SendTransactionalEmailApiCategory
     /** Who the email is for, used to attribute engagement events. */
     identifiers?: TransactionalEmailIdentifiersApi
 }
