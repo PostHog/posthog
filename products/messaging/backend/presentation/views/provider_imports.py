@@ -16,10 +16,9 @@ from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.event_usage import report_user_action
 from posthog.exceptions import Conflict
-from posthog.permissions import can_in_project, get_authenticator_scopes
+from posthog.permissions import TeamMemberStrictManagementPermission, get_authenticator_scopes
 from posthog.scopes.checks import scopes_not_covered
 
-from products.authorization.backend.facade.enums import Action
 from products.messaging.backend.facade.provider_imports import (
     DOMAIN_SETUP_STEP,
     IMPORT_PROVIDER_CHOICES,
@@ -216,7 +215,7 @@ class ProviderImportViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                     "Adding sending domains creates email senders, so this key needs the integration:write scope. "
                     "Leave out Add sending domains, or use a key that has it."
                 )
-            if not can_in_project(request, self.team, Action.EDIT, self):
+            if not TeamMemberStrictManagementPermission().has_permission(request, self):
                 raise PermissionDenied(
                     "You need permission to add integrations in this project to add sending domains."
                 )
