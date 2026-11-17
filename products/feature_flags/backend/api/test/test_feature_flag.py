@@ -14264,7 +14264,13 @@ class TestFeatureFlagBulkDelete(APIBaseTest):
         assert by_key["mixed_aggregation"]["rollout_state"] == "partial"
         assert by_key["mixed_aggregation"]["active_variant"] is None
 
-    def test_bulk_delete_with_dependent_flags(self):
+    @parameterized.expand(
+        [
+            ("well_formed_dependent", []),
+            ("dependent_with_null_properties_group", [{"rollout_percentage": 100, "properties": None}]),
+        ]
+    )
+    def test_bulk_delete_with_dependent_flags(self, _name: str, extra_groups: list[dict]):
         """Test that flags with dependents cannot be deleted."""
         # Create a flag that other flags depend on
         base_flag = FeatureFlag.objects.create(
@@ -14280,10 +14286,11 @@ class TestFeatureFlagBulkDelete(APIBaseTest):
             key="dependent_flag",
             filters={
                 "groups": [
+                    *extra_groups,
                     {
                         "rollout_percentage": 100,
                         "properties": [{"key": str(base_flag.id), "type": "flag", "value": "true"}],
-                    }
+                    },
                 ]
             },
         )

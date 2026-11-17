@@ -106,9 +106,16 @@ class TestFeatureFlagDependencyRuntime(APIBaseTest):
             assert response.json()["attr"] == "evaluation_runtime"
             assert f"dependent (ID: {dependent.id})" in response.json()["detail"]
 
-    def test_changing_runtime_tolerates_unrelated_flag_with_null_properties(self) -> None:
+    @parameterized.expand(
+        [
+            ("null_properties", {"groups": [{"properties": None, "rollout_percentage": 100}]}),
+            ("scalar_groups", {"groups": "all"}),
+            ("null_groups", {"groups": None}),
+        ]
+    )
+    def test_changing_runtime_tolerates_unrelated_flag_with_legacy_filters(self, _name: str, filters: dict) -> None:
         flag = self._flag("flag", "all")
-        self._flag("legacy", "all", filters={"groups": [{"properties": None, "rollout_percentage": 100}]})
+        self._flag("legacy", "all", filters=filters)
 
         response = self._patch(flag, {"evaluation_runtime": "client"})
 

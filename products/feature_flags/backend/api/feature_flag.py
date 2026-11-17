@@ -728,14 +728,12 @@ def find_dependent_flags_batch(
     flag_id_strs = {str(fid) for fid in flag_ids}
 
     for dep_flag in dependent_flags:
-        groups = dep_flag.filters.get("groups", [])
-        for group in groups:
-            properties = group.get("properties", [])
-            for prop in properties:
-                if prop.get("type") == "flag" and prop.get("key") in flag_id_strs:
-                    dep_flag_id = int(prop["key"])
-                    if dep_flag_id in result and dep_flag not in result[dep_flag_id]:
-                        result[dep_flag_id].append(dep_flag)
+        for located in _iter_flag_filter_properties((dep_flag.filters or {}).get("groups")):
+            prop = located.prop
+            if prop.get("type") == "flag" and prop.get("key") in flag_id_strs:
+                dep_flag_id = int(prop["key"])
+                if dep_flag_id in result and dep_flag not in result[dep_flag_id]:
+                    result[dep_flag_id].append(dep_flag)
 
     return result
 
