@@ -1204,10 +1204,11 @@ class TestSubscriptionTemporal(APILicensedTest):
         self.organization_membership.level = requester_level
         self.organization_membership.save()
 
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/subscriptions/{subscription.id}/take_ownership/",
-            {"user_uuid": str(owner.uuid)} if another_member else {},
-        )
+        with patch("products.subscriptions.backend.logic.subscription_writes.posthoganalytics.capture") as capture:
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/subscriptions/{subscription.id}/take_ownership/",
+                {"user_uuid": str(owner.uuid)} if another_member else {},
+            )
 
         subscription.refresh_from_db()
         if another_member and requester_level == OrganizationMembership.Level.MEMBER:
@@ -1225,6 +1226,13 @@ class TestSubscriptionTemporal(APILicensedTest):
         assert subscription.created_by == owner
         assert subscription.enabled is True
         assert response.json()["created_by"]["id"] == owner.id
+        delivery_events = [
+            call.kwargs
+            for call in capture.call_args_list
+            if call.kwargs.get("event") == "subscription_update_delivery_intent"
+        ]
+        assert len(delivery_events) == 1
+        assert delivery_events[0]["distinct_id"] == str(self.user.distinct_id)
         # created_by is excluded from the save diff, so the takeover logs its own activity.
         takeover = ActivityLog.objects.get(
             scope="Subscription",

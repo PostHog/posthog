@@ -940,7 +940,7 @@ class _SubscriptionWrite:
         # "subscription updated" event fires from the post_save signal before this decision
         # exists, so a regression that silently suppressed deliveries would be invisible there.
         posthoganalytics.capture(
-            distinct_id=str(self.user.distinct_id),
+            distinct_id=str(self.actor.distinct_id),
             event="subscription_update_delivery_intent",
             properties={
                 **analytics_props,
