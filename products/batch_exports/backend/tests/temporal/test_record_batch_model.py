@@ -429,21 +429,22 @@ class TestSessionsRecordBatchModelSelection:
 @pytest.mark.django_db
 class TestHogQLQueryRecordBatchModel:
     @pytest.mark.parametrize(
-        "hogql_query,table,workload",
+        "hogql_query,table,clickhouse_table,workload",
         [
-            ("SELECT event AS event, distinct_id AS distinct_id FROM events", "events", Workload.DEFAULT),
+            ("SELECT event AS event, distinct_id AS distinct_id FROM events", "events", "events", Workload.DEFAULT),
             (
                 "WITH exported_events AS (SELECT event, distinct_id FROM events) "
                 "SELECT event AS event, distinct_id AS distinct_id FROM exported_events",
                 "events",
+                "events",
                 Workload.DEFAULT,
             ),
-            ("SELECT body FROM logs", "logs", Workload.LOGS),
+            ("SELECT body FROM logs", "logs", "logs_distributed", Workload.LOGS),
         ],
         ids=["table", "cte", "logs"],
     )
     async def test_as_query_with_context(
-        self, ateam, auser, data_interval_start, data_interval_end, hogql_query, table, workload
+        self, ateam, auser, data_interval_start, data_interval_end, hogql_query, table, clickhouse_table, workload
     ):
         model = HogQLQueryRecordBatchModel(
             team_id=ateam.id,
@@ -453,7 +454,7 @@ class TestHogQLQueryRecordBatchModel:
         printed_query, context = await model.as_query_with_context(data_interval_start, data_interval_end)
 
         # should add filter on team_id
-        assert f"equals({table}.team_id, {ateam.id})" in printed_query
+        assert f"equals({clickhouse_table}.team_id, {ateam.id})" in printed_query
         assert "FORMAT ArrowStream" in printed_query
         assert "log_comment" in context.values
         assert context.workload == workload
@@ -518,7 +519,7 @@ class TestHogQLQueryRecordBatchModel:
         "hogql_query,table,workload",
         [
             ("SELECT event AS event, distinct_id AS distinct_id FROM events", "events", Workload.DEFAULT),
-            ("SELECT body FROM logs", "logs", Workload.LOGS),
+            ("SELECT body FROM logs", "logs_distributed", Workload.LOGS),
         ],
         ids=["events", "logs"],
     )
