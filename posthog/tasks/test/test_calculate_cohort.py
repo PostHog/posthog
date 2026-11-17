@@ -1926,6 +1926,110 @@ class TestCohortCalculationTasks(APIBaseTest):
             "Check the query for a typo, such as a misspelled property name.",
         )
 
+    def test_query_replace_returning_unknown_uuid_keeps_every_member(self) -> None:
+        from products.cohorts.backend.models import util as cohort_util
+
+        member = create_person(team=self.team, distinct_ids=["member"], uuid=uuid4())
+        flush_persons_and_events()
+        unknown_uuid = uuid4()
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="static cohort",
+            is_static=True,
+            query={"kind": "HogQLQuery", "query": f"SELECT toUUID('{unknown_uuid}') AS person_id FROM persons LIMIT 1"},
+        )
+        cohort.insert_users_list_by_uuid([str(member.uuid)], team_id=self.team.pk)
+        Cohort.objects.filter(pk=cohort.pk).update(
+            is_calculating=True,
+            pending_population_mode=CohortPopulationMode.REPLACE,
+            population_claimed_at=timezone.now().replace(microsecond=0),
+        )
+
+        with (
+            time_machine.travel(timezone.now() + timedelta(seconds=10), tick=False),
+            patch(
+                "products.cohorts.backend.models.util.insert_cohort_people_into_pg",
+                wraps=cohort_util.insert_cohort_people_into_pg,
+            ) as mock_copy_to_pg,
+        ):
+            insert_cohort_from_query(cohort.id, self.team.pk)
+
+        mock_copy_to_pg.assert_called_once()
+        cohort.refresh_from_db()
+        history = CohortCalculationHistory.objects.filter(cohort=cohort).latest("started_at")
+        self.assertEqual(list_cohort_member_ids(team_id=self.team.pk, cohort_id=cohort.pk), [member.id])
+        self.assertEqual(
+            (
+                cohort.is_calculating,
+                cohort.pending_population_mode,
+                cohort.population_marker,
+                cohort.errors_calculating,
+                history.error_code,
+                history.mode,
+            ),
+            (False, None, None, 1, "empty_replace", CohortPopulationMode.REPLACE),
+        )
+
+    def test_query_replace_with_unknown_uuid_and_post_floor_add_still_refuses_to_prune(self) -> None:
+        from products.cohorts.backend.models import util as cohort_util
+
+        existing = create_person(team=self.team, distinct_ids=["existing"], uuid=uuid4())
+        manual = create_person(team=self.team, distinct_ids=["manual"], uuid=uuid4())
+        flush_persons_and_events()
+        unknown_uuid = uuid4()
+        start = timezone.now().replace(microsecond=0)
+
+        with (
+            time_machine.travel(start, tick=False) as clock,
+            patch(
+                "products.cohorts.backend.models.util.insert_cohort_people_into_pg",
+                wraps=cohort_util.insert_cohort_people_into_pg,
+            ) as mock_copy_to_pg,
+        ):
+            cohort = Cohort.objects.create(
+                team=self.team,
+                name="static cohort",
+                is_static=True,
+                query={
+                    "kind": "HogQLQuery",
+                    "query": f"SELECT toUUID('{unknown_uuid}') AS person_id FROM persons LIMIT 1",
+                },
+            )
+            cohort.insert_users_list_by_uuid([str(existing.uuid)], team_id=self.team.pk)
+
+            clock.shift(10)
+            Cohort.objects.filter(pk=cohort.pk).update(
+                is_calculating=True,
+                pending_population_mode=CohortPopulationMode.REPLACE,
+                population_claimed_at=timezone.now().replace(microsecond=0),
+            )
+
+            # Added after the replace was claimed, so it lands in the copied batch via the floor rule
+            # while only unknown_uuid carries the replace marker.
+            clock.shift(5)
+            cohort.insert_users_list_by_uuid([str(manual.uuid)], team_id=self.team.pk, save_state=False)
+
+            clock.shift(5)
+            insert_cohort_from_query(cohort.id, self.team.pk)
+
+        mock_copy_to_pg.assert_called_once()
+        cohort.refresh_from_db()
+        history = CohortCalculationHistory.objects.filter(cohort=cohort).latest("started_at")
+        self.assertEqual(
+            set(list_cohort_member_ids(team_id=self.team.pk, cohort_id=cohort.pk)), {existing.id, manual.id}
+        )
+        self.assertEqual(
+            (
+                cohort.is_calculating,
+                cohort.pending_population_mode,
+                cohort.population_marker,
+                cohort.errors_calculating,
+                history.error_code,
+                history.mode,
+            ),
+            (False, None, None, 1, "empty_replace", CohortPopulationMode.REPLACE),
+        )
+
     @parameterized.expand(
         [
             ("replace_running", True),
@@ -2241,7 +2345,7 @@ class TestCohortCalculationTasks(APIBaseTest):
         real_copy = cohort_util._copy_static_cohort_rows_to_pg
         manual_added = False
 
-        def copy_after_manual_add(*args: Any, **kwargs: Any) -> int:
+        def copy_after_manual_add(*args: Any, **kwargs: Any) -> tuple[int, bool]:
             nonlocal manual_added
             if not manual_added:
                 manual_added = True

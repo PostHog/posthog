@@ -1005,7 +1005,7 @@ def _replace_static_members(
     # misspelled property, than a request to drop every member, and the flags and surveys built on the cohort
     # would all change at once. Nothing is pruned yet, so both stores keep every member.
     if not rows_written:
-        raise PopulationEmptyResult(f"Cohort {cohort.pk}: the replace query matched nobody")
+        raise PopulationEmptyResult(f"Cohort {cohort.pk}: the replace query matched no persons")
     # The replace keeps every member added since the request, across retries and sweep redispatches, and drops
     # the rows its own earlier attempts wrote.
     insert_cohort_people_into_pg(

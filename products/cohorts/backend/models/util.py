@@ -67,7 +67,7 @@ from posthog.schema_enums import ChartDisplayType, ProductKey
 from posthog.schema_migrations.upgrade import upgrade
 
 from products.cohorts.backend.models.calculation_history import CohortCalculationHistory
-from products.cohorts.backend.models.cohort import Cohort, CohortOrEmpty, CohortPopulationMode
+from products.cohorts.backend.models.cohort import Cohort, CohortOrEmpty, CohortPopulationMode, _normalize_uuid
 from products.cohorts.backend.models.dependencies import get_cohort_dependents
 from products.cohorts.backend.models.leaf_shape import walk_filter_leaves
 from products.cohorts.backend.models.sql import GET_COHORT_SIZE_SQL, RECALCULATE_COHORT_BY_ID
@@ -1494,7 +1494,7 @@ def insert_cohort_people_into_pg(
     """
     for wait_seconds in (*STATIC_COHORT_READ_BACK_WAITS_SECONDS, None):
         try:
-            new_rows_read = _copy_static_cohort_rows_to_pg(
+            new_rows_read, any_counted_resolved = _copy_static_cohort_rows_to_pg(
                 cohort,
                 team_id=team_id,
                 written_since=written_since,
@@ -1514,6 +1514,11 @@ def insert_cohort_people_into_pg(
             time.sleep(wait_seconds)
             continue
         if new_rows_read >= min_rows:
+            # ClickHouse can hold non-empty rows whose UUIDs do not correspond to any Person in Postgres.
+            # Require at least one resolved counted person before pruning so Postgres keeps existing members
+            # and any post-request adds.
+            if replace_marker is not None and not any_counted_resolved:
+                raise PopulationEmptyResult(f"Cohort {cohort.pk}: the replace query matched no persons")
             return
         if wait_seconds is None:
             raise StaticCohortReadBackIncomplete(
@@ -1529,11 +1534,12 @@ def _copy_static_cohort_rows_to_pg(
     written_since: str | None,
     replace_marker: datetime | None = None,
     replace_floor: datetime | None = None,
-) -> int:
-    """Return how many of the copied rows have a `_timestamp` at or after `written_since`.
+) -> tuple[int, bool]:
+    """Copy kept rows to Postgres and return ``(counted_rows_read, any_counted_resolved)``.
 
     A replace copies the rows it keeps (``REPLACE_KEEPS_ROW``): this attempt's rows and the members added since
-    ``replace_floor``, the request time. It counts only this attempt's rows, which carry the marker.
+    ``replace_floor``, the request time. It counts only this attempt's rows, which carry the marker, and tracks
+    whether at least one of those counted rows resolved to a person in Postgres.
     """
     from posthog.helpers.batch_iterators import CursorBatchIterator
 
@@ -1560,6 +1566,8 @@ def _copy_static_cohort_rows_to_pg(
     counted_since = written_since or "1970-01-01 00:00:00"
     new_rows_read = 0
     exhausted = False
+    counted_in_batch: set[str] = set()
+    any_counted_resolved = False
 
     # Pages are read in the sort key's order with a plain LIMIT, and both the keep rule and the grouping by person
     # happen here, not in ClickHouse. A GROUP BY made every page read from its cursor to the end of the cohort, and
@@ -1576,7 +1584,7 @@ def _copy_static_cohort_rows_to_pg(
         return [], cursor
 
     def _read_page(cursor: str, batch_size: int) -> tuple[list[str], str]:
-        nonlocal new_rows_read, exhausted
+        nonlocal new_rows_read, exhausted, counted_in_batch
         if replace_marker is not None:
             require_current_population_marker(cohort.pk, replace_marker)
         # Tagged per page, because the batch writer between pages may retag.
@@ -1619,8 +1627,16 @@ def _copy_static_cohort_rows_to_pg(
             # A person has a handful of rows, so one filling a whole page means something else is wrong.
             raise RuntimeError(f"A page of {batch_size} rows held only one person of static cohort {cohort.pk}")
         kept_persons = [person for person in persons if by_person[person][0]]
-        new_rows_read += sum(1 for person in kept_persons if by_person[person][1])
+        counted_persons = [person for person in kept_persons if by_person[person][1]]
+        new_rows_read += len(counted_persons)
+        counted_in_batch = {_normalize_uuid(person) for person in counted_persons}
         return kept_persons, cursor
+
+    def insert_batch(batch: list[str]) -> None:
+        nonlocal any_counted_resolved
+        resolved = cohort._insert_batch_via_personhog(batch, insert_in_clickhouse=False, team_id=team_id)
+        if not any_counted_resolved and resolved & counted_in_batch:
+            any_counted_resolved = True
 
     batch_iterator = CursorBatchIterator(
         fetch_batch, CH_PAGE_SIZE, initial_cursor="00000000-0000-0000-0000-000000000000"
@@ -1629,9 +1645,14 @@ def _copy_static_cohort_rows_to_pg(
     # what lets the population tasks retry it. The caller also owns the cohort's state: a pass that
     # read too few rows must not mark it finished while another pass is coming.
     cohort._insert_users_list_with_batching(
-        batch_iterator, insert_in_clickhouse=False, team_id=team_id, raise_on_error=True, save_state=False
+        batch_iterator,
+        insert_in_clickhouse=False,
+        team_id=team_id,
+        raise_on_error=True,
+        save_state=False,
+        insert_batch=insert_batch,
     )
-    return new_rows_read
+    return new_rows_read, any_counted_resolved
 
 
 # ── Static population replace: marker and fence ──────────────────────

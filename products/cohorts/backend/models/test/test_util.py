@@ -631,7 +631,7 @@ class TestCohortUtils(BaseTest):
 
         with (
             patch(
-                "products.cohorts.backend.models.util._copy_static_cohort_rows_to_pg", side_effect=[lagging, 1]
+                "products.cohorts.backend.models.util._copy_static_cohort_rows_to_pg", side_effect=[lagging, (1, True)]
             ) as mock_copy,
             patch("products.cohorts.backend.models.util.time.sleep") as mock_sleep,
         ):
