@@ -1,5 +1,5 @@
 import { RequestError } from "@agentclientprotocol/sdk";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Logger } from "./logger";
 
 describe("Logger.error", () => {
@@ -33,20 +33,23 @@ describe("Logger.error", () => {
 });
 
 describe("Logger output", () => {
-  const spies = {
-    debug: vi.spyOn(console, "debug").mockImplementation(() => {}),
-    info: vi.spyOn(console, "info").mockImplementation(() => {}),
-    warn: vi.spyOn(console, "warn").mockImplementation(() => {}),
-    error: vi.spyOn(console, "error").mockImplementation(() => {}),
-  };
   const levels = ["debug", "info", "warn", "error"] as const;
   const secret = "ghp_abcdefghijklmnopqrstuvwxyz0123456789";
+  const written: { level: string; line: string }[] = [];
 
-  const written = () =>
-    levels.filter((level) => spies[level].mock.calls.length);
+  const writtenLevels = () => written.map((entry) => entry.level);
 
   beforeEach(() => {
-    for (const spy of Object.values(spies)) spy.mockClear();
+    written.length = 0;
+    for (const level of levels) {
+      vi.spyOn(console, level).mockImplementation((line: string) => {
+        written.push({ level, line });
+      });
+    }
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
   });
 
   it.each(levels)("json format writes one parseable line for %s", (level) => {
@@ -55,10 +58,10 @@ describe("Logger output", () => {
       { a: { b: 1 } },
     );
 
-    expect(spies[level]).toHaveBeenCalledTimes(1);
-    const line = spies[level].mock.calls[0][0] as string;
-    expect(line).not.toContain("\n");
-    expect(JSON.parse(line)).toMatchObject({
+    expect(written).toHaveLength(1);
+    expect(written[0].level).toBe(level);
+    expect(written[0].line).not.toContain("\n");
+    expect(JSON.parse(written[0].line)).toMatchObject({
       level,
       prefix: "[Test]",
       message: "hello",
@@ -69,8 +72,7 @@ describe("Logger output", () => {
   it("json format omits data when none is given", () => {
     new Logger({ format: "json", level: "debug" }).info("hello");
 
-    const parsed = JSON.parse(spies.info.mock.calls[0][0] as string);
-    expect(parsed).not.toHaveProperty("data");
+    expect(JSON.parse(written[0].line)).not.toHaveProperty("data");
   });
 
   it.each([
@@ -83,7 +85,7 @@ describe("Logger output", () => {
 
     for (const level of levels) logger[level]("msg");
 
-    expect(written()).toEqual(expected);
+    expect(writtenLevels()).toEqual(expected);
   });
 
   it.each(levels)("json format redacts secrets for %s", (level) => {
@@ -91,13 +93,13 @@ describe("Logger output", () => {
       apiKey: secret,
     });
 
-    expect(spies[level].mock.calls[0][0]).not.toContain(secret);
+    expect(written[0].line).not.toContain(secret);
   });
 
   it("keeps the default text format", () => {
     new Logger({ debug: true, prefix: "[Test]" }).info("hello", { a: 1 });
 
-    expect(spies.info.mock.calls[0][0]).toMatch(
+    expect(written[0].line).toMatch(
       /^\S+ \[Test\] \[info\] hello \{\n {2}"a": 1\n\}$/,
     );
   });
@@ -110,7 +112,7 @@ describe("Logger output", () => {
 
     for (const level of levels) logger[level]("msg");
 
-    expect(written()).toEqual(expected);
+    expect(writtenLevels()).toEqual(expected);
   });
 
   it("child loggers inherit level and format", () => {
@@ -123,19 +125,20 @@ describe("Logger output", () => {
     child.info("hidden");
     child.warn("shown");
 
-    expect(spies.info).not.toHaveBeenCalled();
-    expect(JSON.parse(spies.warn.mock.calls[0][0] as string)).toMatchObject({
-      prefix: "[Test] [kid]",
-      message: "shown",
-    });
+    expect(written.map((entry) => JSON.parse(entry.line))).toMatchObject([
+      { prefix: "[Test] [kid]", message: "shown" },
+    ]);
   });
 
   it("onLog still takes precedence over format and level", () => {
-    const onLog = vi.fn();
+    const received: string[] = [];
+    const onLog = (_level: string, _scope: string, message: string) => {
+      received.push(message);
+    };
 
     new Logger({ onLog, format: "json", level: "error" }).debug("msg");
 
-    expect(onLog).toHaveBeenCalledWith("debug", "agent", "msg", undefined);
-    expect(spies.debug).not.toHaveBeenCalled();
+    expect(received).toEqual(["msg"]);
+    expect(written).toEqual([]);
   });
 });
