@@ -22,4 +22,10 @@ export const BUILT_IN_ERROR_TRACKING_PROPERTIES: BuiltInErrorTrackingProperty[] 
     { property: '$request_method', title: 'Request method' },
     { property: '$request_path', title: 'Request path' },
     { property: '$user_agent', title: 'User agent' },
+    { property: '$job_class', title: 'Job class' },
+    { property: '$queue_name', title: 'Job queue' },
+    { property: '$job_id', title: 'Job ID' },
+    { property: '$job_priority', title: 'Job priority' },
+    { property: '$job_executions', title: 'Job attempts' },
+    { property: '$job_arguments', title: 'Job arguments' },
 ]

@@ -9,8 +9,19 @@ function toJsonValue(value: unknown): unknown {
   }
 }
 
+const LEVEL_RANK: Record<LogLevelType, number> = {
+  debug: 0,
+  info: 1,
+  warn: 2,
+  error: 3,
+};
+
+export type LogFormat = "text" | "json";
+
 export interface LoggerConfig {
   debug?: boolean;
+  level?: LogLevelType;
+  format?: LogFormat;
   prefix?: string;
   scope?: string;
   onLog?: OnLogCallback;
@@ -18,12 +29,16 @@ export interface LoggerConfig {
 
 export class Logger {
   private debugEnabled: boolean;
+  private minLevel?: LogLevelType;
+  private format: LogFormat;
   private prefix: string;
   private scope: string;
   private onLog?: OnLogCallback;
 
   constructor(config: LoggerConfig = {}) {
     this.debugEnabled = config.debug ?? false;
+    this.minLevel = config.level;
+    this.format = config.format ?? "text";
     this.prefix = config.prefix ?? "[PostHog Agent]";
     this.scope = config.scope ?? "agent";
     this.onLog = config.onLog;
@@ -35,6 +50,17 @@ export class Logger {
     data?: unknown,
   ): string {
     const timestamp = new Date().toISOString();
+
+    if (this.format === "json") {
+      return JSON.stringify({
+        timestamp,
+        level,
+        prefix: this.prefix,
+        message,
+        ...(data !== undefined && { data }),
+      });
+    }
+
     const base = `${timestamp} ${this.prefix} [${level}] ${message}`;
 
     if (data !== undefined) {
@@ -52,7 +78,9 @@ export class Logger {
       return;
     }
 
-    const shouldLog = this.debugEnabled || level === "error";
+    const shouldLog = this.minLevel
+      ? LEVEL_RANK[level] >= LEVEL_RANK[this.minLevel]
+      : this.debugEnabled || level === "error";
 
     if (shouldLog) {
       console[level](this.formatMessage(level.toLowerCase(), message, data));
@@ -90,6 +118,8 @@ export class Logger {
   child(childPrefix: string): Logger {
     return new Logger({
       debug: this.debugEnabled,
+      level: this.minLevel,
+      format: this.format,
       prefix: `${this.prefix} [${childPrefix}]`,
       scope: `${this.scope}:${childPrefix}`,
       onLog: this.onLog,
