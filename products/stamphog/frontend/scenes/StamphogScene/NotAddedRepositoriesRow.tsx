@@ -95,10 +95,6 @@ function AddRepositoryPicker(): JSX.Element {
     )
 }
 
-/**
- * One row for every repository the app can reach that auto-approval does not cover. They all share
- * one state, so the row states it once and opens the picker that adds one.
- */
 export function NotAddedRepositoriesRow(): JSX.Element {
     const { addableCount, addRepositoryOpen } = useValues(stamphogSceneLogic)
     const { setAddRepositoryOpen } = useActions(stamphogSceneLogic)

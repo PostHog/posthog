@@ -70,7 +70,6 @@ function OwnersFileState({ ownersFile }: { ownersFile: OwnersFileCheck | undefin
     }
 }
 
-/** The settings of a repository that do not fit its row: the digest, the owners.yaml check, and when it was added. */
 export function ExpandedRepoSettings({ repo }: { repo: CodeReviewApprovalRepositoryApi }): JSX.Element {
     const { updatingRepoIds, ownersFileChecks } = useValues(stamphogSceneLogic)
     const { updateRepoConfig } = useActions(stamphogSceneLogic)

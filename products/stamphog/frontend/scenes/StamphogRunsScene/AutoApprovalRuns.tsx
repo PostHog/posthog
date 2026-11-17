@@ -134,7 +134,6 @@ function RunsTable(): JSX.Element {
     )
 }
 
-/** Every auto-approval run of the project, with its filters, for the Activity tab of Code review. */
 export function AutoApprovalRuns(): JSX.Element {
     return (
         <>

@@ -904,7 +904,6 @@ function SettingsTab(): JSX.Element {
         <>
             <StandardArea />
             <DeepArea />
-            {/* The Inbox section links to this area while no repository is connected. */}
             <div id={AUTO_APPROVAL_AREA_ID}>
                 <Suspense fallback={<LazySectionFallback />}>
                     <AutoApprovalArea />

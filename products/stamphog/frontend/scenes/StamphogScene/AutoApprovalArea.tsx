@@ -116,10 +116,6 @@ function RepositoriesTable(): JSX.Element | null {
     )
 }
 
-/**
- * The Auto-approval area of the Code review settings: the Stamphog GitHub app connection, and one
- * row per added repository with its live Approve and Reviewer requests choices.
- */
 export function AutoApprovalArea(): JSX.Element {
     const { stamphogAccessLevel } = useValues(stamphogSceneLogic)
     const canManage = managerDisabledReason(stamphogAccessLevel) === null

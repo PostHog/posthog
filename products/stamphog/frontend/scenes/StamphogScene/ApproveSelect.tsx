@@ -61,7 +61,6 @@ function TriggerLabelField({ repo }: { repo: CodeReviewApprovalRepositoryApi }):
     )
 }
 
-/** When auto-approval reviews a repository, as one live choice, with the trigger label beside the label choices. */
 export function ApproveSelect({ repo }: { repo: CodeReviewApprovalRepositoryApi }): JSX.Element {
     const { updatingRepoIds } = useValues(stamphogSceneLogic)
     const { updateRepoConfig } = useActions(stamphogSceneLogic)

@@ -8,7 +8,6 @@ import { stamphogSceneLogic } from './stamphogSceneLogic'
 // The same card shape as the GitHub connection of Code review, so both connections read alike.
 const CARD_CLASS = 'flex flex-wrap items-center gap-3 rounded border border-primary bg-surface-primary px-4 py-2.5'
 
-/** Whether the Stamphog GitHub app is connected to this project, with the way to connect it or to reach more repositories. */
 export function AutoApprovalConnectionCard(): JSX.Element {
     const {
         hasInstallation,

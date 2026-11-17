@@ -17,7 +17,6 @@ const ROUTING_MODE_OPTIONS = [RoutingModeEnumApi.Off, RoutingModeEnumApi.Fallbac
     (value) => ({ value, label: ROUTING_MODE_LABELS[value] })
 )
 
-/** Whether auto-approval asks the code owners in owners.yaml to review, and when. */
 export function ReviewerRequestsSelect({ repo }: { repo: CodeReviewApprovalRepositoryApi }): JSX.Element {
     const { updatingRepoIds, ownersFileChecks } = useValues(stamphogSceneLogic)
     const { updateRepoConfig } = useActions(stamphogSceneLogic)

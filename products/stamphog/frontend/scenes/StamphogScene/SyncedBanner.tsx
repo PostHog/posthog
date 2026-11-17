@@ -5,7 +5,6 @@ import { LemonBanner, LemonButton, Link } from '@posthog/lemon-ui'
 
 import { stamphogSceneLogic } from './stamphogSceneLogic'
 
-/** The result of the GitHub App round trip: a pick between installations, a missing install, or what the sync made addable. */
 export function SyncedBanner(): JSX.Element | null {
     const { syncResult, skippedRepos, appNotInstalled, installUrl, discoveredInstallations } =
         useValues(stamphogSceneLogic)
