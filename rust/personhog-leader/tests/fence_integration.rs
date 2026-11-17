@@ -631,6 +631,30 @@ async fn a_revival_is_served_over_the_death_document() {
         .expect_err("the death document still answers");
     assert_eq!(status.code(), Code::NotFound);
 
+    // The same pre-death row, with properties the leader cannot parse.
+    let set_properties = |properties: String| {
+        let pool = pool.clone();
+        async move {
+            sqlx::query(
+                "UPDATE posthog_person SET properties = $3::jsonb WHERE team_id = $1 AND id = $2",
+            )
+            .bind(team_id as i32)
+            .bind(person_id)
+            .bind(properties)
+            .execute(&pool)
+            .await
+            .expect("write properties");
+        }
+    };
+    set_properties(format!("{{\"a\":{}1{}}}", "[".repeat(200), "]".repeat(200))).await;
+    let status = harness
+        .client
+        .get_person(get())
+        .await
+        .expect_err("the death document answers over an unparseable pre-death row");
+    assert_eq!(status.code(), Code::NotFound);
+    set_properties(r#"{"revived": true}"#.to_string()).await;
+
     // A stub-create revival: same id and uuid, version above the death document's.
     set_row(death.version + 1, false).await;
     let revived = harness
@@ -679,6 +703,260 @@ async fn a_revival_is_served_over_the_death_document() {
         .execute(&pool)
         .await
         .expect("cleanup op");
+    sqlx::query("DELETE FROM posthog_person WHERE team_id = $1 AND id = $2")
+        .bind(team_id as i32)
+        .bind(person_id)
+        .execute(&pool)
+        .await
+        .expect("cleanup person");
+}
+
+#[tokio::test]
+async fn a_delete_seals_and_destroys_a_person_whose_properties_cannot_be_parsed() {
+    let pool = common::create_persons_pool().await;
+    let mut harness = start_fence_harness(
+        test_cached_person(),
+        Some(PgFallback {
+            pool: pool.clone(),
+            table: "posthog_person".to_string(),
+            lifecycle: LifecycleTables::new("lifecycle_op", "lifecycle_op_person"),
+        }),
+    )
+    .await;
+    let team_id = harness.team_id;
+    let partition = harness.partition;
+    let person_id = harness.person_id;
+    let person_uuid = test_cached_person().uuid;
+    let key = PersonCacheKey { team_id, person_id };
+    const ROW_VERSION: i64 = 7;
+
+    harness.cache.remove(partition, &key);
+    sqlx::query(
+        "INSERT INTO posthog_person \
+             (id, team_id, uuid, properties, created_at, version, is_identified, is_deleted) \
+         VALUES ($1, $2, $3::uuid, $4::jsonb, now(), $5, false, false) \
+         ON CONFLICT (team_id, id) DO UPDATE \
+         SET properties = EXCLUDED.properties, version = EXCLUDED.version, is_deleted = false",
+    )
+    .bind(person_id)
+    .bind(team_id as i32)
+    .bind(&person_uuid)
+    .bind(format!("{{\"a\":{}1{}}}", "[".repeat(200), "]".repeat(200)))
+    .bind(ROW_VERSION)
+    .execute(&pool)
+    .await
+    .expect("write row");
+
+    let merge = Uuid::now_v7();
+    let status = harness
+        .client
+        .fence_person(with_partition(
+            FencePersonRequest {
+                op_type: LifecycleOpType::Merge.into(),
+                ..fence_request(team_id, person_id, &merge)
+            },
+            partition,
+        ))
+        .await
+        .expect_err("a merge needs the properties it cannot read");
+    assert_eq!(status.code(), Code::DataLoss);
+
+    let op = Uuid::now_v7();
+    sqlx::query(
+        "INSERT INTO lifecycle_op (op_id, op_type, team_id, step, request) \
+         VALUES ($1, 'delete', $2, 'sealed', '{}'::jsonb)",
+    )
+    .bind(op)
+    .bind(team_id as i32)
+    .execute(&pool)
+    .await
+    .expect("insert op");
+    sqlx::query(
+        "INSERT INTO lifecycle_op_person (op_id, team_id, person_id, person_uuid, role, status, mark_active) \
+         VALUES ($1, $2, $3, gen_random_uuid(), 'victim', 'sealed', true)",
+    )
+    .bind(op)
+    .bind(team_id as i32)
+    .bind(person_id)
+    .execute(&pool)
+    .await
+    .expect("insert mark");
+
+    let sealed = harness
+        .client
+        .fence_person(with_partition(
+            fence_request(team_id, person_id, &op),
+            partition,
+        ))
+        .await
+        .expect("a delete seals from the row alone")
+        .into_inner()
+        .sealed
+        .unwrap();
+    assert_eq!(sealed.version, ROW_VERSION);
+    assert!(
+        harness.cache.peek(partition, &key).is_none(),
+        "the unreadable row is never cached"
+    );
+
+    // The saga tombstones the row before it releases.
+    sqlx::query("UPDATE posthog_person SET is_deleted = true, properties = '{}'::jsonb WHERE team_id = $1 AND id = $2")
+        .bind(team_id as i32)
+        .bind(person_id)
+        .execute(&pool)
+        .await
+        .expect("tombstone row");
+    harness
+        .client
+        .release_fence(with_partition(
+            ReleaseFenceRequest {
+                team_id,
+                person_id,
+                person_uuid: person_uuid.clone(),
+                op_id: op.to_string(),
+                outcome: ReleaseOutcome::Committed.into(),
+                sealed_version: Some(sealed.version),
+                created_at: sealed.created_at,
+                tombstone_version: None,
+            },
+            partition,
+        ))
+        .await
+        .expect("committed release succeeds");
+    let death = harness
+        .cache
+        .peek(partition, &key)
+        .expect("the death document is cached");
+    assert!(death.is_deleted);
+    assert!(death.version > ROW_VERSION);
+
+    sqlx::query("DELETE FROM lifecycle_op WHERE op_id = $1")
+        .bind(op)
+        .execute(&pool)
+        .await
+        .expect("cleanup op");
+    sqlx::query("DELETE FROM posthog_person WHERE team_id = $1 AND id = $2")
+        .bind(team_id as i32)
+        .bind(person_id)
+        .execute(&pool)
+        .await
+        .expect("cleanup person");
+}
+
+#[tokio::test]
+async fn deleting_an_unreadable_revival_produces_a_death_document_above_the_old_one() {
+    let pool = common::create_persons_pool().await;
+    let mut harness = start_fence_harness(
+        test_cached_person(),
+        Some(PgFallback {
+            pool: pool.clone(),
+            table: "posthog_person".to_string(),
+            lifecycle: LifecycleTables::new("lifecycle_op", "lifecycle_op_person"),
+        }),
+    )
+    .await;
+    let team_id = harness.team_id;
+    let partition = harness.partition;
+    let person_id = harness.person_id;
+    let person_uuid = test_cached_person().uuid;
+    let key = PersonCacheKey { team_id, person_id };
+    let (first_op, old_death) = destroy_through_pg(&mut harness, &pool).await;
+    let revived_version = old_death.version + 2;
+
+    sqlx::query(
+        "INSERT INTO posthog_person \
+             (id, team_id, uuid, properties, created_at, version, is_identified, is_deleted) \
+         VALUES ($1, $2, $3::uuid, $4::jsonb, now(), $5, false, false) \
+         ON CONFLICT (team_id, id) DO UPDATE \
+         SET properties = EXCLUDED.properties, version = EXCLUDED.version, is_deleted = false",
+    )
+    .bind(person_id)
+    .bind(team_id as i32)
+    .bind(&person_uuid)
+    .bind(format!("{{\"a\":{}1{}}}", "[".repeat(200), "]".repeat(200)))
+    .bind(revived_version)
+    .execute(&pool)
+    .await
+    .expect("write revived row");
+    sqlx::query(
+        "UPDATE lifecycle_op_person SET status = 'deleted', mark_active = false WHERE op_id = $1",
+    )
+    .bind(first_op)
+    .execute(&pool)
+    .await
+    .expect("settle the first delete's mark");
+
+    let op = Uuid::now_v7();
+    sqlx::query(
+        "INSERT INTO lifecycle_op (op_id, op_type, team_id, step, request) \
+         VALUES ($1, 'delete', $2, 'sealed', '{}'::jsonb)",
+    )
+    .bind(op)
+    .bind(team_id as i32)
+    .execute(&pool)
+    .await
+    .expect("insert op");
+    sqlx::query(
+        "INSERT INTO lifecycle_op_person (op_id, team_id, person_id, person_uuid, role, status, mark_active) \
+         VALUES ($1, $2, $3, gen_random_uuid(), 'victim', 'sealed', true)",
+    )
+    .bind(op)
+    .bind(team_id as i32)
+    .bind(person_id)
+    .execute(&pool)
+    .await
+    .expect("insert mark");
+
+    let sealed = harness
+        .client
+        .fence_person(with_partition(
+            fence_request(team_id, person_id, &op),
+            partition,
+        ))
+        .await
+        .expect("the delete seals the revived row")
+        .into_inner()
+        .sealed
+        .unwrap();
+    assert_eq!(sealed.version, revived_version);
+
+    sqlx::query("UPDATE posthog_person SET is_deleted = true, properties = '{}'::jsonb WHERE team_id = $1 AND id = $2")
+        .bind(team_id as i32)
+        .bind(person_id)
+        .execute(&pool)
+        .await
+        .expect("tombstone row");
+    harness
+        .client
+        .release_fence(with_partition(
+            ReleaseFenceRequest {
+                team_id,
+                person_id,
+                person_uuid: person_uuid.clone(),
+                op_id: op.to_string(),
+                outcome: ReleaseOutcome::Committed.into(),
+                sealed_version: Some(sealed.version),
+                created_at: sealed.created_at,
+                tombstone_version: None,
+            },
+            partition,
+        ))
+        .await
+        .expect("committed release succeeds");
+    let death = harness
+        .cache
+        .peek(partition, &key)
+        .expect("a death document is cached");
+    assert!(death.is_deleted);
+    assert!(death.version > revived_version);
+
+    for op in [first_op, op] {
+        sqlx::query("DELETE FROM lifecycle_op WHERE op_id = $1")
+            .bind(op)
+            .execute(&pool)
+            .await
+            .expect("cleanup op");
+    }
     sqlx::query("DELETE FROM posthog_person WHERE team_id = $1 AND id = $2")
         .bind(team_id as i32)
         .bind(person_id)

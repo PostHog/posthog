@@ -1,4 +1,3 @@
-import re
 import json
 from collections.abc import Callable, Iterable, Mapping
 from datetime import UTC, timedelta
@@ -126,6 +125,82 @@ class TestFileSystemAPI(APIBaseTest):
         }
         self.assertEqual(by_ref[("dashboard", str(dashboard.id))], ["finance", "weekly"])
         self.assertEqual(by_ref[("insight", "tagged")], ["growth"])
+
+    @parameterized.expand(
+        [
+            ("one_tag", ["finance"], {"dashboard:revenue"}),
+            ("any_of_several_tags", ["finance", "growth"], {"dashboard:revenue", "insight:signups"}),
+            ("unknown_tag", ["missing"], set()),
+            ("newest_first", ["finance", "growth"], {"dashboard:revenue", "insight:signups"}, "-created_at"),
+            ("last_viewed", ["finance", "growth"], {"dashboard:revenue", "insight:signups"}, "-last_viewed_at"),
+        ]
+    )
+    def test_list_filters_by_any_tag(
+        self, _name: str, tags: list[str], expected: set[str], order_by: str | None = None
+    ) -> None:
+        revenue = Dashboard.objects.create(team=self.team, name="Revenue")
+        untagged = Dashboard.objects.create(team=self.team, name="Untagged")
+        signups = Insight.objects.create(team=self.team, short_id="signups", name="Signups")
+        churn = Insight.objects.create(team=self.team, short_id="churn", name="Churn")
+        for tag_name, obj in (("finance", revenue), ("growth", signups), ("ops", churn)):
+            tag, _ = Tag.objects.get_or_create(name=tag_name, team=self.team)
+            TaggedItem.objects.create(
+                tag=tag, team=self.team, content_type=ContentType.objects.get_for_model(type(obj)), object_id=obj.id
+            )
+        names = {
+            ("dashboard", str(revenue.id)): "dashboard:revenue",
+            ("dashboard", str(untagged.id)): "dashboard:untagged",
+            ("insight", "signups"): "insight:signups",
+            ("insight", "churn"): "insight:churn",
+        }
+
+        found: set[str] = set()
+        for type_params in ({"type": "dashboard"}, {"type__startswith": "insight"}):
+            response = self.client.get(
+                f"/api/projects/{self.team.id}/file_system/",
+                {**type_params, "tags": json.dumps(tags), **({"order_by": order_by} if order_by else {})},
+            )
+            self.assertEqual(response.status_code, 200, response.content)
+            found |= {names[(item["type"].split("/")[0], item["ref"])] for item in response.json()["results"]}
+        self.assertEqual(found, expected)
+
+    def test_list_rejects_malformed_tags(self) -> None:
+        response = self.client.get(f"/api/projects/{self.team.id}/file_system/", {"tags": "finance"})
+        self.assertEqual(response.status_code, 400, response.content)
+
+    def test_list_rejects_deeply_nested_tags(self) -> None:
+        """Past a few tens of thousands of levels CPython's JSON decoder raises RecursionError, which is
+        not a ValueError, so an unguarded parse would answer a 500 instead of a 400."""
+        response = self.client.get(f"/api/projects/{self.team.id}/file_system/", {"tags": "[" * 60000})
+        self.assertEqual(response.status_code, 400, response.content)
+
+    def test_recents_without_a_type_filters_by_tag(self) -> None:
+        """`order_by=-last_viewed_at` with no type is served by `_list_recents`, which never reaches
+        `safely_get_queryset`, so the tag filter has to be applied there too."""
+        revenue = Dashboard.objects.create(team=self.team, name="Revenue")
+        churn = Dashboard.objects.create(team=self.team, name="Churn")
+        tag, _ = Tag.objects.get_or_create(name="finance", team=self.team)
+        TaggedItem.objects.create(
+            tag=tag, team=self.team, content_type=ContentType.objects.get_for_model(Dashboard), object_id=revenue.id
+        )
+        now = timezone.now()
+        for dashboard in (revenue, churn):
+            FileSystemViewLog.objects.create(
+                team=self.team,
+                user=self.user,
+                type="dashboard",
+                ref=str(dashboard.id),
+                viewed_at=now,
+                view_days=[now.date()],
+            )
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/file_system/",
+            {"order_by": "-last_viewed_at", "tags": json.dumps(["finance"])},
+        )
+        self.assertEqual(response.status_code, 200, response.content)
+        refs = {item["ref"] for item in response.json()["results"] if item["type"] == "dashboard"}
+        self.assertEqual(refs, {str(revenue.id)}, "recents with no type must drop the untagged dashboard")
 
     @parameterized.expand([(False,), (True,)])
     def test_list_content_types_without_object_contents(self, include_content_type: bool) -> None:
@@ -1706,6 +1781,45 @@ class TestFileSystemAPIAdvancedPermissions(APIBaseTest):
         self.assertEqual([item["ref"] for item in response.json()], [self.file_a.ref])
 
     @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_tag_filter_skips_objects_the_user_cannot_see(self, mock_flag: MagicMock) -> None:
+        """A row the user filed against an object they are denied survives access filtering, and
+        `_add_object_types` withholds that object's tags. The tag filter has to withhold it too, or the
+        tag can be read back from which filter values return the row."""
+        hidden = Dashboard.objects.create(team=self.team, name="Hidden", created_by=self.other_user)
+        # Carries the same tag and stays visible, so an over-eager access filter fails this test too.
+        visible = Dashboard.objects.create(team=self.team, name="Visible", created_by=self.other_user)
+        tag = Tag.objects.create(name="secret", team=self.team)
+        for dashboard in (hidden, visible):
+            TaggedItem.objects.create(
+                tag=tag,
+                team=self.team,
+                content_type=ContentType.objects.get_for_model(Dashboard),
+                object_id=dashboard.id,
+            )
+            FileSystem.objects.create(
+                team=self.team,
+                path=f"Docs/{dashboard.name}",
+                depth=2,
+                type="dashboard",
+                ref=str(dashboard.id),
+                created_by=self.user,
+            )
+        self._create_access_control(resource="dashboard", resource_id=str(hidden.id), access_level="none")
+        base = f"/api/projects/{self.team.id}/file_system/"
+
+        unfiltered = self.client.get(base, {"type": "dashboard", "include_tags": "true"})
+        self.assertEqual(unfiltered.status_code, status.HTTP_200_OK, unfiltered.content)
+        rows = {item["ref"]: item for item in unfiltered.json()["results"]}
+        self.assertIn(str(hidden.id), rows, "the row itself stays listed, because this user filed it")
+        self.assertEqual(rows[str(hidden.id)]["meta"].get("tags", []), [], "its tags are withheld already")
+
+        filtered = self.client.get(base, {"type": "dashboard", "tags": json.dumps(["secret"])})
+        self.assertEqual(filtered.status_code, status.HTTP_200_OK, filtered.content)
+        refs = {item["ref"] for item in filtered.json()["results"]}
+        self.assertNotIn(str(hidden.id), refs, "a withheld tag must not be inferable from the filter")
+        self.assertIn(str(visible.id), refs, "the filter must still return tagged objects the user can see")
+
+    @patch("posthoganalytics.feature_enabled", return_value=True)
     def test_list_excludes_items_with_none_access(self, mock_flag):
         self._create_access_control(resource="dashboard", resource_id=self.file_b.ref, access_level="none")
         # The user is not staff, not the creator of file_b => 'none' should exclude it
@@ -2120,6 +2234,34 @@ class TestFileSystemAPIAdvancedPermissions(APIBaseTest):
             list(FileSystem.objects.filter(team=self.team, type="feature_flag").values_list("ref", "path", "shortcut")),
             [(str(flag.pk), "Launches/Restored flag", False)],
         )
+
+    @parameterized.expand(
+        [
+            ("report event", "$signals_report_ready", False),
+            ("another internal event", "$activity_log_entry_created", True),
+        ]
+    )
+    def test_undo_delete_keeps_a_destination_on_a_read_guarded_event_disabled(self, _name, event_id, enabled):
+        # The destinations API checks the event's read access before a destination on it is turned on again.
+        destination = HogFunction.objects.create(
+            team=self.team,
+            name="Inbox webhook",
+            hog="return event",
+            type=HogFunctionType.INTERNAL_DESTINATION,
+            enabled=False,
+            deleted=True,
+            filters={"events": [{"id": event_id, "type": "events"}]},
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/file_system/undo_delete/",
+            {"items": [{"type": "hog_function/internal_destination", "ref": str(destination.id)}]},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        destination.refresh_from_db()
+        self.assertEqual((destination.deleted, destination.enabled), (False, enabled))
 
     def test_undo_delete_refuses_an_object_that_is_not_deleted(self):
         flag = FeatureFlag.objects.create(
@@ -3170,55 +3312,21 @@ TREE_READ_PATHS: list[tuple[str, str, dict[str, str]]] = [
 ]
 
 
-UNFILED_ALREADY_SAVED_SELECT = 'AS "already_saved"'
-PATTERN_FROM_A_COLUMN = re.compile(r"\s!?~~?\*?\s+(?!')")
-PLAN_CONDITIONS = ("Filter", "Join Filter", "Index Cond")
+SMALL_PROJECT = 100
+LARGE_PROJECT = 1000
+LINEAR_GROWTH_LIMIT = 1.5 * LARGE_PROJECT / SMALL_PROJECT
+WORKFLOW_REF = "0f1e2d3c-4b5a-4987-a6b5-c4d3e2f1a0b9"
 
 
-def _plan_nodes(node: Mapping[str, Any]) -> Iterable[Mapping[str, Any]]:
-    yield node
-    for child in node.get("Plans", []):
-        yield from _plan_nodes(child)
+def _files_returned(body: Any) -> int:
+    if isinstance(body, list):
+        return len(body)
+    if "results" in body:
+        return len(body["results"])
+    return body["count"]
 
 
-def _scans_file_system(node: Mapping[str, Any]) -> bool:
-    return any(child.get("Relation Name") == "posthog_filesystem" for child in _plan_nodes(node))
-
-
-def _names_marked_hashed_by_their_parent(plan: Mapping[str, Any]) -> set[str]:
-    return set(re.findall(r"hashed (SubPlan \d+)", json.dumps(plan)))
-
-
-def _select_list_subplan_names(plan: Mapping[str, Any]) -> set[str]:
-    return {
-        name
-        for node in _plan_nodes(plan)
-        for expression in node.get("Output", [])
-        for name in re.findall(r"SubPlan \d+", expression)
-    }
-
-
-def _per_row_tree_subplans(sql: str, plan: Mapping[str, Any]) -> list[Mapping[str, Any]]:
-    tree_subplans = [
-        node for node in _plan_nodes(plan) if node.get("Parent Relationship") == "SubPlan" and _scans_file_system(node)
-    ]
-    skipped = _names_marked_hashed_by_their_parent(plan)
-    if UNFILED_ALREADY_SAVED_SELECT in sql:
-        select_list = _select_list_subplan_names(plan) & {node["Subplan Name"] for node in tree_subplans}
-        if len(select_list) == 1:
-            skipped |= select_list
-    return [node for node in tree_subplans if node["Subplan Name"] not in skipped]
-
-
-def _column_pattern_nodes(plan: Mapping[str, Any]) -> list[Mapping[str, Any]]:
-    return [
-        node
-        for node in _plan_nodes(plan)
-        if any(PATTERN_FROM_A_COLUMN.search(node.get(condition, "")) for condition in PLAN_CONDITIONS)
-    ]
-
-
-class TestFileSystemReadPlans(APIBaseTest):
+class TestFileSystemReadsAtScale(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
         self.organization.available_product_features = [
@@ -3226,40 +3334,65 @@ class TestFileSystemReadPlans(APIBaseTest):
             {"key": "role_based_access", "name": "role_based_access"},
         ]
         self.organization.save()
-        Dashboard.objects.create(team=self.team, name="Welcome dashboard", created_by=self.user)
-        flow_ref = "0f1e2d3c-4b5a-4987-a6b5-c4d3e2f1a0b9"
-        template_ref = "1a2b3c4d-5e6f-4a1b-8c2d-3e4f5a6b7c8d"
-        files = [
-            ("Docs", "folder", None),
-            ("Docs/Reports", "folder", None),
-            ("Docs/Reports/Welcome report", "notebook", "welcome-notebook"),
-            ("Unfiled", "folder", None),
-            ("Unfiled/Insights", "folder", None),
-            ("Unfiled/Insights/Welcome insight", "insight", "welcome-insight"),
-            ("Unfiled/Workflows", "folder", None),
-            ("Unfiled/Workflows/Welcome flow", "hog_flow", flow_ref),
-            ("Unfiled/Email templates", "folder", None),
-            ("Unfiled/Email templates/Welcome email", "message_template", template_ref),
-        ]
-        for path, file_type, ref in files:
-            FileSystem.objects.create(
-                team=self.team, path=path, depth=path.count("/") + 1, type=file_type, ref=ref, created_by=self.user
-            )
+        self.items = 0
+        folders = ["Docs", "Docs/Dashboards", "Unfiled", "Unfiled/Insights", "Unfiled/Workflows"]
+        FileSystem.objects.bulk_create(
+            [FileSystem(team=self.team, path=path, depth=path.count("/") + 1, type="folder") for path in folders]
+        )
+        FileSystem.objects.create(
+            team=self.team, path="Unfiled/Workflows/Welcome flow", depth=3, type="hog_flow", ref=WORKFLOW_REF
+        )
+
+    def _grow_project_to(self, items: int) -> None:
+        new_items = range(self.items, items)
         now = timezone.now()
-        for file_type, ref in [
-            ("notebook", "welcome-notebook"),
-            ("insight", "welcome-insight"),
-            ("hog_flow", flow_ref),
-            ("message_template", template_ref),
-        ]:
-            FileSystemViewLog.objects.create(
-                team=self.team,
-                user=self.user,
-                type=file_type,
-                ref=ref,
-                viewed_at=now,
-                view_days=[now.date(), (now - timedelta(days=1)).date()],
+        FileSystem.objects.bulk_create(
+            [
+                FileSystem(team=self.team, path=path, depth=path.count("/") + 1, type=file_type, ref=f"{file_type}-{i}")
+                for i in new_items
+                for path, file_type in [
+                    (f"Unfiled/Insights/Welcome insight {i}", "insight"),
+                    (f"Docs/Welcome note {i}", "notebook"),
+                    (f"Docs/Dashboards/Welcome dashboard {i}", "dashboard"),
+                ]
+            ]
+        )
+        FileSystemViewLog.objects.bulk_create(
+            [
+                FileSystemViewLog(
+                    team=self.team,
+                    user=self.user,
+                    type="notebook",
+                    ref=f"notebook-{i}",
+                    viewed_at=now,
+                    view_days=[now.date(), (now - timedelta(days=1)).date()],
+                )
+                for i in new_items
+            ]
+        )
+        Insight.objects.bulk_create(
+            [Insight(team=self.team, name=f"Unfiled insight {i}", created_by=self.user) for i in new_items]
+        )
+        self.items = items
+        with connection.cursor() as cursor:
+            cursor.execute("ANALYZE posthog_filesystem, posthog_filesystemviewlog, posthog_dashboarditem")
+
+    def _tree_rows_read(self, action: str, params: dict[str, str]) -> int:
+        before = self._tree_rows_read_in_this_transaction()
+        response = self.client.get(f"/api/projects/{self.team.id}/file_system/{action}", params)
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        self.assertGreater(_files_returned(response.json()), 0, f"{action or 'list'} {params} returned no files")
+        return self._tree_rows_read_in_this_transaction() - before
+
+    def _tree_rows_read_in_this_transaction(self) -> int:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT seq_tup_read + coalesce(idx_tup_fetch, 0) FROM pg_stat_xact_user_tables"
+                " WHERE relid = 'posthog_filesystem'::regclass"
             )
+            row = cursor.fetchone()
+        assert row is not None
+        return row[0]
 
     @parameterized.expand(
         [
@@ -3268,46 +3401,18 @@ class TestFileSystemReadPlans(APIBaseTest):
             for flag_enabled in (False, True)
         ]
     )
-    def test_tree_reads_run_no_per_row_subquery_over_the_tree(
+    def test_tree_reads_grow_no_faster_than_the_project(
         self, _name: str, flag_enabled: bool, action: str, params: dict[str, str]
     ) -> None:
-        statements: list[tuple[str, Any]] = []
+        with patch("posthoganalytics.feature_enabled", return_value=flag_enabled):
+            self._grow_project_to(SMALL_PROJECT)
+            small = self._tree_rows_read(action, params)
+            self._grow_project_to(LARGE_PROJECT)
+            large = self._tree_rows_read(action, params)
 
-        def capture_with_typed_params(
-            execute: Callable[..., Any], sql: str, sql_params: Any, many: bool, context: Any
-        ) -> Any:
-            if not many:
-                statements.append((sql, sql_params))
-            return execute(sql, sql_params, many, context)
-
-        with (
-            patch("posthoganalytics.feature_enabled", return_value=flag_enabled),
-            connection.execute_wrapper(capture_with_typed_params),
-        ):
-            response = self.client.get(f"/api/projects/{self.team.id}/file_system/{action}", params)
-        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
-
-        tree_reads = [
-            (sql, sql_params)
-            for sql, sql_params in statements
-            if sql.lstrip().upper().startswith(("SELECT", "WITH")) and '"posthog_filesystem"' in sql
-        ]
-        self.assertNotEqual(tree_reads, [])
-        offenders: list[str] = []
-        with connection.cursor() as cursor:
-            for sql, sql_params in tree_reads:
-                cursor.execute(f"EXPLAIN (FORMAT JSON, VERBOSE) {sql}", sql_params)
-                row = cursor.fetchone()
-                assert row is not None
-                plan = row[0][0]["Plan"]
-                offenders.extend(
-                    f"Per-row subquery over the tree:\n{sql}\n{sql_params}\n{json.dumps(node, indent=2)}"
-                    for node in _per_row_tree_subplans(sql, plan)
-                )
-                offenders.extend(
-                    f"Pattern built from a column:\n{sql}\n{sql_params}\n{json.dumps(node, indent=2)}"
-                    for node in _column_pattern_nodes(plan)
-                )
-        if offenders:
-            flag_state = "on" if flag_enabled else "off"
-            self.fail(f"{action or 'list'} {params} with the flag {flag_state}:\n\n" + "\n\n".join(offenders))
+        self.assertLessEqual(
+            large,
+            LINEAR_GROWTH_LIMIT * max(small, 1),
+            f"{action or 'list'} {params} read {small} tree rows with {SMALL_PROJECT} items per type "
+            f"and {large} with {LARGE_PROJECT}, so it scans the tree once per row",
+        )

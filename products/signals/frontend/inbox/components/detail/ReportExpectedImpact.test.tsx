@@ -166,6 +166,17 @@ describe('ReportExpectedImpact', () => {
                     },
                 },
             ])
+            const detailsToggle = screen.getByText('Measurement details').closest('button')!
+            const queryToggle = screen.getByText('Measurement query').closest('button')!
+            expect(detailsToggle).toHaveAttribute('aria-expanded', 'false')
+            expect(queryToggle).toHaveAttribute('aria-expanded', 'false')
+            expect(screen.queryByText('Target reference period: 7 days.')).not.toBeInTheDocument()
+            expect(screen.getByText('Chart')).toBeInTheDocument()
+            expect(screen.queryByText(/Goal for the full query window/)).not.toBeInTheDocument()
+
+            const user = userEvent.setup()
+            await user.click(detailsToggle)
+            expect(detailsToggle).toHaveAttribute('aria-expanded', 'true')
             expect(screen.getByText('Measurement window: since Monitoring starts.')).toBeInTheDocument()
             expect(screen.getByText('Target reference period: 7 days.')).toBeInTheDocument()
             expect(screen.getByText('Check observation window after implementation: 14 days.')).toBeInTheDocument()
@@ -177,12 +188,12 @@ describe('ReportExpectedImpact', () => {
                         : 'The target stays fixed as the measurement period grows.'
                 )
             ).toBeInTheDocument()
-            expect(screen.getByText('View measurement details').closest('details')).not.toHaveAttribute('open')
-            expect(screen.getByText('Target reference period: 7 days.')).not.toBeVisible()
-            expect(screen.getByText('Chart')).toBeInTheDocument()
-            expect(screen.queryByText(/Goal for the full query window/)).not.toBeInTheDocument()
-            await userEvent.setup().click(screen.getByText('View measurement details'))
-            expect(screen.getByText('Target reference period: 7 days.')).toBeVisible()
+
+            await user.click(queryToggle)
+            expect(detailsToggle).toHaveAttribute('aria-expanded', 'true')
+            expect(queryToggle).toHaveAttribute('aria-expanded', 'true')
+            expect(document.querySelector('.CodeSnippet')).toHaveTextContent('"event": "checkout_failed"')
+            expect(document.querySelector('[data-attr="copy-code-button"]')).toBeInTheDocument()
         }
     )
 
@@ -306,7 +317,7 @@ describe('ReportExpectedImpact', () => {
 
         expect(screen.getByText('The query is not available to you.')).toBeInTheDocument()
         expect(screen.queryByText('Chart')).not.toBeInTheDocument()
-        expect(screen.queryByText('View measurement query')).not.toBeInTheDocument()
+        expect(screen.queryByText('Measurement query')).not.toBeInTheDocument()
         expect(screen.queryByText(/Baseline:/)).not.toBeInTheDocument()
         expect(screen.getByText('Looks good').closest('button')).toHaveAttribute('aria-disabled', 'true')
     })

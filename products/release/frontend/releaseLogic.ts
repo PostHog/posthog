@@ -58,6 +58,7 @@ interface ReleaseLogicValues {
     flags: FeatureFlagApi[]
     flagsLoading: boolean
     flagsReady: boolean
+    releasesReady: boolean
     flagSearchResults: FeatureFlagApi[]
     flagSearchResultsLoading: boolean
     flagSearch: string
@@ -189,7 +190,7 @@ interface ReleaseLogicActions {
 type releaseLogicType = MakeLogicType<ReleaseLogicValues, ReleaseLogicActions>
 
 export interface ReleaseUsageEvent {
-    event: 'release item linked' | 'release item unlinked' | 'release broadcasts auto linked'
+    event: 'release item linked' | 'release item unlinked' | 'release broadcasts auto linked' | 'release owner changed'
     properties: Record<string, string | number>
 }
 
@@ -631,6 +632,7 @@ export const releaseLogic = kea<releaseLogicType>([
         flagSearch: ['', { searchFlags: (_, search) => search }],
         flagSearchFailed: [false, { searchFlags: () => false, searchFlagsFailure: () => true }],
         flagsReady: [false, { loadFlagsSuccess: () => true, loadFlagsFailure: () => true }],
+        releasesReady: [false, { loadReleasesSuccess: () => true, loadReleasesFailure: () => true }],
         experimentsReady: [false, { loadExperimentsSuccess: () => true }],
         hiddenExperimentFlagIds: [[] as number[], { setHiddenExperimentFlagIds: (_, { flagIds }) => flagIds }],
         hiddenEarlyAccessFlagIds: [[] as number[], { setHiddenEarlyAccessFlagIds: (_, { flagIds }) => flagIds }],
@@ -695,9 +697,12 @@ export const releaseLogic = kea<releaseLogicType>([
                 if (path === urls.releaseList()) {
                     return [{ key: 'Releases', name: 'Releases' }]
                 }
+                if (path === urls.releaseCalendar()) {
+                    return [{ key: 'ReleaseCalendar', name: 'Release calendar' }]
+                }
                 const id = path.match(/^\/releases\/([^/]+)$/)?.[1]
                 if (!id) {
-                    return [{ key: 'ReleaseCalendar', name: 'Release calendar' }]
+                    return [{ key: 'ReleaseAll', name: 'View all' }]
                 }
                 return [{ key: ['Release', id], name: rows.find((row) => row.id === id)?.name }]
             },
@@ -1059,6 +1064,12 @@ export const releaseLogic = kea<releaseLogicType>([
         ): boolean => !!payload.initial || payload.pathname !== previousLocation.pathname
         return {
             [urls.releases()]: (_, __, ___, payload, previousLocation) => {
+                if (openedPage(payload, previousLocation)) {
+                    posthog.capture('release view all opened')
+                    actions.reload()
+                }
+            },
+            [urls.releaseCalendar()]: (_, __, ___, payload, previousLocation) => {
                 if (openedPage(payload, previousLocation)) {
                     posthog.capture('release calendar opened')
                 }

@@ -6,7 +6,6 @@ from posthog.test.base import ClickhouseTestMixin, _create_event
 
 from posthog.schema import EventPropertyFilter, FilterLogicalOperator, PropertyOperator, RecordingsQuery
 
-from products.replay_vision.backend.models.replay_scanner import SamplingMode
 from products.replay_vision.backend.queries.excluded_sessions import excluded_session_ids
 from products.replay_vision.backend.queries.scanner_candidate_query import (
     EXCLUDED_SESSIONS_QUERY_TYPE,
@@ -31,7 +30,6 @@ def _query_for(team, query: RecordingsQuery, *, last_swept_at: dt.datetime | Non
         last_swept_at=last_swept_at or (_NOW - dt.timedelta(minutes=5)),
         sampling_rate=1.0,
         sampling_salt="salt",
-        sampling_mode=SamplingMode.BALANCED,
     )
 
 

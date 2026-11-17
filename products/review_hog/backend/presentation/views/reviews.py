@@ -465,14 +465,14 @@ class ReviewTriggerResponseSerializer(serializers.Serializer):
     )
     report_id = serializers.UUIDField(
         allow_null=True,
-        help_text="Id of the pull request's existing review, for `review-hog-reviews-get`. Null on the pull "
+        help_text="Id of the pull request's existing review, for `code-review-reviews-get`. Null on the pull "
         "request's first run, which creates the review later.",
     )
     requested_at = serializers.DateTimeField(help_text="Server time when the request was accepted.")
     resolve_will_run = serializers.BooleanField(
         help_text="Whether this request plans to run the resolution stage, which can push fix commits to the pull "
         "request. It is the plan at request time: a request queued behind a running turn on the same head can be "
-        "skipped as already published. `review-hog-reviews-pr-status` reports what actually ran."
+        "skipped as already published. `code-review-reviews-pr-status` reports what actually ran."
     )
     resolve_skip_reason = serializers.ChoiceField(
         choices=ResolveSkipReason.choices,
@@ -517,14 +517,14 @@ class ReviewPRStatusParamsSerializer(serializers.Serializer):
 
 
 class ReviewPRStatusLatestReviewSerializer(serializers.Serializer):
-    id = serializers.UUIDField(help_text="The review's id, for `review-hog-reviews-get`.")
+    id = serializers.UUIDField(help_text="The review's id, for `code-review-reviews-get`.")
     review_mode = serializers.ChoiceField(
         choices=ReviewTriggerReviewMode.choices,
         allow_null=True,
         help_text="What the turn ran: 'full' (Deep) or 'flash' (Standard). Null when the turn did not record it.",
     )
     head_sha = serializers.CharField(allow_null=True, help_text="The PR head commit the turn reviewed.")
-    run_index = serializers.IntegerField(help_text="The turn's index, for `review-hog-reviews-get`.")
+    run_index = serializers.IntegerField(help_text="The turn's index, for `code-review-reviews-get`.")
     completed_at = serializers.DateTimeField(allow_null=True, help_text="When the turn completed.")
     must_fix_count = serializers.IntegerField(help_text="The turn's valid findings at must_fix priority.")
     should_fix_count = serializers.IntegerField(help_text="The turn's valid findings at should_fix priority.")
@@ -552,11 +552,11 @@ class ReviewPRStatusRequestOutcomeSerializer(serializers.Serializer):
         "'pr_not_open', 'resolution_not_opted_in', 'no_unresolved_threads', 'pr_in_merge_queue'. Null otherwise.",
     )
     review_id = serializers.UUIDField(
-        allow_null=True, help_text="The review to read with `review-hog-reviews-get`; null before the PR has one."
+        allow_null=True, help_text="The review to read with `code-review-reviews-get`; null before the PR has one."
     )
     run_index = serializers.IntegerField(
         allow_null=True,
-        help_text="The review turn that answered or failed the request, for `review-hog-reviews-get`. Null for "
+        help_text="The review turn that answered or failed the request, for `code-review-reviews-get`. Null for "
         "'resolve_only' and while pending.",
     )
 
@@ -565,7 +565,7 @@ class ReviewPRStatusSerializer(serializers.Serializer):
     repository = serializers.CharField(help_text="The pull request's repository as 'owner/repo'.")
     pr_number = serializers.IntegerField(help_text="The pull request number.")
     report_id = serializers.UUIDField(
-        allow_null=True, help_text="The PR's review id, for `review-hog-reviews-get`; null before its first run."
+        allow_null=True, help_text="The PR's review id, for `code-review-reviews-get`; null before its first run."
     )
     state = serializers.ChoiceField(
         choices=ReviewPRState.choices,
@@ -590,7 +590,69 @@ class ReviewFindingLineRangeSerializer(serializers.Serializer):
     end = serializers.IntegerField(allow_null=True, help_text="Last affected line; null for a single line.")
 
 
+class ReviewFindingOutcomeKind(models.TextChoices):
+    ADDRESSED = "addressed", "Addressed"
+    REACTED = "reacted", "Reacted"
+    IGNORED = "ignored", "Ignored"
+
+
+class ReviewFindingReactionSentiment(models.TextChoices):
+    POSITIVE = "positive", "Positive"
+    NEGATIVE = "negative", "Negative"
+    MIXED = "mixed", "Mixed"
+
+
+class ReviewFindingOutcomeMethod(models.TextChoices):
+    JUDGE_CONFIRMED = "judge_confirmed", "A judge confirmed the fix"
+    JUDGE_REJECTED = "judge_rejected", "A judge found no fix"
+    COMMENT_REPLY = "comment_reply", "A person replied"
+    COMMENT_REPLY_AGENT = "comment_reply_agent", "An agent replied"
+    COMMENT_REACTION = "comment_reaction", "A person reacted"
+    NO_SIGNAL = "no_signal", "No signal"
+    JUDGE_BUDGET_EXHAUSTED = "judge_budget_exhausted", "Not judged"
+    JUDGE_FAILED = "judge_failed", "The judge failed"
+
+
+class ReviewFindingOutcomeSerializer(serializers.Serializer):
+    outcome = serializers.ChoiceField(
+        choices=ReviewFindingOutcomeKind.choices,
+        help_text="What happened to the published finding by the time its pull request merged. `reacted`: a "
+        "person or another agent replied to or reacted on its comment. `addressed`: a later commit changed "
+        "the finding's lines and a judge confirmed that the change fixes it. `ignored`: neither.",
+    )
+    method = serializers.ChoiceField(
+        choices=ReviewFindingOutcomeMethod.choices,
+        help_text="The signal that decided `outcome`. `judge_confirmed` gives `addressed`. `comment_reply`, "
+        "`comment_reply_agent` and `comment_reaction` give `reacted`. `judge_rejected` (the lines changed but "
+        "the judge found no fix), `no_signal` (nothing touched the lines), `judge_budget_exhausted` and "
+        "`judge_failed` (the judge did not rule) give `ignored`.",
+    )
+    reviewed_head = serializers.CharField(
+        help_text="The commit the finding was published at, the base of the diff the outcome was judged on."
+    )
+    final_head = serializers.CharField(help_text="The pull request's head commit when it merged.")
+    reaction_sentiment = serializers.ChoiceField(
+        choices=ReviewFindingReactionSentiment.choices,
+        allow_null=True,
+        help_text="The tone of the reactions on the finding's comment, without PostHog Review's own. `positive`: "
+        "👍, ❤️, 🎉 or 🚀. `negative`: 👎 or 😕. `mixed`: both. Null when no reaction carries a tone.",
+    )
+    reply_excerpt = serializers.CharField(
+        allow_null=True,
+        help_text="The start of the first reply to the finding's comment that PostHog Review did not write, such "
+        "as 'Fixed in <sha>' or 'Leaving this as is'. Null without a reply.",
+    )
+    comment_outdated = serializers.BooleanField(
+        allow_null=True,
+        help_text="Whether GitHub showed the finding's comment as outdated at merge, because a push changed the "
+        "code under it. Null when the comment was not found on the pull request.",
+    )
+
+
 class ReviewFindingSerializer(serializers.Serializer):
+    issue_key = serializers.CharField(
+        help_text="The finding's id, unique within the review: it starts with the turn that raised it."
+    )
     title = serializers.CharField(help_text="One-line summary of the finding.")
     file = serializers.CharField(help_text="Repository-relative path of the affected file.")
     lines = ReviewFindingLineRangeSerializer(many=True, help_text="Affected line ranges within the file.")
@@ -613,6 +675,13 @@ class ReviewFindingSerializer(serializers.Serializer):
     )
     validator_note = serializers.CharField(
         help_text="The validator's argumentation for keeping or dismissing the finding."
+    )
+    outcome = ReviewFindingOutcomeSerializer(
+        allow_null=True,
+        help_text="What the pull request did about the finding, decided once after it merged. Null while the "
+        "pull request is open, when it closed without merging, for a dismissed finding, and until the hourly "
+        "outcome sweep reaches it. The sweep finds merges through the project's GitHub data warehouse source, "
+        "so a project without one gets no outcomes.",
     )
 
 
@@ -845,10 +914,10 @@ class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
     be opened.
     """
 
-    # `review_hog` rather than INTERNAL so the reads and trigger the Code review UI drives are also
+    # `code_review` rather than INTERNAL so the reads and trigger the Code review UI drives are also
     # reachable with a personal API key or OAuth token, which is how MCP tools authenticate. Session
-    # UI access is unchanged; this only adds token access, gated by review_hog:read / review_hog:write.
-    scope_object = "review_hog"
+    # UI access is unchanged; this only adds token access, gated by code_review:read / code_review:write.
+    scope_object = "code_review"
     permission_classes = [PostHogFeatureFlagPermission, EffectiveTeamScopedKeyPermission]
     posthog_feature_flag = "review-hog"
     serializer_class = ReviewRecentReviewSerializer
@@ -901,7 +970,7 @@ class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
         "under every filter except `status`. By default only the requesting user's reviews; "
         "`scope=everyone` lists every review on the project.",
     )
-    @action(methods=["GET"], detail=False, required_scopes=["review_hog:read"])
+    @action(methods=["GET"], detail=False, required_scopes=["code_review:read"])
     def table(self, request: Request, **kwargs) -> Response:
         params = ReviewsTableParamsSerializer(data=request.query_params)
         params.is_valid(raise_exception=True)
@@ -939,7 +1008,7 @@ class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
         "with `scope=everyone`, the user's own last Deep reviews with `scope=own_deep` — and how many of those "
         "the validator kept vs dismissed.",
     )
-    @action(methods=["GET"], detail=False, required_scopes=["review_hog:read"])
+    @action(methods=["GET"], detail=False, required_scopes=["code_review:read"])
     def perspective_stats(self, request: Request, **kwargs) -> Response:
         params = PerspectiveStatsParamsSerializer(data=request.query_params)
         params.is_valid(raise_exception=True)
@@ -962,7 +1031,7 @@ class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
             ),
             403: OpenApiResponse(
                 response=ReviewTriggerErrorSerializer,
-                description="The review-hog feature flag is off for this project.",
+                description="PostHog Review is not enabled for this project.",
             ),
             409: OpenApiResponse(
                 response=ReviewTriggerErrorSerializer,
@@ -989,7 +1058,7 @@ class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
         "Otherwise non-blocking: returns immediately with the PR's head, the review's id when one exists, and "
         "whether resolution will run, while the run executes in the worker.",
     )
-    @action(methods=["POST"], detail=False, required_scopes=["review_hog:write"])
+    @action(methods=["POST"], detail=False, required_scopes=["code_review:write"])
     def trigger(self, request: Request, **kwargs) -> Response:
         team_id = self._root_team_id()
         serializer = ReviewTriggerRequestSerializer(data=request.data)
@@ -1046,7 +1115,7 @@ class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
         "trigger. Pass the `requested_at` and `head_sha` the trigger returned, and the `run_mode` it was called "
         "with, to get `request_outcome`, which says when that request is done.",
     )
-    @action(methods=["GET"], detail=False, required_scopes=["review_hog:read"])
+    @action(methods=["GET"], detail=False, required_scopes=["code_review:read"])
     def pr_status(self, request: Request, **kwargs) -> Response:
         team_id = self._root_team_id()
         params = ReviewPRStatusParamsSerializer(data=request.query_params)

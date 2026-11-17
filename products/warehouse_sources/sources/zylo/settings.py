@@ -135,6 +135,32 @@ ZYLO_ENDPOINTS: dict[str, ZyloEndpointConfig] = {
         table_name="automation_executions",
         fanout=AUTOMATION_FANOUT,
     ),
+    "PendingContracts": ZyloEndpointConfig(
+        name="PendingContracts",
+        path="/v2/pendingContracts",
+        table_name="pending_contracts",
+    ),
+    # One row per application, keyed by the application id. The spend and usage aggregates change
+    # every day, but the only timestamp filters are the application's own `zylo_*` dates, so an
+    # incremental sync would keep stale stats. Full refresh only.
+    "ApplicationStats": ZyloEndpointConfig(
+        name="ApplicationStats",
+        path="/v2/applicationStats",
+        table_name="application_stats",
+        incremental_fields=[],
+        default_incremental_field=None,
+    ),
+    "Users": ZyloEndpointConfig(
+        name="Users",
+        path="/v2/users",
+        table_name="users",
+    ),
+    # Requires the `admin` scope.
+    "Views": ZyloEndpointConfig(
+        name="Views",
+        path="/v2/views",
+        table_name="views",
+    ),
 }
 
 ENDPOINTS = tuple(ZYLO_ENDPOINTS.keys())

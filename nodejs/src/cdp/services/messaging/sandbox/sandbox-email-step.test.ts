@@ -587,28 +587,54 @@ describe('SandboxEmailSendStep', () => {
         })
     })
 
-    it("delivers a marketing email until the person reaches the team's frequency cap, then skips the next one", async () => {
-        await world.postgres.query(
-            PostgresUse.COMMON_WRITE,
-            `INSERT INTO workflows_teamworkflowsconfig
-                (team_id, capture_workflows_engagement_events, email_tracking_consent_mode,
-                 email_sending_suspension_reason, marketing_frequency_cap_max_messages,
-                 marketing_frequency_cap_window_days)
-             VALUES ($1, false, 'off', '', 1, 7)`,
-            [world.team.id],
-            'test:cap-one-marketing-email-a-week'
-        )
-        const roomy = { dailyCaps: { team: 100, recipient: 100 } }
+    type EmailResult = { status: 'accepted'; message_id: string } | { status: 'skipped' | 'failed'; reason: string }
 
-        const first = await runToNextAction(member(), roomy)
-        const second = await runToNextAction(member(), roomy)
-
-        expect(world.ses.delivered).toHaveLength(1)
-        expect([first, second].map(({ finished }) => finished.invocation.state.variables?.email_result)).toEqual([
+    it.each<[string, () => Promise<void>, EmailResult, EmailResult]>([
+        [
+            'the first one is delivered',
+            () => Promise.resolve(),
             { status: 'accepted', message_id: 'ses-1' },
             { status: 'skipped', reason: 'frequency_capped' },
-        ])
-    })
+        ],
+        [
+            'the sandbox tenant is paused for the first one',
+            () => world.setTenant('DISABLED', new Date()),
+            { status: 'skipped', reason: 'tenant_paused' },
+            { status: 'accepted', message_id: 'ses-1' },
+        ],
+        [
+            "the sandbox tenant's state is stale for the first one",
+            () => world.setTenant('ENABLED', new Date(Date.now() - 600_000)),
+            { status: 'failed', reason: 'retries_exhausted' },
+            { status: 'accepted', message_id: 'ses-1' },
+        ],
+    ])(
+        "spends the team's frequency cap of one only on a marketing email the sandbox sends, when %s",
+        async (_name, arrangeFirst, firstResult, secondResult) => {
+            await world.postgres.query(
+                PostgresUse.COMMON_WRITE,
+                `INSERT INTO workflows_teamworkflowsconfig
+                    (team_id, capture_workflows_engagement_events, email_tracking_consent_mode,
+                     email_sending_suspension_reason, marketing_frequency_cap_max_messages,
+                     marketing_frequency_cap_window_days)
+                 VALUES ($1, false, 'off', '', 1, 7)`,
+                [world.team.id],
+                'test:cap-one-marketing-email-a-week'
+            )
+            const roomy = { dailyCaps: { team: 100, recipient: 100 } }
+
+            await arrangeFirst()
+            const first = await runToNextAction(member(), roomy)
+            await world.setTenant('ENABLED', new Date())
+            const second = await runToNextAction(member(), roomy)
+
+            expect(world.ses.delivered).toHaveLength(1)
+            expect([first, second].map(({ finished }) => finished.invocation.state.variables?.email_result)).toEqual([
+                firstResult,
+                secondResult,
+            ])
+        }
+    )
 
     it('logs why the template failed to render', async () => {
         const action = hogFlow.actions.find((candidate) => candidate.id === 'email')!

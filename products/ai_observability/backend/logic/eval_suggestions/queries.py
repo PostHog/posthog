@@ -37,14 +37,14 @@ def run_query(team: Team, sql: str, placeholders: dict[str, ast.Expr], query_typ
 
 
 def run_ai_events_query(
-    team: Team, sql: str, placeholders: dict[str, ast.Expr], query_type: str
+    team: Team, sql: str | ast.SelectQuery, placeholders: dict[str, ast.Expr], query_type: str
 ) -> list[tuple[Any, ...]]:
     """Run HogQL written against `ai_events`, the only table that keeps inputs and outputs.
 
     Placeholders go through the resolver, which rewrites `properties.$ai_*` reads onto native columns.
     An empty result is an empty list, whether the rows expired or never existed.
     """
-    query = parse_select(sql)
+    query = parse_select(sql) if isinstance(sql, str) else sql
     assert isinstance(query, ast.SelectQuery)
     with tags_context(product=Product.LLM_ANALYTICS, feature=Feature.EVAL_SUGGESTIONS, team_id=team.pk):
         try:
