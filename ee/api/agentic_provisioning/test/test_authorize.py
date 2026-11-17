@@ -381,6 +381,8 @@ class TestAgenticAuthorizeConfirm(AgenticAuthorizeMultiOrgBase):
             BillingManager(license=None).update_org_details(
                 organization, cast(BillingStatus, {"customer": {"customer_id": "cus_partner_subscription"}})
             )
+            organization.refresh_from_db()
+            assert organization.customer_id == "cus_partner_subscription"
         organization_count = Organization.objects.count()
 
         self._set_pending_auth("state_again", self.user.email)

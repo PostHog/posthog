@@ -12,6 +12,11 @@ if TYPE_CHECKING:
     from posthog.models.organization import Organization
 
 
+class OrganizationProvisioningQuerySet(models.QuerySet["OrganizationProvisioning"]):
+    def paid_by_partner(self) -> "OrganizationProvisioningQuerySet":
+        return self.filter(application___provisioning_config__pays_for_customers=True)
+
+
 class OrganizationProvisioning(models.Model):
     class Partner(models.TextChoices):
         PROVISIONING_API = "provisioning_api"
@@ -41,6 +46,8 @@ class OrganizationProvisioning(models.Model):
     # customer is the partner's, so the billing lock stays on after billing fills customer_id.
     partner_paid_since = models.DateTimeField(null=True, blank=True)
 
+    objects = OrganizationProvisioningQuerySet.as_manager()
+
     class Meta:
         constraints = [
             models.CheckConstraint(
@@ -52,9 +59,7 @@ class OrganizationProvisioning(models.Model):
 
 
 def get_billing_lock_partner(organization: "Organization") -> OAuthApplication | None:
-    provisioning = OrganizationProvisioning.objects.filter(
-        organization=organization, application___provisioning_config__pays_for_customers=True
-    )
+    provisioning = OrganizationProvisioning.objects.paid_by_partner().filter(organization=organization)
     # customer_id is the organization's Stripe customer, synced from billing. An organization that has
     # one pays for itself and keeps self-serve billing to manage it, unless partner_paid_since says
     # the customer is the one billing created for the partner's subscription.
@@ -65,16 +70,11 @@ def get_billing_lock_partner(organization: "Organization") -> OAuthApplication |
 
 
 def mark_partner_paid(organization_ids: Collection[uuid.UUID]) -> int:
-    """Record that each organization's partner pays for it, so its customer_id does not turn the billing
-    lock off. Skip an organization whose partner does not pay or that is already marked, and return how
-    many were marked.
-
-    Billing sync calls this for an organization's first customer_id. Until then a paying partner locks the
+    """Billing sync calls this for an organization's first customer_id. Until then a paying partner locks the
     organization's billing, so it can't add a payment method, and that first Stripe customer is the one
-    billing created for the partner's subscription.
-    """
-    return OrganizationProvisioning.objects.filter(
-        organization_id__in=organization_ids,
-        partner_paid_since__isnull=True,
-        application___provisioning_config__pays_for_customers=True,
-    ).update(partner_paid_since=timezone.now())
+    billing created for the partner's subscription. Returns how many organizations it marked."""
+    return (
+        OrganizationProvisioning.objects.paid_by_partner()
+        .filter(organization_id__in=organization_ids, partner_paid_since__isnull=True)
+        .update(partner_paid_since=timezone.now())
+    )

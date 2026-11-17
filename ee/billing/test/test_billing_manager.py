@@ -78,6 +78,19 @@ def create_default_products_response(**kwargs) -> dict[str, list[Product]]:
     return data
 
 
+def _create_partner_app() -> OAuthApplication:
+    return OAuthApplication.objects.create(
+        client_id="example-partner",
+        name="Example Partner",
+        client_secret="",
+        client_type=OAuthApplication.CLIENT_PUBLIC,
+        authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+        redirect_uris="https://partner.example.com/callback",
+        algorithm="RS256",
+        is_provisioning_partner=True,
+    )
+
+
 class TestFundingStatusParsing(SimpleTestCase):
     @parameterized.expand(
         [
@@ -1053,16 +1066,7 @@ class TestBillingManager(BaseTest):
     def test_update_org_details_keeps_the_partner_lock_only_for_the_partners_customer(
         self, _name: str, customer_id_before: str | None, partner_pays_at_sync: bool, expect_lock: bool
     ) -> None:
-        partner = OAuthApplication.objects.create(
-            client_id="example-partner",
-            name="Example Partner",
-            client_secret="",
-            client_type=OAuthApplication.CLIENT_PUBLIC,
-            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
-            redirect_uris="https://partner.example.com/callback",
-            algorithm="RS256",
-            is_provisioning_partner=True,
-        )
+        partner = _create_partner_app()
         partner.update_provisioning(pays_for_customers=partner_pays_at_sync)
         OrganizationProvisioning.objects.create(
             organization=self.organization,
@@ -1075,6 +1079,7 @@ class TestBillingManager(BaseTest):
         BillingManager(license=None).update_org_details(
             self.organization, cast(BillingStatus, {"customer": {"customer_id": "cus_synced"}})
         )
+        # With the partner paying now, only the mark that the sync set or skipped decides the lock.
         partner.update_provisioning(pays_for_customers=True)
 
         self.organization.refresh_from_db()
@@ -1428,20 +1433,7 @@ class TestBuildBillingToken(BaseTest):
     def test_build_billing_token_payer_partner_claim(
         self, _name: str, has_partner: bool, mock_partner: MagicMock
     ) -> None:
-        application = (
-            OAuthApplication.objects.create(
-                client_id="example-partner",
-                name="Example Partner",
-                client_secret="",
-                client_type=OAuthApplication.CLIENT_PUBLIC,
-                authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
-                redirect_uris="https://partner.example.com/callback",
-                algorithm="RS256",
-                is_provisioning_partner=True,
-            )
-            if has_partner
-            else None
-        )
+        application = _create_partner_app() if has_partner else None
         mock_partner.return_value = application
 
         token = build_billing_token(self.license, self.organization)
