@@ -6,6 +6,8 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
+from posthog.schema import HogQLQueryModifiers
+
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLParserBackend, HogQLQuerySettings
 from posthog.hogql.context import HogQLContext
@@ -15,10 +17,9 @@ from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.printer import prepare_and_print_ast, prepare_ast_for_printing, print_prepared_ast
 
 
-def _pin_events_schema(context: HogQLContext) -> None:
+def _duckdb_modifiers() -> HogQLQueryModifiers:
     # A pinned events schema keeps printing off the instance setting, which these tests have no database to read.
-    if context.use_new_events_schema is None:
-        context.use_new_events_schema = False
+    return HogQLQueryModifiers(useNewEventsSchema=False)
 
 
 class TestDuckDBPrinter(SimpleTestCase):
@@ -40,11 +41,12 @@ class TestDuckDBPrinter(SimpleTestCase):
         backend: HogQLParserBackend = "cpp-json",
     ) -> str:
         node = parse_expr(query, backend=backend) if isinstance(query, str) else query
-        context = context or HogQLContext(team_id=self.team_id, enable_select_queries=True)
+        context = context or HogQLContext(
+            team_id=self.team_id, enable_select_queries=True, modifiers=_duckdb_modifiers()
+        )
         context.database = context.database or Database()
         if context.restricted_properties is None:
             context.restricted_properties = set()
-        _pin_events_schema(context)
         select_query = ast.SelectQuery(
             select=[node], select_from=ast.JoinExpr(table=ast.Field(chain=["events"])), settings=settings
         )
@@ -65,11 +67,12 @@ class TestDuckDBPrinter(SimpleTestCase):
         context: Optional[HogQLContext] = None,
         placeholders: Optional[dict[str, ast.Expr]] = None,
     ) -> str:
-        context = context or HogQLContext(team_id=self.team_id, enable_select_queries=True)
+        context = context or HogQLContext(
+            team_id=self.team_id, enable_select_queries=True, modifiers=_duckdb_modifiers()
+        )
         context.database = context.database or Database()
         if context.restricted_properties is None:
             context.restricted_properties = set()
-        _pin_events_schema(context)
         return prepare_and_print_ast(
             parse_select(query, placeholders=placeholders, backend="cpp-json"),
             context,
@@ -218,14 +221,14 @@ class TestDuckDBPrinter(SimpleTestCase):
         # inherited Postgres form `(properties) ->> '$ai_session_id'` fails to bind on duckgres with
         # "JSON path error near 'ai_session_id'". Every PostHog built-in property is `$`-prefixed, so
         # DuckDB must emit the key as a quoted JSONPath member instead: `$."$ai_session_id"`.
-        context = HogQLContext(team_id=self.team_id, enable_select_queries=True)
+        context = HogQLContext(team_id=self.team_id, enable_select_queries=True, modifiers=_duckdb_modifiers())
         printed = self._expr("properties.$ai_session_id", context=context)
         self.assertEqual(printed, "(events.properties) ->> %(hogql_val_0)s")
         self.assertEqual(list(context.values.values()), ['$."$ai_session_id"'])
 
     def test_nested_property_renders_as_single_jsonpath_member(self):
         # A nested chain collapses into one JSONPath bound as a single value, not a chain of arrows.
-        context = HogQLContext(team_id=self.team_id, enable_select_queries=True)
+        context = HogQLContext(team_id=self.team_id, enable_select_queries=True, modifiers=_duckdb_modifiers())
         printed = self._expr("properties.a.b.$browser", context=context)
         self.assertEqual(printed, "(events.properties) ->> %(hogql_val_0)s")
         self.assertEqual(list(context.values.values()), ['$."a"."b"."$browser"'])
@@ -233,7 +236,7 @@ class TestDuckDBPrinter(SimpleTestCase):
     def test_json_property_key_with_quote_is_escaped_in_jsonpath(self):
         # A `"` in the key would terminate the quoted JSONPath member early, so it must be backslash
         # escaped. The whole path is still a bound value, so this is not a SQL-injection vector.
-        context = HogQLContext(team_id=self.team_id, enable_select_queries=True)
+        context = HogQLContext(team_id=self.team_id, enable_select_queries=True, modifiers=_duckdb_modifiers())
         self._expr("properties['a\"b']", context=context)
         self.assertEqual(list(context.values.values()), ['$."a\\"b"'])
 
@@ -242,7 +245,7 @@ class TestDuckDBPrinter(SimpleTestCase):
         # in the SELECT than in the GROUP BY — it can't prove the two parameterized expressions are
         # equal. Repeated identical reads must collapse to a single bound value so the printed
         # expressions match textually.
-        context = HogQLContext(team_id=self.team_id, enable_select_queries=True)
+        context = HogQLContext(team_id=self.team_id, enable_select_queries=True, modifiers=_duckdb_modifiers())
         printed = self._select(
             "SELECT properties.$ai_session_id AS s, count() AS n FROM events GROUP BY properties.$ai_session_id",
             context=context,
