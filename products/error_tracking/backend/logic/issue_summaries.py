@@ -18,7 +18,7 @@ from django.db import IntegrityError
 from django.utils import timezone
 
 import structlog
-from openai import OpenAI
+from openai import APIStatusError, OpenAI
 from openai.types.chat import ChatCompletionMessageParam
 from openai.types.shared_params import ResponseFormatJSONSchema
 from prometheus_client import Counter, Histogram
@@ -42,13 +42,13 @@ from products.access_control.backend.facade.api import (
 from products.access_control.backend.facade.contracts import UserNotOrganizationMemberError
 from products.error_tracking.backend.facade.contracts import IssueSummaryStatus, IssueSummaryUnavailableReason
 from products.error_tracking.backend.facade.query_utils import as_record, extract_release, to_number, truncate_text
+from products.error_tracking.backend.logic.ai_features import ISSUE_SUMMARIES, AIFeatureBlock, ai_feature_blocked
 from products.error_tracking.backend.logic.issue_summary_config import (
     ISSUE_SUMMARY_FLAG,
     ISSUE_SUMMARY_LLM_TIMEOUT_SECONDS,
     ISSUE_SUMMARY_LOCK_TTL_SECONDS,
     ISSUE_SUMMARY_MAX_OUTPUT_TOKENS,
     ISSUE_SUMMARY_MODEL,
-    ISSUE_SUMMARY_ON_WRITE_FLAG,
     ISSUE_SUMMARY_STACKTRACE_MAX_TOKENS,
     ISSUE_SUMMARY_WRITE_BUDGET,
 )
@@ -122,7 +122,9 @@ class IssueSummaryOutcome(StrEnum):
     # A summary is already stored.
     FRESH = "fresh"
     DISABLED = "disabled"
+    SETTING_OFF = "setting_off"
     AI_NOT_APPROVED = "ai_not_approved"
+    OUT_OF_CREDITS = "out_of_credits"
     IN_PROGRESS = "in_progress"
     ISSUE_MISSING = "issue_missing"
     NO_EXCEPTION = "no_exception"
@@ -201,10 +203,6 @@ def issue_summaries_enabled(team_id: int) -> bool:
     return team_flag_enabled(ISSUE_SUMMARY_FLAG, team_id)
 
 
-def issue_summaries_on_write_enabled(team_id: int) -> bool:
-    return team_flag_enabled(ISSUE_SUMMARY_ON_WRITE_FLAG, team_id)
-
-
 def summary_sources_readable(team_id: int, user: User) -> bool:
     """False when the user may not read an event property the summary is written from.
 
@@ -244,16 +242,23 @@ def read_issue_summary(team_id: int, issue_id: UUID | str, user: User) -> IssueS
     return IssueSummaryState(status=IssueSummaryStatus.NOT_GENERATED)
 
 
-def generation_blocked(team_id: int, stored: ErrorTrackingIssueSummary | None) -> IssueSummaryOutcome | None:
-    """The reason no generation can start now, or None when one can."""
-    # Generation sees only the first event, so any stored summary already covers it.
-    if stored is not None:
-        return IssueSummaryOutcome.FRESH
-    if not issue_summaries_enabled(team_id):
-        return IssueSummaryOutcome.DISABLED
-    if not is_ai_data_processing_approved(team_id):
-        return IssueSummaryOutcome.AI_NOT_APPROVED
-    return None
+def gate_generation(team_id: int, issue_id: UUID | str, trigger: IssueSummaryTrigger) -> IssueSummaryOutcome | None:
+    """None when the AI features gate lets generation start, else the outcome that stops it.
+
+    A team outside the flag is not counted. A team that has not turned summaries on is counted but sends no event,
+    because most teams in the flag have not, and each of their new issues would send one.
+    """
+    blocked = ai_feature_blocked(ISSUE_SUMMARIES, team_id)
+    if blocked is None:
+        return None
+    # Each gate reason is also a summary outcome with the same value.
+    outcome = IssueSummaryOutcome(blocked.value)
+    if blocked == AIFeatureBlock.DISABLED:
+        return outcome
+    ISSUE_SUMMARY_OUTCOMES.labels(outcome=outcome.value, trigger=trigger.value).inc()
+    if blocked != AIFeatureBlock.SETTING_OFF:
+        _report_task(team_id, issue_id, trigger, outcome, has_summary=False, timings=IssueSummaryTimings())
+    return outcome
 
 
 def generate_issue_summary_from_event(
@@ -261,7 +266,8 @@ def generate_issue_summary_from_event(
 ) -> IssueSummaryResult:
     """Generate the summary of a new issue from its first event, with no ClickHouse query.
 
-    Does nothing when a summary is already stored.
+    Does nothing when a summary is already stored. It does not check the flag, the setting, AI approval or credits, so
+    run it only after `gate_generation` returns None.
     `load_event_properties` runs only after every check passes, so a blocked attempt reads no event.
     """
     trigger = IssueSummaryTrigger.WRITE
@@ -339,9 +345,9 @@ def _get_or_generate(
     load_event_properties: Callable[[Team], dict[str, object]],
     timings: IssueSummaryTimings,
 ) -> IssueSummaryResult:
-    stored = get_issue_summary(team_id, issue_id)
-    if (blocked := generation_blocked(team_id, stored)) is not None:
-        return IssueSummaryResult(outcome=blocked, summary=stored)
+    # Generation sees only the first event, so any stored summary already covers it.
+    if (stored := get_issue_summary(team_id, issue_id)) is not None:
+        return IssueSummaryResult(outcome=IssueSummaryOutcome.FRESH, summary=stored)
     claim = f"{LOCK_CLAIM_PREFIX}{uuid4().hex}"
     if (held := _claim_generation(team_id, issue_id, claim)) is not None:
         return IssueSummaryResult(outcome=held, summary=stored)
@@ -400,6 +406,9 @@ def _generate_claimed(
         with timings.stage("model"):
             raw = _call_model(team_id, issue_id, inputs.prompt)
     except Exception as error:
+        # The gate's credit check fails open, so the gateway's refusal is the backstop.
+        if _is_gateway_credit_refusal(error):
+            return IssueSummaryResult(outcome=IssueSummaryOutcome.OUT_OF_CREDITS, summary=None)
         capture_exception(error, {"team_id": team_id, "issue_id": str(issue_id)})
         logger.warning("error_tracking_issue_summary_model_failed", team_id=team_id, issue_id=str(issue_id))
         return IssueSummaryResult(outcome=IssueSummaryOutcome.MODEL_ERROR, summary=None)
@@ -643,6 +652,16 @@ def _call_model(team_id: int, issue_id: UUID | str, prompt: str) -> str:
         extra_headers={PRIVACY_MODE_HEADER: "true"},
     )
     return response.choices[0].message.content or ""
+
+
+def _is_gateway_credit_refusal(error: Exception) -> bool:
+    # The gateway marks its own credit refusals with X-PostHog-Denial. A 402 without that header is the provider
+    # refusing the gateway's account, which more credits for the organization cannot fix.
+    return (
+        isinstance(error, APIStatusError)
+        and error.status_code == 402
+        and bool(error.response.headers.get("X-PostHog-Denial"))
+    )
 
 
 def parse_summary_response(raw: str) -> IssueSummaryResponse | None:

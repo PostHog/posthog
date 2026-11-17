@@ -37,17 +37,18 @@ ISSUE_SUMMARY_WORKER_SLOTS = threading.BoundedSemaphore(
 def generate_summary_on_worker(
     team_id: int, issue_id: str, trigger: "IssueSummaryTrigger", generate: Callable[[], "IssueSummaryResult"]
 ) -> "IssueSummaryOutcome":
-    """Run a lifecycle summary generation when the on-write flag is on and a worker summary slot is free."""
+    """Run a lifecycle summary generation when the AI features gate allows it and a worker summary slot is free."""
     # issue_summaries imports the lifecycle rendering module, whose package imports the activities that call this.
     from products.error_tracking.backend.logic.issue_summaries import (  # noqa: PLC0415
         IssueSummaryOutcome,
-        issue_summaries_on_write_enabled,
+        gate_generation,
         report_worker_busy,
     )
 
-    # Checked outside the generator, which reports every attempt as an event, so a team without the flag sends none.
-    if not issue_summaries_on_write_enabled(team_id):
-        return IssueSummaryOutcome.DISABLED
+    # Checked outside the generator, which reports every attempt as an event, and before a slot is taken, so a
+    # refused team neither reports a busy worker nor holds a slot.
+    if (blocked := gate_generation(team_id, issue_id, trigger)) is not None:
+        return blocked
     # Skip instead of wait, because a waiting activity still holds its slot. The issue then gets no summary.
     if not ISSUE_SUMMARY_WORKER_SLOTS.acquire(blocking=False):
         logger.warning("error_tracking_issue_summary_worker_busy", team_id=team_id, issue_id=issue_id, trigger=trigger)
