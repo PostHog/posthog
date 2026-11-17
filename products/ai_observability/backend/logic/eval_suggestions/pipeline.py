@@ -45,7 +45,7 @@ from . import (
     screening,
 )
 from .applicability import applicable, content_profile
-from .call_review_queries import load_call_types, load_review_calls
+from .call_review_queries import CallTypeRow, load_call_types, load_review_calls, snippet_matches
 from .config import SuggestionSettings, runs_for_organization
 from .coverage import Coverage, dismissed_dedupe_keys, existing_evals
 from .measure import discover_sample, hydrate_sample, measure, structured_outputs
@@ -264,11 +264,12 @@ def _reviewed_proposals(
     cards = call_review.parse_cards(review_call.answer, rendering)
     spent += review_call.cost_usd
     calibrated = _calibrate(team, run, cards, rendering, judge_model, budget, deadline)
+    snippets = _prompt_snippets(team, day, per_mille, call_types, [card for card, _ in calibrated.kept])
     proposals = [
         ranking.review_proposal(
             judge_calibration.measured(card, calibration),
             handoff.profile,
-            call_types=call_types,
+            snippets=snippets,
             judge_model=judge_model,
             calibration=calibration,
         )
@@ -288,6 +289,26 @@ def _reviewed_proposals(
         cost_usd=round(spent + calibrated.cost_usd, 4),
     )
     return scoped
+
+
+def _prompt_snippets(
+    team: Team,
+    window: ProfileWindow,
+    per_mille: int,
+    call_types: Sequence[CallTypeRow],
+    cards: Sequence[call_review.ReviewCard],
+) -> dict[str, str]:
+    """The snippet that selects each input-named call type on the cards, keyed by call type. Each candidate is
+    counted on the day's generations, and a call type whose candidates all match other generations gets none."""
+    chosen: dict[str, str] = {}
+    for call_type in {c.key: c for card in cards for c in card.call_types if c.source == "input"}.values():
+        candidates = ranking.prompt_snippets(call_type, [c for c in call_types if c.key != call_type.key])
+        if not candidates:
+            continue
+        snippet = ranking.choose_snippet(candidates, snippet_matches(team, window, per_mille, call_type, candidates))
+        if snippet is not None:
+            chosen[call_type.key] = snippet
+    return chosen
 
 
 def _publish_fixes_only(

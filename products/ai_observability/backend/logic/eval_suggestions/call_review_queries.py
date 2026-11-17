@@ -63,6 +63,21 @@ ORDER BY calls DESC, call_type
 LIMIT {{limit}}
 """
 
+# Per snippet, the sampled generations whose input holds it and how many of them are of one call type. ILIKE
+# matches the case-insensitive contains an evaluation condition runs.
+_SNIPPET_MATCHES_SQL = f"""
+SELECT
+    pattern,
+    countIf(input ILIKE pattern) AS matched,
+    countIf(source = 'input' AND call_type = {{name}} AND input ILIKE pattern) AS in_call_type
+FROM (
+    SELECT {_CALL_TYPE_COLUMNS}, input
+    {_GENERATIONS}
+)
+ARRAY JOIN {{patterns}} AS pattern
+GROUP BY pattern
+"""
+
 # Candidates are chosen by a hash of their uuid, which spreads each call type's candidates over the day. The
 # subquery chooses them from ids and call types alone, so the sort never holds message bodies, and only the chosen
 # rows read their input and output. ai_events can store an event more than once, so both caps count each uuid once.
@@ -196,6 +211,25 @@ def load_call_types(team: Team, window: ProfileWindow, per_mille: int) -> list[C
         )
         for row in rows
     ]
+
+
+def snippet_matches(
+    team: Team, window: ProfileWindow, per_mille: int, call_type: CallTypeRow, snippets: Sequence[str]
+) -> list[tuple[int, int]]:
+    """For each snippet, (generations whose input holds it, of them in `call_type`) in a `per_mille` hash sample."""
+    patterns = [f"%{snippet}%" for snippet in snippets]
+    rows = run_ai_events_query(
+        team,
+        _SNIPPET_MATCHES_SQL,
+        {
+            **_placeholders(window, per_mille),
+            "name": ast.Constant(value=call_type.name),
+            "patterns": ast.Constant(value=patterns),
+        },
+        "EvalSuggestionsSnippetMatches",
+    )
+    found = {str(row[0]): (int(row[1]), int(row[2])) for row in rows}
+    return [found.get(pattern, (0, 0)) for pattern in patterns]
 
 
 def load_review_calls(

@@ -9,9 +9,9 @@ import re
 import math
 import hashlib
 from collections import Counter
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import asdict
-from typing import Any, cast
+from typing import Any
 
 from posthog.dataclasses import frozen
 
@@ -79,6 +79,10 @@ _PLAIN_TEXT = re.compile("[A-Za-z0-9 _,:;!/=<>#@&\u00a0-\u2027\u202a-\U0010ffff-
 _JSON_ESCAPE = re.compile(r"\\(u[0-9a-fA-F]{4}|.)")
 MIN_SNIPPET_CHARS = 24
 MAX_SNIPPET_CHARS = 120
+SNIPPET_CANDIDATES = 5
+# The share of the generations a snippet matches that must belong to its call type. The text can also appear in call
+# types outside the busiest ones, or further into another call type's input.
+MIN_SNIPPET_PRECISION = 0.9
 # Words that two phrasings of the same check swap freely, left out of a reviewed card's dedupe key.
 FILLER_WORDS = frozenset(
     "a an the and or of to in on for is are it its that this whether if check checks does do".split()
@@ -498,45 +502,49 @@ def screened_proposal(
     )
 
 
-def prompt_snippet(call_type: CallTypeRow, others: Sequence[CallTypeRow]) -> str | None:
-    """The longest plain text in the start of the call type's input, which every call of the type shares, that no
-    other call type's input holds."""
+def prompt_snippets(call_type: CallTypeRow, others: Sequence[CallTypeRow]) -> list[str]:
+    """Plain texts in the start of the call type's input, which every call of the type shares, that no other call
+    type's input holds, longest first."""
     elsewhere = [other.example_input.lower() for other in others]
     # The input is JSON cut short, so an escape such as \n reads as a letter after a backslash that the decoded
     # input does not hold.
     shared = _JSON_ESCAPE.sub("\0", call_type.example_input[:CALL_TYPE_INPUT_CHARS])
-    runs = _PLAIN_TEXT.findall(shared)
-    for run in sorted(runs, key=len, reverse=True):
+    snippets: list[str] = []
+    for run in sorted(_PLAIN_TEXT.findall(shared), key=len, reverse=True):
         snippet = run.strip()[:MAX_SNIPPET_CHARS].strip()
-        if len(snippet) < MIN_SNIPPET_CHARS:
-            return None
-        if not any(snippet.lower() in text for text in elsewhere):
+        if len(snippet) < MIN_SNIPPET_CHARS or len(snippets) == SNIPPET_CANDIDATES:
+            break
+        if snippet not in snippets and not any(snippet.lower() in text for text in elsewhere):
+            snippets.append(snippet)
+    return snippets
+
+
+def choose_snippet(snippets: Sequence[str], matches: Sequence[tuple[int, int]]) -> str | None:
+    """The first snippet whose matches, as (generations matched, of them in the call type), belong mostly to the
+    call type."""
+    for snippet, (matched, in_call_type) in zip(snippets, matches):
+        if matched and in_call_type / matched >= MIN_SNIPPET_PRECISION:
             return snippet
     return None
 
 
-def call_type_filters(call_types: Sequence[CallTypeRow], others: Sequence[CallTypeRow]) -> list[dict[str, Any]] | None:
+def call_type_filters(call_types: Sequence[CallTypeRow], snippets: Mapping[str, str]) -> list[dict[str, Any]] | None:
     """Filters that select the generations of the call types, or None when no filter can. A judge on every
     generation would grade mostly calls its question does not apply to.
 
-    Call types named by their input are selected by text from the start of that input. A generation with a prompt
+    Call types named by their input are selected by their snippet, keyed by call type. A generation with a prompt
     name belongs to that prompt's call type even when it has a span name too, so a span-name filter leaves out
     generations with a prompt name."""
     sources = {call_type.source for call_type in call_types}
     if sources == {"input"}:
-        snippets = [prompt_snippet(call_type, others) for call_type in call_types]
-        if any(snippet is None for snippet in snippets):
+        if any(call_type.key not in snippets for call_type in call_types):
             return None
+        chosen = sorted({snippets[call_type.key] for call_type in call_types})
+        if len(chosen) == 1:
+            return [{"key": "$ai_input", "value": chosen[0], "operator": "icontains", "type": "event"}]
+        return [{"key": "$ai_input", "value": "|".join(chosen), "operator": "regex", "type": "event"}]
         if len(snippets) == 1:
             return [{"key": "$ai_input", "value": snippets[0], "operator": "icontains", "type": "event"}]
-        return [
-            {
-                "key": "$ai_input",
-                "value": "|".join(sorted(set(cast(list[str], snippets)))),
-                "operator": "regex",
-                "type": "event",
-            }
-        ]
     key = CALL_TYPE_PROPERTIES.get(next(iter(sources))) if len(sources) == 1 else None
     if key is None:
         return None
@@ -568,14 +576,13 @@ def review_proposal(
     card: ReviewCard,
     profile: TeamProfile,
     *,
-    call_types: Sequence[CallTypeRow],
+    snippets: Mapping[str, str],
     judge_model: str,
     calibration: Calibration,
 ) -> Proposal | None:
     """A judge on the generations of the card's call types, with the judge's counts and the review's examples, or
-    None when no filter selects those generations among the team's `call_types`."""
-    on_card = {call_type.key for call_type in card.call_types}
-    filters = call_type_filters(card.call_types, [c for c in call_types if c.key not in on_card])
+    None when no filter selects those generations."""
+    filters = call_type_filters(card.call_types, snippets)
     if filters is None:
         return None
     # Call types are counted over the last day.

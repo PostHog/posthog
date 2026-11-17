@@ -484,8 +484,13 @@ def test_a_reviewed_judge_runs_on_the_generations_of_its_call_types(
         na_on_passes=0,
     )
 
+    snippets = {
+        c.key: candidates[0]
+        for c in call_types
+        if (candidates := ranking.prompt_snippets(c, [o for o in team_call_types if o.key != c.key]))
+    }
     proposal = ranking.review_proposal(
-        card, PROFILE, call_types=team_call_types, judge_model="gpt-5-mini", calibration=calibration
+        card, PROFILE, snippets=snippets, judge_model="gpt-5-mini", calibration=calibration
     )
 
     if filters is None:
@@ -504,13 +509,28 @@ def test_a_reviewed_judge_runs_on_the_generations_of_its_call_types(
     assert proposal.rollout_percentage == rollout
     busier = replace(PROFILE, generations=100 * PROFILE.generations)
     busier_proposal = ranking.review_proposal(
-        card, busier, call_types=team_call_types, judge_model="gpt-5-mini", calibration=calibration
+        card, busier, snippets=snippets, judge_model="gpt-5-mini", calibration=calibration
     )
     assert busier_proposal is not None and busier_proposal.score == proposal.score
     assert proposal.draft["evaluation_config"] == {"prompt": card.judge_prompt}
     assert (proposal.draft["target"], proposal.draft["output_config"]) == ("generation", {"allows_na": True})
     assert (proposal.template_key, proposal.measured_failure_rate, proposal.sample_size) == ("review", 0.2, 20)
     assert proposal.score > 0
+
+
+@parameterized.expand(
+    [
+        ("first_selects_its_call_type", [(10, 10), (4, 4)], "first"),
+        # The first text also opens other generations, so the judge would grade them too.
+        ("first_matches_other_generations", [(100, 10), (4, 4)], "second"),
+        ("first_absent_from_the_sample", [(0, 0), (4, 4)], "second"),
+        ("none_selects_its_call_type", [(100, 10), (5, 4)], None),
+    ]
+)
+def test_a_snippet_is_chosen_only_when_its_matches_are_its_call_type(
+    _name: str, matches: list[tuple[int, int]], chosen: str | None
+) -> None:
+    assert ranking.choose_snippet(["first", "second"], matches) == chosen
 
 
 @parameterized.expand(

@@ -173,8 +173,10 @@ SUPPORT_PROMPT = "You answer refund questions for Example Shop. Never promise a 
 JUDGE_PROMPT = "Does the reply avoid promising a refund date? Pass when it gives no date, fail when it promises one."
 
 
-def _support_traffic(team: Team, end: datetime) -> None:
-    """30 support replies over the last hours, each in its own trace, all from one managed prompt."""
+def _support_traffic(team: Team, end: datetime, *, prompt_name: str | None = "support-reply") -> None:
+    """30 support replies over the last hours, each in its own trace, all from one prompt. An unnamed prompt is
+    grouped by the start of its input, so it runs past that start for the calls to share one call type."""
+    system = SUPPORT_PROMPT if prompt_name else SUPPORT_PROMPT + " See the policy." * 100
     for index in range(30):
         _event(
             team,
@@ -183,9 +185,9 @@ def _support_traffic(team: Team, end: datetime) -> None:
             {
                 "$ai_trace_id": f"support-{index}",
                 "$ai_model": "gpt-5-mini",
-                "$ai_prompt_name": "support-reply",
+                **({"$ai_prompt_name": prompt_name} if prompt_name else {}),
                 "$ai_input": [
-                    {"role": "system", "content": SUPPORT_PROMPT},
+                    {"role": "system", "content": system},
                     {"role": "user", "content": f"Where is my refund for order {index}?"},
                 ],
                 "$ai_output_choices": [{"role": "assistant", "content": "Your refund arrives by Friday."}],
@@ -311,13 +313,26 @@ class TestPipeline(ClickhouseTestMixin, APIBaseTest):
             ("judge_agrees", {1, 2, 3, 4, 5, 7, 8}, None, _calibration_record(caught=5, false_alarms=2, kept=True)),
             ("judge_misses_half", {1, 2, 3}, None, _calibration_record(caught=3, false_alarms=0, kept=False)),
             ("over_budget", {1, 2, 3, 4, 5, 7}, 10**7, {"status": "skipped", "detail": "budget used up"}),
+            # The prompt has no name, so the card selects its generations by the prompt's text.
+            (
+                "judge_agrees_on_an_unnamed_prompt",
+                {1, 2, 3, 4, 5, 7, 8},
+                None,
+                _calibration_record(caught=5, false_alarms=2, kept=True),
+                None,
+            ),
         ]
     )
     def test_a_reviewed_judge_publishes_only_when_the_team_model_agrees(
-        self, _name: str, judge_fails: set[int], max_output_tokens: int | None, record: dict[str, Any]
+        self,
+        _name: str,
+        judge_fails: set[int],
+        max_output_tokens: int | None,
+        record: dict[str, Any],
+        prompt_name: str | None = "support-reply",
     ) -> None:
         now = timezone.now()
-        _support_traffic(self.team, now - timedelta(minutes=30))
+        _support_traffic(self.team, now - timedelta(minutes=30), prompt_name=prompt_name)
         self.organization.is_ai_data_processing_approved = True
         self.organization.save()
         run = create_run(self.team, "manual")
@@ -373,9 +388,18 @@ class TestPipeline(ClickhouseTestMixin, APIBaseTest):
         assert suggestion.draft["calibration"] == {
             k: v for k, v in record["cards"][0].items() if k not in ("title", "kept")
         }
-        assert suggestion.filters == [
-            {"key": "$ai_prompt_name", "value": ["support-reply"], "operator": "exact", "type": "event"}
-        ]
+        assert suggestion.filters == (
+            [{"key": "$ai_prompt_name", "value": ["support-reply"], "operator": "exact", "type": "event"}]
+            if prompt_name
+            else [
+                {
+                    "key": "$ai_input",
+                    "value": "You answer refund questions for Example Shop",
+                    "operator": "icontains",
+                    "type": "event",
+                }
+            ]
+        )
         assert suggestion.evidence == [{"trace_id": e["trace_id"], "reason": e["what_went_wrong"]} for e in examples]
         # The judge's own fails, 5 caught and 2 false alarms, not the review's 6.
         assert (suggestion.headline, suggestion.measured_failure_rate, suggestion.sample_size) == (

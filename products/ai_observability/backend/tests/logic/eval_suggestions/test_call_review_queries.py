@@ -47,6 +47,38 @@ class TestCallReviewQueries(ClickhouseTestMixin, BaseTest):
         assert [(call_type.key, call_type.calls) for call_type in call_types] == [("prompt_name:support-reply", 3)]
         assert len({call.event_uuid for call in calls}) == len(calls) == 2
 
+    def test_a_snippet_counts_the_generations_it_matches_and_those_of_its_call_type(self) -> None:
+        end = timezone.now() - timedelta(minutes=30)
+        summarizer = "You summarize one trace for an engineer."
+        # Another call type quotes the summarizer's prompt after a prompt of its own.
+        reviewer = f"You review summaries. The summarizer was told: {summarizer}"
+        bulk_create_ai_events(
+            [
+                {
+                    "event": "$ai_generation",
+                    "distinct_id": "user-1",
+                    "team_id": self.team.pk,
+                    "timestamp": end - timedelta(hours=1),
+                    "properties": {
+                        "$ai_trace_id": f"trace-{system[:3]}-{index}",
+                        "$ai_model": "example-model-mini",
+                        "$ai_input": [{"role": "system", "content": system}, {"role": "user", "content": "A trace"}],
+                    },
+                }
+                for system, count in ((summarizer, 3), (reviewer, 2))
+                for index in range(count)
+            ]
+        )
+        window = ProfileWindow(start=end - timedelta(days=1), end=end)
+        call_types = call_review_queries.load_call_types(self.team, window, 1000)
+        [summarizer_type] = [c for c in call_types if c.calls == 3]
+
+        matches = call_review_queries.snippet_matches(
+            self.team, window, 1000, summarizer_type, ["summarize one trace", "You review summaries", "absent text"]
+        )
+
+        assert matches == [(5, 3), (2, 0), (0, 0)]
+
 
 def test_the_calls_query_runs_its_candidate_subquery_once_across_shards() -> None:
     ops: list[ast.CompareOperationOp] = []
