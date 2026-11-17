@@ -278,7 +278,7 @@ export class CredentialsServer {
             integrations: () => this.integrations,
         }
         if (this.pool) {
-            this.startAuditExport(this.pool)
+            this.startAuditMaintenance(this.pool)
         }
         const app = createApp(appOptions)
 
@@ -321,10 +321,10 @@ export class CredentialsServer {
         this.setupProcessListeners()
     }
 
-    private startAuditExport(pool: Pool): void {
+    private startAuditMaintenance(pool: Pool): void {
         const { auditExport } = this.config
         if (auditExport) {
-            const exporter = new AuditExporter(pool, captureSender(auditExport), auditExport.batchSize)
+            const exporter = new AuditExporter(pool, captureSender(auditExport), auditExport.batchSize, this.config.env)
             this.cancelTimers.push(every(auditExport.intervalSeconds * 1000, async () => void (await exporter.tick())))
             this.cancelTimers.push(() => exporter.stop())
         }

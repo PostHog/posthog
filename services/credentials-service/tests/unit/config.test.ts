@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 
 import { isProductionEnv } from '@/db/role-guard'
-import { loadConfig, loadMigrateConfig } from '@/lib/config'
+import { loadConfig, loadMaintenanceConfig, loadMigrateConfig } from '@/lib/config'
 
 const VAR = 'CREDENTIALS_SERVICE_RELOAD_SECONDS'
 
@@ -208,6 +208,8 @@ describe('loadConfig audit', () => {
         'CREDENTIALS_SERVICE_AUDIT_EXPORT_ENABLED',
         'CREDENTIALS_SERVICE_AUDIT_CAPTURE_HOST',
         'CREDENTIALS_SERVICE_AUDIT_CAPTURE_API_KEY',
+        'CREDENTIALS_SERVICE_AUDIT_CAPTURE_VIA_PROXY',
+        'HTTPS_PROXY',
     ]
 
     afterEach(() => {
@@ -240,6 +242,110 @@ describe('loadConfig audit', () => {
     ])('fails the boot on %s', (_label, env) => {
         Object.assign(process.env, env)
         expect(() => loadConfig()).toThrow()
+    })
+})
+
+describe('loadConfig audit capture proxy', () => {
+    const KEYS = [
+        'CREDENTIALS_SERVICE_AUDIT_EXPORT_ENABLED',
+        'CREDENTIALS_SERVICE_AUDIT_CAPTURE_HOST',
+        'CREDENTIALS_SERVICE_AUDIT_CAPTURE_API_KEY',
+        'CREDENTIALS_SERVICE_AUDIT_CAPTURE_VIA_PROXY',
+        'HTTPS_PROXY',
+    ]
+    const BASE = {
+        CREDENTIALS_SERVICE_AUDIT_EXPORT_ENABLED: 'true',
+        CREDENTIALS_SERVICE_AUDIT_CAPTURE_HOST: 'https://capture.example.com',
+        CREDENTIALS_SERVICE_AUDIT_CAPTURE_API_KEY: 'phc_fake',
+    }
+
+    afterEach(() => {
+        for (const key of KEYS) {
+            delete process.env[key]
+        }
+    })
+
+    it.each([
+        [
+            'true with HTTPS_PROXY',
+            { VIA: 'true', PROXY: 'http://proxy.example.com:3128' },
+            'http://proxy.example.com:3128',
+        ],
+        ['unset with HTTPS_PROXY', { PROXY: 'http://proxy.example.com:3128' }, undefined],
+        ['false with HTTPS_PROXY', { VIA: 'false', PROXY: 'http://proxy.example.com:3128' }, undefined],
+        ['unset without HTTPS_PROXY', {}, undefined],
+    ])('sets proxyUrl for VIA_PROXY %s', (_label, { VIA, PROXY }: { VIA?: string; PROXY?: string }, expected) => {
+        Object.assign(process.env, BASE)
+        if (VIA) {
+            process.env.CREDENTIALS_SERVICE_AUDIT_CAPTURE_VIA_PROXY = VIA
+        }
+        if (PROXY) {
+            process.env.HTTPS_PROXY = PROXY
+        }
+        expect(loadConfig().auditExport?.proxyUrl).toBe(expected)
+    })
+
+    it.each([
+        ['HTTPS_PROXY is missing', {}],
+        ['HTTPS_PROXY is not an http URL', { HTTPS_PROXY: 'not a url' }],
+        [
+            'the capture host is not https',
+            {
+                HTTPS_PROXY: 'http://proxy.example.com:3128',
+                CREDENTIALS_SERVICE_AUDIT_CAPTURE_HOST: 'http://capture.local',
+            },
+        ],
+    ])('fails the boot with VIA_PROXY=true when %s', (_label, extra) => {
+        Object.assign(process.env, BASE, { CREDENTIALS_SERVICE_AUDIT_CAPTURE_VIA_PROXY: 'true' }, extra)
+        expect(() => loadConfig()).toThrow()
+    })
+})
+
+describe('loadMaintenanceConfig', () => {
+    const VARS = ['CREDENTIALS_SERVICE_MIGRATE_DATABASE_URL', 'CREDENTIALS_SERVICE_AUDIT_RETENTION_DAYS']
+
+    afterEach(() => {
+        for (const key of VARS) {
+            delete process.env[key]
+        }
+    })
+
+    it('needs the migrate URL, and does not fall back to the runtime URL', () => {
+        process.env.CREDENTIALS_SERVICE_DATABASE_URL = 'postgres://runtime'
+        expect(loadMaintenanceConfig()).toBeUndefined()
+        delete process.env.CREDENTIALS_SERVICE_DATABASE_URL
+    })
+
+    it('keeps 30 days when nothing else is set', () => {
+        process.env.CREDENTIALS_SERVICE_MIGRATE_DATABASE_URL = 'postgres://migrate'
+        expect(loadMaintenanceConfig()).toEqual({
+            url: 'postgres://migrate',
+            retentionDays: 30,
+            deleteUnexported: false,
+        })
+    })
+
+    it.each([
+        ['true', true],
+        ['false', false],
+        ['1', false],
+    ])('reads DELETE_UNEXPORTED=%s as %s', (value, expected) => {
+        process.env.CREDENTIALS_SERVICE_MIGRATE_DATABASE_URL = 'postgres://migrate'
+        process.env.CREDENTIALS_SERVICE_AUDIT_RETENTION_DELETE_UNEXPORTED = value
+        expect(loadMaintenanceConfig()?.deleteUnexported).toBe(expected)
+        delete process.env.CREDENTIALS_SERVICE_AUDIT_RETENTION_DELETE_UNEXPORTED
+    })
+
+    it('accepts the maximum retention', () => {
+        process.env.CREDENTIALS_SERVICE_MIGRATE_DATABASE_URL = 'postgres://migrate'
+        process.env.CREDENTIALS_SERVICE_AUDIT_RETENTION_DAYS = '60'
+        expect(loadMaintenanceConfig()?.retentionDays).toBe(60)
+    })
+
+    it.each(['61', '0', '-1', '30x'])('refuses retention %j', (days) => {
+        process.env.CREDENTIALS_SERVICE_MIGRATE_DATABASE_URL = 'postgres://migrate'
+        process.env.CREDENTIALS_SERVICE_AUDIT_RETENTION_DAYS = days
+        expect(() => loadMaintenanceConfig()).toThrow('CREDENTIALS_SERVICE_AUDIT_RETENTION_DAYS')
     })
 })
 
