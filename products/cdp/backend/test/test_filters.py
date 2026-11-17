@@ -901,6 +901,22 @@ class TestHogFunctionFilters(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest
             result = execute_bytecode(compiled["bytecode"], {"person": {"properties": {"signed_up_at": signed_up_at}}})
         assert result.result is expected
 
+    def test_relative_date_filter_outside_the_date_range_is_rejected_at_save(self):
+        filters = {
+            "properties": [
+                {"key": "signed_up_at", "type": "person", "operator": "is_date_before", "value": "-100000000000d"}
+            ]
+        }
+
+        with patch(
+            "posthog.hogql.property.posthoganalytics.feature_enabled",
+            side_effect=lambda flag, *args, **kwargs: flag == RUN_TIME_RELATIVE_DATES_FLAG,
+        ):
+            compiled = compile_filters_bytecode(filters, self.team)
+
+        assert compiled["bytecode"] is None
+        assert compiled["bytecode_error"]
+
 
 class TestCohortExprHelpers(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
     def test_build_behavioral_event_expr_supported_with_event_filters(self):
