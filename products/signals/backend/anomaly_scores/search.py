@@ -60,8 +60,10 @@ from products.signals.backend.facade.source_configs import analytics_source_enab
 
 TOP_SERIES = 3
 FLAGGED_POINTS = 5
-# The insight link shows this many buckets before the first flag and after the last one.
-URL_PADDING_BUCKETS = 7
+# The insight link shows enough buckets before the first flag to see what normal looked like, and few after the
+# last one, so the newest flag sits near the right edge of the chart.
+URL_BUCKETS_BEFORE = 24
+URL_BUCKETS_AFTER = 3
 # The scorer writes at most this many series per insight. More come from events any member can capture.
 MAX_INSIGHT_SERIES = MAX_LIMITS.max_series
 # A larger set of requested insights is filtered after the read, so the ClickHouse query stays small.
@@ -203,14 +205,14 @@ class AnomalyInsightHistory:
 def insight_url(
     team: Team, insight: ViewableInsight, flagged: Sequence[datetime.datetime], interval: IntervalType | None
 ) -> str:
-    """A link to the insight. With flagged buckets, its date range covers them with a few buckets around."""
+    """A link to the insight. With flagged buckets, its date range covers them and the buckets around them."""
     url = absolute_uri(f"/project/{team.project_id}/insights/{insight.short_id}")
     if not flagged or interval is None:
         return url
-    padding = interval_spec(interval).period * URL_PADDING_BUCKETS
+    period = interval_spec(interval).period
     date_range = {
-        "date_from": (min(flagged) - padding).isoformat(),
-        "date_to": (bucket_end(max(flagged), interval) + padding).isoformat(),
+        "date_from": (min(flagged) - period * URL_BUCKETS_BEFORE).isoformat(),
+        "date_to": (bucket_end(max(flagged), interval) + period * URL_BUCKETS_AFTER).isoformat(),
     }
     return f"{url}?{urlencode({'filters_override': json.dumps(date_range, separators=(',', ':'))})}"
 

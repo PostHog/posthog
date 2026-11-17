@@ -1,5 +1,7 @@
+import json
 import datetime
 from typing import Any
+from urllib.parse import parse_qs, urlparse
 
 import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event
@@ -254,6 +256,15 @@ class TestAnomalySearchAPI(ClickhouseTestMixin, APIBaseTest):
             "logins": 60,
             "upgrades": 60,
         }
+
+    def test_search_links_the_insight_with_context_before_the_flags(self) -> None:
+        for day in (20, 22):
+            self._score(_day(day), score=0.99, flag=1, series_key="signups")
+
+        row = self._get("search", date_from="2026-10-15").json()["series"][0]
+
+        override = json.loads(parse_qs(urlparse(row["insight_url"]).query)["filters_override"][0])
+        assert override == {"date_from": "2026-09-26T00:00:00+00:00", "date_to": "2026-10-26T00:00:00+00:00"}
 
     def test_search_names_the_live_dashboards_of_each_insight(self) -> None:
         other = Insight.objects.create(team=self.team, name="Checkout", saved=True)
