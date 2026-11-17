@@ -740,6 +740,7 @@ describe('runner through seed, drive and judge', () => {
     let cyclotronJoinsAtRead = 0
     let wiringReads = 0
     let exitsAtWiringRead: RoleExit[] = []
+    let wiringChurns = false
     const exitOfTheKill = (role: Role): RoleExit[] => [
         { role, replica: 0, at: new Date().toISOString(), code: null, signal: 'SIGKILL', byValve: true },
     ]
@@ -793,7 +794,7 @@ describe('runner through seed, drive and judge', () => {
                             ? [
                                   {
                                       application: 'scenario-cdp-cyclotron-worker-hogflow',
-                                      database: 'cyclotron',
+                                      database: wiringChurns ? `cyclotron-${read}` : 'cyclotron',
                                       connections: 1,
                                   },
                               ]
@@ -889,6 +890,7 @@ describe('runner through seed, drive and judge', () => {
         cyclotronJoinsAtRead = 0
         wiringReads = 0
         exitsAtWiringRead = []
+        wiringChurns = false
         api = await startFakeProjectApi()
         cacheHome = mkdtempSync(path.join(os.tmpdir(), 'scenario-runner-'))
         env = {
@@ -1333,6 +1335,18 @@ describe('runner through seed, drive and judge', () => {
         expect(result).toMatchObject({
             status: 'failed',
             statusReason: 'cdp-cyclotron-worker-hogflow exited (code 1) without a valve causing it',
+        })
+    }, 30_000)
+
+    it('calls a run invalid before its drive when no two topology reads agree, even without a valve target', async () => {
+        wiringChurns = true
+
+        const result = await run('all')
+
+        expect(result).toMatchObject({
+            status: 'invalid',
+            statusReason: 'the run stopped: the topology kept changing for 1000 ms, so no two reads agreed',
+            timeline: [],
         })
     }, 30_000)
 

@@ -328,7 +328,7 @@ export function createRunner(
     const settledWiring = async (
         targets: string[],
         signal: AbortSignal
-    ): Promise<{ wiring: Wiring; nodes: string[]; missing: string[] }> => {
+    ): Promise<{ wiring: Wiring; nodes: string[]; missing: string[]; settled: boolean }> => {
         const deadline = Date.now() + topologyWithinMs
         let previousHash: string | undefined
         for (;;) {
@@ -346,7 +346,7 @@ export function createRunner(
                 const missing = missingTargets(targets, nodes)
                 const settled = missing.length === 0 && read.wiring.hash === previousHash
                 if (settled || late) {
-                    return { wiring: read.wiring, nodes, missing }
+                    return { wiring: read.wiring, nodes, missing, settled }
                 }
                 previousHash = missing.length === 0 ? read.wiring.hash : undefined
             }
@@ -457,7 +457,7 @@ export function createRunner(
                 )
                 await judge.open(seeded)
                 const exitsBefore = environment.exits().length
-                const { wiring, nodes, missing } = await settledWiring(
+                const { wiring, nodes, missing, settled } = await settledWiring(
                     card.valves.map(({ target }) => target),
                     signal
                 )
@@ -466,6 +466,9 @@ export function createRunner(
                     throw new Error(
                         `the card targets ${missing.join(', ')}, which this run's topology does not have; it found ${nodes.join(', ')}`
                     )
+                }
+                if (!settled) {
+                    throw new Error(`the topology kept changing for ${topologyWithinMs} ms, so no two reads agreed`)
                 }
                 stopHealth = watchHealth(environment)
                 sampler = await startSampler(

@@ -47,7 +47,7 @@ Do not run cards on a box whose dev stack holds work you want to keep.
 
 Each role also appends to one log across runs, `posthog-scenarios/<role>.log`.
 
-Before the drive, the runner reads the topology again until every part a valve targets shows in it and two reads agree, for up to 30 seconds. A target that never shows makes the run invalid. Databases come from the sessions each role holds open under its scenario session name.
+Before the drive, the runner reads the topology again until every part a valve targets shows in it and two reads agree, for up to 30 seconds. A target that never shows, or a topology still changing at the deadline, makes the run invalid. Databases come from the sessions each role holds open under its scenario session name.
 
 ### Run a card in the cloud
 
