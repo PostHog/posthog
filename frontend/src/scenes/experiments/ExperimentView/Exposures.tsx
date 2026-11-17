@@ -1,71 +1,36 @@
-import { useActions, useValues } from 'kea'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useValues } from 'kea'
+import { useMemo } from 'react'
 
 import { IconCheckCircle, IconCorrelationAnalysis, IconInfo, IconPencil, IconWarning } from '@posthog/icons'
 import { LemonButton, LemonTable, LemonTag, Spinner, Tooltip } from '@posthog/lemon-ui'
-import {
-    DefaultTooltip,
-    LineChart,
-    type LineChartConfig,
-    TimeSeriesLineChart,
-    type TimeSeriesLineChartConfig,
-    type TooltipContext,
-} from '@posthog/quill-charts'
+import { LineChart, type LineChartConfig } from '@posthog/quill-charts'
 
-import { useChartConfig, useChartTheme } from 'lib/charts/hooks'
-import { dayjs } from 'lib/dayjs'
+import { useChartTheme } from 'lib/charts/hooks'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
-import { teamLogic } from 'scenes/teamLogic'
 
 import { ExperimentExposureQueryResponse } from '~/queries/schema/schema-general'
 
 import { EXPERIMENT_VARIANT_MULTIPLE } from 'products/experiments/frontend/constants'
-import { hasEnded } from 'products/experiments/frontend/experimentStatus'
-import {
-    getTotalExposures,
-    reportsMismatch,
-    sampleRatioLine,
-    serverSampleRatioFinding,
-} from 'products/experiments/frontend/health/exposureHealth'
-import { useHealthFindingReporting } from 'products/experiments/frontend/health/useHealthFindingReporting'
+import { reportsMismatch } from 'products/experiments/frontend/health/exposureHealth'
 
 import { experimentLogic } from '../experimentLogic'
-import { experimentMetricsLogic } from '../experimentMetricsLogic'
-import { isSignificant, isWinning } from '../MetricsView/shared/utils'
-import { metricResults, resolveMultipleVariantHandling } from '../utils'
-import { exposureCriteriaModalLogic } from './exposureCriteriaModalLogic'
-import { buildExposureSeries, getExposureCriteriaLabel } from './exposuresTransforms'
+import {
+    EXPOSURES_HELP,
+    ExposuresChart,
+    HOLDOUT_HELP,
+    NO_EXPOSURES_DESCRIPTION,
+    NO_EXPOSURES_TITLE,
+    WINNER_HELP,
+    useExposuresCard,
+} from './exposuresCard'
+import { buildExposureSeries } from './exposuresTransforms'
+import { QuillExposures } from './QuillExposures'
 import { VariantTag } from './VariantTag'
-
-// Below this, a load looks like any other; above it, the user has no way to tell a slow query
-// from a stuck one, so we start showing elapsed time and a way to retry.
-const SLOW_LOAD_THRESHOLD_SECONDS = 20
 
 const MISMATCH_LINE_STYLE = {
     warning: { className: 'text-warning font-semibold', icon: <IconWarning className="text-sm" /> },
     info: { className: 'text-secondary', icon: <IconInfo className="text-sm" /> },
-}
-
-/** Seconds since `active` last became true, ticking every second, reset to 0 when it goes false. */
-function useElapsedSeconds(active: boolean): number {
-    const [elapsed, setElapsed] = useState(0)
-    const startRef = useRef<number | null>(null)
-
-    useEffect(() => {
-        if (!active) {
-            startRef.current = null
-            setElapsed(0)
-            return
-        }
-        startRef.current = performance.now()
-        setElapsed(0)
-        const intervalId = setInterval(() => {
-            setElapsed(Math.floor((performance.now() - (startRef.current as number)) / 1000))
-        }, 1000)
-        return () => clearInterval(intervalId)
-    }, [active])
-
-    return elapsed
 }
 
 interface MicroChartProps {
@@ -98,128 +63,41 @@ export function MicroChart({ exposures }: MicroChartProps): JSX.Element | null {
     )
 }
 
-interface ExposuresChartProps {
-    exposures: ExperimentExposureQueryResponse
-}
-
-function ExposuresTooltip({ context }: { context: TooltipContext }): JSX.Element {
-    const total = context.seriesData.reduce((sum, { value }) => sum + value, 0)
-    return (
-        <DefaultTooltip
-            {...context}
-            labelFormatter={(label) => dayjs(label).format('ddd, MMM D, YYYY')}
-            valueFormatter={(value) =>
-                total > 0
-                    ? `${humanFriendlyNumber(value)} (${((value / total) * 100).toFixed(1)}%)`
-                    : humanFriendlyNumber(value)
-            }
-        />
-    )
-}
-
-function ExposuresChart({ exposures }: ExposuresChartProps): JSX.Element {
-    const { timezone } = useValues(teamLogic)
-    const theme = useChartTheme()
-    const { labels, series } = useMemo(() => buildExposureSeries(exposures.timeseries), [exposures.timeseries])
-    const config = useChartConfig<TimeSeriesLineChartConfig>(
-        () => ({ xAxis: { interval: 'day', timezone }, tooltip: { placement: 'cursor' } }),
-        [timezone]
-    )
-
-    return (
-        <div className="relative h-[200px] flex flex-col">
-            <TimeSeriesLineChart
-                series={series}
-                labels={labels}
-                theme={theme}
-                config={config}
-                tooltip={(context) => <ExposuresTooltip context={context} />}
-            />
-        </div>
-    )
-}
-
 export function Exposures(): JSX.Element {
+    const card = useExposuresCard()
+    const { exposures } = useValues(experimentLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+
+    if (todayRailNav) {
+        return <QuillExposures {...card} />
+    }
+
     const {
-        exposures,
         exposuresLoading,
-        exposureCriteria,
-        isExperimentDraft,
-        experiment,
-        excludedVariants,
-        resolvedExposureEvent,
-        healthUi,
-        isSingleVariantShipped,
-        shippedVariantKey,
-    } = useValues(experimentLogic)
-    const { primaryMetricsResults, primaryMetricsResultsErrors } = useValues(experimentMetricsLogic({ experiment }))
-    const { openExposureCriteriaModal } = useActions(exposureCriteriaModalLogic)
-    const { refreshExperimentResults } = useActions(experimentLogic)
-
-    const exposuresElapsedSeconds = useElapsedSeconds(exposuresLoading)
-    const exposuresLoadingSlowly = exposuresLoading && exposuresElapsedSeconds >= SLOW_LOAD_THRESHOLD_SECONDS
-
-    const totalExposures = getTotalExposures(exposures)
-
-    const isEnded = hasEnded(experiment)
-    const exposureCriteriaLabel = getExposureCriteriaLabel(exposureCriteria, resolvedExposureEvent)
-    const winnerKey = isEnded && isSingleVariantShipped ? shippedVariantKey : null
-    const leadingMetric = metricResults(experiment)(primaryMetricsResults, primaryMetricsResultsErrors, 'primary')[0]
-    const winningKeys = new Set(
-        !isEnded && leadingMetric?.result
-            ? (leadingMetric.result.variant_results ?? [])
-                  .filter((variant) => isSignificant(variant) && isWinning(variant, leadingMetric.metric.goal))
-                  .map((variant) => variant.key)
-            : []
-    )
-    const winningTooltip = leadingMetric
-        ? `Significantly better than ${leadingMetric.result?.baseline?.key ?? 'the baseline'} on ${
-              leadingMetric.metric.name || 'the first primary metric'
-          } so far.`
-        : ''
-
-    const resolvedHandling = resolveMultipleVariantHandling(exposureCriteria?.multiple_variant_handling)
-    const multipleTreatmentLabel =
-        resolvedHandling === 'first_seen' ? 'using first seen variant' : 'excluded from analysis'
-
-    const srmLine = sampleRatioLine(exposures, healthUi === 'panel')
-    const hasSRM = reportsMismatch(srmLine)
-
-    // The open panel says "No exposures yet" for a draft and after a failed exposure query too.
-    // Only a launched experiment with an answer that holds no exposure is the zero-exposure state.
-    // The answer holds a series for every configured variant, with zero counts, so only the total tells.
-    const hasZeroExposures = !isExperimentDraft && !exposuresLoading && exposures != null && totalExposures === 0
-
-    const srmFinding = healthUi === 'panel' ? serverSampleRatioFinding(exposures) : undefined
-    useHealthFindingReporting(
-        hasSRM && !isExperimentDraft && !exposuresLoading
-            ? srmFinding
-                ? {
-                      code: 'srm',
-                      subcode: srmFinding.subcode ?? undefined,
-                      severity: srmFinding.severity,
-                      reason: srmFinding.reason ?? undefined,
-                  }
-                : { code: 'srm' }
-            : null,
-        !srmFinding
-    )
-    const { reportActedOn: reportZeroExposuresActedOn } = useHealthFindingReporting(
-        hasZeroExposures ? { code: 'zero_exposures' } : null
-    )
+        exposuresElapsedSeconds,
+        exposuresLoadingSlowly,
+        totalExposures,
+        isEnded,
+        exposureCriteriaLabel,
+        winnerKey,
+        winningKeys,
+        winningTooltip,
+        multipleTreatmentLabel,
+        srmLine,
+    } = card
 
     return (
         <div className="h-full border border-primary rounded bg-[var(--color-bg-table)] px-3 py-2.5 flex flex-col gap-3">
             <div className="flex items-center gap-3 metric-cell">
                 <span className="metric-cell-header font-bold inline-flex items-center gap-1">
                     Exposures
-                    <Tooltip title="Cumulative unique users exposed to the experiment. A user is counted once at first exposure, not per event. Each metric counts its own exposures and can exclude users whose conversion or retention window hasn't elapsed, so metric results can show fewer.">
+                    <Tooltip title={EXPOSURES_HELP}>
                         <IconInfo className="text-secondary text-base" />
                     </Tooltip>
                 </span>
-                {experiment.holdout && (
-                    <Tooltip title="Users held out of this experiment and not included in analysis.">
-                        <LemonTag type="option">{experiment.holdout.name}</LemonTag>
+                {card.holdoutName && (
+                    <Tooltip title={HOLDOUT_HELP}>
+                        <LemonTag type="option">{card.holdoutName}</LemonTag>
                     </Tooltip>
                 )}
                 {isEnded ? (
@@ -232,7 +110,7 @@ export function Exposures(): JSX.Element {
                         size="xsmall"
                         className="ml-auto"
                         tooltip={exposureCriteriaLabel}
-                        onClick={() => openExposureCriteriaModal(exposureCriteria)}
+                        onClick={card.openExposureCriteria}
                     >
                         Exposure criteria
                     </LemonButton>
@@ -248,11 +126,7 @@ export function Exposures(): JSX.Element {
                                 <span className="text-secondary text-sm">
                                     Still loading exposures after {exposuresElapsedSeconds}s
                                 </span>
-                                <LemonButton
-                                    type="secondary"
-                                    size="small"
-                                    onClick={() => refreshExperimentResults(true, 'manual')}
-                                >
+                                <LemonButton type="secondary" size="small" onClick={card.retry}>
                                     Retry
                                 </LemonButton>
                             </div>
@@ -262,10 +136,8 @@ export function Exposures(): JSX.Element {
                     <div className="relative border rounded h-[200px] flex justify-center items-center">
                         <div className="text-center">
                             <IconCorrelationAnalysis className="text-3xl mb-2 text-tertiary" />
-                            <div className="text-md font-semibold leading-tight mb-2">No exposures yet</div>
-                            <p className="text-sm text-center text-balance text-tertiary">
-                                Exposures will appear here once the first participant has been exposed.
-                            </p>
+                            <div className="text-md font-semibold leading-tight mb-2">{NO_EXPOSURES_TITLE}</div>
+                            <p className="text-sm text-center text-balance text-tertiary">{NO_EXPOSURES_DESCRIPTION}</p>
                             {!isEnded && (
                                 <div className="flex justify-center mt-4">
                                     <LemonButton
@@ -273,10 +145,7 @@ export function Exposures(): JSX.Element {
                                         size="xsmall"
                                         className="flex items-center gap-2"
                                         type="secondary"
-                                        onClick={() => {
-                                            reportZeroExposuresActedOn('edit_exposure_criteria')
-                                            openExposureCriteriaModal(exposureCriteria)
-                                        }}
+                                        onClick={card.editExposureCriteriaFromEmpty}
                                     >
                                         Edit exposure criteria
                                     </LemonButton>
@@ -295,14 +164,14 @@ export function Exposures(): JSX.Element {
                             dataSource={[
                                 //This includes EXPERIMENT_VARIANT_MULTIPLE
                                 ...(exposures?.timeseries || []),
-                                ...excludedVariants.map((variant) => ({
+                                ...card.excludedVariants.map((variant) => ({
                                     variant,
                                     isExcluded: true,
                                 })),
-                                ...(experiment.holdout
+                                ...(card.holdoutVariantKey
                                     ? [
                                           {
-                                              variant: `holdout-${experiment.holdout_id}`,
+                                              variant: card.holdoutVariantKey,
                                               isHoldout: true,
                                           },
                                       ]
@@ -322,7 +191,7 @@ export function Exposures(): JSX.Element {
                                             <div className="flex items-center gap-1.5">
                                                 <VariantTag variantKey={series.variant} />
                                                 {series.variant === winnerKey && (
-                                                    <Tooltip title="Rolled out to 100% of users when this experiment ended.">
+                                                    <Tooltip title={WINNER_HELP}>
                                                         <LemonTag type="success" size="small">
                                                             Winner
                                                         </LemonTag>
@@ -345,9 +214,7 @@ export function Exposures(): JSX.Element {
                                                                 icon={<IconPencil fontSize="12" />}
                                                                 size="xsmall"
                                                                 type="secondary"
-                                                                onClick={() =>
-                                                                    openExposureCriteriaModal(exposureCriteria)
-                                                                }
+                                                                onClick={card.openExposureCriteria}
                                                             />
                                                         )}
                                                     </>
@@ -390,24 +257,9 @@ export function Exposures(): JSX.Element {
                                         if (isHoldout) {
                                             return <span className="text-secondary italic">Reserved (holdout)</span>
                                         }
-                                        let total = 0
-                                        if (exposures?.total_exposures) {
-                                            for (const [_, value] of Object.entries(exposures.total_exposures)) {
-                                                total += Number(value)
-                                            }
-                                        }
                                         return (
                                             <span className="font-semibold">
-                                                {total ? (
-                                                    <>
-                                                        {((exposures?.total_exposures[variant] / total) * 100).toFixed(
-                                                            1
-                                                        )}
-                                                        %
-                                                    </>
-                                                ) : (
-                                                    <>-%</>
-                                                )}
+                                                {card.variantPercentage(variant) ?? '-%'}
                                             </span>
                                         )
                                     },

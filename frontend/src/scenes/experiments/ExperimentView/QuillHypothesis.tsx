@@ -1,6 +1,6 @@
 import { type ReactNode, useId } from 'react'
 
-import { IconInfo, IconPencil } from '@posthog/icons'
+import { IconPencil } from '@posthog/icons'
 import {
     Badge,
     Button,
@@ -10,7 +10,6 @@ import {
     Field,
     FieldLabel,
     FieldTitle,
-    Heading,
     Select,
     SelectContent,
     SelectItem,
@@ -18,9 +17,6 @@ import {
     SelectValue,
     Separator,
     Text,
-    Tooltip,
-    TooltipContent,
-    TooltipTrigger,
 } from '@posthog/quill'
 
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
@@ -37,25 +33,7 @@ import {
     HypothesisModals,
     useHypothesisPanel,
 } from './hypothesisPanel'
-
-function SectionHeading({ children }: { children: ReactNode }): JSX.Element {
-    return (
-        <Heading size="sm" render={<h3 className="m-0" />}>
-            {children}
-        </Heading>
-    )
-}
-
-function HelpTooltip({ label, help }: { label: string; help: string }): JSX.Element {
-    return (
-        <Tooltip>
-            <TooltipTrigger delay={0} render={<Button size="icon-xs" aria-label={`About ${label}`} />}>
-                <IconInfo />
-            </TooltipTrigger>
-            <TooltipContent className="max-w-80">{help}</TooltipContent>
-        </Tooltip>
-    )
-}
+import { QuillHelpTooltip, QuillSectionHeading } from './QuillCardParts'
 
 function SettingRow({
     label,
@@ -84,7 +62,7 @@ function SettingRow({
                 ) : (
                     <FieldTitle className="text-xs text-muted-foreground">{label}</FieldTitle>
                 )}
-                {help && <HelpTooltip label={label} help={help} />}
+                {help && <QuillHelpTooltip label={label} help={help} />}
             </div>
             <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1">
                 {children}
@@ -115,7 +93,7 @@ export function QuillHypothesis(): JSX.Element {
             <CardContent className="flex h-full flex-col gap-4">
                 <section className="flex min-h-0 flex-col gap-1">
                     <div className="flex items-center gap-1">
-                        <SectionHeading>Hypothesis</SectionHeading>
+                        <QuillSectionHeading>Hypothesis</QuillSectionHeading>
                         <Button
                             size="icon-xs"
                             aria-label="Edit hypothesis"
@@ -146,14 +124,14 @@ export function QuillHypothesis(): JSX.Element {
                         <>
                             <Separator />
                             <section className="flex flex-col items-start gap-2">
-                                <SectionHeading>Results</SectionHeading>
+                                <QuillSectionHeading>Results</QuillSectionHeading>
                                 <SummarizeExperimentButton />
                             </section>
                         </>
                     )}
                     <Separator />
                     <section className="flex flex-col gap-2">
-                        <SectionHeading>Settings</SectionHeading>
+                        <QuillSectionHeading>Settings</QuillSectionHeading>
                         <div className="flex flex-col">
                             <SettingRow
                                 label="Statistics"
