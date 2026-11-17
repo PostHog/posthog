@@ -1148,7 +1148,7 @@ export const ErrorTrackingSettingsUpdateSettingsPartialUpdateBody = /* @__PURE__
         .boolean()
         .optional()
         .describe(
-            "Whether PostHog writes an AI summary of each new issue in this project. Each summary uses the organization's AI credits. Summaries also need the organization to approve AI data processing."
+            "Whether PostHog writes an AI summary of each new issue in this project. Each summary uses the organization's AI credits. Setting it to true fails until the organization approves AI data processing. Setting it to false always succeeds."
         ),
 })
 

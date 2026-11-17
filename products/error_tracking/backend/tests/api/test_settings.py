@@ -79,6 +79,28 @@ class TestErrorTrackingSettingsAPI(APIBaseTest):
         self.assertIs(response.json()["adaptive_ingestion_enabled"], True)
         self.assertIs(response.json()["ai_issue_summaries_enabled"], True)
 
+    @parameterized.expand(
+        [
+            ("turning_on_is_refused", False, True, status.HTTP_400_BAD_REQUEST, False),
+            ("turning_off_is_allowed", True, False, status.HTTP_200_OK, False),
+        ]
+    )
+    def test_ai_issue_summaries_without_ai_approval(self, _name, initially, requested, expected_status, stored):
+        ErrorTrackingSettings.objects.create(team=self.team, ai_issue_summaries_enabled=initially)
+        self.organization.is_ai_data_processing_approved = False
+        self.organization.save()
+
+        response = self.client.patch(
+            f"{self._base_url()}/update_settings/",
+            {"ai_issue_summaries_enabled": requested},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, expected_status, response.json())
+        if expected_status == status.HTTP_400_BAD_REQUEST:
+            self.assertEqual(response.json()["attr"], "ai_issue_summaries_enabled")
+        self.assertIs(ErrorTrackingSettings.objects.get(team=self.team).ai_issue_summaries_enabled, stored)
+
     def test_update_settings_clears_limit_with_null(self):
         setup_response = self.client.patch(
             f"{self._base_url()}/update_settings/",

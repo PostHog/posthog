@@ -2288,7 +2288,7 @@ export interface ErrorTrackingSettingsApi {
     per_issue_rate_limit_bucket_size_minutes?: number | null
     /** Whether the project ingests exception events. When false, ingestion drops every $exception event for this project before it is stored or billed, and the events cannot be recovered. */
     ingestion_enabled?: boolean
-    /** Whether PostHog writes an AI summary of each new issue in this project. Each summary uses the organization's AI credits. Summaries also need the organization to approve AI data processing. */
+    /** Whether PostHog writes an AI summary of each new issue in this project. Each summary uses the organization's AI credits. Setting it to true fails until the organization approves AI data processing. Setting it to false always succeeds. */
     ai_issue_summaries_enabled?: boolean
 }
 
@@ -2321,7 +2321,7 @@ export interface PatchedErrorTrackingSettingsApi {
     per_issue_rate_limit_bucket_size_minutes?: number | null
     /** Whether the project ingests exception events. When false, ingestion drops every $exception event for this project before it is stored or billed, and the events cannot be recovered. */
     ingestion_enabled?: boolean
-    /** Whether PostHog writes an AI summary of each new issue in this project. Each summary uses the organization's AI credits. Summaries also need the organization to approve AI data processing. */
+    /** Whether PostHog writes an AI summary of each new issue in this project. Each summary uses the organization's AI credits. Setting it to true fails until the organization approves AI data processing. Setting it to false always succeeds. */
     ai_issue_summaries_enabled?: boolean
 }
 

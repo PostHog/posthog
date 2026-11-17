@@ -336,7 +336,8 @@ tools:
             within about a minute, until it is set back to true. Only change it when the user explicitly asks to stop or
             resume exception ingestion. Setting `ai_issue_summaries_enabled` to true makes PostHog write an AI summary
             of each new issue, and each summary uses the organization's AI credits. Only change it when the user
-            explicitly asks to turn issue summaries on or off.
+            explicitly asks to turn issue summaries on or off. Turning it on fails until the organization approves AI
+            data processing.
     error-tracking-severity-rules-create:
         operation: error_tracking_severity_rules_create
         enabled: true
