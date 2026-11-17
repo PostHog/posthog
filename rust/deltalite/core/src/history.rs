@@ -1346,20 +1346,23 @@ struct FileProbe {
 }
 
 /// Keep `e` in `seen` only if it comes first among the candidates in `slot`, in the chain
-/// order of [`SourcePlan::decide_with_closed`]: order value, then `valid_to`.
+/// order of [`SourcePlan::decide_with_closed`]: order value, then `valid_to`. Returns the
+/// resident bytes added and removed.
 fn keep_lowest(
     seen: &mut Vec<Existing>,
     slots: &mut HashMap<(u32, u32), usize>,
     slot: (u32, u32),
     e: Existing,
-) {
+) -> (usize, usize) {
     let chain = |e: &Existing| (e.order.clone(), e.valid_to.clone());
+    let added = e.resident_bytes();
     match slots.get(&slot) {
-        Some(&at) if chain(&seen[at]) <= chain(&e) => {}
-        Some(&at) => seen[at] = e,
+        Some(&at) if chain(&seen[at]) <= chain(&e) => (0, 0),
+        Some(&at) => (added, std::mem::replace(&mut seen[at], e).resident_bytes()),
         None => {
             slots.insert(slot, seen.len());
             seen.push(e);
+            (added, 0)
         }
     }
 }
@@ -1526,7 +1529,9 @@ async fn probe_file(
             }
             match next_after {
                 None => probe.seen.push(e),
-                Some(slot) => keep_lowest(&mut probe.seen, &mut probe.next_after, slot, e),
+                Some(slot) => {
+                    keep_lowest(&mut probe.seen, &mut probe.next_after, slot, e);
+                }
             }
         }
         row_base += batch.num_rows() as u32;
@@ -1643,10 +1648,16 @@ async fn probe_files(
         for (at, mut e) in probe.seen.into_iter().enumerate() {
             e.file = index;
             groups.push(e.group);
-            probed.bytes += e.resident_bytes();
             match slot_of.remove(&at) {
-                None => probed.existing.push(e),
-                Some(slot) => keep_lowest(&mut probed.existing, &mut probed.next_after, slot, e),
+                None => {
+                    probed.bytes += e.resident_bytes();
+                    probed.existing.push(e);
+                }
+                Some(slot) => {
+                    let (added, removed) =
+                        keep_lowest(&mut probed.existing, &mut probed.next_after, slot, e);
+                    probed.bytes = probed.bytes + added - removed;
+                }
             }
         }
         groups.sort_unstable();
@@ -2334,6 +2345,32 @@ mod tests {
         .await
         .unwrap_err();
         assert!(matches!(err, Error::Unsupported(_)), "{err}");
+    }
+
+    #[test]
+    fn successor_candidates_of_one_slot_count_only_the_one_kept() {
+        let version = |order: u8, payload: usize| Existing {
+            file: 0,
+            row: 0,
+            group: 0,
+            order: Box::from([order].as_slice()),
+            valid_from: vec![0; payload].into(),
+            valid_to: Some(Box::from([1u8].as_slice())),
+            dedupe: None,
+        };
+        let (mut seen, mut slots, mut bytes) = (Vec::new(), HashMap::new(), 0usize);
+        for (order, payload) in [(5, 10), (3, 100), (4, 1000), (3, 7)] {
+            let (added, removed) =
+                keep_lowest(&mut seen, &mut slots, (0, 0), version(order, payload));
+            bytes = bytes + added - removed;
+        }
+        assert_eq!(seen.len(), 1);
+        assert_eq!(
+            seen[0].valid_from.len(),
+            100,
+            "the first lowest-order candidate stays"
+        );
+        assert_eq!(bytes, seen[0].resident_bytes());
     }
 
     #[test]
