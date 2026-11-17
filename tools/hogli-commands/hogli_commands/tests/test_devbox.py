@@ -4265,20 +4265,22 @@ class TestDevboxShare:
     """Test the devbox:share command."""
 
     @pytest.mark.parametrize(
-        "box_status, auth_method, logout_answer, expected_calls, expected_output",
+        "box_status, auth_method, interactive, logout_answer, expected_calls, expected_output",
         [
-            ("running", "claude.ai", "y\n", ["logout", "share"], "Logged out of Claude Code"),
-            ("running", "claude.ai", "n\n", ["share"], "logged in to Claude Code as jane@example.com"),
-            ("running", "none", "", ["share"], "can use your Claude Code login"),
-            ("stopped", None, "", ["share"], "Couldn't check the box's Claude Code login"),
+            ("running", "claude.ai", True, "y\n", ["logout", "share"], "Logged out of Claude Code"),
+            ("running", "claude.ai", True, "n\n", ["share"], "logged in to Claude Code as jane@example.com"),
+            ("running", "claude.ai", False, "", ["share"], "run `hogli devbox:claude:logout`. Sharing anyway."),
+            ("running", "none", True, "", ["share"], "can use your Claude Code login"),
+            ("stopped", None, True, "", ["share"], "Couldn't check the box's Claude Code login"),
         ],
-        ids=["logs_out_first", "keeps_login", "not_logged_in", "stopped_box"],
+        ids=["logs_out_first", "keeps_login", "no_terminal_keeps_login", "not_logged_in", "stopped_box"],
     )
     def test_share_grants_access(
         self,
         monkeypatch: pytest.MonkeyPatch,
         box_status: str,
         auth_method: str | None,
+        interactive: bool,
         logout_answer: str,
         expected_calls: list[str],
         expected_output: str,
@@ -4306,6 +4308,7 @@ class TestDevboxShare:
         )
         monkeypatch.setattr(devbox_cli, "run_in_workspace", fake_run_in_workspace)
         monkeypatch.setattr(devbox_cli, "share_workspace", fake_share)
+        monkeypatch.setattr(devbox_cli, "_can_prompt", lambda: interactive)
 
         result = runner.invoke(cli, ["devbox:share", "--user", "alice"], input=logout_answer)
 

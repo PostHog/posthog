@@ -1761,6 +1761,10 @@ def _hint_if_positional_looks_like_username(
         )
 
 
+def _can_prompt() -> bool:
+    return sys.stdin.isatty()
+
+
 def _warn_about_claude_login_before_sharing(name: str, workspace: dict[str, Any]) -> None:
     """Warn that a shared box exposes the owner's Claude Code login, and offer to log out first."""
     click.echo(
@@ -1783,6 +1787,9 @@ def _warn_about_claude_login_before_sharing(name: str, workspace: dict[str, Any]
     if login.auth_method != "claude.ai":
         return
     click.echo(f"  The box is logged in to Claude Code as {login.email or 'your account'}.")
+    if not _can_prompt():
+        click.echo("  To log out first, run `hogli devbox:claude:logout`. Sharing anyway.")
+        return
     if not click.confirm("Log out of Claude Code on the box before sharing?", default=True):
         return
     if _logout_claude(name):
