@@ -470,6 +470,31 @@ class _OutsideCodeCheckSet(TraversingVisitor):
         self.found = self.found or (name in _HOG_FUNCTIONS and name not in _CODE_CHECK_FUNCTIONS)
         super().visit_field(node)
 
+    # A variable under an allowed name could hold any function, such as one forged in data jsonParse returns, and a
+    # call by that name would reach it. With none of these names bound, a call by name reaches the function itself.
+    def binds(self, *names: str | int | None) -> None:
+        self.found = self.found or any(name in _CODE_CHECK_FUNCTIONS for name in names)
+
+    def visit_variable_declaration(self, node: ast.VariableDeclaration) -> None:
+        self.binds(node.name)
+        super().visit_variable_declaration(node)
+
+    def visit_variable_assignment(self, node: ast.VariableAssignment) -> None:
+        self.binds(*(node.left.chain[:1] if isinstance(node.left, ast.Field) else []))
+        super().visit_variable_assignment(node)
+
+    def visit_for_in_statement(self, node: ast.ForInStatement) -> None:
+        self.binds(node.keyVar, node.valueVar)
+        super().visit_for_in_statement(node)
+
+    def visit_function(self, node: ast.Function) -> None:
+        self.binds(*node.params)
+        super().visit_function(node)
+
+    def visit_lambda(self, node: ast.Lambda) -> None:
+        self.binds(*node.args)
+        super().visit_lambda(node)
+
     def visit_expr_call(self, node: ast.ExprCall) -> None:
         self.found = True
         super().visit_expr_call(node)

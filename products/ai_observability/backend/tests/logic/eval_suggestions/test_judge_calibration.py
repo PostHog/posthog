@@ -381,6 +381,13 @@ def test_a_request_that_could_end_past_the_deadline_never_starts() -> None:
         ("multiplies", "let pad := ' ' * 2\nreturn not match(output, '^Reply [0-4]$')", None, None),
         ("formats_a_string", "let pad := '%5s' % output\nreturn not match(output, '^Reply [0-4]$')", None, None),
         ("calls_another_function", "return not match(replaceAll(output, 'x', 'y'), '^Reply [0-4]$')", None, None),
+        # Data could hold a forged function, so no variable may take an allowed function's name.
+        (
+            "binds_an_allowed_name",
+            "let parsed := {'f': lower}\nlet trim := parsed.f\nreturn not match(trim(output), '^Reply [0-4]$')",
+            None,
+            None,
+        ),
         (
             "renames_another_function",
             "let lower := replaceAll\nreturn not match(lower(output, 'x', 'y'), '^Reply [0-4]$')",
