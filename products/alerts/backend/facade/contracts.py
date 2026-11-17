@@ -312,7 +312,7 @@ class AlertValidationState:
     condition: dict[str, Any] | None
     config: dict[str, Any] | None
     threshold_configuration: dict[str, Any] | None
-    calculation_interval: str
+    calculation_interval: str | None
     detector_config: dict[str, Any] | None
     evaluation_delay_intervals: int
     investigation_agent_enabled: bool
