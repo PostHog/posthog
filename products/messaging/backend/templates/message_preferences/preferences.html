@@ -79,6 +79,7 @@
                 const stored = { ...wanted }
                 const saving = new Set()
                 let savesPending = 0
+                let savesStarted = 0
 
                 function updateStatusLabel(toggle, text, colorClass) {
                     const statusLabel = document.querySelector('[data-attr="status-' + toggle.name + '"]')
@@ -135,6 +136,7 @@
 
                 async function savePreferences(changedToggle) {
                     savesPending++
+                    savesStarted++
                     const choices = {}
                     toggles.forEach((toggle) => {
                         // Only submit the tracking answer when that toggle is the one that changed:
@@ -169,18 +171,24 @@
                         showToast(error.message || 'Failed to update preferences', true)
                     } finally {
                         savesPending--
-                        // Overlapping saves can answer out of commit order, so read back what the server stored.
-                        // If the read fails, the answers stand in for it.
                         if (savesPending === 0) {
-                            await fetch(window.location.pathname)
-                                .then((response) => response.text())
-                                .then((html) => Object.assign(stored, savedChoices(new DOMParser().parseFromString(html, 'text/html'))))
-                                .catch(() => {})
-                        }
-                        // Once every save has answered, show what the server stored, which undoes a failed change
-                        if (savesPending === 0) {
-                            Object.assign(wanted, stored)
-                            saving.clear()
+                            const savesBeforeRead = savesStarted
+                            // Overlapping saves can answer out of commit order, so read back what the server stored
+                            const page = await fetch(window.location.pathname)
+                                .then((response) => (response.ok ? response.text() : Promise.reject()))
+                                .then((html) => new DOMParser().parseFromString(html, 'text/html'))
+                                .catch(() => null)
+                            // A save that started during the read makes it stale, and that save reads back when it ends
+                            if (savesStarted === savesBeforeRead) {
+                                if (page) {
+                                    Object.assign(stored, savedChoices(page))
+                                } else {
+                                    showToast("Couldn't confirm your preferences. Reload the page to check them.", true)
+                                }
+                                // Show what the server stored, which also undoes a failed change
+                                Object.assign(wanted, stored)
+                                saving.clear()
+                            }
                         }
                         render()
                     }

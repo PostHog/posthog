@@ -12,6 +12,15 @@ interface PreferencesPage {
     storedPreferences: (categoryKey?: string) => Promise<Record<string, string> | undefined>
 }
 
+// Lets a test hold a routed request or response until it has set up what should happen first
+function gate(): { opened: Promise<void>; open: () => void } {
+    let open = (): void => {}
+    const opened = new Promise<void>((resolve) => {
+        open = resolve
+    })
+    return { opened, open }
+}
+
 async function createPreferencesPage(page: Page, playwrightSetup: PlaywrightSetup): Promise<PreferencesPage> {
     const workspace = await playwrightSetup.createWorkspace({ skip_onboarding: true, no_demo_data: true })
     const api = `/api/projects/${workspace.team_id}`
@@ -69,6 +78,8 @@ test.describe('Message preferences page', () => {
         const productNews = recipientPage.getByRole('checkbox', { name: 'Product news' })
         const eventInvites = recipientPage.getByRole('checkbox', { name: 'Event invites' })
         const allMarketing = recipientPage.getByRole('checkbox', { name: 'All marketing communications' })
+        const successToast = recipientPage.getByText('Preferences updated successfully')
+        const isPageRead = (url: URL): boolean => url.pathname === path
         const status = (id: string): ReturnType<Page['getByTestId']> => recipientPage.getByTestId(`status-${id}`)
 
         try {
@@ -119,50 +130,83 @@ test.describe('Message preferences page', () => {
                 })
             })
 
-            await test.step('a failed save turns the clicked topic back', async () => {
+            await test.step('a failed save and a failed read-back turn the clicked topic back', async () => {
                 await recipientPage.route(
                     UPDATE_URL,
                     (route) => route.fulfill({ status: 500, json: { error: 'Something went wrong' } }),
                     { times: 1 }
                 )
+                await recipientPage.route(isPageRead, (route) => route.abort(), { times: 1 })
                 await productNews.click()
                 await expect(recipientPage.getByText('Something went wrong')).toBeVisible()
+                await expect(
+                    recipientPage.getByText("Couldn't confirm your preferences.", { exact: false })
+                ).toBeVisible()
                 await expect(status(productNewsId)).toHaveText('Subscribed')
                 await expect(productNews).toBeChecked()
             })
 
             await test.step('saves that answer out of commit order leave the page showing what was stored', async () => {
-                let answerHeldSave = (): void => {}
-                const heldSaveAnswered = new Promise<void>((resolve) => {
-                    answerHeldSave = resolve
-                })
-                let heldSaveStored = (): void => {}
-                const heldSaveCommitted = new Promise<void>((resolve) => {
-                    heldSaveStored = resolve
-                })
+                const committed = gate()
+                const answer = gate()
                 await recipientPage.route(
                     UPDATE_URL,
                     async (route) => {
                         const response = await route.fetch()
-                        heldSaveStored()
-                        await heldSaveAnswered
+                        committed.open()
+                        await answer.opened
                         await route.fulfill({ response })
                     },
                     { times: 1 }
                 )
+                await expect(successToast).toHaveCount(0)
                 await allMarketing.click()
-                await heldSaveCommitted
-                const laterSave = recipientPage.waitForResponse((response) =>
-                    response.url().includes('/messaging-preferences/update')
-                )
+                await committed.opened
+                await expect(status(productNewsId)).toHaveText('Saving…')
                 await allMarketing.click()
-                await laterSave
-                answerHeldSave()
+                await expect(successToast).toBeVisible()
+                answer.open()
 
                 await expect(status('$all')).toHaveText('Subscribed')
                 await expect(status(productNewsId)).toHaveText('Subscribed')
                 await expect(allMarketing).toBeChecked()
                 await expect(productNews).toBeChecked()
+                await expect(eventInvites).not.toBeChecked()
+                expect(await storedPreferences('event_invites')).toEqual({
+                    $all: 'OPTED_IN',
+                    [productNewsId]: 'OPTED_IN',
+                    [eventInvitesId]: 'OPTED_OUT',
+                })
+            })
+
+            await test.step('a read-back that answers after a later save does not undo it', async () => {
+                const read = gate()
+                const answer = gate()
+                await recipientPage.route(
+                    isPageRead,
+                    async (route) => {
+                        const response = await route.fetch()
+                        read.open()
+                        await answer.opened
+                        await route.fulfill({ response })
+                    },
+                    { times: 1 }
+                )
+                await eventInvites.click()
+                await read.opened
+                await eventInvites.click()
+                await expect(status(eventInvitesId)).toHaveText('Not subscribed')
+
+                const lateRead = recipientPage.waitForEvent('requestfinished', (request) =>
+                    isPageRead(new URL(request.url()))
+                )
+                answer.open()
+                await lateRead
+                // Lets the page handle the late read before the check, which would otherwise pass too early
+                await recipientPage.evaluate(
+                    () => new Promise((resolve) => requestAnimationFrame(() => setTimeout(resolve)))
+                )
+                await expect(status(eventInvitesId)).toHaveText('Not subscribed')
                 await expect(eventInvites).not.toBeChecked()
                 expect(await storedPreferences('event_invites')).toEqual({
                     $all: 'OPTED_IN',
