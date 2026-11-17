@@ -78,6 +78,39 @@ describe('marketingAnalyticsPrecomputeLogic', () => {
         expect(logic.values.notReady).toBe(readyAfter === null)
     })
 
+    it('clears the banner when a dashboard hands the tile ready results without a load', async () => {
+        mockedQuery.mockResolvedValue(notReadyResponse)
+        const logic = mount('-30d')
+        await jest.advanceTimersByTimeAsync(0)
+        expect(logic.values.notReady).toBe(true)
+
+        dataNodeLogic({ key: 'marketing-overview', query: aggregatedQuery('-30d') }).actions.setResponse(readyResponse)
+        await jest.advanceTimersByTimeAsync(0)
+
+        expect(logic.values.notReady).toBe(false)
+    })
+
+    it('re-reads right away when the tile mounts with not-ready cached results', async () => {
+        mockedQuery.mockImplementation(async (_query, _methodOptions, refresh) => {
+            if (refresh === 'force_blocking') {
+                rechecks += 1
+            }
+            return readyResponse
+        })
+        const props: DataNodeLogicProps = {
+            key: 'marketing-overview',
+            query: aggregatedQuery('-30d'),
+            cachedResults: notReadyResponse,
+        }
+        dataNodeLogic(props).mount()
+        const logic = marketingAnalyticsPrecomputeLogic(props)
+        logic.mount()
+        await jest.advanceTimersByTimeAsync(0)
+
+        expect(rechecks).toBe(1)
+        expect(logic.values.notReady).toBe(false)
+    })
+
     it('starts a fresh budget when the query changes', async () => {
         mockedQuery.mockImplementation(async (_query, _methodOptions, refresh) => {
             if (refresh === 'force_blocking') {

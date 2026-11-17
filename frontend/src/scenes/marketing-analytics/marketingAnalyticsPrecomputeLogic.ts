@@ -3,6 +3,7 @@ import {
     MakeLogicType,
     actions,
     afterMount,
+    beforeUnmount,
     connect,
     kea,
     key,
@@ -136,10 +137,82 @@ export interface marketingAnalyticsPrecomputeLogicActions {
             | TraceSpansTreeQueryResponse
             | null
     } // dataNodeLogic
+    setResponseSuccess: (
+        response:
+            | ErrorTrackingQueryResponse
+            | HogQLAutocompleteResponse
+            | HogQLMetadataResponse
+            | HogQLQueryResponse<any[]>
+            | HogQueryResponse
+            | LogAttributesQueryResponse
+            | LogValuesQueryResponse
+            | MetricsQueryResponse
+            | Record<string, any>
+            | SessionsQueryResponse
+            | TraceSpansAggregationQueryResponse
+            | TraceSpansAttributeBreakdownQueryResponse
+            | TraceSpansQueryResponse
+            | TraceSpansTreeQueryResponse
+            | import('~/queries/schema/schema-general').EventsQueryResponse
+            | import('~/queries/schema/schema-general').LogsQueryResponse,
+        payload?:
+            | ErrorTrackingQueryResponse
+            | HogQLAutocompleteResponse
+            | HogQLMetadataResponse
+            | HogQLQueryResponse<any[]>
+            | HogQueryResponse
+            | LogAttributesQueryResponse
+            | LogValuesQueryResponse
+            | MetricsQueryResponse
+            | Record<string, any>
+            | SessionsQueryResponse
+            | TraceSpansAggregationQueryResponse
+            | TraceSpansAttributeBreakdownQueryResponse
+            | TraceSpansQueryResponse
+            | TraceSpansTreeQueryResponse
+            | import('~/queries/schema/schema-general').EventsQueryResponse
+            | import('~/queries/schema/schema-general').LogsQueryResponse
+            | undefined
+    ) => {
+        payload?:
+            | ErrorTrackingQueryResponse
+            | HogQLAutocompleteResponse
+            | HogQLMetadataResponse
+            | HogQLQueryResponse<any[]>
+            | HogQueryResponse
+            | LogAttributesQueryResponse
+            | LogValuesQueryResponse
+            | MetricsQueryResponse
+            | Record<string, any>
+            | SessionsQueryResponse
+            | TraceSpansAggregationQueryResponse
+            | TraceSpansAttributeBreakdownQueryResponse
+            | TraceSpansQueryResponse
+            | TraceSpansTreeQueryResponse
+            | import('~/queries/schema/schema-general').EventsQueryResponse
+            | import('~/queries/schema/schema-general').LogsQueryResponse
+        response:
+            | ErrorTrackingQueryResponse
+            | HogQLAutocompleteResponse
+            | HogQLMetadataResponse
+            | HogQLQueryResponse<any[]>
+            | HogQueryResponse
+            | LogAttributesQueryResponse
+            | LogValuesQueryResponse
+            | MetricsQueryResponse
+            | Record<string, any>
+            | SessionsQueryResponse
+            | TraceSpansAggregationQueryResponse
+            | TraceSpansAttributeBreakdownQueryResponse
+            | TraceSpansQueryResponse
+            | TraceSpansTreeQueryResponse
+            | import('~/queries/schema/schema-general').EventsQueryResponse
+            | import('~/queries/schema/schema-general').LogsQueryResponse
+    } // dataNodeLogic
     recheck: () => {
         value: true
     }
-    resetPolls: () => {
+    resetPrecomputeState: () => {
         value: true
     }
     scheduleRecheck: () => {
@@ -194,12 +267,12 @@ export const marketingAnalyticsPrecomputeLogic: LogicWrapper<marketingAnalyticsP
         path((key) => ['scenes', 'marketing-analytics', 'marketingAnalyticsPrecomputeLogic', key]),
         connect((props: DataNodeLogicProps) => ({
             values: [dataNodeLogic(props), ['response', 'responseLoading'], teamLogic, ['currentTeamId']],
-            actions: [dataNodeLogic(props), ['loadData', 'loadDataSuccess', 'loadDataFailure']],
+            actions: [dataNodeLogic(props), ['loadData', 'loadDataSuccess', 'loadDataFailure', 'setResponseSuccess']],
         })),
         actions({
             scheduleRecheck: true,
             recheck: true,
-            resetPolls: true,
+            resetPrecomputeState: true,
             setNotReady: (notReady: boolean) => ({ notReady }),
         }),
         reducers({
@@ -207,7 +280,7 @@ export const marketingAnalyticsPrecomputeLogic: LogicWrapper<marketingAnalyticsP
                 0,
                 {
                     recheck: (state) => state + 1,
-                    resetPolls: () => 0,
+                    resetPrecomputeState: () => 0,
                     loadDataSuccess: (state, { response }) => (isNotReady(response) ? state : 0),
                 },
             ],
@@ -217,8 +290,10 @@ export const marketingAnalyticsPrecomputeLogic: LogicWrapper<marketingAnalyticsP
                 false,
                 {
                     setNotReady: (_, { notReady }) => notReady,
-                    resetPolls: () => false,
+                    resetPrecomputeState: () => false,
                     loadDataSuccess: (_, { response }) => isNotReady(response),
+                    // Dashboards hand fresh cachedResults to the tile without a load.
+                    setResponseSuccess: (_, { response }) => isNotReady(response),
                 },
             ],
         }),
@@ -235,7 +310,7 @@ export const marketingAnalyticsPrecomputeLogic: LogicWrapper<marketingAnalyticsP
                     (response as { latestDayComputedAt?: string } | null)?.latestDayComputedAt ?? null,
             ],
         }),
-        listeners(({ actions, values, cache }) => ({
+        listeners(({ actions, values, cache, props }) => ({
             scheduleRecheck: () => {
                 if (!values.autoRefreshing) {
                     cache.disposables.dispose('precomputeRecheck')
@@ -243,6 +318,7 @@ export const marketingAnalyticsPrecomputeLogic: LogicWrapper<marketingAnalyticsP
                         posthog.capture('marketing analytics precompute auto refresh', {
                             outcome: 'gave_up',
                             polls: cache.polls,
+                            query_kind: props.query?.kind,
                         })
                         cache.polls = 0
                     }
@@ -269,13 +345,14 @@ export const marketingAnalyticsPrecomputeLogic: LogicWrapper<marketingAnalyticsP
                 }
                 cache.disposables.dispose('precomputeRecheck')
                 cache.polls = 0
-                actions.resetPolls()
+                actions.resetPrecomputeState()
             },
             loadDataSuccess: ({ response }) => {
                 if (!isNotReady(response) && cache.polls > 0) {
                     posthog.capture('marketing analytics precompute auto refresh', {
                         outcome: 'ready',
                         polls: cache.polls,
+                        query_kind: props.query?.kind,
                     })
                     cache.polls = 0
                 }
@@ -286,8 +363,22 @@ export const marketingAnalyticsPrecomputeLogic: LogicWrapper<marketingAnalyticsP
             },
         })),
         afterMount(({ actions, values }) => {
-            // The tile may have loaded before this logic mounted.
+            // The tile may have loaded before this logic mounted, as a dashboard tile does from cachedResults. Its
+            // warm may already be done, so the first re-read goes out now instead of after an interval.
             actions.setNotReady(!values.responseLoading && isNotReady(values.response))
-            actions.scheduleRecheck()
+            if (values.autoRefreshing) {
+                actions.recheck()
+            } else {
+                actions.scheduleRecheck()
+            }
+        }),
+        beforeUnmount(({ values, props }) => {
+            if (values.autoRefreshing && values.polls > 0) {
+                posthog.capture('marketing analytics precompute auto refresh', {
+                    outcome: 'abandoned',
+                    polls: values.polls,
+                    query_kind: props.query?.kind,
+                })
+            }
         }),
     ])
