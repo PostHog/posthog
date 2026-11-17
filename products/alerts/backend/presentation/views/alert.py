@@ -9,7 +9,7 @@ from operator import or_
 from typing import Annotated, Any, Final, cast
 from zoneinfo import ZoneInfo
 
-from django.db import DatabaseError, models, transaction
+from django.db import models, transaction
 from django.db.models import Manager, OuterRef, Prefetch, Q, QuerySet, Subquery, Value
 from django.http import Http404
 from django.utils import timezone
@@ -42,11 +42,9 @@ from posthog.schema import (
 
 from posthog.api.documentation import extend_schema_field
 from posthog.api.fields import OptionalBooleanField
-from posthog.api.query_access_check import denied_query_resources
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.shared import SearchMatchTypeSerializerMixin, UserBasicSerializer
-from posthog.constants import AvailableFeature
 from posthog.dataclasses import frozen
 from posthog.email import is_email_available
 from posthog.event_usage import get_request_analytics_properties
@@ -65,12 +63,6 @@ from posthog.models.activity_logging.model_activity import get_was_impersonated
 from posthog.models.tag import tagify
 from posthog.models.tagged_item import TaggedItem
 from posthog.permissions import get_authenticator_scopes
-from posthog.query_creator_access import (
-    CreatorLeftOrganizationError,
-    assert_creator_can_run,
-    describe_owner_unavailable,
-    owner_unavailable_code,
-)
 from posthog.rate_limit import (
     AlertLLMSimulationBurstThrottle,
     AlertLLMSimulationDailyThrottle,
@@ -90,15 +82,9 @@ from posthog.tasks.alerts.utils import (
 )
 from posthog.utils import relative_date_parse
 
-from products.access_control.backend.facade.user_access_control import UserAccessControl, UserAccessControlError
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.alerts.backend.evaluation.contract import AlertExtractionError
 from products.alerts.backend.evaluation.detector import simulate_detector_on_insight
-from products.alerts.backend.evaluation.validation import (
-    THRESHOLD_BOUNDS_REQUIRED_MESSAGE,
-    should_default_check_ongoing_interval,
-    validate_alert_config,
-    validate_alert_insight_query,
-)
 from products.alerts.backend.facade.api import (
     DETECTOR_PAUSED_ERROR_CODES,
     DETECTOR_UNAVAILABLE_ERROR_CODES,
@@ -108,11 +94,11 @@ from products.alerts.backend.facade.api import (
     LLMDetectorPausedError,
     LLMDetectorUnavailableError,
     admit_llm_alert_write,
-    assign_alert_owner,
     calls_ai_gateway,
     forecast_detector_access_error,
     forecast_rule,
     llm_detector_access_error,
+    take_alert_ownership,
 )
 from products.alerts.backend.facade.contracts import (
     INSIGHT_ALERT_DESTINATION_EVENT_IDS,
@@ -120,6 +106,7 @@ from products.alerts.backend.facade.contracts import (
     INSIGHT_ALERT_EVENT_IDS,
     INSIGHT_ALERT_INCIDENT_OPENED_EVENT,
     INSIGHT_ALERT_URL_DESTINATION_TYPES,
+    AlertWriteRefused,
     MovedAlertCheck,
     MovedAlertCheckPage,
     MovedAlertHistoryUnavailable,
@@ -150,7 +137,6 @@ from products.alerts.backend.facade.platform import (
     creates_native_alert,
     delete_alert_destinations_and_copy,
     delete_native_insight_alert,
-    enable_native_insight_alert,
     follow_insight_alert,
     hand_over_new_alert,
     moved_alert_check_page,
@@ -176,6 +162,7 @@ from products.alerts.backend.insight_alert_state_machine import (
     apply_threshold_change,
     apply_unsnooze,
 )
+from products.alerts.backend.logic.alert_validation import validate_alert_write
 from products.alerts.backend.models.alert import (
     METRICS_INSIGHT_QUERY_FILTER,
     AlertCheck,
@@ -246,12 +233,6 @@ class ThresholdConfigurationField(serializers.JSONField):
 @extend_schema_field(AlertCondition)  # type: ignore[arg-type]
 class AlertConditionField(serializers.JSONField):
     pass
-
-
-class OwnershipAccessCheckUnavailable(APIException):
-    status_code = status.HTTP_503_SERVICE_UNAVAILABLE
-    default_detail = "Couldn't check access for this ownership change. Try again."
-    default_code = "ownership_access_check_unavailable"
 
 
 class LLMDetectorUnavailable(APIException):
@@ -355,40 +336,17 @@ def _enforce_forecast_detector_rules(detector_config: Any) -> None:
         raise ValidationError(str(error)) from error
 
 
-def _enforce_llm_feature_access(context: dict[str, Any], detector_config: Any, *, owner: User | None = None) -> None:
-    """Refuse an AI preview or takeover the person running it cannot use.
-
-    Saved alerts go through ``admit_llm_alert_write`` instead, which checks the alert's
-    creator. Transfers check the new owner; previews check the requester.
-    """
+def _enforce_llm_feature_access(context: dict[str, Any], detector_config: Any) -> None:
+    """Refuse an AI preview the requester cannot use."""
     if DetectorType.LLM.value not in _detector_types(detector_config):
         return
-    user = owner or context["request"].user
+    user = context["request"].user
     try:
         error = llm_detector_access_error(distinct_id=str(user.distinct_id), organization=context["get_organization"]())
     except LLMDetectorUnavailableError as unavailable_error:
         raise LLMDetectorUnavailable(str(unavailable_error)) from unavailable_error
     if error:
         raise ValidationError(error)
-
-
-def _validate_ownership_query_access(alert: AlertConfiguration, owner: User, actor: User) -> None:
-    if not alert.team.organization.is_feature_available(AvailableFeature.ACCESS_CONTROL):
-        return
-    with upgrade_insight(alert.insight):
-        query = alert.insight.query
-    if query is None:
-        return
-    try:
-        with transaction.atomic():
-            denied = denied_query_resources(owner, alert.team, [query])
-    except DatabaseError as error:
-        raise OwnershipAccessCheckUnavailable() from error
-    if denied:
-        denied_names = ", ".join(f"`{name}`" for name in denied)
-        subject = "You need" if owner.pk == actor.pk else "The new owner needs"
-        action = "take ownership of" if owner.pk == actor.pk else "transfer"
-        raise ValidationError(f"{subject} access to {denied_names} to {action} this alert.")
 
 
 def _enforce_forecast_feature_access(context: dict[str, Any], detector_config: Any) -> None:
@@ -778,11 +736,6 @@ class AlertSubscriptionSerializer(serializers.ModelSerializer):
 class RelativeDateTimeField(serializers.DateTimeField):
     def to_internal_value(self, data):
         return data
-
-
-def _owner_unavailable_message(owner: User | None, error: Exception) -> str:
-    """The refusal for an enable the owner cannot run, naming the owner and the cause."""
-    return f"Can't enable this alert. {describe_owner_unavailable(owner, error)}"
 
 
 class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializer):
@@ -1449,168 +1402,19 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
             raise serializers.ValidationError("Invalid schedule restriction.")
 
     def validate(self, attrs):
-        if attrs.get("insight") and attrs["insight"].team.id != self.context["team_id"]:
-            raise ValidationError({"insight": ["This insight does not belong to your team."]})
-
-        condition = attrs.get("condition", self.instance.condition if self.instance else None)
-        config = attrs.get("config", self.instance.config if self.instance else None)
         insight = attrs.get("insight") or (self.instance.insight if self.instance else None)
-        if insight is None:
-            raise ValidationError({"insight": ["Insight is required."]})
-        # Checks run as the owner, so an owner who cannot run them would only get the alert disabled again.
-        if self.instance is not None and attrs.get("enabled") is True and not self.instance.enabled:
-            try:
-                assert_creator_can_run(self.instance.created_by, self.instance.team, insight)
-            except (CreatorLeftOrganizationError, UserAccessControlError) as error:
-                raise ValidationError(
-                    {"enabled": [_owner_unavailable_message(self.instance.created_by, error)]},
-                    code=owner_unavailable_code(error),
-                )
-        # Enforced from the object-level validate() so it runs on every create and update — including
-        # a PATCH that omits `insight` (which skips the field-level validator), so an alert can't be
-        # repointed at a flag-gated insight kind (or a scope-gated one) in an account where the flag
-        # is off or the token lacks the data scope. The model stays flag-agnostic so existing alerts
-        # keep working when the flag is off.
-        _enforce_alert_feature_flags(self.context, insight)
-        _require_metrics_scope_for_programmatic_auth(self.context, insight)
-        with upgrade_insight(insight):
-            query = insight.query
-            if query is None:
-                raise ValidationError({"insight": ["Insight has no valid query."]})
-
-        threshold_config = None
-        if "threshold" in attrs and isinstance(attrs["threshold"], dict):
-            threshold_config = attrs["threshold"].get("configuration")
-        elif self.instance and self.instance.threshold:
-            threshold_config = self.instance.threshold.configuration
-
-        calculation_interval = attrs.get(
-            "calculation_interval",
-            self.instance.calculation_interval if self.instance else AlertCalculationInterval.DAILY,
-        )
-
-        if "detector_config" in attrs:
-            detector_config = attrs["detector_config"]
-        elif self.instance is not None:
-            detector_config = self.instance.detector_config
-        else:
-            detector_config = None
-
-        require_threshold_bounds = detector_config is None and (
-            self.instance is None or "threshold" in attrs or "detector_config" in attrs
-        )
-
-        # Mirror the UI's default for cadences finer than the insight interval. Applied before
-        # validate_alert_config so the validated config is the persisted config.
-        evaluation_delay = attrs.get(
-            "evaluation_delay_intervals", self.instance.evaluation_delay_intervals if self.instance else 0
-        )
-        if not evaluation_delay and isinstance(config, dict) and config.get("check_ongoing_interval") is None:
-            if should_default_check_ongoing_interval(
-                query=query,
-                config=config,
-                condition=condition,
-                threshold_config=threshold_config,
-                calculation_interval=calculation_interval,
-            ):
-                config = {**config, "check_ongoing_interval": True}
-                attrs["config"] = config
-
-        request_user = self.context["request"].user
-        creating_user = request_user if isinstance(request_user, User) else None
+        if insight is not None:
+            _require_metrics_scope_for_programmatic_auth(self.context, insight)
         try:
-            validate_evaluation_delay(query, config, evaluation_delay)
-            validate_alert_insight_query(
-                query,
+            return validate_alert_write(
+                attrs,
+                instance=self.instance,
                 team=self.context["get_team"](),
-                # The alert evaluates as its creator, so an update validates as that user rather
-                # than as whoever is editing it.
-                user=self.instance.created_by if self.instance is not None else creating_user,
+                organization=self.context["get_organization"](),
+                actor=self.context["request"].user,
             )
-            validate_alert_config(
-                query,
-                condition,
-                config,
-                threshold_config,
-                calculation_interval,
-                detector_config=detector_config,
-                require_threshold_bounds=require_threshold_bounds,
-            )
-        except ValueError as e:
-            if str(e) == THRESHOLD_BOUNDS_REQUIRED_MESSAGE:
-                raise ValidationError({"threshold": {"configuration": [THRESHOLD_BOUNDS_REQUIRED_MESSAGE]}})
-            raise ValidationError(str(e))
-
-        # The AI detector's own rules (rollout, consent, cadence, cap) run in create/update
-        # through admit_llm_alert_write, under the locks they need.
-        organization = self.context["get_organization"]()
-        _validate_interval_entitlement(
-            calculation_interval=calculation_interval,
-            organization=organization,
-        )
-
-        # Investigation agent is supported for detector-based alerts (the agent
-        # workflow) and for metrics threshold alerts (a synchronous facade
-        # investigation attached to the firing check) — nothing else.
-        investigation_enabled = attrs.get(
-            "investigation_agent_enabled",
-            self.instance.investigation_agent_enabled if self.instance else False,
-        )
-        if investigation_enabled:
-            detector_config = attrs.get(
-                "detector_config",
-                self.instance.detector_config if self.instance else None,
-            )
-            if not detector_config and insight.alertable_query_kind != NodeKind.METRICS_QUERY:
-                raise ValidationError(
-                    {
-                        "investigation_agent_enabled": [
-                            "Investigation agent is only supported for anomaly detection alerts."
-                        ]
-                    }
-                )
-
-        # Notification gating only makes sense when the investigation agent is on —
-        # otherwise there's no verdict to wait for and the safety-net task would
-        # end up being the only notifier, which defeats the feature.
-        gates_notifications = attrs.get(
-            "investigation_gates_notifications",
-            self.instance.investigation_gates_notifications if self.instance else False,
-        )
-        if gates_notifications and not investigation_enabled:
-            raise ValidationError(
-                {
-                    "investigation_gates_notifications": [
-                        "Notification gating requires investigation_agent_enabled=true."
-                    ]
-                }
-            )
-
-        # Only a create adds an alert; a takeover is a POST that enables an existing one.
-        if self.instance is None:
-            if msg := AlertConfiguration.check_alert_limit(self.context["team_id"], self.context["get_organization"]()):
-                raise ValidationError({"alert": [msg]})
-
-        existing_enabled = self.instance.enabled if self.instance else True
-        if msg := AlertConfiguration.real_time_alert_validation_error(
-            team_id=self.context["team_id"],
-            organization=organization,
-            calculation_interval=calculation_interval,
-            enabled=attrs.get("enabled", existing_enabled) is True,
-            existing=self.instance,
-        ):
-            posthoganalytics.capture(
-                distinct_id=str(self.context["request"].user.distinct_id),
-                event="real time alert limit reached",
-                properties={
-                    "team_id": self.context["team_id"],
-                    "organization_id": str(organization.id),
-                },
-                groups={"organization": str(organization.id)},
-            )
-            raise ValidationError({"calculation_interval": [msg]})
-
-        return attrs
+        except AlertWriteRefused as error:
+            raise ValidationError(error.detail, code=error.code) from error
 
 
 def _popped_snooze(validated_data: dict) -> tuple[Any, datetime | None]:
@@ -2696,46 +2500,32 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     @action(detail=True, methods=["POST"], required_scopes=["alert:write"])
     def take_ownership(self, request, *args, **kwargs):
         alert = self._alert_or_native()
+        _require_metrics_scope_for_programmatic_auth(self.get_serializer_context(), alert.insight)
         ownership = AlertTransferOwnershipSerializer(data=request.data, context=self.get_serializer_context())
         ownership.is_valid(raise_exception=True)
-        owner = ownership.validated_data["owner"]
-        if owner.pk != request.user.pk and not self.user_access_control.is_organization_admin:
-            raise PermissionDenied(
-                "Only an organization admin can assign an alert to another person. "
-                "Take ownership yourself or ask an admin to transfer it."
-            )
         try:
-            assert_creator_can_run(owner, alert.team, alert.insight)
-        except (CreatorLeftOrganizationError, UserAccessControlError):
-            subject = "you don't" if owner.pk == request.user.pk else "the new owner doesn't"
-            raise ValidationError(f"Can't take ownership: {subject} have access to this insight.") from None
-        # The scheduled checks run as the owner, so an AI alert needs the new owner on the rollout.
-        # An already enabled alert does not pass through the admission below, so it is checked here.
-        _enforce_llm_feature_access(self.get_serializer_context(), alert.detector_config, owner=owner)
-        if alert.has_no_insight_row:
-            return Response(self.get_serializer(self._take_native_ownership(alert, owner)).data)
-        # One transaction, so a refused enable leaves the owner as it was. The enable below reloads
-        # the row, so the owner is saved first.
-        with transaction.atomic():
-            # Same lock order as update(): insight, then alert row. The owner write below locks the row.
-            if not lock_insight_for_evaluation(team_id=alert.team_id, insight_id=alert.insight_id):
-                raise ValidationError({"insight": ["The insight no longer exists. Refresh the alert."]})
-            alert.insight.refresh_from_db()
-            _validate_ownership_query_access(alert, owner, request.user)
-            assign_alert_owner(
+            updated = take_alert_ownership(
                 team_id=alert.team_id,
                 alert_id=alert.id,
-                owner=owner,
                 actor=cast(User, request.user),
+                owner=ownership.validated_data["owner"],
                 was_impersonated=get_was_impersonated(),
+                analytics_props=get_request_analytics_properties(request),
             )
-            # The enable below saves this instance, so it must carry the new owner.
-            alert.refresh_from_db(fields=["created_by"])
-            # The enable runs the usual update path, so the insight query is validated as the new owner.
-            serializer = self.get_serializer(alert, data={"enabled": True}, partial=True)
-            serializer.is_valid(raise_exception=True)
-            serializer.save()
-        return Response(self.get_serializer(serializer.instance).data)
+        except AlertConfiguration.DoesNotExist as error:
+            raise Http404 from error
+        except AlertWriteRefused as error:
+            if error.status_code == 400:
+                raise ValidationError(error.detail, code=error.code) from error
+            if error.status_code == 403:
+                raise PermissionDenied(error.detail) from error
+            refusal = APIException(error.detail, code=error.code)
+            refusal.status_code = error.status_code
+            raise refusal from error
+        except LLMDetectorUnavailableError as error:
+            raise LLMDetectorUnavailable(str(error)) from error
+        _show_platform_status([updated], now=timezone.now())
+        return Response(self.get_serializer(updated).data)
 
     def _alert_watches(self, alert_id: uuid.UUID, insight_id: int) -> bool:
         if AlertConfiguration.objects.filter(team_id=self.team_id, id=alert_id, insight_id=insight_id).exists():
@@ -2743,50 +2533,6 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         view = native_insight_alert_view(self.team_id, alert_id)
         native = AlertConfiguration.from_platform_view(view, team_id=self.team_id) if view is not None else None
         return native is not None and native.insight_id == insight_id
-
-    def _take_native_ownership(self, alert: AlertConfiguration, owner: User) -> AlertConfiguration:
-        """`take_ownership` for an alert with no insight row: the platform stores its owner, and its
-        enable goes through the platform's admission, after the AI detector's."""
-        requester = cast(User, self.request.user)
-        with transaction.atomic():
-            if not lock_insight_for_evaluation(team_id=alert.team_id, insight_id=alert.insight_id):
-                raise ValidationError({"insight": ["The insight no longer exists. Refresh the alert."]})
-            # Admission skips the cap for an alert that is already on, so it reads the alert as stored
-            # under the lock, not as this request first read it.
-            locked = native_insight_alert_view(alert.team_id, alert.id, lock=True)
-            reloaded = AlertConfiguration.from_platform_view(locked, team_id=alert.team_id) if locked else None
-            if reloaded is None:
-                raise Http404
-            alert = reloaded
-            alert.insight.refresh_from_db()
-            _validate_ownership_query_access(alert, owner, requester)
-            assign_alert_owner(
-                team_id=alert.team_id,
-                alert_id=alert.id,
-                owner=owner,
-                actor=requester,
-                was_impersonated=get_was_impersonated(),
-            )
-            alert.created_by = owner
-            # The same checks the row path's enable runs, against the insight as it is under the lock,
-            # so an insight edit that broke the alert's configuration refuses the enable.
-            self.get_serializer(alert, data={"enabled": True}, partial=True).is_valid(raise_exception=True)
-            _admit_llm_alert_write(
-                self.get_serializer_context(),
-                detector_config=alert.detector_config,
-                enabled=True,
-                calculation_interval=alert.calculation_interval,
-                instance=alert,
-            )
-            try:
-                view = enable_native_insight_alert(team_id=alert.team_id, alert_id=alert.id)
-            except InvalidPlatformAlertEdit as error:
-                raise ValidationError({error.field_name: str(error)}) from error
-        enabled = AlertConfiguration.from_platform_view(view, team_id=alert.team_id) if view is not None else None
-        if enabled is None:
-            raise Http404
-        _show_platform_status([enabled], now=timezone.now())
-        return enabled
 
     @extend_schema(
         request=None,

@@ -17,6 +17,8 @@ from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.scoping import team_scope
 
 from products.access_control.backend.models.access_control import AccessControl
+from products.alerts.backend.facade.api import take_alert_ownership
+from products.alerts.backend.facade.contracts import AlertWriteRefused
 from products.alerts.backend.models.alert import AlertConfiguration
 from products.alerts.backend.platform_cutover import cut_over_team
 from products.alerts.backend.platform_insight_alert import native_insight_alert_view
@@ -258,3 +260,63 @@ class TestAlertTakeOwnership(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
         alert.refresh_from_db()
         assert alert.created_by == former_member
+
+    @parameterized.expand([("admin", None), ("member", 403), ("inactive_owner", 400)])
+    def test_backend_ownership_operation_enforces_permissions(self, case: str, expected_status: int | None) -> None:
+        alert = self._disabled_alert_of_a_former_member()
+        previous_owner = alert.created_by
+        owner = User.objects.create_user(
+            email="new-owner@example.com", first_name="", password=None, is_active=case != "inactive_owner"
+        )
+        OrganizationMembership.objects.create(organization=self.organization, user=owner)
+        self.organization_membership.level = (
+            OrganizationMembership.Level.MEMBER if case == "member" else OrganizationMembership.Level.ADMIN
+        )
+        self.organization_membership.save()
+
+        try:
+            take_alert_ownership(
+                team_id=self.team.id, alert_id=alert.id, actor=self.user, owner=owner, was_impersonated=False
+            )
+        except AlertWriteRefused as error:
+            assert error.status_code == expected_status
+        else:
+            assert expected_status is None
+
+        alert.refresh_from_db()
+        assert alert.created_by == (owner if expected_status is None else previous_owner)
+        assert alert.enabled is (expected_status is None)
+        activities = ActivityLog.objects.filter(
+            scope="AlertConfiguration", item_id=str(alert.id), activity="transferred_ownership"
+        )
+        if expected_status is None:
+            assert activities.get().user == self.user
+        else:
+            assert not activities.exists()
+
+    @parameterized.expand(["alert", "insight"])
+    def test_take_ownership_refuses_settings_changed_after_validation(self, changed: str) -> None:
+        alert = self._disabled_alert_of_a_former_member()
+        previous_owner = alert.created_by
+        edited = False
+
+        def edit_before_lock(execute: Callable, sql: str, params: Any, many: bool, context: dict) -> Any:
+            nonlocal edited
+            if not edited and ("FOR UPDATE" in sql or "FOR NO KEY UPDATE" in sql):
+                edited = True
+                if changed == "alert":
+                    AlertConfiguration.objects.filter(pk=alert.pk).update(config={**alert.config, "series_index": 999})
+                else:
+                    type(alert.insight).objects.filter(pk=alert.insight_id).update(query=None, filters={})
+            return execute(sql, params, many, context)
+
+        url = f"/api/projects/{self.team.id}/alerts/{alert.id}/take_ownership/"
+        with connection.execute_wrapper(edit_before_lock):
+            response = self.client.post(url)
+
+        assert response.status_code == status.HTTP_409_CONFLICT, response.content
+        alert.refresh_from_db()
+        assert alert.created_by == previous_owner
+        assert alert.enabled is False
+        retry = self.client.post(url)
+        assert retry.status_code == status.HTTP_200_OK, retry.content

@@ -288,3 +288,11 @@ class ResetDestination:
     destination_id: UUID
     destination_type: DestinationType
     retired_hog_function_ids: tuple[UUID, ...]
+
+
+class AlertWriteRefused(Exception):
+    def __init__(self, detail: str | dict[str, Any], *, code: str = "invalid", status_code: int = 400) -> None:
+        super().__init__(str(detail))
+        self.detail = detail
+        self.code = code
+        self.status_code = status_code
