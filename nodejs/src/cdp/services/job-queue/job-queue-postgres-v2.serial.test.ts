@@ -118,6 +118,7 @@ describe('CyclotronJobQueuePostgresV2 on Cyclotron Postgres', () => {
             CDP_CYCLOTRON_BOUNDED_POLLS: false,
             CDP_CYCLOTRON_BACKGROUND_DEPTH_CHECK: false,
             CDP_CYCLOTRON_BOUNDED_FAIR_DEQUEUE: false,
+            CDP_CYCLOTRON_HOGFLOW_TEAM_FAIR_DEQUEUE: false,
             CDP_CYCLOTRON_RELEASE_WRITE_RETRY: false,
             CDP_CYCLOTRON_INSERT_MAX_BATCH_SIZE: 1000,
             CDP_CYCLOTRON_INSERT_PARALLEL_BATCHES: false,

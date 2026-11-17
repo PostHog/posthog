@@ -266,6 +266,8 @@ export type CyclotronV2WorkerConfig = {
     boundedPolls?: boolean
     ownershipReadTimeoutMs?: number
     boundedFairDequeue?: boolean
+    // Only the hogflow queue reads this: it has the lane index the team-fair dequeue needs.
+    teamFairDequeue?: boolean
 }
 
 export type CyclotronV2JanitorConfig = {

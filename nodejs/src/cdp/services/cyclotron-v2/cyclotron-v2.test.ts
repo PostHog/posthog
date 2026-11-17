@@ -3154,15 +3154,16 @@ describe('Cyclotron V2', () => {
         })
 
         it.each([
-            ['the plain dequeue', QUEUE],
-            ['the fair dequeue', 'email'],
-        ])('concurrent workers get disjoint batches via %s', async (_label, queue) => {
+            ['the plain dequeue', QUEUE, {}],
+            ['the fair dequeue', 'email', {}],
+            ['the hogflow team-fair dequeue', 'hogflow', { teamFairDequeue: true }],
+        ])('concurrent workers get disjoint batches via %s', async (_label, queue, overrides) => {
             for (let i = 0; i < 10; i++) {
                 await manager.createJob({ teamId: 1 + (i % 3), queueName: queue })
             }
 
-            const worker1 = createWorker(queue, { batchMaxSize: 5 })
-            const worker2 = createWorker(queue, { batchMaxSize: 5 })
+            const worker1 = createWorker(queue, { batchMaxSize: 5, ...overrides })
+            const worker2 = createWorker(queue, { batchMaxSize: 5, ...overrides })
 
             const [batch1, batch2] = await Promise.all([dequeueOneBatch(worker1), dequeueOneBatch(worker2)])
 
@@ -3250,6 +3251,82 @@ describe('Cyclotron V2', () => {
             await dequeueOneBatch(createWorker())
 
             expect((await churnCountForQueue(QUEUE)) - before).toBe(expected)
+        })
+    })
+
+    describe('Hogflow team-fair dequeue', () => {
+        const HOGFLOW_QUEUE = 'hogflow'
+        const BIG_TEAM = 100
+        const SMALL_TEAM = 200
+
+        const secondsAgo = (seconds: number): Date => new Date(Date.now() - seconds * 1000)
+        const dueJobs = (teamId: number, priority: number, count: number): CyclotronV2JobInit[] =>
+            Array.from({ length: count }, (_, i) => ({
+                teamId,
+                queueName: HOGFLOW_QUEUE,
+                priority,
+                scheduled: secondsAgo(60 + count - i),
+            }))
+        const createFairWorker = (overrides: Record<string, unknown>): CyclotronV2Worker =>
+            createWorker(HOGFLOW_QUEUE, { teamFairDequeue: true, ...overrides })
+
+        it.each([
+            {
+                label: "another team's run behind one team's backlog",
+                backlog: dueJobs(BIG_TEAM, 1, 10),
+                waiting: { teamId: SMALL_TEAM, priority: 1 },
+                teamFairDequeue: true,
+                claimed: true,
+            },
+            {
+                label: 'a broadcast child behind event-triggered runs',
+                backlog: dueJobs(BIG_TEAM, 1, 10),
+                waiting: { teamId: SMALL_TEAM, priority: 2 },
+                teamFairDequeue: true,
+                claimed: true,
+            },
+            {
+                label: "a team's event-triggered run behind its own broadcast",
+                backlog: dueJobs(BIG_TEAM, 2, 10),
+                waiting: { teamId: BIG_TEAM, priority: 1 },
+                teamFairDequeue: true,
+                claimed: true,
+            },
+            {
+                label: "another team's run behind one team's backlog with the switch off",
+                backlog: dueJobs(BIG_TEAM, 1, 10),
+                waiting: { teamId: SMALL_TEAM, priority: 1 },
+                teamFairDequeue: false,
+                claimed: false,
+            },
+        ])(
+            'claims $label in the first full batch: $claimed',
+            async ({ backlog, waiting, teamFairDequeue, claimed }) => {
+                await manager.bulkCreateJobs(backlog)
+                const [waitingId] = await manager.bulkCreateJobs([
+                    { ...waiting, queueName: HOGFLOW_QUEUE, scheduled: secondsAgo(1) },
+                ])
+
+                const batch = await dequeueOneBatch(createFairWorker({ batchMaxSize: 4, teamFairDequeue }))
+
+                expect(batch).toHaveLength(4)
+                expect(batch.map((j) => j.id).includes(waitingId)).toBe(claimed)
+            }
+        )
+
+        it.each([
+            ['every due row fits in the batch', 10, 3, 4],
+            ['a team has less than its share of the batch', 6, 10, 6],
+        ])('fills the batch from due rows when %s', async (_label, batchMaxSize, bigTeamJobs, expected) => {
+            await manager.bulkCreateJobs([...dueJobs(BIG_TEAM, 1, bigTeamJobs), ...dueJobs(SMALL_TEAM, 1, 1)])
+            const [laterId] = await manager.bulkCreateJobs([
+                { teamId: SMALL_TEAM, queueName: HOGFLOW_QUEUE, scheduled: new Date(Date.now() + 60_000) },
+            ])
+
+            const batch = await dequeueOneBatch(createFairWorker({ batchMaxSize }))
+
+            expect(batch).toHaveLength(expected)
+            expect(batch.map((j) => j.id)).not.toContain(laterId)
         })
     })
 
@@ -3368,6 +3445,19 @@ describe('Cyclotron V2', () => {
                 async (dbUrl) => {
                     const { polled, markPolled } = pollSignal()
                     await pollOnce(createWorker('hogflow', { pool: { dbUrl }, boundedPolls: false }), polled, () =>
+                        Promise.resolve(markPolled())
+                    )
+                },
+            ],
+            [
+                'the hogflow team-fair dequeue',
+                'hogflow',
+                0,
+                BACKLOG_BUFFER_BUDGET,
+                PARAMETERIZED_SQL_PLANS,
+                async (dbUrl) => {
+                    const { polled, markPolled } = pollSignal()
+                    await pollOnce(createWorker('hogflow', { pool: { dbUrl }, teamFairDequeue: true }), polled, () =>
                         Promise.resolve(markPolled())
                     )
                 },

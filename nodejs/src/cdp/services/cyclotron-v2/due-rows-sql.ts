@@ -71,6 +71,107 @@ ${CLAIM_UPDATE}
 WHERE cyclotron_jobs.id = ANY(ARRAY(SELECT id FROM available))
 ${CLAIM_RETURNING}`
 
+// A lane is one team's rows at one priority. A backed-up poll walks at most this many lanes.
+export const TEAM_FAIR_LANE_WALK_CAP = 1000
+
+// When more rows are due than one batch holds, every due lane gets an equal share of the batch,
+// and leftover room goes to the oldest due rows. So one team's backlog can't hold back another
+// team's runs, and a team's broadcast children (priority 2) and its event-triggered runs
+// (priority 1) can't hold back each other. The lane parts name the queue as a literal so a
+// generic plan still matches the partial index idx_cyclotron_jobs_hogflow_team_fair_dequeue.
+export const HOGFLOW_TEAM_FAIR_DEQUEUE_SQL = `WITH RECURSIVE ${PRIORITY_CLASSES_CTE},
+due AS MATERIALIZED (
+    SELECT due.id
+    FROM (SELECT priority FROM priority_classes ORDER BY priority ASC) c
+    CROSS JOIN LATERAL (
+        SELECT j.id FROM cyclotron_jobs j
+        WHERE j.status = 'available' AND j.queue_name = $1 AND j.priority = c.priority AND j.scheduled <= NOW()
+        ORDER BY j.scheduled ASC
+        LIMIT $2::int + 1
+    ) due
+    LIMIT $2::int + 1
+),
+backed_up AS MATERIALIZED (
+    SELECT COUNT(*) > $2::int AS more_due_than_batch FROM due
+),
+lanes AS (
+    (SELECT priority, team_id FROM cyclotron_jobs
+     WHERE (SELECT more_due_than_batch FROM backed_up)
+       AND status = 'available' AND queue_name = 'hogflow'
+     ORDER BY priority ASC, team_id ASC
+     LIMIT 1)
+    UNION ALL
+    SELECT next_lane.priority, next_lane.team_id
+    FROM lanes l
+    CROSS JOIN LATERAL (
+        SELECT j.priority, j.team_id FROM cyclotron_jobs j
+        WHERE j.status = 'available' AND j.queue_name = 'hogflow'
+          AND (j.priority, j.team_id) > (l.priority, l.team_id)
+        ORDER BY j.priority ASC, j.team_id ASC
+        LIMIT 1
+    ) next_lane
+),
+due_lanes AS MATERIALIZED (
+    SELECT l.priority, l.team_id
+    FROM (SELECT priority, team_id FROM lanes LIMIT ${TEAM_FAIR_LANE_WALK_CAP}) l
+    WHERE EXISTS (
+        SELECT 1 FROM cyclotron_jobs j
+        WHERE j.status = 'available' AND j.queue_name = 'hogflow'
+          AND j.priority = l.priority AND j.team_id = l.team_id AND j.scheduled <= NOW()
+    )
+),
+lane_share AS MATERIALIZED (
+    SELECT CEIL($2::int::numeric / GREATEST(COUNT(*), 1))::int AS rows_per_lane FROM due_lanes
+),
+lane_heads AS MATERIALIZED (
+    SELECT head.id, head.lane_rank, l.priority, head.scheduled
+    FROM due_lanes l
+    CROSS JOIN LATERAL (
+        SELECT oldest.id, oldest.scheduled, ROW_NUMBER() OVER (ORDER BY oldest.scheduled ASC) AS lane_rank
+        FROM (
+            SELECT j.id, j.scheduled FROM cyclotron_jobs j
+            WHERE j.status = 'available' AND j.queue_name = 'hogflow'
+              AND j.priority = l.priority AND j.team_id = l.team_id AND j.scheduled <= NOW()
+            ORDER BY j.scheduled ASC
+            LIMIT (SELECT rows_per_lane FROM lane_share)
+        ) oldest
+    ) head
+),
+claim_due AS (
+    SELECT j.id FROM due d
+    JOIN cyclotron_jobs j ON j.id = d.id
+    WHERE NOT (SELECT more_due_than_batch FROM backed_up)
+      AND j.status = 'available' AND j.queue_name = $1 AND j.scheduled <= NOW()
+    FOR UPDATE OF j SKIP LOCKED
+),
+claim_lanes AS MATERIALIZED (
+    SELECT j.id FROM lane_heads h
+    JOIN cyclotron_jobs j ON j.id = h.id
+    WHERE j.status = 'available' AND j.queue_name = $1 AND j.scheduled <= NOW()
+    ORDER BY h.lane_rank ASC, h.priority ASC, h.scheduled ASC
+    LIMIT $2::int
+    FOR UPDATE OF j SKIP LOCKED
+),
+claim_rest AS (
+    SELECT rest.id
+    FROM (SELECT priority FROM priority_classes ORDER BY priority ASC) c
+    CROSS JOIN LATERAL (
+        SELECT j.id FROM cyclotron_jobs j
+        WHERE (SELECT more_due_than_batch FROM backed_up)
+          AND j.status = 'available' AND j.queue_name = $1 AND j.priority = c.priority AND j.scheduled <= NOW()
+          AND j.id <> ALL(ARRAY(SELECT id FROM claim_lanes))
+        ORDER BY j.scheduled ASC
+        LIMIT $2::int
+        FOR UPDATE SKIP LOCKED
+    ) rest
+    LIMIT GREATEST($2::int - (SELECT COUNT(*) FROM claim_lanes), 0)
+)
+${CLAIM_UPDATE}
+WHERE cyclotron_jobs.id = ANY(ARRAY(
+    SELECT id FROM claim_due UNION ALL SELECT id FROM claim_lanes UNION ALL SELECT id FROM claim_rest
+))
+${CLAIM_RETURNING}`
+
 const QUEUE_CLASSES_CTE = `queue_classes AS (
     (SELECT queue_name, priority FROM cyclotron_jobs
      WHERE status = 'available'

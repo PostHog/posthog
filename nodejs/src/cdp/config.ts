@@ -73,6 +73,8 @@ export type CdpConfig = ClickhouseConfig & {
     CDP_CYCLOTRON_BOUNDED_POLLS: boolean
     CDP_HOGFLOW_BROADCAST_LOW_PRIORITY: boolean
     CDP_CYCLOTRON_BOUNDED_FAIR_DEQUEUE: boolean
+    // Needs idx_cyclotron_jobs_hogflow_team_fair_dequeue: without it, every backed-up poll walks the hogflow rows.
+    CDP_CYCLOTRON_HOGFLOW_TEAM_FAIR_DEQUEUE: boolean
     CDP_CYCLOTRON_HEARTBEAT_INTERVAL_MS: number
     CDP_CYCLOTRON_INSERT_MAX_BATCH_SIZE: number
     CDP_CYCLOTRON_INSERT_PARALLEL_BATCHES: boolean
@@ -405,6 +407,7 @@ export function getDefaultCdpConfig(): CdpConfig {
         CDP_CYCLOTRON_BOUNDED_POLLS: true,
         CDP_HOGFLOW_BROADCAST_LOW_PRIORITY: false,
         CDP_CYCLOTRON_BOUNDED_FAIR_DEQUEUE: false,
+        CDP_CYCLOTRON_HOGFLOW_TEAM_FAIR_DEQUEUE: false,
         CDP_CYCLOTRON_HEARTBEAT_INTERVAL_MS: 10000,
         CDP_CYCLOTRON_INSERT_MAX_BATCH_SIZE: 100,
         CDP_CYCLOTRON_INSERT_PARALLEL_BATCHES: true,

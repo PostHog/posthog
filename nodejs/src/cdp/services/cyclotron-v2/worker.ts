@@ -9,6 +9,7 @@ import {
     COUNT_WORK_SQL,
     DEQUEUE_JOBS_SQL,
     FAIR_DEQUEUE_JOBS_SQL,
+    HOGFLOW_TEAM_FAIR_DEQUEUE_SQL,
     LEGACY_COUNT_WORK_SQL,
     LEGACY_DEQUEUE_JOBS_SQL,
     LEGACY_FAIR_DEQUEUE_JOBS_SQL,
@@ -341,6 +342,7 @@ export class CyclotronV2Worker {
     private readonly boundedPolls: boolean
     private readonly ownershipReadTimeoutMs: number
     private readonly boundedFairDequeue: boolean
+    private readonly teamFairDequeue: boolean
     private readonly assignEmailDequeueSeq: (teamId: number) => Promise<string>
     private readonly releaseRetrySlots: ReleaseRetrySlots
 
@@ -373,6 +375,7 @@ export class CyclotronV2Worker {
         this.boundedPolls = config.queueName === 'hogflow' || (config.boundedPolls ?? false)
         this.ownershipReadTimeoutMs = config.ownershipReadTimeoutMs ?? 5_000
         this.boundedFairDequeue = config.boundedFairDequeue ?? false
+        this.teamFairDequeue = config.queueName === 'hogflow' && (config.teamFairDequeue ?? false)
         // Fair (per-team round-robin) dequeue is the email queue's ordering.
         // `dequeue_seq` is only ever assigned for email jobs (see
         // CyclotronV2Manager), so deriving this from the queue name keeps the
@@ -482,7 +485,11 @@ export class CyclotronV2Worker {
     protected async dequeueJobs(limit: number = this.batchMaxSize): Promise<RawJobRow[]> {
         const lockId = uuidv7()
         const result = await this.pool.query<RawJobRow>(
-            this.boundedPolls ? DEQUEUE_JOBS_SQL : LEGACY_DEQUEUE_JOBS_SQL,
+            this.teamFairDequeue
+                ? HOGFLOW_TEAM_FAIR_DEQUEUE_SQL
+                : this.boundedPolls
+                  ? DEQUEUE_JOBS_SQL
+                  : LEGACY_DEQUEUE_JOBS_SQL,
             [this.config.queueName, limit, lockId]
         )
         // UPDATE...RETURNING doesn't preserve the CTE's ORDER BY,
