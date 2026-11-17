@@ -220,23 +220,31 @@ test.describe('Message preferences page', () => {
                     { times: 1 }
                 )
                 await expect(successToast).toHaveCount(0)
+                // Messages leave on a timer, so a paused clock keeps them on screen for the checks below
+                await recipientPage.clock.install()
+                await recipientPage.clock.pauseAt(Date.now() + 1000)
                 await productNews.click()
                 const messages = recipientPage.getByRole('status')
                 const saved = messages.getByText('Preferences updated successfully')
                 const unconfirmed = messages.getByText("Couldn't confirm your preferences.", { exact: false })
                 await expect(saved).toBeVisible()
                 await expect(unconfirmed).toBeVisible()
+                // Messages slide in on the next animation frame
+                await recipientPage.clock.runFor(100)
                 const [savedBox, unconfirmedBox] = await Promise.all([saved.boundingBox(), unconfirmed.boundingBox()])
                 expect(unconfirmedBox!.y).toBeGreaterThanOrEqual(savedBox!.y + savedBox!.height)
+                await expect(status(productNewsId)).toHaveText('Not subscribed')
+                await expect(productNews).not.toBeChecked()
 
-                // Stacked messages can cover a switch while they show, so a click there must still reach it.
+                // Stacked messages can cover a switch, so a click there must still reach it.
                 // A shorter window lets the page scroll a switch under them.
                 await recipientPage.setViewportSize({ width: 1280, height: 400 })
                 await eventInvites.evaluate(
                     (toggle, top) => window.scrollBy(0, toggle.getBoundingClientRect().top - top),
                     unconfirmedBox!.y + 8
                 )
-                const switchUnderMessages = (): Promise<string> =>
+                // A message slides in, so it covers the switch only once it settles
+                const switchUnderMessages = (): Promise<{ x: number; y: number } | null> =>
                     eventInvites.evaluate((toggle) => {
                         const box = toggle.getBoundingClientRect()
                         const [x, y] = [box.x + box.width / 2, box.y + box.height / 2]
@@ -244,20 +252,18 @@ test.describe('Message preferences page', () => {
                             const area = toast.getBoundingClientRect()
                             return x >= area.left && x <= area.right && y >= area.top && y <= area.bottom
                         })
-                        if (!covered) {
-                            return 'not covered'
-                        }
-                        return document.elementFromPoint(x, y) === toggle ? 'clickable' : 'blocked'
+                        return covered ? { x, y } : null
                     })
-                // A message slides in, so it covers the switch only once it settles
-                await expect.poll(switchUnderMessages).not.toBe('not covered')
-                expect(await switchUnderMessages()).toBe('clickable')
-                await expect(status(productNewsId)).toHaveText('Not subscribed')
-                await expect(productNews).not.toBeChecked()
+                await expect.poll(switchUnderMessages).not.toBeNull()
+                // A mouse click lands where the recipient points; a locator click would scroll the switch clear
+                const point = await switchUnderMessages()
+                await recipientPage.mouse.click(point!.x, point!.y)
+                await expect(status(eventInvitesId)).toHaveText('Subscribed')
+                await expect(eventInvites).toBeChecked()
                 expect(await storedPreferences('product_news')).toEqual({
                     $all: 'OPTED_IN',
                     [productNewsId]: 'OPTED_OUT',
-                    [eventInvitesId]: 'OPTED_OUT',
+                    [eventInvitesId]: 'OPTED_IN',
                 })
             })
         } finally {
