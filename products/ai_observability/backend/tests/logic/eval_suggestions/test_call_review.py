@@ -164,15 +164,56 @@ def test_the_rendering_fills_its_bound_and_shows_each_system_prompt_once(_name: 
     bound = call_review.RENDERED_CHARS_PER_CALL * review_calls
     assert 0.9 * bound < len(rendering.text) <= bound
     assert rendering.text.count("SYSTEM-MARKER") == 2
+    counts = Counter(call.call_type for call in rendering.calls.values())
+    assert abs(counts[SUPPORT.key] - counts[ROUTER.key]) <= 1
+    assert sum(counts.values()) < review_calls
+    assert all(len(text) > 3500 for text in re.findall(r"<call_input>\n(.*?)\n</call_input>", rendering.text, re.S))
+    rendered_rows = [call.row for call in rendering.calls.values()]
     assert rendering.trace_ids == {
-        key: {call.trace_id for call in calls if call.call_type == key} for key in (SUPPORT.key, ROUTER.key)
-    }
-    assert Counter(call.call_type for call in rendering.calls.values()) == {
-        SUPPORT.key: review_calls // 2,
-        ROUTER.key: review_calls // 2,
+        key: {row.trace_id for row in rendered_rows if row.call_type == key} for key in (SUPPORT.key, ROUTER.key)
     }
     # Each call keeps its stored row, so a judge drafted from it reads the whole call.
     assert rendering.calls[1].row == rows[0]
+
+
+@parameterized.expand(
+    [
+        ("long_calls", None, "Account note. " * 1800, (call_review.MIN_CALLS_PER_CALL_TYPE + 1, 59), (5000, 12000)),
+        ("moderate_calls", "Account note. " * 170, "Account note. " * 170, (60, 60), (1600, 2000)),
+    ]
+)
+def test_the_budget_goes_by_need(
+    _name: str,
+    support_body: str | None,
+    advisor_body: str,
+    advisor_calls: tuple[int, int],
+    profile_chars: tuple[int, int],
+) -> None:
+    advisor = CallTypeRow(source="prompt_name", name="advisor", calls=300, model="gpt-5-mini", example_input="[]")
+    rows = [
+        _row(
+            call_type,
+            f"{call_type.name}-{i}",
+            f"{call_type.name}-trace-{i}",
+            input=[{"role": "user", "content": f"PROFILE-START {body}QUESTION-END"}] if body else None,
+        )
+        for call_type, body in ((SUPPORT, support_body), (advisor, advisor_body))
+        for i in range(60)
+    ]
+    calls = call_review.select_calls(rows)
+
+    rendering = call_review.render([SUPPORT, advisor], calls)
+
+    assert len(rendering.text) <= call_review.RENDERED_CHARS_PER_CALL * call_review.REVIEW_CALLS
+    counts = Counter(call.call_type for call in rendering.calls.values())
+    assert counts[SUPPORT.key] == 60
+    assert advisor_calls[0] <= counts[advisor.key] <= advisor_calls[1]
+    inputs = re.findall(r"<call_input>\n(.*?)\n</call_input>", rendering.text, re.S)
+    assert len(inputs) == sum(counts.values())
+    profiles = [text for text in inputs if text.startswith("user: PROFILE-START")]
+    assert all(text == "user: Where is my refund?" for text in inputs if text not in profiles)
+    assert all(profile_chars[0] < len(text) < profile_chars[1] for text in profiles)
+    assert all(text.endswith("QUESTION-END") for text in profiles)
 
 
 @parameterized.expand(

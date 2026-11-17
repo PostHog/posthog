@@ -10,7 +10,7 @@ import re
 import html
 import json
 import time
-from collections import defaultdict
+from collections import Counter, defaultdict
 from collections.abc import Sequence
 from typing import Any, Literal
 
@@ -43,8 +43,17 @@ RENDERED_CHARS_PER_CALL = 2000
 MAX_SYSTEM_PROMPT_CHARS = 8000
 # A call whose system prompt differs from its call type's first one shows this much of its own.
 MAX_OTHER_SYSTEM_PROMPT_CHARS = 1000
-MAX_CALL_INPUT_CHARS = 3000
+# A long input keeps about its first 4,000 and last 8,000 characters, enough to hold the user's profile and question
+# when tens of thousands of characters of context sit between them.
+MAX_CALL_INPUT_CHARS = 12000
 MAX_CALL_OUTPUT_CHARS = 3000
+# A call that needs more than this much of its input and output together shows at least this much. When the budget
+# cannot give every such call that much, the review reads fewer of them instead of a short clip of each one.
+MIN_CALL_CHARS = 6000
+# Calls are dropped from a call type only while it keeps more than this many: a card needs MIN_CARD_FAILURES fails
+# and judge_calibration.MIN_JUDGED_PASSES passes. judge_calibration imports this module, so the sum is written out.
+MIN_CALLS_PER_CALL_TYPE = 8
+CLIP_MARKER_CHARS = 40
 MAX_TITLE_CHARS = 80
 MAX_EARLIER_CARDS = 10
 REVIEW_TEMPLATE_KEY = "review"
@@ -438,11 +447,13 @@ def select_calls(
 
 
 def _clip(text: str, limit: int) -> str:
-    """The head and the tail of `text` within `limit` characters. The tail is longer, since it holds the latest turn."""
+    """The head and the tail of `text` within `limit` characters, the cut marker included. The tail is longer, since
+    it holds the latest turn."""
     if len(text) <= limit:
         return text
-    head = limit // 3
-    return f"{text[:head]}\n[... {len(text) - limit:,} characters cut ...]\n{text[len(text) - (limit - head) :]}"
+    kept = max(limit - CLIP_MARKER_CHARS, 0)
+    head = kept // 3
+    return f"{text[:head]}\n[... {len(text) - kept:,} characters cut ...]\n{text[len(text) - (kept - head) :]}"
 
 
 def _data(text: str) -> str:
@@ -502,6 +513,32 @@ def _earlier_cards(
     return tags, keys
 
 
+def _call_block(number: int, type_id: str, call: SampledCall, own_system: str, conversation: str, output: str) -> str:
+    system = (
+        f"Its own system prompt, which differs from {type_id}'s:\n"
+        f"{_tagged('system_prompt', _clip(own_system, MAX_OTHER_SYSTEM_PROMPT_CHARS))}\n"
+        if own_system
+        else ""
+    )
+    return (
+        f'\n<call number="{number}" type="{type_id}" trace="{_attribute(call.trace_id)}">\n{system}'
+        f"{_tagged('call_input', conversation)}\n"
+        f"{_tagged('call_output', output)}\n</call>"
+    )
+
+
+def _shares(needs: Sequence[int], budget: int) -> list[int]:
+    """Max-min fair shares of `budget`: a need below the equal share is met in full, and what it leaves goes to the
+    larger needs in equal parts."""
+    shares = [0] * len(needs)
+    left = max(budget, 0)
+    order = sorted(range(len(needs)), key=needs.__getitem__)
+    for position, index in enumerate(order):
+        shares[index] = min(needs[index], left // (len(order) - position))
+        left -= shares[index]
+    return shares
+
+
 def render(
     call_types: Sequence[CallTypeRow],
     calls: Sequence[SampledCall],
@@ -509,8 +546,9 @@ def render(
     earlier: Sequence[EarlierCard] = (),
 ) -> Rendering:
     """The calls as the review model reads them. Each call type's system prompt appears once, and the text stays
-    within RENDERED_CHARS_PER_CALL for each of `review_calls` calls: each call gets an equal part of what the system
-    prompts leave, and the last calls drop when the headings still push the text over."""
+    within RENDERED_CHARS_PER_CALL for each of `review_calls` calls. Calls drop from the call types that claim the
+    most text until each kept call that needs more than MIN_CALL_CHARS can show that much. The kept calls then share
+    what the headings leave by need, so a short call shows whole and a long one takes what the short ones leave."""
     max_chars = RENDERED_CHARS_PER_CALL * review_calls
     ids = {call_type.key: f"T{index}" for index, call_type in enumerate(call_types, start=1)}
     systems: dict[str, str] = {}
@@ -527,36 +565,72 @@ def render(
         header.extend(["\n# Earlier cards", *earlier_tags])
     header.append("\n# Calls")
     head = "\n".join(header)
-    per_call = (max_chars - len(head)) // max(len(calls), 1)
-    input_chars = min(MAX_CALL_INPUT_CHARS, per_call * 2 // 5)
-    output_chars = max(200, min(MAX_CALL_OUTPUT_CHARS, per_call - input_chars - 200))
+    budget = max_chars - len(head)
+
+    type_ids = [ids.get(call.call_type, "T?") for call in calls]
+    own_systems = [call.system if call.system != systems.get(call.call_type) else "" for call in calls]
+    overheads = [
+        len(_call_block(len(calls), type_id, call, own_system, "", "")) + 1
+        for call, type_id, own_system in zip(calls, type_ids, own_systems)
+    ]
+    input_needs = [min(len(call.conversation), MAX_CALL_INPUT_CHARS) for call in calls]
+    output_needs = [min(len(call.output), MAX_CALL_OUTPUT_CHARS) for call in calls]
+    # Only a call that needs more than MIN_CALL_CHARS is owed that much. Shorter calls compete in the shares, so
+    # calls drop only to let long calls reach MIN_CALL_CHARS, and a team of moderate calls keeps every one.
+    floors = [
+        (MIN_CALL_CHARS if input_need + output_need > MIN_CALL_CHARS else 0) + overhead
+        for input_need, output_need, overhead in zip(input_needs, output_needs, overheads)
+    ]
+
+    kept = list(range(len(calls)))
+    counts: Counter[str] = Counter(call.call_type for call in calls)
+    claimed: defaultdict[str, int] = defaultdict(int)
+    for call, floor in zip(calls, floors):
+        claimed[call.call_type] += floor
+    while sum(floors[index] for index in kept) > budget:
+        droppable = [key for key, count in counts.items() if count > MIN_CALLS_PER_CALL_TYPE]
+        if not droppable:
+            break
+        key = max(droppable, key=claimed.__getitem__)
+        # The longest call frees the most room. Among equals the latest goes, as select_calls ranks calls.
+        index = max((index for index in reversed(kept) if calls[index].call_type == key), key=floors.__getitem__)
+        kept.remove(index)
+        counts[key] -= 1
+        claimed[key] -= floors[index]
+
+    shares = _shares(
+        [input_needs[index] + output_needs[index] for index in kept],
+        budget - sum(overheads[index] for index in kept),
+    )
     blocks = []
-    for number, call in enumerate(calls, start=1):
-        type_id = ids.get(call.call_type, "T?")
-        own_system = call.system if call.system != systems.get(call.call_type) else ""
-        system = (
-            f"Its own system prompt, which differs from {type_id}'s:\n"
-            f"{_tagged('system_prompt', _clip(own_system, MAX_OTHER_SYSTEM_PROMPT_CHARS))}\n"
-            if own_system
-            else ""
-        )
+    for number, (index, share) in enumerate(zip(kept, shares), start=1):
+        # The output takes at least a third of the share, so a long input cannot crowd out the answer being judged.
+        output_chars = min(output_needs[index], max(share - input_needs[index], share // 3))
+        call = calls[index]
         blocks.append(
-            f'\n<call number="{number}" type="{type_id}" trace="{_attribute(call.trace_id)}">\n{system}'
-            f"{_tagged('call_input', _clip(call.conversation, input_chars))}\n"
-            f"{_tagged('call_output', _clip(call.output, output_chars))}\n</call>"
+            _call_block(
+                number,
+                type_ids[index],
+                call,
+                own_systems[index],
+                _clip(call.conversation, share - output_chars),
+                _clip(call.output, output_chars),
+            )
         )
+    # Escaping can lengthen a call past its share, so the last calls drop if the text still runs over.
     while blocks and len(head) + sum(len(block) + 1 for block in blocks) > max_chars:
         blocks.pop()
-    kept = calls[: len(blocks)]
+    rendered = [calls[index] for index in kept[: len(blocks)]]
     traces: defaultdict[str, set[str]] = defaultdict(set)
-    for call in kept:
+    for call in rendered:
         traces[call.call_type].add(call.trace_id)
     return Rendering(
         text="\n".join([head, *blocks]),
         call_types={ids[call_type.key]: call_type for call_type in call_types},
         trace_ids={key: frozenset(trace_ids) for key, trace_ids in traces.items()},
         calls={
-            number: RenderedCall(call_type=call.call_type, row=call.row) for number, call in enumerate(kept, start=1)
+            number: RenderedCall(call_type=call.call_type, row=call.row)
+            for number, call in enumerate(rendered, start=1)
         },
         earlier_cards=earlier_keys,
     )
