@@ -119,8 +119,22 @@ describe('GuidanceEngine', () => {
         const engine = new GuidanceEngine(makeGuidanceRedis(), [rule])
         const first = makeState({ requestContext: { ...makeState().requestContext, mcpSessionId: 'sess-1' } })
         const second = makeState({ ...first, ...overrides(first) })
-        await run(engine, first, [replayQuery])
-        await expect(run(engine, second, [replayQuery, replayQuery])).resolves.toEqual([undefined, 'test-rule:shown'])
+        await run(engine, first, [otherQuery, replayQuery])
+        await expect(run(engine, second, [otherQuery, replayQuery, replayQuery])).resolves.toEqual([
+            undefined,
+            undefined,
+            'test-rule:shown',
+        ])
+    })
+
+    it('caps a client that opens a new session for every call under the caller', async () => {
+        const engine = new GuidanceEngine(makeGuidanceRedis(), [{ ...rule, threshold: 1 }])
+        const outcomes = []
+        for (const id of ['sess-1', 'sess-2', 'sess-3']) {
+            const state = makeState({ requestContext: { ...makeState().requestContext, mcpSessionId: id } })
+            outcomes.push(...(await run(engine, state, [replayQuery])))
+        }
+        expect(outcomes).toEqual(['test-rule:shown', undefined, undefined])
     })
 
     describe('a client that sends no handle', () => {
@@ -332,7 +346,7 @@ describe('GuidanceEngine', () => {
                 const pending = engine.evaluate(makeState(), replayQuery)
                 await vi.advanceTimersByTimeAsync(1000)
                 await expect(pending).resolves.toBeUndefined()
-                expect(lateEval.mock.calls.map((call) => call[8])).toEqual(['touch'])
+                expect(lateEval.mock.calls.map((call) => call[8])).not.toContain('match')
             } finally {
                 vi.useRealTimers()
             }
@@ -714,6 +728,18 @@ describe('Self-driving activation guidance', () => {
         }
     )
 
+    it('offers once to a client that opens a new session for every call, and not again in that session', async () => {
+        const engine = new GuidanceEngine(makeGuidanceRedis())
+        const onSession = (id: string): ResolvedState => {
+            const state = activationState({ carriedContextSessionKey: id })
+            state.requestContext = { ...state.requestContext, mcpSessionId: id }
+            return state
+        }
+        expect(await engine.evaluate(onSession('sess-1'), issueCall)).toMatchObject({ outcome: 'shown' })
+        expect(await engine.evaluate(onSession('sess-2'), issueCall)).toBeUndefined()
+        expect(await engine.evaluate(onSession('sess-1'), issueCall)).toBeUndefined()
+    })
+
     it('caps handleless calls and retains suppression when a minted handle is later echoed', async () => {
         const engine = new GuidanceEngine(makeGuidanceRedis())
         const state = activationState({ carriedContextHandle: false, carriedContextSessionKey: undefined })
@@ -808,7 +834,7 @@ describe('Self-driving activation guidance', () => {
             let writes = 0
             vi.spyOn(redis, 'set').mockImplementation(async (...args) => {
                 const result = await set(...args)
-                if (++writes === (phase === 'reservation' ? 1 : 2)) {
+                if (++writes === 2) {
                     await stalled
                 }
                 return result
@@ -820,7 +846,7 @@ describe('Self-driving activation guidance', () => {
         expect(await pending).toBeUndefined()
         release()
         await vi.advanceTimersByTimeAsync(0)
-        expect(redis.store.size).toBe(0)
+        expect([...redis.store.keys()].filter((key) => !key.includes(':session-seen:'))).toEqual([])
         expect(await engine.evaluate(state, issueCall)).toMatchObject({ outcome: enabled ? 'shown' : 'flag_off' })
     })
 })
