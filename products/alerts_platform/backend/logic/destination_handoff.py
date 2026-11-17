@@ -12,7 +12,7 @@ PagerDuty destination to a routed receiver with the same integration key moves n
 
 import json
 import uuid
-from collections.abc import Collection, Mapping, Sequence
+from collections.abc import Callable, Collection, Mapping, Sequence
 from dataclasses import replace
 from datetime import datetime
 from typing import Final, cast
@@ -61,6 +61,14 @@ logger = structlog.get_logger(__name__)
 MAX_SENDS_PER_HANDOFF: Final = 10
 # Resolves one edit sends from its own web request, so a large edit cannot hold a web worker for minutes.
 MAX_INLINE_RESOLVES_PER_EDIT: Final = 20
+
+
+@frozen
+class _InlineResolve:
+    send: HandoffSend
+    data: AlertDestinationData
+    # Whether the destination's row still holds this address, so a workflow can read it by id.
+    readable_by_id: bool
 
 
 class _InlineBudget:
@@ -216,7 +224,7 @@ def _schedule(
     # later edit can delete or repoint the row before a workflow would read it by id, and the settings
     # carry a credential, so they never go on a workflow's payload. Past the budget, a resolve goes
     # through the workflow by id, which a row deleted in that window loses.
-    inline: list[tuple[HandoffSend, AlertDestinationData]] = []
+    inline: list[_InlineResolve] = []
     stranded = 0
     lost: list[tuple[HandoffSend, _Endpoint, bool]] = []
     for key, group in firing.items():
@@ -232,7 +240,7 @@ def _schedule(
     for send, endpoint, still_there in sorted(lost, key=lambda item: item[2]):
         if budget.remaining > 0:
             budget.remaining -= 1
-            inline.append((send, endpoint.data))
+            inline.append(_InlineResolve(send=send, data=endpoint.data, readable_by_id=still_there))
         elif still_there:
             queued.append(send)
         else:
@@ -243,7 +251,7 @@ def _schedule(
         )
     if not queued and not inline:
         return
-    request = _request(configuration, queued or [send for send, _ in inline])
+    request = _request(configuration, queued or [resolve.send for resolve in inline])
     gained = sum(send.gained for send in queued)
     logger.info(
         "alerts_platform_handoff_scheduled",
@@ -257,7 +265,7 @@ def _schedule(
 def _send(
     request: AlertDeliveryRequest,
     queued: list[HandoffSend],
-    inline: list[tuple[HandoffSend, AlertDestinationData]],
+    inline: list[_InlineResolve],
 ) -> None:
     # Imported here because this module loads in processes that never send, and the sender loads the
     # Temporal client and every transport.
@@ -269,20 +277,30 @@ def _send(
         hand_over,
     )
 
-    if inline:
-        try:
-            send_handoff(
-                _with_sends(request, [send for send, _ in inline]),
-                [HandoffTarget(send=send, data=data) for send, data in inline],
-            )
-        except Exception as error:
-            # The edit stands. A resolve that failed leaves the incident open, which error tracking shows.
-            capture_exception(error, {"configuration_id": request.configuration_id})
+    # Started first, so the inline sends below never hold back a new destination's page.
+    _hand_over_in_parts(request, queued, hand_over)
+    if not inline:
+        return
+    inline_request = _with_sends(request, [resolve.send for resolve in inline])
+    try:
+        send_handoff(inline_request, [HandoffTarget(send=resolve.send, data=resolve.data) for resolve in inline])
+    except Exception as error:
+        capture_exception(error, {"configuration_id": request.configuration_id})
+        # A held thread or a provider error gets the workflow's retries where the row still holds this
+        # destination. Under the same evaluation key, the thread claims skip the resolves that did land.
+        retry = [resolve.send for resolve in inline if resolve.readable_by_id]
+        if retry:
+            hand_over(_with_sends(inline_request, retry))
+
+
+def _hand_over_in_parts(
+    request: AlertDeliveryRequest, sends: list[HandoffSend], hand_over: Callable[[AlertDeliveryRequest], None]
+) -> None:
     # In parts, so each fits one delivery attempt's deadline and the payload stays small however many
     # groups and receivers an edit moves.
-    for start in range(0, len(queued), MAX_SENDS_PER_HANDOFF):
+    for start in range(0, len(sends), MAX_SENDS_PER_HANDOFF):
         part = replace(request, evaluation_key=f"{request.evaluation_key}:{start // MAX_SENDS_PER_HANDOFF}")
-        hand_over(_with_sends(part, queued[start : start + MAX_SENDS_PER_HANDOFF]))
+        hand_over(_with_sends(part, sends[start : start + MAX_SENDS_PER_HANDOFF]))
 
 
 def _with_sends(request: AlertDeliveryRequest, sends: list[HandoffSend]) -> AlertDeliveryRequest:

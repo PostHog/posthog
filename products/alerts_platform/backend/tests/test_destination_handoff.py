@@ -11,8 +11,9 @@ from parameterized import parameterized
 
 from posthog.models.scoping import team_scope
 
-from products.alerts_platform.backend.delivery import evaluation
+from products.alerts_platform.backend.delivery import evaluation, handoff
 from products.alerts_platform.backend.delivery.handoff import deliver_handoff
+from products.alerts_platform.backend.delivery.thread_store import ThreadBusy
 from products.alerts_platform.backend.delivery.transport import DeliveryError
 from products.alerts_platform.backend.facade import api as platform_api
 from products.alerts_platform.backend.facade.contracts import (
@@ -352,3 +353,22 @@ class TestDestinationHandoff(ClickhouseTestMixin, APIBaseTest):
             cast(Callable[[str], None], getattr(self, edit))("pagerduty")
 
         assert self._sends() == sorted(expected, key=str)
+
+    def test_an_inline_resolve_that_fails_is_retried_through_the_workflow(self) -> None:
+        real_send = handoff.send_handoff
+        failed: list[bool] = []
+
+        def held_once(request: AlertDeliveryRequest, targets: Any) -> int:
+            if not failed and not any(send.gained for send in request.handoff):
+                failed.append(True)
+                raise ThreadBusy("held by the opening trigger")
+            return real_send(request, targets)
+
+        with (
+            patch.object(handoff, "send_handoff", side_effect=held_once),
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            self._route_edit("pagerduty")
+
+        assert failed == [True]
+        assert self._sends() == sorted([self._TRIGGER_NEW, self._RESOLVE_OLD], key=str)
