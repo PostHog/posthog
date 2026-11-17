@@ -9303,6 +9303,7 @@ dependencies = [
  "k8s-awareness",
  "kube",
  "lifecycle",
+ "lru 0.19.0",
  "metrics",
  "personhog-common",
  "personhog-coordination",

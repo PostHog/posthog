@@ -214,9 +214,9 @@ impl PersonCache {
         FillOutcome::Inserted
     }
 
-    /// Whether the resident weight is below `fraction` of the capacity.
-    pub fn has_room(&self, fraction: f64) -> bool {
-        (self.inner.usage() as f64) < self.capacity_bytes as f64 * fraction
+    /// Bytes left before the resident weight reaches `fraction` of the capacity.
+    pub fn free_room(&self, fraction: f64) -> usize {
+        ((self.capacity_bytes as f64 * fraction) as usize).saturating_sub(self.inner.usage())
     }
 
     pub fn get(&self, key: &PersonCacheKey) -> Option<CachedPerson> {

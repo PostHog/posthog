@@ -1606,7 +1606,6 @@ async fn every_warm_of_a_partition_gets_a_fill_and_tracking_ends_with_it() {
         lookback: Duration::from_secs(3600),
         chunk_offsets: 4,
         room_fraction: 0.9,
-        chunk_max_bytes: 64 << 20,
     };
     let handler = common::test_handoff_handler_with_fill(
         &topic,

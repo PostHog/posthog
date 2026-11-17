@@ -4,6 +4,7 @@ use std::sync::{Arc, Mutex as StdMutex};
 use std::time::{Duration, Instant};
 
 use common_kafka::config::KafkaConfig;
+use lru::LruCache;
 use metrics::{counter, histogram};
 use prost::Message as ProtoMessage;
 use rdkafka::consumer::{Consumer, StreamConsumer};
@@ -848,7 +849,6 @@ pub async fn warm_from_sources(
 
 /// A fill leaves this much of the budget to the traffic that follows it.
 pub const FILL_ROOM_FRACTION: f64 = 0.9;
-pub const FILL_CHUNK_MAX_BYTES: usize = 64 << 20;
 
 /// How far back a fill reads, and in what steps.
 #[derive(Debug, Clone, Copy)]
@@ -858,8 +858,6 @@ pub struct FillConfig {
     pub chunk_offsets: i64,
     /// The fill stops once the cache holds this fraction of its budget.
     pub room_fraction: f64,
-    /// A chunk that buffers more than this is read again at half the span.
-    pub chunk_max_bytes: usize,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -945,15 +943,17 @@ pub async fn fill_source(
         end: FillEnd::Bound,
     };
     let mut chunk_end = upper;
-    let mut span = fill.chunk_offsets;
     while chunk_end > lower {
-        if !cache.has_room(fill.room_fraction) {
+        let room = cache.free_room(fill.room_fraction);
+        if room == 0 {
             stats.end = FillEnd::Budget;
             break;
         }
-        let chunk_start = lower.max(chunk_end - span);
-        let mut latest: HashMap<PersonCacheKey, CachedPerson> = HashMap::new();
+        let chunk_start = lower.max(chunk_end - fill.chunk_offsets);
+        // Each person's newest record in the chunk, least recently written first.
+        let mut latest: LruCache<PersonCacheKey, CachedPerson> = LruCache::unbounded();
         let mut buffered = 0usize;
+        let mut overflowed = false;
         let consumer = pools.warming.checkout()?;
         consume_range(
             cfg,
@@ -966,9 +966,6 @@ pub async fn fill_source(
             |_offset, cached| {
                 stats.records += 1;
                 counter!("personhog_leader_cache_fill_records_total").increment(1);
-                if buffered > fill.chunk_max_bytes {
-                    return;
-                }
                 let key = PersonCacheKey {
                     team_id: cached.team_id,
                     person_id: cached.id,
@@ -977,22 +974,24 @@ pub async fn fill_source(
                     return;
                 }
                 buffered += cached.properties.len();
-                if let Some(replaced) = latest.insert(key, cached) {
+                if let Some(replaced) = latest.put(key, cached) {
                     buffered -= replaced.properties.len();
+                }
+                // A chunk holding more than the cache has room for keeps its newest persons.
+                while buffered > room {
+                    let Some((_, dropped)) = latest.pop_lru() else {
+                        break;
+                    };
+                    buffered -= dropped.properties.len();
+                    overflowed = true;
                 }
             },
         )
         .await?;
         pools.warming.give_back(consumer);
 
-        // An oversized buffer stopped short of the chunk's newest records, so none of it is used.
-        if buffered > fill.chunk_max_bytes && chunk_end - chunk_start > 1 {
-            span = (chunk_end - chunk_start) / 2;
-            continue;
-        }
-
-        for (key, person) in latest {
-            if !cache.has_room(fill.room_fraction) {
+        while let Some((key, person)) = latest.pop_mru() {
+            if cache.free_room(fill.room_fraction) == 0 {
                 stats.end = FillEnd::Budget;
                 return Ok(stats);
             }
@@ -1009,6 +1008,11 @@ pub async fn fill_source(
             }
             // Encoding a chunk is CPU work; requests on this worker must not wait for all of it.
             tokio::task::yield_now().await;
+        }
+        // A dropped person never reached the guard, so an older record of theirs must not be read.
+        if overflowed {
+            stats.end = FillEnd::Budget;
+            break;
         }
         chunk_end = chunk_start;
     }

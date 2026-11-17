@@ -447,7 +447,6 @@ impl Config {
             lookback: Duration::from_secs(self.cache_fill_lookback_secs),
             chunk_offsets: self.cache_fill_chunk_offsets.max(1),
             room_fraction: crate::warming::FILL_ROOM_FRACTION,
-            chunk_max_bytes: crate::warming::FILL_CHUNK_MAX_BYTES,
         })
     }
 

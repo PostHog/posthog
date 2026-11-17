@@ -129,7 +129,6 @@ const FILL: FillConfig = FillConfig {
     lookback: Duration::from_secs(3600),
     chunk_offsets: 2,
     room_fraction: 0.9,
-    chunk_max_bytes: 64 << 20,
 };
 
 /// Six applied records on partition 0, then a warm that finds nothing left to read.
@@ -292,26 +291,47 @@ async fn a_fill_restores_the_newest_applied_record_of_each_live_person() {
 }
 
 #[tokio::test]
-async fn a_chunk_too_large_to_buffer_is_read_again_in_smaller_spans() {
+async fn a_chunk_larger_than_the_caches_room_keeps_its_newest_persons_and_ends_the_fill() {
+    let (cluster, producer) = create_mock_kafka().await;
+    let large = |person_id: i64, version: i64, is_deleted: bool| Person {
+        version,
+        is_deleted,
+        properties: serde_json::to_vec(&serde_json::json!({ "blob": "x".repeat(10_000) })).unwrap(),
+        ..make_person(1, person_id)
+    };
+    // The newest chunk is the last four records. Person 1's is its oldest, and the two
+    // deaths take room in the chunk but none in the cache, so room is left for an older chunk.
+    let history = [
+        make_person(1, 1),
+        large(1, 2, false),
+        large(2, 1, true),
+        large(3, 1, true),
+        large(4, 1, false),
+    ];
+    for person in &history {
+        produce_person_to_partition(&producer, 0, person).await;
+    }
+    let (cfg, pools) = warming_config_for("overflow", &cluster);
     let cache = PartitionedCache::new(1 << 20);
-    let (_cluster, cfg, pools, upper) = warmed_over_applied_history(&cache).await;
+    cache.begin_warm_partition(0);
+    cache.track_puts(0);
+    cache.publish_warmed_partition(0);
+    let source = WarmSource::live(CHANGELOG_TOPIC, None, 0);
     let fill = FillConfig {
-        chunk_offsets: 100,
-        chunk_max_bytes: make_person(1, 1).properties.len() * 2,
+        chunk_offsets: 4,
+        // Room for three of the chunk's four records.
+        room_fraction: 35_000.0 / (1 << 20) as f64,
         ..FILL
     };
 
-    let source = WarmSource::live(CHANGELOG_TOPIC, None, 0);
+    let upper = history.len() as i64;
     let stats = fill_source(&cfg, &fill, &pools, &serving(&cache), &source, 0, upper)
         .await
         .expect("fill should succeed");
 
-    // The whole range is read and discarded, then each half once: the older half fits
-    // because the records of the two persons already claimed are never buffered.
-    assert_eq!((stats.end, stats.records), (FillEnd::Bound, 12));
-    assert_eq!(version_of(&cache, 0, 1), Some(3));
-    assert_eq!(version_of(&cache, 0, 2), Some(1));
-    assert_eq!(version_of(&cache, 0, 3), None);
+    assert_eq!((stats.end, stats.inserted), (FillEnd::Budget, 1));
+    assert_eq!(version_of(&cache, 0, 4), Some(1));
+    assert_eq!(version_of(&cache, 0, 1), None);
 }
 
 #[tokio::test]
