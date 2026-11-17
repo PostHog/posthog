@@ -75,6 +75,7 @@ export function LegacyExperimentView(): JSX.Element {
     const { setActiveTabKey } = useActions(experimentSceneLogic)
 
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+    const resultsRedesign = useFeatureFlag('EXPERIMENTS_RESULTS_REDESIGN')
 
     const tabs: ExperimentTabDefinition[] = [
         { key: 'metrics', label: 'Overview', content: <MetricsTab /> },
@@ -123,7 +124,7 @@ export function LegacyExperimentView(): JSX.Element {
 
                     <ExperimentMetaBar />
 
-                    {todayRailNav ? (
+                    {todayRailNav && resultsRedesign ? (
                         <QuillExperimentTabs
                             tabs={tabs}
                             activeKey={activeKey}

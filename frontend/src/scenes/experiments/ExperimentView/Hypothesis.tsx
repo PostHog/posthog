@@ -65,8 +65,9 @@ function SettingRow({
 export function Hypothesis(): JSX.Element {
     const panel = useHypothesisPanel()
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+    const resultsRedesign = useFeatureFlag('EXPERIMENTS_RESULTS_REDESIGN')
 
-    if (todayRailNav) {
+    if (todayRailNav && resultsRedesign) {
         return <QuillHypothesis />
     }
 

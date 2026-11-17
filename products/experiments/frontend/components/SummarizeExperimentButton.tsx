@@ -89,6 +89,7 @@ export function SummarizeExperimentButton({ iconOnly = false }: { iconOnly?: boo
     const { experiment, hasMinimumExposureForResults, exposures } = useValues(experimentLogic)
     const { reportExperimentAiSummaryRequested } = useActions(experimentLogic)
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+    const resultsRedesign = useFeatureFlag('EXPERIMENTS_RESULTS_REDESIGN')
     if (!openMax) {
         return null
     }
@@ -119,7 +120,7 @@ export function SummarizeExperimentButton({ iconOnly = false }: { iconOnly?: boo
         ? undefined
         : `Summaries need at least ${EXPERIMENT_MIN_EXPOSURES_FOR_RESULTS} exposures. This experiment has ${totalExposures}.`
 
-    if (todayRailNav) {
+    if (todayRailNav && resultsRedesign) {
         return (
             <Button
                 variant="outline"

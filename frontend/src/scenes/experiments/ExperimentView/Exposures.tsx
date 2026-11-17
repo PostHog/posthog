@@ -67,8 +67,9 @@ export function Exposures(): JSX.Element {
     const card = useExposuresCard()
     const { exposures } = useValues(experimentLogic)
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+    const resultsRedesign = useFeatureFlag('EXPERIMENTS_RESULTS_REDESIGN')
 
-    if (todayRailNav) {
+    if (todayRailNav && resultsRedesign) {
         return <QuillExposures {...card} />
     }
 

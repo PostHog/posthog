@@ -11,8 +11,9 @@ export type { VariantActionsMenuProps } from './useVariantActions'
 export function VariantActionsMenu(props: VariantActionsMenuProps): JSX.Element {
     const { trackMenuOpened, recordings, sqlActions } = useVariantActions(props)
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+    const resultsRedesign = useFeatureFlag('EXPERIMENTS_RESULTS_REDESIGN')
 
-    if (todayRailNav) {
+    if (todayRailNav && resultsRedesign) {
         return <QuillVariantActionsMenu {...props} />
     }
 

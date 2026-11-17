@@ -234,7 +234,7 @@ export function ExperimentView(): JSX.Element {
                     )}
                     <ExperimentMetaBar />
                     <ExperimentHeader />
-                    {todayRailNav ? (
+                    {todayRailNav && resultsRedesign ? (
                         <QuillExperimentTabs
                             tabs={tabs}
                             activeKey={activeKey}

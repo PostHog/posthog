@@ -179,6 +179,7 @@ export const MetricHeader = ({
     const { openSharedMetricDetailModal } = useActions(sharedMetricDetailsModalLogic)
 
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+    const resultsRedesign = useFeatureFlag('EXPERIMENTS_RESULTS_REDESIGN')
 
     const isSharedMetric = !!metric.isSharedMetric && !!metric.sharedMetricId
 
@@ -354,7 +355,7 @@ export const MetricHeader = ({
                         </div>
                     </div>
                     {!readOnly &&
-                        (todayRailNav ? (
+                        (todayRailNav && resultsRedesign ? (
                             <QuillMetricHeaderActions {...actionsProps} />
                         ) : (
                             <MetricHeaderActions {...actionsProps} />
