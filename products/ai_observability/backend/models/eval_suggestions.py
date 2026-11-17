@@ -93,12 +93,10 @@ class EvalSuggestion(UUIDModel):
     headline = models.CharField(max_length=400)
     outcome = models.TextField()
     reason = models.TextField()
-    # What the sample showed, such as "9 of 27 sampled generations flagged", and where it came from. The run
-    # formats both from the counts it stores, so the card never computes a claim of its own.
-    observation = models.TextField(blank=True, default="", db_default="")
-    observation_scope = models.TextField(blank=True, default="", db_default="")
     # Evaluation API input without conditions: accept adds `filters` and `rollout_percentage` as its
-    # one condition set. For fix_eval it is the PATCH body for `target_evaluation`.
+    # one condition set. For fix_eval it is the PATCH body for `target_evaluation`. A card to add an evaluation
+    # also keeps keys the evaluation API ignores: `calibration`, and `observation` with `observation_scope`, what
+    # its sample showed, which the run formats from the counts it stores.
     draft = models.JSONField(default=dict)
     filters = models.JSONField(default=list)
     rollout_percentage = models.FloatField(default=100)

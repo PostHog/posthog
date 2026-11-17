@@ -316,7 +316,7 @@ class TestPipeline(ClickhouseTestMixin, APIBaseTest):
         assert errors.measured_failure_rate is not None and 0 < errors.measured_failure_rate < 0.1
         assert errors.headline == "Unrecovered tool or model failures"
         # The observation and the stored rate come from the same counts.
-        observed = re.fullmatch(r"(\d+) of (\d+) sampled traces flagged", errors.observation)
+        observed = re.fullmatch(r"(\d+) of (\d+) sampled traces flagged", errors.draft["observation"])
         assert observed is not None
         assert int(observed[1]) / int(observed[2]) == errors.measured_failure_rate
         assert int(observed[2]) == errors.sample_size
