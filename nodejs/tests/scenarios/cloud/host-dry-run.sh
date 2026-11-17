@@ -200,6 +200,8 @@ code=$?
 cat /opt/scenario/prepare.log
 [ "$code" = 0 ] || { echo "host-prepare.sh exited $code"; exit 1; }
 cp /opt/scenario/prepare.log /dry-run/prepare.log
+backlog=/opt/scenario/cache/posthog-scenarios/backlog.json
+cp "$backlog" /dry-run/backlog.json
 refused() {
     if DRY_RUN_ENDPOINT=not-in-certificate PATH="$2:$PATH" bash nodejs/tests/scenarios/cloud/host-prepare.sh; then
         echo "host-prepare.sh connected over $1 to a name the certificate lacks"; exit 1
@@ -211,6 +213,9 @@ step "host-prepare.sh refuses a cluster name its certificate lacks, for sqlx and
 mkdir -p /dry-run/skip-sqlx && printf '#!/bin/sh\nexit 0\n' >/dry-run/skip-sqlx/sqlx && chmod +x /dry-run/skip-sqlx/sqlx
 refused sqlx /nonexistent NotValidForName
 refused node /dry-run/skip-sqlx altnames
+cp /dry-run/backlog.json "$backlog"
+cp /dry-run/prepare.log /opt/scenario/prepare.log
+cp /dry-run/prepare.log "/dry-run/bucket/runs/$RUN_ID/host/prepare.log"
 step "host-run-card.sh, stopped after $CARD_SECONDS s"
 rm -rf "/dry-run/bucket/runs/$RUN_ID/evidence" "/dry-run/bucket/runs/$RUN_ID/host/done"
 timeout --signal TERM --kill-after 60 "$CARD_SECONDS" bash nodejs/tests/scenarios/cloud/host-run-card.sh
