@@ -430,6 +430,7 @@ export interface hogFunctionConfigurationLogicValues {
     mightDropEvents: boolean
     newFilters: CyclotronJobFiltersType | null
     newHogCode: string | null
+    newInputValues: Record<string, CyclotronJobInputType> | null
     newInputs: CyclotronJobInputSchemaType[] | null
     oldFilters: CyclotronJobFiltersType | null
     oldHogCode: string | null
@@ -627,6 +628,9 @@ export interface hogFunctionConfigurationLogicActions {
     }
     setNewHogCode: (newHogCode: string) => {
         newHogCode: string
+    }
+    setNewInputValues: (newInputValues: Record<string, CyclotronJobInputType>) => {
+        newInputValues: Record<string, CyclotronJobInputType>
     }
     setNewInputs: (newInputs: CyclotronJobInputSchemaType[]) => {
         newInputs: CyclotronJobInputSchemaType[]
@@ -947,6 +951,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         reportAIFiltersPromptOpen: true,
         setOldInputs: (oldInputs: CyclotronJobInputSchemaType[]) => ({ oldInputs }),
         setNewInputs: (newInputs: CyclotronJobInputSchemaType[]) => ({ newInputs }),
+        setNewInputValues: (newInputValues: Record<string, CyclotronJobInputType>) => ({ newInputValues }),
         clearInputsDiff: true,
         reportAIHogFunctionInputsPrompted: true,
         reportAIHogFunctionInputsAccepted: true,
@@ -1036,6 +1041,13 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             null as CyclotronJobInputSchemaType[] | null,
             {
                 setNewInputs: (_, { newInputs }) => newInputs,
+                clearInputsDiff: () => null,
+            },
+        ],
+        newInputValues: [
+            null as Record<string, CyclotronJobInputType> | null,
+            {
+                setNewInputValues: (_, { newInputValues }) => newInputValues,
                 clearInputsDiff: () => null,
             },
         ],

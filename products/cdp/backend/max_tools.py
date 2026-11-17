@@ -230,28 +230,55 @@ class CreateHogFunctionInputsArgs(BaseModel):
 
 class HogFunctionInputsOutput(BaseModel):
     inputs_schema: list = Field(description="The generated inputs schema for the hog function")
+    input_values: dict = Field(default_factory=dict, description="Changed input values, keyed by input key")
+
+
+def _secret_input_keys(*inputs_schemas: list) -> set[str]:
+    return {
+        schema["key"]
+        for inputs_schema in inputs_schemas
+        for schema in inputs_schema
+        if isinstance(schema, dict) and schema.get("secret") and "key" in schema
+    }
+
+
+def _input_values_for_prompt(current_inputs: dict, inputs_schema: list) -> dict:
+    secret_keys = _secret_input_keys(inputs_schema)
+    return {
+        key: entry.get("value")
+        for key, entry in current_inputs.items()
+        if key not in secret_keys and isinstance(entry, dict) and not entry.get("secret")
+    }
+
+
+def _changed_input_values(proposed_values: dict, current_inputs_schema: list, new_inputs_schema: list) -> dict:
+    known_keys = {schema.get("key") for schema in new_inputs_schema if isinstance(schema, dict)}
+    allowed_keys = known_keys - _secret_input_keys(current_inputs_schema, new_inputs_schema)
+    return {key: value for key, value in proposed_values.items() if key in allowed_keys}
 
 
 class CreateHogFunctionInputsTool(MaxTool):
     name: str = "create_hog_function_inputs"
-    description: str = "Generate or modify input variables for hog functions based on the current code and requirements"
+    description: str = "Generate or modify input variables for hog functions, and change their configured values, based on the current code and requirements"
     args_schema: type[BaseModel] = CreateHogFunctionInputsArgs
     context_prompt_template: str = HOG_FUNCTION_INPUTS_ASSISTANT_ROOT_SYSTEM_PROMPT
 
-    def _run_impl(self, instructions: str) -> tuple[str, list]:
+    def _run_impl(self, instructions: str) -> tuple[str, list | dict]:
         current_inputs_schema = self.context.get("current_inputs_schema", [])
         hog_code = self.context.get("hog_code", "")
+        current_input_values = _input_values_for_prompt(self.context.get("current_inputs") or {}, current_inputs_schema)
 
         system_content = (
             HOG_FUNCTION_INPUTS_SYSTEM_PROMPT
             + f"\n\nCurrent hog code:\n{hog_code}"
             + f"\nCurrent inputs schema:\n{current_inputs_schema}"
+            + f"\nCurrent input values:\n{json.dumps(current_input_values)}"
             + "\n\n<input_schema_types>\n"
             + INPUT_SCHEMA_TYPES_MESSAGE
             + "\n</input_schema_types>"
         )
 
-        user_content = f"Create or modify the input variables for this function: {instructions}"
+        user_content = f"Create or modify the input variables or their values for this function: {instructions}"
 
         messages = [SystemMessage(content=system_content), HumanMessage(content=user_content)]
 
@@ -270,11 +297,18 @@ class CreateHogFunctionInputsTool(MaxTool):
             assert final_error is not None
             raise final_error
 
-        # Format the output for display
-        import json
+        changed_values = _changed_input_values(
+            parsed_result.input_values, current_inputs_schema, parsed_result.inputs_schema
+        )
+        content = f"```json\n{json.dumps(parsed_result.inputs_schema, indent=2)}\n```"
+        if changed_values:
+            content += f"\n\nChanged values:\n```json\n{json.dumps(changed_values, indent=2)}\n```"
 
-        formatted_json = json.dumps(parsed_result.inputs_schema, indent=2)
-        return f"```json\n{formatted_json}\n```", parsed_result.inputs_schema
+        if "current_inputs" not in self.context:
+            # A browser tab that loaded the editor before this tool could change values sends no
+            # current_inputs, and its callback reads the artifact as the bare schema list.
+            return content, parsed_result.inputs_schema
+        return content, {"inputs_schema": parsed_result.inputs_schema, "inputs": changed_values}
 
     @property
     def _model(self) -> BaseChatModel:
@@ -288,12 +322,13 @@ class CreateHogFunctionInputsTool(MaxTool):
         )
 
     def _parse_output(self, output: str) -> HogFunctionInputsOutput:
-        import json
+        input_values = self._parse_input_values(output)
+        output_without_values = re.sub(r"<input_values>.*?</input_values>", "", output, flags=re.DOTALL)
 
-        match = re.search(r"<inputs_schema>(.*?)</inputs_schema>", output, re.DOTALL)
+        match = re.search(r"<inputs_schema>(.*?)</inputs_schema>", output_without_values, re.DOTALL)
         if not match:
             # Try to find JSON array in the output
-            json_match = re.search(r"\[[\s\S]*\]", output)
+            json_match = re.search(r"\[[\s\S]*\]", output_without_values)
             if json_match:
                 json_str = json_match.group(0)
             else:
@@ -314,4 +349,20 @@ class CreateHogFunctionInputsTool(MaxTool):
                 llm_output=output, validation_message=f"Invalid JSON in inputs schema: {str(e)}"
             )
 
-        return HogFunctionInputsOutput(inputs_schema=inputs_schema)
+        return HogFunctionInputsOutput(inputs_schema=inputs_schema, input_values=input_values)
+
+    def _parse_input_values(self, output: str) -> dict:
+        match = re.search(r"<input_values>(.*?)</input_values>", output, re.DOTALL)
+        if not match:
+            return {}
+        try:
+            input_values = json.loads(match.group(1).strip())
+        except json.JSONDecodeError as e:
+            raise PydanticOutputParserException(
+                llm_output=output, validation_message=f"Invalid JSON in input values: {str(e)}"
+            )
+        if not isinstance(input_values, dict):
+            raise PydanticOutputParserException(
+                llm_output=output, validation_message="Input values must be a JSON object keyed by input key."
+            )
+        return input_values
