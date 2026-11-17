@@ -40,7 +40,8 @@ def _code_span(value: str) -> str:
     """`value` as inline code. A value can carry ingested data, such as a log's service name, and inline
     code renders it as typed: no link, image or bare URL in it becomes clickable."""
     # Every line break, not just a line feed: a carriage return also ends a paragraph, and with it the code span.
-    text = " ".join(value.splitlines())
+    # An empty value would leave a bare pair of backticks, which the next value's fence could close.
+    text = " ".join(value.splitlines()) or " "
     longest = max((len(run) for run in re.findall(r"`+", text)), default=0)
     fence = "`" * (longest + 1)
     # A value that starts or ends with a backtick needs a space, or it would merge with the fence.

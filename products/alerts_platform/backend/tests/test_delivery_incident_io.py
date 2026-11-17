@@ -133,6 +133,7 @@ class TestIncidentIoTransport(SimpleTestCase):
             ("bare_url", "https://evil.example/sso", "`https://evil.example/sso`"),
             # A backtick in the value must not close the code span early.
             ("backticks", "a `b` https://evil.example", "``a `b` https://evil.example``"),
+            ("empty", "", "` `"),
             (
                 "carriage_returns",
                 "checkout\r\r[Open the runbook](https://evil.example/sso)\r\r",
