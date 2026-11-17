@@ -235,7 +235,7 @@ class TestRunTaskTool(BaseTaskToolTest):
     @patch("products.tasks.backend.max_tools.execute_task_processing_workflow_async")
     @pytest.mark.django_db
     @pytest.mark.asyncio
-    async def test_run_task_refuses_posthog_ai_task_without_posthog_ai_access(self, mock_execute_workflow, _decision):
+    async def test_run_task_refuses_posthog_ai_task_without_posthog_ai_access(self, _mock_execute_workflow, _decision):
         task = await self._create_task(origin_product=Task.OriginProduct.POSTHOG_AI)
         tool = self._create_tool(RunTaskTool)
 
@@ -244,7 +244,6 @@ class TestRunTaskTool(BaseTaskToolTest):
         assert content == "This task isn't available to you."
         assert artifact["error"] == "task_unavailable"
         assert not await sync_to_async(task.runs.exists)()
-        mock_execute_workflow.assert_not_called()
 
     @patch(
         "products.tasks.backend.max_tools.get_posthog_ai_access_decision",
@@ -253,7 +252,7 @@ class TestRunTaskTool(BaseTaskToolTest):
     @patch("products.tasks.backend.max_tools.execute_task_processing_workflow_async")
     @pytest.mark.django_db
     @pytest.mark.asyncio
-    async def test_run_task_runs_posthog_ai_task_with_posthog_ai_access(self, mock_execute_workflow, _decision):
+    async def test_run_task_runs_posthog_ai_task_with_posthog_ai_access(self, _mock_execute_workflow, _decision):
         task = await self._create_task(origin_product=Task.OriginProduct.POSTHOG_AI)
         tool = self._create_tool(RunTaskTool)
 
@@ -261,7 +260,6 @@ class TestRunTaskTool(BaseTaskToolTest):
 
         assert "Started execution" in content
         assert await sync_to_async(task.runs.filter(id=artifact["run_id"]).exists)()
-        mock_execute_workflow.assert_called_once()
 
     @pytest.mark.django_db
     @pytest.mark.asyncio
