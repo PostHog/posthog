@@ -17,6 +17,7 @@ from posthog.hogql.errors import ExposedHogQLError, QueryError
 from posthog.hogql.escape_sql import escape_clickhouse_identifier
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
+from posthog.hogql.property_access_types import RestrictedProperty
 from posthog.hogql.resolver import resolve_types
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor, clone_expr
 
@@ -29,7 +30,7 @@ from products.batch_exports.backend.facade.enums import EXPORTABLE_EVENTS_MODEL_
 if typing.TYPE_CHECKING:
     from posthog.models import User
 
-    from products.batch_exports.backend.service import BatchExportField, BatchExportSchema
+    from products.batch_exports.backend.service import BatchExportField, BatchExportSchema, StoredRestrictedProperty
 
 
 class SerializedExportProperties(CloningVisitor):
@@ -145,26 +146,70 @@ def serialize_batch_export_query(
     return {"fields": fields, "values": context.values, "hogql_query": hogql}
 
 
+def _to_stored_restricted_properties(restrictions: set[RestrictedProperty]) -> list["StoredRestrictedProperty"]:
+    return [
+        {
+            "name": restriction.name,
+            "property_type": int(restriction.property_type),
+            "group_type_index": restriction.group_type_index,
+        }
+        for restriction in sorted(
+            restrictions,
+            key=lambda r: (r.property_type, -1 if r.group_type_index is None else r.group_type_index, r.name),
+        )
+    ]
+
+
+def _from_stored_restricted_properties(stored: list["StoredRestrictedProperty"]) -> set[RestrictedProperty]:
+    return {
+        RestrictedProperty(
+            name=restriction["name"],
+            property_type=restriction["property_type"],
+            group_type_index=restriction["group_type_index"],
+        )
+        for restriction in stored
+    }
+
+
 def recompile_stored_schema(
     team_id: int, schema: "BatchExportSchema", hogql_query: str
 ) -> tuple[list["BatchExportField"], dict[str, typing.Any]]:
     """Recompile the stored query of a schema for the native events table, keeping the stored aliases.
 
+    The stored query reads every property it names, including those the stored fields hide. The recompile hides the
+    properties the user who saved the schema could not read, and also the properties the team's rules hide from every
+    user now.
+
     Returns the fields and the query values a run sends with them.
     """
+    from products.access_control.backend.facade.api import (  # noqa: PLC0415 — keeps Django access-control imports off the batch worker import path
+        get_restricted_properties_with_group_type_index_for_team,
+    )
+
+    restricted_properties = _from_stored_restricted_properties(
+        schema.get("restricted_properties", [])
+    ) | get_restricted_properties_with_group_type_index_for_team(user=None, team_id=team_id)
     context = HogQLContext(
         team_id=team_id,
         enable_select_queries=True,
         limit_top_select=False,
         use_new_events_schema=True,
+        restricted_properties=restricted_properties,
         modifiers=HogQLQueryModifiers(
             materializationMode=MaterializationMode.DISABLED,
             personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS,
         ),
     )
-    compiled = serialize_batch_export_query(
-        typing.cast(ast.SelectQuery, parse_select(hogql_query)), context, for_native_table=True
-    )
+    try:
+        compiled = serialize_batch_export_query(
+            typing.cast(ast.SelectQuery, parse_select(hogql_query)), context, for_native_table=True
+        )
+    except ExposedHogQLError as e:
+        # The stored query passed the checks of the legacy tables when it was saved, but the native table can reject
+        # it, for example when it selects the whole `properties` object and some properties are restricted.
+        raise UnsupportedHogQLQueryError(
+            f"This export's query can't read the new events table: {e}. Change the query and save the export again."
+        )
     fields: list[BatchExportField] = [
         {"expression": compiled_field["expression"], "alias": stored_field["alias"]}
         for stored_field, compiled_field in zip(schema["fields"], compiled["fields"], strict=True)
@@ -197,10 +242,6 @@ def parse_events_hogql_query(
                 personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS
             ),
         )
-        if restricted_properties:
-            # A restricted query is stored without its HogQL text, so no run can recompile it for
-            # the native source, where a materialized column does not exist.
-            context.modifiers.materializationMode = MaterializationMode.DISABLED
         use_native_schema = context.uses_new_events_schema()
         prepared_select_query = typing.cast(
             ast.SelectQuery,
@@ -313,8 +354,7 @@ def serialize_events_query_schema(
         schema = serialize_batch_export_query(hogql_query, context)
     except ExposedHogQLError:
         raise UnsupportedHogQLQueryError("Unsupported HogQL query")
-    if context.restricted_properties:
-        schema.pop("hogql_query", None)
+    schema["restricted_properties"] = _to_stored_restricted_properties(restricted_properties)
     return schema
 
 

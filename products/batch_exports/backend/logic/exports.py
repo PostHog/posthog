@@ -629,6 +629,13 @@ def _remove_secret_fields(destination_type: str, config: dict[str, typing.Any]) 
     return target
 
 
+def _remove_stored_restrictions(schema: dict[str, typing.Any] | None) -> dict[str, typing.Any] | None:
+    """Leave out the property restrictions of the user who saved a schema, which other users must not read."""
+    if schema is None:
+        return None
+    return {key: value for key, value in schema.items() if key != "restricted_properties"}
+
+
 def _to_configuration(batch_export: BatchExport, *, include_latest_runs: bool) -> contracts.BatchExportConfiguration:
     destination = batch_export.destination
     return contracts.BatchExportConfiguration(
@@ -656,7 +663,7 @@ def _to_configuration(batch_export: BatchExport, *, include_latest_runs: bool) -
         primary_key=tuple(batch_export.primary_key) if batch_export.primary_key is not None else None,
         version_key=tuple(batch_export.version_key) if batch_export.version_key is not None else None,
         incremental_mode=batch_export.incremental_mode,
-        schema=batch_export.schema,
+        schema=_remove_stored_restrictions(batch_export.schema),
         filters=batch_export.filters,
         timezone=batch_export.timezone,
         offset_day=batch_export.offset_day,

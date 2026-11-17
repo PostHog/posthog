@@ -169,7 +169,7 @@ class TestSerializeEventsQuerySchema(BaseTest):
 
     @parameterized.expand([("unrestricted", False), ("restricted", True)])
     @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False)
-    def test_materialized_columns_are_kept_out_of_a_query_that_cannot_be_recompiled(self, _name: str, restricted: bool):
+    def test_legacy_fields_read_materialized_columns(self, _name: str, restricted: bool):
         restrictions = (
             {RestrictedProperty(name="secret", property_type=PropertyDefinition.Type.EVENT)} if restricted else set()
         )
@@ -184,33 +184,53 @@ class TestSerializeEventsQuerySchema(BaseTest):
 
             schema = serialize_events_query_schema(self.team.pk, self.user, query)
 
-        expression = schema["fields"][0]["expression"]
-        if restricted:
-            assert "hogql_query" not in schema
-            assert "mat_" not in expression
-        else:
-            assert "mat_$browser" in expression
+        assert "mat_$browser" in schema["fields"][0]["expression"]
+
+    @parameterized.expand([("legacy_schema", False), ("new_schema", True)])
+    def test_native_recompile_hides_the_properties_the_saving_user_could_not_read(self, _name: str, new_schema: bool):
+        PropertyDefinition.objects.create(
+            team=self.team, name="amount", type=PropertyDefinition.Type.EVENT, property_type="Numeric"
+        )
+        query = "SELECT properties.secret AS secret, properties.amount AS amount FROM events"
+        with (
+            override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=new_schema),
+            patch(
+                "products.access_control.backend.facade.api.get_restricted_properties_with_group_type_index_for_team",
+                return_value={RestrictedProperty(name="secret", property_type=PropertyDefinition.Type.EVENT)},
+            ),
+        ):
+            schema = serialize_events_query_schema(self.team.pk, self.user, prepare_query(query, self.team.pk))
+
+        fields, _values = recompile_stored_schema(self.team.pk, schema, schema["hogql_query"])
+
+        assert schema["fields"][0] == {"expression": "NULL", "alias": "secret"}
+        assert fields[0] == {"expression": "NULL", "alias": "secret"}
+        assert "accurateCastOrNull(events.properties.amount, 'Float64')" in fields[1]["expression"], fields
 
     @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
     @patch("products.access_control.backend.facade.api.get_restricted_properties_with_group_type_index_for_team")
-    @patch("posthog.models.event.new_events_schema.use_new_events_schema", return_value=True)
-    def test_restricted_property_query_is_not_recompiled_without_user(
-        self, _use_new_events_schema, get_restricted_properties
-    ):
+    def test_new_schema_rejects_a_restricted_properties_object(self, get_restricted_properties):
         get_restricted_properties.return_value = {
             RestrictedProperty(name="secret", property_type=PropertyDefinition.Type.EVENT)
         }
-        query = prepare_query("SELECT properties.secret AS secret FROM events", self.team.pk)
-
-        schema = serialize_events_query_schema(self.team.pk, self.user, query)
-
-        assert schema["fields"] == [{"expression": "NULL", "alias": "secret"}]
-        assert "hogql_query" not in schema
 
         with self.assertRaises(UnsupportedHogQLQueryError):
             serialize_events_query_schema(
                 self.team.pk, self.user, prepare_query("SELECT properties FROM events", self.team.pk)
             )
+
+    @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False)
+    def test_native_recompile_rejects_a_restricted_properties_object_saved_for_the_legacy_tables(self):
+        with patch(
+            "products.access_control.backend.facade.api.get_restricted_properties_with_group_type_index_for_team",
+            return_value={RestrictedProperty(name="secret", property_type=PropertyDefinition.Type.EVENT)},
+        ):
+            schema = serialize_events_query_schema(
+                self.team.pk, self.user, prepare_query("SELECT properties AS props FROM events", self.team.pk)
+            )
+
+        with self.assertRaises(UnsupportedHogQLQueryError):
+            recompile_stored_schema(self.team.pk, schema, schema["hogql_query"])
 
     @parameterized.expand(
         [
