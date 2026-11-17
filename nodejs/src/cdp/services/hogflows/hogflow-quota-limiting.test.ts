@@ -284,9 +284,9 @@ describe('HogFlow Quota Limiting', () => {
                 ],
             ],
         ] as const)('should block %s and emit metrics', async (_name, limitedResource, actionTypes, reports) => {
-            mockQuotaLimiting.isTeamQuotaLimited.mockImplementation((team, resource) =>
-                Promise.resolve(team === teamId && resource === limitedResource)
-            )
+            mockQuotaLimiting.isTeamQuotaLimited.mockImplementation((_teamId, resource) => {
+                return Promise.resolve(resource === limitedResource)
+            })
 
             const item: CyclotronJobInvocationHogFlow = {
                 ...baseItem,
