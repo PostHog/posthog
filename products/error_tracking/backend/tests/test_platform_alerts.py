@@ -75,16 +75,32 @@ class TestErrorTrackingAlertCreate(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert response.json()["attr"] == "grouping"
 
-    def test_filters_that_cannot_run_are_refused(self) -> None:
-        response = self._create(
-            {
-                "condition": _NEW_ISSUES,
-                "filters": {"properties": [{"key": "not_a_function(1)", "type": "hogql"}]},
-            }
-        )
+    @parameterized.expand(
+        [
+            ("not_an_event_property", {"key": "not_a_function(1)", "type": "hogql"}),
+            # It would compile to a constant true, so the alert would match every issue.
+            ("without_a_value", {"key": "environment", "type": "event", "operator": "exact"}),
+        ]
+    )
+    def test_filters_that_cannot_run_are_refused(self, _name: str, property_filter: dict[str, Any]) -> None:
+        response = self._create({"condition": _NEW_ISSUES, "filters": {"properties": [property_filter]}})
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert response.json()["attr"] == "source_config"
+
+    def test_an_incident_destination_is_refused(self) -> None:
+        # The alert never resolves, so an incident manager would be saved and never hear anything.
+        created = self._create({"condition": _NEW_ISSUES})
+        assert created.status_code == status.HTTP_201_CREATED, created.json()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/platform_alerts/{created.json()['id']}/destinations/",
+            {"type": "pagerduty", "pagerduty_routing_key": "0123456789abcdef0123456789abcdef"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["attr"] == "type"
 
     def test_a_project_without_the_rollout_flag_cannot_create_one(self) -> None:
         self.enterContext(

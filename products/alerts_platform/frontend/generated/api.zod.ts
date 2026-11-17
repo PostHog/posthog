@@ -370,9 +370,7 @@ export const PlatformAlertsCreateBody = /* @__PURE__ */ zod.union([
                             properties: zod
                                 .array(zod.record(zod.string(), zod.unknown()))
                                 .optional()
-                                .describe(
-                                    'Property filters on the exception event and the issue. Every filter must match.'
-                                ),
+                                .describe('Property filters on the exception event. Every filter must match.'),
                         })
                         .optional()
                         .describe('The issues and exceptions the alert announces.'),
@@ -1379,9 +1377,7 @@ export const PlatformAlertsUpdateBody = /* @__PURE__ */ zod.union([
                             properties: zod
                                 .array(zod.record(zod.string(), zod.unknown()))
                                 .optional()
-                                .describe(
-                                    'Property filters on the exception event and the issue. Every filter must match.'
-                                ),
+                                .describe('Property filters on the exception event. Every filter must match.'),
                         })
                         .optional()
                         .describe('The issues and exceptions the alert announces.'),
@@ -2527,9 +2523,7 @@ export const PlatformAlertsPartialUpdateBody = /* @__PURE__ */ zod.union([
                             properties: zod
                                 .array(zod.record(zod.string(), zod.unknown()))
                                 .optional()
-                                .describe(
-                                    'Property filters on the exception event and the issue. Every filter must match.'
-                                ),
+                                .describe('Property filters on the exception event. Every filter must match.'),
                         })
                         .optional()
                         .describe('The issues and exceptions the alert announces.'),

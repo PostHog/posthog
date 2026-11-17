@@ -681,7 +681,7 @@ export type ErrorTrackingPlatformAlertFiltersApiPropertiesItem = { [key: string]
  * Which issues and exceptions the alert announces, in the shape error tracking's destinations use.
  */
 export interface ErrorTrackingPlatformAlertFiltersApi {
-    /** Property filters on the exception event and the issue. Every filter must match. */
+    /** Property filters on the exception event. Every filter must match. */
     properties?: ErrorTrackingPlatformAlertFiltersApiPropertiesItem[]
 }
 

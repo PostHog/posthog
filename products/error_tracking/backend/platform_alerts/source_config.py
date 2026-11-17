@@ -55,7 +55,7 @@ class ErrorTrackingPlatformAlertFilters(BaseModel):
 
     properties: list[dict[str, Any]] = Field(
         default_factory=list,
-        description="Property filters on the exception event and the issue. Every filter must match.",
+        description="Property filters on the exception event. Every filter must match.",
     )
 
 
@@ -80,17 +80,18 @@ def validate_error_tracking_edit(edit: PlatformAlertConfigurationEdit) -> None:
 
 def check_filters_in_team(*, team_id: int, edit: PlatformAlertConfigurationEdit) -> None:
     """The filters must compile for the project, which validation cannot check without a team."""
-    from posthog.models import Team  # noqa: PLC0415 - keeps models off the config's import path
-
-    from products.cdp.backend.filters import compile_filters_bytecode  # noqa: PLC0415
+    # Imported here, because it loads models and the HogQL compiler, which the config's import path avoids.
+    from products.error_tracking.backend.logic.alerts import (  # noqa: PLC0415
+        AlertValidationError,
+        compile_alert_filters,
+    )
 
     properties = edit.source_config.get("filters", {}).get("properties") or []
-    if not properties:
-        return
-    team = Team.objects.get(id=team_id)
-    compiled = compile_filters_bytecode({"properties": properties}, team)
-    if compiled.get("bytecode_error"):
-        raise InvalidPlatformAlertEdit("source_config", f"The filters are not valid: {compiled['bytecode_error']}")
+    try:
+        # The native alerts' own checks, so a leaf that would compile to match-all is refused here too.
+        compile_alert_filters(team_id, {"properties": properties})
+    except AlertValidationError as error:
+        raise InvalidPlatformAlertEdit("source_config", str(error)) from error
 
 
 ERROR_TRACKING_ALERT_CONFIG: Final = SourceConfigSpec(

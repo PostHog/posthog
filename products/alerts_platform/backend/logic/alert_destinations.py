@@ -25,9 +25,11 @@ from products.alerts_platform.backend.facade.contracts import (
     DestinationType,
     NewAlertDestination,
     SourceDestination,
+    SourceKind,
     StoredAlertDestination,
 )
 from products.alerts_platform.backend.facade.enums import PlatformAlertOwner, PlatformAlertState
+from products.alerts_platform.backend.logic import source_configs
 from products.alerts_platform.backend.models import AlertDestination, PlatformAlert, PlatformAlertConfiguration
 
 # The destination types that open and close incidents rather than post messages.
@@ -93,6 +95,7 @@ def create_alert_destinations(
         configuration = (
             PlatformAlertConfiguration.objects.for_team(team_id).select_for_update().get(id=configuration_id)
         )
+        _refuse_incidents_the_source_never_sends(configuration.source_kind, destinations)
         _refuse_duplicates(team_id, configuration.id, destinations, hog_function_groups)
         rows = [
             AlertDestination.objects.for_team(team_id).create(
@@ -300,6 +303,21 @@ def _subscriber_rows(team_id: int, configuration_ids: Collection[UUID]) -> list[
 
 def _names_subscribers(row: AlertDestination) -> bool:
     return row.type == DestinationType.IN_APP or (row.type == DestinationType.EMAIL and "email_user_ids" in row.config)
+
+
+def _refuse_incidents_the_source_never_sends(source_kind: str, destinations: Sequence[NewAlertDestination]) -> None:
+    # A source with no incident events never opens or resolves an incident, so an incident manager on
+    # its alert would be saved and never hear anything.
+    spec = source_configs.spec(SourceKind(source_kind))
+    if spec is None or spec.incident_event_ids is not None:
+        return
+    for destination in destinations:
+        if destination.data["type"] in INCIDENT_DESTINATION_TYPES:
+            label = DestinationType(destination.data["type"]).label
+            raise AlertDestinationValidationError(
+                f"This alert can't open or resolve incidents, so it can't send to {label}. Choose another destination.",
+                field="type",
+            )
 
 
 def _refuse_duplicates(
