@@ -21,6 +21,7 @@ from rest_framework.exceptions import PermissionDenied
 from rest_framework.response import Response
 
 from posthog.constants import AvailableFeature
+from posthog.integrations import UndecryptedIntegrationSecretError
 from posthog.models.integration import Integration
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.team import Team
@@ -61,6 +62,7 @@ from products.warehouse_sources.backend.presentation.destination_connection_test
 )
 from products.warehouse_sources.backend.presentation.views.external_data_destination import (
     DELIVERY_FAILURES_LIMIT,
+    UNREADABLE_CREDENTIALS_ERROR,
     DestinationConnectLinkQuerySerializer,
     ExternalDataDestinationViewSet,
 )
@@ -2245,6 +2247,20 @@ class TestDeliveryFailures(DestinationAPITestBase):
 
         for destination in (self.destination, twin):
             assert [row["error"] for row in self._failures(destination)] == ["login rejected the value ***"]
+
+    def test_hides_the_error_when_the_integration_secrets_cannot_be_read(self) -> None:
+        self._failed_job("Prod: login rejected the value secret-pass")
+        other = self._failed_job("Prod: boom")
+        ExternalDataJob.objects.filter(id=other.id).update(created_at=timezone.now() - timedelta(minutes=1))
+
+        with patch(
+            f"{DESTINATION_VIEWS}.source_helpers.get_integration_error_redaction_values",
+            side_effect=UndecryptedIntegrationSecretError(),
+        ):
+            results = self._failures()
+
+        assert [row["error"] for row in results] == [UNREADABLE_CREDENTIALS_ERROR, UNREADABLE_CREDENTIALS_ERROR]
+        assert all("secret-pass" not in json.dumps(row) for row in results)
 
     def test_finds_failures_older_than_a_page_of_other_failed_runs(self) -> None:
         now = timezone.now()

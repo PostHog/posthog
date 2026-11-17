@@ -17,7 +17,12 @@ from rest_framework.response import Response
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
-from posthog.integrations import IntegrationKind, IntegrationManager, IntegrationRecord
+from posthog.integrations import (
+    IntegrationKind,
+    IntegrationManager,
+    IntegrationRecord,
+    UndecryptedIntegrationSecretError,
+)
 from posthog.integrations.fields import IntegrationReferenceField
 from posthog.models.integration import (
     AWSRedshiftRoleBasedIntegration,
@@ -100,6 +105,10 @@ DESTINATION_INTEGRATION_KINDS: dict[str, tuple[str, ...]] = {
 DELIVERY_FAILURES_WINDOW_DAYS = 14
 DELIVERY_FAILURES_LIMIT = 50
 DELIVERY_FAILURES_PAGE_SIZE = 500
+UNREADABLE_CREDENTIALS_ERROR = (
+    "Couldn't read this destination's credentials, so the error is hidden. "
+    "Reconnect the destination and run the sync again."
+)
 
 INTEGRATION_ACCESS_DENIED = (
     "You do not have access to this integration. Ask a project admin for access, or connect your own credentials."
@@ -1211,10 +1220,14 @@ class ExternalDataDestinationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
             if named.integration_id
         }
         integrations = IntegrationManager.any.get_many(self.team_id, integration_ids) if integration_ids else {}
-        integration_secrets = {
-            integration_id: source_helpers.get_integration_error_redaction_values(integration)
-            for integration_id, integration in integrations.items()
-        }
+        integration_secrets: dict[int, frozenset[str]] = {}
+        unreadable_integration_ids: set[int] = set()
+        for integration_id, integration in integrations.items():
+            try:
+                integration_secrets[integration_id] = source_helpers.get_integration_error_redaction_values(integration)
+            except UndecryptedIntegrationSecretError:
+                # Secrets that cannot be read cannot be masked, so the errors of this integration stay hidden.
+                unreadable_integration_ids.add(integration_id)
         source_secrets: dict[str, frozenset[str]] = {}
 
         results: list[dict[str, Any]] = []
@@ -1232,6 +1245,10 @@ class ExternalDataDestinationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
                     if named.integration_id is not None
                 )
             )
+            if any(named.integration_id in unreadable_integration_ids for named in named_destinations):
+                error: str | None = UNREADABLE_CREDENTIALS_ERROR
+            else:
+                error = source_helpers.redact_error_message(_delivery_error_detail(reason, destination.name), secrets)
             results.append(
                 {
                     "job_id": job.id,
@@ -1240,9 +1257,7 @@ class ExternalDataDestinationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
                     "source_type": job.pipeline.source_type,
                     "schema_id": job.schema_id,
                     "schema_name": job.schema.name if job.schema else None,
-                    "error": source_helpers.redact_error_message(
-                        _delivery_error_detail(reason, destination.name), secrets
-                    ),
+                    "error": error,
                     "is_configuration_error": is_configuration_failure_of(reason, destination.name),
                     "created_at": job.created_at,
                     "finished_at": job.finished_at,
