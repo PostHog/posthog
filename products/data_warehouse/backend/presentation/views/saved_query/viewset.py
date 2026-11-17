@@ -1,5 +1,6 @@
 """The saved-query viewset and the request bodies of its actions."""
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any, cast
 
@@ -77,7 +78,7 @@ _SERVING_RUN_ID = Subquery(
 )
 
 
-def _attach_serving_runs(views: list[DataWarehouseSavedQuery]) -> None:
+def _attach_serving_runs(views: Sequence[DataWarehouseSavedQuery]) -> None:
     serving_run_ids = [view.serving_run_id for view in views if view.serving_run_id]  # type: ignore[attr-defined]
     runs = DataModelingJob.objects.only("status", "last_run_at", "error").in_bulk(serving_run_ids)
     for view in views:
