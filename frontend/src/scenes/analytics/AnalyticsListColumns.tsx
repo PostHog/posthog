@@ -9,13 +9,12 @@ import {
     DropdownMenuContent,
     DropdownMenuItem,
     DropdownMenuTrigger,
-    Text,
     Tooltip,
     TooltipContent,
     TooltipTrigger,
 } from '@posthog/quill'
 
-import { TZLabel } from 'lib/components/TZLabel'
+import { QuillEmptyCell, QuillTimeCell } from 'lib/components/QuillTableCells/QuillTableCells'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 
@@ -42,25 +41,6 @@ import {
 export type AnalyticsListRow = { kind: 'folder'; folder: FolderRow } | { kind: 'item'; item: AnalyticsItem }
 
 export type AnalyticsListColumns = ColumnDef<AnalyticsListRow>[]
-
-function EmptyCell(): JSX.Element {
-    return (
-        <Text size="xs" variant="muted">
-            –
-        </Text>
-    )
-}
-
-function TimeCell({ time }: { time: string | null }): JSX.Element {
-    if (!time) {
-        return <EmptyCell />
-    }
-    return (
-        <Text size="xs" variant="muted" render={<span />}>
-            <TZLabel time={time} />
-        </Text>
-    )
-}
 
 function FolderMenuCell({ folder }: { folder: FolderRow }): JSX.Element | null {
     const { deleteItem } = useActions(projectTreeDataLogic)
@@ -228,7 +208,7 @@ export function analyticsListColumns({
                           row.original.kind === 'item' ? (
                               <AnalyticsItemCollection item={row.original.item} />
                           ) : (
-                              <EmptyCell />
+                              <QuillEmptyCell />
                           ),
                   },
               ] satisfies AnalyticsListColumns)
@@ -238,7 +218,7 @@ export function analyticsListColumns({
             header: 'Tags',
             enableSorting: false,
             cell: ({ row }) =>
-                row.original.kind === 'item' ? <AnalyticsItemTags item={row.original.item} /> : <EmptyCell />,
+                row.original.kind === 'item' ? <AnalyticsItemTags item={row.original.item} /> : <QuillEmptyCell />,
         },
         ...(showOwner
             ? ([
@@ -267,7 +247,7 @@ export function analyticsListColumns({
                       sortDescFirst: true,
                       enableMultiSort: false,
                       meta: { sortDataAttr: 'analytics-list-sort-last-viewed' },
-                      cell: ({ getValue }) => <TimeCell time={getValue<string | null>()} />,
+                      cell: ({ getValue }) => <QuillTimeCell time={getValue<string | null>()} />,
                   },
               ] satisfies AnalyticsListColumns)
             : []),
@@ -279,7 +259,7 @@ export function analyticsListColumns({
             sortDescFirst: true,
             enableMultiSort: false,
             meta: { sortDataAttr: 'analytics-list-sort-created' },
-            cell: ({ getValue }) => <TimeCell time={getValue<string | null>()} />,
+            cell: ({ getValue }) => <QuillTimeCell time={getValue<string | null>()} />,
         },
         {
             id: 'actions',
