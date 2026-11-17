@@ -18,20 +18,15 @@ from posthog.hogql.visitor import CloningVisitor
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.client.execute import ClickHouseExternalTable
-from posthog.dataclasses import frozen
 from posthog.models.event.new_events_schema import events_route_scope
 from posthog.models.team import Team
+
+from products.data_modeling.backend.facade.contracts import DescribedColumn
 
 if TYPE_CHECKING:
     from posthog.models.user import User
 
 THERE_IS_NO_COLUMN_ERROR_CODE = 8
-
-
-@frozen
-class DescribedColumn:
-    name: str
-    ch_type: str
 
 
 # ClickHouse builds every GLOBAL IN subquery as a temporary table while it plans a query, and

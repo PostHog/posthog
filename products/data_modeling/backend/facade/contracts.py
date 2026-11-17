@@ -97,6 +97,12 @@ class UpstreamTableRef:
     is_posthog_table: bool = False
 
 
+@frozen
+class DescribedColumn:
+    name: str
+    ch_type: str
+
+
 @dataclass(frozen=True)
 class SuspensionMarker:
     """Why and when scheduled materialization stopped for one engine."""

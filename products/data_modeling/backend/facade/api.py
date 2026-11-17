@@ -164,7 +164,7 @@ _LAZY = {
     "DESCRIBE_QUERY_SETTINGS": "logic.describe_columns",
     "THERE_IS_NO_COLUMN_ERROR_CODE": "logic.describe_columns",
     "describe_ast_settings": "logic.describe_columns",
-    "DescribedColumn": "logic.describe_columns",
+    "DescribedColumn": "facade.contracts",
     "print_describe_variant": "logic.describe_columns",
 }
 
