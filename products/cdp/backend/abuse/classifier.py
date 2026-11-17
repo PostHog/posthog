@@ -12,7 +12,6 @@ from enum import StrEnum
 from pydantic import ValidationError
 
 from posthog.dataclasses import frozen
-from posthog.security.llm_prompt_sanitization import strip_llm_framing_markers
 
 from products.ml_inference.backend.facade.contracts import (
     DEFAULT_DECISION_MODEL,
@@ -134,6 +133,18 @@ def public_inputs(inputs: object, inputs_schema: object) -> dict[str, JsonValue]
     }
 
 
+def public_schema(inputs_schema: object) -> list[JsonValue]:
+    """The schema without the default value of a secret input."""
+    if not isinstance(inputs_schema, list):
+        return []
+    return [
+        {key: value for key, value in item.items() if key != "default"}
+        if isinstance(item, dict) and item.get("secret")
+        else item
+        for item in inputs_schema
+    ]
+
+
 def public_mappings(mappings: object) -> list[JsonValue]:
     if not isinstance(mappings, list):
         return []
@@ -143,6 +154,7 @@ def public_mappings(mappings: object) -> list[JsonValue]:
 def _public_mapping(mapping: dict[str, JsonValue]) -> dict[str, JsonValue]:
     public = without_derived(mapping)
     public["filters"] = without_derived(mapping.get("filters"))
+    public["inputs_schema"] = public_schema(mapping.get("inputs_schema"))
     public["inputs"] = public_inputs(mapping.get("inputs"), mapping.get("inputs_schema"))
     return public
 
@@ -174,7 +186,8 @@ def build_state(content: HogFunctionContent) -> tuple[dict[str, JsonValue], bool
         "function_type": content.type,
         "template_id": content.template_id,
         "code_modified_from_template": content.code_modified_from_template,
-        "code": strip_llm_framing_markers(content.hog, MAX_STATE_CHARS),
+        # Verbatim: the state is JSON data, and a prompt-text sanitizer could delete statements that still run.
+        "code": content.hog,
         "inputs_schema": content.inputs_schema,
         "inputs": content.inputs,
         "filters": content.filters,

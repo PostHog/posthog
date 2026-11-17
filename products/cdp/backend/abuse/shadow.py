@@ -28,6 +28,7 @@ from products.cdp.backend.abuse.classifier import (
     content_hash,
     public_inputs,
     public_mappings,
+    public_schema,
     without_derived,
 )
 from products.cdp.backend.flag_gated_templates import gated_template_enabled
@@ -57,7 +58,7 @@ def content_of(hog_function: HogFunction, template: HogFunctionTemplate | None =
         template_id=hog_function.template_id,
         code_modified_from_template=None if template is None else hog_function.hog != template.code,
         hog=hog_function.hog or "",
-        inputs_schema=hog_function.inputs_schema or [],
+        inputs_schema=public_schema(hog_function.inputs_schema),
         inputs=public_inputs(hog_function.inputs, hog_function.inputs_schema),
         filters=without_derived(hog_function.filters),
         mappings=public_mappings(hog_function.mappings),
@@ -96,21 +97,13 @@ def hog_function_saved(
 ) -> None:
     if _is_draft_only_save(update_fields) or instance.deleted or instance.type not in CLASSIFIED_TYPES:
         return
-    # Scoring is a side channel of every save, so a failure here must not fail the save.
-    try:
-        digest = content_hash(content_of(instance))
-    except Exception:
-        logger.exception("cdp_abuse_classifier_hash_failed", hog_function_id=str(instance.id))
-        return
-    transaction.on_commit(lambda: _queue_if_changed(instance, digest))
+    transaction.on_commit(lambda: _queue_if_enabled(instance))
 
 
-def _queue_if_changed(hog_function: HogFunction, digest: str) -> None:
+def _queue_if_enabled(hog_function: HogFunction) -> None:
+    # Runs in the saving request after the commit, so a failure here must not fail the save.
     try:
         if not gated_template_enabled(FLAG, hog_function.team):
-            return
-        if cache.get(_hash_key(str(hog_function.id))) == digest:
-            metrics.CLASSIFICATIONS.labels(hog_function.type, "none", "skipped_unchanged").inc()
             return
 
         from products.cdp.backend.tasks.abuse_classification import classify_hog_function_for_abuse  # noqa: PLC0415
@@ -120,8 +113,22 @@ def _queue_if_changed(hog_function: HogFunction, digest: str) -> None:
         logger.exception("cdp_abuse_classifier_queue_failed", hog_function_id=str(hog_function.id))
 
 
-def score(hog_function: HogFunction) -> ScoredHogFunction:
+def classify_if_due(hog_function: HogFunction) -> None:
+    """Score and report a saved function, unless the flag went off or its content was scored since it was queued."""
+    if not gated_template_enabled(FLAG, hog_function.team):
+        return
     content = content_of(hog_function, hog_function.template)
+    if cache.get(_hash_key(str(hog_function.id))) == content_hash(content):
+        metrics.CLASSIFICATIONS.labels(hog_function.type, "none", "skipped_unchanged").inc()
+        return
+    report(hog_function, _score(hog_function, content))
+
+
+def score(hog_function: HogFunction) -> ScoredHogFunction:
+    return _score(hog_function, content_of(hog_function, hog_function.template))
+
+
+def _score(hog_function: HogFunction, content: HogFunctionContent) -> ScoredHogFunction:
     verdict: AbuseVerdict | None = None
     failure: FailureReason | None = None
     try:
@@ -162,7 +169,7 @@ def report(hog_function: HogFunction, scored: ScoredHogFunction) -> None:
             "latency_ms": verdict.latency_ms,
         },
     )
-    # Only a verdict is remembered, so a failed classification runs again on the next save.
+    # Only a delivered verdict is remembered, so a failed classification or capture runs again on the next save.
     cache.set(_hash_key(str(hog_function.id)), scored.content_hash, _HASH_TTL_SECONDS)
 
 
@@ -182,5 +189,5 @@ def _capture(hog_function: HogFunction, scored: ScoredHogFunction, outcome: dict
         **outcome,
     }
     # Every region reports to PostHog's US project, so the region rides along as a property.
-    with ph_scoped_capture(event_region=get_instance_region()) as capture:
+    with ph_scoped_capture(event_region=get_instance_region(), raise_on_error=True) as capture:
         capture(distinct_id=str(team.uuid), event=EVENT, properties=properties, groups=groups(team=team))

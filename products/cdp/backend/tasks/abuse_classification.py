@@ -16,4 +16,4 @@ def classify_hog_function_for_abuse(team_id: int, hog_function_id: str) -> None:
         .first()
     )
     if hog_function is not None:
-        shadow.report(hog_function, shadow.score(hog_function))
+        shadow.classify_if_due(hog_function)
