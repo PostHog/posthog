@@ -240,6 +240,14 @@ class TestEvalSuggestionsApi(APIBaseTest):
         target.refresh_from_db()
         assert target.conditions[0]["properties"][0]["value"] == [expected_product]
 
+    def test_a_prompt_problem_has_no_evaluation_to_accept(self) -> None:
+        suggestion = self._suggestion(EvalSuggestionKind.FIX_PROMPT, draft={"name": "Refund dates"})
+
+        response = self.client.post(f"{self.url}/{suggestion.id}/accept/")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert not Evaluation.objects.filter(team_id=self.team.pk).exists()
+
     @parameterized.expand(
         [
             ("open", EvalSuggestionStatus.PROPOSED, False, True),
