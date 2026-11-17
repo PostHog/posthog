@@ -12,6 +12,7 @@
                 "backend/integration_hooks.py",
                 "backend/models/**",
                 "backend/migrations/**",
+                "backend/admin/**",
                 "backend/tasks/**",
                 "backend/temporal/data_imports/naming_convention.py",
                 "backend/temporal/data_imports/pipelines/core/account_property_row_sink.py",
