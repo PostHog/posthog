@@ -301,6 +301,12 @@ describe('unlayerToEmailDocument', () => {
             sent: ['font-size:16px;line-height:140%'],
         },
         {
+            name: 'a heading holding another heading, which browsers show at its own default size',
+            block: content('heading', { text: '<h1>Big</h1>', fontSize: '22px' }),
+            exported: undefined,
+            sent: ['<h1 style="margin:0;font-size:22px;font-weight:400;line-height:140%"><h1>Big</h1></h1>'],
+        },
+        {
             name: 'a button with no alignment, which the old editor centers',
             block: content('button', { text: 'Go' }),
             exported: undefined,
@@ -531,6 +537,13 @@ describe('unlayerToEmailDocument', () => {
         expect(html).toMatch(/<div style="display:inline-block;width:50%;/)
         expect(html).toMatch(/\.ph-m-\d+ \{ padding:4px 0px 6px 0px !important; \}/)
         expect(html).toContain('<tr class="ph-hide-mobile">')
+    })
+
+    it('gives an email whose width is a percentage a standard body width', () => {
+        const wide = design([content('text', { text: '<p>Hi</p>' })])
+        wide.body.values.contentWidth = '100%'
+
+        expect(renderEmailHtml(unlayerToEmailDocument(wide).document?.doc ?? {})).toContain('max-width:600px')
     })
 
     it('opens an email whose html the old editor did not write exactly as it is sent', () => {

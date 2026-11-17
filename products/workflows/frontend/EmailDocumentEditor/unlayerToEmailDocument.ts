@@ -1003,6 +1003,31 @@ function convertContentBlocksWithoutPhone(
             const style = textStyleFrom(values, { fontSize: 22, lineHeight: 140 })
             const headingHtml = richTextOf(values)
             const headingLinks = new DOMParser().parseFromString(headingHtml, 'text/html').body.querySelectorAll('a')
+            if (/<h[1-6]\b/i.test(headingHtml)) {
+                // A heading inside the heading ends it in every browser, so the inner one shows at its default size.
+                // The markup stays as it is, with the heading's styles on its own element.
+                const headingCss = [
+                    'margin:0',
+                    style.fontFamily ? `font-family:${style.fontFamily.replace(/"/g, "'")}` : '',
+                    `font-size:${style.fontSize ?? 22}px`,
+                    `font-weight:${style.fontWeight ?? 400}`,
+                    style.lineHeight ? `line-height:${style.lineHeight}%` : '',
+                    style.letterSpacing ? `letter-spacing:${style.letterSpacing}px` : '',
+                    style.color ? `color:${style.color}` : '',
+                    style.textAlign ? `text-align:${style.textAlign}` : '',
+                ]
+                    .filter(Boolean)
+                    .join(';')
+                return [
+                    {
+                        type: 'emailHtml',
+                        attrs: {
+                            html: `<h${level} style="${headingCss}">${headingHtml}</h${level}>`,
+                            emailStyle: compact({ padding: style.padding, inheritText: true }),
+                        },
+                    },
+                ]
+            }
             if (Array.from(headingLinks).some(isUntrackedLink)) {
                 return [
                     textAsHtmlBlock(`<h${level}>${headingHtml}</h${level}>`, {
@@ -1308,7 +1333,12 @@ export function unlayerToEmailDocument(
     const notKept = new Set<string>()
     const bodyValues = body.values ?? {}
     const rows: any[] = [...(body.headers ?? []), ...body.rows, ...(body.footers ?? [])]
-    const bodyWidth = parsePx(bodyValues.contentWidth) ?? 500
+    // A width in percent can't be a fixed body width, and the old editor's export of it is broken anyway.
+    const bodyWidth = String(bodyValues.contentWidth ?? '')
+        .trim()
+        .endsWith('%')
+        ? 600
+        : (parsePx(bodyValues.contentWidth) ?? 500)
     const exported = exportedRows(storedHtml)
     const hoverButtons = exportedHoverButtons(storedHtml)
     const styles = exportedStyles(storedHtml)
