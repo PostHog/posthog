@@ -32,6 +32,7 @@ from rest_framework.exceptions import APIException
 from rest_framework.response import Response
 from rest_framework.test import APIClient
 from rest_framework.views import APIView
+from temporalio.service import RPCError, RPCStatusCode
 
 from posthog.clickhouse.query_tagging import get_query_tags
 from posthog.models import Integration, Organization, OrganizationMembership, PersonalAPIKey, Team, User
@@ -13111,10 +13112,25 @@ class TestTaskRunCancelAPI(BaseTaskAPITest):
         run.refresh_from_db()
         self.assertEqual(run.status, TaskRun.Status.IN_PROGRESS)
 
+    @parameterized.expand(
+        [
+            ("connect_fails", RuntimeError("connection refused"), None, False),
+            (
+                "signal_response_is_lost",
+                None,
+                RPCError("deadline exceeded", RPCStatusCode.DEADLINE_EXCEEDED, b""),
+                True,
+            ),
+        ]
+    )
     @patch("products.tasks.backend.facade.api.create_sandbox_connection_token", return_value="token")
     @patch("products.tasks.backend.facade.api.send_cancel")
-    @patch("products.tasks.backend.facade.cancellation._signal_complete_task", return_value="unavailable")
-    def test_cancel_returns_503_when_temporal_unavailable(self, _mock_signal, _mock_send_cancel, _mock_token):
+    @patch("products.tasks.backend.facade.cancellation.sync_connect")
+    def test_cancel_returns_503_when_temporal_unavailable(
+        self, _name, connect_error, signal_error, keeps_marker, mock_connect, _mock_send_cancel, _mock_token
+    ):
+        mock_connect.side_effect = connect_error
+        mock_connect.return_value.get_workflow_handle.return_value.signal = AsyncMock(side_effect=signal_error)
         task = self.create_task()
         run = self._create_run(task)
 
@@ -13123,7 +13139,7 @@ class TestTaskRunCancelAPI(BaseTaskAPITest):
         self.assertEqual(response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
         run.refresh_from_db()
         self.assertEqual(run.status, TaskRun.Status.IN_PROGRESS)
-        self.assertNotIn("cancel_requested_at", run.state)
+        self.assertEqual("cancel_requested_at" in run.state, keeps_marker)
 
     def test_cancel_unknown_run_returns_404(self):
         task = self.create_task()

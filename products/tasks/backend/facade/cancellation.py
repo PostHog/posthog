@@ -34,9 +34,13 @@ logger = logging.getLogger(__name__)
 
 def _signal_complete_task(
     run: TaskRun, status: str, error_message: str | None
-) -> Literal["signaled", "workflow_gone", "unavailable"]:
+) -> Literal["signaled", "workflow_gone", "not_sent", "delivery_unknown"]:
     try:
         client = sync_connect()
+    except Exception as error:
+        logger.warning("Failed to connect to Temporal for task run %s: %s", run.id, error)
+        return "not_sent"
+    try:
         handle = client.get_workflow_handle(run.workflow_id)
         asyncio.run(handle.signal(ProcessTaskWorkflow.complete_task, args=[status, error_message]))
         return "signaled"
@@ -44,10 +48,10 @@ def _signal_complete_task(
         if error.status == RPCStatusCode.NOT_FOUND:
             return "workflow_gone"
         logger.warning("Failed to signal workflow completion for task run %s: %s", run.id, error)
-        return "unavailable"
+        return "delivery_unknown"
     except Exception as error:
         logger.warning("Failed to signal workflow completion for task run %s: %s", run.id, error)
-        return "unavailable"
+        return "delivery_unknown"
 
 
 def _interrupt_agent_turn(run: TaskRun, user_id: int | None, distinct_id: str | None) -> None:
@@ -198,11 +202,12 @@ def cancel_task_run(
     _interrupt_agent_turn(run, requested_by_user_id, requested_by_distinct_id)
 
     signal_outcome = _signal_complete_task(run, TaskRun.Status.CANCELLED, error_message)
-    if signal_outcome == "unavailable":
+    if signal_outcome == "not_sent":
         try:
             run.state = TaskRun.update_state_atomic(run.id, remove_keys=list(marker))
         except Exception:
             logger.warning("Failed to withdraw cancel request marker for task run %s", run.id, exc_info=True)
+    if signal_outcome in ("not_sent", "delivery_unknown"):
         return "unavailable", tasks_api._task_run_detail_to_dto(run)
 
     if signal_outcome == "workflow_gone":
