@@ -7589,12 +7589,12 @@ Diffed against: <https://developers.mailerlite.com/llms.txt>
 - [x] `GET /api/segments/{segment_id}/subscribers` — segment membership join table (high)
 - [x] `GET /api/ecommerce/shops/{shop_id}/orders` — purchase transactions — the highest-value analytical object in the e-commerce API (high)
 - [x] `GET /api/ecommerce/shops` — lookup resolving shop ids for every e-commerce record (high)
-- [ ] `GET /api/ecommerce/shops/{shop_id}/customers` — shop customers linked to subscribers, joins revenue to email (medium)
+- [x] `GET /api/ecommerce/shops/{shop_id}/customers` — shop customers linked to subscribers, joins revenue to email (medium)
 - [x] `GET /api/ecommerce/shops/{shop_id}/products` — product catalog resolving order line items (medium)
-- [ ] `GET /api/forms/{form_id}/subscribers` — signups attributable to each popup/embedded/promotion form (medium)
+- [x] `GET /api/forms/{form_id}/subscribers` — signups attributable to each popup/embedded/promotion form (medium)
 - [x] `GET /api/ecommerce/shops/{shop_id}/categories` — category dimension for product and order breakdowns (medium)
-- [ ] `GET /api/timezones` — lookup resolving the timezone id on subscribers and account settings (low)
-- [ ] `GET /api/campaign-languages` — lookup resolving campaign language codes (low)
+- [x] `GET /api/timezones` — lookup resolving the timezone id on subscribers and account settings (low)
+- [x] `GET /api/campaign-languages` — lookup resolving campaign language codes (low)
 
 Note: The source ships an api_inventory.md documenting the 10 implemented paths; it only covers the core /api surface and does not mention the separate E-commerce API (shops, carts, orders, products, categories, customers), which is entirely unexposed. All schemas are static and full-refresh (MailerLite has no server-side updated_after filter).
 
