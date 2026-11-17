@@ -59,11 +59,10 @@ pub fn validate_table_name(table: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// Why a fallback load produced no person.
 #[derive(Debug)]
 pub enum LoadError {
     Query(sqlx::Error),
-    /// The row was read, but its properties cannot be parsed. A retry reads the same bytes.
+    /// A retry reads the same bytes.
     UnprocessableProperties(String),
 }
 
@@ -82,7 +81,6 @@ impl From<sqlx::Error> for LoadError {
     }
 }
 
-/// Parses the stored properties of one row.
 fn parse_stored_properties(
     properties_text: &str,
     team_id: i32,

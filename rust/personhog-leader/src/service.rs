@@ -89,8 +89,7 @@ struct Committer {
     captures: ChangelogCaptures,
 }
 
-/// DATA_LOSS is outside every retry set, so the caller can dead-letter
-/// the event instead of retrying a row that reads the same each time.
+/// DATA_LOSS is outside every client retry set.
 fn unprocessable_person_status() -> Status {
     Status::data_loss("stored person properties cannot be parsed")
 }

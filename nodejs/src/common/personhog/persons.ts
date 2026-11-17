@@ -44,11 +44,7 @@ export class PersonhogPropertiesSizeError extends Error {
     }
 }
 
-/**
- * The leader read the person's stored row and cannot parse its properties.
- * The row reads the same on every retry, so the pipeline dead-letters the
- * event instead of retrying it.
- */
+/** The leader cannot parse the person's stored row, and a retry reads the same row. */
 export class PersonhogUnprocessablePersonError extends Error {
     readonly isRetriable = false
 
