@@ -3361,6 +3361,7 @@ describe('CDP API', () => {
                     expect(uuidVersion(sent.body.invocation_id)).toEqual(5)
                     expect(await jobsOfFlow()).toEqual([sent.body.invocation_id])
                     expect(await claimFingerprint(sent.body.invocation_id)).toEqual(expect.any(String))
+                    expect(await claimFingerprint(sent.body.invocation_id)).not.toEqual(unkeyedFingerprint())
                 })
 
                 it.each([
