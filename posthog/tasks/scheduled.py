@@ -14,11 +14,7 @@ from posthog.models.async_deletion.celery_fallback import celery_sweeps_enabled
 from posthog.tasks.ai_observability_usage_report import send_ai_observability_usage_reports
 from posthog.tasks.auth_token_cache_verification import verify_and_fix_auth_token_cache_task
 from posthog.tasks.calculate_cohort import finalize_cohort_backfill_runs, publish_cohort_backfill_run_gauges
-from posthog.tasks.email import (
-    EXTERNAL_DATA_DIGEST_DAY_BOUNDARY_HOUR_UTC,
-    send_hog_functions_daily_digest,
-    send_matview_failure_digest,
-)
+from posthog.tasks.email import EXTERNAL_DATA_DIGEST_DAY_BOUNDARY_HOUR_UTC, send_hog_functions_daily_digest
 from posthog.tasks.gateway_credential import drain_gateway_credential_last_used_task, refresh_gateway_credentials
 from posthog.tasks.hypercache_verification import (
     verify_and_fix_flag_definitions_cache_task,
@@ -97,10 +93,10 @@ from products.conversations.backend.tasks.maintenance import purge_deleted_ticke
 from products.conversations.backend.tasks.slack import sweep_delivery_parts, sweep_inbound_events
 from products.conversations.backend.tasks.teams import poll_teams_shared_channels
 from products.customer_analytics.backend.facade.tasks import schedule_task_digests
-from products.data_catalog.backend.facade.tasks import backfill_metric_embeddings_task
 from products.data_modeling.backend.facade.tasks import (
     cleanup_deleted_saved_query_nodes,
     cleanup_expired_test_saved_queries,
+    send_matview_failure_digest,
 )
 from products.data_warehouse.backend.facade.tasks import (
     reconcile_all_managed_warehouse_tables_task,
@@ -122,6 +118,7 @@ from products.feature_flags.backend.tasks import (
 from products.legal_documents.backend.facade.tasks import reconcile_pending_legal_documents
 from products.logs.backend.facade.tasks import logs_alert_events_cleanup_task
 from products.managed_warehouse.backend.facade.tasks import push_all_warehouse_member_teams
+from products.messaging.backend.facade.tasks import close_stale_provider_import_runs
 from products.notebooks.backend.facade.tasks import cleanup_widget_snapshots
 from products.product_analytics.backend.facade.tasks import expire_agent_insight_reads
 from products.pulse.backend.tasks import mark_stale_pulse_briefs_failed
@@ -174,6 +171,7 @@ from products.web_analytics.backend.tasks.heatmap_screenshot import (
 )
 from products.wizard.backend.facade.tasks import reconcile_wizard_runs
 from products.workflows.backend.facade.tasks import (
+    check_ses_sender_health,
     poll_ses_account_enforcement,
     poll_ses_reputation_findings,
     recheck_pending_email_senders,
@@ -295,6 +293,9 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         sender, crontab(minute="11"), delete_orphaned_fragments.s(), name="delete-orphaned-ui-customization"
     )
     add_periodic_task_with_expiry(sender, crontab(minute="37"), expire_datasets.s(), name="expire unused datasets")
+    add_periodic_task_with_expiry(
+        sender, crontab(minute="41"), close_stale_provider_import_runs.s(), name="close stale provider import runs"
+    )
     add_periodic_task_with_expiry(
         sender,
         crontab(minute="23"),
@@ -876,13 +877,6 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         name="recover stuck canvas builds",
     )
 
-    add_periodic_task_with_expiry(
-        sender,
-        crontab(minute="*/10"),
-        backfill_metric_embeddings_task.s(),
-        name="backfill catalog metric embeddings",
-    )
-
     sender.add_periodic_task(
         crontab(hour="*", minute="3"),
         validate_pending_change_requests.s(),
@@ -1128,6 +1122,13 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(hour="7", minute="0"),
         recheck_pending_email_senders.s(),
         name="workflows pending email sender recheck",
+    )
+
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="23"),
+        check_ses_sender_health.s(),
+        name="workflows ses sender health check",
     )
 
     add_periodic_task_with_expiry(

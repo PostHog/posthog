@@ -177,7 +177,6 @@ export const ScannerScanDrought: StoryObj = {
                                 emits_signals: false,
                                 query: null,
                                 sampling_rate: 1,
-                                sampling_mode: 'comprehensive',
                                 up: 6,
                                 down: 2,
                                 total: 142,

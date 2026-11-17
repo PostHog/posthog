@@ -170,10 +170,7 @@ function mergeToolCallUpdate(
 
 export class PiAgentServer {
   private readonly app: Hono;
-  private readonly logger = new Logger({
-    debug: true,
-    prefix: "[PiAgentServer]",
-  });
+  private readonly logger: Logger;
   private readonly posthogAPI: PostHogAPIClient;
   private readonly eventStreamSender: TaskRunEventStreamSender | null;
   private readonly nextEventId = createEventIdSource();
@@ -208,6 +205,12 @@ export class PiAgentServer {
   private modelContextWindow: number | null = null;
 
   constructor(private readonly config: AgentServerConfig) {
+    this.logger = new Logger({
+      debug: true,
+      level: config.logLevel ?? "debug",
+      format: config.logFormat,
+      prefix: "[PiAgentServer]",
+    });
     this.posthogAPI = new PostHogAPIClient({
       apiUrl: config.apiUrl,
       projectId: config.projectId,
@@ -265,7 +268,11 @@ export class PiAgentServer {
           mode: payload.mode ?? this.config.mode,
           agentVersion: this.config.version,
         },
-        new Logger({ debug: false, prefix: "[OtelRunTelemetry]" }),
+        new Logger({
+          debug: false,
+          format: this.config.logFormat,
+          prefix: "[OtelRunTelemetry]",
+        }),
       );
     } catch (error) {
       this.logger.warn("Failed to initialize OTel run telemetry", error);
