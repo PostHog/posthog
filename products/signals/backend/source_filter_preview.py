@@ -239,8 +239,10 @@ def _preview_table(
         )
     where = ast.And(exprs=conditions)
 
+    table_chain: list[str | int] = [*table.name.split(".")]
+
     def source_table() -> ast.JoinExpr:
-        return ast.JoinExpr(table=ast.Field(chain=table.name.split(".")), alias=FILTER_SOURCE_ALIAS)
+        return ast.JoinExpr(table=ast.Field(chain=list(table_chain)), alias=FILTER_SOURCE_ALIAS)
 
     counts_query = ast.SelectQuery(
         select=[
