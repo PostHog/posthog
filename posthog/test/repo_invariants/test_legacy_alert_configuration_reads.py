@@ -130,10 +130,6 @@ READERS: dict[str, str] = {
     "products/alerts/backend/logic/destination_bucket_report.py": "report that informs a cutover",
     "products/logs/backend/destination_buckets.py": "report that informs a cutover",
     "products/logs/backend/delivery_path_report.py": "report that informs a cutover",
-    # Not moved by B: these read rows only, so they miss native alerts. No plan row covers them yet.
-    "products/alerts/backend/logic/organization_offboarding.py": "offboarding lists a member's rows",
-    "products/pulse/backend/generation/persist.py": "Pulse links an alert evidence id to its row",
-    "products/signals/backend/scout_harness/profile/builders.py": "scout profile counts rows",
     "products/alerts/backend/presentation/views/alert.py::ThresholdViewSet": "thresholds endpoint (B6)",
     "products/alerts/backend/presentation/views/alert.py::ThresholdWithAlertSerializer": "thresholds endpoint (B6)",
     "products/alerts/backend/presentation/views/alert.py::_ThresholdsSerializer": "thresholds endpoint (B6)",
