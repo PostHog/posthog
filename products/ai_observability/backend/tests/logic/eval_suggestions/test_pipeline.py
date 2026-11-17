@@ -327,6 +327,15 @@ class TestPipeline(ClickhouseTestMixin, APIBaseTest):
                 _calibration_record(caught=5, false_alarms=2, kept=True),
                 None,
             ),
+            # 26 of 30 calls break the rule, so the card asks for a prompt fix and no judge runs.
+            (
+                "most_calls_break_the_rule",
+                set(),
+                None,
+                {"status": "skipped", "detail": "no cards"},
+                "support-reply",
+                26,
+            ),
         ]
     )
     def test_a_reviewed_judge_publishes_only_when_the_team_model_agrees(
@@ -336,6 +345,7 @@ class TestPipeline(ClickhouseTestMixin, APIBaseTest):
         max_output_tokens: int | None,
         record: dict[str, Any],
         prompt_name: str | None = "support-reply",
+        review_fails: int = 6,
     ) -> None:
         now = timezone.now()
         _support_traffic(self.team, now - timedelta(minutes=30), prompt_name=prompt_name)
@@ -351,7 +361,7 @@ class TestPipeline(ClickhouseTestMixin, APIBaseTest):
             "checks": "Checks whether a reply promises a refund date",
             "why": "The prompt says never to promise a refund date",
             "call_types": ["T1"],
-            "labels": [{"call": n, "verdict": "fail" if n <= 6 else "pass"} for n in range(1, 31)],
+            "labels": [{"call": n, "verdict": "fail" if n <= review_fails else "pass"} for n in range(1, 31)],
             "examples": examples,
             "judge_prompt": JUDGE_PROMPT,
         }
@@ -400,7 +410,14 @@ class TestPipeline(ClickhouseTestMixin, APIBaseTest):
         }
         assert (properties["review_cards_kept"], properties["cards_published"]) == (kept, len(suggestions))
         assert properties["cost_usd"] == run.cost_usd
-        reviewed = [s for s in suggestions if s.template_key == "review"]
+        prompt_fixes = [s for s in suggestions if s.kind == "fix_prompt"]
+        assert [(s.headline, s.measured_failure_rate) for s in prompt_fixes] == (
+            [(REVIEW_TITLE, review_fails / 30)] if review_fails > 6 else []
+        )
+        assert run.stages["drafting"]["prompt_bugs"] == len(prompt_fixes)
+        if prompt_fixes:
+            assert judge.chat.completions.create.call_count == 0
+        reviewed = [s for s in suggestions if s.kind == "new_llm_judge" and s.template_key == "review"]
         if not (record["status"] == "ok" and record["cards"][0]["kept"]):
             assert reviewed == []
             return
