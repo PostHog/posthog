@@ -11,13 +11,13 @@ class Migration(migrations.Migration):
     operations = [
         migrations.AddField(
             model_name="oauthapplication",
-            name="organization_link_region",
+            name="organization_link_issuer",
             field=models.CharField(
                 blank=True,
                 db_default="",
                 default="",
-                help_text="The region whose organization a CIMD app is linked to, when that organization lives in another region.",
-                max_length=8,
+                help_text="The PostHog instance whose organization a CIMD app is linked to, when that is not this instance.",
+                max_length=200,
             ),
         ),
     ]

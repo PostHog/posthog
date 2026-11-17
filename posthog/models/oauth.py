@@ -230,18 +230,18 @@ class OAuthApplication(ModelActivityMixin, AbstractApplication):  # type: ignore
         # the user can decline by cancelling, so they carry the same required floor as any other app.
         return list(self.scopes)
 
-    # Generation marker for app-wide session revocation. A refresh presenting a token issued
-    # before this timestamp is rejected at mint time, so a refresh racing revoke_application_sessions
-    # can't slip new tokens past the one-shot bulk revoke.
-    # Verification tokens are issued in PostHog US only. In another region, a CIMD app whose token PostHog US
-    # confirmed is linked to an organization that lives there, so this names that region instead of `organization`.
-    organization_link_region: models.CharField = models.CharField(
-        max_length=8,
+    # On an instance that does not issue verification tokens, a CIMD app whose token the issuer confirmed is linked to
+    # an organization on the issuer. This names the issuer, because `organization` can only point at this instance.
+    organization_link_issuer: models.CharField = models.CharField(
+        max_length=200,
         blank=True,
         default="",
         db_default="",
-        help_text="The region whose organization a CIMD app is linked to, when that organization lives in another region.",
+        help_text="The PostHog instance whose organization a CIMD app is linked to, when that is not this instance.",
     )
+    # Generation marker for app-wide session revocation. A refresh presenting a token issued
+    # before this timestamp is rejected at mint time, so a refresh racing revoke_application_sessions
+    # can't slip new tokens past the one-shot bulk revoke.
     sessions_revoked_at: models.DateTimeField = models.DateTimeField(
         null=True,
         blank=True,
@@ -347,7 +347,7 @@ class OAuthApplication(ModelActivityMixin, AbstractApplication):  # type: ignore
         one CIMD registration reads."""
         from posthog.models.oauth_provisioning import PartnerTier  # noqa: PLC0415
 
-        attested = self.organization_id is not None or bool(self.organization_link_region)
+        attested = self.organization_id is not None or bool(self.organization_link_issuer)
         if self.requires_client_authentication:
             return PartnerTier.JWKS_ATTESTED if attested else PartnerTier.JWKS
         return PartnerTier.PUBLIC_ATTESTED if attested else PartnerTier.PUBLIC
@@ -423,7 +423,7 @@ class OAuthApplication(ModelActivityMixin, AbstractApplication):  # type: ignore
         return (
             self.is_cimd_client
             and self.organization_id is None
-            and not self.organization_link_region
+            and not self.organization_link_issuer
             and bool(get_instance_setting("CIMD_PROVISIONING_REQUIRES_ORGANIZATION"))
         )
 

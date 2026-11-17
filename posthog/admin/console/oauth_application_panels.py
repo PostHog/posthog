@@ -259,9 +259,9 @@ class OAuthApplicationOverviewPanel(Panel):
                     href=RECORD_TYPES["organization"].url(obj.organization),
                 )
             )
-        elif obj.organization_link_region:
+        elif obj.organization_link_issuer:
             facts.append(
-                Fact(label="Organization", value=f"Linked to an organization in PostHog {obj.organization_link_region}")
+                Fact(label="Organization", value=f"Linked to an organization at {obj.organization_link_issuer}")
             )
         if obj.is_verified:
             facts.append(Fact(label="Verified", value="Yes", tone=Tone.SUCCESS))

@@ -47,7 +47,6 @@ from posthog.scopes.ceilings import filter_self_registered_ceiling, filter_to_un
 from posthog.scopes.oauth import OIDC_SCOPES
 from posthog.security.pinned_requests import PinnedIPAdapter, canonical_host, select_pinned_ip
 from posthog.security.url_validation import UNRESOLVED_HOST_REASON, is_url_allowed, validate_url_and_pin_ips
-from posthog.utils import get_instance_region
 
 from .client_name import sanitize_client_name, validate_cimd_client_name
 from .logo_uri import usable_logo_uri
@@ -622,15 +621,14 @@ def _is_json_media_type(content_type: str | None) -> bool:
     return media_type == "application/json" or (media_type.startswith("application/") and media_type.endswith("+json"))
 
 
-VERIFICATION_ISSUING_REGION = "US"
 VERIFICATION_CHECK_PATH = "/oauth/cimd/verification-token-check/"
 VERIFICATION_CHECK_TIMEOUT_SECONDS = 3
 
 
 def _verifies_tokens_elsewhere() -> bool:
-    """Verification tokens are issued in PostHog US only, because one metadata document serves every region and
-    carries one token. EU confirms the token with US instead of looking it up locally."""
-    return get_instance_region() == "EU"
+    """One metadata document serves every region and carries one token, so one instance issues every token.
+    Any other instance confirms a published token with that issuer instead of looking it up locally."""
+    return bool(settings.CIMD_VERIFICATION_TOKEN_ISSUER_URL)
 
 
 def _published_verification_tokens(metadata: CIMDMetadataDocument) -> list[str]:
@@ -642,23 +640,23 @@ def _published_verification_tokens(metadata: CIMDMetadataDocument) -> list[str]:
     return [token for token in candidates if isinstance(token, str) and token]
 
 
-def _organization_link_region(metadata: CIMDMetadataDocument, url: str) -> str | None:
-    """The issuing region when it confirms one of the document's tokens for this URL, an empty string when it
+def _organization_link_issuer(metadata: CIMDMetadataDocument, url: str) -> str | None:
+    """The issuer's URL when it confirms one of the document's tokens for this URL, an empty string when it
     confirms none, and None when it could not answer, so the caller keeps what it knew before."""
     tokens = _published_verification_tokens(metadata)
     if not tokens:
         return ""
-    domain = getattr(settings, "REGION_US_DOMAIN", "us.posthog.com")
+    issuer_url = settings.CIMD_VERIFICATION_TOKEN_ISSUER_URL
     try:
         for token in tokens:
             response = requests.post(
-                f"https://{domain}{VERIFICATION_CHECK_PATH}",
+                f"{issuer_url}{VERIFICATION_CHECK_PATH}",
                 json={"token": token, "cimd_url": url},
                 timeout=VERIFICATION_CHECK_TIMEOUT_SECONDS,
             )
             response.raise_for_status()
             if response.json().get("valid") is True:
-                return VERIFICATION_ISSUING_REGION
+                return issuer_url
     except (requests.RequestException, ValueError) as error:
         logger.warning("cimd_verification_check_failed", url=url, error=str(error))
         return None
@@ -901,10 +899,10 @@ def _create_cimd_application(
     logo_uri = _logo_uri_for(metadata, url)
     if _verifies_tokens_elsewhere():
         verification = None
-        organization_link_region = _organization_link_region(metadata, url) or ""
+        organization_link_issuer = _organization_link_issuer(metadata, url) or ""
     else:
         verification = _resolve_verification_token(metadata, url, capture_ph_event=capture_ph_event)
-        organization_link_region = ""
+        organization_link_issuer = ""
     resolved_scopes = _resolve_scopes(metadata)
     resolved_optional_scopes = _resolve_optional_scopes(metadata)
     if resolved_optional_scopes and not any(":" in scope for scope in resolved_scopes or []):
@@ -928,7 +926,7 @@ def _create_cimd_application(
         cimd_metadata_last_fetched=timezone.now(),
         logo_uri=logo_uri,
         organization=verification.organization if verification else None,
-        organization_link_region=organization_link_region,
+        organization_link_issuer=organization_link_issuer,
         scopes=resolved_scopes if resolved_scopes is not None else [],
         optional_scopes=resolved_optional_scopes if resolved_optional_scopes is not None else [],
         user=None,
@@ -1016,13 +1014,13 @@ def _update_cimd_application(
 
     # Re-evaluate verification on every refresh so a rotated/removed token
     # unlinks the app on the next fetch.
-    linked_region: str | None = app.organization_link_region
+    linked_issuer: str | None = app.organization_link_issuer
     verification: CIMDVerificationToken | None = None
     if _verifies_tokens_elsewhere():
         new_org = None
-        linked_region = _organization_link_region(metadata, app.client_id)
-        if linked_region is None:
-            linked_region = app.organization_link_region
+        linked_issuer = _organization_link_issuer(metadata, app.client_id)
+        if linked_issuer is None:
+            linked_issuer = app.organization_link_issuer
     else:
         verification = _resolve_verification_token(metadata, app.client_id, capture_ph_event=capture_ph_event)
         new_org = verification.organization if verification else None
@@ -1051,9 +1049,9 @@ def _update_cimd_application(
     if old_org_id != new_org_id:
         app.organization = new_org
         update_fields.append("organization")
-    if linked_region != app.organization_link_region:
-        app.organization_link_region = linked_region
-        update_fields.append("organization_link_region")
+    if linked_issuer != app.organization_link_issuer:
+        app.organization_link_issuer = linked_issuer
+        update_fields.append("organization_link_issuer")
 
     try:
         app.full_clean()

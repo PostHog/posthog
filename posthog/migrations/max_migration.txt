@@ -1,1 +1,1 @@
-1442_delete_eu_cimd_verification_tokens
+1442_delete_cimd_tokens_issued_elsewhere
