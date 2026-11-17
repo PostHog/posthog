@@ -15,6 +15,7 @@ const NO_ISSUES_TTL_SECONDS = 10 * 60
 
 const issuesExistSchema = z.object({ exists: z.boolean() })
 const hasLogsSchema = z.object({ hasLogs: z.boolean() })
+const hasSpansSchema = z.object({ hasSpans: z.boolean() })
 
 // Every read returns `undefined` when the answer is unknown, so a failure never fails the tool call.
 export class GuidanceProductState {
@@ -22,6 +23,7 @@ export class GuidanceProductState {
     private ingestedData: Promise<boolean | undefined> | undefined
     private errorTrackingIssues: Promise<boolean | undefined> | undefined
     private logs: Promise<boolean | undefined> | undefined
+    private spans: Promise<boolean | undefined> | undefined
     private sessionRecordingEnabled: Promise<boolean | undefined> | undefined
 
     constructor(
@@ -47,6 +49,17 @@ export class GuidanceProductState {
             this.readProjectHas('logs', 'logs/has_logs/', (response) => hasLogsSchema.parse(response).hasLogs)
         )
         return this.logs
+    }
+
+    hasSpans(): Promise<boolean | undefined> {
+        this.spans ??= this.withinBudget('spans', () =>
+            this.readProjectHas(
+                'spans',
+                'tracing/spans/has_spans/',
+                (response) => hasSpansSchema.parse(response).hasSpans
+            )
+        )
+        return this.spans
     }
 
     hasErrorTrackingIssues(): Promise<boolean | undefined> {
