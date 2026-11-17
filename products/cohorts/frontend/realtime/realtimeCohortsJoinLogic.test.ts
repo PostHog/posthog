@@ -23,7 +23,8 @@ function setRealtimeCohortsFlag(on: boolean): void {
 describe('realtimeCohortsJoinLogic', () => {
     let joins: number
     let accessReads: number
-    let accessStates: RealtimeCohortsJoinStateEnumApi[]
+    let accessStates: (RealtimeCohortsJoinStateEnumApi | 'error')[]
+    let readDelayMs: number
 
     // The mocked API answers on timers too, so settling flushes them without moving the clock.
     async function settle(): Promise<void> {
@@ -54,12 +55,16 @@ describe('realtimeCohortsJoinLogic', () => {
         joins = 0
         accessReads = 0
         accessStates = ['setting_up']
+        readDelayMs = 0
         useMocks({
             get: {
-                '/api/projects/:team/realtime_cohorts/join/': () => {
+                '/api/projects/:team/realtime_cohorts/join/': async () => {
                     const state = accessStates[Math.min(accessReads, accessStates.length - 1)]
                     accessReads += 1
-                    return [200, { state }]
+                    if (readDelayMs > 0) {
+                        await new Promise((resolve) => setTimeout(resolve, readDelayMs))
+                    }
+                    return state === 'error' ? [500, {}] : [200, { state }]
                 },
                 '/api/projects/:team/': () => [200, teamWithAccess('serving')],
             },
@@ -98,10 +103,11 @@ describe('realtimeCohortsJoinLogic', () => {
     )
 
     it.each([
-        ['serving', 'serving', true],
-        ['failed', 'off', false],
-    ] as const)('polls while setting up and stops on %s', async (finalState, teamAccessAfter, toasted) => {
-        accessStates = ['setting_up', finalState]
+        ['setting_up', 'serving', 'serving', true],
+        ['setting_up', 'failed', 'off', false],
+        ['error', 'serving', 'serving', true],
+    ] as const)('keeps polling after %s and stops on %s', async (firstAnswer, finalState, teamAccessAfter, toasted) => {
+        accessStates = [firstAnswer, finalState]
         const toast = jest.spyOn(lemonToast, 'success')
         const logic = await mounted('off', true)
         expect(logic.values.joinState).toBe('setting_up')
@@ -115,5 +121,17 @@ describe('realtimeCohortsJoinLogic', () => {
         expect(logic.values.joinState).toBe(finalState)
         expect(teamLogic.values.currentTeam?.realtime_cohorts?.access).toBe(teamAccessAfter)
         expect(toast).toHaveBeenCalledTimes(toasted ? 1 : 0)
+    })
+
+    it('waits for a slow answer before it reads again', async () => {
+        accessStates = ['setting_up', 'serving']
+        readDelayMs = 8000
+        const logic = await mounted('off', true)
+
+        await advance(12_000)
+        expect(accessReads).toBe(1)
+        await advance(20_000)
+
+        expect([accessReads, logic.values.joinState]).toEqual([2, 'serving'])
     })
 })

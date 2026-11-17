@@ -116,14 +116,16 @@ export const realtimeCohortsJoinLogic = kea<realtimeCohortsJoinLogicType>([
             try {
                 actions.setJoinState((await realtimeCohortsJoinRetrieve(String(values.currentTeamId))).state)
             } catch {
-                // The poll asks again.
+                // Only a `setting_up` answer arms the next read, so a failed read arms it in the answer's place.
+                actions.setJoinState('setting_up')
             }
         },
         setJoinState: ({ joinState }) => {
             if (joinState === 'setting_up') {
+                // Each answer arms one read, so reads never overlap and a slow answer cannot land after a newer one.
                 cache.disposables.add(() => {
-                    const pollTimer = window.setInterval(() => actions.loadJoinState(), POLL_INTERVAL_MS)
-                    return () => clearInterval(pollTimer)
+                    const pollTimer = window.setTimeout(() => actions.loadJoinState(), POLL_INTERVAL_MS)
+                    return () => clearTimeout(pollTimer)
                 }, JOIN_STATE_POLL)
                 return
             }
