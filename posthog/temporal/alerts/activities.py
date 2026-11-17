@@ -98,13 +98,15 @@ from products.alerts.backend.evaluation import check_alert_for_insight
 from products.alerts.backend.evaluation.contract import AlertDataUnavailableError, AlertExtractionError
 from products.alerts.backend.evaluation.validation import validate_alert_config, validate_alert_insight_query
 from products.alerts.backend.facade.api import (
-    LLM_DETECTOR_PAUSED_ERROR_CODE,
+    DETECTOR_PAUSED_ERROR_CODES,
+    DETECTOR_UNAVAILABLE_ERROR_CODES,
     LLM_DETECTOR_UNAVAILABLE_ERROR_CODE,
-    LLM_DETECTOR_UNAVAILABLE_MESSAGE,
     LLM_EVALUATE_EXECUTOR,
+    UNAVAILABLE_ERRORS_BY_NAME,
     LLMDetectorMisconfiguredError,
     LLMDetectorPausedError,
     LLMDetectorUnavailableError,
+    calls_ai_gateway,
     is_llm_detector_config,
 )
 from products.alerts.backend.facade.destinations import count_active_alert_destinations
@@ -579,7 +581,7 @@ async def prepare_alert(inputs: PrepareAlertActivityInputs) -> PrepareAlertResul
 
         return PrepareAlertResult(
             action=PrepareAction.EVALUATE,
-            uses_llm_detector=is_llm_detector_config(alert.detector_config),
+            uses_llm_detector=calls_ai_gateway(alert.detector_config),
             evaluation_fingerprint=evaluation_fingerprint,
         )
 
@@ -606,11 +608,12 @@ async def prepare_alert(inputs: PrepareAlertActivityInputs) -> PrepareAlertResul
 def _failed_evaluation_error(inputs: RecordFailedEvaluationActivityInputs) -> dict:
     """The error payload for an evaluation that ran out of retries without writing a check.
 
-    A provider the judge cannot reach is not the owner's configuration, and the raw transport
-    error is not written for them, so that case gets its own code and its own wording.
+    A provider the judge or the forecast cannot reach is not the owner's configuration, and the raw
+    transport error is not written for them, so that case gets its own code and its own wording.
     """
-    if inputs.error_type == LLMDetectorUnavailableError.__name__:
-        return {"code": LLM_DETECTOR_UNAVAILABLE_ERROR_CODE, "message": LLM_DETECTOR_UNAVAILABLE_MESSAGE}
+    unavailable = UNAVAILABLE_ERRORS_BY_NAME.get(inputs.error_type or "")
+    if unavailable is not None:
+        return {"code": unavailable.error_code, "message": unavailable.owner_message}
     return {"message": inputs.error_message}
 
 
@@ -699,12 +702,14 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
             raise
         except LLMDetectorPausedError as err:
             # Retrying cannot help, and the alert stays enabled so it resumes once access or credits return.
-            record_ai_detector_check_outcome("paused")
-            error = {"code": LLM_DETECTOR_PAUSED_ERROR_CODE, "message": str(err)}
+            if is_llm_detector_config(alert.detector_config):
+                record_ai_detector_check_outcome("paused")
+            error = {"code": err.error_code, "message": str(err)}
         except LLMDetectorMisconfiguredError as err:
             # Same fail-loud outcome as a bad query shape below, counted apart because a missing
             # creator is the owner's to fix and never a provider failure.
-            record_ai_detector_check_outcome("misconfigured")
+            if is_llm_detector_config(alert.detector_config):
+                record_ai_detector_check_outcome("misconfigured")
             invalid_configuration = str(err)
         except AlertExtractionError as err:
             # The alert can't be evaluated as configured (wrong query shape / bad config) — a
@@ -817,7 +822,7 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
         # could pick up an AI detector and run its model call on the shared pool.
         alert = await _load_alert_for_evaluation(inputs)
         team_id = alert.team_id
-        uses_llm_detector = is_llm_detector_config(alert.detector_config)
+        uses_llm_detector = calls_ai_gateway(alert.detector_config)
         if uses_llm_detector != inputs.uses_llm_detector:
             # The prepare phase picked the task queue from the detector type it read, and only
             # the AI worker holds the model credentials. An edit since then means this worker may
@@ -1108,11 +1113,11 @@ def dispatch_alert_error_in_app_notifications(alert: AlertConfiguration, alert_c
             else "PostHog will try again at the next scheduled check."
         )
         title = f"{alert_name[:75]} could not be evaluated"
-        if error_code == LLM_DETECTOR_PAUSED_ERROR_CODE:
+        if error_code in DETECTOR_PAUSED_ERROR_CODES:
             body = f"PostHog could not evaluate this alert: {error_message}."
-        elif error_code == LLM_DETECTOR_UNAVAILABLE_ERROR_CODE:
-            # A check the AI detector could not complete is not something the owner can fix,
-            # so this case drops the advice to review the alert settings.
+        elif error_code in DETECTOR_UNAVAILABLE_ERROR_CODES:
+            # A check the AI or forecast detector could not complete is not something the owner
+            # can fix, so this case drops the advice to review the alert settings.
             body = (
                 f"PostHog could not evaluate this alert: {error_message}. "
                 f"{next_check_message} If it fails again, contact support."

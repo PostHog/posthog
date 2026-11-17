@@ -321,6 +321,10 @@ export interface PatchedEarlyAccessFeatureApi {
 
 export type EarlyAccessFeatureListParams = {
     /**
+     * Comma-separated user IDs. Only features created by one of them are listed.
+     */
+    created_by_id?: string
+    /**
      * Comma-separated early access feature IDs, at most 200.
      */
     ids?: string
@@ -332,4 +336,12 @@ export type EarlyAccessFeatureListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+    /**
+     * Sort by creation time: -created_at (default) for newest first, created_at for oldest first.
+     */
+    order?: string
+    /**
+     * Case-insensitive match on the feature name.
+     */
+    search?: string
 }

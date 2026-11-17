@@ -56,7 +56,7 @@ export function ReleaseLinkFlagCombobox({ row, placeholder }: { row: ReleaseRow;
                 <ComboboxList>
                     {(flagId: number) => (
                         <ComboboxItem key={flagId} value={flagId} data-attr="release-link-flag-option">
-                            <span className="font-mono">{keys.get(flagId)}</span>
+                            <span>{keys.get(flagId)}</span>
                         </ComboboxItem>
                     )}
                 </ComboboxList>

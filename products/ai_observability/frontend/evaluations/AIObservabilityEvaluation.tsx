@@ -45,6 +45,7 @@ import { REPORT_RUN_PARAM } from './evaluationReportDrawerLogic'
 import { evaluationReportLogic } from './evaluationReportLogic'
 import { LLMEvaluationLogicProps, hasUnsetConditionRollout, llmEvaluationLogic } from './llmEvaluationLogic'
 import { EvaluationDetailResults } from './overview/EvaluationDetailResults'
+import { ReplacedTaggerBanner } from './ReplacedTaggerBanner'
 import { statusReasonLabel, statusReasonRecoveryLabel } from './statusDisplay'
 import { EvaluationFixSuggestionBanner } from './suggestions/EvaluationFixSuggestionBanner'
 
@@ -227,6 +228,8 @@ export function AIObservabilityEvaluation(): JSX.Element {
                     </div>
                 </LemonBanner>
             )}
+
+            {!isNewEvaluation && <ReplacedTaggerBanner evaluationId={evaluation.id} />}
 
             {typeof searchParams.suggestion === 'string' && (
                 <EvaluationFixSuggestionBanner

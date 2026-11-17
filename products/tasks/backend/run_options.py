@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING, Any
 from pydantic import BaseModel
 
 from posthog.dataclasses import frozen
-from posthog.scopes import scopes_not_covered
+from posthog.scopes.checks import scopes_not_covered
 from posthog.temporal.oauth import resolve_scopes
 
 from products.tasks.backend.contract_checks import contract_violation_refused

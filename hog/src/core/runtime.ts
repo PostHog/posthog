@@ -13,6 +13,7 @@ import type {
 import { HogError } from './errors'
 import { clackPrompts, type Prompts } from './prompts'
 import { DEFAULT_TELEMETRY_TOKEN } from './telemetry'
+import { TELEMETRY_WORKER_ARG } from './telemetry-worker'
 
 export type Env = Readonly<Record<string, string | undefined>>
 
@@ -77,6 +78,8 @@ export interface Runtime {
     openUrl: (url: string) => Promise<boolean>
     prompts: Prompts
     secrets: Secrets
+    // Resolves to false when no process could start, and the caller then sends the batch itself.
+    sendTelemetryInBackground: ((body: string) => Promise<boolean>) | undefined
     // The project token for anonymous usage events. Undefined turns them off, as in tests.
     telemetryToken: string | undefined
     // Accepts any TLS certificate from here on, for every request, including the API tools' own.
@@ -309,6 +312,34 @@ export function processRuntime(): Runtime {
         prompts: clackPrompts(),
         secrets: bunSecrets(FROM_SOURCE ? 'com.posthog.hog.dev' : 'com.posthog.hog'),
         telemetryToken: DEFAULT_TELEMETRY_TOKEN,
+        sendTelemetryInBackground: async (body) => {
+            try {
+                const child = Bun.spawn(
+                    FROM_SOURCE
+                        ? [process.execPath, '--no-env-file', Bun.main, TELEMETRY_WORKER_ARG]
+                        : [process.execPath, TELEMETRY_WORKER_ARG],
+                    {
+                        // An inherited stdout would keep an agent reading hog's output waiting for the worker.
+                        detached: true,
+                        stdin: 'pipe',
+                        stdout: 'ignore',
+                        stderr: 'ignore',
+                        windowsHide: true,
+                        // Not the caller's folder, which it would hold open, nor a shared temp folder's bunfig.toml.
+                        cwd: dirname(process.execPath),
+                        // The environment as it is now, so the worker keeps --skip-ssl-verification.
+                        env: process.env,
+                    }
+                )
+                child.unref()
+                // Without waiting, a body larger than the pipe's buffer reaches the worker cut short.
+                child.stdin.write(body)
+                await child.stdin.end()
+                return true
+            } catch {
+                return false
+            }
+        },
         skipTlsVerification: () => {
             // Runs only for --skip-ssl-verification, posthog-cli's opt-in flag for self-hosted certificates.
             process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0' // nosemgrep: trailofbits.generic.node-disable-certificate-validation.node-disable-certificate-validation

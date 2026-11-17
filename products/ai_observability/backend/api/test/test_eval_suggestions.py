@@ -98,6 +98,9 @@ def _evaluation(team: Team, **overrides: Any) -> Evaluation:
 class TestEvalSuggestionsApi(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
+        rollout = patch(f"{SUGGESTIONS_MODULE}.is_enabled_for_organization", return_value=True)
+        rollout.start()
+        self.addCleanup(rollout.stop)
         self.suggestion_run = EvalSuggestionRun.objects.for_team(self.team.pk).create(
             team=self.team, trigger="manual", status=EvalSuggestionRunStatus.COMPLETED, completed_at=timezone.now()
         )
@@ -237,6 +240,14 @@ class TestEvalSuggestionsApi(APIBaseTest):
         target.refresh_from_db()
         assert target.conditions[0]["properties"][0]["value"] == [expected_product]
 
+    def test_a_prompt_problem_has_no_evaluation_to_accept(self) -> None:
+        suggestion = self._suggestion(EvalSuggestionKind.FIX_PROMPT, draft={"name": "Refund dates"})
+
+        response = self.client.post(f"{self.url}/{suggestion.id}/accept/")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert not Evaluation.objects.filter(team_id=self.team.pk).exists()
+
     @parameterized.expand(
         [
             ("open", EvalSuggestionStatus.PROPOSED, False, True),
@@ -304,6 +315,18 @@ class TestEvalSuggestionsApi(APIBaseTest):
 
         queries_for(1)  # The first request also fills caches the later ones read.
         assert queries_for(1) == queries_for(3)
+
+    def test_a_shadow_organization_cannot_list_or_open_its_cards(self) -> None:
+        suggestion = self._suggestion()
+
+        with patch(f"{SUGGESTIONS_MODULE}.is_enabled_for_organization", return_value=False):
+            listed = self.client.get(f"{self.url}/").json()
+            opened = self.client.get(f"{self.url}/{suggestion.id}/")
+            accepted = self.client.post(f"{self.url}/{suggestion.id}/accept/")
+
+        assert listed["results"] == []
+        assert (opened.status_code, accepted.status_code) == (status.HTTP_404_NOT_FOUND, status.HTTP_404_NOT_FOUND)
+        assert not Evaluation.objects.filter(team=self.team).exists()
 
     def test_dismiss_rejects_an_unknown_reason(self) -> None:
         response = self.client.post(f"{self.url}/{self._suggestion().id}/dismiss/", {"reason": "boring"}, format="json")
@@ -463,6 +486,9 @@ class TestEvalSuggestionsApi(APIBaseTest):
 class TestEvalSuggestionsAccessControl(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
+        rollout = patch(f"{SUGGESTIONS_MODULE}.is_enabled_for_organization", return_value=True)
+        rollout.start()
+        self.addCleanup(rollout.stop)
         self.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
             {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
