@@ -79,7 +79,9 @@ class TestOAuthApplicationConsole(BaseTest):
             else None
         )
 
-        response = self._post(app, f"provisioning/{operation}", {"reason": "Checked the site"})
+        response = self._post(
+            app, f"provisioning/{operation}", {"reason": "Checked the site", "partner_message": "Thanks for waiting."}
+        )
 
         assert response.status_code == 302, response.content
         accepted = operation == "accept"
@@ -93,6 +95,7 @@ class TestOAuthApplicationConsole(BaseTest):
             )
             assert review.decided_stage == ProvisioningReviewStage.STAFF
             assert review.run_log[-1]["message"] == expected_log
+            assert review.partner_message == "Thanks for waiting."
 
     def test_block_reaches_a_partner_left_active_and_disabled(self) -> None:
         app = self._app(config=ProvisioningConfig(active=True, disabled=True))

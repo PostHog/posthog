@@ -11,7 +11,7 @@ from django.urls import reverse
 from posthog.admin.console.panels import Fact, Operation, OperationHandler, Owner, Panel, ReasonForm, Tone
 from posthog.admin.console.records import RECORD_TYPES
 from posthog.admin.console.registry import console
-from posthog.api.oauth.provisioning_review import decide_partner
+from posthog.api.oauth.provisioning_review import decide_partner, partner_provisioning_status
 from posthog.models.oauth import OAuthApplication, revoke_application_sessions
 from posthog.models.oauth_provisioning import (
     PROVISIONING_CAPABILITIES,
@@ -19,7 +19,11 @@ from posthog.models.oauth_provisioning import (
     PartnerTier,
     ProvisioningConfig,
 )
-from posthog.models.oauth_provisioning_review import CIMDProvisioningReview, ProvisioningReviewStatus
+from posthog.models.oauth_provisioning_review import (
+    CIMDProvisioningReview,
+    PartnerProvisioningStatus,
+    ProvisioningReviewStatus,
+)
 
 GROWTH = Owner(name="Growth", crest="growth")
 OAUTH_APPLICATIONS_TOOL_KEY = "oauth-applications"
@@ -75,29 +79,29 @@ def _authentication(app: OAuthApplication) -> str:
     return "Public client, PKCE only"
 
 
+STATUS_TONES: dict[PartnerProvisioningStatus, Tone | None] = {
+    PartnerProvisioningStatus.NOT_A_PARTNER: None,
+    PartnerProvisioningStatus.IN_REVIEW: Tone.INFO,
+    PartnerProvisioningStatus.WAITING_FOR_STAFF: Tone.WARNING,
+    PartnerProvisioningStatus.ON: Tone.SUCCESS,
+    PartnerProvisioningStatus.OFF: Tone.WARNING,
+    PartnerProvisioningStatus.BLOCKED: Tone.DESTRUCTIVE,
+}
+
+
 def provisioning_status(app: OAuthApplication, review: CIMDProvisioningReview | None) -> tuple[str, Tone | None]:
     """Whether the app can provision right now, in a few words, for the app page and the list of apps."""
-    config = app.provisioning
-    # Follows what the partner gates enforce: they read `active` alone, so an active partner is on
-    # even when `disabled` is set too.
-    if app.is_provisioning_partner and config.active:
-        return ("On, though marked blocked", Tone.WARNING) if config.disabled else ("On", Tone.SUCCESS)
-    if config.disabled:
-        return "Blocked", Tone.DESTRUCTIVE
-    if not app.is_provisioning_partner:
-        return "Not a partner", None
-    if review is not None and review.status == ProvisioningReviewStatus.PENDING:
-        return "Waiting for the review", Tone.INFO
-    if review is not None and review.status == ProvisioningReviewStatus.NEEDS_HUMAN:
-        return "Waiting for staff", Tone.WARNING
-    return "Off", Tone.WARNING
+    status = partner_provisioning_status(app, review)
+    if status == PartnerProvisioningStatus.ON and app.provisioning.disabled:
+        return "On, though marked blocked", Tone.WARNING
+    return str(status.label), STATUS_TONES[status]
 
 
 def _provisioning_fact(app: OAuthApplication, review: CIMDProvisioningReview | None) -> Fact:
-    status, tone = provisioning_status(app, review)
-    if status == "Blocked":
-        status = "Blocked. Registering again does not lift it."
-    return Fact(label="Provisioning", value=status, tone=tone)
+    label, tone = provisioning_status(app, review)
+    if partner_provisioning_status(app, review) == PartnerProvisioningStatus.BLOCKED:
+        label = f"{label}. Registering again does not lift it."
+    return Fact(label="Provisioning", value=label, tone=tone)
 
 
 def _rate_limit_endpoints() -> list[str]:
@@ -122,7 +126,16 @@ def _rate_limits_summary(app: OAuthApplication) -> str:
 class DecisionForm(forms.Form):
     reason = forms.CharField(
         widget=forms.Textarea(attrs={"rows": 3}),
-        help_text="Goes into the audit log, and into the partner's review when it has one.",
+        help_text="Goes into the audit log, and into the partner's review when it has one. The partner never sees it.",
+    )
+    partner_message = forms.CharField(
+        required=False,
+        label="Message to the partner",
+        widget=forms.Textarea(attrs={"rows": 3}),
+        help_text=(
+            "Shown to the admins of the partner's organization in PostHog, on its review. Say what they can do next. "
+            "Leave it blank to show none."
+        ),
     )
 
 
@@ -170,7 +183,12 @@ def _rate_limits_form_class() -> type[RateLimitsForm]:
 def _decision_handler(*, accept: bool) -> OperationHandler:
     def decide(request: HttpRequest, obj: Model, form: forms.Form | None) -> None:
         assert isinstance(obj, OAuthApplication) and form is not None
-        decide_partner(obj, accept=accept, reason=f"Staff: {form.cleaned_data['reason']}")
+        decide_partner(
+            obj,
+            accept=accept,
+            reason=f"Staff: {form.cleaned_data['reason']}",
+            partner_message=form.cleaned_data["partner_message"],
+        )
         if accept:
             messages.success(request, f"Provisioning is on for {obj.name}.")
         else:

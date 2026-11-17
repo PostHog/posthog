@@ -77138,6 +77138,67 @@ export namespace Schemas {
     }
 
     /**
+     * * `not_a_partner` - Not a provisioning partner
+     * * `in_review` - In review
+     * * `waiting_for_staff` - Waiting for PostHog staff
+     * * `on` - On
+     * * `off` - Off
+     * * `blocked` - Blocked
+     */
+    export type PartnerProvisioningStatusEnum = typeof PartnerProvisioningStatusEnum[keyof typeof PartnerProvisioningStatusEnum];
+
+
+    export const PartnerProvisioningStatusEnum = {
+      NotAPartner: 'not_a_partner',
+      InReview: 'in_review',
+      WaitingForStaff: 'waiting_for_staff',
+      On: 'on',
+      Off: 'off',
+      Blocked: 'blocked',
+    } as const;
+
+    /**
+     * * `pending` - Pending
+     * * `accepted` - Accepted
+     * * `rejected` - Rejected
+     * * `needs_human` - Needs staff review
+     */
+    export type ProvisioningReviewStatusEnum = typeof ProvisioningReviewStatusEnum[keyof typeof ProvisioningReviewStatusEnum];
+
+
+    export const ProvisioningReviewStatusEnum = {
+      Pending: 'pending',
+      Accepted: 'accepted',
+      Rejected: 'rejected',
+      NeedsHuman: 'needs_human',
+    } as const;
+
+    /**
+     * The review an app went through to become a provisioning partner, as its owners see it.
+     *
+     * The verdict's internal reason and the evidence stay with PostHog staff: they describe what the
+     * review checks, which would teach an abusive app what to fake.
+     */
+    export interface PartnerReview {
+      /** pending: the automated review is running. needs_human: PostHog staff decide next. accepted: the app may provision. rejected: provisioning is blocked.
+       *
+       * * `pending` - Pending
+       * * `accepted` - Accepted
+       * * `rejected` - Rejected
+       * * `needs_human` - Needs staff review */
+      readonly status: ProvisioningReviewStatusEnum;
+      /** When the app registered for provisioning. */
+      readonly opened_at: string;
+      /**
+         * When the current decision was made. Null while pending.
+         * @nullable
+         */
+      readonly decided_at: string | null;
+      /** What PostHog staff wrote to the app's owners about the decision. Empty when they wrote nothing. */
+      readonly partner_message: string;
+    }
+
+    /**
      * Serializer for organization-scoped OAuth applications (read-only).
      */
     export interface OrganizationOAuthApplication {
@@ -77149,6 +77210,18 @@ export namespace Schemas {
       readonly redirect_uris_list: readonly string[];
       /** True if this application has been verified by PostHog */
       is_verified?: boolean;
+      /** True when the app registered itself from a client ID metadata document (CIMD). */
+      readonly is_cimd_client: boolean;
+      /** Whether the app can create accounts and provision resources through the agentic provisioning API. in_review and waiting_for_staff mean its review has not finished.
+       *
+       * * `not_a_partner` - Not a provisioning partner
+       * * `in_review` - In review
+       * * `waiting_for_staff` - Waiting for PostHog staff
+       * * `on` - On
+       * * `off` - Off
+       * * `blocked` - Blocked */
+      readonly provisioning_status: PartnerProvisioningStatusEnum;
+      readonly provisioning_review: PartnerReview | null;
       readonly created: string;
       readonly updated: string;
     }

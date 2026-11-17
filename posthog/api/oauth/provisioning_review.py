@@ -26,6 +26,7 @@ from posthog.llm.system_one_client import system_one_configured
 from posthog.models.oauth import OAuthApplication, revoke_application_sessions
 from posthog.models.oauth_provisioning_review import (
     CIMDProvisioningReview,
+    PartnerProvisioningStatus,
     ProvisioningReviewStage,
     ProvisioningReviewStatus,
 )
@@ -205,7 +206,7 @@ def _write_verdict(
         *review.run_log,
         _log_entry("settled", message, level="info" if status == ProvisioningReviewStatus.ACCEPTED else "warning"),
     ][-MAX_RUN_LOG_ENTRIES:]
-    review.save(update_fields=["status", "decided_stage", "reason", "decided_at", "run_log"])
+    review.save(update_fields=["status", "decided_stage", "reason", "decided_at", "run_log", "partner_message"])
     return previous
 
 
@@ -271,9 +272,10 @@ def _block(app: OAuthApplication) -> None:
     revoke_application_sessions(app)
 
 
-def decide_partner(app: OAuthApplication, *, accept: bool, reason: str) -> None:
+def decide_partner(app: OAuthApplication, *, accept: bool, reason: str, partner_message: str = "") -> None:
     """Staff turn a provisioning partner on, or block it. Either decision can be reversed later,
-    and the app's review, when it has one, records each one in its run log."""
+    and the app's review, when it has one, records each one in its run log. ``partner_message``
+    replaces what the partner's organization admins see on the review."""
     status = ProvisioningReviewStatus.ACCEPTED if accept else ProvisioningReviewStatus.REJECTED
     previous: str | None = None
     with transaction.atomic():
@@ -283,12 +285,36 @@ def decide_partner(app: OAuthApplication, *, accept: bool, reason: str) -> None:
             .filter(application=app)
             .first()
         )
-        if review is not None and review.status != status:
-            previous = _write_verdict(review, status=status, stage=ProvisioningReviewStage.STAFF, reason=reason)
+        if review is not None:
+            review.partner_message = partner_message
+            if review.status == status:
+                review.save(update_fields=["partner_message"])
+            else:
+                previous = _write_verdict(review, status=status, stage=ProvisioningReviewStage.STAFF, reason=reason)
         if accept:
             app.update_provisioning(active=True, disabled=False)
         else:
             _block(app)
 
-    if review is not None and previous is not None:
+    if previous is not None:
+        assert review is not None
         _capture_settled(review, previous_status=previous)
+
+
+def partner_provisioning_status(
+    app: OAuthApplication, review: CIMDProvisioningReview | None
+) -> PartnerProvisioningStatus:
+    """Whether the app can provision right now. An active partner is on even when `disabled` is
+    also set, because every partner gate reads `active` alone."""
+    config = app.provisioning
+    if app.is_provisioning_partner and config.active:
+        return PartnerProvisioningStatus.ON
+    if config.disabled:
+        return PartnerProvisioningStatus.BLOCKED
+    if not app.is_provisioning_partner:
+        return PartnerProvisioningStatus.NOT_A_PARTNER
+    if review is not None and review.status == ProvisioningReviewStatus.PENDING:
+        return PartnerProvisioningStatus.IN_REVIEW
+    if review is not None and review.status == ProvisioningReviewStatus.NEEDS_HUMAN:
+        return PartnerProvisioningStatus.WAITING_FOR_STAFF
+    return PartnerProvisioningStatus.OFF
