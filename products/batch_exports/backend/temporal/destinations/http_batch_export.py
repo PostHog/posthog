@@ -91,7 +91,8 @@ def http_default_fields(*, reads_native_events: bool = False) -> list[BatchExpor
     A migration sends events to another PostHog instance, which ingests them again. That instance needs the
     properties an SDK sent, `$set` and `$feature/<key>` included, so on the native table this export rebuilds the
     legacy document instead of sending the stored one. `$set` and the other keys kept in `temporary_properties` come
-    back only for events inserted in the last 60 days, because ClickHouse clears that column after that.
+    back only for events inserted in the last 60 days, because ClickHouse clears that column after that. For an event
+    without `$set`, the export sends its person properties as `$set` instead.
     """
     properties = (
         event_document_sql("events.properties", "events.temporary_properties", "events.properties.`$feature_flags`")
