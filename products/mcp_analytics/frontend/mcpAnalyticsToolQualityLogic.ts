@@ -508,17 +508,23 @@ export const mcpAnalyticsToolQualityLogic = kea<mcpAnalyticsToolQualityLogicType
                 loadToolRowsPage: async (_: void, breakpoint): Promise<ToolRowsPage> => {
                     await breakpoint(300)
                     const pageIndex = values.toolQualityPageIndex
-                    const response = (await api.query({
-                        kind: NodeKind.MCPToolQualityRowsQuery,
-                        dateRange: { date_from: values.dateFilter.dateFrom, date_to: values.dateFilter.dateTo },
-                        categories: values.selectedCategories,
-                        search: values.searchTerm,
-                        sortColumn: values.toolQualitySort.column,
-                        sortDirection: values.toolQualitySort.direction,
-                        limit: TOOL_QUALITY_PAGE_SIZE,
-                        offset: pageIndex * TOOL_QUALITY_PAGE_SIZE,
-                        ...values.sharedQueryFilters,
-                    })) as MCPToolQualityRowsQueryResponse
+                    const response = (await api
+                        .query({
+                            kind: NodeKind.MCPToolQualityRowsQuery,
+                            dateRange: { date_from: values.dateFilter.dateFrom, date_to: values.dateFilter.dateTo },
+                            categories: values.selectedCategories,
+                            search: values.searchTerm,
+                            sortColumn: values.toolQualitySort.column,
+                            sortDirection: values.toolQualitySort.direction,
+                            limit: TOOL_QUALITY_PAGE_SIZE,
+                            offset: pageIndex * TOOL_QUALITY_PAGE_SIZE,
+                            ...values.sharedQueryFilters,
+                        })
+                        // kea-loaders dispatches a failure even from a request a newer one replaced.
+                        .catch((error) => {
+                            breakpoint()
+                            throw error
+                        })) as MCPToolQualityRowsQueryResponse
                     breakpoint()
                     return { ...response, pageIndex }
                 },
