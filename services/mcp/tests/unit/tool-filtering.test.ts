@@ -1164,6 +1164,7 @@ describe('Tool Filtering - Feature Flags', () => {
             'dwh-custom-source-ai-builder',
             'workflows-bulk-suppressions-mcp',
             'workflows-resend-import',
+            'signals-source-filters',
         ]
         expect(allFlags).toEqual(expect.arrayContaining(branchFlags))
         // The flags branches add are asserted on the line above and held out of the list and
