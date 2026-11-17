@@ -596,11 +596,11 @@ The server is the `phrocs mcp` subcommand. `.mcp.json` starts it through `tools/
 
 The MCP server provides these tools:
 
-- **get_process_status** – Returns process status including PID, running state, readiness, and real-time metrics (CPU, memory, threads)
-- **get_process_logs** – Retrieves recent log lines from a process's in-memory buffer, with optional grep filtering
-- **send_keys** – Sends input to a process, for example to answer a prompt
-- **toggle_process** – Stops a running process, or starts a stopped one
-- **restart_process** – Restarts a process in any state
+- **get_process_status** – Summarizes every process in one line each, failed ones first with their last output line. Ask for full detail to get timings and metrics (CPU, memory, threads)
+- **get_process_logs** – Retrieves recent output of a process's current run, with optional grep filtering
+- **wait_ready** – Waits until one or all processes are ready, one crashes, or a timeout passes
+- **start_process**, **stop_process**, **restart_process** – Start, stop or restart a process
+- **send_keys** – Types into a running process, for example to answer a prompt
 
 ### Example usage
 
