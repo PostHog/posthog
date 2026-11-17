@@ -1,5 +1,6 @@
 import json
 import time
+import tracemalloc
 from collections.abc import Callable
 from datetime import timedelta
 from typing import Any, Optional, cast
@@ -422,14 +423,34 @@ class TestBytecodeExecute:
         with pytest.raises(HogVMMemoryExceededException):
             _guard_sequence_length(_MAX_SEQUENCE_LENGTH + 1)
 
-    @parameterized.expand([("'x' * 100000", "x"), ("100000 * 'x'", "x"), ("[1] * 100000", [1])])
-    def test_repeating_a_sequence_is_refused_before_allocation(self, expression: str, sequence: Any) -> None:
-        # Only the guard counts every repeat at the cost of the whole sequence, so this size proves it fired before
-        # the result was built. A count big enough to matter would take the test process down without it.
+    @parameterized.expand([("'x' * 10000000",), ("10000000 * 'x'",), ("[1] * 10000000",)])
+    def test_repeating_a_sequence_is_refused_before_allocation(self, expression: str) -> None:
+        # The peak shows the guard fired before Python built the result. A count big enough to matter would take the
+        # test process down without it.
         bytecode = create_bytecode(parse_expr(expression)).bytecode
-        with pytest.raises(HogVMMemoryExceededException) as exc:
-            execute_bytecode(bytecode, {}, memory_limit=2048)
-        assert exc.value.attempted_memory >= calculate_cost(sequence) * 100000
+        tracemalloc.start()
+        try:
+            with pytest.raises(HogVMMemoryExceededException):
+                execute_bytecode(bytecode, {}, memory_limit=2048)
+            _, peak = tracemalloc.get_traced_memory()
+        finally:
+            tracemalloc.stop()
+        assert peak < 1_000_000
+
+    def test_repeating_a_sequence_counts_its_overhead_once(self):
+        response = execute_bytecode(create_bytecode(parse_expr("'x' * 8000000")).bytecode, {})
+        assert len(response.result) == 8000000
+
+    def test_a_string_cannot_be_formatted_with_modulo(self):
+        bytecode = create_bytecode(parse_expr("'%1000s' % 'x'")).bytecode
+        with pytest.raises(HogVMException, match="Cannot use % on a string"):
+            execute_bytecode(bytecode, {})
+
+    def test_replace_all_is_refused_before_it_builds_a_result_past_the_limit(self):
+        bytecode = create_bytecode(parse_expr("replaceAll('" + "x" * 1000 + "', 'x', '" + "y" * 100 + "')")).bytecode
+        with patch.object(STL["replaceAll"], "fn", side_effect=AssertionError("Built the result")):
+            with pytest.raises(HogVMMemoryExceededException):
+                execute_bytecode(bytecode, memory_limit=50_000)
 
     def test_multiplying_integers_past_the_bit_cap_is_refused(self):
         big = 2 ** (MAX_INT_BITS // 2)

@@ -888,6 +888,13 @@ def _guard_sequence_length(length: int) -> None:
         raise HogVMMemoryExceededException(memory_limit=MAX_MEMORY, attempted_memory=(length + 1) * COST_PER_UNIT)
 
 
+def _replace_all_memory_cost(args: list[Any]) -> int:
+    text, needle, replacement = args
+    if not (isinstance(text, str) and isinstance(needle, str) and isinstance(replacement, str)):
+        return 0
+    return COST_PER_UNIT + len(text) + text.count(needle) * max(0, len(replacement) - len(needle))
+
+
 def _range_memory_cost(args: list[Any]) -> int:
     length = args[0] if len(args) == 1 else args[1] - args[0]
     return (max(0, length) + 1) * COST_PER_UNIT
@@ -1057,6 +1064,7 @@ STL: dict[str, STLFunction] = {
         fn=lambda args, team, stdout, timeout: args[0].replace(args[1], args[2]) if args[0] is not None else None,
         minArgs=3,
         maxArgs=3,
+        memory_cost=_replace_all_memory_cost,
     ),
     "position": STLFunction(
         fn=lambda args, team, stdout, timeout: (

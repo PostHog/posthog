@@ -19,6 +19,7 @@ from common.hogvm.python.operation import HOGQL_BYTECODE_IDENTIFIER, HOGQL_BYTEC
 from common.hogvm.python.stl import STL, STLFunction
 from common.hogvm.python.stl.bytecode import BYTECODE_STL
 from common.hogvm.python.utils import (
+    COST_PER_UNIT,
     MAX_INT_BITS,
     MAX_MEMORY,
     HogVMException,
@@ -188,17 +189,24 @@ def execute_bytecode(
         if mem_used > memory_limit:
             raise HogVMMemoryExceededException(memory_limit=memory_limit, attempted_memory=mem_used)
 
-    def check_multiply(a: Any, b: Any) -> None:
+    def multiply(a: Any, b: Any) -> Any:
         # Python builds a product before push_stack can check its size.
         if type(a) is int and type(b) is int:
             if a.bit_length() + b.bit_length() > MAX_INT_BITS:
                 raise HogVMException(f"Integer too large: the product needs more than {MAX_INT_BITS} bits")
-            return
         for sequence, count in ((a, b), (b, a)):
             if isinstance(sequence, str | list | tuple) and isinstance(count, int) and count > 1:
-                attempted_memory = mem_used + calculate_cost(sequence) * count
+                attempted_memory = mem_used + COST_PER_UNIT + (calculate_cost(sequence) - COST_PER_UNIT) * count
                 if attempted_memory > memory_limit:
                     raise HogVMMemoryExceededException(memory_limit=memory_limit, attempted_memory=attempted_memory)
+        return a * b
+
+    def modulo(a: Any, b: Any) -> Any:
+        # On a string, Python's % formats instead, and a format such as '%1000000000s' builds its result before
+        # push_stack can check its size. The other Hog VMs give no string result here either.
+        if isinstance(a, str):
+            raise HogVMException("Cannot use % on a string")
+        return a % b
 
     def check_timeout():
         if time.monotonic() - start_time > timeout.total_seconds() and not debug:
@@ -297,11 +305,9 @@ def execute_bytecode(
             case Operation.DIVIDE:
                 push_stack(pop_stack() / pop_stack())
             case Operation.MULTIPLY:
-                factor, other = pop_stack(), pop_stack()
-                check_multiply(factor, other)
-                push_stack(factor * other)
+                push_stack(multiply(pop_stack(), pop_stack()))
             case Operation.MOD:
-                push_stack(pop_stack() % pop_stack())
+                push_stack(modulo(pop_stack(), pop_stack()))
             case Operation.EQ:
                 var1, var2 = unify_comparison_types(pop_stack(), pop_stack())
                 push_stack(var1 == var2)
