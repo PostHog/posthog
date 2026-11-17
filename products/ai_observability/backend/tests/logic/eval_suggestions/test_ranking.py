@@ -12,7 +12,7 @@ from posthog.hogql.compiler.bytecode import create_bytecode
 from posthog.hogql.property import property_to_expr
 
 from products.ai_observability.backend.llm import DEFAULT_MODEL_BY_PROVIDER
-from products.ai_observability.backend.logic.eval_suggestions import adapters, cards, prices, ranking
+from products.ai_observability.backend.logic.eval_suggestions import adapters, prices, ranking
 from products.ai_observability.backend.logic.eval_suggestions.call_review import ReviewCard, ReviewExample
 from products.ai_observability.backend.logic.eval_suggestions.call_review_queries import CallTypeRow, SnippetMatches
 from products.ai_observability.backend.logic.eval_suggestions.judge_calibration import Calibration, CodeCheck
@@ -369,7 +369,8 @@ def _call_type(source: str, name: str, calls: int = 100, messages: list[dict[str
 def _review_card(call_types: list[CallTypeRow]) -> ReviewCard:
     return ReviewCard(
         title="Replies promise refund dates",
-        checks="Checks whether a reply promises a refund date",
+        summary="Flags replies that promise a refund date",
+        rule="A reply fails when it names a date or day by which the refund arrives.",
         why="The prompt says never to promise a date",
         call_types=call_types,
         labels={},
@@ -567,20 +568,20 @@ def test_a_snippet_is_chosen_only_when_its_matches_are_its_call_type(
 
 @parameterized.expand(
     [
-        ("same_check_reworded", "support-reply", "Whether the reply promises a refund date.", False, True),
-        ("another_check", "support-reply", "Checks whether a reply answers in the user's language", False, False),
-        ("another_call_type", "refund-reply", "Checks whether a reply promises a refund date", False, False),
+        ("same_check_reworded", "support-reply", "flags REPLIES that promise a refund date!", False, True),
+        ("another_check", "support-reply", "Flags replies not in the user's language", False, False),
+        ("another_call_type", "refund-reply", "Flags replies that promise a refund date", False, False),
         ("named_as_the_earlier_card", "support-reply", "Whether customers hear when the money comes back", True, True),
     ]
 )
 def test_a_reviewed_card_keeps_its_dedupe_key_when_a_later_review_rewords_it(
-    _name: str, prompt_name: str, checks: str, named_earlier: bool, same_key: bool
+    _name: str, prompt_name: str, summary: str, named_earlier: bool, same_key: bool
 ) -> None:
     first = _review_card([_call_type("prompt_name", "support-reply")])
     later = replace(
         first,
         title="Refund dates get promised",
-        checks=checks,
+        summary=summary,
         call_types=[_call_type("prompt_name", prompt_name)],
         judge_prompt="Is the customer told when the refund arrives?",
         earlier_key=ranking.review_dedupe_key(first) if named_earlier else "",
@@ -621,7 +622,11 @@ def test_a_reviewed_code_check_keeps_the_judge_card_identity_and_runs_free() -> 
     }
     assert (proposal.measured_failure_rate, proposal.sample_size, proposal.rollout_percentage) == (0.2, 25, 100.0)
     assert (proposal.estimated_weekly_cost_usd, proposal.judge_model) == (None, "")
-    assert proposal.outcome.endswith(cards.FREE)
+    assert (proposal.outcome, proposal.observation, proposal.observation_scope) == (
+        "Flags replies that promise a refund date.",
+        "5 of 25 sampled generations flagged",
+        "Sampled from the last day",
+    )
 
 
 @parameterized.expand(

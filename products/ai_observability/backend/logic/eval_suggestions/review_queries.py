@@ -31,6 +31,10 @@ class ReviewCard:
     headline: str
     outcome: str
     reason: str
+    observation: str
+    observation_scope: str
+    # The rule the evaluation applies, from the draft's description.
+    rule: str
     measured_failure_rate: float | None
     sample_size: int | None
     rollout_percentage: float
@@ -88,6 +92,9 @@ def _review_cards(cards: QuerySet[EvalSuggestion]) -> list[ReviewCard]:
             headline=card.headline,
             outcome=card.outcome,
             reason=card.reason,
+            observation=card.observation,
+            observation_scope=card.observation_scope,
+            rule=str(card.draft.get("description", "")) if isinstance(card.draft, dict) else "",
             measured_failure_rate=card.measured_failure_rate,
             sample_size=card.sample_size,
             rollout_percentage=card.rollout_percentage,

@@ -313,7 +313,17 @@ def _decision(card: ReviewCard, position: int, count: int, filters: ReviewFilter
     after_label = position if filters.unlabeled else position + 1
     return Decision(
         title=card.headline,
-        text=f"{card.outcome}\n\n{card.reason}",
+        # The words the customer card shows, in its order, so a label judges the copy as customers read it.
+        text="\n\n".join(
+            part
+            for part in (
+                card.outcome,
+                " · ".join(part for part in (card.observation, card.observation_scope) if part),
+                f"Rule: {card.rule}" if card.rule else "",
+                f"Why it matters: {card.reason}" if card.reason else "",
+            )
+            if part
+        ),
         detail=f"Card {position} of {count} · team {card.team_id} · {completed}, {card.trigger} · {card.status}{label}",
         operation_key="label",
         field="verdict",

@@ -307,11 +307,19 @@ class TestPipeline(ClickhouseTestMixin, APIBaseTest):
 
         fix = suggestions[fix_key]
         assert fix.draft["conditions"][0]["properties"][0]["value"] == ["chat_assistant"]
-        assert fix.headline == f'Your "{dead_judge.name}" eval stopped running'
+        assert (fix.headline, fix.target_evaluation_id) == (
+            "A filter value no longer appears in your events",
+            dead_judge.id,
+        )
 
         errors = suggestions["check:unrecovered_errors"]
         assert errors.measured_failure_rate is not None and 0 < errors.measured_failure_rate < 0.1
-        assert re.fullmatch(r"1 in \d+ traces ends on a failed call", errors.headline)
+        assert errors.headline == "Unrecovered tool or model failures"
+        # The observation and the stored rate come from the same counts.
+        observed = re.fullmatch(r"(\d+) of (\d+) sampled traces flagged", errors.observation)
+        assert observed is not None
+        assert int(observed[1]) / int(observed[2]) == errors.measured_failure_rate
+        assert int(observed[2]) == errors.sample_size
         assert all("GraphInterrupt" not in e["reason"] for e in errors.evidence)
 
         # The noise: dispatcher calls counted as loops.
@@ -398,7 +406,8 @@ class TestPipeline(ClickhouseTestMixin, APIBaseTest):
         ]
         card = {
             "title": REVIEW_TITLE,
-            "checks": "Checks whether a reply promises a refund date",
+            "summary": "Flags replies that promise a refund date",
+            "rule": "A reply fails when it names a date or day by which the refund arrives.",
             "why": "The prompt says never to promise a refund date",
             "call_types": ["T1"],
             "examples": examples,
@@ -924,7 +933,8 @@ def test_an_unnamed_call_type_gets_a_prompt_text_filter_only_when_safe_to_count(
     call_type = CallTypeRow(source="input", name="1", calls=10, model="m", example_input=json.dumps([system]))
     card = call_review.ReviewCard(
         title="Refund dates",
-        checks="c",
+        summary="s",
+        rule="r",
         why="w",
         call_types=[call_type],
         labels={},

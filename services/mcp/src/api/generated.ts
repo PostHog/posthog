@@ -45546,12 +45546,16 @@ export namespace Schemas {
       readonly applies: boolean;
       /** Catalog template or adapted check the suggestion comes from. Empty for fix_eval. */
       readonly template_key: string;
-      /** The problem in the project's own terms, with the number that makes it concrete, such as '1 in 125 traces ends on a failed call'. Judges carry no rate, because only Hog checks are measured. */
+      /** A short, stable name for the issue, such as 'Unrecovered tool or model failures'. For fix_eval, the condition observed on the evaluation. It carries no counts; `observation` does. */
       readonly headline: string;
-      /** What adding the evaluation does and what it costs, in one or two plain sentences. */
+      /** One sentence on what the evaluation flags and where it applies, starting with 'Flags'. For fix_eval and fix_prompt, what was observed and the next step. */
       readonly outcome: string;
-      /** How the problem was measured or found, for people who want the detail. */
+      /** Why the issue matters for the project's users, or empty when nothing supports it. */
       readonly reason: string;
+      /** What the sample showed, such as '9 of 27 sampled generations flagged', or empty when nothing was measured. */
+      readonly observation: string;
+      /** Where the observation came from, such as 'Sampled from the last 7 days'. */
+      readonly observation_scope: string;
       /** For new_hog and new_llm_judge: the evaluation create input (name, description, evaluation_type, evaluation_config, output_type, output_config, target), without conditions, which accept builds from `filters` and `rollout_percentage`. For fix_eval: the update body apply_fix applies to the target evaluation, or {} when the evaluation needs a manual fix. For fix_prompt: the check's name and description, and prompt_name when one managed prompt holds the rule. */
       readonly draft: EvalSuggestionDraft;
       /** Property filters the suggested evaluation runs on. Empty means all AI traffic. */

@@ -157,6 +157,8 @@ def publish(run: EvalSuggestionRun, proposals: Sequence[Proposal], stages: dict[
                     headline=p.headline[:400],
                     outcome=p.outcome,
                     reason=p.reason,
+                    observation=p.observation,
+                    observation_scope=p.observation_scope,
                     draft=p.draft,
                     filters=p.filters,
                     rollout_percentage=p.rollout_percentage,

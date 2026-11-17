@@ -128,6 +128,8 @@ def _to_eval_suggestion(suggestion: EvalSuggestionModel) -> contracts.EvalSugges
         headline=suggestion.headline,
         outcome=suggestion.outcome,
         reason=suggestion.reason,
+        observation=suggestion.observation,
+        observation_scope=suggestion.observation_scope,
         draft=suggestion.draft,
         filters=suggestion.filters,
         rollout_percentage=suggestion.rollout_percentage,

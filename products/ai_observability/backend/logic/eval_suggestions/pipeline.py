@@ -47,7 +47,7 @@ from . import (
 )
 from .applicability import applicable, content_profile
 from .call_review_queries import CallTypeRow, load_call_types, load_review_calls, snippet_matches
-from .config import SuggestionSettings, runs_for_organization
+from .config import REVIEW_WINDOW, WINDOW, SuggestionSettings, runs_for_organization
 from .coverage import Coverage, dismissed_dedupe_keys, existing_evals
 from .measure import discover_sample, hydrate_sample, measure, structured_outputs
 from .profile import TeamProfile, fetch_profile, find_structured_gaps, gap_holds, sample_per_mille
@@ -57,15 +57,12 @@ from .runs import Handoff
 
 logger = structlog.get_logger(__name__)
 
-WINDOW = timedelta(days=7)
 # Traces younger than this may still be receiving events, so the window stops short of now.
 SETTLE = timedelta(minutes=30)
 MIN_CONTENT_SHARE = 0.25
 # Dedupe asks the model about each hand-written evaluation, so a team with many pays for this many at most.
 MAX_DEDUPED_EVALS = 50
 PAID_STAGES = ("screening", "drafting")
-# The review reads call types and calls from the last day of the window.
-REVIEW_WINDOW = timedelta(days=1)
 
 
 def judge_model(team: Team) -> str | None:
@@ -303,6 +300,8 @@ def _reviewed_proposals(
         cards=len(cards),
         calibration=calibrated.record,
         prompt_bugs=len(prompt_bugs),
+        # Where the review saw the team's prompt and its judge disagree, for staff to read before trusting a card.
+        conflicts=[{"title": card.title, "conflict": card.conflict} for card in cards if card.conflict],
         code_checks=len(coded),
         code_calibration=[
             {

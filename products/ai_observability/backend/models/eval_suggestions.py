@@ -88,11 +88,15 @@ class EvalSuggestion(UUIDModel):
     # Identity across runs, so a dismissal or an accepted card suppresses the same suggestion next week. An
     # evaluation created from the suggestion keeps it through `created_evaluation`, which exact dedupe reads.
     dedupe_key = models.CharField(max_length=255)
-    # The card's words: the problem in the app's terms, then what adding the evaluation does and costs.
-    # `reason` holds how the problem was measured, which the card shows on request.
+    # The card's words: a stable title for the issue, then a summary of what it flags. `reason` holds why it
+    # matters, which the card shows on request.
     headline = models.CharField(max_length=400)
     outcome = models.TextField()
     reason = models.TextField()
+    # What the sample showed, such as "9 of 27 sampled generations flagged", and where it came from. The run
+    # formats both from the counts it stores, so the card never computes a claim of its own.
+    observation = models.TextField(blank=True, default="", db_default="")
+    observation_scope = models.TextField(blank=True, default="", db_default="")
     # Evaluation API input without conditions: accept adds `filters` and `rollout_percentage` as its
     # one condition set. For fix_eval it is the PATCH body for `target_evaluation`.
     draft = models.JSONField(default=dict)

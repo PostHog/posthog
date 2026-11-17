@@ -126,7 +126,8 @@ def _card_and_rendering() -> tuple[call_review.ReviewCard, call_review.Rendering
             "cards": [
                 {
                     "title": "Replies promise refund dates",
-                    "checks": "Checks whether a reply promises a refund date",
+                    "summary": "Flags replies that promise a refund date",
+                    "rule": "A reply fails when it names a date or day by which the refund arrives.",
                     "why": "The prompt says never to promise a date.",
                     "call_types": ["T1"],
                     "labels": [{"call": n, "verdict": "fail" if n <= 5 else "pass"} for n in range(1, 51)],
