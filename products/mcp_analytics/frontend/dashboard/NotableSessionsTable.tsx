@@ -16,11 +16,11 @@ import {
     TableHead,
     TableHeader,
     TableRow,
-    cn,
 } from '@posthog/quill-primitives'
 
 import { formatPercentage } from 'lib/utils/numbers'
 
+import { dimWhileLoading } from '../components/loadingFeedback'
 import { type NotableSession } from '../mcpDashboardOverviewLogic'
 import { mcpSessionUrl, mcpSessionsUrl } from '../sessionUrls'
 import { CardError } from './Card'
@@ -105,7 +105,7 @@ function SessionRows({
         )
     }
     return (
-        <TableBody aria-busy={loading} className={cn('transition-opacity', loading && 'opacity-50')}>
+        <TableBody aria-busy={loading} className={dimWhileLoading(loading)}>
             {sessions.map((entry) => (
                 <TableRow key={entry.session.session_id}>
                     <TableCell className="whitespace-nowrap">
