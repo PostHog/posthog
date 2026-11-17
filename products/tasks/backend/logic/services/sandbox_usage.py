@@ -12,7 +12,7 @@ sandbox provisioning, cleanup, or user-message delivery.
 """
 
 from collections.abc import Callable, Iterator, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from decimal import ROUND_HALF_EVEN, Decimal
 from functools import wraps
@@ -28,7 +28,7 @@ import structlog
 from posthog.dataclasses import frozen
 
 from products.tasks.backend.exceptions import ActiveSessionCapError
-from products.tasks.backend.logic.services.compute_quota import is_billable_sandbox_session
+from products.tasks.backend.logic.services.compute_quota import ai_credits_compute_origins, is_billable_sandbox_session
 from products.tasks.backend.logic.services.sandbox import SandboxBase, SandboxConfig, get_sandbox_class_for_sandbox_id
 from products.tasks.backend.logic.services.sandbox_pricing import (
     COMPUTE_RATE_CARDS,
@@ -444,6 +444,9 @@ class SandboxComputeUsageByTeam:
     credits: list[tuple[int, int]]
     cpu_millicore_seconds: list[tuple[int, int]]
     memory_mib_seconds: list[tuple[int, int]]
+    # Compute of the AI_CREDITS_COMPUTE_BILLED_ORIGINS sessions, priced like `credits`. It bills
+    # into the PostHog AI meter and is never part of `credits`, which is PostHog Desktop's.
+    ai_credits: list[tuple[int, int]] = field(default_factory=list)
 
 
 def get_billable_sandbox_compute_usage_by_team(
@@ -489,7 +492,33 @@ def get_billable_sandbox_compute_usage_by_team(
         cpu_millicore_seconds.append((team_id, int((cpu_quantity * 1000).to_integral_value(rounding=ROUND_HALF_EVEN))))
         memory_mib_seconds.append((team_id, int((memory_quantity * 1024).to_integral_value(rounding=ROUND_HALF_EVEN))))
 
-    return SandboxComputeUsageByTeam(credits, cpu_millicore_seconds, memory_mib_seconds)
+    return SandboxComputeUsageByTeam(
+        credits, cpu_millicore_seconds, memory_mib_seconds, _get_ai_compute_credits_by_team(begin, end, cards)
+    )
+
+
+def _get_ai_compute_credits_by_team(
+    begin: datetime, end: datetime, rate_cards: Sequence[ComputeRateCard]
+) -> list[tuple[int, int]]:
+    origins = ai_credits_compute_origins()
+    if not origins:
+        return []
+
+    sessions = (
+        SandboxSession.objects.unscoped()
+        .filter(origin_product__in=origins, user_attributed_at__isnull=False, user_attributed_at__lt=end)
+        .filter(Q(ended_at__isnull=True, ttl_expires_at__gt=begin) | Q(ended_at__gt=begin))
+    )
+    usd_by_team: dict[int, Decimal] = {}
+    calculated_at = timezone.now()
+    for session in iter_sandbox_sessions(sessions):
+        cost = calculate_sandbox_compute_cost(session, begin, end, calculated_at=calculated_at, rate_cards=rate_cards)
+        usd_by_team[session.team_id] = usd_by_team.get(session.team_id, Decimal(0)) + cost.total_cost_usd
+
+    return [
+        (team_id, int((total_usd * 100).to_integral_value(rounding=ROUND_HALF_EVEN)))
+        for team_id, total_usd in usd_by_team.items()
+    ]
 
 
 def get_task_sandbox_usage_by_team(begin: datetime, end: datetime) -> SandboxUsageByTeam:

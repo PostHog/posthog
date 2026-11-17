@@ -336,8 +336,10 @@ class UsageReportCounters:
     business_knowledge_chunks_in_period: int
     business_knowledge_queries_in_period: int
 
-    # AI Billing Credits (PostHog AI feature usage)
+    # AI Billing Credits (PostHog AI feature usage): token credits plus `ai_compute_credits_used_in_period`
     ai_credits_used_in_period: int
+    # Sandbox compute of the AI_CREDITS_COMPUTE_BILLED_ORIGINS task origins, already inside the total above
+    ai_compute_credits_used_in_period: int
 
     # Signals Billing Credits (flat credits per report whose implementation shipped a PR)
     signals_credits_used_in_period: int
@@ -2374,6 +2376,10 @@ def combine_posthog_code_credits(token_credits: int, compute_credits: int) -> in
     return token_credits + compute_credits
 
 
+def combine_ai_credits(token_credits: int, compute_credits: int) -> int:
+    return token_credits + compute_credits
+
+
 @timed_log()
 @retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
 def get_teams_with_rows_synced_in_period(begin: datetime, end: datetime) -> list:
@@ -3599,6 +3605,8 @@ def _get_team_report(all_data: dict[str, Any], team: Team) -> UsageReportCounter
     ai_overage_bytes_in_period = all_data["teams_with_ai_overage_bytes_in_period"].get(team.id, 0)
     logs_bytes_in_period = all_data["teams_with_logs_bytes_in_period"].get(team.id, 0)
     apm_tracing_bytes_in_period = all_data["teams_with_apm_tracing_bytes_in_period"].get(team.id, 0)
+    # Absent from counter reports and query results saved before the key existed.
+    ai_compute_credits_used_in_period = all_data.get("teams_with_ai_compute_credits_used_in_period", {}).get(team.id, 0)
     return UsageReportCounters(
         event_count_in_period=all_data["teams_with_event_count_in_period"].get(team.id, 0),
         enhanced_persons_event_count_in_period=all_data["teams_with_enhanced_persons_event_count_in_period"].get(
@@ -3784,7 +3792,10 @@ def _get_team_report(all_data: dict[str, Any], team: Team) -> UsageReportCounter
         business_knowledge_queries_in_period=all_data["teams_with_business_knowledge_queries_in_period"].get(
             team.id, 0
         ),
-        ai_credits_used_in_period=all_data["teams_with_ai_credits_used_in_period"].get(team.id, 0),
+        ai_credits_used_in_period=combine_ai_credits(
+            all_data["teams_with_ai_credits_used_in_period"].get(team.id, 0), ai_compute_credits_used_in_period
+        ),
+        ai_compute_credits_used_in_period=ai_compute_credits_used_in_period,
         signals_credits_used_in_period=all_data["teams_with_signals_credits_used_in_period"].get(team.id, 0),
         signals_spend_credits_used_in_period=all_data["teams_with_signals_spend_credits_used_in_period"].get(
             team.id, 0

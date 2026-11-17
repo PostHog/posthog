@@ -384,6 +384,7 @@ class UsageCounterService:
                 counter.value: sandbox_compute.credits,
                 "teams_with_sandbox_compute_cpu_millicore_seconds_in_period": sandbox_compute.cpu_millicore_seconds,
                 "teams_with_sandbox_compute_memory_mib_seconds_in_period": sandbox_compute.memory_mib_seconds,
+                "teams_with_ai_compute_credits_used_in_period": sandbox_compute.ai_credits,
             }
         return {counter.value: self.get_legacy(counter, plan.period.start, plan.period.end, caller=plan.caller)}
 

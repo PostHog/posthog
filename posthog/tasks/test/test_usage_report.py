@@ -5603,6 +5603,39 @@ class TestPostHogCodeComputeUsageReport(SimpleTestCase):
 
         assert combine_posthog_code_credits(123, 45) == 168
 
+    def test_ai_compute_credits_add_to_ai_credits_and_not_to_posthog_code(self) -> None:
+        from collections import defaultdict
+
+        from posthog.tasks.usage_report import _get_team_report
+
+        team = Team(id=7)
+        all_data: dict[str, dict[int, int]] = defaultdict(dict)
+        all_data["teams_with_ai_credits_used_in_period"] = {team.id: 120}
+        all_data["teams_with_ai_compute_credits_used_in_period"] = {team.id: 45}
+        all_data["teams_with_posthog_code_credits_used_in_period"] = {team.id: 10}
+        all_data["teams_with_sandbox_compute_credits_used_in_period"] = {team.id: 3}
+
+        report = _get_team_report(all_data, team)
+
+        assert report.ai_credits_used_in_period == 165
+        assert report.ai_compute_credits_used_in_period == 45
+        assert report.posthog_code_credits_used_in_period == 13
+        assert report.sandbox_compute_credits_used_in_period == 3
+
+    def test_ai_credits_are_unchanged_without_an_ai_compute_key(self) -> None:
+        from collections import defaultdict
+
+        from posthog.tasks.usage_report import _get_team_report
+
+        team = Team(id=7)
+        all_data: dict[str, dict[int, int]] = defaultdict(dict)
+        all_data["teams_with_ai_credits_used_in_period"] = {team.id: 120}
+
+        report = _get_team_report(all_data, team)
+
+        assert report.ai_credits_used_in_period == 120
+        assert report.ai_compute_credits_used_in_period == 0
+
     @patch("posthog.tasks.usage_report.capture_exception")
     @patch("posthog.tasks.usage_report.get_billable_sandbox_compute_usage_by_team")
     def test_invalid_compute_configuration_is_observed_without_breaking_report(

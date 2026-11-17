@@ -20,6 +20,7 @@ ORGANIZATION_DEACTIVATED_DENIAL_CODE = ComputeQuotaDenialReason.ORGANIZATION_DEA
 logger = logging.getLogger(__name__)
 
 POSTHOG_CODE_CLIENT_PROVENANCES = frozenset(TaskClientProvenance)
+POSTHOG_CODE_COMPUTE_ORIGINS = frozenset({Task.OriginProduct.USER_CREATED, Task.OriginProduct.SPACE_SETUP})
 
 
 def organization_deactivated(team_id: int) -> bool:
@@ -43,7 +44,7 @@ def is_billable_compute(
         return False
     if profile is not None:
         return profile.bills_compute
-    return origin_product in (Task.OriginProduct.USER_CREATED, Task.OriginProduct.SPACE_SETUP)
+    return origin_product in POSTHOG_CODE_COMPUTE_ORIGINS
 
 
 def is_billable_sandbox_session(session: "SandboxSession") -> bool:
@@ -54,6 +55,21 @@ def is_billable_sandbox_session(session: "SandboxSession") -> bool:
     )
 
 
+def ai_credits_compute_origins() -> frozenset[str]:
+    """Task origins whose sandbox compute bills into the PostHog AI `ai_credits` meter.
+
+    Empty unless AI_CREDITS_COMPUTE_BILLED_ORIGINS is set. PostHog Desktop's own origins are
+    dropped, so a misconfiguration can never bill one session into both meters.
+    """
+    return frozenset(settings.AI_CREDITS_COMPUTE_BILLED_ORIGINS) - POSTHOG_CODE_COMPUTE_ORIGINS
+
+
+def bills_compute_to_ai_credits(origin_product: str | None) -> bool:
+    # Client provenance is deliberately ignored: Slack tasks have none, and these origins are
+    # billed for the product they run in, not for the PostHog Desktop client that opened them.
+    return origin_product in ai_credits_compute_origins()
+
+
 def get_compute_quota_denial_reason(task: Task) -> ComputeQuotaDenialReason | None:
     if organization_deactivated(task.team_id):
         observe_compute_quota_check("checked_blocked")
@@ -62,14 +78,18 @@ def get_compute_quota_denial_reason(task: Task) -> ComputeQuotaDenialReason | No
         return None
     if not getattr(settings, "TASKS_COMPUTE_QUOTA_ENFORCEMENT_ENABLED", False):
         return None
-    if not is_task_billable_compute(task):
+    if is_task_billable_compute(task):
+        is_quota_limited = _is_posthog_code_quota_limited
+    elif bills_compute_to_ai_credits(task.origin_product):
+        is_quota_limited = _is_ai_credits_quota_limited
+    else:
         return None
     try:
-        exhausted = _is_posthog_code_quota_limited(task.team.api_token)
+        exhausted = is_quota_limited(task.team.api_token)
     except Exception:
         observe_compute_quota_check("fail_open")
         logger.warning(
-            "compute_quota: PostHog Code quota state unavailable",
+            "compute_quota: quota state unavailable",
             extra={"team_id": task.team_id, "task_id": str(task.id)},
             exc_info=True,
         )
@@ -88,5 +108,15 @@ def _is_posthog_code_quota_limited(team_api_token: str) -> bool:
     return is_team_limited(
         team_api_token,
         QuotaResource.POSTHOG_CODE_CREDITS,
+        QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY,
+    )
+
+
+def _is_ai_credits_quota_limited(team_api_token: str) -> bool:
+    from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, is_team_limited
+
+    return is_team_limited(
+        team_api_token,
+        QuotaResource.AI_CREDITS,
         QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY,
     )

@@ -240,6 +240,7 @@ def _sandbox_compute_usage(begin: datetime, end: datetime) -> dict[str, list[tup
         "credits": usage.credits,
         "cpu_millicore_seconds": usage.cpu_millicore_seconds,
         "memory_mib_seconds": usage.memory_mib_seconds,
+        "ai_credits": usage.ai_credits,
     }
 
 
@@ -564,6 +565,7 @@ QUERIES: list[QuerySpec] = [
             "credits": "teams_with_sandbox_compute_credits_used_in_period",
             "cpu_millicore_seconds": "teams_with_sandbox_compute_cpu_millicore_seconds_in_period",
             "memory_mib_seconds": "teams_with_sandbox_compute_memory_mib_seconds_in_period",
+            "ai_credits": "teams_with_ai_compute_credits_used_in_period",
         },
     ),
     # ---- Postgres: business knowledge usage ledger --------------------------

@@ -32,6 +32,7 @@ from products.tasks.backend.facade.billing import SandboxComputeUsageByTeam
 SANDBOX_COMPUTE_RESOURCE_KEYS = (
     "teams_with_sandbox_compute_cpu_millicore_seconds_in_period",
     "teams_with_sandbox_compute_memory_mib_seconds_in_period",
+    "teams_with_ai_compute_credits_used_in_period",
 )
 
 
@@ -660,6 +661,7 @@ class TestUsageCounterReport(SimpleTestCase):
             credits=expected[UsageCounter.SANDBOX_COMPUTE_CREDITS],
             cpu_millicore_seconds=[(1, 29)],
             memory_mib_seconds=[(2, 31)],
+            ai_credits=[(1, 37)],
         )
         expected.update(
             {
@@ -667,6 +669,7 @@ class TestUsageCounterReport(SimpleTestCase):
                 "teams_with_logs_retention_90d_bytes_in_period": [(2, 23)],
                 "teams_with_sandbox_compute_cpu_millicore_seconds_in_period": [(1, 29)],
                 "teams_with_sandbox_compute_memory_mib_seconds_in_period": [(2, 31)],
+                "teams_with_ai_compute_credits_used_in_period": [(1, 37)],
             }
         )
         with patch("posthoganalytics.get_feature_flag", return_value=flag_mode) as flag:

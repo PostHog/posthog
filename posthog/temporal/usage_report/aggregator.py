@@ -59,6 +59,7 @@ _SANDBOX_COMPUTE_DESTINATION_KEYS = (
     "teams_with_sandbox_compute_credits_used_in_period",
     "teams_with_sandbox_compute_cpu_millicore_seconds_in_period",
     "teams_with_sandbox_compute_memory_mib_seconds_in_period",
+    "teams_with_ai_compute_credits_used_in_period",
 )
 _LOGS_DISTINCT_PATTERNS_QUERY_NAME = "teams_with_logs_distinct_patterns_in_period"
 _TRANSACTIONAL_EMAILS_QUERY_NAME = "teams_with_workflow_transactional_emails_sent_in_period"

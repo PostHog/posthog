@@ -29,6 +29,7 @@ from posthog.models.organization import Organization, OrganizationUsageInfo
 from posthog.models.team.team import Team
 from posthog.redis import get_client
 from posthog.tasks.usage_report import (
+    combine_ai_credits,
     combine_posthog_code_credits,
     convert_team_usage_rows_to_dict,
     get_self_driving_credits_used_in_period_for_org,
@@ -1549,6 +1550,9 @@ def _fetch_quota_usage_counts(service: UsageCounterService, period: DayRange) ->
     )
     token_credits = dict(counter_report.counts[UsageCounter.POSTHOG_CODE_CREDITS])
     compute_credits = dict(counter_report.counts[UsageCounter.SANDBOX_COMPUTE_CREDITS])
+    ai_token_credits = dict(counter_report.counts[UsageCounter.AI_CREDITS])
+    # Absent from counter reports saved before the key existed.
+    ai_compute_credits = dict(counter_report.counts.get("teams_with_ai_compute_credits_used_in_period", []))
     logs_bytes = dict(counter_report.counts[UsageCounter.LOGS_BYTES])
     mcp_event_counts = _timed_query(
         "mcp_event_count", get_teams_with_mcp_event_count_in_period, period.start, period.end
@@ -1576,7 +1580,10 @@ def _fetch_quota_usage_counts(service: UsageCounterService, period: DayRange) ->
         "teams_with_survey_responses_count_in_period": dict(counter_report.counts[UsageCounter.SURVEY_RESPONSES]),
         "teams_with_ai_event_count_in_period": dict(counter_report.counts[UsageCounter.AI_EVENTS]),
         "teams_with_mcp_event_count_in_period": convert_team_usage_rows_to_dict(mcp_event_counts),
-        "teams_with_ai_credits_used_in_period": dict(counter_report.counts[UsageCounter.AI_CREDITS]),
+        "teams_with_ai_credits_used_in_period": {
+            team_id: combine_ai_credits(ai_token_credits.get(team_id, 0), ai_compute_credits.get(team_id, 0))
+            for team_id in ai_token_credits.keys() | ai_compute_credits.keys()
+        },
         "teams_with_signals_credits_used_in_period": dict(counter_report.counts[UsageCounter.SIGNALS_CREDITS]),
         "teams_with_signals_spend_credits_used_in_period": dict(
             counter_report.counts[UsageCounter.SIGNALS_SPEND_CREDITS]
