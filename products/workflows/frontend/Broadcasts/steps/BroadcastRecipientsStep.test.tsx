@@ -1,8 +1,8 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, render, screen, within } from '@testing-library/react'
+import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { BindLogic, Provider } from 'kea'
+import { BindLogic } from 'kea'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -34,10 +34,6 @@ describe('BroadcastRecipientsStep', () => {
         initKeaTests()
     })
 
-    afterEach(() => {
-        cleanup()
-    })
-
     it('shows a cohort excluded by negation as "not in" and keeps it excluded through an unrelated edit', async () => {
         const wizard = broadcastWizardLogic({ id: 'new' })
         wizard.mount()
@@ -47,11 +43,9 @@ describe('BroadcastRecipientsStep', () => {
         ])
 
         render(
-            <Provider>
-                <BindLogic logic={broadcastWizardLogic} props={{ id: 'new' }}>
-                    <BroadcastRecipientsStep />
-                </BindLogic>
-            </Provider>
+            <BindLogic logic={broadcastWizardLogic} props={{ id: 'new' }}>
+                <BroadcastRecipientsStep />
+            </BindLogic>
         )
 
         const rows = await screen.findAllByTestId(/^property-filter-\d+$/)
