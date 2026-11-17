@@ -29,7 +29,7 @@ export const CONTEXT_NAMES = [
 
 // GitHub applies success() implicitly when an `if:` names no status function.
 const STATUS_FUNCTIONS = new Set(['success', 'failure', 'cancelled', 'always'])
-const WHOLE_EXPRESSION = /^\$\{\{([\s\S]*)\}\}$/
+const WHOLE_EXPRESSION = /^\$\{\{((?:(?!\}\})[\s\S])*)\}\}$/
 const EMBEDDED_EXPRESSION = /\$\{\{([\s\S]*?)\}\}/g
 
 export const HASH_FILES_STUB = 'workflow-plan-stub-hash'

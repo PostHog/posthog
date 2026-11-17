@@ -14,7 +14,7 @@ from django.utils import timezone
 import httpx
 import openai
 from anthropic import APIConnectionError
-from anthropic.types import ToolUseBlock, Usage
+from anthropic.types import TextBlock, Usage
 from parameterized import parameterized
 
 from posthog.hogql_queries.ai.utils import HEAVY_PROPERTY_NAMES
@@ -186,7 +186,7 @@ def _support_traffic(team: Team, end: datetime) -> None:
                 "$ai_prompt_name": "support-reply",
                 "$ai_input": [
                     {"role": "system", "content": SUPPORT_PROMPT},
-                    {"role": "user", "content": "Where is my refund?"},
+                    {"role": "user", "content": f"Where is my refund for order {index}?"},
                 ],
                 "$ai_output_choices": [{"role": "assistant", "content": "Your refund arrives by Friday."}],
             },
@@ -210,24 +210,31 @@ def _calibration_record(*, caught: int, false_alarms: int, kept: bool) -> dict[s
     return {"status": "ok", "model": "gpt-5-mini", "cards": [{"title": REVIEW_TITLE, **counts, "kept": kept}]}
 
 
-def _judge_replies(judge_fails: set[int]) -> Callable[..., MagicMock]:
+def _judge_replies(judge_fails: set[int], review: MagicMock) -> Callable[..., MagicMock]:
+    """The judge fails the calls numbered `judge_fails` in the review. It reads the call as the runtime judge does, so
+    it finds the review's number through the call's trace."""
+
     def reply(**kwargs: Any) -> MagicMock:
-        number = re.search(r'<call number="(\d+)"', kwargs["messages"][-1]["content"])
-        assert number is not None
-        verdict = "fail" if int(number.group(1)) in judge_fails else "pass"
+        review_prompt = review.messages.create.call_args_list[1].kwargs["messages"][0]["content"]
+        numbers = {
+            trace: int(n) for n, trace in re.findall(r'<call number="(\d+)" type="T\d+" trace="([^"]+)"', review_prompt)
+        }
+        order = re.search(r"order (\d+)\?", kwargs["messages"][-1]["content"])
+        assert order is not None
+        verdict = "fail" if numbers[f"support-{order.group(1)}"] in judge_fails else "pass"
         return MagicMock(
-            choices=[MagicMock(message=MagicMock(content=json.dumps({"reasoning": "r", "verdict": verdict})))],
+            choices=[MagicMock(message=MagicMock(content=json.dumps({"reasoning": "r", "outcome": verdict})))],
             usage=MagicMock(prompt_tokens=1000, completion_tokens=50),
         )
 
     return reply
 
 
-def _tool_reply(name: str, tool_input: dict[str, Any]) -> MagicMock:
+def _json_reply(answer: dict[str, Any]) -> MagicMock:
     return MagicMock(
-        content=[ToolUseBlock(id="toolu_1", name=name, input=tool_input, type="tool_use")],
+        content=[TextBlock(text=json.dumps(answer), type="text")],
         usage=Usage(input_tokens=1000, output_tokens=500),
-        stop_reason="tool_use",
+        stop_reason="end_turn",
     )
 
 
@@ -329,11 +336,11 @@ class TestPipeline(ClickhouseTestMixin, APIBaseTest):
         }
         client = MagicMock()
         client.messages.create.side_effect = [
-            _tool_reply("pick_call_types", {"exclude": False, "picked": [{"id": "T1", "why": "answers users"}]}),
-            _tool_reply("propose_cards", {"product": "a shop", "themes": [], "cards": [card]}),
+            _json_reply({"exclude": False, "picked": [{"id": "T1", "why": "answers users"}]}),
+            _json_reply({"product": "a shop", "themes": [], "cards": [card]}),
         ]
         judge = MagicMock(spec=openai.OpenAI)
-        judge.chat.completions.create.side_effect = _judge_replies(judge_fails)
+        judge.chat.completions.create.side_effect = _judge_replies(judge_fails, client)
 
         with (
             patch.object(pipeline.call_review, "build_client", return_value=client),
@@ -490,7 +497,7 @@ class TestReviewBudget(BaseTest):
         connection_reset = APIConnectionError(request=httpx.Request("POST", "https://gateway.example.com"))
         client = MagicMock()
         client.messages.create.side_effect = [
-            _tool_reply("pick_call_types", {"exclude": False, "picked": []}),
+            _json_reply({"exclude": False, "picked": []}),
             *[connection_reset] * call_review.ATTEMPTS,
         ]
 
@@ -500,7 +507,7 @@ class TestReviewBudget(BaseTest):
                 paid_call(failed, client, request, budget)
             refused_call = paid_call(refused, client, request, budget)
 
-        assert call is not None and call.tool_input == {"exclude": False, "picked": []}
+        assert call is not None and call.answer == {"exclude": False, "picked": []}
         assert refused_call is None
         spent = dict(EvalSuggestionRun.objects.for_team(self.team.pk).values_list("id", "cost_usd"))
         assert spent[served.id] == pytest.approx(served_cost)

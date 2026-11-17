@@ -301,6 +301,28 @@ export function reportMetricUnitWord(metric: Pick<ReportMetricApi, 'kind' | 'uni
     }
 }
 
+const ROW_COMPACT_FROM = 10_000
+const ROW_COMPACT_FORMAT = new Intl.NumberFormat('en-US', { notation: 'compact', maximumFractionDigits: 1 })
+
+/** The row figure sits in a fixed column, so a large value shortens to `38.1M`. The tooltip has the exact value. */
+function rowNumber(value: number, maximumFractionDigits: number): string {
+    return Math.abs(value) >= ROW_COMPACT_FROM
+        ? ROW_COMPACT_FORMAT.format(value)
+        : humanFriendlyNumber(value, maximumFractionDigits)
+}
+
+function rowCurrency(value: number, currency: CurrencyCode): string {
+    const magnitude = Math.abs(value)
+    // Cents only matter on small amounts; `$1,200.00` does not fit the column.
+    const options: Intl.NumberFormatOptions =
+        magnitude >= ROW_COMPACT_FROM
+            ? { notation: 'compact', minimumFractionDigits: 0, maximumFractionDigits: 1 }
+            : magnitude >= 100
+              ? { minimumFractionDigits: 0, maximumFractionDigits: 0 }
+              : {}
+    return new Intl.NumberFormat('en-US', { style: 'currency', currency, ...options }).format(value)
+}
+
 export function reportMetricRowParts(
     metric: Pick<ReportMetricApi, 'kind' | 'unit' | 'value_format'>,
     value: number | null | undefined
@@ -315,7 +337,7 @@ export function reportMetricRowParts(
 
     switch (valueFormat) {
         case 'count':
-            return { value: humanFriendlyNumber(numericValue, 0), unit }
+            return { value: rowNumber(numericValue, 0), unit }
         case 'percentage':
             return { value: percentage(numericValue / 100, significantDecimalPlaces(numericValue)), unit }
         case 'percentage_scaled':
@@ -323,15 +345,15 @@ export function reportMetricRowParts(
         // The row stacks the unit word under the figure, so a duration stays a plain number in its own
         // unit. A composed `4m 47s` would collide with the `seconds` word below it.
         case 'duration':
-            return { value: humanFriendlyNumber(numericValue, significantDecimalPlaces(numericValue)), unit }
+            return { value: rowNumber(numericValue, significantDecimalPlaces(numericValue)), unit }
         case 'currency': {
             const currency = metric.unit?.trim() ?? null
             return isCurrencyCode(currency)
-                ? { value: formatCurrency(numericValue, currency), unit }
-                : { value: humanFriendlyNumber(numericValue, 2), unit }
+                ? { value: rowCurrency(numericValue, currency), unit }
+                : { value: rowNumber(numericValue, 2), unit }
         }
         case 'number':
-            return { value: humanFriendlyNumber(numericValue, significantDecimalPlaces(numericValue)), unit }
+            return { value: rowNumber(numericValue, significantDecimalPlaces(numericValue)), unit }
     }
 }
 

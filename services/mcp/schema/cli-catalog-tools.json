@@ -4570,8 +4570,23 @@
                     "csv": false
                 },
                 {
+                    "param": "offset",
+                    "key": "offset",
+                    "csv": false
+                },
+                {
                     "param": "only_flagged",
                     "key": "only_flagged",
+                    "csv": false
+                },
+                {
+                    "param": "order",
+                    "key": "order",
+                    "csv": false
+                },
+                {
+                    "param": "search",
+                    "key": "search",
                     "csv": false
                 }
             ],
@@ -6502,6 +6517,9 @@
                     "iteration_count",
                     "best_holdout_score",
                     "error",
+                    "task_id",
+                    "task_run_id",
+                    "task_url",
                     "started_at",
                     "completed_at",
                     "created_at"
@@ -7975,7 +7993,9 @@
                     "next_refresh_at",
                     "created_at",
                     "updated_at",
-                    "library_ids"
+                    "library_ids",
+                    "cited_run_count",
+                    "last_cited_at"
                 ],
                 "selectable": false
             },
@@ -15334,6 +15354,11 @@
                 {
                     "param": "offset",
                     "key": "offset",
+                    "csv": false
+                },
+                {
+                    "param": "search",
+                    "key": "search",
                     "csv": false
                 }
             ],
@@ -24817,6 +24842,11 @@
                 {
                     "param": "search",
                     "key": "search",
+                    "csv": false
+                },
+                {
+                    "param": "tags",
+                    "key": "tags",
                     "csv": false
                 },
                 {
@@ -56874,6 +56904,11 @@
                 {
                     "param": "offset",
                     "key": "offset",
+                    "csv": false
+                },
+                {
+                    "param": "reason",
+                    "key": "reason",
                     "csv": false
                 },
                 {

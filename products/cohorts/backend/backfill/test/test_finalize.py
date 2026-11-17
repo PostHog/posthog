@@ -89,6 +89,7 @@ class TestBackfillFinalizer(BaseTest):
             cohort = Cohort.objects.create(
                 team=self.team,
                 cohort_type=CohortType.REALTIME,
+                realtime_enabled_at=run.created_at,
                 filters=self._behavioral_filters(),
             )
             ensure_filters_shape_hash(cohort)
