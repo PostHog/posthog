@@ -6,12 +6,12 @@
 # code. A change that MCP needs from Django lands in the same commit or in an earlier one, because
 # master is linear. So a Django build that contains the commit of the image has every such change.
 #
-# Usage: write-mcp-deploy-requirements.sh <output file>
+# Usage: write-mcp-deploy-requirements.sh OUTPUT_FILE
 # Environment: COMMIT_SHA, the full SHA of the commit that the image is built from.
 set -euo pipefail
 
 COMMIT_SHA="${COMMIT_SHA:?}"
-OUTPUT="${1:?Usage: $0 <output file>}"
+OUTPUT="${1:?Usage: $0 OUTPUT_FILE}"
 
 if [[ ! "$COMMIT_SHA" =~ ^[0-9a-f]{40}$ ]]; then
     echo "::error::COMMIT_SHA must be a full commit SHA, got '$COMMIT_SHA'." >&2
