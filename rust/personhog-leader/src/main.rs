@@ -304,8 +304,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let cache = Arc::new(
         PartitionedCache::new(config.cache_memory_capacity_bytes)
-            .with_properties_compression(config.cache_properties_compression_enabled)
-            .with_fill(config.cache_fill().is_some()),
+            .with_properties_compression(config.cache_properties_compression_enabled),
     );
 
     // PG fallback pool for cache misses (optional, disabled if URL is empty)

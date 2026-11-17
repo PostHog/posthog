@@ -135,9 +135,8 @@ pub struct PersonCache {
     put_keys: Mutex<Option<PutTracking>>,
 }
 
-/// The pending fill's token and every key put since it was armed.
+/// Every key put since a pending fill's warm build began.
 struct PutTracking {
-    token: u64,
     keys: HashSet<PersonCacheKey>,
     /// Tracking stops past this many keys, which ends the fill.
     max_keys: usize,
@@ -147,11 +146,9 @@ struct PutTracking {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FillOutcome {
     Inserted,
-    /// The key was put since tracking began, so the cache holds newer state.
-    AlreadyPut,
-    /// A death document: nothing is inserted, and older records for the key are refused.
-    Dead,
-    /// This cache has no pending fill, or one that holds a different token.
+    /// The key was already put, or the record is a death document, which claims its key.
+    Skipped,
+    /// No fill is pending for this cache.
     NotTracking,
 }
 
@@ -173,55 +170,35 @@ impl PersonCache {
         }
     }
 
-    /// Start recording put keys, for the fill that will hold `token`.
-    pub(super) fn track_puts(&self, token: u64, max_keys: usize) {
+    /// Start recording put keys, for a fill that will follow.
+    pub(super) fn track_puts(&self, max_keys: usize) {
         *self.put_keys.lock().unwrap_or_else(PoisonError::into_inner) = Some(PutTracking {
-            token,
             keys: HashSet::new(),
             max_keys,
         });
     }
 
-    pub(super) fn fill_token(&self) -> Option<u64> {
-        self.put_keys
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .as_ref()
-            .map(|tracking| tracking.token)
-    }
-
-    pub(super) fn stop_tracking_puts(&self, token: u64) {
-        let mut put_keys = self.put_keys.lock().unwrap_or_else(PoisonError::into_inner);
-        if put_keys
-            .as_ref()
-            .is_some_and(|tracking| tracking.token == token)
-        {
-            *put_keys = None;
-        }
+    pub(super) fn stop_tracking_puts(&self) {
+        *self.put_keys.lock().unwrap_or_else(PoisonError::into_inner) = None;
     }
 
     /// Insert unless the key was put since tracking began; a put records its key first.
-    pub(super) fn fill(
-        &self,
-        token: u64,
-        key: PersonCacheKey,
-        person: CachedPerson,
-    ) -> FillOutcome {
+    pub(super) fn fill(&self, key: PersonCacheKey, person: CachedPerson) -> FillOutcome {
         let is_deleted = person.is_deleted;
         let stored = StoredPerson::new(person, &self.codec);
         let mut put_keys = self.put_keys.lock().unwrap_or_else(PoisonError::into_inner);
-        let Some(tracking) = put_keys.as_mut().filter(|tracking| tracking.token == token) else {
+        let Some(tracking) = put_keys.as_mut() else {
             return FillOutcome::NotTracking;
         };
         if !tracking.keys.insert(key.clone()) {
-            return FillOutcome::AlreadyPut;
+            return FillOutcome::Skipped;
         }
         if tracking.keys.len() > tracking.max_keys {
             *put_keys = None;
             return FillOutcome::NotTracking;
         }
         if is_deleted {
-            return FillOutcome::Dead;
+            return FillOutcome::Skipped;
         }
         self.inner.insert(key, stored);
         FillOutcome::Inserted
@@ -335,16 +312,17 @@ mod tests {
         }
     }
 
-    const TOKEN: u64 = 7;
-
-    fn tracking_cache() -> (PersonCache, PersonCacheKey) {
+    fn tracking_cache(max_keys: usize) -> PersonCache {
         let cache = PersonCache::new(1024 * 1024, Arc::new(PropertiesCodec::disabled()));
-        cache.track_puts(TOKEN, 1000);
-        let key = PersonCacheKey {
+        cache.track_puts(max_keys);
+        cache
+    }
+
+    fn key(person_id: i64) -> PersonCacheKey {
+        PersonCacheKey {
             team_id: 42,
-            person_id: 1,
-        };
-        (cache, key)
+            person_id,
+        }
     }
 
     fn at_version(version: i64) -> CachedPerson {
@@ -356,101 +334,59 @@ mod tests {
 
     #[test]
     fn a_fill_inserts_a_key_once_and_refuses_older_records_for_it() {
-        let (cache, key) = tracking_cache();
-        assert_eq!(
-            cache.fill(TOKEN, key.clone(), at_version(5)),
-            FillOutcome::Inserted
-        );
-        assert_eq!(
-            cache.fill(TOKEN, key.clone(), at_version(4)),
-            FillOutcome::AlreadyPut
-        );
-        assert_eq!(cache.get(&key).unwrap().version, 5);
+        let cache = tracking_cache(1000);
+        assert_eq!(cache.fill(key(1), at_version(5)), FillOutcome::Inserted);
+        assert_eq!(cache.fill(key(1), at_version(4)), FillOutcome::Skipped);
+        assert_eq!(cache.get(&key(1)).unwrap().version, 5);
     }
 
     #[test]
     fn a_fill_never_replaces_a_key_put_since_tracking_began() {
-        let (cache, key) = tracking_cache();
-        cache.put(key.clone(), at_version(6));
-        cache.remove(&key);
-        assert_eq!(
-            cache.fill(TOKEN, key.clone(), at_version(5)),
-            FillOutcome::AlreadyPut
-        );
-        assert!(cache.get(&key).is_none());
+        let cache = tracking_cache(1000);
+        cache.put(key(1), at_version(6));
+        cache.remove(&key(1));
+        assert_eq!(cache.fill(key(1), at_version(5)), FillOutcome::Skipped);
+        assert!(cache.get(&key(1)).is_none());
     }
 
     #[test]
     fn a_death_document_keeps_older_records_of_its_person_out() {
-        let (cache, key) = tracking_cache();
+        let cache = tracking_cache(1000);
         let death = CachedPerson {
             is_deleted: true,
             ..at_version(6)
         };
-        assert_eq!(cache.fill(TOKEN, key.clone(), death), FillOutcome::Dead);
-        assert_eq!(
-            cache.fill(TOKEN, key.clone(), at_version(5)),
-            FillOutcome::AlreadyPut
-        );
-        assert!(cache.get(&key).is_none());
+        assert_eq!(cache.fill(key(1), death), FillOutcome::Skipped);
+        assert_eq!(cache.fill(key(1), at_version(5)), FillOutcome::Skipped);
+        assert!(cache.get(&key(1)).is_none());
     }
 
     #[test]
-    fn a_fill_holding_another_builds_token_inserts_nothing() {
-        let (cache, key) = tracking_cache();
-        assert_eq!(
-            cache.fill(TOKEN + 1, key.clone(), at_version(5)),
-            FillOutcome::NotTracking
-        );
-        cache.stop_tracking_puts(TOKEN + 1);
-        assert_eq!(
-            cache.fill(TOKEN, key.clone(), at_version(5)),
-            FillOutcome::Inserted
-        );
-    }
-
-    #[test]
-    fn tracking_stops_once_it_holds_more_keys_than_its_bound() {
-        let cache = PersonCache::new(1024 * 1024, Arc::new(PropertiesCodec::disabled()));
-        cache.track_puts(TOKEN, 2);
+    fn tracking_stops_once_puts_or_fills_pass_its_bound() {
+        let by_puts = tracking_cache(2);
         for person_id in 1..=3 {
-            let key = PersonCacheKey {
-                team_id: 42,
-                person_id,
-            };
-            cache.put(key, at_version(1));
+            by_puts.put(key(person_id), at_version(1));
         }
-        assert_eq!(cache.fill_token(), None);
-    }
-
-    #[test]
-    fn a_fill_stops_tracking_once_its_own_inserts_pass_the_bound() {
-        let cache = PersonCache::new(1024 * 1024, Arc::new(PropertiesCodec::disabled()));
-        cache.track_puts(TOKEN, 1);
-        let key = |person_id| PersonCacheKey {
-            team_id: 42,
-            person_id,
-        };
         assert_eq!(
-            cache.fill(TOKEN, key(1), at_version(1)),
-            FillOutcome::Inserted
-        );
-        assert_eq!(
-            cache.fill(TOKEN, key(2), at_version(1)),
+            by_puts.fill(key(4), at_version(1)),
             FillOutcome::NotTracking
         );
-        assert!(cache.get(&key(2)).is_none());
+
+        let by_fills = tracking_cache(1);
+        assert_eq!(by_fills.fill(key(1), at_version(1)), FillOutcome::Inserted);
+        assert_eq!(
+            by_fills.fill(key(2), at_version(1)),
+            FillOutcome::NotTracking
+        );
+        assert!(by_fills.get(&key(2)).is_none());
     }
 
     #[test]
     fn a_fill_inserts_nothing_once_tracking_stops() {
-        let (cache, key) = tracking_cache();
-        cache.stop_tracking_puts(TOKEN);
-        assert_eq!(
-            cache.fill(TOKEN, key.clone(), at_version(5)),
-            FillOutcome::NotTracking
-        );
-        assert!(cache.get(&key).is_none());
+        let cache = tracking_cache(1000);
+        cache.stop_tracking_puts();
+        assert_eq!(cache.fill(key(1), at_version(5)), FillOutcome::NotTracking);
+        assert!(cache.get(&key(1)).is_none());
     }
 
     fn test_person() -> CachedPerson {

@@ -1592,21 +1592,19 @@ async fn a_resume_does_not_fence_the_window_its_own_warm_admitted() {
 }
 
 #[tokio::test]
-async fn a_released_partitions_fill_stops_and_the_next_one_runs() {
-    use personhog_leader::cache::{CacheLookup, PartitionedCache, PersonCacheKey};
+async fn every_warm_of_a_partition_gets_a_fill_and_tracking_ends_with_it() {
+    use personhog_leader::cache::{CacheLookup, FillOutcome, PartitionedCache, PersonCacheKey};
     use rdkafka::consumer::{BaseConsumer, CommitMode, Consumer};
 
     let topic = format!("fence_fill_{}", uuid::Uuid::new_v4().simple());
-    common::create_broker_topic(&topic, 2).await;
+    common::create_broker_topic(&topic, 1).await;
     // A group of the test's own: a standalone commit is refused while a group has members.
     let writer_group = format!("writer_{topic}");
     let producers = Arc::new(fenced_producers(1));
-    let cache = Arc::new(PartitionedCache::new(1 << 20).with_fill(true));
-    // The pause outlasts the test, so a fill holds its slot until something stops it.
+    let cache = Arc::new(PartitionedCache::new(1 << 20));
     let fill = personhog_leader::warming::FillConfig {
         lookback: Duration::from_secs(3600),
         chunk_offsets: 4,
-        pause: Duration::from_secs(600),
         room_fraction: 0.9,
         chunk_max_bytes: 64 << 20,
     };
@@ -1618,88 +1616,85 @@ async fn a_released_partitions_fill_stops_and_the_next_one_runs() {
         &writer_group,
     );
 
-    // Applied history on both partitions: the writer has committed past it.
+    // Applied history: the writer has committed past it, so only a fill restores it.
     let writer: BaseConsumer = rdkafka::ClientConfig::new()
         .set("bootstrap.servers", KAFKA_BOOTSTRAP)
         .set("group.id", &writer_group)
         .set("enable.auto.commit", "false")
         .create()
         .expect("writer-group consumer");
-    for partition in 0..2 {
+    producers
+        .acquire(0, &target(&topic))
+        .await
+        .expect("acquire");
+    for version in 1..=4 {
         producers
-            .acquire(partition, &target(&topic))
+            .produce(0, &test_person(version))
             .await
-            .expect("acquire");
-        for version in 1..=4 {
-            producers
-                .produce(partition, &test_person(version))
-                .await
-                .expect("history record");
-        }
-        let (_, end) = writer
-            .fetch_watermarks(&topic, partition as i32, Duration::from_secs(5))
-            .expect("watermarks");
-        let mut tpl = rdkafka::TopicPartitionList::new();
-        tpl.add_partition_offset(&topic, partition as i32, rdkafka::Offset::Offset(end))
-            .expect("tpl");
-        writer
-            .commit(&tpl, CommitMode::Sync)
-            .expect("writer commit");
+            .expect("history record");
     }
+    let (_, end) = writer
+        .fetch_watermarks(&topic, 0, Duration::from_secs(5))
+        .expect("watermarks");
+    let mut tpl = rdkafka::TopicPartitionList::new();
+    tpl.add_partition_offset(&topic, 0, rdkafka::Offset::Offset(end))
+        .expect("tpl");
+    writer
+        .commit(&tpl, CommitMode::Sync)
+        .expect("writer commit");
+
     let key = PersonCacheKey {
         team_id: 1,
         person_id: 7,
     };
-    let filled = |partition: u32| matches!(cache.get(partition, &key), CacheLookup::Found(_));
+    let filled = || matches!(cache.get(0, &key), CacheLookup::Found(_));
+    let tracking_ended = || {
+        let probe = PersonCacheKey {
+            team_id: 1,
+            person_id: 999,
+        };
+        cache.fill(0, probe, common::test_cached_person()) == Some(FillOutcome::NotTracking)
+    };
 
-    handler.warm_partition(0).await.expect("warm partition 0");
-    wait_until("partition 0's fill to insert its first chunk", || filled(0)).await;
-
-    handler.warm_partition(1).await.expect("warm partition 1");
-    sleep(Duration::from_millis(300)).await;
-    assert!(!filled(1), "one fill at a time");
+    handler.warm_partition(0).await.expect("warm");
+    wait_until("the first build's fill", filled).await;
+    wait_until("put tracking to end", tracking_ended).await;
 
     handler.release_partition(0).await.expect("release");
-    wait_until("partition 1's fill to run", || filled(1)).await;
+    handler.warm_partition(0).await.expect("warm again");
+    wait_until("the second build's fill", filled).await;
 }
 
 #[tokio::test]
-async fn put_tracking_ends_when_a_fill_finishes_or_never_starts() {
-    use personhog_leader::cache::PartitionedCache;
+async fn a_warm_tracks_no_puts_when_no_fill_is_configured() {
+    use personhog_leader::cache::{FillOutcome, PartitionedCache, PersonCacheKey};
 
-    for fill in [
-        Some(personhog_leader::warming::FillConfig {
-            lookback: Duration::from_secs(3600),
-            chunk_offsets: 100,
-            pause: Duration::ZERO,
-            room_fraction: 0.9,
-            chunk_max_bytes: 64 << 20,
-        }),
+    let topic = format!("fence_fill_off_{}", uuid::Uuid::new_v4().simple());
+    common::create_broker_topic(&topic, 1).await;
+    let producers = Arc::new(fenced_producers(1));
+    let cache = Arc::new(PartitionedCache::new(1 << 20));
+    let handler = common::test_handoff_handler_with_fill(
+        &topic,
+        Arc::clone(&producers),
+        Arc::clone(&cache),
         None,
-    ] {
-        let topic = format!("fence_fill_end_{}", uuid::Uuid::new_v4().simple());
-        let producers = Arc::new(fenced_producers(1));
-        let cache = Arc::new(PartitionedCache::new(1 << 20).with_fill(true));
-        let handler = common::test_handoff_handler_with_fill(
-            &topic,
-            Arc::clone(&producers),
-            Arc::clone(&cache),
-            fill,
-            &format!("writer_{topic}"),
-        );
-        producers
-            .acquire(0, &target(&topic))
-            .await
-            .expect("acquire");
-        producers
-            .produce(0, &test_person(1))
-            .await
-            .expect("seed record");
+        &format!("writer_{topic}"),
+    );
+    producers
+        .acquire(0, &target(&topic))
+        .await
+        .expect("acquire");
 
-        handler.warm_partition(0).await.expect("warm the partition");
+    handler.warm_partition(0).await.expect("warm the partition");
 
-        wait_until("put tracking to end", || cache.fill_token(0).is_none()).await;
-    }
+    let key = PersonCacheKey {
+        team_id: 1,
+        person_id: 999,
+    };
+    assert_eq!(
+        cache.fill(0, key, common::test_cached_person()),
+        Some(FillOutcome::NotTracking)
+    );
 }
 
 /// A poisoned window must be aborted, and a failed abort must condemn.

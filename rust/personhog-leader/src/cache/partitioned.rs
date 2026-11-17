@@ -1,4 +1,3 @@
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
 use dashmap::DashMap;
@@ -30,10 +29,6 @@ pub struct PartitionedCache {
     warming: DashMap<u32, PersonCache>,
     per_partition_capacity: usize,
     codec: Arc<PropertiesCodec>,
-    /// Whether a warm build records its puts for the fill that follows it.
-    fill_enabled: bool,
-    /// A fill holds its build's token, so it cannot touch a later build of the partition.
-    next_fill_token: AtomicU64,
 }
 
 impl PartitionedCache {
@@ -43,15 +38,7 @@ impl PartitionedCache {
             warming: DashMap::new(),
             per_partition_capacity,
             codec: Arc::new(PropertiesCodec::disabled()),
-            fill_enabled: false,
-            next_fill_token: AtomicU64::new(1),
         }
-    }
-
-    /// Call before any partition exists.
-    pub fn with_fill(mut self, enabled: bool) -> Self {
-        self.fill_enabled = enabled;
-        self
     }
 
     /// Call before any partition exists.
@@ -103,34 +90,29 @@ impl PartitionedCache {
             !self.partitions.contains_key(&partition),
             "warm began for published partition {partition}"
         );
-        let cache = PersonCache::new(self.per_partition_capacity, Arc::clone(&self.codec));
-        if self.fill_enabled {
-            cache.track_puts(
-                self.next_fill_token.fetch_add(1, Ordering::Relaxed),
-                MAX_TRACKED_KEYS,
-            );
+        self.warming.insert(
+            partition,
+            PersonCache::new(self.per_partition_capacity, Arc::clone(&self.codec)),
+        );
+    }
+
+    /// Record every key put into the build in flight, for a fill that will follow it.
+    pub fn track_puts(&self, partition: u32) {
+        if let Some(cache) = self.warming.get(&partition) {
+            cache.track_puts(MAX_TRACKED_KEYS);
         }
-        self.warming.insert(partition, cache);
     }
 
-    /// The token of a serving partition's pending fill, if it has one.
-    pub fn fill_token(&self, partition: u32) -> Option<u64> {
-        self.partitions
-            .get(&partition)
-            .and_then(|cache| cache.fill_token())
-    }
-
-    /// Offer a record to the fill holding `token`; `None` if the partition is not served.
+    /// Offer a changelog record to a serving partition's pending fill; `None` once released.
     pub fn fill(
         &self,
         partition: u32,
-        token: u64,
         key: PersonCacheKey,
         person: CachedPerson,
     ) -> Option<FillOutcome> {
         self.partitions
             .get(&partition)
-            .map(|cache| cache.fill(token, key, person))
+            .map(|cache| cache.fill(key, person))
     }
 
     /// Whether a serving partition's cache is below `fraction` of its budget.
@@ -140,9 +122,9 @@ impl PartitionedCache {
             .map(|cache| cache.has_room(fraction))
     }
 
-    pub fn end_fill(&self, partition: u32, token: u64) {
+    pub fn end_fill(&self, partition: u32) {
         if let Some(cache) = self.partitions.get(&partition) {
-            cache.stop_tracking_puts(token);
+            cache.stop_tracking_puts();
         }
     }
 

@@ -782,7 +782,8 @@ pub async fn warm_from_sources(
     dirty_index: &DirtyIndex,
     partition: u32,
     sources: &[WarmSource],
-) -> CoordResult<Vec<i64>> {
+    track_puts: bool,
+) -> CoordResult<i64> {
     let start = Instant::now();
     // Every writer position is read before any replay: a live position read
     // after the writer left an old generation would skip records newer than
@@ -805,6 +806,9 @@ pub async fn warm_from_sources(
     }
     // The build is invisible and evicts under the serving budget until the publish.
     cache.begin_warm_partition(partition);
+    if track_puts {
+        cache.track_puts(partition);
+    }
     let mut cleanup = WarmCleanup {
         cache,
         dirty_index,
@@ -812,12 +816,13 @@ pub async fn warm_from_sources(
         armed: true,
     };
     let mut consumed = 0u64;
-    let mut start_offsets = Vec::with_capacity(sources.len());
+    // The live source is last; its start is where a fill of this build reads up to.
+    let mut live_start = 0;
     for (source, committed) in sources.iter().zip(committed) {
         let (records, start_offset) =
             warm_source(cfg, pools, cache, dirty_index, partition, source, committed).await?;
         consumed += records;
-        start_offsets.push(start_offset);
+        live_start = start_offset;
     }
 
     let resident_bytes = cache.warm_usage_bytes(partition) as u64;
@@ -837,20 +842,19 @@ pub async fn warm_from_sources(
     );
     histogram!("personhog_leader_warm_duration_ms").record(elapsed.as_secs_f64() * 1000.0);
     counter!("personhog_leader_warmed_messages_total").increment(consumed);
-    Ok(start_offsets)
+    Ok(live_start)
 }
 
 /// A fill leaves this much of the budget to the traffic that follows it.
 pub const FILL_ROOM_FRACTION: f64 = 0.9;
 pub const FILL_CHUNK_MAX_BYTES: usize = 64 << 20;
 
-/// How far back a fill reads, and how it paces itself.
+/// How far back a fill reads, and in what steps.
 #[derive(Debug, Clone, Copy)]
 pub struct FillConfig {
     pub lookback: Duration,
     /// Offsets per backward step; a transactional topic spends about half on markers.
     pub chunk_offsets: i64,
-    pub pause: Duration,
     /// The fill stops once the cache holds this fraction of its budget.
     pub room_fraction: f64,
     /// A chunk that buffers more than this is read again at half the span.
@@ -927,7 +931,6 @@ pub async fn fill_source(
     pools: &WarmClientPools,
     cache: &PartitionedCache,
     partition: u32,
-    token: u64,
     source: &WarmSource,
     lower: i64,
     upper: i64,
@@ -963,12 +966,6 @@ pub async fn fill_source(
             chunk_start,
             chunk_end,
             |_offset, cached| {
-                if let Some(keep) = &source.keep {
-                    if partition_for_person(cached.team_id, cached.id, keep.modulus) != keep.target
-                    {
-                        return;
-                    }
-                }
                 records += 1;
                 if buffered > fill.chunk_max_bytes {
                     return;
@@ -998,9 +995,9 @@ pub async fn fill_source(
                 stats.end = end;
                 return Ok(stats);
             }
-            match cache.fill(partition, token, key, person) {
+            match cache.fill(partition, key, person) {
                 Some(FillOutcome::Inserted) => stats.inserted += 1,
-                Some(FillOutcome::AlreadyPut | FillOutcome::Dead) => {}
+                Some(FillOutcome::Skipped) => {}
                 Some(FillOutcome::NotTracking) | None => {
                     stats.end = FillEnd::Stopped;
                     return Ok(stats);
@@ -1008,9 +1005,6 @@ pub async fn fill_source(
             }
         }
         chunk_end = chunk_start;
-        if chunk_end > lower {
-            sleep(fill.pause).await;
-        }
     }
     Ok(stats)
 }
@@ -1025,14 +1019,12 @@ fn fill_ended(cache: &PartitionedCache, partition: u32, fill: &FillConfig) -> Op
 }
 
 /// Run one partition's fill and record how it ended. `upper` is where its warm started.
-#[allow(clippy::too_many_arguments)]
 pub async fn run_fill(
     cfg: &WarmingConfig,
     fill: &FillConfig,
     pools: &WarmClientPools,
     cache: &PartitionedCache,
     partition: u32,
-    token: u64,
     source: &WarmSource,
     upper: i64,
 ) {
@@ -1040,12 +1032,10 @@ pub async fn run_fill(
     let since_ms = chrono::Utc::now().timestamp_millis() - fill.lookback.as_millis() as i64;
     let filled = async {
         let lower = lookback_offset(cfg, pools, source, since_ms, upper).await?;
-        fill_source(
-            cfg, fill, pools, cache, partition, token, source, lower, upper,
-        )
-        .await
+        fill_source(cfg, fill, pools, cache, partition, source, lower, upper).await
     }
     .await;
+    cache.end_fill(partition);
     let (records, inserted, end) = match filled {
         Ok(stats) => (stats.records, stats.inserted, stats.end.label()),
         Err(e) => {

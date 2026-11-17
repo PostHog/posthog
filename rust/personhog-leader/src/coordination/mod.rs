@@ -116,23 +116,10 @@ pub struct LeaderHandoffHandler {
     captures: ChangelogCaptures,
     changelog: LiveChangelog,
     fill: Option<FillConfig>,
-    /// Each partition's running fill, stopped when the partition is released.
-    fills: Arc<DashMap<u32, tokio::task::AbortHandle>>,
+    /// Each partition's fill, stopped before the partition's cache is dropped.
+    fills: Arc<DashMap<u32, tokio::task::JoinHandle<()>>>,
     /// One fill at a time, so fills never crowd out serving.
     fill_slot: Arc<tokio::sync::Semaphore>,
-}
-
-/// Stops a fill's put tracking however the fill ends.
-struct EndFill {
-    cache: Arc<PartitionedCache>,
-    partition: u32,
-    token: u64,
-}
-
-impl Drop for EndFill {
-    fn drop(&mut self) {
-        self.cache.end_fill(self.partition, self.token);
-    }
 }
 
 impl LeaderHandoffHandler {
@@ -171,7 +158,6 @@ impl LeaderHandoffHandler {
         }
     }
 
-    /// The cache must be built `with_fill` too, or no build records its puts.
     pub fn with_fill(mut self, fill: Option<FillConfig>) -> Self {
         self.fill = fill;
         self
@@ -184,11 +170,7 @@ impl LeaderHandoffHandler {
         source: personhog_coordination::changelog::WarmSource,
         upper: i64,
     ) {
-        let Some(token) = self.cache.fill_token(partition) else {
-            return;
-        };
         let Some(fill) = self.fill else {
-            self.cache.end_fill(partition, token);
             return;
         };
         let cache = Arc::clone(&self.cache);
@@ -196,22 +178,12 @@ impl LeaderHandoffHandler {
         let warming = self.warming.clone();
         let slot = Arc::clone(&self.fill_slot);
         let task = tokio::spawn(async move {
-            let _end = EndFill {
-                cache: Arc::clone(&cache),
-                partition,
-                token,
-            };
             let Ok(_permit) = slot.acquire().await else {
                 return;
             };
-            run_fill(
-                &warming, &fill, &pools, &cache, partition, token, &source, upper,
-            )
-            .await;
+            run_fill(&warming, &fill, &pools, &cache, partition, &source, upper).await;
         });
-        if let Some(previous) = self.fills.insert(partition, task.abort_handle()) {
-            previous.abort();
-        }
+        self.fills.insert(partition, task);
     }
 
     /// The capture, else the live config: a preconnect runs before the capture.
@@ -416,13 +388,14 @@ impl HandoffHandler for LeaderHandoffHandler {
         // returns, rather than holding a partition this pod lost.
         let fence_guard = FenceGuard::new(Arc::clone(&self.fenced), partition, "warm");
         let mut sources = warm_sources(&config, partition);
-        let mut warm_starts = warm_from_sources(
+        let live_start = warm_from_sources(
             &self.warming,
             &self.pools,
             &self.cache,
             &self.dirty_index,
             partition,
             &sources,
+            self.fill.is_some(),
         )
         .await?;
         // This pod may still carry a fence from a previous ownership of
@@ -433,9 +406,8 @@ impl HandoffHandler for LeaderHandoffHandler {
         capture_guard.armed = false;
         self.freshly_fenced.insert(partition);
         info!(partition, "partition warmed");
-        // The live source is last, and holds each person's newest records.
-        if let (Some(live), Some(upper)) = (sources.pop(), warm_starts.pop()) {
-            self.start_fill(partition, live, upper);
+        if let Some(live) = sources.pop() {
+            self.start_fill(partition, live, live_start);
         }
         Ok(())
     }
@@ -481,8 +453,10 @@ impl HandoffHandler for LeaderHandoffHandler {
     // growing SHUTDOWN_FENCE_BOUND.
     async fn release_partition(&self, partition: u32) -> Result<()> {
         info!(partition, "releasing partition");
+        // Local, and bounded by one chunk's inserts: no fill may outlive its cache.
         if let Some((_, fill)) = self.fills.remove(&partition) {
             fill.abort();
+            fill.await.ok();
         }
         self.fenced.release(partition);
         self.inflight.unfence(partition);

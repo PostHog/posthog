@@ -168,10 +168,6 @@ pub struct Config {
     #[envconfig(default = "5000")]
     pub cache_fill_chunk_offsets: i64,
 
-    /// Pause between the fill's steps, in milliseconds.
-    #[envconfig(default = "50")]
-    pub cache_fill_pause_ms: u64,
-
     /// Per-message receive timeout while consuming the warming range. If
     /// hit, warming aborts with the offsets seen so far so the partition
     /// can be retried fresh.
@@ -450,7 +446,6 @@ impl Config {
         (self.cache_fill_lookback_secs > 0).then(|| crate::warming::FillConfig {
             lookback: Duration::from_secs(self.cache_fill_lookback_secs),
             chunk_offsets: self.cache_fill_chunk_offsets.max(1),
-            pause: Duration::from_millis(self.cache_fill_pause_ms),
             room_fraction: crate::warming::FILL_ROOM_FRACTION,
             chunk_max_bytes: crate::warming::FILL_CHUNK_MAX_BYTES,
         })
