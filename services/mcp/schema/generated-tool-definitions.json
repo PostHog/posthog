@@ -5266,7 +5266,7 @@
         }
     },
     "data-quality-check-run": {
-        "description": "Run one check now. Returns a suite run to poll; read the outcome from system.information_schema.data_quality_check_runs once it finishes.",
+        "description": "Run one check now. Returns a suite run to poll; read the outcome from system.information_schema.data_quality_check_runs once it finishes. Each caller can send 20 run requests a minute and 60 an hour, and each project 180 an hour, shared with data-quality-run. Over that, the call fails with HTTP 429; wait for the time in Retry-After. To run several checks, call data-quality-run once instead.",
         "category": "Data quality",
         "feature": "data_quality",
         "summary": "Run a data quality check",
@@ -5321,6 +5321,21 @@
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "data-quality-run": {
+        "description": "Run several checks in one call: the checks named by check_ids, every enabled check on one subject (subject_type and subject_uuid), or every enabled check in the project when neither is given. Returns a suite run to poll; read the outcome from system.information_schema.data_quality_check_runs once it finishes. One call is one run request, however many checks it runs. Each caller can send 20 run requests a minute and 60 an hour, and each project 180 an hour, shared with data-quality-check-run. Over that, the call fails with HTTP 429.",
+        "category": "Data quality",
+        "feature": "data_quality",
+        "summary": "Run data quality checks",
+        "title": "Run data quality checks",
+        "required_scopes": ["query:read"],
+        "api_operations": ["POST /api/projects/{project_id}/data_quality_runs/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
             "openWorldHint": true,
             "readOnlyHint": false
         }
