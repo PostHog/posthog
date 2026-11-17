@@ -443,7 +443,7 @@ class TestPostgresTable(BaseTest):
         self._init_database(extra_fields={"created_at": DateTimeDatabaseField(name="created_at")})
         self.assertEqual(
             self._select(f"SELECT id FROM postgres_table WHERE {where} LIMIT 10"),
-            f"SELECT postgres_table.id AS id FROM postgresql(%(hogql_val_1_sensitive)s, %(hogql_val_2_sensitive)s, %(hogql_val_0_sensitive)s, %(hogql_val_3_sensitive)s, %(hogql_val_4_sensitive)s) AS postgres_table WHERE and(equals(postgres_table.team_id, {self.team.pk}), {expected_filter}) LIMIT 10",
+            f"SELECT postgres_table.id AS id FROM (SELECT * FROM postgresql(%(hogql_val_1_sensitive)s, %(hogql_val_2_sensitive)s, %(hogql_val_0_sensitive)s, %(hogql_val_3_sensitive)s, %(hogql_val_4_sensitive)s) WHERE team_id = {self.team.pk}) AS postgres_table WHERE and(equals(postgres_table.team_id, {self.team.pk}), {expected_filter}) LIMIT 10",
         )
 
     def test_lazy_join_with_predicate(self):
