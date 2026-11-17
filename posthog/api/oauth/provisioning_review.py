@@ -3,13 +3,14 @@
 A partner under review has its provisioning config written but left inactive, so every partner
 endpoint refuses it the way it refuses a deactivated partner. Accepting turns it on. Rejecting
 sets the ``disabled`` kill switch, which re-registering cannot clear, and revokes the app's
-sessions. The pipeline that reaches the verdict is ``posthog/temporal/cimd_provisioning_review/``.
+sessions. Staff can reverse either verdict later, and the review keeps each change in its run log.
+The pipeline that reaches the verdict is ``posthog/temporal/cimd_provisioning_review/``.
 """
 
 import asyncio
 from collections.abc import Mapping
 from typing import Any
-from urllib.parse import urlencode, urlparse
+from urllib.parse import urlparse
 
 from django.conf import settings
 from django.core.cache import cache
@@ -37,7 +38,7 @@ REVIEW_DISPATCH_MAX_RETRIES = 8
 # A partner polls the registration endpoint while it waits, and every poll asks for the review to
 # be running. Inside this window that request costs no Temporal round trip.
 REVIEW_DISPATCH_DEDUP_SECONDS = 60
-REVIEW_CONSOLE_PATH = "/admin/console/tools/cimd-provisioning-reviews/"
+OAUTH_APPLICATIONS_TOOL_PATH = "/admin/console/tools/oauth-applications/"
 # Retries append to the log, so it is capped to keep a review that failed for hours readable.
 MAX_RUN_LOG_ENTRIES = 200
 
@@ -52,8 +53,9 @@ def review_required() -> bool:
     return is_cloud() or system_one_configured()
 
 
-def review_console_url(review_id: object) -> str:
-    return f"{settings.SITE_URL}{REVIEW_CONSOLE_PATH}?{urlencode({'review': str(review_id)})}"
+def application_console_url(application_id: object) -> str:
+    """The app's page in PostHog Admin, where staff read its review and decide."""
+    return f"{settings.SITE_URL}/admin/console/oauth-applications/{application_id}/"
 
 
 def _log_entry(step: str, message: str, *, level: str = "info", **details: Any) -> dict[str, Any]:
@@ -183,11 +185,52 @@ def host_already_accepted(client_id: str, *, domain: str, excluding_application_
     return any(_client_id_host(accepted) == host for accepted in accepted_client_ids)
 
 
-def _settleable_statuses(stage: ProvisioningReviewStage) -> frozenset[str]:
-    # Staff settle the reviews the pipeline handed them. The pipeline never overrides staff.
-    if stage == ProvisioningReviewStage.STAFF:
-        return frozenset({ProvisioningReviewStatus.PENDING, ProvisioningReviewStatus.NEEDS_HUMAN})
-    return frozenset({ProvisioningReviewStatus.PENDING})
+def _write_verdict(
+    review: CIMDProvisioningReview,
+    *,
+    status: ProvisioningReviewStatus,
+    stage: ProvisioningReviewStage,
+    reason: str,
+) -> str:
+    """Save the verdict on a review locked by the caller, and return the status it replaced."""
+    previous = review.status
+    if previous in (ProvisioningReviewStatus.ACCEPTED, ProvisioningReviewStatus.REJECTED):
+        message = f"Changed from {ProvisioningReviewStatus(previous).label} to {status.label}: {reason}"
+    else:
+        message = f"{status.label}: {reason}"
+    review.status = status
+    review.decided_stage = stage
+    review.reason = reason
+    review.decided_at = timezone.now()
+    review.run_log = [
+        *review.run_log,
+        _log_entry("settled", message, level="info" if status == ProvisioningReviewStatus.ACCEPTED else "warning"),
+    ][-MAX_RUN_LOG_ENTRIES:]
+    review.save(update_fields=["status", "decided_stage", "reason", "decided_at", "run_log"])
+    return previous
+
+
+def _capture_settled(review: CIMDProvisioningReview, *, previous_status: str) -> None:
+    app = review.application
+    assert review.decided_at is not None
+    posthoganalytics.capture(
+        distinct_id=app.client_id,
+        event="cimd_provisioning_review_settled",
+        properties={
+            "cimd_url": app.client_id,
+            "client_name": app.name,
+            "app_id": str(app.pk),
+            "domain": review.domain,
+            "status": review.status,
+            "previous_status": previous_status,
+            "stage": review.decided_stage,
+            "reason": review.reason,
+            "review_id": str(review.pk),
+            "review_url": application_console_url(app.pk),
+            "region": get_instance_region(),
+            "review_seconds": (review.decided_at - review.created_at).total_seconds(),
+        },
+    )
 
 
 def settle_review(
@@ -197,58 +240,56 @@ def settle_review(
     stage: ProvisioningReviewStage,
     reason: str,
 ) -> bool:
-    """Write the verdict and apply it to the app. Returns False when the review was already
-    settled, which leaves a decision staff made by hand in place."""
+    """Write the pipeline's verdict and apply it to the app. Returns False when the review is no
+    longer pending, which leaves a decision staff made in place. Staff decide with ``decide_partner``."""
     if status == ProvisioningReviewStatus.PENDING:
         raise ValueError("A review cannot be settled as pending")
 
-    decided_at = timezone.now()
     with transaction.atomic():
         review = (
             CIMDProvisioningReview.objects.select_for_update()
             .select_related("application")
             .get(application_id=application_id)
         )
-        if review.status not in _settleable_statuses(stage):
+        if review.status != ProvisioningReviewStatus.PENDING:
             return False
-        review.status = status
-        review.decided_stage = stage
-        review.reason = reason
-        review.decided_at = decided_at
-        review.run_log = [
-            *review.run_log,
-            _log_entry(
-                "settled",
-                f"{status.label}: {reason}",
-                level="info" if status == ProvisioningReviewStatus.ACCEPTED else "warning",
-            ),
-        ][-MAX_RUN_LOG_ENTRIES:]
-        review.save(update_fields=["status", "decided_stage", "reason", "decided_at", "run_log"])
+        previous = _write_verdict(review, status=status, stage=stage, reason=reason)
 
         app = review.application
         if status == ProvisioningReviewStatus.ACCEPTED and not app.provisioning.disabled:
             app.update_provisioning(active=True)
         elif status == ProvisioningReviewStatus.REJECTED:
-            app.update_provisioning(active=False, disabled=True)
-            # In the same transaction as the verdict: a revocation that failed after a committed
-            # rejection would leave live tokens that no retry revisits, since the review is settled.
-            revoke_application_sessions(app)
+            _block(app)
 
-    posthoganalytics.capture(
-        distinct_id=app.client_id,
-        event="cimd_provisioning_review_settled",
-        properties={
-            "cimd_url": app.client_id,
-            "client_name": app.name,
-            "app_id": str(app.pk),
-            "domain": review.domain,
-            "status": status.value,
-            "stage": stage.value,
-            "reason": reason,
-            "review_id": str(review.pk),
-            "review_url": review_console_url(review.pk),
-            "region": get_instance_region(),
-            "review_seconds": (decided_at - review.created_at).total_seconds(),
-        },
-    )
+    _capture_settled(review, previous_status=previous)
     return True
+
+
+def _block(app: OAuthApplication) -> None:
+    app.update_provisioning(active=False, disabled=True)
+    # In the same transaction as the verdict: a revocation that failed after a committed
+    # rejection would leave live tokens that no retry revisits, since the review is settled.
+    revoke_application_sessions(app)
+
+
+def decide_partner(app: OAuthApplication, *, accept: bool, reason: str) -> None:
+    """Staff turn a provisioning partner on, or block it. Either decision can be reversed later,
+    and the app's review, when it has one, records each one in its run log."""
+    status = ProvisioningReviewStatus.ACCEPTED if accept else ProvisioningReviewStatus.REJECTED
+    previous: str | None = None
+    with transaction.atomic():
+        review = (
+            CIMDProvisioningReview.objects.select_for_update()
+            .select_related("application")
+            .filter(application=app)
+            .first()
+        )
+        if review is not None and review.status != status:
+            previous = _write_verdict(review, status=status, stage=ProvisioningReviewStage.STAFF, reason=reason)
+        if accept:
+            app.update_provisioning(active=True, disabled=False)
+        else:
+            _block(app)
+
+    if review is not None and previous is not None:
+        _capture_settled(review, previous_status=previous)

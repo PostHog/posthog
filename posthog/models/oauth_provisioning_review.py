@@ -3,7 +3,8 @@
 A CIMD client becomes a provisioning partner by publishing an opt-in in its own metadata
 document, with no person at PostHog involved. The review stands in for that person: until it
 accepts the client, the partner's provisioning stays inactive, and a rejection switches it off
-for good through the ``disabled`` kill switch. The pipeline itself lives in
+through the ``disabled`` kill switch, which registering again cannot clear. Staff can reverse a
+verdict, and every verdict lands in the run log. The pipeline itself lives in
 ``posthog/temporal/cimd_provisioning_review/``.
 """
 
