@@ -20,8 +20,10 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import (
     MODELS_NAMESPACE_QUERY_ERROR,
     Database,
+    is_authored_model,
     is_reserved_models_name,
     models_alias_chain,
+    qualify_model_name,
 )
 from posthog.hogql.database.models import SavedQuery, TableNode
 from posthog.hogql.direct_sql.trino_adapter import ensure_read_only_raw_trino_statement
@@ -218,6 +220,9 @@ def _authored_model_answering_to(
     return next((query for query in candidates if models_alias_chain(query) == name.split(".")), None)
 
 
+SAVED_QUERY_NAME_MAX_LENGTH: int = DataWarehouseSavedQuery._meta.get_field("name").max_length or 128
+
+
 INCREMENTAL_CONFIG_CHANGED_REFUSAL = (
     "This view's incremental settings changed while you were editing it. Reload the view and try again."
 )
@@ -385,7 +390,7 @@ class DataWarehouseSavedQuerySerializer(
             "soft_update": {"write_only": True},
             "name": {
                 "validators": [],
-                "help_text": "Unique name for the view. Used as the table name in HogQL queries and the node name in the data modeling Node.",
+                "help_text": "Unique name for the view. Used as the table name in HogQL queries and the node name in the data modeling Node. A new or renamed view is stored under the `models.` root, so `revenue` is saved as `models.revenue`. Queries can still use the name without the root when no table holds it.",
             },
         }
 
@@ -1111,27 +1116,45 @@ class DataWarehouseSavedQuerySerializer(
 
         validate_saved_query_name(name)
 
-        # An authored model answers to its alias (`models.x` for `x`, `x` for `models.x`) for the whole team,
-        # and has_table hides models the caller is denied, so a denied caller could otherwise take that name
-        # over for everyone.
+        # New and renamed authored models live under `models.`; machine-made rows keep the name they are given.
         instance = self.instance if isinstance(self.instance, DataWarehouseSavedQuery) else None
-        owner = _authored_model_answering_to(self.context["team_id"], name, instance)
-        if owner is not None:
-            if self.context["database"].has_table(owner.name):
+        typed_name = name
+        if instance is None or is_authored_model(instance):
+            name = qualify_model_name(name)
+            if instance is not None and instance.name == name:
+                return name
+            if len(name) > SAVED_QUERY_NAME_MAX_LENGTH:
                 raise serializers.ValidationError(
-                    f"This name already refers to the model {owner.name}. Choose a different name."
+                    f"Ensure this field has no more than {SAVED_QUERY_NAME_MAX_LENGTH - len('models.')} characters."
                 )
-            raise serializers.ValidationError("A table or view with this name already exists. Choose a different name.")
 
-        # has_table covers system/posthog tables and warehouse objects the requesting user can see; it's
-        # user-filtered, so also resolve the name team-wide using get_view_or_table_by_name.
-        # Otherwise a user with denied table could create another one with colliding name.
-        # An authored model already resolves under its alias, so a rename to that name collides with nothing. The two lookups below still reject it if a stored view or table holds it.
-        if (
-            (name != own_models_name and self.context["database"].has_table(name))
-            or get_view_or_table_by_name(self.context["team_id"], name)
-            or DataWarehouseSavedQuery.objects.filter(team_id=self.context["team_id"], name=name, deleted=True).exists()
-        ):
+        # The typed name is checked too: a table that holds it would take every query that uses it.
+        for candidate in dict.fromkeys((typed_name, name)):
+            # An authored model answers to its alias (`models.x` for `x`, `x` for `models.x`) for the whole team,
+            # and has_table hides models the caller is denied, so a denied caller could otherwise take that name
+            # over for everyone.
+            owner = _authored_model_answering_to(self.context["team_id"], candidate, instance)
+            if owner is not None:
+                if self.context["database"].has_table(owner.name):
+                    raise serializers.ValidationError(
+                        f"This name already refers to the model {owner.name}. Choose a different name."
+                    )
+                raise serializers.ValidationError(
+                    "A table or view with this name already exists. Choose a different name."
+                )
+
+            # has_table covers system/posthog tables and warehouse objects the requesting user can see; it's
+            # user-filtered, so also resolve the name team-wide using get_view_or_table_by_name.
+            # Otherwise a user with denied table could create another one with colliding name.
+            # An authored model already resolves under its alias, so a rename to that name collides with nothing. The lookup below still rejects it if a stored view or table holds it.
+            if (candidate != own_models_name and self.context["database"].has_table(candidate)) or (
+                get_view_or_table_by_name(self.context["team_id"], candidate)
+            ):
+                raise serializers.ValidationError(
+                    "A table or view with this name already exists. Choose a different name."
+                )
+
+        if DataWarehouseSavedQuery.objects.filter(team_id=self.context["team_id"], name=name, deleted=True).exists():
             raise serializers.ValidationError("A table or view with this name already exists. Choose a different name.")
 
         return name

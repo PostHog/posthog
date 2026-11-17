@@ -33,7 +33,12 @@ from posthog.api.services.query import process_query_model
 
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.data_tools.backend.models.join import DataWarehouseJoin
-from products.warehouse_sources.backend.facade.models import DataWarehouseCredential, DataWarehouseTable
+from products.warehouse_sources.backend.facade.models import (
+    DataWarehouseCredential,
+    DataWarehouseTable,
+    ExternalDataSource,
+)
+from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 
 Origin = DataWarehouseSavedQuery.Origin
 
@@ -285,6 +290,22 @@ class TestModelsNamespaceDualRegistration(BaseTest):
         serialized = database.serialize(HogQLContext(team_id=self.team.pk, database=database), include_fields=False)
         assert stored_name in serialized
         assert bare_name not in serialized
+
+    def test_a_bare_name_held_by_a_source_prefix_suggests_the_models_name(self) -> None:
+        ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="source",
+            connection_id="connection",
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type=ExternalDataSourceType.STRIPE,
+        )
+        self._create("models.stripe.mrr")
+
+        database = Database.create_for(team=self.team)
+
+        with self.assertRaises(QueryError) as error:
+            database.get_table("stripe.mrr")
+        assert str(error.exception) == "Unknown table `stripe.mrr`. Did you mean: models.stripe.mrr?"
 
     @parameterized.expand(
         [

@@ -161,6 +161,7 @@ export interface dataWarehouseViewsLogicValues {
     dataWarehouseSavedQueryMapById: Record<string, DataWarehouseSavedQuerySummary>
     dataWarehouseSavedQueryMapByIdStringMap: Record<string, DataWarehouseSavedQuerySummary>
     initialDataWarehouseSavedQueryLoading: boolean
+    lastCreatedDataWarehouseSavedQuery: DataWarehouseSavedQuerySummary | null
     materializationAction: null
     materializationActionLoading: boolean
     materializingViewIds: string[]
@@ -474,6 +475,17 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
         actions: [databaseTableListLogic, ['refreshDatabaseSchema']],
     })),
     reducers({
+        // The server can store a view under a different name than the one sent (`revenue` becomes
+        // `models.revenue`), so callers find the view they just created here, never by the typed name.
+        lastCreatedDataWarehouseSavedQuery: [
+            null as DataWarehouseSavedQuerySummary | null,
+            {
+                createDataWarehouseSavedQuery: () => null,
+                // The create loader appends the new view to the list it returns.
+                createDataWarehouseSavedQuerySuccess: (_, { dataWarehouseSavedQueries }) =>
+                    dataWarehouseSavedQueries.at(-1) ?? null,
+            },
+        ],
         initialDataWarehouseSavedQueryLoading: [
             true,
             {

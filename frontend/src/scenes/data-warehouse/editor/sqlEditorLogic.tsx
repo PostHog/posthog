@@ -2909,10 +2909,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                         materialize_after_save: materializeAfterSave,
                     })
 
-                    // Saved queries are unique by team,name
-                    const savedQuery = dataWarehouseViewsLogic.values.dataWarehouseSavedQueries.find(
-                        (q) => q.name === name
-                    )
+                    const savedQuery = dataWarehouseViewsLogic.values.lastCreatedDataWarehouseSavedQuery
 
                     if (materializeAfterSave && savedQuery) {
                         await dataWarehouseViewsLogic.asyncActions.materializeDataWarehouseSavedQuery(
@@ -3516,12 +3513,12 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             createDataWarehouseSavedQueryFailure: ({ errorObject }) => {
                 cache.saveViewRefusal = errorObject
             },
-            createDataWarehouseSavedQuerySuccess: async ({ dataWarehouseSavedQueries, payload: view }) => {
+            createDataWarehouseSavedQuerySuccess: async ({ payload: view }) => {
                 if (view?.name && cache.viewNamesToSkipTabBinding?.has(view.name)) {
                     cache.viewNamesToSkipTabBinding.delete(view.name)
                     return
                 }
-                const newView = view && dataWarehouseSavedQueries.find((v) => v.name === view.name)
+                const newView = dataWarehouseViewsLogic.values.lastCreatedDataWarehouseSavedQuery
                 if (newView) {
                     const oldTab = values.activeTab
                     // Only update the tab if it doesn't have a view (new query being saved)

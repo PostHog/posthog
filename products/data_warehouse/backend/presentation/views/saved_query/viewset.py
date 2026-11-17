@@ -13,7 +13,7 @@ from rest_framework import exceptions, filters, request, response, serializers, 
 from rest_framework.decorators import action
 from rest_framework.response import Response
 
-from posthog.hogql.database.database import Database
+from posthog.hogql.database.database import Database, qualify_model_name
 
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.pagination import BoundedPageNumberPagination
@@ -283,12 +283,15 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
         return base_queryset
 
     def create(self, request, *args, **kwargs):
-        # Check for UPSERT logic
-        saved_query = (
-            DataWarehouseSavedQuery.objects.exclude(deleted=True)
-            .filter(team_id=self.team_id, name=request.data.get("name"))
-            .first()
-        )
+        # Check for UPSERT logic. A new model is stored as `models.<name>`, so a re-post of the typed name looks
+        # there too, after any legacy row stored under the typed name itself.
+        name = request.data.get("name")
+        saved_query = None
+        if isinstance(name, str):
+            live_queries = DataWarehouseSavedQuery.objects.exclude(deleted=True).filter(team_id=self.team_id)
+            saved_query = (
+                live_queries.filter(name=name).first() or live_queries.filter(name=qualify_model_name(name)).first()
+            )
         if saved_query:
             # The UPSERT branch updates an existing row without going through get_object(),
             # so run object-level permission checks explicitly to honor per-object access controls.
