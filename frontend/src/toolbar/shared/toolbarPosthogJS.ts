@@ -35,6 +35,9 @@ const initResult = posthog.init(
         disable_product_tours: true,
         disable_session_recording: true,
         disable_external_dependency_loading: runningInBrowserExtension,
+        // The logs extension wraps the global console when remote config enables console capture,
+        // and a local config cannot turn that off. Leave it out so the host page's console stays its own.
+        __extensionClasses: { logs: undefined },
         session_recording: {
             // we want to capture the toolbar (which is marked with ph-no-capture
             // so customer sessions don't see it), but also respect the customer's
