@@ -3,7 +3,7 @@
 from dataclasses import dataclass
 from typing import Any, cast
 
-from django.db.models import Expression, JSONField, Model, Prefetch, Value
+from django.db.models import Expression, JSONField, Model, OuterRef, Subquery, Value
 from django.db.models.fields.json import KeyTransform
 
 import structlog
@@ -68,6 +68,21 @@ def _view_engine_annotations(*, read_query_keys: bool) -> dict[str, Expression]:
     if read_query_keys:
         return {name: KeyTransform(key, "query") for key, name in VIEW_ENGINE_ANNOTATIONS.items()}
     return {name: Value(None, output_field=JSONField()) for name in VIEW_ENGINE_ANNOTATIONS.values()}
+
+
+_SERVING_RUN_ID = Subquery(
+    DataModelingJob.objects.filter(saved_query_id=OuterRef("pk"), engine=DataModelingJobEngine.CLICKHOUSE)
+    .order_by("-last_run_at")
+    .values("id")[:1]
+)
+
+
+def _attach_serving_runs(views: list[DataWarehouseSavedQuery]) -> None:
+    serving_run_ids = [view.serving_run_id for view in views if view.serving_run_id]  # type: ignore[attr-defined]
+    runs = DataModelingJob.objects.only("status", "last_run_at", "error").in_bulk(serving_run_ids)
+    for view in views:
+        run = runs.get(view.serving_run_id)  # type: ignore[attr-defined]
+        view.jobs = [run] if run else []  # type: ignore[attr-defined]
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -242,13 +257,6 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
                 "created_by",
                 "managed_viewset",
                 "column_annotations",
-                Prefetch(
-                    "datamodelingjob_set",
-                    queryset=DataModelingJob.objects.filter(engine=DataModelingJobEngine.CLICKHOUSE).order_by(
-                        "-last_run_at"
-                    )[:1],
-                    to_attr="jobs",
-                ),
             )
             # Both serializers read `folder.id` and `folder.name`, so without the join Django
             # fetches the folder once per foldered view.
@@ -271,7 +279,10 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
             read_query_keys = managed_trino_query_flag_enabled(
                 self.team.organization_id
             ) or team_has_had_direct_query_source(self.team.pk)
-            base_queryset = base_queryset.annotate(**_view_engine_annotations(read_query_keys=read_query_keys))
+            base_queryset = base_queryset.annotate(
+                **_view_engine_annotations(read_query_keys=read_query_keys),
+                serving_run_id=_SERVING_RUN_ID,
+            )
 
         if self.action == "list" and not self._include_columns:
             base_queryset = base_queryset.defer("columns")
@@ -281,6 +292,12 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
             base_queryset = base_queryset.filter(managed_viewset__isnull=True)
 
         return base_queryset
+
+    def paginate_queryset(self, queryset):
+        page = super().paginate_queryset(queryset)
+        if page is not None and self.action == "list":
+            _attach_serving_runs(page)
+        return page
 
     def create(self, request, *args, **kwargs):
         # Check for UPSERT logic
