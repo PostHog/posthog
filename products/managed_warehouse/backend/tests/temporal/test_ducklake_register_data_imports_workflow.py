@@ -188,7 +188,9 @@ async def test_prepare_registration_pins_the_import_jobs_prepared_generation(ate
         lambda organization_id: engine in (ENGINE_HOGLAKE, "gigahog_flag_unanswered"),
     )
     if engine == "gigahog_flag_unanswered":
-        monkeypatch.setattr(registration_module, "data_imports_gigahog_flag", backfill_trino_module.data_imports_gigahog_flag)
+        monkeypatch.setattr(
+            registration_module, "data_imports_gigahog_flag", backfill_trino_module.data_imports_gigahog_flag
+        )
         monkeypatch.setattr(
             "posthoganalytics.get_feature_flag", MagicMock(side_effect=TimeoutError("flags service timed out"))
         )

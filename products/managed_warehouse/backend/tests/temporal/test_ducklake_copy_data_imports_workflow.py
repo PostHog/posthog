@@ -14,6 +14,7 @@ import deltalake
 import temporalio.worker
 import temporalio.converter
 from temporalio import activity as temporal_activity
+from temporalio.exceptions import ApplicationError
 from temporalio.testing import WorkflowEnvironment
 
 from posthog.sync import database_sync_to_async
@@ -106,6 +107,7 @@ async def test_data_imports_ducklake_copy_inputs_round_trip_serialization():
 def _trino_engine_off(monkeypatch):
     monkeypatch.setattr(ducklake_module, "data_imports_through_trino", lambda organization_id: False)
     monkeypatch.setattr(ducklake_module, "data_imports_register_in_hoglake", lambda organization_id: False)
+    monkeypatch.setattr(ducklake_module, "data_imports_gigahog_flag", lambda organization_id: False)
 
 
 @pytest.mark.asyncio
@@ -1762,7 +1764,9 @@ def test_stage_gives_up_after_rebuild_wait_budget(monkeypatch):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("engine", ["data_imports_through_trino", "data_imports_register_in_hoglake"])
+@pytest.mark.parametrize(
+    "engine", ["data_imports_through_trino", "data_imports_register_in_hoglake", "data_imports_gigahog_flag"]
+)
 @pytest.mark.parametrize("bootstrap", [True, False])
 async def test_ducklake_copy_data_imports_gate_refuses_organizations_without_duckgres(monkeypatch, bootstrap, engine):
     team = MagicMock(organization_id="org", uuid="team-uuid")
@@ -1780,3 +1784,30 @@ async def test_ducklake_copy_data_imports_gate_refuses_organizations_without_duc
 
     assert result is False
     engine_on.assert_called_once_with("org")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("gigahog_url", ["http://gigahog.test", None])
+@pytest.mark.parametrize("bootstrap", [True, False])
+async def test_ducklake_copy_data_imports_gate_retries_an_unanswered_gigahog_flag_where_gigahog_runs(
+    monkeypatch, settings, bootstrap, gigahog_url
+):
+    team = MagicMock(organization_id="org", uuid="team-uuid")
+    monkeypatch.setattr(ducklake_module.Team.objects, "only", lambda *fields: MagicMock(get=lambda id: team))
+    monkeypatch.setattr(ducklake_module, "feature_enabled_or_false", lambda *args, **kwargs: True)
+    monkeypatch.setattr(
+        "products.managed_warehouse.backend.facade.access.internal_loading_enabled", lambda organization_id: True
+    )
+    monkeypatch.setattr(ducklake_module, "data_imports_gigahog_flag", lambda organization_id: None)
+    settings.GIGAHOG_URL = gigahog_url
+    gate = ducklake_copy_data_imports_gate_activity(
+        DuckLakeCopyWorkflowGateInputs(team_id=1, internal_bootstrap=bootstrap)
+    )
+
+    if gigahog_url is None:
+        # Where Gigahog is not deployed, a flag that is not defined must not stop duckgres copies.
+        assert await gate is True
+        return
+    with pytest.raises(ApplicationError, match="gave no answer") as raised:
+        await gate
+    assert raised.value.non_retryable is False
