@@ -13,6 +13,9 @@ jest.mock('react-native-reanimated', () => require('react-native-reanimated/mock
 jest.mock('react-native-keyboard-controller', () => require('react-native-keyboard-controller/jest'))
 jest.mock('react-native-worklets', () => require('react-native-worklets/src/mock'))
 jest.mock('expo-router', () => ({
+    Stack: {
+        Toolbar: { Menu: () => null, Icon: () => null, Label: () => null, MenuAction: () => null, Button: () => null },
+    },
     useRouter: () => ({ canGoBack: () => true, back: jest.fn(), push: jest.fn() }),
     useFocusEffect: jest.fn(),
     useIsFocused: () => true,
@@ -57,10 +60,10 @@ function feed(): LiveFeed {
     }
 }
 
-function screen(): ReactElement {
+function screen(chrome: 'tab' | 'stack' = 'tab'): ReactElement {
     return (
         <SafeAreaProvider initialMetrics={insets}>
-            <LiveScreen from="tab" chrome="tab" />
+            <LiveScreen from="tab" chrome={chrome} />
         </SafeAreaProvider>
     )
 }
@@ -110,10 +113,10 @@ describe('LiveScreen', () => {
         }
     )
 
-    test('keeps the location retry card while the location result is unknown', () => {
+    test('shows a loading indicator while the location result is unknown', () => {
         mockFeed = feed()
         const view = render(screen())
-        expect(view.getByTestId('live-map-not-loaded')).toBeTruthy()
+        expect(view.getByTestId('live-map-loading')).toBeTruthy()
         view.unmount()
     })
 
@@ -127,9 +130,31 @@ describe('LiveScreen', () => {
         }
         const view = render(screen())
         expect(view.getByTestId('live-loading')).toBeTruthy()
-        expect(view.queryByTestId('live-map-not-loaded')).toBeNull()
-        expect(view.queryByTestId('live-activity-not-loaded')).toBeNull()
+        expect(view.queryByTestId('live-map-loading')).toBeNull()
+        expect(view.queryByTestId('live-activity-loading')).toBeNull()
         expect(view.queryByTestId('live-paused-banner')).toBeNull()
+        view.unmount()
+    })
+
+    test.each([
+        { chrome: 'tab', reading: true },
+        { chrome: 'tab', reading: false },
+        { chrome: 'stack', reading: true },
+        { chrome: 'stack', reading: false },
+    ] as const)('retains values with a loading indicator in $chrome while reading=$reading', ({ chrome, reading }) => {
+        mockFeed = { ...feed(), reading, pulling: reading }
+        const view = render(screen(chrome))
+        expect(view.getByText('Home')).toBeTruthy()
+        if (chrome === 'tab') {
+            expect(useTabHeaderStore.getState().slots.live?.refreshing).toBe(reading)
+        } else {
+            expect(view.getByLabelText('Live data').props.accessibilityState.busy).toBe(reading)
+        }
+        expect(view.queryByTestId('live-refreshing')).toBeNull()
+        expect(view.getByTestId('live-scroll').props.refreshControl.props.refreshing).toBe(false)
+        expect(view.queryByText('Updating…')).toBeNull()
+        expect(view.getByTestId('live-stat-users-online-loading')).toBeTruthy()
+        expect(view.queryByText("Couldn't load this yet. Live tries again every 30 seconds.")).toBeNull()
         view.unmount()
     })
 
@@ -164,7 +189,7 @@ describe('LiveScreen', () => {
         expect(view.getByTestId('live-stat-dau').props.children).toBe('342')
         expect(view.getByTestId('live-stat-wau').props.children).toBe('1,846')
         expect(view.getByTestId('live-stat-installs-week').props.children).toBe('193')
-        expect(view.getByTestId('live-stat-screenviews')).toBeTruthy()
+        expect(view.getByTestId('live-stat-screenviews-loading')).toBeTruthy()
         expect(view.getByText('Where users are')).toBeTruthy()
         expect(view.getByText('Platforms')).toBeTruthy()
         expect(view.getByText('iOS')).toBeTruthy()
@@ -185,7 +210,7 @@ describe('LiveScreen', () => {
         expect(view.getByTestId('live-top-pages')).toBeTruthy()
         expect(view.getByTestId('live-top-screens')).toBeTruthy()
         expect(view.getByTestId('live-mobile-metrics')).toBeTruthy()
-        expect(view.getByTestId('live-stat-dau').props.children).toBe('–')
+        expect(view.getByTestId('live-stat-dau-loading')).toBeTruthy()
         view.unmount()
     })
 

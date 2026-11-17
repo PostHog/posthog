@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "/* service='personhog-replica', operation='tombstone_persons_by_uuids_enqueue_tombstones' */\n            INSERT INTO person_tombstone_publish_queue (team_id, person_uuid, person_version)\n            SELECT $1, t.person_uuid, t.person_version\n            FROM UNNEST($2::uuid[], $3::bigint[]) AS t(person_uuid, person_version)\n            ON CONFLICT (team_id, person_uuid) DO UPDATE\n            SET person_version = EXCLUDED.person_version,\n                tombstoned_at = now(),\n                attempts = 0,\n                last_attempt_at = NULL,\n                last_error = NULL,\n                given_up_at = NULL\n            WHERE EXCLUDED.person_version > person_tombstone_publish_queue.person_version\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int4",
+        "UuidArray",
+        "Int8Array"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "06da44a4c6ab1d4275eac2e4d554ce436b434d440323d3b785900a68e45897f3"
+}

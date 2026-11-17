@@ -76,7 +76,7 @@ Gated by the `warehouse-multi-destination` flag, evaluated once in `create_exter
 - **Billing** multiplies the run's rows by the number of destinations it snapshotted (`billable_destination_multiplier`). Runs that predate destinations carry an empty list and bill as one.
 - **Falling behind** is bounded by queue retention, not by patience: past that the staged parquet is gone and the run must be re-extracted. Alert on `oldest_eligible_age_seconds`.
 
-Writers live in `destinations_load/writers/` and are resolved by type from a registry, so the consumer never names a destination type. Only Postgres ships today; it runs on batch exports' `PostgreSQLClient`.
+Writers live in `destinations_load/writers/` and are resolved by type from a registry, so the consumer never names a destination type. Postgres, Redshift, Snowflake, Databricks, S3, BigQuery, Azure Blob and MotherDuck ship today (`destinations_load/builtin_writers.py`). Most run on batch exports' destination clients. MotherDuck has no batch export, so its writer uses the `duckdb` connection helpers of the MotherDuck source.
 
 CDC is excluded for now: the source setup flow does not offer destinations for CDC tables.
 

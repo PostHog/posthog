@@ -16,7 +16,11 @@ import { BusinessKnowledgeTabs } from '../../components/BusinessKnowledgeTabs/Bu
 export const BUSINESS_KNOWLEDGE_SETTINGS_LOGIC_KEY = 'businessKnowledgeSettings'
 
 const DEFAULT_SETTING_ID: SettingId = 'business-knowledge-learn-from-support'
-const SETTING_IDS: SettingId[] = [DEFAULT_SETTING_ID, 'business-knowledge-github-repos']
+const SETTING_IDS: SettingId[] = [
+    DEFAULT_SETTING_ID,
+    'business-knowledge-github-repos',
+    'business-knowledge-connect-agent',
+]
 
 export const scene: SceneExport = {
     component: BusinessKnowledgeSettingsScene,
