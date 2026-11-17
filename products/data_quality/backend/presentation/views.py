@@ -330,23 +330,11 @@ class ScheduleUnavailableAPIError(APIException):
 class _ProjectQualityViewSet(_QualityGatedViewSet):
     scope_object = "query"
     SUITE_START_ACTIONS: frozenset[str] = frozenset()
-
-    def get_throttles(self) -> list[BaseThrottle]:
-        throttles = super().get_throttles()
-        if self.action in self.SUITE_START_ACTIONS:
-            throttles += [
-                DataQualityRunBurstRateThrottle(),
-                DataQualityRunSustainedRateThrottle(),
-                DataQualityRunProjectRateThrottle(),
-            ]
-        return throttles
-
-    def check_throttles(self, request: Request) -> None:
-        if self.action not in self.SUITE_START_ACTIONS:
-            return super().check_throttles(request)
-        for throttle in self.get_throttles():
-            if not throttle.allow_request(request, self):
-                raise Throttled(wait=throttle.wait())
+    RUN_LIMIT_THROTTLES: tuple[type[BaseThrottle], ...] = (
+        DataQualityRunBurstRateThrottle,
+        DataQualityRunSustainedRateThrottle,
+        DataQualityRunProjectRateThrottle,
+    )
 
     def dangerously_get_required_scopes(self, request: Request, view: APIView) -> list[str]:
         return ["query:read"]
@@ -355,6 +343,14 @@ class _ProjectQualityViewSet(_QualityGatedViewSet):
         super().initial(request, *args, **kwargs)
         if not self._authorized_subject_types(write=request.method not in SAFE_METHODS):
             raise PermissionDenied("You need access to warehouse objects or the data catalog to work with checks.")
+        if self.action in self.SUITE_START_ACTIONS:
+            self._check_run_limits(request)
+
+    def _check_run_limits(self, request: Request) -> None:
+        for throttle_class in self.RUN_LIMIT_THROTTLES:
+            throttle = throttle_class()
+            if not throttle.allow_request(request, self):
+                raise Throttled(wait=throttle.wait())
 
     def _report(self, event: _CheckEvent, properties: dict[str, Any]) -> None:
         report_user_action(

@@ -628,13 +628,18 @@ class TestDataQualityRunAPI(APIBaseTest):
             assert response.json()["status"] == "empty"
         connect.assert_not_called()
 
-    def test_query_denied_members_cannot_sweep_or_read_runs(self) -> None:
-        AccessControl.objects.create(team=self.team, resource="query", access_level="none")
+    @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
+    def test_query_denied_members_cannot_sweep_or_read_runs_or_spend_the_run_limit(self, _enabled) -> None:
+        denial = AccessControl.objects.create(team=self.team, resource="query", access_level="none")
         self.organization.available_product_features = [{"key": AvailableFeature.ACCESS_CONTROL, "name": "access"}]
         self.organization.save()
 
-        assert self.client.post(self.url, {}, format="json").status_code == status.HTTP_403_FORBIDDEN
-        assert self.client.get(self.url).status_code == status.HTTP_403_FORBIDDEN
+        with patch.object(DataQualityRunProjectRateThrottle, "rate", "1/hour"):
+            assert self.client.post(self.url, {}, format="json").status_code == status.HTTP_403_FORBIDDEN
+            assert self.client.post(self.url, {}, format="json").status_code == status.HTTP_403_FORBIDDEN
+            assert self.client.get(self.url).status_code == status.HTTP_403_FORBIDDEN
+            denial.delete()
+            assert self._run().status_code == status.HTTP_200_OK
 
     @parameterized.expand([("unrestricted_member", False), ("restricted_member", True)])
     def test_history_serves_the_sweeps_the_per_subject_surfaces_hide(self, _name: str, restricted: bool) -> None:
