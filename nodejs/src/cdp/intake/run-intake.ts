@@ -80,8 +80,9 @@ export class RunIntake {
         return this.deps.intake?.modeOf(teamId) ?? 'off'
     }
 
-    keepsOffKafka(invocation: CyclotronJobInvocationHogFlow): boolean {
-        return carriesSecret(invocation) && !this.deps.intake?.sealsSecrets
+    // A keyed send's fingerprint is an unkeyed hash of its variables, so it stays off Kafka even when sealing is on.
+    keepsOffKafka(run: Pick<Run, 'invocation' | 'claim'>): boolean {
+        return carriesSecret(run.invocation) && (!this.deps.intake?.sealsSecrets || run.claim !== undefined)
     }
 
     // Async mode: the claim is left to the consumer. Never throws; a lookup that fails or runs late reads as absent.
@@ -144,9 +145,7 @@ export class RunIntake {
     private async produceShadowCopies(created: Run[]): Promise<void> {
         const intake = this.deps.intake
         const shadow = intake
-            ? created.filter(
-                  (run) => !this.keepsOffKafka(run.invocation) && intake.modeOf(run.invocation.teamId) === 'shadow'
-              )
+            ? created.filter((run) => !this.keepsOffKafka(run) && intake.modeOf(run.invocation.teamId) === 'shadow')
             : []
         await Promise.all(
             shadow.map((run) =>

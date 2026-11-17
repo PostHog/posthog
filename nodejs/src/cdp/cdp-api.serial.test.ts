@@ -3003,12 +3003,26 @@ describe('CDP API', () => {
                 expect(producedTo('cdp_intake_transactional_email')).toHaveLength(2)
             })
 
-            it('inserts a sensitive send synchronously, so its secret never reaches Kafka', async () => {
-                const res = await sendAccepted(hogFlow.id, { ...body, send: { ...codeSend, sensitive: true } })
+            it.each([
+                ['sealing is off', false, {}, 0],
+                [
+                    'the send is keyed, so its fingerprint would reach Kafka',
+                    true,
+                    { idempotency_key: 'key-sensitive' },
+                    0,
+                ],
+                ['sealing is on and the send has no key', true, {}, 1],
+            ])('produces a sensitive send only when %s allows it', async (_name, sealing, keyed, produced) => {
+                api['config'].CDP_SEAL_TRANSACTIONAL_EMAIL_STATE = sealing
+
+                const res = await sendAccepted(hogFlow.id, {
+                    ...body,
+                    ...keyed,
+                    send: { ...codeSend, sensitive: true },
+                })
 
                 expect(res.status).toEqual(202)
-                expect(mockQueueInvocations).toHaveBeenCalledTimes(1)
-                expect(producedTo('cdp_intake_')).toEqual([])
+                expect(producedTo('cdp_intake_transactional_email')).toHaveLength(produced)
             })
 
             it('produces a keyed send when its claim lookup does not answer in time', async () => {

@@ -324,8 +324,7 @@ export class TransactionalSends {
         // Async mode answers on the broker's ack and leaves the claim, the insert and the rows to the intake consumer. A
         // sensitive send stays synchronous unless the producer encrypts it, so its login code or reset link never
         // reaches Kafka in plaintext.
-        const isAsync =
-            this.deps.runIntake.modeOf(team.id) === 'async' && !this.deps.runIntake.keepsOffKafka(invocation)
+        const isAsync = this.deps.runIntake.modeOf(team.id) === 'async' && !this.deps.runIntake.keepsOffKafka(run)
         // Async mode takes no Valkey lease: the consumer's Postgres claim deduplicates the run.
         const leasesKey = idempotencyKey && !isAsync
         const leaseToken = randomUUID()
