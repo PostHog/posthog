@@ -246,7 +246,7 @@ class DataImportsDuckLakeCopyInputs:
         }
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class DuckLakeCopyDataImportsMetadata:
     """Metadata for a data imports schema to copy into DuckLake."""
 
