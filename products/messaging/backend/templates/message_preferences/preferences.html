@@ -66,9 +66,15 @@
                 const toggles = document.querySelectorAll('.toggle-checkbox')
                 const form = document.getElementById('preferences-form')
                 const allMarketingToggle = document.getElementById('{{ all_marketing.id }}')
-                const topicToggles = document.querySelectorAll('[data-topic]')
                 const allMarketingOffNote = document.getElementById('all-marketing-off-note')
-                let saveInFlight = false
+                // A topic keeps its choice while all marketing is off, even though it shows off
+                const wanted = {}
+                toggles.forEach((toggle) => {
+                    wanted[toggle.name] = toggle.hasAttribute('data-topic') ? toggle.dataset.savedStatus !== 'OPTED_OUT' : toggle.checked
+                })
+                const stored = { ...wanted }
+                const saving = new Set()
+                let savesPending = 0
 
                 function updateStatusLabel(toggle, text, colorClass) {
                     const statusLabel = document.querySelector('[data-status-for="' + toggle.name + '"]')
@@ -84,31 +90,26 @@
                         : (toggle.dataset.offLabel || 'Not subscribed')
                 }
 
-                function showSavedStatus(toggle) {
-                    updateStatusLabel(toggle, statusLabelText(toggle), toggle.checked ? 'text-green-700' : 'text-gray-500')
-                }
-
-                function showTopicsForAllMarketing() {
-                    const allOff = !allMarketingToggle.checked
+                function render() {
+                    const allOff = !wanted[allMarketingToggle.name]
                     form.toggleAttribute('data-all-off', allOff)
                     if (allMarketingOffNote) {
                         allMarketingOffNote.hidden = !allOff
                     }
-                    topicToggles.forEach((topic) => {
-                        topic.disabled = allOff
-                        topic.checked = !allOff && topic.dataset.savedStatus !== 'OPTED_OUT'
-                        if (allOff) {
-                            topic.setAttribute('aria-describedby', allMarketingOffNote.id)
+                    toggles.forEach((toggle) => {
+                        const heldOff = allOff && toggle.hasAttribute('data-topic')
+                        toggle.checked = wanted[toggle.name] && !heldOff
+                        toggle.disabled = heldOff
+                        if (heldOff) {
+                            toggle.setAttribute('aria-describedby', allMarketingOffNote.id)
                         } else {
-                            topic.removeAttribute('aria-describedby')
+                            toggle.removeAttribute('aria-describedby')
                         }
+                        const [text, color] = saving.has(toggle.name)
+                            ? ['Saving…', 'text-amber-700']
+                            : [statusLabelText(toggle), toggle.checked ? 'text-green-700' : 'text-gray-500']
+                        updateStatusLabel(toggle, text, color)
                     })
-                }
-
-                function submittedChoice(toggle) {
-                    return toggle.hasAttribute('data-topic') && !allMarketingToggle.checked
-                        ? String(toggle.dataset.savedStatus !== 'OPTED_OUT')
-                        : String(toggle.checked)
                 }
 
                 function showToast(message, isError) {
@@ -129,22 +130,20 @@
                 }
 
                 async function savePreferences(changedToggle) {
-                    saveInFlight = true
-                    form.setAttribute('aria-busy', 'true')
-                    const saving = changedToggle === allMarketingToggle ? [changedToggle, ...topicToggles] : [changedToggle]
-                    saving.forEach((toggle) => updateStatusLabel(toggle, 'Saving…', 'text-amber-600'))
-
-                    const formData = new FormData()
-                    formData.append('token', document.querySelector('input[name="token"]').value)
+                    savesPending++
+                    const choices = {}
                     toggles.forEach((toggle) => {
                         // Only submit the tracking answer when that toggle is the one that changed:
                         // its rendered default must never be persisted as an explicit consent choice.
                         // The backend preserves a stored answer when the key is absent.
-                        if (toggle.name === '$email_tracking' && toggle !== changedToggle) {
-                            return
+                        if (toggle.name !== '$email_tracking' || toggle === changedToggle) {
+                            choices[toggle.name] = wanted[toggle.name]
                         }
-                        formData.append('preferences[]', `${toggle.name}:${submittedChoice(toggle)}`)
                     })
+
+                    const formData = new FormData()
+                    formData.append('token', document.querySelector('input[name="token"]').value)
+                    Object.entries(choices).forEach(([name, on]) => formData.append('preferences[]', `${name}:${on}`))
 
                     try {
                         const response = await fetch('{% url "message_preferences_update" %}', {
@@ -160,27 +159,21 @@
                             throw new Error(data.error)
                         }
 
-                        if (changedToggle.hasAttribute('data-topic')) {
-                            changedToggle.dataset.savedStatus = changedToggle.checked ? 'OPTED_IN' : 'OPTED_OUT'
-                        }
+                        // Saves can overlap. The server answers each one after it commits, so the last answer holds
+                        Object.assign(stored, choices)
                         showToast('Preferences updated successfully', false)
                     } catch (error) {
-                        changedToggle.checked = !changedToggle.checked
-                        showTopicsForAllMarketing()
                         showToast(error.message || 'Failed to update preferences', true)
                     } finally {
-                        toggles.forEach(showSavedStatus)
-                        saveInFlight = false
-                        form.removeAttribute('aria-busy')
+                        savesPending--
+                        // Once every save has answered, show what the server stored, which undoes a failed change
+                        if (savesPending === 0) {
+                            Object.assign(wanted, stored)
+                            saving.clear()
+                        }
+                        render()
                     }
                 }
-
-                form.addEventListener('click', (event) => {
-                    if (saveInFlight && event.target.classList.contains('toggle-checkbox')) {
-                        event.preventDefault()
-                        updateStatusLabel(event.target, 'Still saving. Try again.', 'text-amber-600')
-                    }
-                })
 
                 toggles.forEach((toggle) => {
                     toggle.addEventListener('change', function () {
@@ -188,9 +181,12 @@
                         card.style.transform = 'scale(1.02)'
                         setTimeout(() => { card.style.transform = 'scale(1)' }, 200)
 
+                        wanted[this.name] = this.checked
+                        saving.add(this.name)
                         if (this === allMarketingToggle) {
-                            showTopicsForAllMarketing()
+                            toggles.forEach((other) => { if (other.hasAttribute('data-topic')) saving.add(other.name) })
                         }
+                        render()
                         savePreferences(this)
                     })
                 })

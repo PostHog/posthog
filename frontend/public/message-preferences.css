@@ -9,7 +9,7 @@
             'Noto Color Emoji';
         --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
         --color-red-500: rgb(251, 44, 54);
-        --color-amber-600: rgb(218, 119, 0);
+        --color-amber-700: rgb(181, 82, 0);
         --color-green-500: rgb(0, 198, 90);
         --color-green-700: rgb(0, 129, 58);
         --color-blue-500: rgb(50, 128, 255);
@@ -53,7 +53,7 @@
     @supports (color: color(display-p3 0 0 0%)) {
         :root,
         :host {
-            --color-amber-600: rgb(218, 119, 0);
+            --color-amber-700: rgb(181, 82, 0);
             --color-green-500: rgb(0, 198, 90);
             --color-green-700: rgb(0, 129, 58);
             --color-blue-500: rgb(50, 128, 255);
@@ -62,7 +62,7 @@
         @media (color-gamut: p3) {
             :root,
             :host {
-                --color-amber-600: color(display-p3 0.82714 0.46717 0.0336);
+                --color-amber-700: color(display-p3 0.67989 0.32771 0.05205);
                 --color-green-500: color(display-p3 0.30873 0.77475 0.37431);
                 --color-green-700: color(display-p3 0.19836 0.5018 0.24533);
                 --color-blue-500: color(display-p3 0.26642 0.49122 0.98862);
@@ -532,8 +532,8 @@
         --tw-font-weight: var(--font-weight-semibold);
         font-weight: var(--font-weight-semibold);
     }
-    .text-amber-600 {
-        color: var(--color-amber-600);
+    .text-amber-700 {
+        color: var(--color-amber-700);
     }
     .text-blue-600 {
         color: var(--color-blue-600);
