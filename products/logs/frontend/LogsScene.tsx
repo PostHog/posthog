@@ -15,6 +15,7 @@ import { Settings } from 'scenes/settings/Settings'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import { TodayScenePinButton } from '~/layout/today/TodayScenePinButton'
 import { ProductKey } from '~/queries/schema/schema-general'
 
 import { LogsAlertingSection } from 'products/logs/frontend/components/LogsAlerting/LogsAlertingSection'
@@ -51,7 +52,7 @@ export function LogsScene(): JSX.Element {
 }
 
 const LogsSceneTabbedContent = (): JSX.Element => {
-    const { activeTab } = useValues(logsSceneLogic)
+    const { activeTab, openSavedView } = useValues(logsSceneLogic)
     const { setActiveTab } = useActions(logsSceneLogic)
     const { status: logsSetupStatus } = useValues(productSetupStatusLogic({ productKey: ProductKey.LOGS }))
     const showServicesView = useFeatureFlag('LOGS_SERVICES_VIEW')
@@ -74,7 +75,8 @@ const LogsSceneTabbedContent = (): JSX.Element => {
         <>
             <LogsAgentIntegration activeTabIsViewer={activeTab === 'viewer'} />
             <SceneTitleSection
-                name={sceneConfigurations[Scene.Logs].name}
+                name={openSavedView?.name ?? sceneConfigurations[Scene.Logs].name}
+                nameAction={<TodayScenePinButton />}
                 resourceType={{
                     type: sceneConfigurations[Scene.Logs].iconType || 'default_icon_type',
                 }}

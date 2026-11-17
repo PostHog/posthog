@@ -208,6 +208,8 @@ describe('loadConfig audit', () => {
         'CREDENTIALS_SERVICE_AUDIT_EXPORT_ENABLED',
         'CREDENTIALS_SERVICE_AUDIT_CAPTURE_HOST',
         'CREDENTIALS_SERVICE_AUDIT_CAPTURE_API_KEY',
+        'CREDENTIALS_SERVICE_AUDIT_CAPTURE_VIA_PROXY',
+        'HTTPS_PROXY',
     ]
 
     afterEach(() => {
@@ -239,6 +241,62 @@ describe('loadConfig audit', () => {
         ],
     ])('fails the boot on %s', (_label, env) => {
         Object.assign(process.env, env)
+        expect(() => loadConfig()).toThrow()
+    })
+})
+
+describe('loadConfig audit capture proxy', () => {
+    const KEYS = [
+        'CREDENTIALS_SERVICE_AUDIT_EXPORT_ENABLED',
+        'CREDENTIALS_SERVICE_AUDIT_CAPTURE_HOST',
+        'CREDENTIALS_SERVICE_AUDIT_CAPTURE_API_KEY',
+        'CREDENTIALS_SERVICE_AUDIT_CAPTURE_VIA_PROXY',
+        'HTTPS_PROXY',
+    ]
+    const BASE = {
+        CREDENTIALS_SERVICE_AUDIT_EXPORT_ENABLED: 'true',
+        CREDENTIALS_SERVICE_AUDIT_CAPTURE_HOST: 'https://capture.example.com',
+        CREDENTIALS_SERVICE_AUDIT_CAPTURE_API_KEY: 'phc_fake',
+    }
+
+    afterEach(() => {
+        for (const key of KEYS) {
+            delete process.env[key]
+        }
+    })
+
+    it.each([
+        [
+            'true with HTTPS_PROXY',
+            { VIA: 'true', PROXY: 'http://proxy.example.com:3128' },
+            'http://proxy.example.com:3128',
+        ],
+        ['unset with HTTPS_PROXY', { PROXY: 'http://proxy.example.com:3128' }, undefined],
+        ['false with HTTPS_PROXY', { VIA: 'false', PROXY: 'http://proxy.example.com:3128' }, undefined],
+        ['unset without HTTPS_PROXY', {}, undefined],
+    ])('sets proxyUrl for VIA_PROXY %s', (_label, { VIA, PROXY }: { VIA?: string; PROXY?: string }, expected) => {
+        Object.assign(process.env, BASE)
+        if (VIA) {
+            process.env.CREDENTIALS_SERVICE_AUDIT_CAPTURE_VIA_PROXY = VIA
+        }
+        if (PROXY) {
+            process.env.HTTPS_PROXY = PROXY
+        }
+        expect(loadConfig().auditExport?.proxyUrl).toBe(expected)
+    })
+
+    it.each([
+        ['HTTPS_PROXY is missing', {}],
+        ['HTTPS_PROXY is not an http URL', { HTTPS_PROXY: 'not a url' }],
+        [
+            'the capture host is not https',
+            {
+                HTTPS_PROXY: 'http://proxy.example.com:3128',
+                CREDENTIALS_SERVICE_AUDIT_CAPTURE_HOST: 'http://capture.local',
+            },
+        ],
+    ])('fails the boot with VIA_PROXY=true when %s', (_label, extra) => {
+        Object.assign(process.env, BASE, { CREDENTIALS_SERVICE_AUDIT_CAPTURE_VIA_PROXY: 'true' }, extra)
         expect(() => loadConfig()).toThrow()
     })
 })
