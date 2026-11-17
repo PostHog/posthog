@@ -1,8 +1,8 @@
 import { useActions, useValues } from 'kea'
-import { useId, useRef } from 'react'
+import { MouseEvent, useId, useState } from 'react'
 
-import { IconX } from '@posthog/icons'
-import { Button, Item, ItemActions, ItemContent, ItemDescription, ItemMedia, ItemTitle } from '@posthog/quill'
+import { IconInfo, IconX } from '@posthog/icons'
+import { Button, Item, ItemActions, ItemContent, ItemDescription, ItemMedia, ItemTitle, cn } from '@posthog/quill'
 
 import { todayPaneIntroLogic } from './todayPaneIntroLogic'
 import { TODAY_PANE_INTROS, TodayIntroPane } from './todayPaneIntros'
@@ -10,69 +10,93 @@ import { TODAY_PANES } from './todayRailItems'
 
 const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])'
 
-/** Focus would fall to the page body when the intro unmounts, so hand it to the next control in the pane. */
-function focusAfter(element: HTMLElement): void {
-    const pane = element.closest('aside') ?? document.body
+/** The X unmounts with the intro, so a keyboard dismissal hands focus to the next visible control in the pane. */
+function focusNextAfter(button: HTMLElement): void {
+    const pane = button.closest('aside') ?? document.body
     const next = Array.from(pane.querySelectorAll<HTMLElement>(FOCUSABLE)).find(
         (candidate) =>
-            !element.contains(candidate) &&
-            element.compareDocumentPosition(candidate) & Node.DOCUMENT_POSITION_FOLLOWING
+            button.compareDocumentPosition(candidate) & Node.DOCUMENT_POSITION_FOLLOWING && candidate.checkVisibility()
     )
     next?.focus()
 }
 
 /** A short note at the top of a sidebar pane on what the pane is for. Each pane's note is dismissed on its own. */
 export function TodayPaneIntro({ pane }: { pane: TodayIntroPane }): JSX.Element | null {
-    const { dismissedIntros } = useValues(todayPaneIntroLogic)
+    const { isIntroShown } = useValues(todayPaneIntroLogic)
     const { dismissIntro } = useActions(todayPaneIntroLogic)
-    const ref = useRef<HTMLDivElement>(null)
+    const [closing, setClosing] = useState(false)
     const titleId = useId()
 
-    if (dismissedIntros[pane]) {
+    if (!isIntroShown(pane)) {
         return null
     }
 
     const { title, description } = TODAY_PANE_INTROS[pane]
     const dismissLabel = `Dismiss ${TODAY_PANES[pane].title} intro`
 
+    const onDismiss = (event: MouseEvent<HTMLButtonElement>): void => {
+        if (closing) {
+            return
+        }
+        // A click with no pointer behind it came from the keyboard or a screen reader. It skips the animation, and
+        // focus moves on. A pointer dismissal leaves focus alone, so a tap never opens the keyboard for the search.
+        const fromKeyboard = event.detail === 0
+        if (fromKeyboard) {
+            focusNextAfter(event.currentTarget)
+            dismissIntro(pane)
+        } else if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+            dismissIntro(pane)
+        } else {
+            setClosing(true)
+        }
+    }
+
     return (
-        <div className="shrink-0 px-2 pb-2">
-            <Item
-                ref={ref}
-                size="xs"
-                variant="outline"
-                className="flex-nowrap items-start gap-1.5 rounded-md px-2 py-1.5"
-                role="note"
-                aria-labelledby={titleId}
-                data-attr={`today-pane-intro-${pane}`}
-            >
-                <ItemMedia variant="icon" className="mt-px text-muted-foreground [&_svg]:size-3.5">
-                    {TODAY_PANES[pane].icon}
-                </ItemMedia>
-                <ItemContent className="min-w-0 gap-0.5">
-                    <ItemTitle id={titleId} className="text-xs font-medium text-foreground">
-                        {title}
-                    </ItemTitle>
-                    <ItemDescription className="text-xs text-muted-foreground">{description}</ItemDescription>
-                </ItemContent>
-                <ItemActions>
-                    <Button
-                        size="icon-xs"
-                        className="-me-1 -mt-0.5 text-muted-foreground"
-                        aria-label={dismissLabel}
-                        tooltip={dismissLabel}
-                        data-attr={`today-pane-intro-dismiss-${pane}`}
-                        onClick={() => {
-                            if (ref.current) {
-                                focusAfter(ref.current)
-                            }
-                            dismissIntro(pane)
-                        }}
-                    >
-                        <IconX />
-                    </Button>
-                </ItemActions>
-            </Item>
+        // The row collapses to zero height, so the pane below slides up into the space instead of jumping.
+        <div
+            className={cn(
+                'grid shrink-0 transition-[grid-template-rows] duration-200 ease-out motion-reduce:transition-none',
+                closing ? 'grid-rows-[0fr]' : 'grid-rows-[1fr]'
+            )}
+            onTransitionEnd={(event) => {
+                if (closing && event.target === event.currentTarget) {
+                    dismissIntro(pane)
+                }
+            }}
+        >
+            <div className="min-h-0 overflow-hidden px-2 pb-2">
+                <Item
+                    size="xs"
+                    variant="outline"
+                    className={cn(
+                        'flex-nowrap transition-[opacity,scale] duration-150 ease-out motion-reduce:transition-none',
+                        closing && 'scale-[0.98] opacity-0'
+                    )}
+                    role="note"
+                    aria-labelledby={titleId}
+                    data-attr={`today-pane-intro-${pane}`}
+                >
+                    <ItemMedia variant="icon" aria-hidden>
+                        <IconInfo />
+                    </ItemMedia>
+                    <ItemContent className="min-w-0">
+                        <ItemTitle id={titleId}>{title}</ItemTitle>
+                        <ItemDescription className="line-clamp-none">{description}</ItemDescription>
+                    </ItemContent>
+                    <ItemActions className="self-start">
+                        <Button
+                            variant="link-muted"
+                            size="icon-xs"
+                            aria-label={dismissLabel}
+                            tooltip={dismissLabel}
+                            data-attr={`today-pane-intro-dismiss-${pane}`}
+                            onClick={onDismiss}
+                        >
+                            <IconX />
+                        </Button>
+                    </ItemActions>
+                </Item>
+            </div>
         </div>
     )
 }

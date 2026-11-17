@@ -3,13 +3,13 @@ import type { TodayRailPane } from './todayShellLogic'
 /** A pane that opens a sidebar. Home has none, so it has no intro. */
 export type TodayIntroPane = Exclude<TodayRailPane, 'home'>
 
-export interface TodayPaneIntro {
+export interface TodayPaneIntroCopy {
     title: string
     description: string
 }
 
-/** What each sidebar pane is for, shown at its top until a person dismisses it. */
-export const TODAY_PANE_INTROS: Record<TodayIntroPane, TodayPaneIntro> = {
+/** What each sidebar pane is for. The pane shows it at its top until dismissed, and the tour reads it too. */
+export const TODAY_PANE_INTROS: Record<TodayIntroPane, TodayPaneIntroCopy> = {
     spaces: {
         title: 'Work with PostHog AI',
         description: 'Ask questions, run tasks and pick up past chats.',
@@ -20,15 +20,15 @@ export const TODAY_PANE_INTROS: Record<TodayIntroPane, TodayPaneIntro> = {
     },
     people: {
         title: 'Who are your users?',
-        description: 'Persons, cohorts and accounts, plus surveys and support to reach them.',
+        description: 'Persons, cohorts and accounts, plus tickets to reach them.',
     },
     release: {
         title: 'Change what users get',
-        description: 'Roll out with feature flags, test with experiments, preview with early access.',
+        description: 'Roll out with feature flags, and check it worked with experiments.',
     },
     monitor: {
         title: 'Is anything broken?',
-        description: 'Error tracking, logs and alerts, so you hear about problems.',
+        description: 'Error tracking, logs, metrics and uptime, so you hear about problems.',
     },
     products: {
         title: 'Every product in one place',
@@ -38,4 +38,10 @@ export const TODAY_PANE_INTROS: Record<TodayIntroPane, TodayPaneIntro> = {
         title: 'Set up PostHog',
         description: 'Settings for you, this project and your organization.',
     },
+}
+
+// pinned: keys in the user's server-side `has_seen_product_intro_for`. Renaming one shows that intro again to
+// everyone who dismissed it.
+export function todayPaneIntroKey(pane: TodayIntroPane): string {
+    return `today_pane_intro_${pane}`
 }
