@@ -568,7 +568,7 @@ describe('CymbalClient', () => {
             return error
         }
 
-        it('fans out to individual events on timeout and drops the poison pill', async () => {
+        it('fans out to individual events on timeout and fails the poison pill', async () => {
             const client = createClient()
             const requests = [
                 createRequest({ uuid: 'good-1' }),
@@ -597,7 +597,7 @@ describe('CymbalClient', () => {
             expect(results).toHaveLength(4)
             expect(results[0]).toMatchObject({ value: { uuid: 'good-1' } })
             expect(results[1]).toMatchObject({ value: { uuid: 'good-2' } })
-            expect(results[2]).toEqual({ result: 'drop', reason: 'cymbal_timeout' })
+            expect(results[2]).toMatchObject({ result: 'fail', error: { code: 'timeout' } })
             expect(results[3]).toMatchObject({ value: { uuid: 'good-3' } })
         })
 
@@ -643,7 +643,7 @@ describe('CymbalClient', () => {
             expect(results).toHaveLength(5)
             for (let i = 0; i < inputs.length; i++) {
                 if (inputs[i] === 'POISON') {
-                    expect(results[i]).toEqual({ result: 'drop', reason: 'cymbal_timeout' })
+                    expect(results[i]).toMatchObject({ result: 'fail', error: { code: 'timeout' } })
                 } else {
                     expect(results[i]).toMatchObject({ value: { uuid: inputs[i] } })
                 }

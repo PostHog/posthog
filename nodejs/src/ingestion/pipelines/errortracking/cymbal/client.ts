@@ -260,7 +260,7 @@ export class CymbalClient {
     /**
      * Fan out a timed-out chunk to individual events. Each event gets a single
      * attempt through processChunk. Events that succeed return their response.
-     * Events that timeout are confirmed poison pills and are dropped as `cymbal_timeout`.
+     * Events that timeout are confirmed poison pills and come back as a `fail` result.
      * Non-timeout errors (5xx, network) are thrown to abort the fan-out and let
      * the retry wrapper handle them.
      */
@@ -285,7 +285,7 @@ export class CymbalClient {
                                 uuid: item.request.uuid,
                                 teamId: item.request.team_id,
                             })
-                            return { result: 'drop', reason: 'cymbal_timeout' }
+                            return { result: 'fail', error: { code: 'timeout', message: error.message } }
                         }
                         throw error
                     }
