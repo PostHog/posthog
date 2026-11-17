@@ -47,6 +47,7 @@ jobs:
 
         outputs:
             sha: ${{ steps.push.outputs.digest }}
+            deploy-requirements: ${{ steps.deploy-requirements.outputs.manifest }}
 
         steps:
             - name: Check out
@@ -70,6 +71,16 @@ jobs:
                   # Prod deploys from private ECR; pause the public ghcr push during an embargo.
                   push-to-ghcr: ${{ vars.PUBLIC_IMAGE_PUSH_PAUSED != 'true' }}
 
+            # The manifest says which Django build the image needs. The deploy job waits for it.
+            - name: Write deploy requirements manifest
+              id: deploy-requirements
+              env:
+                  COMMIT_SHA: ${{ github.sha }}
+              run: |
+                  .github/scripts/deploy/write-mcp-deploy-requirements.sh "$RUNNER_TEMP/deploy-requirements.json"
+                  echo "manifest=$(cat "$RUNNER_TEMP/deploy-requirements.json")" >> "$GITHUB_OUTPUT"
+                  echo "base64=$(base64 -w0 "$RUNNER_TEMP/deploy-requirements.json")" >> "$GITHUB_OUTPUT"
+
             - name: Set up Depot CLI
               uses: depot/setup-action@15c09a5f77a0840ad4bce955686522a257853461 # v1.7.1
 
@@ -87,18 +98,47 @@ jobs:
                   platforms: linux/arm64,linux/amd64
                   build-args: |
                       COMMIT_HASH=${{ github.sha }}
+                      DEPLOY_REQUIREMENTS_B64=${{ steps.deploy-requirements.outputs.base64 }}
                       POSTHOG_UI_APPS_TOKEN=sTMFPsFhdP1Ssg
                       POSTHOG_MCP_APPS_ANALYTICS_BASE_URL=https://us.i.posthog.com
 
     deploy:
         name: Trigger MCP deployment
         runs-on: ubuntu-24.04
-        timeout-minutes: 5
+        # Sized past TIMEOUT_SECONDS of the Django wait below.
+        timeout-minutes: 345
         needs: build
         if: github.repository_owner == 'PostHog' && vars.CD_DEPLOY_ENABLED == 'true' && github.ref == 'refs/heads/master'
-        permissions: {}
+        # No concurrency group: Charts drops a dispatch whose commit timestamp is not newer than the
+        # deployed one, so an older image that finishes its wait later does not replace a newer one.
+        permissions:
+            contents: read
+            deployments: read
 
         steps:
+            - name: Check out
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  sparse-checkout: .github/scripts/deploy
+                  sparse-checkout-cone-mode: false
+
+            # The MCP server calls Django endpoints and checks Django scopes, so an image that ships
+            # before Django has them hides tools or fails calls. The token below is minted after
+            # this wait, because an App token expires after an hour.
+            # Break glass, for an MCP fix while the Django deploy is blocked: set the repository
+            # variable MCP_DEPLOY_SKIP_DJANGO_WAIT to true and re-run the failed deploy job.
+            - name: Wait for the Django deploy that the image needs
+              if: vars.MCP_DEPLOY_SKIP_DJANGO_WAIT != 'true'
+              env:
+                  GH_TOKEN: ${{ github.token }}
+                  REPOSITORY: ${{ github.repository }}
+                  MANIFEST: ${{ needs.build.outputs.deploy-requirements }}
+                  # A Django deploy that is blocked longer than this needs a person anyway.
+                  TIMEOUT_SECONDS: '19800'
+              run: |
+                  printf '%s' "$MANIFEST" > "$RUNNER_TEMP/deploy-requirements.json"
+                  .github/scripts/deploy/wait-for-deploy-requirements.sh "$RUNNER_TEMP/deploy-requirements.json"
+
             - name: Get deployer token
               id: deployer
               uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1

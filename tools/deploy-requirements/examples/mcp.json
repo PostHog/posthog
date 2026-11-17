@@ -1,0 +1,11 @@
+{
+    "schema_version": 1,
+    "source_commit": "89abcdef0123456789abcdef0123456789abcdef",
+    "digest": "4576ad681f2c",
+    "requirements": [
+        {
+            "kind": "django_deploy",
+            "commit": "0123456789abcdef0123456789abcdef01234567"
+        }
+    ]
+}

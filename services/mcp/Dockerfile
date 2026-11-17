@@ -70,6 +70,11 @@ WORKDIR /code
 ARG COMMIT_HASH
 RUN echo "${COMMIT_HASH:-unknown}" > /code/commit.txt
 
+# The deploy requirements manifest (tools/deploy-requirements) that the CD build passes. A local
+# build passes none and gets no file.
+ARG DEPLOY_REQUIREMENTS_B64
+RUN if [ -n "${DEPLOY_REQUIREMENTS_B64}" ]; then echo "${DEPLOY_REQUIREMENTS_B64}" | base64 -d > /code/deploy-requirements.json; fi
+
 # Bundle is fully self-contained — ioredis and everything else is inlined.
 COPY --from=build --chown=node:node /code/services/mcp/dist/hono-server.mjs ./hono-server.mjs
 COPY --from=build --chown=node:node /code/services/mcp/dist/hono-server.mjs.map ./hono-server.mjs.map

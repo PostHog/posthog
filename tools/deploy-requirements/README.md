@@ -4,7 +4,7 @@ A deploy requirements manifest lists what must be true before an image may roll 
 The build writes it into the image.
 A check reads it before the new pods start, and the old pods keep serving until it passes.
 
-Version 1 holds only schema requirements: Django migrations and sqlx migration versions.
+Version 1 holds schema requirements (Django migrations and sqlx migration versions) and provider build requirements (a Django deploy that contains a commit).
 The format has a `kind` per requirement, so other kinds can follow (see "Add a kind").
 
 The contract is [`deploy-requirements.v1.schema.json`](deploy-requirements.v1.schema.json).
@@ -12,12 +12,14 @@ The contract is [`deploy-requirements.v1.schema.json`](deploy-requirements.v1.sc
 
 ## Where it is
 
-| Image                    | File                                    | Writer                                                                                   | Reader                                                                                                         |
-| ------------------------ | --------------------------------------- | ---------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
-| Node (`Dockerfile.node`) | `/code/nodejs/schema-requirements.json` | `nodejs/src/schema-check/generate.ts`                                                    | `nodejs/src/schema-check/manifest.ts`, in the `node-schema-check` Sync hook                                    |
-| Rust (`rust/Dockerfile`) | `/app/schema-requirements.json`         | `rust/bin/write-deploy-requirements`, from `sqlx_databases` in `.github/rust-images.yml` | `rust/bin/deploy-requirements-check` in the `sqlx-migrate` image, in the `deploy-requirements-check` Sync hook |
+| Image                                  | File                                    | Writer                                                                                            | Reader                                                                                                                        |
+| -------------------------------------- | --------------------------------------- | ------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| Node (`Dockerfile.node`)               | `/code/nodejs/schema-requirements.json` | `nodejs/src/schema-check/generate.ts`                                                             | `nodejs/src/schema-check/manifest.ts`, in the `node-schema-check` Sync hook                                                   |
+| Rust (`rust/Dockerfile`)               | `/app/schema-requirements.json`         | `rust/bin/write-deploy-requirements`, from `sqlx_databases` in `.github/rust-images.yml`          | `rust/bin/deploy-requirements-check` in the `sqlx-migrate` image, in the `deploy-requirements-check` Sync hook                |
+| MCP server (`services/mcp/Dockerfile`) | `/code/deploy-requirements.json`        | `.github/scripts/deploy/write-mcp-deploy-requirements.sh`, in the build job of `cd-mcp-image.yml` | `.github/scripts/deploy/wait-for-deploy-requirements.sh`, in the deploy job of `cd-mcp-image.yml`, before the Charts dispatch |
 
-The file name stays `schema-requirements.json` in version 1, because the checks read old images too.
+The Node and Rust file name stays `schema-requirements.json` in version 1, because the checks read old images too.
+The MCP image has no old images to read, so its file has the contract name.
 The Sync hooks are in PostHog/charts, `charts/posthog-app/templates/`.
 
 ## Fields
@@ -42,11 +44,16 @@ The Sync hooks are in PostHog/charts, `charts/posthog-app/templates/`.
 A version recorded as failed in `_sqlx_migrations` does not satisfy the requirement.
 A newer applied version does not matter, so a rollback to an older image passes.
 
+**`django_deploy`**: the Django deploy in every production environment must run a build that contains `commit`.
+The reader asks the GitHub Deployments that the Charts deploy writes, with `.github/scripts/deploy/wait-for-backend-deploy.sh`.
+The MCP writer sets `commit` to the commit of the image.
+A Django change that the MCP server needs lands in the same commit or an earlier one, so this covers generated and hand-written callers alike.
+
 ## Rules for readers
 
 - An unknown `schema_version` or `kind` is an error, never a pass. A skipped requirement would report a pass for something that nothing checked.
 - A missing file passes and is logged. The image is older than the manifest.
-- Each reader applies its own extra rules. The Node reader requires at least one `django` requirement, because an empty list means the generator found nothing. The Rust reader treats a declared database without a URL as an error.
+- Each reader applies its own extra rules. The Node reader requires at least one `django` requirement, because an empty list means the generator found nothing. The Rust reader treats a declared database without a URL as an error. The MCP reader gets the manifest from the build job of the same run, so a missing file is an error there.
 
 ## Exit codes of the checks
 

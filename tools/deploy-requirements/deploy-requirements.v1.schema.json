@@ -22,7 +22,7 @@
         "requirements": {
             "type": "array",
             "items": {
-                "oneOf": [{ "$ref": "#/$defs/django" }, { "$ref": "#/$defs/sqlx" }]
+                "oneOf": [{ "$ref": "#/$defs/django" }, { "$ref": "#/$defs/sqlx" }, { "$ref": "#/$defs/django_deploy" }]
             }
         }
     },
@@ -59,6 +59,20 @@
                     "type": "array",
                     "minItems": 1,
                     "items": { "type": "integer", "minimum": 1 }
+                }
+            }
+        },
+        "django_deploy": {
+            "description": "The Django deploy in every production environment must run a build that contains a commit.",
+            "type": "object",
+            "required": ["kind", "commit"],
+            "additionalProperties": false,
+            "properties": {
+                "kind": { "const": "django_deploy" },
+                "commit": {
+                    "description": "Full SHA of a PostHog/posthog master commit.",
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{40}$"
                 }
             }
         }

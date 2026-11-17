@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 # Waits until the Django backend in every listed environment runs a build that
-# contains COMMIT_SHA. The desktop app auto-updates users as soon as a release
-# is tagged, so a release that ships before the backend can call endpoints that
-# do not exist yet.
+# contains COMMIT_SHA. A client that ships before the backend can call
+# endpoints, or need scopes, that the backend does not have yet. The desktop
+# release tag waits here, because the app auto-updates users as soon as a
+# release is tagged. The MCP server deploy waits here for the `django_deploy`
+# requirement of its deploy requirements manifest (tools/deploy-requirements).
 #
 # The charts deploy writes a GitHub Deployment for the Django image in each
 # environment, with task TASK. Every deploy gets its own record, a rollback
