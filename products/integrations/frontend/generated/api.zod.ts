@@ -19,9 +19,22 @@ import * as zod from 'zod'
  * (e.g., Vercel marketplace installation). Users can disconnect integrations
  * via the DELETE endpoint.
  */
-export const IntegrationsEnvironmentMappingPartialUpdateBody = /* @__PURE__ */ zod
-    .looseObject({})
-    .describe('Serializer for organization-level integrations.')
+export const IntegrationsEnvironmentMappingPartialUpdateBody = /* @__PURE__ */ zod.object({
+    production: zod
+        .number()
+        .optional()
+        .describe('ID of the PostHog project that receives the Vercel production environment.'),
+    preview: zod
+        .number()
+        .optional()
+        .describe('ID of the PostHog project for the Vercel preview environment. Defaults to the production project.'),
+    development: zod
+        .number()
+        .optional()
+        .describe(
+            'ID of the PostHog project for the Vercel development environment. Defaults to the production project.'
+        ),
+})
 
 export const roleExternalReferencesCreateBodyProviderMax = 32
 
