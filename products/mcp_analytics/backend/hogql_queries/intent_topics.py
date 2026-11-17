@@ -8,6 +8,8 @@ shared property filters.
 """
 
 from collections import defaultdict
+from collections.abc import Iterator
+from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from functools import cached_property
@@ -54,6 +56,12 @@ from products.access_control.backend.facade.api import (
     split_restricted_property_names,
 )
 from products.mcp_analytics.backend.hogql_queries.base import mcp_query_date_range, validate_mcp_analytics_access
+from products.mcp_analytics.backend.intent_topics.invalidation import (
+    BarrierSnapshot,
+    IntentWritesFrozen,
+    locked_fill,
+    snapshot_barrier,
+)
 from products.mcp_analytics.backend.intent_topics.labeling import fallback_label
 from products.mcp_analytics.backend.intent_topics.metrics import drift, focus_band, focus_score
 from products.mcp_analytics.backend.intent_topics.persist import latest_refit_started_at, project_team
@@ -225,6 +233,26 @@ class _IntentTopicsBase:
     timings: Any
     modifiers: Any
     limit_context: Any
+
+    _barrier_snapshot: BarrierSnapshot | None = None
+
+    def run(self, *args: Any, **kwargs: Any) -> Any:
+        # Taken before any read, so a result computed before an erasure can never be cached after it.
+        self._barrier_snapshot = snapshot_barrier(self.team)
+        return super().run(*args, **kwargs)  # type: ignore[misc]
+
+    @contextmanager
+    def _guard_cache_write(self) -> Iterator[bool]:
+        if self._barrier_snapshot is None:
+            yield False
+            return
+        with ExitStack() as stack:
+            try:
+                stack.enter_context(locked_fill(self.team, self._barrier_snapshot))
+            except IntentWritesFrozen:
+                yield False
+                return
+            yield True
 
     @cached_property
     def query_date_range(self) -> QueryDateRange:

@@ -1,5 +1,6 @@
 from collections.abc import Callable
 from datetime import UTC, date, datetime, time, timedelta
+from uuid import uuid4
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 
@@ -23,6 +24,7 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client import sync_execute
 from posthog.constants import AvailableFeature
+from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models.organization import OrganizationMembership
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.team.team import Team
@@ -39,6 +41,7 @@ from products.mcp_analytics.backend.hogql_queries.intent_topics import (
     MCPToolIntentProfileQueryRunner,
 )
 from products.mcp_analytics.backend.intent_topics.corpus import HourlyCalls
+from products.mcp_analytics.backend.intent_topics.invalidation import freeze_writes
 from products.mcp_analytics.backend.intent_topics.rollups import insert_hourly_calls
 from products.mcp_analytics.backend.models import MCPIntentClusteringRun, MCPIntentTopic
 from products.mcp_analytics.backend.tests import _MCPAnalyticsTeamScopedTestMixin
@@ -155,6 +158,22 @@ class TestIntentTopicsQuery(_Base):
         )
 
         assert (topic.previous_share_pct, topic.trend_pp) == (None, None)
+
+
+class TestIntentTopicsCacheFence(_Base):
+    @parameterized.expand([("open", False), ("frozen_by_an_erasure", True)])
+    def test_a_result_is_cached_only_while_intent_writes_are_open(self, _name: str, frozen: bool) -> None:
+        _daily(self.team.pk, TODAY, "query-trends", self.t_insights, 5)
+        if frozen:
+            freeze_writes(self.team, invalidation_id=uuid4())
+        query = MCPIntentTopicsQuery(dateRange=WINDOW)
+
+        MCPIntentTopicsQueryRunner(query=query, team=self.team).run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+        second = MCPIntentTopicsQueryRunner(query=query, team=self.team).run(
+            ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE
+        )
+
+        assert second.is_cached is not frozen
 
 
 class TestToolIntentProfileQuery(_Base):

@@ -2,8 +2,8 @@ import hashlib
 import inspect
 import threading
 from abc import ABC, abstractmethod
-from collections.abc import Callable, Iterable, Sequence
-from contextlib import ExitStack, suppress
+from collections.abc import Callable, Iterable, Iterator, Sequence
+from contextlib import ExitStack, contextmanager, suppress
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from functools import cache, cached_property, wraps
@@ -2447,10 +2447,12 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
 
             if custom_names_modified:
                 # Update cache with patched response so subsequent requests get the updated names
-                cache_manager.store_result(
-                    response=self._cache_entry_with_freshness(cached_response.model_dump()),
-                    target_age=cached_response.cache_target_age,
-                )
+                with self._guard_cache_write() as allowed:
+                    if allowed:
+                        cache_manager.store_result(
+                            response=self._cache_entry_with_freshness(cached_response.model_dump()),
+                            target_age=cached_response.cache_target_age,
+                        )
 
             if not self._is_stale_for_request(last_refresh=last_refresh_from_cached_result(cached_response)):
                 count_query_cache_hit(hit="hit", trigger=cached_response.calculation_trigger or "")
@@ -3205,14 +3207,15 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
 
             stored = False
             if cacheable:
-                with self.timings.measure("cache_write"):
-                    stored = cache_manager.store_result(
-                        response=self._cache_entry_with_freshness(fresh_response_dict),
-                        # This would be a possible place to decide to not ever keep this cache warm
-                        # Example: Not for super quickly calculated insights
-                        # Set target_age to None in that case
-                        target_age=target_age,
-                    )
+                with self.timings.measure("cache_write"), self._guard_cache_write() as allowed:
+                    if allowed:
+                        stored = cache_manager.store_result(
+                            response=self._cache_entry_with_freshness(fresh_response_dict),
+                            # This would be a possible place to decide to not ever keep this cache warm
+                            # Example: Not for super quickly calculated insights
+                            # Set target_age to None in that case
+                            target_age=target_age,
+                        )
                 if stored and flight is not None:
                     # Published as soon as the entry lands, so followers do not wait on this run's reporting.
                     flight.succeed(last_refresh)
@@ -3602,6 +3605,11 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
 
     def _staleness_event_properties(self) -> dict[str, Any]:
         return {}
+
+    @contextmanager
+    def _guard_cache_write(self) -> Iterator[bool]:
+        """Wraps every cache write. A runner can hold a lock for the write or yield False to skip it."""
+        yield True
 
     def _cache_entry_with_freshness(self, response: dict[str, Any]) -> dict[str, Any]:
         """Adds the runner's freshness decision to a cache entry before it is stored.
