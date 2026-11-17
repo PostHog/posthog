@@ -507,7 +507,7 @@ describe('StateManager', () => {
                 return { config: { apiToken: 'phs_test' }, request } as unknown as ApiClient
             }
 
-            it('resolves the session from one read of the knowledge route', async () => {
+            it('resolves the session from one read of what the key can access', async () => {
                 const request = vi.fn(async () => ({ results: [] }))
                 const manager = new StateManager(cache, secretKeyApi(request as ApiClient['request']), pinned)
 
@@ -515,7 +515,7 @@ describe('StateManager', () => {
 
                 expect(request).toHaveBeenCalledWith({
                     method: 'GET',
-                    path: '/api/projects/42/business_knowledge/libraries/',
+                    path: '/api/projects/@current/business_knowledge/access/',
                 })
                 expect(apiKey.scopes).toEqual(['business_knowledge:read'])
                 expect(apiKey.scoped_teams).toEqual([42])
@@ -547,7 +547,7 @@ describe('StateManager', () => {
                         url: 'http://localhost/api/projects/42/business_knowledge/libraries/',
                         method: 'GET',
                     }),
-                    'Project secret API keys',
+                    'Connect your agent',
                 ],
                 [
                     'a project ID that does not exist',
@@ -558,7 +558,7 @@ describe('StateManager', () => {
                         url: 'http://localhost/api/projects/42/business_knowledge/libraries/',
                         method: 'GET',
                     }),
-                    'Project secret API keys',
+                    'Connect your agent',
                 ],
             ])('rejects %s with a message for that case', async (_, failure, expected) => {
                 const request = vi.fn(async () => {
