@@ -1721,6 +1721,7 @@ export class CdpApi {
     private transactionalSendsForRequest(): TransactionalSends {
         return new TransactionalSends({
             siteUrl: this.config.SITE_URL ?? 'http://localhost:8000',
+            encryptedFields: this.deps.encryptedFields,
             idempotencyKeys: this.transactionalEmailIdempotencyKeys,
             runIntake: new RunIntake({
                 hogflowQueue: this.hogflowQueue,
