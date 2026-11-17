@@ -15,6 +15,12 @@ from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.printer import prepare_and_print_ast, prepare_ast_for_printing, print_prepared_ast
 
 
+def _pin_events_schema(context: HogQLContext) -> None:
+    # A pinned events schema keeps printing off the instance setting, which these tests have no database to read.
+    if context.use_new_events_schema is None:
+        context.use_new_events_schema = False
+
+
 class TestDuckDBPrinter(SimpleTestCase):
     """DuckDB printer tests — focused on the DuckDB-specific overrides vs Postgres.
 
@@ -38,6 +44,7 @@ class TestDuckDBPrinter(SimpleTestCase):
         context.database = context.database or Database()
         if context.restricted_properties is None:
             context.restricted_properties = set()
+        _pin_events_schema(context)
         select_query = ast.SelectQuery(
             select=[node], select_from=ast.JoinExpr(table=ast.Field(chain=["events"])), settings=settings
         )
@@ -62,6 +69,7 @@ class TestDuckDBPrinter(SimpleTestCase):
         context.database = context.database or Database()
         if context.restricted_properties is None:
             context.restricted_properties = set()
+        _pin_events_schema(context)
         return prepare_and_print_ast(
             parse_select(query, placeholders=placeholders, backend="cpp-json"),
             context,
