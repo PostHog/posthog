@@ -3205,6 +3205,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       | "fork"
       | "setup hooks"
       | "model switch"
+      | "attribution update"
       | "effort update"
       | "fast mode update",
     error: unknown,
@@ -3224,7 +3225,11 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
   }
 
   private async awaitStartupControl(
-    step: "model switch" | "effort update" | "fast mode update",
+    step:
+      | "model switch"
+      | "attribution update"
+      | "effort update"
+      | "fast mode update",
     control: Promise<void>,
     errorData: Record<string, unknown>,
   ): Promise<void> {
@@ -3758,10 +3763,18 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
     const startupErrorData = { sessionId, taskId, taskRunId: meta?.taskRunId };
     let startupStep:
       | "model switch"
+      | "attribution update"
       | "effort update"
       | "fast mode update"
       | undefined;
     try {
+      startupStep = "attribution update";
+      await this.awaitStartupControl(
+        startupStep,
+        this.session.query.applyFlagSettings({ attribution: { pr: "" } }),
+        startupErrorData,
+      );
+
       if (isResume || resolvedModelId !== options.model) {
         startupStep = "model switch";
         try {

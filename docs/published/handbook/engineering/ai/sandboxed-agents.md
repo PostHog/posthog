@@ -468,7 +468,7 @@ They can:
 - Create git branches and pull requests (commits must be signed — see below)
 - Execute arbitrary shell commands within the container
 
-Claude sessions set `attribution.pr` to an empty string to disable Claude Code's default footer in pull request descriptions.
+Claude sessions use `applyFlagSettings()` at startup to set `attribution.pr` to an empty string and disable Claude Code's default footer in pull request descriptions.
 The agent keeps the PostHog attribution footer from its task instructions.
 
 ### Git commit signing

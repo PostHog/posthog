@@ -1,11 +1,7 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import type {
-  HookInput,
-  Options,
-  Settings,
-} from "@anthropic-ai/claude-agent-sdk";
+import type { HookInput, Options } from "@anthropic-ai/claude-agent-sdk";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Logger } from "../../../utils/logger";
 import { VALIDATION_LOCK_PREFIX } from "./memory-validation";
@@ -57,67 +53,6 @@ function makeParams() {
 }
 
 describe("buildSessionOptions", () => {
-  it.each([
-    "default",
-    "object",
-    "inline",
-    "file",
-    "sdk-file",
-    "disabled",
-    "enabled",
-  ])("disables PR attribution with %s settings", (source) => {
-    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pr-attribution-"));
-    const settings: Settings = {
-      model: "x",
-      attribution:
-        source === "disabled"
-          ? false
-          : source === "enabled"
-            ? true
-            : {
-                commit: "custom commit attribution",
-                pr: "custom PR attribution",
-              },
-    };
-    const file = path.join(cwd, "settings.json");
-    fs.writeFileSync(file, JSON.stringify(settings));
-    const provided: Options = {};
-    if (["object", "disabled", "enabled"].includes(source))
-      provided.settings = settings;
-    if (source === "inline")
-      provided.extraArgs = { settings: JSON.stringify(settings) };
-    if (source === "file") provided.extraArgs = { settings: "settings.json" };
-    if (source === "sdk-file") provided.settings = file;
-
-    try {
-      const options = buildSessionOptions({
-        ...makeParams(),
-        cwd,
-        userProvidedOptions: provided,
-      });
-      const raw = options.extraArgs?.settings;
-      const actual: Settings = raw
-        ? JSON.parse(raw.startsWith("{") ? raw : fs.readFileSync(raw, "utf-8"))
-        : (options.settings as Settings);
-
-      expect(actual.attribution).toEqual(
-        source === "default" || source === "enabled"
-          ? { pr: "" }
-          : source === "disabled"
-            ? { commit: "", pr: "", sessionUrl: false }
-            : { commit: "custom commit attribution", pr: "" },
-      );
-      if (source !== "default") expect(actual.model).toBe("x");
-      expect(JSON.parse(fs.readFileSync(file, "utf-8"))).toEqual(settings);
-      if (source === "file" || source === "sdk-file") {
-        expect(fs.statSync(String(raw)).mode & 0o777).toBe(0o600);
-      }
-      removePinnedSettings(options);
-    } finally {
-      fs.rmSync(cwd, { recursive: true, force: true });
-    }
-  });
-
   it("replaces unprocessable Read images before model delivery", async () => {
     const options = buildSessionOptions(makeParams());
     const hooks = (options.hooks?.PostToolUse ?? []).flatMap(
@@ -741,7 +676,6 @@ describe("buildSessionOptions", () => {
         expect(key).not.toMatch(/X-PostHog/i);
       }
       expect(options.settings).toMatchObject({
-        attribution: { pr: "" },
         apiKeyHelper: "",
         env: {
           ANTHROPIC_BASE_URL: "https://api.anthropic.com",
@@ -978,7 +912,6 @@ describe("buildSessionOptions", () => {
 
       const settings = flagSettings(options);
       const hook = settings.hooks.UserPromptSubmit[0].hooks[0];
-      expect(settings.attribution.pr).toBe("");
       expect(hook.command).toContain("$TRACEPARENT");
       expect(options.includeHookEvents).toBe(true);
     });
@@ -1218,7 +1151,6 @@ describe("buildSessionOptions", () => {
       });
 
       expect(JSON.parse(String(options.extraArgs?.settings))).toEqual({
-        attribution: { pr: "" },
         disableAllHooks: true,
       });
     });
