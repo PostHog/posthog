@@ -452,6 +452,7 @@ impl Config {
             chunk_offsets: self.cache_fill_chunk_offsets.max(1),
             pause: Duration::from_millis(self.cache_fill_pause_ms),
             room_fraction: crate::warming::FILL_ROOM_FRACTION,
+            chunk_max_bytes: crate::warming::FILL_CHUNK_MAX_BYTES,
         })
     }
 

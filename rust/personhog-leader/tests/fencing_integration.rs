@@ -1608,6 +1608,7 @@ async fn a_released_partitions_fill_stops_and_the_next_one_runs() {
         chunk_offsets: 4,
         pause: Duration::from_secs(600),
         room_fraction: 0.9,
+        chunk_max_bytes: 64 << 20,
     };
     let handler = common::test_handoff_handler_with_fill(
         &topic,
@@ -1672,6 +1673,7 @@ async fn put_tracking_ends_when_a_fill_finishes_or_never_starts() {
             chunk_offsets: 100,
             pause: Duration::ZERO,
             room_fraction: 0.9,
+            chunk_max_bytes: 64 << 20,
         }),
         None,
     ] {

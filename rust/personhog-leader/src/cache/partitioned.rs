@@ -7,6 +7,9 @@ use metrics::counter;
 use super::codec::PropertiesCodec;
 use super::persons::{CachedPerson, CachedVersion, FillOutcome, PersonCache, PersonCacheKey};
 
+/// About 15 MB of keys per partition; a partition churning past it does not need a fill.
+const MAX_TRACKED_KEYS: usize = 500_000;
+
 /// Result of a cache lookup that distinguishes partition ownership from person existence.
 pub enum CacheLookup {
     Found(CachedPerson),
@@ -102,7 +105,10 @@ impl PartitionedCache {
         );
         let cache = PersonCache::new(self.per_partition_capacity, Arc::clone(&self.codec));
         if self.fill_enabled {
-            cache.track_puts(self.next_fill_token.fetch_add(1, Ordering::Relaxed));
+            cache.track_puts(
+                self.next_fill_token.fetch_add(1, Ordering::Relaxed),
+                MAX_TRACKED_KEYS,
+            );
         }
         self.warming.insert(partition, cache);
     }

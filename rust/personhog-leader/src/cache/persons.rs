@@ -131,8 +131,16 @@ pub struct PersonCache {
     inner: Cache<PersonCacheKey, StoredPerson>,
     codec: Arc<PropertiesCodec>,
     capacity_bytes: usize,
-    /// The pending fill's token and every key put since it was armed; `None` otherwise.
-    put_keys: Mutex<Option<(u64, HashSet<PersonCacheKey>)>>,
+    /// Present while a fill is pending.
+    put_keys: Mutex<Option<PutTracking>>,
+}
+
+/// The pending fill's token and every key put since it was armed.
+struct PutTracking {
+    token: u64,
+    keys: HashSet<PersonCacheKey>,
+    /// Tracking stops past this many keys, which ends the fill.
+    max_keys: usize,
 }
 
 /// What became of a record a fill offered.
@@ -166,9 +174,12 @@ impl PersonCache {
     }
 
     /// Start recording put keys, for the fill that will hold `token`.
-    pub(super) fn track_puts(&self, token: u64) {
-        *self.put_keys.lock().unwrap_or_else(PoisonError::into_inner) =
-            Some((token, HashSet::new()));
+    pub(super) fn track_puts(&self, token: u64, max_keys: usize) {
+        *self.put_keys.lock().unwrap_or_else(PoisonError::into_inner) = Some(PutTracking {
+            token,
+            keys: HashSet::new(),
+            max_keys,
+        });
     }
 
     pub(super) fn fill_token(&self) -> Option<u64> {
@@ -176,14 +187,14 @@ impl PersonCache {
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .as_ref()
-            .map(|(token, _)| *token)
+            .map(|tracking| tracking.token)
     }
 
     pub(super) fn stop_tracking_puts(&self, token: u64) {
         let mut put_keys = self.put_keys.lock().unwrap_or_else(PoisonError::into_inner);
         if put_keys
             .as_ref()
-            .is_some_and(|(current, _)| *current == token)
+            .is_some_and(|tracking| tracking.token == token)
         {
             *put_keys = None;
         }
@@ -199,11 +210,15 @@ impl PersonCache {
         let is_deleted = person.is_deleted;
         let stored = StoredPerson::new(person, &self.codec);
         let mut put_keys = self.put_keys.lock().unwrap_or_else(PoisonError::into_inner);
-        let Some((_, keys)) = put_keys.as_mut().filter(|(current, _)| *current == token) else {
+        let Some(tracking) = put_keys.as_mut().filter(|tracking| tracking.token == token) else {
             return FillOutcome::NotTracking;
         };
-        if !keys.insert(key.clone()) {
+        if !tracking.keys.insert(key.clone()) {
             return FillOutcome::AlreadyPut;
+        }
+        if tracking.keys.len() > tracking.max_keys {
+            *put_keys = None;
+            return FillOutcome::NotTracking;
         }
         if is_deleted {
             return FillOutcome::Dead;
@@ -257,14 +272,14 @@ impl PersonCache {
             .increment(properties.raw_len() as u64);
         counter!("personhog_leader_cache_properties_put_bytes_total", "form" => "stored")
             .increment(properties.stored_len() as u64);
-        if let Some((_, keys)) = self
-            .put_keys
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .as_mut()
-        {
-            keys.insert(key.clone());
+        let mut put_keys = self.put_keys.lock().unwrap_or_else(PoisonError::into_inner);
+        if let Some(tracking) = put_keys.as_mut() {
+            tracking.keys.insert(key.clone());
+            if tracking.keys.len() > tracking.max_keys {
+                *put_keys = None;
+            }
         }
+        drop(put_keys);
         self.inner.insert(key, stored);
     }
 
@@ -324,7 +339,7 @@ mod tests {
 
     fn tracking_cache() -> (PersonCache, PersonCacheKey) {
         let cache = PersonCache::new(1024 * 1024, Arc::new(PropertiesCodec::disabled()));
-        cache.track_puts(TOKEN);
+        cache.track_puts(TOKEN, 1000);
         let key = PersonCacheKey {
             team_id: 42,
             person_id: 1,
@@ -392,6 +407,39 @@ mod tests {
             cache.fill(TOKEN, key.clone(), at_version(5)),
             FillOutcome::Inserted
         );
+    }
+
+    #[test]
+    fn tracking_stops_once_it_holds_more_keys_than_its_bound() {
+        let cache = PersonCache::new(1024 * 1024, Arc::new(PropertiesCodec::disabled()));
+        cache.track_puts(TOKEN, 2);
+        for person_id in 1..=3 {
+            let key = PersonCacheKey {
+                team_id: 42,
+                person_id,
+            };
+            cache.put(key, at_version(1));
+        }
+        assert_eq!(cache.fill_token(), None);
+    }
+
+    #[test]
+    fn a_fill_stops_tracking_once_its_own_inserts_pass_the_bound() {
+        let cache = PersonCache::new(1024 * 1024, Arc::new(PropertiesCodec::disabled()));
+        cache.track_puts(TOKEN, 1);
+        let key = |person_id| PersonCacheKey {
+            team_id: 42,
+            person_id,
+        };
+        assert_eq!(
+            cache.fill(TOKEN, key(1), at_version(1)),
+            FillOutcome::Inserted
+        );
+        assert_eq!(
+            cache.fill(TOKEN, key(2), at_version(1)),
+            FillOutcome::NotTracking
+        );
+        assert!(cache.get(&key(2)).is_none());
     }
 
     #[test]

@@ -130,6 +130,7 @@ const FILL: FillConfig = FillConfig {
     chunk_offsets: 2,
     pause: Duration::ZERO,
     room_fraction: 0.9,
+    chunk_max_bytes: 64 << 20,
 };
 
 /// Six applied records on partition 0, then a warm that finds nothing left to read.
@@ -304,10 +305,77 @@ async fn a_fill_restores_the_newest_applied_record_of_each_live_person() {
     .await
     .expect("fill should succeed");
 
-    assert_eq!(stats.end, FillEnd::Bound);
+    assert_eq!((stats.end, stats.records), (FillEnd::Bound, 6));
     assert_eq!(version_of(&cache, 0, 1), Some(3));
     assert_eq!(version_of(&cache, 0, 2), Some(1));
     assert_eq!(version_of(&cache, 0, 3), None);
+}
+
+#[tokio::test]
+async fn a_chunk_too_large_to_buffer_is_read_again_in_smaller_spans() {
+    let cache = PartitionedCache::new(1 << 20).with_fill(true);
+    let (_cluster, cfg, pools, upper) = warmed_over_applied_history(&cache).await;
+    let fill = FillConfig {
+        chunk_offsets: 100,
+        chunk_max_bytes: make_person(1, 1).properties.len() * 2,
+        ..FILL
+    };
+
+    let source = WarmSource::live(CHANGELOG_TOPIC, None, 0);
+    let stats = fill_source(
+        &cfg,
+        &fill,
+        &pools,
+        &cache,
+        0,
+        token(&cache),
+        &source,
+        0,
+        upper,
+    )
+    .await
+    .expect("fill should succeed");
+
+    assert_eq!((stats.end, stats.records), (FillEnd::Bound, 6));
+    assert_eq!(version_of(&cache, 0, 1), Some(3));
+    assert_eq!(version_of(&cache, 0, 2), Some(1));
+    assert_eq!(version_of(&cache, 0, 3), None);
+}
+
+#[tokio::test]
+async fn a_fill_stops_inside_a_chunk_once_the_cache_has_no_room() {
+    let (cluster, producer) = create_mock_kafka().await;
+    const PERSONS: i64 = 200;
+    for person_id in 1..=PERSONS {
+        produce_person_to_partition(&producer, 0, &make_person(1, person_id)).await;
+    }
+    let (cfg, pools) = warming_config_for("room", &cluster);
+    let cache = PartitionedCache::new(1 << 20).with_fill(true);
+    cache.begin_warm_partition(0);
+    cache.publish_warmed_partition(0);
+    let source = WarmSource::live(CHANGELOG_TOPIC, None, 0);
+    let fill = FillConfig {
+        chunk_offsets: 1000,
+        room_fraction: 0.01,
+        ..FILL
+    };
+
+    let stats = fill_source(
+        &cfg,
+        &fill,
+        &pools,
+        &cache,
+        0,
+        token(&cache),
+        &source,
+        0,
+        PERSONS,
+    )
+    .await
+    .expect("fill should succeed");
+
+    assert_eq!(stats.end, FillEnd::Budget);
+    assert!(stats.inserted > 0 && stats.inserted < PERSONS as u64);
 }
 
 #[tokio::test]
@@ -329,9 +397,13 @@ async fn a_fill_leaves_a_person_put_since_the_warm_alone() {
     );
 
     let source = WarmSource::live(CHANGELOG_TOPIC, None, 0);
-    fill_source(
+    let one_chunk = FillConfig {
+        chunk_offsets: 100,
+        ..FILL
+    };
+    let stats = fill_source(
         &cfg,
-        &FILL,
+        &one_chunk,
         &pools,
         &cache,
         0,
@@ -342,6 +414,8 @@ async fn a_fill_leaves_a_person_put_since_the_warm_alone() {
     )
     .await
     .expect("fill should succeed");
+
+    assert_eq!(stats.records, 6);
 
     assert_eq!(version_of(&cache, 0, 1), Some(9));
     assert_eq!(version_of(&cache, 0, 2), Some(1));
