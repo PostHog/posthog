@@ -2,6 +2,8 @@ import { MOCK_TEAM_ID } from 'lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
 
+import api from 'lib/api'
+
 import { useMocks } from '~/mocks/jest'
 import type { MockResolverInfo } from '~/mocks/utils'
 import { initKeaTests } from '~/test/init'
@@ -118,6 +120,31 @@ describe('tagRuleModalLogic', () => {
         expect(requests).toEqual([{ method, path, body }])
         expect(logic.values.isOpen).toBe(false)
         expect(list.values.rules).toEqual([persistedRule])
+    })
+
+    afterEach(() => {
+        jest.restoreAllMocks()
+    })
+
+    // A rule reads only the first exception of a new issue. A preview that counts every matching exception counts
+    // issues that the rule never labels.
+    it('previews the first exception of each issue first seen in the selected window', async () => {
+        const query = jest.spyOn(api, 'query').mockResolvedValue({ results: [[2, 2]] } as any)
+        const logic = tagRuleModalLogic()
+        logic.mount()
+
+        logic.actions.openModal(persistedRule)
+        await expectLogic(logic, () => logic.actions.increaseDateRange()).toFinishAllListeners()
+
+        expect(query).toHaveBeenCalledWith(
+            expect.objectContaining({
+                after: '-30d',
+                where: [
+                    expect.stringMatching(/argMin\(uuid, timestamp\).*issue_first_seen >= now\(\) - INTERVAL 30 DAY/),
+                ],
+            })
+        )
+        expect(logic.values.matchResult).toEqual({ exceptionCount: 2, issueCount: 2 })
     })
 
     // The issue list loads its label definitions once, and the query ignores a label that no longer exists. A filter on

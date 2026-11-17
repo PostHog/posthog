@@ -23,7 +23,7 @@ export function TagRuleModal(): JSX.Element {
             saveDisabledReason={saveDisabledReason}
             suffix={(issuesLink, dateRangeLabel) => (
                 <>
-                    across {issuesLink} would have matched this label rule in the last {dateRangeLabel}
+                    started {issuesLink} that would have got this label in the last {dateRangeLabel}
                 </>
             )}
             extraFields={

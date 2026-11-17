@@ -27,6 +27,13 @@ function emptyRule(): ErrorTrackingTagRuleNew {
     }
 }
 
+// A rule reads only the first exception of a new issue, so the preview counts the first exception of each issue first
+// seen in the window. dateRange is one of '-7d', '-30d' and '-90d'.
+function firstExceptionOfNewIssue(dateRange: string): string {
+    const days = Number(dateRange.slice(1, -1))
+    return `uuid IN (SELECT argMin(uuid, timestamp) FROM events WHERE event = '$exception' AND timestamp >= now() - INTERVAL ${days} DAY AND issue_first_seen >= now() - INTERVAL ${days} DAY GROUP BY issue_id)`
+}
+
 // An open issue list loads its label definitions only once. Reloading them after a rule change makes the list drop a
 // filter on a deleted rule's label, which the query would otherwise ignore.
 function reloadIssueTagDefinitions(): void {
@@ -231,6 +238,7 @@ export const tagRuleModalLogic = kea<tagRuleModalLogicType>([
                         after: values.dateRange,
                         tags: { productKey: ProductKey.ERROR_TRACKING },
                         fixedProperties: [{ type: filters.type ?? FilterLogicalOperator.And, values: properties }],
+                        where: [firstExceptionOfNewIssue(values.dateRange)],
                     })) as Record<string, any>
                     return {
                         exceptionCount: response.results?.[0]?.[0] ?? 0,
