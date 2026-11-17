@@ -41,6 +41,18 @@ def has_enabled_routes(team_id: int) -> bool:
     return AlertRoute.objects.for_team(team_id).filter(enabled=True, receiver__enabled=True).exists()
 
 
+def routed_label_names(team_id: int) -> frozenset[str]:
+    """Every label name an enabled route of the team matches on."""
+    return frozenset(
+        matcher["label"]
+        for matchers in AlertRoute.objects.for_team(team_id)
+        .filter(enabled=True, receiver__enabled=True)
+        .values_list("matchers", flat=True)
+        for matcher in matchers or ()
+        if isinstance(matcher, dict) and isinstance(matcher.get("label"), str)
+    )
+
+
 def stored_group_labels(
     *, team_id: int, configuration_id: str, grouping_keys: Collection[str]
 ) -> dict[str, dict[str, str]]:

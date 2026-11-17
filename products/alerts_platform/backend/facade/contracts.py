@@ -277,6 +277,8 @@ class PlatformAlertCheckInput:
     recurrence_unit: str | None = None
     anchor_time: str | None = None
     created_by_id: int | None = None
+    # The label names the team's routes match on, which a group keeps first when its labels are cut.
+    routed_label_names: frozenset[str] = frozenset()
 
     @property
     def destination_alert_id(self) -> UUID:
