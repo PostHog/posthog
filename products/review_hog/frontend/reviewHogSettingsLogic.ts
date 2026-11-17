@@ -1211,7 +1211,6 @@ export const reviewHogSettingsLogic = kea<reviewHogSettingsLogicType>([
     }),
 
     selectors({
-        // The review tabs and their API need the review-hog flag. The auto-approval tabs work without it.
         reviewsEnabled: [
             (s) => [s.featureFlags],
             (featureFlags: FeatureFlagsSet): boolean => !!featureFlags[FEATURE_FLAGS.REVIEW_HOG],

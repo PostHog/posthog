@@ -693,7 +693,6 @@ export const stamphogSceneLogic = kea<stamphogSceneLogicType>([
                 return [...new Set(names)].sort()
             },
         ],
-        // Added plus addable. Null until the unfiltered count of addable repositories is known.
         reachableRepositoryCount: [
             (s) => [s.repoConfigs, s.addableCount],
             (repoConfigs: CodeReviewApprovalRepositoryApi[], addableCount: number | null): number | null =>

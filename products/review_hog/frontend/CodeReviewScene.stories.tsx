@@ -1139,7 +1139,6 @@ export const SavedInboxOptIns: Story = {
     },
 }
 
-// Without the review-hog flag only the auto-approval tabs show, and the page opens on Approval settings.
 export const FlagOff: Story = {
     parameters: { featureFlags: [] },
     play: async ({ canvasElement }) => {

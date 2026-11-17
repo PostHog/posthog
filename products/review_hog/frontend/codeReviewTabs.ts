@@ -34,7 +34,6 @@ export function codeReviewTabFromSearchParams(
     return tab
 }
 
-/** The tabs of the Code review page, in order. Without the review-hog flag only the auto-approval tabs show. */
 export function visibleCodeReviewTabs(reviewsEnabled: boolean): LemonTab<CodeReviewTab>[] {
     const tabs: LemonTab<CodeReviewTab>[] = [
         { key: 'activity', label: 'Review activity', 'data-attr': 'code-review-tab-activity' },
