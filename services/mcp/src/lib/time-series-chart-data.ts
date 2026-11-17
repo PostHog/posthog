@@ -389,6 +389,10 @@ function toWallClockTimes(series: NamedSeries[]): void {
     }
 }
 
+// The model reads the block too. Without this line it reads the same values twice and may quote the JSON.
+export const CHART_DATA_PREAMBLE =
+    'Chart data: the JSON below repeats the values above as named series, so the client can draw them. Read and quote the output above.'
+
 export function buildTimeSeriesChartData(result: unknown): string | undefined {
     const series = findTimeSeries(result)
     if (series.length === 0 || series.length > MAX_SERIES) {
@@ -405,5 +409,5 @@ export function buildTimeSeriesChartData(result: unknown): string | undefined {
     if (block.length > MAX_BLOCK_BYTES || utf8.encode(block).length > MAX_BLOCK_BYTES) {
         return undefined
     }
-    return block
+    return `${CHART_DATA_PREAMBLE}\n${block}`
 }

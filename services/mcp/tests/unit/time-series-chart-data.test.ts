@@ -1,12 +1,17 @@
 import { describe, expect, it } from 'vitest'
 
-import { buildTimeSeriesChartData } from '@/lib/time-series-chart-data'
+import { CHART_DATA_PREAMBLE, buildTimeSeriesChartData } from '@/lib/time-series-chart-data'
 
 const DAYS = ['2026-11-10', '2026-11-11', '2026-11-12']
 
 function seriesOf(result: unknown): unknown {
     const block = buildTimeSeriesChartData(result)
-    return block === undefined ? undefined : JSON.parse(block).series
+    if (block === undefined) {
+        return undefined
+    }
+    const [preamble, json] = block.split('\n')
+    expect(preamble).toBe(CHART_DATA_PREAMBLE)
+    return JSON.parse(json!).series
 }
 
 describe('buildTimeSeriesChartData', () => {

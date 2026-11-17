@@ -121,7 +121,7 @@ describe('buildToolResultPayload — query-trends for Claude Code', () => {
 
         const [body, block] = payload.content[0]!.text.split('\n\n')
         expect(body).toBe(expectedBody)
-        expect(JSON.parse(block!).series[0]).toMatchObject({
+        expect(JSON.parse(block!.split('\n')[1]!).series[0]).toMatchObject({
             name: '$pageview',
             data: expect.arrayContaining([['2026-04-16', 25]]),
         })

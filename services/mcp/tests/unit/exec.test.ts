@@ -11,6 +11,7 @@ import { InstructionsFormatter } from '@/lib/instructions-formatter'
 import { CHATGPT_APP_OAUTH_CLIENT_ID } from '@/lib/oauth-constants'
 import { formatResponse } from '@/lib/response'
 import { SessionManager } from '@/lib/SessionManager'
+import { CHART_DATA_PREAMBLE } from '@/lib/time-series-chart-data'
 import { OrganizationSetActiveSchema, ReadDataSchemaSchema } from '@/schema/tool-inputs'
 import { getToolsFromContext } from '@/tools'
 import { normalizeParamAliases } from '@/tools/cast-helpers'
@@ -392,7 +393,7 @@ describe('exec tool', () => {
                     },
                 ],
             })
-            expect((result as string).endsWith(`\n\n${block}`)).toBe(appended)
+            expect((result as string).endsWith(`\n\n${CHART_DATA_PREAMBLE}\n${block}`)).toBe(appended)
         })
 
         it('returns raw JSON when --json flag is passed in command', async () => {
