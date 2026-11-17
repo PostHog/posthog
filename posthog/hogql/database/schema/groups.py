@@ -291,9 +291,8 @@ def _outer_prefilter(
         return None
 
     guarded_aliases = _guarded_aliases(context, list(source_chain))
-    # Only a name that the FROM puts in scope qualifies a field. Under `FROM events AS e`, `events.x` reads a
-    # field named `events`, which a group type of that name defines.
-    qualifiers = [[select_from.alias]] if select_from.alias else [list(source_chain), [source_chain[-1]]]
+    # The resolver also accepts an alias that holds `__` spelled with dots.
+    qualifiers = [list(source_chain), [source_chain[-1]], [alias], alias.split("__")]
     reusable = [
         conjunct
         for conjunct in top_level_conjuncts(where)
@@ -314,14 +313,15 @@ def _outer_prefilter(
 
 
 def _chain_hits_guarded_alias(chain: list, guarded: frozenset[str], qualifiers: list[list[str]]) -> bool:
-    # Condition #1 guarantees the outer FROM's qualifier is the source table, so a leading qualifier is
-    # transparent: `events.organization.x` names the same lazy join as `organization.x`. Peel it before matching,
-    # or the qualified form slips past the guard.
-    for qualifier in qualifiers:
-        if len(chain) > len(qualifier) and chain[: len(qualifier)] == qualifier:
-            chain = chain[len(qualifier) :]
-            break
-    return bool(chain) and isinstance(chain[0], str) and chain[0] in guarded
+    # A leading table qualifier is transparent: `events.organization.x` names the same lazy join as
+    # `organization.x`. A leading name can also be a field: under `FROM events AS e`, `events.x` reads a group
+    # type named `events`. The chain is checked under every reading, because leaving a term out is always safe.
+    heads = chain[:1] + [
+        chain[len(qualifier)]
+        for qualifier in qualifiers
+        if len(chain) > len(qualifier) and chain[: len(qualifier)] == qualifier
+    ]
+    return any(isinstance(head, str) and head in guarded for head in heads)
 
 
 class _TimestampReferenceFinder(TraversingVisitor):

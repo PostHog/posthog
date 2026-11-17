@@ -116,6 +116,11 @@ class TestGroupsJoinPrefilter(APIBaseTest):
                 "SELECT group_0.properties FROM events WHERE {bound} AND ({group_0} AND event = 'x')",
                 1,
             ),
+            (
+                "dotted_spelling_of_an_alias",
+                "SELECT e__x.group_0.properties FROM events AS e__x WHERE e__x.{bound} AND e.x.{group_0}",
+                1,
+            ),
             ("lazy_join_below_or", "SELECT group_0.properties FROM events WHERE {bound} OR {group_0}", 0),
             (
                 "subquery_with_its_own_group_join",
