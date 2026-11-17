@@ -199,6 +199,11 @@ class NewsBreakClient:
             raise NewsBreakRateLimitError(f"NewsBreak returned HTTP 429 for {path}", retry_after=_retry_after(response))
         if response.status_code >= 500:
             raise NewsBreakRetryableError(f"NewsBreak returned HTTP {response.status_code} for {path}")
+        if response.status_code == 404:
+            # `_handle_import_error` classifies any `requests.HTTPError` with a 404 status as
+            # non-retryable by type, regardless of source. Raising our own error type here would
+            # bypass that and retry a missing endpoint until the budget runs out.
+            response.raise_for_status()
         if response.status_code >= 400:
             # `raise_for_status()` would discard the body and leave only a generic "Bad Request" for the
             # customer, even though NewsBreak's own body often names what was wrong with the request.

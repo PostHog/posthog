@@ -5,6 +5,7 @@ from typing import Any
 import pytest
 import time_machine
 
+import requests
 import structlog
 
 from products.warehouse_sources.sources.newsbreak._config import NewsBreakSourceConfig
@@ -400,7 +401,6 @@ class TestErrors:
                 "NewsBreak returned HTTP 400 for /ad-account/getGroupsByOrgIds: startDate must be within 30 days of endDate",
             ),
             (ScriptedResponse(status=400, json={}), "NewsBreak returned HTTP 400"),
-            (ScriptedResponse(status=404, body=b"not json"), "NewsBreak returned HTTP 404"),
         ],
     )
     def test_maps_vendor_errors(self, answer: ScriptedResponse, expected: str) -> None:
@@ -408,6 +408,13 @@ class TestErrors:
 
         assert result.raised is not None
         assert str(result.raised).startswith(expected)
+
+    def test_404_stays_a_plain_http_error(self) -> None:
+        # `_handle_import_error` classifies a 404 as non-retryable by `requests.HTTPError` type, not
+        # by message, so this must not become a `NewsBreakAPIError` like the other unhandled 4xxs.
+        result = _driver().run("campaigns", always(ScriptedResponse(status=404, json={})))
+
+        assert isinstance(result.raised, requests.HTTPError)
 
     @pytest.mark.parametrize(
         ("throttled", "tries"),
