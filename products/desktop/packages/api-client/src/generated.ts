@@ -17307,6 +17307,7 @@ export namespace Schemas {
         email_tracking_consent_mode: EmailTrackingConsentModeEnum;
         email_utm_tags_enabled: boolean;
         email_utm_params: EmailUtmParams;
+        email_workflow_run_link_tag_enabled: boolean;
         workflow_task_rate_limit_per_day: number | null;
         workflow_task_team_rate_limit_per_day: number | null;
         replay_vision_scan_rate_limit_per_day: number | null;

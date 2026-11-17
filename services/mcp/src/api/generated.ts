@@ -38842,10 +38842,29 @@ export namespace Schemas {
       team_basis: ComparisonTeamBasisEnum;
     }
 
+    export interface ImageSize {
+      /**
+         * Output width in pixels, from 320 to 4000. Omit or use null for automatic width.
+         * @minimum 320
+         * @maximum 4000
+         * @nullable
+         */
+      width?: number | null;
+      /**
+         * Output height in pixels, from 200 to 5000. Omit or use null for automatic height. Content fits inside the requested size without stretching or cropping.
+         * @minimum 200
+         * @maximum 5000
+         * @nullable
+         */
+      height?: number | null;
+    }
+
     /**
      * Typed view over the Subscription.delivery_config JSON blob.
      */
     export interface DeliveryConfig {
+      /** PNG size for each image in an insight or dashboard subscription. Omit for automatic sizing. */
+      image_size?: ImageSize;
       /** Slack subscriptions only. Insight and dashboard subscriptions: when true, upload all insight images together in the main Slack message instead of posting the first image in the main message and the rest as threaded replies. Prompt subscriptions: when true, post the chart images in the main message with the summary; when false, post them in the first thread reply. Defaults to false. The request is rejected when target_type is not 'slack', or when an insight or dashboard subscription's Slack integration does not hold the files:write permission. Omit it unless the user asks for all images or charts in the main message. */
       post_all_insights_in_main_message?: boolean;
       /** Prompt subscriptions only: include generated chart images. Defaults to true when omitted. The request is rejected when the subscription sets insight or dashboard instead of prompt. It does not control the AI summary on an insight or dashboard subscription: use summary_enabled and summary_prompt_guide for that. */
@@ -93774,6 +93793,8 @@ export namespace Schemas {
       email_utm_tags_enabled?: boolean;
       /** Default UTM values that new email steps and broadcasts copy. An empty value keeps the built-in default for that tag. */
       email_utm_params?: EmailUtmParams;
+      /** Whether tracked links in emails this project sends get a ph_workflow_run parameter with the send's run ID. When the landing page runs posthog-js, the parameter links each click to the session it starts. Links with click tracking turned off never get it. On by default. */
+      email_workflow_run_link_tag_enabled?: boolean;
       /**
          * How many AI tasks one workflow can create in a rolling 24 hours. Null uses the default of 100; zero pauses task creation for every workflow in the project. Support raises the limit above 500.
          * @minimum 0
@@ -95785,6 +95806,11 @@ export namespace Schemas {
          * @nullable
          */
       model?: string | null;
+      /**
+         * ID of a project-shared custom sandbox image this scout's runs start from. Null uses the project's default scout image, or the standard image when no default is set. Only the scout's author or a project admin can change it. Setting an image requires skill-authoring authorization (the `llm_skill:write` scope and skill editor access), since the image can supply agent instructions. An image that is missing or not ready at run time falls back to the standard image.
+         * @nullable
+         */
+      custom_image_id?: string | null;
       /** Exempt this scout from the inactivity sweep, meaning both the `ignored` pause and the `no_output` quiet warning. Set it on watchdog scouts whose value is staying quiet. */
       auto_pause_exempt?: boolean;
       /**
@@ -112768,6 +112794,11 @@ export namespace Schemas {
          */
       model?: string | null;
       /**
+         * ID of a project-shared custom sandbox image this scout's runs start from. Null uses the project's default scout image, or the standard image when no default is set. Only the scout's author or a project admin can change it. Setting an image requires skill-authoring authorization (the `llm_skill:write` scope and skill editor access), since the image can supply agent instructions. An image that is missing or not ready at run time falls back to the standard image.
+         * @nullable
+         */
+      custom_image_id?: string | null;
+      /**
          * Free-form labels for grouping the fleet, e.g. `["revenue", "on-call"]`. Normalized to lowercase kebab-case (`On Call` and `on_call` both become `on-call`), deduped, and stored sorted; at most 10 tags, each at most 50 characters once normalized. Pass the full desired set — a write replaces the existing tags rather than merging into them. Filter the config list with the `tags` query parameter.
          * @maxItems 10
          */
@@ -113096,6 +113127,11 @@ export namespace Schemas {
          * @nullable
          */
       readonly model: string | null;
+      /**
+         * ID of a project-shared custom sandbox image this scout's runs start from. Null uses the project's default scout image, or the standard image when no default is set. Only the scout's author or a project admin can change it. Setting an image requires skill-authoring authorization (the `llm_skill:write` scope and skill editor access), since the image can supply agent instructions. An image that is missing or not ready at run time falls back to the standard image.
+         * @nullable
+         */
+      readonly custom_image_id: string | null;
       /**
          * MCP gateway servers (by id) this scout's runs may use, chosen from the connections members shared to the whole team. Selection is per scout: an empty list gives the scout no MCP servers. Applies from the scout's next run.
          * @maxItems 100
@@ -117191,6 +117227,11 @@ export namespace Schemas {
          */
       model?: string | null;
       /**
+         * ID of a project-shared custom sandbox image this scout's runs start from. Null uses the project's default scout image, or the standard image when no default is set. Only the scout's author or a project admin can change it. Setting an image requires skill-authoring authorization (the `llm_skill:write` scope and skill editor access), since the image can supply agent instructions. An image that is missing or not ready at run time falls back to the standard image.
+         * @nullable
+         */
+      custom_image_id?: string | null;
+      /**
          * Free-form labels for grouping the fleet, e.g. `["revenue", "on-call"]`. Normalized to lowercase kebab-case (`On Call` and `on_call` both become `on-call`), deduped, and stored sorted; at most 10 tags, each at most 50 characters once normalized. Pass the full desired set — a write replaces the existing tags rather than merging into them. Filter the config list with the `tags` query parameter.
          * @maxItems 10
          */
@@ -117682,6 +117723,21 @@ export namespace Schemas {
          * @maxLength 20000
          */
       implementation_instructions?: string;
+      /**
+         * ID of a project-shared custom sandbox image that scout runs without their own image start from. Null uses the standard image. Only a project admin with editor access to skills can set it. An image that is missing or not ready at run time falls back to the standard image.
+         * @nullable
+         */
+      scout_custom_image_id?: string | null;
+      /**
+         * ID of a project-shared custom sandbox image that report research and monitoring assessment runs start from. Null uses the standard image. Only a project admin can change it. An image that is missing or not ready at run time falls back to the standard image.
+         * @nullable
+         */
+      research_custom_image_id?: string | null;
+      /**
+         * ID of a project-shared custom sandbox image that report implementation runs start from. Null uses the standard image. Only a project admin can change it. An image that is missing or not ready at run time falls back to the standard image.
+         * @nullable
+         */
+      implementation_custom_image_id?: string | null;
       /**
          * Connected GitHub, GitLab, Linear, or Jira integration that self-driving opens a tracker issue in for each pull request it makes. Null turns tracker issues off, which is the default.
          * @nullable
