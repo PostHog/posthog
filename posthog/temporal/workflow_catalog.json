@@ -75,6 +75,11 @@
     "task_queues": "ALERTS_PLATFORM_EVALUATION_TASK_QUEUE"
   },
   {
+    "temporal_workflow_type": "alerts-platform-hand-over",
+    "product": "alerts_platform",
+    "task_queues": "ALERTS_PLATFORM_DELIVERY_TASK_QUEUE"
+  },
+  {
     "temporal_workflow_type": "alerts-platform-orchestrate",
     "product": "alerts_platform",
     "task_queues": "ALERTS_PLATFORM_SHARED_ORCHESTRATION_TASK_QUEUE"
