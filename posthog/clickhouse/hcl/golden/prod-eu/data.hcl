@@ -4880,6 +4880,9 @@ database "posthog" {
       type    = "SimpleAggregateFunction(max, UInt8)"
       default = "0"
     }
+    column "surfacing_score" {
+      type = "SimpleAggregateFunction(max, Nullable(Float32))"
+    }
     column "snapshot_mode_v2" {
       type = "AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))"
     }
@@ -6596,6 +6599,9 @@ database "posthog" {
     column "ai_highlighted" {
       type    = "SimpleAggregateFunction(max, UInt8)"
       default = "0"
+    }
+    column "surfacing_score" {
+      type = "SimpleAggregateFunction(max, Nullable(Float32))"
     }
     column "snapshot_mode_v2" {
       type = "AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))"

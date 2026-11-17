@@ -107,8 +107,12 @@ CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
     ai_tags_freeform SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
     -- AI-generated flag indicating the session is highlighted / worth watching
     ai_highlighted SimpleAggregateFunction(max, UInt8) DEFAULT 0,
+    surfacing_score SimpleAggregateFunction(max, Nullable(Float32)),
 ) ENGINE = {engine}
 """
+
+
+RETIRED_SURFACING_SCORE_COLUMN = "    surfacing_score SimpleAggregateFunction(max, Nullable(Float32)),\n"
 
 
 def SESSION_REPLAY_EVENTS_DATA_TABLE_ENGINE():
@@ -245,7 +249,8 @@ def SESSION_REPLAY_EVENTS_TABLE_MV_SQL(on_cluster: bool = True, exclude_columns:
 
 
 def WRITABLE_SESSION_REPLAY_EVENTS_TABLE_SQL(on_cluster=False):
-    return SESSION_REPLAY_EVENTS_TABLE_BASE_SQL.format(
+    # Ingestion no longer writes the retired surfacing_score, which stays on the read tables until the ClickHouse team drops it.
+    return SESSION_REPLAY_EVENTS_TABLE_BASE_SQL.replace(RETIRED_SURFACING_SCORE_COLUMN, "").format(
         table_name="writable_session_replay_events",
         on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
         engine=Distributed(
