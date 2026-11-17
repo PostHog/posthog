@@ -13,6 +13,7 @@ import pyarrow as pa
 from posthog.hogql.hogql import ast
 from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
 
+from posthog.clickhouse.events_json import EVENTS_JSON_INSERT_SETTINGS
 from posthog.clickhouse.workload import Workload
 from posthog.constants import AvailableFeature
 from posthog.credentials import AWSKeyPair
@@ -829,10 +830,11 @@ async def test_custom_export_backfill_runs_without_legacy_events_tables(
 ):
     """A backfill on the native table exports the stored documents, with filters and custom fields on typed columns.
 
-    The test database holds only `events_json`, so any read of a legacy table fails. It checks that:
+    The test database holds only `events_json`, written by the ingestion cleaner, so any read of a legacy table fails.
+    It checks that:
     - the exported `properties` and `person_properties` are the stored documents: flags in the `$feature_flags` map
-      with their sentinels, declared keys present with their defaults, and no `$feature/` keys,
-      `$active_feature_flags`, temporary properties or null fields.
+      with their sentinels, objects and arrays that the cleaner stored as text put back, and no declared-path
+      defaults, `$feature/` keys, `$active_feature_flags`, temporary properties or top-level null fields.
     - `set`, `set_once`, `unset` and `group_set` are empty.
     - filters compiled for the new schema match on the typed columns: a flag through the map, and "is not set" on a
       declared key whose stored value is its `""` default.
@@ -857,8 +859,14 @@ async def test_custom_export_backfill_runs_without_legacy_events_tables(
                 "temporary_properties JSON, properties_null_keys Array(String), "
                 "temporary_properties_null_keys Array(String), person_properties_null_keys Array(String)) ENGINE = Memory"
             )
-            # The null-key columns hold what the cleaner records for fields the SDK sent as null. The export sends the
-            # stored documents, so those fields stay out of them.
+            # The rows go through the cleaner that writes `events_json` at ingestion, so a change to how it stores
+            # events changes what this test exports. A VALUES insert cannot call the cleaner, so the SDK documents
+            # are staged as text first.
+            await client.execute_query(
+                "CREATE TABLE events_input (uuid UUID, person_id UUID, team_id Int64, event String, distinct_id String, "
+                "timestamp DateTime64(6), inserted_at DateTime64(6), created_at DateTime64(6), elements_chain String, "
+                "properties String, person_properties String) ENGINE = Memory"
+            )
             row = {
                 "uuid": str(uuid7()),
                 "person_id": str(uuid7()),
@@ -869,22 +877,35 @@ async def test_custom_export_backfill_runs_without_legacy_events_tables(
                 "inserted_at": "2024-02-01 12:00:00",
                 "created_at": "2024-02-01 12:00:00",
                 "elements_chain": "",
-                "properties": {
-                    "$browser": "Firefox",
-                    "amount": 2.5,
-                    "person": {"properties": "event value"},
-                    "cart": {"items": 2},
-                    "$feature_flags": {"named-false": "$false", "named-true": "$true", "some-feature": "true"},
-                },
-                "person_properties": {"email": "buyer@example.com"},
-                "temporary_properties": {"$set": {"email": "buyer@example.com"}, "$unset": ["old_property"]},
-                "properties_null_keys": ["coupon", "cart.note", "$feature_flags.retired-flag"],
-                "temporary_properties_null_keys": ["$set.phone", "$set_once.referrer", "$group_set.owner"],
-                "person_properties_null_keys": ["nickname"],
+                "properties": json.dumps(
+                    {
+                        "$browser": "Firefox",
+                        "amount": 2.5,
+                        "person": {"properties": "event value"},
+                        "cart": {"items": 2, "note": None},
+                        "tags": ["a", "b"],
+                        "coupon": None,
+                        "$feature/some-feature": True,
+                        "$feature/named-false": "false",
+                        "$feature/named-true": "true",
+                        "$feature/retired-flag": None,
+                        "$active_feature_flags": ["some-feature", "named-false", "named-true"],
+                        "$set": {"email": "buyer@example.com", "phone": None},
+                        "$unset": ["old_property"],
+                    }
+                ),
+                "person_properties": json.dumps({"email": "buyer@example.com", "nickname": None}),
             }
             await client.execute_query(
-                "INSERT INTO events_json FORMAT JSONEachRow\n"
+                "INSERT INTO events_input FORMAT JSONEachRow\n"
                 + "\n".join(json.dumps(value) for value in [row, row, {**row, "team_id": ateam.pk + 1}])
+            )
+            await client.execute_query(
+                "INSERT INTO events_json SELECT uuid, person_id, team_id, event, distinct_id, timestamp, inserted_at, "
+                "created_at, elements_chain, cleaned.properties, cleaned.person_properties, cleaned.temporary_properties, "
+                "cleaned.properties_null_keys, cleaned.temporary_properties_null_keys, cleaned.person_properties_null_keys "
+                "FROM (SELECT *, JSONCleanPostHogEvent(properties, person_properties) AS cleaned FROM events_input) "
+                f"SETTINGS {EVENTS_JSON_INSERT_SETTINGS}"
             )
             schema: BatchExportSchema = {
                 "hogql_query": "SELECT e.properties.$browser AS browser, e.properties.amount AS amount, e.person.properties.email AS email, e.properties.person.properties AS nested, e.properties.`$feature/some-feature` AS flag, e.properties.`$feature/named-false` AS named_false, e.properties.`$feature/named-true` AS named_true FROM events AS e",
@@ -938,7 +959,7 @@ async def test_custom_export_backfill_runs_without_legacy_events_tables(
             assert rows[0]["named_true"] == "true"
             exported_properties = json.loads(rows[0]["properties"])
             assert exported_properties["$browser"] == "Firefox"
-            assert exported_properties["$os"] == ""
+            assert "$os" not in exported_properties
             assert exported_properties["$feature_flags"] == {
                 "named-false": "$false",
                 "named-true": "$true",
@@ -947,11 +968,12 @@ async def test_custom_export_backfill_runs_without_legacy_events_tables(
             assert not any(key.startswith("$feature/") for key in exported_properties)
             assert "$active_feature_flags" not in exported_properties
             assert "$set" not in exported_properties
-            assert exported_properties["cart"] == {"items": 2}
+            assert exported_properties["cart"] == {"items": 2, "note": None}
+            assert exported_properties["tags"] == ["a", "b"]
             assert "coupon" not in exported_properties
             exported_person_properties = json.loads(rows[0]["person_properties"])
             assert exported_person_properties["email"] == "buyer@example.com"
-            assert exported_person_properties["$initial_os"] == ""
+            assert "$initial_os" not in exported_person_properties
             assert "nickname" not in exported_person_properties
             assert [rows[0][key] for key in ("set", "set_once", "unset", "group_set")] == [None, None, None, None]
             assert rows[0]["_inserted_at"] == dt.datetime(2024, 1, 1, 12, tzinfo=dt.UTC)
