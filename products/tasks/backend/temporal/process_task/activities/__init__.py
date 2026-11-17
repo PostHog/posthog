@@ -11,6 +11,7 @@ from .materialize_context_layer import (
     MaterializeContextLayerOutput,
     materialize_context_layer_in_sandbox,
 )
+from .persist_agent_memory import PersistAgentMemoryInput, PersistAgentMemoryOutput, persist_agent_memory
 from .post_slack_update import PostSlackUpdateInput, post_slack_update
 from .provision_sandbox import (
     CheckoutBranchInSandboxInput,
@@ -121,6 +122,9 @@ __all__ = [
     "cleanup_sandbox",
     "complete_run_stream",
     "create_resume_snapshot",
+    "PersistAgentMemoryInput",
+    "PersistAgentMemoryOutput",
+    "persist_agent_memory",
     "create_sandbox_for_repository",
     "emit_progress_activity",
     "EnforceSelfDrivingRunQuotaInput",

@@ -7912,6 +7912,8 @@ export interface PCADetectorConfig {
  * Hands the series to a model instead of a statistical test. Carries no preprocessing block:
  * differencing or smoothing would hide from the model exactly what it is meant to read.
  */
+export type LLMDetectorModel = 'claude-haiku-5-5' | 'gpt-6-luna'
+
 export interface LLMDetectorConfig {
     type: 'llm'
     /**
@@ -7919,6 +7921,11 @@ export interface LLMDetectorConfig {
      * @maxLength 2000
      */
     instructions?: string
+    /**
+     * The model that judges each check: claude-haiku-5-5 or gpt-6-luna. Optional. When it is not set, the
+     * alert uses claude-haiku-5-5.
+     */
+    model?: LLMDetectorModel
 }
 
 /**
@@ -7939,7 +7946,7 @@ export interface ForecastSideRule {
 /**
  * Forecasts the next point from the points before it, then compares the actual value with the
  * forecast. Carries no preprocessing block: the forecast reads the series as it is. With neither
- * side set, it fires outside the 0.05 to 0.95 forecast range on either side.
+ * side set, it fires outside the 0.01 to 0.99 forecast range on either side.
  */
 export interface ForecastDetectorConfig {
     type: 'forecast'
