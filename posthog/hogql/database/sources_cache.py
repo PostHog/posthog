@@ -63,6 +63,7 @@ def sources_weight(sources: "HogQLDatabaseSources") -> int:
             len(sources.data_warehouse_expressions),
             len(sources.event_modifier_saved_queries),
             len(sources.virtual_schemas),
+            len(sources.raw_trino_saved_queries),
         )
     )
 

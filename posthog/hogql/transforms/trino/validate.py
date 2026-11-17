@@ -2,6 +2,7 @@ from typing import NoReturn
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.raw_trino_view import RawTrinoViewTable
 from posthog.hogql.database.schema.numbers import NumbersTable
 from posthog.hogql.database.trino_locator import resolve_trino_table_locator
 from posthog.hogql.printer.trino_functions import (
@@ -335,7 +336,7 @@ class TrinoReadyValidator(TraversingVisitor):
 
     def visit_table_type(self, node: ast.TableType) -> None:
         if (
-            not isinstance(node.table, NumbersTable)
+            not isinstance(node.table, NumbersTable | RawTrinoViewTable)
             and not hasattr(node.table, "to_printed_trino")
             and resolve_trino_table_locator(node.table, self.context) is None
         ):

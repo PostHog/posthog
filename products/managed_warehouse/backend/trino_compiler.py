@@ -19,13 +19,15 @@ from products.managed_warehouse.backend.facade.cp_teams import get_org_team_memb
 from products.managed_warehouse.backend.table_binding import build_trino_table_locators
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Sequence
 
     from posthog.schema import HogQLQuery
 
     from posthog.hogql import ast
     from posthog.hogql.constants import LimitContext
-    from posthog.hogql.transforms.trino.manifest import PreparedTrinoCatalog, TrinoCatalogManifest
+    from posthog.hogql.database.database import Database
+    from posthog.hogql.database.trino_locator import TrinoTableLocator
+    from posthog.hogql.transforms.trino.manifest import PreparedTrinoCatalog, TrinoCatalogManifest, TrinoManifestTable
 
     from posthog.models import Team, User
 
@@ -47,6 +49,12 @@ TRINO_PURE_REJECTION_TOTAL = Counter(
 
 class TrinoTargetUnavailable(RuntimeError):
     pass
+
+
+# Returns the tables Trino can read for the given locators, and leaves out the ones it cannot.
+type ExternalCatalogTableLookup = Callable[[Sequence[TrinoTableLocator]], Sequence[TrinoManifestTable]]
+
+MAX_EXTERNAL_CATALOG_TABLES = 16
 
 
 @frozen
@@ -275,6 +283,8 @@ def compile_hogql_to_trino_sql(
     | None = None,
     preserve_clickhouse_output_names: bool = False,
     target: TrinoTarget | None = None,
+    raw_trino_view_access: bool = False,
+    external_catalog_tables: ExternalCatalogTableLookup | None = None,
 ) -> TrinoCompiledQuery:
     """Compile HogQL for the ready Trino catalog that serves the team's DuckLake data.
 
@@ -290,6 +300,10 @@ def compile_hogql_to_trino_sql(
     Trino output the names that ClickHouse derives. It does not execute a ClickHouse query.
     ``target`` reuses a ``resolve_trino_target`` result instead of asking the control plane again.
     It needs ``TrinoExpansionMode.DJANGO``.
+    Set ``raw_trino_view_access`` only when the caller may run raw SQL, because a raw Trino view
+    runs on the organization's warehouse credential. Without it, a query that reads one fails.
+    ``external_catalog_tables`` looks up a ``catalog.schema.table`` name from another catalog than the
+    organization's own. It needs ``raw_trino_view_access`` for the same reason.
     """
     if expansion_mode == TrinoExpansionMode.PURE:
         if select_transform is not None or preserve_clickhouse_output_names or target is not None:
@@ -346,6 +360,7 @@ def compile_hogql_to_trino_sql(
         bypass_warehouse_access_control=bypass_warehouse_access_control,
         allowed_system_tables=allowed_system_tables,
         trigger="trino",
+        raw_trino_view_access=raw_trino_view_access,
     )
     placeholders = find_placeholders(parsed)
     if placeholders.has_filters:
@@ -359,6 +374,12 @@ def compile_hogql_to_trino_sql(
             for variable in query.variables.values():
                 variables[variable.code_name] = variable.value
         parsed = cast("ast.SelectQuery | ast.SelectSetQuery", replace_placeholders(parsed, replacements))
+    _add_external_catalog_tables(
+        parsed,
+        database,
+        organization_catalog=catalog_name,
+        lookup=external_catalog_tables if raw_trino_view_access else None,
+    )
     if select_transform is not None:
         parsed = select_transform(parsed)
 
@@ -500,6 +521,60 @@ def compile_hogql_to_trino_sql(
         hogql=hogql_pretty,
         needs_row_type_probe=needs_row_type_probe,
     )
+
+
+def _add_external_catalog_tables(
+    parsed: ast.SelectQuery | ast.SelectSetQuery,
+    database: Database,
+    *,
+    organization_catalog: str,
+    lookup: ExternalCatalogTableLookup | None,
+) -> None:
+    """Add the tables that the query reads by a ``catalog.schema.table`` name the database does not hold.
+
+    The organization's own catalog is left out: it holds the tables of every project, and HogQL reads
+    the project's tables only by their mapped names.
+    """
+    from posthog.hogql import ast  # noqa: PLC0415 -- keeps compiler imports off Django startup
+    from posthog.hogql.errors import ExposedHogQLError  # noqa: PLC0415
+    from posthog.hogql.transforms.trino.manifest import TrinoManifestTable, add_trino_manifest_table  # noqa: PLC0415
+    from posthog.hogql.visitor import TraversingVisitor  # noqa: PLC0415
+
+    references: dict[TrinoTableLocator, None] = {}
+
+    class _Finder(TraversingVisitor):
+        def visit_join_expr(self, node: ast.JoinExpr) -> None:
+            chain = node.table.chain if isinstance(node.table, ast.Field) else None
+            if (
+                chain is not None
+                and len(chain) == 3
+                and all(isinstance(part, str) for part in chain)
+                and str(chain[0]).lower() != organization_catalog.lower()
+                and not database.has_table([str(part) for part in chain])
+            ):
+                catalog, schema, table = (str(part).lower() for part in chain)
+                references[(catalog, schema, table)] = None
+            super().visit_join_expr(node)
+
+    _Finder().visit(parsed)
+    if not references:
+        return
+    if lookup is None:
+        name = ".".join(next(iter(references)))
+        raise ExposedHogQLError(
+            f"Reading `{name}` from another Trino catalog needs a signed-in session in the SQL editor."
+        )
+    if len(references) > MAX_EXTERNAL_CATALOG_TABLES:
+        raise ExposedHogQLError(
+            f"A query can read at most {MAX_EXTERNAL_CATALOG_TABLES} tables from other Trino catalogs."
+        )
+    for table in lookup(list(references)):
+        if table.locator not in references:
+            continue
+        add_trino_manifest_table(
+            database,
+            TrinoManifestTable(logical_name=".".join(table.locator), locator=table.locator, columns=table.columns),
+        )
 
 
 def _may_hold_anonymous_row(column: Any, context: Any) -> bool:
