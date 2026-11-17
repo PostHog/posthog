@@ -299,7 +299,6 @@ tools:
     error-tracking-issues-tag-definitions-retrieve:
         operation: error_tracking_issues_tag_definitions_retrieve
         enabled: true
-        feature_flag: error-tracking-issue-tags
         scopes:
             - error_tracking:read
         annotations:
@@ -311,10 +310,10 @@ tools:
             List the issue tags enabled for the project, with the key, label and description of each. Use a key with
             `error-tracking-issues-tag-partial-update` to apply that tag to an issue or remove it. The list is empty
             when the project does not have issue tags.
+        feature_flag: error-tracking-issue-tags
     error-tracking-issues-tag-partial-update:
         operation: error_tracking_issues_tag_partial_update
         enabled: true
-        feature_flag: error-tracking-issue-tags
         scopes:
             - error_tracking:write
         annotations:
@@ -333,6 +332,7 @@ tools:
                 required: true
             applied:
                 required: true
+        feature_flag: error-tracking-issue-tags
     error-tracking-recommendations-list:
         operation: error_tracking_recommendations_list
         enabled: true
@@ -540,7 +540,6 @@ tools:
     error-tracking-tag-rules-create:
         operation: error_tracking_tag_rules_create
         enabled: true
-        feature_flag: error-tracking-issue-tags
         scopes:
             - error_tracking:write
         annotations:
@@ -554,10 +553,10 @@ tools:
             rule applies its own label. Filters can use event properties only. Rules do not change existing issues. The
             call fails with "Issue tags are off for this project." when the project does not have issue tags. A project
             can have at most 100 tag rules.
+        feature_flag: error-tracking-issue-tags
     error-tracking-tag-rules-delete:
         operation: error_tracking_tag_rules_destroy
         enabled: true
-        feature_flag: error-tracking-issue-tags
         scopes:
             - error_tracking:write
         annotations:
@@ -568,10 +567,10 @@ tools:
         description: >
             Delete a tag rule by ID. This also removes the rule's label from every issue that has it. Confirm with the
             user before you delete a rule.
+        feature_flag: error-tracking-issue-tags
     error-tracking-tag-rules-list:
         operation: error_tracking_tag_rules_list
         enabled: true
-        feature_flag: error-tracking-issue-tags
         scopes:
             - error_tracking:read
         annotations:
@@ -583,10 +582,10 @@ tools:
             List the tag rules of the current project, with the label, filters, key, version and disabled state of each.
             Use a rule's `key` with `error-tracking-issues-tag-partial-update` to apply or remove its label on one
             issue. The call fails with "Issue tags are off for this project." when the project does not have issue tags.
+        feature_flag: error-tracking-issue-tags
     error-tracking-tag-rules-update:
         operation: error_tracking_tag_rules_partial_update
         enabled: true
-        feature_flag: error-tracking-issue-tags
         scopes:
             - error_tracking:write
         annotations:
@@ -598,6 +597,7 @@ tools:
             Update a tag rule by ID. Include `label`, `description`, `filters`, or a combination. Omitted fields keep
             their existing values. A new label shows at once on every issue that has the rule's label. New filters apply
             only to issues created after the update, and the issues that already have the label keep it.
+        feature_flag: error-tracking-issue-tags
     query-error-tracking-issue:
         operation: error_tracking_query_issue_create
         enabled: true
