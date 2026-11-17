@@ -109,10 +109,10 @@ Diffed against: <https://apidocs.acculynx.com/llms.txt>
 - [x] `Estimate section items (GET /api/v2/estimates/{estimateId}/sections/{estimateSectionId}/items)` — analyze estimated quantities, material costs, labor costs, and item prices beyond estimate totals (high)
 - [x] `Job milestone history (GET /api/v2/jobs/{jobId}/milestone-history)` — measure conversion between milestones and time spent in each stage of a job (high)
 - [x] `Job change history (GET /api/v2/jobs/{jobId}/history)` — analyze job activity, changes, and responsible users over time (medium)
-- [ ] `Supplements and supplement items (GET /api/v2/supplements; GET /api/v2/supplements/{supplementId}/items)` — analyze supplemental work and item costs beyond aggregated financial totals (medium)
-- [ ] `Job contacts (GET /api/v2/jobs/{jobId}/contacts)` — connect each job to additional contacts beyond the primary contact included in jobs (medium)
-- [ ] `Job custom fields and definitions (GET /api/v2/jobs/{jobId}/custom-fields; GET /api/v2/company-settings/custom-fields)` — analyze custom job attributes using their field definitions (medium)
-- [ ] `Job representatives (GET /api/v2/jobs/{jobId}/representatives)` — attribute job outcomes to all assigned representatives and their responsibilities (medium)
+- [x] `Supplements and supplement items (GET /api/v2/supplements; GET /api/v2/supplements/{supplementId}/items)` — analyze supplemental work and item costs beyond aggregated financial totals (medium)
+- [x] `Job contacts (GET /api/v2/jobs/{jobId}/contacts)` — connect each job to additional contacts beyond the primary contact included in jobs (medium)
+- [x] `Job custom fields and definitions (GET /api/v2/jobs/{jobId}/custom-fields; GET /api/v2/company-settings/custom-fields)` — analyze custom job attributes using their field definitions (medium)
+- [x] `Job representatives (GET /api/v2/jobs/{jobId}/representatives)` — attribute job outcomes to all assigned representatives and their responsibilities (medium)
 
 Note: Parsed the official index and embedded OpenAPI operations on reference pages. Existing jobs already include names for categories, trades, work types, and current milestones. Financials expose amendment links; estimate items require requests for each estimate section. Excluded uploads, webhook subscriptions, report schedules, and duplicate financial totals.
 
