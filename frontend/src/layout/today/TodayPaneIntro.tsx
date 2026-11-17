@@ -24,11 +24,13 @@ function focusNextAfter(button: HTMLElement): void {
 export function TodayPaneIntro({ pane }: { pane: TodayRailPane }): JSX.Element | null {
     const { isIntroShown } = useValues(todayPaneIntroLogic)
     const { dismissIntro } = useActions(todayPaneIntroLogic)
+    // `closing` keeps the intro on screen for its exit animation after the dismissal is already saved.
     const [closing, setClosing] = useState(false)
+    const [closed, setClosed] = useState(false)
     const titleId = useId()
 
     // Home opens no sidebar, so it has no intro.
-    if (pane === 'home' || !isIntroShown(pane)) {
+    if (pane === 'home' || closed || (!closing && !isIntroShown(pane))) {
         return null
     }
 
@@ -44,12 +46,10 @@ export function TodayPaneIntro({ pane }: { pane: TodayRailPane }): JSX.Element |
         const fromKeyboard = event.detail === 0
         if (fromKeyboard) {
             focusNextAfter(event.currentTarget)
-            dismissIntro(pane)
-        } else if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
-            dismissIntro(pane)
-        } else {
+        } else if (!window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
             setClosing(true)
         }
+        dismissIntro(pane)
     }
 
     return (
@@ -59,9 +59,10 @@ export function TodayPaneIntro({ pane }: { pane: TodayRailPane }): JSX.Element |
                 'grid shrink-0 transition-[grid-template-rows] duration-200 ease-out motion-reduce:transition-none',
                 closing ? 'grid-rows-[0fr]' : 'grid-rows-[1fr]'
             )}
+            {...(closing ? { inert: '' } : {})}
             onTransitionEnd={(event) => {
                 if (closing && event.target === event.currentTarget) {
-                    dismissIntro(pane)
+                    setClosed(true)
                 }
             }}
         >
