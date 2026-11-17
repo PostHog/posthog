@@ -14,6 +14,9 @@ import { EngagementEventsBanner } from './EngagementEventsBanner'
 
 jest.mock('posthog-js')
 
+const turnOffButton = (container: HTMLElement): HTMLElement =>
+    container.querySelector('[data-attr="workflows-engagement-events-banner-turn-off"]') as HTMLElement
+
 describe('EngagementEventsBanner', () => {
     let patched: Record<string, any>[]
 
@@ -45,9 +48,9 @@ describe('EngagementEventsBanner', () => {
 
     it('turns capture off in one click, sending only that setting, and then hides', async () => {
         loadTeam(OrganizationMembershipLevel.Admin)
-        render(<EngagementEventsBanner />)
+        const { container } = render(<EngagementEventsBanner />)
 
-        fireEvent.click(screen.getAllByRole('button', { name: 'Turn off engagement events' })[0])
+        fireEvent.click(turnOffButton(container))
 
         await waitFor(() => expect(screen.queryByText(/billed like any other event/)).not.toBeInTheDocument())
         expect(patched).toEqual([{ workflows_config: { capture_workflows_engagement_events: false } }])
@@ -55,11 +58,8 @@ describe('EngagementEventsBanner', () => {
 
     it('does not let a member without admin access turn capture off', () => {
         loadTeam(OrganizationMembershipLevel.Member)
-        render(<EngagementEventsBanner />)
+        const { container } = render(<EngagementEventsBanner />)
 
-        expect(screen.getAllByRole('button', { name: 'Turn off engagement events' })[0]).toHaveAttribute(
-            'aria-disabled',
-            'true'
-        )
+        expect(turnOffButton(container)).toHaveAttribute('aria-disabled', 'true')
     })
 })
