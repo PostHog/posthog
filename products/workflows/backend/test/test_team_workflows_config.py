@@ -63,9 +63,8 @@ class TestTeamWorkflowsConfig(APIBaseTest):
         }
 
     def test_patch_enables_capture(self) -> None:
-        # APIBaseTest.setUp may trigger the workflows_config accessor (which calls
-        # get_or_create_team_extension) so the extension row can already exist with the default
-        # value. Either way, the patch must end with the row present and capture enabled.
+        TeamWorkflowsConfig.objects.filter(team=self.team).update(capture_workflows_engagement_events=False)
+
         response = self.client.patch(self.url, {"workflows_config": {"capture_workflows_engagement_events": True}})
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["workflows_config"]["capture_workflows_engagement_events"] is True
