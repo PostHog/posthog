@@ -222,6 +222,7 @@ Available features:
 | `batch_exports`          | Data pipelines                                                                                  |
 | `business_knowledge`     | Business knowledge                                                                              |
 | `canvas`                 | Canvas                                                                                          |
+| `code_review`            | PostHog Review                                                                                  |
 | `cohorts`                | [Cohorts](https://posthog.com/docs/data/cohorts)                                                |
 | `conversations`          | Conversations                                                                                   |
 | `core`                   | Core utilities (project switching, docs search)                                                 |
@@ -263,11 +264,9 @@ Available features:
 | `replay`                 | [Session replays](https://posthog.com/docs/session-replay)                                      |
 | `replay_vision`          | Replay vision                                                                                   |
 | `reverse_proxy`          | Reverse proxy record management                                                                 |
-| `review_hog`             | ReviewHog                                                                                       |
 | `signals`                | [Signals](https://posthog.com/docs/self-driving)                                                |
 | `skills`                 | Skills                                                                                          |
 | `sql`                    | SQL query execution                                                                             |
-| `stamphog`               | Stamphog                                                                                        |
 | `streamlit_apps`         | Streamlit apps                                                                                  |
 | `subscriptions`          | Subscriptions                                                                                   |
 | `surveys`                | [Surveys](https://posthog.com/docs/surveys)                                                     |

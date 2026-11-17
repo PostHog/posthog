@@ -9,7 +9,7 @@ import {
     OwnersFileStatusEnumApi,
     ReviewModeEnumApi,
     RoutingModeEnumApi,
-    type StamphogRepoConfigApi,
+    type CodeReviewApprovalRepositoryApi,
 } from '../../generated/api.schemas'
 import { REVIEW_MODE_LABELS } from '../../reviewModeLabels'
 import { editorDisabledReason, managerDisabledReason } from './repoAccess'
@@ -46,7 +46,7 @@ function TriggerSettings({
     repo,
     updatingReason,
 }: {
-    repo: StamphogRepoConfigApi
+    repo: CodeReviewApprovalRepositoryApi
     updatingReason?: string
 }): JSX.Element {
     const { triggerLabelFieldResets, savingTriggerLabelRepoIds } = useValues(stamphogSceneLogic)
@@ -113,7 +113,7 @@ function TriggerSettings({
     )
 }
 
-export function ExpandedRepoSettings({ repo }: { repo: StamphogRepoConfigApi }): JSX.Element {
+export function ExpandedRepoSettings({ repo }: { repo: CodeReviewApprovalRepositoryApi }): JSX.Element {
     const { updatingRepoIds, ownersFileChecks } = useValues(stamphogSceneLogic)
     const { updateRepoConfig } = useActions(stamphogSceneLogic)
     const level = toAccessControlLevel(repo.user_access_level)
