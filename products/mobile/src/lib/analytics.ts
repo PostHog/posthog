@@ -131,6 +131,7 @@ export type AnalyticsEvent =
     | 'mobile_project_picker_opened'
     | 'mobile_project_switched'
     | 'mobile_push_opened'
+    | 'mobile_push_reminder_routed'
     | 'mobile_hedgehog_widget_synced'
     | 'mobile_widget_catalog_synced'
     | 'mobile_widget_credentials_synced'

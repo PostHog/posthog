@@ -3,7 +3,7 @@ import { AppState, type NativeEventSubscription } from 'react-native'
 import { create } from 'zustand'
 import { createJSONStorage, persist } from 'zustand/middleware'
 
-import { ApiError, NotSignedInError, setAuthProvider } from '@/api/client'
+import { ApiError, endSessionRequests, NotSignedInError, setAuthProvider } from '@/api/client'
 import { queryClient } from '@/api/queryClient'
 import { TransportError } from '@/api/transport'
 import { identify, resetAnalytics, track } from '@/lib/analytics'
@@ -26,6 +26,7 @@ import {
     AccountAlreadyAddedError,
     AccountLoadError,
     AccountNeedsSignInError,
+    AccountUnavailableError,
     accountLoadKind,
     SignInInputError,
 } from './signInErrors'
@@ -50,15 +51,14 @@ import {
 
 export type { AuthOrganization, AuthProject, AuthUser } from './account'
 export type { AccountRef } from './accountKey'
-export { AccountAlreadyAddedError, AccountNeedsSignInError } from './signInErrors'
+export { AccountAlreadyAddedError, AccountNeedsSignInError, AccountUnavailableError } from './signInErrors'
 
 export type AuthStatus = 'loading' | 'signed_out' | 'signed_in'
 export type AuthMethod = 'oauth' | 'personal_api_key'
 export type ProjectSwitchSource = 'nav_menu' | 'settings' | 'push' | 'link'
-/** Where an account switch started. `sign_out` is the switch to another account after the active one signs out. */
+/** `sign_out` is the switch to another account after the active one signs out. */
 export type AccountSwitchSource = ProjectSwitchSource | 'sign_in' | 'sign_out'
 
-/** One PostHog login on this device, as the account list shows it. */
 export interface StoredAccount {
     key: string
     host: string
@@ -95,10 +95,17 @@ export interface AuthState {
     accountLoading: boolean
     accountError: string | null
     signedOutReason: 'expired' | null
-    /** Every account on this device, the active one too. */
+    /** The account whose active session expired, until a sign-in, a switch or a sign out of it. */
+    expiredAccountKey: string | null
     accounts: StoredAccount[]
-    /** The account that the session fields mirror. Null while signed out. */
     activeAccountKey: string | null
+    /**
+     * Accounts whose slot the last read could not read, such as before the first unlock. They are not usable and not
+     * signed out: a switch to one reads its slot again, and a sign-in to one replaces its slot.
+     */
+    unreadableAccountKeys: string[]
+    /** Accounts whose slot a sign out or expiry failed to delete. The next launch deletes them before it reads any. */
+    pendingSlotRemovals: string[]
     /**
      * The user signed out on purpose, so the next sign-in must not reuse the browser's web session, which still
      * belongs to that account. An expiry does not set it. A successful sign-in clears it.
@@ -106,20 +113,22 @@ export interface AuthState {
     freshLoginNext: boolean
     restore: () => Promise<void>
     /**
-     * Signs in with the browser. With no account on the device it starts the first session. Otherwise it adds the
-     * account and switches to it, and the earlier account stays signed in. `freshLogin` asks for a browser session
-     * without the web app's cookies, so the user can pick another login.
+     * Signs in with the browser. With a session active it adds the account and switches to it, and the earlier account
+     * stays signed in. `freshLogin` asks for a browser session without the web app's cookies. `reauth` names the account
+     * the caller signs in again: when the browser returns it, its slot is replaced and it stays or becomes active.
      */
-    signIn: (host: string, clientId: string, options?: { freshLogin?: boolean }) => Promise<void>
+    signIn: (host: string, clientId: string, options?: { freshLogin?: boolean; reauth?: string }) => Promise<void>
     /** Development builds only. The personal API key never refreshes. */
     signInWithPersonalApiKey: (host: string, key: string) => Promise<void>
     selectProject: (projectId: number, from: ProjectSwitchSource) => void
     reloadAccount: () => Promise<void>
-    /** Makes a stored account the session. `projectId` applies when that account has the project. */
+    /** Changes the active account's organizations in the session fields and in its account entry. */
+    updateOrganizations: (update: (organizations: AuthOrganization[]) => AuthOrganization[]) => void
+    /** `projectId` applies when that account has the project. */
     switchAccount: (key: string, options: { projectId?: number; from: AccountSwitchSource }) => Promise<void>
     /** Signs out of the active account, then switches to the account used most recently, if one can sign in. */
     signOut: () => Promise<void>
-    /** Signs out of one account. For an inactive account the session stays as it is. */
+    /** For an inactive account the session stays as it is. */
     signOutAccount: (key: string) => Promise<void>
     signOutAll: () => Promise<void>
 }
@@ -134,12 +143,14 @@ type SessionEndTask = () => void | Promise<void>
 type AccountRemovedTask = (account: AccountRef) => void | Promise<void>
 type AccountSwitchTask = (next: AccountRef) => void | Promise<void>
 type InactiveSignOutTask = (account: AccountRef) => Promise<void>
+type SwitchRollbackTask = (account: AccountRef) => void | Promise<void>
 
 const signOutTasks = new Set<SignOutTask>()
 const sessionEndTasks = new Set<SessionEndTask>()
 const accountRemovedTasks = new Set<AccountRemovedTask>()
 const accountSwitchTasks = new Set<AccountSwitchTask>()
 const inactiveSignOutTasks = new Set<InactiveSignOutTask>()
+const switchRollbackTasks = new Set<SwitchRollbackTask>()
 
 function register<T>(tasks: Set<T>, task: T): () => void {
     tasks.add(task)
@@ -193,20 +204,16 @@ export function addInactiveSignOutTask(task: InactiveSignOutTask): () => void {
     return register(inactiveSignOutTasks, task)
 }
 
-async function runSessionEndTasks(): Promise<void> {
-    await Promise.allSettled([...sessionEndTasks].map(async (task) => task()))
+/**
+ * Registers work for a switch that failed after its switch tasks ran, when the session goes back to `account`. A task
+ * undoes what its switch task did for that account.
+ */
+export function addSwitchRollbackTask(task: SwitchRollbackTask): () => void {
+    return register(switchRollbackTasks, task)
 }
 
-async function runAccountRemovedTasks(account: AccountRef): Promise<void> {
-    await Promise.allSettled([...accountRemovedTasks].map(async (task) => task(account)))
-}
-
-async function runAccountSwitchTasks(next: AccountRef): Promise<void> {
-    await Promise.allSettled([...accountSwitchTasks].map(async (task) => task(next)))
-}
-
-async function runInactiveSignOutTasks(account: AccountRef): Promise<void> {
-    await Promise.allSettled([...inactiveSignOutTasks].map(async (task) => task(account)))
+async function runTasks<A extends unknown[]>(tasks: Set<(...args: A) => unknown>, ...args: A): Promise<void> {
+    await Promise.allSettled([...tasks].map(async (task) => task(...args)))
 }
 
 const SIGNED_OUT_ACCOUNT = {
@@ -250,20 +257,41 @@ function withAccount(accounts: StoredAccount[], account: StoredAccount): StoredA
         : [...accounts, account]
 }
 
+function isUsable(account: StoredAccount, unreadable: readonly string[]): boolean {
+    return !account.needsSignIn && !unreadable.includes(account.key)
+}
+
+/** Keeps only what names the account. Its organizations and projects load again after its next sign-in. */
+function expiredAccount(account: StoredAccount): StoredAccount {
+    const { user } = account
+    return {
+        ...account,
+        user: user ? { uuid: user.uuid, distinctId: user.distinctId, email: user.email, name: user.name } : null,
+        organizations: [],
+        projects: [],
+        projectId: null,
+        needsSignIn: true,
+    }
+}
+
 function markNeedsSignIn(accounts: StoredAccount[], key: string): StoredAccount[] {
-    return accounts.map((account) => (account.key === key ? { ...account, needsSignIn: true } : account))
+    return accounts.map((account) => (account.key === key ? expiredAccount(account) : account))
+}
+
+function without(keys: readonly string[], key: string): string[] {
+    return keys.filter((candidate) => candidate !== key)
 }
 
 /** The accounts the persisted metadata and the token slots describe together, after a launch reads the slots. */
 function reconcileAccounts(state: AuthState, loaded: LoadedAccounts, now: number): StoredAccount[] {
-    if (loaded.keys === null) {
+    const { keys } = loaded
+    if (keys === null) {
         return state.accounts
     }
+    const stored = loaded.stored.filter(({ key }) => !state.pendingSlotRemovals.includes(key))
     const known = new Set(state.accounts.map((account) => account.key))
-    const accounts = state.accounts.map((account) =>
-        loaded.keys?.includes(account.key) ? account : { ...account, needsSignIn: true }
-    )
-    for (const { key, identity } of loaded.stored) {
+    const accounts = state.accounts.map((account) => (keys.includes(account.key) ? account : expiredAccount(account)))
+    for (const { key, identity } of stored) {
         if (known.has(key)) {
             continue
         }
@@ -290,7 +318,7 @@ function reconcileAccounts(state: AuthState, loaded: LoadedAccounts, now: number
         })
     }
     return accounts.map((account) =>
-        loaded.stored.some((stored) => stored.key === account.key) ? { ...account, needsSignIn: false } : account
+        stored.some(({ key }) => key === account.key) ? { ...account, needsSignIn: false } : account
     )
 }
 
@@ -316,6 +344,12 @@ function sameCredentials(a: SessionTokens, b: SessionTokens): boolean {
     return a.kind === 'oauth' ? a.refreshToken === b.refreshToken : a.accessToken === b.accessToken
 }
 
+function revokeStored({ tokens, identity }: Pick<StoredSession, 'tokens' | 'identity'>): void {
+    if (tokens.kind === 'oauth' && tokens.refreshToken && identity.clientId) {
+        void revokeToken({ host: identity.host, clientId: identity.clientId, token: tokens.refreshToken })
+    }
+}
+
 /** In-flight work that callers of one session share. A caller from another session starts its own. */
 interface SessionTask<T> {
     session: number
@@ -323,16 +357,18 @@ interface SessionTask<T> {
 }
 
 let restoring: Promise<void> | null = null
+/** The last restore could not read storage and found no session, so a later one may still find it. */
+let restoreIncomplete = false
 let reloading: SessionTask<void> | null = null
 let refreshing: SessionTask<string | null> | null = null
-// A switch back to an account waits for its refresh, so it reads the slot after the rotated pair lands there.
+// Reads of an account's slot for a switch, a sign out or a new sign-in wait for its refresh, so they see the rotated pair.
 const accountRefreshes = new Map<string, Promise<unknown>>()
 let signInIntent = 0
 let sessionTransitions: Promise<void> = Promise.resolve()
 let transitionsRunning = 0
 const hydration = createPersistHydrationGate()
-let settleLaunch: () => void = () => undefined
-const launched = new Promise<void>((resolve) => {
+let settleLaunch: (account: AccountRef | null) => void = () => undefined
+const launched = new Promise<AccountRef | null>((resolve) => {
     settleLaunch = resolve
 })
 
@@ -351,6 +387,12 @@ function serializeSessionTransition<T>(work: () => Promise<T>): Promise<T> {
         () => undefined
     )
     return result
+}
+
+async function settleAccountRefresh(key: string | null): Promise<void> {
+    if (key) {
+        await accountRefreshes.get(key)?.catch(() => undefined)
+    }
 }
 
 async function runSignOutTasks(): Promise<(() => void)[]> {
@@ -372,18 +414,32 @@ async function runSignOutTasks(): Promise<(() => void)[]> {
 }
 
 /**
- * Resolves after the launch restore, with the account it made active. Stores that kept data before multi-account use
- * it to give that data to its owner.
+ * Resolves after the first restore that read storage, with the account it made active. Stores that kept data before
+ * multi-account use it to give that data to its owner, so a launch that could not read storage leaves it pending.
  */
-export async function launchAccount(): Promise<AccountRef | null> {
-    await launched
-    const { accounts, activeAccountKey, status } = useAuthStore.getState()
-    const account = status === 'signed_in' ? accounts.find((candidate) => candidate.key === activeAccountKey) : null
-    return account ? refOf(account) : null
+export function launchAccount(): Promise<AccountRef | null> {
+    return launched
 }
 
+type PersistedAuth = Pick<
+    AuthState,
+    | 'region'
+    | 'host'
+    | 'clientId'
+    | 'method'
+    | 'user'
+    | 'organizations'
+    | 'projects'
+    | 'projectId'
+    | 'projectName'
+    | 'accounts'
+    | 'activeAccountKey'
+    | 'freshLoginNext'
+    | 'pendingSlotRemovals'
+>
+
 export const useAuthStore = create<AuthState>()(
-    persist(
+    persist<AuthState, [], [], Partial<PersistedAuth>>(
         (set, get) => {
             /** Sets session fields and copies them into the active account's entry, so both stay one record. */
             const setActive = (patch: Partial<AuthState>): void => {
@@ -431,39 +487,67 @@ export const useAuthStore = create<AuthState>()(
                 void queryClient.resetQueries()
             }
 
+            const forgetSlot = async (key: string): Promise<void> => {
+                if (!(await forgetAccountSlot(key))) {
+                    set((state) => ({ pendingSlotRemovals: [...without(state.pendingSlotRemovals, key), key] }))
+                }
+            }
+
             /** Gives the session back to the account that a failed switch started to leave. */
-            const resume = (): void => {
+            const resume = (leavingUser: AuthUser | null, sameAccount: boolean): void => {
                 setSessionTokens(getSessionTokens(), getSessionIdentity(), getSessionAccountKey())
                 set({ status: 'signed_in', signedIn: true })
+                if (sameAccount) {
+                    return
+                }
+                if (leavingUser) {
+                    identify(leavingUser.distinctId)
+                }
+                const account = get().accounts.find((candidate) => candidate.key === get().activeAccountKey)
+                if (account) {
+                    void runTasks(switchRollbackTasks, refOf(account))
+                }
             }
 
             /**
              * Replaces the in-memory session with `session`. A session that is active first runs the switch tasks,
-             * unmounts its screens and runs the session-end tasks. Returns false when `canPublish` turned false, and
-             * gives the session back to the earlier account when the switch fails.
+             * ends its requests, unmounts its screens and runs the session-end tasks. `sameAccount` signs the active
+             * account in again, so it skips what a change of account needs. Returns false when `canPublish` turned
+             * false, and gives the session back to the earlier account when the switch fails.
              */
             const enterAccount = async ({
                 session,
                 account,
                 canPublish,
                 beforeLeave,
+                sameAccount = false,
             }: {
                 session: StoredSession
                 account: StoredAccount
                 canPublish: () => boolean
                 beforeLeave?: () => void
+                sameAccount?: boolean
             }): Promise<boolean> => {
                 if (!canPublish()) {
                     return false
                 }
                 const leaving = get().status === 'signed_in' && getSessionTokens() !== null
+                const leavingUser = get().user
                 if (leaving) {
                     beforeLeave?.()
-                    await runAccountSwitchTasks(refOf(account))
+                    if (!sameAccount) {
+                        await runTasks(accountSwitchTasks, refOf(account))
+                    }
+                    // The continuations of the leaving session's requests run here, under its caches and analytics.
+                    await endSessionRequests()
                     reloading = null
                     // The root layout unmounts every screen while the status is loading.
                     set({ status: 'loading', signedIn: false })
-                    await runSessionEndTasks()
+                    await runTasks(sessionEndTasks)
+                    // Before activation, because its token listeners can capture events.
+                    if (!sameAccount) {
+                        resetAnalytics()
+                    }
                 }
                 let committed = false
                 try {
@@ -474,23 +558,22 @@ export const useAuthStore = create<AuthState>()(
                             ...mirrorOf(account),
                             accounts: withAccount(state.accounts, account),
                             activeAccountKey: account.key,
+                            unreadableAccountKeys: without(state.unreadableAccountKeys, account.key),
                             status: account.user ? 'signed_in' : 'loading',
                             signedIn: account.user !== null,
                             signedOutReason: null,
+                            expiredAccountKey: null,
                             accountLoading: false,
                             accountError: null,
                         }))
                     })
                 } finally {
                     if (leaving && !committed) {
-                        resume()
+                        resume(leavingUser, sameAccount)
                     }
                 }
                 if (!committed) {
                     return false
-                }
-                if (leaving) {
-                    resetAnalytics()
                 }
                 if (!account.user) {
                     await get().reloadAccount()
@@ -503,13 +586,12 @@ export const useAuthStore = create<AuthState>()(
                 return true
             }
 
-            /** Removes an account from the device after its credentials stopped working. */
             const expireStoredAccount = async (key: string): Promise<void> => {
                 const account = get().accounts.find((candidate) => candidate.key === key)
-                await forgetAccountSlot(key)
+                await forgetSlot(key)
                 set((state) => ({ accounts: markNeedsSignIn(state.accounts, key) }))
                 if (account) {
-                    await runAccountRemovedTasks(refOf(account))
+                    await runTasks(accountRemovedTasks, refOf(account))
                 }
             }
 
@@ -518,12 +600,20 @@ export const useAuthStore = create<AuthState>()(
              * with that account's own host, client and refresh token, and the new pair goes back to its own slot.
              */
             const preflight = async (target: StoredAccount): Promise<StoredSession> => {
-                await accountRefreshes.get(target.key)?.catch(() => undefined)
-                const stored = await readAccountSession(target.key)
-                if (!stored) {
+                await settleAccountRefresh(target.key)
+                const read = await readAccountSession(target.key)
+                if (read.kind === 'unreadable') {
+                    set((state) => ({
+                        unreadableAccountKeys: [...without(state.unreadableAccountKeys, target.key), target.key],
+                    }))
+                    throw new AccountUnavailableError(target)
+                }
+                set((state) => ({ unreadableAccountKeys: without(state.unreadableAccountKeys, target.key) }))
+                if (read.kind === 'missing') {
                     await expireStoredAccount(target.key)
                     throw new AccountNeedsSignInError(target)
                 }
+                const stored = read.session
                 const { tokens, identity } = stored
                 if (
                     tokens.kind !== 'oauth' ||
@@ -556,12 +646,9 @@ export const useAuthStore = create<AuthState>()(
                     owner: identity,
                     used: tokens.refreshToken,
                     tokens: next,
-                    generation: null,
                 })
                 if (saved === 'gone') {
-                    if (next.refreshToken) {
-                        void revokeToken({ host: identity.host, clientId: identity.clientId, token: next.refreshToken })
-                    }
+                    revokeStored({ tokens: next, identity })
                     await expireStoredAccount(target.key)
                     throw new AccountNeedsSignInError(target)
                 }
@@ -619,7 +706,7 @@ export const useAuthStore = create<AuthState>()(
                         }
                         break
                     } catch (error) {
-                        if (!(error instanceof AccountNeedsSignInError)) {
+                        if (!(error instanceof AccountNeedsSignInError || error instanceof AccountUnavailableError)) {
                             break
                         }
                     }
@@ -628,7 +715,7 @@ export const useAuthStore = create<AuthState>()(
                 return false
             }
 
-            /** Signs out of the active account. Runs inside a transition. */
+            /** Runs inside a transition. */
             const signOutActive = async (thenSwitch: boolean): Promise<void> => {
                 const { status } = get()
                 if (status === 'signed_out') {
@@ -637,6 +724,8 @@ export const useAuthStore = create<AuthState>()(
                 if (status === 'signed_in') {
                     await runSignOutTasks()
                 }
+                // A refresh in flight rotates the token, so the revocation must wait for the pair it stores.
+                await settleAccountRefresh(getSessionAccountKey())
                 const tokens = getSessionTokens()
                 const owner = getSessionIdentity()
                 if (tokens?.kind === 'oauth' && tokens.refreshToken && owner?.clientId) {
@@ -653,32 +742,45 @@ export const useAuthStore = create<AuthState>()(
                 }
             }
 
-            /** Signs out of an account that is not the session. The session stays as it is. */
             const signOutInactive = async (account: StoredAccount): Promise<void> => {
-                await runInactiveSignOutTasks(refOf(account))
-                const stored = await readAccountSession(account.key)
-                if (stored?.tokens.kind === 'oauth' && stored.tokens.refreshToken && stored.identity.clientId) {
-                    await revokeToken({
-                        host: stored.identity.host,
-                        clientId: stored.identity.clientId,
-                        token: stored.tokens.refreshToken,
-                    })
+                await runTasks(inactiveSignOutTasks, refOf(account))
+                await settleAccountRefresh(account.key)
+                const read = await readAccountSession(account.key)
+                if (read.kind === 'ok') {
+                    const { tokens, identity } = read.session
+                    if (tokens.kind === 'oauth' && tokens.refreshToken && identity.clientId) {
+                        await revokeToken({
+                            host: identity.host,
+                            clientId: identity.clientId,
+                            token: tokens.refreshToken,
+                        })
+                    }
                 }
-                await forgetAccountSlot(account.key)
+                await forgetSlot(account.key)
                 set((state) => ({
                     accounts: state.accounts.filter((candidate) => candidate.key !== account.key),
+                    unreadableAccountKeys: without(state.unreadableAccountKeys, account.key),
                     freshLoginNext: true,
+                    ...(state.expiredAccountKey === account.key
+                        ? { expiredAccountKey: null, signedOutReason: null }
+                        : {}),
                 }))
                 track('mobile_account_removed', { account_count: get().accounts.length, region: account.region })
-                await runAccountRemovedTasks(refOf(account))
+                await runTasks(accountRemovedTasks, refOf(account))
             }
 
+            /**
+             * `kept` turns true when a failure left the new tokens in the account's slot, because what the slot held
+             * could not be read back. The caller must not revoke them then.
+             */
             const completeSignIn = async (
                 tokens: SessionTokens,
                 method: AuthMethod,
                 host: string,
                 clientId: string | null,
-                intent: number
+                intent: number,
+                reauth: string | undefined,
+                ownership: { kept: boolean }
             ): Promise<void> => {
                 let account: Account
                 try {
@@ -691,10 +793,19 @@ export const useAuthStore = create<AuthState>()(
                     if (intent !== signInIntent) {
                         throw new OAuthError('cancelled')
                     }
-                    const existing = get().accounts.find((candidate) => candidate.key === key)
-                    if (existing && !existing.needsSignIn) {
+                    const state = get()
+                    const existing = state.accounts.find((candidate) => candidate.key === key)
+                    const sessionActive = state.status === 'signed_in'
+                    // While signed out, a sign-in to a stored account is how the user gets back in, so it never fails.
+                    if (
+                        existing &&
+                        reauth !== key &&
+                        sessionActive &&
+                        isUsable(existing, state.unreadableAccountKeys)
+                    ) {
                         throw new AccountAlreadyAddedError(key, account.user.email, host)
                     }
+                    await settleAccountRefresh(key)
                     const identity: SessionIdentity = { host, clientId, method, userUuid: account.user.uuid }
                     const region = regionForHost(host)
                     const slot = await writeAccountSlot(key, tokens, identity)
@@ -718,31 +829,26 @@ export const useAuthStore = create<AuthState>()(
                                 lastUsedAt: Date.now(),
                             },
                             canPublish: () => intent === signInIntent,
+                            sameAccount: sessionActive && state.activeAccountKey === key,
                         })
                     } finally {
-                        if (!entered) {
-                            await slot.undo()
+                        if (!entered && (await slot.undo()) === 'kept') {
+                            ownership.kept = true
                         }
                     }
                     if (!entered) {
                         throw new OAuthError('cancelled')
                     }
-                    set({ freshLoginNext: false })
+                    set((current) => ({
+                        freshLoginNext: false,
+                        pendingSlotRemovals: without(current.pendingSlotRemovals, key),
+                    }))
                     track('mobile_signed_in', { method, region })
                     if (!existing) {
                         track('mobile_account_added', { account_count: get().accounts.length, region })
                     }
-                    const replaced = slot.replaced
-                    if (
-                        replaced?.tokens.kind === 'oauth' &&
-                        replaced.tokens.refreshToken &&
-                        replaced.identity.clientId
-                    ) {
-                        void revokeToken({
-                            host: replaced.identity.host,
-                            clientId: replaced.identity.clientId,
-                            token: replaced.tokens.refreshToken,
-                        })
+                    if (slot.replaced && !sameCredentials(slot.replaced.tokens, tokens)) {
+                        revokeStored(slot.replaced)
                     }
                 })
             }
@@ -762,28 +868,41 @@ export const useAuthStore = create<AuthState>()(
                 accountLoading: false,
                 accountError: null,
                 signedOutReason: null,
+                expiredAccountKey: null,
                 accounts: [],
                 activeAccountKey: null,
+                unreadableAccountKeys: [],
+                pendingSlotRemovals: [],
                 freshLoginNext: false,
 
                 restore: () => {
                     restoring ??= (async () => {
+                        let active: StoredAccount | undefined
                         try {
                             await waitForHydration()
+                            await finishSlotRemovals()
                             const loaded = await loadAccounts()
                             const now = Date.now()
-                            const accounts = reconcileAccounts(get(), loaded, now)
+                            const state = get()
+                            const accounts = reconcileAccounts(state, loaded, now)
+                            const unreadableAccountKeys =
+                                loaded.keys === null ? accounts.map((account) => account.key) : loaded.unreadable
                             const owner = getSessionIdentity()
-                            const active = accounts.find((account) => account.key === loaded.active?.key)
+                            active = state.pendingSlotRemovals.includes(loaded.active?.key ?? '')
+                                ? undefined
+                                : accounts.find((account) => account.key === loaded.active?.key)
+                            restoreIncomplete = !active && !loaded.complete
                             if (!active || !owner || !validateHost(owner.host).ok) {
+                                active = undefined
                                 clearSession()
-                                set({ ...SIGNED_OUT_ACCOUNT, accounts, activeAccountKey: null })
+                                set({ ...SIGNED_OUT_ACCOUNT, accounts, activeAccountKey: null, unreadableAccountKeys })
                                 return
                             }
                             set({
                                 ...(active.user ? mirrorOf(active) : SIGNED_OUT_ACCOUNT),
                                 accounts: withAccount(accounts, { ...active, lastUsedAt: now }),
                                 activeAccountKey: active.key,
+                                unreadableAccountKeys,
                                 status: 'loading',
                                 signedIn: false,
                                 host: owner.host,
@@ -824,7 +943,14 @@ export const useAuthStore = create<AuthState>()(
                                 void get().reloadAccount()
                             }
                         } finally {
-                            settleLaunch()
+                            if (!restoreIncomplete) {
+                                const { status, activeAccountKey } = get()
+                                settleLaunch(
+                                    active && status === 'signed_in' && activeAccountKey === active.key
+                                        ? refOf(active)
+                                        : null
+                                )
+                            }
                         }
                     })()
                     return restoring
@@ -840,20 +966,37 @@ export const useAuthStore = create<AuthState>()(
                         throw new SignInInputError('Enter the OAuth client ID of the PostHog app on this instance.')
                     }
                     const intent = ++signInIntent
-                    const { accounts, freshLoginNext } = get()
+                    if (get().status === 'signed_out') {
+                        await retryRestore()
+                        if (get().status === 'signed_in') {
+                            return
+                        }
+                    }
+                    const { accounts, freshLoginNext, unreadableAccountKeys } = get()
                     const tokens = await authorize({
                         host: validation.host,
                         clientId: trimmedClientId,
-                        // An account that can still sign in has its web session in the browser, which would return it again.
+                        // A usable account has its web session in the browser, which would return it again.
                         preferEphemeralSession:
                             options?.freshLogin === true ||
                             freshLoginNext ||
-                            accounts.some((account) => !account.needsSignIn),
+                            accounts.some(
+                                (account) => account.key !== options?.reauth && isUsable(account, unreadableAccountKeys)
+                            ),
                     })
+                    const ownership = { kept: false }
                     try {
-                        await completeSignIn(tokens, 'oauth', validation.host, trimmedClientId, intent)
+                        await completeSignIn(
+                            tokens,
+                            'oauth',
+                            validation.host,
+                            trimmedClientId,
+                            intent,
+                            options?.reauth,
+                            ownership
+                        )
                     } catch (error) {
-                        if (tokens.refreshToken) {
+                        if (tokens.refreshToken && !ownership.kept) {
                             void revokeToken({
                                 host: validation.host,
                                 clientId: trimmedClientId,
@@ -889,7 +1032,9 @@ export const useAuthStore = create<AuthState>()(
                         'personal_api_key',
                         validation.host,
                         null,
-                        intent
+                        intent,
+                        undefined,
+                        { kept: false }
                     )
                 },
 
@@ -941,6 +1086,10 @@ export const useAuthStore = create<AuthState>()(
                     })
                     reloading = { session, promise }
                     return promise
+                },
+
+                updateOrganizations: (update) => {
+                    setActive({ organizations: update(get().organizations) })
                 },
 
                 switchAccount: async (key, { projectId, from }) => {
@@ -999,7 +1148,7 @@ export const useAuthStore = create<AuthState>()(
             name: 'posthog-mobile-auth',
             version: 2,
             storage: createJSONStorage(() => AsyncStorage),
-            partialize: (state) => ({
+            partialize: (state): PersistedAuth => ({
                 region: state.region,
                 host: state.host,
                 clientId: state.clientId,
@@ -1012,18 +1161,19 @@ export const useAuthStore = create<AuthState>()(
                 accounts: state.accounts,
                 activeAccountKey: state.activeAccountKey,
                 freshLoginNext: state.freshLoginNext,
+                pendingSlotRemovals: state.pendingSlotRemovals,
             }),
             // Version 1 held one account in the session fields. Restore turns them into that account's entry once it
             // has read the slot they belong to.
             migrate: (persisted, version) =>
                 version === 1 && typeof persisted === 'object' && persisted !== null
-                    ? ({
-                          ...persisted,
+                    ? {
+                          ...(persisted as Partial<PersistedAuth>),
                           accounts: [],
                           activeAccountKey: null,
                           freshLoginNext: false,
-                      } as unknown as AuthState)
-                    : ({} as AuthState),
+                      }
+                    : {},
             onRehydrateStorage: () => () => hydration.settle(),
         }
     )
@@ -1033,9 +1183,39 @@ function waitForHydration(): Promise<void> {
     return hydration.wait()
 }
 
+/** Deletes the slots whose removal failed, before launch reads them, and revokes the tokens it can read. */
+async function finishSlotRemovals(): Promise<void> {
+    for (const key of useAuthStore.getState().pendingSlotRemovals) {
+        const read = await readAccountSession(key)
+        if (!(await forgetAccountSlot(key))) {
+            continue
+        }
+        if (read.kind === 'ok') {
+            revokeStored(read.session)
+        }
+        useAuthStore.setState((state) => ({ pendingSlotRemovals: without(state.pendingSlotRemovals, key) }))
+    }
+}
+
+/** Runs restore again after a launch that could not read storage, such as one before the first unlock. */
+async function retryRestore(): Promise<void> {
+    const due = (): boolean => restoreIncomplete && useAuthStore.getState().status === 'signed_out'
+    if (!due()) {
+        return
+    }
+    await serializeSessionTransition(async () => {
+        if (!due()) {
+            return
+        }
+        restoring = null
+        await useAuthStore.getState().restore()
+    })
+}
+
 /**
- * Ends the active session: its slot, its metadata (kept for an expiry, so the list shows it needs a sign-in), the
- * in-memory caches and its persisted data. `then` is the status to leave, `loading` while another account follows.
+ * Ends the active session: its requests, its slot, its metadata (kept for an expiry, so the list shows it needs a
+ * sign-in), the in-memory caches and its persisted data. `then` is the status to leave, `loading` while another
+ * account follows.
  */
 async function endActiveSession(
     reason: 'user' | 'expired',
@@ -1052,18 +1232,17 @@ async function endActiveSession(
     if (reason === 'user' && account) {
         track('mobile_account_removed', { account_count: state.accounts.length - 1, region: account.region })
     }
+    await endSessionRequests()
     reloading = null
     refreshing = null
     clearSession()
     const ended = sessionGeneration()
-    if (key) {
-        await forgetAccountSlot(key)
-    }
+    const forgotten = key ? await forgetAccountSlot(key) : true
     queryClient.clear()
     resetAnalytics()
-    await runSessionEndTasks()
+    await runTasks(sessionEndTasks)
     if (removed) {
-        await runAccountRemovedTasks(removed)
+        await runTasks(accountRemovedTasks, removed)
     }
     useAuthStore.setState((current) => ({
         accounts: !key
@@ -1071,6 +1250,8 @@ async function endActiveSession(
             : reason === 'expired'
               ? markNeedsSignIn(current.accounts, key)
               : current.accounts.filter((candidate) => candidate.key !== key),
+        pendingSlotRemovals:
+            key && !forgotten ? [...without(current.pendingSlotRemovals, key), key] : current.pendingSlotRemovals,
         // A switch that started while the cleanup ran owns the session fields now.
         ...(sessionGeneration() === ended
             ? {
@@ -1078,6 +1259,7 @@ async function endActiveSession(
                   status: then,
                   activeAccountKey: null,
                   signedOutReason: reason === 'expired' ? 'expired' : null,
+                  expiredAccountKey: reason === 'expired' ? key : null,
               }
             : {}),
     }))
@@ -1093,13 +1275,18 @@ async function expireCredentials(key: string, failed: SessionTokens, session: nu
             await endActiveSession('expired')
             return
         }
-        const stored = await readAccountSession(key)
-        if (stored && sameCredentials(stored.tokens, failed)) {
-            await forgetAccountSlot(key)
+        const read = await readAccountSession(key)
+        if (read.kind === 'ok' && sameCredentials(read.session.tokens, failed)) {
+            const forgotten = await forgetAccountSlot(key)
             const account = useAuthStore.getState().accounts.find((candidate) => candidate.key === key)
-            useAuthStore.setState((current) => ({ accounts: markNeedsSignIn(current.accounts, key) }))
+            useAuthStore.setState((current) => ({
+                accounts: markNeedsSignIn(current.accounts, key),
+                pendingSlotRemovals: forgotten
+                    ? current.pendingSlotRemovals
+                    : [...without(current.pendingSlotRemovals, key), key],
+            }))
             if (account) {
-                await runAccountRemovedTasks(refOf(account))
+                await runTasks(accountRemovedTasks, refOf(account))
             }
         }
     }
@@ -1150,14 +1337,14 @@ async function refreshOnce(): Promise<string | null> {
         }
         throw error
     }
-    const saved = await saveRefreshedTokens({ key, owner, used, tokens: next, generation: session })
-    if (saved === 'gone' && next.refreshToken) {
-        // The account left the device while the refresh was in flight. The rotated refresh token is valid at its
-        // host but stored nowhere, so revoke it there.
-        void revokeToken({ host, clientId, token: next.refreshToken })
+    const saved = await saveRefreshedTokens({ key, owner, used, tokens: next })
+    if (saved === 'gone') {
+        // The account left the device or signed in again while the refresh was in flight. The rotated refresh token
+        // is valid at its host but stored nowhere, so revoke it there.
+        revokeStored({ tokens: next, identity: owner })
     }
     // A session that changed while the refresh was in flight gets no token: the caller sends it to the earlier host.
-    return saved === 'session' ? next.accessToken : null
+    return saved === 'session' && sessionGeneration() === session ? next.accessToken : null
 }
 
 // Concurrent callers share one request, because each refresh rotates the token and a second request with the old
@@ -1204,6 +1391,7 @@ export function installAuthProvider(): void {
     foregroundSubscription = AppState.addEventListener('change', (state) => {
         if (state === 'active') {
             refreshBeforeForegroundMargin()
+            void retryRestore()
         }
     })
     setAuthProvider({

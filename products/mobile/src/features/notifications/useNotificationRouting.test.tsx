@@ -5,6 +5,7 @@ import { AppState } from 'react-native'
 
 import { type StoredAccount, useAuthStore } from '@/auth/authStore'
 import { useSnoozeStore } from '@/features/snooze/snoozeStore'
+import { setAnalyticsClient } from '@/lib/analytics'
 import { waitForPersist } from '@/lib/persistHydration'
 import { foregroundNotificationBehavior, setViewedNotificationTask } from './foregroundNotifications'
 import { acknowledgeNotificationTap, getPendingNotificationTap } from './notificationIntents'
@@ -64,7 +65,12 @@ function storedAccount(key: string, needsSignIn = false): StoredAccount {
     return { key, needsSignIn } as StoredAccount
 }
 
-afterEach(() => useAuthStore.setState({ switchAccount, accounts: [], activeAccountKey: null }))
+let captured: string[] = []
+
+afterEach(() => {
+    useAuthStore.setState({ switchAccount, accounts: [], activeAccountKey: null })
+    setAnalyticsClient(null)
+})
 
 beforeEach(async () => {
     await waitForPersist(useSnoozeStore)
@@ -77,6 +83,12 @@ beforeEach(async () => {
     mockNavigation.getCurrentRoute.mockReturnValue({ name: 'inbox' })
     setViewedNotificationTask(null)
     AppState.currentState = 'active'
+    captured = []
+    setAnalyticsClient({
+        capture: (event, properties) => captured.push(`${event} ${JSON.stringify(properties)}`),
+        identify: () => undefined,
+        reset: () => undefined,
+    })
     useAuthStore.setState({
         status: 'signed_in',
         signedIn: true,
@@ -229,6 +241,7 @@ test('a tap that an account switch interrupts is judged again, once, against the
     useAuthStore.setState({ activeAccountKey: 'account-a' })
     renderHook(useNotificationRouting)
     await waitFor(() => expect(findTask).toHaveBeenCalledTimes(1))
+    expect(captured).toEqual(['mobile_push_opened {"kind":"task"}'])
 
     act(() => useAuthStore.setState({ status: 'loading', signedIn: false }))
     act(() =>
@@ -245,6 +258,7 @@ test('a tap that an account switch interrupts is judged again, once, against the
     expect(findTask).toHaveBeenCalledTimes(2)
     expect(router.push).not.toHaveBeenCalled()
     expect(acknowledgeNotificationTap).toHaveBeenCalledTimes(1)
+    expect(captured).toEqual(['mobile_push_opened {"kind":"task"}'])
 })
 
 describe('a snooze reminder of another account', () => {
@@ -295,6 +309,10 @@ describe('a snooze reminder of another account', () => {
         await waitFor(() => expect(router.push).toHaveBeenCalledWith('/report/report-1?from=push'))
         expect(switching).toHaveBeenCalledTimes(1)
         expect(acknowledgeNotificationTap).toHaveBeenCalledTimes(1)
+        expect(captured).toEqual([
+            'mobile_push_opened {"kind":"snooze_reminder"}',
+            'mobile_push_reminder_routed {"kind":"snooze_reminder","account":"switched"}',
+        ])
     })
 
     test.each([

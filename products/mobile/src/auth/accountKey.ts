@@ -1,6 +1,5 @@
 import * as Crypto from 'expo-crypto'
 
-/** One PostHog login on this device, as account-removed tasks receive it. */
 export interface AccountRef {
     key: string
     host: string

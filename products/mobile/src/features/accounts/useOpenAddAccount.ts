@@ -4,11 +4,12 @@ import { useCallback } from 'react'
 import { type StoredAccount, useAuthStore } from '@/auth/authStore'
 import { track } from '@/lib/analytics'
 
-export type AddAccountSource = 'project_card' | 'settings'
+/** `feature_reauth`: a feature's Sign in again, for a scope that the active account's grant lacks. */
+export type AddAccountSource = 'project_card' | 'settings' | 'feature_reauth'
 
 /**
- * Opens the sign-in screen in add mode. `reauth` is an account that needs a new sign-in: the form starts on its host,
- * and a sign-in to the same login gives it its session back.
+ * Opens the sign-in screen in add mode. `reauth` is an account to sign in again: the form starts on its host, and a
+ * sign-in to the same login replaces its session.
  */
 export function useOpenAddAccount(): (from: AddAccountSource, reauth?: StoredAccount) => void {
     const router = useRouter()

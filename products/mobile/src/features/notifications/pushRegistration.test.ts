@@ -1,5 +1,6 @@
 import { act, renderHook, waitFor } from '@testing-library/react-native'
 import * as Notifications from 'expo-notifications'
+import * as SecureStore from 'expo-secure-store'
 
 import { registerPushToken, unregisterPushToken } from '@/api/pushTokens'
 import { accountKey } from '@/auth/accountKey'
@@ -9,7 +10,7 @@ import { setSessionTokens, writeAccountSlot } from '@/auth/tokens'
 
 import { releaseRegistration, settleOwedRemovals, syncPushRegistration, unregisterPush } from './pushRegistration'
 import { usePushStore, waitForPushHydration } from './pushStore'
-import { usePushRegistration } from './usePushRegistration'
+import { installPushAuthTasks, usePushRegistration } from './usePushRegistration'
 
 jest.mock('expo-notifications', () => ({
     getPermissionsAsync: jest.fn(),
@@ -439,6 +440,29 @@ describe('push registration across session transitions', () => {
                 expectEveryKeyOnItsOwnHost()
             }
         )
+
+        test('a switch that fails after its push step registers the account that stays active again', async () => {
+            const ada = await storedAccount(US, 'ada', 2)
+            const bob = await storedAccount(EU, 'bob', 1)
+            activate(ada, [ada, bob])
+            await syncPushRegistration('never')
+            const stopTasks = installPushAuthTasks()
+            const write = jest
+                .spyOn(SecureStore, 'setItemAsync')
+                .mockRejectedValueOnce(new Error('Storage unavailable'))
+            try {
+                await expect(useAuthStore.getState().switchAccount(bob.key, { from: 'settings' })).rejects.toThrow(
+                    'Storage unavailable'
+                )
+
+                await waitFor(() => expect(usePushStore.getState().registeredFor).toBe(`${US}|ada`))
+                expect(registrations()).toEqual([`${US} ada`])
+                expect(usePushStore.getState().owed).toEqual([])
+            } finally {
+                write.mockRestore()
+                stopTasks()
+            }
+        })
 
         test('a removal that hangs holds the switch for at most the cleanup wait and stays owed', async () => {
             const ada = await storedAccount(US, 'ada', 2)

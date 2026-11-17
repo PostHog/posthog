@@ -251,13 +251,13 @@ async function waitAtMost(work: Promise<unknown>, timeoutMs: number): Promise<vo
  * or when its access token has expired.
  */
 async function credentialsOf(account: string): Promise<AccountCredentials | null> {
-    const stored = await readAccountSession(account)
-    if (!stored) {
+    const read = await readAccountSession(account)
+    if (read.kind !== 'ok') {
         return null
     }
     // A refresh here could race a switch that refreshes the same slot, and a reused refresh token revokes the whole
     // token family. The account refreshes its token when it becomes active again.
-    const { tokens, identity } = stored
+    const { tokens, identity } = read.session
     if (tokens.expiresAt !== null && tokens.expiresAt - Date.now() < CREDENTIALS_MARGIN_MS) {
         return null
     }
@@ -297,7 +297,6 @@ async function settleOnce(): Promise<void> {
     }
 }
 
-/** Retries every removal that an inactive account still owes. */
 export function settleOwedRemovals(): Promise<void> {
     return enqueue(settleOnce).catch(() => undefined)
 }

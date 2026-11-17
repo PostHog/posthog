@@ -10,10 +10,10 @@ import { authorize, OAuthError, refreshTokens } from './oauth'
 import {
     getSessionIdentity,
     getSessionTokens,
+    loadAccounts,
     loadTokens,
     type SessionIdentity,
     type SessionTokens,
-    saveTokens,
     setSessionTokens,
 } from './tokens'
 
@@ -73,8 +73,10 @@ function authorization(init: RequestInit | undefined): string | undefined {
 /** Stores `tokens` as the only account on the device, active, with the store showing it. */
 async function seedSession(tokens: SessionTokens, owner: SessionIdentity): Promise<void> {
     mockSecureItems.clear()
-    await saveTokens(tokens, owner)
     const key = await accountKey(owner.host, owner.userUuid)
+    mockSecureItems.set(`posthog_mobile_session.${key}`, JSON.stringify({ version: 1, identity: owner, tokens }))
+    mockSecureItems.set('posthog_mobile_accounts', JSON.stringify({ version: 1, active: key, keys: [key] }))
+    await loadAccounts()
     const account: StoredAccount = {
         key,
         host: owner.host,
@@ -191,7 +193,7 @@ describe('token refresh through the API client', () => {
 
         await expect(apiJson('/api/users/@me/')).rejects.toBeInstanceOf(error)
 
-        expect(useAuthStore.getState()).toMatchObject({ status, signedOutReason: reason })
+        await waitFor(() => expect(useAuthStore.getState()).toMatchObject({ status, signedOutReason: reason }))
         expect(getSessionTokens()?.accessToken).toBe(accessToken)
     })
 
@@ -207,7 +209,10 @@ describe('token refresh through the API client', () => {
             tokenRequests.push(url)
             return json(200, { access_token: 'new-access', refresh_token: 'new-refresh', expires_in: 604800 })
         })
-        await saveTokens({ ...(getSessionTokens() as SessionTokens), expiresAt: Date.now() + expiresIn })
+        await seedSession(
+            { ...(getSessionTokens() as SessionTokens), expiresAt: Date.now() + expiresIn },
+            getSessionIdentity() as SessionIdentity
+        )
         let onAppState: ((state: AppStateStatus) => void) | undefined
         const subscribe = jest.spyOn(AppState, 'addEventListener').mockImplementation((_type, listener) => {
             onAppState = listener
@@ -287,14 +292,22 @@ describe('token refresh through the API client', () => {
     )
 
     test.each([
-        { name: 'API response', held: `${OLD_HOST}/api/users/@me/`, answer: (): Response => json(401, {}) },
         {
-            name: 'token refresh',
+            name: 'API response held across signing out and in elsewhere',
+            held: `${OLD_HOST}/api/users/@me/`,
+            answer: (): Response => json(401, {}),
+            // Sign out ends the session's requests, so this response lands after the sign-in.
+            landsDuringSignOut: false,
+        },
+        {
+            name: 'token refresh that lands during the sign out',
             held: `${OLD_HOST}/oauth/token`,
             answer: (): Response =>
                 json(200, { access_token: 'rotated-access', refresh_token: 'rotated-refresh', expires_in: 3600 }),
+            // Sign out waits for the refresh, so it revokes the token the refresh rotated.
+            landsDuringSignOut: true,
         },
-    ])('an old host $name held across signing in elsewhere never gets the new session', async ({ held, answer }) => {
+    ])('an old host $name never gets the new session', async ({ held, answer, landsDuringSignOut }) => {
         const sent: { url: string; credentials: string }[] = []
         let release: (response: Response) => void = () => undefined
         let reached: () => void = () => undefined
@@ -344,7 +357,11 @@ describe('token refresh through the API client', () => {
 
         const reload = useAuthStore.getState().reloadAccount()
         await heldReached
-        await useAuthStore.getState().signOut()
+        const signingOut = useAuthStore.getState().signOut()
+        if (landsDuringSignOut) {
+            release(answer())
+        }
+        await signingOut
         await useAuthStore.getState().signIn(HOST, 'next-client')
         release(answer())
         await reload

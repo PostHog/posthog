@@ -12,7 +12,6 @@ import {
     type SessionIdentity,
     type SessionTokens,
     saveRefreshedTokens,
-    sessionGeneration,
     setSessionTokens,
     writeAccountSlot,
 } from '@/auth/tokens'
@@ -85,7 +84,8 @@ function owner(tokens: SessionTokens): SessionIdentity {
     }
 }
 
-const ACCOUNT = 'example-account'
+// The key that the mocked digest gives this host and user, so a slot written under it reads as theirs.
+const ACCOUNT = Buffer.from(JSON.stringify([HOST, USER.uuid])).toString('hex')
 
 function signIn(tokens: SessionTokens): void {
     setSessionTokens(tokens, owner(tokens), ACCOUNT)
@@ -176,12 +176,12 @@ describe('chart widget sync', () => {
 
         expect(mockSetCredentials).toHaveBeenCalledTimes(1)
 
+        await writeAccountSlot(ACCOUNT, OAUTH, owner(OAUTH))
         await saveRefreshedTokens({
             key: ACCOUNT,
             owner: owner(OAUTH),
             used: OAUTH.refreshToken as string,
             tokens: { ...OAUTH, accessToken: 'example-rotated' },
-            generation: sessionGeneration(),
         })
 
         expect(mockSetCredentials).toHaveBeenCalledTimes(2)
@@ -307,12 +307,12 @@ describe('chart widget sync', () => {
         await syncWidgetCatalog(client)
 
         useDemoMode.setState({ enabled: true })
+        await writeAccountSlot(ACCOUNT, OAUTH, owner(OAUTH))
         await saveRefreshedTokens({
             key: ACCOUNT,
             owner: owner(OAUTH),
             used: OAUTH.refreshToken as string,
             tokens: { ...OAUTH, accessToken: 'example-rotated' },
-            generation: sessionGeneration(),
         })
 
         expect(mockClearCredentials).toHaveBeenCalled()

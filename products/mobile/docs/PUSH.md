@@ -14,6 +14,7 @@ Code: `src/features/notifications/`, `src/api/pushTokens.ts`. The root layout in
 | Settings, "Enable notifications" or "Try again" | Asks when the system allows it, retries a failed registration, or opens system settings when permission is blocked.                                                                                             |
 | Sign out of the active account                  | Waits for in-flight registration, then sends `POST /api/users/@me/push_tokens/unregister/` `{ token }` before changing credentials. A failed delete keeps the session and offers a retry.                       |
 | Account switch                                  | The leaving account owes the removal of its registration (see [Accounts](#accounts)). On another host the switch sends the unregister with that account's own token and waits at most 2.5 seconds for it.       |
+| A switch that fails after that step             | The account that stays active registers again at once (`addSwitchRollbackTask()`), which also settles its own owed removal.                                                                                     |
 | The next account registers                      | Its registration also settles what earlier accounts owe for the same token on the same host, because the server deleted their rows. The account's own earlier removal is settled too.                           |
 | Every sync, and a return to the app             | Retries each owed removal of an inactive account with the token in that account's own slot, on the host in that slot.                                                                                           |
 | Signing out of another account                  | Sends what that account owes before its refresh token is revoked and its slot is deleted, and waits at most 2.5 seconds.                                                                                        |
@@ -39,6 +40,7 @@ The record is saved before any request, so a crash or a lost response leaves it 
 
 - **Another host.** The switch task (`releaseRegistration()`) sends the unregister on the leaving account's host with its own token. A failure or a timeout never fails or holds the switch longer than 2.5 seconds.
 - **The same host.** The switch sends nothing. The next account's registration of the same token deletes the leaving account's row on the server, which settles the record. A request at the switch would only slow it down.
+- **A failed switch.** When the switch fails after this step, the account stays active and registers again at once, through the switch-rollback task.
 
 A record stays until one of these happens:
 
@@ -174,7 +176,7 @@ A snooze reminder opens in the account that scheduled it:
 - a reminder scheduled before the app recorded its account: the active account, as for a push.
 
 A tap that arrives during a restore or a switch waits until the next account's screens mount, then is judged once against that account. A task lookup that finishes after the account changes cannot navigate the new account, and the tap is judged again against it.
-Every tap captures `mobile_push_opened` once, when it is handled, with `kind` (the payload's `notificationKind`, else `report`, `task` or `unknown`). A reminder tap adds `account: 'switched'` when it switched account first, and `account: 'unavailable'` when its account could not open it. The switch itself captures `mobile_account_switched` with `from: 'push'`.
+Every tap captures `mobile_push_opened` once per notification, when its handling starts, with `kind` (the payload's `notificationKind`, else `report`, `task` or `unknown`). A tap that a switch makes routing judge again does not count again. A reminder tap that opened in another account captures `mobile_push_reminder_routed` with `kind` and `account`: `switched` when it switched account first, `unavailable` when its account could not open it. The switch itself captures `mobile_account_switched` with `from: 'push'`.
 A push that arrives while the app is open captures `mobile_push_received` with `kind` and `shown` (false when the user is viewing that task or report, or has time-snoozed the report). Explicit task pushes are suppressed only when that chat is open; viewing its linked report does not hide a discussion reply. Legacy task payloads retain report-association suppression. Foreground delivery never plays sound or sets a badge.
 
 Time snooze reminders are scheduled on the device after an explicit snooze action. They follow system notification permission and are separate from the account's server push categories. A signal-based snooze does not schedule a timed reminder. Repeated delivery of the same notification is suppressed before receipt analytics in the foreground; terminal task and report-work outcomes are also deduplicated by run.

@@ -1,14 +1,6 @@
 import { isRecord } from '@/lib/records'
 
-import {
-    ApiError,
-    apiJson,
-    apiReadResponse,
-    apiUrl,
-    authorizationHeaders,
-    NotSignedInError,
-    projectPath,
-} from './client'
+import { ApiError, apiJson, apiReadResponse, NotSignedInError, projectPath } from './client'
 import { missingScope } from './scopeErrors'
 import { serverNow } from './serverClock'
 import { TransportError, transport } from './transport'
@@ -330,21 +322,20 @@ async function errorBody(response: Response): Promise<unknown> {
  */
 export async function resolveReplayVideoSource(id: number, signal?: AbortSignal): Promise<ReplayVideoSource> {
     const path = projectPath(`exports/${id}/content/`)
-    const requested = apiUrl(path)
     const expiresAt = Date.now() + 60 * 60_000
-    return apiReadResponse(path, { redirect: 'manual', signal }, async (response) => {
+    return apiReadResponse(path, { redirect: 'manual', signal }, async (response, sent) => {
         const location = response.headers.get('Location')
         if (response.status >= 300 && response.status < 400 && location) {
             return { uri: location, expiresAt }
         }
-        const landed = typeof response.url === 'string' && response.url ? response.url : requested
-        if (/^https?:\/\//i.test(landed) && hostOf(landed) !== hostOf(requested)) {
+        const landed = typeof response.url === 'string' && response.url ? response.url : sent.url
+        if (/^https?:\/\//i.test(landed) && hostOf(landed) !== hostOf(sent.url)) {
             discardBody(response)
             return { uri: landed, expiresAt }
         }
         if (response.ok) {
             discardBody(response)
-            return { uri: requested, headers: authorizationHeaders() }
+            return { uri: sent.url, headers: { Authorization: `Bearer ${sent.accessToken}` } }
         }
         throw new ApiError(response.status, await errorBody(response), response.headers)
     })

@@ -29,7 +29,6 @@ export interface SessionIdentity {
     readonly userUuid: string
 }
 
-/** The content of one account's token slot. */
 export interface StoredSession {
     key: string
     identity: SessionIdentity
@@ -73,7 +72,6 @@ export function getSessionTokens(): SessionTokens | null {
     return current
 }
 
-/** The account key of the slot that the in-memory session belongs to. */
 export function getSessionAccountKey(): string | null {
     return activeKey
 }
@@ -243,31 +241,74 @@ function parseEnvelope(raw: string): { identity: SessionIdentity; tokens: Sessio
     }
 }
 
-type SlotRead = { kind: 'ok'; session: StoredSession } | { kind: 'absent' } | { kind: 'unreadable' }
+type SlotContent =
+    | { kind: 'ok'; session: StoredSession }
+    | { kind: 'absent' }
+    | { kind: 'foreign' }
+    | { kind: 'unreadable' }
 
 /**
- * `absent` covers a missing item and one whose envelope names another account, so a slot never pairs its token with
- * another account's host. `unreadable` is a storage error, such as a keychain that is still locked, which must not
- * cost the user the account.
+ * `missing`: no slot, or a slot whose envelope names another account, so a slot never pairs its token with another
+ * account's host. `unreadable`: storage failed, or the envelope has a shape this version cannot parse, such as one a
+ * later app version wrote. An unreadable slot must not cost the user the account.
  */
-async function readSlot(key: string): Promise<SlotRead> {
+export type AccountSlotRead = { kind: 'ok'; session: StoredSession } | { kind: 'missing' } | { kind: 'unreadable' }
+
+/**
+ * A rotated pair that its slot could not take because SecureStore failed. The server consumed `expect`, the refresh
+ * token the slot still holds, and a replay of it later revokes the whole token family, so the pair stays here until a
+ * read of the slot writes it.
+ */
+interface HeldPair {
+    owner: SessionIdentity
+    expect: string
+    tokens: SessionTokens
+}
+
+const heldPairs = new Map<string, HeldPair>()
+
+async function slotContent(key: string, raw: string | null): Promise<SlotContent> {
+    if (raw === null) {
+        return { kind: 'absent' }
+    }
+    const envelope = parseEnvelope(raw)
+    if (!envelope) {
+        return { kind: 'unreadable' }
+    }
+    const owner = await accountKey(envelope.identity.host, envelope.identity.userUuid)
+    return owner === key ? { kind: 'ok', session: { key, ...envelope } } : { kind: 'foreign' }
+}
+
+async function withHeldPair(key: string, slot: SlotContent): Promise<SlotContent> {
+    const held = heldPairs.get(key)
+    if (!held || slot.kind === 'unreadable') {
+        return slot
+    }
+    if (
+        slot.kind !== 'ok' ||
+        !sameIdentity(slot.session.identity, held.owner) ||
+        slot.session.tokens.refreshToken !== held.expect
+    ) {
+        heldPairs.delete(key)
+        return slot
+    }
+    try {
+        await writeItem(slotKey(key), storedSession(held.tokens, held.owner))
+        heldPairs.delete(key)
+    } catch {
+        // Still held for the next read.
+    }
+    return { kind: 'ok', session: { ...slot.session, tokens: held.tokens } }
+}
+
+async function readSlot(key: string): Promise<SlotContent> {
     let raw: string | null
     try {
         raw = await readItem(slotKey(key))
     } catch {
         return { kind: 'unreadable' }
     }
-    const session = await slotSession(key, raw)
-    return session ? { kind: 'ok', session } : { kind: 'absent' }
-}
-
-async function slotSession(key: string, raw: string | null): Promise<StoredSession | null> {
-    const envelope = raw === null ? null : parseEnvelope(raw)
-    if (!envelope) {
-        return null
-    }
-    const owner = await accountKey(envelope.identity.host, envelope.identity.userUuid)
-    return owner === key ? { key, ...envelope } : null
+    return withHeldPair(key, await slotContent(key, raw))
 }
 
 /** Null when the index is missing or malformed. Throws when storage fails, so a caller never rewrites it blind. */
@@ -300,15 +341,17 @@ function sameIdentity(a: SessionIdentity, b: SessionIdentity): boolean {
     return a.host === b.host && a.userUuid === b.userUuid && a.method === b.method && a.clientId === b.clientId
 }
 
-async function migrateLegacySession(index: AccountIndex | null): Promise<AccountIndex | null> {
+async function migrateLegacySession(
+    index: AccountIndex | null
+): Promise<{ index: AccountIndex | null; read: boolean }> {
     let raw: string | null
     try {
         raw = await readItem(LEGACY_SESSION_KEY)
     } catch {
-        return index
+        return { index, read: false }
     }
     if (raw === null) {
-        return index
+        return { index, read: true }
     }
     const envelope = parseEnvelope(raw)
     if (envelope) {
@@ -326,16 +369,18 @@ async function migrateLegacySession(index: AccountIndex | null): Promise<Account
     } catch {
         // The next launch moves it again, to the same slot.
     }
-    return index
+    return { index, read: true }
 }
 
 export interface LoadedAccounts {
     /** The account that was active at the last run. Null when none was, or when its slot is gone or unreadable. */
     active: StoredSession | null
-    /** The identity of every readable slot, the active one too. */
     stored: { key: string; identity: SessionIdentity }[]
-    /** Every account that still has a slot, readable or not. Null when the storage could not be read at all. */
+    /** Every account that still has a slot, readable or not. Null when the index could not be read. */
     keys: string[] | null
+    unreadable: string[]
+    /** False when a storage failure can hide the session: the index, the legacy item or the active slot did not read. */
+    complete: boolean
 }
 
 /**
@@ -344,34 +389,47 @@ export interface LoadedAccounts {
  */
 export async function loadAccounts(): Promise<LoadedAccounts> {
     return serializeStorage(async () => {
-        let loaded: LoadedAccounts = { active: null, stored: [], keys: null }
+        let loaded: LoadedAccounts = { active: null, stored: [], keys: null, unreadable: [], complete: false }
         try {
-            const index = await migrateLegacySession(await readIndex())
+            const { index, read: legacyRead } = await migrateLegacySession(await readIndex())
             const sessions: StoredSession[] = []
             const kept: string[] = []
+            const unreadable: string[] = []
+            const foreign: string[] = []
             for (const key of index?.keys ?? []) {
                 const slot = await readSlot(key)
                 if (slot.kind === 'ok') {
                     sessions.push(slot.session)
+                } else if (slot.kind === 'unreadable') {
+                    unreadable.push(key)
+                } else if (slot.kind === 'foreign') {
+                    foreign.push(key)
                 }
-                if (slot.kind !== 'absent') {
+                if (slot.kind === 'ok' || slot.kind === 'unreadable') {
                     kept.push(key)
                 }
             }
             const active = sessions.find((session) => session.key === index?.active) ?? null
             if (index && kept.length !== index.keys.length) {
-                for (const key of index.keys.filter((key) => !kept.includes(key))) {
+                // A slot that fails to parse stays, because a later app version may have written it. Only a verified
+                // owner mismatch is deleted.
+                for (const key of foreign) {
                     await deleteItem(slotKey(key)).catch(() => undefined)
                 }
-                await writeIndex(index.active !== null && kept.includes(index.active) ? index.active : null, kept)
+                await writeIndex(
+                    index.active !== null && kept.includes(index.active) ? index.active : null,
+                    kept
+                ).catch(() => undefined)
             }
             loaded = {
                 active,
                 stored: sessions.map((session) => ({ key: session.key, identity: session.identity })),
                 keys: kept,
+                unreadable,
+                complete: legacyRead && !(index?.active && unreadable.includes(index.active)),
             }
         } catch {
-            // Storage failed. The launch continues signed out and leaves every item for the next launch.
+            // The launch continues signed out and leaves every item for a later restore.
         }
         const { active } = loaded
         setSessionTokens(active?.tokens ?? null, active?.identity ?? null, active?.key ?? null)
@@ -379,45 +437,62 @@ export async function loadAccounts(): Promise<LoadedAccounts> {
     })
 }
 
-/** Loads the active account's session into memory. */
 export async function loadTokens(): Promise<SessionTokens | null> {
     return (await loadAccounts()).active?.tokens ?? null
 }
 
-/** One account's slot, or null when it is missing, unreadable or holds another account's session. */
-export async function readAccountSession(key: string): Promise<StoredSession | null> {
+export async function readAccountSession(key: string): Promise<AccountSlotRead> {
     return serializeStorage(async () => {
         const slot = await readSlot(key)
-        return slot.kind === 'ok' ? slot.session : null
+        return slot.kind === 'ok' || slot.kind === 'unreadable' ? slot : { kind: 'missing' }
     })
 }
 
+export interface WrittenSlot {
+    /** What the slot held, when it could be read. Its refresh token is the caller's to revoke. */
+    replaced: StoredSession | null
+    /** `kept`: what the slot held could not be read or put back, so the slot keeps the new tokens. */
+    undo: () => Promise<'restored' | 'kept'>
+}
+
 /**
- * Writes the slot of an account that has none in the index, before its session starts, so a storage failure leaves
- * the active session as it was. `undo` restores what the slot held before.
+ * Writes an account's slot before its session starts, so a storage failure leaves the active session as it was. A slot
+ * that cannot be read is still replaced, because a keystore that cannot decrypt an item can often write a new one.
  */
 export async function writeAccountSlot(
     key: string,
     tokens: SessionTokens,
     owner: SessionIdentity
-): Promise<{ replaced: StoredSession | null; undo: () => Promise<void> }> {
+): Promise<WrittenSlot> {
     return serializeStorage(async () => {
         let raw: string | null = null
+        let rawRead = true
         try {
             raw = await readItem(slotKey(key))
         } catch {
-            raw = null
+            rawRead = false
         }
-        const replaced = await slotSession(key, raw)
+        const before = rawRead ? await withHeldPair(key, await slotContent(key, raw)) : null
+        heldPairs.delete(key)
         await writeItem(slotKey(key), storedSession(tokens, owner))
         return {
-            replaced,
+            replaced: before?.kind === 'ok' ? before.session : null,
             undo: () =>
                 serializeStorage(async () => {
+                    if (!rawRead) {
+                        return 'kept'
+                    }
                     try {
-                        await (raw === null ? deleteItem(slotKey(key)) : writeItem(slotKey(key), raw))
+                        if (before?.kind === 'ok') {
+                            await writeItem(slotKey(key), storedSession(before.session.tokens, before.session.identity))
+                        } else if (raw === null) {
+                            await deleteItem(slotKey(key))
+                        } else {
+                            await writeItem(slotKey(key), raw)
+                        }
+                        return 'restored'
                     } catch {
-                        // The slot is not in the index, so no launch reads it.
+                        return 'kept'
                     }
                 }),
         }
@@ -450,56 +525,73 @@ export async function activateAccountSession(
     })
 }
 
-/** `session`: memory and slot hold the tokens. `stored`: only the slot does. `gone`: the account left the device. */
-export type RefreshedTokensResult = 'session' | 'stored' | 'gone'
+/**
+ * `session`: memory took the pair. `stored`: only the slot did. `held`: neither memory nor the slot did, and the pair
+ * waits for the slot's next read. `gone`: the account left the device or signed in again.
+ */
+export type RefreshedTokensResult = 'session' | 'stored' | 'held' | 'gone'
 
 /**
- * Stores tokens that a refresh rotated. The server consumed the refresh token in the slot, so the new pair belongs in
- * the same account's slot even when the user switched away while the refresh was in flight. Memory takes the pair only
- * while it still holds session `generation` of that account. The slot must still hold `used`, the refresh token the
- * refresh sent, so a refresh never overwrites a newer sign-in or a removed account.
+ * Stores tokens that a refresh rotated. The server consumed `used`, so the pair belongs in the same account's slot even
+ * when the user switched away. Memory takes it whenever it still holds `used` for that slot, whatever its generation,
+ * because memory would otherwise replay the consumed token later. The slot must still hold `used`, so a refresh never
+ * overwrites a newer sign-in or a removed account.
  */
 export async function saveRefreshedTokens({
     key,
     owner,
     used,
     tokens,
-    generation: expected,
 }: {
     key: string
     owner: SessionIdentity
     used: string
     tokens: SessionTokens
-    generation: number | null
 }): Promise<RefreshedTokensResult> {
-    const isSession = (): boolean => generation === expected && activeKey === key && current?.refreshToken === used
     return serializeStorage(async () => {
-        if (!isSession()) {
-            const slot = await readSlot(key)
-            if (
-                slot.kind !== 'ok' ||
-                !sameIdentity(slot.session.identity, owner) ||
-                slot.session.tokens.refreshToken !== used
-            ) {
-                return 'gone'
+        const slot = await readSlot(key)
+        const held = heldPairs.get(key)
+        if (slot.kind === 'absent' || slot.kind === 'foreign') {
+            return 'gone'
+        }
+        if (slot.kind === 'unreadable' && held && held.tokens.refreshToken !== used) {
+            return 'gone'
+        }
+        if (
+            slot.kind === 'ok' &&
+            (!sameIdentity(slot.session.identity, owner) || slot.session.tokens.refreshToken !== used)
+        ) {
+            return 'gone'
+        }
+        let written = false
+        if (slot.kind === 'ok') {
+            try {
+                await writeItem(slotKey(key), storedSession(tokens, owner))
+                heldPairs.delete(key)
+                written = true
+            } catch {
+                written = false
             }
         }
-        await writeItem(slotKey(key), storedSession(tokens, owner))
-        if (!isSession()) {
-            return 'stored'
+        if (!written) {
+            heldPairs.set(key, { owner, expect: heldPairs.get(key)?.expect ?? used, tokens })
         }
-        current = tokens
-        publishTokens('refresh')
-        return 'session'
+        if (activeKey === key && current?.refreshToken === used) {
+            current = tokens
+            publishTokens('refresh')
+            return 'session'
+        }
+        return written ? 'stored' : 'held'
     })
 }
 
 /**
  * Deletes an account's slot, then its index entry, so a failure between the two leaves an entry that the next launch
- * drops instead of a slot that no index lists. Memory stays as it is.
+ * drops instead of a slot that no index lists. Memory stays as it is. Resolves false when storage failed.
  */
-export async function forgetAccountSlot(key: string): Promise<void> {
-    await serializeStorage(async () => {
+export async function forgetAccountSlot(key: string): Promise<boolean> {
+    return serializeStorage(async () => {
+        heldPairs.delete(key)
         try {
             await deleteItem(slotKey(key))
             const index = await readIndex()
@@ -509,28 +601,9 @@ export async function forgetAccountSlot(key: string): Promise<void> {
                     index.keys.filter((existing) => existing !== key)
                 )
             }
+            return true
         } catch {
-            // A slot left behind holds a revoked or expired token, which the server rejects.
+            return false
         }
-    })
-}
-
-/**
- * Persists tokens as the active account's session without a new generation, for a session that `setSessionTokens`
- * started.
- */
-export async function saveTokens(tokens: SessionTokens, owner: SessionIdentity | null = identity): Promise<void> {
-    if (!owner) {
-        throw new Error('Session identity is required to persist credentials')
-    }
-    const key = await accountKey(owner.host, owner.userUuid)
-    await serializeStorage(async () => {
-        await writeItem(slotKey(key), storedSession(tokens, owner))
-        const index = await readIndex()
-        await writeIndex(key, [...(index?.keys ?? []), key])
-        current = tokens
-        identity = Object.freeze({ ...owner })
-        activeKey = key
-        publishTokens('refresh')
     })
 }

@@ -1,6 +1,8 @@
-import { apiJson, NotSignedInError } from '@/api/client'
+import * as SecureStore from 'expo-secure-store'
+
+import { apiJson, apiStream, NotSignedInError, SessionEndedError } from '@/api/client'
 import { queryClient } from '@/api/queryClient'
-import { type AnalyticsEvent, setAnalyticsClient } from '@/lib/analytics'
+import { type AnalyticsEvent, setAnalyticsClient, track } from '@/lib/analytics'
 
 import type { AccountRef } from './accountKey'
 import { accountKey } from './accountKey'
@@ -8,11 +10,19 @@ import {
     AccountAlreadyAddedError,
     AccountNeedsSignInError,
     addAccountRemovedTask,
+    addAccountSwitchTask,
+    addSwitchRollbackTask,
     installAuthProvider,
     refreshAccessToken,
     useAuthStore,
 } from './authStore'
-import { getSessionTokens, sessionGeneration, setSessionTokens } from './tokens'
+import {
+    getSessionTokens,
+    onSessionTokensChanged,
+    readAccountSession,
+    sessionGeneration,
+    setSessionTokens,
+} from './tokens'
 
 jest.mock('@react-native-async-storage/async-storage', () =>
     require('@react-native-async-storage/async-storage/jest/async-storage-mock')
@@ -31,8 +41,15 @@ jest.mock('expo-auth-session', () => ({
     makeRedirectUri: () => 'posthog://callback',
 }))
 const mockSecureItems = new Map<string, string>()
+/** Items whose read throws, as a keychain does before the first unlock. */
+const mockUnreadable = new Set<string>()
 jest.mock('expo-secure-store', () => ({
-    getItemAsync: async (key: string) => mockSecureItems.get(key) ?? null,
+    getItemAsync: async (key: string) => {
+        if (mockUnreadable.has(key)) {
+            throw new Error('User interaction is not allowed.')
+        }
+        return mockSecureItems.get(key) ?? null
+    },
     setItemAsync: async (key: string, value: string) => {
         mockSecureItems.set(key, value)
     },
@@ -50,6 +67,8 @@ const EU = 'https://eu.posthog.com'
 const CLIENT = 'example-client'
 // First-party access tokens last a week, so a switch starts no foreground refresh on its own.
 const WEEK_S = 7 * 24 * 3600
+const REUSE_WINDOW_MS = 2 * 60_000
+const ISSUE_PATH = '/api/projects/2/error_tracking/issues/issue-1/'
 
 interface Sent {
     url: string
@@ -57,29 +76,63 @@ interface Sent {
     credentials: string[]
 }
 
-/** A PostHog instance per host that rotates refresh tokens and knows which user owns each token. */
+interface Hold {
+    reached: () => void
+    response: Promise<Response>
+}
+
+/**
+ * A PostHog instance per host that rotates refresh tokens and knows which user owns each token. A rotated refresh
+ * token replayed within two minutes gets the same pair again. A later replay revokes the whole token family.
+ */
 const server = {
     browserUser: 'ada',
     expiresIn: WEEK_S,
     unreachable: false,
-    owners: new Map<string, { host: string; user: string }>(),
+    owners: new Map<string, { host: string; user: string; family: string }>(),
     refused: new Set<string>(),
+    rotations: new Map<string, { at: number; access: string; refresh: string }>(),
+    revokedFamilies: new Set<string>(),
+    replayed: [] as string[],
     sent: [] as Sent[],
     issued: 0,
     heldRefresh: null as null | { reached: () => void; release: Promise<void> },
+    holds: new Map<string, Hold>(),
+    onRevoke: null as null | ((token: string) => Promise<void>),
 }
 
 function json(status: number, body: unknown): Response {
     return new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })
 }
 
-function issue(host: string, user: string): Response {
+function issue(
+    host: string,
+    user: string,
+    family = `family-${server.issued + 1}`
+): { access: string; refresh: string } {
     server.issued += 1
     const access = `${user}-access-${server.issued}`
     const refresh = `${user}-refresh-${server.issued}`
-    server.owners.set(access, { host, user })
-    server.owners.set(refresh, { host, user })
+    server.owners.set(access, { host, user, family })
+    server.owners.set(refresh, { host, user, family })
+    return { access, refresh }
+}
+
+function tokenResponse({ access, refresh }: { access: string; refresh: string }): Response {
     return json(200, { access_token: access, refresh_token: refresh, expires_in: server.expiresIn })
+}
+
+function live(token: string | undefined, origin: string): { host: string; user: string } | null {
+    const owner = token ? server.owners.get(token) : undefined
+    if (
+        !owner ||
+        owner.host !== origin ||
+        server.refused.has(token as string) ||
+        server.revokedFamilies.has(owner.family)
+    ) {
+        return null
+    }
+    return owner
 }
 
 async function answer(url: string, init: RequestInit | undefined): Promise<Response> {
@@ -98,15 +151,25 @@ async function answer(url: string, init: RequestInit | undefined): Promise<Respo
         throw new TypeError('Network request failed')
     }
     if (pathname === '/oauth/token' && fields.grant_type === 'authorization_code') {
-        return issue(origin, server.browserUser)
+        return tokenResponse(issue(origin, server.browserUser))
     }
     if (pathname === '/oauth/token') {
-        const owner = server.owners.get(fields.refresh_token)
-        if (!owner || owner.host !== origin || server.refused.has(fields.refresh_token)) {
+        const owner = live(fields.refresh_token, origin)
+        if (!owner) {
             return json(400, { error: 'invalid_grant' })
         }
-        server.refused.add(fields.refresh_token)
-        const rotated = issue(origin, owner.user)
+        const rotation = server.rotations.get(fields.refresh_token)
+        if (rotation) {
+            server.replayed.push(fields.refresh_token)
+            if (Date.now() - rotation.at > REUSE_WINDOW_MS) {
+                server.revokedFamilies.add(server.owners.get(fields.refresh_token)?.family as string)
+                return json(400, { error: 'invalid_grant' })
+            }
+            return tokenResponse(rotation)
+        }
+        const pair = issue(origin, owner.user, server.owners.get(fields.refresh_token)?.family)
+        server.rotations.set(fields.refresh_token, { at: Date.now(), ...pair })
+        const rotated = tokenResponse(pair)
         // The server has rotated the pair; only its response is late.
         if (server.heldRefresh) {
             const held = server.heldRefresh
@@ -118,13 +181,14 @@ async function answer(url: string, init: RequestInit | undefined): Promise<Respo
     }
     if (pathname === '/oauth/revoke') {
         server.refused.add(fields.token)
+        await server.onRevoke?.(fields.token)
         return json(200, {})
     }
+    const owner = live(bearer, origin)
+    if (!owner) {
+        return json(401, { detail: 'expired' })
+    }
     if (pathname === '/api/users/@me/') {
-        const owner = bearer ? server.owners.get(bearer) : undefined
-        if (!owner || owner.host !== origin || server.refused.has(bearer as string)) {
-            return json(401, { detail: 'expired' })
-        }
         return json(200, {
             id: 7,
             uuid: owner.user,
@@ -132,10 +196,16 @@ async function answer(url: string, init: RequestInit | undefined): Promise<Respo
             email: `${owner.user}@example.com`,
             first_name: '',
             last_name: '',
-            team: null,
-            organization: null,
-            organizations: [],
+            team: { id: 2 },
+            organization: { id: `${owner.user}-org`, name: 'Example org', teams: [{ id: 2, name: 'Web' }] },
+            organizations: [{ id: `${owner.user}-org`, name: 'Example org' }],
         })
+    }
+    const hold = server.holds.get(pathname)
+    if (hold) {
+        server.holds.delete(pathname)
+        hold.reached()
+        return hold.response
     }
     return json(404, {})
 }
@@ -156,9 +226,25 @@ function holdNextRefresh(): { reached: Promise<void>; release: () => void } {
     return { reached: reachedPromise, release: () => release() }
 }
 
-async function signIn(host: string, user: string): Promise<string> {
+/** Holds the next request to `pathname` until `release` answers it. */
+function holdRequest(pathname: string): { reached: Promise<void>; release: (response: Response) => void } {
+    let release: (response: Response) => void = () => undefined
+    let reached: () => void = () => undefined
+    const reachedPromise = new Promise<void>((resolve) => {
+        reached = resolve
+    })
+    server.holds.set(pathname, {
+        reached,
+        response: new Promise<Response>((resolve) => {
+            release = resolve
+        }),
+    })
+    return { reached: reachedPromise, release: (response) => release(response) }
+}
+
+async function signIn(host: string, user: string, options?: { reauth?: string }): Promise<string> {
     server.browserUser = user
-    await useAuthStore.getState().signIn(host, CLIENT)
+    await useAuthStore.getState().signIn(host, CLIENT, options)
     return accountKey(host, user)
 }
 
@@ -175,6 +261,25 @@ function ownerHostOf(token: string): string | undefined {
     return server.owners.get(token)?.host
 }
 
+function lastIssued(prefix: string): string {
+    return [...server.owners.keys()].filter((token) => token.startsWith(prefix)).at(-1) as string
+}
+
+function recordAnalytics(): string[] {
+    const calls: string[] = []
+    setAnalyticsClient({
+        capture: (event: AnalyticsEvent, properties) =>
+            calls.push(properties ? `capture ${event} ${JSON.stringify(properties)}` : `capture ${event}`),
+        identify: (distinctId) => calls.push(`identify ${distinctId}`),
+        reset: () => calls.push('reset'),
+    })
+    return calls
+}
+
+async function tick(): Promise<void> {
+    await new Promise((resolve) => setTimeout(resolve, 10))
+}
+
 describe('several accounts on one device', () => {
     const removed: AccountRef[] = []
     const stopRemoved = addAccountRemovedTask((account) => {
@@ -187,7 +292,9 @@ describe('several accounts on one device', () => {
 
     beforeEach(() => {
         globalThis.fetch = jest.fn(answer) as unknown as typeof fetch
+        ;(jest.requireMock('expo/fetch') as { fetch: jest.Mock }).fetch.mockImplementation(answer)
         mockSecureItems.clear()
+        mockUnreadable.clear()
         mockPromptOptions.length = 0
         removed.length = 0
         Object.assign(server, {
@@ -195,10 +302,15 @@ describe('several accounts on one device', () => {
             expiresIn: WEEK_S,
             unreachable: false,
             heldRefresh: null,
+            onRevoke: null,
             sent: [],
+            replayed: [],
         })
         server.owners.clear()
         server.refused.clear()
+        server.rotations.clear()
+        server.revokedFamilies.clear()
+        server.holds.clear()
         queryClient.clear()
         setSessionTokens(null)
         useAuthStore.setState({
@@ -211,27 +323,38 @@ describe('several accounts on one device', () => {
             projectId: null,
             accounts: [],
             activeAccountKey: null,
+            unreadableAccountKeys: [],
+            pendingSlotRemovals: [],
             freshLoginNext: false,
             signedOutReason: null,
+            expiredAccountKey: null,
         })
         installAuthProvider()
     })
 
     afterEach(() => {
         setAnalyticsClient(null)
+        jest.useRealTimers()
     })
 
     async function expireActiveSession(): Promise<void> {
         server.refused.add(getSessionTokens()?.accessToken as string)
         server.refused.add(getSessionTokens()?.refreshToken as string)
         await expect(apiJson('/api/users/@me/')).rejects.toBeInstanceOf(NotSignedInError)
+        // The request ends before the session-end tasks, so its own continuation runs under the account it belonged to.
+        for (let ticks = 0; useAuthStore.getState().status !== 'signed_out'; ticks += 1) {
+            if (ticks > 100) {
+                throw new Error('The expired session did not end')
+            }
+            await tick()
+        }
     }
 
     test.each([
         {
             name: 'with no account and no sign-out',
             before: async (): Promise<void> => undefined,
-            fresh: false,
+            options: undefined,
             ephemeral: false,
         },
         {
@@ -239,13 +362,13 @@ describe('several accounts on one device', () => {
             before: async (): Promise<void> => {
                 await signIn(EU, 'bob')
             },
-            fresh: false,
+            options: undefined,
             ephemeral: true,
         },
         {
             name: 'when the user asks for a different account',
             before: async (): Promise<void> => undefined,
-            fresh: true,
+            options: { freshLogin: true },
             ephemeral: true,
         },
         {
@@ -254,7 +377,7 @@ describe('several accounts on one device', () => {
                 await signIn(US, 'ada')
                 await useAuthStore.getState().signOut()
             },
-            fresh: false,
+            options: undefined,
             ephemeral: true,
         },
         {
@@ -265,15 +388,23 @@ describe('several accounts on one device', () => {
                 await signIn(US, 'ada')
                 await expireActiveSession()
             },
-            fresh: false,
+            options: undefined,
             ephemeral: false,
         },
-    ])('a sign-in $name keeps the browser session out: $ephemeral', async ({ before, fresh, ephemeral }) => {
+        {
+            name: 'that signs the only account in again',
+            before: async (): Promise<void> => {
+                await signIn(US, 'ada')
+            },
+            options: { reauth: Buffer.from(JSON.stringify([US, 'ada'])).toString('hex') },
+            ephemeral: false,
+        },
+    ])('a sign-in $name keeps the browser session out: $ephemeral', async ({ before, options, ephemeral }) => {
         await before()
         mockPromptOptions.length = 0
         server.browserUser = 'ada'
 
-        await useAuthStore.getState().signIn(US, CLIENT, fresh ? { freshLogin: true } : undefined)
+        await useAuthStore.getState().signIn(US, CLIENT, options)
 
         expect(mockPromptOptions).toEqual([{ preferEphemeralSession: ephemeral }])
     })
@@ -317,58 +448,171 @@ describe('several accounts on one device', () => {
         expect(server.sent.length).toBeGreaterThan(4)
     })
 
-    test('a switch reports under the account it leaves, then resets and identifies the next one', async () => {
+    test('no request gets the token while the session fields show another host', async () => {
+        await signIn(EU, 'bob')
+        const sent = server.sent.length
+        useAuthStore.setState({ host: US })
+
+        await expect(apiJson('/api/users/@me/')).rejects.toBeInstanceOf(NotSignedInError)
+
+        expect(server.sent.slice(sent)).toEqual([])
+    })
+
+    test('every event around a switch: the leaving user, a reset before activation, then the next user', async () => {
         const ada = await signIn(US, 'ada')
         await signIn(EU, 'bob')
-        const calls: string[] = []
-        setAnalyticsClient({
-            capture: (event: AnalyticsEvent, properties) => {
-                if (event === 'mobile_account_switched') {
-                    calls.push(`capture ${event} ${JSON.stringify(properties)}`)
-                }
-            },
-            identify: (distinctId) => calls.push(`identify ${distinctId}`),
-            reset: () => calls.push('reset'),
+        const calls = recordAnalytics()
+        // Token listeners run during activation, as the home screen widget's sync does.
+        const stopListener = onSessionTokensChanged((change) => {
+            if (change === 'session') {
+                track('mobile_widget_credentials_synced', { reason: 'sign_in' })
+            }
         })
 
-        await useAuthStore.getState().switchAccount(ada, { from: 'nav_menu' })
+        try {
+            await useAuthStore.getState().switchAccount(ada, { from: 'nav_menu' })
+        } finally {
+            stopListener()
+        }
 
         expect(calls).toEqual([
             'capture mobile_account_switched {"from":"nav_menu","account_count":2}',
             'reset',
+            'capture mobile_widget_credentials_synced {"reason":"sign_in"}',
             'identify ada-distinct',
         ])
     })
 
-    test.each([
-        { name: 'the user switched away', removeAccount: false },
-        { name: 'the account was signed out', removeAccount: true },
-    ])('a refresh that resolves after $name never reaches another account', async ({ removeAccount }) => {
+    test('a switch that fails to activate gives the session, its analytics, push and refreshed token back', async () => {
+        jest.useFakeTimers({ advanceTimers: true })
         const ada = await signIn(US, 'ada')
         const bob = await signIn(EU, 'bob')
-        await useAuthStore.getState().switchAccount(ada, { from: 'settings' })
+        const bobRefresh = getSessionTokens()?.refreshToken as string
+        const calls = recordAnalytics()
+        const rolledBack: AccountRef[] = []
+        const stopRollback = addSwitchRollbackTask((account) => {
+            rolledBack.push(account)
+        })
+        const held = holdNextRefresh()
+        const refresh = refreshAccessToken()
+        await held.reached
+        const write = jest.spyOn(SecureStore, 'setItemAsync').mockImplementationOnce(async (key) => {
+            throw new Error(`Storage unavailable for ${key}`)
+        })
+
+        try {
+            await expect(useAuthStore.getState().switchAccount(ada, { from: 'settings' })).rejects.toThrow(
+                'Storage unavailable for posthog_mobile_accounts'
+            )
+            held.release()
+            await expect(refresh).resolves.toBeNull()
+        } finally {
+            write.mockRestore()
+            stopRollback()
+        }
+
+        expect(useAuthStore.getState()).toMatchObject({ status: 'signed_in', activeAccountKey: bob })
+        expect(calls).toEqual([
+            'capture mobile_account_switched {"from":"settings","account_count":2}',
+            'reset',
+            'identify bob-distinct',
+        ])
+        expect(rolledBack).toEqual([{ key: bob, host: EU, userUuid: 'bob' }])
+        // The server consumed the refresh token, so memory must hold the rotated pair that the slot holds.
+        const rotated = server.rotations.get(bobRefresh)?.refresh
+        expect(getSessionTokens()?.refreshToken).toBe(rotated)
+        expect(slot(bob)?.tokens.refreshToken).toBe(rotated)
+        jest.setSystemTime(Date.now() + 2 * REUSE_WINDOW_MS)
+        server.refused.add(getSessionTokens()?.accessToken as string)
+        await expect(apiJson('/api/users/@me/')).resolves.toMatchObject({ uuid: 'bob' })
+        expect(server.replayed).toEqual([])
+    })
+
+    test('a switch back to an account waits for its refresh, so the switch never replays a consumed token', async () => {
+        jest.useFakeTimers({ advanceTimers: true })
+        const bob = await signIn(EU, 'bob')
+        server.expiresIn = 30
+        const ada = await signIn(US, 'ada')
+        const adaRefresh = getSessionTokens()?.refreshToken as string
+        server.expiresIn = WEEK_S
         const bobSlot = slot(bob)
         const held = holdNextRefresh()
         const refresh = refreshAccessToken()
         await held.reached
-
         await useAuthStore.getState().switchAccount(bob, { from: 'settings' })
-        if (removeAccount) {
-            await useAuthStore.getState().signOutAccount(ada)
-        }
+        jest.setSystemTime(Date.now() + 2 * REUSE_WINDOW_MS)
+
+        const switching = useAuthStore.getState().switchAccount(ada, { from: 'settings' })
+        await tick()
         held.release()
 
+        await expect(switching).resolves.toBeUndefined()
         await expect(refresh).resolves.toBeNull()
-        const rotated = [...server.owners.keys()].filter((token) => token.startsWith('ada-refresh-')).at(-1) as string
-        expect(getSessionTokens()?.accessToken).toBe(bobSlot?.tokens.accessToken)
+        const rotated = server.rotations.get(adaRefresh)?.refresh
+        expect(server.replayed).toEqual([])
         expect(slot(bob)).toEqual(bobSlot)
-        expect(slot(ada)?.tokens.refreshToken ?? null).toBe(removeAccount ? null : rotated)
-        expect(revoked().includes(rotated)).toBe(removeAccount)
-        if (!removeAccount) {
-            // The rotated pair works, so the account keeps its token family.
-            await useAuthStore.getState().switchAccount(ada, { from: 'settings' })
-            await expect(apiJson('/api/users/@me/')).resolves.toMatchObject({ uuid: 'ada' })
+        expect(slot(ada)?.tokens.refreshToken).toBe(rotated)
+        expect(getSessionTokens()?.refreshToken).toBe(rotated)
+        await expect(apiJson('/api/users/@me/')).resolves.toMatchObject({ uuid: 'ada' })
+    })
+
+    test.each([
+        { name: 'the active account', active: true },
+        { name: 'an inactive account', active: false },
+    ])('signing out of $name waits for its refresh and revokes the rotated token', async ({ active }) => {
+        const ada = await signIn(US, 'ada')
+        const adaRefresh = getSessionTokens()?.refreshToken as string
+        const bob = await signIn(EU, 'bob')
+        await useAuthStore.getState().switchAccount(ada, { from: 'settings' })
+        const held = holdNextRefresh()
+        const refresh = refreshAccessToken()
+        await held.reached
+        if (!active) {
+            await useAuthStore.getState().switchAccount(bob, { from: 'settings' })
         }
+        const rotated = server.rotations.get(adaRefresh)?.refresh as string
+        // A sign out that revokes before the refresh lands: the rotated pair reaches the slot before the slot is deleted.
+        server.onRevoke = async () => {
+            held.release()
+            for (let ticks = 0; slot(ada)?.tokens.refreshToken !== rotated && ticks < 50; ticks += 1) {
+                await tick()
+            }
+        }
+
+        const signingOut = useAuthStore.getState().signOutAccount(ada)
+        await tick()
+        held.release()
+        await signingOut
+        await refresh
+
+        expect(revoked()).toContain(rotated)
+        expect(slot(ada)).toBeNull()
+        expect(useAuthStore.getState()).toMatchObject({ status: 'signed_in', activeAccountKey: bob })
+    })
+
+    test('a refresh whose slot cannot be read keeps the rotated pair for the slot and never revokes it', async () => {
+        server.expiresIn = 30
+        const ada = await signIn(US, 'ada')
+        const adaRefresh = getSessionTokens()?.refreshToken as string
+        server.expiresIn = WEEK_S
+        await signIn(EU, 'bob')
+        const held = holdNextRefresh()
+
+        const switching = useAuthStore.getState().switchAccount(ada, { from: 'settings' })
+        await held.reached
+        mockUnreadable.add(`posthog_mobile_session.${ada}`)
+        held.release()
+        await switching
+
+        const rotated = server.rotations.get(adaRefresh)?.refresh as string
+        expect(revoked()).not.toContain(rotated)
+        expect(useAuthStore.getState()).toMatchObject({ status: 'signed_in', activeAccountKey: ada })
+        expect(useAuthStore.getState().accounts.find((account) => account.key === ada)?.needsSignIn).toBe(false)
+        expect(getSessionTokens()?.refreshToken).toBe(rotated)
+        expect(slot(ada)?.tokens.refreshToken).toBe(adaRefresh)
+        mockUnreadable.clear()
+        await expect(readAccountSession(ada)).resolves.toMatchObject({ session: { tokens: { refreshToken: rotated } } })
+        expect(slot(ada)?.tokens.refreshToken).toBe(rotated)
     })
 
     test.each([
@@ -403,6 +647,25 @@ describe('several accounts on one device', () => {
         expect(useAuthStore.getState().accounts.find((account) => account.key === ada)?.needsSignIn).toBe(needsSignIn)
     })
 
+    test('a switch to an account whose slot cannot be read fails and keeps the account', async () => {
+        const ada = await signIn(US, 'ada')
+        const bob = await signIn(EU, 'bob')
+        const adaSlot = slot(ada)
+        mockUnreadable.add(`posthog_mobile_session.${ada}`)
+
+        await expect(useAuthStore.getState().switchAccount(ada, { from: 'settings' })).rejects.toThrow(
+            "Couldn't read the sign-in for ada@example.com on this phone."
+        )
+
+        expect(useAuthStore.getState()).toMatchObject({ activeAccountKey: bob, unreadableAccountKeys: [ada] })
+        expect(useAuthStore.getState().accounts.find((account) => account.key === ada)?.needsSignIn).toBe(false)
+        expect(slot(ada)).toEqual(adaSlot)
+        expect(removed).toEqual([])
+        mockUnreadable.clear()
+        await useAuthStore.getState().switchAccount(ada, { from: 'settings' })
+        expect(useAuthStore.getState()).toMatchObject({ activeAccountKey: ada, unreadableAccountKeys: [] })
+    })
+
     test('adding an account that is already on the device revokes the new token and changes nothing', async () => {
         const ada = await signIn(US, 'ada')
         const adaRefresh = getSessionTokens()?.refreshToken
@@ -414,12 +677,55 @@ describe('several accounts on one device', () => {
 
         await expect(adding).rejects.toBeInstanceOf(AccountAlreadyAddedError)
         await expect(adding).rejects.toMatchObject({ key: ada, email: 'ada@example.com', host: US })
-        const duplicate = [...server.owners.keys()].filter((token) => token.startsWith('ada-refresh-')).at(-1)
+        const duplicate = lastIssued('ada-refresh-')
         expect(revoked()).toEqual([duplicate])
         expect(duplicate).not.toBe(adaRefresh)
         expect(slot(ada)?.tokens.refreshToken).toBe(adaRefresh)
         expect(sessionGeneration()).toBe(generation)
         expect(useAuthStore.getState()).toMatchObject({ activeAccountKey: bob, accounts: before })
+    })
+
+    test('while signed out, a sign-in to an account that is on the device replaces its slot and activates it', async () => {
+        const ada = await signIn(US, 'ada')
+        const adaRefresh = getSessionTokens()?.refreshToken as string
+        await signIn(EU, 'bob')
+        await expireActiveSession()
+
+        await signIn(US, 'ada')
+
+        const fresh = lastIssued('ada-refresh-')
+        expect(useAuthStore.getState()).toMatchObject({ status: 'signed_in', activeAccountKey: ada })
+        expect(slot(ada)?.tokens.refreshToken).toBe(fresh)
+        expect(revoked()).toContain(adaRefresh)
+        expect(revoked()).not.toContain(fresh)
+    })
+
+    test('signing the active account in again keeps it active and leaves the other accounts alone', async () => {
+        const ada = await signIn(US, 'ada')
+        const adaSlot = slot(ada)
+        const bob = await signIn(EU, 'bob')
+        const bobRefresh = getSessionTokens()?.refreshToken as string
+        const generation = sessionGeneration()
+        const switched: AccountRef[] = []
+        const stopSwitch = addAccountSwitchTask((next) => {
+            switched.push(next)
+        })
+
+        try {
+            await signIn(EU, 'bob', { reauth: bob })
+        } finally {
+            stopSwitch()
+        }
+
+        const fresh = lastIssued('bob-refresh-')
+        expect(useAuthStore.getState()).toMatchObject({ status: 'signed_in', activeAccountKey: bob })
+        expect(sessionGeneration()).not.toBe(generation)
+        expect(getSessionTokens()?.refreshToken).toBe(fresh)
+        expect(slot(bob)?.tokens.refreshToken).toBe(fresh)
+        expect(revoked()).toEqual([bobRefresh])
+        expect(slot(ada)).toEqual(adaSlot)
+        expect(switched).toEqual([])
+        expect(removed).toEqual([])
     })
 
     test('signing out of the active account removes only it and switches to the other', async () => {
@@ -465,7 +771,24 @@ describe('several accounts on one device', () => {
         })
     })
 
-    test('an expired active account keeps the other accounts and activates none of them', async () => {
+    test('a sign out whose slot delete fails records the removal for the next launch', async () => {
+        const ada = await signIn(US, 'ada')
+        await signIn(EU, 'bob')
+        const remove = jest
+            .spyOn(SecureStore, 'deleteItemAsync')
+            .mockRejectedValueOnce(new Error('Storage unavailable'))
+
+        try {
+            await useAuthStore.getState().signOutAccount(ada)
+        } finally {
+            remove.mockRestore()
+        }
+
+        expect(useAuthStore.getState().pendingSlotRemovals).toEqual([ada])
+        expect(useAuthStore.getState().accounts.some((account) => account.key === ada)).toBe(false)
+    })
+
+    test('an expired active account keeps only its name, activates no other account, and its sign out clears the notice', async () => {
         const ada = await signIn(US, 'ada')
         const adaRefresh = getSessionTokens()?.refreshToken
         const bob = await signIn(EU, 'bob')
@@ -475,17 +798,84 @@ describe('several accounts on one device', () => {
         expect(useAuthStore.getState()).toMatchObject({
             status: 'signed_out',
             signedOutReason: 'expired',
+            expiredAccountKey: bob,
             activeAccountKey: null,
         })
         expect(useAuthStore.getState().accounts).toEqual([
-            expect.objectContaining({ key: ada, needsSignIn: false }),
-            expect.objectContaining({ key: bob, needsSignIn: true }),
+            expect.objectContaining({ key: ada, needsSignIn: false, projects: [expect.objectContaining({ id: 2 })] }),
+            {
+                key: bob,
+                host: EU,
+                clientId: CLIENT,
+                method: 'oauth',
+                region: 'eu',
+                userUuid: 'bob',
+                user: { uuid: 'bob', distinctId: 'bob-distinct', email: 'bob@example.com', name: 'bob@example.com' },
+                organizations: [],
+                projects: [],
+                projectId: null,
+                needsSignIn: true,
+                lastUsedAt: expect.any(Number),
+            },
         ])
         expect(removed).toEqual([{ key: bob, host: EU, userUuid: 'bob' }])
         expect(slot(bob)).toBeNull()
         expect(slot(ada)?.tokens.refreshToken).toBe(adaRefresh)
 
+        await useAuthStore.getState().signOutAccount(bob)
+        expect(useAuthStore.getState()).toMatchObject({ signedOutReason: null, expiredAccountKey: null })
         await useAuthStore.getState().switchAccount(ada, { from: 'sign_in' })
         expect(useAuthStore.getState()).toMatchObject({ status: 'signed_in', activeAccountKey: ada })
+    })
+
+    test.each([
+        { name: 'its response', status: 200 },
+        { name: 'its failure', status: 500 },
+    ])('$name after a switch writes nothing into the next session', async ({ status }) => {
+        const ada = await signIn(US, 'ada')
+        await signIn(US, 'bob')
+        const key = ['issue', US, 2, 'issue-1']
+        queryClient.setQueryData(key, { owner: 'bob', status: 'active' })
+        const calls = recordAnalytics()
+        const held = holdRequest(ISSUE_PATH)
+        const settled = (async (): Promise<void> => {
+            const previous = queryClient.getQueryData(key)
+            queryClient.setQueryData(key, { owner: 'bob', status: 'resolved' })
+            try {
+                queryClient.setQueryData(key, await apiJson(ISSUE_PATH, { method: 'PATCH' }))
+                track('mobile_issue_status_changed', { to: 'resolved' })
+            } catch {
+                queryClient.setQueryData(key, previous)
+                track('mobile_handoff_failed', { reason: 'unknown' })
+            }
+        })()
+        await held.reached
+
+        await useAuthStore.getState().switchAccount(ada, { from: 'settings' })
+        held.release(json(status, { owner: 'bob', status: 'resolved' }))
+        await settled
+
+        expect(queryClient.getQueryData(key)).toBeUndefined()
+        expect(calls.slice(calls.indexOf('reset'))).toEqual(['reset', 'identify ada-distinct'])
+    })
+
+    test('a stream of the earlier session ends at the switch', async () => {
+        const ada = await signIn(US, 'ada')
+        await signIn(EU, 'bob')
+        holdRequest('/api/projects/2/conversations/')
+        const stream = apiStream('/api/projects/2/conversations/', { method: 'POST' })
+        let outcome: unknown = null
+        stream.then(
+            () => {
+                outcome = 'open'
+            },
+            (error: unknown) => {
+                outcome = error
+            }
+        )
+
+        await useAuthStore.getState().switchAccount(ada, { from: 'settings' })
+
+        expect(outcome).toBeInstanceOf(SessionEndedError)
     })
 })

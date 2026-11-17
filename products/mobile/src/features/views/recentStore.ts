@@ -34,7 +34,7 @@ interface RecentState {
 }
 
 export const useDeviceRecent = create<RecentState>()(
-    persist(
+    persist<RecentState, [], [], Pick<RecentState, 'accounts' | 'legacy'>>(
         (set, get) => ({
             accounts: {},
             legacy: null,
@@ -65,7 +65,7 @@ export const useDeviceRecent = create<RecentState>()(
             // Version 0 kept one map for whoever was signed in.
             migrate: (persisted, version) => {
                 const entries = (persisted as { entries?: ProjectRecents } | null)?.entries
-                return { accounts: {}, legacy: version === 0 && entries ? entries : null } as unknown as RecentState
+                return { accounts: {}, legacy: version === 0 && entries ? entries : null }
             },
         }
     )

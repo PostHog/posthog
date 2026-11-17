@@ -74,6 +74,22 @@ export class AccountNeedsSignInError extends Error {
     }
 }
 
+/** The account's slot could not be read, such as before the first unlock. The account and its slot stay as they are. */
+export class AccountUnavailableError extends Error {
+    readonly key: string
+
+    constructor(account: Pick<StoredAccount, 'key' | 'host' | 'user'>) {
+        const email = account.user?.email
+        super(
+            email
+                ? `Couldn't read the sign-in for ${email} on this phone. Try again, or sign in again.`
+                : "Couldn't read the sign-in for this account on this phone. Try again, or sign in again."
+        )
+        this.name = 'AccountUnavailableError'
+        this.key = account.key
+    }
+}
+
 export type SignInFailureReason =
     | Exclude<OAuthErrorKind, 'session_expired'>
     | 'invalid_input'

@@ -120,7 +120,7 @@ export function SignInForm({ mode, reauth, onCancel }: SignInFormProps): ReactEl
             after_expiry: signedOutReason === 'expired',
         })
         try {
-            await signIn(host, selfHosted ? clientId : (selected?.clientId ?? ''))
+            await signIn(host, selfHosted ? clientId : (selected?.clientId ?? ''), { reauth: reauth?.key })
             if (useDemoMode.getState().enabled) {
                 track('mobile_demo_ended', { from: 'sign_in' })
             }

@@ -75,22 +75,17 @@ describe('account copy', () => {
 
     test.each<[string, Parameters<typeof sessionEndedAccount>[0], StoredAccount | null]>([
         [
-            'the expired account was the last one active',
+            'the expired account by its key, although another account was used later',
             {
                 status: 'signed_out',
-                signedOutReason: 'expired',
-                accounts: [US_ACCOUNT, { ...SELF_HOSTED_ACCOUNT, lastUsedAt: 9 }],
+                expiredAccountKey: SELF_HOSTED_ACCOUNT.key,
+                accounts: [{ ...US_ACCOUNT, needsSignIn: true, lastUsedAt: 9 }, SELF_HOSTED_ACCOUNT],
             },
-            { ...SELF_HOSTED_ACCOUNT, lastUsedAt: 9 },
+            SELF_HOSTED_ACCOUNT,
         ],
         [
-            'an older expired account is not the one that just ended',
-            { status: 'signed_out', signedOutReason: 'expired', accounts: [US_ACCOUNT, SELF_HOSTED_ACCOUNT] },
-            null,
-        ],
-        [
-            'a sign out on purpose shows no session-ended screen',
-            { status: 'signed_out', signedOutReason: null, accounts: [{ ...SELF_HOSTED_ACCOUNT, lastUsedAt: 9 }] },
+            'no expired account, after a sign out on purpose',
+            { status: 'signed_out', expiredAccountKey: null, accounts: [SELF_HOSTED_ACCOUNT] },
             null,
         ],
     ])('sessionEndedAccount: %s', (_name, state, expected) => {

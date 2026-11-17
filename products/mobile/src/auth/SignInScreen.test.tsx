@@ -27,7 +27,7 @@ jest.mock('expo-router', () => ({
 }))
 
 const INITIAL_AUTH = useAuthStore.getState()
-const ENDED = { ...SELF_HOSTED_ACCOUNT, lastUsedAt: 9 }
+const ENDED = SELF_HOSTED_ACCOUNT
 
 function setAuth(state: Partial<AuthState>): void {
     act(() => useAuthStore.setState(state))
@@ -105,6 +105,7 @@ describe('SignInScreen', () => {
         setAuth({
             status: 'signed_out',
             signedOutReason: 'expired',
+            expiredAccountKey: ENDED.key,
             accounts: [US_ACCOUNT, EU_ACCOUNT, ENDED],
             activeAccountKey: null,
             switchAccount,

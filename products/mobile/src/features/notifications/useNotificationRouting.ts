@@ -35,6 +35,8 @@ const handled = new Set<string>()
 const inFlight = new Set<string>()
 /** Reminder taps that already started a switch to their account, so a later judgment never switches again. */
 const accountSwitches = new Set<string>()
+// A tap judged again after a switch is still one open.
+const opened = new Set<string>()
 
 const INBOX: NotificationRoute = { pathname: '/inbox', switchToProjectId: null }
 
@@ -42,7 +44,9 @@ const INBOX: NotificationRoute = { pathname: '/inbox', switchToProjectId: null }
 type TapAccount = 'switched' | 'unavailable'
 
 function finishNotificationTap(identifier: string, data: unknown, account?: TapAccount): void {
-    track('mobile_push_opened', { kind: notificationKind(data), ...(account ? { account } : {}) })
+    if (account) {
+        track('mobile_push_reminder_routed', { kind: notificationKind(data), account })
+    }
     acknowledgeNotificationTap(identifier)
     handled.add(identifier)
     if (Notifications.getLastNotificationResponse()?.notification.request.identifier === identifier) {
@@ -96,6 +100,10 @@ async function openFromNotification(
     inFlight.add(attempt)
     try {
         const data = tap.data
+        if (!opened.has(id)) {
+            opened.add(id)
+            track('mobile_push_opened', { kind: notificationKind(data) })
+        }
         const isCurrent = (): boolean => {
             const currentAuth = useAuthStore.getState()
             const pending = getPendingNotificationTap()

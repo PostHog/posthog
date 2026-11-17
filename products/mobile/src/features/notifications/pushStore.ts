@@ -15,7 +15,6 @@ export type PushPermission = 'unknown' | 'undetermined' | 'granted' | 'denied' |
  * the push token only: the removal reads that account's credentials from its own token slot when it runs.
  */
 export interface OwedRemoval {
-    /** The account key (`accountKey()`). */
     account: string
     /** The account's host when it left, without a trailing slash. Compared only, never used as a request target. */
     host: string
@@ -83,7 +82,6 @@ export function oweRemoval(removal: OwedRemoval): void {
     }))
 }
 
-/** Drops every owed removal that `settled` matches. */
 export function settleRemovals(settled: (removal: OwedRemoval) => boolean): void {
     usePushStore.setState((state) => {
         const owed = state.owed.filter((removal) => !settled(removal))

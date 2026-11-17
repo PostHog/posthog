@@ -84,7 +84,7 @@ function withProject(
 }
 
 export const usePinPrefs = create<PinPrefsState>()(
-    persist(
+    persist<PinPrefsState, [], [], Pick<PinPrefsState, 'accounts' | 'legacy'>>(
         (set, get) => ({
             accounts: {},
             legacy: null,
@@ -125,7 +125,7 @@ export const usePinPrefs = create<PinPrefsState>()(
             // Version 0 kept one map for whoever was signed in.
             migrate: (persisted, version) => {
                 const projects = (persisted as { projects?: ProjectPinPrefs } | null)?.projects
-                return { accounts: {}, legacy: version === 0 && projects ? projects : null } as unknown as PinPrefsState
+                return { accounts: {}, legacy: version === 0 && projects ? projects : null }
             },
         }
     )
@@ -138,7 +138,6 @@ export function useProjectPinPrefs(account: string | null, projectKey: string | 
     )
 }
 
-/** The prefs of `account` outside React. */
 export function accountPinPrefs(account: string | null, projectKey: string): PinPrefs {
     return (account ? usePinPrefs.getState().accounts[account]?.[projectKey] : undefined) ?? NO_PIN_PREFS
 }

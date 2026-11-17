@@ -46,16 +46,12 @@ export function nextAccountAfterSignOut(accounts: readonly StoredAccount[], leav
     )
 }
 
-/**
- * The account whose session just expired. The store keeps no key for it, but the account that was active has the
- * latest `lastUsedAt`, because becoming active sets it.
- */
+/** The account whose active session expired, while the user is signed out and it still needs a sign-in. */
 export function sessionEndedAccount(
-    state: Pick<AuthState, 'accounts' | 'signedOutReason' | 'status'>
+    state: Pick<AuthState, 'accounts' | 'expiredAccountKey' | 'status'>
 ): StoredAccount | null {
-    if (state.status !== 'signed_out' || state.signedOutReason !== 'expired') {
+    if (state.status !== 'signed_out' || state.expiredAccountKey === null) {
         return null
     }
-    const latest = [...state.accounts].sort((a, b) => b.lastUsedAt - a.lastUsedAt)[0]
-    return latest?.needsSignIn ? latest : null
+    return state.accounts.find((account) => account.key === state.expiredAccountKey && account.needsSignIn) ?? null
 }

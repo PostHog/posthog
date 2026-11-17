@@ -22,14 +22,14 @@ export function SignInScreen(): ReactElement {
     const params = useLocalSearchParams<{ mode?: string; reauth?: string }>()
     const status = useAuthStore((state) => state.status)
     const accounts = useAuthStore((state) => state.accounts)
-    const signedOutReason = useAuthStore((state) => state.signedOutReason)
+    const expiredAccountKey = useAuthStore((state) => state.expiredAccountKey)
     // Sign in again on the session-ended screen opens the form here, so Cancel can return to that screen.
     const [localReauth, setLocalReauth] = useState<string | null>(null)
     const addParam = firstParam(params.mode) === 'add'
     const reauthKey = localReauth ?? (addParam ? firstParam(params.reauth) : undefined)
     const reauth = reauthKey ? (accounts.find((account) => account.key === reauthKey) ?? null) : null
     const adding = reauth !== null || (addParam && status === 'signed_in')
-    const ended = adding ? null : sessionEndedAccount({ accounts, signedOutReason, status })
+    const ended = adding ? null : sessionEndedAccount({ accounts, expiredAccountKey, status })
 
     if (ended) {
         return <SessionEndedView account={ended} onSignInAgain={() => setLocalReauth(ended.key)} />

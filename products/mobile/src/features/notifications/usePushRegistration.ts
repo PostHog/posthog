@@ -7,6 +7,7 @@ import {
     addAccountSwitchTask,
     addInactiveSignOutTask,
     addSignOutTask,
+    addSwitchRollbackTask,
     useAuthStore,
 } from '@/auth/authStore'
 
@@ -22,6 +23,23 @@ import {
 import { usePushStore } from './pushStore'
 import { pushUnavailableReason } from './pushSupport'
 
+/** Hooks push into the auth store's sign-out, switch and removal steps. Returns the function that unhooks it. */
+export function installPushAuthTasks(): () => void {
+    const stops = [
+        addSignOutTask(unregisterPush),
+        addAccountSwitchTask(releaseRegistration),
+        addInactiveSignOutTask(settleBeforeSignOut),
+        addAccountRemovedTask(forgetOwedRemovals),
+        // The switch task gave up this account's registration, and the account stays active.
+        addSwitchRollbackTask(() => void syncPushRegistration('never')),
+    ]
+    return () => {
+        for (const stop of stops) {
+            stop()
+        }
+    }
+}
+
 // Later launches re-register silently so the server's `last_seen_at` stays fresh.
 export function usePushRegistration(): void {
     const status = useAuthStore((state) => state.status)
@@ -29,19 +47,7 @@ export function usePushRegistration(): void {
     const host = useAuthStore((state) => state.host)
     const signedIn = status === 'signed_in' && userUuid !== null
 
-    useEffect(() => {
-        const stops = [
-            addSignOutTask(unregisterPush),
-            addAccountSwitchTask(releaseRegistration),
-            addInactiveSignOutTask(settleBeforeSignOut),
-            addAccountRemovedTask(forgetOwedRemovals),
-        ]
-        return () => {
-            for (const stop of stops) {
-                stop()
-            }
-        }
-    }, [])
+    useEffect(installPushAuthTasks, [])
 
     // biome-ignore lint/correctness/useExhaustiveDependencies: a new user or host needs its own registration.
     useEffect(() => {

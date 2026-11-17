@@ -37,7 +37,7 @@ export interface SnoozeState {
 }
 
 export const useSnoozeStore = create<SnoozeState>()(
-    persist(
+    persist<SnoozeState, [], [], Partial<Pick<SnoozeState, 'accounts' | 'legacy' | 'reminderOwners'>>>(
         (set, get) => ({
             accounts: {},
             legacy: null,
@@ -127,7 +127,7 @@ export const useSnoozeStore = create<SnoozeState>()(
             // Version 0 kept one map for whoever was signed in.
             migrate: (persisted, version) => {
                 const entries = (persisted as { entries?: Record<string, SnoozeEntry> } | null)?.entries
-                return { accounts: {}, legacy: version === 0 && entries ? entries : null } as unknown as SnoozeState
+                return { accounts: {}, legacy: version === 0 && entries ? entries : null }
             },
             onRehydrateStorage: () => (state) => state?.prune(new Date()),
         }

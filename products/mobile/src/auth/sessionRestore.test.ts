@@ -2,7 +2,7 @@ import * as SecureStore from 'expo-secure-store'
 import { AppState } from 'react-native'
 import { accountKey } from './accountKey'
 import { installAuthProvider, refreshAccessToken, useAuthStore } from './authStore'
-import { getSessionIdentity, loadTokens, saveTokens, setSessionTokens } from './tokens'
+import { getSessionIdentity, loadAccounts, loadTokens, saveRefreshedTokens, setSessionTokens } from './tokens'
 
 jest.mock('@react-native-async-storage/async-storage', () =>
     require('@react-native-async-storage/async-storage/jest/async-storage-mock')
@@ -72,24 +72,54 @@ describe('stored session identity', () => {
         expect(await loadTokens()).toMatchObject({ accessToken: 'legacy-access' })
     })
 
-    test('a slot that holds another account reads as absent and leaves the index', async () => {
+    test.each([
+        {
+            name: 'that names another account is deleted and leaves the index',
+            content: envelope({ host: 'https://other.example.com', userUuid: 'slot-owner' }, 'misplaced-access'),
+            kept: false,
+        },
+        {
+            name: 'that a later app version wrote stays, but is not activated',
+            content: JSON.stringify({ version: 2, sealed: 'example-sealed-session' }),
+            kept: true,
+        },
+    ])('a slot $name', async ({ content, kept }) => {
         const key = await accountKey(host, 'slot-owner')
-        await SecureStore.setItemAsync(
-            `posthog_mobile_session.${key}`,
-            envelope({ host: 'https://other.example.com', userUuid: 'slot-owner' }, 'misplaced-access')
-        )
+        await SecureStore.setItemAsync(`posthog_mobile_session.${key}`, content)
         await SecureStore.setItemAsync(
             'posthog_mobile_accounts',
             JSON.stringify({ version: 1, active: key, keys: [key] })
         )
 
-        expect(await loadTokens()).toBeNull()
+        expect(await loadAccounts()).toMatchObject({ active: null, keys: kept ? [key] : [], complete: !kept })
 
         expect(getSessionIdentity()).toBeNull()
-        expect(await SecureStore.getItemAsync(`posthog_mobile_session.${key}`)).toBeNull()
+        expect(await SecureStore.getItemAsync(`posthog_mobile_session.${key}`)).toBe(kept ? content : null)
         expect(JSON.parse((await SecureStore.getItemAsync('posthog_mobile_accounts')) ?? '{}')).toMatchObject({
-            active: null,
-            keys: [],
+            active: kept ? key : null,
+            keys: kept ? [key] : [],
+        })
+    })
+
+    test('a refresh never overwrites a slot that a newer sign-in replaced', async () => {
+        const owner = { host, userUuid: 'slot-owner' }
+        const key = await accountKey(host, 'slot-owner')
+        const newer = envelope(owner, 'newer-access')
+        await SecureStore.setItemAsync(
+            `posthog_mobile_session.${key}`,
+            newer.replace('"example-refresh"', '"newer-refresh"')
+        )
+
+        const saved = await saveRefreshedTokens({
+            key,
+            owner: { ...owner, clientId: 'example-client', method: 'oauth' },
+            used: 'example-refresh',
+            tokens: { ...tokens, accessToken: 'rotated-access', refreshToken: 'rotated-refresh' },
+        })
+
+        expect(saved).toBe('gone')
+        expect(JSON.parse((await SecureStore.getItemAsync(`posthog_mobile_session.${key}`)) ?? '{}')).toMatchObject({
+            tokens: { accessToken: 'newer-access', refreshToken: 'newer-refresh' },
         })
     })
 
@@ -127,9 +157,18 @@ describe('stored session identity', () => {
                     organizations: [],
                 })
             }) as unknown as typeof fetch
-            await saveTokens(
-                { ...tokens, expiresAt: Date.now() + 10 * 60_000 },
-                { host, clientId: 'example-client', method: 'oauth', userUuid: 'current-user' }
+            const key = await accountKey(host, 'current-user')
+            await SecureStore.setItemAsync(
+                `posthog_mobile_session.${key}`,
+                JSON.stringify({
+                    version: 1,
+                    identity: { host, clientId: 'example-client', method: 'oauth', userUuid: 'current-user' },
+                    tokens: { ...tokens, expiresAt: Date.now() + 10 * 60_000 },
+                })
+            )
+            await SecureStore.setItemAsync(
+                'posthog_mobile_accounts',
+                JSON.stringify({ version: 1, active: key, keys: [key] })
             )
             useAuthStore.setState({
                 status: 'loading',
@@ -174,7 +213,7 @@ describe('stored session identity', () => {
             })
             await expect(refreshAccessToken()).resolves.toBe('example-rotated-access')
             expect(requests.filter((url) => url.endsWith('/oauth/token'))).toHaveLength(2)
-            const slot = `posthog_mobile_session.${await accountKey(host, 'current-user')}`
+            const slot = `posthog_mobile_session.${key}`
             expect(JSON.parse((await SecureStore.getItemAsync(slot)) ?? '{}')).toMatchObject({
                 identity: { host, userUuid: 'current-user' },
                 tokens: { accessToken: 'example-rotated-access' },

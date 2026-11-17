@@ -94,7 +94,6 @@ function currentOperation(scope: ProjectScope): SnoozeOperation | null {
                 sessionGeneration() === session &&
                 cleanupGeneration === cleanup &&
                 auth.signedIn &&
-                auth.activeAccountKey === account &&
                 auth.host?.replace(/\/$/, '') === scope.host &&
                 auth.projectId === projectId
             )
