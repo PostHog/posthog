@@ -63,14 +63,17 @@ pub fn validate_table_name(table: &str) -> Result<(), String> {
 pub enum LoadError {
     Query(sqlx::Error),
     /// A retry reads the same bytes.
-    UnprocessableProperties(String),
+    UnprocessableProperties {
+        reason: String,
+        version: i64,
+    },
 }
 
 impl std::fmt::Display for LoadError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Query(e) => e.fmt(f),
-            Self::UnprocessableProperties(reason) => f.write_str(reason),
+            Self::UnprocessableProperties { reason, .. } => f.write_str(reason),
         }
     }
 }
@@ -85,7 +88,7 @@ fn parse_stored_properties(
     properties_text: &str,
     team_id: i32,
     id: i64,
-) -> Result<serde_json::Value, LoadError> {
+) -> Result<serde_json::Value, String> {
     match serde_json::from_str(properties_text) {
         Ok(value) => Ok(value),
         // Out-of-range numerics from other writers: rewrite to what
@@ -103,10 +106,10 @@ fn parse_stored_properties(
                     );
                     Ok(value)
                 }
-                Err(rewritten_err) => Err(LoadError::UnprocessableProperties(format!(
+                Err(rewritten_err) => Err(format!(
                     "person properties unparseable (team_id={team_id}, person_id={id}): \
                      {strict_err}; after numeric rewrite: {rewritten_err}"
-                ))),
+                )),
             }
         }
     }
@@ -169,7 +172,12 @@ pub async fn load_person_from_pg(
     let is_identified: bool = row.get("is_identified");
     let last_seen_at: Option<chrono::DateTime<chrono::Utc>> = row.get("last_seen_at");
 
-    let properties = parse_stored_properties(properties_text, team_id, id)?;
+    let properties = parse_stored_properties(properties_text, team_id, id).map_err(|reason| {
+        LoadError::UnprocessableProperties {
+            reason,
+            version: version.unwrap_or(0),
+        }
+    })?;
 
     counter!("personhog_leader_pg_fallback_total", "outcome" => "found").increment(1);
 
@@ -200,9 +208,6 @@ mod tests {
     #[test]
     fn properties_nested_past_the_parser_limit_are_unprocessable() {
         let nested = format!("{{\"a\":{}1{}}}", "[".repeat(200), "]".repeat(200));
-        assert!(matches!(
-            parse_stored_properties(&nested, 1, 1),
-            Err(LoadError::UnprocessableProperties(_))
-        ));
+        assert!(parse_stored_properties(&nested, 1, 1).is_err());
     }
 }

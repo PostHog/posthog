@@ -223,6 +223,7 @@ describe('PersonHogPersonOperations', () => {
 
             expect(error).toBeInstanceOf(PersonhogUnprocessablePersonError)
             expect(error.isRetriable).toBe(false)
+            expect(error.handledVerdict).toBe('unprocessable_person')
         })
     })
 

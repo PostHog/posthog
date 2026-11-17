@@ -57,8 +57,9 @@ export class PersonhogPropertiesDepthError extends Error {
 }
 
 /** The leader cannot parse the person's stored row, and a retry reads the same row. */
-export class PersonhogUnprocessablePersonError extends Error {
+export class PersonhogUnprocessablePersonError extends Error implements HandledVerdict {
     readonly isRetriable = false
+    readonly handledVerdict = 'unprocessable_person'
 
     constructor(
         message: string,

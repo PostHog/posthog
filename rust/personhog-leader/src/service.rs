@@ -472,7 +472,7 @@ impl PersonHogLeaderService {
                     key.team_id, key.person_id
                 )))
             }
-            Err(LoadError::UnprocessableProperties(reason)) => {
+            Err(LoadError::UnprocessableProperties { reason, .. }) => {
                 counter!(
                     "personhog_leader_person_loads_total",
                     "source" => "pg", "outcome" => "unprocessable"
@@ -554,7 +554,15 @@ impl PersonHogLeaderService {
                 counter!("personhog_leader_revivals_total", "outcome" => "tombstoned").increment(1);
                 Ok(person)
             }
-            Err(LoadError::UnprocessableProperties(reason)) => {
+            // As for a readable row this low: pre-death state, not a revival.
+            Err(LoadError::UnprocessableProperties { version, .. })
+                if version <= person.version =>
+            {
+                counter!("personhog_leader_revivals_total", "outcome" => "row_below_death")
+                    .increment(1);
+                Ok(person)
+            }
+            Err(LoadError::UnprocessableProperties { reason, .. }) => {
                 counter!("personhog_leader_revivals_total", "outcome" => "unprocessable")
                     .increment(1);
                 tracing::error!(
@@ -966,8 +974,6 @@ fn cached_person_into_proto(p: CachedPerson) -> Person {
     }
 }
 
-/// Parse a JSON-map wire field (empty bytes mean an empty map), refusing
-/// anything that is not a JSON object.
 /// The ingestion client drops an update refused for its nesting, keyed on
 /// this message, so a wording change here must change there too.
 // See `partition_from_metadata` for why `result_large_err` is allowed.
@@ -987,6 +993,8 @@ fn parse_update_properties(bytes: &[u8], field: &str) -> Result<serde_json::Valu
     })
 }
 
+/// Parse a JSON-map wire field (empty bytes mean an empty map), refusing
+/// anything that is not a JSON object.
 // See `partition_from_metadata` for why `result_large_err` is allowed.
 #[allow(clippy::result_large_err)]
 fn parse_json_object_field(bytes: &[u8], field: &str) -> Result<serde_json::Value, Status> {
