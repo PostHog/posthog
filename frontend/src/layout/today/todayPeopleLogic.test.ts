@@ -18,7 +18,7 @@ import {
     peopleSidebarRows,
     todayPeopleLogic,
 } from './todayPeopleLogic'
-import { todayPeopleRecentsLogic } from './todayPeopleRecentsLogic'
+import { todayRecentsLogic } from './todayRecentsLogic'
 
 const groupTypes = (...indexes: number[]): Map<GroupTypeIndex, GroupType> =>
     new Map(
@@ -264,8 +264,8 @@ describe('todayPeopleLogic', () => {
         initKeaTests()
         const logic = todayPeopleLogic()
         logic.mount()
-        todayPeopleRecentsLogic.actions.addRecent({ type: 'cohort', name: 'Power users', href: '/cohorts/12' })
-        todayPeopleRecentsLogic.actions.addRecent({ type: 'person', name: 'Ada', href: '/persons/ada' })
+        todayRecentsLogic.actions.addRecent({ type: 'cohort', name: 'Power users', href: '/cohorts/12' })
+        todayRecentsLogic.actions.addRecent({ type: 'person', name: 'Ada', href: '/persons/ada' })
         await expectLogic(projectTreeDataLogic).toDispatchActions(['loadShortcutsSuccess'])
 
         expect(logic.values.pinnedRows).toEqual([
