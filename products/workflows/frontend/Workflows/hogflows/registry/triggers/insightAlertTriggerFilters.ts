@@ -26,7 +26,11 @@ export interface InsightAlertTriggerFilters {
 }
 
 function isAlertIdFilter(property: Record<string, any> | undefined): boolean {
-    return property?.key === 'alert_id' && (property.operator ?? PropertyOperator.Exact) === PropertyOperator.Exact
+    return (
+        property?.key === 'alert_id' &&
+        property.type === PropertyFilterType.Event &&
+        (property.operator ?? PropertyOperator.Exact) === PropertyOperator.Exact
+    )
 }
 
 export function decodeInsightAlertFilters(properties: Record<string, any>[] | undefined): InsightAlertTriggerFilters {

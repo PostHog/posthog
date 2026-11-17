@@ -10,19 +10,17 @@ INSIGHT_ALERT_FIRING_EVENT = LEGACY_INSIGHT_ALERT_EVENT
 
 
 def _alert_id_filters(filters: dict[str, Any]) -> list[dict[str, Any]]:
-    """Every exact `alert_id` event filter, global or on the firing event, since the compiler ANDs both."""
+    """Every exact `alert_id` event filter in the global properties.
+
+    The compiler ANDs global properties with every event entry, but ORs the entries together, so a
+    filter on one entry does not restrict another entry for the same event.
+    """
     properties = filters.get("properties")
-    candidates: list[Any] = list(properties) if isinstance(properties, list) else []
-    events = filters.get("events")
-    for event in events if isinstance(events, list) else []:
-        if isinstance(event, dict) and event.get("id") == INSIGHT_ALERT_FIRING_EVENT:
-            event_properties = event.get("properties")
-            candidates.extend(event_properties if isinstance(event_properties, list) else [])
     # Only an exact event-property filter restricts which events match. Another type, such as a
     # person filter, compiles to a condition that does not read the event's alert id at all.
     return [
         prop
-        for prop in candidates
+        for prop in (properties if isinstance(properties, list) else [])
         if isinstance(prop, dict)
         and prop.get("key") == "alert_id"
         and prop.get("type") == "event"
