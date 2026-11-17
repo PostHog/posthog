@@ -1179,7 +1179,6 @@ async def test_deliver_subscription_handles_slack_api_errors(team, user, slack_e
 @pytest.mark.asyncio
 async def test_create_export_assets_creates_exported_assets(
     mock_analytics: MagicMock,
-    temporal_client: Client,
     team,
     user,
 ):
@@ -1188,7 +1187,12 @@ async def test_create_export_assets_creates_exported_assets(
     insight = await sync_to_async(Insight.objects.create)(
         team=team, short_id="prep01", name="Prep Test", query=default_pageview_query()
     )
-    subscription = await sync_to_async(create_subscription)(team=team, insight=insight, created_by=user)
+    subscription = await sync_to_async(create_subscription)(
+        team=team,
+        insight=insight,
+        created_by=user,
+        delivery_config={"image_size": {"width": 1200, "height": 630}},
+    )
 
     env = ActivityEnvironment()
     result = await env.run(
@@ -1203,6 +1207,8 @@ async def test_create_export_assets_creates_exported_assets(
     assert asset.team_id == team.id
     assert asset.insight_id == insight.id
     assert asset.export_format == "image/png"
+    assert asset.export_context is not None
+    assert asset.export_context["image_size"] == {"width": 1200, "height": 630}
     # The exporter renders the insight as the asset's creator — without it the render is userless
     # and warehouse access control fails closed, breaking deliveries of warehouse-backed insights.
     assert asset.created_by_id == user.id
