@@ -7,8 +7,12 @@ from unittest.mock import AsyncMock, patch
 from asgiref.sync import async_to_sync
 
 from products.signals.backend.agent_runtime import DEFAULT_RUNTIME
+from products.signals.backend.artefact_schemas import SourceIssue
 from products.signals.backend.report_generation import select_repo
-from products.signals.backend.report_generation.source_repository import source_repository_from_signals
+from products.signals.backend.report_generation.source_repository import (
+    source_issue_urls,
+    source_repository_from_signals,
+)
 from products.signals.backend.temporal.types import SignalData
 from products.tasks.backend.facade.repo_selection_types import RepoSelectionResult
 
@@ -50,6 +54,31 @@ def _signal(
 )
 def test_source_repository_from_signals(signals: list[SignalData], expected: str | None) -> None:
     assert source_repository_from_signals(signals) == expected
+
+
+SCOUT_ISSUE = SourceIssue.github("PostHog/posthog-js", 12)
+
+
+@pytest.mark.parametrize(
+    "signals,source_issues,expected",
+    [
+        ([_signal()], [], ["https://github.com/posthog/posthog/issues/105295"]),
+        # A scout files its report with no GitHub issue signal, so only the artefact names the issue.
+        ([], [SCOUT_ISSUE], ["https://github.com/posthog/posthog-js/issues/12"]),
+        (
+            [_signal(), _signal(extra={"html_url": "https://github.com/posthog/posthog/issues/105295"})],
+            [SCOUT_ISSUE, SourceIssue.github("posthog/posthog", 105295)],
+            ["https://github.com/posthog/posthog/issues/105295", "https://github.com/posthog/posthog-js/issues/12"],
+        ),
+        # A ticket from another source that quotes an issue link does not exempt that issue.
+        ([_signal(source_product="zendesk", source_type="ticket")], [], []),
+        ([_signal(extra={"html_url": "https://github.com.evil.tld/posthog/posthog/issues/1"})], [], []),
+        ([_signal(extra={"html_url": "https://github.com/posthog/posthog/pull/1"})], [], []),
+        ([], [], []),
+    ],
+)
+def test_source_issue_urls(signals: list[SignalData], source_issues: list[SourceIssue], expected: list[str]) -> None:
+    assert source_issue_urls(signals, source_issues) == expected
 
 
 class TestSelectRepositoryDefaultsToTheSourceRepository(BaseTest):
