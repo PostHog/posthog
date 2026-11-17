@@ -1,7 +1,7 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { useEffect, useRef, useState } from 'react'
+import { useState } from 'react'
 
 import { LemonInput, LemonSelect, LemonTag, Tooltip, lemonToast } from '@posthog/lemon-ui'
 import { Button } from '@posthog/quill'
@@ -15,7 +15,6 @@ import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
 import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import { TagSelect } from 'lib/components/TagSelect'
-import { dayjs } from 'lib/dayjs'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
@@ -27,9 +26,7 @@ import { atColumn, createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTa
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
-import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
 import { pluralize } from 'lib/utils/strings'
 import stringWithWBR from 'lib/utils/stringWithWBR'
 import MaxTool from 'scenes/max/MaxTool'
@@ -42,7 +39,7 @@ import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
+import { ProductKey } from '~/queries/schema/schema-general'
 import {
     AccessControlLevel,
     AccessControlResourceType,
@@ -65,8 +62,6 @@ import {
     confirmDeleteExperiment,
 } from 'products/experiments/frontend/experimentActions'
 import { getExperimentStatus } from 'products/experiments/frontend/experimentStatus'
-import { experimentsMatchingIdsRetrieve } from 'products/experiments/frontend/generated/api'
-import type { ExperimentsMatchingIdsRetrieveParams } from 'products/experiments/frontend/generated/api.schemas'
 /**
  * these scenes are handled as child components. This works fine, but breaks the expectation of scenes
  * having their own routes.
@@ -82,6 +77,22 @@ import {
 import { ExperimentsSettingsScene } from 'products/experiments/frontend/scenes/ExperimentsSettingsScene'
 import { ExperimentsSharedMetricsScene } from 'products/experiments/frontend/scenes/ExperimentsSharedMetricsScene'
 import { SetupInspectorButton } from 'products/experiments/frontend/setupInspector/SetupInspectorButton'
+
+import {
+    EXPERIMENTS_TABLE_EMPTY,
+    LEGACY_EXPERIMENT_DOCS,
+    LEGACY_EXPERIMENT_TOOLTIP,
+    copyExperimentDisabledReason,
+    duplicateExperimentDisabledReason,
+    experimentSelectionDisabledReason,
+    formatExperimentDuration,
+    getExperimentDuration,
+    getExperimentConclusionTooltip,
+    getExperimentRemainingTime,
+    startExperimentSurvey,
+    useMatchingExperimentIds,
+} from './experimentsTable'
+import { QuillExperimentsTable } from './QuillExperimentsTable'
 
 // "Experiments open feedback" in project 2: https://us.posthog.com/project/2/surveys/01a08364-270e-0000-585b-147d32bf96ed
 // Button-only: its URL condition never matches, so this button is the survey's sole entry point.
@@ -112,14 +123,6 @@ const ExperimentSurveyButton = ({
             Create survey
         </LemonButton>
     )
-}
-
-const getExperimentDuration = (experiment: Experiment): number | undefined => {
-    return experiment.end_date
-        ? dayjs(experiment.end_date).diff(dayjs(experiment.start_date), 'day')
-        : experiment.start_date
-          ? dayjs().diff(dayjs(experiment.start_date), 'day')
-          : undefined
 }
 
 const ExperimentsTableFilters = ({
@@ -256,21 +259,12 @@ const ExperimentsTable = ({
     const { currentOrganization } = useValues(organizationLogic)
     const hasMultipleProjects = (currentOrganization?.projects?.length ?? 0) > 1
 
-    const [matchingExperimentIds, setMatchingExperimentIds] = useState<readonly number[] | null>(null)
-    const [matchingExperimentIdsLoading, setMatchingExperimentIdsLoading] = useState(false)
+    const matching = useMatchingExperimentIds()
+    const { matchingExperimentIds, matchingExperimentIdsLoading, filterIdentity } = matching
     // State rather than a ref so mounting the slot re-renders and the bar's portal finds it.
     const [bulkSelectionBarContainer, setBulkSelectionBarContainer] = useState<HTMLDivElement | null>(null)
-
-    // Changing a filter changes which experiments the bulk bar refers to, so drop the selection and
-    // any cached "all matching" IDs. Page is excluded: selections deliberately span pages.
-    const { page: _page, ...filtersWithoutPage } = filters
-    const filterIdentity = JSON.stringify(filtersWithoutPage)
-    // Ref mirror so an in-flight matching_ids response can detect it raced a filter change.
-    const filterIdentityRef = useRef(filterIdentity)
-    filterIdentityRef.current = filterIdentity
-    useEffect(() => {
-        setMatchingExperimentIds(null)
-    }, [filterIdentity])
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+    const resultsRedesign = useFeatureFlag('EXPERIMENTS_RESULTS_REDESIGN')
 
     const page = filters.page || 1
     const startCount = count === 0 ? 0 : (page - 1) * EXPERIMENTS_PER_PAGE + 1
@@ -296,10 +290,7 @@ const ExperimentsTable = ({
                                     </LemonTag>
                                 )}
                                 {experiment.is_legacy && (
-                                    <Tooltip
-                                        title="This experiment uses the legacy engine, so its results are no longer available."
-                                        docLink="https://posthog.com/docs/experiments/new-experimentation-engine"
-                                    >
+                                    <Tooltip title={LEGACY_EXPERIMENT_TOOLTIP} docLink={LEGACY_EXPERIMENT_DOCS}>
                                         <LemonTag type="warning" className="ml-1">
                                             Legacy
                                         </LemonTag>
@@ -346,9 +337,7 @@ const ExperimentsTable = ({
             title: 'Duration',
             key: 'duration',
             render: function Render(_, experiment: Experiment) {
-                const duration = getExperimentDuration(experiment)
-
-                return <div>{duration !== undefined ? `${duration} day${duration !== 1 ? 's' : ''}` : '—'}</div>
+                return <div>{formatExperimentDuration(experiment)}</div>
             },
             sorter: (a, b) => {
                 const durationA = getExperimentDuration(a) ?? -1
@@ -362,42 +351,18 @@ const ExperimentsTable = ({
             key: 'remaining_time',
             width: 80,
             render: function Render(_, experiment: Experiment) {
-                const remainingDays = experiment.running_time_calculation?.recommended_running_time
-                const daysElapsed = experiment.start_date
-                    ? dayjs().diff(dayjs(experiment.start_date), 'day')
-                    : undefined
-
-                // A negative stored estimate isn't a real duration, so read it as "no estimate"
-                // rather than "~-N days remaining" (records saved before the persist guard can still hold one).
-                if (remainingDays === undefined || remainingDays === null || remainingDays < 0) {
-                    return (
-                        <Tooltip title="Remaining time will be calculated once the experiment has enough data">
-                            <div className="w-full">
-                                <LemonProgress percent={0} bgColor="var(--border)" strokeColor="var(--border)" />
-                            </div>
-                        </Tooltip>
-                    )
-                }
-
-                if (remainingDays === 0) {
-                    return (
-                        <Tooltip title="Recommended sample size reached">
-                            <div className="w-full">
-                                <LemonProgress percent={100} strokeColor="var(--success)" />
-                            </div>
-                        </Tooltip>
-                    )
-                }
-
-                const totalEstimatedDays = (daysElapsed ?? 0) + remainingDays
-                const progress = totalEstimatedDays > 0 ? ((daysElapsed ?? 0) / totalEstimatedDays) * 100 : 0
+                const remaining = getExperimentRemainingTime(experiment)
 
                 return (
-                    <Tooltip
-                        title={`~${Math.ceil(remainingDays)} day${Math.ceil(remainingDays) !== 1 ? 's' : ''} remaining`}
-                    >
+                    <Tooltip title={remaining.tooltip}>
                         <div className="w-full">
-                            <LemonProgress percent={progress} />
+                            {remaining.state === 'unknown' ? (
+                                <LemonProgress percent={0} bgColor="var(--border)" strokeColor="var(--border)" />
+                            ) : remaining.state === 'done' ? (
+                                <LemonProgress percent={100} strokeColor="var(--success)" />
+                            ) : (
+                                <LemonProgress percent={remaining.percent} />
+                            )}
                         </div>
                     </Tooltip>
                 )
@@ -432,11 +397,8 @@ const ExperimentsTable = ({
                     return <span className="text-secondary">—</span>
                 }
                 const config = CONCLUSION_DISPLAY_CONFIG[experiment.conclusion]
-                const tooltip = experiment.conclusion_comment
-                    ? `${config.description} — ${experiment.conclusion_comment}`
-                    : config.description
                 return (
-                    <Tooltip title={tooltip}>
+                    <Tooltip title={getExperimentConclusionTooltip(experiment)}>
                         <div className="flex items-center gap-2 cursor-default">
                             <div className={clsx('w-2 h-2 rounded-full', config.color)} />
                             <span className="font-medium">{config.title}</span>
@@ -472,11 +434,7 @@ const ExperimentsTable = ({
                                     onClick={() => openDuplicateModal(experiment)}
                                     size="small"
                                     fullWidth
-                                    disabledReason={
-                                        experiment.is_legacy
-                                            ? 'Not supported for experiments using legacy metrics. Please recreate the experiment manually.'
-                                            : undefined
-                                    }
+                                    disabledReason={duplicateExperimentDisabledReason(experiment)}
                                 >
                                     Duplicate
                                 </LemonButton>
@@ -485,25 +443,14 @@ const ExperimentsTable = ({
                                         onClick={() => openCopyToProjectModal(experiment)}
                                         size="small"
                                         fullWidth
-                                        disabledReason={
-                                            experiment.is_legacy
-                                                ? 'Copying is not supported for experiments using legacy metrics.'
-                                                : undefined
-                                        }
+                                        disabledReason={copyExperimentDisabledReason(experiment)}
                                     >
                                         Copy to project
                                     </LemonButton>
                                 )}
                                 <ExperimentSurveyButton
                                     experiment={experiment}
-                                    onOpenModal={() => {
-                                        openSurveyModal(experiment)
-                                        void addProductIntentForCrossSell({
-                                            from: ProductKey.EXPERIMENTS,
-                                            to: ProductKey.SURVEYS,
-                                            intent_context: ProductIntentContext.QUICK_SURVEY_STARTED,
-                                        })
-                                    }}
+                                    onOpenModal={() => startExperimentSurvey(experiment, openSurveyModal)}
                                 />
                                 {canArchiveExperiment(experiment) && (
                                     <AccessControlAction
@@ -574,138 +521,112 @@ const ExperimentsTable = ({
     return (
         <SceneContent>
             <ExperimentsTableFilters filters={filters} onFiltersChange={setExperimentsFilters} />
-            <LemonDivider className="my-0" />
-            {count ? (
-                // min-h-9 matches the bulk selection bar's own height so the row doesn't jump
-                // when a selection appears. The bar portals into the right-hand slot.
-                <div className="flex items-center justify-between gap-2 min-h-9" data-attr="experiments-count-row">
-                    <span className="text-secondary">
-                        {`${startCount}${endCount - startCount > 1 ? '-' + endCount : ''} of ${pluralize(count, 'experiment')}`}
-                    </span>
-                    <div ref={setBulkSelectionBarContainer} className="flex items-center" />
-                </div>
-            ) : null}
-
-            <div data-attr="experiments-table-container">
-                <LemonTable
-                    dataSource={experiments.results}
-                    columns={columns}
-                    rowKey="id"
-                    loading={experimentsLoading}
-                    defaultSorting={{
-                        columnKey: 'created_at',
-                        order: -1,
-                    }}
-                    noSortingCancellation
-                    pagination={pagination}
-                    nouns={['experiment', 'experiments']}
-                    data-attr="experiment-table"
-                    emptyState="No results for this filter, change filter or create a new experiment."
-                    onSort={(newSorting) =>
-                        setExperimentsFilters({
-                            order: newSorting
-                                ? `${newSorting.order === -1 ? '-' : ''}${newSorting.columnKey}`
-                                : undefined,
-                            page: 1,
-                        })
-                    }
-                    bulkSelection={{
-                        barPortalTarget: bulkSelectionBarContainer,
-                        clearSelectionKey: filterIdentity,
-                        getKey: (experiment: Experiment): number =>
-                            typeof experiment.id === 'number' ? experiment.id : -1,
-                        isRowSelectable: (experiment: Experiment) =>
-                            typeof experiment.id !== 'number'
-                                ? false
-                                : !experiment.user_access_level ||
-                                    accessLevelSatisfied(
-                                        AccessControlResourceType.Experiment,
-                                        experiment.user_access_level,
-                                        AccessControlLevel.Editor
-                                    )
-                                  ? true
-                                  : { disabledReason: "You don't have permission to edit this experiment." },
-                        rowAriaLabel: (experiment: Experiment) => `Select experiment ${experiment.name}`,
-                        headerAriaLabel: 'Select all experiments on this page',
-                        noun: ['experiment', 'experiments'],
-                        renderActions: (ctx) => {
-                            const selectedKeysSet = new Set(ctx.selectedKeys)
-                            const isAllMatchingSelected =
-                                matchingExperimentIds !== null &&
-                                ctx.selectedCount === matchingExperimentIds.length &&
-                                matchingExperimentIds.every((id) => selectedKeysSet.has(id))
-                            const showSelectAllMatchingBanner =
-                                !isAllMatchingSelected &&
-                                ctx.selectedCount >= EXPERIMENTS_PER_PAGE &&
-                                count > ctx.selectedCount
-                            return (
-                                <>
-                                    {isAllMatchingSelected && (
-                                        <span className="text-muted text-sm">
-                                            All {ctx.selectedCount} matching experiments selected
-                                        </span>
-                                    )}
-                                    {showSelectAllMatchingBanner && (
-                                        <LemonButton
-                                            type="secondary"
-                                            size="small"
-                                            loading={matchingExperimentIdsLoading}
-                                            onClick={async () => {
-                                                const requestedFilterIdentity = filterIdentityRef.current
-                                                setMatchingExperimentIdsLoading(true)
-                                                try {
-                                                    const response = await experimentsMatchingIdsRetrieve(
-                                                        String(currentProjectId),
-                                                        {
-                                                            search: filters.search,
-                                                            status: filters.status as ExperimentsMatchingIdsRetrieveParams['status'],
-                                                            archived: filters.archived,
-                                                            order: filters.order,
-                                                            created_by_id: filters.created_by_id?.length
-                                                                ? JSON.stringify(filters.created_by_id)
-                                                                : undefined,
-                                                            tags: filters.tags?.length
-                                                                ? JSON.stringify(filters.tags)
-                                                                : undefined,
-                                                            excluded_tags: filters.excluded_tags?.length
-                                                                ? JSON.stringify(filters.excluded_tags)
-                                                                : undefined,
-                                                        }
-                                                    )
-                                                    // Drop a response that raced a filter change; the reset effect
-                                                    // already cleared the selection it belonged to.
-                                                    if (filterIdentityRef.current !== requestedFilterIdentity) {
-                                                        return
-                                                    }
-                                                    setMatchingExperimentIds(response.ids)
-                                                    ctx.setSelectedKeys(response.ids)
-                                                } catch {
-                                                    lemonToast.error(
-                                                        "Couldn't select all matching experiments. Please try again."
-                                                    )
-                                                } finally {
-                                                    setMatchingExperimentIdsLoading(false)
-                                                }
-                                            }}
-                                        >
-                                            Select all {count} matching experiments
-                                        </LemonButton>
-                                    )}
-                                    <BulkUpdateTagsButton
-                                        resource="experiments"
-                                        selectedIds={ctx.selectedKeys}
-                                        onSuccess={() => {
-                                            ctx.clearSelection()
-                                            setMatchingExperimentIds(null)
-                                            loadExperiments()
-                                        }}
-                                    />
-                                </>
-                            )
-                        },
-                    }}
+            {todayRailNav && resultsRedesign ? (
+                <QuillExperimentsTable
+                    matching={matching}
+                    openDuplicateModal={openDuplicateModal}
+                    openSurveyModal={openSurveyModal}
+                    openCopyToProjectModal={openCopyToProjectModal}
                 />
-            </div>
+            ) : (
+                <>
+                    <LemonDivider className="my-0" />
+                    {count ? (
+                        // min-h-9 matches the bulk selection bar's own height so the row doesn't jump
+                        // when a selection appears. The bar portals into the right-hand slot.
+                        <div
+                            className="flex items-center justify-between gap-2 min-h-9"
+                            data-attr="experiments-count-row"
+                        >
+                            <span className="text-secondary">
+                                {`${startCount}${endCount - startCount > 1 ? '-' + endCount : ''} of ${pluralize(count, 'experiment')}`}
+                            </span>
+                            <div ref={setBulkSelectionBarContainer} className="flex items-center" />
+                        </div>
+                    ) : null}
+
+                    <div data-attr="experiments-table-container">
+                        <LemonTable
+                            dataSource={experiments.results}
+                            columns={columns}
+                            rowKey="id"
+                            loading={experimentsLoading}
+                            defaultSorting={{
+                                columnKey: 'created_at',
+                                order: -1,
+                            }}
+                            noSortingCancellation
+                            pagination={pagination}
+                            nouns={['experiment', 'experiments']}
+                            data-attr="experiment-table"
+                            emptyState={EXPERIMENTS_TABLE_EMPTY}
+                            onSort={(newSorting) =>
+                                setExperimentsFilters({
+                                    order: newSorting
+                                        ? `${newSorting.order === -1 ? '-' : ''}${newSorting.columnKey}`
+                                        : undefined,
+                                    page: 1,
+                                })
+                            }
+                            bulkSelection={{
+                                barPortalTarget: bulkSelectionBarContainer,
+                                clearSelectionKey: filterIdentity,
+                                getKey: (experiment: Experiment): number =>
+                                    typeof experiment.id === 'number' ? experiment.id : -1,
+                                isRowSelectable: (experiment: Experiment) => {
+                                    if (typeof experiment.id !== 'number') {
+                                        return false
+                                    }
+                                    const disabledReason = experimentSelectionDisabledReason(experiment)
+                                    return disabledReason ? { disabledReason } : true
+                                },
+                                rowAriaLabel: (experiment: Experiment) => `Select experiment ${experiment.name}`,
+                                headerAriaLabel: 'Select all experiments on this page',
+                                noun: ['experiment', 'experiments'],
+                                renderActions: (ctx) => {
+                                    const selectedKeysSet = new Set(ctx.selectedKeys)
+                                    const isAllMatchingSelected =
+                                        matchingExperimentIds !== null &&
+                                        ctx.selectedCount === matchingExperimentIds.length &&
+                                        matchingExperimentIds.every((id) => selectedKeysSet.has(id))
+                                    const showSelectAllMatchingBanner =
+                                        !isAllMatchingSelected &&
+                                        ctx.selectedCount >= EXPERIMENTS_PER_PAGE &&
+                                        count > ctx.selectedCount
+                                    return (
+                                        <>
+                                            {isAllMatchingSelected && (
+                                                <span className="text-muted text-sm">
+                                                    All {ctx.selectedCount} matching experiments selected
+                                                </span>
+                                            )}
+                                            {showSelectAllMatchingBanner && (
+                                                <LemonButton
+                                                    type="secondary"
+                                                    size="small"
+                                                    loading={matchingExperimentIdsLoading}
+                                                    onClick={() => matching.selectAllMatching(ctx.setSelectedKeys)}
+                                                >
+                                                    Select all {count} matching experiments
+                                                </LemonButton>
+                                            )}
+                                            <BulkUpdateTagsButton
+                                                resource="experiments"
+                                                selectedIds={ctx.selectedKeys}
+                                                onSuccess={() => {
+                                                    ctx.clearSelection()
+                                                    matching.clearMatchingExperimentIds()
+                                                    loadExperiments()
+                                                }}
+                                            />
+                                        </>
+                                    )
+                                },
+                            }}
+                        />
+                    </div>
+                </>
+            )}
         </SceneContent>
     )
 }
