@@ -5,12 +5,15 @@ is what decides which destinations there are and which transport each one takes.
 """
 
 import json
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Collection, Iterator, Sequence
+from contextlib import contextmanager
 from dataclasses import replace
 from datetime import UTC, datetime
 from functools import cache
 from typing import Any, Final
 from uuid import UUID
+
+from django.db import DEFAULT_DB_ALIAS, connections, transaction
 
 import structlog
 
@@ -254,11 +257,16 @@ def deliver_evaluation(request: AlertDeliveryRequest) -> DeliveryOutcome:
             request,
             incident_actions={key: action for key, action in request.incident_actions.items() if key not in stale},
         )
-    platform_destinations = _platform_destinations(request)
+    subscribed_by_event = _by_subscription(request, announced)
+    notices_overflow = request.parts > 1 and request.overflowed
+    platform_destinations = _platform_destinations(
+        request,
+        event_ids={*subscribed_by_event, *(request.event_ids_by_kind.values() if notices_overflow else ())},
+    )
     native_announced, emissions = _split_by_path(request, announced, platform_destinations)
     emitter = delivery_paths.emitter_for(request.source) if emissions else None
     notice_keys: dict[str, str] = {}
-    if request.parts > 1 and request.overflowed:
+    if notices_overflow:
         notice_keys = _overflow_notice_keys(
             request,
             platform_destinations,
@@ -289,7 +297,7 @@ def deliver_evaluation(request: AlertDeliveryRequest) -> DeliveryOutcome:
     # Destinations already told about the overflow, so each hears it once, on its first message.
     noticed: set[str] = set()
     native_by_event = _by_subscription(request, native_announced)
-    for event_id, all_transitions in _by_subscription(request, announced).items():
+    for event_id, all_transitions in subscribed_by_event.items():
         for subscribed_destination in _destinations(request, event_id, platform_destinations):
             transitions = (
                 native_by_event.get(event_id, ()) if subscribed_destination.receives_emitted_events else all_transitions
@@ -487,7 +495,9 @@ def add_late_image(request: AlertDeliveryRequest, late_detail: dict[str, Any]) -
 
     thread_store = DatabaseThreadStore(request.team_id)
     result = NO_LATE_IMAGE
-    for subscribed_destination in _destinations(request, firing_event, _platform_destinations(request)):
+    for subscribed_destination in _destinations(
+        request, firing_event, _platform_destinations(request, event_ids=[firing_event])
+    ):
         transport_class = _TRANSPORTS.get(subscribed_destination.data["type"])
         if transport_class is None or not issubclass(transport_class, RootImageEditor):
             continue
@@ -700,39 +710,82 @@ class _PlatformDestinations:
     recipients: tuple[str, ...]
     kind_by_event_id: dict[str, AlertEventKind]
     incident_event_ids: frozenset[str]
+    # The alert's HogFunction groups for each event id the delivery sends, read with the rows. Empty when
+    # the platform keeps the destinations.
+    groups_by_event_id: dict[str, tuple[AlertDestinationGroup, ...]]
 
 
-def _platform_destinations(request: AlertDeliveryRequest) -> _PlatformDestinations:
-    """The alert's `AlertDestination` rows, and whether they are all of its destinations. Read once per
-    delivery, and after the check, so a destination removed in between is not sent to."""
-    owner = (
-        PlatformAlertConfiguration.objects.for_team(request.team_id)
-        .filter(id=request.configuration_id)
-        .values_list("destinations_owner", flat=True)
-        .first()
-    )
-    owns_destinations = owner == PlatformAlertOwner.PLATFORM
+@contextmanager
+def _one_snapshot() -> Iterator[None]:
+    """Reads inside see the database as it stood at the first of them.
+
+    A destination moving between a HogFunction group and a row changes both in one transaction. Read
+    apart, the rows can come from before the move and the groups from after it, or the other way round,
+    and then neither sends. Inside a caller's transaction the caller's isolation level stands.
+    """
+    opens_transaction = not connections[DEFAULT_DB_ALIAS].in_atomic_block
+    with transaction.atomic(using=DEFAULT_DB_ALIAS):
+        if opens_transaction:
+            with connections[DEFAULT_DB_ALIAS].cursor() as cursor:
+                cursor.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
+        yield
+
+
+def _platform_destinations(request: AlertDeliveryRequest, *, event_ids: Collection[str]) -> _PlatformDestinations:
+    """The alert's `AlertDestination` rows, whether they are all of its destinations, and its HogFunction
+    groups for `event_ids`. Read once per delivery, after the check, so a destination removed in between
+    is not sent to, and from one snapshot, so a destination that moves during the read is read once."""
+    with _one_snapshot():
+        owner = (
+            PlatformAlertConfiguration.objects.for_team(request.team_id)
+            .filter(id=request.configuration_id)
+            .values_list("destinations_owner", flat=True)
+            .first()
+        )
+        owns_destinations = owner == PlatformAlertOwner.PLATFORM
+        destinations = enabled_alert_destinations(
+            team_id=request.team_id, configuration_id=UUID(request.configuration_id)
+        )
+        copies = frozenset() if owns_destinations else _copies_of_live_hog_functions(request.team_id, destinations)
+        groups_by_event_id = (
+            {}
+            if owns_destinations
+            else {
+                event_id: tuple(
+                    list_alert_destination_groups(
+                        team_id=request.team_id,
+                        alert_id=request.destination_alert_id,
+                        allowed_event_ids=[event_id],
+                    )
+                )
+                for event_id in sorted(event_ids)
+            }
+        )
+        resolved = _with_subscribers_resolved(request, destinations)
+        # Recipients read messages only, so a delivery that only moves an incident skips the lookup.
+        addresses = (
+            recipients.addresses(
+                request.source, team_id=request.team_id, configuration_id=UUID(request.configuration_id)
+            )
+            if owns_destinations and request.sends_messages
+            else ()
+        )
     incident_kinds = {
         event_id: INCIDENT_KINDS[IncidentAction(action)]
         for action, event_id in request.event_ids_by_incident_action.items()
     }
-    destinations = enabled_alert_destinations(team_id=request.team_id, configuration_id=UUID(request.configuration_id))
     return _PlatformDestinations(
-        destinations=_with_subscribers_resolved(request, destinations),
+        destinations=resolved,
         owns_destinations=owns_destinations,
-        copies=frozenset() if owns_destinations else _copies_of_live_hog_functions(request.team_id, destinations),
+        copies=copies,
         holds_subscribers=any(_names_users(destination.data) for destination in destinations),
-        # Recipients read messages only, so a delivery that only moves an incident skips the lookup.
-        recipients=recipients.addresses(
-            request.source, team_id=request.team_id, configuration_id=UUID(request.configuration_id)
-        )
-        if owns_destinations and request.sends_messages
-        else (),
+        recipients=addresses,
         kind_by_event_id={
             **{event_id: AlertEventKind(kind) for kind, event_id in request.event_ids_by_kind.items()},
             **incident_kinds,
         },
         incident_event_ids=frozenset(incident_kinds),
+        groups_by_event_id=groups_by_event_id,
     )
 
 
@@ -792,7 +845,8 @@ def _destinations(
     event_id: str,
     platform_destinations: "_PlatformDestinations",
 ) -> list[_SubscribedDestination]:
-    """Who subscribed to this event, resolved now rather than pinned when the check ran.
+    """Who subscribed to this event, as `_platform_destinations` read it for this delivery rather than
+    pinned when the check ran.
 
     A destination removed between the check and the send is not sent to, which a pinned set
     would get wrong.
@@ -810,11 +864,7 @@ def _destinations(
     rows = _platform_subscribers(event_id, platform_destinations)
     if platform_destinations.owns_destinations:
         return rows
-    groups = list_alert_destination_groups(
-        team_id=request.team_id,
-        alert_id=request.destination_alert_id,
-        allowed_event_ids=[event_id],
-    )
+    groups = platform_destinations.groups_by_event_id[event_id]
     return [
         *(
             _SubscribedDestination(
