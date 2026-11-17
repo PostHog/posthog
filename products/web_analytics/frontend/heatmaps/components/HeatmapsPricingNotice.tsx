@@ -42,8 +42,8 @@ function HeatmapsPricingNoticeBanner({ teamId }: { teamId: number }): JSX.Elemen
                 'data-attr': 'heatmaps-pricing-notice-upgrade',
             }}
         >
-            Heatmaps is out of beta, and its pricing changes on November 15. The free plan will collect heatmap data
-            from up to {captureUrlLimit} pages, and toolbar heatmaps will need a pay-as-you-go plan.{' '}
+            Heatmaps is out of beta, and its pricing changes on December 1. The free plan will collect heatmap data from
+            up to {captureUrlLimit} pages, and toolbar heatmaps will need a pay-as-you-go plan.{' '}
             {urlAllowlist.length === 0
                 ? 'Your capture list is empty, so heatmaps will stop collecting data. '
                 : 'Only the URLs in your capture list will keep collecting data. '}
