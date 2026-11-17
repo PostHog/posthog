@@ -1,19 +1,21 @@
 import { useActions, useValues } from 'kea'
 
-import { IconChevronRight, IconPlus } from '@posthog/icons'
+import { IconPlus } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonInputSelect } from '@posthog/lemon-ui'
+
+import { PANE_LEFT, PANE_ROW } from 'products/review_hog/frontend/repositories/paneClasses'
 
 import { editorDisabledReason } from './repoAccess'
 import { stamphogSceneLogic } from './stamphogSceneLogic'
 
-function foldTitle(addableCount: number | null): string {
+function rowTitle(addableCount: number | null): string {
     if (addableCount === null) {
         return 'Repositories not added'
     }
     if (addableCount === 0) {
         return 'Every repository the app can reach is added'
     }
-    return addableCount === 1 ? '1 more repository, not added' : `${addableCount} more repositories, not added`
+    return addableCount === 1 ? '1 more repository' : `${addableCount} more repositories`
 }
 
 function addPlaceholder(addableCount: number | null): string {
@@ -42,7 +44,7 @@ function AddRepositoryPicker(): JSX.Element {
     const accessReason = editorDisabledReason(stamphogAccessLevel)
 
     return (
-        <div className="flex flex-col gap-2 px-4 pb-3">
+        <div className={`col-span-full flex flex-col gap-2 px-4 pb-3 ${PANE_LEFT}`}>
             {availableRepositoriesFailed && (
                 <LemonBanner
                     type="error"
@@ -96,31 +98,39 @@ function AddRepositoryPicker(): JSX.Element {
 }
 
 export function NotAddedRepositoriesRow(): JSX.Element {
-    const { addableCount, addRepositoryOpen } = useValues(stamphogSceneLogic)
+    const { addableCount, addRepositoryOpen, stamphogAccessLevel } = useValues(stamphogSceneLogic)
     const { setAddRepositoryOpen } = useActions(stamphogSceneLogic)
-    const canOpen = addableCount !== 0
+    const canAdd = addableCount !== 0
 
     return (
-        <div className="flex flex-col">
-            <button
-                type="button"
-                onClick={() => setAddRepositoryOpen(!addRepositoryOpen)}
-                aria-expanded={addRepositoryOpen}
-                disabled={!canOpen}
-                className="flex min-w-0 items-center gap-1.5 px-4 py-2.5 text-left enabled:cursor-pointer"
-                data-attr="stamphog-not-added-fold"
+        <>
+            <div className={`flex min-w-0 flex-col px-4 py-2.5 ${PANE_LEFT} ${PANE_ROW}`}>
+                <span className="text-sm font-semibold">{rowTitle(addableCount)}</span>
+                {canAdd && <span className="text-xs text-secondary">Not added</span>}
+            </div>
+            <div
+                className={`flex min-w-0 flex-wrap items-center gap-2 px-4 pb-2.5 @min-[48rem]:col-span-2 @min-[48rem]:border-t @min-[48rem]:border-primary @min-[48rem]:pt-2.5 ${PANE_LEFT}`}
             >
-                {canOpen && (
-                    <IconChevronRight
-                        className={`shrink-0 text-base transition-transform motion-reduce:transition-none ${addRepositoryOpen ? 'rotate-90' : ''}`}
-                    />
+                {canAdd && (
+                    <>
+                        <LemonButton
+                            type="secondary"
+                            size="small"
+                            icon={<IconPlus />}
+                            onClick={() => setAddRepositoryOpen(!addRepositoryOpen)}
+                            active={addRepositoryOpen}
+                            disabledReason={editorDisabledReason(stamphogAccessLevel)}
+                            data-attr="stamphog-not-added-fold"
+                        >
+                            Add
+                        </LemonButton>
+                        <span className="text-xs text-secondary">
+                            The Stamphog app can see them. Nothing is auto-approved there yet.
+                        </span>
+                    </>
                 )}
-                <span className="text-sm font-semibold">{foldTitle(addableCount)}</span>
-                {canOpen && !addRepositoryOpen && (
-                    <span className="text-xs text-secondary">· Auto-approval skips them. Open to add one.</span>
-                )}
-            </button>
-            {canOpen && addRepositoryOpen && <AddRepositoryPicker />}
-        </div>
+            </div>
+            {canAdd && addRepositoryOpen && <AddRepositoryPicker />}
+        </>
     )
 }

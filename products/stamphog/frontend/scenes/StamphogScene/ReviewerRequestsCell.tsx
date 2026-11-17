@@ -1,8 +1,10 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonSelect } from '@posthog/lemon-ui'
+import { LemonSelect, Link } from '@posthog/lemon-ui'
 
 import { toAccessControlLevel } from 'lib/utils/accessControlUtils'
+
+import { StateDot } from 'products/review_hog/frontend/repositories/StateDot'
 
 import {
     OwnersFileStatusEnumApi,
@@ -11,13 +13,55 @@ import {
 } from '../../generated/api.schemas'
 import { ROUTING_MODE_LABELS } from '../../routingModeLabels'
 import { managerDisabledReason } from './repoAccess'
-import { stamphogSceneLogic } from './stamphogSceneLogic'
+import { type OwnersFileCheck, stamphogSceneLogic } from './stamphogSceneLogic'
 
 const ROUTING_MODE_OPTIONS = [RoutingModeEnumApi.Off, RoutingModeEnumApi.Fallback, RoutingModeEnumApi.Always].map(
-    (value) => ({ value, label: ROUTING_MODE_LABELS[value] })
+    (value) => ({
+        value,
+        label: ROUTING_MODE_LABELS[value],
+        icon: <StateDot state={value === RoutingModeEnumApi.Off ? 'off' : 'on'} />,
+    })
 )
 
-export function ReviewerRequestsSelect({ repo }: { repo: CodeReviewApprovalRepositoryApi }): JSX.Element {
+const OWNERS_FOUND_HINT: Record<RoutingModeEnumApi, string> = {
+    [RoutingModeEnumApi.Off]: 'owners.yaml found',
+    [RoutingModeEnumApi.Fallback]: 'owners.yaml found · approved PRs ask only pinned owners',
+    [RoutingModeEnumApi.Always]: 'owners.yaml found · every ready PR asks its owners',
+}
+
+function OwnersFileHint({
+    repoId,
+    mode,
+    ownersFile,
+}: {
+    repoId: string
+    mode: RoutingModeEnumApi
+    ownersFile: OwnersFileCheck | undefined
+}): JSX.Element | null {
+    const { checkOwnersFile } = useActions(stamphogSceneLogic)
+
+    switch (ownersFile) {
+        case OwnersFileStatusEnumApi.Found:
+            return <span data-attr="stamphog-owners-file-found">{OWNERS_FOUND_HINT[mode]}</span>
+        case OwnersFileStatusEnumApi.Missing:
+            return <span>no owners.yaml</span>
+        case OwnersFileStatusEnumApi.Unavailable:
+            return (
+                <span>
+                    Couldn't check for owners.yaml.{' '}
+                    <Link onClick={() => checkOwnersFile(repoId)} data-attr="stamphog-owners-file-retry">
+                        Try again
+                    </Link>
+                </span>
+            )
+        case 'checking':
+            return <span>Checking for owners.yaml…</span>
+        default:
+            return null
+    }
+}
+
+export function ReviewerRequestsCell({ repo }: { repo: CodeReviewApprovalRepositoryApi }): JSX.Element {
     const { updatingRepoIds, ownersFileChecks } = useValues(stamphogSceneLogic)
     const { updateRepoConfig } = useActions(stamphogSceneLogic)
     const mode = repo.routing_mode ?? RoutingModeEnumApi.Off
@@ -35,14 +79,19 @@ export function ReviewerRequestsSelect({ repo }: { repo: CodeReviewApprovalRepos
         (updatingRepoIds.includes(repo.id) ? 'Saving…' : undefined)
 
     return (
-        <LemonSelect
-            size="small"
-            aria-label={`Reviewer requests for ${repo.repository}`}
-            value={mode}
-            options={ROUTING_MODE_OPTIONS}
-            onChange={(routingMode) => updateRepoConfig(repo.id, { routing_mode: routingMode })}
-            disabledReason={disabledReason}
-            data-attr="stamphog-repo-reviewer-requests-mode"
-        />
+        <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+            <LemonSelect
+                size="small"
+                aria-label={`Reviewer requests for ${repo.repository}`}
+                value={mode}
+                options={ROUTING_MODE_OPTIONS}
+                onChange={(routingMode) => updateRepoConfig(repo.id, { routing_mode: routingMode })}
+                disabledReason={disabledReason}
+                data-attr="stamphog-repo-reviewer-requests-mode"
+            />
+            <span className="text-xs text-secondary">
+                <OwnersFileHint repoId={repo.id} mode={mode} ownersFile={ownersFileChecks[repo.id]} />
+            </span>
+        </div>
     )
 }

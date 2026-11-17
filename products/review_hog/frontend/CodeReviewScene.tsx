@@ -15,14 +15,11 @@ import {
     Tooltip,
 } from '@posthog/lemon-ui'
 
-import { NotFound } from 'lib/components/NotFound'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonCard } from 'lib/lemon-ui/LemonCard'
 import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
 import { LemonDrawer } from 'lib/lemon-ui/LemonDrawer'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { retryImport } from 'lib/utils/retryImport'
 import { SceneExport } from 'scenes/sceneTypes'
 
@@ -45,23 +42,23 @@ import {
 } from 'products/review_hog/frontend/generated/api.schemas'
 
 import { AdoptSkillModal } from './AdoptSkillModal'
+import { CodeReviewTab, isReviewTab, visibleCodeReviewTabs } from './codeReviewTabs'
 import { PipelineDetailModal } from './PipelineDetailModal'
 import { reviewTitle } from './reviewDisplay'
-import { ActivityView, CodeReviewTab, ReviewDrawerTab, reviewHogSettingsLogic } from './reviewHogSettingsLogic'
+import { ReviewDrawerTab, reviewHogSettingsLogic } from './reviewHogSettingsLogic'
 import { ReviewModeTag } from './ReviewModeTag'
 import { ReviewsFilters } from './ReviewsFilters'
 import { ReviewsTable } from './ReviewsTable'
-import { AUTO_APPROVAL_AREA_ID } from './settings/autoApprovalAnchor'
 import { DeepArea } from './settings/DeepArea'
 import { InboxSection } from './settings/InboxSection'
 import { StandardArea } from './settings/StandardArea'
 import { prettifySkillName } from './skillNames'
 
-// Auto-approval and Team changes come from the stamphog product. Each loads in its own chunk, so the
-// first load of Code review does not carry them.
-const AutoApprovalArea = lazy(() =>
-    retryImport(() => import('products/stamphog/frontend/scenes/StamphogScene/AutoApprovalArea')).then((m) => ({
-        default: m.AutoApprovalArea,
+// The auto-approval tabs come from the stamphog product. Each loads in its own chunk, so the first
+// load of Code review does not carry them.
+const ApprovalSettings = lazy(() =>
+    retryImport(() => import('products/stamphog/frontend/scenes/StamphogScene/ApprovalSettings')).then((m) => ({
+        default: m.ApprovalSettings,
     }))
 )
 const AutoApprovalRuns = lazy(() =>
@@ -69,16 +66,11 @@ const AutoApprovalRuns = lazy(() =>
         default: m.AutoApprovalRuns,
     }))
 )
-const TeamChanges = lazy(() =>
-    retryImport(() => import('products/stamphog/frontend/scenes/StamphogAreaScene/TeamChanges')).then((m) => ({
-        default: m.TeamChanges,
+const CodeYouOwn = lazy(() =>
+    retryImport(() => import('products/stamphog/frontend/scenes/StamphogAreaScene/CodeYouOwn')).then((m) => ({
+        default: m.CodeYouOwn,
     }))
 )
-
-const ACTIVITY_VIEW_OPTIONS: { value: ActivityView; label: string; 'data-attr': string }[] = [
-    { value: 'reviews', label: 'Reviews', 'data-attr': 'code-review-activity-reviews' },
-    { value: 'auto_approvals', label: 'Auto-approvals', 'data-attr': 'code-review-activity-auto-approvals' },
-]
 
 // The Mine tooltip states what the backend's `mine` scope matches: the PR author OR the user who started the run.
 const REVIEWS_SCOPE_OPTIONS: {
@@ -867,35 +859,47 @@ function LazySectionFallback(): JSX.Element {
     return <LemonSkeleton className="h-40 w-full" />
 }
 
-function ActivityTab(): JSX.Element {
-    const { activityView } = useValues(reviewHogSettingsLogic)
-    const { setActivityView } = useActions(reviewHogSettingsLogic)
+function ReviewsUnavailableBanner(): JSX.Element {
+    return (
+        <LemonBanner type="info" data-attr="code-review-feature-flag-gated">
+            PostHog Review is not available for this project yet. If you just turned on the feature preview, refresh the
+            page in a moment. Otherwise, ask an admin of your PostHog instance to turn it on.
+        </LemonBanner>
+    )
+}
 
+function ActivityTab(): JSX.Element {
     return (
         <>
-            <LemonSegmentedButton
-                className="self-start"
-                size="small"
-                value={activityView}
-                onChange={(value) => setActivityView(value)}
-                options={ACTIVITY_VIEW_OPTIONS}
-            />
-            {activityView === 'reviews' ? (
-                <>
-                    <TriggerReviewSection />
-                    <ReviewsSection />
-                </>
-            ) : (
-                <SceneSection
-                    title="Auto-approvals"
-                    description="Each time auto-approval reviewed a pull request, and what it decided."
-                >
-                    <Suspense fallback={<LazySectionFallback />}>
-                        <AutoApprovalRuns />
-                    </Suspense>
-                </SceneSection>
-            )}
+            <TriggerReviewSection />
+            <ReviewsSection />
         </>
+    )
+}
+
+function ApprovalHistoryTab(): JSX.Element {
+    return (
+        <SceneSection
+            title="Approval history"
+            description="Each time auto-approval reviewed a pull request, and what it decided."
+        >
+            <Suspense fallback={<LazySectionFallback />}>
+                <AutoApprovalRuns />
+            </Suspense>
+        </SceneSection>
+    )
+}
+
+function CodeYouOwnTab(): JSX.Element {
+    return (
+        <SceneSection
+            title="Code you own"
+            description="What changed in code your team owns, and whether your team saw it before it merged."
+        >
+            <Suspense fallback={<LazySectionFallback />}>
+                <CodeYouOwn />
+            </Suspense>
+        </SceneSection>
     )
 }
 
@@ -904,95 +908,67 @@ function SettingsTab(): JSX.Element {
         <>
             <StandardArea />
             <DeepArea />
-            <div id={AUTO_APPROVAL_AREA_ID}>
-                <Suspense fallback={<LazySectionFallback />}>
-                    <AutoApprovalArea />
-                </Suspense>
-            </div>
             <InboxSection />
         </>
     )
 }
 
-function TeamChangesTab(): JSX.Element {
+function ApprovalSettingsTab(): JSX.Element {
     return (
-        <SceneSection
-            title="Team changes"
-            description="What changed in code your team owns, and whether your team saw it before it merged."
-        >
-            <Suspense fallback={<LazySectionFallback />}>
-                <TeamChanges />
-            </Suspense>
-        </SceneSection>
+        <Suspense fallback={<LazySectionFallback />}>
+            <ApprovalSettings />
+        </Suspense>
     )
 }
 
 /**
- * The "Code review" scene: the page of PostHog Review, split into an Activity tab (trigger a review,
- * recent reviews, auto-approval runs), a Settings tab (review settings and auto-approval), and a
- * Team changes tab (what changed in the code a team owns).
+ * The "Code review" scene: the page of PostHog Review and of auto-approval. Review activity and Review
+ * settings belong to PostHog Review and show only with FEATURE_FLAGS.REVIEW_HOG, the flag of its menu
+ * entry and its API. Approval history, Code you own and Approval settings belong to auto-approval,
+ * which was never behind that flag, so they work for everyone.
  * Every control is live from load, no save step. See `reviewHogSettingsLogic` for the data flow.
- * Access is gated on FEATURE_FLAGS.REVIEW_HOG, the same flag that shows the menu entry, so whoever
- * discovers the entry can open the page.
  */
 export function CodeReviewScene(): JSX.Element {
-    const { featureFlags } = useValues(featureFlagLogic)
-    const { activeTab, initialLoadFailed, featureFlagGated } = useValues(reviewHogSettingsLogic)
+    const { activeTab, initialLoadFailed, featureFlagGated, reviewsEnabled } = useValues(reviewHogSettingsLogic)
     const { setActiveTab, loadAll } = useActions(reviewHogSettingsLogic)
-
-    if (!featureFlags[FEATURE_FLAGS.REVIEW_HOG]) {
-        return <NotFound object="page" />
-    }
-
-    const titleSection = (
-        <SceneTitleSection
-            name="Code review"
-            description="Automated code reviews of your pull requests."
-            resourceType={{ type: 'code_review' }}
-        />
-    )
-
-    // The browser flag shows the page, but the server flag gate refuses its API.
-    if (featureFlagGated) {
-        return (
-            <SceneContent>
-                {titleSection}
-                <LemonBanner type="info" data-attr="code-review-feature-flag-gated">
-                    PostHog Review is not available for this project yet. If you just turned on the feature preview,
-                    refresh the page in a moment. Otherwise, ask an admin of your PostHog instance to turn it on.
-                </LemonBanner>
-            </SceneContent>
-        )
-    }
+    // The browser flag shows the review tabs, but the server flag gate can still refuse their API.
+    const reviewTabBlocked = isReviewTab(activeTab) && featureFlagGated
 
     return (
         <SceneContent>
-            {titleSection}
+            <SceneTitleSection
+                name="Code review"
+                description="Automated reviews and approvals of your pull requests."
+                resourceType={{ type: 'code_review' }}
+            />
             <LemonTabs<CodeReviewTab>
                 activeKey={activeTab}
                 onChange={setActiveTab}
-                tabs={[
-                    { key: 'activity', label: 'Activity', 'data-attr': 'code-review-tab-activity' },
-                    { key: 'settings', label: 'Settings', 'data-attr': 'code-review-tab-settings' },
-                    { key: 'team_changes', label: 'Team changes', 'data-attr': 'code-review-tab-team-changes' },
-                ]}
+                tabs={visibleCodeReviewTabs(reviewsEnabled)}
                 sceneInset
             />
             <div className="flex flex-col gap-8 pb-8">
-                {initialLoadFailed && (
+                {initialLoadFailed && isReviewTab(activeTab) && (
                     <LemonBanner type="error" action={{ children: 'Retry', onClick: () => loadAll() }}>
                         Some PostHog Review settings failed to load.
                     </LemonBanner>
                 )}
 
-                {activeTab === 'activity' && <ActivityTab />}
-                {activeTab === 'settings' && <SettingsTab />}
-                {activeTab === 'team_changes' && <TeamChangesTab />}
+                {reviewTabBlocked && <ReviewsUnavailableBanner />}
+                {activeTab === 'activity' && !reviewTabBlocked && <ActivityTab />}
+                {activeTab === 'approval_history' && <ApprovalHistoryTab />}
+                {activeTab === 'code_you_own' && <CodeYouOwnTab />}
+                {activeTab === 'settings' && !reviewTabBlocked && <SettingsTab />}
+                {activeTab === 'approval_settings' && <ApprovalSettingsTab />}
 
                 {/* Overlays stay mounted on every tab, so a `?review=` deep link opens on any of them. */}
-                <AdoptSkillModal />
-                <PipelineDetailModal />
-                <ReviewDetailDrawer />
+                {reviewsEnabled && (
+                    <>
+                        <AdoptSkillModal />
+                        <PipelineDetailModal />
+                        <ReviewDetailDrawer />
+                    </>
+                )}
             </div>
         </SceneContent>
     )

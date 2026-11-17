@@ -1,14 +1,14 @@
 import type { Meta, StoryObj } from '@storybook/react'
 import { waitFor } from '@testing-library/dom'
 
-import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
 
 import { expect, userEvent } from 'storybook/test'
 
-import type { DigestRunApi } from '../../generated/api.schemas'
+import type { CodeReviewApprovalRepositoryApi, DigestRunApi } from '../../generated/api.schemas'
+import { DailyDigestSection } from './DailyDigestSection'
 
 const EMPTY_SUMMARY: DigestRunApi['summary'] = { headline: '', prs: [] }
 
@@ -104,20 +104,60 @@ const digestRuns = {
     ],
 }
 
+const repository = (
+    index: number,
+    overrides: Partial<CodeReviewApprovalRepositoryApi>
+): CodeReviewApprovalRepositoryApi =>
+    ({
+        id: `00000000-0000-0000-0000-0000000000a${index}`,
+        repository: 'example-org/web',
+        enabled: true,
+        digest_enabled: false,
+        review_mode: 'label',
+        trigger_label: 'auto-approve',
+        routing_mode: 'off',
+        user_access_level: 'manager',
+        created_at: '2026-08-01T00:00:00Z',
+        updated_at: '2026-08-01T00:00:00Z',
+        ...overrides,
+    }) as CodeReviewApprovalRepositoryApi
+
+const repositories = {
+    count: 3,
+    next: null,
+    previous: null,
+    results: [
+        repository(1, { repository: 'example-org/api', digest_enabled: true }),
+        repository(2, { repository: 'example-org/docs', enabled: false }),
+        repository(3, { repository: 'example-org/web' }),
+    ],
+}
+
 const meta: Meta = {
-    component: App,
-    title: 'Scenes-App/Stamphog/Digests',
+    component: DailyDigestSection,
+    title: 'Scenes-App/Code review/Daily digest',
     parameters: {
-        layout: 'fullscreen',
+        layout: 'padded',
         viewMode: 'story',
         mockDate: '2026-08-18 12:00:00',
-        pageUrl: urls.stamphogDigests(),
+        pageUrl: urls.codeReview('approval_settings'),
         testOptions: { waitForSelector: '[data-attr="stamphog-digests-table"]' },
     },
     decorators: [
         mswDecorator({
             get: {
                 '/api/projects/:team_id/code_review/approvals/digests/': digestRuns,
+                '/api/projects/:team_id/code_review/approvals/repositories/': repositories,
+                '/api/projects/:team_id/code_review/approvals/repositories/available_repositories/': {
+                    repositories: [],
+                    total_count: 0,
+                    has_installation: true,
+                },
+                '/api/projects/:team_id/code_review/approvals/repositories/install_info/': {
+                    app_slug: 'example-app',
+                    install_url: 'https://github.com/apps/example-app/installations/new',
+                    authorize_url: 'https://github.com/login/oauth/authorize',
+                },
             },
         }),
     ],
@@ -138,6 +178,7 @@ export const DigestExpanded: StoryObj = {
     },
 }
 
+// No repository in the digest and nothing posted yet, so the section reads as paused.
 export const DigestsListEmpty: StoryObj = {
     decorators: [
         mswDecorator({
@@ -147,6 +188,10 @@ export const DigestsListEmpty: StoryObj = {
                     next: null,
                     previous: null,
                     results: [],
+                },
+                '/api/projects/:team_id/code_review/approvals/repositories/': {
+                    ...repositories,
+                    results: repositories.results.map((repo) => ({ ...repo, digest_enabled: false })),
                 },
             },
         }),

@@ -15,7 +15,7 @@ import type {
     CodeReviewApprovalRoutingRunDetailApi,
     CodeReviewApprovalRoutingRunOwnerApi,
 } from '../../generated/api.schemas'
-import { TeamChanges } from './TeamChanges'
+import { CodeYouOwn } from './CodeYouOwn'
 
 const file = (path: string, additions: number, deletions = 0): CodeReviewApprovalRoutingFileApi => ({
     path,
@@ -262,8 +262,8 @@ const storybookSplitDetail = {
 } as CodeReviewApprovalRoutingRunDetailApi
 
 const meta: Meta = {
-    component: TeamChanges,
-    title: 'Scenes-App/Code review/Team changes',
+    component: CodeYouOwn,
+    title: 'Scenes-App/Code review/Code you own',
     parameters: {
         layout: 'padded',
         viewMode: 'story',
@@ -275,7 +275,7 @@ const meta: Meta = {
 export default meta
 
 const story = (team: string | null, response: PaginatedCodeReviewApprovalRoutingRunListApi): StoryObj => ({
-    parameters: { pageUrl: combineUrl(urls.codeReview('team_changes'), team ? { team } : {}).url },
+    parameters: { pageUrl: combineUrl(urls.codeReview('code_you_own'), team ? { team } : {}).url },
     decorators: [
         mswDecorator({
             get: {

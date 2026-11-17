@@ -214,7 +214,7 @@ export const stamphogRunsSceneLogic = kea<stamphogRunsSceneLogicType>([
     })),
 
     actionToUrl(({ values }) => {
-        // The runs share the Code review URL with its tab and activity params, so those stay as they are.
+        // The runs share the Code review URL with its tab param, so the other params stay as they are.
         const toUrl = (): [string, Record<string, any>] => [
             urls.codeReview(),
             {

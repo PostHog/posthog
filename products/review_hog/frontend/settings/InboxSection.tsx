@@ -2,10 +2,11 @@ import { useActions, useValues } from 'kea'
 
 import { LemonSwitch, Link } from '@posthog/lemon-ui'
 
+import { urls } from 'scenes/urls'
+
 import { YouMark } from 'products/review_hog/frontend/repositories/YouMark'
 import { reviewHogSettingsLogic } from 'products/review_hog/frontend/reviewHogSettingsLogic'
 
-import { AUTO_APPROVAL_AREA_ID } from './autoApprovalAnchor'
 import { SettingRow } from './SettingRow'
 import { SettingsTable } from './SettingsTable'
 
@@ -43,11 +44,7 @@ export function InboxSection(): JSX.Element {
                         <>
                             Auto-approval approves them when they pass.{' '}
                             <Link
-                                onClick={() =>
-                                    document
-                                        .getElementById(AUTO_APPROVAL_AREA_ID)
-                                        ?.scrollIntoView({ behavior: 'smooth' })
-                                }
+                                to={urls.codeReview('approval_settings')}
                                 data-attr="review-hog-inbox-auto-approval-link"
                             >
                                 Add a repository to auto-approval first.

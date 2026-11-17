@@ -1,5 +1,7 @@
 import { AccessControlLevel } from '~/types'
 
+import type { DotState } from 'products/review_hog/frontend/repositories/StateDot'
+
 import {
     ReviewModeEnumApi,
     type CodeReviewApprovalRepositoryApi,
@@ -21,7 +23,7 @@ export const APPROVE_OPTIONS: { value: ApproveChoice; label: string; tooltip: st
     },
     {
         value: 'label_or_clean_review',
-        label: 'On label or after a clean review',
+        label: 'On label, or after a clean review',
         tooltip:
             'Also reviews a pull request after a Standard review finds no issues. It posts only an approval. This needs Standard reviews on for the repository.',
     },
@@ -36,6 +38,20 @@ export const APPROVE_OPTIONS: { value: ApproveChoice; label: string; tooltip: st
         tooltip: 'Reviews nothing and leaves the repository out of the daily digest. The other settings stay.',
     },
 ]
+
+/** The line under the select, for the choices whose effect the label alone does not say. */
+export const APPROVE_HINTS: Partial<Record<ApproveChoice, string>> = {
+    label_or_clean_review: 'Tries once, silently, after PostHog Review finds nothing. Posts only an approval.',
+    paused: 'Settings stay. Resume to approve again.',
+}
+
+// A label covers only the pull requests someone marks, so it gets the open dot.
+export const APPROVE_DOT_STATE: Record<ApproveChoice, DotState> = {
+    label: 'partial',
+    label_or_clean_review: 'on',
+    all: 'on',
+    paused: 'off',
+}
 
 export function approveChoice(repo: CodeReviewApprovalRepositoryApi): ApproveChoice {
     if (!repo.enabled) {

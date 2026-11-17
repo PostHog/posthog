@@ -1,5 +1,4 @@
 import type { Meta, StoryObj } from '@storybook/react'
-import { combineUrl } from 'kea-router'
 
 import { urls } from 'scenes/urls'
 
@@ -153,12 +152,12 @@ const reviewRuns = {
 
 const meta: Meta = {
     component: AutoApprovalRuns,
-    title: 'Scenes-App/Code review/Auto-approval runs',
+    title: 'Scenes-App/Code review/Approval history',
     parameters: {
         layout: 'padded',
         viewMode: 'story',
         mockDate: '2026-08-17 23:30:00',
-        pageUrl: combineUrl(urls.codeReview(), { activity: 'auto_approvals' }).url,
+        pageUrl: urls.codeReview('approval_history'),
         testOptions: { waitForSelector: '[data-attr="stamphog-runs-trigger-filter"]' },
     },
     decorators: [

@@ -5,8 +5,17 @@ import { LemonSelect, Tooltip } from '@posthog/lemon-ui'
 import { EditableField } from 'lib/components/EditableField/EditableField'
 import { toAccessControlLevel } from 'lib/utils/accessControlUtils'
 
+import { StateDot } from 'products/review_hog/frontend/repositories/StateDot'
+
 import { type CodeReviewApprovalRepositoryApi } from '../../generated/api.schemas'
-import { APPROVE_OPTIONS, approveChoice, approveChoiceDisabledReason, approveChoicePatch } from './approveChoice'
+import {
+    APPROVE_DOT_STATE,
+    APPROVE_HINTS,
+    APPROVE_OPTIONS,
+    approveChoice,
+    approveChoiceDisabledReason,
+    approveChoicePatch,
+} from './approveChoice'
 import { managerDisabledReason } from './repoAccess'
 import { stamphogSceneLogic } from './stamphogSceneLogic'
 
@@ -61,13 +70,14 @@ function TriggerLabelField({ repo }: { repo: CodeReviewApprovalRepositoryApi }):
     )
 }
 
-export function ApproveSelect({ repo }: { repo: CodeReviewApprovalRepositoryApi }): JSX.Element {
+export function ApproveCell({ repo }: { repo: CodeReviewApprovalRepositoryApi }): JSX.Element {
     const { updatingRepoIds } = useValues(stamphogSceneLogic)
     const { updateRepoConfig } = useActions(stamphogSceneLogic)
     const level = toAccessControlLevel(repo.user_access_level)
     const choice = approveChoice(repo)
     const options = APPROVE_OPTIONS.map((option) => ({
         ...option,
+        icon: <StateDot state={APPROVE_DOT_STATE[option.value]} />,
         disabledReason: approveChoiceDisabledReason(repo, option.value, level) ?? undefined,
     }))
     // A viewer who can pick nothing but the current choice gets the reason on the select itself.
@@ -75,24 +85,33 @@ export function ApproveSelect({ repo }: { repo: CodeReviewApprovalRepositoryApi 
         ? (managerDisabledReason(level) ?? undefined)
         : undefined
     const showsLabel = choice === 'label' || choice === 'label_or_clean_review'
+    const hint = APPROVE_HINTS[choice]
 
     return (
-        <div className="flex min-w-0 flex-wrap items-center gap-2">
-            <LemonSelect
-                size="small"
-                aria-label={`Approve for ${repo.repository}`}
-                value={choice}
-                options={options}
-                onChange={(value) => {
-                    const patch = approveChoicePatch(repo, value)
-                    if (Object.keys(patch).length > 0) {
-                        updateRepoConfig(repo.id, patch)
-                    }
-                }}
-                disabledReason={lockedReason ?? (updatingRepoIds.includes(repo.id) ? 'Saving…' : undefined)}
-                data-attr="stamphog-repo-approve"
-            />
-            {showsLabel && <TriggerLabelField repo={repo} />}
+        <div className="flex min-w-0 flex-col gap-1">
+            <div className="flex min-w-0 flex-wrap items-center gap-2">
+                <LemonSelect
+                    size="small"
+                    aria-label={`Approve for ${repo.repository}`}
+                    value={choice}
+                    options={options}
+                    onChange={(value) => {
+                        const patch = approveChoicePatch(repo, value)
+                        if (Object.keys(patch).length > 0) {
+                            updateRepoConfig(repo.id, patch)
+                        }
+                    }}
+                    disabledReason={lockedReason ?? (updatingRepoIds.includes(repo.id) ? 'Saving…' : undefined)}
+                    data-attr="stamphog-repo-approve"
+                />
+                {showsLabel && (
+                    <span className="flex min-w-0 items-center gap-1.5">
+                        <span className="text-xs text-secondary">label</span>
+                        <TriggerLabelField repo={repo} />
+                    </span>
+                )}
+            </div>
+            {hint && <span className="text-xs text-secondary">{hint}</span>}
         </div>
     )
 }

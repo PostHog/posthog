@@ -334,7 +334,6 @@ export const productRoutes: Record<string, [string, string]> = {
     '/skills/:name': ['Skill', 'skill'],
     '/integrations/slack/:integrationId/setup': ['SlackAppWorkspaceSetup', 'slackAppWorkspaceSetup'],
     '/stamphog/install/callback': ['CodeReview', 'stamphogCallback'],
-    '/stamphog/digests': ['StamphogDigests', 'stamphogDigests'],
     '/streamlit-apps': ['StreamlitApps', 'streamlitApps'],
     '/streamlit-apps/new': ['StreamlitAppEdit', 'streamlitAppNew'],
     '/streamlit-apps/:id': ['StreamlitApp', 'streamlitApp'],
@@ -620,11 +619,17 @@ export const productRedirects: Record<
     '/llm-analytics/skills/:name': (params, searchParams, hashParams) =>
         combineUrl(urls.skill(params.name), searchParams, hashParams).url,
     '/stamphog': (_params, searchParams, hashParams): string =>
-        combineUrl(urls.codeReview(), { ...searchParams, tab: 'settings' }, hashParams).url,
+        combineUrl(urls.codeReview(), { ...searchParams, tab: 'approval_settings' }, hashParams).url,
     '/stamphog/runs': (_params, searchParams, hashParams): string =>
-        combineUrl(urls.codeReview(), { ...searchParams, activity: 'auto_approvals' }, hashParams).url,
+        combineUrl(urls.codeReview(), { ...searchParams, tab: 'approval_history' }, hashParams).url,
     '/stamphog/area': (_params, searchParams, hashParams): string =>
-        combineUrl(urls.codeReview(), { ...searchParams, tab: 'team_changes' }, hashParams).url,
+        combineUrl(urls.codeReview(), { ...searchParams, tab: 'code_you_own' }, hashParams).url,
+    '/stamphog/digests': (_params, { page, ...searchParams }): string =>
+        combineUrl(
+            urls.codeReview(),
+            { ...searchParams, tab: 'approval_settings', digests_page: page },
+            '#daily-digest'
+        ).url,
     '/spaces/new': (_params, searchParams, hashParams): string => combineUrl('/ai/new', searchParams, hashParams).url,
     '/visual_review': (_params, searchParams, hashParams): string =>
         combineUrl(urls.visualReviewRuns(), searchParams, hashParams).url,
@@ -1259,7 +1264,6 @@ export const productConfiguration: Record<string, any> = {
         iconType: 'llm_prompts',
     },
     SlackAppWorkspaceSetup: { projectBased: true, name: 'Slack app setup', layout: 'plain' },
-    StamphogDigests: { projectBased: true, name: 'Stamphog digests', iconType: 'stamphog' },
     StreamlitApps: {
         name: 'Streamlit apps',
         description: 'Build and share custom Python apps that run on your PostHog data.',
@@ -2000,7 +2004,8 @@ export const productUrls = {
     replayVisionScannerTriggers: (id: string): string => `/replay-vision/${id}/triggers`,
     replayVisionScannerBudget: (id: string): string => `/replay-vision/${id}/budget`,
     replayVisionObservation: (observationId: string): string => `/replay-vision/observations/${observationId}`,
-    codeReview: (tab?: 'settings' | 'team_changes'): string => (tab ? `/code-review?tab=${tab}` : '/code-review'),
+    codeReview: (tab?: 'approval_history' | 'code_you_own' | 'settings' | 'approval_settings'): string =>
+        tab ? `/code-review?tab=${tab}` : '/code-review',
     inbox: (tab?: InboxTabKey | ':tab'): string => `/inbox${tab ? `/${tab}` : ''}`,
     inboxActivate: (): string => '/inbox/activate',
     inboxActivateWithoutGithub: (): string => '/inbox/activate/without-github',
@@ -2025,7 +2030,6 @@ export const productUrls = {
     ): string => combineUrl(`/skills/${name}`, params).url,
     communitySkills: (): string => '/skills/community',
     slackAppWorkspaceSetup: (integrationId: number | string): string => `/integrations/slack/${integrationId}/setup`,
-    stamphogDigests: (): string => '/stamphog/digests',
     stamphogCallback: (): string => '/stamphog/install/callback',
     streamlitApps: (): string => '/streamlit-apps',
     streamlitApp: (id: string): string => `/streamlit-apps/${id}`,

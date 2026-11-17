@@ -1,7 +1,7 @@
 import { AreaFilters } from './AreaFilters'
 import { AreaList } from './AreaList'
 
-export function TeamChanges(): JSX.Element {
+export function CodeYouOwn(): JSX.Element {
     return (
         <>
             <AreaFilters />

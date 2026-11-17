@@ -49,7 +49,7 @@ import type {
 import { expect } from 'storybook/test'
 
 import { CodeReviewScene } from './CodeReviewScene'
-import { CodeReviewTab } from './reviewHogSettingsLogic'
+import { CodeReviewTab } from './codeReviewTabs'
 
 const defaultSettings: ReviewUserSettingsApi = {
     default_review_mode: 'follow',
@@ -628,7 +628,7 @@ function approvalRepositories(accessLevel: string): CodeReviewApprovalRepository
             digest_enabled: true,
             routing_mode: 'always',
         }),
-        approvalRepository(4, { repository: 'example-org/worker' }),
+        approvalRepository(4, { repository: 'example-org/worker', trigger_label: 'needs-review' }),
     ].map((repo) => ({ ...repo, user_access_level: accessLevel }))
 }
 
@@ -689,22 +689,19 @@ const paginated = <T,>(results: T[]): { count: number; next: null; previous: nul
 
 function OpenTab({
     tab,
-    activity,
     review,
     children,
 }: {
-    tab: CodeReviewTab
-    activity?: string
+    tab?: CodeReviewTab
     review?: string
     children: JSX.Element
 }): JSX.Element {
     useEffect(() => {
         router.actions.replace(urls.codeReview(), {
-            ...(tab !== 'activity' ? { tab } : {}),
-            ...(activity ? { activity } : {}),
+            ...(tab ? { tab } : {}),
             ...(review ? { review } : {}),
         })
-    }, [tab, activity, review])
+    }, [tab, review])
     return children
 }
 
@@ -728,11 +725,7 @@ const meta: Meta<typeof CodeReviewScene> = {
     },
     decorators: [
         (Story, context): JSX.Element => (
-            <OpenTab
-                tab={context.parameters.tab ?? 'activity'}
-                activity={context.parameters.activity}
-                review={context.parameters.review}
-            >
+            <OpenTab tab={context.parameters.tab} review={context.parameters.review}>
                 <div className="p-4">
                     <Story />
                 </div>
@@ -769,9 +762,12 @@ const meta: Meta<typeof CodeReviewScene> = {
                         install_url: 'https://github.com/apps/example-app/installations/new',
                         authorize_url: 'https://github.com/login/oauth/authorize',
                     },
-                    '/api/projects/:team_id/code_review/approvals/repositories/:id/owners_file/': {
-                        owners_file: 'found',
-                    },
+                    // The worker repository has no owners.yaml, so the reviewer requests hint shows both states.
+                    '/api/projects/:team_id/code_review/approvals/repositories/:id/owners_file/': ({ params }) => [
+                        200,
+                        { owners_file: String(params.id).endsWith('4') ? 'missing' : 'found' },
+                    ],
+                    '/api/projects/:team_id/code_review/approvals/digests/': paginated([]),
                     '/api/projects/:team_id/code_review/approvals/runs/': paginated(approvalRuns),
                     '/api/projects/:team_id/code_review/approvals/reviewer_routing/owners/': [
                         { owner: 'team-web', kind: 'team', pr_count: 12 },
@@ -1027,9 +1023,7 @@ export const Settings: Story = {
         await expect(canvas.getByText('Last 10 Deep reviews')).toBeVisible()
         await expect(canvas.queryByText('Review a pull request')).not.toBeInTheDocument()
         await expect(canvas.getByLabelText('Commit fixes to my pull requests')).toBeVisible()
-        await expect(await canvas.findByText('example-org/worker')).toBeVisible()
-        await expect(canvas.getByText('Manager')).toBeVisible()
-        await expect(canvas.getByLabelText('Approve for example-org/worker')).toBeEnabled()
+        await expect(canvas.queryByText('Auto-approval')).not.toBeInTheDocument()
     },
 }
 
@@ -1053,24 +1047,65 @@ export const SettingsForMember: Story = {
         await expect(canvas.getAllByText('Include in project').length).toBeGreaterThan(0)
         await expect(canvas.queryByText('Remove from project')).not.toBeInTheDocument()
         await expect(canvas.queryByLabelText('Add exception for example-org/docs')).not.toBeInTheDocument()
-        await expect(await canvas.findByText('Manager access required')).toBeVisible()
-        await expect(canvas.getByLabelText('Approve for example-org/worker')).toBeDisabled()
-        // An editor may still resume a paused repository.
-        await expect(canvas.getByLabelText('Approve for example-org/docs')).toBeEnabled()
     },
 }
 
-export const SettingsAutoApprovalNotConnected: Story = {
-    parameters: { tab: 'settings', approvalConnected: false },
+export const ApprovalSettings: Story = {
+    parameters: { tab: 'approval_settings' },
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        // The repository names also head the digest list, so rows are found by their selects.
+        await expect(await canvas.findByLabelText('Approve for example-org/worker')).toBeEnabled()
+        await expect(canvas.getByText('Manager')).toBeVisible()
+        await expect(await canvas.findByText('no owners.yaml')).toBeVisible()
+        await expect(canvas.getByText('2 more repositories')).toBeVisible()
+        await expect(canvas.getByText('Daily digest')).toBeVisible()
+    },
+}
+
+export const ApprovalSettingsForMember: Story = {
+    parameters: { tab: 'approval_settings', approvalAccess: 'editor' },
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        await expect(await canvas.findByText('Manager access required')).toBeVisible()
+        // A select with a disabled reason stays focusable for its tooltip, so it is marked with aria-disabled.
+        await expect(await canvas.findByLabelText('Approve for example-org/worker')).toHaveAttribute(
+            'aria-disabled',
+            'true'
+        )
+        // An editor may still resume a paused repository.
+        await expect(canvas.getByLabelText('Approve for example-org/docs')).not.toHaveAttribute('aria-disabled', 'true')
+    },
+}
+
+export const ApprovalSettingsPausedFilter: Story = {
+    parameters: { tab: 'approval_settings' },
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        await expect(await canvas.findByLabelText('Approve for example-org/worker')).toBeVisible()
+        // The Paused select of a paused repository also reads "Paused", so the chip is found by its bar.
+        const chips = canvasElement.querySelector<HTMLElement>('.LemonSegmentedButton')
+        await expect(chips).not.toBeNull()
+        within(chips as HTMLElement)
+            .getByText('Paused')
+            .click()
+        await waitFor(() => expect(canvas.queryByLabelText('Approve for example-org/worker')).not.toBeInTheDocument())
+        await expect(canvas.getByLabelText('Approve for example-org/docs')).toBeVisible()
+        await expect(canvas.getByText('Settings stay. Resume to approve again.')).toBeVisible()
+    },
+}
+
+export const ApprovalSettingsNotConnected: Story = {
+    parameters: { tab: 'approval_settings', approvalConnected: false },
     play: async ({ canvasElement }) => {
         const canvas = within(canvasElement)
         await expect(await canvas.findByText('Install the Stamphog app on GitHub')).toBeVisible()
-        await expect(canvas.queryByText('example-org/worker')).not.toBeInTheDocument()
+        await expect(canvas.queryByLabelText('Approve for example-org/worker')).not.toBeInTheDocument()
     },
 }
 
-export const ActivityAutoApprovals: Story = {
-    parameters: { activity: 'auto_approvals' },
+export const ApprovalHistory: Story = {
+    parameters: { tab: 'approval_history' },
     play: async ({ canvasElement }) => {
         const canvas = within(canvasElement)
         await expect(await canvas.findByText('Cache the billing summary')).toBeVisible()
@@ -1078,8 +1113,8 @@ export const ActivityAutoApprovals: Story = {
     },
 }
 
-export const TeamChanges: Story = {
-    parameters: { tab: 'team_changes' },
+export const CodeYouOwn: Story = {
+    parameters: { tab: 'code_you_own' },
     play: async ({ canvasElement }) => {
         const canvas = within(canvasElement)
         await expect(
@@ -1104,13 +1139,14 @@ export const SavedInboxOptIns: Story = {
     },
 }
 
-export const FlagDisabledForStaff: Story = {
-    parameters: { featureFlags: [], isStaff: true },
+// Without the review-hog flag only the auto-approval tabs show, and the page opens on Approval settings.
+export const FlagOff: Story = {
+    parameters: { featureFlags: [] },
     play: async ({ canvasElement }) => {
-        userLogic.actions.loadUser()
-        await waitFor(() => expect(userLogic.values.user?.is_staff).toBe(true))
         const canvas = within(canvasElement)
-        await expect(await canvas.findByText('Page not found')).toBeVisible()
+        await expect(await canvas.findByLabelText('Approve for example-org/worker')).toBeVisible()
+        await expect(canvas.getByText('Approval settings')).toBeVisible()
+        await expect(canvas.queryByText('Review activity')).not.toBeInTheDocument()
         await expect(canvas.queryByText('Review a pull request')).not.toBeInTheDocument()
     },
 }
