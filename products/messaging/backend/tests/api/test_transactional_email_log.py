@@ -44,6 +44,7 @@ RANK = {
 }
 NOW = datetime(2026, 6, 15, 12, 0, 0, tzinfo=UTC)
 SLOW_SEND_MINUTES_AGO = 12 * 24 * 60
+DELAYED_SEND_MINUTES_AGO = 15 * 24 * 60
 
 
 @time_machine.travel(NOW, tick=False)
@@ -561,7 +562,7 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
 
     def test_counts_conversions_within_a_week_of_the_click_against_sends_nobody_clicked(self, _flag):
         create_person(team=self.team, distinct_ids=["clicker", "clicker-phone"])
-        for distinct_id in ["early", "slow", "reader", "late", "bounced"]:
+        for distinct_id in ["early", "slow", "delayed", "reader", "late", "bounced"]:
             create_person(team=self.team, distinct_ids=[distinct_id])
         delivered = [("sent", 1, ""), ("delivered", 2, "")]
         clicked_an_hour_in = [*delivered, ("opened", 60, ""), ("clicked", 3600, "")]
@@ -575,6 +576,13 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
                 timedelta(days=9),
             ),
             (1_000, None, clicked_an_hour_in, None),
+            # Sent two days after it was queued, so its week runs from the send, not the queue.
+            (
+                DELAYED_SEND_MINUTES_AGO,
+                "delayed",
+                [("sent", 2 * 86400, ""), ("delivered", 2 * 86400 + 1, "")],
+                timedelta(days=8),
+            ),
             (4_000, "reader", [*delivered, ("opened", 60, "")], timedelta(days=1)),
             (5_000, "late", delivered, timedelta(days=7, hours=1)),
             (6_000, "bounced", [("sent", 1, ""), ("bounced", 2, "")], timedelta(hours=1)),
@@ -611,12 +619,12 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
         )
 
         assert funnel.status_code == status.HTTP_200_OK, funnel.json()
-        counts = {"sent": 7, "delivered": 6, "opened": 5, "clicked": 4, "window_days": 7}
+        counts = {"sent": 8, "delivered": 7, "opened": 5, "clicked": 4, "window_days": 7}
         assert funnel.json() == {**counts, "after_click": None, "without_click": None}
         assert converted.json() == {
             **counts,
             "after_click": {"sends": 3, "converted": 2},
-            "without_click": {"sends": 2, "converted": 1},
+            "without_click": {"sends": 3, "converted": 2},
         }
         assert clicked_after_the_period.json() == {
             "sent": 1,
@@ -684,9 +692,7 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
         assert self.client.get(self._url(f"{deleted_id}/")).json()["recipient"] == "old@example.com"
         assert self.client.get(self._url(f"{denied_then_deleted_id}/")).status_code == status.HTTP_404_NOT_FOUND
 
-    @parameterized.expand([("person",), ("query",)])
-    def test_activity_needs_access_to_persons_and_queries(self, _flag, resource):
-        message_id = self._send(10, "jane@example.com", [("sent", 1, "")])
+    def _deny_member(self, resource: str) -> None:
         self.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
             {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
@@ -701,7 +707,21 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
             organization_member_id=self.organization_membership.id,
         )
 
+    @parameterized.expand([("person",), ("query",)])
+    def test_activity_needs_access_to_persons_and_queries(self, _flag, resource):
+        message_id = self._send(10, "jane@example.com", [("sent", 1, "")])
+        self._deny_member(resource)
+
         assert self.client.get(self._url(f"{message_id}/activity/")).status_code == status.HTTP_403_FORBIDDEN
+
+    def test_impact_counts_conversions_only_with_query_access(self, _flag):
+        self._deny_member("query")
+
+        funnel = self.client.get(self._url("impact/"), {"workflow_id": self.workflow_id})
+        conversions = self.client.get(self._url("impact/"), {"workflow_id": self.workflow_id, "event": "purchase"})
+
+        assert funnel.status_code == status.HTTP_200_OK, funnel.json()
+        assert conversions.status_code == status.HTTP_403_FORBIDDEN, conversions.json()
 
     def test_names_a_send_from_code_by_its_template_key_and_links_its_code_email(self, _flag):
         workflow_id = str(create_code_email_workflow(team_id=self.team.id, key="order-shipped"))

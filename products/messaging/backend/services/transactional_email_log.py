@@ -648,7 +648,7 @@ class _FollowedSend:
     distinct_id: str
     recipient: str
     clicked: bool
-    # The first click, or the send itself when nobody clicked.
+    # When the conversion week starts: the first click, or the send when nobody clicked.
     since: datetime
 
 
@@ -656,9 +656,13 @@ def _sends_to_follow(team: Team, user: User | None, workflow_id: str, period: _P
     rows = _execute(
         team.id,
         f"""
-        SELECT toString(message_id), was_clicked, if(was_clicked, first_clicked_at, queued_at)
+        SELECT toString(message_id), was_clicked, if(was_clicked, first_clicked_at, greatest(queued_at, first_sent_at))
         FROM (
-            SELECT {_MESSAGE_COLUMNS}, minIf(status_at, status = 'clicked') AS first_clicked_at
+            SELECT
+                {_MESSAGE_COLUMNS},
+                minIf(status_at, status = 'clicked') AS first_clicked_at,
+                -- A scheduled send leaves the queue later. With no sent row this is the epoch, and the queue time wins.
+                minIf(status_at, status = 'sent') AS first_sent_at
             FROM {EMAIL_STATUS_EVENTS_TABLE}
             WHERE team_id = %(team_id)s AND created_at >= %(start)s AND created_at < %(end)s
             GROUP BY created_at, message_id
@@ -669,6 +673,7 @@ def _sends_to_follow(team: Team, user: User | None, workflow_id: str, period: _P
         LIMIT %(limit)s BY was_clicked
         """,
         {"start": period.start, "end": period.end, "workflow_id": workflow_id, "limit": MAX_RESULTS_RECIPIENTS},
+        _GROUP_AS_READ,
     )
     distinct_ids = fetch_email_send_distinct_ids(
         team.id, workflow_id, [row[0] for row in rows], after=period.start - _CLOCK_SKEW

@@ -518,6 +518,7 @@ class TransactionalEmailLogViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         query_serializer=TransactionalEmailImpactQuerySerializer,
         responses={
             200: OpenApiResponse(response=TransactionalEmailImpactSerializer),
+            403: OpenApiResponse(description="An event was named, and the user has no access to querying events."),
             404: OpenApiResponse(description="The project has no such workflow, or the user may not view it."),
         },
         summary="Get how far a transactional email's sends got",
@@ -530,12 +531,16 @@ class TransactionalEmailLogViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         workflow_id = str(query["workflow_id"])
         if workflow_id not in self._workflow_access().viewable_ids:
             raise NotFound()
+        event = query.get("event") or None
+        # Session users skip API scopes, and access control checks only the hog_flow scope_object.
+        if event and not self.user_access_control.check_access_level_for_resource("query", "viewer"):
+            raise PermissionDenied("You need access to querying events to count conversions.")
         with query_concurrency_slots(self.team):
             impact = transactional_email_impact(
                 self.team,
                 cast(User, request.user),
                 workflow_id,
-                query.get("event") or None,
+                event,
                 date_from=query.get("date_from"),
                 date_to=query.get("date_to"),
             )
