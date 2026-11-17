@@ -165,14 +165,17 @@ class TestPendingReviewAPI(APIBaseTest):
         _certification(self.team, "proposed_view")
         _certification(self.team, "certified_view", status=CertificationStatus.CERTIFIED)
 
-        response = self.client.get(f"/api/projects/{self.team.id}/data_catalog/pending_review/")
+        responses = [self.client.get(f"/api/projects/{self.team.id}/data_catalog/pending_review/") for _ in range(2)]
 
-        assert response.status_code == status.HTTP_200_OK, response.json()
-        assert response.json() == {"metrics": 1, "relationships": 1, "certifications": 1}
+        assert [response.json() for response in responses] == [
+            {"metrics": 1, "relationships": 1, "certifications": 1}
+        ] * 2
+        create_database.assert_called_once()
 
     @parameterized.expand(
         [
             ("member_with_nothing_proposed", OrganizationMembership.Level.MEMBER, [], 0),
+            ("member_with_proposals_that_read_no_table", OrganizationMembership.Level.MEMBER, [[], []], 2),
             ("admin", OrganizationMembership.Level.ADMIN, [["safe_source"], ["system.restricted"]], 1),
         ]
     )
