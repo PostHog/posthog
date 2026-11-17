@@ -10,30 +10,28 @@ from products.experiments.stats.shared.statistics import ProportionStatistic, St
 def sequential_proportion_test(
     treatment: Proportion, control: Proportion, *, alpha: float = 0.05
 ) -> ProportionTestResult | None:
-    """Compares two proportions with the sequential test of experiments. A caller can run it again on every new count,
-    because the test keeps its false positive rate at `alpha` however often it looks.
+    """Compares two proportions with the sequential test that experiments use. A caller can run it again on every new
+    count, because the test keeps its false positive rate at `alpha` however often it looks.
 
-    Returns None when the test can't run: a group has fewer than 5 trials, or both groups are at 0%, or both at 100%,
-    so there is no variance. When one group is at 0% and the other at 100%, the pooled variance is also zero, so the
-    test runs on the counts with one success and one failure added to each group (Agresti-Caffo). The result is then
-    not exactly 100% against 0%.
+    The test runs on the counts with one success and one failure added to each group (Agresti-Caffo), so a group at
+    0% or 100% still has a variance. `difference` and `confidence_interval` come from those counts and lean toward 0:
+    10/10 against 0/200 gives a difference of 0.912, not 1.
 
-    Raises ValueError when trials or successes are negative, successes exceed trials, or `alpha` is not between 0
-    and 1."""
+    Returns None when a group has fewer than 5 trials. Raises ValueError when trials or successes are negative,
+    successes exceed trials, or `alpha` is not between 0 and 1."""
     test = SequentialTwoSidedTTest(alpha=alpha)
-    if treatment.trials == 0 or control.trials == 0:
-        return None
-    treatment_stat = ProportionStatistic(n=treatment.trials, sum=treatment.successes)
-    control_stat = ProportionStatistic(n=control.trials, sum=control.successes)
+    for proportion in (treatment, control):
+        if not 0 <= proportion.successes <= proportion.trials:
+            raise ValueError(f"A proportion needs 0 <= successes <= trials, got {proportion}")
     try:
-        # Checked on the real counts, because the pseudo counts below add two trials to each group.
-        validate_sample_sizes(treatment_stat, control_stat)
-        if _completely_separated(treatment, control):
-            treatment_stat = ProportionStatistic(n=treatment.trials + 2, sum=treatment.successes + 1)
-            control_stat = ProportionStatistic(n=control.trials + 2, sum=control.successes + 1)
-        result = test.run_test(treatment_stat, control_stat, DifferenceType.ABSOLUTE)
+        # On the real counts, because the pseudo counts add two trials to each group.
+        validate_sample_sizes(
+            ProportionStatistic(n=treatment.trials, sum=treatment.successes),
+            ProportionStatistic(n=control.trials, sum=control.successes),
+        )
     except StatisticError:
         return None
+    result = test.run_test(_with_pseudo_counts(treatment), _with_pseudo_counts(control), DifferenceType.ABSOLUTE)
     return ProportionTestResult(
         difference=result.point_estimate,
         confidence_interval=result.confidence_interval,
@@ -42,5 +40,5 @@ def sequential_proportion_test(
     )
 
 
-def _completely_separated(treatment: Proportion, control: Proportion) -> bool:
-    return {treatment.successes / treatment.trials, control.successes / control.trials} == {0.0, 1.0}
+def _with_pseudo_counts(proportion: Proportion) -> ProportionStatistic:
+    return ProportionStatistic(n=proportion.trials + 2, sum=proportion.successes + 1)

@@ -50,6 +50,15 @@ class TestSequentialProportionTest(SimpleTestCase):
                 True,
                 0.912,
             ),
+            # Without pseudo counts the full group has no variance, and the test calls five people significant.
+            (
+                "a_full_group_against_one_control_success",
+                Proportion(trials=5, successes=5),
+                Proportion(trials=20, successes=1),
+                0.05,
+                False,
+                0.766,
+            ),
         ]
     )
     def test_compares_the_treatment_with_the_control(
@@ -62,12 +71,7 @@ class TestSequentialProportionTest(SimpleTestCase):
 
     @parameterized.expand(
         [
-            (
-                "no_successes_in_either_group",
-                Proportion(trials=1000, successes=0),
-                Proportion(trials=1000, successes=0),
-            ),
-            ("no_trials", Proportion(trials=0, successes=0), Proportion(trials=200, successes=10)),
+            ("no_control_trials", Proportion(trials=200, successes=10), Proportion(trials=0, successes=0)),
             (
                 "too_few_trials_with_one_outcome_each",
                 Proportion(trials=3, successes=3),
@@ -79,3 +83,15 @@ class TestSequentialProportionTest(SimpleTestCase):
         self, _name: str, treatment: Proportion, control: Proportion
     ) -> None:
         assert sequential_proportion_test(treatment, control) is None
+
+    @parameterized.expand(
+        [
+            ("alpha_above_one", Proportion(trials=1000, successes=20), Proportion(trials=1000, successes=0), 5.0),
+            ("successes_without_trials", Proportion(trials=0, successes=5), Proportion(trials=200, successes=0), 0.05),
+        ]
+    )
+    def test_raises_on_invalid_input(
+        self, _name: str, treatment: Proportion, control: Proportion, alpha: float
+    ) -> None:
+        with self.assertRaises(ValueError):
+            sequential_proportion_test(treatment, control, alpha=alpha)
