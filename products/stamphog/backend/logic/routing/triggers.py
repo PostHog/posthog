@@ -572,6 +572,14 @@ def _keeps_a_reviewer(pr: dict[str, Any], state: _State, *, review_path: ReviewP
     return review_path.approval_stands(state.repo_config, state.pr_number, _head_sha(pr))
 
 
+def _approval_can_still_come(pr: dict[str, Any], state: _State, *, review_path: ReviewPath) -> bool:
+    """Whether stamphog can still approve the head: its review has not finished, or it reviews again after a WAIT."""
+    review = review_path.finished_review(state.repo_config, state.pr_number, _head_sha(pr))
+    if review is not None:
+        return _reviews_again(review.outcome, silent=review.silent)
+    return review_path.will_review(state.repo_config, pr, count_silent=False)
+
+
 def _attestation_poll_step(
     client: StamphogGitHubClient, state: _State, *, head_sha: str, poll: int, review_path: ReviewPath
 ) -> _Step | None:
@@ -592,16 +600,20 @@ def _attestation_poll_step(
     if not _checks_reported(client, repository, head_sha, checks):
         review_path.schedule_attestation_poll(state.repo_config, state.pr_number, head_sha, poll + 1)
         return None
-    proof = read_attestation_proof(client, repository, pr, verify=True)
+    full = _Step(pr=pr, head_sha=head_sha, mode=RoutingMode.ALWAYS, trigger=TRIGGER_ATTESTATION)
+    if not read_attestation_proof(client, repository, pr, verify=True).proven:
+        return full
     # Requesting nobody must not leave the pull request without a reviewer, for example when stamphog refused it.
-    attested = proof.proven and _keeps_a_reviewer(pr, state, review_path=review_path)
-    return _Step(
-        pr=pr,
-        head_sha=head_sha,
-        mode=RoutingMode.ALWAYS,
-        trigger=TRIGGER_ATTESTATION,
-        scope=SCOPE_ATTESTED if attested else SCOPE_FULL,
-    )
+    if _keeps_a_reviewer(pr, state, review_path=review_path):
+        return _Step(
+            pr=pr, head_sha=head_sha, mode=RoutingMode.ALWAYS, trigger=TRIGGER_ATTESTATION, scope=SCOPE_ATTESTED
+        )
+    if _approval_can_still_come(pr, state, review_path=review_path):
+        # Stamphog reviews an admitted bot's pull request again only after the proof reported, so its approval
+        # usually lands a few minutes after the check.
+        review_path.schedule_attestation_poll(state.repo_config, state.pr_number, head_sha, poll + 1)
+        return None
+    return full
 
 
 def route_after_attestation_poll(

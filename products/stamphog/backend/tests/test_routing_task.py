@@ -1099,7 +1099,9 @@ _NOTHING_TO_ATTEST = {**_proof_check(), "output": {"summary": "Nothing to attest
 _CLIENT_LIBRARIES_REQUESTED = ("requested_team", "client-libraries")
 _TEAM_ALPHA_REQUESTED = ("requested_team", "team-alpha")
 _STAMPHOG_APPROVED = ("approved",)
+_REFUSED = ("refused",)
 _POLL = ("poll",)
+_NEXT_POLL = ("next_poll",)
 _ATTESTED = ("done", "attested", "attestation", HEAD_SHA)
 _FULL_AFTER_POLL = ("done", "full", "attestation", HEAD_SHA)
 _FULL_AT_OPEN = ("done", "full", "opened", HEAD_SHA)
@@ -1129,14 +1131,41 @@ _FULL_AFTER_ONE_POLL = (_FULL_AFTER_POLL, [1])
             [1],
         ),
         ("proven_with_a_standing_approval", _PROVEN, _proof_check(), {}, [_STAMPHOG_APPROVED, _POLL], _ATTESTED, [1]),
+        # Stamphog reviews a bot's pull request again once the proof reports, so its approval comes after the check.
+        (
+            "proven_and_approved_after_the_check",
+            _PROVEN,
+            _proof_check(),
+            {},
+            [_POLL, _STAMPHOG_APPROVED, _NEXT_POLL],
+            _ATTESTED,
+            [1, 2],
+        ),
+        (
+            "proven_while_stamphog_still_reviews",
+            _PROVEN,
+            _proof_check(),
+            {},
+            [_POLL],
+            ("waiting", None, "opened", HEAD_SHA),
+            [1, 2],
+        ),
         # Requesting nobody would leave the pull request without a reviewer.
-        ("proven_without_a_reviewer", _PROVEN, _proof_check(), {}, [_POLL], *_FULL_AFTER_ONE_POLL),
+        ("proven_and_refused_by_stamphog", _PROVEN, _proof_check(), {}, [_REFUSED, _POLL], *_FULL_AFTER_ONE_POLL),
+        (
+            "proven_without_a_reviewer_or_a_review",
+            _PROVEN,
+            _proof_check(),
+            {"review_mode": ReviewMode.LABEL},
+            [_POLL],
+            *_FULL_AFTER_ONE_POLL,
+        ),
         # An earlier routing made this request, so it is not a reviewer that the pull request keeps on its own.
         (
             "proven_with_only_a_request_routing_made",
             _PROVEN,
             _proof_check(),
-            {},
+            {"review_mode": ReviewMode.LABEL},
             [("routed_before", "team-alpha"), _TEAM_ALPHA_REQUESTED, _POLL],
             *_FULL_AFTER_ONE_POLL,
         ),
@@ -1259,6 +1288,18 @@ def test_always_requests_nobody_only_for_a_verified_proof_that_keeps_a_reviewer(
                     posted_review_id=902,
                 )
             _post_approval(routing_chain, 902)
+        elif step[0] == "refused":
+            with team_scope(team.id):
+                ReviewRun.objects.for_team(team.id).create(
+                    team_id=team.id,
+                    pull_request=PullRequest.objects.for_team(team.id).get(pr_number=PR_NUMBER),
+                    head_sha=HEAD_SHA,
+                    status=ReviewRunStatus.COMPLETED,
+                    verdict=ReviewVerdict.REFUSED,
+                )
+        elif step[0] == "next_poll":
+            latest_poll = attestation_poll.call_args_list[-1].kwargs["kwargs"]
+            route_reviewers_after_attestation.apply(kwargs=latest_poll, throw=True)
         elif step[0] == "publisher_changed":
             recorder.default_branch_blob_shas[_PROOF_PUBLISHER] = "publisher-blob-2"
         elif step[0] == "push":
