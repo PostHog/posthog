@@ -805,6 +805,18 @@ class TestAdminConsoleViews(BaseTest):
     def _record(self, record: str) -> Model:
         if record == "deletion-request":
             return DataDeletionRequest.objects.create(team_id=self.team.pk, request_type=RequestType.EVENT_REMOVAL)
+        if record == "oauth-application":
+            return OAuthApplication.objects.create(
+                name="Console app",
+                client_id="console_app_client_id",
+                client_secret="secret",
+                client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+                authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+                redirect_uris="https://example.com/callback",
+                algorithm="RS256",
+                organization=self.organization,
+                is_provisioning_partner=True,
+            )
         return {"team": self.team, "organization": self.organization, "project": self.project, "user": self.user}[
             record
         ]
