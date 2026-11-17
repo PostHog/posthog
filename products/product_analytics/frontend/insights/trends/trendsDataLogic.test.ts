@@ -7,7 +7,6 @@ import { getTrendResultCustomizationKey } from 'scenes/insights/utils'
 
 import { ExportType } from '~/exporter/types'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
-import { resultCustomizationsModalLogic } from '~/queries/nodes/InsightViz/resultCustomizationsModalLogic'
 import {
     DataNode,
     LifecycleQuery,
@@ -20,6 +19,7 @@ import { initKeaTests } from '~/test/init'
 import { ChartDisplayType, InsightLogicProps, InsightModel } from '~/types'
 
 import { breakdownPieResult, lifecycleResult, trendPieResult, trendResult } from './__mocks__/trendsDataLogicMocks'
+import { trendsAxisSettingsLogic } from './shared/trendsAxisSettingsLogic'
 import { trendsDataLogic } from './trendsDataLogic'
 
 let logic: ReturnType<typeof trendsDataLogic.build>
@@ -49,48 +49,76 @@ describe('trendsDataLogic', () => {
         await initTrendsDataLogic()
     })
 
-    it('saves an axis assignment without changing the existing color and restores automatic axes', async () => {
-        const query: TrendsQuery = {
-            kind: NodeKind.TrendsQuery,
-            series: [],
-            trendsFilter: { display: ChartDisplayType.ActionsLineGraph },
-        }
-        await expectLogic(logic, () => {
-            insightVizDataLogic(insightProps).actions.updateQuerySource(query)
-            builtDataNodeLogic.actions.loadDataSuccess({ result: trendPieResult.result })
-        }).toFinishAllListeners()
-        const dataset = logic.values.indexedResults[0]
-        const key = getTrendResultCustomizationKey(logic.values.resultCustomizationBy, dataset, query)
-        await expectLogic(logic, () => {
-            insightVizDataLogic(insightProps).actions.updateInsightFilter({
-                resultCustomizations: {
-                    [key]: { assignmentBy: ResultCustomizationBy.Value, color: 'preset-5', hidden: true },
+    it.each([ResultCustomizationBy.Value, ResultCustomizationBy.Position])(
+        'groups axes by %s without changing colors, preserves canceled edits, and resets grouping',
+        async (assignmentBy) => {
+            const query: TrendsQuery = {
+                kind: NodeKind.TrendsQuery,
+                series: [],
+                trendsFilter: { display: ChartDisplayType.ActionsLineGraph, resultCustomizationBy: assignmentBy },
+            }
+            await expectLogic(logic, () => {
+                insightVizDataLogic(insightProps).actions.updateQuerySource(query)
+                builtDataNodeLogic.actions.loadDataSuccess({ result: trendPieResult.result })
+            }).toFinishAllListeners()
+            const dataset = logic.values.indexedResults[0]
+            const key = getTrendResultCustomizationKey(logic.values.resultCustomizationBy, dataset, query)
+            await expectLogic(logic, () => {
+                insightVizDataLogic(insightProps).actions.updateInsightFilter({
+                    resultCustomizations:
+                        assignmentBy === ResultCustomizationBy.Value
+                            ? { [key]: { assignmentBy: ResultCustomizationBy.Value, color: 'preset-5', hidden: true } }
+                            : {
+                                  [key]: {
+                                      assignmentBy: ResultCustomizationBy.Position,
+                                      color: 'preset-5',
+                                      hidden: true,
+                                  },
+                              },
+                })
+            }).toFinishAllListeners()
+            const modal = trendsAxisSettingsLogic(insightProps)
+            modal.mount()
+            const rendered = logic.values.indexedResults.map((result) => ({
+                id: String(result.id),
+                label: result.label,
+                position: 'left' as const,
+            }))
+            modal.actions.openModal('left', rendered)
+            await expectLogic(modal, () => modal.actions.save()).toFinishAllListeners()
+            expect(logic.values.getTrendsYAxisPosition(dataset)).toBeUndefined()
+            modal.actions.openModal('right', rendered)
+            modal.actions.setSeriesPosition(key, 'right')
+            await expectLogic(modal, () => modal.actions.save()).toFinishAllListeners()
+            expect(logic.values.resultCustomizations).toMatchObject({
+                [key]: {
+                    color: 'preset-5',
+                    hidden: true,
+                    yAxisPosition: 'right',
                 },
             })
-        }).toFinishAllListeners()
-        const modal = resultCustomizationsModalLogic(insightProps)
-        modal.mount()
-        modal.actions.openModal(dataset)
-        modal.actions.setYAxisPosition('right')
-        await expectLogic(modal, () => modal.actions.save()).toFinishAllListeners()
-        expect(logic.values.resultCustomizations).toMatchObject({
-            [key]: {
-                color: 'preset-5',
-                hidden: true,
-                yAxisPosition: 'right',
-            },
-        })
-        expect(logic.values.getTrendsYAxisPosition(dataset)).toBe('right')
-        modal.actions.openModal(dataset)
-        expect(modal.values.yAxisPosition).toBe('right')
-        modal.actions.setYAxisPosition('left')
-        modal.actions.closeModal()
-        expect(logic.values.getTrendsYAxisPosition(dataset)).toBe('right')
-        modal.actions.openModal(dataset)
-        modal.actions.setYAxisPosition('auto')
-        await expectLogic(modal, () => modal.actions.save()).toFinishAllListeners()
-        expect(logic.values.getTrendsYAxisPosition(dataset)).toBe('auto')
-    })
+            expect(logic.values.indexedResults.map(logic.values.getTrendsYAxisPosition)).toEqual([
+                'right',
+                'left',
+                'left',
+            ])
+            expect(modal.values.axis).toBeNull()
+            modal.actions.openModal('right', [{ id: String(dataset.id), label: dataset.label, position: 'left' }])
+            expect(modal.values.axis).toBe('right')
+            modal.actions.setSeriesPosition(key, 'left')
+            modal.actions.closeModal()
+            expect(logic.values.getTrendsYAxisPosition(dataset)).toBe('right')
+            modal.actions.openModal('right', [{ id: String(dataset.id), label: dataset.label, position: 'left' }])
+            await expectLogic(modal, () => modal.actions.resetAxes()).toFinishAllListeners()
+            expect(logic.values.indexedResults.map(logic.values.getTrendsYAxisPosition)).toEqual([
+                'auto',
+                'auto',
+                'auto',
+            ])
+            expect(logic.values.resultCustomizations).toMatchObject({ [key]: { color: 'preset-5', hidden: true } })
+            modal.unmount()
+        }
+    )
 
     describe('showMovingAverage', () => {
         it('is true for area graph with toggle enabled', async () => {

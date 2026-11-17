@@ -40,6 +40,7 @@ import { getTrendsSeriesDisplayLabel } from '../shared/getTrendsSeriesDisplayLab
 import { canHandleTrendsChartClick, handleTrendsChartClick } from '../shared/handleTrendsChartClick'
 import { withHighlightedSeries } from '../shared/highlightedSeries'
 import { TrendsAlertOverlays } from '../shared/TrendsAlertOverlays'
+import { TrendsAxisSettings } from '../shared/TrendsAxisSettings'
 import { buildTrendsSeriesMeta, resolveGroupTypeLabel, type TrendsSeriesMeta } from '../shared/trendsSeriesMeta'
 import { useInsightsLegendConfig } from '../shared/useInsightsLegendConfig'
 import { buildTrendsLineTimeSeriesConfig, buildTrendsSeries } from './trendsChartTransforms'
@@ -442,6 +443,12 @@ export function TrendsLineChart({
             dataAttr="trend-line-graph"
             onError={handleChartError}
         >
+            {!embedded &&
+                !inSharedMode &&
+                !context?.hideAxes &&
+                querySource?.kind === 'TrendsQuery' &&
+                !isPercentStackView &&
+                display !== ChartDisplayType.ActionsAreaGraph && <TrendsAxisSettings insightProps={insightProps} />}
             <RetentionDeletionOverlay
                 isStickiness={isStickiness}
                 querySource={querySource}

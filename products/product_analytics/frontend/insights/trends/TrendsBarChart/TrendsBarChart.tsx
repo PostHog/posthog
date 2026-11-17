@@ -50,6 +50,7 @@ import {
 import { withHighlightedSeries } from '../shared/highlightedSeries'
 import { TrendsAlertOverlays } from '../shared/TrendsAlertOverlays'
 import { trendsFilterToYFormatterConfig } from '../shared/trendsAxisFormat'
+import { TrendsAxisSettings } from '../shared/TrendsAxisSettings'
 import { buildTrendsSeriesMeta, type TrendsSeriesMeta } from '../shared/trendsSeriesMeta'
 import { useInsightsLegendConfig } from '../shared/useInsightsLegendConfig'
 import { getAggregatedDisplayLabel as getAggregatedDisplayLabelFn } from './getAggregatedDisplayLabel'
@@ -539,6 +540,12 @@ export function TrendsBarChart({
             dataAttr="trend-bar-graph"
             onError={handleChartError}
         >
+            {!embedded &&
+                !inSharedMode &&
+                !context?.hideAxes &&
+                querySource?.kind === 'TrendsQuery' &&
+                !isPercentStackView &&
+                isGrouped && <TrendsAxisSettings insightProps={insightProps} />}
             <RetentionDeletionOverlay
                 isStickiness={isStickiness}
                 querySource={querySource}

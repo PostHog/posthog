@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonButton, LemonModal, LemonLabel, LemonSegmentedButton } from '@posthog/lemon-ui'
+import { LemonButton, LemonModal } from '@posthog/lemon-ui'
 
 import { DataColorToken } from 'lib/colors'
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
@@ -14,7 +14,7 @@ import { getResultSeries } from 'scenes/insights/utils/resultSeries'
 import { cohortsModel } from '~/models/cohortsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { ResultCustomizationBy } from '~/queries/schema/schema-general'
-import { ChartDisplayType, FlattenedFunnelStepByBreakdown } from '~/types'
+import { FlattenedFunnelStepByBreakdown } from '~/types'
 
 import { trendsDataLogic } from 'products/product_analytics/frontend/insights/trends/trendsDataLogic'
 import { IndexedTrendResult } from 'products/product_analytics/frontend/insights/trends/types'
@@ -24,21 +24,14 @@ import { resultCustomizationsModalLogic } from './resultCustomizationsModalLogic
 export function ResultCustomizationsModal(): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
 
-    const { modalVisible, dataset, colorToken, resultCustomizationBy, yAxisPosition } = useValues(
+    const { modalVisible, dataset, colorToken, resultCustomizationBy } = useValues(
         resultCustomizationsModalLogic(insightProps)
     )
-    const { closeModal, setColorToken, clearColorToken, save, setYAxisPosition } = useActions(
+    const { closeModal, setColorToken, clearColorToken, save } = useActions(
         resultCustomizationsModalLogic(insightProps)
     )
 
-    const { isTrends, isFunnels, querySource, display, showPercentStackView } = useValues(insightVizDataLogic)
-    const canAssignYAxis =
-        !showPercentStackView &&
-        [
-            ChartDisplayType.ActionsLineGraph,
-            ChartDisplayType.ActionsLineGraphCumulative,
-            ChartDisplayType.ActionsUnstackedBar,
-        ].includes(display ?? ChartDisplayType.ActionsLineGraph)
+    const { isTrends, isFunnels, querySource } = useValues(insightVizDataLogic)
 
     const { getTheme } = useValues(dataThemeLogic)
     const theme = getTheme(querySource?.dataColorTheme)
@@ -51,7 +44,7 @@ export function ResultCustomizationsModal(): JSX.Element | null {
         <LemonModal
             data-attr="legend-entry-modal"
             isOpen={modalVisible}
-            title="Customize result"
+            title="Customize result color"
             width={520}
             footer={
                 <>
@@ -82,29 +75,6 @@ export function ResultCustomizationsModal(): JSX.Element | null {
                 onSelectColorToken={setColorToken}
                 onClearColorToken={clearColorToken}
             />
-            {isTrends && (
-                <div className="mt-4 deprecated-space-y-2">
-                    <LemonLabel>Y-axis</LemonLabel>
-                    <LemonSegmentedButton
-                        value={yAxisPosition}
-                        onChange={setYAxisPosition}
-                        disabledReason={
-                            !canAssignYAxis
-                                ? 'Choose a line or grouped bar chart without percentage stacking'
-                                : undefined
-                        }
-                        options={[
-                            { value: 'auto', label: 'Auto' },
-                            { value: 'left', label: 'Left' },
-                            { value: 'right', label: 'Right' },
-                        ]}
-                    />
-                    <p className="text-secondary text-sm mb-0">
-                        Assigned series share the chosen axis. When any series has an assignment, Auto uses the left
-                        axis.
-                    </p>
-                </div>
-            )}
         </LemonModal>
     )
 }
