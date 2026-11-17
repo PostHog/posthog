@@ -1314,7 +1314,7 @@ async function mapPage({ render, onLeave }) {
             return
         }
         const now = live?.state === 'running' ? live : null
-        document.querySelectorAll('.live-badge').forEach((badge) => (badge.hidden = badge.dataset.card !== now?.cardId))
+        list.querySelectorAll('.live-badge').forEach((badge) => (badge.hidden = badge.dataset.card !== now?.cardId))
         running.hidden = !now
         running.replaceChildren(
             ...(now
