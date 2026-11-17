@@ -1,5 +1,3 @@
-// A pull request's activity in the order it happened: what people did to it, and the CI of each commit.
-
 import { dayjs } from 'lib/dayjs'
 
 import type { PRLifecycleApi, PRLifecycleEventApi, WorkflowRunDetailApi } from '../generated/api.schemas'
@@ -12,7 +10,7 @@ export interface CIActivityEvent {
     type: 'event'
     at: string
     kind: CIActivityEventKind
-    /** Login of the person who did it, when the source says. */
+    /** Null when the source names no actor. */
     actor: string | null
 }
 
@@ -35,7 +33,6 @@ export interface CIActivityCommit {
 export type CIActivityRow = CIActivityEvent | CIActivityCommit
 
 export interface CIActivityDay {
-    /** The calendar day, as YYYY-MM-DD. */
     date: string
     rows: CIActivityRow[]
 }

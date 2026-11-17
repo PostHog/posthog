@@ -75,10 +75,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysq
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.mysql.source import (
     _INVALID_CREDENTIALS_ERROR,
+    _SSH_FORWARD_FAILED_ERROR,
+    _SSH_FORWARD_FAILED_MESSAGE,
     MySQLSource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.planetscale_mysql.source import (
-    PlanetScaleMySQLSource,
 )
 from products.warehouse_sources.backend.types import IncrementalFieldType
 
@@ -337,7 +336,7 @@ class TestSchemaDiscovery:
         }
         sql, params = cursor.execute.call_args.args
         assert "table_schema NOT IN %(system_schemas)s" in sql
-        assert params["system_schemas"] == ("information_schema", "mysql", "performance_schema", "sys")
+        assert params["system_schemas"] == ("information_schema", "mysql", "performance_schema", "sys", "_vt")
 
     def test_get_columns_filters_qualified_names_when_schema_blank(self, impl, cursor):
         cursor.fetchall.return_value = [
@@ -1164,9 +1163,8 @@ class TestStreamingConnectionTimeouts:
         ],
         ids=["read_timeout", "write_timeout"],
     )
-    @pytest.mark.parametrize("source_class", [MySQLSource, PlanetScaleMySQLSource])
-    def test_driver_timeout_is_retryable(self, source_class, error, kept_out_of_error_tracking):
-        source = source_class()
+    def test_driver_timeout_is_retryable(self, error, kept_out_of_error_tracking):
+        source = MySQLSource()
         assert error_message_matches(str(error), source.get_retryable_errors()) is kept_out_of_error_tracking
         assert not error_message_matches(str(error), {**Any_Source_Errors, **source.get_non_retryable_errors()})
 
@@ -2522,11 +2520,13 @@ class TestMySQLSourceNonRetryableErrors:
         [
             "(3032, 'The server is currently in offline mode')",
             "OperationalError: (3032, 'The server is currently in offline mode')",
+            "(6400, 'The server is currently in offline mode since 2026-11-03 14:27:19.007589, reason: (HM) low disk space')",
         ],
     )
     def test_server_offline_mode_is_non_retryable(self, source, error_msg):
-        # A DB admin put the server into offline mode — only they can turn it back off, and
-        # every retry reconnects as the same non-admin user and fails identically until they do.
+        # A DB admin (3032) or the server's own health monitor (6400) put the server into offline
+        # mode — only an admin or a resolved resource problem turns it back off, and every retry
+        # reconnects to the same offline server and fails identically until then.
         non_retryable = source.get_non_retryable_errors()
         friendly = next(
             (message for pattern, message in non_retryable.items() if pattern in error_msg),
@@ -3075,6 +3075,21 @@ class TestMySQLSourceNonRetryableErrors:
         is_retryable = any(pattern in error_msg for pattern in retryable)
         assert is_retryable, f"Vitess gRPC client-connection-closing error should be classified retryable: {error_msg}"
 
+    def test_ssh_forward_failed_stays_retryable(self, source):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in _SSH_FORWARD_FAILED_ERROR for pattern in non_retryable.keys())
+        assert not is_non_retryable, f"SSH tunnel-forward error should remain retryable: {_SSH_FORWARD_FAILED_ERROR}"
+
+    def test_ssh_forward_failed_is_classified_retryable(self, source):
+        # `_connected_ssh_tunnel`'s own ~14 second retry already covers the shortest gateway-side
+        # blips; once that's exhausted it re-raises for Temporal to retry the whole activity. Without
+        # this classification `_handle_import_error` logs it at `exception` on every occurrence,
+        # flooding error tracking with a self-recovering failure to reach the database behind the
+        # bastion (mirrors the Postgres source's handling of the same sshtunnel error).
+        retryable = source.get_retryable_errors()
+        is_retryable = any(pattern in _SSH_FORWARD_FAILED_ERROR for pattern in retryable)
+        assert is_retryable, f"SSH tunnel-forward error should be classified retryable: {_SSH_FORWARD_FAILED_ERROR}"
+
 
 class TestMySQLSourceValidateCredentials:
     @pytest.fixture
@@ -3198,6 +3213,18 @@ class TestMySQLSourceValidateCredentials:
         assert valid is False
         assert error != raw
         assert error == source.get_non_retryable_errors()[raw]
+
+    def test_ssh_forward_failed_error_is_mapped_not_leaked(self, source, mocker):
+        # `_SSH_FORWARD_FAILED_ERROR` is kept out of `get_non_retryable_errors` (it stays
+        # retryable during sync), so without its own check here the loop that maps the other
+        # SSH errors would skip it and fall through to the generic wizard message.
+        mocker.patch.object(source, "get_schemas", side_effect=BaseSSHTunnelForwarderError(_SSH_FORWARD_FAILED_ERROR))
+
+        valid, error = source.validate_credentials(_make_config(), team_id=1)
+
+        assert valid is False
+        assert error != _SSH_FORWARD_FAILED_ERROR
+        assert error == _SSH_FORWARD_FAILED_MESSAGE
 
 
 class _RaisingTunnel:
@@ -3474,8 +3501,8 @@ class TestConnectCertificateVerification:
             delegate.assert_called_once()
 
 
-class TestOOBDomainDetection:
-    def test_the_pinned_path_logs_before_it_resolves(self, mocker):
+class TestOOBDomainGuard:
+    def test_the_pinned_path_refuses_before_it_resolves(self, mocker):
         mysql_module = "products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql"
         mixins_module = "products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins"
         mocker.patch(f"{mixins_module}.is_cloud", return_value=True)
@@ -3486,7 +3513,7 @@ class TestOOBDomainDetection:
         )
         log_host_check = mocker.patch(f"{mixins_module}._log_host_check")
 
-        with pytest.raises(AssertionError):
+        with pytest.raises(HostNotAllowedError):
             _pinned_addresses("abc.oast.live", 3306, 5, 2)
 
         stages = [call.args[3] for call in log_host_check.call_args_list]

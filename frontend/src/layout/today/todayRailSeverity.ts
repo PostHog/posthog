@@ -1,4 +1,4 @@
-import type { BillingAlertConfig } from 'scenes/billing/billingLogic'
+import type { BillingAlertConfig } from 'lib/logic/billing/billingLogic'
 
 /**
  * How much a rail signal needs attention. `ok` is a healthy reading worth showing in green,
@@ -24,6 +24,13 @@ export const SEVERITY_INDICATOR: Record<TodayRailSeverity, 'default' | 'warning'
     notice: 'default',
     warning: 'warning',
     critical: 'destructive',
+}
+
+// The frontend's Tailwind has no quill status fills, so the dot reads the quill variables directly.
+export const SEVERITY_DOT_CLASS: Record<NonNullable<(typeof SEVERITY_INDICATOR)[TodayRailSeverity]>, string> = {
+    default: 'bg-[var(--primary)]',
+    warning: 'bg-[var(--warning-foreground)]',
+    destructive: 'bg-[var(--destructive-foreground)]',
 }
 
 export function worstSeverity(...severities: TodayRailSeverity[]): TodayRailSeverity {

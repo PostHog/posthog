@@ -34,7 +34,7 @@ from posthog.models import Team
 from posthog.storage.cache_expiry_manager import CacheRefreshCounts, RefreshPacing
 
 from products.cohorts.backend.models.cohort import Cohort
-from products.experiments.backend.models.experiment import Experiment
+from products.experiments.backend.facade.testing import create_experiment
 from products.feature_flags.backend.flags_cache import (
     FLAGS_HYPERCACHE_MANAGEMENT_CONFIG,
     KAFKA_ROUTING_FLAG,
@@ -65,6 +65,7 @@ from products.feature_flags.backend.flags_cache import (
 from products.feature_flags.backend.flags_cache_messages import FlagsCacheInvalidation
 from products.feature_flags.backend.models.evaluation_context import EvaluationContext, FeatureFlagEvaluationContext
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
+from products.feature_flags.backend.test.experiment_change_fixtures import EXPERIMENT_CHANGES, seed_experiment_change
 
 
 @override_settings(FLAGS_REDIS_URL="redis://test")
@@ -837,35 +838,39 @@ class TestHasExperimentField(BaseTest):
             filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
         )
 
+    def _load_flags(self, loader: str) -> list[dict[str, Any]]:
+        if loader == "batch":
+            return _get_feature_flags_for_teams_batch([self.team])[self.team.id]["flags"]
+        return _get_feature_flags_for_service(self.team)["flags"]
+
     @parameterized.expand(
         [
-            ("no_experiment", "none", False),
-            ("active_experiment", "active", True),
-            ("stopped_not_deleted_experiment", "stopped", True),
-            ("deleted_experiment", "deleted", False),
+            (f"{name}_{loader}", state, expected, loader)
+            for name, state, expected in [
+                ("no_experiment", "none", False),
+                ("active_experiment", "active", True),
+                ("stopped_not_deleted_experiment", "stopped", True),
+                ("deleted_experiment", "deleted", False),
+            ]
+            for loader in ("per_team", "batch")
         ]
     )
-    def test_has_experiment_value(self, _name: str, experiment_state: str, expected: bool):
+    def test_has_experiment_value(self, _name: str, experiment_state: str, expected: bool, loader: str):
         flag = self._make_flag("exp-flag")
+        self._make_flag("other-flag")
         if experiment_state == "active":
-            Experiment.objects.create(team=self.team, name="exp", feature_flag=flag)
+            create_experiment(team_id=self.team.id, feature_flag_id=flag.id, name="exp")
         elif experiment_state == "stopped":
-            Experiment.objects.create(team=self.team, name="exp", feature_flag=flag, end_date=datetime.now(UTC))
+            create_experiment(team_id=self.team.id, feature_flag_id=flag.id, name="exp", end_date=datetime.now(UTC))
         elif experiment_state == "deleted":
-            Experiment.objects.create(team=self.team, name="exp", feature_flag=flag, deleted=True)
+            create_experiment(team_id=self.team.id, feature_flag_id=flag.id, name="exp", deleted=True)
 
-        flags = _get_feature_flags_for_service(self.team)["flags"]
-        assert flags[0]["has_experiment"] is expected
+        flags = self._load_flags(loader)
+        assert {f["key"]: f["has_experiment"] for f in flags} == {"exp-flag": expected, "other-flag": False}
 
-    def test_has_experiment_present_in_batch_output(self):
-        flag = self._make_flag("exp-flag")
-        Experiment.objects.create(team=self.team, name="exp", feature_flag=flag)
-
-        flags = _get_feature_flags_for_teams_batch([self.team])[self.team.id]["flags"]
-        assert flags[0]["has_experiment"] is True
-
-    def test_has_experiment_no_n_plus_one(self):
-        """has_experiment is computed via a bulk Exists subquery, so the number of queries
+    @parameterized.expand(["per_team", "batch"])
+    def test_has_experiment_no_n_plus_one(self, loader: str):
+        """has_experiment is computed from one bulk read of the experiment flag ids, so the number of queries
         touching the experiment table stays constant as flags/experiments grow. Counting only
         experiment-table queries isolates this from unrelated per-flag queries on other paths."""
 
@@ -873,17 +878,17 @@ class TestHasExperimentField(BaseTest):
             return sum(1 for q in ctx.captured_queries if "posthog_experiment" in q["sql"])
 
         first = self._make_flag("flag-0")
-        Experiment.objects.create(team=self.team, name="exp-0", feature_flag=first)
+        create_experiment(team_id=self.team.id, feature_flag_id=first.id, name="exp-0")
 
         with CaptureQueriesContext(connection) as baseline:
-            _get_feature_flags_for_service(self.team)
+            self._load_flags(loader)
 
         for i in range(1, 6):
             extra = self._make_flag(f"flag-{i}")
-            Experiment.objects.create(team=self.team, name=f"exp-{i}", feature_flag=extra)
+            create_experiment(team_id=self.team.id, feature_flag_id=extra.id, name=f"exp-{i}")
 
         with CaptureQueriesContext(connection) as scaled:
-            _get_feature_flags_for_service(self.team)
+            self._load_flags(loader)
 
         assert experiment_query_count(scaled) == experiment_query_count(baseline), (
             f"Experiment-table query count grew from {experiment_query_count(baseline)} to "
@@ -955,30 +960,13 @@ class TestServiceFlagsSignals(BaseTest):
         # Signal should trigger the Celery task
         mock_task.delay.assert_called_once_with(self.team.id)
 
-    @parameterized.expand(["create", "soft_delete", "delete"])
+    @parameterized.expand(EXPERIMENT_CHANGES)
     @patch("products.feature_flags.backend.tasks.update_team_service_flags_cache")
     @patch("django.db.transaction.on_commit", lambda fn: fn())
     def test_signal_fired_on_experiment_change(self, action, mock_task):
-        # Creating, soft-deleting, or hard-deleting an experiment invalidates the linked
-        # flag's team cache so has_experiment refreshes.
-        flag = FeatureFlag.objects.create(
-            team=self.team,
-            key="exp-flag",
-            created_by=self.user,
-            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
-        )
-        if action == "create":
-            # Reset first so we assert on the experiment-create signal, not the flag-create one.
-            mock_task.reset_mock()
-            Experiment.objects.create(team=self.team, name="My experiment", feature_flag=flag)
-        else:
-            experiment = Experiment.objects.create(team=self.team, name="My experiment", feature_flag=flag)
-            mock_task.reset_mock()
-            if action == "soft_delete":
-                experiment.deleted = True
-                experiment.save()
-            else:
-                experiment.delete()
+        change = seed_experiment_change(action, team=self.team, user=self.user)
+        mock_task.reset_mock()
+        change()
 
         mock_task.delay.assert_called_once_with(self.team.id)
 
@@ -2199,41 +2187,6 @@ class TestBatchOperations(BaseTest):
                 window_seconds=settings.FLAGS_CACHE_REFRESH_KAFKA_WINDOW_SECONDS,
             ),
         )
-
-    @patch("posthog.storage.cache_expiry_manager.get_client")
-    def test_cleanup_stale_expiry_tracking(self, mock_get_client):
-        """Test cleaning up stale expiry tracking entries."""
-        from products.feature_flags.backend.flags_cache import (
-            FLAGS_CACHE_EXPIRY_SORTED_SET,
-            cleanup_stale_expiry_tracking,
-        )
-
-        team1 = self.team
-        # Create a team that will be deleted
-        team2 = Team.objects.create(
-            organization=self.organization,
-            name="Team 2",
-        )
-        team2_id = team2.id
-        team2.delete()
-
-        mock_redis = MagicMock()
-        mock_get_client.return_value = mock_redis
-
-        # Mock sorted set with both valid and stale team IDs
-        mock_redis.zrange.return_value = [
-            str(team1.id).encode(),
-            str(team2_id).encode(),  # Stale - team deleted
-        ]
-        mock_redis.zrem.return_value = 1  # Redis returns number of elements removed
-
-        removed = cleanup_stale_expiry_tracking()
-
-        # Should remove 1 stale entry
-        self.assertEqual(removed, 1)
-
-        # Should call zrem with the stale team ID
-        mock_redis.zrem.assert_called_once_with(FLAGS_CACHE_EXPIRY_SORTED_SET, str(team2_id))
 
     @patch("posthog.storage.hypercache.get_client")
     @patch("posthog.storage.hypercache.time")

@@ -1,10 +1,13 @@
 import { BindLogic, useActions, useValues } from 'kea'
-import { useCallback, useEffect, useRef } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
-import { LemonDivider } from '@posthog/lemon-ui'
+import { LemonCollapse, LemonDivider } from '@posthog/lemon-ui'
 
 import { TZLabelProps } from 'lib/components/TZLabel'
+import { traceDialogOpenLogic } from 'lib/components/ViewTraceButton/traceDialogOpenLogic'
+import { useApmMobileLayout } from 'lib/hooks/useApmMobileLayout'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
+import { cn } from 'lib/utils/css-classes'
 
 import { UniversalFiltersGroup } from '~/types'
 
@@ -22,7 +25,6 @@ import { logsExportLogic } from 'products/logs/frontend/components/LogsViewer/lo
 import { QueryFailedOverlay } from 'products/logs/frontend/components/QueryFailedOverlay'
 import { VirtualizedLogsList } from 'products/logs/frontend/components/VirtualizedLogsList/VirtualizedLogsList'
 import { virtualizedLogsListLogic } from 'products/logs/frontend/components/VirtualizedLogsList/virtualizedLogsListLogic'
-import { traceDialogLogic } from 'products/tracing/frontend/components/TraceDialog/traceDialogLogic'
 
 import { LogDetailsModal } from './LogDetailsModal'
 import { logDetailsModalLogic } from './LogDetailsModal/logDetailsModalLogic'
@@ -143,8 +145,10 @@ function LogsViewerContent({
         clearSelection,
         togglePrettifyLog,
     } = useActions(logsViewerLogic)
+    const mobileLayout = useApmMobileLayout()
+    const [mobileSparklineCollapsed, setMobileSparklineCollapsed] = useState(true)
     const { orderBy, sparklineCollapsed, facetRailCollapsed, viewMode } = useValues(logsViewerConfigLogic)
-    const { isOpen: isTraceDialogOpen } = useValues(traceDialogLogic)
+    const { isOpen: isTraceDialogOpen } = useValues(traceDialogOpenLogic)
     const { setOrderBy, toggleSparklineCollapsed } = useActions(logsViewerConfigLogic)
     const {
         logsLoading,
@@ -342,8 +346,12 @@ function LogsViewerContent({
                 onRetry={() => fetchSparkline()}
                 onDateRangeChange={setDateRange}
                 displayTimezone={timezone}
-                collapsed={sparklineCollapsed}
-                onToggleCollapse={toggleSparklineCollapsed}
+                collapsed={mobileLayout ? mobileSparklineCollapsed : sparklineCollapsed}
+                onToggleCollapse={
+                    mobileLayout
+                        ? () => setMobileSparklineCollapsed((collapsed) => !collapsed)
+                        : toggleSparklineCollapsed
+                }
                 incompleteBarIndices={sparklineIncompleteBarIndices}
             />
             {/* A plain divider: the viewer also renders in panes that have no scene padding to bleed into. */}
@@ -373,7 +381,7 @@ function LogsViewerContent({
                 />
             )}
 
-            <div className="relative flex flex-col flex-1 min-h-0">
+            <div className={cn('relative flex flex-col flex-1', mobileLayout ? 'min-h-80' : 'min-h-0')}>
                 <VirtualizedLogsList
                     dataSource={parsedLogs}
                     newLogUuids={newLogUuids}
@@ -391,7 +399,7 @@ function LogsViewerContent({
                 <QueryFailedOverlay
                     error={logsError}
                     title="Couldn't load logs"
-                    onRetry={() => fetchLogs()}
+                    onRetry={() => fetchLogs('refresh')}
                     className="rounded border bg-bg-light"
                 />
             </div>
@@ -433,10 +441,28 @@ function LogsViewerContent({
                 scope={scope}
             />
             {sparklineSection}
-            <div className="flex flex-row gap-2 flex-1 min-h-0 @max-[48rem]/facet-rail-host:flex-col">
-                {!facetRailCollapsed && <LogsFacetRail id={id} />}
+            <div
+                className={cn(
+                    'flex gap-2 flex-1 min-h-0',
+                    mobileLayout ? 'flex-col' : 'flex-row @max-[48rem]/facet-rail-host:flex-col'
+                )}
+            >
+                {mobileLayout ? (
+                    <LemonCollapse
+                        panels={[
+                            {
+                                key: 'filters',
+                                header: 'Filters',
+                                dataAttr: 'logs-mobile-filters',
+                                content: <LogsFacetRail id={id} stacked />,
+                            },
+                        ]}
+                    />
+                ) : (
+                    !facetRailCollapsed && <LogsFacetRail id={id} />
+                )}
                 <div className="flex flex-col gap-2 flex-1 min-w-0 min-h-0">
-                    {resultsColumn(<LogsDisplayBar {...displayBarProps} showFacetRailToggle />)}
+                    {resultsColumn(<LogsDisplayBar {...displayBarProps} showFacetRailToggle={!mobileLayout} />)}
                 </div>
             </div>
             <LogDetailsModal timezone={timezone} />

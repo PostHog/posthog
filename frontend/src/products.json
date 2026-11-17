@@ -42,6 +42,7 @@
             "type": "llm_prompts",
             "intents": ["llm_prompts"]
         },
+        { "path": "Platform alerts", "category": "Unreleased", "iconType": "inbox", "type": null, "intents": [] },
         {
             "path": "Application observability",
             "category": "Monitoring",
@@ -102,7 +103,7 @@
             "path": "Data catalog",
             "category": "Data",
             "iconType": "data_catalog",
-            "type": null,
+            "type": "data_catalog",
             "intents": ["data_catalog"]
         },
         {
@@ -276,6 +277,7 @@
             "type": null,
             "intents": ["web_analytics"]
         },
+        { "path": "Wizard", "category": "Tools", "iconType": "wizard", "type": "wizard", "intents": [] },
         {
             "path": "Workflows",
             "category": "Messaging",

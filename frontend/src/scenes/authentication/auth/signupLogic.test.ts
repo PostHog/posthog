@@ -2,6 +2,7 @@ import { setPendingOAuthConnectionCookie } from 'scenes/authentication/shared/pe
 
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+import { HttpResponse } from 'msw'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -291,6 +292,25 @@ describe('signupLogic — name handling', () => {
         expect(signupRequestBody?.last_name).toBe('van Der Berg')
     })
 
+    it('sends only the follow-up answer whose question is shown for the referral source', async () => {
+        await advanceToOnboardingPanel()
+        logic.actions.setSignupPanelOnboardingValues({
+            name: 'John Smith',
+            organization_name: 'Hogflix',
+            role_at_organization: 'engineer',
+            referral_source: 'A YouTube video',
+            // A stale answer from before the referral source was edited away from an AI mention
+            referral_source_ai_prompt: 'best analytics tool',
+            referral_source_influencer: 'The Hedgehog Dev channel',
+        })
+        logic.actions.submitSignupPanelOnboarding()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(signupRequestBody?.referral_source).toBe('A YouTube video')
+        expect(signupRequestBody?.referral_source_ai_prompt).toBe('')
+        expect(signupRequestBody?.referral_source_influencer).toBe('The Hedgehog Dev channel')
+    })
+
     it('omits a whitespace-only organization name so the backend applies its default', async () => {
         await advanceToOnboardingPanel()
         logic.actions.setSignupPanelOnboardingValues({
@@ -356,18 +376,63 @@ describe('signupLogic — name handling', () => {
         expect(logic.values.panel).toBe(2)
     })
 
-    it('sends a password API error back to the password step and lets the next submit through', async () => {
+    it.each([
+        ['a password signup', false],
+        ['a passkey signup', true],
+    ])(
+        'sends a password API error on %s back to the password step and lets the next submit through',
+        async (_name, withPasskey) => {
+            useMocks({
+                post: {
+                    '/api/signup/': () => [
+                        400,
+                        {
+                            type: 'validation_error',
+                            code: 'password_too_weak',
+                            detail: 'Add another word or two. Uncommon words are better.',
+                            attr: 'password',
+                        },
+                    ],
+                },
+            })
+            await advanceToOnboardingPanel()
+            if (withPasskey) {
+                logic.actions.setPasskeyRegistered(true)
+            }
+            logic.actions.setSignupPanelOnboardingValues({
+                name: 'John Smith',
+                organization_name: 'Hogflix',
+                role_at_organization: 'engineer',
+                referral_source: '',
+                referral_source_ai_prompt: '',
+            })
+            logic.actions.submitSignupPanelOnboarding()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.panel).toBe(1)
+            expect(logic.values.signupPanelAuthManualErrors.password).toBe(
+                'Add another word or two. Uncommon words are better.'
+            )
+            expect(logic.values.signupPanelOnboardingManualErrors.generic).toBeUndefined()
+            expect(logic.values.passkeyRegistered).toBe(false)
+
+            logic.actions.setSignupPanelAuthValue('password', 'An0ther-Str0ng-Pass!')
+            logic.actions.submitSignupPanelAuth()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.panel).toBe(2)
+            expect(logic.values.signupPanelAuthManualErrors.password).toBeUndefined()
+        }
+    )
+
+    it('shows when to retry after the signup is throttled', async () => {
         useMocks({
             post: {
-                '/api/signup/': () => [
-                    400,
-                    {
-                        type: 'validation_error',
-                        code: 'password_too_weak',
-                        detail: 'Add another word or two. Uncommon words are better.',
-                        attr: 'password',
-                    },
-                ],
+                '/api/signup/': () =>
+                    HttpResponse.json(
+                        { type: 'throttled_error', code: 'throttled', detail: 'Request was throttled.', attr: null },
+                        { status: 429, headers: { 'Retry-After': '3600' } }
+                    ),
             },
         })
         await advanceToOnboardingPanel()
@@ -378,21 +443,14 @@ describe('signupLogic — name handling', () => {
             referral_source: '',
             referral_source_ai_prompt: '',
         })
+
         logic.actions.submitSignupPanelOnboarding()
         await expectLogic(logic).toFinishAllListeners()
 
-        expect(logic.values.panel).toBe(1)
-        expect(logic.values.signupPanelAuthManualErrors.password).toBe(
-            'Add another word or two. Uncommon words are better.'
-        )
-        expect(logic.values.signupPanelOnboardingManualErrors.generic).toBeUndefined()
-
-        logic.actions.setSignupPanelAuthValue('password', 'An0ther-Str0ng-Pass!')
-        logic.actions.submitSignupPanelAuth()
-        await expectLogic(logic).toFinishAllListeners()
-
-        expect(logic.values.panel).toBe(2)
-        expect(logic.values.signupPanelAuthManualErrors.password).toBeUndefined()
+        expect(logic.values.signupPanelOnboardingManualErrors.generic).toMatchObject({
+            code: 'throttled',
+            detail: 'Too many signup attempts from your network. Try again in an hour.',
+        })
     })
 
     it('drops a stale password error when a different email is submitted', async () => {

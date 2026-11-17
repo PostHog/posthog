@@ -2,6 +2,7 @@ import { useValues } from 'kea'
 
 import { LemonBanner } from '@posthog/lemon-ui'
 
+import { useQuillSurface } from 'lib/components/QuillSurface/quillSurfaceContext'
 import {
     RETENTION_FIRST_EVER_OCCURRENCE,
     RETENTION_FIRST_OCCURRENCE_MATCHING_FILTERS,
@@ -9,6 +10,8 @@ import {
 } from 'lib/constants'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+
+import { QuillInsightBanner } from 'products/product_analytics/frontend/insights/shared/QuillInsightBanner'
 
 import { retentionOptions } from './constants'
 import { retentionLogic } from './retentionLogic'
@@ -19,6 +22,7 @@ export function RetentionEmptyResultsBanner(): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
     const { insightDataLoading } = useValues(insightVizDataLogic(insightProps))
     const { allCohortsEmpty, hasEntityPropertyFilters, retentionFilter } = useValues(retentionLogic(insightProps))
+    const quillSurface = useQuillSurface()
 
     if (insightDataLoading || !allCohortsEmpty || !hasEntityPropertyFilters) {
         return null
@@ -46,6 +50,14 @@ export function RetentionEmptyResultsBanner(): JSX.Element | null {
             `first event that matches your property filters. If that first match happened before this date range, ` +
             `they won't appear here. Widen the date range, switch the retention type to "${recurringLabel}" to ` +
             `count every matching event, or check that your property values match your data.`
+    }
+
+    if (quillSurface) {
+        return (
+            <QuillInsightBanner tone="info" className="mb-4">
+                {message}
+            </QuillInsightBanner>
+        )
     }
 
     return (

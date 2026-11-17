@@ -3,7 +3,6 @@ import { ReactNode } from 'react'
 
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene } from 'scenes/sceneTypes'
-import { urls } from 'scenes/urls'
 
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { todayShellLogic } from '~/layout/today/todayShellLogic'
@@ -11,13 +10,8 @@ import { FileSystemIconType } from '~/queries/schema/schema-general'
 import { ActivityTab } from '~/types'
 
 import { ActivitySceneTabs } from './ActivitySceneTabs'
-import { activitySceneTabsLogic } from './activitySceneTabsLogic'
 
-const ACTIVITY_BREADCRUMB = {
-    key: Scene.Activity,
-    name: sceneConfigurations[Scene.Activity].name,
-    path: urls.activity(),
-}
+const ACTIVITY_SCENE = sceneConfigurations[Scene.Activity]
 
 export function ActivitySceneHeader({
     activeKey,
@@ -34,29 +28,29 @@ export function ActivitySceneHeader({
     banner?: ReactNode
 }): JSX.Element {
     const { todayRailEnabled } = useValues(todayShellLogic)
-    const { activityTabs } = useValues(activitySceneTabsLogic)
-    const resourceType = { type: iconType || 'default_icon_type' }
-
     if (!todayRailEnabled) {
         return (
             <>
-                <ActivitySceneTabs activeKey={activeKey} />
+                <ActivitySceneTabs activeKey={activeKey} className="mb-3" />
                 {banner}
-                <SceneTitleSection name={name} description={description} resourceType={resourceType} />
+                <SceneTitleSection
+                    name={name}
+                    description={description}
+                    resourceType={{ type: iconType || 'default_icon_type' }}
+                />
             </>
         )
     }
 
-    const tabLabel = activityTabs.find((tab) => tab.key === activeKey)?.label ?? name
+    // The tabs below name the open view, so every tab shares the Activity title.
     return (
         <>
             <SceneTitleSection
-                name={tabLabel}
+                name={ACTIVITY_SCENE.name}
                 description={description}
-                resourceType={resourceType}
-                forceBackTo={ACTIVITY_BREADCRUMB}
+                resourceType={{ type: ACTIVITY_SCENE.iconType || 'default_icon_type' }}
             />
-            <ActivitySceneTabs activeKey={activeKey} />
+            <ActivitySceneTabs activeKey={activeKey} className="mb-3" />
             {banner}
         </>
     )

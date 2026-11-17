@@ -11,6 +11,9 @@ from posthog.clickhouse.workload import Workload
 from posthog.dataclasses import frozen
 from posthog.errors import InternalCHQueryError
 from posthog.exceptions import ClickHouseQueryTimeOut
+from posthog.models.flag_evaluations.sql import FLAG_EVALUATIONS_SOURCE_EVENT
+
+from products.cohorts.backend.backfill.flag_calls_table import FlagCallsTable
 
 # Calibrated against a serialized `PersonSeed` (rust/cohort-core/src/seed/person.rs): the fixed
 # envelope (schema_version, kind, team_id, person_id, scanned_at_ms, run_id, claim_epoch) plus one
@@ -155,28 +158,55 @@ def estimate_behavioral_scan_events(
     team_id: int,
     event_names: Sequence[str],
     *,
+    flag_calls_table: FlagCallsTable,
     max_events_per_day: int,
 ) -> BehavioralScanEstimate:
-    """Reads `events` because that is the table the seeder scans."""
+    """Counts each event name in the table that cohort-seeder scans it from."""
+    until = django_timezone.now().astimezone(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
+    window = {"team_id": team_id, "since": until - timedelta(days=BEHAVIORAL_SCAN_ESTIMATE_DAYS), "until": until}
+    queries: list[tuple[str, dict[str, Any]]] = []
+    counts_flag_calls_on_flag_evaluations = (
+        flag_calls_table == FlagCallsTable.FLAG_EVALUATIONS and FLAG_EVALUATIONS_SOURCE_EVENT in event_names
+    )
+    names_on_events = [
+        name
+        for name in event_names
+        if not (counts_flag_calls_on_flag_evaluations and name == FLAG_EVALUATIONS_SOURCE_EVENT)
+    ]
+    if counts_flag_calls_on_flag_evaluations:
+        queries.append(
+            (
+                """
+                SELECT toDate(timestamp) AS day, %(flag_called)s AS event, count() AS events
+                FROM flag_evaluations
+                WHERE team_id = %(team_id)s
+                  AND timestamp >= %(since)s
+                  AND timestamp < %(until)s
+                GROUP BY day
+                """,
+                {**window, "flag_called": FLAG_EVALUATIONS_SOURCE_EVENT},
+            )
+        )
+    if names_on_events:
+        queries.append(
+            (
+                """
+                SELECT toDate(timestamp) AS day, event, count() AS events
+                FROM events
+                WHERE team_id = %(team_id)s
+                  AND timestamp >= %(since)s
+                  AND timestamp < %(until)s
+                  AND event IN %(event_names)s
+                GROUP BY day, event
+                """,
+                {**window, "event_names": names_on_events},
+            )
+        )
     by_day: dict[date, dict[str, int]] = {}
-    if event_names:
-        until = django_timezone.now().astimezone(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
+    for query, params in queries:
         rows = sync_execute(
-            """
-            SELECT toDate(timestamp) AS day, event, count() AS events
-            FROM events
-            WHERE team_id = %(team_id)s
-              AND timestamp >= %(since)s
-              AND timestamp < %(until)s
-              AND event IN %(event_names)s
-            GROUP BY day, event
-            """,
-            {
-                "team_id": team_id,
-                "since": until - timedelta(days=BEHAVIORAL_SCAN_ESTIMATE_DAYS),
-                "until": until,
-                "event_names": list(event_names),
-            },
+            query,
+            params,
             settings={"max_execution_time": _BEHAVIORAL_SCAN_ESTIMATE_MAX_SECONDS},
             workload=Workload.OFFLINE,
             team_id=team_id,

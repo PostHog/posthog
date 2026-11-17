@@ -2,8 +2,6 @@ import { Meta, StoryObj } from '@storybook/react'
 import { waitFor } from '@testing-library/dom'
 import { useEffect } from 'react'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-
 import { mswDecorator } from '~/mocks/browser'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { BIConfig, BIField, BIVisualizationNode } from '~/queries/schema/schema-business-intelligence'
@@ -104,7 +102,6 @@ const meta: Meta = {
     },
     parameters: {
         layout: 'centered',
-        featureFlags: [FEATURE_FLAGS.SQL_EDITOR_BI_MODE],
         testOptions: { waitForSelector: '[data-attr="bi-result-summary"]' },
     },
     decorators: [
@@ -278,7 +275,8 @@ export default meta
 
 export const RelationshipKeyCheck: StoryObj = {
     render: () => <WorksheetStage config={config} />,
-    play: async () => {
+    play: async (context) => {
+        await meta.play?.(context)
         await userEvent.click(
             await waitFor(() => {
                 const summary = document.querySelector('[data-attr="bi-source-context"] summary')
@@ -354,4 +352,34 @@ export const NestedPanes: StoryObj = {
 }
 export const NestedPanesNarrow: StoryObj = {
     render: () => <WorksheetStage config={paneConfig} chartSettings={paneSettings} width={520} />,
+}
+
+export const CatalogMetricParameters: StoryObj = {
+    parameters: { testOptions: { waitForSelector: '[role="dialog"]' } },
+    render: () => (
+        <WorksheetStage
+            config={{
+                ...config,
+                source: null,
+                catalogMetric: 'regional_revenue',
+                querySnapshot: {
+                    kind: NodeKind.HogQLQuery,
+                    query: 'SELECT region, sum(revenue) AS revenue FROM example_orders WHERE channel = {channel} AND revenue >= {minimum_revenue} GROUP BY region',
+                    values: { channel: 'direct', minimum_revenue: 100 },
+                },
+            }}
+        />
+    ),
+    play: async (context) => {
+        await meta.play?.(context)
+        await userEvent.click(
+            await waitFor(() => {
+                const button = Array.from(document.querySelectorAll('button')).find(
+                    (button) => button.textContent === 'Edit parameters'
+                )
+                expect(button).toBeTruthy()
+                return button!
+            })
+        )
+    },
 }

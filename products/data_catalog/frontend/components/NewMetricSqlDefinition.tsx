@@ -8,9 +8,13 @@ import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
 import { dataCatalogNewMetricSceneLogic } from '../dataCatalogNewMetricSceneLogic'
 import { SqlTestResult } from './SqlTestResult'
 
-const NEW_METRIC_SQL_QUERY_KEY = 'data-catalog-new-metric'
+export const NEW_METRIC_SQL_QUERY_KEY = 'data-catalog-new-metric'
 
-const SQL_PLACEHOLDER = '-- e.g. SELECT count(DISTINCT person_id) FROM events WHERE timestamp > now() - INTERVAL 30 DAY'
+// The banner below the editor moves the page, so wait for a longer pause in typing than the editor default.
+export const SQL_VALIDATION_DEBOUNCE_MS = 600
+
+export const SQL_PLACEHOLDER =
+    '-- e.g. SELECT count(DISTINCT person_id) FROM events WHERE timestamp > now() - INTERVAL 30 DAY'
 
 export function NewMetricSqlDefinition({ onAddUnit }: { onAddUnit: () => void }): JSX.Element {
     const {
@@ -20,13 +24,14 @@ export function NewMetricSqlDefinition({ onAddUnit }: { onAddUnit: () => void })
         sqlPreviewLoading,
         sqlPreviewError,
         sqlPreviewStale,
-        sqlEditorError,
+        sqlValidationMessage,
     } = useValues(dataCatalogNewMetricSceneLogic)
-    const { testSqlQuery, setSqlEditorError, openInSqlEditor } = useActions(dataCatalogNewMetricSceneLogic)
+    const { testSqlQuery, setSqlEditorError, setSqlMetadata, setSqlMetadataLoading, openInSqlEditor } =
+        useActions(dataCatalogNewMetricSceneLogic)
 
     const testDisabledReason = !metricForm.sql.trim()
         ? 'Write a query before testing it'
-        : (sqlEditorError ?? undefined)
+        : (sqlValidationMessage ?? undefined)
 
     return (
         <div className="flex flex-col gap-2">
@@ -39,6 +44,12 @@ export function NewMetricSqlDefinition({ onAddUnit }: { onAddUnit: () => void })
                         queryKey={NEW_METRIC_SQL_QUERY_KEY}
                         sourceQuery={sqlSourceQuery}
                         onError={setSqlEditorError}
+                        onMetadata={setSqlMetadata}
+                        onMetadataLoading={setSqlMetadataLoading}
+                        metadataDebounceMs={SQL_VALIDATION_DEBOUNCE_MS}
+                        // This result disables saving, and save validates against fresh sources. Cached
+                        // sources can miss a new table and would block a query that save accepts.
+                        metadataFreshSources
                         onPressCmdEnter={testSqlQuery}
                         options={{ placeholder: SQL_PLACEHOLDER }}
                         minHeight="10rem"
@@ -67,7 +78,8 @@ export function NewMetricSqlDefinition({ onAddUnit }: { onAddUnit: () => void })
                     Open in SQL editor
                 </LemonButton>
             </div>
-            {sqlPreviewError ? (
+            {sqlValidationMessage && <LemonBanner type="error">{sqlValidationMessage}</LemonBanner>}
+            {sqlPreviewError && !sqlValidationMessage ? (
                 <LemonBanner type="error">{sqlPreviewError}</LemonBanner>
             ) : sqlPreview ? (
                 <SqlTestResult

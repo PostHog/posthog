@@ -15,6 +15,7 @@ from posthog.models.team import Team
 from posthog.models.user import User
 
 from products.access_control.backend.models.access_control import AccessControl
+from products.experiments.backend.facade.testing import hide_experiment_from_access_filter
 from products.replay_vision.backend.facade.api import (
     ObservationRequestRejected,
     WorkflowInlineScan,
@@ -186,7 +187,6 @@ class TestStartWorkflowObservationRequest(APIBaseTest):
                     "reasoning": "r",
                     "confidence": 0.9,
                     "reasoning_segments": [{"text": "r", "t": 12}] * 200,
-                    "notability_reason": "n" * 2000,
                 },
                 {"confidence": 0.9, "verdict": "yes", "reasoning": "r"},
                 [],
@@ -246,10 +246,7 @@ class TestStartWorkflowObservationRequest(APIBaseTest):
         scanner.experiment_targeting = None
         scanner.save(update_fields=["experiment_targeting"])
 
-        with patch(
-            "products.access_control.backend.facade.user_access_control.UserAccessControl.filter_queryset_by_access_level",
-            side_effect=lambda qs, **_: qs.exclude(pk=experiment.pk) if qs.model is type(experiment) else qs,
-        ):
+        with hide_experiment_from_access_filter(experiment.id):
             started = self._start(scanner_id=scanner.id, inline=None)
 
         assert started.result is not None

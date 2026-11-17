@@ -228,6 +228,47 @@ describe('handleOpenIdConfiguration', () => {
     })
 })
 
+describe('handleScopes', () => {
+    const SCOPE_REFERENCE = {
+        groups: ['Feature flags, experiments & surveys'],
+        objects: [
+            {
+                object: 'feature_flag',
+                name: 'Feature flag',
+                docs_url: 'https://posthog.com/docs/feature-flags',
+                actions: [{ action: 'read', scope: 'feature_flag:read', oauth: true, warning: null }],
+            },
+        ],
+    }
+
+    beforeEach(() => {
+        vi.resetModules()
+        vi.stubGlobal(
+            'fetch',
+            vi.fn().mockResolvedValue({
+                ok: true,
+                json: () => Promise.resolve(SCOPE_REFERENCE),
+            })
+        )
+    })
+
+    afterEach(() => {
+        vi.restoreAllMocks()
+    })
+
+    it('serves the scope list from the US region, unchanged and readable cross-origin', async () => {
+        const { handleScopes } = await import('@/handlers/metadata')
+        const request = new Request('https://oauth.posthog.com/oauth/scopes')
+
+        const response = await handleScopes(request)
+
+        expect(fetch).toHaveBeenCalledWith('https://us.posthog.com/oauth/scopes/')
+        expect(response.status).toBe(200)
+        expect(response.headers.get('access-control-allow-origin')).toBe('*')
+        expect(await response.json()).toEqual(SCOPE_REFERENCE)
+    })
+})
+
 describe('handleClientManifest', () => {
     beforeEach(() => {
         vi.resetModules()

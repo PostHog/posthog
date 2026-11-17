@@ -1,3 +1,4 @@
+import os
 import hmac
 import json
 import hashlib
@@ -8,7 +9,7 @@ from typing import Any
 
 import pytest
 from posthog.test.base import BaseTest
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.conf import settings
 from django.core.cache import cache
@@ -76,6 +77,9 @@ RUN_SLACK_COMMAND = "products.commands.backend.tasks.tasks.run_slack_command.del
 DELIVER_FOLLOW_UP = "products.commands.backend.tasks.tasks.deliver_follow_up.delay"
 SLACK_INSTALLATION_GITHUB = "products.commands.backend.logic.subjects.InstallationGitHub.for_installation"
 SLACK_POST = "products.commands.backend.channels.slack.mentions.post_message"
+KNOWLEDGE_WRITER_ENABLED = "products.knowledge_writer.backend.settings.is_writer_enabled"
+KNOWLEDGE_WRITER_TEMPORAL_CONNECT = "products.knowledge_writer.backend.temporal.client.async_connect"
+START_TASK_WORKFLOW = "products.tasks.backend.logic.services.workflow_dispatch.enqueue_or_start_workflow"
 
 # Each test gets its own commenter, so the per-commenter rate limit in Redis never carries over.
 _github_ids = count(10_000)
@@ -113,6 +117,7 @@ def _pull_request(**overrides: Any) -> PullRequestFacts:
         "head_sha": "abc123",
         "head_branch": "feature/thing",
         "is_fork": False,
+        "is_private": False,
     }
     values.update(overrides)
     return PullRequestFacts(**values)
@@ -125,6 +130,7 @@ class TestDispatchCommentCommand(BaseTest):
         self.github_id = next(_github_ids)
         Integration.objects.create(team=self.team, kind="github", integration_id=INSTALLATION_ID, config={})
         self.flag = self.enterContext(patch(FLAG, return_value=True))
+        self.enterContext(patch(KNOWLEDGE_WRITER_ENABLED, return_value=True))
         self.stamphog_reviewing = self.enterContext(
             patch(STAMPHOG_REVIEWING, side_effect=lambda repository, team_ids: list(team_ids))
         )
@@ -144,6 +150,13 @@ class TestDispatchCommentCommand(BaseTest):
 
     def _command_request(self, verb: str, argument: str = "") -> CommandRequest:
         return GitHubCommentChannel(self._request(verb=verb, argument=argument)).request
+
+    def _knowledge_writer_env(self) -> dict[str, str]:
+        return {
+            "KNOWLEDGE_WRITER_TEAM_ID": str(self.team.id),
+            "KNOWLEDGE_WRITER_USER_ID": str(self.user.id),
+            "KNOWLEDGE_WRITER_DOCS_REPOSITORY": "PostHog/posthog.com",
+        }
 
     def _link_github_login(self) -> None:
         UserSocialAuth.objects.create(user=self.user, provider="github", uid=str(self.github_id))
@@ -218,7 +231,7 @@ class TestDispatchCommentCommand(BaseTest):
         github = FakeGitHub()
 
         with (
-            patch("products.commands.backend.logic.identity.access_refused", return_value=True),
+            patch("posthog.github.requesters.access_refused", return_value=True),
             patch(REQUEST_STAMPHOG_REVIEW) as request_review,
         ):
             outcome = dispatch_comment_command(self._request(), github=github)
@@ -264,7 +277,7 @@ class TestDispatchCommentCommand(BaseTest):
 
         with (
             patch(
-                "products.commands.backend.logic.identity.access_refused",
+                "posthog.github.requesters.access_refused",
                 side_effect=lambda subject, *_args, **_kwargs: second_refused and subject.email == second_user.email,
             ),
             patch(OWNING_TEAM_ID, return_value=owner_team.id),
@@ -321,20 +334,83 @@ class TestDispatchCommentCommand(BaseTest):
 
     @parameterized.expand(
         [
-            ("fork", _pull_request(is_fork=True), "fork_refused"),
-            ("closed", _pull_request(state="closed"), "pull_request_closed"),
+            ("fork", "stamp", _pull_request(is_fork=True), "fork_refused"),
+            ("closed", "stamp", _pull_request(state="closed"), "pull_request_closed"),
+            ("docs_on_an_unmerged_close", "docs", _pull_request(state="closed"), "pull_request_closed"),
+            ("docs_before_merge", "docs", _pull_request(state="open"), "pull_request_closed"),
         ]
     )
     def test_refuses_pull_requests_a_command_must_not_touch(
-        self, _name: str, pull_request: PullRequestFacts, expected: str
+        self, _name: str, verb: str, pull_request: PullRequestFacts, expected: str
     ) -> None:
         self._link_github_login()
 
-        with patch(REQUEST_STAMPHOG_REVIEW) as request_review:
-            outcome = dispatch_comment_command(self._request(), github=FakeGitHub(pull_request=pull_request))
+        with (
+            patch.dict(os.environ, self._knowledge_writer_env()),
+            patch(REQUEST_STAMPHOG_REVIEW) as request_review,
+            patch(START_TASK_WORKFLOW) as start_workflow,
+        ):
+            outcome = dispatch_comment_command(self._request(verb=verb), github=FakeGitHub(pull_request=pull_request))
 
         assert outcome == expected
         request_review.assert_not_called()
+        start_workflow.assert_not_called()
+
+    def test_docs_on_a_merged_pull_request_starts_its_docs_check_with_the_requester_and_note(self) -> None:
+        self._link_github_login()
+        github = FakeGitHub(pull_request=_pull_request(state="merged"))
+
+        with (
+            patch.dict(os.environ, self._knowledge_writer_env()),
+            patch(KNOWLEDGE_WRITER_TEMPORAL_CONNECT, new_callable=AsyncMock) as connect,
+        ):
+            outcome = dispatch_comment_command(
+                self._request(verb="docs", argument="Mention the new flag"), github=github
+            )
+
+        assert outcome == "accepted"
+        start_workflow = connect.return_value.start_workflow
+        inputs = start_workflow.call_args.args[1]
+        assert (inputs.commit_sha, inputs.origin, inputs.repository, inputs.pull_request_number) == (
+            None,
+            "command_tag",
+            REPOSITORY,
+            7,
+        )
+        assert (inputs.requested_by, inputs.requested_by_user_id, inputs.note) == (
+            "@octo",
+            self.user.id,
+            "Mention the new flag",
+        )
+        assert start_workflow.call_args.kwargs["id"] == "knowledge_writer:command_tag:acme.widgets#7"
+        assert github.replies[-1].endswith("Checking whether this pull request changes the docs.")
+
+    def test_docs_on_a_private_repository_starts_no_check(self) -> None:
+        self._link_github_login()
+        github = FakeGitHub(pull_request=_pull_request(state="merged", is_private=True))
+
+        with (
+            patch.dict(os.environ, self._knowledge_writer_env()),
+            patch(KNOWLEDGE_WRITER_TEMPORAL_CONNECT, new_callable=AsyncMock) as connect,
+        ):
+            dispatch_comment_command(self._request(verb="docs"), github=github)
+
+        assert github.replies[-1].endswith("The knowledge writer only runs on public repositories.")
+        connect.assert_not_called()
+
+    @parameterized.expand([("writer_project", True), ("another_project", False)])
+    def test_help_lists_docs_only_where_the_knowledge_writer_runs(self, _name: str, is_writer_project: bool) -> None:
+        github = FakeGitHub()
+        writer_env = self._knowledge_writer_env()
+        if not is_writer_project:
+            writer_env["KNOWLEDGE_WRITER_TEAM_ID"] = str(self.team.id + 1000)
+
+        with patch.dict(os.environ, writer_env):
+            outcome = dispatch_comment_command(self._request(verb="help"), github=github)
+
+        assert outcome == "help"
+        assert ("`@posthog docs" in github.replies[-1]) is is_writer_project
+        assert "`@posthog stamp" in github.replies[-1]
 
     def test_invalid_arguments_reply_with_the_usage_and_run_nothing(self) -> None:
         self._link_github_login()

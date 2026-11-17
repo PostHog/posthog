@@ -1,3 +1,7 @@
+// Must stay the first import, so that no dependency runs before the prototypes are sealed. The import order in
+// .prettierrc keeps it first.
+import '~/common/utils/seal-intrinsics'
+
 // NOTE: Keep these as ~ imports as we can validate the build output this way
 import { PluginServerMode } from '~/common/config'
 import { defaultConfig, overrideConfigWithEnv } from '~/common/config/config'
@@ -10,7 +14,6 @@ import {
     AiResearchV4ImageFetchRetryServer,
     AiResearchV4ImageFetchServer,
 } from '~/servers/ai-research-v4-image-fetch-server'
-import { AiResearchV4ParquetSinkServer } from '~/servers/ai-research-v4-parquet-sink-server'
 import { NodeServer } from '~/servers/base-server'
 import { ErrorTrackingServer } from '~/servers/error-tracking-server'
 import { IngestionApiServer } from '~/servers/ingestion-api-server'
@@ -67,9 +70,6 @@ function createServer(): NodeServer {
 
         case PluginServerMode.ai_research_v4_image_fetch_retry:
             return new AiResearchV4ImageFetchRetryServer()
-
-        case PluginServerMode.ai_research_v4_parquet_sink:
-            return new AiResearchV4ParquetSinkServer()
 
         case PluginServerMode.recording_api:
             return new RecordingApiServer()

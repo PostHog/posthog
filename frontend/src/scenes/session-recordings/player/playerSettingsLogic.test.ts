@@ -61,11 +61,23 @@ describe('playerSettingsLogic', () => {
             expect(logic.values.debugMode).toBe(false)
         })
 
-        it('an old inspectorSideBar link waits for the flags before opening Debug', () => {
+        it.each([
+            ['Debug under the watch layout', { [FEATURE_FLAGS.REPLAY_WATCH_LAYOUT]: 'compact' }, true, false],
+            ['the sidebar under the classic layout', {}, false, true],
+        ])('an old inspectorSideBar link waits for the flags, then opens %s', (_, flags, debug, sidebar) => {
             openLink(home, { inspectorSideBar: true })
             expect(logic.values.debugMode).toBe(false)
+            expect(logic.values.sidebarOpen).toBe(false)
+            featureFlagLogic.actions.setFeatureFlags([], flags)
+            expect(logic.values.debugMode).toBe(debug)
+            expect(logic.values.sidebarOpen).toBe(sidebar)
+        })
+
+        it('an old inspectorSideBar link under the watch layout leaves the sidebar preference alone', () => {
             watchLayout()
+            openLink(home, { inspectorSideBar: true })
             expect(logic.values.debugMode).toBe(true)
+            expect(logic.values.userPreferenceSidebarOpen).toBe(false)
         })
 
         it('an old inspectorSideBar link leaves Debug off in the classic layout', () => {

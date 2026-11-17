@@ -1,3 +1,4 @@
+import { HttpResponse } from 'msw'
 import posthog from 'posthog-js'
 
 import api, { ApiError } from 'lib/api'
@@ -5,11 +6,10 @@ import { NetworkError } from 'lib/api-error'
 
 import { useMocks } from '~/mocks/jest'
 import { performQuery, pollForResults, queryExportContext, waitForPageVisible } from '~/queries/query'
+import { setLatestVersionsOnQuery } from '~/queries/schema/query-versions'
 import { EventsQuery, HogQLQuery, NodeKind, RefreshType, WebStatsBreakdown } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { PropertyFilterType, PropertyOperator } from '~/types'
-
-import { setLatestVersionsOnQuery } from './utils'
 
 describe('query', () => {
     beforeEach(() => {
@@ -99,7 +99,8 @@ describe('query', () => {
             limit: 100,
         })
         captureSpy.mockClear()
-        await performQuery(q)
+        const onRequestTiming = jest.fn()
+        await performQuery(q, { onRequestTiming })
         const queryCompletedCalls = captureSpy.mock.calls.filter((call) => call[0] === 'query completed')
         expect(queryCompletedCalls).toHaveLength(1)
         expect(queryCompletedCalls[0][1]).toMatchObject({
@@ -110,25 +111,131 @@ describe('query', () => {
             retry_wait_ms: expect.any(Number),
             retry_status: null,
             retry_recovered: false,
+            submit_request_timings: [
+                expect.objectContaining({
+                    request_total_ms: expect.any(Number),
+                    time_to_headers_ms: expect.any(Number),
+                    body_read_ms: expect.any(Number),
+                    json_parse_ms: expect.any(Number),
+                    http_status: 200,
+                }),
+            ],
+            time_to_headers_ms: expect.any(Number),
+            body_read_ms: expect.any(Number),
+            json_parse_ms: expect.any(Number),
+            resource_timing_status: 'missing_request_id',
         })
+        expect(onRequestTiming).toHaveBeenCalledTimes(1)
+        expect(onRequestTiming).toHaveBeenCalledWith(queryCompletedCalls[0][1]?.submit_request_timings?.[0])
+        expect(queryCompletedCalls[0][1]).not.toHaveProperty('result_poll_timing')
     })
 
-    it('emits a specific event on a HogQLQuery', async () => {
+    it.each([undefined, 'metadata'] as const)('captures HogQLQuery telemetry with mode %s', async (queryTelemetry) => {
         const captureSpy = jest.spyOn(posthog, 'capture')
+        const querySpy = jest.spyOn(api, 'query')
         const q: HogQLQuery = setLatestVersionsOnQuery({
             kind: NodeKind.HogQLQuery,
-            query: 'select * from events',
+            query: "select 'person@example.com' from events",
         })
         captureSpy.mockClear()
-        await performQuery(q)
+        const response = await performQuery(q, { queryTelemetry })
+        expect(querySpy.mock.calls.at(-1)?.[0]).toEqual(q)
+        expect(response).toMatchObject({ clickhouse: 'clickhouse string', hogql: 'hogql string' })
         const queryCompletedCalls = captureSpy.mock.calls.filter((call) => call[0] === 'query completed')
         expect(queryCompletedCalls).toHaveLength(1)
         expect(queryCompletedCalls[0][1]).toMatchObject({
-            query: q,
+            query: queryTelemetry === 'metadata' ? { kind: NodeKind.HogQLQuery } : q,
             duration: expect.any(Number),
-            clickhouse_sql: expect.any(String),
             is_cached: false,
         })
+        if (queryTelemetry === 'metadata') {
+            expect(queryCompletedCalls[0][1]?.query).toEqual({ kind: NodeKind.HogQLQuery })
+            expect(queryCompletedCalls[0][1]).not.toHaveProperty('clickhouse_sql')
+            expect(JSON.stringify(queryCompletedCalls[0][1])).not.toContain('person@example.com')
+        } else {
+            expect(queryCompletedCalls[0][1]).toHaveProperty('clickhouse_sql', 'clickhouse string')
+        }
+    })
+
+    it('keeps each retry timing on the existing completion event and flattens the final attempt', async () => {
+        const requestIds = ['11111111-1111-4111-8111-111111111111', '22222222-2222-4222-8222-222222222222']
+        let attempts = 0
+        useMocks({
+            post: {
+                '/api/environments/:team_id/query/:kind': () => {
+                    const headers = { 'X-Request-ID': requestIds[attempts] }
+                    return ++attempts === 1
+                        ? HttpResponse.json({ detail: 'temporarily unavailable' }, { status: 502, headers })
+                        : HttpResponse.json({ results: [] }, { headers })
+                },
+            },
+        })
+        const captureSpy = jest.spyOn(posthog, 'capture').mockClear()
+        const query: HogQLQuery = { kind: NodeKind.HogQLQuery, query: 'select 1' }
+
+        await expect(performQuery(query)).resolves.toMatchObject({ results: [] })
+
+        const completed = captureSpy.mock.calls.filter(([event]) => event === 'query completed')
+        expect(completed).toHaveLength(1)
+        expect(completed[0][1]).toMatchObject({
+            submit_attempts: 2,
+            submit_request_timings: [
+                expect.objectContaining({ http_status: 502, http_request_id: requestIds[0] }),
+                expect.objectContaining({ http_status: 200, http_request_id: requestIds[1] }),
+            ],
+            http_request_id: requestIds[1],
+            body_read_ms: expect.any(Number),
+        })
+    })
+
+    it('records only the poll that returns the completed async result', async () => {
+        const pollRequestIds = ['33333333-3333-4333-8333-333333333333', '44444444-4444-4444-8444-444444444444']
+        let polls = 0
+        useMocks({
+            post: {
+                '/api/environments/:team_id/query/:kind': () => [
+                    200,
+                    { query_status: { id: 'async-query', complete: false } },
+                ],
+            },
+            get: {
+                '/api/environments/:team_id/query/:id': () => {
+                    const complete = polls === 1
+                    const headers = { 'X-Request-ID': pollRequestIds[polls++] }
+                    return HttpResponse.json(
+                        { query_status: { id: 'async-query', complete, results: complete ? { results: [] } : null } },
+                        { headers }
+                    )
+                },
+            },
+        })
+        jest.useFakeTimers()
+        const captureSpy = jest.spyOn(posthog, 'capture').mockClear()
+        const query: HogQLQuery = { kind: NodeKind.HogQLQuery, query: 'select 1' }
+
+        try {
+            const promise = performQuery(query, undefined, 'async')
+            await jest.advanceTimersByTimeAsync(1000)
+            await expect(promise).resolves.toEqual({ results: [] })
+        } finally {
+            jest.useRealTimers()
+        }
+
+        expect(polls).toBe(2)
+        const completed = captureSpy.mock.calls.filter(([event]) => event === 'query completed')
+        expect(completed).toHaveLength(1)
+        expect(completed[0][1]).toMatchObject({
+            result_poll_timing: expect.objectContaining({
+                http_status: 200,
+                http_request_id: pollRequestIds[1],
+                body_read_ms: expect.any(Number),
+                json_parse_ms: expect.any(Number),
+            }),
+            result_poll_http_request_id: pollRequestIds[1],
+            result_poll_body_read_ms: expect.any(Number),
+            result_poll_json_parse_ms: expect.any(Number),
+        })
+        expect(completed[0][1]?.submit_request_timings).toHaveLength(1)
     })
 
     it.each([
@@ -186,7 +293,12 @@ describe('query', () => {
         })
     })
 
-    it.each([undefined, 'client-query-id'])('emits an event when a query errors with query ID %s', async (queryId) => {
+    it.each<[string | undefined, 'metadata' | undefined]>([
+        [undefined, undefined],
+        ['client-query-id', undefined],
+        [undefined, 'metadata'],
+        ['client-query-id', 'metadata'],
+    ])('captures failed queries with query ID %s and telemetry mode %s', async (queryId, queryTelemetry) => {
         const captureSpy = jest.spyOn(posthog, 'capture')
         const q: EventsQuery = setLatestVersionsOnQuery({
             kind: NodeKind.EventsQuery,
@@ -195,20 +307,29 @@ describe('query', () => {
         })
         captureSpy.mockClear()
         await expect(async () => {
-            await performQuery(q, undefined, undefined, queryId)
+            await performQuery(q, { queryTelemetry }, undefined, queryId)
         }).rejects.toThrow(ApiError)
 
         const queryFailedCalls = captureSpy.mock.calls.filter((call) => call[0] === 'query failed')
         expect(queryFailedCalls).toHaveLength(1)
         expect(queryFailedCalls[0][1]).toMatchObject({
-            query: q,
+            query: queryTelemetry === 'metadata' ? { kind: NodeKind.EventsQuery } : q,
             queryId,
             duration: expect.any(Number),
             error_status: 500,
             error_code: null,
+            submit_request_timings: [
+                expect.objectContaining({ request_total_ms: expect.any(Number), http_status: 500 }),
+            ],
+            time_to_headers_ms: expect.any(Number),
+            resource_timing_status: 'missing_request_id',
         })
         // Raw error text must stay out of telemetry
         expect(queryFailedCalls[0][1]).not.toHaveProperty('error_message')
+        if (queryTelemetry === 'metadata') {
+            expect(queryFailedCalls[0][1]?.query).toEqual({ kind: NodeKind.EventsQuery })
+            expect(queryFailedCalls[0][1]).not.toHaveProperty('clickhouse_sql')
+        }
     })
 
     it('does not emit a query failed event when the request is aborted', async () => {

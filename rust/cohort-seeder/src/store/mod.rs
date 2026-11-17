@@ -4,6 +4,26 @@
 //! establishment + pinned load), `lease` (the heartbeat handle). Depends on `domain` (typed ids and
 //! rows) and the `observability` metric constants — nothing else in the crate.
 
+// The team half of every `*_ONLY` statement, with `$1` bound to the env list's team ids. A team that
+// only the access record grants counts 120 s after `processing_since`. Person seeds skip the
+// processor's apply fence, and a processor that does not hold the team yet drops them as
+// `team_absent` for good. The processor picks up a grant on its next access poll, every 15 ± 3 s
+// (`common-cohort-team-access`), and then loads the team's cohorts. The wait cannot see a processor
+// pod whose polls or loads keep failing for longer than 120 s. Django creates runs only in
+// `awaiting_boundary` or `blocked`, so every run that completion and the reconciling count read
+// passed discovery first, and the wait delays nothing there. The levels are listed instead of
+// `<> 'off'`, so a level that Django adds later stalls the team's runs until the seeder knows it.
+// Defined before the submodules, because a `macro_rules!` is in scope only after its definition.
+macro_rules! processing_team {
+    () => {
+        "(team_id = ANY($1) OR EXISTS (
+          SELECT 1 FROM cohort_realtime_team_access access
+          WHERE access.team_id = cohort_backfill_runs.team_id
+            AND access.level IN ('processing', 'serving')
+            AND access.processing_since <= now() - interval '120 seconds'))"
+    };
+}
+
 pub mod chunks;
 pub mod completion;
 pub mod lease;

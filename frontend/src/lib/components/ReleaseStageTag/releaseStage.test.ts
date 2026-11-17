@@ -15,7 +15,6 @@ describe('releaseStage', () => {
 
     test.each<[string | null, string | null | undefined, ReleaseStage | null]>([
         ['Pulse', 'Pulse', 'internal'],
-        ['Inbox', 'Self-driving inbox', 'beta'],
         ['CustomerAnalytics', 'Customer analytics', 'beta'],
         ['CustomerAnalyticsAccount', 'Acme Inc', null],
         ['Dashboard', 'Dashboard', null],
@@ -27,5 +26,21 @@ describe('releaseStage', () => {
     ])('the %s scene titled %s shows %s', (sceneId, title, expected) => {
         const product = releaseStageProductForScene(sceneId, title)
         expect(product ? releaseStage(product) : null).toEqual(expected)
+    })
+
+    test.each<[boolean, ReleaseStage | null]>([
+        [false, 'beta'],
+        [true, null],
+    ])('self-driving with usage display %s shows %s', (selfDrivingUsageDisplay, expected) => {
+        const product = releaseStageProductForScene('Inbox', 'Self-driving inbox')
+        expect(product ? releaseStage(product, selfDrivingUsageDisplay) : null).toEqual(expected)
+        expect(
+            releaseStage({ category: ProductItemCategory.TOOLS, sceneKey: 'Inbox' }, selfDrivingUsageDisplay)
+        ).toEqual(expected)
+    })
+
+    test('usage display preserves other beta products', () => {
+        const product = releaseStageProductForScene('CustomerAnalytics', 'Customer analytics')
+        expect(product ? releaseStage(product, true) : null).toEqual('beta')
     })
 })

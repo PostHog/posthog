@@ -36,6 +36,7 @@ from posthog.dataclasses import frozen
 from products.tasks.backend.constants import (
     DEFAULT_SANDBOX_WORKING_DIR,
     DEV_STACK_IMAGE_NAME,
+    GITLAB_HOST,
     SANDBOX_REPOSITORIES_ROOT,
 )
 from products.tasks.backend.logic.services.local_skills import BUNDLED_SKILLS_PATHS, ENV_DISABLE_BUNDLED_SKILLS
@@ -47,6 +48,8 @@ from products.tasks.backend.logic.services.sandbox_config import (
     SANDBOX_TTL_SECONDS,
     VM_SANDBOX_CPU_CORES,
 )
+from products.tasks.backend.logic.services.startup_failure import raise_startup_failure
+from products.tasks.backend.model_catalog import CLAUDE, is_anthropic_served_model
 
 if TYPE_CHECKING:
     from products.tasks.backend.temporal.process_task.utils import McpServerConfig
@@ -316,6 +319,7 @@ PUBLIC_SANDBOX_REPOS: frozenset[str] = frozenset({"posthog/hedgebox", "posthog/.
 SENSITIVE_SANDBOX_ENV_NAMES: frozenset[str] = frozenset(
     {
         "GITHUB_TOKEN",
+        "GITLAB_TOKEN",
         "POSTHOG_TASK_RUN_EVENT_INGEST_TOKEN",
         "POSTHOG_TASK_RUN_SESSION_TOKEN",
         "POSTHOG_WIZARD_API_KEY",
@@ -333,6 +337,7 @@ SENSITIVE_FILE_HEREDOC_PATTERN = re.compile(
     r"(?P<prefix><<'POSTHOG_FILE_EOF'\n).*?(?P<suffix>\nPOSTHOG_FILE_EOF)", re.DOTALL
 )
 GITHUB_CLONE_TOKEN_PATTERN = re.compile(r"(?P<prefix>https://x-access-token:)[^@\s]+(?P<suffix>@github\.com/)")
+GITLAB_CLONE_TOKEN_PATTERN = re.compile(r"(?P<prefix>https://oauth2:)[^@\s]+(?P<suffix>@gitlab\.com/)")
 
 
 def is_public_sandbox_repo(repository: str | None) -> bool:
@@ -340,9 +345,11 @@ def is_public_sandbox_repo(repository: str | None) -> bool:
 
 
 def sandbox_repo_path(repository: str) -> str:
-    """Absolute path an ``org/repo`` is cloned to inside the sandbox (the agent-server's cwd)."""
-    org, repo = repository.lower().split("/")
-    return f"{SANDBOX_REPOSITORIES_ROOT}/{org}/{repo}"
+    """Absolute path a repository is cloned to inside the sandbox (the agent-server's cwd).
+
+    A GitHub ``org/repo`` and a GitLab ``group/subgroup/project`` both keep their full path.
+    """
+    return f"{SANDBOX_REPOSITORIES_ROOT}/{repository.lower()}"
 
 
 def redact_sandbox_command(command: str) -> str:
@@ -352,6 +359,7 @@ def redact_sandbox_command(command: str) -> str:
         (SENSITIVE_AGENT_RUNTIME_ARGUMENT_PATTERN, r"\g<name> <redacted>"),
         (SENSITIVE_FILE_HEREDOC_PATTERN, r"\g<prefix><redacted>\g<suffix>"),
         (GITHUB_CLONE_TOKEN_PATTERN, r"\g<prefix><redacted>\g<suffix>"),
+        (GITLAB_CLONE_TOKEN_PATTERN, r"\g<prefix><redacted>\g<suffix>"),
     ):
         redacted = pattern.sub(substitution, redacted)
     return redacted
@@ -407,6 +415,9 @@ def build_agent_runtime_env_prefix(
         "POSTHOG_BENJAMIN": "1" if benjamin_enabled else "0",
         "POSTHOG_PI_CONVERSATION_FORMAT": "acp" if pi_acp_conversation else "pi",
     }
+    if runtime_adapter == CLAUDE and model and not is_anthropic_served_model(model):
+        env_vars["CLAUDE_CODE_AUTO_MODE_SERVER"] = "0"
+        env_vars["CLAUDE_CODE_AUTO_MODE_MODEL"] = model
     assignments = " ".join(
         f"{name}={shlex.quote(value)}" for name, value in env_vars.items() if value is not None and value != ""
     )
@@ -595,19 +606,21 @@ class SandboxBase(ABC):
         shallow: bool = True,
         branch: str | None = None,
         blobless: bool = False,
+        gitlab_token: str | None = None,
     ) -> ExecutionResult:
         if not self.is_running():
             raise RuntimeError("Sandbox not in running state.")
 
-        org, repo = repository.lower().split("/")
-        repo_url = (
-            f"https://x-access-token:{github_token}@github.com/{org}/{repo}.git"
-            if github_token
-            else f"https://github.com/{org}/{repo}.git"
-        )
+        path = repository.lower()
+        if gitlab_token:
+            repo_url = f"https://oauth2:{gitlab_token}@{GITLAB_HOST}/{path}.git"
+        elif github_token:
+            repo_url = f"https://x-access-token:{github_token}@github.com/{path}.git"
+        else:
+            repo_url = f"https://github.com/{path}.git"
 
         target_path = sandbox_repo_path(repository)
-        org_path = f"{SANDBOX_REPOSITORIES_ROOT}/{org}"
+        org_path, repo = target_path.rsplit("/", 1)
 
         depth_flag = f" --depth {shlex.quote('1')}" if shallow else ""
         branch_flag = f" --branch {shlex.quote(branch)}" if branch else ""
@@ -686,6 +699,7 @@ class SandboxBase(ABC):
         codex_model_access: str | None = None,
         codex_run_token: str | None = None,
         sandbox_runtime: str | None = None,
+        before_launch: Callable[[], None] | None = None,
     ) -> int | None:
         """Start the agent-server HTTP server in the sandbox.
 
@@ -906,6 +920,8 @@ def wait_for_health_check(
     """
     health_script = build_health_check_command(port, max_attempts, poll_interval, pid_file)
     result = execute(health_script, timeout_seconds=health_check_timeout_seconds(max_attempts, poll_interval))
+    if result.exit_code != 0:
+        raise_startup_failure(result.stdout, sandbox_id)
     if "claude_credential_unavailable" in result.stdout:
         from products.tasks.backend.exceptions import ProcessTaskFatalError
 
@@ -954,15 +970,17 @@ def build_health_check_command(
         f"  body=$(curl -q -s --max-time {HEALTH_CURL_MAX_TIME_SECONDS} http://localhost:{port}/health); "
         "  status=$?; "
         '  if [ "$status" = "0" ]; then '
-        '    case "$body" in *claude_credential_unavailable*) echo "claude_credential_unavailable"; exit 1;; '
-        '*codex_credential_unavailable*) echo "codex_credential_unavailable"; exit 1;; esac; '
         "    python3 -c '"
         "import json, sys; "
         "payload = json.loads(sys.argv[1]); "
         'ready = payload.get("status") == "ok" and payload.get("hasSession") is True; '
-        'sys.exit(0 if ready else 2 if payload.get("initializationPhase") == "setup_hooks" else 1)'
+        'sys.exit(0 if ready else 3 if payload.get("readiness") == "failed" '
+        'else 2 if payload.get("initializationPhase") == "setup_hooks" else 1)'
         '\' "$body"; ready=$?; '
         '    if [ "$ready" = "0" ]; then echo "ok:$i"; exit 0; fi; '
+        '    if [ "$ready" = "3" ]; then printf "%s\\n" "$body"; exit 1; fi; '
+        '    case "$body" in *claude_credential_unavailable*) echo "claude_credential_unavailable"; exit 1;; '
+        '*codex_credential_unavailable*) echo "codex_credential_unavailable"; exit 1;; esac; '
         f'    if [ "$ready" = "2" ]; then max_attempts={hooks_max_attempts}; budget={hooks_budget_seconds}; fi; '
         "  fi; "
         '  if [ "$i" -ge "$max_attempts" ] || [ "$SECONDS" -ge "$budget" ]; then exit 1; fi; '

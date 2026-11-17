@@ -7,12 +7,15 @@ and difference types.
 """
 
 from dataclasses import dataclass
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 from ..shared.enums import DifferenceType
-from ..shared.statistics import ProportionStatistic, RatioStatistic, SampleMeanStatistic, StatisticError
+from ..shared.statistics import AnyStatistic, ProportionStatistic, SampleMeanStatistic, StatisticError
 from .priors import GaussianPrior
 from .tests import BayesianGaussianTest, BayesianMeanTest, BayesianProportionTest, BayesianResult, BayesianTest
+
+if TYPE_CHECKING:
+    from ..shared.statistics import RelativeEffectBaseline
 
 
 @dataclass(frozen=True)
@@ -90,7 +93,7 @@ class BayesianMethod:
         Get or create test instance based on statistic type and configuration.
 
         Args:
-            stat_type: Type of statistic (SampleMeanStatistic or ProportionStatistic)
+            stat_type: Type of statistic; types without a dedicated test use BayesianGaussianTest
 
         Returns:
             Appropriate BayesianTest instance
@@ -109,10 +112,12 @@ class BayesianMethod:
 
     def run_test(
         self,
-        treatment_stat: SampleMeanStatistic | ProportionStatistic | RatioStatistic,
-        control_stat: SampleMeanStatistic | ProportionStatistic | RatioStatistic,
+        treatment_stat: AnyStatistic,
+        control_stat: AnyStatistic,
         prior: GaussianPrior | None = None,
-        **kwargs,
+        *,
+        difference_type: DifferenceType | None = None,
+        relative_effect_baseline: RelativeEffectBaseline | None = None,
     ) -> BayesianResult:
         """
         Run Bayesian statistical test comparing treatment vs control.
@@ -121,7 +126,8 @@ class BayesianMethod:
             treatment_stat: Treatment group statistic
             control_stat: Control group statistic
             prior: Prior distribution (uses config if None)
-            **kwargs: Additional parameters (overrides config values)
+            difference_type: Type of difference to calculate (uses config if None)
+            relative_effect_baseline: Raw baseline moments for CUPED relative effects (default: the control)
 
         Returns:
             BayesianResult with all probabilistic outputs
@@ -139,16 +145,13 @@ class BayesianMethod:
 
         test = self._get_test_instance(type(treatment_stat))
 
-        # Prepare difference type (allow override)
-        difference_type = kwargs.pop("difference_type", self.config.difference_type)
-
         try:
             return test.run_test(
                 treatment_stat=treatment_stat,
                 control_stat=control_stat,
                 prior=prior,
-                difference_type=difference_type,
-                **kwargs,
+                difference_type=difference_type if difference_type is not None else self.config.difference_type,
+                relative_effect_baseline=relative_effect_baseline,
             )
         except Exception as e:
             raise StatisticError(f"Bayesian test execution failed: {str(e)}") from e

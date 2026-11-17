@@ -45,6 +45,7 @@ const PATHS_WITHOUT_PROJECT_ID = new Set([
     'embedded',
     'interview',
     'cli',
+    'device',
     'render_query',
 ])
 // Instance-level pages living under a product's own prefix, so a first-segment check misses them.

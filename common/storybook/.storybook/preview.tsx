@@ -1,5 +1,7 @@
 import '~/styles'
 
+import '~/taxonomy/registerCoreFilterDefinitions'
+
 import { Controls, Description, Primary, Stories, Subtitle, Title } from '@storybook/addon-docs/blocks'
 import type { Preview } from '@storybook/react'
 import { configure as configureTestingLibrary } from '@testing-library/dom'
@@ -23,9 +25,10 @@ import { withTheme } from './decorators/withTheme'
 // story a load-tolerant default budget instead of making each play pass its own timeout.
 configureTestingLibrary({ asyncUtilTimeout: 15000 })
 
-const setupMsw = (): void => {
+const setupMsw = (): Promise<unknown> => {
     // Make sure the msw worker is started
-    worker.start({
+    const workerStarted = worker.start({
+        serviceWorker: { url: '/storybookServiceWorker.js' },
         quiet: true,
         onUnhandledRequest(request, print) {
             // MSW warns on all unhandled requests, but we don't necessarily care
@@ -42,8 +45,9 @@ const setupMsw = (): void => {
     })
     ;(window as any).__mockServiceWorker = worker
     ;(window as any).POSTHOG_APP_CONTEXT = getStorybookAppContext()
+    return workerStarted
 }
-setupMsw()
+const mswStarted = setupMsw()
 
 const setupPosthogJs = (): void => {
     // Make sure we don't hit production posthog. We want to control requests to,
@@ -56,16 +60,26 @@ setupPosthogJs()
 
 // Canvas charts measure text at paint time and never repaint when fonts finish loading, so hold
 // every story's render until the app fonts (the set the visual-regression runner preloads) are in.
+// RoundHog's italic faces are separate files. A data grid that sizes its columns from italic text
+// before the italic face arrives keeps the fallback font's widths, so the italic faces load here too.
 const loaders: Preview['loaders'] = [
     async () => {
         await Promise.all(
             ['400', '500', '700', '800'].flatMap((weight) => [
                 document.fonts.load(`${weight} 16px Inter`),
                 document.fonts.load(`${weight} 16px RoundHog`),
+                document.fonts.load(`italic ${weight} 16px RoundHog`),
             ])
         )
             .then(() => document.fonts.ready)
             .catch(() => undefined)
+        return {}
+    },
+    // MSW 2 does not hold requests back while its worker registers. Without this wait, the first story
+    // on a fresh page can send its API calls to the real server and render their failure instead.
+    // A failed start rejects here, so the story reports it rather than rendering without mocks.
+    async () => {
+        await mswStarted
         return {}
     },
 ]

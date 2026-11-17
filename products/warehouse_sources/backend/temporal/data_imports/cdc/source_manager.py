@@ -34,8 +34,8 @@ from products.data_warehouse.backend.facade.api import aget_s3_client
 from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import (
     CDC_OP_COLUMN,
     CDC_SEQ_COLUMN,
-    SCD2_VALID_TO_COLUMN,
     TOAST_OMITTED_COLUMN,
+    HistoryNaming,
     build_scd2_table,
     companion_resource_name,
 )
@@ -46,8 +46,12 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.buffer import 
     parse_buffer_file_name,
     purge_buffer_prefix,
 )
-from products.warehouse_sources.backend.temporal.data_imports.cdc.companion_jobs import COMPANION_JOB_IDS_KEY
+from products.warehouse_sources.backend.temporal.data_imports.cdc.companion_jobs import (
+    COMPANION_JOB_IDS_KEY,
+    companions_completed,
+)
 from products.warehouse_sources.backend.temporal.data_imports.cdc.lane_position import (
+    EMPTY_POSITION,
     LanePosition,
     content_columns,
     ensure_position_stats,
@@ -58,7 +62,10 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.load_resolutio
     drop_superseded_rows,
     has_engine_seq,
 )
-from products.warehouse_sources.backend.temporal.data_imports.cdc.snapshot_lane import snapshot_in_buffer
+from products.warehouse_sources.backend.temporal.data_imports.cdc.snapshot_lane import (
+    CDC_SNAPSHOT_POSITION_KEY,
+    snapshot_in_buffer,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
     normalize_column_name,
     safe_parse_datetime,
@@ -106,6 +113,7 @@ class CDCLane:
 
     resource_name: str
     write_mode: CDCWriteMode
+    history: HistoryNaming | None = None
 
 
 def serves_buffered_lane(schema: ExternalDataSchema) -> bool:
@@ -150,23 +158,23 @@ def purge_buffer_before_handover(schema: ExternalDataSchema, logger: FilteringBo
     purge_buffer_prefix(schema.team_id, str(schema.id), logger, strict=True)
 
 
-def served_lanes(schema: ExternalDataSchema) -> list[CDCLane]:
-    """The tables this schema's change stream feeds.
+def served_lanes(schema: ExternalDataSchema, history: HistoryNaming | None) -> list[CDCLane]:
+    """The tables this schema's change stream feeds. `history` names the history table, when the mode writes one.
 
     One entry per Delta table the mode writes, in the order a run writes them.
     An unrecognized mode returns nothing, which reads as "not a lane the buffer serves".
     """
-    return [
-        CDCLane(
-            resource_name=(
-                companion_resource_name(schema.name)
-                if mode == COMPANION_WRITE_MODE
-                else consolidated_resource_name(schema)
-            ),
-            write_mode=mode,
-        )
-        for mode in _LANE_WRITE_MODES.get(schema.cdc_table_mode, ())
-    ]
+    lanes: list[CDCLane] = []
+    for mode in _LANE_WRITE_MODES.get(schema.cdc_table_mode, ()):
+        if mode != COMPANION_WRITE_MODE:
+            lanes.append(CDCLane(resource_name=consolidated_resource_name(schema), write_mode=mode))
+        elif history is None:
+            raise ValueError(f"CDC schema {schema.name} writes a history table, but no history naming was given")
+        else:
+            lanes.append(
+                CDCLane(resource_name=companion_resource_name(schema.name, history), write_mode=mode, history=history)
+            )
+    return lanes
 
 
 # Slack when comparing an S3 mtime against a listing timestamp from our clock, so skew between the
@@ -229,7 +237,7 @@ def read_completed_listing_proof(schema: ExternalDataSchema) -> ListingProof | N
             continue
         if stamped.tzinfo is None:
             continue
-        if _companions_completed((snapshot or {}).get(COMPANION_JOB_IDS_KEY) or []):
+        if companions_completed((snapshot or {}).get(COMPANION_JOB_IDS_KEY) or []):
             tail = (snapshot or {}).get(BUFFER_LISTED_TAIL_KEY)
             return ListingProof(listed_at=stamped, tail=tail if isinstance(tail, dict) else {})
     return None
@@ -276,7 +284,7 @@ def buffer_may_have_expired_unread(schema: ExternalDataSchema, now: dt.datetime)
         .order_by("-created_at")
         .values_list("schema_snapshot", flat=True)[:_PROOF_SEARCH_DEPTH]
     )
-    return not any(_companions_completed((snapshot or {}).get(COMPANION_JOB_IDS_KEY) or []) for snapshot in reads)
+    return not any(companions_completed((snapshot or {}).get(COMPANION_JOB_IDS_KEY) or []) for snapshot in reads)
 
 
 async def buffer_expired_unread(schema: ExternalDataSchema) -> bool:
@@ -310,18 +318,6 @@ def clear_listing(job_id: str, team_id: int) -> None:
         ExternalDataJob.objects.filter(id=job.id).update(schema_snapshot=snapshot)
 
 
-def _companions_completed(companion_job_ids: list[str]) -> bool:
-    """Whether every companion table this run also wrote finished with it."""
-    from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
-
-    if not companion_job_ids:
-        return True
-    statuses = ExternalDataJob.objects.filter(id__in=companion_job_ids).values_list("status", flat=True)
-    return len(statuses) == len(companion_job_ids) and all(
-        status == ExternalDataJob.Status.COMPLETED for status in statuses
-    )
-
-
 # A run whose companion failed proves nothing, so look past it — but never far: an older listing
 # only ever deletes fewer files, and the floor is what does the real work.
 _PROOF_SEARCH_DEPTH = 10
@@ -331,7 +327,9 @@ _PROOF_SEARCH_DEPTH = 10
 _PROOF_WINDOW = dt.timedelta(days=2)
 
 
-def _history_transform(replay: ReplayFilter, key_columns: list[str]) -> Callable[[pa.Table], pa.Table]:
+def _history_transform(
+    replay: ReplayFilter, key_columns: list[str], history: HistoryNaming
+) -> Callable[[pa.Table], pa.Table]:
     """Replay first, then stamp the SCD2 validity columns onto what is left.
 
     Derived here rather than in the loader so the staged parquet is complete on its own: a loader
@@ -349,16 +347,30 @@ def _history_transform(replay: ReplayFilter, key_columns: list[str]) -> Callable
         table = replay.apply(table)
         if not table.num_rows:
             return table
-        # No guard on the columns already being there: a source that owns `valid_from` fails
+        # No guard on the columns already being there: a source that owns a validity column fails
         # loudly inside `build_scd2_table`, where a skip would let the writer close rows against
         # customer data.
-        return build_scd2_table(table, key_columns)
+        return build_scd2_table(table, key_columns, history)
 
     return _apply
 
 
+def _seed_position(schema: ExternalDataSchema) -> LanePosition:
+    """Where a history table that holds only its snapshot seed stops.
+
+    The seed carries no position, and a resnapshot that stays in the buffer keeps changes from before
+    the snapshot read. The merge lane converges over them, but the history lane would version each one
+    a second time. Every change at or below the recorded position is in the seed.
+    """
+    recorded = (schema.sync_type_config or {}).get(CDC_SNAPSHOT_POSITION_KEY)
+    if not isinstance(recorded, int) or isinstance(recorded, bool):
+        return EMPTY_POSITION
+    # `drop_superseded_rows` keeps rows at the position itself, and those are in the seed too.
+    return LanePosition(position=recorded + 1, applied={})
+
+
 async def build_output_lanes(
-    schema: ExternalDataSchema, job: ExternalDataJob, logger: FilteringBoundLogger
+    schema: ExternalDataSchema, job: ExternalDataJob, logger: FilteringBoundLogger, history: HistoryNaming | None
 ) -> tuple[list[OutputLane], int | None]:
     """Every table this run writes, and the position below which the buffer is settled.
 
@@ -370,11 +382,11 @@ async def build_output_lanes(
 
     The floor is the lowest position any lane holds — a file below it is settled for every table.
     A lane whose table reports no position holds the floor open, so nothing is deleted until every
-    lane can prove where it stops.
+    lane can prove where it stops. A history table holding only its seed stops at the snapshot's position.
     """
     lanes: list[OutputLane] = []
     positions: list[int | None] = []
-    for index, lane in enumerate(served_lanes(schema)):
+    for index, lane in enumerate(served_lanes(schema, history)):
         delta_table = await DeltaTableRef(
             lane.resource_name, job, logger, expect_missing=schema.table_id is None
         ).get_delta_table()
@@ -382,12 +394,14 @@ async def build_output_lanes(
         keys = [normalize_column_name(name) for name in schema.primary_key_columns or []]
         if delta_table is not None:
             # Before the read, so this run's own write is the one that carries the statistic.
-            await ensure_position_stats(delta_table, [*keys, *([SCD2_VALID_TO_COLUMN] if is_append else [])])
+            await ensure_position_stats(delta_table, [*keys, *([lane.history.valid_to] if lane.history else [])])
         # Without primary keys an identity is just the operation, which matches rows the table
         # has never held. Ask for none instead: the lane then replays, which duplicates history
         # rather than losing it, and duplication is the direction that can be repaired.
         key_columns = [*keys, CDC_OP_COLUMN] if keys else None
         position = await read_lane_position(delta_table, key_columns=key_columns if is_append else None)
+        if lane.history is not None and position.position is None:
+            position = _seed_position(schema)
         positions.append(position.position)
         replay = ReplayFilter(position)
         lanes.append(
@@ -395,7 +409,7 @@ async def build_output_lanes(
                 name=lane.resource_name,
                 cdc_write_mode=lane.write_mode,
                 billable=index == 0,
-                transform=_history_transform(replay, keys) if is_append else replay.apply,
+                transform=_history_transform(replay, keys, lane.history) if lane.history else replay.apply,
             )
         )
     floor = None if any(p is None for p in positions) else min(p for p in positions if p is not None)
@@ -521,6 +535,7 @@ class ReplayFilter:
         # Taken from the position itself, so the batch is keyed exactly as the table was read.
         self._key_columns = list(position.key_columns)
         self._content_schema = position.content_schema
+        self._non_content = position.non_content_columns
         self._content_matched = position.content_matched
         self._load_applied = position.load_applied
         self.rows_skipped = 0
@@ -541,6 +556,7 @@ class ReplayFilter:
         self._load_applied = None
         self._applied = {key: list(rows) for key, rows in resolved.applied.items()}
         self._content_schema = resolved.content_schema
+        self._non_content = resolved.non_content_columns
         self._content_matched = resolved.content_matched
 
     def _count_skipped(self, dropped: int, reason: str) -> None:
@@ -612,7 +628,7 @@ class ReplayFilter:
         still compare different: dropping it would make a wrong match likelier, and a wrong match
         is a lost change where a missed one is only a copy.
         """
-        names = content_columns(table.column_names)
+        names = content_columns(table.column_names, self._non_content)
         if self._content_schema is None:
             return table.select(names).to_pylist(), set()
         columns: list[pa.ChunkedArray] = []

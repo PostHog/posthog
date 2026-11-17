@@ -81,6 +81,7 @@ export const alertsCreateBodyDetectorConfigOneOnethreeTypeDefault = `pca`
 export const alertsCreateBodyDetectorConfigOneOnefourInstructionsOneMax = 2000
 
 export const alertsCreateBodyDetectorConfigOneOnefourTypeDefault = `llm`
+export const alertsCreateBodyDetectorConfigOneOnefiveTypeDefault = `forecast`
 export const alertsCreateBodyEvaluationDelayIntervalsMin = 0
 export const alertsCreateBodyEvaluationDelayIntervalsMax = 100
 
@@ -203,6 +204,23 @@ export const AlertsCreateBody = () => zod.object({
                                 'When true, anchor on the trailing (possibly still accumulating) bucket instead of the last complete one.'
                             ),
                         type: zod.enum(['MetricsAlertConfig']).default(alertsCreateBodyConfigOneFourTypeDefault),
+                        variables: zod
+                            .union([
+                                zod.record(
+                                    zod.string(),
+                                    zod.object({
+                                        all: zod.union([zod.boolean(), zod.null()]).optional(),
+                                        values: zod
+                                            .array(zod.string())
+                                            .describe(
+                                                'The selected values. Empty when `all` is true: All stands for every option of the variable.'
+                                            ),
+                                    })
+                                ),
+                                zod.null(),
+                            ])
+                            .optional()
+                            .describe("Values for the `$name` variables in the insight's query."),
                     }),
                 ])
                 .describe(
@@ -1258,6 +1276,61 @@ export const AlertsCreateBody = () => zod.object({
                             ),
                         type: zod.enum(['llm']).default(alertsCreateBodyDetectorConfigOneOnefourTypeDefault),
                     }),
+                    zod.object({
+                        above: zod
+                            .union([
+                                zod.object({
+                                    min_absolute_change: zod
+                                        .union([zod.number(), zod.null()])
+                                        .optional()
+                                        .describe(
+                                            "The value is at least this far from the expected value, in the series' units"
+                                        ),
+                                    min_relative_change: zod
+                                        .union([zod.number(), zod.null()])
+                                        .optional()
+                                        .describe(
+                                            'The value is at least this fraction away from the expected value. 1 = 100%'
+                                        ),
+                                    quantile: zod
+                                        .union([zod.number(), zod.null()])
+                                        .optional()
+                                        .describe(
+                                            'The value is beyond this forecast quantile. Above: 0.55 to 0.95 in steps of 0.05, or 0.99. Below: 0.01, or 0.05 to 0.45 in steps of 0.05.'
+                                        ),
+                                }),
+                                zod.null(),
+                            ])
+                            .optional()
+                            .describe('Rule for a value higher than expected. Omit to ignore that side.'),
+                        below: zod
+                            .union([
+                                zod.object({
+                                    min_absolute_change: zod
+                                        .union([zod.number(), zod.null()])
+                                        .optional()
+                                        .describe(
+                                            "The value is at least this far from the expected value, in the series' units"
+                                        ),
+                                    min_relative_change: zod
+                                        .union([zod.number(), zod.null()])
+                                        .optional()
+                                        .describe(
+                                            'The value is at least this fraction away from the expected value. 1 = 100%'
+                                        ),
+                                    quantile: zod
+                                        .union([zod.number(), zod.null()])
+                                        .optional()
+                                        .describe(
+                                            'The value is beyond this forecast quantile. Above: 0.55 to 0.95 in steps of 0.05, or 0.99. Below: 0.01, or 0.05 to 0.45 in steps of 0.05.'
+                                        ),
+                                }),
+                                zod.null(),
+                            ])
+                            .optional()
+                            .describe('Rule for a value lower than expected. Omit to ignore that side.'),
+                        type: zod.enum(['forecast']).default(alertsCreateBodyDetectorConfigOneOnefiveTypeDefault),
+                    }),
                 ])
                 .describe('Detector configuration types'),
             zod.null(),
@@ -1416,6 +1489,7 @@ export const alertsPartialUpdateBodyDetectorConfigOneOnethreeTypeDefault = `pca`
 export const alertsPartialUpdateBodyDetectorConfigOneOnefourInstructionsOneMax = 2000
 
 export const alertsPartialUpdateBodyDetectorConfigOneOnefourTypeDefault = `llm`
+export const alertsPartialUpdateBodyDetectorConfigOneOnefiveTypeDefault = `forecast`
 export const alertsPartialUpdateBodyEvaluationDelayIntervalsMin = 0
 export const alertsPartialUpdateBodyEvaluationDelayIntervalsMax = 100
 
@@ -1543,6 +1617,23 @@ export const AlertsPartialUpdateBody = () => zod.object({
                                 'When true, anchor on the trailing (possibly still accumulating) bucket instead of the last complete one.'
                             ),
                         type: zod.enum(['MetricsAlertConfig']).default(alertsPartialUpdateBodyConfigOneFourTypeDefault),
+                        variables: zod
+                            .union([
+                                zod.record(
+                                    zod.string(),
+                                    zod.object({
+                                        all: zod.union([zod.boolean(), zod.null()]).optional(),
+                                        values: zod
+                                            .array(zod.string())
+                                            .describe(
+                                                'The selected values. Empty when `all` is true: All stands for every option of the variable.'
+                                            ),
+                                    })
+                                ),
+                                zod.null(),
+                            ])
+                            .optional()
+                            .describe("Values for the `$name` variables in the insight's query."),
                     }),
                 ])
                 .describe(
@@ -2618,6 +2709,63 @@ export const AlertsPartialUpdateBody = () => zod.object({
                             ),
                         type: zod.enum(['llm']).default(alertsPartialUpdateBodyDetectorConfigOneOnefourTypeDefault),
                     }),
+                    zod.object({
+                        above: zod
+                            .union([
+                                zod.object({
+                                    min_absolute_change: zod
+                                        .union([zod.number(), zod.null()])
+                                        .optional()
+                                        .describe(
+                                            "The value is at least this far from the expected value, in the series' units"
+                                        ),
+                                    min_relative_change: zod
+                                        .union([zod.number(), zod.null()])
+                                        .optional()
+                                        .describe(
+                                            'The value is at least this fraction away from the expected value. 1 = 100%'
+                                        ),
+                                    quantile: zod
+                                        .union([zod.number(), zod.null()])
+                                        .optional()
+                                        .describe(
+                                            'The value is beyond this forecast quantile. Above: 0.55 to 0.95 in steps of 0.05, or 0.99. Below: 0.01, or 0.05 to 0.45 in steps of 0.05.'
+                                        ),
+                                }),
+                                zod.null(),
+                            ])
+                            .optional()
+                            .describe('Rule for a value higher than expected. Omit to ignore that side.'),
+                        below: zod
+                            .union([
+                                zod.object({
+                                    min_absolute_change: zod
+                                        .union([zod.number(), zod.null()])
+                                        .optional()
+                                        .describe(
+                                            "The value is at least this far from the expected value, in the series' units"
+                                        ),
+                                    min_relative_change: zod
+                                        .union([zod.number(), zod.null()])
+                                        .optional()
+                                        .describe(
+                                            'The value is at least this fraction away from the expected value. 1 = 100%'
+                                        ),
+                                    quantile: zod
+                                        .union([zod.number(), zod.null()])
+                                        .optional()
+                                        .describe(
+                                            'The value is beyond this forecast quantile. Above: 0.55 to 0.95 in steps of 0.05, or 0.99. Below: 0.01, or 0.05 to 0.45 in steps of 0.05.'
+                                        ),
+                                }),
+                                zod.null(),
+                            ])
+                            .optional()
+                            .describe('Rule for a value lower than expected. Omit to ignore that side.'),
+                        type: zod
+                            .enum(['forecast'])
+                            .default(alertsPartialUpdateBodyDetectorConfigOneOnefiveTypeDefault),
+                    }),
                 ])
                 .describe('Detector configuration types'),
             zod.null(),
@@ -2752,16 +2900,23 @@ export const AlertsDestinationsDeleteCreateParams = () => zod.object({
 
 export const alertsDestinationsDeleteCreateBodyHogFunctionIdsMax = 100
 
+export const alertsDestinationsDeleteCreateBodyDestinationIdsMax = 100
+
 export const AlertsDestinationsDeleteCreateBody = () => zod.object({
     hog_function_ids: zod
         .array(zod.string())
-        .min(1)
         .max(alertsDestinationsDeleteCreateBodyHogFunctionIdsMax)
-        .describe('Destination IDs to delete, as returned when the destination was created.'),
+        .optional()
+        .describe('HogFunction IDs of the destination, as returned when it was created.'),
+    destination_ids: zod
+        .array(zod.string())
+        .max(alertsDestinationsDeleteCreateBodyDestinationIdsMax)
+        .optional()
+        .describe('Destination IDs from the destinations list, to delete with their HogFunctions.'),
 })
 
 /**
- * Simulate a detector on an insight's historical data. No AlertCheck records are created. The AI detector makes a real model call, so that mode needs the 'alert:write' scope.
+ * Simulate a detector on an insight's historical data. No AlertCheck records are created. The AI and forecast detectors make real model calls, so those modes need the 'alert:write' scope. The forecast detector scores every point with a one-step forecast from the points before it.
  */
 export const AlertsSimulateCreateParams = () => zod.object({
     project_id: zod
@@ -2803,6 +2958,7 @@ export const alertsSimulateCreateBodyDetectorConfigOneOnethreeTypeDefault = `pca
 export const alertsSimulateCreateBodyDetectorConfigOneOnefourInstructionsOneMax = 2000
 
 export const alertsSimulateCreateBodyDetectorConfigOneOnefourTypeDefault = `llm`
+export const alertsSimulateCreateBodyDetectorConfigOneOnefiveTypeDefault = `forecast`
 export const alertsSimulateCreateBodySeriesIndexDefault = 0
 export const alertsSimulateCreateBodyConfigOneOneTypeDefault = `TrendsAlertConfig`
 export const alertsSimulateCreateBodyConfigOneTwoTypeDefault = `HogQLAlertConfig`
@@ -3832,6 +3988,57 @@ export const AlertsSimulateCreateBody = () => zod.object({
                     .describe('What counts as unusual or interesting for this metric, in your own words. Optional.'),
                 type: zod.enum(['llm']).default(alertsSimulateCreateBodyDetectorConfigOneOnefourTypeDefault),
             }),
+            zod.object({
+                above: zod
+                    .union([
+                        zod.object({
+                            min_absolute_change: zod
+                                .union([zod.number(), zod.null()])
+                                .optional()
+                                .describe(
+                                    "The value is at least this far from the expected value, in the series' units"
+                                ),
+                            min_relative_change: zod
+                                .union([zod.number(), zod.null()])
+                                .optional()
+                                .describe('The value is at least this fraction away from the expected value. 1 = 100%'),
+                            quantile: zod
+                                .union([zod.number(), zod.null()])
+                                .optional()
+                                .describe(
+                                    'The value is beyond this forecast quantile. Above: 0.55 to 0.95 in steps of 0.05, or 0.99. Below: 0.01, or 0.05 to 0.45 in steps of 0.05.'
+                                ),
+                        }),
+                        zod.null(),
+                    ])
+                    .optional()
+                    .describe('Rule for a value higher than expected. Omit to ignore that side.'),
+                below: zod
+                    .union([
+                        zod.object({
+                            min_absolute_change: zod
+                                .union([zod.number(), zod.null()])
+                                .optional()
+                                .describe(
+                                    "The value is at least this far from the expected value, in the series' units"
+                                ),
+                            min_relative_change: zod
+                                .union([zod.number(), zod.null()])
+                                .optional()
+                                .describe('The value is at least this fraction away from the expected value. 1 = 100%'),
+                            quantile: zod
+                                .union([zod.number(), zod.null()])
+                                .optional()
+                                .describe(
+                                    'The value is beyond this forecast quantile. Above: 0.55 to 0.95 in steps of 0.05, or 0.99. Below: 0.01, or 0.05 to 0.45 in steps of 0.05.'
+                                ),
+                        }),
+                        zod.null(),
+                    ])
+                    .optional()
+                    .describe('Rule for a value lower than expected. Omit to ignore that side.'),
+                type: zod.enum(['forecast']).default(alertsSimulateCreateBodyDetectorConfigOneOnefiveTypeDefault),
+            }),
         ])
         .describe('Detector configuration types')
         .optional()
@@ -3908,6 +4115,23 @@ export const AlertsSimulateCreateBody = () => zod.object({
                         type: zod
                             .enum(['MetricsAlertConfig'])
                             .default(alertsSimulateCreateBodyConfigOneFourTypeDefault),
+                        variables: zod
+                            .union([
+                                zod.record(
+                                    zod.string(),
+                                    zod.object({
+                                        all: zod.union([zod.boolean(), zod.null()]).optional(),
+                                        values: zod
+                                            .array(zod.string())
+                                            .describe(
+                                                'The selected values. Empty when `all` is true: All stands for every option of the variable.'
+                                            ),
+                                    })
+                                ),
+                                zod.null(),
+                            ])
+                            .optional()
+                            .describe("Values for the `$name` variables in the insight's query."),
                     }),
                 ])
                 .describe(

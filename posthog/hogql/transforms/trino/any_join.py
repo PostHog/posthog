@@ -353,6 +353,9 @@ class TrinoAnyJoinLowerer(CloningVisitor):
             return field_type.name
         if isinstance(table_type, ast.SelectQueryAliasType) and table_type.alias == alias:
             return field_type.name
+        # A CTE joined without `AS` has no alias type, so its fields point at the CTE itself.
+        if isinstance(table_type, ast.CTETableType) and table_type is right_table_type:
+            return field_type.name
         if (
             isinstance(table_type, ast.TableType)
             and isinstance(right_table_type, ast.TableType)
