@@ -1039,7 +1039,7 @@ describe('RequestStateResolver MCP client contexts', () => {
         await catalog.warmup()
         const resolver = new RequestStateResolver(catalog, {} as RedisLike, {} as Env)
 
-        mockTokenStore.set('keyProjectId', '42')
+        mockTokenStore.set('projectSecretKeyProjectId', '42')
 
         // The caller names project 7, and the key belongs to project 42.
         const result = await resolver.resolve(

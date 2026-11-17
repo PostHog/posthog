@@ -7,8 +7,8 @@ import type { State } from '@/tools/types'
 import { getClientIpSigningKeys, getCustomApiBaseUrl } from './constants'
 
 type KeyProjectCache = {
-    get: (key: 'keyProjectId') => Promise<State['keyProjectId']>
-    set: (key: 'keyProjectId', value: string) => Promise<void>
+    get: (key: 'projectSecretKeyProjectId') => Promise<State['projectSecretKeyProjectId']>
+    set: (key: 'projectSecretKeyProjectId', value: string) => Promise<void>
 }
 
 /** The ID of the project a project secret API key belongs to. The key is the only input. */
@@ -16,7 +16,7 @@ export async function resolveProjectSecretKeyProjectId(
     props: RequestProperties,
     cache: KeyProjectCache
 ): Promise<string> {
-    const cached = await cache.get('keyProjectId')
+    const cached = await cache.get('projectSecretKeyProjectId')
     if (cached) {
         return cached
     }
@@ -49,6 +49,6 @@ export async function resolveProjectSecretKeyProjectId(
         throw error
     }
     const projectId = String(access.project_id)
-    await cache.set('keyProjectId', projectId)
+    await cache.set('projectSecretKeyProjectId', projectId)
     return projectId
 }
