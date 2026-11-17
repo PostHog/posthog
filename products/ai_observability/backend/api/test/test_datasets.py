@@ -1276,7 +1276,7 @@ class TestDatasetsApi(APIBaseTest):
     @patch("products.ai_observability.backend.api.datasets.report_user_action")
     def test_item_byte_limit_is_independent_of_dataset_capacity(self, report_action: Mock) -> None:
         dataset = self._create_dataset()
-        content = {"input": "", "expected_output": None, "source_output": None, "metadata": {}}
+        content: dict[str, object] = {"input": "", "expected_output": None, "source_output": None, "metadata": {}}
         content["input"] = "x" * (406_666 - len(json.dumps(content, separators=(",", ":"))))
         response = self.client.post(self.items_url, {"dataset": dataset["id"], **content}, format="json")
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
