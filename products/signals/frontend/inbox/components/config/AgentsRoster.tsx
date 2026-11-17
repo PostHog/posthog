@@ -411,7 +411,7 @@ function Expansion({
     const steeringIsSet = state.steeringConfigs.some(sourceSteeringIsSet)
     // `ProductDataStatus` renders nothing for an unavailable status, so the meta line would be empty.
     const hasProductLine = !!product && (productOff || product.dataStatus !== 'unavailable')
-    const hasMetaLine = hasProductLine || !!onSteer || !!expressionFilter
+    const hasMetaLine = hasProductLine || !!onSteer || !!expressionFilter || !!filters
     const newEntityButton = agent.manageUrl ? (
         <LemonButton size="xsmall" type="secondary" to={agent.manageUrl} icon={<IconPlus />} targetBlank>
             New {agent.entityNounSingular}
@@ -456,11 +456,24 @@ function Expansion({
                             </div>
                         ) : product ? (
                             <ProductDataStatus agent={agent} status={product.dataStatus} onRetry={onRetryData} />
+                        ) : filters ? (
+                            <span className="text-xs text-secondary">{filters.summary}</span>
                         ) : (
                             <span />
                         )}
                         <div className="flex flex-wrap items-center gap-2">
                             {docsLink}
+                            {filters && (
+                                <LemonButton
+                                    type="secondary"
+                                    size="xsmall"
+                                    onClick={filters.onChange}
+                                    disabledReason={filters.disabledReason}
+                                    data-attr="signal-source-change-filters"
+                                >
+                                    {filters.changeLabel}
+                                </LemonButton>
+                            )}
                             {expressionFilter &&
                                 (expressionFilter.catalogState === 'failed' ? (
                                     <LemonButton
@@ -506,20 +519,8 @@ function Expansion({
                         </div>
                     </div>
                 )}
-                {filters && (
-                    <div className="flex items-center gap-2">
-                        <span className="text-xs text-secondary">{filters.summary}</span>
-                        <LemonButton
-                            type="secondary"
-                            size="xsmall"
-                            onClick={filters.onChange}
-                            disabledReason={filters.disabledReason}
-                            data-attr="signal-source-change-filters"
-                        >
-                            {filters.changeLabel}
-                        </LemonButton>
-                    </div>
-                )}
+                {/* The product status holds the left of the button row, so the summary gets its own line. */}
+                {filters && product && <span className="text-xs text-secondary">{filters.summary}</span>}
                 {alertScope && (
                     <div className="flex flex-col gap-1.5 pt-1">
                         <span className="text-xs font-semibold text-default">Alerts that become signals</span>
