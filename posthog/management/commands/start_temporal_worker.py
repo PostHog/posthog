@@ -959,6 +959,7 @@ class Command(BaseCommand):
         enable_otel = (
             settings.TEMPORAL_OTEL_PLUGIN_ENABLED is True
             or task_queue in (settings.MAX_AI_TASK_QUEUE, settings.TASKS_TASK_QUEUE, settings.WIZARD_TASK_QUEUE)
+            or task_queue == settings.DATA_MODELING_TASK_QUEUE
         ) and settings.OTEL_SERVICE_NAME is not None
         if enable_otel is True:
             # Mypy doesn't understand we have already checked settings.OTEL_SERVICE_NAME
