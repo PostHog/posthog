@@ -56,7 +56,7 @@ describe('realtimeCohortsJoinLogic', () => {
         accessStates = ['setting_up']
         useMocks({
             get: {
-                '/api/projects/:team/realtime_cohorts/access/': () => {
+                '/api/projects/:team/realtime_cohorts/join/': () => {
                     const state = accessStates[Math.min(accessReads, accessStates.length - 1)]
                     accessReads += 1
                     return [200, { state }]

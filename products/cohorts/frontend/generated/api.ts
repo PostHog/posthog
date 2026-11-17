@@ -437,18 +437,18 @@ export const cohortsAllActivityRetrieve = async (projectId: string, options?: Re
     })
 }
 
-export const getRealtimeCohortsAccessRetrieveUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/realtime_cohorts/access/`
+export const getRealtimeCohortsJoinRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/realtime_cohorts/join/`
 }
 
 /**
  * Where this project stands in joining the realtime cohorts beta.
  */
-export const realtimeCohortsAccessRetrieve = async (
+export const realtimeCohortsJoinRetrieve = async (
     projectId: string,
     options?: RequestInit
 ): Promise<RealtimeCohortsJoinStateApi> => {
-    return apiMutator<RealtimeCohortsJoinStateApi>(getRealtimeCohortsAccessRetrieveUrl(projectId), {
+    return apiMutator<RealtimeCohortsJoinStateApi>(getRealtimeCohortsJoinRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
     })

@@ -29,12 +29,14 @@ class RealtimeCohortsJoinStateSerializer(serializers.Serializer):
 class RealtimeCohortsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     scope_object = "cohort"
 
+    # DRF gives the mapped POST these scopes too. Read access is enough to join, because a join changes no cohort,
+    # and a member who cannot edit cohorts cannot turn realtime on for one.
     @validated_request(
         responses={200: OpenApiResponse(response=RealtimeCohortsJoinStateSerializer)},
         description="Where this project stands in joining the realtime cohorts beta.",
     )
     @action(methods=["GET"], detail=False, required_scopes=["cohort:read"])
-    def access(self, request: Request, **kwargs: Any) -> Response:
+    def join(self, request: Request, **kwargs: Any) -> Response:
         return self._join_state_response()
 
     @validated_request(
@@ -42,11 +44,9 @@ class RealtimeCohortsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         description="Join the realtime cohorts beta for this project when it can join by itself, and return where "
         "it stands. A repeated call starts nothing more.",
     )
-    # Read access is enough, because a join changes no cohort, and a member who cannot edit cohorts cannot turn
-    # realtime on for one.
-    @action(methods=["POST"], detail=False, required_scopes=["cohort:read"])
+    @join.mapping.post
     @disallow_if_impersonated(message="Impersonated sessions cannot join the realtime cohorts beta.")
-    def join(self, request: Request, **kwargs: Any) -> Response:
+    def start_join(self, request: Request, **kwargs: Any) -> Response:
         user = cast(User, request.user)
         if request_join(self._root_team_id, requested_by_id=user.id):
             report_user_action(user, "realtime cohorts join requested", team=self.team, request=request)

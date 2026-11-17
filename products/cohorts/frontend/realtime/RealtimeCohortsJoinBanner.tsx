@@ -16,7 +16,7 @@ const BANNERS: Record<ShownJoinState, { type: 'info' | 'warning'; text: string; 
     // pinned: the dismiss keys are localStorage keys, so renaming one shows the banner again to everyone who closed it
     not_open: {
         type: 'info',
-        text: "Realtime cohorts aren't open in your region yet. They'll turn on for this project once they are.",
+        text: "Realtime cohorts aren't open to new projects yet. This project will join once they are.",
         dismissKey: 'realtime-cohorts-join-not-open',
     },
     refused: {
@@ -26,7 +26,7 @@ const BANNERS: Record<ShownJoinState, { type: 'info' | 'warning'; text: string; 
     },
     failed: {
         type: 'warning',
-        text: "Setting up realtime cohorts for this project didn't finish. We'll try again when you open PostHog after an hour.",
+        text: "Setting up realtime cohorts for this project didn't finish. We'll try again in about an hour.",
     },
 }
 

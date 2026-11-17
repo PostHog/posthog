@@ -61,7 +61,7 @@ class TestRealtimeCohortsJoinAPI(APIBaseTest):
         assert first == repeat == (200, {"state": "setting_up"})
         assert self._requests() == [(RealtimeCohortRequestKind.ENABLE, RealtimeCohortRequestState.QUEUED, self.user.id)]
         assert [call.args[1] for call in report_user_action.call_args_list] == ["realtime cohorts join requested"]
-        assert self.client.get(f"/api/projects/{team_id}/realtime_cohorts/access/").json() == {"state": "setting_up"}
+        assert self.client.get(f"/api/projects/{team_id}/realtime_cohorts/join/").json() == {"state": "setting_up"}
 
     @parameterized.expand(
         [

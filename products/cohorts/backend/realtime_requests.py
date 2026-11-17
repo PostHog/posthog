@@ -164,6 +164,8 @@ def process_request(team_id: int, request_id: UUID) -> None:
     requests.filter(id=request_id).update(
         state=outcome.state, error=outcome.error, detail=outcome.detail, finished_at=finished_at
     )
+    # Only a member's join files an enable request, and the staff command calls `enable` directly. A staff path that
+    # files enable requests would need its own events.
     if request.kind == RealtimeCohortRequestKind.ENABLE:
         _report_join_outcome(request, outcome.state, finished_at)
 

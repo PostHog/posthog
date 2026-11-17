@@ -23,7 +23,7 @@ function JoinBannerInState({ joinState }: JoinBannerArgs): JSX.Element {
 const meta: Meta<JoinBannerArgs> = {
     title: 'Scenes-App/People/Cohorts/Realtime cohorts join banner',
     parameters: { testOptions: { snapshotBrowsers: [] } },
-    decorators: [mswDecorator({ get: { '/api/projects/:team_id/realtime_cohorts/access/': { state: 'setting_up' } } })],
+    decorators: [mswDecorator({ get: { '/api/projects/:team_id/realtime_cohorts/join/': { state: 'setting_up' } } })],
     render: (args) => <JoinBannerInState {...args} />,
 }
 export default meta
