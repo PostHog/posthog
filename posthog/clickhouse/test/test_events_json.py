@@ -7,7 +7,12 @@ from posthog.test.base import BaseTest, ClickhouseTestMixin
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.events_json import is_temporary_event_property
 from posthog.clickhouse.kafka_engine import KAFKA_COLUMNS_WITH_PARTITION
-from posthog.models.event.sql import EVENTS_JSON_RECENT_MV_SQL, EVENTS_JSON_TABLE_MV_SQL, EVENTS_TABLE_BASE_SQL
+from posthog.models.event.sql import (
+    EVENTS_JSON_RECENT_MV_SQL,
+    EVENTS_JSON_TABLE_MV_SQL,
+    EVENTS_TABLE_BASE_SQL,
+    KAFKA_EVENTS_NATIVE_JSON_EXTRA_FIELDS,
+)
 
 
 @pytest.mark.parametrize(
@@ -36,7 +41,7 @@ class TestEventsJsonRecent(ClickhouseTestMixin, BaseTest):
                 table_name=source,
                 on_cluster_clause="",
                 engine="Null",
-                extra_fields=", captured_at Nullable(DateTime64(6, 'UTC'))"
+                extra_fields=KAFKA_EVENTS_NATIVE_JSON_EXTRA_FIELDS
                 + KAFKA_COLUMNS_WITH_PARTITION
                 + ", `_headers.name` Array(String), `_headers.value` Array(String)",
                 dynamically_materialized_columns="",
@@ -77,19 +82,24 @@ class TestEventsJsonRecent(ClickhouseTestMixin, BaseTest):
             },
         )
 
+        uuids = {"team_id": self.team.pk, "uuids": [pageview_uuid, flag_call_uuid]}
         recent = sync_execute(
-            "SELECT uuid, properties, person_properties, temporary_properties FROM events_json_recent "
-            "WHERE team_id = %(team_id)s",
-            {"team_id": self.team.pk},
+            """
+            SELECT uuid, properties, person_properties, temporary_properties
+            FROM events_json_recent
+            WHERE team_id = %(team_id)s AND uuid IN %(uuids)s
+            """,
+            uuids,
         )
         from_events_json = sync_execute(
             """
             SELECT uuid, toJSONString(properties), toJSONString(person_properties), toJSONString(temporary_properties)
             FROM events_json
-            WHERE team_id = %(team_id)s AND uuid = %(uuid)s
+            WHERE team_id = %(team_id)s AND uuid IN %(uuids)s AND event != '$feature_flag_called'
             SETTINGS json_type_escape_dots_in_keys = 1, output_format_json_escape_forward_slashes = 0
             """,
-            {"team_id": self.team.pk, "uuid": pageview_uuid},
+            uuids,
         )
 
+        assert [row[0] for row in from_events_json] == [pageview_uuid]
         assert recent == from_events_json

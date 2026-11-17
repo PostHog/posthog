@@ -389,6 +389,9 @@ def KAFKA_EVENTS_TABLE_JSON_SQL():
     )
 
 
+KAFKA_EVENTS_NATIVE_JSON_EXTRA_FIELDS = ", captured_at Nullable(DateTime64(6, 'UTC'))"
+
+
 def _kafka_events_native_json_table_sql(table_name: str, group: str, on_cluster: bool) -> str:
     return (
         EVENTS_TABLE_BASE_SQL
@@ -399,7 +402,7 @@ def _kafka_events_native_json_table_sql(table_name: str, group: str, on_cluster:
         table_name=table_name,
         on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
         engine=kafka_engine(topic=KAFKA_EVENTS_JSON, group=group),
-        extra_fields=", captured_at Nullable(DateTime64(6, 'UTC'))",
+        extra_fields=KAFKA_EVENTS_NATIVE_JSON_EXTRA_FIELDS,
         dynamically_materialized_columns=EVENTS_TABLE_DYNAMICALLY_MATERIALIZED_COLUMNS(),
         materialized_columns="",
         indexes="",
@@ -782,6 +785,10 @@ def _events_json_recent_table_sql(table_name: str, engine: Distributed | Replaci
         compatibility_columns="",
         indexes="",
     )
+
+
+def TRUNCATE_EVENTS_JSON_RECENT_TABLE_SQL() -> str:
+    return f"TRUNCATE TABLE IF EXISTS {SHARDED_EVENTS_JSON_RECENT_TABLE} {ON_CLUSTER_CLAUSE()}"
 
 
 def SHARDED_EVENTS_JSON_RECENT_TABLE_SQL() -> str:
