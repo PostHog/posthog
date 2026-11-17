@@ -27578,7 +27578,9 @@
                     "type": "number"
                 },
                 "volumeResolution": {
-                    "$ref": "#/definitions/integer"
+                    "maximum": 200,
+                    "minimum": 0,
+                    "type": "integer"
                 },
                 "withAggregations": {
                     "type": "boolean"
@@ -33086,6 +33088,9 @@
                 "xAxisLabel": {
                     "type": "string"
                 },
+                "xAxisSortOrder": {
+                    "$ref": "#/definitions/HeatmapSortOrder"
+                },
                 "yAxisColumn": {
                     "type": "string"
                 },
@@ -33716,7 +33721,7 @@
                     "type": "boolean"
                 },
                 "useNewEventsSchema": {
-                    "description": "Read events from the native JSON events table (`true`) or the legacy events table (`false`). When unset, a staff person's `ph_new_events_schema` cookie applies, then the project's listing in the `CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS` instance setting, then the `CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA` instance setting. This is an internal rollout switch, and the project settings API ignores it.",
+                    "description": "Read events from the native JSON events table (`true`) or the legacy events table (`false`). When unset, a staff person's tab switch or `ph_new_events_schema` cookie applies, then the project. A project reads the native table once PostHog has moved it there. Before that, it can opt in early by storing `true` here in its project settings. A stored `false` is ignored.",
                     "type": "boolean"
                 },
                 "usePreaggregatedIntermediateResults": {
@@ -35217,6 +35222,7 @@
                 "aws-redshift",
                 "s3-compatible",
                 "snowflake",
+                "motherduck",
                 "youtube-analytics",
                 "twitter-ads"
             ],
@@ -40872,6 +40878,10 @@
         "MarketingAnalyticsRecommendationsSource": {
             "additionalProperties": false,
             "properties": {
+                "adTable": {
+                    "description": "Google Ads ad table, used to read the ad copy of each ad group.",
+                    "type": "string"
+                },
                 "campaignConversionActionTable": {
                     "description": "Google Ads daily campaign conversions split by conversion action.",
                     "type": "string"

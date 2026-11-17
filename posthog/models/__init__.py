@@ -89,6 +89,7 @@ from .oauth import (
     OAuthIDToken,
     OAuthRefreshToken,
 )
+from .oauth_provisioning_review import CIMDProvisioningReview
 
 __all__ = [
     "OrganizationEntitlementAppliedState",
@@ -98,6 +99,7 @@ __all__ = [
     "AsyncMigrationError",
     "WorkloadTrustPolicy",
     "WorkloadTrustPolicyRequest",
+    "CIMDProvisioningReview",
     "CIMDVerificationToken",
     "ColumnConfiguration",
     "CoreEvent",

@@ -45,12 +45,22 @@ export const externalDataDestinationsCreateBodyNameMax = 400
 
 export const ExternalDataDestinationsCreateBody = () => zod.object({
     type: zod
-        .enum(['PostHogWarehouse', 'Redshift', 'Snowflake', 'BigQuery', 'Postgres', 'Databricks', 'AzureBlob', 'S3'])
+        .enum([
+            'PostHogWarehouse',
+            'Redshift',
+            'Snowflake',
+            'BigQuery',
+            'Postgres',
+            'Databricks',
+            'AzureBlob',
+            'S3',
+            'MotherDuck',
+        ])
         .describe(
-            '\* `PostHogWarehouse` - PostHog warehouse\n\* `Redshift` - Redshift\n\* `Snowflake` - Snowflake\n\* `BigQuery` - BigQuery\n\* `Postgres` - Postgres\n\* `Databricks` - Databricks\n\* `AzureBlob` - Azure Blob\n\* `S3` - S3'
+            '\* `PostHogWarehouse` - PostHog warehouse\n\* `Redshift` - Redshift\n\* `Snowflake` - Snowflake\n\* `BigQuery` - BigQuery\n\* `Postgres` - Postgres\n\* `Databricks` - Databricks\n\* `AzureBlob` - Azure Blob\n\* `S3` - S3\n\* `MotherDuck` - MotherDuck'
         )
         .describe(
-            'Where synced rows are written. The PostHog warehouse is managed for you, so you cannot create one here.\n\n\* `PostHogWarehouse` - PostHog warehouse\n\* `Redshift` - Redshift\n\* `Snowflake` - Snowflake\n\* `BigQuery` - BigQuery\n\* `Postgres` - Postgres\n\* `Databricks` - Databricks\n\* `AzureBlob` - Azure Blob\n\* `S3` - S3'
+            'Where synced rows are written. The PostHog warehouse is managed for you, so you cannot create one here.\n\n\* `PostHogWarehouse` - PostHog warehouse\n\* `Redshift` - Redshift\n\* `Snowflake` - Snowflake\n\* `BigQuery` - BigQuery\n\* `Postgres` - Postgres\n\* `Databricks` - Databricks\n\* `AzureBlob` - Azure Blob\n\* `S3` - S3\n\* `MotherDuck` - MotherDuck'
         ),
     name: zod
         .string()
@@ -197,9 +207,9 @@ export const ExternalDataDestinationsConnectLinkRetrieveParams = () => zod.objec
 
 export const ExternalDataDestinationsConnectLinkRetrieveQueryParams = () => zod.object({
     destination_type: zod
-        .enum(['Redshift', 'Snowflake', 'BigQuery', 'Postgres', 'Databricks', 'AzureBlob', 'S3'])
+        .enum(['Redshift', 'Snowflake', 'BigQuery', 'Postgres', 'Databricks', 'AzureBlob', 'S3', 'MotherDuck'])
         .describe(
-            "The destination type to connect, e.g. 'Snowflake' or 'S3'.\n\n\* `Redshift` - Redshift\n\* `Snowflake` - Snowflake\n\* `BigQuery` - BigQuery\n\* `Postgres` - Postgres\n\* `Databricks` - Databricks\n\* `AzureBlob` - Azure Blob\n\* `S3` - S3"
+            "The destination type to connect, e.g. 'Snowflake' or 'S3'.\n\n\* `Redshift` - Redshift\n\* `Snowflake` - Snowflake\n\* `BigQuery` - BigQuery\n\* `Postgres` - Postgres\n\* `Databricks` - Databricks\n\* `AzureBlob` - Azure Blob\n\* `S3` - S3\n\* `MotherDuck` - MotherDuck"
         ),
     integration_kind: zod
         .string()

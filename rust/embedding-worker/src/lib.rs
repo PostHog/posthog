@@ -88,10 +88,11 @@ pub async fn handle_single(
         .and([("from", "kafka")]);
 
     counter!(MESSAGES_RECEIVED, labels.render()).increment(1);
+    let embedding_failed = counter!(EMBEDDING_FAILED, labels.render());
     let (embedding, _) = match generate_embedding(context, model, &request.content, &labels).await {
         Ok(r) => r,
         Err(e) => {
-            counter!(EMBEDDING_FAILED, labels.render()).increment(1);
+            embedding_failed.increment(1);
             // Log routing fields only: content and document_id can carry customer text.
             error!(
                 team_id = request.team_id,

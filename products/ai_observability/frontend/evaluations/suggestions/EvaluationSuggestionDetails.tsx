@@ -4,11 +4,14 @@ import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { urls } from 'scenes/urls'
 
 import type { EvalSuggestionApi, EvalSuggestionFilterApi } from '../../generated/api.schemas'
-import { UNITS } from './units'
+import { UNITS, unitNoun } from './units'
 
 /** "Only where review_lens is security-1 or security-2", in full, since a chip cuts multi-value filters short. */
 function filterSummary(filters: readonly EvalSuggestionFilterApi[]): string {
     const parts = filters.map(({ key, value, operator }) => {
+        if (operator === 'is_not_set') {
+            return `${key} is not set`
+        }
         const values = value.length > 1 ? `${value.slice(0, -1).join(', ')} or ${value[value.length - 1]}` : value[0]
         return `${key} ${operator === 'is_not' ? 'is not' : 'is'} ${values}`
     })
@@ -20,7 +23,7 @@ function facts(suggestion: EvalSuggestionApi): string[] {
     const lines: string[] = []
     if (rate !== null && sampleSize !== null) {
         lines.push(
-            `Failed on ${humanFriendlyNumber(Math.round(rate * sampleSize))} of ${humanFriendlyNumber(sampleSize)} traces sampled from the last 7 days`
+            `Failed on ${humanFriendlyNumber(Math.round(rate * sampleSize))} of ${humanFriendlyNumber(sampleSize)} ${unitNoun(String(suggestion.draft.target), sampleSize)} sampled from the last 7 days`
         )
     }
     if (suggestion.kind === 'new_llm_judge') {

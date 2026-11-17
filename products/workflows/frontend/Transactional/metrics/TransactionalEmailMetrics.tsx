@@ -2,8 +2,6 @@ import { useActions, useValues } from 'kea'
 
 import { LemonBanner } from '@posthog/lemon-ui'
 
-import { urls } from 'scenes/urls'
-
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 
@@ -14,7 +12,7 @@ import { TransactionalEmailResults } from './TransactionalEmailResults'
 import { TransactionalEmailStatsTable } from './TransactionalEmailStatsTable'
 
 export function TransactionalEmailMetrics(): JSX.Element {
-    const { templateStats, templateStatsLoading, domainStats, domainStatsLoading, statsFailed } =
+    const { templateStats, templateStatsLinks, templateStatsLoading, domainStats, domainStatsLoading, statsFailed } =
         useValues(transactionalEmailMetricsLogic)
     const { loadTemplateStats, loadDomainStats, loadStatsOverTime } = useActions(transactionalEmailMetricsLogic)
     const emptyState = statsFailed ? "The numbers couldn't load" : 'No transactional emails were sent in this period'
@@ -50,7 +48,7 @@ export function TransactionalEmailMetrics(): JSX.Element {
                     rows={templateStats}
                     loading={templateStatsLoading}
                     groupTitle="Email"
-                    linkFor={(row) => (row.label ? urls.transactionalTemplate(row.key) : null)}
+                    linkFor={(row) => templateStatsLinks[row.key] ?? null}
                     emptyState={emptyState}
                     dataAttr="transactional-email-metrics-by-email"
                 />

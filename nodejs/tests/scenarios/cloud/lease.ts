@@ -21,6 +21,7 @@ export type Manifest = {
     stackName: string
     schedules: string[]
     inputs: Record<string, string>
+    card: string
 }
 
 const HOUR_MS = 60 * 60 * 1000
@@ -114,7 +115,7 @@ async function register(controller: Controller, schedulerRole: string, manifest:
 
 export async function lease(
     controller: Controller,
-    { profile, inputs }: RunInputs,
+    { profile, inputs, card }: RunInputs,
     { owner, commit }: Admitted
 ): Promise<Manifest> {
     const runId = randomUUID()
@@ -131,6 +132,7 @@ export async function lease(
         stackName,
         schedules: schedulesOf(runId),
         inputs: Object.fromEntries(inputs.map(({ file, sha256 }) => [file, sha256])),
+        card: card.id,
     }
     const bucket = evidenceOf(controller.aws, profile.baseline.evidenceBucket)
     const body = JSON.stringify(manifest, null, 2)
@@ -185,4 +187,20 @@ export async function manifestOf(controller: Controller, evidenceBucket: string,
         )
     }
     return parsed.data as unknown as Manifest
+}
+
+const HostManifest = StoredManifest.extend({ account: z.string() })
+
+export type RunManifest = Pick<Manifest, 'runId' | 'account' | 'expiresAt' | 'stackName'>
+
+export function runManifestOf(env: NodeJS.ProcessEnv): RunManifest | undefined {
+    const file = env.SCENARIO_RUN_MANIFEST
+    if (!file) {
+        return undefined
+    }
+    const parsed = HostManifest.safeParse(parseJSON(readFileSync(file, 'utf8')))
+    if (!parsed.success || parsed.data.stackName !== stackNameOf(parsed.data.runId)) {
+        throw new LeaseError(`The run manifest at ${file} does not name a run and its stack, so it is not used.`)
+    }
+    return parsed.data
 }
