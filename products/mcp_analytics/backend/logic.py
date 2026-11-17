@@ -49,10 +49,10 @@ from products.mcp_analytics.backend.models import MCPAnalyticsSubmission, MCPInt
 
 # How long a snapshot may sit in COMPUTING before we assume the run died and
 # auto-recover. Must exceed the compute activity's schedule_to_close budget
-# (400s, covering queue wait + both attempts — see intent_clustering
+# (1300s, covering queue wait + both attempts — see intent_clustering
 # constants); past that, nothing can still legitimately write a final status,
 # so the row is a dead run whose worker never reached _mark_error.
-STALE_COMPUTING_THRESHOLD = timedelta(minutes=8)
+STALE_COMPUTING_THRESHOLD = timedelta(minutes=25)
 
 _MCP_TOOL_CALLS_SQL = """
 SELECT

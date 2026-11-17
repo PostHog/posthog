@@ -63,7 +63,12 @@ EMBEDDING_PREFIX = "User intent: "
 # identical text embedded as an intent and as a description never collides.
 DESCRIPTION_EMBEDDING_PREFIX = "Tool description: "
 DEFAULT_LOOKBACK_DAYS = 7
-DEFAULT_TOP_N_INTENTS = 1000
+# Intents that reach embedding and clustering. Average-linkage clustering is
+# O(n²) in time and memory: on 1536-d vectors 5,000 intents cluster in ~17s
+# with ~250 MB of distance matrix, while 10,000 take ~70s and ~1 GB, too close
+# to the compute activity budget. The prior value was 1000; the corpus caps
+# below (sessions, calls per tool) scale with this one.
+DEFAULT_TOP_N_INTENTS = 5000
 # Cosine distance at which agglomerative merging stops. 0.2 left >90% of clusters
 # as singletons on production intents, because same-topic paraphrases of free
 # text sit around 0.25-0.45 apart on this model. 0.4 merges paraphrases while
@@ -112,7 +117,7 @@ MAX_OVERLAP_TOOLS_PER_CLUSTER = 20
 NO_INTENT_RECORDED_FALLBACK = "No agent intent was recorded for this session."
 
 # Embedding cache + concurrency
-# 1536-d float32 embedding = 6144 bytes. 500-intent corpus × 6144 ≈ 3 MB/team.
+# 1536-d float32 embedding = 6144 bytes. 5,000-intent corpus × 6144 ≈ 31 MB/team.
 # Cap concurrent embedding worker requests so we don't dogpile when a team's
 # corpus has hundreds of misses on first run while staying well under any
 # per-team rate limit on the embedding provider.
@@ -183,8 +188,8 @@ class RecurringIntent:
 # below have to fit inside it before any of the budget goes to the dominant
 # tools, and the per-tool call cap (below) stops the extra sessions from
 # belonging only to those tools. The IN-tuple stays sane because per-session
-# queries chunk the ids.
-MAX_CORPUS_SESSIONS = 6000
+# queries chunk the ids (CORPUS_SESSION_CHUNK_SIZE).
+MAX_CORPUS_SESSIONS = 15000
 
 # Each tool keeps at least this many sessions in the corpus, so a low/mid-volume
 # tool (logs/tracing/metrics) survives sampling instead of being erased by the
@@ -197,7 +202,7 @@ MIN_SESSIONS_PER_TOOL = 400
 # No tool may contribute more than this many attributed calls to the corpus.
 # Stops one dominant tool from occupying the entire intent space; the freed
 # budget is what lets mid/low tools cluster into real themes rather than noise.
-MAX_CALLS_PER_TOOL = 1500
+MAX_CALLS_PER_TOOL = 7500
 
 # Sender-controlled tool names only ever expand the ``_SESSION_TOOLS_SQL``
 # buckets. One session honestly uses a handful of distinct tools, so bound how
@@ -210,6 +215,16 @@ MAX_DISTINCT_TOOLS_PER_SESSION_BUCKET = 500
 # (one-plus rows per corpus session). Cap explicitly at the HogQL per-query
 # maximum so results are never silently truncated.
 MAX_QUERY_ROWS = 50_000
+
+# Per-session queries run over the corpus ids in chunks of this size, so the
+# inlined IN-tuple stays small and each chunk's rows fit under MAX_QUERY_ROWS.
+CORPUS_SESSION_CHUNK_SIZE = 2000
+
+# Only a session's first calls enter the corpus. Without this bound a few long
+# sessions fill MAX_QUERY_ROWS, and the ORDER BY session_id cut then drops
+# whole sessions by id. Chunk size x this bound must stay within
+# MAX_QUERY_ROWS so a chunk can never be truncated.
+MAX_CALLS_PER_SESSION = 25
 
 # Event-sourced intents are free text written by the calling agent — clip them
 # so one oversized value can't blow up embedding requests (the worker's model
@@ -276,6 +291,7 @@ WHERE event = {event}
     AND timestamp >= now() - INTERVAL {lookback_days} DAY
     AND notEmpty({tool_expr_where})
 ORDER BY session_id, timestamp
+LIMIT {max_calls_per_session} BY session_id
 LIMIT {max_rows}
 """
 
@@ -465,14 +481,33 @@ def sample_corpus_sessions(
     return [str(row[0]) for row in _run_corpus_query(team, query) if row[0]]
 
 
+# ``(session_id, tool, raw_intent, is_error)``, as returned by ``fetch_session_calls``.
+SessionCallRow = tuple[str, str, str, bool]
+
+
 def fetch_session_calls(
     team: Team,
     session_ids: list[str],
     lookback_days: int = DEFAULT_LOOKBACK_DAYS,
 ) -> list[tuple[str, str, str, bool]]:
-    """Return ``(session_id, tool, raw_intent, is_error)`` rows in call order."""
-    if not session_ids:
-        return []
+    """Return ``(session_id, tool, raw_intent, is_error)`` rows in call order.
+
+    At most ``MAX_CALLS_PER_SESSION`` calls per session, queried in chunks of
+    ``CORPUS_SESSION_CHUNK_SIZE`` sessions.
+    """
+    rows: list[SessionCallRow] = []
+    for chunk in _chunked(session_ids):
+        rows.extend(_fetch_session_calls_chunk(team, chunk, lookback_days))
+    return rows
+
+
+def _chunked(session_ids: list[str]) -> list[list[str]]:
+    return [
+        session_ids[i : i + CORPUS_SESSION_CHUNK_SIZE] for i in range(0, len(session_ids), CORPUS_SESSION_CHUNK_SIZE)
+    ]
+
+
+def _fetch_session_calls_chunk(team: Team, session_ids: list[str], lookback_days: int) -> list[SessionCallRow]:
     query = parse_select(
         _SESSION_CALLS_SQL,
         placeholders={
@@ -482,6 +517,7 @@ def fetch_session_calls(
             "session_ids": _session_ids_tuple(session_ids),
             "lookback_days": ast.Constant(value=lookback_days),
             "max_rows": ast.Constant(value=MAX_QUERY_ROWS),
+            "max_calls_per_session": ast.Constant(value=MAX_CALLS_PER_SESSION),
             "max_tool_len": ast.Constant(value=MAX_TOOL_NAME_LENGTH),
             "max_intent_len": ast.Constant(value=MAX_INTENT_TEXT_LENGTH),
         },
@@ -501,10 +537,6 @@ def fetch_session_calls(
             sessions=len(session_ids),
         )
     return rows
-
-
-# ``(session_id, tool, raw_intent, is_error)``, as returned by ``fetch_session_calls``.
-SessionCallRow = tuple[str, str, str, bool]
 
 
 def _normalize_intent(raw: str) -> str:
@@ -589,27 +621,26 @@ def fetch_advertised_tools(
     empty — absence means "advertisement unknown", which callers must exclude
     from discovery denominators rather than treat as "nothing advertised".
     """
-    if not session_ids:
-        return {}
-    query = parse_select(
-        _SESSION_ADVERTISED_TOOLS_SQL,
-        placeholders={
-            "event": ast.Constant(value=MCP_TOOLS_LIST_EVENT),
-            "session_ids": _session_ids_tuple(session_ids),
-            "lookback_days": ast.Constant(value=lookback_days),
-            "max_rows": ast.Constant(value=MAX_QUERY_ROWS),
-            "max_tool_len": ast.Constant(value=MAX_TOOL_NAME_LENGTH),
-            "max_tools_per_list": ast.Constant(value=MAX_TOOLS_PER_ADVERTISED_LIST),
-            "max_list_events": ast.Constant(value=MAX_ADVERTISED_LIST_EVENTS_PER_SESSION),
-            "max_advertised_tools": ast.Constant(value=MAX_ADVERTISED_TOOLS_PER_SESSION),
-        },
-    )
     out: dict[str, set[str]] = {}
-    for row in _run_corpus_query(team, query):
-        session_id = str(row[0] or "")
-        tools = {str(tool) for tool in (row[1] or []) if tool}
-        if session_id and tools:
-            out[session_id] = tools
+    for chunk in _chunked(session_ids):
+        query = parse_select(
+            _SESSION_ADVERTISED_TOOLS_SQL,
+            placeholders={
+                "event": ast.Constant(value=MCP_TOOLS_LIST_EVENT),
+                "session_ids": _session_ids_tuple(chunk),
+                "lookback_days": ast.Constant(value=lookback_days),
+                "max_rows": ast.Constant(value=MAX_QUERY_ROWS),
+                "max_tool_len": ast.Constant(value=MAX_TOOL_NAME_LENGTH),
+                "max_tools_per_list": ast.Constant(value=MAX_TOOLS_PER_ADVERTISED_LIST),
+                "max_list_events": ast.Constant(value=MAX_ADVERTISED_LIST_EVENTS_PER_SESSION),
+                "max_advertised_tools": ast.Constant(value=MAX_ADVERTISED_TOOLS_PER_SESSION),
+            },
+        )
+        for row in _run_corpus_query(team, query):
+            session_id = str(row[0] or "")
+            tools = {str(tool) for tool in (row[1] or []) if tool}
+            if session_id and tools:
+                out[session_id] = tools
     return out
 
 

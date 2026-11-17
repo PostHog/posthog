@@ -10,6 +10,7 @@ from temporalio.exceptions import ApplicationError
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
+from posthog.temporal.mcp_analytics.intent_clustering.constants import DEFAULT_TOP_N_INTENTS
 from posthog.temporal.mcp_analytics.intent_clustering.coordinator import (
     IntentClusteringCoordinatorInputs,
     IntentClusteringCoordinatorWorkflow,
@@ -126,7 +127,7 @@ class TestCoordinatorParseInputs:
     @pytest.mark.parametrize(
         "args, expected_lookback, expected_top_n, expected_max_concurrent",
         [
-            ([], 7, 1000, 4),
+            ([], 7, DEFAULT_TOP_N_INTENTS, 4),
             (["14", "200", "2"], 14, 200, 2),
         ],
     )
