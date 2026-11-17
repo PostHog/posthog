@@ -409,7 +409,7 @@ pub const FLAG_DEFINITIONS_REBUILD_REQUESTED_COUNTER: &str =
     "flags_flag_definitions_rebuild_requested_total";
 
 // Flag definitions auth method
-// Labels: method (secret_api_key, personal_api_key) — Rust only supports these two; Python also tracks oauth, jwt, session, other
+// Labels: method (project_secret_api_key, personal_api_key) — Rust only supports these two; Python also tracks oauth, jwt, session, other
 pub const FLAG_DEFINITIONS_AUTH_COUNTER: &str = "flags_flag_definitions_auth_total";
 
 // Counter for /flags requests classified as bot traffic. Fires regardless
