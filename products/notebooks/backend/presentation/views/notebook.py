@@ -125,6 +125,7 @@ from products.notebooks.backend.kernel_runtime import (
     get_kernel_runtime,
 )
 from products.notebooks.backend.models import KernelRuntime, Notebook, NotebookNodeRun
+from products.notebooks.backend.presentation.app_serializers import NotebookAppLayoutField, update_app_revision
 from products.notebooks.backend.presentation.notebook_throttles import (
     NotebookCreateBurstThrottle,
     NotebookCreateSustainedThrottle,
@@ -288,6 +289,19 @@ class NotebookMinimalSerializer(serializers.ModelSerializer, UserAccessControlSe
 
 
 class NotebookSerializer(NotebookMinimalSerializer):
+    app_draft = NotebookAppLayoutField(
+        required=False, allow_null=True, help_text="Editable app layout. Does not change the published layout."
+    )
+    app_published = NotebookAppLayoutField(
+        required=False,
+        allow_null=True,
+        help_text="Published app layout. Cell content and results remain linked to the notebook. Null unpublishes the app.",
+    )
+    app_revision = serializers.IntegerField(
+        required=False,
+        min_value=0,
+        help_text="Current app revision. Required when saving or publishing a layout; stale revisions return 409.",
+    )
     variables = NotebookVariableSerializer(
         many=True,
         required=False,
@@ -324,6 +338,9 @@ class NotebookSerializer(NotebookMinimalSerializer):
             "user_access_level",
             "parent_resource",
             "variables",
+            "app_draft",
+            "app_published",
+            "app_revision",
             "_create_in_folder",
         ]
         read_only_fields = [
@@ -465,6 +482,7 @@ class NotebookSerializer(NotebookMinimalSerializer):
             # select_for_update locks the database row so we ensure version updates are atomic
             locked_instance = Notebook.objects.select_for_update().get(pk=instance.pk)
             should_publish_update = False
+            update_app_revision(validated_data, locked_instance.app_revision)
 
             if validated_data.keys():
                 locked_instance.last_modified_at = now()
@@ -1471,7 +1489,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             # The list serializer omits content/text_content, but both are large columns
             # (ProseMirror JSON + full plaintext) that we'd otherwise load and JSON-decode per row.
             # search/contains filters run as WHERE-clause predicates, so they don't need the columns in Python.
-            queryset = queryset.defer("content", "text_content")
+            queryset = queryset.defer("content", "text_content", "app_draft", "app_published")
         elif self.action in IDENTITY_ONLY_DETAIL_ACTIONS:
             queryset = queryset.defer("content", "text_content")
 

@@ -246,6 +246,15 @@ const notebooksPartialUpdate = (): ToolBase<
         if (params.variables !== undefined) {
             body['variables'] = params.variables
         }
+        if (params.app_draft !== undefined) {
+            body['app_draft'] = params.app_draft
+        }
+        if (params.app_published !== undefined) {
+            body['app_published'] = params.app_published
+        }
+        if (params.app_revision !== undefined) {
+            body['app_revision'] = params.app_revision
+        }
         const result = await context.api.request<Schemas.Notebook>({
             method: 'PATCH',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/notebooks/${encodeURIComponent(String(params.short_id))}/`,

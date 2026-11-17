@@ -36964,6 +36964,18 @@
                 {
                     "param": "variables",
                     "key": "variables"
+                },
+                {
+                    "param": "app_draft",
+                    "key": "app_draft"
+                },
+                {
+                    "param": "app_published",
+                    "key": "app_published"
+                },
+                {
+                    "param": "app_revision",
+                    "key": "app_revision"
                 }
             ],
             "injectBody": {},
