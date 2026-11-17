@@ -153,7 +153,7 @@ export const stamphogDigestsSceneLogic = kea<stamphogDigestsSceneLogicType>([
         },
     })),
 
-    // The list sits on the Approval settings tab, so its page param is named apart from the other lists there.
+    // The list shares the Approval history tab with the runs, so its page param is named apart from theirs.
     actionToUrl(({ values }) => ({
         setPage: (): [string, Record<string, any>, Record<string, any>, { replace: boolean }] => [
             router.values.location.pathname,

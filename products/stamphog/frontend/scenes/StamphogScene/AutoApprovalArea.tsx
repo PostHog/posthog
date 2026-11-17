@@ -12,6 +12,7 @@ import { RepositoryPageControls } from 'products/review_hog/frontend/repositorie
 import { type CodeReviewApprovalRepositoryApi } from '../../generated/api.schemas'
 import { ApproveCell } from './ApproveCell'
 import { AutoApprovalConnectionCard } from './AutoApprovalConnectionCard'
+import { DigestCell } from './DigestCell'
 import { NotAddedRepositoriesRow } from './NotAddedRepositoriesRow'
 import { managerDisabledReason } from './repoAccess'
 import { ReviewerRequestsCell } from './ReviewerRequestsCell'
@@ -44,6 +45,12 @@ function RepositoryRow({ repo }: { repo: CodeReviewApprovalRepositoryApi }): JSX
             </div>
             <div className={`min-w-0 px-4 pb-2.5 ${PANE_LEFT} ${LATER_CELL}`}>
                 <ReviewerRequestsCell repo={repo} />
+            </div>
+            <div className={`flex min-h-7 min-w-0 items-start gap-2 px-4 pb-2.5 ${PANE_LEFT} ${LATER_CELL}`}>
+                <span className="flex min-h-7 items-center gap-2">
+                    <span className="text-xs text-secondary @min-[48rem]:hidden">Digest</span>
+                    <DigestCell repo={repo} />
+                </span>
             </div>
         </>
     )
@@ -124,7 +131,7 @@ function RepositoriesTable(): JSX.Element | null {
 
     return (
         <div className="@container">
-            <div className="grid grid-cols-1 overflow-hidden rounded border border-primary @min-[48rem]:grid-cols-[minmax(0,0.8fr)_minmax(0,1.4fr)_minmax(0,1fr)] [&>*:first-child]:border-t-0">
+            <div className="grid grid-cols-1 overflow-hidden rounded border border-primary @min-[48rem]:grid-cols-[minmax(0,0.8fr)_minmax(0,1.4fr)_minmax(0,1fr)_auto] [&>*:first-child]:border-t-0">
                 <RepositoryListFilters
                     search={repoSearch}
                     onSearchChange={setRepoSearch}
@@ -138,6 +145,7 @@ function RepositoriesTable(): JSX.Element | null {
                         { label: 'Repository', pane: 'left' },
                         { label: 'Approve', pane: 'left' },
                         { label: 'Reviewer requests', pane: 'left' },
+                        { label: 'Digest', pane: 'left' },
                     ]}
                 />
                 <RepositoryRows />

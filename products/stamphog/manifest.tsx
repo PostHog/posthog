@@ -26,8 +26,8 @@ export const manifest: ProductManifest = {
     },
     // Bookmarks and older links point at the retired /stamphog pages, so each one forwards to its tab and
     // keeps its search params. The runs and team view filters use the same param names in both places.
-    // The digest list sits at the end of Approval settings, so its page param gets its own name there, and
-    // the hash is the id DailyDigestSection scrolls to. Imports are not copied into products.tsx, so the
+    // The digest list sits below the runs on Approval history, so its page param gets its own name there,
+    // and the hash is the id DailyDigestSection scrolls to. Imports are not copied into products.tsx, so the
     // hash stays a literal.
     redirects: {
         '/stamphog': (_params, searchParams, hashParams): string =>
@@ -39,7 +39,7 @@ export const manifest: ProductManifest = {
         '/stamphog/digests': (_params, { page, ...searchParams }): string =>
             combineUrl(
                 urls.codeReview(),
-                { ...searchParams, tab: 'approval_settings', digests_page: page },
+                { ...searchParams, tab: 'approval_history', digests_page: page },
                 '#daily-digest'
             ).url,
     },

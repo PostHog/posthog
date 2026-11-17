@@ -1,82 +1,21 @@
 import { useActions, useValues } from 'kea'
-import { Fragment, useEffect, useRef } from 'react'
+import { useEffect, useRef } from 'react'
 
-import { LemonBanner, LemonSwitch, LemonTable, LemonTag } from '@posthog/lemon-ui'
+import { LemonBanner, LemonTable, LemonTag } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
-import { toAccessControlLevel } from 'lib/utils/accessControlUtils'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 
-import { PANE_LEFT, PANE_ROW } from 'products/review_hog/frontend/repositories/paneClasses'
-import { RepositoryColumnHeaders } from 'products/review_hog/frontend/repositories/RepositoryColumnHeaders'
-
-import { type CodeReviewApprovalRepositoryApi, DigestRunApi } from '../../generated/api.schemas'
-import { editorDisabledReason } from '../StamphogScene/repoAccess'
-import { stamphogSceneLogic } from '../StamphogScene/stamphogSceneLogic'
+import { DigestRunApi } from '../../generated/api.schemas'
+import { stamphogRunsSceneLogic } from '../StamphogRunsScene/stamphogRunsSceneLogic'
 import { digestDestinationLabel, digestRunHasDetails, digestStatusDisplay } from './digestDisplay'
 import { DigestRunDetails } from './DigestRunDetails'
 import { DIGESTS_PAGE_SIZE, stamphogDigestsSceneLogic } from './stamphogDigestsSceneLogic'
 
 // pinned: the /stamphog/digests redirect in the stamphog manifest links to this id.
 const DAILY_DIGEST_ID = 'daily-digest'
-
-function DigestSwitch({ repo }: { repo: CodeReviewApprovalRepositoryApi }): JSX.Element {
-    const { updatingRepoIds } = useValues(stamphogSceneLogic)
-    const { updateRepoConfig } = useActions(stamphogSceneLogic)
-
-    return (
-        <LemonSwitch
-            aria-label={`Include ${repo.repository} in the digest`}
-            checked={!!repo.digest_enabled}
-            // The API refuses a digest without reviews, because the digest lists only approved merges.
-            disabledReason={
-                editorDisabledReason(toAccessControlLevel(repo.user_access_level)) ??
-                (!repo.enabled
-                    ? 'Pick an Approve option other than Paused first'
-                    : updatingRepoIds.includes(repo.id)
-                      ? 'Saving…'
-                      : undefined)
-            }
-            onChange={(checked) => updateRepoConfig(repo.id, { digest_enabled: checked })}
-            data-attr="stamphog-repo-digest-toggle"
-        />
-    )
-}
-
-function DigestRepositories(): JSX.Element | null {
-    const { repoConfigs } = useValues(stamphogSceneLogic)
-    if (repoConfigs.length === 0) {
-        return null
-    }
-
-    return (
-        <div className="@container">
-            <div className="grid grid-cols-[minmax(0,1fr)_auto] overflow-hidden rounded border border-primary [&>*:nth-child(-n+2)]:border-t-0">
-                <RepositoryColumnHeaders
-                    columns={[
-                        { label: 'Repository', pane: 'left' },
-                        { label: 'In the digest', pane: 'left' },
-                    ]}
-                />
-                {repoConfigs.map((repo) => (
-                    <Fragment key={repo.id}>
-                        <span
-                            className={`min-w-0 truncate px-4 py-2 font-mono text-sm font-semibold ${PANE_LEFT} ${PANE_ROW}`}
-                            title={repo.repository}
-                        >
-                            {repo.repository}
-                        </span>
-                        <span className={`flex items-center px-4 py-2 ${PANE_LEFT} ${PANE_ROW}`}>
-                            <DigestSwitch repo={repo} />
-                        </span>
-                    </Fragment>
-                ))}
-            </div>
-        </div>
-    )
-}
 
 function DigestsTable(): JSX.Element {
     const { digestRuns, digestRunsCount, digestRunsResponseLoading, digestRunsFailed, page } =
@@ -157,7 +96,7 @@ function DigestsTable(): JSX.Element {
 }
 
 export function DailyDigestSection(): JSX.Element {
-    const { repoConfigs, repoConfigsLoading } = useValues(stamphogSceneLogic)
+    const { repoConfigs, repoConfigsLoading } = useValues(stamphogRunsSceneLogic)
     const sectionRef = useRef<HTMLDivElement>(null)
     // Nothing posts while no repository is in the digest, so the section says it is paused.
     const paused = !repoConfigsLoading && !repoConfigs.some((repo) => repo.digest_enabled)
@@ -173,7 +112,7 @@ export function DailyDigestSection(): JSX.Element {
             <SceneSection
                 title={
                     <span className="flex flex-wrap items-center gap-2">
-                        Daily digest
+                        Daily digests
                         {paused && (
                             <LemonTag type="muted" size="small">
                                 Paused
@@ -183,12 +122,10 @@ export function DailyDigestSection(): JSX.Element {
                 }
                 description={
                     paused
-                        ? 'Posts the merged pull requests that auto-approval approved to Slack once a day. No repository is in the digest, so nothing is posted.'
-                        : 'Posts the merged pull requests that auto-approval approved to Slack once a day.'
+                        ? 'Each Slack post of the merged pull requests that auto-approval approved. No repository is in the digest, so nothing is posted.'
+                        : 'Each Slack post of the merged pull requests that auto-approval approved.'
                 }
             >
-                <DigestRepositories />
-                <h3 className="m-0 mt-2 text-sm font-semibold">Recent digests</h3>
                 <DigestsTable />
             </SceneSection>
         </div>

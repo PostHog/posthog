@@ -1,4 +1,4 @@
-import { CodeReviewTab, codeReviewTabFromSearchParams } from './codeReviewTabs'
+import { CodeReviewTab, codeReviewTabFromSearchParams, visibleCodeReviewTabs } from './codeReviewTabs'
 
 describe('codeReviewTabFromSearchParams', () => {
     test.each<[string, Record<string, any>, boolean, CodeReviewTab]>([
@@ -12,5 +12,12 @@ describe('codeReviewTabFromSearchParams', () => {
         ['an approval tab without the flag', { tab: 'approval_history' }, false, 'approval_history'],
     ])('opens the right tab for %s', (_name, searchParams, reviewsEnabled, expected) => {
         expect(codeReviewTabFromSearchParams(searchParams, reviewsEnabled)).toEqual(expected)
+    })
+
+    test.each<[boolean, CodeReviewTab[]]>([
+        [true, ['activity', 'code_you_own', 'settings', 'approval_settings', 'approval_history']],
+        [false, ['code_you_own', 'approval_settings', 'approval_history']],
+    ])('shows the tabs in order with the review-hog flag %s', (reviewsEnabled, expected) => {
+        expect(visibleCodeReviewTabs(reviewsEnabled).map((tab) => tab.key)).toEqual(expected)
     })
 })

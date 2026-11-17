@@ -625,11 +625,8 @@ export const productRedirects: Record<
     '/stamphog/area': (_params, searchParams, hashParams): string =>
         combineUrl(urls.codeReview(), { ...searchParams, tab: 'code_you_own' }, hashParams).url,
     '/stamphog/digests': (_params, { page, ...searchParams }): string =>
-        combineUrl(
-            urls.codeReview(),
-            { ...searchParams, tab: 'approval_settings', digests_page: page },
-            '#daily-digest'
-        ).url,
+        combineUrl(urls.codeReview(), { ...searchParams, tab: 'approval_history', digests_page: page }, '#daily-digest')
+            .url,
     '/spaces/new': (_params, searchParams, hashParams): string => combineUrl('/ai/new', searchParams, hashParams).url,
     '/visual_review': (_params, searchParams, hashParams): string =>
         combineUrl(urls.visualReviewRuns(), searchParams, hashParams).url,

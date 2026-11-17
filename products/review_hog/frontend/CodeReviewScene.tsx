@@ -56,14 +56,14 @@ import { prettifySkillName } from './skillNames'
 
 // The auto-approval tabs come from the stamphog product. Each loads in its own chunk, so the first
 // load of Code review does not carry them.
-const ApprovalSettings = lazy(() =>
-    retryImport(() => import('products/stamphog/frontend/scenes/StamphogScene/ApprovalSettings')).then((m) => ({
-        default: m.ApprovalSettings,
+const AutoApprovalArea = lazy(() =>
+    retryImport(() => import('products/stamphog/frontend/scenes/StamphogScene/AutoApprovalArea')).then((m) => ({
+        default: m.AutoApprovalArea,
     }))
 )
-const AutoApprovalRuns = lazy(() =>
-    retryImport(() => import('products/stamphog/frontend/scenes/StamphogRunsScene/AutoApprovalRuns')).then((m) => ({
-        default: m.AutoApprovalRuns,
+const ApprovalHistory = lazy(() =>
+    retryImport(() => import('products/stamphog/frontend/scenes/StamphogRunsScene/ApprovalHistory')).then((m) => ({
+        default: m.ApprovalHistory,
     }))
 )
 const CodeYouOwn = lazy(() =>
@@ -879,14 +879,9 @@ function ActivityTab(): JSX.Element {
 
 function ApprovalHistoryTab(): JSX.Element {
     return (
-        <SceneSection
-            title="Approval history"
-            description="Each time auto-approval reviewed a pull request, and what it decided."
-        >
-            <Suspense fallback={<LazySectionFallback />}>
-                <AutoApprovalRuns />
-            </Suspense>
-        </SceneSection>
+        <Suspense fallback={<LazySectionFallback />}>
+            <ApprovalHistory />
+        </Suspense>
     )
 }
 
@@ -916,7 +911,7 @@ function SettingsTab(): JSX.Element {
 function ApprovalSettingsTab(): JSX.Element {
     return (
         <Suspense fallback={<LazySectionFallback />}>
-            <ApprovalSettings />
+            <AutoApprovalArea />
         </Suspense>
     )
 }

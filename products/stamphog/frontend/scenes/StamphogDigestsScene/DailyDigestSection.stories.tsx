@@ -140,7 +140,7 @@ const meta: Meta = {
         layout: 'padded',
         viewMode: 'story',
         mockDate: '2026-08-18 12:00:00',
-        pageUrl: urls.codeReview('approval_settings'),
+        pageUrl: urls.codeReview('approval_history'),
         testOptions: { waitForSelector: '[data-attr="stamphog-digests-table"]' },
     },
     decorators: [
@@ -148,15 +148,11 @@ const meta: Meta = {
             get: {
                 '/api/projects/:team_id/code_review/approvals/digests/': digestRuns,
                 '/api/projects/:team_id/code_review/approvals/repositories/': repositories,
-                '/api/projects/:team_id/code_review/approvals/repositories/available_repositories/': {
-                    repositories: [],
-                    total_count: 0,
-                    has_installation: true,
-                },
-                '/api/projects/:team_id/code_review/approvals/repositories/install_info/': {
-                    app_slug: 'example-app',
-                    install_url: 'https://github.com/apps/example-app/installations/new',
-                    authorize_url: 'https://github.com/login/oauth/authorize',
+                '/api/projects/:team_id/code_review/approvals/runs/': {
+                    count: 0,
+                    next: null,
+                    previous: null,
+                    results: [],
                 },
             },
         }),

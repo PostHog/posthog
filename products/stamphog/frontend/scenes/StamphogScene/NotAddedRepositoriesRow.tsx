@@ -109,7 +109,7 @@ export function NotAddedRepositoriesRow(): JSX.Element {
                 {canAdd && <span className="text-xs text-secondary">Not added</span>}
             </div>
             <div
-                className={`flex min-w-0 flex-wrap items-center gap-2 px-4 pb-2.5 @min-[48rem]:col-span-2 @min-[48rem]:border-t @min-[48rem]:border-primary @min-[48rem]:pt-2.5 ${PANE_LEFT}`}
+                className={`flex min-w-0 flex-wrap items-center gap-2 px-4 pb-2.5 @min-[48rem]:col-span-3 @min-[48rem]:border-t @min-[48rem]:border-primary @min-[48rem]:pt-2.5 ${PANE_LEFT}`}
             >
                 {canAdd && (
                     <>

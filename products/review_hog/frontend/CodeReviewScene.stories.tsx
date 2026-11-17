@@ -42,6 +42,7 @@ import type {
 } from 'products/review_hog/frontend/generated/api.schemas'
 import type {
     CodeReviewApprovalRepositoryApi,
+    DigestRunApi,
     PaginatedCodeReviewApprovalRoutingRunListApi,
     ReviewRunApi,
 } from 'products/stamphog/frontend/generated/api.schemas'
@@ -653,6 +654,45 @@ const approvalRun = (overrides: Partial<ReviewRunApi>): ReviewRunApi =>
         ...overrides,
     }) as ReviewRunApi
 
+const digestRun = (overrides: Partial<DigestRunApi>): DigestRunApi =>
+    ({
+        id: '00000000-0000-0000-0000-0000000000d1',
+        audience_key: 'repo:example-org/web',
+        slack_channel_id: 'C012AB3CD',
+        slack_channel_name: 'team-web',
+        status: 'completed',
+        pr_count: 2,
+        summary: { headline: 'The reviews table pages, and the billing summary is cached.', prs: [] },
+        error: '',
+        slack_message_ts: '1790000000.000100',
+        created_at: '2026-09-30T09:00:00Z',
+        posted_at: '2026-09-30T09:00:04Z',
+        ...overrides,
+    }) as DigestRunApi
+
+const digestRuns = [
+    digestRun({}),
+    digestRun({
+        id: '00000000-0000-0000-0000-0000000000d2',
+        audience_key: 'repo:example-org/api',
+        slack_channel_name: 'team-api',
+        pr_count: 0,
+        summary: { headline: '', prs: [] },
+        slack_message_ts: '',
+        created_at: '2026-09-29T09:00:00Z',
+        posted_at: '2026-09-29T09:00:02Z',
+    }),
+    digestRun({
+        id: '00000000-0000-0000-0000-0000000000d3',
+        status: 'failed',
+        pr_count: 3,
+        error: 'not_in_channel',
+        slack_message_ts: '',
+        created_at: '2026-09-28T09:00:00Z',
+        posted_at: null,
+    }),
+]
+
 const approvalRuns = [
     approvalRun({}),
     approvalRun({
@@ -767,7 +807,9 @@ const meta: Meta<typeof CodeReviewScene> = {
                         200,
                         { owners_file: String(params.id).endsWith('4') ? 'missing' : 'found' },
                     ],
-                    '/api/projects/:team_id/code_review/approvals/digests/': paginated([]),
+                    '/api/projects/:team_id/code_review/approvals/digests/': paginated(
+                        context.parameters.withDigests ? digestRuns : []
+                    ),
                     '/api/projects/:team_id/code_review/approvals/runs/': paginated(approvalRuns),
                     '/api/projects/:team_id/code_review/approvals/reviewer_routing/owners/': [
                         { owner: 'team-web', kind: 'team', pr_count: 12 },
@@ -1059,7 +1101,7 @@ export const ApprovalSettings: Story = {
         await expect(canvas.getByText('Manager')).toBeVisible()
         await expect(await canvas.findByText('no owners.yaml')).toBeVisible()
         await expect(canvas.getByText('2 more repositories')).toBeVisible()
-        await expect(canvas.getByText('Daily digest')).toBeVisible()
+        await expect(canvas.getByLabelText('Include example-org/web in the digest')).toBeChecked()
     },
 }
 
@@ -1105,10 +1147,11 @@ export const ApprovalSettingsNotConnected: Story = {
 }
 
 export const ApprovalHistory: Story = {
-    parameters: { tab: 'approval_history' },
+    parameters: { tab: 'approval_history', withDigests: true },
     play: async ({ canvasElement }) => {
         const canvas = within(canvasElement)
         await expect(await canvas.findByText('Cache the billing summary')).toBeVisible()
+        await expect(await canvas.findByText('repo:example-org/api')).toBeVisible()
         await expect(canvas.queryByText('Review a pull request')).not.toBeInTheDocument()
     },
 }
