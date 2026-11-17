@@ -186,6 +186,7 @@ from products.replay_vision.backend.scanning import (
     scan_existing_scanner,
     scan_outcome_counts,
 )
+from products.replay_vision.backend.scope.load import experiment_id_of
 from products.replay_vision.backend.scout_writes import (
     check_scout_scanner_credit_limit,
     refuse_scout_scanner_delete,
@@ -1238,9 +1239,9 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
         if cached is not None:
             return cached
         page_ids = {
-            scope["experiment_id"]
+            experiment_id
             for scanner in self._page_scanners() or ()
-            if (scope := scanner.experiment_scope()) and isinstance(scope.get("experiment_id"), int)
+            if (experiment_id := experiment_id_of(scanner)) is not None
         }
         accessible = accessible_experiment_ids(self.user_access_control, team_id, page_ids) if page_ids else set()
         page_access = {experiment_id: experiment_id in accessible for experiment_id in page_ids}
@@ -2562,7 +2563,7 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
             ):
                 experiment_targeting = None
         if source.scanner_type == ScannerType.EXPERIMENT:
-            scope_experiment_id = (source.experiment_scope() or {}).get("experiment_id")
+            scope_experiment_id = experiment_id_of(source)
             if scope_experiment_id is None or not is_experiment_accessible(
                 self.user_access_control, self.team_id, scope_experiment_id
             ):
