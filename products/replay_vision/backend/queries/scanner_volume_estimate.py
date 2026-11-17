@@ -500,8 +500,8 @@ def is_experiment_linkage_unresolved(scanner: ReplayScanner, error: Exception) -
     reference; no launch heals that, so callers keep it on their error path. Both groups raise
     the same DRF ValidationError type inside the recordings query, so this re-resolves the
     linkage to tell them apart. The extra resolution runs on the failure path only."""
-    scope = scanner.experiment_scope() or {}
-    experiment_id = scope.get("experiment_id")
+    experiment_scope = scanner.experiment_scope() or {}
+    experiment_id = experiment_scope.get("experiment_id")
     if experiment_id is None:
         return False
     if isinstance(error, PermissionDenied):
@@ -515,8 +515,8 @@ def is_experiment_linkage_unresolved(scanner: ReplayScanner, error: Exception) -
         resolve_exposure_linkage(
             scanner.team,
             experiment_id=experiment_id,
-            variant=scope.get("variant"),
-            variants=scope.get("variants"),
+            variant=experiment_scope.get("variant"),
+            variants=experiment_scope.get("variants"),
         )
     except ValidationError:
         return True
