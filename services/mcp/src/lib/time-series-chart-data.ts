@@ -26,6 +26,8 @@ const TIME_ARRAY_KEYS = ['days', 'dates']
 const VALUE_ARRAY_KEYS = ['data', 'values', 'exposure_counts']
 const SERIES_NAME_KEYS = ['custom_name', 'label', 'name', 'variant', 'metric_name']
 const ROW_TIME_KEYS = ['time', 'timestamp', 'day', 'date', 'bucket_start', 'date_from']
+// The end of a bucket repeats what the axis says. Any other date column is a dimension, such as a cohort.
+const BUCKET_END_KEYS = new Set(['date_to', 'bucket_end', 'end_time'])
 const ID_COLUMN = /(?:^|_)id$/i
 
 const CONTAINER_KEYS = ['results', 'series', 'days', 'daily', 'sparkline', 'ranges', 'timeseries']
@@ -270,8 +272,7 @@ function fromRows(rows: unknown[], budget: Budget): AdapterResult {
     const valueKeys: string[] = []
     const splitKeys: string[] = []
     for (const [key, kind] of kinds) {
-        // A second time column, such as the end of a bucket, says nothing the axis does not.
-        if (key === timeKey || kind === 'empty' || kind === 'time') {
+        if (key === timeKey || kind === 'empty' || BUCKET_END_KEYS.has(key)) {
             continue
         }
         // A numeric ID such as `team_id` names a group. Drawn as a value, it would be a meaningless line.
@@ -339,9 +340,10 @@ function parseCell(cell: string): string | number | null {
 }
 
 /**
- * Reads the pipe-delimited table that `execute-sql` returns as text into rows. Notices come before
- * the table (taxonomy warnings) and after it (preview and warehouse suggestion lines), so the table
- * is the longest run of consecutive lines that all have the same number of cells.
+ * Reads the pipe-delimited table that `execute-sql` returns as text into rows. Notices without a
+ * `|` come before the table (taxonomy warnings) and after it (preview and warehouse suggestions).
+ * The formatter does not escape a `|` inside a cell, so a table whose lines disagree on their cell
+ * count cannot be read safely and is skipped.
  */
 function rowsFromPipeTable(text: string): JsonRecord[] | null {
     if (text.length > MAX_TABLE_CHARS) {
@@ -351,21 +353,22 @@ function rowsFromPipeTable(text: string): JsonRecord[] | null {
         return []
     }
     const lines = text.split('\n').map((line) => line.split('|'))
-    let best = { start: 0, end: 0 }
-    let start = 0
-    for (let index = 1; index <= lines.length; index++) {
-        if (index < lines.length && lines[index]!.length === lines[start]!.length) {
-            continue
-        }
-        if (lines[start]!.length >= 2 && index - start > best.end - best.start) {
-            best = { start, end: index }
-        }
-        start = index
+    const start = lines.findIndex((cells) => cells.length >= 2)
+    if (start === -1) {
+        return []
     }
-    if (best.end - best.start - 1 > MAX_POINTS) {
+    const width = lines[start]!.length
+    let end = start + 1
+    while (end < lines.length && lines[end]!.length === width) {
+        end++
+    }
+    if (lines.slice(end).some((cells) => cells.length >= 2)) {
+        return []
+    }
+    if (end - start - 1 > MAX_POINTS) {
         return null
     }
-    const [header, ...body] = lines.slice(best.start, best.end)
+    const [header, ...body] = lines.slice(start, end)
     if (!header || new Set(header).size !== header.length) {
         return []
     }

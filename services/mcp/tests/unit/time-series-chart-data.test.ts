@@ -246,6 +246,34 @@ describe('buildTimeSeriesChartData', () => {
             ],
         ],
         [
+            'an execute-sql text table grouped by a second date column',
+            {
+                results: [
+                    'day|signup_date|users',
+                    '2026-11-10|2026-11-01|5',
+                    '2026-11-11|2026-11-01|6',
+                    '2026-11-10|2026-11-02|7',
+                    '2026-11-11|2026-11-02|8',
+                ].join('\n'),
+            },
+            [
+                {
+                    name: '2026-11-01',
+                    data: [
+                        ['2026-11-10', 5],
+                        ['2026-11-11', 6],
+                    ],
+                },
+                {
+                    name: '2026-11-02',
+                    data: [
+                        ['2026-11-10', 7],
+                        ['2026-11-11', 8],
+                    ],
+                },
+            ],
+        ],
+        [
             'an execute-sql text table with NULL and empty groups kept apart',
             {
                 results: [
@@ -344,6 +372,18 @@ describe('buildTimeSeriesChartData', () => {
                     ['day', ...Array.from({ length: 30 }, (_, index) => `metric_${index}`)].join('|'),
                     ['2026-11-10', ...Array.from({ length: 30 }, () => '1')].join('|'),
                     ['2026-11-11', ...Array.from({ length: 30 }, () => '2')].join('|'),
+                ].join('\n'),
+            },
+        ],
+        [
+            'an execute-sql text table with a pipe inside a cell',
+            {
+                results: [
+                    'day|path|views',
+                    '2026-11-10|/home|5',
+                    '2026-11-11|/home|6',
+                    '2026-11-12|/a|b|7',
+                    '2026-11-13|/home|8',
                 ].join('\n'),
             },
         ],
