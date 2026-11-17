@@ -107011,6 +107011,38 @@ export namespace Schemas {
     }
 
     /**
+     * * `serving` - Serving
+     * * `setting_up` - Setting up
+     * * `available` - Available
+     * * `not_open` - Not open
+     * * `refused` - Refused
+     * * `failed` - Failed
+     */
+    export type RealtimeCohortsJoinStateEnum = typeof RealtimeCohortsJoinStateEnum[keyof typeof RealtimeCohortsJoinStateEnum];
+
+
+    export const RealtimeCohortsJoinStateEnum = {
+      Serving: 'serving',
+      SettingUp: 'setting_up',
+      Available: 'available',
+      NotOpen: 'not_open',
+      Refused: 'refused',
+      Failed: 'failed',
+    } as const;
+
+    export interface RealtimeCohortsJoinState {
+      /** Where this project stands in joining the realtime cohorts beta. `serving`: the project has realtime cohorts. `setting_up`: a join is in progress. `available`: a POST to `join` starts one. `not_open`: this region takes no new projects. `refused`: the project cannot join by itself, and support can turn realtime cohorts on for it. `failed`: the last join did not finish, and a join an hour later tries again.
+       *
+       * * `serving` - Serving
+       * * `setting_up` - Setting up
+       * * `available` - Available
+       * * `not_open` - Not open
+       * * `refused` - Refused
+       * * `failed` - Failed */
+      state: RealtimeCohortsJoinStateEnum;
+    }
+
+    /**
      * Request body for triggering a metrics recalculation.
      */
     export interface RecalculateMetricsRequest {

@@ -436,6 +436,12 @@ CONSTANCE_CONFIG = {
         "run rather than at the end of the cache TTL.",
         bool,
     ),
+    "REALTIME_COHORT_JOIN_OPEN": (
+        False,
+        "Whether a project in this region joins the realtime cohorts beta when a member opts in. "
+        "Turning it off stops new joins within about a minute. Projects already in keep access.",
+        bool,
+    ),
 }
 
 SETTINGS_ALLOWING_API_OVERRIDE = (

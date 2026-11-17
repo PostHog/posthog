@@ -28,7 +28,8 @@ UNFINISHED_REQUEST_STATES = (RealtimeCohortRequestState.QUEUED, RealtimeCohortRe
 
 
 class RealtimeCohortRequest(TeamScopedRootMixin, UUIDModel):
-    """Work that staff asked the realtime cohort pipeline to do for a team. A Celery task carries it out."""
+    """Work that staff, or a member who joins the beta, asked the realtime cohort pipeline to do for a team. A
+    Celery task carries it out."""
 
     # No FK constraints, because creating one locks the hot posthog_team and posthog_user tables while migrating.
     # No index of its own, because both indexes below start with the team.

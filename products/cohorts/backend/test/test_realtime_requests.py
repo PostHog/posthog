@@ -127,7 +127,10 @@ class TestRealtimeCohortRequests(BaseTest):
     def _level(self) -> str:
         return RealtimeCohortTeamAccess.objects.get(team=self.team).level
 
-    def test_an_enable_refused_over_the_scan_limit_is_done_after_a_backfill_that_skips_the_limit(self) -> None:
+    @mock.patch("products.cohorts.backend.realtime_requests.ph_scoped_capture")
+    def test_an_enable_refused_over_the_scan_limit_is_done_after_a_backfill_that_skips_the_limit(
+        self, scoped_capture: mock.MagicMock
+    ) -> None:
         self._cohort(PERSON_LEAF, PAGEVIEW_LEAF)
         self.peak_day_events = 2_000
 
@@ -153,6 +156,11 @@ class TestRealtimeCohortRequests(BaseTest):
 
         assert (enabled.state, enabled.error) == (RealtimeCohortRequestState.DONE, "")
         assert self._level() == RealtimeCohortLevel.SERVING
+        capture = scoped_capture.return_value.__enter__.return_value
+        assert [(call.kwargs["event"], call.kwargs["distinct_id"]) for call in capture.call_args_list] == [
+            ("realtime cohorts join refused", str(self.team.uuid)),
+            ("realtime cohorts join completed", str(self.team.uuid)),
+        ]
 
     def test_a_second_delivery_of_a_claimed_request_changes_nothing(self) -> None:
         self._cohort(PERSON_LEAF, PAGEVIEW_LEAF)
