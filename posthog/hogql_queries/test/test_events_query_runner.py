@@ -1744,16 +1744,16 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             assert isinstance(response, CachedEventsQueryResponse)
             return response
 
-        def uuid(row: list[Any]) -> str:
+        def row_uuid(row: list[Any]) -> str:
             return row[0]["uuid"] if select[0] == "*" else row[0]
 
         with time_machine.travel("2020-01-11T12:01:00Z", tick=False):
-            everything = [uuid(row) for row in run(limit=100).results]
+            everything = [row_uuid(row) for row in run(limit=100).results]
             paged: list[str] = []
             cursor = None
             for _ in range(len(everything)):
                 page = run(limit=2, cursor=cursor)
-                paged.extend(uuid(row) for row in page.results)
+                paged.extend(row_uuid(row) for row in page.results)
                 cursor = page.nextCursor
                 if cursor is None:
                     break
