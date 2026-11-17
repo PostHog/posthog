@@ -9,7 +9,7 @@ import uuid
 from collections.abc import Collection, Iterable, Iterator
 from datetime import datetime, timedelta
 from itertools import islice
-from typing import Literal
+from typing import Any, Literal
 from zoneinfo import ZoneInfo
 
 from django.db import transaction
@@ -32,13 +32,24 @@ from products.access_control.backend.facade.user_access_control import UserAcces
 from products.alerts.backend import platform_subscribers
 from products.alerts.backend.activity_logging import AlertConfigurationContext
 from products.alerts.backend.facade import contracts
+from products.alerts.backend.forecast.access import forecast_detector_access_error
+from products.alerts.backend.forecast.rules import forecast_rule
 from products.alerts.backend.insight_alert_state_machine import apply_snooze
 from products.alerts.backend.judge.contract import (
+    DETECTOR_PAUSED_ERROR_CODES,
+    DETECTOR_UNAVAILABLE_ERROR_CODES,
+    FORECAST_DETECTOR_PAUSED_ERROR_CODE,
+    FORECAST_DETECTOR_REJECTED_ERROR_CODE,
+    FORECAST_DETECTOR_UNAVAILABLE_ERROR_CODE,
+    FORECAST_DETECTOR_UNAVAILABLE_MESSAGE,
     LLM_DETECTOR_PAUSED_ERROR_CODE,
     LLM_DETECTOR_UNAVAILABLE_ERROR_CODE,
     LLM_DETECTOR_UNAVAILABLE_MESSAGE,
     MAX_CONCURRENT_MODEL_CALLS,
     MAX_PROMPT_POINTS,
+    UNAVAILABLE_ERRORS_BY_NAME,
+    ForecastDetectorPausedError,
+    ForecastDetectorUnavailableError,
     LLMDetectorError,
     LLMDetectorMisconfiguredError,
     LLMDetectorPausedError,
@@ -49,6 +60,7 @@ from products.alerts.backend.llm_detector_limits import (
     LLMAlertRefusal,
     LLMAlertWrite,
     admit_llm_alert_write,
+    calls_ai_gateway,
     is_llm_detector_config,
     llm_detector_access_error,
 )
@@ -113,6 +125,35 @@ def get_alert_team_id(alert_id: uuid.UUID) -> int | None:
         return team_id
     # An alert with no insight row carries its platform alert's id.
     return native_configuration_team_id(configuration_id=alert_id, source_kind=SourceKind.INSIGHT)
+
+
+def search_insight_alerts(
+    *,
+    project_id: int,
+    query: str | None,
+    access_control: UserAccessControl,
+    limit: int,
+    with_access_levels: bool = False,
+    include_count: bool = True,
+) -> tuple[list[dict[str, Any]], int]:
+    """Ranked full-text search over a project's insight alerts by name, in the result shape of core search.
+
+    Each result's id is the alert's public id, and an alert the platform holds shows its settings and
+    state from the platform. Without a query the alerts come in name order. `include_count=False`
+    reports a total of 0.
+    """
+    # Deferred: `alert_search` reads the cutover module, which imports `posthog.tasks.alerts.utils`, and
+    # that module imports this facade.
+    from products.alerts.backend import alert_search  # noqa: PLC0415
+
+    return alert_search.search_insight_alerts(
+        project_id=project_id,
+        query=query,
+        access_control=access_control,
+        limit=limit,
+        with_access_levels=with_access_levels,
+        include_count=include_count,
+    )
 
 
 def _insight_owned_rows() -> QuerySet[AlertConfiguration]:
@@ -682,20 +723,32 @@ def _assign_native_creator(*, team_id: int, alert_id: uuid.UUID, user: User) -> 
 
 
 __all__ = [
+    "DETECTOR_PAUSED_ERROR_CODES",
+    "DETECTOR_UNAVAILABLE_ERROR_CODES",
+    "FORECAST_DETECTOR_PAUSED_ERROR_CODE",
+    "FORECAST_DETECTOR_REJECTED_ERROR_CODE",
+    "FORECAST_DETECTOR_UNAVAILABLE_ERROR_CODE",
+    "FORECAST_DETECTOR_UNAVAILABLE_MESSAGE",
     "LLM_DETECTOR_PAUSED_ERROR_CODE",
     "LLM_DETECTOR_UNAVAILABLE_ERROR_CODE",
     "LLM_DETECTOR_UNAVAILABLE_MESSAGE",
     "LLM_EVALUATE_EXECUTOR",
     "MAX_CONCURRENT_MODEL_CALLS",
     "MAX_PROMPT_POINTS",
+    "ForecastDetectorPausedError",
+    "ForecastDetectorUnavailableError",
     "LLMAlertRefusal",
     "LLMAlertWrite",
     "LLMDetectorError",
     "LLMDetectorMisconfiguredError",
     "LLMDetectorPausedError",
     "LLMDetectorUnavailableError",
+    "UNAVAILABLE_ERRORS_BY_NAME",
     "admit_llm_alert_write",
     "assign_alert_owner",
+    "calls_ai_gateway",
+    "forecast_detector_access_error",
+    "forecast_rule",
     "is_llm_detector_config",
     "llm_detector_access_error",
 ]

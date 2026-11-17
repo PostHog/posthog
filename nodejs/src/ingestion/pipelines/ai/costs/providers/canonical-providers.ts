@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-11-13 10:04:14 UTC
+// Generated at: 2026-11-16 10:04:51 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -77,6 +77,7 @@ export type CanonicalProvider =
     | 'deepinfra-fp32'
     | 'deepinfra-fp4'
     | 'deepinfra-fp4-flex'
+    | 'deepinfra-fp4-priority'
     | 'deepinfra-fp8'
     | 'deepinfra-fp8-flex'
     | 'deepinfra-fp8-priority'
@@ -88,6 +89,8 @@ export type CanonicalProvider =
     | 'dekallm-bf16'
     | 'dekallm-fp8'
     | 'digitalocean'
+    | 'doubleword'
+    | 'featherless'
     | 'featherless-fp4'
     | 'fireworks'
     | 'fireworks-fast'
@@ -115,6 +118,7 @@ export type CanonicalProvider =
     | 'inceptron-fp4'
     | 'inceptron-fp8'
     | 'inceptron-int4'
+    | 'inferact-vllm-nvfp4'
     | 'inference-net-bf16'
     | 'inference-net-fast'
     | 'inference-net-fp4'
@@ -133,7 +137,6 @@ export type CanonicalProvider =
     | 'ionstream-fp8'
     | 'kt'
     | 'liquid'
-    | 'liquid-bf16'
     | 'liquid-fp8'
     | 'makora'
     | 'makora-fp4'

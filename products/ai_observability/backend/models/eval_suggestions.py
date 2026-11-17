@@ -24,6 +24,11 @@ class EvalSuggestionDismissReason(models.TextChoices):
     FIXED_CAUSE = "fixed_cause", "Fixed the cause"
 
 
+class EvalSuggestionReviewVerdict(models.TextChoices):
+    GOOD = "good", "Good"
+    BAD = "bad", "Bad"
+
+
 class EvalSuggestionRunStatus(models.TextChoices):
     RUNNING = "running", "Running"
     COMPLETED = "completed", "Completed"
@@ -92,7 +97,8 @@ class EvalSuggestion(UUIDModel):
     draft = models.JSONField(default=dict)
     filters = models.JSONField(default=list)
     rollout_percentage = models.FloatField(default=100)
-    # Only Hog checks carry a rate, because only they are measured exactly. Judges stay "possible".
+    # Hog checks carry the rate measured on the sample, and reviewed judges the count the review model made.
+    # Other judges stay "possible".
     measured_failure_rate = models.FloatField(null=True, blank=True)
     sample_size = models.PositiveIntegerField(null=True, blank=True)
     # [{"trace_id": str, "reason": str}], one line each.
@@ -108,6 +114,19 @@ class EvalSuggestion(UUIDModel):
     )
     dismiss_reason = models.CharField(max_length=32, choices=EvalSuggestionDismissReason.choices, null=True, blank=True)
     decided_at = models.DateTimeField(null=True, blank=True)
+    # A staff label for tuning what the pipeline shows. Customers never see it.
+    review_verdict = models.CharField(max_length=8, choices=EvalSuggestionReviewVerdict.choices, null=True, blank=True)
+    review_note = models.TextField(blank=True, default="", db_default="")
+    reviewed_at = models.DateTimeField(null=True, blank=True)
+    reviewed_by = models.ForeignKey(
+        "posthog.User",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        db_constraint=False,
+        db_index=False,
+        related_name="+",
+    )
     created_evaluation = models.ForeignKey(
         "ai_observability.Evaluation", on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
     )
