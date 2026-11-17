@@ -29,6 +29,7 @@ import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePane
 import { Breadcrumb, DataModelingEdge, DataModelingNode, SidePanelTab } from '~/types'
 
 import { catalogRestructureEnabled } from 'products/data_modeling/frontend/catalogRestructure'
+import { suiteRunResultsLogic } from 'products/data_quality/frontend/suiteRunResultsLogic'
 
 import { HOGQL_METRIC_DEFINITION_KIND, validateMetricName } from './common'
 import { buildMetricRunPrompt } from './components/RunMetricWithAIButton'
@@ -340,7 +341,7 @@ export const dataCatalogMetricSceneLogic = kea<dataCatalogMetricSceneLogicType>(
     key((props) => props.name),
     path((key) => ['products', 'data_catalog', 'frontend', 'dataCatalogMetricSceneLogic', key]),
     connect(() => ({
-        logic: [dataCatalogAgentSyncLogic],
+        logic: [dataCatalogAgentSyncLogic, suiteRunResultsLogic],
         values: [featureFlagLogic, ['featureFlags'], sceneAgentPanelLogic, ['sceneIntegrationEnabled']],
         actions: [sidePanelStateLogic, ['openSidePanel']],
     })),
@@ -501,6 +502,11 @@ export const dataCatalogMetricSceneLogic = kea<dataCatalogMetricSceneLogicType>(
         ],
     }),
     listeners(({ props, values, actions }) => ({
+        [suiteRunResultsLogic.actionTypes.revealSubjectResults]: ({ subject }) => {
+            if (subject.subjectType === 'metric' && subject.subjectId === values.metric?.id) {
+                actions.setActiveTab('data-quality')
+            }
+        },
         [dataCatalogAgentSyncLogic.actionTypes.openMetricReloadRequested]: ({ name, newName }) => {
             if (name !== props.name) {
                 return

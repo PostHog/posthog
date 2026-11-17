@@ -1,0 +1,471 @@
+import {
+    MakeLogicType,
+    actions,
+    afterMount,
+    beforeUnmount,
+    connect,
+    kea,
+    listeners,
+    path,
+    reducers,
+    selectors,
+} from 'kea'
+
+import posthog from 'lib/posthog-typed'
+import { projectLogic } from 'scenes/projectLogic'
+import { urls } from 'scenes/urls'
+
+import { earlyAccessFeatureList } from 'products/early_access_features/frontend/generated/api'
+import { experimentsList } from 'products/experiments/frontend/generated/api'
+
+import { releasesCatalogFlagsRetrieve, releasesCatalogReleasesRetrieve } from './generated/api'
+import { releaseImportLogic } from './releaseImportLogic'
+import { releaseLogic } from './releaseLogic'
+import { ReleaseRow, STAGE_LABEL } from './releaseUtils'
+
+export const ALL_PAGE_SIZE = 50
+export const RENDER_PAGE_SIZE = 100
+const SEARCH_DEBOUNCE_MS = 250
+
+export type ReleaseAllType = 'release' | 'feature_flag' | 'experiment' | 'early_access_feature'
+export type ReleaseAllFilter = 'all' | ReleaseAllType
+
+export interface ReleaseAllRow {
+    key: string
+    type: ReleaseAllType
+    name: string
+    status: string
+    createdAt: string
+    href: string
+}
+
+interface SourcePage {
+    rows: ReleaseAllRow[]
+    hasMore: boolean
+    tail: string | null
+    cursor?: string | null
+}
+
+interface SourceState {
+    rows: ReleaseAllRow[]
+    tail: string | null
+    offset: number
+    cursor: string | null
+    hasMore: boolean
+    loading: boolean
+    failed: boolean
+}
+
+const ALL_TYPES: ReleaseAllType[] = ['release', 'feature_flag', 'experiment', 'early_access_feature']
+const EMPTY_SOURCE: SourceState = {
+    rows: [],
+    tail: null,
+    offset: 0,
+    cursor: null,
+    hasMore: true,
+    loading: false,
+    failed: false,
+}
+
+function emptySources(): Record<string, SourceState> {
+    return Object.fromEntries(ALL_TYPES.map((type) => [type, EMPTY_SOURCE]))
+}
+
+function capitalize(text: string): string {
+    return text.charAt(0).toUpperCase() + text.slice(1).replace(/[-_]/g, ' ')
+}
+
+async function fetchPage(
+    type: ReleaseAllType,
+    projectId: string,
+    search: string,
+    { offset, cursor }: SourceState
+): Promise<SourcePage> {
+    const query = search || undefined
+    if (type === 'release') {
+        const page = await releasesCatalogReleasesRetrieve(projectId, {
+            search: query,
+            limit: ALL_PAGE_SIZE,
+            cursor: cursor ?? undefined,
+        })
+        return {
+            hasMore: !!page.next_cursor,
+            cursor: page.next_cursor,
+            tail: page.results.at(-1)?.created_at ?? null,
+            rows: page.results.map((release) => ({
+                key: `release-${release.id}`,
+                type,
+                name: release.name,
+                status: '',
+                createdAt: release.created_at,
+                href: urls.release(release.id),
+            })),
+        }
+    }
+    if (type === 'feature_flag') {
+        const page = await releasesCatalogFlagsRetrieve(projectId, { search: query, limit: ALL_PAGE_SIZE, offset })
+        return {
+            hasMore: page.has_more,
+            tail: page.results.at(-1)?.created_at ?? null,
+            rows: page.results.map((flag) => ({
+                key: `flag-${flag.id}`,
+                type,
+                name: flag.key,
+                status: flag.active ? 'Active' : 'Disabled',
+                createdAt: flag.created_at,
+                href: urls.featureFlag(flag.id),
+            })),
+        }
+    }
+    if (type === 'experiment') {
+        const page = await experimentsList(projectId, {
+            search: query,
+            order: '-created_at',
+            limit: ALL_PAGE_SIZE,
+            offset,
+        })
+        return {
+            hasMore: !!page.next,
+            tail: page.results.at(-1)?.created_at ?? null,
+            rows: page.results.map((experiment) => ({
+                key: `experiment-${experiment.id}`,
+                type,
+                name: experiment.name,
+                status: capitalize(experiment.status ?? 'draft'),
+                createdAt: experiment.created_at ?? '',
+                href: urls.experiment(experiment.id as number),
+            })),
+        }
+    }
+    const page = await earlyAccessFeatureList(projectId, { search: query, limit: ALL_PAGE_SIZE, offset })
+    return {
+        hasMore: !!page.next,
+        tail: page.results.at(-1)?.created_at ?? null,
+        rows: page.results.map((item) => ({
+            key: `ea-${item.id}`,
+            type,
+            name: item.name,
+            status: capitalize(item.stage),
+            createdAt: item.created_at ?? '',
+            href: urls.earlyAccessFeature(item.id),
+        })),
+    }
+}
+
+function withStage(row: ReleaseAllRow, stageById: Map<string, ReleaseRow['stage']>): ReleaseAllRow {
+    const stage = row.type === 'release' ? stageById.get(row.key.slice('release-'.length)) : undefined
+    return stage ? { ...row, status: STAGE_LABEL[stage] } : row
+}
+
+let requestGeneration = 0
+
+const newestFirst = (a: ReleaseAllRow, b: ReleaseAllRow): number => b.createdAt.localeCompare(a.createdAt)
+
+// Generated by kea-typegen. Update if you're an agent, ignore if you're human.
+export interface releaseAllLogicValues {
+    currentProjectId: number | null // projectLogic
+    rows: ReleaseRow[] // releaseLogic
+    activeTypes: ReleaseAllType[]
+    appliedSearch: string
+    canShowMore: boolean
+    cutoff: string | null
+    displayRows: ReleaseAllRow[]
+    failedTypes: ReleaseAllType[]
+    filter: ReleaseAllFilter
+    firstLoad: boolean
+    hasMore: boolean
+    keptRows: ReleaseAllRow[]
+    loading: boolean
+    renderLimit: number
+    renderedRows: ReleaseAllRow[]
+    search: string
+    showSkeleton: boolean
+    sources: Record<string, SourceState>
+    stageById: Map<string, ReleaseRow['stage']>
+    visibleRows: ReleaseAllRow[]
+}
+
+// Generated by kea-typegen. Update if you're an agent, ignore if you're human.
+export interface releaseAllLogicActions {
+    markAutoImported: (projectId: string) => {
+        projectId: string
+    } // releaseImportLogic
+    keepRows: (rows: ReleaseAllRow[]) => {
+        rows: ReleaseAllRow[]
+    }
+    loadMore: () => {
+        value: true
+    }
+    loadSource: (type: ReleaseAllType) => {
+        type: ReleaseAllType
+    }
+    next: () => {
+        value: true
+    }
+    retry: () => {
+        value: true
+    }
+    setAppliedSearch: (search: string) => {
+        search: string
+    }
+    setFilter: (filter: ReleaseAllFilter) => {
+        filter: ReleaseAllFilter
+    }
+    setSearch: (search: string) => {
+        search: string
+    }
+    showMore: () => {
+        value: true
+    }
+    sourceFailed: (type: ReleaseAllType) => {
+        type: ReleaseAllType
+    }
+    sourceLoaded: (
+        type: ReleaseAllType,
+        page: SourcePage
+    ) => {
+        page: SourcePage
+        type: ReleaseAllType
+    }
+}
+
+// Generated by kea-typegen. Update if you're an agent, ignore if you're human.
+export interface releaseAllLogicMeta {
+    __keaTypeGenInternalSelectorTypes: {
+        activeTypes: (filter: ReleaseAllFilter) => ReleaseAllType[]
+        cutoff: (sources: Record<string, SourceState>, activeTypes: ReleaseAllType[]) => string | null
+        stageById: (rows: ReleaseRow[]) => Map<string, ReleaseRow['stage']>
+        visibleRows: (
+            sources: Record<string, SourceState>,
+            activeTypes: ReleaseAllType[],
+            stageById: Map<string, import('./releaseUtils').ReleaseStage>,
+            cutoff: string | null
+        ) => ReleaseAllRow[]
+        hasMore: (sources: Record<string, SourceState>, activeTypes: ReleaseAllType[]) => boolean
+        loading: (sources: Record<string, SourceState>, activeTypes: ReleaseAllType[]) => boolean
+        firstLoad: (sources: Record<string, SourceState>, activeTypes: ReleaseAllType[]) => boolean
+        displayRows: (firstLoad: boolean, keptRows: ReleaseAllRow[], visibleRows: ReleaseAllRow[]) => ReleaseAllRow[]
+        renderedRows: (displayRows: ReleaseAllRow[], renderLimit: number) => ReleaseAllRow[]
+        canShowMore: (displayRows: ReleaseAllRow[], renderLimit: number, hasMore: boolean) => boolean
+        showSkeleton: (firstLoad: boolean, displayRows: ReleaseAllRow[]) => boolean
+        failedTypes: (sources: Record<string, SourceState>, activeTypes: ReleaseAllType[]) => ReleaseAllType[]
+    }
+}
+
+export type releaseAllLogicType = MakeLogicType<
+    releaseAllLogicValues,
+    releaseAllLogicActions,
+    Record<string, any>,
+    releaseAllLogicMeta
+>
+
+export const releaseAllLogic = kea<releaseAllLogicType>([
+    path(['products', 'release', 'frontend', 'releaseAllLogic']),
+    connect(() => ({
+        values: [projectLogic, ['currentProjectId'], releaseLogic, ['rows']],
+        actions: [releaseImportLogic, ['markAutoImported']],
+    })),
+    actions({
+        setFilter: (filter: ReleaseAllFilter) => ({ filter }),
+        setSearch: (search: string) => ({ search }),
+        setAppliedSearch: (search: string) => ({ search }),
+        loadMore: true,
+        keepRows: (rows: ReleaseAllRow[]) => ({ rows }),
+        loadSource: (type: ReleaseAllType) => ({ type }),
+        sourceLoaded: (type: ReleaseAllType, page: SourcePage) => ({ type, page }),
+        sourceFailed: (type: ReleaseAllType) => ({ type }),
+        retry: true,
+        showMore: true,
+        next: true,
+    }),
+    reducers({
+        filter: ['all' as ReleaseAllFilter, { setFilter: (_, { filter }) => filter }],
+        search: ['', { setSearch: (_, { search }) => search }],
+        appliedSearch: ['', { setAppliedSearch: (_, { search }) => search }],
+        keptRows: [[] as ReleaseAllRow[], { keepRows: (_, { rows }) => rows }],
+        renderLimit: [
+            RENDER_PAGE_SIZE as number,
+            {
+                showMore: (state) => state + RENDER_PAGE_SIZE,
+                setFilter: () => RENDER_PAGE_SIZE,
+                setAppliedSearch: () => RENDER_PAGE_SIZE,
+            },
+        ],
+        sources: [
+            emptySources(),
+            {
+                setAppliedSearch: () => emptySources(),
+                markAutoImported: () => emptySources(),
+                loadSource: (state, { type }) => ({
+                    ...state,
+                    [type]: { ...state[type], loading: true, failed: false },
+                }),
+                sourceLoaded: (state, { type, page }) => ({
+                    ...state,
+                    [type]: {
+                        rows: [...state[type].rows, ...page.rows],
+                        tail: page.tail ?? state[type].tail,
+                        offset: state[type].offset + ALL_PAGE_SIZE,
+                        cursor: page.cursor ?? null,
+                        hasMore: page.hasMore,
+                        loading: false,
+                        failed: false,
+                    },
+                }),
+                sourceFailed: (state, { type }) => ({
+                    ...state,
+                    [type]: { ...state[type], hasMore: false, loading: false, failed: true },
+                }),
+                retry: (state) =>
+                    Object.fromEntries(
+                        Object.entries(state).map(([type, source]) => [
+                            type,
+                            source.failed ? { ...source, hasMore: true, failed: false } : { ...source, loading: false },
+                        ])
+                    ),
+            },
+        ],
+    }),
+    selectors({
+        activeTypes: [
+            (s) => [s.filter],
+            (filter: ReleaseAllFilter): ReleaseAllType[] => (filter === 'all' ? ALL_TYPES : [filter]),
+        ],
+        cutoff: [
+            (s) => [s.sources, s.activeTypes],
+            (sources: Record<string, SourceState>, activeTypes: ReleaseAllType[]): string | null => {
+                const open = activeTypes
+                    .filter((type) => sources[type].hasMore && sources[type].tail)
+                    .map((type) => sources[type].tail as string)
+                return open.length ? open.reduce((latest, value) => (value > latest ? value : latest)) : null
+            },
+        ],
+        stageById: [
+            (s) => [s.rows],
+            (rows: ReleaseRow[]): Map<string, ReleaseRow['stage']> => new Map(rows.map((row) => [row.id, row.stage])),
+        ],
+        visibleRows: [
+            (s) => [s.sources, s.activeTypes, s.stageById, s.cutoff],
+            (
+                sources: Record<string, SourceState>,
+                activeTypes: ReleaseAllType[],
+                stageById: Map<string, ReleaseRow['stage']>,
+                cutoff: string | null
+            ): ReleaseAllRow[] => {
+                const merged = activeTypes
+                    .flatMap((type) => sources[type].rows)
+                    .filter((row) => !cutoff || row.createdAt >= cutoff)
+                    .sort(newestFirst)
+                return stageById.size ? merged.map((row) => withStage(row, stageById)) : merged
+            },
+        ],
+        hasMore: [
+            (s) => [s.sources, s.activeTypes],
+            (sources: Record<string, SourceState>, activeTypes: ReleaseAllType[]): boolean =>
+                activeTypes.some((type) => sources[type].hasMore),
+        ],
+        loading: [
+            (s) => [s.sources, s.activeTypes],
+            (sources: Record<string, SourceState>, activeTypes: ReleaseAllType[]): boolean =>
+                activeTypes.some((type) => sources[type].loading),
+        ],
+        firstLoad: [
+            (s) => [s.sources, s.activeTypes],
+            (sources: Record<string, SourceState>, activeTypes: ReleaseAllType[]): boolean =>
+                activeTypes.some((type) => sources[type].offset === 0 && !sources[type].failed),
+        ],
+        displayRows: [
+            (s) => [s.firstLoad, s.keptRows, s.visibleRows],
+            (firstLoad: boolean, keptRows: ReleaseAllRow[], visibleRows: ReleaseAllRow[]): ReleaseAllRow[] =>
+                firstLoad ? keptRows : visibleRows,
+        ],
+        renderedRows: [
+            (s) => [s.displayRows, s.renderLimit],
+            (displayRows: ReleaseAllRow[], renderLimit: number): ReleaseAllRow[] => displayRows.slice(0, renderLimit),
+        ],
+        canShowMore: [
+            (s) => [s.displayRows, s.renderLimit, s.hasMore],
+            (displayRows: ReleaseAllRow[], renderLimit: number, hasMore: boolean): boolean =>
+                hasMore || displayRows.length > renderLimit,
+        ],
+        showSkeleton: [
+            (s) => [s.firstLoad, s.displayRows],
+            (firstLoad: boolean, displayRows: ReleaseAllRow[]): boolean => firstLoad && !displayRows.length,
+        ],
+        failedTypes: [
+            (s) => [s.sources, s.activeTypes],
+            (sources: Record<string, SourceState>, activeTypes: ReleaseAllType[]): ReleaseAllType[] =>
+                activeTypes.filter((type) => sources[type].failed),
+        ],
+    }),
+    listeners(({ actions, values }) => ({
+        setSearch: async ({ search }, breakpoint) => {
+            await breakpoint(SEARCH_DEBOUNCE_MS)
+            if (search.trim() !== values.appliedSearch) {
+                actions.keepRows(values.displayRows)
+                actions.setAppliedSearch(search.trim())
+            }
+        },
+        next: () => {
+            if (values.displayRows.length > values.renderLimit) {
+                actions.showMore()
+            } else {
+                actions.loadMore()
+            }
+        },
+        setAppliedSearch: ({ search }) => {
+            requestGeneration++
+            if (search) {
+                posthog.capture('release view all searched', { filter: values.filter })
+            }
+            actions.loadMore()
+        },
+        setFilter: ({ filter }) => {
+            actions.keepRows(values.displayRows.filter((row) => filter === 'all' || row.type === filter))
+            posthog.capture('release view all filtered', { filter })
+            actions.loadMore()
+        },
+        loadMore: () => {
+            for (const type of values.activeTypes) {
+                const source = values.sources[type]
+                const behind = !source.tail || values.cutoff === null || source.tail >= values.cutoff
+                if (source.hasMore && !source.loading && behind) {
+                    actions.loadSource(type)
+                }
+            }
+        },
+        loadSource: async ({ type }) => {
+            const generation = requestGeneration
+            try {
+                const page = await fetchPage(
+                    type,
+                    String(values.currentProjectId),
+                    values.appliedSearch,
+                    values.sources[type]
+                )
+                if (generation === requestGeneration) {
+                    actions.sourceLoaded(type, page)
+                }
+            } catch {
+                if (generation === requestGeneration) {
+                    actions.sourceFailed(type)
+                }
+            }
+        },
+        markAutoImported: () => {
+            requestGeneration++
+            actions.loadMore()
+        },
+        retry: () => {
+            requestGeneration++
+            actions.loadMore()
+        },
+    })),
+    afterMount(({ actions }) => {
+        requestGeneration++
+        actions.loadMore()
+    }),
+    beforeUnmount(() => {
+        requestGeneration++
+    }),
+])

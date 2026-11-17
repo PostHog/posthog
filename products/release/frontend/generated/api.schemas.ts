@@ -181,6 +181,43 @@ export interface BroadcastOptionApi {
     status: string
 }
 
+export interface CatalogFlagApi {
+    /** ID of the feature flag. */
+    id: number
+    /** Key of the feature flag. */
+    key: string
+    /** True when the flag is enabled. */
+    active: boolean
+    /** When the flag was created. */
+    created_at: string
+}
+
+export interface CatalogFlagsResponseApi {
+    /** Flags the caller can see, newest first. */
+    results: CatalogFlagApi[]
+    /** True when more flags follow this page. */
+    has_more: boolean
+}
+
+export interface CatalogReleaseApi {
+    /** ID of the release. */
+    id: string
+    /** Name of the release. */
+    name: string
+    /** When the release was created. */
+    created_at: string
+}
+
+export interface CatalogReleasesResponseApi {
+    /** Releases of the project, newest first. */
+    results: CatalogReleaseApi[]
+    /**
+     * Pass as cursor to fetch the next page. Null when no more releases follow.
+     * @nullable
+     */
+    next_cursor: string | null
+}
+
 export interface ImportAllResponseApi {
     /** How many releases the import created. */
     created_count: number
@@ -201,6 +238,44 @@ export type ReleasesListParams = {
 export type ReleasesBroadcastSearchRetrieveParams = {
     /**
      * Part of the broadcast name to match.
+     * @maxLength 200
+     */
+    search?: string
+}
+
+export type ReleasesCatalogFlagsRetrieveParams = {
+    /**
+     * How many flags to return, at most 100.
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number
+    /**
+     * How many flags to skip, newest first.
+     * @minimum 0
+     */
+    offset?: number
+    /**
+     * Part of the flag key or name to match.
+     * @maxLength 200
+     */
+    search?: string
+}
+
+export type ReleasesCatalogReleasesRetrieveParams = {
+    /**
+     * next_cursor of the previous page.
+     * @maxLength 100
+     */
+    cursor?: string
+    /**
+     * How many releases to return, at most 100.
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number
+    /**
+     * Part of the release name to match.
      * @maxLength 200
      */
     search?: string

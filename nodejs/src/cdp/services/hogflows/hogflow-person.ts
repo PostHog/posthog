@@ -8,6 +8,7 @@ export type HogFlowPersonLookup = {
     id: string
     kind: 'distinct_id' | 'person_id'
     forceFresh: boolean
+    requiredProperties?: string[]
 }
 
 type PersonReader = Pick<PersonsManagerService, 'getCyclotronPerson'>
@@ -82,6 +83,7 @@ export async function loadHogFlowPerson(
 ): Promise<CyclotronPerson | undefined> {
     const person = await persons.getCyclotronPerson(hogFlow.team_id, lookup.id, lookup.kind, {
         forceFresh: lookup.forceFresh,
+        requiredProperties: lookup.requiredProperties,
     })
     return personForFlow(hogFlow, person)
 }

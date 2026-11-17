@@ -246,7 +246,7 @@ from posthog.query_scan.trigger import (
     maybe_trigger_query_scan,
 )
 from posthog.schema_helpers import to_dict
-from posthog.scopes import API_SCOPE_OBJECTS, APIScopeObject
+from posthog.scopes.catalog import API_SCOPE_OBJECTS, APIScopeObject
 from posthog.shared_link_user import SharedLinkUser
 from posthog.slo.context import JsonValue, SloSpec, slo_operation, tag_current_slo
 from posthog.slo.types import SloArea, SloOperation, SloOutcome
@@ -2260,7 +2260,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
     def _query_json_with_events_schema(self) -> dict[str, Any]:
         query_json = self.query.model_dump()
         # A query that reads no events table needs no pin, and pure Trino rejects modifiers the caller did not set.
-        if self.modifiers.useNewEventsSchema and self._reads_events_route():
+        if self.modifiers.useNewEventsSchema is not None and self._reads_events_route():
             return with_pinned_events_route(query_json, self.modifiers)
         return query_json
 
