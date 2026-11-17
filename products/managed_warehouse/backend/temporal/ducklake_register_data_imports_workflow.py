@@ -763,6 +763,41 @@ def _hoglake_landing_uri(
     )
 
 
+def _finish_prepared_registration(
+    inputs: DuckLakeRegisterDataImportsActivityInputs,
+    *,
+    published: bool,
+    row_count: int,
+    landing_uri: str,
+    landing_paths: list[str],
+    copied_bytes: int,
+    schema_id: str,
+    logger: typing.Any,
+    message: str,
+    table_field: str,
+) -> bool:
+    if not published:
+        _delete_trino_landing_files(landing_uri, logger=logger)
+        _record_stale_generation_skip(team_id=inputs.team_id, schema_id=schema_id, logger=logger)
+        return False
+
+    _record_registration_metrics(
+        team_id=inputs.team_id,
+        schema_id=schema_id,
+        file_count=len(landing_paths),
+        row_count=row_count,
+        copied_bytes=copied_bytes,
+    )
+    metadata = inputs.metadata
+    logger.info(
+        message,
+        **{table_field: f"{metadata.ducklake_schema_name}.{metadata.ducklake_table_name}"},
+        file_count=len(landing_paths),
+        landing_uri=landing_uri,
+    )
+    return True
+
+
 def _copy_and_register_in_hoglake(
     inputs: DuckLakeRegisterDataImportsActivityInputs,
     *,
@@ -819,25 +854,18 @@ def _copy_and_register_in_hoglake(
             if not add_files_started:
                 _delete_trino_landing_files(landing_uri, logger=logger)
             raise
-        if not result.published:
-            _delete_trino_landing_files(landing_uri, logger=logger)
-            _record_stale_generation_skip(team_id=inputs.team_id, schema_id=schema_id, logger=logger)
-            return False
-
-        _record_registration_metrics(
-            team_id=inputs.team_id,
-            schema_id=schema_id,
-            file_count=len(landing_paths),
+        return _finish_prepared_registration(
+            inputs,
+            published=result.published,
             row_count=result.row_count,
-            copied_bytes=copied_bytes,
-        )
-        logger.info(
-            "Copied and registered prepared Parquet files in hoglake",
-            hoglake_table=f"{metadata.ducklake_schema_name}.{metadata.ducklake_table_name}",
-            file_count=len(landing_paths),
             landing_uri=landing_uri,
+            landing_paths=landing_paths,
+            copied_bytes=copied_bytes,
+            schema_id=schema_id,
+            logger=logger,
+            message="Copied and registered prepared Parquet files in hoglake",
+            table_field="hoglake_table",
         )
-        return True
 
 
 def _copy_and_register_in_gigahog(
@@ -893,25 +921,18 @@ def _copy_and_register_in_gigahog(
             if not commit_started:
                 _delete_trino_landing_files(landing_uri, logger=logger)
             raise
-        if not result.published:
-            _delete_trino_landing_files(landing_uri, logger=logger)
-            _record_stale_generation_skip(team_id=inputs.team_id, schema_id=schema_id, logger=logger)
-            return False
-
-        _record_registration_metrics(
-            team_id=inputs.team_id,
-            schema_id=schema_id,
-            file_count=len(landing_paths),
+        return _finish_prepared_registration(
+            inputs,
+            published=result.published,
             row_count=result.row_count,
-            copied_bytes=copied_bytes,
-        )
-        logger.info(
-            "Copied prepared Parquet files to Gigahog and committed them",
-            gigahog_table=f"{metadata.ducklake_schema_name}.{metadata.ducklake_table_name}",
-            file_count=len(landing_paths),
             landing_uri=landing_uri,
+            landing_paths=landing_paths,
+            copied_bytes=copied_bytes,
+            schema_id=schema_id,
+            logger=logger,
+            message="Copied prepared Parquet files to Gigahog and committed them",
+            table_field="gigahog_table",
         )
-        return True
 
 
 def _copy_and_register_through_trino(
