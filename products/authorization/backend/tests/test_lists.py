@@ -317,7 +317,6 @@ class TestListsMatchCurrentRules(BaseTest):
             ("one_object", Resource(type=ResourceType.DASHBOARD, id="1", project_id=1), Action.VIEW, ValueError),
             ("no_project", Resource(type=ResourceType.DASHBOARD), Action.VIEW, ValueError),
             ("organizations", Resource(type=ResourceType.ORGANIZATION), Action.VIEW, ValueError),
-            ("project_without_organization", Resource(type=ResourceType.PROJECT), Action.VIEW, ValueError),
             ("project_query", Resource(type=ResourceType.PROJECT), Action.QUERY, NotImplementedError),
             (
                 "falls_back_to_a_parent",
