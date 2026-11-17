@@ -124,6 +124,14 @@ class SignalSourceTableConfig(BaseModel):
             )
         return self
 
+    @property
+    def partition_expression(self) -> str:
+        """HogQL for the record time that bounds a fetch window."""
+        # toString() keeps the parse valid when the warehouse stored the column as a native timestamp.
+        if self.partition_field_is_datetime_string:
+            return f"parseDateTimeBestEffort(toString({self.partition_field}))"
+        return self.partition_field
+
 
 # Registry mapping (source_type, schema_name) -> config
 _SIGNAL_TABLE_CONFIGS: dict[tuple[str, str], SignalSourceTableConfig] = {}
