@@ -393,6 +393,8 @@ const EMAIL_RECIPIENT_TOOLS: ReadonlyMap<string, EmailRecipientExposure> = new M
     ['opt-outs-list', 'arguments-and-result'],
     ['opt-outs-remove', 'arguments-and-result'],
     ['opt-outs-add', 'arguments'],
+    ['suppressions-list', 'arguments-and-result'],
+    ['suppressions-remove', 'arguments-and-result'],
     ['suppressions-add', 'arguments'],
 ])
 
