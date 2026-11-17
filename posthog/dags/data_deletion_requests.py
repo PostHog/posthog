@@ -2448,7 +2448,8 @@ def mark_deletion_failed(context: dagster.HookContext) -> None:
     # other property removals on the team waiting. A later run may follow an attempt that staged a copy
     # stamped with that marker, so it keeps the marker.
     if context.op.name in {"load_property_removal_request", "get_property_removal_shards"}:
-        failed.filter(attempt_count=1).update(property_removal_marker=None)
+        # A duplicate run's load refuses the request without recording itself, so it never matches the run id.
+        failed.filter(attempt_count=1, last_dagster_run_id=context.run_id).update(property_removal_marker=None)
     failed.update(status=RequestStatus.FAILED, updated_at=timezone.now())
 
     context.log.error(f"Deletion request {request_id} marked as failed.")

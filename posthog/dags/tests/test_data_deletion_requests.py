@@ -2343,15 +2343,30 @@ def test_a_property_removal_waits_for_an_unfinished_one_on_the_same_team(cluster
 
 
 @pytest.mark.django_db
-@pytest.mark.parametrize("earlier_attempts, marker_kept", [(0, False), (1, True)])
+@pytest.mark.parametrize(
+    "state, marker_kept",
+    [
+        ({"attempt_count": 0}, False),
+        ({"attempt_count": 1}, True),
+        # A duplicate run's load refuses the request that a first run is still working on.
+        (
+            {
+                "attempt_count": 1,
+                "status": RequestStatus.IN_PROGRESS,
+                "property_removal_marker": datetime.now(UTC),
+                "last_dagster_run_id": "active-run",
+            },
+            True,
+        ),
+    ],
+    ids=["first_run", "later_run", "duplicate_of_an_active_first_run"],
+)
 def test_a_first_run_that_fails_before_staging_releases_the_team(
-    cluster: ClickhouseCluster, earlier_attempts: int, marker_kept: bool
+    cluster: ClickhouseCluster, state: dict, marker_kept: bool
 ):
     # A first run that fails before the copy has staged nothing, so its marker would only block the team.
     # A later run may follow an attempt that staged a copy, which needs the marker it was stamped with.
-    request = _property_removal_request(
-        start_time=datetime.now(UTC) - timedelta(days=7), attempt_count=earlier_attempts
-    )
+    request = _property_removal_request(start_time=datetime.now(UTC) - timedelta(days=7), **state)
 
     with patch(
         "posthog.dags.data_deletion_requests._refuse_property_removal_unsweepable",

@@ -469,11 +469,12 @@ def verify(request: HttpRequest, obj: Model, form: forms.Form | None) -> HttpRes
             f"{obj.get_status_display().lower()}. Verify again after the next scheduled deletion.",
         )
         return None
-    # A property removal's run can start during the count. The update checks for one again.
+    # A property removal's run can start during the count. The update checks for one again on the row itself,
+    # because Postgres rechecks only the updated row's own columns after it waits for the run's row lock.
     promoted = (
         DataDeletionRequest.objects.filter(pk=obj.pk, **_criteria_lookup(revision))
         .exclude(status=RequestStatus.COMPLETED)
-        .exclude(pk__in=unfinished_property_removals().values("pk"))
+        .exclude(request_type=RequestType.PROPERTY_REMOVAL, property_removal_marker__isnull=False)
         .update(status=RequestStatus.COMPLETED, updated_at=timezone.now())
     )
     if promoted:
