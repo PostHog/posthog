@@ -14,8 +14,9 @@ def sequential_proportion_test(
     because the test keeps its false positive rate at `alpha` however often it looks.
 
     Returns None when the test can't run: a group has fewer than 5 trials, or both groups are at 0%, or both at 100%,
-    so there is no variance. When one group is at 0% and the other at 100%, the test runs on the counts with one
-    success and one failure added to each group, so the result is not exactly 100% against 0%.
+    so there is no variance. When one group is at 0% and the other at 100%, the pooled variance is also zero, so the
+    test runs on the counts with one success and one failure added to each group (Agresti-Caffo). The result is then
+    not exactly 100% against 0%.
 
     Raises ValueError when trials or successes are negative, successes exceed trials, or `alpha` is not between 0
     and 1."""
@@ -28,8 +29,6 @@ def sequential_proportion_test(
         # Checked on the real counts, because the pseudo counts below add two trials to each group.
         validate_sample_sizes(treatment_stat, control_stat)
         if _completely_separated(treatment, control):
-            # Each group alone has zero variance, so the pooled variance is zero although the groups differ as much
-            # as they can. One pseudo success and one pseudo failure per group (Agresti-Caffo) give the test a variance.
             treatment_stat = ProportionStatistic(n=treatment.trials + 2, sum=treatment.successes + 1)
             control_stat = ProportionStatistic(n=control.trials + 2, sum=control.successes + 1)
         result = test.run_test(treatment_stat, control_stat, DifferenceType.ABSOLUTE)
