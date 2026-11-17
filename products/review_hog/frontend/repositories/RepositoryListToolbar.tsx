@@ -2,9 +2,10 @@ import { useActions, useValues } from 'kea'
 
 import { LemonSelect } from '@posthog/lemon-ui'
 
+import { RepositoryListFilters } from 'lib/components/RepositoryList/RepositoryListFilters'
+
 import { CodeReviewRepositoryOverviewRetrieveView } from 'products/review_hog/frontend/generated/api.schemas'
 
-import { RepositoryListFilters } from './RepositoryListFilters'
 import { reviewHogProjectSettingsLogic } from './reviewHogProjectSettingsLogic'
 import { reviewHogRepositoriesLogic } from './reviewHogRepositoriesLogic'
 

@@ -1,8 +1,9 @@
 import { useActions, useValues } from 'kea'
 
+import { RepositoryPageControls } from 'lib/components/RepositoryList/RepositoryPageControls'
+
 import { CodeReviewRepositoryOverviewRetrieveView } from 'products/review_hog/frontend/generated/api.schemas'
 
-import { RepositoryPageControls } from './RepositoryPageControls'
 import { REPOSITORIES_PAGE_SIZE, reviewHogRepositoriesLogic } from './reviewHogRepositoriesLogic'
 
 export function RepositoryListPager(): JSX.Element | null {

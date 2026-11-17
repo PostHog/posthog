@@ -3,9 +3,10 @@ import { useActions, useValues } from 'kea'
 import { IconGithub } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonSelect, LemonSkeleton } from '@posthog/lemon-ui'
 
+import { GitHubAccountCard } from 'lib/components/RepositoryList/GitHubAccountCard'
+
 import type { ReviewInstallationApi } from 'products/review_hog/frontend/generated/api.schemas'
 
-import { GitHubAccountCard } from './GitHubAccountCard'
 import { projectName } from './repositoryChoices'
 import { ClaimScopeChoice, reviewHogProjectSettingsLogic } from './reviewHogProjectSettingsLogic'
 import { reviewHogRepositoriesLogic } from './reviewHogRepositoriesLogic'

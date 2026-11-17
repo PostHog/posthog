@@ -5,7 +5,8 @@ import { urls } from 'scenes/urls'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import { stamphogSceneLogic } from './stamphogSceneLogic'
+import type { CodeReviewApprovalRepositoryApi } from '../../generated/api.schemas'
+import { REPOS_PAGE_SIZE, stamphogSceneLogic } from './stamphogSceneLogic'
 
 describe('stamphogSceneLogic', () => {
     let logic: ReturnType<typeof stamphogSceneLogic.build>
@@ -51,5 +52,42 @@ describe('stamphogSceneLogic', () => {
         expect(logic.values.digestHistoryOpen).toBe(true)
         router.actions.push(urls.codeReview(), { tab: 'approval_settings' })
         expect(logic.values.digestHistoryOpen).toBe(false)
+    })
+
+    it('moves back a page when an update empties the last page of the filtered list', () => {
+        const repos = Array.from(
+            { length: REPOS_PAGE_SIZE + 1 },
+            (_, index) =>
+                ({
+                    id: `repo-${index}`,
+                    repository: `example-org/repo-${index}`,
+                    enabled: true,
+                }) as CodeReviewApprovalRepositoryApi
+        )
+        logic.actions.loadRepoConfigsSuccess(repos)
+        logic.actions.setRepoView('approving')
+        logic.actions.setRepoPage(1)
+        expect(logic.values.visibleRepoConfigs).toHaveLength(1)
+
+        logic.actions.loadRepoConfigsSuccess(
+            repos.map((repo, index) => (index === REPOS_PAGE_SIZE ? { ...repo, enabled: false } : repo))
+        )
+        expect(logic.values.repoPage).toBe(0)
+        expect(logic.values.visibleRepoConfigs).toHaveLength(REPOS_PAGE_SIZE)
+    })
+
+    it('checks only a few owners files at once', () => {
+        logic.actions.loadRepoConfigsSuccess(
+            Array.from(
+                { length: 10 },
+                (_, index) =>
+                    ({
+                        id: `repo-${index}`,
+                        repository: `example-org/repo-${index}`,
+                        enabled: true,
+                    }) as CodeReviewApprovalRepositoryApi
+            )
+        )
+        expect(Object.values(logic.values.ownersFileChecks).filter((status) => status === 'checking')).toHaveLength(4)
     })
 })

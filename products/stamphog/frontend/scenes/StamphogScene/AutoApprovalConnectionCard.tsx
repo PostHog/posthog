@@ -3,7 +3,7 @@ import { useActions, useValues } from 'kea'
 import { IconGithub, IconRefresh } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
 
-import { GitHubAccountCard } from 'products/review_hog/frontend/repositories/GitHubAccountCard'
+import { GitHubAccountCard } from 'lib/components/RepositoryList/GitHubAccountCard'
 
 import { stamphogSceneLogic } from './stamphogSceneLogic'
 

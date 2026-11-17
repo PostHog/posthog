@@ -1,6 +1,6 @@
-import { AccessControlLevel } from '~/types'
+import type { DotState } from 'lib/components/RepositoryList/StateDot'
 
-import type { DotState } from 'products/review_hog/frontend/repositories/StateDot'
+import { AccessControlLevel } from '~/types'
 
 import {
     ReviewModeEnumApi,

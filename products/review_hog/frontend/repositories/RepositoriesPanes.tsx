@@ -2,12 +2,13 @@ import { useActions, useValues } from 'kea'
 
 import { LemonBanner, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
 
+import { PANE_LEFT, PANE_RIGHT, PANE_ROW } from 'lib/components/RepositoryList/paneClasses'
+import { RepositoryColumnHeaders } from 'lib/components/RepositoryList/RepositoryColumnHeaders'
+
 import type { ReviewRepositoryOverviewEntryApi } from 'products/review_hog/frontend/generated/api.schemas'
 
 import { MyDefaultCell } from './MyDefaultCell'
-import { PANE_LEFT, PANE_RIGHT, PANE_ROW } from './paneClasses'
 import { ProjectRuleCell } from './ProjectRuleCell'
-import { RepositoryColumnHeaders } from './RepositoryColumnHeaders'
 import { RepositoryFoldRow } from './RepositoryFoldRow'
 import { RepositoryListPager } from './RepositoryListPager'
 import { RepositoryListToolbar } from './RepositoryListToolbar'

@@ -3,9 +3,8 @@ import { useActions, useValues } from 'kea'
 import { LemonSelect, Tooltip } from '@posthog/lemon-ui'
 
 import { EditableField } from 'lib/components/EditableField/EditableField'
+import { StateDot } from 'lib/components/RepositoryList/StateDot'
 import { toAccessControlLevel } from 'lib/utils/accessControlUtils'
-
-import { StateDot } from 'products/review_hog/frontend/repositories/StateDot'
 
 import { type CodeReviewApprovalRepositoryApi } from '../../generated/api.schemas'
 import {

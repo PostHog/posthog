@@ -3,7 +3,7 @@ import { useActions, useValues } from 'kea'
 import { IconPlus } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonInputSelect } from '@posthog/lemon-ui'
 
-import { PANE_LEFT, PANE_ROW } from 'products/review_hog/frontend/repositories/paneClasses'
+import { PANE_LEFT, PANE_ROW } from 'lib/components/RepositoryList/paneClasses'
 
 import { editorDisabledReason } from './repoAccess'
 import { stamphogSceneLogic } from './stamphogSceneLogic'

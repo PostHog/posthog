@@ -1,6 +1,6 @@
-import type { AutomaticFlashForEnumApi } from 'products/review_hog/frontend/generated/api.schemas'
+import { DotState, StateDot } from 'lib/components/RepositoryList/StateDot'
 
-import { DotState, StateDot } from './StateDot'
+import type { AutomaticFlashForEnumApi } from 'products/review_hog/frontend/generated/api.schemas'
 
 const RULE_DOT_STATE: Record<AutomaticFlashForEnumApi, DotState> = {
     everyone: 'on',

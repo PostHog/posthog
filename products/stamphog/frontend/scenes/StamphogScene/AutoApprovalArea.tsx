@@ -3,12 +3,12 @@ import { useActions, useValues } from 'kea'
 import { IconClock } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
 
-import { SceneSection } from '~/layout/scenes/components/SceneSection'
+import { PANE_LEFT, PANE_ROW } from 'lib/components/RepositoryList/paneClasses'
+import { RepositoryColumnHeaders } from 'lib/components/RepositoryList/RepositoryColumnHeaders'
+import { RepositoryListFilters } from 'lib/components/RepositoryList/RepositoryListFilters'
+import { RepositoryPageControls } from 'lib/components/RepositoryList/RepositoryPageControls'
 
-import { PANE_LEFT, PANE_ROW } from 'products/review_hog/frontend/repositories/paneClasses'
-import { RepositoryColumnHeaders } from 'products/review_hog/frontend/repositories/RepositoryColumnHeaders'
-import { RepositoryListFilters } from 'products/review_hog/frontend/repositories/RepositoryListFilters'
-import { RepositoryPageControls } from 'products/review_hog/frontend/repositories/RepositoryPageControls'
+import { SceneSection } from '~/layout/scenes/components/SceneSection'
 
 import { type CodeReviewApprovalRepositoryApi } from '../../generated/api.schemas'
 import { DigestHistoryModal } from '../StamphogDigestsScene/DigestHistoryModal'
@@ -123,11 +123,13 @@ function RepositoryPager(): JSX.Element | null {
 }
 
 function RepositoriesTable(): JSX.Element | null {
-    const { repoConfigs, repoConfigsLoading, repoSearch, repoView, hasInstallation } = useValues(stamphogSceneLogic)
+    const { repoConfigs, repoConfigsLoading, repoConfigsFailed, repoSearch, repoView, hasInstallation } =
+        useValues(stamphogSceneLogic)
     const { setRepoSearch, setRepoView, openDigestHistory } = useActions(stamphogSceneLogic)
 
     // Without the app nothing can be added, and the connection card above says how to install it.
-    if (hasInstallation === false && repoConfigs.length === 0 && !repoConfigsLoading) {
+    // A failed load keeps the table, because its rows hold the error and the retry.
+    if (hasInstallation === false && repoConfigs.length === 0 && !repoConfigsLoading && !repoConfigsFailed) {
         return null
     }
 

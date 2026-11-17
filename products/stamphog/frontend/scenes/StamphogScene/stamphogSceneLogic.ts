@@ -50,6 +50,7 @@ export type OwnersFileCheck = OwnersFileStatusEnumApi | 'checking'
 export type RepoView = 'all' | 'approving' | 'paused' | 'not_added'
 
 export const REPOS_PAGE_SIZE = 25
+const OWNERS_FILE_CHECKS_IN_FLIGHT = 4
 
 function sortByRepository(repos: CodeReviewApprovalRepositoryApi[]): CodeReviewApprovalRepositoryApi[] {
     return [...repos].sort((a, b) => a.repository.localeCompare(b.repository))
@@ -106,6 +107,7 @@ export interface stamphogSceneLogicValues {
     repoSearch: string
     repoView: RepoView
     repositoryToAdd: string | null
+    requestedRepoPage: number
     savingTriggerLabelRepoIds: string[]
     skippedRepos: readonly string[]
     stamphogAccessLevel: AccessControlLevel | undefined
@@ -323,6 +325,7 @@ export interface stamphogSceneLogicMeta {
             repoView: RepoView
         ) => CodeReviewApprovalRepositoryApi[]
         repoPageCount: (filteredRepoConfigs: CodeReviewApprovalRepositoryApi[]) => number
+        repoPage: (requestedRepoPage: any, repoPageCount: number) => number
         visibleRepoConfigs: (
             filteredRepoConfigs: CodeReviewApprovalRepositoryApi[],
             repoPage: number
@@ -496,7 +499,7 @@ export const stamphogSceneLogic = kea<stamphogSceneLogicType>([
         // A search or a chip that hides the added repository has to go, so the new row shows.
         repoSearch: ['', { setRepoSearch: (_, { search }) => search, addRepositorySuccess: () => '' }],
         repoView: ['all' as RepoView, { setRepoView: (_, { view }) => view, addRepositorySuccess: () => 'all' }],
-        repoPage: [
+        requestedRepoPage: [
             0,
             {
                 setRepoPage: (_, { page }) => page,
@@ -681,6 +684,12 @@ export const stamphogSceneLogic = kea<stamphogSceneLogicType>([
             (filteredRepoConfigs: CodeReviewApprovalRepositoryApi[]): number =>
                 Math.ceil(filteredRepoConfigs.length / REPOS_PAGE_SIZE),
         ],
+        // Pausing or removing the last row of the last page shrinks the list under the requested page.
+        repoPage: [
+            (s) => [s.requestedRepoPage, s.repoPageCount],
+            (requestedRepoPage: number, repoPageCount: number): number =>
+                Math.min(requestedRepoPage, Math.max(0, repoPageCount - 1)),
+        ],
         visibleRepoConfigs: [
             (s) => [s.filteredRepoConfigs, s.repoPage],
             (
@@ -739,10 +748,17 @@ export const stamphogSceneLogic = kea<stamphogSceneLogicType>([
             }
         },
         // Each row shows the owners.yaml state under its reviewer requests, so the rows on screen ask for it.
+        // Each check reads GitHub on the server, so only a few run at once. A finished check starts the
+        // next one, and a row that is no longer visible is never queued.
         checkVisibleOwnersFiles: () => {
+            let inFlight = Object.values(values.ownersFileChecks).filter((status) => status === 'checking').length
             for (const repo of values.visibleRepoConfigs) {
+                if (inFlight >= OWNERS_FILE_CHECKS_IN_FLIGHT) {
+                    return
+                }
                 if (values.ownersFileChecks[repo.id] === undefined) {
                     actions.checkOwnersFile(repo.id)
+                    inFlight++
                 }
             }
         },
@@ -750,6 +766,7 @@ export const stamphogSceneLogic = kea<stamphogSceneLogicType>([
         setRepoSearch: () => actions.checkVisibleOwnersFiles(),
         setRepoView: () => actions.checkVisibleOwnersFiles(),
         setRepoPage: () => actions.checkVisibleOwnersFiles(),
+        ownersFileChecked: () => actions.checkVisibleOwnersFiles(),
         checkOwnersFile: async ({ id }) => {
             try {
                 const response = await codeReviewApprovalsRepositoriesOwnersFileRetrieve(

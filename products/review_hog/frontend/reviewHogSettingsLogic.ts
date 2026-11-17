@@ -54,7 +54,7 @@ import {
 import { llmSkillsList, llmSkillsNameDuplicateCreate } from 'products/skills/frontend/generated/api'
 import type { LLMSkillListApi } from 'products/skills/frontend/generated/api.schemas'
 
-import { CodeReviewTab, codeReviewTabFromSearchParams, defaultCodeReviewTab } from './codeReviewTabs'
+import { CodeReviewTab, codeReviewTabFromSearchParams, defaultCodeReviewTab, isReviewTab } from './codeReviewTabs'
 
 export type ReviewSkillKind = 'perspective' | 'blind_spots' | 'validator' | 'resolution'
 
@@ -292,6 +292,7 @@ export interface reviewHogSettingsLogicValues {
     pipelineDetailOpen: boolean
     resolutionSkills: ReviewResolutionConfigApi[] | null
     resolutionSkillsLoading: boolean
+    reviewDataRequested: boolean
     reviewDetail: ReviewDetailApi | null
     reviewDetailLoading: boolean
     reviewDrawerOpen: boolean
@@ -1011,6 +1012,14 @@ export const reviewHogSettingsLogic = kea<reviewHogSettingsLogicType>([
                 setActiveTab: (_, { tab }) => tab,
             },
         ],
+        // The auto-approval tabs share this logic but read none of the review data, so it loads on the
+        // first visit to a review tab.
+        reviewDataRequested: [
+            false,
+            {
+                loadAll: () => true,
+            },
+        ],
         reviewDrawerTab: [
             'published' as ReviewDrawerTab,
             {
@@ -1515,6 +1524,20 @@ export const reviewHogSettingsLogic = kea<reviewHogSettingsLogicType>([
         setReviewsStatus: () => actions.loadReviews(),
         setReviewsPublished: () => actions.loadReviews(),
         clearReviewsFilters: () => actions.loadReviews(),
+        setActiveTab: ({ tab }) => {
+            if (!values.reviewsEnabled || !isReviewTab(tab)) {
+                return
+            }
+            if (!values.reviewDataRequested) {
+                actions.loadAll()
+                return
+            }
+            // A repository added on Approval settings changes `approval_connected`, which the Inbox
+            // section reads.
+            if (tab === 'settings') {
+                actions.loadSettings()
+            }
+        },
         loadAll: () => {
             actions.loadSettings()
             actions.loadPerspectives()
@@ -1882,7 +1905,10 @@ export const reviewHogSettingsLogic = kea<reviewHogSettingsLogicType>([
         if (!values.reviewsEnabled) {
             return
         }
-        actions.loadAll()
+        // urlToAction has already set the tab from the URL here.
+        if (isReviewTab(values.activeTab)) {
+            actions.loadAll()
+        }
         // One immediate list check on tab return. The poll's own interval is paused while hidden
         // and resumes with a full interval still to wait, which reads as stale exactly when the
         // user looks. Registered non-pausing: a paused listener is re-attached during the same
@@ -1891,7 +1917,7 @@ export const reviewHogSettingsLogic = kea<reviewHogSettingsLogicType>([
         cache.disposables.add(
             () => {
                 const onVisibilityChange = (): void => {
-                    if (!document.hidden) {
+                    if (!document.hidden && values.reviewDataRequested) {
                         actions.loadReviews()
                     }
                 }

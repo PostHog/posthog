@@ -512,6 +512,27 @@ describe('reviewHogSettingsLogic', () => {
         expect(router.values.searchParams.code).toBe('example-code')
     })
 
+    it('loads review data on the first visit to a review tab, not on an approval tab', async () => {
+        router.actions.push(urls.codeReview(), { tab: 'approval_settings' })
+        await expectLogic(logic, () => {
+            logic.mount()
+        }).toNotHaveDispatchedActions(['loadAll'])
+
+        await expectLogic(logic, () => {
+            logic.actions.setActiveTab('settings')
+        }).toDispatchActions(['loadAll'])
+        await expectLogic(logic, () => {
+            logic.actions.setActiveTab('activity')
+        }).toNotHaveDispatchedActions(['loadAll'])
+
+        await expectLogic(logic, () => {
+            logic.actions.setActiveTab('approval_settings')
+            logic.actions.setActiveTab('settings')
+        })
+            .toDispatchActions(['loadSettings'])
+            .toNotHaveDispatchedActions(['loadAll'])
+    })
+
     it('opens Approval settings and loads no review data without the review-hog flag', async () => {
         featureFlagLogic.actions.setFeatureFlags([], {})
         router.actions.push(urls.codeReview(), { tab: 'settings', review: 'r-9' })
