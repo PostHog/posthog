@@ -1,8 +1,7 @@
 import { useActions, useValues } from 'kea'
 
-import { Spinner } from '@posthog/lemon-ui'
-
 import { DashboardRefreshButton } from 'lib/components/DashboardRefreshButton/DashboardRefreshButton'
+import { DashboardRefreshProgress } from 'lib/components/DashboardRefreshButton/DashboardRefreshProgress'
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
@@ -11,7 +10,6 @@ import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { Scene } from 'scenes/sceneTypes'
 
 import { DashboardActivitySummary } from './DashboardActivitySummary'
-import { QuillDashboardRefreshProgress } from './QuillDashboardRefreshProgress'
 import { QuillLastRefreshText } from './QuillLastRefreshText'
 
 export const LastRefreshText = (): JSX.Element => {
@@ -28,28 +26,25 @@ export const LastRefreshText = (): JSX.Element => {
     )
 }
 
-/** Loading / progress / pessimistic last refresh — same as the left side of `DashboardReloadAction`, without refresh controls. */
-export function DashboardRefreshStatusText(): JSX.Element {
-    const { itemsLoading, refreshMetrics, dashboardLoadData } = useValues(dashboardLogic)
-    const isInitialLoad =
+function DashboardLogicRefreshProgress(): JSX.Element {
+    const { refreshMetrics, dashboardLoadData } = useValues(dashboardLogic)
+    const initialLoad =
         dashboardLoadData?.action === 'initial_load' || dashboardLoadData?.action === 'initial_load_with_variables'
     return (
+        <DashboardRefreshProgress
+            completed={refreshMetrics.completed}
+            total={refreshMetrics.total}
+            initialLoad={initialLoad}
+        />
+    )
+}
+
+/** Loading / progress / pessimistic last refresh — same as the left side of `DashboardReloadAction`, without refresh controls. */
+export function DashboardRefreshStatusText(): JSX.Element {
+    const { itemsLoading } = useValues(dashboardLogic)
+    return (
         <span className="text-muted text-sm whitespace-nowrap">
-            {itemsLoading ? (
-                <span className="flex items-center gap-1">
-                    <Spinner textColored className="text-sm" />
-                    {refreshMetrics.total ? (
-                        <>
-                            {isInitialLoad ? 'Loaded' : 'Refreshed'} {refreshMetrics.completed} out of{' '}
-                            {refreshMetrics.total}
-                        </>
-                    ) : (
-                        <>{isInitialLoad ? 'Loading' : 'Refreshing'}...</>
-                    )}
-                </span>
-            ) : (
-                <LastRefreshText />
-            )}
+            {itemsLoading ? <DashboardLogicRefreshProgress /> : <LastRefreshText />}
         </span>
     )
 }
@@ -98,7 +93,7 @@ export function DashboardReloadAction(): JSX.Element {
             <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 sm:flex-nowrap">
                 {activitySummary}
                 {itemsLoading ? (
-                    <QuillDashboardRefreshProgress />
+                    <DashboardLogicRefreshProgress />
                 ) : (
                     <QuillLastRefreshText className="@max-5xl/dashboard-filters:hidden" />
                 )}

@@ -9,6 +9,7 @@ import { organizationLogic } from 'scenes/organizationLogic'
 import { initKeaTests } from '~/test/init'
 
 import { crossProjectDashboardLogic } from './crossProjectDashboardLogic'
+import { fetchCrossProjectTile } from './crossProjectTileFetch'
 import {
     crossProjectDashboardsDestroy,
     crossProjectDashboardsPartialUpdate,
@@ -17,6 +18,8 @@ import {
     crossProjectDashboardsTilesDestroy,
     crossProjectDashboardsTilesPartialUpdate,
 } from './generated/api'
+
+jest.mock('./crossProjectTileFetch', () => ({ fetchCrossProjectTile: jest.fn() }))
 
 jest.mock('lib/lemon-ui/LemonDialog', () => ({ LemonDialog: { open: jest.fn() } }))
 
@@ -37,6 +40,7 @@ const mockedPartialUpdate = crossProjectDashboardsPartialUpdate as jest.Mock
 const mockedTilePartialUpdate = crossProjectDashboardsTilesPartialUpdate as jest.Mock
 const mockedTileCreate = crossProjectDashboardsTilesCreate as jest.Mock
 const mockedTileDestroy = crossProjectDashboardsTilesDestroy as jest.Mock
+const mockedTileFetch = fetchCrossProjectTile as jest.Mock
 
 const DASHBOARD_ID = '01a0f19d-1c44-715a-a679-188869bd033f'
 
@@ -70,6 +74,8 @@ describe('crossProjectDashboardLogic', () => {
         mockedTilePartialUpdate.mockReset()
         mockedTileCreate.mockReset()
         mockedTileDestroy.mockReset()
+        mockedTileFetch.mockReset()
+        mockedTileFetch.mockResolvedValue({ insight: { name: 'Before' }, unavailable: null })
         mockedTilePartialUpdate.mockImplementation(async (_org, _id, tileId, body) => ({
             ...TILE,
             id: tileId,
@@ -288,24 +294,68 @@ describe('crossProjectDashboardLogic', () => {
         expect(logic.values.layoutSaving).toBe(false)
     })
 
-    it('keeps the refresh running until every tile has settled or been removed', async () => {
+    // Each fetch answers when the test releases it, or null once its signal aborts, as the real fetch does.
+    const deferTileFetches = (): ((insightName: string) => void) => {
+        const pending: ((result: unknown) => void)[] = []
+        mockedTileFetch.mockImplementation(
+            (_project, _insight, _filters, { signal }) =>
+                new Promise((resolve) => {
+                    pending.push(resolve)
+                    signal.addEventListener('abort', () => resolve(null))
+                })
+        )
+        return (insightName) =>
+            pending.splice(0).forEach((resolve) => resolve({ insight: { name: insightName }, unavailable: null }))
+    }
+    const insightName = (tileId: string): string | undefined => logic.values.tileResults[tileId]?.insight?.name
+
+    it('loads each tile from its own project, and recalculates only on refresh', async () => {
         mockedRetrieve.mockImplementation(async () => ({
-            ...dashboardWith({}),
-            tiles: [TILE, { ...TILE, id: 'tile-2' }],
+            ...dashboardWith({ date_from: '-30d', interval: 'week' }),
+            tiles: [TILE, { ...TILE, id: 'tile-2', project_id: 99, filters_overrides: { date_from: '-7d' } }],
         }))
-        mockedTileDestroy.mockResolvedValue(undefined)
         await mountWith({})
-        expect(logic.values.tilesRefreshing).toBe(false)
+        expect(mockedTileFetch.mock.calls.map((call) => [call[0], call[2], call[3].refresh])).toEqual([
+            [53, { date_from: '-30d', interval: 'week' }, false],
+            [99, { date_from: '-7d', interval: 'week' }, false],
+        ])
 
-        logic.actions.refreshTiles(['tile-1', 'tile-2'])
-        expect(logic.values.refreshToken).toBe(1)
+        const release = deferTileFetches()
+        logic.actions.refreshTiles()
         expect(logic.values.tilesRefreshing).toBe(true)
+        expect(mockedTileFetch.mock.lastCall[3].refresh).toBe(true)
+        expect(insightName('tile-1')).toBe('Before')
 
-        logic.actions.tileRefreshSettled('tile-1')
-        expect(logic.values.tilesRefreshing).toBe(true)
-
-        logic.actions.removeTile('tile-2')
-        expect(logic.values.tilesRefreshing).toBe(false)
+        release('After')
         await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.tilesRefreshing).toBe(false)
+        expect(insightName('tile-2')).toBe('After')
+    })
+
+    it('cancelling a refresh stops it and keeps the last results', async () => {
+        await mountWith({})
+        deferTileFetches()
+        logic.actions.refreshTiles()
+
+        logic.actions.cancelRefresh()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.tilesRefreshing).toBe(false)
+        expect(logic.values.loadingTileIds).toEqual([])
+        expect(insightName('tile-1')).toBe('Before')
+    })
+
+    it('drops an answer for filters that changed while it loaded', async () => {
+        await mountWith({})
+        const releaseFirst = deferTileFetches()
+        logic.actions.loadDashboardSuccess(dashboardWith({ date_from: '-7d' }) as any)
+        const releaseSecond = deferTileFetches()
+        logic.actions.loadDashboardSuccess(dashboardWith({ date_from: '-14d' }) as any)
+
+        releaseSecond('Fourteen days')
+        releaseFirst('Seven days')
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(insightName('tile-1')).toBe('Fourteen days')
     })
 })

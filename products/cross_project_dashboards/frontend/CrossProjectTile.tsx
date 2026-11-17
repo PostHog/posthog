@@ -1,5 +1,5 @@
 import clsx from 'clsx'
-import React, { useEffect, useRef, useState } from 'react'
+import React from 'react'
 
 import { LemonButton, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
 
@@ -10,12 +10,9 @@ import { InsightCard, type InsightCardProps } from 'lib/components/Cards/Insight
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { InsightErrorState } from 'scenes/insights/EmptyStates/EmptyStates'
 
-import { DashboardPlacement, type DashboardTile, type InsightColor, type InsightModel } from '~/types'
+import { DashboardPlacement, type DashboardTile, type InsightColor } from '~/types'
 
-import type { CrossProjectDashboardFilters } from './crossProjectDashboardLogic'
-import type { TileUnavailableReason } from './crossProjectTileFetch'
-import { fetchCrossProjectTile } from './crossProjectTileFetch'
-import { mergeTileFilters } from './crossProjectTileFilters'
+import type { TileFetchResult, TileUnavailableReason } from './crossProjectTileFetch'
 import type { CrossProjectDashboardTileApi } from './generated/api.schemas'
 
 // The card forwards refs, but its export's type hides that, and the grid needs the ref to drag the card.
@@ -49,11 +46,9 @@ export interface CrossProjectTileProps extends React.HTMLAttributes<HTMLDivEleme
     /** True when the dashboard's tiles do not all share one time zone. */
     showTimezone?: boolean
     missingPropertyKeys?: string[]
-    dashboardFilters?: CrossProjectDashboardFilters
-    /** Changes when the reader asks for a refresh. The tile then recalculates instead of reading the cache. */
-    refreshToken?: number
-    /** Called once per requested refresh, when its fetch answers or the tile gives up on it. */
-    onRefreshSettled?: (tileId: string) => void
+    /** Missing until the tile's first load answers. */
+    result?: TileFetchResult
+    loading?: boolean
     canEnterEditModeFromEdge?: boolean
     onEnterEditModeFromEdge?: (event: React.MouseEvent<HTMLDivElement>, edge: EditModeEdge) => void
     onDragHandleMouseDown?: React.MouseEventHandler<HTMLDivElement>
@@ -69,9 +64,8 @@ function CrossProjectTileInternal(
         projectTimezone,
         showTimezone,
         missingPropertyKeys,
-        dashboardFilters,
-        refreshToken = 0,
-        onRefreshSettled,
+        result,
+        loading = false,
         canEnterEditModeFromEdge,
         onEnterEditModeFromEdge,
         onDragHandleMouseDown,
@@ -85,48 +79,8 @@ function CrossProjectTileInternal(
     }: CrossProjectTileProps,
     ref: React.ForwardedRef<HTMLDivElement>
 ): JSX.Element {
-    const [insight, setInsight] = useState<InsightModel | null>(null)
-    const [unavailable, setUnavailable] = useState<TileUnavailableReason | null>(null)
-    const [loading, setLoading] = useState(true)
-
-    const filters = mergeTileFilters(dashboardFilters, tile.filters_overrides as CrossProjectDashboardFilters)
-    // Compared by value, so a re-render that rebuilds the filters object does not refetch the tile.
-    const filtersKey = JSON.stringify(filters)
-
-    // Starts at the mounting token, so a tile added after a refresh still reads the cache.
-    const lastRefreshToken = useRef(refreshToken)
-    const onRefreshSettledRef = useRef(onRefreshSettled)
-    onRefreshSettledRef.current = onRefreshSettled
-
-    useEffect(() => {
-        // The effect also runs for a filter change, and only a new token is a request to recalculate.
-        const forceRefresh = refreshToken !== lastRefreshToken.current
-        lastRefreshToken.current = refreshToken
-        let cancelled = false
-        let settled = !forceRefresh
-        const settle = (): void => {
-            if (!settled) {
-                settled = true
-                onRefreshSettledRef.current?.(tile.id)
-            }
-        }
-        setLoading(true)
-        const parsed = filtersKey === '{}' ? undefined : JSON.parse(filtersKey)
-        void fetchCrossProjectTile(tile.project_id, tile.insight_id, parsed, forceRefresh).then((result) => {
-            settle()
-            if (cancelled) {
-                return
-            }
-            setInsight(result.insight)
-            setUnavailable(result.unavailable)
-            setLoading(false)
-        })
-        return () => {
-            cancelled = true
-            // A filter change or an unmount drops this fetch, and the dashboard must not wait on it.
-            settle()
-        }
-    }, [tile.id, tile.project_id, tile.insight_id, filtersKey, refreshToken])
+    const insight = result?.insight ?? null
+    const unavailable = result?.unavailable ?? null
 
     // Each tile answers from one project, so the project has to stay visible: without it two
     // tiles side by side read as one combined number. An unreachable insight gets no label,
@@ -156,7 +110,8 @@ function CrossProjectTileInternal(
             </span>
         ) : null
 
-    if (insight && !unavailable && !loading) {
+    // A reloading tile keeps its last result on screen, with the card's own loading state over it.
+    if (insight && !unavailable) {
         return (
             <GridInsightCard
                 ref={ref}
@@ -164,6 +119,7 @@ function CrossProjectTileInternal(
                 {...(divProps as Pick<InsightCardProps, 'style'>)}
                 className={className}
                 insight={insight}
+                loading={loading}
                 tile={asCardTile(tile)}
                 projectId={tile.project_id}
                 projectTimezone={projectTimezone}
@@ -187,7 +143,7 @@ function CrossProjectTileInternal(
     return (
         <div
             className={clsx('DashboardTileCard InsightCard border', className)}
-            data-attr={loading ? 'cross-project-tile-loading' : 'cross-project-tile-unavailable'}
+            data-attr={loading || !result ? 'cross-project-tile-loading' : 'cross-project-tile-unavailable'}
             ref={ref}
             {...divProps}
         >
@@ -202,7 +158,7 @@ function CrossProjectTileInternal(
                     ) : undefined
                 }
             />
-            {loading ? (
+            {loading || !result ? (
                 <LemonSkeleton className="flex-1 m-2" />
             ) : (
                 <InsightErrorState title={UNAVAILABLE_COPY[unavailable ?? 'failed']} excludeDetail />

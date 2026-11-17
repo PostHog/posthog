@@ -49,7 +49,8 @@ export function CrossProjectDashboardScene(): JSX.Element {
         missingPropertyKeys,
         layoutEditMode,
         gridLayouts,
-        refreshToken,
+        tileResults,
+        loadingTileIds,
     } = useValues(crossProjectDashboardLogic)
     const {
         removeTile,
@@ -62,7 +63,6 @@ export function CrossProjectDashboardScene(): JSX.Element {
         setProperties,
         updateDashboard,
         deleteDashboard,
-        tileRefreshSettled,
     } = useActions(crossProjectDashboardLogic)
     const { requestOpenModal } = useActions(addCrossProjectTileLogic({ dashboardId: dashboard?.id ?? '' }))
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
@@ -182,9 +182,8 @@ export function CrossProjectDashboardScene(): JSX.Element {
                     tiles={tiles}
                     tileProjects={tileProjects}
                     timezonesDiverge={timezonesDiverge}
-                    dashboardFilters={dashboardFilters}
-                    refreshToken={refreshToken}
-                    onTileRefreshSettled={tileRefreshSettled}
+                    tileResults={tileResults}
+                    loadingTileIds={loadingTileIds}
                     layouts={gridLayouts}
                     layoutEditMode={layoutEditMode}
                     onEnterLayoutEdit={enterLayoutEdit}

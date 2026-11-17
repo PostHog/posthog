@@ -1,11 +1,10 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, render, screen } from '@testing-library/react'
 
 import { initKeaTests } from '~/test/init'
 
 import { CrossProjectTile } from './CrossProjectTile'
-import * as tileFetch from './crossProjectTileFetch'
 import type { CrossProjectDashboardTileApi } from './generated/api.schemas'
 
 jest.mock('lib/components/Cards/InsightCard/InsightCard', () => ({
@@ -52,41 +51,49 @@ describe('CrossProjectTile', () => {
 
     afterEach(() => {
         cleanup()
-        jest.restoreAllMocks()
     })
 
-    it('renders the insight once its project answers', async () => {
-        jest.spyOn(tileFetch, 'fetchCrossProjectTile').mockResolvedValue({
-            insight: { name: 'Signups' } as any,
-            unavailable: null,
-        })
+    it('renders the insight once its project answers', () => {
+        render(
+            <CrossProjectTile
+                tile={tile()}
+                result={{
+                    insight: { name: 'Signups' } as any,
+                    unavailable: null,
+                }}
+            />
+        )
 
-        render(<CrossProjectTile tile={tile()} />)
-
-        await waitFor(() => expect(screen.getByText('Signups')).toBeInTheDocument())
+        expect(screen.getByText('Signups')).toBeInTheDocument()
     })
 
-    it('gives the insight card the tile color, so a stored color is actually shown', async () => {
-        jest.spyOn(tileFetch, 'fetchCrossProjectTile').mockResolvedValue({
-            insight: { name: 'Signups' } as any,
-            unavailable: null,
-        })
+    it('gives the insight card the tile color, so a stored color is actually shown', () => {
+        render(
+            <CrossProjectTile
+                tile={tile({ color: 'green' })}
+                result={{
+                    insight: { name: 'Signups' } as any,
+                    unavailable: null,
+                }}
+            />
+        )
 
-        render(<CrossProjectTile tile={tile({ color: 'green' })} />)
-
-        await waitFor(() => expect(screen.getByText('Signups')).toBeInTheDocument())
+        expect(screen.getByText('Signups')).toBeInTheDocument()
         expect(document.querySelector('[data-attr="insight-card"]')).toHaveAttribute('data-ribbon', 'green')
     })
 
-    it('tells the card which project the insight lives in, so its links open that project', async () => {
-        jest.spyOn(tileFetch, 'fetchCrossProjectTile').mockResolvedValue({
-            insight: { name: 'Signups' } as any,
-            unavailable: null,
-        })
+    it('tells the card which project the insight lives in, so its links open that project', () => {
+        render(
+            <CrossProjectTile
+                tile={tile({ project_id: 54 })}
+                result={{
+                    insight: { name: 'Signups' } as any,
+                    unavailable: null,
+                }}
+            />
+        )
 
-        render(<CrossProjectTile tile={tile({ project_id: 54 })} />)
-
-        await waitFor(() => expect(screen.getByText('Signups')).toBeInTheDocument())
+        expect(screen.getByText('Signups')).toBeInTheDocument()
         expect(document.querySelector('[data-attr="insight-card"]')).toHaveAttribute('data-project', '54')
     })
 
@@ -97,79 +104,59 @@ describe('CrossProjectTile', () => {
             { insight: null, unavailable: 'no-access' as const },
             '[data-attr="cross-project-tile-unavailable"]',
         ],
-    ])('puts the grid class and handles on the card itself for %s', async (_label, result, cardSelector) => {
-        jest.spyOn(tileFetch, 'fetchCrossProjectTile').mockResolvedValue(result)
-
+    ])('puts the grid class and handles on the card itself for %s', (_label, result, cardSelector) => {
         render(
-            <CrossProjectTile tile={tile()} className="react-grid-item">
+            <CrossProjectTile tile={tile()} result={result} className="react-grid-item">
                 <span data-attr="grid-resize-handle" />
             </CrossProjectTile>
         )
 
-        await waitFor(() => expect(document.querySelector(cardSelector)).toBeInTheDocument())
+        expect(document.querySelector(cardSelector)).toBeInTheDocument()
         const card = document.querySelector(cardSelector)
         expect(card).toHaveClass('react-grid-item')
         expect(card?.querySelector('[data-attr="grid-resize-handle"]')).toBeInTheDocument()
     })
 
-    it('renders an unavailable tile without a name when access is denied', async () => {
-        jest.spyOn(tileFetch, 'fetchCrossProjectTile').mockResolvedValue({
-            insight: null,
-            unavailable: 'no-access',
-        })
+    it('renders an unavailable tile without a name when access is denied', () => {
+        render(
+            <CrossProjectTile
+                tile={tile()}
+                result={{
+                    insight: null,
+                    unavailable: 'no-access',
+                }}
+                projectName="Hedgebox EU"
+            />
+        )
 
-        render(<CrossProjectTile tile={tile()} projectName="Hedgebox EU" />)
-
-        await waitFor(() => expect(screen.getByText(/do not have access/i)).toBeInTheDocument())
+        expect(screen.getByText(/do not have access/i)).toBeInTheDocument()
         expect(screen.queryByText('Signups')).not.toBeInTheDocument()
         expect(screen.queryByText('Hedgebox EU')).not.toBeInTheDocument()
     })
 
-    it('renders an unavailable tile when the insight is gone', async () => {
-        jest.spyOn(tileFetch, 'fetchCrossProjectTile').mockResolvedValue({
-            insight: null,
-            unavailable: 'not-found',
-        })
-
-        render(<CrossProjectTile tile={tile()} />)
-
-        await waitFor(() => expect(screen.getByText(/no longer exists/i)).toBeInTheDocument())
-    })
-
-    it('fetches from the tile own project, with the tile override over the dashboard filters', async () => {
-        const spy = jest
-            .spyOn(tileFetch, 'fetchCrossProjectTile')
-            .mockResolvedValue({ insight: { name: 'X' } as any, unavailable: null })
-
+    it('renders an unavailable tile when the insight is gone', () => {
         render(
             <CrossProjectTile
-                tile={tile({ project_id: 99, insight_id: 3, filters_overrides: { date_from: '-7d' } })}
-                dashboardFilters={{ date_from: '-30d', interval: 'week' }}
+                tile={tile()}
+                result={{
+                    insight: null,
+                    unavailable: 'not-found',
+                }}
             />
         )
 
-        await waitFor(() => expect(spy).toHaveBeenCalledWith(99, 3, { date_from: '-7d', interval: 'week' }, false))
+        expect(screen.getByText(/no longer exists/i)).toBeInTheDocument()
     })
 
-    it('forces a recalculation only for a new refresh token, and reports when it settles', async () => {
-        const spy = jest
-            .spyOn(tileFetch, 'fetchCrossProjectTile')
-            .mockResolvedValue({ insight: { name: 'Signups' } as any, unavailable: null })
-        const onRefreshSettled = jest.fn()
-        const props = { tile: tile(), onRefreshSettled }
+    it('keeps the insight on screen while it reloads', () => {
+        render(
+            <CrossProjectTile
+                tile={tile()}
+                result={{ insight: { name: 'Signups' } as any, unavailable: null }}
+                loading
+            />
+        )
 
-        // Mounting after an earlier refresh still reads the cache.
-        const { rerender } = render(<CrossProjectTile {...props} refreshToken={1} />)
-        await waitFor(() => expect(screen.getByText('Signups')).toBeInTheDocument())
-        expect(spy).toHaveBeenLastCalledWith(42, 7, undefined, false)
-
-        rerender(<CrossProjectTile {...props} refreshToken={2} />)
-        await waitFor(() => expect(onRefreshSettled).toHaveBeenCalledWith('tile-1'))
-        expect(spy).toHaveBeenLastCalledWith(42, 7, undefined, true)
-
-        rerender(<CrossProjectTile {...props} refreshToken={2} dashboardFilters={{ date_from: '-7d' }} />)
-        await waitFor(() => expect(spy).toHaveBeenCalledTimes(3))
-        expect(spy).toHaveBeenLastCalledWith(42, 7, { date_from: '-7d' }, false)
-        expect(onRefreshSettled).toHaveBeenCalledTimes(1)
+        expect(screen.getByText('Signups')).toBeInTheDocument()
     })
 })
