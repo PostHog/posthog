@@ -97,20 +97,21 @@ const SCOUT_RECENCY_TIMESTAMPS: Record<
     last_run: (config) => config.last_run_at,
 }
 
-// `setTimeout` fires at once when the delay is longer than this. A reset further out sets no timer,
-// so the chats stay disabled until the page reloads.
-const MAX_TIMEOUT_MS = 2 ** 31 - 1
+// A refusal persists, so it must lapse on its own. A limit can lift before its reset time, for example
+// after an upgrade, and some refusals state no reset time, so none stays longer than this.
+const SCOUT_CHAT_REFUSAL_MAX_MS = 60 * 60 * 1000
 
 export interface ScoutChatRefusal {
+    teamId: number
     reason: string
-    retryAt: number | null
+    expiresAt: number
 }
 
 /**
  * Why the server refused a scout chat, and when it may start again. Covers the daily cap and the
  * team's PostHog Desktop usage and billing limits, which refuse every scout chat until they lift.
  */
-function scoutChatRefusalFromError(error: unknown): ScoutChatRefusal | null {
+function scoutChatRefusalFromError(error: unknown, teamId: number): ScoutChatRefusal | null {
     if (!(error instanceof ApiError) || error.status !== 429) {
         return null
     }
@@ -121,8 +122,9 @@ function scoutChatRefusalFromError(error: unknown): ScoutChatRefusal | null {
         }
         const retryAt = Date.now() + seconds * 1000
         return {
+            teamId,
             reason: `You've reached today's limit for scout chats. Try again after ${formatRetryAt(retryAt)}.`,
-            retryAt,
+            expiresAt: refusalExpiresAt(retryAt),
         }
     }
     if (
@@ -133,9 +135,17 @@ function scoutChatRefusalFromError(error: unknown): ScoutChatRefusal | null {
         const message = error.data?.error || error.detail || "You've reached your PostHog Desktop usage limit."
         const resetAt = error.data?.reset_at ? dayjs(error.data.reset_at) : null
         const retryAt = resetAt?.isValid() && resetAt.isAfter(dayjs()) ? resetAt.valueOf() : null
-        return { reason: retryAt ? `${message} Try again after ${formatRetryAt(retryAt)}.` : message, retryAt }
+        return {
+            teamId,
+            reason: retryAt ? `${message} Try again after ${formatRetryAt(retryAt)}.` : message,
+            expiresAt: refusalExpiresAt(retryAt),
+        }
     }
     return null
+}
+
+function refusalExpiresAt(retryAt: number | null): number {
+    return Math.min(retryAt ?? Infinity, Date.now() + SCOUT_CHAT_REFUSAL_MAX_MS)
 }
 
 function formatRetryAt(retryAt: number): string {
@@ -1074,8 +1084,11 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                 startScoutChatTaskFailure: () => null,
             },
         ],
+        // Persisted so a refusal outlives the visit. Without it, the user who leaves the inbox and comes
+        // back can start the same refused chat again.
         scoutChatRefusal: [
             null as ScoutChatRefusal | null,
+            { persist: true },
             {
                 setScoutChatRefusal: (_, { refusal }) => refusal,
             },
@@ -1830,7 +1843,7 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                 actions.startScoutChatTaskSuccess()
                 router.actions.push(urls.taskDetail(task.task_id))
             } catch (error: any) {
-                const refusal = scoutChatRefusalFromError(error)
+                const refusal = scoutChatRefusalFromError(error, teamId)
                 captureScoutChatStartFailed({
                     chatType,
                     surface: 'fleet_list',
@@ -1841,13 +1854,6 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                 if (refusal) {
                     lemonToast.error(refusal.reason)
                     actions.setScoutChatRefusal(refusal)
-                    const { retryAt } = refusal
-                    if (retryAt !== null && retryAt - Date.now() <= MAX_TIMEOUT_MS) {
-                        cache.disposables.add(() => {
-                            const timeout = setTimeout(() => actions.setScoutChatRefusal(null), retryAt - Date.now())
-                            return () => clearTimeout(timeout)
-                        }, 'scoutChatRetry')
-                    }
                 } else {
                     lemonToast.error(error?.detail || error?.message || `Failed to start ${taskLabel}`)
                 }
@@ -1855,6 +1861,16 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
             } finally {
                 cache.chatTaskStarting = false
             }
+        },
+        setScoutChatRefusal: ({ refusal }) => {
+            if (!refusal) {
+                cache.disposables.dispose('scoutChatRetry')
+                return
+            }
+            cache.disposables.add(() => {
+                const timeout = setTimeout(() => actions.setScoutChatRefusal(null), refusal.expiresAt - Date.now())
+                return () => clearTimeout(timeout)
+            }, 'scoutChatRetry')
         },
         materializeScoutFleet: sharedListeners.syncScoutFleetIfOwed,
         // The roster can open while the first config read is still in flight. Syncing on top of it
@@ -1987,8 +2003,14 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
         }
     }),
 
-    events(({ actions }) => ({
+    events(({ actions, values }) => ({
         afterMount: () => {
+            const refusal = values.scoutChatRefusal
+            if (refusal) {
+                // A refusal read back from storage can be for another project, or can have expired while away.
+                const stillApplies = refusal.teamId === teamLogic.values.currentTeamId && refusal.expiresAt > Date.now()
+                actions.setScoutChatRefusal(stillApplies ? refusal : null)
+            }
             // Configs are cheap and the always-mounted setup widget needs them. The paginated
             // runs window is loaded + polled only while the fleet list is open (startRunsPolling).
             actions.setRosterEvaluatedAt(Date.now())

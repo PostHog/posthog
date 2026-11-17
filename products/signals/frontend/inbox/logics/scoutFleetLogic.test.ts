@@ -1,4 +1,4 @@
-import { MOCK_DEFAULT_ORGANIZATION, MOCK_DEFAULT_USER, MOCK_TEAM_ID } from 'lib/api.mock'
+import { MOCK_DEFAULT_ORGANIZATION, MOCK_DEFAULT_TEAM, MOCK_DEFAULT_USER, MOCK_TEAM_ID } from 'lib/api.mock'
 
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
@@ -763,19 +763,61 @@ describe('scoutFleetLogic', () => {
         }
     })
 
-    it('keeps scout chats disabled after a billing limit refusal with no reset time', async () => {
-        mockSignalsScoutChatTasksCreate.mockRejectedValue(
-            new ApiError('Your organization has been deactivated.', 429, new Headers(), {
-                type: 'billing_limit',
-                code: 'organization_deactivated',
-                error: 'Your organization has been deactivated.',
-            })
-        )
+    it('disables scout chats for an hour after a billing limit refusal with no reset time', async () => {
+        jest.useFakeTimers()
+        try {
+            mockSignalsScoutChatTasksCreate.mockRejectedValue(
+                new ApiError('Your organization has been deactivated.', 429, new Headers(), {
+                    type: 'billing_limit',
+                    code: 'organization_deactivated',
+                    error: 'Your organization has been deactivated.',
+                })
+            )
 
-        logic.actions.startScoutChatTask('author_scout', 'scout authoring task')
-        await expectLogic(logic).toDispatchActions(['startScoutChatTaskFailure'])
+            logic.actions.startScoutChatTask('author_scout', 'scout authoring task')
+            await jest.advanceTimersByTimeAsync(0)
+            expect(logic.values.scoutChatDisabledReason).toEqual('Your organization has been deactivated.')
 
-        expect(logic.values.scoutChatDisabledReason).toEqual('Your organization has been deactivated.')
+            await jest.advanceTimersByTimeAsync(3600 * 1000)
+            expect(logic.values.scoutChatDisabledReason).toBeNull()
+        } finally {
+            jest.useRealTimers()
+        }
+    })
+
+    it.each([
+        { project: 'the same project', teamId: MOCK_TEAM_ID, keepsRefusal: true },
+        { project: 'another project', teamId: MOCK_TEAM_ID + 1, keepsRefusal: false },
+    ])('reads a refusal back on a remount in $project', async ({ teamId, keepsRefusal }) => {
+        jest.useFakeTimers()
+        try {
+            mockSignalsScoutChatTasksCreate.mockRejectedValue(
+                new ApiError("You've reached your PostHog Desktop usage limit.", 429, new Headers(), {
+                    type: 'rate_limited',
+                    code: 'usage_limit_exceeded',
+                    error: "You've reached your PostHog Desktop usage limit.",
+                    reset_at: new Date(Date.now() + 1800 * 1000).toISOString(),
+                })
+            )
+            logic.actions.startScoutChatTask('author_scout', 'scout authoring task')
+            await jest.advanceTimersByTimeAsync(0)
+
+            // The user leaves the inbox and comes back, which unmounts and mounts the logic again.
+            logic.unmount()
+            teamLogic.actions.loadCurrentTeamSuccess({ ...MOCK_DEFAULT_TEAM, id: teamId })
+            logic = scoutFleetLogic()
+            logic.mount()
+
+            expect(logic.values.scoutChatDisabledReason !== null).toBe(keepsRefusal)
+            logic.actions.startScoutChatTask('author_scout', 'scout authoring task')
+            await jest.advanceTimersByTimeAsync(0)
+            expect(mockSignalsScoutChatTasksCreate).toHaveBeenCalledTimes(keepsRefusal ? 1 : 2)
+
+            await jest.advanceTimersByTimeAsync(1800 * 1000)
+            expect(logic.values.scoutChatDisabledReason).toBeNull()
+        } finally {
+            jest.useRealTimers()
+        }
     })
 
     it('reports roster filtering with the search length, not the term', async () => {
