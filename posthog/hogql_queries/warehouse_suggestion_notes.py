@@ -4,6 +4,7 @@ from time import perf_counter
 from typing import TYPE_CHECKING, Any, Optional
 
 import structlog
+from opentelemetry import trace
 from pydantic import BaseModel
 
 from posthog.schema import WarehouseSuggestionNote
@@ -21,6 +22,7 @@ if TYPE_CHECKING:
     from products.warehouse_suggestions.backend.facade.contracts import WarehouseSuggestionNote as ContractNote
 
 logger = structlog.get_logger(__name__)
+tracer = trace.get_tracer(__name__)
 
 FIELD = "warehouse_suggestions"
 ACCESS_TAG = "warehouse_suggestion_access"
@@ -72,9 +74,12 @@ def serve_warehouse_suggestions(
     try:
         from products.warehouse_suggestions.backend.facade.api import suggestions_for_read_views  # noqa: PLC0415
 
-        notes = suggestions_for_read_views(
-            team, user, saved_query_ids, is_mcp_run=is_mcp_run(), can_write=access == CredentialAccess.WRITE
-        )
+        with tracer.start_as_current_span(
+            "warehouse_suggestions.query_notes", attributes={"saved_query_count": len(saved_query_ids)}
+        ):
+            notes = suggestions_for_read_views(
+                team, user, saved_query_ids, is_mcp_run=is_mcp_run(), can_write=access == CredentialAccess.WRITE
+            )
         if notes is None:
             return NotesOutcome(skipped_reason=SkipReason.FLAG_OFF, elapsed_ms=_elapsed_ms(started))
         setattr(response, FIELD, [_schema_note(note) for note in notes])

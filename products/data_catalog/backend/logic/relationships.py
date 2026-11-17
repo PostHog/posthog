@@ -41,7 +41,7 @@ from posthog.models import Team, User
 from products.data_tools.backend.facade.models import DataWarehouseJoin
 
 from ..facade.enums import RelationshipStatus
-from ..metrics import record_relationship_probe, relationship_probe_outcome_for
+from ..metrics import DatabaseBuildTrigger, record_relationship_probe, relationship_probe_outcome_for
 from ..models import RelationshipProposal
 from .analytics import (
     RELATIONSHIP_ACCEPTED_EVENT,
@@ -73,7 +73,7 @@ def _canonicalize_join_key(key: str) -> str:
 
 
 def _validate_tables_exist(team: Team, user: Optional[User], *table_names: str) -> None:
-    database = Database.create_for(team_id=team.id, user=user)
+    database = Database.create_for(team_id=team.id, user=user, trigger=DatabaseBuildTrigger.RELATIONSHIP_TABLES)
     for name in table_names:
         if not database.has_table(name):
             raise ValidationError({"table": f"Table '{name}' not found. Check system.information_schema.tables."})
@@ -188,7 +188,7 @@ def _probe_join(
 def _execute_probe(
     proposal: RelationshipProposal, user: Optional[User], *, existing_join: Optional[DataWarehouseJoin]
 ) -> None:
-    database = Database.create_for(team_id=proposal.team_id, user=user)
+    database = Database.create_for(team_id=proposal.team_id, user=user, trigger=DatabaseBuildTrigger.RELATIONSHIP_PROBE)
     from_field = get_join_field_chain(proposal.source_table_key)
     to_field = get_join_field_chain(proposal.joining_table_key)
     if from_field is None or to_field is None:
