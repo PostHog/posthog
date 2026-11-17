@@ -353,6 +353,7 @@ export async function evaluate(input: ReuseInput, apiFor: (signal: AbortSignal) 
         : miss('error', error instanceof Error ? error.message : String(error))
   } finally {
     clearTimeout(timer)
+    controller.abort()
   }
   return {...verdict, keys: input.config.keys, durationMs: Date.now() - startedAt, pr: input.pr}
 }

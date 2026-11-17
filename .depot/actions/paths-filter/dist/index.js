@@ -43273,6 +43273,7 @@ async function evaluate(input, apiFor) {
     }
     finally {
         clearTimeout(timer);
+        controller.abort();
     }
     return { ...verdict, keys: input.config.keys, durationMs: Date.now() - startedAt, pr: input.pr };
 }

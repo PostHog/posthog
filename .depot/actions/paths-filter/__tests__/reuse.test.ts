@@ -281,6 +281,26 @@ describe('reuse of an earlier passing result', () => {
     expect(decision).toMatchObject({reuse: false, reason, previousSha: null})
   })
 
+  test('a failed lookup aborts the lookups still in flight', async () => {
+    let signal: AbortSignal | undefined
+    const stalled = new Promise<never>(() => undefined)
+
+    const decision = await evaluate(input(), received => {
+      signal = received
+      return api({
+        checkRuns: async (_, name) => {
+          if (name === PROOF) {
+            return stalled
+          }
+          throw new Error('503')
+        }
+      })()
+    })
+
+    expect(decision).toMatchObject({reuse: false, reason: 'error'})
+    expect(signal?.aborted).toBe(true)
+  })
+
   test('a skipped gate passes when the suite ran on that head', async () => {
     const decision = await evaluate(
       input(),
