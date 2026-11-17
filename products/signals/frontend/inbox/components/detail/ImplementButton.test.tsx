@@ -23,6 +23,7 @@ import { inboxBulkActionsLogic } from '../../logics/inboxBulkActionsLogic'
 import { inboxReportDetailLogic } from '../../logics/inboxReportDetailLogic'
 import { reportGithubAccessLogic } from '../../logics/reportGithubAccessLogic'
 import { SignalReport, SignalReportStatus } from '../../types'
+import { CopyReportPromptButton } from './CopyReportPromptButton'
 import { ImplementButton } from './ImplementButton'
 
 jest.mock('../../inboxAnalytics', () => ({
@@ -477,17 +478,31 @@ describe('ImplementButton', () => {
         })
     })
 
-    it('copies a prompt that claims the report and attaches the finished pull request', async () => {
-        const user = await openMenu()
+    it.each([false, true])('copies the agent prompt with existing PR: %s', async (hasPr) => {
+        const prUrl = 'https://github.com/example/app/pull/42'
+        const reportUrl = 'https://example.com/project/2/inbox/reports/report-1'
+        const user = hasPr ? userEvent.setup() : await openMenu()
+        if (hasPr) {
+            render(<CopyReportPromptButton report={makeReport()} reportUrl={reportUrl} prUrl={prUrl} />)
+        }
 
-        await user.click(screen.getByTestId('inbox-report-copy-implementation-prompt'))
+        await user.click(
+            screen.getByTestId(hasPr ? 'inbox-report-copy-prompt' : 'inbox-report-copy-implementation-prompt')
+        )
 
         const prompt = jest.mocked(copyToClipboard).mock.calls[0][0]
         expect(prompt).toContain('report ID: report-1')
         expect(prompt).toContain('inbox-report-artefacts-list')
-        expect(prompt).toContain('claim the report with inbox-reports-claim')
-        expect(prompt).toContain('pr_url to attach it')
-        expect(prompt).toContain('release=true')
+        if (hasPr) {
+            expect(prompt).toContain(reportUrl)
+            expect(prompt).toContain(prUrl)
+            expect(prompt).toContain('Continue work on this pull request and its branch')
+            expect(prompt).not.toContain('pr_url to attach it')
+        } else {
+            expect(prompt).toContain('claim the report with inbox-reports-claim')
+            expect(prompt).toContain('pr_url to attach it')
+            expect(prompt).toContain('release=true')
+        }
         expect(copyToClipboard).toHaveBeenCalledWith(prompt, 'prompt for your agent')
         expect(captureInboxReportAction).toHaveBeenCalledWith(
             expect.objectContaining({

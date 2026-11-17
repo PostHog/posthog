@@ -41,6 +41,7 @@ import { SignalReportPriorityBadge } from '../badges/SignalReportPriorityBadge'
 import { isStatusRedundantWithActionability, SignalReportStatusBadge } from '../badges/SignalReportStatusBadge'
 import { ReportSpendSection } from '../spend/ReportSpendSection'
 import { CommitContent } from './artefactTypes'
+import { CopyReportPromptButton } from './CopyReportPromptButton'
 import { DetailSection } from './DetailSection'
 import { DiscussReportButton } from './DiscussReportButton'
 import { ImplementButton } from './ImplementButton'
@@ -257,6 +258,7 @@ export function InboxDetailFrame({
         reportClaimant,
         isClaimedByMe,
         report: currentReport,
+        selectedPullRequest,
     } = useValues(inboxReportDetailLogic(logicProps))
     const { setDetailTab, expandEvidence, collapseEvidence, updatePriority } = useActions(
         inboxReportDetailLogic(logicProps)
@@ -299,6 +301,7 @@ export function InboxDetailFrame({
     const { featureFlags } = useValues(featureFlagLogic)
     const implementButtonVariant = peekFeatureFlag(featureFlags, FEATURE_FLAGS.INBOX_REPORT_IMPLEMENT_BUTTON_POSITION)
     const hasImplementButton = !primaryAction && (showCreatePr || !!reportTaskToOpen)
+    const copyPromptPrUrl = !hasPostHogAiAccess && !hasImplementButton ? safeHttpUrl(selectedPullRequest.url) : null
     if (
         hasImplementButton &&
         summaryHasSolution &&
@@ -638,6 +641,9 @@ export function InboxDetailFrame({
                     {primaryAction}
                     {implementButtonInHeader && implementButton}
                     {hasPostHogAiAccess && <DiscussReportButton report={report} reportUrl={reportUrl} />}
+                    {copyPromptPrUrl && (
+                        <CopyReportPromptButton report={report} reportUrl={reportUrl} prUrl={copyPromptPrUrl} />
+                    )}
                     {/* Buttons inline on wide layouts; collapse into a standard LemonMenu kebab below @4xl. */}
                     <div className="hidden @4xl:flex items-center gap-2">
                         {reportActions.map((action) => (

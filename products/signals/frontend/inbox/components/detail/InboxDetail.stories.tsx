@@ -677,6 +677,13 @@ export const PullRequest: Story = {
     ),
 }
 
+export const PullRequestWithoutPostHogAiAccess: Story = {
+    ...PullRequest,
+    parameters: {
+        featureFlags: { ...meta.parameters?.featureFlags, [FEATURE_FLAGS.PHAI_SANDBOX_MODE]: false },
+    },
+}
+
 export const PullRequestStack: Story = {
     render: () => (
         <Frame>
