@@ -506,6 +506,8 @@ class TestRoutineInsights(BaseTest):
             ("a person without habits", [], [], ["team_fav", "runner_up", "third"]),
             ("a habit that is already popular", ["team_fav"], [], []),
             ("one habit", ["h1"], [], []),
+            ("a habit without data", ["broken"], [], ["team_fav", "runner_up", "third"]),
+            ("a habit whose query fails", ["failing"], [], ["team_fav", "runner_up", "third"]),
             ("a dashboard habit", ["dashboard:7"], [], []),
             ("active key metrics", [], [5.0, 5.0], []),
             ("a key metric without activity", [], [0.0], ["team_fav", "runner_up", "third"]),
@@ -556,6 +558,8 @@ class TestRoutineInsights(BaseTest):
         def series(**kwargs: Any) -> InsightSeries | None:
             if kwargs["short_id"] == "broken":
                 return None
+            if kwargs["short_id"] == "failing":
+                raise RuntimeError("query failed")
             return insight({"opened": points}, short_id=kwargs["short_id"], name="Opened")
 
         with (
