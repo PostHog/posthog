@@ -54,6 +54,8 @@ export interface EmailBlockStyle {
      * its share and one at full size fills the space.
      */
     imageScale?: number
+    /** Columns only: they stay side by side on a phone instead of stacking. */
+    noStack?: boolean
     /** Settings that replace these on a phone, as the old editor's mobile settings do. */
     phone?: EmailPhoneStyle
 }

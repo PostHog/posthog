@@ -747,10 +747,13 @@ function visibilityFrom(values: Record<string, any>, screens: ExportedScreens): 
             ...(condition.label && condition.label !== condition.before ? { label: String(condition.label) } : {}),
         }
     }
-    if (values.hideDesktop === true && (screens?.desktop ?? true)) {
+    // Newer versions of the old editor keep these in their per-screen settings.
+    const hideDesktop = values.hideDesktop === true || values._override?.desktop?.hideDesktop === true
+    const hideMobile = values.hideMobile === true || values._override?.mobile?.hideMobile === true
+    if (hideDesktop && (screens?.desktop ?? true)) {
         visibility.hideDesktop = true
     }
-    if (values.hideMobile === true && (screens?.mobile ?? true)) {
+    if (hideMobile && (screens?.mobile ?? true)) {
         visibility.hideMobile = true
     }
     return Object.keys(visibility).length ? visibility : null
@@ -1058,7 +1061,8 @@ function convertContentBlocksWithoutPhone(
                                 typeof values.borderRadius === 'number' ? 0 : (parsePx(values.borderRadius) ?? 4),
                             innerPaddingX: inner?.left,
                             innerPaddingY: inner?.top,
-                            textAlign: align(values.textAlign),
+                            // The old editor centers a button unless told otherwise.
+                            textAlign: align(values.textAlign) ?? 'center',
                             padding: containerPadding(values),
                             ...compact(labelStyleOf(text, fontSize)),
                         }),
@@ -1179,6 +1183,38 @@ function exportedRows(storedHtml: string | null | undefined): { rows: string[]; 
     return { rows, css }
 }
 
+/** The text with its Liquid tags taken out and handed to `onTag`. A walk, so a flood of braces stays linear. */
+function withoutLiquidTags(text: string, onTag: (tag: string) => void): string {
+    let kept = ''
+    let from = 0
+    let open = text.indexOf('{')
+    let braceClose = -2
+    let percentClose = -2
+    while (open !== -1) {
+        if (text[open + 1] !== '{' && text[open + 1] !== '%') {
+            open = text.indexOf('{', open + 1)
+            continue
+        }
+        // Each search only moves forward, so a missing kind of close isn't searched for again.
+        if (braceClose !== -1 && braceClose < open + 2) {
+            braceClose = text.indexOf('}}', open + 2)
+        }
+        if (percentClose !== -1 && percentClose < open + 2) {
+            percentClose = text.indexOf('%}', open + 2)
+        }
+        const closes = [braceClose, percentClose].filter((index) => index !== -1)
+        if (!closes.length) {
+            break
+        }
+        const end = Math.min(...closes) + 2
+        kept += text.slice(from, open)
+        onTag(text.slice(open, end))
+        from = end
+        open = text.indexOf('{', end)
+    }
+    return kept + text.slice(from)
+}
+
 /**
  * What a reader gets from an email: its words, links and Liquid. Spacing, the quotes around a Liquid fallback and an
  * empty fallback don't change what is sent, so they are left out.
@@ -1193,15 +1229,14 @@ function sentContent(html: string): string {
     const space = /[\s\u00a0\u200b-\u200f\u034f\u2060\ufeff\u00ad]+/g
     // Compared as a set, because the parser moves a tag that sits between table rows to before the table.
     const tags: string[] = []
-    const words = ((doc.body?.textContent ?? '') + links.join(' ')).replace(/\{[{%][\s\S]{0,2000}?[}%]\}/g, (tag) => {
+    const words = withoutLiquidTags((doc.body?.textContent ?? '') + links.join(' '), (tag) =>
         tags.push(
             tag
                 .replace(/"/g, "'")
                 .replace(/\|\s*default:\s*''/g, '')
                 .replace(space, '')
         )
-        return ''
-    })
+    )
     return words.replace(space, '') + tags.sort().join('')
 }
 
@@ -1410,17 +1445,31 @@ export function unlayerToEmailDocument(
         })
 
         // Older exports don't drop a row's side padding on a phone, where it then narrows the row.
-        const phoneRowPadding =
+        const rowRules = styles.phone.get(String(rowValues._meta?.htmlID ?? ''))
+        const phoneTop = parsePx(declaration(rowRules, 'v-row-padding--vertical', 'padding-top'))
+        const phoneBottom = parsePx(declaration(rowRules, 'v-row-padding--vertical', 'padding-bottom'))
+        const keptSidePadding =
             exported && !rowSidePaddingDroppedOnPhones && (parsedRowPadding?.left || parsedRowPadding?.right)
-                ? parsedRowPadding
+        const phoneRowPadding =
+            keptSidePadding || phoneTop !== undefined || phoneBottom !== undefined
+                ? {
+                      top: phoneTop ?? parsedRowPadding?.top ?? 0,
+                      bottom: phoneBottom ?? parsedRowPadding?.bottom ?? 0,
+                      left: keptSidePadding ? (parsedRowPadding?.left ?? 0) : 0,
+                      right: keptSidePadding ? (parsedRowPadding?.right ?? 0) : 0,
+                  }
                 : undefined
+        const noStack =
+            columns.length > 1 &&
+            (rowValues.noStackMobile === true || rowValues._override?.mobile?.noStackMobile === true)
         const plain =
             converted.length === 1 &&
             !converted[0].style &&
             !sectionBackground &&
             !rowHasPadding &&
             !rowVisibility &&
-            !phoneRowPadding
+            !phoneRowPadding &&
+            !noStack
         const onlyColor = converted.length === 1 && Object.keys(converted[0].style ?? {}).join() === 'backgroundColor'
         const rowSpacer =
             isSpacerRow(row) && onlyColor && !sectionBackground && !rowHasPadding ? converted[0].blocks[0] : null
@@ -1457,6 +1506,7 @@ export function unlayerToEmailDocument(
                                   }
                                 : undefined,
                             columnGap: 0,
+                            noStack: noStack || undefined,
                         }),
                         ...(rowVisibility ? { emailVisibility: rowVisibility } : {}),
                     },
@@ -1528,6 +1578,10 @@ export function unlayerToEmailDocument(
     // people receive, so it wins.
     if (storedHtml?.trim() && sentContent(renderEmailHtml(doc)) !== sentContent(storedHtml)) {
         return wholeEmailAsHtml(storedHtml, ['a design that no longer matches the email'])
+    }
+    // Html the old editor didn't write only shares its words with the design, not its layout.
+    if (storedHtml?.trim() && !exportedByOldEditor) {
+        return wholeEmailAsHtml(storedHtml, [])
     }
     return {
         document: { version: EMAIL_DOCUMENT_VERSION, doc },

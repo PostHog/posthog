@@ -159,7 +159,7 @@ const PHONE_KEYS = [
     'innerPaddingX',
     'innerPaddingY',
 ] as const
-const STYLE_FLAGS = ['uppercase', 'linkUnderline', 'inheritText'] as const
+const STYLE_FLAGS = ['uppercase', 'linkUnderline', 'inheritText', 'noStack'] as const
 
 function safeSides(value: unknown): EmailSides | undefined {
     if (!value || typeof value !== 'object') {
@@ -681,8 +681,9 @@ function renderColumns(node: JSONContent, ctx: RenderContext): string {
             const background = safeColor(columnStyle.backgroundColor)
             const divCss = css({
                 display: 'inline-block',
-                width: '100%',
-                'max-width': `${width}px`,
+                // Columns that stay side by side on a phone keep their share of the width instead of a fixed size.
+                width: style.noStack ? `${Math.floor((width / available) * 10000) / 100}%` : '100%',
+                'max-width': style.noStack ? undefined : `${width}px`,
                 'vertical-align': 'top',
                 // The cell around the columns zeroes these to close the gaps between inline blocks.
                 'font-size': `${ctx.page.fontSize}px`,
@@ -701,13 +702,14 @@ function renderColumns(node: JSONContent, ctx: RenderContext): string {
                 index === 0
                     ? `<!--[if mso]><table role="presentation" width="${available}" cellpadding="0" cellspacing="0" border="0"><tr>${msoCell}<![endif]-->`
                     : `<!--[if mso]></td>${msoCell}<![endif]-->`
-            let className = columnStyle.padding ? 'ph-col' : 'ph-col ph-col-gap'
+            let className = style.noStack ? '' : columnStyle.padding ? 'ph-col' : 'ph-col ph-col-gap'
             if (columnStyle.phone?.padding && ctx.phoneRules) {
                 const phoneClass = `ph-m-${ctx.phoneRules.length + 1}`
                 ctx.phoneRules.push(`.${phoneClass} { padding: ${sides(columnStyle.phone.padding)} !important; }`)
                 className += ` ${phoneClass}`
             }
-            return `${before}<div class="${className}" style="${divCss}">${inner}</div>`
+            const classAttribute = className.trim() ? ` class="${className.trim()}"` : ''
+            return `${before}<div${classAttribute} style="${divCss}">${inner}</div>`
         })
         .join('')
     const outer = `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr><td style="font-size:0;line-height:0;text-align:left">${cells}<!--[if mso]></td></tr></table><![endif]--></td></tr></table>`

@@ -300,6 +300,12 @@ describe('unlayerToEmailDocument', () => {
                 '<html><body><div class="u-row-container"><table><tr><td style="overflow-wrap:break-word;word-break:break-word;padding:10px;"><div style="line-height: 140%;"><p>Plain</p></div></td></tr></table></div></body></html>',
             sent: ['font-size:16px;line-height:140%'],
         },
+        {
+            name: 'a button with no alignment, which the old editor centers',
+            block: content('button', { text: 'Go' }),
+            exported: undefined,
+            sent: ['<tr><td align="center" style="padding:10px 10px 10px 10px;text-align:center">'],
+        },
     ])('keeps $name as the old editor sent it', ({ block, exported, sent }) => {
         const html = renderEmailHtml(unlayerToEmailDocument(design([block]), exported).document?.doc ?? {})
 
@@ -488,6 +494,51 @@ describe('unlayerToEmailDocument', () => {
         expect(html).toMatch(/\.ph-m-\d+ img \{ width: 40% !important; max-width: 40% !important;/)
         expect(html).toMatch(/\.ph-m-\d+ \{ padding:4px 8px 4px 8px !important; \}/)
         expect(html).toMatch(/\.ph-m-\d+ p, [^{]*\{ font-size:12px !important; \}/)
+    })
+
+    it("keeps the old editor's newer per-screen settings: hiding on phones, columns side by side and row padding", () => {
+        const twoColumns = design([content('text', { text: '<p>Left</p>' })])
+        twoColumns.body.rows[0] = {
+            id: 'r',
+            cells: [1, 1],
+            values: { _meta: { htmlID: 'u_row_1' }, _override: { mobile: { noStackMobile: true } } },
+            columns: [
+                { id: 'a', values: {}, contents: [content('text', { text: '<p>Left</p>' })] },
+                { id: 'b', values: {}, contents: [content('text', { text: '<p>Right</p>' })] },
+            ],
+        }
+        twoColumns.body.rows.push({
+            id: 'r2',
+            cells: [1],
+            values: {},
+            columns: [
+                {
+                    id: 'c',
+                    values: {},
+                    contents: [
+                        content('text', { text: '<p>Desktop only</p>', _override: { mobile: { hideMobile: true } } }),
+                    ],
+                },
+            ],
+        })
+        const exported = `<html><head><style>@media (max-width: 480px) { #u_row_1 .v-row-padding--vertical { padding-top: 4px !important; padding-bottom: 6px !important; } }</style></head><body>
+<div class="u-row-container"><p>Left</p><p>Right</p></div>
+<div class="u-row-container"><table class="hide-mobile"><tr><td><p>Desktop only</p></td></tr></table></div>
+</body></html>`
+
+        const html = renderEmailHtml(unlayerToEmailDocument(twoColumns, exported).document?.doc ?? {})
+
+        expect(html).toMatch(/<div style="display:inline-block;width:50%;/)
+        expect(html).toMatch(/\.ph-m-\d+ \{ padding:4px 0px 6px 0px !important; \}/)
+        expect(html).toContain('<tr class="ph-hide-mobile">')
+    })
+
+    it('opens an email whose html the old editor did not write exactly as it is sent', () => {
+        const stored = '<html><body><p style="color:#d00">Hello</p></body></html>'
+
+        const conversion = unlayerToEmailDocument(design([content('text', { text: '<p>Hello</p>' })]), stored)
+
+        expect(renderEmailHtml(conversion.document?.doc ?? {})).toBe(stored)
     })
 
     it('opens an email saved as raw html exactly as it is sent, even when it has no <html> tag', () => {
