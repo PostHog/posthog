@@ -564,20 +564,20 @@ def _to_issue_tag_rule(rule) -> contracts.ErrorTrackingIssueTagRule:
     )
 
 
-def list_issue_tag_rules(team_id: int) -> list[contracts.ErrorTrackingIssueTagRule]:
-    return [_to_issue_tag_rule(rule) for rule in issue_tag_rules.list_issue_tag_rules(team_id)]
+def list_issue_tag_rules(team_id: int, user: User) -> list[contracts.ErrorTrackingIssueTagRule]:
+    return [_to_issue_tag_rule(rule) for rule in issue_tag_rules.list_issue_tag_rules(team_id, user)]
 
 
-def get_issue_tag_rule(team_id: int, rule_id: str) -> contracts.ErrorTrackingIssueTagRule | None:
-    rule = issue_tag_rules.get_issue_tag_rule(team_id, rule_id)
+def get_issue_tag_rule(team_id: int, rule_id: str, user: User) -> contracts.ErrorTrackingIssueTagRule | None:
+    rule = issue_tag_rules.get_issue_tag_rule(team_id, rule_id, user)
     return _to_issue_tag_rule(rule) if rule is not None else None
 
 
 def create_issue_tag_rule(
-    team_id: int, *, label: str, description: str, filters: dict, order_key: int = 0
+    team_id: int, user: User, *, label: str, description: str, filters: dict, order_key: int = 0
 ) -> contracts.ErrorTrackingIssueTagRule:
     rule = issue_tag_rules.create_issue_tag_rule(
-        team_id, label=label, description=description, filters=filters, order_key=order_key
+        team_id, user, label=label, description=description, filters=filters, order_key=order_key
     )
     return _to_issue_tag_rule(rule)
 
@@ -585,23 +585,24 @@ def create_issue_tag_rule(
 def update_issue_tag_rule(
     team_id: int,
     rule_id: str,
+    user: User,
     *,
     label: str | None = None,
     description: str | None = None,
     filters: dict | None = None,
 ) -> contracts.ErrorTrackingIssueTagRule | None:
     rule = issue_tag_rules.update_issue_tag_rule(
-        team_id, rule_id, label=label, description=description, filters=filters
+        team_id, rule_id, user, label=label, description=description, filters=filters
     )
     return _to_issue_tag_rule(rule) if rule is not None else None
 
 
-def delete_issue_tag_rule(team_id: int, rule_id: str) -> bool:
-    return issue_tag_rules.delete_issue_tag_rule(team_id, rule_id)
+def delete_issue_tag_rule(team_id: int, rule_id: str, user: User) -> bool:
+    return issue_tag_rules.delete_issue_tag_rule(team_id, rule_id, user)
 
 
-def reorder_issue_tag_rules(team_id: int, orders: dict[str, int]) -> None:
-    issue_tag_rules.reorder_issue_tag_rules(team_id, orders)
+def reorder_issue_tag_rules(team_id: int, orders: dict[str, int], user: User) -> None:
+    issue_tag_rules.reorder_issue_tag_rules(team_id, orders, user)
 
 
 def _to_grouping_rule(rule, issue: tuple[UUID, str | None] | None = None) -> contracts.ErrorTrackingGroupingRule:

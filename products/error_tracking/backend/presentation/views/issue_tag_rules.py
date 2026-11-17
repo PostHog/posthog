@@ -149,11 +149,11 @@ class ErrorTrackingIssueTagRuleViewSet(TeamAndOrgViewSetMixin, viewsets.GenericV
 
     @extend_schema(responses={200: OpenApiResponse(response=ErrorTrackingIssueTagRuleListResponseSerializer)})
     def list(self, request, *args, **kwargs) -> Response:
-        rules = error_tracking_api.list_issue_tag_rules(self.team.id)
+        rules = error_tracking_api.list_issue_tag_rules(self.team.id, self._user)
         return Response({"results": self.get_serializer(rules, many=True).data})
 
     def retrieve(self, request, *args, pk=None, **kwargs) -> Response:
-        rule = error_tracking_api.get_issue_tag_rule(self.team.id, pk)
+        rule = error_tracking_api.get_issue_tag_rule(self.team.id, pk, self._user)
         if rule is None:
             raise NotFound()
         return Response(self.get_serializer(rule).data)
@@ -165,6 +165,7 @@ class ErrorTrackingIssueTagRuleViewSet(TeamAndOrgViewSetMixin, viewsets.GenericV
     def create(self, request: ValidatedRequest, *args, **kwargs) -> Response:
         rule = error_tracking_api.create_issue_tag_rule(
             self.team.id,
+            self._user,
             label=request.validated_data["label"],
             description=request.validated_data["description"],
             filters=request.validated_data["filters"],
@@ -177,6 +178,7 @@ class ErrorTrackingIssueTagRuleViewSet(TeamAndOrgViewSetMixin, viewsets.GenericV
         rule = error_tracking_api.update_issue_tag_rule(
             self.team.id,
             pk,
+            self._user,
             label=request.validated_data.get("label"),
             description=request.validated_data.get("description"),
             filters=request.validated_data.get("filters"),
@@ -195,7 +197,7 @@ class ErrorTrackingIssueTagRuleViewSet(TeamAndOrgViewSetMixin, viewsets.GenericV
         return self._apply_rule_update(request, pk)
 
     def destroy(self, request, *args, pk=None, **kwargs) -> Response:
-        if not error_tracking_api.delete_issue_tag_rule(self.team.id, pk):
+        if not error_tracking_api.delete_issue_tag_rule(self.team.id, pk, self._user):
             raise NotFound()
         self._report("error_tracking_tag_rule_deleted", request)
         return Response(status=status.HTTP_204_NO_CONTENT)
@@ -203,10 +205,12 @@ class ErrorTrackingIssueTagRuleViewSet(TeamAndOrgViewSetMixin, viewsets.GenericV
     @validated_request(request_serializer=ErrorTrackingIssueTagRuleReorderRequestSerializer, responses={204: None})
     @action(methods=["PATCH"], detail=False)
     def reorder(self, request: ValidatedRequest, **kwargs) -> Response:
-        error_tracking_api.reorder_issue_tag_rules(self.team.id, request.validated_data["orders"])
+        error_tracking_api.reorder_issue_tag_rules(self.team.id, request.validated_data["orders"], self._user)
         return Response(status=status.HTTP_204_NO_CONTENT)
 
+    @property
+    def _user(self) -> User:
+        return cast(User, self.request.user)
+
     def _report(self, event: str, request) -> None:
-        report_user_action(
-            cast(User, request.user), event, team=self.team, organization=self.team.organization, request=request
-        )
+        report_user_action(self._user, event, team=self.team, organization=self.team.organization, request=request)

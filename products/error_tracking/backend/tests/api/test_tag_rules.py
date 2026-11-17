@@ -9,10 +9,18 @@ from django.test.utils import CaptureQueriesContext
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.constants import AvailableFeature
+
+from products.access_control.backend.facade.api import upsert_property_access_control
+from products.access_control.backend.facade.contracts import PropertyAccessLevel, UpsertPropertyAccessControlInput
 from products.error_tracking.backend.logic import team_flags
-from products.error_tracking.backend.logic.issue_tags.rules import MAX_ISSUE_TAG_RULES_PER_TEAM
+from products.error_tracking.backend.logic.issue_tags.rules import (
+    MAX_ISSUE_TAG_RULE_FILTERS_BYTES,
+    MAX_ISSUE_TAG_RULES_PER_TEAM,
+)
 from products.error_tracking.backend.logic.issue_tags.runner import run_issue_taggers
 from products.error_tracking.backend.models import ErrorTrackingIssue, ErrorTrackingIssueTag, ErrorTrackingIssueTagRule
+from products.event_definitions.backend.models import PropertyDefinition
 
 Source = ErrorTrackingIssueTag.Source
 
@@ -23,6 +31,7 @@ def _event_filter(key: str, value: Any, *, filter_type: str = "event", operator:
 
 
 ENTERPRISE_PLAN = _event_filter("plan", ["enterprise"])
+BIG_ORDER = _event_filter("revenue", 10, operator="gt")
 CHECKOUT_PAGE = _event_filter("$pathname", ["/checkout"])
 DISABLED = {"message": "Rule timed out"}
 
@@ -74,7 +83,7 @@ class TestIssueTagRuleAPI(APIBaseTest):
                 },
             ),
             ("compile_error", _event_filter("plan", "(", operator="regex")),
-            ("oversized_bytecode", _event_filter("plan", [f"plan-{i}" for i in range(5_000)])),
+            ("oversized_filters", _event_filter("plan", ["x" * MAX_ISSUE_TAG_RULE_FILTERS_BYTES])),
             ("not_a_filter_group", {"not": "valid"}),
             ("no_filters", {"type": "AND", "values": [{"type": "AND", "values": []}]}),
         ]
@@ -172,6 +181,44 @@ class TestIssueTagRuleAPI(APIBaseTest):
         assert reorder.status_code == status.HTTP_204_NO_CONTENT
         assert [rule["id"] for rule in self.client.get(self._url()).json()["results"]] == [second["id"], first["id"]]
 
+    def test_a_member_cannot_see_or_change_a_rule_on_a_property_they_may_not_read(self) -> None:
+        hidden = ErrorTrackingIssueTagRule.objects.for_team(self.team.id).create(
+            team=self.team, label="Big order", filters=BIG_ORDER, bytecode=[], order_key=5
+        )
+        visible = self._create()
+        self._restrict_revenue_for_the_user()
+
+        listed = [rule["id"] for rule in self.client.get(self._url()).json()["results"]]
+        statuses = {
+            "get": self.client.get(self._url(str(hidden.id))).status_code,
+            "edit": self.client.patch(self._url(str(hidden.id)), data={"label": "Mine"}, format="json").status_code,
+            "delete": self.client.delete(self._url(str(hidden.id))).status_code,
+            "create": self.client.post(
+                self._url(), data={"label": "Big order", "filters": BIG_ORDER}, format="json"
+            ).status_code,
+            "edit_into": self.client.patch(
+                self._url(visible["id"]), data={"filters": BIG_ORDER}, format="json"
+            ).status_code,
+            "reorder": self.client.patch(
+                self._url("reorder"), data={"orders": {str(hidden.id): 0}}, format="json"
+            ).status_code,
+        }
+
+        assert listed == [visible["id"]]
+        assert statuses == {
+            "get": status.HTTP_404_NOT_FOUND,
+            "edit": status.HTTP_404_NOT_FOUND,
+            "delete": status.HTTP_404_NOT_FOUND,
+            "create": status.HTTP_400_BAD_REQUEST,
+            "edit_into": status.HTTP_400_BAD_REQUEST,
+            "reorder": status.HTTP_204_NO_CONTENT,
+        }
+        rules = ErrorTrackingIssueTagRule.objects.for_team(self.team.id)
+        assert {(rule.label, rule.order_key, rule.filters == BIG_ORDER) for rule in rules} == {
+            ("Big order", 5, True),
+            ("Enterprise", 0, False),
+        }
+
     @parameterized.expand([("get",), ("patch",), ("delete",)])
     def test_another_projects_rule_is_not_found(self, method: str) -> None:
         other_team = self.create_team_with_organization(organization=self.organization)
@@ -211,3 +258,19 @@ class TestIssueTagRuleAPI(APIBaseTest):
         assert response.status_code == status.HTTP_404_NOT_FOUND
         assert response.json()["detail"] == "Issue tags are off for this project."
         assert not [query for query in queries if ErrorTrackingIssueTagRule._meta.db_table in query["sql"]]
+
+    def _restrict_revenue_for_the_user(self) -> None:
+        self.organization.available_product_features = [
+            {"name": AvailableFeature.PROPERTY_ACCESS_CONTROL, "key": AvailableFeature.PROPERTY_ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        revenue = PropertyDefinition.objects.create(team=self.team, name="revenue", type=PropertyDefinition.Type.EVENT)
+        upsert_property_access_control(
+            team_id=self.team.id,
+            created_by_id=self.user.id,
+            input=UpsertPropertyAccessControlInput(
+                property_definition_id=str(revenue.id),
+                access_level=PropertyAccessLevel.NONE,
+                organization_member_id=self.organization_membership.id,
+            ),
+        )
