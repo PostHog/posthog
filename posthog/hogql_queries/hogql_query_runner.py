@@ -17,7 +17,7 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
-from posthog.hogql.constants import HogQLGlobalSettings
+from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
 from posthog.hogql.database.schema.activity_log_visibility import activity_log_visibility_policy_version
 from posthog.hogql.direct_connection import (
     INVALID_CONNECTION_ID_ERROR,
@@ -363,13 +363,15 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
         return f"{super().single_flight_variant()}:max_execution_time={max_execution_time}"
 
     def _capped_for_api_key(self) -> bool:
-        # The insights endpoint runs saved SQL insights without is_query_service. The access method still
-        # marks an API key there, so a refresh through the insights API gets the same cap as /query.
-        is_api_key = self.is_query_service or is_api_key_access_method(get_query_tag_value("access_method"))
         return bool(
-            is_api_key
+            (self.is_query_service or self._is_api_key_run_without_extended_time())
             and app_settings.API_QUERIES_LEGACY_TEAM_LIST
             and self.team.pk not in app_settings.API_QUERIES_LEGACY_TEAM_LIST
+        )
+
+    def _is_api_key_run_without_extended_time(self) -> bool:
+        return self.limit_context == LimitContext.QUERY and is_api_key_access_method(
+            get_query_tag_value("access_method")
         )
 
     def _build_query(self) -> ast.SelectQuery | ast.SelectSetQuery:

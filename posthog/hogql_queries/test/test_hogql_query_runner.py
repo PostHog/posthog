@@ -649,14 +649,18 @@ class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("personal_api_key", AccessMethod.PERSONAL_API_KEY, True),
-            ("project_secret_api_key", AccessMethod.PROJECT_SECRET_API_KEY, True),
-            ("oauth", AccessMethod.OAUTH, False),
+            ("personal_api_key", AccessMethod.PERSONAL_API_KEY, LimitContext.QUERY, True),
+            ("project_secret_api_key", AccessMethod.PROJECT_SECRET_API_KEY, LimitContext.QUERY, True),
+            ("oauth", AccessMethod.OAUTH, LimitContext.QUERY, False),
+            ("api_key_with_extended_time", AccessMethod.PERSONAL_API_KEY, LimitContext.QUERY_ASYNC, False),
         ]
     )
-    def test_api_key_cap_applies_without_query_service(self, _name, access_method, capped):
-        # The insights endpoint refreshes saved SQL insights with is_query_service=False.
-        runner = self._create_runner(HogQLQuery(query="select event from events limit 1"))
+    def test_api_key_cap_applies_without_query_service(self, _name, access_method, limit_context, capped):
+        runner = HogQLQueryRunner(
+            team=self.team,
+            query=HogQLQuery(query="select event from events limit 1"),
+            limit_context=limit_context,
+        )
         with (
             patch(
                 "posthog.hogql_queries.hogql_query_runner.app_settings.API_QUERIES_LEGACY_TEAM_LIST",
@@ -665,7 +669,11 @@ class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
             tags_context(access_method=access_method),
         ):
             variant = runner.single_flight_variant()
+            clickhouse_sql = runner.calculate().clickhouse
+        assert clickhouse_sql is not None
         assert variant.endswith(":max_execution_time=10") is capped
+        assert ("max_execution_time=10," in clickhouse_sql) is capped
+        assert ("max_threads=60" in clickhouse_sql) is capped
 
     @patch("posthoganalytics.feature_enabled", return_value=False)
     def test_non_query_service_allows_offset(self, _mock_flag):

@@ -1,3 +1,4 @@
+import re
 import json
 from datetime import datetime, timedelta
 from typing import Any, Optional
@@ -49,6 +50,7 @@ from posthog.schema import (
     TrendsQuery,
 )
 
+from posthog.hogql.constants import LimitContext
 from posthog.hogql.query import execute_hogql_query
 
 from posthog import settings
@@ -103,6 +105,11 @@ PAGEVIEW_QUERY_ANALYTICS_PROPERTIES = {
     # No `breakdown_type` or `filter_test_accounts`: the query sets neither, and both are reported only
     # when present. `test_insight_model.py` covers what they report for a query that does set them.
     "has_formula": False,
+}
+
+SQL_INSIGHT_QUERY = {
+    "kind": "DataVisualizationNode",
+    "source": {"kind": "HogQLQuery", "query": "select event from events limit 1"},
 }
 
 
@@ -622,6 +629,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 cache_age_seconds=None,
                 analytics_props=ANY,
                 allow_raw_results=False,
+                limit_context=LimitContext.QUERY_ASYNC,
             )
             record_outcome.assert_not_called()
 
@@ -645,6 +653,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 cache_age_seconds=int(SHARED_FORCE_BLOCKING_STALENESS_WINDOW.total_seconds()),
                 analytics_props=ANY,
                 allow_raw_results=False,
+                limit_context=LimitContext.QUERY_ASYNC,
             )
 
     def test_get_shared_insight_with_force_refresh_returns_200(self) -> None:
@@ -708,6 +717,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 cache_age_seconds=int(SHARED_FORCE_BLOCKING_STALENESS_WINDOW.total_seconds()),
                 analytics_props=ANY,
                 allow_raw_results=False,
+                limit_context=LimitContext.QUERY_ASYNC,
             )
 
     def test_get_insight_by_short_id(self) -> None:
@@ -2371,6 +2381,36 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertNotIn("code", response)
         self.assertEqual(response["result"], None)
         self.assertEqual(response["query_status"]["query_async"], True)
+
+    @parameterized.expand(
+        [
+            ("api_key_sql", True, SQL_INSIGHT_QUERY, "10"),
+            ("api_key_trends", True, default_pageview_query(), "60"),
+            ("session_sql", False, SQL_INSIGHT_QUERY, "600"),
+        ]
+    )
+    def test_refresh_time_limit_depends_on_access_method(self, _name, uses_api_key, query, expected_limit):
+        insight = Insight.objects.create(team=self.team, query=query)
+        headers = {}
+        if uses_api_key:
+            key = self.create_personal_api_key_with_scopes(["insight:read", "query:read"])
+            headers = {"authorization": f"Bearer {key}"}
+            self.client.logout()
+
+        with (
+            patch(
+                "posthog.hogql_queries.hogql_query_runner.app_settings.API_QUERIES_LEGACY_TEAM_LIST",
+                {self.team.pk + 1},
+            ),
+            self.capture_select_queries() as queries,
+        ):
+            response = self.client.get(
+                f"/api/projects/{self.team.id}/insights/{insight.id}/?refresh=force_blocking", headers=headers
+            )
+
+        assert response.status_code == status.HTTP_200_OK
+        limits = {limit for sql in queries for limit in re.findall(r"max_execution_time=(\d+)", sql)}
+        assert limits == {expected_limit}
 
     def test_dashboard_filters_applied_to_sql_data_table_node(self):
         dashboard_id, _ = self.dashboard_api.create_dashboard(
