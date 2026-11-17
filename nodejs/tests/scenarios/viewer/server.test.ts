@@ -10,7 +10,6 @@ import { internalFetch } from '~/common/utils/request'
 import { waitForExpect } from '../../helpers/expectations'
 import type { MetricSample } from '../judge/measurements'
 import { LIVE_FILE, openLiveLog } from '../runner/live'
-import { liveOf } from './live'
 import { createViewerServer } from './server'
 
 const RUN_ID = '0b5e7f3a-1c2d-4e5f-8a9b-0c1d2e3f4a5b'
@@ -467,8 +466,9 @@ describe('scenario viewer', () => {
     it('reads a run as stopped once its runner stops without an end record', async () => {
         const ownStateDir = mkdtempSync(path.join(os.tmpdir(), 'scenario-viewer-stopped-'))
         const runDir = path.join(ownStateDir, UNFINISHED_RUN_ID)
-        jest.useFakeTimers()
+        const ownServer = createViewerServer({ stateDir: ownStateDir, cardsDir })
         try {
+            jest.useFakeTimers()
             const log = openLiveLog(runDir, 10)
             log.write({ type: 'start', at: Date.now(), runId: UNFINISHED_RUN_ID, cardId: 'smoke', cardHash: 'c4rd' })
             log.write({ type: 'phase', at: Date.now(), phase: 'drive' })
@@ -476,14 +476,18 @@ describe('scenario viewer', () => {
             const minuteAgo = new Date(Date.now() - 60_000)
             utimesSync(path.join(runDir, LIVE_FILE), minuteAgo, minuteAgo)
             jest.advanceTimersByTime(1000)
+            jest.useRealTimers()
+            await new Promise<void>((resolve) => ownServer.listen(0, '127.0.0.1', resolve))
+            const own = `http://127.0.0.1:${(ownServer.address() as AddressInfo).port}`
 
-            expect(liveOf(ownStateDir, Date.now())).toMatchObject({
+            expect(parseJSON(await (await internalFetch(`${own}/api/live`)).text())).toMatchObject({
                 runId: UNFINISHED_RUN_ID,
                 state: 'stopped',
                 ended: null,
             })
         } finally {
             jest.useRealTimers()
+            await new Promise((resolve) => ownServer.close(resolve))
             rmSync(ownStateDir, { recursive: true, force: true })
         }
     })
