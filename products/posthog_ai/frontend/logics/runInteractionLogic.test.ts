@@ -1454,7 +1454,7 @@ describe('runInteractionLogic', () => {
         try {
             setStatus('cancelled')
             logic.actions.setComposerFormValues({ draft: 'continue from the checkpoint' })
-            await jest.advanceTimersByTimeAsync(300)
+            await jest.advanceTimersByTimeAsync(700)
             if (!warmPending) {
                 resolveWarm()
                 await jest.advanceTimersByTimeAsync(0)
@@ -1527,7 +1527,7 @@ describe('runInteractionLogic', () => {
         jest.useFakeTimers()
         setStatus('completed')
         logic.actions.setComposerFormValues({ draft: 'keep going' })
-        jest.advanceTimersByTime(300)
+        jest.advanceTimersByTime(700)
         jest.useRealTimers()
         await expectLogic(logic).toFinishAllListeners()
         expect(tasksWarmResumeCreate).toHaveBeenCalled()
@@ -2103,7 +2103,7 @@ describe('runInteractionLogic', () => {
             )
             jest.useFakeTimers()
             blockedLogic.actions.setComposerFormValues({ draft: 'ship it' })
-            jest.advanceTimersByTime(300)
+            jest.advanceTimersByTime(700)
             jest.useRealTimers()
             await expectLogic(blockedLogic, () => {
                 if (source === 'draft') {
@@ -2159,7 +2159,7 @@ describe('runInteractionLogic', () => {
         try {
             setStatus('completed')
             logic.actions.setComposerFormValues({ draft: 'continue from the checkpoint' })
-            await jest.advanceTimersByTimeAsync(300)
+            await jest.advanceTimersByTimeAsync(700)
             expect(tasksWarmResumeCreate).toHaveBeenCalledTimes(1)
             logic.actions.submitComposerForm()
             await jest.advanceTimersByTimeAsync(0)
@@ -2223,7 +2223,7 @@ describe('runInteractionLogic', () => {
             try {
                 setStatus('cancelled')
                 logic.actions.setComposerFormValues({ draft: 'first composer' })
-                await jest.advanceTimersByTimeAsync(300)
+                await jest.advanceTimersByTimeAsync(700)
                 expect(tasksWarmResumeCreate).toHaveBeenCalledTimes(1)
                 if (warmReady) {
                     finishWarm()

@@ -46,7 +46,7 @@ export const manifest: ProductManifest = {
     urls: {
         dataCatalog: (tab?: string): string => `/data-catalog${tab ? `?tab=${tab}` : ''}`,
         dataCatalogNewMetric: (): string => '/data-catalog/new-metric',
-        dataCatalogMetric: (name: string, tab?: 'definition' | 'data-quality' | 'lineage'): string =>
+        dataCatalogMetric: (name: string, tab?: 'definition' | 'data-quality' | 'lineage' | 'usage'): string =>
             `/data-catalog/metrics/${name}${tab && tab !== 'definition' ? `?tab=${tab}` : ''}`,
     },
     fileSystemTypes: {},
@@ -56,6 +56,7 @@ export const manifest: ProductManifest = {
             path: 'Data catalog',
             intents: [ProductKey.DATA_CATALOG],
             category: ProductItemCategory.DATA,
+            type: 'data_catalog',
             iconType: 'data_catalog',
             iconColor: ['var(--color-product-data-catalog-light)', 'var(--color-product-data-catalog-dark)'],
             href: urls.dataCatalog(),

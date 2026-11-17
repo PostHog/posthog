@@ -9,6 +9,16 @@ const draftSchema = z
         q: z.string(),
         edited_history_id: z.string().optional(),
         baseline_query: z.string().optional(),
+        selected_variables: z
+            .array(
+                z.object({
+                    variableId: z.string(),
+                    code_name: z.string(),
+                    value: z.unknown().optional(),
+                    isNull: z.boolean().optional(),
+                })
+            )
+            .optional(),
     })
     .passthrough()
     .nullable()

@@ -21,7 +21,7 @@ The machinery is shipped but nothing is wired to it yet — the first planned co
 
 ### 1. Whitelist the scope/action pair
 
-PSAK-assignable scopes are a global allowlist in `posthog/scopes.py`:
+PSAK-assignable scopes are a global allowlist in `posthog/scopes/project_secret_api_key.py`:
 
 ```python
 PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION: list[tuple[APIScopeObject, APIScopeActions]] = [("endpoint", "read")]

@@ -255,10 +255,10 @@ export interface logsSceneLogicActions {
     } // logsViewerConfigLogic
     fetchLogsSuccess: (
         logs: LogMessage[],
-        payload?: any
+        payload?: import('products/logs/frontend/generated/api.schemas').LogsQueryTriggerEnumApi | undefined
     ) => {
         logs: LogMessage[]
-        payload?: any
+        payload?: import('products/logs/frontend/generated/api.schemas').LogsQueryTriggerEnumApi
     } // logsViewerDataLogic
     handleQueryChange: (
         filterType: string,

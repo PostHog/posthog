@@ -17,6 +17,12 @@ export const manifest: ProductManifest = {
             import('./frontend/activityDescriber').then((module) => module.ticketActivityDescriber),
     },
     scenes: {
+        SupportOverview: {
+            name: 'Support overview',
+            import: () => import('./frontend/scenes/overview/SupportOverviewScene'),
+            projectBased: true,
+            layout: 'app-container',
+        },
         SupportTickets: {
             name: 'Ticket list',
             description:
@@ -49,13 +55,11 @@ export const manifest: ProductManifest = {
         },
     },
     routes: {
+        '/support': ['SupportOverview', 'supportOverview'],
         '/support/tickets': ['SupportTickets', 'supportTickets'],
         '/support/tickets/:ticketId': ['SupportTicketDetail', 'supportTicketDetail'],
         '/support/settings': ['SupportSettings', 'supportSettings'],
         '/my-tickets': ['MyTickets', 'myTickets'],
-    },
-    redirects: {
-        '/support': '/support/tickets',
     },
     urls: {
         supportDashboard: (): string => '/support',

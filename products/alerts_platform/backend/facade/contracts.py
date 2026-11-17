@@ -127,8 +127,10 @@ DEFAULT_MAX_INSTANCES: Final = 100
 MAX_INSTANCES_CEILING: Final = 100
 # The largest value a Postgres `integer` column holds, which bounds every stored count and duration.
 MAX_STORED_INTEGER: Final = 2_147_483_647
-# The most recent checks an N-of-M decision can look back over.
+# The most recent checks an N-of-M decision can look back over, unless the kind sets its own.
 MAX_EVALUATION_PERIODS: Final = 10
+# The largest window any kind allows. The API publishes it, and each kind enforces its own.
+MAX_SOURCE_EVALUATION_PERIODS: Final = 60
 
 
 @frozen
@@ -275,6 +277,8 @@ class PlatformAlertCheckInput:
     recurrence_unit: str | None = None
     anchor_time: str | None = None
     created_by_id: int | None = None
+    # The label names the team's routes match on, which a group keeps first when its labels are cut.
+    routed_label_names: frozenset[str] = frozenset()
 
     @property
     def destination_alert_id(self) -> UUID:
@@ -378,6 +382,9 @@ class PlatformAlertUpsert:
     created_by_id: int | None = None
     # None keeps the copy's own, so a source that records no first enable leaves the copy's alone.
     first_enabled_at: datetime | None = None
+    # When the source alert was created. The copy keeps it, so readers that sort a copy beside alerts
+    # with no source row order it by the alert's age rather than by when it was copied.
+    created_at: datetime | None = None
 
 
 @frozen
@@ -1091,6 +1098,21 @@ class NativeConfigurationMatch:
     # that orders matches, on the same scale a source's own searched rows have.
     is_exact: bool | None = None
     search_score: float | None = None
+    # Set for a copy, whose source row's id stays its public id.
+    legacy_configuration_id: UUID | None = None
+
+    @property
+    def public_id(self) -> UUID:
+        return self.legacy_configuration_id or self.id
+
+
+@frozen
+class OwnedCopyKey:
+    """One copy the platform owns, with what a source sorts and filters it on beside its own rows."""
+
+    created_at: datetime
+    legacy_configuration_id: UUID
+    created_by_id: int | None
 
 
 @frozen
@@ -1110,6 +1132,23 @@ class EnabledNativeConfiguration:
     @property
     def public_id(self) -> UUID:
         return self.legacy_configuration_id or self.id
+
+
+@frozen
+class HeldAlertSearchMatch:
+    """One alert the platform holds the settings of, as a source's search shows it: an alert with no
+    source row, or a copy the platform owns."""
+
+    public_id: UUID
+    team_id: int
+    name: str
+    enabled: bool
+    # What the source's own read gates check, such as the insight an insight alert watches.
+    source_config: dict[str, Any]
+    check_interval_minutes: int
+    snooze_until: datetime | None
+    # The full-text rank of the name, or None when the search had no query.
+    rank: float | None
 
 
 @frozen
@@ -1251,8 +1290,9 @@ class SourceAdmission(Protocol):
     """Decides whether a team may add an alert of the kind, or turn one on. The platform calls it on a
     create, where `current` is None, and on an edit that turns the alert on, and on no other edit.
 
-    `check_interval_minutes` is the alert's stored cadence on an edit, and the kind's fixed cadence on
-    a native create. It is None on a create through the source, which sets the cadence itself.
+    `check_interval_minutes` is the cadence the alert will run on: the stored one or the one an edit
+    chooses, and on a native create the one it chose or the kind's default. It is None on a create
+    through the source, which sets the cadence itself.
 
     It runs in the write's transaction, after the platform takes a lock for the team and kind, so two
     concurrent writes cannot both pass a count. It raises `PlatformAlertCreateRefused` to refuse a
@@ -1373,6 +1413,8 @@ class SourceConfigSpec:
     # A new kind names its own flag, so it opens on its own schedule while the others stay generally
     # available.
     rollout_flag: str | None = None
+    # The most recent checks an alert of the kind may look back over, up to `MAX_SOURCE_EVALUATION_PERIODS`.
+    max_evaluation_periods: int = MAX_EVALUATION_PERIODS
     # A PostHog feature flag that opens every API action on this kind in place of `platform-alerts`.
     # The source product can then release its alerts on its own flag, while `platform-alerts` keeps
     # the other kinds and the platform's own pages closed.
@@ -1546,6 +1588,7 @@ class NewAlertDestination:
     event_kinds: tuple[AlertEventKind, ...]
     enabled: bool = True
     legacy_hog_function_ids: tuple[UUID, ...] = ()
+    keeps_legacy_webhook_body: bool = False
 
 
 @frozen
@@ -1559,6 +1602,7 @@ class StoredAlertDestination:
     enabled: bool
     consecutive_failures: int
     legacy_hog_function_ids: tuple[UUID, ...]
+    keeps_legacy_webhook_body: bool = False
 
 
 @frozen
@@ -1575,6 +1619,9 @@ class SourceDestination:
     hog_function_ids: tuple[UUID, ...]
     data: AlertDestinationData
     enabled: bool
+    # For a row whose HogFunctions are gone, the ids it still copies. A client that recorded the
+    # destination by its HogFunction ids, such as Terraform, finds and deletes it by these.
+    retired_hog_function_ids: tuple[UUID, ...] = ()
 
 
 @frozen

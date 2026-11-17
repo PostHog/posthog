@@ -4,13 +4,15 @@ import { CyclotronJobInvocationHogFlow, SandboxEmailOutcome } from '../../../typ
 import { buildWorkflowStepDispatchKey } from '../../../utils/workflow-step-dispatch-key'
 import { HogInputsService } from '../../hog-inputs.service'
 import { ActionHandlerOptions } from '../../hogflows/actions/action.interface'
-import { SandboxEmailAction, SandboxEmailSendDecision, SandboxEmailStep } from '../../hogflows/actions/email_sandbox'
+import { SandboxEmailSendDecision, SandboxEmailStep, SandboxSenderAction } from '../../hogflows/actions/email_sandbox'
+import { TeamWorkflowsConfigService } from '../../managers/team-workflows-config.service'
 import { RecipientPreferencesService } from '../recipient-preferences.service'
 import { SandboxEmailEvents, sandboxAppMetric } from './sandbox-email-events'
 import { SandboxEmailService, SandboxSendOutcome } from './sandbox-email.service'
 import {
     DeliveredAddressReader,
     SandboxRecipientUnavailableError,
+    acceptedSandboxEmail,
     logRenderFailure,
     renderSandboxEmail,
 } from './sandbox-render'
@@ -33,13 +35,14 @@ export type SandboxEmailSendStepDeps = {
     siteUrl: string
     recipientPreferences: Pick<RecipientPreferencesService, 'checkMarketingFrequencyCap'>
     events: Pick<SandboxEmailEvents, 'capture'>
+    teamWorkflowsConfig: Pick<TeamWorkflowsConfigService, 'getEmailSendingSuspension'>
     sesBucket: SandboxSesBucket
 }
 
 export class SandboxEmailSendStep implements SandboxEmailStep {
     constructor(private readonly deps: SandboxEmailSendStepDeps) {}
 
-    async send(options: ActionHandlerOptions<SandboxEmailAction>): Promise<SandboxEmailSendDecision> {
+    async send(options: ActionHandlerOptions<SandboxSenderAction>): Promise<SandboxEmailSendDecision> {
         const { invocation, action, result } = options
         const attempt = await this.attempt(options)
         if (attempt.status !== 'retry') {
@@ -60,17 +63,26 @@ export class SandboxEmailSendStep implements SandboxEmailStep {
         return { retryAt: DateTime.now().plus({ milliseconds: sandboxRetryDelayMs(retries) }) }
     }
 
-    private async attempt(options: ActionHandlerOptions<SandboxEmailAction>): Promise<SandboxSendOutcome> {
+    private async attempt(options: ActionHandlerOptions<SandboxSenderAction>): Promise<SandboxSendOutcome> {
         const { invocation, action } = options
+        if (action.type === 'function_email') {
+            const stopped = await this.codeSendStopped(invocation)
+            if (stopped) {
+                return { status: 'skipped', reason: stopped }
+            }
+        }
         let email: unknown
         try {
-            email = await renderSandboxEmail(
-                this.deps.hogInputsService,
-                invocation,
-                action,
-                this.deps.siteUrl,
-                this.deps.deliveredAddress
-            )
+            email =
+                action.type === 'email_sandbox'
+                    ? await renderSandboxEmail(
+                          this.deps.hogInputsService,
+                          invocation,
+                          action,
+                          this.deps.siteUrl,
+                          this.deps.deliveredAddress
+                      )
+                    : acceptedSandboxEmail(invocation)
         } catch (error) {
             if (error instanceof SandboxRecipientUnavailableError) {
                 return { status: 'retry', reason: 'authorization_unavailable' }
@@ -102,10 +114,19 @@ export class SandboxEmailSendStep implements SandboxEmailStep {
         })
     }
 
+    private async codeSendStopped(
+        invocation: CyclotronJobInvocationHogFlow
+    ): Promise<'sending_suspended' | 'sending_paused' | null> {
+        if (await this.deps.teamWorkflowsConfig.getEmailSendingSuspension(invocation.teamId)) {
+            return 'sending_suspended'
+        }
+        return invocation.hogFlow.email_sending_paused_at ? 'sending_paused' : null
+    }
+
     private record(
         invocation: CyclotronJobInvocationHogFlow,
-        action: SandboxEmailAction,
-        metrics: ActionHandlerOptions<SandboxEmailAction>['result']['metrics'],
+        action: SandboxSenderAction,
+        metrics: ActionHandlerOptions<SandboxSenderAction>['result']['metrics'],
         outcome: SandboxEmailOutcome
     ): SandboxEmailOutcome {
         metrics.push(
@@ -135,7 +156,7 @@ function uncertainSends(invocation: CyclotronJobInvocationHogFlow): number {
     return invocation.state.currentAction?.sandboxEmailUncertainSends ?? 0
 }
 
-function stepVisitKey(invocation: CyclotronJobInvocationHogFlow, action: SandboxEmailAction): string {
+function stepVisitKey(invocation: CyclotronJobInvocationHogFlow, action: SandboxSenderAction): string {
     const { actionStepCount, rerunAttempts } = invocation.state
     return actionStepCount === undefined
         ? `${invocation.id}:${action.id}`

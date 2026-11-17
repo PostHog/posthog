@@ -55,6 +55,7 @@ import type {
     EventsQuery,
 } from '../../../../../frontend/src/queries/schema/schema-general'
 import type { ErrorTrackingQueryIssueSeverity } from '../../../../../frontend/src/queries/schema/schema-general'
+import type { ErrorTrackingIssueTag } from '../../../../../frontend/src/queries/schema/schema-general'
 import { eventsSourceLogic } from '../../components/EventsTable/eventsSourceLogic'
 import { issueActionsLogic } from '../../components/IssueActions/issueActionsLogic'
 import {
@@ -228,6 +229,7 @@ export interface errorTrackingIssueSceneLogicActions {
             name: string | null
             severity?: ErrorTrackingQueryIssueSeverity | null | undefined
             status: ErrorTrackingIssueStatus
+            tags?: ErrorTrackingIssueTag[] | null | undefined
         } | null,
         payload?: {
             config: Record<string, string>
@@ -245,6 +247,7 @@ export interface errorTrackingIssueSceneLogicActions {
             name: string | null
             severity?: ErrorTrackingQueryIssueSeverity | null | undefined
             status: ErrorTrackingIssueStatus
+            tags?: ErrorTrackingIssueTag[] | null | undefined
         } | null
         payload?: {
             config: Record<string, string>
@@ -277,6 +280,7 @@ export interface errorTrackingIssueSceneLogicActions {
             name: string | null
             severity?: ErrorTrackingQueryIssueSeverity | null | undefined
             status: ErrorTrackingIssueStatus
+            tags?: ErrorTrackingIssueTag[] | null | undefined
         } | null,
         payload?: {
             externalContext: ErrorTrackingExternalReferenceLinkApiExternalContext
@@ -293,6 +297,7 @@ export interface errorTrackingIssueSceneLogicActions {
             name: string | null
             severity?: ErrorTrackingQueryIssueSeverity | null | undefined
             status: ErrorTrackingIssueStatus
+            tags?: ErrorTrackingIssueTag[] | null | undefined
         } | null
         payload?: {
             externalContext: ErrorTrackingExternalReferenceLinkApiExternalContext
@@ -449,6 +454,7 @@ export interface errorTrackingIssueSceneLogicActions {
             name: string | null
             severity?: ErrorTrackingQueryIssueSeverity | null | undefined
             status: ErrorTrackingIssueStatus
+            tags?: ErrorTrackingIssueTag[] | null | undefined
         } | null,
         payload?: {
             assignee: ErrorTrackingIssueAssignee | null
@@ -464,6 +470,7 @@ export interface errorTrackingIssueSceneLogicActions {
             name: string | null
             severity?: ErrorTrackingQueryIssueSeverity | null | undefined
             status: ErrorTrackingIssueStatus
+            tags?: ErrorTrackingIssueTag[] | null | undefined
         } | null
         payload?: {
             assignee: ErrorTrackingIssueAssignee | null
@@ -490,6 +497,7 @@ export interface errorTrackingIssueSceneLogicActions {
             name: string | null
             severity?: ErrorTrackingQueryIssueSeverity | null | undefined
             status: ErrorTrackingIssueStatus
+            tags?: ErrorTrackingIssueTag[] | null | undefined
         } | null,
         payload?: {
             description: string
@@ -505,6 +513,7 @@ export interface errorTrackingIssueSceneLogicActions {
             name: string | null
             severity?: ErrorTrackingQueryIssueSeverity | null | undefined
             status: ErrorTrackingIssueStatus
+            tags?: ErrorTrackingIssueTag[] | null | undefined
         } | null
         payload?: {
             description: string
@@ -531,6 +540,7 @@ export interface errorTrackingIssueSceneLogicActions {
             name: string
             severity?: ErrorTrackingQueryIssueSeverity | null | undefined
             status: ErrorTrackingIssueStatus
+            tags?: ErrorTrackingIssueTag[] | null | undefined
         } | null,
         payload?: {
             name: string
@@ -546,6 +556,7 @@ export interface errorTrackingIssueSceneLogicActions {
             name: string
             severity?: ErrorTrackingQueryIssueSeverity | null | undefined
             status: ErrorTrackingIssueStatus
+            tags?: ErrorTrackingIssueTag[] | null | undefined
         } | null
         payload?: {
             name: string
@@ -572,6 +583,7 @@ export interface errorTrackingIssueSceneLogicActions {
             name: string | null
             severity: ErrorTrackingQueryIssueSeverity | null
             status: ErrorTrackingIssueStatus
+            tags?: ErrorTrackingIssueTag[] | null | undefined
         } | null,
         payload?: {
             severity: ErrorTrackingQueryIssueSeverity | null
@@ -587,6 +599,7 @@ export interface errorTrackingIssueSceneLogicActions {
             name: string | null
             severity: ErrorTrackingQueryIssueSeverity | null
             status: ErrorTrackingIssueStatus
+            tags?: ErrorTrackingIssueTag[] | null | undefined
         } | null
         payload?: {
             severity: ErrorTrackingQueryIssueSeverity | null
@@ -613,6 +626,7 @@ export interface errorTrackingIssueSceneLogicActions {
             name: string | null
             severity?: ErrorTrackingQueryIssueSeverity | null | undefined
             status: ErrorTrackingIssueStatus
+            tags?: ErrorTrackingIssueTag[] | null | undefined
         } | null,
         payload?: {
             status: ErrorTrackingIssueStatus
@@ -628,6 +642,7 @@ export interface errorTrackingIssueSceneLogicActions {
             name: string | null
             severity?: ErrorTrackingQueryIssueSeverity | null | undefined
             status: ErrorTrackingIssueStatus
+            tags?: ErrorTrackingIssueTag[] | null | undefined
         } | null
         payload?: {
             status: ErrorTrackingIssueStatus

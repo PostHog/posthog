@@ -5,6 +5,7 @@ import { LemonButton, LemonTabs } from '@posthog/lemon-ui'
 import { Button } from '@posthog/quill'
 
 import { productSetupStatusLogic } from 'lib/components/ProductEmptyState/productSetupStatusLogic'
+import { useApmMobileLayout } from 'lib/hooks/useApmMobileLayout'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconFeedback } from 'lib/lemon-ui/icons'
 import { cn } from 'lib/utils/css-classes'
@@ -40,8 +41,11 @@ export const scene: SceneExport = {
 }
 
 export function LogsScene(): JSX.Element {
+    const mobileLayout = useApmMobileLayout()
     return (
-        <SceneContent className="h-[calc(var(--scene-layout-rect-height,_100vh)_-_1rem)]">
+        <SceneContent
+            className={mobileLayout ? 'min-h-full' : 'h-[calc(var(--scene-layout-rect-height,_100vh)_-_1rem)]'}
+        >
             <LogsSceneTabbedContent />
         </SceneContent>
     )

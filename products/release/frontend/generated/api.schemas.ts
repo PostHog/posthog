@@ -7,6 +7,31 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
+export interface LinkedSurveyDTOApi {
+    id: string
+    name: string
+    created_at: string
+    /** @nullable */
+    start_date: string | null
+    /** @nullable */
+    end_date: string | null
+    /** @nullable */
+    linked_flag_id: number | null
+    archived: boolean
+}
+
+export interface LinkedInsightDTOApi {
+    /** True when the insight was deleted after it was linked. */
+    readonly deleted: boolean
+    id: number
+    short_id: string
+    name: string
+    /** @nullable */
+    created_at: string | null
+    /** @nullable */
+    last_modified_at: string | null
+}
+
 export interface LinkedSendDTOApi {
     id: string
     status: string
@@ -27,6 +52,10 @@ export interface ReleaseOwnerDTOApi {
 }
 
 export interface ReleaseDTOApi {
+    /** ID, name, dates, targeting flag and archived state of each linked survey the caller can see. */
+    readonly surveys: readonly LinkedSurveyDTOApi[]
+    /** ID, short ID, name and dates of each linked insight the caller can see, including deleted ones. */
+    readonly insights: readonly LinkedInsightDTOApi[]
     /** ID, name and status of each linked broadcast the caller can see. Deleted broadcasts are left out. */
     readonly broadcasts: readonly LinkedBroadcastDTOApi[]
     /** True when the release links flags the caller cannot see. Their IDs are left out of feature_flag_ids. */
@@ -37,6 +66,8 @@ export interface ReleaseDTOApi {
     owner: ReleaseOwnerDTOApi | null
     feature_flag_ids: number[]
     broadcast_ids: string[]
+    survey_ids: string[]
+    insight_ids: number[]
     created_at: string
 }
 
@@ -74,6 +105,18 @@ export interface WriteReleaseApi {
      * @maxItems 100
      */
     broadcast_ids?: string[]
+    /**
+     * IDs of the surveys that collect feedback on the release, at most 100.
+     * @maxItems 100
+     */
+    survey_ids?: string[]
+    /**
+     * IDs of the saved insights that measure the release, at most 100.
+     * @maxItems 100
+     * @items.minimum 1
+     * @items.maximum 2147483647
+     */
+    insight_ids?: number[]
 }
 
 export interface PatchedUpdateReleaseApi {
@@ -101,6 +144,32 @@ export interface PatchedUpdateReleaseApi {
      * @maxItems 100
      */
     broadcast_ids?: string[]
+    /**
+     * IDs of the surveys that collect feedback on the release, at most 100.
+     * @maxItems 100
+     */
+    survey_ids?: string[]
+    /**
+     * IDs of the saved insights that measure the release, at most 100.
+     * @maxItems 100
+     * @items.minimum 1
+     * @items.maximum 2147483647
+     */
+    insight_ids?: number[]
+}
+
+export interface MergeReleasesApi {
+    /**
+     * IDs of the releases to merge into this one. Their flags, broadcasts, surveys and insights move to this release, then they are deleted.
+     * @minItems 1
+     * @maxItems 100
+     */
+    release_ids: string[]
+    /**
+     * New name for the merged release. Keeps the current name when left out.
+     * @maxLength 255
+     */
+    name?: string
 }
 
 export interface BroadcastOptionApi {
@@ -110,6 +179,43 @@ export interface BroadcastOptionApi {
     name: string
     /** Status of the broadcast, such as draft or active. */
     status: string
+}
+
+export interface CatalogFlagApi {
+    /** ID of the feature flag. */
+    id: number
+    /** Key of the feature flag. */
+    key: string
+    /** True when the flag is enabled. */
+    active: boolean
+    /** When the flag was created. */
+    created_at: string
+}
+
+export interface CatalogFlagsResponseApi {
+    /** Flags the caller can see, newest first. */
+    results: CatalogFlagApi[]
+    /** True when more flags follow this page. */
+    has_more: boolean
+}
+
+export interface CatalogReleaseApi {
+    /** ID of the release. */
+    id: string
+    /** Name of the release. */
+    name: string
+    /** When the release was created. */
+    created_at: string
+}
+
+export interface CatalogReleasesResponseApi {
+    /** Releases of the project, newest first. */
+    results: CatalogReleaseApi[]
+    /**
+     * Pass as cursor to fetch the next page. Null when no more releases follow.
+     * @nullable
+     */
+    next_cursor: string | null
 }
 
 export interface ImportAllResponseApi {
@@ -132,6 +238,44 @@ export type ReleasesListParams = {
 export type ReleasesBroadcastSearchRetrieveParams = {
     /**
      * Part of the broadcast name to match.
+     * @maxLength 200
+     */
+    search?: string
+}
+
+export type ReleasesCatalogFlagsRetrieveParams = {
+    /**
+     * How many flags to return, at most 100.
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number
+    /**
+     * How many flags to skip, newest first.
+     * @minimum 0
+     */
+    offset?: number
+    /**
+     * Part of the flag key or name to match.
+     * @maxLength 200
+     */
+    search?: string
+}
+
+export type ReleasesCatalogReleasesRetrieveParams = {
+    /**
+     * next_cursor of the previous page.
+     * @maxLength 100
+     */
+    cursor?: string
+    /**
+     * How many releases to return, at most 100.
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number
+    /**
+     * Part of the release name to match.
      * @maxLength 200
      */
     search?: string

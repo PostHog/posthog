@@ -142,8 +142,11 @@ def _calc_route(
     """
     A metric that can read precomputed exposures and metric events goes to the precompute queue in the AUTO
     mode, and the runner checks the gates again when it calculates. The route does not use
-    PrecomputationMode.PRECOMPUTED, which is reserved for staff tools, so for now the check runs twice. Any other
-    metric goes to the activity queue and scans directly, so it never starts a precompute build there.
+    PrecomputationMode.PRECOMPUTED, which is reserved for staff tools, so for now the check runs twice.
+
+    A metric that can read precomputed exposures but not precomputed metric events (CUPED, breakdowns, unordered
+    funnels) goes to the activity queue in the AUTO mode, so the raw scan covers only the metric events. A metric
+    that can read neither goes to the activity queue in the DIRECT mode and never starts a precompute build there.
     """
     try:
         runner = ExperimentQueryRunner(
@@ -155,15 +158,18 @@ def _calc_route(
             user_facing=False,
             error_event_context=None,
         )
-        reads_precomputed = runner._exposures_precompute_applicable() and runner._metric_events_precompute_applicable()
+        reads_exposures = runner._exposures_precompute_applicable()
+        reads_metric_events = reads_exposures and runner._metric_events_precompute_applicable()
     except Exception as e:
         # The AUTO mode is what every run used before this routing, so a failed check falls back to it. Report
         # it, because a broken check sends every metric to the precompute queue.
         capture_exception(e, additional_properties={"tag": "experiment_recalculation_route_failed"})
-        reads_precomputed = True
+        reads_exposures = reads_metric_events = True
 
-    if reads_precomputed:
+    if reads_metric_events:
         return _CalcRoute(task_queue=settings.EXPERIMENTS_RECALCULATION_PRECOMPUTE_TASK_QUEUE, precomputation_mode=None)
+    if reads_exposures:
+        return _CalcRoute(task_queue=settings.EXPERIMENTS_RECALCULATION_ACTIVITY_TASK_QUEUE, precomputation_mode=None)
     return _CalcRoute(
         task_queue=settings.EXPERIMENTS_RECALCULATION_ACTIVITY_TASK_QUEUE,
         precomputation_mode=PrecomputationMode.DIRECT,

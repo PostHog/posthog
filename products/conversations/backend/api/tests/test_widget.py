@@ -796,7 +796,7 @@ class TestWidgetAPI(BaseTest):
 
 
 class TestWidgetCacheInvalidation(BaseTest):
-    """Test that widget message creation invalidates unread count cache."""
+    """Test that widget caches reflect new messages and ticket changes."""
 
     def setUp(self):
         super().setUp()
@@ -848,6 +848,67 @@ class TestWidgetCacheInvalidation(BaseTest):
             )
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             mock_invalidate.assert_called_once_with(self.team.id)
+
+    def _create_widget_ticket(self) -> Ticket:
+        return Ticket.objects.create_with_number(
+            team=self.team,
+            widget_session_id=self.widget_session_id,
+            distinct_id=self.distinct_id,
+            channel_source="widget",
+        )
+
+    def _create_message(self, ticket: Ticket, content: str, author_type: str) -> Comment:
+        with self.captureOnCommitCallbacks(execute=True):
+            comment = Comment.objects.create(
+                team=self.team,
+                scope="conversations_ticket",
+                item_id=str(ticket.id),
+                content=content,
+                created_by=self.user if author_type == "team" else None,
+                item_context={"author_type": author_type, "is_private": False},
+            )
+        return comment
+
+    @parameterized.expand(
+        [
+            ("first_load", False, ["Question", "Reply"]),
+            ("poll", True, ["Reply"]),
+        ]
+    )
+    def test_get_messages_returns_a_reply_that_arrives_after_the_response_is_cached(
+        self, _name: str, poll_after_first_message: bool, expected_contents: list[str]
+    ) -> None:
+        cache.clear()
+        ticket = self._create_widget_ticket()
+        url = f"/api/conversations/v1/widget/messages/{ticket.id}"
+
+        with time_machine.travel(timezone.now(), tick=False) as traveller:
+            first = self._create_message(ticket, "Question", author_type="customer")
+            query: dict[str, str | int] = {"widget_session_id": self.widget_session_id, "limit": 50}
+            if poll_after_first_message:
+                query["after"] = first.created_at.isoformat()
+            self.client.get(url, query, **self._get_headers())
+
+            traveller.shift(timedelta(seconds=5))
+            self._create_message(ticket, "Reply", author_type="team")
+            response = self.client.get(url, query, **self._get_headers())
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual([m["content"] for m in response.json()["messages"]], expected_contents)
+
+    def test_get_messages_returns_the_current_ticket_status_when_messages_are_cached(self) -> None:
+        cache.clear()
+        ticket = self._create_widget_ticket()
+        url = f"/api/conversations/v1/widget/messages/{ticket.id}"
+        query: dict[str, str | int] = {"widget_session_id": self.widget_session_id, "limit": 50}
+        self.client.get(url, query, **self._get_headers())
+
+        ticket.status = Status.RESOLVED
+        ticket.save()
+        response = self.client.get(url, query, **self._get_headers())
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["ticket_status"], Status.RESOLVED)
 
 
 class TestWidgetIdentityVerification(BaseTest):

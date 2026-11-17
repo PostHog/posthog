@@ -119,7 +119,6 @@ from posthog.schema import (
     StickinessQueryResponse,
     SuggestedQuestionsQuery,
     TeamTaxonomyQuery,
-    TraceNeighborsQuery,
     TraceQuery,
     TracesQuery,
     TrendsQuery,
@@ -247,7 +246,7 @@ from posthog.query_scan.trigger import (
     maybe_trigger_query_scan,
 )
 from posthog.schema_helpers import to_dict
-from posthog.scopes import API_SCOPE_OBJECTS, APIScopeObject
+from posthog.scopes.catalog import API_SCOPE_OBJECTS, APIScopeObject
 from posthog.shared_link_user import SharedLinkUser
 from posthog.slo.context import JsonValue, SloSpec, slo_operation, tag_current_slo
 from posthog.slo.types import SloArea, SloOperation, SloOutcome
@@ -1623,17 +1622,6 @@ def get_query_runner(
             modifiers=modifiers,
             user=user,
         )
-    if kind == "TraceNeighborsQuery":
-        from .ai.trace_neighbors_query_runner import TraceNeighborsQueryRunner
-
-        return TraceNeighborsQueryRunner(
-            query=cast(TraceNeighborsQuery | dict[str, Any], query),
-            team=team,
-            timings=timings,
-            limit_context=limit_context,
-            modifiers=modifiers,
-            user=user,
-        )
     if kind == "VectorSearchQuery":
         from .ai.vector_search_query_runner import VectorSearchQueryRunner
 
@@ -2152,13 +2140,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             # Kill switch: build per access so query threads never share schema state. No timings
             # measure here because concurrent threads reach this path and HogQLTimings is not
             # thread-safe.
-            return Database.create_for(
-                team=self.team,
-                user=self.user,
-                user_access_control=self.user_access_control,
-                modifiers=self.modifiers,
-                trigger="shared_kill_switch",
-            )
+            return self._create_database(trigger="shared_kill_switch")
         if self._shared_database is None:
             # Concurrent query threads (funnels compare mode) can first-touch this property at the
             # same time. The lock makes the build run once, and keeps the measure on the single
@@ -2166,15 +2148,18 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             with self._shared_database_build_lock:
                 if self._shared_database is None:
                     with self.timings.measure("build_shared_database"):
-                        self._shared_database = Database.create_for(
-                            team=self.team,
-                            user=self.user,
-                            user_access_control=self.user_access_control,
-                            modifiers=self.modifiers,
-                            timings=self.timings,
-                            trigger="shared",
-                        )
+                        self._shared_database = self._create_database(timings=self.timings, trigger="shared")
         return self._shared_database
+
+    def _create_database(self, *, timings: HogQLTimings | None = None, trigger: str) -> Database:
+        return Database.create_for(
+            team=self.team,
+            user=self.user,
+            user_access_control=self.user_access_control,
+            modifiers=self.modifiers,
+            timings=timings,
+            trigger=trigger,
+        )
 
     def build_hogql_context(self, **kwargs: Any) -> HogQLContext:
         """Context for execute_hogql_query calls this runner makes, wired to the shared database."""
@@ -2275,7 +2260,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
     def _query_json_with_events_schema(self) -> dict[str, Any]:
         query_json = self.query.model_dump()
         # A query that reads no events table needs no pin, and pure Trino rejects modifiers the caller did not set.
-        if self.modifiers.useNewEventsSchema and self._reads_events_route():
+        if self.modifiers.useNewEventsSchema is not None and self._reads_events_route():
             return with_pinned_events_route(query_json, self.modifiers)
         return query_json
 

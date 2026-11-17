@@ -77,6 +77,12 @@ const idempotencyKeysSweptCounter = new Counter({
     help: 'Expired idempotency key rows deleted by the janitor.',
 })
 
+// An alert fires when this stops advancing, so the name must not change.
+const janitorLastSuccessGauge = new Gauge({
+    name: 'cdp_cyclotron_v2_janitor_last_success_timestamp_seconds',
+    help: 'Unix time of the last janitor cycle in which at least one cyclotron stage succeeded',
+})
+
 const queueDepthGauge = new Gauge({
     name: 'cdp_cyclotron_v2_queue_depth',
     help: 'Number of available jobs per queue',
@@ -107,6 +113,7 @@ interface PoisonRow {
 export class CyclotronV2Janitor {
     private pool: Pool
     private intervalHandle: ReturnType<typeof setInterval> | null = null
+    private tickInFlight = false
     // Queue names this process has seen hold work, so a drained queue can report 0.
     private readonly seenQueues = new Set<string>()
 
@@ -157,26 +164,45 @@ export class CyclotronV2Janitor {
         const client = await this.pool.connect()
         client.release()
 
-        this.intervalHandle = setInterval(() => {
-            this.runOnce().catch((err) => {
-                logger.error('CyclotronV2Janitor run error', { error: String(err) })
-            })
-        }, this.cleanupIntervalMs)
+        this.intervalHandle = setInterval(() => void this.tick(), this.cleanupIntervalMs)
+        await this.tick()
+    }
 
-        // Run immediately on start
-        await this.runOnce()
+    // A slow cycle must not overlap the next one: both would stack up on the same locked rows.
+    private async tick(): Promise<void> {
+        if (this.tickInFlight) {
+            return
+        }
+        this.tickInFlight = true
+        try {
+            await this.runOnce()
+        } catch (err) {
+            logger.error('CyclotronV2Janitor run error', { error: String(err) })
+        } finally {
+            this.tickInFlight = false
+        }
     }
 
     async runOnce(): Promise<CyclotronV2CleanupResult> {
-        // Sweep first, before the cyclotron-cleanup stages below. Each of those issues an unguarded
-        // pool.query, so a failure specific to cyclotron_jobs (a statement timeout or lock pressure on
-        // that hot table) rejects out of runOnce and would skip the sweep for as long as it lasts. The
-        // sweep touches a different table and swallows its own errors, so running it up front keeps
-        // expired watchers draining even while cyclotron cleanup is failing.
         await this.sweepExpiredConversionWatchers()
         await this.sweepExpiredIdempotencyKeys()
 
-        const deletedCounts = await this.cleanupTerminalJobs()
+        // Each stage is isolated, so a failure on one query (a statement timeout on cyclotron_jobs) never
+        // skips stalled recovery or freezes the depth gauges.
+        let succeeded = 0
+        const stage = async <T>(name: string, run: () => Promise<T>, fallback: T): Promise<T> => {
+            try {
+                const result = await run()
+                succeeded++
+                return result
+            } catch (err) {
+                logger.error('CyclotronV2Janitor stage failed', { stage: name, error: String(err) })
+                captureException(err)
+                return fallback
+            }
+        }
+
+        const deletedCounts = await stage('cleanup', () => this.cleanupTerminalJobs(), {})
         const deleted = Object.values(deletedCounts).reduce((a, b) => a + b, 0)
 
         // Give up on genuine poison pills. The kill-switch picks between two
@@ -184,16 +210,22 @@ export class CyclotronV2Janitor {
         // the new record-then-delete path, or master's legacy mark-failed path.
         // The legacy path (and the flag) can be deleted wholesale once we trust
         // recording in production.
-        const poisonedIds = this.poisonRecoveryEnabled
-            ? await this.recordAndDeletePoisonPills()
-            : await this.failPoisonPills()
+        const poisonedIds = await stage<string[] | null>(
+            'poison',
+            () => (this.poisonRecoveryEnabled ? this.recordAndDeletePoisonPills() : this.failPoisonPills()),
+            null
+        )
 
-        const stalled = await this.resetStalledJobs()
-        const depths = await this.measureQueueDepths()
+        // When the poison stage failed, leave its jobs running rather than hand known poison pills back to workers.
+        const stalled = await stage('stalled', () => this.resetStalledJobs(poisonedIds === null), 0)
+        const depths = await stage('depths', () => this.measureQueueDepths(), new Map<string, number>())
 
+        if (succeeded > 0) {
+            janitorLastSuccessGauge.setToCurrentTime()
+        }
         janitorRunCounter.inc()
 
-        return { deleted, stalled, poisoned: poisonedIds.length, poisonedIds, depths }
+        return { deleted, stalled, poisoned: poisonedIds?.length ?? 0, poisonedIds: poisonedIds ?? [], depths }
     }
 
     private async cleanupTerminalJobs(): Promise<Record<string, number>> {
@@ -433,7 +465,7 @@ export class CyclotronV2Janitor {
         return { ...invocation, hogFlow: { id: invocation.functionId } } as CyclotronJobInvocationHogFlow
     }
 
-    private async resetStalledJobs(): Promise<number> {
+    private async resetStalledJobs(skipPoisonPills: boolean): Promise<number> {
         const heartbeatCutoff = new Date(Date.now() - this.stallTimeoutMs)
 
         // Defer the reset job's next scheduled time so repeated stalls back off
@@ -457,6 +489,7 @@ export class CyclotronV2Janitor {
         const params: (Date | number)[] = backoffEnabled
             ? [heartbeatCutoff, this.stallBackoffBaseMs, this.stallBackoffMaxMs, STALL_BACKOFF_FIRST_RETRY_SPREAD_MS]
             : [heartbeatCutoff]
+        const poisonClause = skipPoisonPills ? `AND janitor_touch_count < $${params.push(this.maxTouchCount)}` : ''
 
         const result = await this.pool.query(
             `WITH stalled AS (
@@ -464,6 +497,7 @@ export class CyclotronV2Janitor {
                 FROM cyclotron_jobs
                 WHERE status = 'running'
                   AND COALESCE(last_heartbeat, $1) <= $1
+                  ${poisonClause}
                 FOR UPDATE SKIP LOCKED
             )
             UPDATE cyclotron_jobs

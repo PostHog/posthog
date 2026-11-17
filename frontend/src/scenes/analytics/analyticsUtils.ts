@@ -11,8 +11,6 @@ import { fileSystemTypes } from '~/products'
 import { FileSystemEntry, FileSystemImport } from '~/queries/schema/schema-general'
 import type { UserBasicType } from '~/types'
 
-import type { CanvasApi } from 'products/canvas/frontend/generated/api.schemas'
-
 // pinned: these values are the `type` property of the `views new picked` and `views list filtered` events.
 export type AnalyticsType = 'canvas' | 'notebook' | 'dashboard' | 'insight'
 
@@ -56,6 +54,13 @@ export const ANALYTICS_TYPES: AnalyticsTypeInfo[] = [
     },
 ]
 
+/** The types the web app creates. Canvases are made with the PostHog MCP server, so they are left out. */
+export type CreatableAnalyticsType = Exclude<AnalyticsType, 'canvas'>
+
+export const CREATABLE_ANALYTICS_TYPES = ANALYTICS_TYPES.filter(
+    (info): info is AnalyticsTypeInfo & { type: CreatableAnalyticsType } => info.type !== 'canvas'
+)
+
 export const ANALYTICS_TYPE_INFO = Object.fromEntries(ANALYTICS_TYPES.map((info) => [info.type, info])) as Record<
     AnalyticsType,
     AnalyticsTypeInfo
@@ -86,6 +91,12 @@ export interface AnalyticsItem {
     spaceName: string | null
     /** The file system row behind the item, which a drag hands to the project tree's move. */
     entry?: FileSystemEntry
+}
+
+export function analyticsItemTarget(
+    item: AnalyticsItem
+): Pick<AnalyticsItem, 'type' | 'name' | 'href' | 'tags'> & { ref: string } {
+    return { type: item.type, ref: item.id, name: item.name, href: item.href, tags: item.tags }
 }
 
 export const ANALYTICS_BACK_NAME = 'Analytics'
@@ -241,21 +252,8 @@ export function fromPostHogItems(featureFlags: FeatureFlagsSet): FromPostHogItem
     return fromPostHogProducts().filter(({ item }) => isFileSystemImportShown(item, featureFlags))
 }
 
-/**
- * The space a new canvas defaults to from the page the person is on: the open space, or the open
- * canvas's space. Null when the page names no space, so the start page falls back to the personal space.
- */
-export function newCanvasSpaceIdForPath(
-    path: string,
-    openCanvas: Pick<CanvasApi, 'id' | 'channel'> | null
-): string | null {
-    const space = /^\/spaces\/([^/]+)/.exec(path)
-    if (space) {
-        return space[1]
-    }
-    const canvas = /^\/canvases\/([^/]+)$/.exec(path)
-    return canvas && openCanvas?.id === canvas[1] ? openCanvas.channel : null
-}
-
 /** Scopes the Analytics list's drag ids and drop targets apart from the project tree's own. */
 export const ANALYTICS_DRAG_SCOPE = 'analytics-list'
+
+export const ROW_HOVER_REVEAL =
+    'opacity-0 transition-opacity motion-reduce:transition-none group-hover/row:opacity-100 focus-visible:opacity-100'

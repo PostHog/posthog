@@ -43,7 +43,7 @@ It parses every message in two phases.
 An event passes the gate when it has a person id and its team passes two checks.
 
 1. **The team index.**
-   The team has at least one realtime cohort.
+   The team has at least one realtime cohort that is on, not static and not deleted.
    The shuffler rebuilds the index from Postgres every few minutes and swaps it in atomically.
 2. **Team access.**
    `REALTIME_COHORT_TEAM_ALLOWLIST` names the team, or the team's row in `cohort_realtime_team_access` is at `processing` or `serving`.
@@ -110,7 +110,7 @@ Other losses:
 - a message that cannot be parsed,
 - an event whose forwarded blob holds a lone surrogate escape: the shuffler copies blobs without checking them, and the processor then refuses the whole envelope,
 - a forward the producer rejects outright, for example because it is too large,
-- an event for a team that has just gained its first realtime cohort and is not yet in the team index.
+- an event for a team that has just turned on its first realtime cohort and is not yet in the team index.
   These are counted together with every other out-of-scope team, so they are not separately visible.
 
 The consumer group starts at the tail of the firehose when it has no committed offset, or when its committed offset has aged out of the firehose's retention.
@@ -207,7 +207,7 @@ Membership would silently diverge.
 
 ## Worked example
 
-Team 7 has realtime cohorts and is allowlisted.
+Team 7 has a realtime cohort that is on, and is allowlisted.
 Person p-1 is `0192f3a0-7c1e-7d2a-9b3c-000000000001`.
 
 1. Ingestion writes a `$pageview` from p-1 to firehose partition 3, at offset 9870001.

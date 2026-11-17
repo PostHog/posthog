@@ -164,7 +164,7 @@ export const MessagingSendEmailCreateBody = /* @__PURE__ */ zod.object({
                     .max(messagingSendEmailCreateBodyAttachmentsItemContentTypeMax)
                     .optional()
                     .describe(
-                        'MIME type of the file, such as `application\/pdf`. Without it, the type follows from the file name.'
+                        'MIME type of the file, such as `application\/pdf`, with any parameters, such as `text\/calendar; charset=utf-8; method=REQUEST`. Without it, the type follows from the file name. A `name` parameter is refused, because the file name comes from `filename`.'
                     ),
                 content_id: zod
                     .string()
@@ -655,7 +655,7 @@ export const MessagingSuppressionsAddSuppressionCreateBody = /* @__PURE__ */ zod
 })
 
 /**
- * Suppress every address in the list. Addresses that already have an entry are skipped, so repeating a call is safe.
+ * Suppress every address in the list. An address that already has an entry keeps it, and a `bounce` also makes that entry block transactional email. Repeating a call is safe.
  * @summary Add multiple email addresses to the suppression list
  */
 export const messagingSuppressionsBulkAddSuppressionsCreateBodySuppressionsItemIdentifierMax = 512
@@ -742,6 +742,7 @@ export const messagingTemplatesCreateBodyDraftContentOneTemplatingDefault = `liq
 export const messagingTemplatesCreateBodyDraftContentOneEmailOneFromOneEmailMax = 254
 
 export const MessagingTemplatesCreateBody = /* @__PURE__ */ zod.object({
+    _create_in_folder: zod.string().optional().describe('Project folder for the new email template.'),
     name: zod
         .string()
         .max(messagingTemplatesCreateBodyNameMax)
@@ -998,6 +999,7 @@ export const messagingTemplatesUpdateBodyDraftContentOneTemplatingDefault = `liq
 export const messagingTemplatesUpdateBodyDraftContentOneEmailOneFromOneEmailMax = 254
 
 export const MessagingTemplatesUpdateBody = /* @__PURE__ */ zod.object({
+    _create_in_folder: zod.string().optional().describe('Project folder for the new email template.'),
     name: zod
         .string()
         .max(messagingTemplatesUpdateBodyNameMax)
@@ -1254,6 +1256,7 @@ export const messagingTemplatesPartialUpdateBodyDraftContentOneTemplatingDefault
 export const messagingTemplatesPartialUpdateBodyDraftContentOneEmailOneFromOneEmailMax = 254
 
 export const MessagingTemplatesPartialUpdateBody = /* @__PURE__ */ zod.object({
+    _create_in_folder: zod.string().optional().describe('Project folder for the new email template.'),
     name: zod
         .string()
         .max(messagingTemplatesPartialUpdateBodyNameMax)

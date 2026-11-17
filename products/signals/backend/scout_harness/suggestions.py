@@ -52,11 +52,8 @@ from products.signals.backend.models import (
     SignalScoutSuggestionSet,
     SignalSourceConfig,
 )
-from products.signals.backend.scout_harness.lazy_seed import (
-    CanonicalSkillParseError,
-    canonical_operational_scout_names,
-    discover_canonical_skills,
-)
+from products.signals.backend.scout_harness.lazy_seed import CanonicalSkillParseError, discover_canonical_skills
+from products.signals.backend.scout_harness.operational import operational_config_q
 from products.signals.backend.scout_harness.prompt import SCOUT_PROJECT_SCAN_GUIDANCE
 from products.signals.backend.scout_harness.skill_loader import SIGNALS_SCOUT_SKILL_PREFIX
 from products.signals.backend.scout_harness.team_limits import read_flag_payload, withheld_skills_for_team
@@ -312,7 +309,7 @@ def set_up_team_q() -> Q:
     user_scout_teams = (
         SignalScoutConfig.all_teams.filter(enabled=True)
         .exclude(managed_by=SignalScoutConfig.ManagedBy.BACKGROUND)
-        .exclude(skill_name__in=canonical_operational_scout_names())
+        .exclude(operational_config_q())
         .values("team_id")
     )
     return (

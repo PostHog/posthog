@@ -690,6 +690,15 @@ export class AgentServer {
     });
   };
 
+  private createLogger(prefix: string): Logger {
+    return new Logger({
+      debug: true,
+      level: this.config.logLevel ?? "debug",
+      format: this.config.logFormat,
+      prefix,
+    });
+  }
+
   constructor(config: AgentServerConfig) {
     this.config = config;
     this.productLaunch = {
@@ -708,7 +717,7 @@ export class AgentServer {
     this.posthogExecPermissionRegex = compilePostHogExecPermissionRegex(
       this.posthogExecPermissionRegexSource,
     );
-    this.logger = new Logger({ debug: true, prefix: "[AgentServer]" });
+    this.logger = this.createLogger("[AgentServer]");
     this.posthogAPI = new PostHogAPIClient({
       apiUrl: config.apiUrl,
       projectId: config.projectId,
@@ -779,7 +788,11 @@ export class AgentServer {
           mode: this.getEffectiveMode(payload),
           agentVersion: this.config.version ?? packageJson.version,
         },
-        new Logger({ debug: false, prefix: "[OtelRunTelemetry]" }),
+        new Logger({
+          debug: false,
+          format: this.config.logFormat,
+          prefix: "[OtelRunTelemetry]",
+        }),
       );
     } catch (error) {
       this.logger.warn("Failed to initialize OTel run telemetry", error);
@@ -1112,11 +1125,12 @@ export class AgentServer {
         runId: resumeRunId,
         repositoryPath: this.config.repositoryPath,
         apiClient: this.posthogAPI,
-        logger: new Logger({ debug: true, prefix: "[Resume]" }),
+        logger: this.createLogger("[Resume]"),
       });
       if (this.session?.payload.run_id === currentRunId) {
         this.session.contextSelection.resetHistory(
           formatConversationForResume(this.resumeState.conversation),
+          this.resumeState.injectedReferences,
         );
       }
       this.logger.debug("Resume state loaded", {
@@ -1986,6 +2000,7 @@ export class AgentServer {
   private createContextSelection(
     runId: string,
     history: string,
+    injected: string[] = [],
   ): ContextSelection {
     return new ContextSelection(
       this.contextSelectionAPI,
@@ -1999,6 +2014,7 @@ export class AgentServer {
         ),
       this.config.version ?? packageJson.version,
       history,
+      injected,
     );
   }
 
@@ -2314,7 +2330,7 @@ export class AgentServer {
 
     const logWriter = new SessionLogWriter({
       posthogAPI,
-      logger: new Logger({ debug: true, prefix: "[SessionLogWriter]" }),
+      logger: this.createLogger("[SessionLogWriter]"),
       sinks: telemetry ? [telemetry] : undefined,
     });
 
@@ -2369,6 +2385,7 @@ export class AgentServer {
         this.handleAcpTransportMessage(message, eventId),
       stampedRunTraceId: this.stampedRunTraceId,
       logger: this.logger,
+      claudeAgentLogger: this.createLogger("[ClaudeAcpAgent]"),
       processCallbacks: isTaskRunSandbox(process.env)
         ? {
             onProcessSpawned: ({ pid }) => {
@@ -2637,6 +2654,7 @@ export class AgentServer {
         resumeState
           ? formatConversationForResume(resumeState.conversation)
           : "",
+        resumeState?.injectedReferences ?? [],
       ),
       cancellationVersion: 0,
       payload,
@@ -2852,6 +2870,7 @@ export class AgentServer {
     ) {
       return { stopReason: "cancelled" };
     }
+    session.contextSelection.recordInjected(context);
     const result = await session.clientConnection.prompt({
       ...request,
       prompt: context
@@ -5805,6 +5824,15 @@ export class AgentServer {
       message.method === POSTHOG_NOTIFICATIONS.CONVERSATION_CLEARED
     ) {
       this.session.contextSelection.resetHistory();
+    }
+    if (
+      this.session &&
+      typeof message === "object" &&
+      message !== null &&
+      "method" in message &&
+      message.method === POSTHOG_NOTIFICATIONS.COMPACT_BOUNDARY
+    ) {
+      this.session.contextSelection.forgetInjected();
     }
     const budget = budgetSnapshotFromUsageUpdate(message);
     if (budget) {
