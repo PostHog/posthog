@@ -157,7 +157,7 @@ Each guide's row below holds its full trigger. A section may still link one part
 | [.agents/feature-usage-tracking.md](.agents/feature-usage-tracking.md) | A feature a user interacts with, such as a new action, menu item, or scene, a change to what a user can do there, or the removal of a feature for low usage                                                                                                                                   |
 | [.agents/ci.md](.agents/ci.md)                                         | A workflow, `.nvmrc`, a publish job, event ingestion, tests that read event properties, or a flaky CI run                                                                                                                                                                                     |
 | [.agents/agent-automation.md](.agents/agent-automation.md)             | The automation of a convention, a Claude Code hook, `.claude/settings.json`, a lint-staged task, or a pre-commit check                                                                                                                                                                        |
-| [.agents/security.md](.agents/security.md)                             | Auth, secrets, service-to-service calls, raw SQL, HogQL string building, a new external origin, an inline script under the Content Security Policy, or a PR for a security fix                                                                                                                |
+| [.agents/security.md](.agents/security.md)                             | Auth, secrets, encrypting or signing data, service-to-service calls, raw SQL, HogQL string building, a new external origin, an inline script under the Content Security Policy, or a PR for a security fix                                                                                    |
 
 ## CI / GitHub Actions
 
@@ -174,6 +174,8 @@ The private mirror carries this file, and its `origin` points at the private rep
 Before the first push of a branch, run `git remote get-url origin`.
 If it names `posthog-private` and the change is not an embargoed fix, open the PR from a `PostHog/posthog` checkout.
 Do not add new `INTERNAL_API_SECRET` callers.
+Every new encryption or signing purpose gets its own key: `ENCRYPTION_SALT_KEYS` is only for Django encrypted model fields, and `SECRET_KEY` takes no new purpose.
+Read [Secrets & key management](.agents/security.md#secrets--key-management) before you encrypt or sign data.
 [.agents/security.md](.agents/security.md) covers least privilege, the injection rules, and how to respond when semgrep flags your code.
 `.semgrep/rules/security/` is the enforced set; run `semgrep --config .semgrep/rules/security/ .` to check a change locally.
 
