@@ -299,6 +299,63 @@ const suppressionsAdd = (): ToolBase<ReturnType<typeof SuppressionsAddSchema>, S
     },
 })
 
+const SuppressionsListSchema = () => {
+    const MessagingSuppressionsSuppressionsRetrieveQueryParams =
+        orvalSchemas.MessagingSuppressionsSuppressionsRetrieveQueryParams()
+    return MessagingSuppressionsSuppressionsRetrieveQueryParams
+}
+
+const suppressionsList = (): ToolBase<
+    ReturnType<typeof SuppressionsListSchema>,
+    WithPostHogUrl<Schemas.PaginatedMessageSuppression>
+> => ({
+    name: 'suppressions-list',
+    schema: SuppressionsListSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof SuppressionsListSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.PaginatedMessageSuppression>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/messaging_suppressions/suppressions/`,
+            query: {
+                page: params.page,
+                page_size: params.page_size,
+                search: params.search,
+            },
+        })
+        return await withPostHogUrl(context, result, '/workflows')
+    },
+})
+
+const SuppressionsRemoveSchema = () => {
+    const MessagingSuppressionsBulkRemoveSuppressionsCreateBody =
+        orvalSchemas.MessagingSuppressionsBulkRemoveSuppressionsCreateBody()
+    return MessagingSuppressionsBulkRemoveSuppressionsCreateBody
+}
+
+const suppressionsRemove = (): ToolBase<
+    ReturnType<typeof SuppressionsRemoveSchema>,
+    Schemas.BulkRemoveSuppressionsResponse
+> => ({
+    name: 'suppressions-remove',
+    schema: SuppressionsRemoveSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof SuppressionsRemoveSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.identifiers !== undefined) {
+            body['identifiers'] = params.identifiers
+        }
+        if (params.confirm_complaints !== undefined) {
+            body['confirm_complaints'] = params.confirm_complaints
+        }
+        const result = await context.api.request<Schemas.BulkRemoveSuppressionsResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/messaging_suppressions/bulk_remove_suppressions/`,
+            body,
+        })
+        return result
+    },
+})
+
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'message-categories-create': messageCategoriesCreate,
     'message-categories-get': messageCategoriesGet,
@@ -311,4 +368,6 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'supabase-auth-emails-settings-update': supabaseAuthEmailsSettingsUpdate,
     'supabase-auth-emails-starter-templates-create': supabaseAuthEmailsStarterTemplatesCreate,
     'suppressions-add': suppressionsAdd,
+    'suppressions-list': suppressionsList,
+    'suppressions-remove': suppressionsRemove,
 }
