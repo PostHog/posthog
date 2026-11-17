@@ -11,8 +11,7 @@ from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentic
 from posthog.models import User
 from posthog.permissions import APIScopePermission
 
-from products.signals.backend.first_report_scout_types import FirstReportStatus
-from products.signals.backend.inbox_status import InboxSetupState, get_inbox_status
+from products.signals.backend.facade.inbox_status import FirstReportStatus, InboxSetupState, get_inbox_status
 from products.signals.backend.presentation.scout_permissions import ScoutCanonicalTeamAccessPermission
 
 
@@ -42,4 +41,6 @@ class InboxStatusViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
     @extend_schema(responses=InboxStatusSerializer)
     def list(self, request: Request, **kwargs: object) -> Response:
-        return Response(InboxStatusSerializer(get_inbox_status(self.team, cast(User, request.user))).data)
+        return Response(
+            InboxStatusSerializer(get_inbox_status(team_id=self.team_id, user_id=cast(User, request.user).pk)).data
+        )
