@@ -80,11 +80,40 @@ export function eventNames(events: unknown): string[] {
     })
 }
 
+function isPropertyGroup(value: unknown): boolean {
+    const { type, values } = asRecord(value)
+    return (type === 'AND' || type === 'OR') && Array.isArray(values)
+}
+
+/** The filters of a flat property list, or of a branch condition's AND/OR groups. */
+export function propertyFilters(properties: unknown): unknown[] {
+    if (Array.isArray(properties)) {
+        return properties
+    }
+    return isPropertyGroup(properties)
+        ? (asRecord(properties).values as unknown[]).flatMap((value) =>
+              isPropertyGroup(value) ? propertyFilters(value) : [value]
+          )
+        : []
+}
+
+/** Empty groups are left out, as the compiler skips them. */
+function propertyGroupText(group: unknown, nested: boolean): string {
+    const { type, values } = asRecord(group)
+    const parts = (values as unknown[])
+        .map((value) => (isPropertyGroup(value) ? propertyGroupText(value, true) : propertyFilterText(value)))
+        .filter(Boolean)
+    const text = parts.join(type === 'OR' ? ' or ' : ' and ')
+    return nested && parts.length > 1 ? `(${text})` : text
+}
+
 export function conditionText(filters: unknown): string {
     const { events, properties } = asRecord(filters)
     const parts = [
         ...eventNames(events).map((name) => `did ${name}`),
-        ...(Array.isArray(properties) ? properties : []).map(propertyFilterText),
+        ...(isPropertyGroup(properties)
+            ? [propertyGroupText(properties, false)].filter(Boolean)
+            : (Array.isArray(properties) ? properties : []).map(propertyFilterText)),
     ]
     return parts.length ? parts.join(' and ') : 'everyone'
 }

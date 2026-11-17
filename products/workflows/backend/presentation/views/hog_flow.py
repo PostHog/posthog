@@ -106,6 +106,7 @@ from products.cdp.backend.presentation.hog_functions import (
     filter_action_ids,
     filter_cohort_ids,
     gated_template_enabled,
+    is_property_group,
     validate_realtime_cohorts,
 )
 from products.cdp.backend.presentation.hog_invocations.cancel import (
@@ -411,12 +412,13 @@ _LookupResult = TypeVar("_LookupResult", Workflow, WorkflowRef, WorkflowEditStat
 _DERIVED_FILTER_KEYS = ("bytecode", "bytecode_error", "bytecode_contract", "source")
 
 WORKFLOWS_COHORT_CONDITIONS_FLAG = "workflows-cohort-conditions"
+WORKFLOWS_CONDITION_FILTER_GROUPS_FLAG = "workflows-condition-filter-groups"
 
 
-def cohort_conditions_rolled_out(user: Any, organization_id: str) -> bool:
+def _workflows_flag_rolled_out(flag: str, user: Any, organization_id: str) -> bool:
     try:
         return feature_enabled_or_false(
-            WORKFLOWS_COHORT_CONDITIONS_FLAG,
+            flag,
             user.distinct_id,
             groups={"organization": organization_id},
             group_properties={"organization": {"id": organization_id}},
@@ -425,6 +427,10 @@ def cohort_conditions_rolled_out(user: Any, organization_id: str) -> bool:
         )
     except Exception:
         return False
+
+
+def cohort_conditions_rolled_out(user: Any, organization_id: str) -> bool:
+    return _workflows_flag_rolled_out(WORKFLOWS_COHORT_CONDITIONS_FLAG, user, organization_id)
 
 
 LISTED_ORIGIN_PRODUCTS: list[str] = [
@@ -532,16 +538,16 @@ def _reject_over_cap_duration(action: dict, field: str, context: dict) -> None:
     raise serializers.ValidationError({"config": duration_cap_error(field)})
 
 
-def _cohort_condition_already_stored(action: dict, condition: dict, context: dict) -> bool:
+def _branch_condition_already_stored(action: dict, condition: dict, context: dict) -> bool:
     """
     True when this conditional_branch condition matches one already persisted for the same action.
 
-    Mirrors _wait_condition_already_stored: the cohort-conditions flag polices new adoption, not
-    edits around an accepted condition. Without this, a flag dial-down (or an internal re-save,
-    which has no request to evaluate the flag against) would fail compilation of an active flow's
-    unchanged cohort conditions.
+    Mirrors _wait_condition_already_stored: the cohort-conditions and filter-groups flags police new
+    adoption, not edits around an accepted condition. Without this, a flag dial-down (or an internal
+    re-save, which has no request to evaluate the flag against) would fail compilation of an active
+    flow's unchanged conditions.
     """
-    stored = context.get("stored_cohort_conditions")
+    stored = context.get("stored_branch_conditions")
     if not stored:
         return False
     action_id = action.get("id")
@@ -1827,13 +1833,19 @@ class HogFlowActionSerializer(serializers.Serializer):
         return super().to_internal_value(data)
 
     _cohort_conditions_flag: Optional[bool] = None
+    _condition_filter_groups_flag: Optional[bool] = None
 
     def _cohort_conditions_enabled(self) -> bool:
         if self._cohort_conditions_flag is None:
-            self._cohort_conditions_flag = self._check_cohort_conditions_flag()
+            self._cohort_conditions_flag = self._check_flag(WORKFLOWS_COHORT_CONDITIONS_FLAG)
         return self._cohort_conditions_flag
 
-    def _check_cohort_conditions_flag(self) -> bool:
+    def _condition_filter_groups_enabled(self) -> bool:
+        if self._condition_filter_groups_flag is None:
+            self._condition_filter_groups_flag = self._check_flag(WORKFLOWS_CONDITION_FILTER_GROUPS_FLAG)
+        return self._condition_filter_groups_flag
+
+    def _check_flag(self, flag: str) -> bool:
         try:
             request = self.context.get("request")
             user = getattr(request, "user", None)
@@ -1842,7 +1854,7 @@ class HogFlowActionSerializer(serializers.Serializer):
             get_team = self.context.get("get_team")
             if get_team is None:
                 return False
-            return cohort_conditions_rolled_out(user, str(get_team().organization_id))
+            return _workflows_flag_rolled_out(flag, user, str(get_team().organization_id))
         except Exception:
             return False
 
@@ -2559,16 +2571,25 @@ class HogFlowActionSerializer(serializers.Serializer):
                     if strict:
                         raise serializers.ValidationError("Event filters are not allowed in conditionals")
                 else:
+                    already_stored = _branch_condition_already_stored(data, condition, self.context)
                     cohorts_supported = (
                         is_conditional_branch
                         and (bool(filter_cohort_ids(filters)) or bool(filter_action_ids(filters)))
-                        and (
-                            _cohort_condition_already_stored(data, condition, self.context)
-                            or self._cohort_conditions_enabled()
-                        )
+                        and (already_stored or self._cohort_conditions_enabled())
                     )
+                    uses_filter_groups = (
+                        is_conditional_branch
+                        and isinstance(filters, dict)
+                        and is_property_group(filters.get("properties"))
+                    )
+                    if uses_filter_groups and not (already_stored or self._condition_filter_groups_enabled()):
+                        if strict:
+                            raise serializers.ValidationError(
+                                {"config": "Filter groups in branch conditions aren't available for this organization."}
+                            )
+                        continue
                     filters_serializer_class = (
-                        HogFlowConditionFiltersSerializer if is_conditional_branch else HogFunctionFiltersSerializer
+                        HogFlowConditionFiltersSerializer if uses_filter_groups else HogFunctionFiltersSerializer
                     )
                     serializer = filters_serializer_class(
                         data=filters,
@@ -3832,7 +3853,7 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
         }
 
         # Realtime cohorts an active flow's batch or schedule audience already sends to, so a flag
-        # dial-down polices new adoption only, like stored_cohort_conditions below.
+        # dial-down polices new adoption only, like stored_branch_conditions below.
         self.context["stored_realtime_audience_cohort_ids"] = {
             cohort_id
             for action in ((instance.actions if instance and instance.status == HogFlow.State.ACTIVE else None) or [])
@@ -3842,7 +3863,7 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             for cohort_id in filter_cohort_ids((action.get("config") or {}).get("filters"))
         }
 
-        self.context["stored_cohort_conditions"] = {
+        self.context["stored_branch_conditions"] = {
             action["id"]: [
                 _authored_condition(stored_condition)
                 for stored_condition in [

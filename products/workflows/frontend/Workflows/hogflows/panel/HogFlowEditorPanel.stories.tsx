@@ -421,7 +421,7 @@ ConditionalBranchFilterGroups.parameters = {
     testOptions: { snapshotBrowsers: [] },
 }
 ConditionalBranchFilterGroups.play = async ({ canvasElement }: { canvasElement: HTMLElement }): Promise<void> => {
-    await within(canvasElement).findByText('Add filter group')
+    await within(canvasElement).findAllByText('Add filter group')
 }
 
 export const CohortBranch: StoryFn<PanelStoryProps> = Template.bind({})

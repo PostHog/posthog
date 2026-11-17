@@ -258,7 +258,7 @@ def _as_row_properties(properties: list[Any]) -> list[Any]:
 
 
 def is_property_group(node: Any) -> bool:
-    return isinstance(node, dict) and node.get("type") in PROPERTY_GROUP_TYPES
+    return isinstance(node, dict) and isinstance(node.get("type"), str) and node["type"] in PROPERTY_GROUP_TYPES
 
 
 def iter_property_leaves(node: Any) -> Iterator[Any]:

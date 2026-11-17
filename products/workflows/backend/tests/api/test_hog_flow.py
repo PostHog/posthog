@@ -80,6 +80,8 @@ from products.workflows.backend.presentation.views.hog_flow import (
 from products.workflows.backend.services.workflow_test_runs import workflow_test_run_context
 from products.workflows.backend.tests.api.test_workflow_data_suggestions import _push_function_template
 
+from common.hogvm.python.execute import execute_bytecode
+
 _AUDIENCE_CONDITION = {"key": "email", "type": "person", "value": "x", "operator": "icontains"}
 _WIDER_AUDIENCE_CONDITION = {"key": "email", "type": "person", "value": "@", "operator": "icontains"}
 _EVENT_TRIGGER_CONFIG = {
@@ -2570,11 +2572,54 @@ class TestHogFlowAPI(APIBaseTest):
         assert response.status_code == 201, response.json()
         filters = response.json()["actions"][1]["config"]["conditions"][0]["filters"]
         assert filters["properties"] == grouped_properties
-        bytecode = filters["bytecode"]
-        assert [2, "inCohort", 2] in [bytecode[index - 1 : index + 2] for index in range(1, len(bytecode) - 1)], (
-            bytecode
-        )
-        assert "plan" in bytecode and "country" in bytecode
+        in_cohort = {"inCohort": lambda cohort_id, cohort_ids: cohort_id in cohort_ids}
+        routes = {
+            name: execute_bytecode(
+                filters["bytecode"], {"person": {"properties": properties}, "cohort_ids": cohort_ids}, in_cohort
+            ).result
+            for name, properties, cohort_ids in [
+                ("matches_the_and_group", {"plan": "pro", "country": "US"}, []),
+                ("only_in_the_cohort", {"plan": "free", "country": "US"}, [cohort.id]),
+                ("matches_neither", {"plan": "pro", "country": "DE"}, []),
+            ]
+        }
+        assert routes == {"matches_the_and_group": True, "only_in_the_cohort": True, "matches_neither": False}
+
+    def test_hog_flow_conditional_branch_filter_groups_follow_the_flag_and_keep_stored_conditions(self):
+        def plan(value: str) -> dict[str, str]:
+            return {"key": "plan", "value": value, "operator": "exact", "type": "person"}
+
+        grouped = {
+            "type": "OR",
+            "values": [{"type": "AND", "values": [plan("pro")]}, {"type": "AND", "values": [plan("enterprise")]}],
+        }
+        hog_flow = self._hog_flow_with_condition_filters("conditional_branch", {"properties": grouped})
+        flag = "products.workflows.backend.presentation.views.hog_flow.feature_enabled_or_false"
+
+        with patch(flag, return_value=False):
+            refused = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert refused.status_code == 400, refused.json()
+        assert "Filter groups in branch conditions aren't available" in refused.json()["detail"]
+
+        with patch(flag, return_value=True):
+            created = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert created.status_code == 201, created.json()
+        flow_id = created.json()["id"]
+        stored_actions = created.json()["actions"]
+
+        with patch(flag, return_value=False):
+            resave = self.client.patch(
+                f"/api/projects/{self.team.id}/hog_flows/{flow_id}", {"name": "renamed", "actions": stored_actions}
+            )
+            assert resave.status_code == 200, resave.json()
+
+            edited_actions = deepcopy(stored_actions)
+            other_grouped = {**grouped, "type": "AND"}
+            edited_actions[1]["config"]["conditions"].append({"filters": {"properties": other_grouped}})
+            new_adoption = self.client.patch(
+                f"/api/projects/{self.team.id}/hog_flows/{flow_id}", {"actions": edited_actions}
+            )
+            assert new_adoption.status_code == 400, new_adoption.json()
 
     @parameterized.expand(
         [

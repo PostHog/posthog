@@ -4,7 +4,7 @@ import { LemonButton } from '@posthog/lemon-ui'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 
 import { AndOrFilterSelect } from '~/queries/nodes/InsightViz/PropertyGroupFilters/AndOrFilterSelect'
-import { FilterLogicalOperator } from '~/types'
+import { AnyPropertyFilter, FilterLogicalOperator } from '~/types'
 
 import { HogFlowAction } from '../types'
 import {
@@ -16,10 +16,15 @@ import {
 } from './conditionFilterGroups'
 import { HogFlowPropertyFilters } from './HogFlowFilters'
 
+export type ConditionFilters = Extract<
+    HogFlowAction,
+    { type: 'conditional_branch' }
+>['config']['conditions'][number]['filters']
+
 export type HogFlowConditionFiltersProps = {
     filtersKey: string
-    filters: HogFlowAction['filters']
-    setFilters: (filters: HogFlowAction['filters']) => void
+    filters: ConditionFilters
+    setFilters: (filters: ConditionFilters) => void
 }
 
 /** The filters of one conditional branch condition, as AND/OR groups of property filters. */
@@ -29,20 +34,25 @@ export function HogFlowConditionFilters({
     setFilters,
 }: HogFlowConditionFiltersProps): JSX.Element {
     const filterGroupsEnabled = useFeatureFlag('WORKFLOWS_CONDITION_FILTER_GROUPS')
-    const properties = filters?.properties
+    const properties = filters?.properties as AnyPropertyFilter[] | ConditionFilterGroups | undefined
 
     // A condition saved with groups keeps the group editor when the flag is off, because the flat
     // editor cannot show a group and saving from it would lose the condition.
     if (!filterGroupsEnabled && !isConditionFilterGroups(properties)) {
         return (
-            <HogFlowPropertyFilters filtersKey={filtersKey} includeCohorts filters={filters} setFilters={setFilters} />
+            <HogFlowPropertyFilters
+                filtersKey={filtersKey}
+                includeCohorts
+                filters={filters as HogFlowAction['filters']}
+                setFilters={(next) => setFilters(next ?? {})}
+            />
         )
     }
 
     const groups = toConditionFilterGroups(properties)
 
     const setGroups = (next: ConditionFilterGroups): void => {
-        setFilters({ ...filters, properties: fromConditionFilterGroups(next) } as HogFlowAction['filters'])
+        setFilters({ ...filters, properties: fromConditionFilterGroups(next) } as ConditionFilters)
     }
     const setGroup = (index: number, group: ConditionFilterGroup): void => {
         setGroups({ ...groups, values: groups.values.map((existing, i) => (i === index ? group : existing)) })

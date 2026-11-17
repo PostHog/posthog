@@ -31,11 +31,12 @@ function ConditionAudienceEstimate({
     index: number
     filters: ConditionFilters
 }): JSX.Element | null {
+    const properties = filters?.properties
     // Counting persons, not sends, so this deliberately skips the email dedup the batch trigger applies.
     const { blastRadius, blastRadiusLoading, blastRadiusError } = useValues(
         batchTriggerLogic({
             id: `${actionId}-condition-${index}`,
-            filters: { properties: filters?.properties ?? [] },
+            filters: { properties: Array.isArray(properties) ? properties : [] },
         })
     )
 

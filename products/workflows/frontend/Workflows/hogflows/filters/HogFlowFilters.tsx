@@ -188,6 +188,7 @@ export function HogFlowPropertyFilters({
             showRemoveButton={showRemoveButton}
             hasRowOperator={hasRowOperator}
             propertyGroupType={propertyGroupType}
+            orFiltering={!!propertyGroupType}
             taxonomicGroupTypes={
                 taxonomicGroupTypes ??
                 // Warehouse rows are row-scoped — only the synced row's columns make sense to filter on,
