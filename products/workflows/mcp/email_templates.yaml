@@ -229,8 +229,8 @@ tools:
             variables.reset_link }}. To send content you wrote instead of a template, use workflows-send-email.
             Sending takes two calls: prepare checks only the arguments and returns a message for the user, and execute
             sends it only after the user replies with the literal word 'confirm'. A success means PostHog queued the
-            email, not that it arrived: pass the returned message_id to workflows-transactional-email-get to see whether
-            it was sent and delivered. Each execute call sends an email, so never repeat one that succeeded. A 503, a
+            email, not that it arrived: pass the returned message_id as id to workflows-transactional-email-get to see
+            whether it was sent and delivered. Each execute call sends an email, so never repeat one that succeeded. A 503, a
             timeout or a connection error means PostHog did not confirm the send, and the email may still go out: do
             not try again on your own, tell the user. A 404 means the template doesn't exist, or sending transactional
             email is not enabled for this project.
