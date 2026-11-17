@@ -34,6 +34,10 @@ PENDING_CLAIM_TTL = timedelta(minutes=2)
 # A thread lives as long as its firing, and the list only has to outlive a retry.
 DELIVERED_KEYS_CAP = 20
 
+# The provider of the row that records a delivery's legacy event emission. A claim and its outcome both
+# stamp the row's `updated_at`, so it also records when the alert last emitted.
+LEGACY_EVENTS_PROVIDER = "legacy_events"
+
 
 @frozen
 class ThreadKey:

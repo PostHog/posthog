@@ -39,7 +39,12 @@ from products.alerts_platform.backend.delivery.pagerduty import PagerDutyTranspo
 from products.alerts_platform.backend.delivery.slack import SlackTransport
 from products.alerts_platform.backend.delivery.teams import TeamsTransport
 from products.alerts_platform.backend.delivery.telemetry import record_delivery
-from products.alerts_platform.backend.delivery.thread_store import DatabaseThreadStore, ThreadBusy, ThreadKey
+from products.alerts_platform.backend.delivery.thread_store import (
+    LEGACY_EVENTS_PROVIDER,
+    DatabaseThreadStore,
+    ThreadBusy,
+    ThreadKey,
+)
 from products.alerts_platform.backend.delivery.transport import (
     DeliveryError,
     DeliveryTransport,
@@ -83,8 +88,7 @@ from products.alerts_platform.backend.temporal.metrics import DeliveryOutcomeLab
 logger = structlog.get_logger(__name__)
 
 # Emitted events have no conversation, so each delivery part keeps one row in the thread store
-# under this provider and a fixed episode. The row only records which evaluations already emitted.
-_EMISSION_PROVIDER: Final = "legacy_events"
+# under `LEGACY_EVENTS_PROVIDER` and a fixed episode. The row records which evaluations already emitted.
 _EMISSION_EPISODE: Final = datetime(1970, 1, 1, tzinfo=UTC)
 
 # A destination type with no entry here has no native transport, and delivery skips it. Hand an
@@ -391,7 +395,7 @@ def deliver_evaluation(request: AlertDeliveryRequest) -> DeliveryOutcome:
                 ThreadKey(
                     configuration_id=request.configuration_id,
                     grouping_key="",
-                    provider=_EMISSION_PROVIDER,
+                    provider=LEGACY_EVENTS_PROVIDER,
                     channel_target=str(request.part),
                     episode_started_at=_EMISSION_EPISODE,
                 ),

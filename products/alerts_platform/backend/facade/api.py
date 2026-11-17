@@ -444,6 +444,13 @@ def runtime_by_public_id(*, team_id: int, public_ids: Collection[UUID]) -> dict[
     return platform_reads.runtime_by_public_id(team_id=team_id, public_ids=public_ids)
 
 
+def legacy_events_emitted_since(*, team_id: int, public_id: UUID, since: datetime) -> bool:
+    """Whether a delivery claimed or emitted the alert's legacy events, the events its HogFunctions
+    hear, at or after `since`. An emitted event waits in a queue for the HogFunctions, so a caller
+    that retires them waits until the alert has been quiet for longer than that queue takes."""
+    return platform_reads.legacy_events_emitted_since(team_id=team_id, public_id=public_id, since=since)
+
+
 def check_page_by_public_id(
     *, team_id: int, public_id: UUID, since: datetime, until: datetime, limit: int, offset: int
 ) -> PlatformCheckPage | None:
