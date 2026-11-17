@@ -544,6 +544,9 @@ class TestVercelConnectSessionInfo(VercelConnectTestBase):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
     def test_returns_orgs_where_user_is_admin(self):
+        member_org = Organization.objects.create(name="Member organization")
+        self.user.join(organization=member_org, level=OrganizationMembership.Level.MEMBER)
+        Organization.objects.create(name="Unrelated organization")
         session_token = self._seed_session()
 
         response = self.client.get(self.url, {"session": session_token})

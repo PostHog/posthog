@@ -1,8 +1,11 @@
 from rest_framework.permissions import BasePermission
 from rest_framework.request import Request
 
-from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
+
+from products.authorization.backend.facade import api as authorization
+from products.authorization.backend.facade.contracts import Resource, Subject
+from products.authorization.backend.facade.enums import Action, ResourceType
 
 
 class IsConversationsAdmin(BasePermission):
@@ -28,11 +31,8 @@ class IsConversationsAdmin(BasePermission):
 
         if organization_id is None:
             return False
-        try:
-            membership = OrganizationMembership.objects.get(
-                user=user,
-                organization_id=organization_id,
-            )
-        except OrganizationMembership.DoesNotExist:
-            return False
-        return membership.effective_level >= OrganizationMembership.Level.ADMIN
+        return authorization.check(
+            resource=Resource(type=ResourceType.ORGANIZATION, id=str(organization_id)),
+            action=Action.EDIT,
+            subject=Subject(user_id=user.pk),
+        )

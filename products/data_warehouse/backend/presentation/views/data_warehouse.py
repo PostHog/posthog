@@ -27,13 +27,13 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.cloud_utils import get_cached_instance_license
 from posthog.helpers.dashboard_templates import create_data_ops_dashboard
-from posthog.models.organization import OrganizationMembership
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.user import User
-from posthog.permissions import is_service_auth
+from posthog.permissions import can_in_organization, is_service_auth
 from posthog.utils import convert_property_value, flatten
 
 from products.access_control.backend.facade.user_access_control import access_level_satisfied_for_resource
+from products.authorization.backend.facade.enums import Action
 from products.batch_exports.backend.facade import api as batch_exports_api
 from products.cdp.backend.facade.models import HogFunction, HogFunctionState, HogFunctionType
 from products.data_modeling.backend.facade.models import DataModelingJob, DataModelingJobEngine, DataWarehouseSavedQuery
@@ -380,10 +380,7 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 status=status.HTTP_403_FORBIDDEN,
             )
 
-        membership = OrganizationMembership.objects.filter(
-            organization_id=self.team.organization_id, user=request.user
-        ).first()
-        if membership is None or membership.effective_level < OrganizationMembership.Level.ADMIN:
+        if not can_in_organization(request, self.team.organization, Action.EDIT):
             return Response(
                 {"error": f"Only organization admins can {action} the managed warehouse"},
                 status=status.HTTP_403_FORBIDDEN,

@@ -1,4 +1,4 @@
-"""Filters a QuerySet to the rows a subject may view, through the authorization SDK.
+"""Filters a QuerySet to the rows a subject may act on, through the authorization SDK.
 
 It lives outside the facade because it takes a QuerySet, which the facade must not accept.
 The filters give the same SQL as the current access rules' own filters.
@@ -26,8 +26,8 @@ if TYPE_CHECKING:
 M = TypeVar("M", bound=Model)
 
 _RESOURCE_TYPES = frozenset(resource_type.value for resource_type in ResourceType)
-# `list_objects` lists no membership types and refuses types whose objects fall back to a parent.
-_UNFILTERED_RESOURCES = frozenset({"organization", "project", "role", *RESOURCE_FALLBACK_MAP})
+# Project lists use `list_objects` directly; role and parent-fallback lists are unsupported.
+_UNFILTERED_RESOURCES = frozenset({"project", "role", *RESOURCE_FALLBACK_MAP})
 
 
 def can_filter_queryset(model: type[Model]) -> bool:
@@ -40,22 +40,27 @@ def filter_queryset(
     queryset: QuerySet[M],
     *,
     resource: Resource,
+    action: Action = Action.VIEW,
     subject: Subject | None = None,
     include_all_if_admin: bool = False,
 ) -> QuerySet[M]:
-    """Keep the rows of `queryset` that the subject may view.
+    """Keep the rows of `queryset` that the subject may act on.
 
-    `resource` names the type and the project whose rules apply, without an `id`. The filter applies that
-    project's rules but does not scope rows to it, so `queryset` must hold only rows of that project, as
-    a project view's queryset does. A creator keeps their own rows when the model has `created_by`. `include_all_if_admin` keeps every row for an org admin, so pass it only
-    where the call site passes it today. `subject=None` means the request's user.
+    Organizations support the same actions as `check`. Other resources support VIEW and QUERY.
+    `resource` names the type without an `id`. For project objects, it also names the project whose
+    rules apply, but the filter does not scope rows to that project. The caller must scope them first.
+    A creator keeps their own rows when the model has `created_by` and the rules allow it.
+    `include_all_if_admin` selects QUERY semantics for legacy project-object callers; do not combine
+    it with another action. `subject=None` means the request's user.
     """
     if resource.type == ResourceType.PROJECT:
         raise ValueError("A project list also reads memberships, so use `list_objects` for projects.")
+    if include_all_if_admin and action != Action.VIEW:
+        raise ValueError("Pass either `action` or `include_all_if_admin`, not both.")
     # QUERY is the list filter with every row for an org admin, which is what `include_all_if_admin` asks for.
     result = api.list_objects(
         resource=resource,
-        action=Action.QUERY if include_all_if_admin else Action.VIEW,
+        action=Action.QUERY if include_all_if_admin else action,
         subject=subject,
         creator_exempt=hasattr(queryset.model, "created_by"),
     )

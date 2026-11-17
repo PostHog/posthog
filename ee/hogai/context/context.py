@@ -25,11 +25,13 @@ from posthog.schema import (
 
 from posthog.constants import AvailableFeature
 from posthog.event_usage import EventSource, groups
-from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.sync import database_sync_to_async
 
+from products.authorization.backend.facade import api as authorization
+from products.authorization.backend.facade.contracts import Resource, Subject
+from products.authorization.backend.facade.enums import Action, ResourceType
 from products.notebooks.backend.facade.widgets import reusable_widget_catalog_context
 from products.product_analytics.backend.facade.api import viewable_saved_queries
 
@@ -179,9 +181,10 @@ class AssistantContextManager(AssistantContextMixin):
         """
         Check if the user has access to the billing tool.
         """
-        return self._user.organization_memberships.get(organization=self._team.organization).effective_level in (
-            OrganizationMembership.Level.ADMIN,
-            OrganizationMembership.Level.OWNER,
+        return authorization.check(
+            resource=Resource(type=ResourceType.ORGANIZATION, id=str(self._team.organization_id)),
+            action=Action.EDIT,
+            subject=Subject(user_id=self._user.pk),
         )
 
     @database_sync_to_async

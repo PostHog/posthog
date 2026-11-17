@@ -6,7 +6,10 @@ from pydantic import BaseModel, Field
 from posthog.api.proxy_record_diagnostics import diagnose
 from posthog.exceptions_capture import capture_exception
 from posthog.models import ProxyRecord
-from posthog.models.organization import OrganizationMembership
+
+from products.authorization.backend.facade import api as authorization
+from products.authorization.backend.facade.contracts import Resource, Subject
+from products.authorization.backend.facade.enums import Action, ResourceType
 
 from ee.hogai.tool import MaxTool
 
@@ -97,11 +100,11 @@ class DiagnoseProxyTool(MaxTool):
         return _format_report(record, report), _serialize_report(record, report)
 
     def _is_org_admin_or_owner(self) -> bool:
-        membership = OrganizationMembership.objects.filter(
-            organization_id=self._team.organization_id,
-            user=self._user,
-        ).first()
-        return membership is not None and membership.effective_level >= OrganizationMembership.Level.ADMIN
+        return authorization.check(
+            resource=Resource(type=ResourceType.ORGANIZATION, id=str(self._team.organization_id)),
+            action=Action.EDIT,
+            subject=Subject(user_id=self._user.pk),
+        )
 
     def _get_record(self, proxy_record_id: str) -> ProxyRecord:
         return ProxyRecord.objects.get(id=proxy_record_id, organization_id=self._team.organization_id)

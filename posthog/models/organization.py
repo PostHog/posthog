@@ -874,6 +874,7 @@ class OrganizationMembership(ModelActivityMixin, UUIDTModel):
 
     @property
     def effective_level(self) -> Level:
+        """Resolve organization access; only an individually assigned owner may resolve to OWNER."""
         return self.Level(self.level)
 
     def validate_update(
@@ -885,7 +886,7 @@ class OrganizationMembership(ModelActivityMixin, UUIDTModel):
             if membership_being_updated.id == self.id:
                 raise exceptions.PermissionDenied("You can't change your own access level.")
             if new_level == OrganizationMembership.Level.OWNER:
-                if self.level != OrganizationMembership.Level.OWNER:
+                if self.effective_level != OrganizationMembership.Level.OWNER:
                     raise exceptions.PermissionDenied(
                         "You can only make another member owner if you're this organization's owner."
                     )

@@ -20,10 +20,15 @@ from posthog.exceptions_capture import capture_exception
 from posthog.helpers.oauth_pending_connection import shared_cookie_domain
 from posthog.integrations import CrossTeamFilter, IntegrationManager, IntegrationNotFound, IntegrationRecord
 from posthog.ip_restrictions import enforce_ip_restrictions, get_ip_blocked_organization_ids
-from posthog.models.organization import OrganizationMembership
+from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.organization_integration import OrganizationIntegration
 from posthog.models.team import Team
 from posthog.models.user import User
+from posthog.permissions import can_in_organization
+
+from products.authorization.backend.facade.contracts import Resource, Subject
+from products.authorization.backend.facade.enums import Action, ResourceType
+from products.authorization.backend.presentation.querysets import filter_queryset
 
 from ee.api.vercel.crypto import decrypt_payload, encrypt_payload, mark_token_used, release_used_token
 from ee.vercel.client import APIError, OAuthTokenResponse, VercelAPIClient
@@ -461,7 +466,7 @@ class VercelConnectLinkViewSet(viewsets.GenericViewSet):
         except OrganizationMembership.DoesNotExist:
             raise exceptions.PermissionDenied("You are not a member of this organization.")
 
-        if membership.effective_level < OrganizationMembership.Level.ADMIN:
+        if not can_in_organization(request, membership.organization, Action.EDIT):
             raise exceptions.PermissionDenied("You must be an admin or owner to link this organization.")
 
         organization = membership.organization
@@ -662,17 +667,14 @@ class VercelConnectLinkViewSet(viewsets.GenericViewSet):
         cached_data = _load_browser_bound_session(request, session_key)
 
         user = cast(User, request.user)
-        memberships = (
-            OrganizationMembership.objects.with_effective_level()
-            .filter(
-                user=user,
-                resolved_level__gte=OrganizationMembership.Level.ADMIN,
-            )
-            .exclude(organization_id__in=get_ip_blocked_organization_ids(request))
-            .select_related("organization")
+        editable_organizations = filter_queryset(
+            Organization.objects.exclude(id__in=get_ip_blocked_organization_ids(request)),
+            resource=Resource(type=ResourceType.ORGANIZATION),
+            action=Action.EDIT,
+            subject=Subject(user_id=user.id),
         )
 
-        org_ids = [m.organization_id for m in memberships]
+        org_ids = [organization.id for organization in editable_organizations]
         vercel_integrations = {
             i.organization_id: i
             for i in OrganizationIntegration.objects.filter(
@@ -706,20 +708,19 @@ class VercelConnectLinkViewSet(viewsets.GenericViewSet):
 
         organizations = [
             {
-                "id": str(m.organization.id),
-                "name": m.organization.name,
-                "already_linked": m.organization_id in vercel_integrations
-                and m.organization_id not in orphaned_org_ids,
+                "id": str(organization.id),
+                "name": organization.name,
+                "already_linked": organization.id in vercel_integrations and organization.id not in orphaned_org_ids,
                 "teams": [
                     {
                         "id": t.pk,
                         "name": t.name,
                         "already_linked": t.pk in teams_with_vercel,
                     }
-                    for t in teams_by_org.get(m.organization_id, [])
+                    for t in teams_by_org.get(organization.id, [])
                 ],
             }
-            for m in memberships
+            for organization in editable_organizations
         ]
 
         return Response(

@@ -39,13 +39,14 @@ from posthog.models import OrganizationMembership
 from posthog.models.user import User
 from posthog.models.webauthn_credential import WebauthnCredential
 from posthog.organization_offboarding import OrganizationOffboarding
-from posthog.permissions import TimeSensitiveActionPermission, extract_organization
+from posthog.permissions import TimeSensitiveActionPermission, can_in_organization, extract_organization
 from posthog.utils import posthoganalytics
 
 from products.access_control.backend.facade.subject_access_control import get_project_scoped_visible_membership_ids
 from products.access_control.backend.presentation.access_control_organization_members import (
     OrganizationMemberProjectAccessViewSetMixin,
 )
+from products.authorization.backend.facade.enums import Action
 
 tracer = trace.get_tracer(__name__)
 
@@ -289,7 +290,7 @@ class OrganizationMemberViewSet(
             ).first()
             if requesting_membership is None:
                 queryset = queryset.filter(user_id=cast(User, self.request.user).id)
-            elif requesting_membership.effective_level < OrganizationMembership.Level.ADMIN:
+            elif not can_in_organization(self.request, organization, Action.MANAGE_ACCESS):
                 # Restricted members only see themselves and members of their projects
                 visible_membership_ids = get_project_scoped_visible_membership_ids(organization, requesting_membership)
                 if visible_membership_ids is not None:

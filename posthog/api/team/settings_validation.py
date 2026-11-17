@@ -14,8 +14,10 @@ from posthog.models import Team, User
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.project import Project
 from posthog.models.team.logs_retention import LOGS_CUSTOM_RETENTION_FLAG
-from posthog.permissions import posthog_feature_flag_enabled
+from posthog.permissions import can_in_organization, posthog_feature_flag_enabled
 from posthog.types import AnyPropertyFilter
+
+from products.authorization.backend.facade.enums import Action
 
 from . import team_config
 
@@ -241,11 +243,7 @@ def validate_team_attrs(
         # too — naming a project you're allowed to create is not the same as renaming an existing one.
         admin_fields_touched = (team_config.TEAM_CONFIG_ADMIN_FIELDS_SET - {"is_demo", "name"}) & attrs.keys()
         if admin_fields_touched:
-            membership = OrganizationMembership.objects.filter(
-                user=cast(User, view.request.user), organization_id=view.organization_id
-            ).first()
-            member_level = membership.effective_level if membership else None
-            if member_level is None or member_level < OrganizationMembership.Level.ADMIN:
+            if not can_in_organization(view.request, view.organization, Action.EDIT):
                 raise exceptions.PermissionDenied(
                     "Only organization admins can set these settings on project creation: "
                     + ", ".join(sorted(admin_fields_touched))

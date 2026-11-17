@@ -72,6 +72,7 @@ utility = true
 [[modules]]
 path = "ee"
 depends_on = [
+    "products.authorization",
     # Facade-only: a Slack subscription asks whether the bot can answer a follow-up on its report.
     "products.slack_app",
     "products.cohorts",
@@ -316,6 +317,7 @@ layer = "modules"
 [[modules]]
 path = "products.conversations"
 depends_on = [
+    "products.authorization",
     "ee",
     "posthog", "products.cdp", "products.tasks", "products.business_knowledge", "products.warehouse_sources", "products.customer_analytics", "products.access_control",
     # Facade-only: the deleted-ticket purge retracts the ticket's signal embeddings. products.signals
@@ -476,6 +478,7 @@ layer = "modules"
 [[modules]]
 path = "products.data_warehouse"
 depends_on = [
+    "products.authorization",
     "ee",
     "posthog",
     "products.cdp",
@@ -811,6 +814,7 @@ layer = "modules"
 [[modules]]
 path = "products.platform_features"
 depends_on = [
+    "products.authorization",
     "ee",
     "posthog",
 ]
@@ -1519,6 +1523,7 @@ from = [
 [[modules]]
 path = "products.legal_documents"
 depends_on = [
+    "products.authorization",
     "ee",
     "posthog",
 ]

@@ -9,9 +9,13 @@ from rest_framework.exceptions import PermissionDenied
 from rest_framework.request import Request
 
 from posthog.helpers.two_factor_session import is_path_whitelisted
-from posthog.models.organization import Organization, OrganizationMembership
+from posthog.models.organization import Organization
 from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.user import User
+
+from products.authorization.backend.facade.contracts import Resource, Subject
+from products.authorization.backend.facade.enums import Action, ResourceType
+from products.authorization.backend.presentation.querysets import filter_queryset
 
 logger = structlog.get_logger(__name__)
 
@@ -95,11 +99,12 @@ def resolve_login_organization(user: User) -> bool:
         None,
     )
     if permitted_organization is None:
-        return (
-            user.organization_memberships.with_effective_level()
-            .filter(resolved_level__gte=OrganizationMembership.Level.ADMIN)
-            .exists()
-        )
+        return filter_queryset(
+            Organization.objects.all(),
+            resource=Resource(type=ResourceType.ORGANIZATION),
+            action=Action.EDIT,
+            subject=Subject(user_id=user.id),
+        ).exists()
 
     logger.info(
         "domain_enforcement_moved_user_to_permitted_organization",

@@ -4,7 +4,7 @@ import hashlib
 import logging
 from datetime import datetime
 from functools import cached_property
-from typing import Any, Optional, cast, get_args
+from typing import Any, Optional, get_args
 from urllib.parse import urlencode
 
 from django.db.models import Q, QuerySet
@@ -31,11 +31,11 @@ from posthog.models.activity_logging.activity_log import (
 from posthog.models.activity_logging.property_value_visibility import PropertyValueVisibility
 from posthog.models.activity_logging.retention import get_activity_log_lookback_restriction
 from posthog.models.activity_logging.utils import CREDENTIAL_TYPE_CHOICES
-from posthog.models.organization import Organization, OrganizationMembership
-from posthog.models.user import User
-from posthog.permissions import PremiumFeaturePermission
+from posthog.models.organization import Organization
+from posthog.permissions import PremiumFeaturePermission, can_in_organization
 from posthog.tasks import exporter
 
+from products.authorization.backend.facade.enums import Action
 from products.exports.backend.models.exported_asset import ExportedAsset
 from products.exports.backend.source_authentication import get_export_source_authentication
 
@@ -831,12 +831,7 @@ class OrganizationActivityLogPermission(BasePermission):
         except (Organization.DoesNotExist, ValueError):
             return False
 
-        try:
-            membership = OrganizationMembership.objects.get(user=cast(User, request.user), organization=organization)
-        except OrganizationMembership.DoesNotExist:
-            return False
-
-        return membership.effective_level >= OrganizationMembership.Level.ADMIN
+        return can_in_organization(request, organization, Action.EDIT)
 
 
 @extend_schema(tags=["activity_logs"], extensions={"x-product": "platform_features"})

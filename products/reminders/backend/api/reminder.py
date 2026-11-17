@@ -18,11 +18,8 @@ from posthog.auth import (
     PersonalAPIKeyAuthentication,
     SessionAuthentication,
 )
-from posthog.constants import AvailableFeature
 from posthog.ip_restrictions import IPRestrictionsPermission
-from posthog.models import Organization, OrganizationMembership, Team, User
-from posthog.models.personal_api_key import PersonalAPIKey
-from posthog.organization_caching import get_cached_organization_membership
+from posthog.models import Organization, Team, User
 from posthog.permissions import (
     ActiveOrganizationPermission,
     APIScopePermission,
@@ -30,7 +27,7 @@ from posthog.permissions import (
     VerifiedDomainEnforcementPermission,
     get_authenticator_scoped_organization_ids,
     get_authenticator_scoped_team_ids,
-    get_authenticator_user_credential,
+    organization_refuses_personal_api_key,
 )
 from posthog.user_permissions import UserPermissions
 
@@ -65,23 +62,8 @@ ORGANIZATION_BOUNDARY_PERMISSIONS = (*READ_BOUNDARY_PERMISSIONS, MCPAccessPermis
 
 
 def personal_api_key_denial(request: Request, organization: Organization) -> str | None:
-    """The third leg of what check_team_and_org_permissions skips for `scope_object = "user"`.
-    Mirrors APIScopePermission._check_organization_personal_api_key_restrictions, which is private
-    and resolves its organization from routing attributes a root viewset does not have. The
-    platform check gates every method, so this one feeds the read filter as well as the writes.
-    """
-    credential = get_authenticator_user_credential(getattr(request, "successful_authenticator", None))
-    if not isinstance(credential, PersonalAPIKey):
-        return None
-    if not organization.is_feature_available(AvailableFeature.ORGANIZATION_SECURITY_SETTINGS):
-        return None
-    membership = get_cached_organization_membership(organization.id, cast(User, request.user))
-    if membership is None:
-        return None
-    if (
-        not organization.members_can_use_personal_api_keys
-        and membership.effective_level < OrganizationMembership.Level.ADMIN
-    ):
+    """Apply the organization key policy to root routes, where APIScopePermission skips the tenant check."""
+    if organization_refuses_personal_api_key(request, organization):
         return (
             f"Organization '{organization.name}' does not allow using personal API keys. "
             f"Contact an admin to enable personal API keys for this organization."

@@ -40,12 +40,12 @@ from posthog.models.workload_trust_policy import (
     workload_trust_policy_request_url,
     workload_trust_policy_scopes_not_grantable,
 )
-from posthog.organization_caching import get_cached_organization_membership
 from posthog.permissions import (
     OrganizationAdminReadPermissions,
     TimeSensitiveActionPermission,
+    can_in_organization,
+    can_in_required_organization,
     get_organization_from_view,
-    get_required_organization_membership,
 )
 from posthog.rate_limit import (
     WorkloadSubjectLookupThrottle,
@@ -68,6 +68,7 @@ from posthog.workload_identity.providers import (
 from posthog.workload_identity.subjects import WorkloadSubjectLookupUnavailable, WorkloadSubjectNotFound
 
 from products.access_control.backend.facade.subject_access_control import restricted_visible_membership_ids
+from products.authorization.backend.facade.enums import Action
 
 # A policy matches claim values exactly, so a character that reads as a pattern is refused rather than
 # taken literally: an admin who types `acme/*` expects every workload under `acme` to match, and none would.
@@ -716,8 +717,7 @@ class WorkloadTrustPolicyRequestResolutionPermission(BasePermission):
             return True
         if not isinstance(request.successful_authenticator, SessionAuthentication):
             return False
-        membership = get_required_organization_membership(request, get_organization_from_view(view))
-        return membership.effective_level >= OrganizationMembership.Level.ADMIN
+        return can_in_required_organization(request, get_organization_from_view(view), Action.EDIT)
 
 
 def resolve_workload_trust_policy_request(
@@ -791,10 +791,7 @@ class WorkloadTrustPolicyRequestViewSet(
     def get_serializer_context(self) -> dict[str, Any]:
         context = super().get_serializer_context()
         organization_id = self.organization.id
-        membership = get_cached_organization_membership(organization_id, cast(User, self.request.user))
-        context["can_approve"] = (
-            membership is not None and membership.effective_level >= OrganizationMembership.Level.ADMIN
-        )
+        context["can_approve"] = can_in_organization(self.request, self.organization, Action.EDIT)
 
         @functools.cache
         def approvers() -> list[str]:

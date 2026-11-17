@@ -206,7 +206,7 @@ def user_has_billing_access(user: User, organization: Organization) -> bool:
     if not membership:
         return False
 
-    if membership.level >= OrganizationMembership.Level.OWNER:
+    if membership.effective_level >= OrganizationMembership.Level.OWNER:
         return True
 
     if membership.effective_level < OrganizationMembership.Level.ADMIN:
@@ -250,7 +250,7 @@ def user_has_billing_usage_spend_read_access(user: User, organization: Organizat
     if not membership:
         return False
 
-    if membership.level >= OrganizationMembership.Level.OWNER:
+    if membership.effective_level >= OrganizationMembership.Level.OWNER:
         return True
 
     # Only a confirmed disabled flag lets non-owners through. Unknown flag state fails closed to owners.

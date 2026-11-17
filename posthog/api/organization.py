@@ -60,6 +60,7 @@ from posthog.permissions import (
     OrganizationAdminWritePermissions,
     OrganizationMemberPermissions,
     TimeSensitiveActionPermission,
+    can_in_organization,
     extract_organization,
     get_authenticator_scoped_organization_ids,
 )
@@ -73,6 +74,7 @@ from posthog.utils import get_safe_cache, safe_cache_set
 from products.access_control.backend.facade.user_access_control import UserAccessControl, visible_teams_for_user
 from products.access_control.backend.models.role import Role
 from products.access_control.backend.presentation.access_control import UserAccessControlSerializerMixin
+from products.authorization.backend.facade.enums import Action
 from products.legal_documents.backend.facade.api import SIGNED_BAA_ANNOTATION, annotate_signed_baa, has_signed_baa
 
 
@@ -99,15 +101,9 @@ class OrganizationPermissionsWithDelete(OrganizationAdminWritePermissions):
     def has_object_permission(self, request: Request, view, object: Model) -> bool:
         if request.method in permissions.SAFE_METHODS:
             return True
-        # TODO: Optimize so that this computation is only done once, on `OrganizationMemberPermissions`
         organization = extract_organization(object, view)
-        min_level = (
-            OrganizationMembership.Level.OWNER if request.method == "DELETE" else OrganizationMembership.Level.ADMIN
-        )
-        return (
-            OrganizationMembership.objects.get(user=cast(User, request.user), organization=organization).effective_level
-            >= min_level
-        )
+        action = Action.DELETE if request.method == "DELETE" else Action.EDIT
+        return can_in_organization(request, organization, action)
 
 
 tracer = trace.get_tracer(__name__)
@@ -971,8 +967,9 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             raise exceptions.ValidationError("PostHog AI is already enabled for this organization.")
 
         # Members only — admins can enable PostHog AI themselves, so there's nobody to ask.
-        membership = OrganizationMembership.objects.filter(user=user, organization=organization).first()
-        if membership is None or membership.effective_level >= OrganizationMembership.Level.ADMIN:
+        if not can_in_organization(request, organization, Action.VIEW) or can_in_organization(
+            request, organization, Action.EDIT
+        ):
             raise exceptions.PermissionDenied("Only members can request access; admins can enable PostHog AI directly.")
 
         send_posthog_ai_access_request.delay(

@@ -31,6 +31,9 @@ from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.rate_limit import EmailForwardingChallengeThrottle, EmailSendTestThrottle, EmailVerifyDomainThrottle
 
+from products.authorization.backend.facade import api as authorization
+from products.authorization.backend.facade.contracts import Resource, Subject
+from products.authorization.backend.facade.enums import Action, ResourceType
 from products.conversations.backend.mailgun import (
     MailgunDnsRecords,
     MailgunDomainConflict,
@@ -154,14 +157,10 @@ def _get_config_for_team(config_id: uuid.UUID, team: Team) -> EmailChannel | Non
 
 
 def _is_organization_admin(user: User, team: Team) -> bool:
-    return (
-        OrganizationMembership.objects.with_effective_level()
-        .filter(
-            organization_id=team.organization_id,
-            user=user,
-            resolved_level__gte=OrganizationMembership.Level.ADMIN,
-        )
-        .exists()
+    return authorization.check(
+        resource=Resource(type=ResourceType.ORGANIZATION, id=str(team.organization_id)),
+        action=Action.EDIT,
+        subject=Subject(user_id=user.pk),
     )
 
 

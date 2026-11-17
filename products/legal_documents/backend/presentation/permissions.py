@@ -1,13 +1,12 @@
-from typing import cast
-
 from rest_framework import exceptions
 from rest_framework.permissions import BasePermission
 from rest_framework.request import Request
 from rest_framework.views import APIView
 
 from posthog.cloud_utils import is_cloud, is_dev_mode
-from posthog.models.organization import OrganizationMembership
-from posthog.models.user import User
+from posthog.permissions import can_in_required_organization
+
+from products.authorization.backend.facade.enums import Action
 
 
 class IsCloudOrDevDeployment(BasePermission):
@@ -43,8 +42,4 @@ class IsOrganizationAdminOrOwner(BasePermission):
             # calls this after the URL kwarg has been parsed, so this branch is
             # effectively only hit on misconfigured routes.
             raise exceptions.NotFound("Organization not found.")
-        try:
-            membership = OrganizationMembership.objects.get(user=cast(User, request.user), organization=organization)
-        except OrganizationMembership.DoesNotExist:
-            raise exceptions.NotFound("Organization not found.")
-        return membership.effective_level >= OrganizationMembership.Level.ADMIN
+        return can_in_required_organization(request, organization, Action.EDIT)

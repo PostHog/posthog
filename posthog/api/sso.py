@@ -33,9 +33,11 @@ from posthog.constants import AvailableFeature
 from posthog.helpers.email_utils import EmailLookupHandler
 from posthog.helpers.sso import UNVERIFIED_SOCIAL_EMAIL_ERROR
 from posthog.models.identity_provider_config import IdentityProviderConfig, has_verified_organization_domain_q
-from posthog.models.organization import OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
+from posthog.permissions import can_in_organization
 from posthog.redis import get_client
+
+from products.authorization.backend.facade.enums import Action
 
 saml_logger = structlog.get_logger("posthog.auth.saml")
 
@@ -64,10 +66,7 @@ def _saml_log_context(email: str, organization_id: UUID | None = None) -> dict[s
 
 @api_view(["GET"])
 def saml_metadata_view(request, *args, **kwargs):
-    if (
-        not request.user.organization_memberships.get(organization=request.user.organization).effective_level
-        >= OrganizationMembership.Level.ADMIN
-    ):
+    if not can_in_organization(request, request.user.organization, Action.EDIT):
         raise PermissionDenied("You need to be an administrator or owner to access this resource.")
 
     complete_url = reverse("social:complete", args=("saml",))

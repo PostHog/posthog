@@ -118,14 +118,15 @@ def list_objects(
     limit: int | None = None,
     creator_exempt: bool = False,
 ) -> contracts.ObjectIds:
-    """Return project-scoped IDs for the requested action.
+    """Return authorized IDs for the requested action.
 
     VIEW and QUERY return an inclusion or exclusion filter for rows. A complete result with
     `excluded=True` allows every ID except those returned. Other actions retain inclusion-only IDs.
     An incomplete result allows nothing. `creator_exempt` requests a creator predicate only when
     the rules permit it.
 
-    The current access rules list only VIEW and QUERY. `resource` names a type and its `project_id`,
+    Organizations support the same actions as `check`, with `Resource(type=ResourceType.ORGANIZATION)`.
+    Other resources list only VIEW and QUERY. `resource` names a type and its `project_id`,
     or `ResourceType.PROJECT` and an `organization_id`. VIEW gives the rows of today's list filter,
     which applies object rules to org admins too. QUERY gives the rows the query guard reads, so an
     org admin gets every row. To filter a QuerySet, use `presentation.querysets` instead.
@@ -148,8 +149,12 @@ def list_subjects(
     subject_type: SubjectType,
     context: contracts.Context | None = None,
 ) -> list[contracts.Subject]:
-    """Return the subjects of `subject_type` that may take the action on the resource."""
-    raise NotImplementedError
+    """Return the subjects of `subject_type` that may take the action on the resource.
+
+    Supports USER subjects for one organization and the same actions as `check`.
+    Callers apply delivery preferences and active-user restrictions separately.
+    """
+    return lists.list_subjects(resource, action, subject_type, context)
 
 
 def write(changes: Sequence[contracts.AddRelationshipRequest | contracts.DeleteRelationshipRequest], /) -> None:

@@ -63,6 +63,9 @@ from posthog.scoping_audit import skip_team_scope_audit
 from posthog.user_permissions import UserPermissions
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.authorization.backend.facade import api as authorization
+from products.authorization.backend.facade.contracts import Resource
+from products.authorization.backend.facade.enums import Action, ResourceType, SubjectType
 from products.batch_exports.backend.facade import api as batch_exports_api
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cdp.backend.models.plugin import Plugin, PluginConfig
@@ -3171,13 +3174,16 @@ def send_integration_access_request(team_id: int, requesting_user_id: int, kind:
     subject = f"{requester_name} requested the {integration_name} integration on PostHog"
 
     # Org admins/owners always have access to every project, so the org-level filter is the access check.
-    memberships = (
-        OrganizationMembership.objects.select_related("user")
-        .with_effective_level()
-        .filter(organization_id=team.organization_id, resolved_level__gte=OrganizationMembership.Level.ADMIN)
-        .exclude(user_id=requesting_user_id)
+    authorized_users = authorization.list_subjects(
+        resource=Resource(type=ResourceType.ORGANIZATION, id=str(team.organization_id)),
+        action=Action.EDIT,
+        subject_type=SubjectType.USER,
     )
-    recipients = [membership.user for membership in memberships if membership.user.email]
+    recipients = list(
+        User.objects.filter(id__in=[subject.user_id for subject in authorized_users])
+        .exclude(id=requesting_user_id)
+        .exclude(email="")
+    )
     if not recipients:
         return
 
@@ -3236,13 +3242,16 @@ def send_posthog_ai_access_request(organization_id: str, requesting_user_id: int
     campaign_key = f"posthog_ai_access_request_{organization_id}_{requesting_user_id}"
 
     # Org admins/owners can enable PostHog AI, so they're the recipients of the request.
-    memberships = (
-        OrganizationMembership.objects.select_related("user")
-        .with_effective_level()
-        .filter(organization_id=organization.id, resolved_level__gte=OrganizationMembership.Level.ADMIN)
-        .exclude(user_id=requesting_user_id)
+    authorized_users = authorization.list_subjects(
+        resource=Resource(type=ResourceType.ORGANIZATION, id=str(organization.id)),
+        action=Action.EDIT,
+        subject_type=SubjectType.USER,
     )
-    recipients = [membership.user for membership in memberships if membership.user.email]
+    recipients = list(
+        User.objects.filter(id__in=[subject.user_id for subject in authorized_users])
+        .exclude(id=requesting_user_id)
+        .exclude(email="")
+    )
     if not recipients:
         return
 
@@ -3296,16 +3305,14 @@ def send_workload_trust_policy_changed(
         context={"task": "send_workload_trust_policy_changed", "field": "policy_name", **log_context},
     )
 
-    memberships = (
-        OrganizationMembership.objects.select_related("user")
-        .with_effective_level()
-        .filter(
-            organization_id=team.organization_id,
-            resolved_level__gte=OrganizationMembership.Level.ADMIN,
-            user__is_active=True,
-        )
+    authorized_users = authorization.list_subjects(
+        resource=Resource(type=ResourceType.ORGANIZATION, id=str(team.organization_id)),
+        action=Action.EDIT,
+        subject_type=SubjectType.USER,
     )
-    recipients = [membership.user for membership in memberships if membership.user.email]
+    recipients = list(
+        User.objects.filter(id__in=[subject.user_id for subject in authorized_users], is_active=True).exclude(email="")
+    )
     if not recipients:
         return
 

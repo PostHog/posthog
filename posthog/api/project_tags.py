@@ -15,11 +15,14 @@ from drf_spectacular.utils import OpenApiParameter
 from rest_framework import exceptions, serializers
 
 from posthog.event_usage import report_user_action
-from posthog.models.organization import OrganizationMembership
 from posthog.models.project import Project
 from posthog.models.tag import tagify
 from posthog.models.tagged_item import TaggedItem
 from posthog.models.user import User
+
+from products.authorization.backend.facade import api as authorization
+from products.authorization.backend.facade.contracts import Resource, Subject
+from products.authorization.backend.facade.enums import Action, ResourceType
 
 TAGS_HELP_TEXT = (
     "Labels applied to this project. Names are trimmed and lowercased, and sending this field "
@@ -78,8 +81,11 @@ def validate_group_change(
     new_groups = validate_group_tags(tags)
     if new_groups == current_groups:
         return
-    membership = OrganizationMembership.objects.filter(user=user, organization_id=organization_id).first()
-    if membership is None or membership.effective_level < OrganizationMembership.Level.ADMIN:
+    if not authorization.check(
+        resource=Resource(type=ResourceType.ORGANIZATION, id=str(organization_id)),
+        action=Action.EDIT,
+        subject=Subject(user_id=user.pk),
+    ):
         raise exceptions.ValidationError({"tags": "Only organization admins and owners can change project groups."})
 
 
