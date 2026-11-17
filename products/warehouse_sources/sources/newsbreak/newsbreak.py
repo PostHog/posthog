@@ -188,11 +188,17 @@ class NewsBreakClient:
             raise NewsBreakRateLimitError(f"NewsBreak returned HTTP 429 for {path}", retry_after=_retry_after(response))
         if response.status_code >= 500:
             raise NewsBreakRetryableError(f"NewsBreak returned HTTP {response.status_code} for {path}")
-        response.raise_for_status()
         try:
             body = response.json()
-        except ValueError as error:
-            raise NewsBreakAPIError(f"NewsBreak returned a response that is not JSON for {path}") from error
+        except ValueError:
+            body = None
+        # NewsBreak sometimes answers a token, permission, or rate-limit error with HTTP 400 and its
+        # own `code` in the body, instead of the HTTP status this client otherwise relies on above.
+        if isinstance(body, dict) and body.get("code") is not None:
+            return _data_of(body, path)
+        response.raise_for_status()
+        if body is None:
+            raise NewsBreakAPIError(f"NewsBreak returned a response that is not JSON for {path}")
         return _data_of(body, path)
 
     _request_with_retries = retry_with_deadline(
