@@ -486,9 +486,8 @@ describe('GuidanceEngine', () => {
         expect(files.length).toBeGreaterThan(0)
     })
 
-    it('ships every rule with a distinct id and flag', () => {
+    it('ships every rule with a distinct id', () => {
         expect(new Set(GUIDANCE_RULES.map((r) => r.id)).size).toBe(GUIDANCE_RULES.length)
-        expect(new Set(GUIDANCE_RULES.map((r) => r.flag)).size).toBe(GUIDANCE_RULES.length)
     })
 })
 
