@@ -2005,6 +2005,18 @@ class TestPrinter(BaseTest):
         self.assertEqual(
             self._expr("toDecimal('3.14', 2)", context), "accurateCastOrNull(%(hogql_val_6)s, %(hogql_val_7)s)"
         )
+        for scale, expected_type in [
+            (2, "Decimal64(2)"),
+            (10, "Decimal64(10)"),
+            (2, "Decimal64(2)"),
+            (10, "Decimal64(10)"),
+        ]:
+            decimal_context = HogQLContext(team_id=self.team.pk)
+            self.assertEqual(
+                self._expr(f"toDecimal('3.14', {scale})", decimal_context),
+                "accurateCastOrNull(%(hogql_val_0)s, %(hogql_val_1)s)",
+            )
+            self.assertEqual(list(decimal_context.values.values()), ["3.14", expected_type])
         # Single-arg toFloatOrDefault is degenerate; rewritten to toFloatOrZero for ClickHouse.
         self.assertEqual(self._expr("toFloatOrDefault('1.5')", context), "toFloat64OrZero(%(hogql_val_8)s)")
         self.assertEqual(self._expr("quantile(0.95)( event )"), "quantile(0.95)(events.event)")
