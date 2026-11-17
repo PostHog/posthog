@@ -320,6 +320,45 @@ class TestTableExistsAgainstAMissingSchema:
         assert await writer._table_exists(client, "charges") is False
 
 
+class TestCatalogProbesLeaveTheConnectionIdle:
+    """`_table_comment` and `_has_unique_index_on` run their catalog lookups directly on
+    the writer's own connection, between other statements in the same `write_batch` call.
+    Left inside an open transaction, the next statement on that connection (`_ensure_table`
+    or `_ensure_unique_index`, both opening their own `transaction()`) would nest into it as
+    a savepoint instead of starting clean. Redshift has no savepoints, so that next
+    statement fails outright with "current transaction is aborted" -- for a probe that
+    already returned its answer and had nothing left to protect.
+    """
+
+    async def test_reading_a_tables_comment_leaves_the_connection_idle(self, dsn, table_name) -> None:
+        with psycopg.connect(dsn, autocommit=True) as conn:
+            conn.execute(f'CREATE TABLE public."{table_name}" (id BIGINT)')
+
+        ctx = _ctx(table_name, "incremental")
+        writer = LocalPostgresWriter(ctx, dsn)
+        try:
+            async with writer._client() as client:
+                await writer._table_comment(client, table_name)
+
+                assert client.connection.pgconn.transaction_status == psycopg.pq.TransactionStatus.IDLE
+        finally:
+            _drop(dsn, table_name)
+
+    async def test_checking_for_a_unique_index_leaves_the_connection_idle(self, dsn, table_name) -> None:
+        with psycopg.connect(dsn, autocommit=True) as conn:
+            conn.execute(f'CREATE TABLE public."{table_name}" (id BIGINT)')
+
+        ctx = _ctx(table_name, "incremental", primary_keys=("id",))
+        writer = LocalPostgresWriter(ctx, dsn)
+        try:
+            async with writer._client() as client:
+                await writer._has_unique_index_on(client, table_name, ["id"])
+
+                assert client.connection.pgconn.transaction_status == psycopg.pq.TransactionStatus.IDLE
+        finally:
+            _drop(dsn, table_name)
+
+
 class TestFullRefreshTableOwnership:
     """`table_name` is derived from the source's resource name, which a custom-source
     manifest controls. A full refresh must never take over a table it did not create just
