@@ -202,6 +202,7 @@ Listed in `TTL_ONLY_TABLES`.
 Each is a decision that erasure may lag by the retention window.
 
 - `sharded_events_recent` — a transient mirror of the last few days of events, 7-day TTL keyed on `inserted_at`. It partitions by day with `ttl_only_drop_parts = 1`, so a part drops only once its newest row expires: the real worst case is about 8 days plus TTL-merge lag, not a flat 7. Short enough to accept as the erasure bound, and a sweep would race the TTL for little benefit.
+- `sharded_events_json_recent`: the same recent events in the events_json shape, for realtime batch exports. 9-day TTL keyed on `inserted_at`, with the same daily partitions and `ttl_only_drop_parts = 1`, so the worst case is about 10 days plus TTL-merge lag. Accepted on the same terms as `sharded_events_recent`.
 
 Session recordings, the dead letter queue, and logs are likewise TTL-reclaimed.
 That decision predates this document; the older `posthog/models/async_deletion/delete_events.py` records it in a comment, but that module is legacy and is not the source of truth here.
