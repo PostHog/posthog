@@ -284,7 +284,7 @@ async def test_insert_into_stage_activity_fails_a_native_run_for_a_custom_schema
         exclude_events=None,
         include_events=None,
         run_id=None,
-        batch_export_model=BatchExportEventsCustomModel(schema=schema, filters=None),
+        batch_export_model=BatchExportEventsCustomModel(schema=schema, filters=[]),
         backfill_details=BackfillDetails(
             backfill_id=None,
             start_at=(data_interval_end - dt.timedelta(days=10)).isoformat(),
