@@ -453,16 +453,16 @@ class TestMetricListSearch(APIBaseTest):
 
     def test_search_returns_a_short_page_unless_a_limit_is_sent(self, _flag: MagicMock) -> None:
         with team_scope(self.team.id):
-            for index in range(12):
+            for index in range(22):
                 Metric.objects.for_team(self.team.id).create(
                     team=self.team, name=f"revenue_{index}", description="Revenue from one region."
                 )
 
         default = self.client.get(self.url, {"search": "revenue"}).json()
-        second = self.client.get(self.url, {"search": "revenue", "offset": "10"}).json()
-        larger = self.client.get(self.url, {"search": "revenue", "limit": "20"}).json()
+        second = self.client.get(self.url, {"search": "revenue", "offset": "20"}).json()
+        larger = self.client.get(self.url, {"search": "revenue", "limit": "30"}).json()
 
-        assert (len(default["results"]), default["count"], default["next"] is not None) == (10, 12, True)
-        assert (len(second["results"]), second["count"], second["next"]) == (2, 12, None)
+        assert (len(default["results"]), default["count"], default["next"] is not None) == (20, 22, True)
+        assert (len(second["results"]), second["count"], second["next"]) == (2, 22, None)
         assert {row["name"] for row in default["results"]}.isdisjoint(row["name"] for row in second["results"])
-        assert len(larger["results"]) == 12
+        assert len(larger["results"]) == 22

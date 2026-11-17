@@ -51,7 +51,7 @@ logger = structlog.get_logger(__name__)
 MAX_SEARCH_PHRASINGS = 5
 MAX_SEARCH_PHRASING_LENGTH = 200
 # A search answers with a short ranked page unless the caller asks for more.
-SEARCH_DEFAULT_LIMIT = 10
+SEARCH_DEFAULT_LIMIT = 20
 
 # A hit scores 1 / (RRF_K + its best rank in either lane). The best rank counts, not the sum over both
 # lanes: a sum lifts weak word matches that the semantic lane also lists above a strong semantic-only hit.
@@ -69,8 +69,9 @@ _ONE_EDIT_MIN_WORD_LENGTH = 5
 
 # The semantic lane keeps its closest metrics with no cosine floor. On short metric text, correct hits
 # and the nearest metric to a query with no metric score in the same range, so a floor drops right
-# answers without keeping wrong ones out. The agent tells them apart with metric-describe.
-SEMANTIC_TOP_K = 10
+# answers without keeping wrong ones out. The agent tells them apart with metric-describe. One default
+# page holds them all, so a search no word matches still fills its first page.
+SEMANTIC_TOP_K = 20
 
 # A semantic hit this close counts as a confident match. A placeholder until the eval calibrates it.
 SEMANTIC_CONFIDENT_SIMILARITY = 0.55

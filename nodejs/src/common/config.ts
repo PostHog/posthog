@@ -137,6 +137,8 @@ export type CommonConfig = BaseServerConfig & {
     /** Host and port of the personhog identity server. */
     PERSONHOG_IDENTITY_ADDR: string
     PERSONHOG_ADDR: string
+    /** Host and port of a leader-mode router. CDP sends its consistent person reads there when it is set. */
+    PERSONHOG_LEADER_ADDR: string
     PERSONHOG_GROUPS_ROLLOUT_PERCENTAGE: number
     PERSONHOG_GROUPS_ROLLOUT_TEAM_IDS: string
     PERSONHOG_PERSONS_ROLLOUT_PERCENTAGE: number
@@ -178,6 +180,8 @@ export type CommonConfig = BaseServerConfig & {
 
     // Kafka consumer base
     CONSUMER_BATCH_SIZE: number
+    /** KiB of message values per batch, 0 for no byte bound. Only KafkaConsumerV2 reads it. */
+    CONSUMER_BATCH_SIZE_KB: number
     CONSUMER_MAX_HEARTBEAT_INTERVAL_MS: number
     CONSUMER_LOOP_STALL_THRESHOLD_MS: number
     CONSUMER_LOG_STATS_LEVEL: LogLevel
@@ -412,6 +416,7 @@ export function getDefaultCommonConfig(): CommonConfig {
         // PersonHog gRPC
         PERSONHOG_ENABLED: false,
         PERSONHOG_ADDR: '',
+        PERSONHOG_LEADER_ADDR: '',
         PERSONS_STORE_MODE: 'pg',
         PERSONHOG_IDENTITY_ADDR: '',
         PERSONHOG_GROUPS_ROLLOUT_PERCENTAGE: 0,
@@ -453,6 +458,7 @@ export function getDefaultCommonConfig(): CommonConfig {
 
         // Kafka consumer base
         CONSUMER_BATCH_SIZE: 500,
+        CONSUMER_BATCH_SIZE_KB: 0,
         CONSUMER_MAX_HEARTBEAT_INTERVAL_MS: 30_000,
         CONSUMER_LOOP_STALL_THRESHOLD_MS: 60_000,
         CONSUMER_LOG_STATS_LEVEL: 'debug',
