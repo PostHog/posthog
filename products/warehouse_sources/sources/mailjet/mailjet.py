@@ -264,7 +264,9 @@ def mailjet_source(
                 limit=limit,
                 offset_param="Offset",
                 limit_param="Limit",
-                total_path="Total",
+                # Mailjet's `Total` counts the rows on the current page, not the whole collection, so a
+                # total check stops after the first full page. Stop on a short or empty page instead.
+                total_path=None,
             ),
         },
         "resource_defaults": {},
