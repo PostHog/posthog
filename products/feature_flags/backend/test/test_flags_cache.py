@@ -65,6 +65,7 @@ from products.feature_flags.backend.flags_cache import (
 from products.feature_flags.backend.flags_cache_messages import FlagsCacheInvalidation
 from products.feature_flags.backend.models.evaluation_context import EvaluationContext, FeatureFlagEvaluationContext
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
+from products.feature_flags.backend.tasks import invalidate_team_flags_cache_for_cohorts
 from products.feature_flags.backend.test.experiment_change_fixtures import EXPERIMENT_CHANGES, seed_experiment_change
 
 
@@ -1163,7 +1164,7 @@ class TestServiceFlagsKafkaRouting(BaseTest):
     def test_team_create_routes_to_kafka_when_flag_on(self, mock_task, mock_gate, mock_produce):
         new_team = Team.objects.create(organization=self.organization, name="Kafka Routing Team")
         mock_task.delay.assert_not_called()
-        mock_produce.assert_called_with(new_team.id)
+        mock_produce.assert_called_with(new_team.id, source="edit", raise_on_error=False)
 
     @patch("products.feature_flags.backend.flags_cache._produce_invalidation")
     @patch("products.feature_flags.backend.flags_cache._route_to_kafka", return_value=True)
@@ -1184,7 +1185,7 @@ class TestServiceFlagsKafkaRouting(BaseTest):
         FeatureFlagEvaluationContext.objects.create(feature_flag=flag, evaluation_context=ctx)
 
         mock_task.delay.assert_not_called()
-        mock_produce.assert_called_with(self.team.id)
+        mock_produce.assert_called_with(self.team.id, source="edit", raise_on_error=False)
 
     @patch("products.feature_flags.backend.flags_cache._produce_invalidation")
     @patch("products.feature_flags.backend.flags_cache._route_to_kafka", return_value=True)
@@ -4620,6 +4621,35 @@ class TestCohortChangedFlagsCacheSignal(BaseTest):
         cohort.name = "updated"
         cohort.save()
         mock_task.delay.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("finalizer_task", lambda cohort: invalidate_team_flags_cache_for_cohorts(cohort.team_id)),
+        ]
+    )
+    @patch("django.db.transaction.on_commit", lambda fn: fn())
+    @patch("products.feature_flags.backend.flags_cache.producer_scope")
+    @patch("products.feature_flags.backend.flags_cache._route_to_kafka", return_value=True)
+    @patch("products.feature_flags.backend.tasks.update_team_flags_cache")
+    @patch("products.feature_flags.backend.tasks.update_team_service_flags_cache")
+    def test_kafka_routed_team_gets_a_cohort_invalidation_and_no_celery_build(
+        self, _name, change, mock_service, _mock_definitions, _mock_gate, mock_producer_scope
+    ):
+        mock_producer = MagicMock()
+        mock_producer_scope.return_value.__enter__.return_value = mock_producer
+        cohort = Cohort.objects.create(team=self.team, name="test")
+        mock_producer.reset_mock()
+        mock_service.reset_mock()
+        cohort.filters = {"properties": {"type": "AND", "values": []}}
+
+        change(cohort)
+
+        mock_service.delay.assert_not_called()
+        mock_producer.produce.assert_called_once()
+        produce_kwargs = mock_producer.produce.call_args.kwargs
+        assert produce_kwargs["key"] == str(self.team.id)
+        assert produce_kwargs["data"]["team_id"] == self.team.id
+        assert produce_kwargs["data"]["source"] == "cohort"
 
 
 @override_settings(FLAGS_REDIS_URL="redis://test")

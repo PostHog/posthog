@@ -197,7 +197,11 @@ impl PersonHogLeaderService {
         // Duplicate release: the death document already exists;
         // producing another would only bump the version. Gate
         // first — a refused release must leave the fence.
-        if current.as_ref().is_some_and(|p| p.is_deleted) {
+        // A death document at or below the seal predates a revival.
+        if current
+            .as_ref()
+            .is_some_and(|p| p.is_deleted && p.version > release.sealed_version)
+        {
             self.assert_authoritative(partition)?;
             self.fences.remove(&cache_key);
             return Ok(());
@@ -368,7 +372,14 @@ impl PersonHogLeaderService {
         // The seal is the newest cached state under the write lock, raised
         // to the emitted floor: an indeterminate pre-fence write may have
         // spent a higher version. A same-op re-fence re-seals the same way.
-        let person = self.lookup_or_load_locked(partition, &cache_key).await?;
+        let person = match self.lookup_or_load_locked(partition, &cache_key).await {
+            Err(status)
+                if op_type == LifecycleOpType::Delete && status.code() == tonic::Code::DataLoss =>
+            {
+                self.load_unreadable_row(&cache_key).await?
+            }
+            loaded => loaded?,
+        };
         // The load can park on the per-key lock or a recovery; the seal,
         // not the arrival, must be backed by ownership.
         self.check_authority(partition)?;
