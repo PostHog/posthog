@@ -16,7 +16,7 @@ from collections import Counter
 from collections.abc import Mapping
 from dataclasses import replace
 from difflib import SequenceMatcher
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 from posthog.dataclasses import frozen
 
@@ -68,6 +68,8 @@ _LEADING_HTML_COMMENT = re.compile(r"\A\s*<!--.*?-->\s*", re.S)
 # runs, so only a value of this shape may reach it.
 _COMMIT_SHA = re.compile(r"[0-9a-f]{40}|[0-9a-f]{64}")
 
+RULE_FILE_NAMES = frozenset({"AGENTS.md", "AGENTS.override.md", "CLAUDE.md", "REVIEW.md"})
+
 
 def _commit_sha(value: str | None) -> str | None:
     return value if value is not None and _COMMIT_SHA.fullmatch(value) else None
@@ -90,7 +92,8 @@ def load_core_prompt() -> str:
 class SingleAgentPrompt:
     """The prompt of one single-agent session: the PR or its part, earlier findings, guidelines, format.
 
-    `scope_files` limits the diff to one lens part. A diff over `FLASH_PROMPT_DIFF_MAX_CHARS` shrinks
+    `scope_files` limits the diff to one lens part, and `whole_pr_files` holds every file of the PR when
+    `pr_files` holds only a delta. A diff over `FLASH_PROMPT_DIFF_MAX_CHARS` shrinks
     to the reviewable files, and then to none: the file list marks each file it leaves out, and the
     session reads those changes with git against `merge_base_sha`.
     """
@@ -109,6 +112,7 @@ class SingleAgentPrompt:
         delta_since: str | None = None,
         changed_since_review: "ChangedSinceReview | None" = None,
         changed_code_only: bool = False,
+        whole_pr_files: list[PRFile] | None = None,
     ) -> None:
         self.repository = repository
         self.delta_since = delta_since
@@ -118,6 +122,7 @@ class SingleAgentPrompt:
         self.pr_metadata = pr_metadata
         self.merge_base_sha = merge_base_sha
         self.pr_files = pr_files
+        self.whole_pr_files = whole_pr_files if whole_pr_files is not None else pr_files
         self.prior_findings = prior_findings
         self.scope_files = scope_files
         self.for_lens = for_lens
@@ -184,6 +189,9 @@ class SingleAgentPrompt:
         ]
         return json.dumps(covered, indent=2) if covered else None
 
+    def _changed_rule_files(self) -> list[str]:
+        return [f.filename for f in self.whole_pr_files if PurePosixPath(f.filename).name in RULE_FILE_NAMES]
+
     def _base_sha(self) -> str | None:
         """The merge base when it is a commit id, else None: the prompt then gives no git command."""
         return _commit_sha(self.merge_base_sha)
@@ -196,6 +204,7 @@ class SingleAgentPrompt:
         # A part that covers the whole PR needs no scope section, because no other session reviews its files.
         scope = [f.filename for f in in_scope] if len(in_scope) < len(self.pr_files) else None
         covered = self._covered_findings()
+        rule_files = self._changed_rule_files()
         changed_since_review = (
             self.changed_since_review.describe()
             if self.changed_since_review is not None and not self.delta_since
@@ -214,6 +223,9 @@ class SingleAgentPrompt:
             SCOPE=without_cache_marker(", ".join(f"`{path}`" for path in scope)) if scope else None,
             DIFF=without_cache_marker(self._diff(shown)),
             DIFF_NOT_SHOWN=bool(not_shown),
+            CHANGED_RULE_FILES=(
+                without_cache_marker(", ".join(f"`{path}`" for path in rule_files)) if rule_files else None
+            ),
             CHANGED_SINCE_REVIEW=without_cache_marker(changed_since_review) if changed_since_review else None,
             DISCARDED_LEVELS="P2 or P3" if self.changed_code_only else "P3",
             CHANGE_MARGIN=FLASH_FOLLOW_UP_CHANGE_MARGIN_LINES,
