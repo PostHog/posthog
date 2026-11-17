@@ -607,6 +607,10 @@ jobs:
                       # An edit that adds a path here also deploys once, through
                       # check_general_purpose_coverage_added below.
                       generalPurpose:
+                        # MCPA_TASK_QUEUE defaults to the general-purpose queue, and prod runs no
+                        # separate MCP analytics worker, so this worker runs intent clustering.
+                        - 'products/mcp_analytics/backend/**'
+                        - 'posthog/temporal/mcp_analytics/**'
                         - 'products/notebooks/backend/**'
                         - 'products/subscriptions/backend/temporal/**'
                         - 'products/subscriptions/backend/facade/temporal.py'
