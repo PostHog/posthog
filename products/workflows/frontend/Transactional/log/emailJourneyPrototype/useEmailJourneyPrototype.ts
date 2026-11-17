@@ -1,5 +1,5 @@
 // PROTOTYPE (ticket #385), throwaway: what one transactional email leads to in the product.
-// Round 3: the transactional list shows each email's impact (variants L1 to L3), the email page keeps variant D (the
+// Round 4: the transactional list shows each email's impact with highlights on top (variant L1), the email page keeps variant D (the
 // impact funnel) with any event as the conversion, and the send detail page keeps variant A (the click timeline).
 // Switch with ?variant=, simulate cases with ?case=, pick the conversion event with ?goal=. All data is invented.
 import { useActions, useValues } from 'kea'
@@ -10,14 +10,12 @@ import { urls } from 'scenes/urls'
 export const PROTOTYPE_ENABLED = process.env.PROTOTYPE === '1'
 
 export type JourneySurface = 'list' | 'email' | 'send'
-export type JourneyVariant = 'L1' | 'L2' | 'L3' | 'D' | 'today' | 'A'
+export type JourneyVariant = 'L1' | 'D' | 'today' | 'A'
 
 const LIST_FLAGS = 'muscle memory: home to email page · known pain: transactional home · agent contract: emails list'
 
 export const JOURNEY_VARIANTS: { key: JourneyVariant; surface: JourneySurface; name: string }[] = [
-    { key: 'L1', surface: 'list', name: `Impact columns · ${LIST_FLAGS}` },
-    { key: 'L2', surface: 'list', name: `Row opens a preview · ${LIST_FLAGS}` },
-    { key: 'L3', surface: 'list', name: `Highlights above the list · ${LIST_FLAGS}` },
+    { key: 'L1', surface: 'list', name: `Impact columns with highlights · ${LIST_FLAGS}` },
     {
         key: 'D',
         surface: 'email',

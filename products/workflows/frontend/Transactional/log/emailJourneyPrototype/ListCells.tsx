@@ -136,7 +136,7 @@ export function ConversionCell({ email }: { email: ListEmail }): JSX.Element {
 }
 
 /** Replay vision for one email: its findings, or one click to start watching the sessions it starts. */
-export function ReplayVisionCell({ email }: { email: ListEmail }): JSX.Element {
+export function ReplayVisionCell({ email, watching = false }: { email: ListEmail; watching?: boolean }): JSX.Element {
     const { journeyCase } = useEmailJourneyPrototype()
     const [started, setStarted] = useState(false)
 
@@ -168,7 +168,7 @@ export function ReplayVisionCell({ email }: { email: ListEmail }): JSX.Element {
     if (journeyCase === 'no-recording') {
         return <span className="text-xs text-secondary">Needs session replay</span>
     }
-    if (started) {
+    if (started || watching) {
         return (
             <Tooltip title={`Watching the sessions this email starts: "${SCANNER_SUGGESTIONS[0].question}"`}>
                 <LemonTag type="highlight" icon={<IconSparkles />}>

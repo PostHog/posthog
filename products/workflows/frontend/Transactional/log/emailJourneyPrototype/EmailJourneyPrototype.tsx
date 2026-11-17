@@ -1,5 +1,5 @@
 // PROTOTYPE (ticket #385), throwaway. Mounted by the transactional list, the code email scene and the send detail
-// scene when ?variant= is set in a PROTOTYPE=1 build. Renders the list (L1 to L3), the email page (D) or the send
+// scene when ?variant= is set in a PROTOTYPE=1 build. Renders the list (L1), the email page (D) or the send
 // detail page (today, A).
 import { useState } from 'react'
 
@@ -18,14 +18,12 @@ import { journeyUrl, useEmailJourneyPrototype } from './useEmailJourneyPrototype
 import { VariantClickTimeline } from './VariantClickTimeline'
 import { VariantImpactFunnel } from './VariantImpactFunnel'
 import { VariantListColumns } from './VariantListColumns'
-import { VariantListHighlights } from './VariantListHighlights'
-import { VariantListPreview } from './VariantListPreview'
 import { VariantToday } from './VariantToday'
 
 const UNCHANGED = <p className="text-sm text-secondary m-0">Unchanged in this prototype.</p>
 
 function ListPage(): JSX.Element {
-    const { variant, journeyCase } = useEmailJourneyPrototype()
+    const { journeyCase } = useEmailJourneyPrototype()
     const [tab, setTab] = useState('emails')
     const emails = listData(journeyCase)
     return (
@@ -44,13 +42,7 @@ function ListPage(): JSX.Element {
                         label: 'Emails',
                         content: (
                             <div className="@container">
-                                {variant === 'L2' ? (
-                                    <VariantListPreview emails={emails} />
-                                ) : variant === 'L3' ? (
-                                    <VariantListHighlights emails={emails} />
-                                ) : (
-                                    <VariantListColumns emails={emails} />
-                                )}
+                                <VariantListColumns emails={emails} />
                             </div>
                         ),
                     },
