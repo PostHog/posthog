@@ -24,7 +24,7 @@ from posthog.constants import AvailableFeature
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
-from posthog.scopes import APIScopeObject
+from posthog.scopes.catalog import APIScopeObject
 from posthog.user_permissions import UserPermissions
 
 from products.access_control.backend.facade.subject_access_control import SubjectAccessControl

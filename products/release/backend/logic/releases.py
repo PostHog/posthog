@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from datetime import datetime
 from uuid import UUID
 
 from django.db import transaction
-from django.db.models import QuerySet
+from django.db.models import Q, QuerySet
 
 from posthog.models.utils import strict_fetch
 
@@ -16,6 +17,45 @@ from ..models import Release
 
 def list_releases(team_id: int) -> QuerySet[Release]:
     return strict_fetch(Release.objects.filter(team_id=team_id).select_related("owner").order_by("created_at", "id"))
+
+
+def list_catalog_releases(
+    team_id: int,
+    search: str,
+    after: tuple[datetime, UUID] | None,
+    *,
+    owner_ids: list[int] | None = None,
+    oldest_first: bool = False,
+) -> QuerySet[Release]:
+    releases = Release.objects.filter(team_id=team_id)
+    if after:
+        created_at, release_id = after
+        if oldest_first:
+            releases = releases.filter(Q(created_at__gt=created_at) | Q(created_at=created_at, id__gt=release_id))
+        else:
+            releases = releases.filter(Q(created_at__lt=created_at) | Q(created_at=created_at, id__lt=release_id))
+    if search:
+        releases = releases.filter(name__icontains=search)
+    if owner_ids:
+        releases = releases.filter(owner_id__in=owner_ids)
+    order = ("created_at", "id") if oldest_first else ("-created_at", "-id")
+    return (
+        releases.select_related("owner")
+        .only(
+            "id",
+            "name",
+            "created_at",
+            "auto_named",
+            "feature_flag_ids",
+            "owner__id",
+            "owner__uuid",
+            "owner__first_name",
+            "owner__last_name",
+            "owner__email",
+            "owner__is_active",
+        )
+        .order_by(*order)
+    )
 
 
 def get_release(team_id: int, release_id: UUID) -> Release:

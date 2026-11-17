@@ -1134,6 +1134,27 @@ class TestEarlyAccessFeature(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert sorted(feature["name"] for feature in response.json()["results"]) == ["Also listed", "Listed"]
 
+    def test_list_orders_newest_first_and_searches_by_name(self):
+        for name in ("Oldest", "Middle", "Newest"):
+            EarlyAccessFeature.objects.create(team=self.team, name=name, description="", stage="beta")
+
+        response = self.client.get(f"/api/projects/{self.team.id}/early_access_feature/?limit=2")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert [feature["name"] for feature in response.json()["results"]] == ["Newest", "Middle"]
+
+        searched = self.client.get(f"/api/projects/{self.team.id}/early_access_feature/?search=midd")
+
+        assert [feature["name"] for feature in searched.json()["results"]] == ["Middle"]
+
+        oldest = self.client.get(f"/api/projects/{self.team.id}/early_access_feature/?order=created_at&limit=1")
+
+        assert [feature["name"] for feature in oldest.json()["results"]] == ["Oldest"]
+
+        mine = self.client.get(f"/api/projects/{self.team.id}/early_access_feature/?created_by_id={self.user.id}")
+
+        assert mine.json()["results"] == []
+
     def test_payload_in_list_response(self):
         EarlyAccessFeature.objects.create(
             team=self.team,

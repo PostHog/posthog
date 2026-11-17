@@ -1,15 +1,37 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { fireEvent, render, waitFor } from '@testing-library/react-native'
 import { Linking, useColorScheme } from 'react-native'
-import { getInsightSummary } from '@/api/insights'
+import { ApiError } from '@/api/client'
+import { type InsightApi, readInsight } from '@/api/insights'
+import { runQuery } from '@/api/query'
+import { viewsQueue } from '@/features/views/refreshQueue'
+import { abortError } from '@/lib/abort'
 import { darkColors } from '@/ui/theme'
 import { ChatMarkdown } from './ChatMarkdown'
 import { MermaidDiagram } from './MermaidDiagram'
 
 jest.mock('@/auth/useProjectScope', () => ({ useProjectScope: () => ({ host: 'https://example.com', projectId: 7 }) }))
-jest.mock('@/api/insights', () => ({ getInsightSummary: jest.fn() }))
+jest.mock('@/api/insights', () => ({ readInsight: jest.fn() }))
+jest.mock('@/api/query', () => ({ ...jest.requireActual('@/api/query'), runQuery: jest.fn() }))
 jest.mock('./MermaidDiagram', () => ({ MermaidDiagram: jest.fn(() => null) }))
-const summary = getInsightSummary as jest.MockedFunction<typeof getInsightSummary>
+const read = jest.mocked(readInsight)
+const query = jest.mocked(runQuery)
+const trendQuery = { kind: 'TrendsQuery', series: [{ kind: 'EventsNode', event: '$pageview' }] }
+function insight(overrides: Partial<InsightApi> = {}): InsightApi {
+    return {
+        id: 1,
+        short_id: 'abc',
+        name: 'Count',
+        description: 'Visits per day',
+        derived_name: null,
+        query: { kind: 'InsightVizNode', source: trendQuery },
+        result: [{ data: [12, 15], days: ['2026-10-01', '2026-10-02'] }],
+        last_refresh: '2026-10-03T00:00:00Z',
+        cache_target_age: null,
+        next_allowed_client_refresh: null,
+        ...overrides,
+    }
+}
 let client: QueryClient
 function view(text: string, projectUrl?: string): ReturnType<typeof render> {
     return render(
@@ -32,9 +54,16 @@ describe('reply object rendering', () => {
     })
     beforeEach(() => {
         jest.clearAllMocks()
+        query.mockImplementation(
+            (_query, options) =>
+                new Promise((_resolve, reject) => {
+                    options?.signal?.addEventListener('abort', () => reject(abortError()), { once: true })
+                })
+        )
         client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity } } })
     })
     afterEach(() => {
+        viewsQueue.reset()
         client.clear()
         jest.restoreAllMocks()
         jest.mocked(useColorScheme).mockReturnValue('light')
@@ -101,29 +130,35 @@ describe('reply object rendering', () => {
         }
         expect(copied).toBeLessThan(text.length * 50)
     })
-    test('shows loading, name and description without executing SQL', async () => {
-        let resolve: (value: { name: string; description: string }) => void = () => undefined
-        summary.mockReturnValue(
+    test('loads a saved insight and draws its native chart', async () => {
+        let resolve: (value: InsightApi) => void = () => undefined
+        read.mockReturnValue(
             new Promise((done) => {
                 resolve = done
             })
         )
         const screen = view('<insight id="abc" display="block"/>')
         expect(screen.getByText('Loading insight…')).toBeTruthy()
-        resolve({ name: 'Count', description: 'Visits per day' })
+        resolve(insight())
         await waitFor(() => expect(screen.getByText('Visits per day')).toBeTruthy())
-        expect(summary).toHaveBeenCalledWith('abc', expect.any(AbortSignal))
+        expect(screen.getByLabelText('Count chart')).toBeTruthy()
+        expect(screen.getByText('Open insight')).toBeTruthy()
     })
     test('shows unavailable for a missing insight with a supplied title', async () => {
-        summary.mockResolvedValue(null)
+        read.mockRejectedValue(new ApiError(404, {}))
         const screen = view('<insight id="missing" title="Visits" display="block"/>')
         await waitFor(() => expect(screen.getByText('Insight unavailable')).toBeTruthy())
     })
     test('keeps errors visible with a supplied title', async () => {
-        summary.mockRejectedValue(new Error('unavailable'))
+        read.mockRejectedValue(new Error('unavailable'))
         const screen = view('<insight id="abc" title="Visits" display="block"/>')
-        await waitFor(() => expect(screen.getByText('Could not load insight')).toBeTruthy())
+        await waitFor(() =>
+            expect(screen.getByText('Could not load chart. Open it on the web or try again.')).toBeTruthy()
+        )
         expect(screen.getByText('Visits')).toBeTruthy()
+        read.mockResolvedValue(insight())
+        fireEvent.press(screen.getByText('Try again'))
+        await waitFor(() => expect(screen.getByLabelText('Count chart')).toBeTruthy())
     })
     test('expands SQL without opening its editor', () => {
         const open = jest.spyOn(Linking, 'openURL').mockResolvedValue(undefined)
@@ -131,7 +166,7 @@ describe('reply object rendering', () => {
         fireEvent.press(screen.getByText('Show all'))
         expect(screen.getByText('Show less')).toBeTruthy()
         expect(open).not.toHaveBeenCalled()
-        fireEvent.press(screen.getByText('SQL query'))
+        fireEvent.press(screen.getByText('Open SQL editor'))
         expect(open).toHaveBeenCalledWith(
             'https://example.com/project/7/sql?open_query=SELECT%201%0AUNION%20ALL%0ASELECT%202%0AORDER%20BY%201'
         )

@@ -34,9 +34,9 @@ use crate::fencing::FencedProducerConfig;
 use crate::fencing::{FencedChangelogProducers, FencedProduceError};
 use crate::inflight::{InflightGuard, InflightTracker};
 use crate::person_update::{apply_property_updates, compute_event_property_updates};
-use crate::pg::{load_person_from_pg, PgFallback};
+use crate::pg::{load_person_from_pg, LoadError, PgFallback};
 use crate::recovery::ChangelogRecovery;
-use crate::warnings::{SizeViolationWarning, WarningsProducer};
+use crate::warnings::{DepthViolationWarning, SizeViolationWarning, WarningsProducer};
 use personhog_common::properties::{
     can_trim_property, jsonb_column_size, sanitize_for_jsonb, trim_properties_to_fit_size,
     trim_properties_with_candidates, SanitizeStats, TrimResult,
@@ -87,6 +87,22 @@ struct Committer {
     fenced: Arc<FencedChangelogProducers>,
     /// Shared with the service; a mark names the partition's captured topic.
     captures: ChangelogCaptures,
+}
+
+const NESTING_LIMIT_REFUSAL: &str = "exceeds the nesting limit";
+
+const STORED_TOO_DEEP_MESSAGE: &str = "This person's stored properties are nested more than 128 \
+     levels deep, so events for this person are not processed. This usually means an object such \
+     as a DOM element or an SDK instance was set as a person property. Delete this person to \
+     resume processing their events, and pass a plain value where the property is set.";
+
+const UPDATE_TOO_DEEP_MESSAGE: &str = "A person property update was rejected because a value is \
+     nested more than 128 levels deep. This usually means an object such as a DOM element or an \
+     SDK instance was passed as a property value. Pass a plain value instead.";
+
+/// DATA_LOSS is outside every client retry set.
+fn unprocessable_person_status() -> Status {
+    Status::data_loss("stored person properties cannot be parsed")
 }
 
 fn not_served(partition: u32) -> Status {
@@ -342,6 +358,55 @@ impl PersonHogLeaderService {
         .increment(1);
     }
 
+    /// A delete needs the row's version and creation time, never its properties.
+    pub(crate) async fn load_unreadable_row(
+        &self,
+        key: &PersonCacheKey,
+    ) -> Result<CachedPerson, Status> {
+        let Some(fallback) = &self.fallback else {
+            return Err(unprocessable_person_status());
+        };
+        match load_person_from_pg(&fallback.pool, &fallback.table, key).await {
+            Ok(Some(person)) => Ok(person),
+            Ok(None) => Err(Status::not_found("person is destroyed")),
+            Err(LoadError::UnprocessableProperties { row, .. }) => Ok(*row),
+            Err(LoadError::Query(e)) => {
+                tracing::error!(
+                    team_id = key.team_id,
+                    person_id = key.person_id,
+                    error = %e,
+                    "PG fallback query failed"
+                );
+                Err(Status::internal("failed to load person from database"))
+            }
+        }
+    }
+
+    fn warn_stored_too_deep(&self, team_id: i64, person_uuid: String, reason: &str) {
+        if reason.contains("recursion limit") {
+            self.warnings.emit_depth(&DepthViolationWarning {
+                team_id,
+                person_uuid: Some(person_uuid),
+                message: STORED_TOO_DEEP_MESSAGE,
+            });
+        }
+    }
+
+    fn warn_update_too_deep(&self, partition: u32, key: &PersonCacheKey, refusal: &Status) {
+        if !refusal.message().ends_with(NESTING_LIMIT_REFUSAL) {
+            return;
+        }
+        let person_uuid = match self.cache.get(partition, key) {
+            CacheLookup::Found(person) => Some(person.uuid),
+            _ => None,
+        };
+        self.warnings.emit_depth(&DepthViolationWarning {
+            team_id: key.team_id,
+            person_uuid,
+            message: UPDATE_TOO_DEEP_MESSAGE,
+        });
+    }
+
     /// Recover a cache miss from the right source. A person in the dirty
     /// index has acked state the writer may not have applied to PG yet, so
     /// the PG row cannot be trusted — recover the full latest state from
@@ -434,13 +499,22 @@ impl PersonHogLeaderService {
 
         let started = Instant::now();
         let result = load_person_from_pg(&fallback.pool, &fallback.table, key).await;
-        histogram!("personhog_leader_person_load_duration_ms", "source" => "pg")
-            .record(started.elapsed().as_secs_f64() * 1000.0);
+        // A stub is a row the writer has not written yet, so no cache size could have held it.
+        let loaded = match &result {
+            Ok(Some(person)) if person.has_no_properties() => "stub",
+            Ok(Some(_)) => "existing",
+            Ok(None) | Err(_) => "none",
+        };
+        histogram!(
+            "personhog_leader_person_load_duration_ms",
+            "source" => "pg", "person" => loaded
+        )
+        .record(started.elapsed().as_secs_f64() * 1000.0);
         match result {
             Ok(Some(person)) => {
                 counter!(
                     "personhog_leader_person_loads_total",
-                    "source" => "pg", "outcome" => "ok"
+                    "source" => "pg", "outcome" => "ok", "person" => loaded
                 )
                 .increment(1);
                 record_pg_load_ages(&person, Utc::now().timestamp_millis());
@@ -458,7 +532,22 @@ impl PersonHogLeaderService {
                     key.team_id, key.person_id
                 )))
             }
-            Err(e) => {
+            Err(LoadError::UnprocessableProperties { reason, row }) => {
+                counter!(
+                    "personhog_leader_person_loads_total",
+                    "source" => "pg", "outcome" => "unprocessable"
+                )
+                .increment(1);
+                tracing::error!(
+                    team_id = key.team_id,
+                    person_id = key.person_id,
+                    reason,
+                    "stored person properties cannot be parsed"
+                );
+                self.warn_stored_too_deep(key.team_id, row.uuid, &reason);
+                Err(unprocessable_person_status())
+            }
+            Err(LoadError::Query(e)) => {
                 counter!(
                     "personhog_leader_person_loads_total",
                     "source" => "pg", "outcome" => "error"
@@ -526,7 +615,27 @@ impl PersonHogLeaderService {
                 counter!("personhog_leader_revivals_total", "outcome" => "tombstoned").increment(1);
                 Ok(person)
             }
-            Err(e) => {
+            // As for a readable row this low: pre-death state, not a revival.
+            Err(LoadError::UnprocessableProperties { row, .. })
+                if row.version <= person.version =>
+            {
+                counter!("personhog_leader_revivals_total", "outcome" => "row_below_death")
+                    .increment(1);
+                Ok(person)
+            }
+            Err(LoadError::UnprocessableProperties { reason, row }) => {
+                counter!("personhog_leader_revivals_total", "outcome" => "unprocessable")
+                    .increment(1);
+                tracing::error!(
+                    team_id = key.team_id,
+                    person_id = key.person_id,
+                    reason,
+                    "stored person properties cannot be parsed"
+                );
+                self.warn_stored_too_deep(key.team_id, row.uuid, &reason);
+                Err(unprocessable_person_status())
+            }
+            Err(LoadError::Query(e)) => {
                 counter!("personhog_leader_revivals_total", "outcome" => "load_error").increment(1);
                 counter!("personhog_leader_pg_fallback_errors_total").increment(1);
                 tracing::error!(
@@ -927,6 +1036,25 @@ fn cached_person_into_proto(p: CachedPerson) -> Person {
     }
 }
 
+/// The ingestion client drops an update refused for its nesting, keyed on
+/// this message, so a wording change here must change there too.
+// See `partition_from_metadata` for why `result_large_err` is allowed.
+#[allow(clippy::result_large_err)]
+fn parse_update_properties(bytes: &[u8], field: &str) -> Result<serde_json::Value, Status> {
+    if bytes.is_empty() {
+        return Ok(serde_json::Value::Object(serde_json::Map::new()));
+    }
+    serde_json::from_slice(bytes).map_err(|e| {
+        if e.to_string().contains("recursion limit") {
+            counter!("personhog_leader_updates_total", "outcome" => "rejected_too_deep")
+                .increment(1);
+            Status::invalid_argument(format!("{field} {NESTING_LIMIT_REFUSAL}"))
+        } else {
+            Status::invalid_argument(format!("invalid {field} JSON: {e}"))
+        }
+    })
+}
+
 /// Parse a JSON-map wire field (empty bytes mean an empty map), refusing
 /// anything that is not a JSON object.
 // See `partition_from_metadata` for why `result_large_err` is allowed.
@@ -1115,21 +1243,11 @@ impl PersonHogLeader for PersonHogLeaderService {
         };
 
         // Parse JSON before acquiring the per-key lock to minimize lock hold time
-        let set_properties: serde_json::Value = if req.set_properties.is_empty() {
-            serde_json::Value::Object(serde_json::Map::new())
-        } else {
-            serde_json::from_slice(&req.set_properties).map_err(|e| {
-                Status::invalid_argument(format!("invalid set_properties JSON: {e}"))
-            })?
-        };
-
-        let set_once_properties: serde_json::Value = if req.set_once_properties.is_empty() {
-            serde_json::Value::Object(serde_json::Map::new())
-        } else {
-            serde_json::from_slice(&req.set_once_properties).map_err(|e| {
-                Status::invalid_argument(format!("invalid set_once_properties JSON: {e}"))
-            })?
-        };
+        let set_properties = parse_update_properties(&req.set_properties, "set_properties")
+            .inspect_err(|refusal| self.warn_update_too_deep(partition, &cache_key, refusal))?;
+        let set_once_properties =
+            parse_update_properties(&req.set_once_properties, "set_once_properties")
+                .inspect_err(|refusal| self.warn_update_too_deep(partition, &cache_key, refusal))?;
 
         // Sanitize the request values before diffing so no-op detection
         // compares in sanitized space: cached state holds the sanitized
@@ -1973,6 +2091,17 @@ mod tests {
     /// A client's zero `DateTime` serialises as year 1, and persons created
     /// from such events before personhog carry it as `created_at`.
     const YEAR_ONE_MS: i64 = -62_135_596_800_000;
+
+    #[test]
+    fn an_update_nested_past_the_parser_limit_is_refused_as_too_deep() {
+        let nested = format!("{{\"a\":{}1{}}}", "[".repeat(200), "]".repeat(200));
+        let refused = parse_update_properties(nested.as_bytes(), "set_properties").unwrap_err();
+        assert_eq!(refused.code(), Code::InvalidArgument);
+        assert_eq!(
+            refused.message(),
+            "set_properties exceeds the nesting limit"
+        );
+    }
 
     #[test]
     fn writeable_accepts_what_the_writer_binds_and_refuses_the_rest() {

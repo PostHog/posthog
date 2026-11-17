@@ -72,7 +72,7 @@ export function TodayPulseCard({
             <div className="flex flex-col gap-4 p-3 pb-3">
                 <div className="flex flex-col gap-1">
                     <div className="flex items-baseline justify-between gap-3">
-                        <Text size="sm" weight="semibold" render={<span />} className="line-clamp-2">
+                        <Text size="sm" weight="semibold" render={<span />} className="min-w-0 break-words">
                             {metric.name}
                         </Text>
                         <Text size="xs" variant="muted" render={<span />} className="shrink-0">

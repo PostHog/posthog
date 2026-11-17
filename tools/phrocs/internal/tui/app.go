@@ -4,6 +4,7 @@ import (
 	"log"
 	"sort"
 	"strings"
+	"time"
 
 	"charm.land/bubbles/v2/help"
 	"charm.land/bubbles/v2/spinner"
@@ -14,6 +15,9 @@ import (
 	"github.com/posthog/posthog/phrocs/internal/docker"
 	"github.com/posthog/posthog/phrocs/internal/process"
 )
+
+// A var so tests can turn the refresh cap off.
+var outputRefreshInterval = 100 * time.Millisecond
 
 type focusPane int
 
@@ -138,7 +142,12 @@ type Model struct {
 
 	// Writes go to /tmp/phrocs-debug.log
 	log *log.Logger
+
+	lastOutputRefresh   time.Time
+	outputRefreshQueued bool
 }
+
+type outputRefreshMsg struct{}
 
 // Pass a non-nil logger to enable debug logging (key inputs, selection changes, etc.)
 func New(mgr *process.Manager, cfg *config.Config, configPath string, logger *log.Logger) Model {
@@ -184,6 +193,31 @@ func (m Model) Init() tea.Cmd {
 	return tea.Batch(tea.RequestBackgroundColor, m.spinner.Tick)
 }
 
+func (m Model) sortsByUsage() bool {
+	return m.sortMode == SortCPU || m.sortMode == SortRAM
+}
+
+func (m *Model) syncMetrics() {
+	active := m.activeProc()
+	for _, p := range m.services {
+		p.SetMetricsEnabled(m.sortsByUsage() || (m.infoMode && p == active))
+	}
+}
+
+func (m *Model) refreshActiveOutput() {
+	m.lastOutputRefresh = time.Now()
+	m.reloadActiveLines()
+	if m.filterMode {
+		m.recomputeFilter()
+	} else if m.searchQuery != "" {
+		m.recomputeSearch()
+	}
+	// Don't auto-scroll while the user is selecting text in copy mode
+	if m.viewportAtBottom && !m.copyMode && !m.searchMode && !m.filterMode {
+		m.viewport.GotoBottom()
+	}
+}
+
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmds []tea.Cmd
 
@@ -213,6 +247,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.infoMode {
 			m.refreshInfoContent()
 		}
+		if m.sortsByUsage() {
+			m.sortServices()
+		}
 
 	case process.OutputMsg:
 		// Rebuild viewport content only for the active process to keep rendering cheap
@@ -224,16 +261,21 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.isDockerMode() || m.infoMode {
 				break
 			}
-			m.reloadActiveLines()
-			if m.filterMode {
-				m.recomputeFilter()
-			} else if m.searchQuery != "" {
-				m.recomputeSearch()
+			// A viewport rebuild measures every buffered line, so cap the rate.
+			if wait := outputRefreshInterval - time.Since(m.lastOutputRefresh); wait > 0 {
+				if !m.outputRefreshQueued {
+					m.outputRefreshQueued = true
+					cmds = append(cmds, tea.Tick(wait, func(time.Time) tea.Msg { return outputRefreshMsg{} }))
+				}
+				break
 			}
-			// Don't auto-scroll while the user is selecting text in copy mode
-			if m.viewportAtBottom && !m.copyMode && !m.searchMode && !m.filterMode {
-				m.viewport.GotoBottom()
-			}
+			m.refreshActiveOutput()
+		}
+
+	case outputRefreshMsg:
+		m.outputRefreshQueued = false
+		if m.ready && m.activeProc() != nil && !m.isDockerMode() && !m.infoMode {
+			m.refreshActiveOutput()
 		}
 
 	case process.StatusMsg:
@@ -533,7 +575,7 @@ func (m Model) loadActiveProc() (Model, []tea.Cmd) {
 		m.searchCursor = 0
 		m.activeLines = nil
 		m.infoMode = false
-		m.disableAllMetrics()
+		m.syncMetrics()
 		m.keys.LazyDocker.SetEnabled(true)
 		m.keys.ProcViewer.SetEnabled(false)
 		m.viewport.SetContent(docker.RenderContainerStatusTable(m.containers, m.viewport.Width()))
@@ -543,9 +585,8 @@ func (m Model) loadActiveProc() (Model, []tea.Cmd) {
 		m.containers = nil
 		m.keys.LazyDocker.SetEnabled(false)
 		m.keys.ProcViewer.SetEnabled(true)
-		m.disableAllMetrics()
+		m.syncMetrics()
 		if m.infoMode {
-			m.toggleMetricsOnSelectedProc()
 			m.refreshInfoContent()
 		} else {
 			m.reloadActiveLines()
@@ -561,12 +602,6 @@ func (m Model) loadActiveProc() (Model, []tea.Cmd) {
 		m.recomputeSearch()
 	}
 	return m, cmds
-}
-
-func (m *Model) disableAllMetrics() {
-	for _, p := range m.services {
-		p.SetMetricsEnabled(false)
-	}
 }
 
 // Reloads activeLines from the process buffer and pushes to the viewport.
@@ -713,6 +748,8 @@ func (m *Model) refetchServices() {
 			break
 		}
 	}
+	// New or promoted processes start with metrics off.
+	m.syncMetrics()
 }
 
 // rebuildSidebarEntries regenerates the sidebar entries from the
@@ -756,10 +793,4 @@ func (m *Model) prevProcEntry() bool {
 		}
 	}
 	return false
-}
-
-func (m Model) toggleMetricsOnSelectedProc() {
-	if p := m.activeProc(); p != nil {
-		p.SetMetricsEnabled(true)
-	}
 }

@@ -13,6 +13,11 @@ const MISSING_SCOPE = {
     },
 }
 
+const IP_BLOCKED = {
+    status: 403,
+    body: { type: 'authentication_error', code: 'ip_not_allowed', detail: 'IP address not allowed.' },
+}
+
 type ProbeResponse = { status: number; body: unknown }
 
 function stubRegions(us: ProbeResponse, eu: ProbeResponse): void {
@@ -59,5 +64,20 @@ describe('resolveProxyRegion', () => {
         vi.spyOn(console, 'error').mockImplementation(() => {})
 
         expect(await resolveProxyRegion('pha_test', 'hash', kv as unknown as KVNamespace)).toBe('eu')
+    })
+
+    it.each([
+        ['a US project', OK, UNAUTHORIZED, 'us'],
+        ['an EU project', UNAUTHORIZED, OK, 'eu'],
+        ['an EU project that blocks the caller IP', UNAUTHORIZED, IP_BLOCKED, 'eu'],
+    ])('routes a project secret API key of %s by asking what the key reads', async (_, us, eu, expected) => {
+        stubRegions(us, eu)
+        const kv = { get: vi.fn(async () => null), put: vi.fn(async () => undefined) }
+
+        expect(await resolveProxyRegion('phs_test', 'hash', kv as unknown as KVNamespace)).toBe(expected)
+        const urls = vi
+            .mocked(fetch)
+            .mock.calls.map(([input]) => (input instanceof Request ? input.url : String(input)))
+        expect(urls.every((url) => url.endsWith('/api/projects/@current/business_knowledge/access/'))).toBe(true)
     })
 })

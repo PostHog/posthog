@@ -97,7 +97,11 @@ from products.feature_flags.backend.facade.config import ConfigFormatError
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.feature_flags.backend.ownership import FLAG_OWNER_SURVEY, assert_flag_available_for
 from products.product_analytics.backend.facade.models import Insight
-from products.surveys.backend.api.site_snapshot_serializers import SiteSnapshotQuerySerializer, SiteSnapshotSerializer
+from products.surveys.backend.api.site_snapshot_serializers import (
+    SiteSnapshotQuerySerializer,
+    SiteSnapshotSerializer,
+    url_target_of_query,
+)
 from products.surveys.backend.internal_targeting import (
     WAIT_PERIOD_DAYS_CONDITION,
     build_internal_targeting_groups,
@@ -108,6 +112,7 @@ from products.surveys.backend.models import (
     MAX_ITERATION_COUNT,
     MAX_ITERATION_FREQUENCY_DAYS,
     Survey,
+    SurveyMatchType,
     SurveyResponseArchive,
     ensure_question_ids,
 )
@@ -729,15 +734,6 @@ _SurveyQuestionUnion = PolymorphicProxySerializer(
 @extend_schema_field(serializers.ListSerializer(child=_SurveyQuestionUnion))
 class SurveyQuestionsSchemaField(serializers.ListField):
     pass
-
-
-class SurveyMatchType(models.TextChoices):
-    REGEX = "regex", "regex"
-    NOT_REGEX = "not_regex", "not_regex"
-    EXACT = "exact", "exact"
-    IS_NOT = "is_not", "is_not"
-    ICONTAINS = "icontains", "icontains"
-    NOT_ICONTAINS = "not_icontains", "not_icontains"
 
 
 SURVEY_MATCH_TYPE_CHOICES = list(SurveyMatchType.values)
@@ -3012,6 +3008,7 @@ class SurveyViewSet(ApprovalHandlingMixin, TeamAndOrgViewSetMixin, AccessControl
             team=self.team,
             survey=self.get_object(),
             device=SnapshotDevice(request.validated_query_data["device"]),
+            target=url_target_of_query(request.validated_query_data),
             user=cast(User, request.user),
         )
         return Response(SiteSnapshotSerializer(snapshot).data)

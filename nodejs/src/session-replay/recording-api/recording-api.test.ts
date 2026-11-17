@@ -8,7 +8,7 @@ import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { PostgresRouter } from '~/common/utils/db/postgres'
 import { getBlockDecryptor, getBlockEncryptor } from '~/ingestion/pipelines/sessionreplay/shared/crypto'
 import { getKeyStore } from '~/ingestion/pipelines/sessionreplay/shared/keystore'
-import { ReplayEventsOutput, SessionFeaturesOutput } from '~/ingestion/pipelines/sessionreplay/shared/outputs'
+import { ReplayEventsOutput } from '~/ingestion/pipelines/sessionreplay/shared/outputs'
 
 import { RecordingApi } from './recording-api'
 import { RecordingService } from './recording-service'
@@ -17,7 +17,7 @@ import { KeyStore, RecordingApiConfig, RecordingDecryptor } from './types'
 const mockOutputs = {
     queueMessages: jest.fn().mockResolvedValue(undefined),
     produce: jest.fn().mockResolvedValue(undefined),
-} as unknown as IngestionOutputs<ReplayEventsOutput | SessionFeaturesOutput>
+} as unknown as IngestionOutputs<ReplayEventsOutput>
 
 jest.mock('@clickhouse/client', () => ({
     createClient: jest.fn().mockReturnValue({

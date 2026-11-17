@@ -37,6 +37,7 @@ export type SandboxSesResult =
 export type SandboxSesSettings = { configurationSet: string; tenantName: string; sendTimeoutMs?: number }
 
 const THROTTLE_ERROR_NAMES = new Set(['ThrottlingException', 'TooManyRequestsException'])
+const EMAIL_ADDRESS = /\S*@\S+/g
 
 export function createSandboxSesV2Client({ region, endpoint }: { region: string; endpoint: string }): SESv2Client {
     return new SESv2Client({ region, endpoint: endpoint || undefined, maxAttempts: 1 })
@@ -63,6 +64,7 @@ export class SandboxSesClient {
             const metadata = (error as { $metadata?: { httpStatusCode?: number; requestId?: string } })?.$metadata
             logger.warn('Sandbox SES send failed', {
                 error: error instanceof Error ? error.name : String(error),
+                message: error instanceof Error ? withoutEmailAddresses(error.message) : undefined,
                 httpStatusCode: metadata?.httpStatusCode,
                 requestId: metadata?.requestId,
                 teamId: tags.teamId,
@@ -100,6 +102,10 @@ export class SandboxSesClient {
             },
         })
     }
+}
+
+function withoutEmailAddresses(text: string): string {
+    return text.replace(EMAIL_ADDRESS, '<email>')
 }
 
 function classifySesError(error: unknown): SandboxSesResult {
