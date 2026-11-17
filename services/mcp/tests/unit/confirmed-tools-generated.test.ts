@@ -10,8 +10,8 @@ import { GENERATED_TOOL_MAP } from '@/tools/generated'
 
 import { createTestContext, setActiveProjectAndOrg } from '../shared/test-utils'
 
-function inMemoryRedis(): ConstructorParameters<typeof PayloadStash>[0] {
-    const values = new Map<string, string>()
+function inMemoryRedis(entries: Record<string, string> = {}): ConstructorParameters<typeof PayloadStash>[0] {
+    const values = new Map<string, string>(Object.entries(entries))
     return {
         set: async (key, value) => {
             values.set(key, value)
@@ -36,6 +36,15 @@ const confirmedEmail = {
     html: '<p>Hi</p>',
     reply_to: ['support@example.com'],
     capture_engagement: false,
+}
+
+// Prepared by a build whose `workflows-send-email` input schema differs from this one's, with the codec the test sets.
+const SEND_EMAIL_CONFIRMATION_FROM_OLDER_SCHEMA = {
+    hash: 'eyJhbGciOiJIUzI1NiIsInR5cCI6Ik1DUC1TSUdORUQtU1RBVEUifQ.eyJwYXlsb2FkIjp7ImRpZ2VzdCI6ImJmMmNlZTcwODNiMjNiOTQ1YzMwODExMTlmZjE4ZjVhOTU4MWQ1YmNiMzkzYWQ1YmMwNzcyZjZmOWY5YTRhZWQifSwic3ViIjoidGVzdC1kaXN0aW5jdC1pZCIsImF1ZCI6IndvcmtmbG93cy1zZW5kLWVtYWlsQDZkZWQyY2MwOTYyZmQyNDAiLCJpYXQiOjE3MDAwMDAwMDAsImV4cCI6MTcwMDAwMDMwMCwianRpIjoibm9uY2UtZml4ZWQifQ.cymNk3iDfbQPDR-oVP1AOHjZjCRptl473TV6L6ZLuP8',
+    stash: {
+        'mcp:signed-state:payload:nonce-fixed':
+            '{"args":{"to":"jane@example.com","template_key":"welcome","subject":"Hi","html":"<p>Hi</p>"},"scope":{"projectId":"42"}}',
+    },
 }
 
 describe('Generated confirmed tools', () => {
@@ -89,6 +98,38 @@ describe('Generated confirmed tools', () => {
 
             expect(result).toMatchObject({ id: 'result-1' })
             expect(received).toEqual([request])
+        } finally {
+            await new Promise((resolve) => posthog.close(resolve))
+        }
+    })
+
+    it('refuses a workflows-send-email confirmation prepared under an older input schema and sends nothing', async () => {
+        const received: string[] = []
+        const posthog = createServer((incoming, response) => {
+            received.push(`${incoming.method} ${incoming.url}`)
+            response.setHeader('Content-Type', 'application/json')
+            response.end(JSON.stringify({ message_id: 'm-1' }))
+        })
+        await new Promise<void>((resolve) => posthog.listen(0, '127.0.0.1', resolve))
+        try {
+            setConfirmedActionRuntime({
+                codec: new SignedStateCodec(Buffer.alloc(32, 0x42), { now: () => 1_700_000_000_000 }),
+                stash: new PayloadStash(inMemoryRedis(SEND_EMAIL_CONFIRMATION_FROM_OLDER_SCHEMA.stash)),
+            })
+            const baseUrl = `http://127.0.0.1:${(posthog.address() as AddressInfo).port}`
+            const context = createTestContext(new ApiClient({ apiToken: 'test-token', baseUrl }))
+            await setActiveProjectAndOrg(context, '42', 'org-1')
+
+            const result = await GENERATED_TOOL_MAP['workflows-send-email-execute']!().handler(context, {
+                confirmation_hash: SEND_EMAIL_CONFIRMATION_FROM_OLDER_SCHEMA.hash,
+                confirmation: 'confirm',
+            })
+
+            expect(result).toMatchObject({
+                isError: true,
+                content: [{ text: expect.stringContaining('Run the prepare step again') }],
+            })
+            expect(received).toEqual([])
         } finally {
             await new Promise((resolve) => posthog.close(resolve))
         }
