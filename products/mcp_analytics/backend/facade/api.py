@@ -1,4 +1,5 @@
 from collections.abc import Sequence
+from contextlib import AbstractAsyncContextManager
 from datetime import datetime
 
 from django.db import transaction
@@ -13,7 +14,7 @@ from posthog.api.capture import capture_internal
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
-from products.mcp_analytics.backend import custom_harnesses, logic
+from products.mcp_analytics.backend import custom_harnesses, intent_erasure_writers, logic
 from products.mcp_analytics.backend.mcp_harness import HARNESS_TOKEN_SQL, custom_arms_sql, harness_label_sql
 from products.mcp_analytics.backend.models import MCPAnalyticsSubmission
 
@@ -221,6 +222,10 @@ def get_intent_cluster_snapshot(
 ) -> contracts.IntentClusterSnapshot:
     """The latest snapshot as ``user`` may read it, optionally narrowed to one tool's slice."""
     return logic.get_intent_cluster_snapshot(team, user=user, tool=tool)
+
+
+def registered_intent_writer_async(team: Team, *, purpose: str) -> AbstractAsyncContextManager[None]:
+    return intent_erasure_writers.registered_intent_writer_async(team, purpose=purpose)
 
 
 def trigger_intent_cluster_recompute(team: Team, user: User | None) -> None:
