@@ -1,4 +1,5 @@
 import json
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID
@@ -17,11 +18,14 @@ from rest_framework import status
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import ClickHouseUser, Workload
-from posthog.models import Team
+from posthog.models import OrganizationMembership, Team, User
 from posthog.models.integration import Integration
+from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.scoping import team_scope
+from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.temporal.alerts.admission import hold_evaluation_slot, release_evaluation_slot
 
+from products.alerts.backend.models.alert import AlertConfiguration, Threshold
 from products.alerts_platform.backend.facade import testing as platform_testing
 from products.alerts_platform.backend.facade.api import (
     create_configuration,
@@ -49,6 +53,7 @@ from products.metrics.backend.alerts.freshness import (
 )
 from products.metrics.backend.alerts.source_config import MetricsPlatformAlertConfig
 from products.metrics.backend.tests._seeder import seed_metric, truncate_metrics_tables
+from products.product_analytics.backend.facade.models import Insight
 
 _QUERY = 'sum(kafka_consumer_group_lag{group="example"})'
 
@@ -624,3 +629,106 @@ class TestMetricsAlertEvaluation(APIBaseTest):
         assert deleted.status_code == status.HTTP_204_NO_CONTENT
         with team_scope(self.team.id):
             assert list_alert_destinations(team_id=self.team.id, configuration_id=self.configuration_id) == ()
+
+
+class TestMetricsInsightAlertOwnership(APIBaseTest):
+    def _disabled_alert_of_a_former_member(self) -> AlertConfiguration:
+        former_member = User.objects.create_user(email="former-member@example.com", first_name="", password=None)
+        insight = Insight.objects.create(
+            team=self.team,
+            query={"kind": "HogQLQuery", "query": "SELECT 1 AS value"},
+        )
+        threshold = Threshold.objects.create(
+            team=self.team, insight=insight, configuration={"type": "absolute", "bounds": {"upper": 100.0}}
+        )
+        return AlertConfiguration.objects.create(
+            team=self.team,
+            insight=insight,
+            threshold=threshold,
+            created_by=former_member,
+            enabled=False,
+            calculation_interval="daily",
+            config={"type": "HogQLAlertConfig", "evaluation": "last_row"},
+            condition={"type": "absolute_value"},
+        )
+
+    @parameterized.expand([False, True])
+    def test_transfer_checks_metrics_owner_rollout_without_access_control(self, owner_enabled: bool) -> None:
+        alert = self._disabled_alert_of_a_former_member()
+        previous_owner = alert.created_by
+        owner = User.objects.create_user(email="metrics-owner@example.com", first_name="", password=None)
+        OrganizationMembership.objects.create(organization=self.organization, user=owner)
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        self.organization.available_product_features = []
+        self.organization.save()
+        alert.insight.query = {"kind": "MetricsQuery", "clauses": [{"name": "a", "metricName": "queue.depth"}]}
+        alert.insight.save()
+        alert.config = {"type": "MetricsAlertConfig"}
+        alert.save()
+
+        with (
+            patch("posthoganalytics.feature_enabled", return_value=True),
+            patch(
+                "products.metrics.backend.hogql_queries.metrics_query_runner.posthog_feature_flag_enabled",
+                return_value=owner_enabled,
+            ),
+        ):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/alerts/{alert.id}/take_ownership/", {"user_uuid": str(owner.uuid)}
+            )
+
+        assert response.status_code == (200 if owner_enabled else 400), response.content
+        alert.refresh_from_db()
+        assert alert.created_by == (owner if owner_enabled else previous_owner)
+        assert alert.enabled is owner_enabled
+        if not owner_enabled:
+            assert "metrics" in response.json()["detail"]
+
+    @parameterized.expand([False, True])
+    def test_take_ownership_checks_token_scope_on_locked_insight(self, has_metrics_scope: bool) -> None:
+        alert = self._disabled_alert_of_a_former_member()
+        previous_owner = alert.created_by
+        token = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="transfer",
+            user=self.user,
+            secure_value=hash_key_value(token),
+            scopes=["alert:write", "metrics:read"] if has_metrics_scope else ["alert:write"],
+        )
+        self.client.logout()
+        edited = False
+
+        def edit_before_recipient_lookup(execute: Callable, sql: str, params: Any, many: bool, context: dict) -> Any:
+            nonlocal edited
+            if not edited and '"posthog_user"."uuid" =' in sql:
+                edited = True
+                type(alert.insight).objects.filter(pk=alert.insight_id).update(
+                    query={"kind": "MetricsQuery", "clauses": [{"name": "a", "metricName": "queue.depth"}]}
+                )
+                AlertConfiguration.objects.filter(pk=alert.pk).update(config={"type": "MetricsAlertConfig"})
+            return execute(sql, params, many, context)
+
+        with (
+            connection.execute_wrapper(edit_before_recipient_lookup),
+            patch("posthoganalytics.feature_enabled", return_value=True),
+            patch(
+                "products.metrics.backend.hogql_queries.metrics_query_runner.posthog_feature_flag_enabled",
+                return_value=True,
+            ),
+        ):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/alerts/{alert.id}/take_ownership/",
+                {},
+                HTTP_AUTHORIZATION=f"Bearer {token}",
+            )
+
+        assert edited
+        assert response.status_code == (status.HTTP_200_OK if has_metrics_scope else status.HTTP_403_FORBIDDEN), (
+            response.content
+        )
+        if not has_metrics_scope:
+            assert response.json()["detail"] == "API key missing required scope 'metrics:read'"
+        alert.refresh_from_db()
+        assert alert.created_by == (self.user if has_metrics_scope else previous_owner)
+        assert alert.enabled is has_metrics_scope
