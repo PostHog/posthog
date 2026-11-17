@@ -2123,11 +2123,8 @@ def pending_attestation_checks(run: ReviewRun) -> list[PendingCheck]:
     entries = ((gate_result.get("classification") or {}).get("attestations") or {}).get("pending")
     if not isinstance(entries, list):
         return []
-    return [
-        PendingCheck(name=entry["check"], app_id=entry["app_id"])
-        for entry in entries
-        if isinstance(entry, dict) and isinstance(entry.get("check"), str) and type(entry.get("app_id")) is int
-    ]
+    checks = [PendingCheck.from_entry(entry) for entry in entries]
+    return [check for check in checks if check is not None]
 
 
 def waits_on_attestations(run: ReviewRun) -> bool:

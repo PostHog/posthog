@@ -282,16 +282,22 @@ def _child_environment(root: Path, extra: Mapping[str, str]) -> dict[str, str]:
     }
 
 
-def _parse_outcome(stdout: str) -> PregateOutcome:
+def _last_json_object(stdout: str, what: str) -> dict:
+    """The JSON object on the last non-empty line of an engine run. ``what`` names the run in the error."""
     lines = [line for line in stdout.splitlines() if line.strip()]
     if not lines:
-        raise EnginePregateError("the engine pre-check printed nothing")
+        raise EnginePregateError(f"the engine {what} printed nothing")
     try:
         parsed = json.loads(lines[-1])
     except json.JSONDecodeError as exc:
-        raise EnginePregateError("the engine pre-check printed no JSON result") from exc
+        raise EnginePregateError(f"the engine {what} printed no JSON result") from exc
     if not isinstance(parsed, dict):
-        raise EnginePregateError("the engine pre-check result is not an object")
+        raise EnginePregateError(f"the engine {what} result is not an object")
+    return parsed
+
+
+def _parse_outcome(stdout: str) -> PregateOutcome:
+    parsed = _last_json_object(stdout, "pre-check")
     result = parsed.get("result")
     return PregateOutcome(
         final=parsed.get("final") is True and isinstance(result, dict),
@@ -353,13 +359,7 @@ def run_engine_attest(context: Mapping[str, object], policy_files: Mapping[str, 
     It takes the same inputs as ``run_engine_pregate``. It emits no analytics event.
     """
     stdout = _run_engine_gates_only(context, policy_files, "--attest", {})
-    lines = [line for line in stdout.splitlines() if line.strip()]
-    try:
-        parsed = json.loads(lines[-1]) if lines else None
-    except json.JSONDecodeError as exc:
-        raise EnginePregateError("the engine attestation printed no JSON result") from exc
-    if not isinstance(parsed, dict):
-        raise EnginePregateError("the engine attestation result is not an object")
+    parsed = _last_json_object(stdout, "attestation")
     gates = parsed.get("gates")
     manifests = parsed.get("manifests")
     return GateAttestation(
@@ -372,13 +372,10 @@ def run_engine_attest(context: Mapping[str, object], policy_files: Mapping[str, 
 
 
 def _pending_check(entry: object) -> PendingCheck:
-    if not isinstance(entry, dict):
-        raise EnginePregateError("the engine attestation proof names a check that is not an object")
-    name = entry.get("check")
-    app_id = entry.get("app_id")
-    if not isinstance(name, str) or not isinstance(app_id, int):
+    check = PendingCheck.from_entry(entry)
+    if check is None:
         raise EnginePregateError("the engine attestation proof names a check without a name or an App id")
-    return PendingCheck(name=name, app_id=app_id)
+    return check
 
 
 def run_engine_attestation_proof(context: Mapping[str, object], policy_files: Mapping[str, str]) -> AttestationProof:
@@ -388,13 +385,9 @@ def run_engine_attestation_proof(context: Mapping[str, object], policy_files: Ma
     runs, the answer still names the checks to wait for. It emits no analytics event.
     """
     stdout = _run_engine_gates_only(context, policy_files, "--attestation-proof", {})
-    lines = [line for line in stdout.splitlines() if line.strip()]
-    try:
-        parsed = json.loads(lines[-1]) if lines else None
-    except json.JSONDecodeError as exc:
-        raise EnginePregateError("the engine attestation proof printed no JSON result") from exc
-    if not isinstance(parsed, dict) or not isinstance(parsed.get("checks"), list):
-        raise EnginePregateError("the engine attestation proof result is not an object with checks")
+    parsed = _last_json_object(stdout, "attestation proof")
+    if not isinstance(parsed.get("checks"), list):
+        raise EnginePregateError("the engine attestation proof result has no list of checks")
     return AttestationProof(
         checks=tuple(_pending_check(entry) for entry in parsed["checks"]), proven=parsed.get("proven") is True
     )

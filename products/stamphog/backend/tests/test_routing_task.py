@@ -206,6 +206,18 @@ def _finish_review(
     )
 
 
+def _save_finished_run(team_id: int, verdict: ReviewVerdict, posted_review_id: int | None = None) -> None:
+    with team_scope(team_id):
+        ReviewRun.objects.for_team(team_id).create(
+            team_id=team_id,
+            pull_request=PullRequest.objects.for_team(team_id).get(pr_number=PR_NUMBER),
+            head_sha=HEAD_SHA,
+            status=ReviewRunStatus.COMPLETED,
+            verdict=verdict,
+            posted_review_id=posted_review_id,
+        )
+
+
 def _post_approval(chain: RoutingChain, review_id: int, state: str = "APPROVED") -> None:
     # Stamphog's own review as GitHub lists it. A maintainer's dismissal on GitHub turns its state to DISMISSED.
     chain.recorder.pr_reviews.setdefault((REPO, PR_NUMBER), []).append(
@@ -1344,25 +1356,10 @@ def test_always_requests_nobody_only_for_a_verified_proof_that_keeps_a_reviewer(
                 pr_obj.routing = {**(pr_obj.routing or {}), "requested_owners": [step[1]]}
                 pr_obj.save(update_fields=["routing"])
         elif step[0] == "approved":
-            with team_scope(team.id):
-                ReviewRun.objects.for_team(team.id).create(
-                    team_id=team.id,
-                    pull_request=PullRequest.objects.for_team(team.id).get(pr_number=PR_NUMBER),
-                    head_sha=HEAD_SHA,
-                    status=ReviewRunStatus.COMPLETED,
-                    verdict=ReviewVerdict.APPROVED,
-                    posted_review_id=902,
-                )
+            _save_finished_run(team.id, ReviewVerdict.APPROVED, posted_review_id=902)
             _post_approval(routing_chain, 902)
         elif step[0] == "refused":
-            with team_scope(team.id):
-                ReviewRun.objects.for_team(team.id).create(
-                    team_id=team.id,
-                    pull_request=PullRequest.objects.for_team(team.id).get(pr_number=PR_NUMBER),
-                    head_sha=HEAD_SHA,
-                    status=ReviewRunStatus.COMPLETED,
-                    verdict=ReviewVerdict.REFUSED,
-                )
+            _save_finished_run(team.id, ReviewVerdict.REFUSED)
         elif step[0] == "next_poll":
             latest_poll = attestation_poll.call_args_list[-1].kwargs["kwargs"]
             route_reviewers_after_attestation.apply(kwargs=latest_poll, throw=True)
@@ -1380,9 +1377,11 @@ def test_always_requests_nobody_only_for_a_verified_proof_that_keeps_a_reviewer(
             _route("ready_for_review")
         elif step[0] == "net":
             _fire_safety_net(safety_net)
-        else:
+        elif step[0] == "poll":
             first_poll = attestation_poll.call_args_list[0].kwargs["kwargs"]
             route_reviewers_after_attestation.apply(kwargs=first_poll, throw=True)
+        else:
+            raise AssertionError(f"unknown step {step}")
 
     record = _stored(team.id)
     assert (record["status"], record.get("scope"), record["trigger"], record["head_sha"]) == expected_record

@@ -4,6 +4,8 @@ The review re-run after an attestation WAIT and reviewer routing of a fully atte
 poll this, so each one reads the check the way the engine does.
 """
 
+from __future__ import annotations
+
 from posthog.dataclasses import frozen
 from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubRateLimitError
 from posthog.egress.limiter.policies import Priority
@@ -17,6 +19,21 @@ class PendingCheck:
 
     name: str
     app_id: int
+
+    @classmethod
+    def from_entry(cls, entry: object) -> PendingCheck | None:
+        """The check that a ``{"check": ..., "app_id": ...}`` entry names, or None when the entry is malformed."""
+        if not isinstance(entry, dict):
+            return None
+        name = entry.get("check")
+        app_id = entry.get("app_id")
+        # `type` and not `isinstance`, because a JSON `true` would otherwise pass as App id 1.
+        if not isinstance(name, str) or type(app_id) is not int:
+            return None
+        return cls(name=name, app_id=app_id)
+
+    def to_entry(self) -> dict[str, object]:
+        return {"check": self.name, "app_id": self.app_id}
 
 
 def _has_reported(client: StamphogGitHubClient, repository: str, head_sha: str, check: PendingCheck) -> bool:

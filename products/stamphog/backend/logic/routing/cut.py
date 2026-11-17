@@ -103,7 +103,7 @@ class RoutingDecision:
     model_reasons: Mapping[str, str] = field(default_factory=dict)
 
 
-def pin_reason(candidate: OwnerCandidate) -> RoutingOwnerReason | None:
+def _pin_reason(candidate: OwnerCandidate) -> RoutingOwnerReason | None:
     """Why the candidate is pinned, or None when it is not."""
     if not candidate.is_pinned:
         return None
@@ -115,7 +115,7 @@ def pin_reason(candidate: OwnerCandidate) -> RoutingOwnerReason | None:
 
 def _guard_reason(candidate: OwnerCandidate, owners_left_out: frozenset[str]) -> RoutingOwnerReason | None:
     """Why the guards never let the model cut this owner, or None when it may."""
-    pinned = pin_reason(candidate)
+    pinned = _pin_reason(candidate)
     if pinned is not None:
         return pinned
     if candidate.owner in owners_left_out:
@@ -244,6 +244,16 @@ def _keep_all(
             candidate.owner: _guard_reason(candidate, owners_left_out) or RoutingOwnerReason.CUT_SKIPPED
             for candidate in candidates
         },
+    )
+
+
+def attested_decision(candidates: Sequence[OwnerCandidate]) -> RoutingDecision:
+    """Keep only the pinned owners. A proof covers what the files are, not who must see a sensitive or new path."""
+    return RoutingDecision(
+        kept=tuple(candidate for candidate in candidates if candidate.is_pinned),
+        cut=(),
+        llm_skipped=LlmSkipReason.ATTESTED,
+        reasons={candidate.owner: _pin_reason(candidate) or RoutingOwnerReason.ATTESTED for candidate in candidates},
     )
 
 

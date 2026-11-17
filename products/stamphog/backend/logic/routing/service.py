@@ -32,7 +32,6 @@ from posthog.ownership.github_files import AuthenticatedRepoTree, GitHubFilesFet
 from posthog.ph_client import ph_scoped_capture
 
 from products.stamphog.backend.facade.enums import (
-    LlmSkipReason,
     OwnerKind,
     RoutingMode,
     RoutingOwnerOutcome,
@@ -45,6 +44,7 @@ from products.stamphog.backend.logic.github_client import StamphogGitHubClient
 from products.stamphog.backend.logic.routing.candidates import (
     ChangedFile,
     OwnerCandidate,
+    files_truncated,
     find_candidates,
     paths_to_resolve,
 )
@@ -54,7 +54,7 @@ from products.stamphog.backend.logic.routing.comment import (
     render_approved_routing_comment,
     render_routing_comment,
 )
-from products.stamphog.backend.logic.routing.cut import CUT_MODEL, RoutingDecision, decide_cuts, pin_reason
+from products.stamphog.backend.logic.routing.cut import CUT_MODEL, RoutingDecision, attested_decision, decide_cuts
 from products.stamphog.backend.logic.routing.fork_labels import fork_labels
 from products.stamphog.backend.logic.routing.model import GatewayCutModel
 from products.stamphog.backend.logic.routing.run_log import record_routing_run
@@ -250,7 +250,7 @@ def save_waiting(
     record = _base_record(previous, head_sha=head_sha, mode=mode, trigger=trigger, status=STATUS_WAITING)
     record["waiting_since"] = datetime.now(UTC).isoformat()
     if attestation_checks:
-        record[ATTESTATION_CHECKS] = [{"check": check.name, "app_id": check.app_id} for check in attestation_checks]
+        record[ATTESTATION_CHECKS] = [check.to_entry() for check in attestation_checks]
     return _replace_routing(pr_obj, expected=expected, record=record)
 
 
@@ -261,7 +261,8 @@ def waiting_attestation_checks(record: Mapping[str, Any] | None) -> list[Pending
     """
     if record is None:
         return []
-    return [PendingCheck(name=entry["check"], app_id=entry["app_id"]) for entry in record.get(ATTESTATION_CHECKS) or []]
+    checks = [PendingCheck.from_entry(entry) for entry in record.get(ATTESTATION_CHECKS) or []]
+    return [check for check in checks if check is not None]
 
 
 def claim_routing(
@@ -496,16 +497,6 @@ def _wait_ms(previous: Mapping[str, Any] | None, routed_at: datetime) -> int | N
     return int((routed_at - datetime.fromisoformat(waiting_since)).total_seconds() * 1000)
 
 
-def _attested_decision(candidates: Sequence[OwnerCandidate]) -> RoutingDecision:
-    """Keep only the pinned owners. A proof covers what the files are, not who must see a sensitive or new path."""
-    return RoutingDecision(
-        kept=tuple(candidate for candidate in candidates if candidate.is_pinned),
-        cut=(),
-        llm_skipped=LlmSkipReason.ATTESTED,
-        reasons={candidate.owner: pin_reason(candidate) or RoutingOwnerReason.ATTESTED for candidate in candidates},
-    )
-
-
 def _plan(
     client: StamphogGitHubClient, pr_obj: PullRequest, pr: Mapping[str, Any], *, claim: dict[str, Any]
 ) -> dict[str, Any]:
@@ -519,16 +510,14 @@ def _plan(
     run_id = str(uuid7())
     fork = is_fork(pr, repository)
     files = [ChangedFile.from_github(entry) for entry in client.get_pr_files(repository, pr_obj.pr_number)]
-    changed_files = pr.get("changed_files")
-    # GitHub's file list stops at a page cap, and a pull request reports its own file count.
-    files_truncated = isinstance(changed_files, int) and len(files) < changed_files
-    if files_truncated:
+    truncated = files_truncated(pr, len(files))
+    if truncated:
         logger.warning(
             "stamphog_reviewer_routing_files_truncated",
             repo=repository,
             pr_number=pr_obj.pr_number,
             listed=len(files),
-            changed_files=changed_files,
+            changed_files=pr.get("changed_files"),
         )
     ownership = _resolve_owners(client, repository, files)
     candidates = find_candidates(files, ownership.resolutions)
@@ -545,24 +534,22 @@ def _plan(
             "stamphog_routing_run_id": run_id,
         },
     )
-    # A pinned routing asks the model too, so the run log shows which owners full routing would have asked. An
-    # attested routing keeps only the pinned owners, which the model may never cut, so a model call would change
-    # nothing.
-    decision = (
-        _attested_decision(candidates)
-        if attested
-        else decide_cuts(
+    # A pinned routing asks the model only for the run log. An attested one keeps pinned owners, which no cut touches.
+    if attested:
+        decision = attested_decision(candidates)
+    else:
+        decision = decide_cuts(
             candidates=candidates,
             title=str(pr.get("title") or ""),
             description=str(pr.get("body") or ""),
             is_fork=fork,
             call_model=model,
-            files_truncated=files_truncated,
+            files_truncated=truncated,
         )
-    )
     has_pins = any(candidate.is_pinned for candidate in candidates)
+    pinned_owners_only = attested or pinned_only
     # Owners that full routing would ask and an approval or an attestation does not.
-    held_back = {candidate.owner for candidate in candidates if (attested or pinned_only) and not candidate.is_pinned}
+    held_back = {candidate.owner for candidate in candidates if pinned_owners_only and not candidate.is_pinned}
     if pinned_only:
         already = set(claim.get(REQUESTED_OWNERS) or [])
         # An approval of a later head requests only the pinned owners that no routing requested yet.
@@ -592,7 +579,7 @@ def _plan(
         "model": CUT_MODEL if model.sent_request else None,
         "additions_resolved": ownership.additions_resolved,
         "owners_sha": ownership.owners_sha,
-        "files_truncated": files_truncated,
+        "files_truncated": truncated,
         "request_owners": [candidate.owner for candidate in to_request],
         "requested_teams": requests.teams,
         "requested_users": requests.users,
