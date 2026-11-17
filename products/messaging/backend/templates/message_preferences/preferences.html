@@ -7,6 +7,7 @@
     </head>
     <body>
         {% block content %}
+            <div id="toasts" class="fixed top-4 right-4" role="status"></div>
             <div class="min-h-screen bg-gray-50">
                 <div class="max-w-2xl mx-auto py-12 px-4 sm:px-6 lg:px-8">
                     <div class="bg-white shadow-xl rounded-xl p-8 mb-12">
@@ -120,12 +121,12 @@
                 function showToast(message, isError) {
                     const toast = document.createElement('div')
                     toast.className =
-                        'fixed top-4 right-4 ' + (isError ? 'bg-red-500' : 'bg-green-500') + ' text-white px-6 py-4 rounded-lg shadow-xl transform transition-all duration-500 ease-out'
+                        'mt-2 ' + (isError ? 'bg-red-500' : 'bg-green-500') + ' text-white px-6 py-4 rounded-lg shadow-xl transform transition-all duration-500 ease-out'
                     const iconPath = isError
                         ? 'M6 18L18 6M6 6l12 12'
                         : 'M5 13l4 4L19 7'
                     toast.innerHTML = '<div class="flex items-center space-x-2"><svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="' + iconPath + '" /></svg><span class="font-medium">' + message + '</span></div>'
-                    document.body.appendChild(toast)
+                    document.getElementById('toasts').appendChild(toast)
                     toast.style.transform = 'translateX(100%)'
                     requestAnimationFrame(() => { toast.style.transform = 'translateX(0)' })
                     setTimeout(() => {
@@ -174,14 +175,14 @@
                         if (savesPending === 0) {
                             const savesBeforeRead = savesStarted
                             // Overlapping saves can answer out of commit order, so read back what the server stored
-                            const page = await fetch(window.location.pathname)
-                                .then((response) => (response.ok ? response.text() : Promise.reject()))
-                                .then((html) => new DOMParser().parseFromString(html, 'text/html'))
+                            const storedForm = await fetch(window.location.pathname)
+                                .then((response) => response.text())
+                                .then((html) => new DOMParser().parseFromString(html, 'text/html').getElementById('preferences-form'))
                                 .catch(() => null)
                             // A save that started during the read makes it stale, and that save reads back when it ends
                             if (savesStarted === savesBeforeRead) {
-                                if (page) {
-                                    Object.assign(stored, savedChoices(page))
+                                if (storedForm) {
+                                    Object.assign(stored, savedChoices(storedForm))
                                 } else {
                                     showToast("Couldn't confirm your preferences. Reload the page to check them.", true)
                                 }
