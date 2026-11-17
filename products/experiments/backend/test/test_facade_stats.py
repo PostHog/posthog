@@ -88,6 +88,12 @@ class TestSequentialProportionTest(SimpleTestCase):
         [
             ("alpha_above_one", Proportion(trials=1000, successes=20), Proportion(trials=1000, successes=0), 5.0),
             ("successes_without_trials", Proportion(trials=0, successes=5), Proportion(trials=200, successes=0), 0.05),
+            (
+                "negative_control_successes",
+                Proportion(trials=200, successes=0),
+                Proportion(trials=200, successes=-1),
+                0.05,
+            ),
         ]
     )
     def test_raises_on_invalid_input(

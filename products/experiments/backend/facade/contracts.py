@@ -1162,7 +1162,6 @@ class Proportion:
 class ProportionTestResult:
     # Treatment minus control in proportion units, absolute because a control at 0% has no relative change.
     difference: float
-    # Can be outside [-1, 1], because the sequential interval is wide at small counts.
     confidence_interval: tuple[float, float]
     p_value: float
     is_significant: bool
