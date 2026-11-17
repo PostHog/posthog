@@ -1,6 +1,6 @@
 import { DateTime } from 'luxon'
 import { Message } from 'node-rdkafka'
-import { Counter } from 'prom-client'
+import { Counter, Histogram } from 'prom-client'
 
 import { logger } from '~/common/utils/logger'
 import { retryIfRetriable } from '~/common/utils/retries'
@@ -39,6 +39,13 @@ const claimErrorsCounter = new Counter({
     name: 'cdp_intake_claim_errors_total',
     help: 'Intake claims that hit a cyclotron Postgres error. The claim retries until its time runs out, then the batch fails.',
     labelNames: ['kind'] as const,
+})
+
+const claimDelayMs = new Histogram({
+    name: 'cdp_intake_claim_delay_ms',
+    help: 'Time from the route producing an intake run to its claim committing, by kind and whether the run was a shadow copy.',
+    labelNames: ['kind', 'mode'] as const,
+    buckets: [50, 100, 250, 500, 1_000, 2_500, 5_000, 10_000, 30_000, 60_000, 300_000],
 })
 
 const breakerTripsCounter = new Counter({
@@ -185,8 +192,14 @@ async function claimRuns(runs: IntakeRun[], services: IntakeBatchServices, optio
         options
     )
 
+    const claimedAt = Date.now()
     runs.forEach((run, i) => {
         claimsCounter.labels({ kind: options.kind, outcome: outcomes[i] }).inc()
+        if (run.producedAt !== undefined) {
+            claimDelayMs
+                .labels({ kind: options.kind, mode: run.message.shadow ? 'shadow' : 'async' })
+                .observe(claimedAt - run.producedAt)
+        }
         if (outcomes[i] === 'created') {
             services.invocationResults.queuePreparedRow(runningRows[i])
             if (run.message.kind === 'transactional-email') {
