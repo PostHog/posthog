@@ -61,7 +61,6 @@ class NewsBreakSource(
         return NewsBreakReportCursor
 
     def merge_cursors(self, current: NewsBreakReportCursor, candidate: NewsBreakReportCursor) -> NewsBreakReportCursor:
-        # A run that reads fewer accounts never drops an account that an earlier run backfilled.
         return NewsBreakReportCursor(
             backfilled_account_ids=tuple(
                 sorted(set(current.backfilled_account_ids) | set(candidate.backfilled_account_ids))
@@ -124,7 +123,6 @@ class NewsBreakSource(
             db_incremental_field_last_value=inputs.db_incremental_field_last_value
             if inputs.should_use_incremental_field
             else None,
-            # The pipeline always passes a cursor manager. A caller outside it can pass none.
             cursor_manager=cast(Optional[SourceCursorManager[NewsBreakReportCursor]], inputs.source_cursor),
         )
 

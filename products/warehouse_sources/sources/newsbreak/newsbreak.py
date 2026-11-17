@@ -86,7 +86,6 @@ class NewsBreakResumeConfig:
 @frozen
 class NewsBreakReportCursor:
     cursor_kind: ClassVar[str] = "newsbreak_report_backfill"
-    # The ad accounts whose report history this table has read back to the creation of the account.
     # An account that is not in the list reads its full history, also on an incremental run.
     backfilled_account_ids: tuple[str, ...] = ()
 
@@ -140,7 +139,6 @@ _backoff = wait_exponential_jitter(initial=5, max=60)
 def _retry_wait(state: RetryCallState) -> float:
     error = state.outcome.exception() if state.outcome is not None else None
     if isinstance(error, NewsBreakRateLimitError):
-        # A wait past the request deadline stops the retries and fails the attempt.
         return max(RATE_LIMIT_RETRY_SECONDS, error.retry_after or 0)
     return _backoff(state)
 
@@ -243,7 +241,6 @@ def _account_start(account: dict[str, Any], tz: ZoneInfo, today: date) -> date:
     except (TypeError, ValueError):
         created = 0
     if created > 10**11:
-        # Milliseconds, not seconds.
         created //= 1000
     if created > 0:
         try:

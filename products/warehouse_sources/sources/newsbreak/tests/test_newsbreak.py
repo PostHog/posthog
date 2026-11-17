@@ -158,7 +158,6 @@ class TestListEndpoints:
             ("3", "1"),
         ]
         assert {request.param("pageSize") for request in campaign_requests} == {"500"}
-        # A list table has no partition key, so it is not bucketed.
         assert result.response is not None
         assert result.response.partition_count is None
         assert result.saved_states == [
@@ -272,7 +271,6 @@ class TestReports:
             # Account 2 became visible after account 1 was backfilled, so it reads its full history.
             (("1",), [(1, "2024-03-12"), (2, "2024-03-01"), (2, "2024-03-08"), (2, "2024-03-15")]),
             (("1", "2"), [(1, "2024-03-12"), (2, "2024-03-12")]),
-            # No stored cursor: no account is known to be backfilled.
             (
                 None,
                 [
@@ -406,7 +404,6 @@ class TestErrors:
         [
             # Body code 4034 retries once a minute, so 5 tries fit into the 5-minute request deadline.
             (ScriptedResponse(json={"code": 4034, "errMsg": "Rate limit exceeded"}), 5),
-            # A longer `Retry-After` stretches each wait, so fewer tries fit.
             (ScriptedResponse(status=429, json={}, headers={"Retry-After": "120"}), 3),
         ],
     )
@@ -425,7 +422,6 @@ class TestErrors:
             assert result.raised is None
             assert [row["id"] for row in result.rows] == ["c1"]
         else:
-            # The attempt fails with a retryable error, and the next attempt resumes from the staged cursor.
             assert str(result.raised).startswith("NewsBreak")
             assert "rate limit" in str(result.raised) or "429" in str(result.raised)
 
