@@ -1023,6 +1023,7 @@ depends_on = [
     "products.feature_flags",
     "products.notebooks",
     "products.product_analytics",
+    "products.release",
     "products.security",
     "products.signals",
     "products.surveys",
