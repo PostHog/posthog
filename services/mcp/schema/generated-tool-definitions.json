@@ -12243,6 +12243,21 @@
             "readOnlyHint": true
         }
     },
+    "oauth-applications-list": {
+        "description": "List the OAuth applications linked to the active organization, with each application's provisioning partner status and review. Use it to check whether an application that registered for agentic provisioning can create accounts yet, and to read the message PostHog staff left on its review. `provisioning_status` says whether the application can provision now, and `provisioning_review.status` says where its review stands. Only organization admins can call this. To ask PostHog about a review or to request verification of an application, send the user to the OAuth applications page in organization settings, which opens support with the details filled in.",
+        "category": "Core",
+        "feature": "core",
+        "summary": "List the organization's OAuth applications",
+        "title": "List the organization's OAuth applications",
+        "required_scopes": ["organization:read"],
+        "api_operations": ["GET /api/organizations/{organization_id}/oauth_applications/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "opt-outs-add": {
         "description": "Opt one or more recipients (up to 1000 per call) out of marketing messages. Each entry can name its own message category via category_key; entries without one use the request-level category_key, or all marketing messages if omitted. Importing only ever opts recipients out, so repeating a call is safe.",
         "category": "Messaging",

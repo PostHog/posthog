@@ -37254,6 +37254,65 @@
             "validators": []
         }
     },
+    "oauth-applications-list": {
+        "name": "oauth-applications-list",
+        "kind": "http",
+        "requires": [],
+        "hooks": null,
+        "uiApp": null,
+        "request": {
+            "method": "GET",
+            "path": "/api/organizations/{organization_id}/oauth_applications/",
+            "pathParams": [],
+            "fallbacks": [],
+            "query": [
+                {
+                    "param": "limit",
+                    "key": "limit",
+                    "csv": false
+                },
+                {
+                    "param": "offset",
+                    "key": "offset",
+                    "csv": false
+                }
+            ],
+            "body": null,
+            "injectBody": {},
+            "softDelete": null,
+            "transformBody": false
+        },
+        "response": {
+            "list": true,
+            "filter": {
+                "kind": "pick",
+                "fields": [
+                    "id",
+                    "name",
+                    "client_id",
+                    "is_verified",
+                    "is_cimd_client",
+                    "provisioning_status",
+                    "provisioning_review",
+                    "created"
+                ],
+                "selectable": false
+            },
+            "stripNulls": false,
+            "enrich": {
+                "kind": "list",
+                "baseUrl": "/"
+            },
+            "agentNote": null,
+            "informational": null,
+            "textInclude": []
+        },
+        "input": {
+            "aliases": {},
+            "casts": {},
+            "validators": []
+        }
+    },
     "opt-outs-add": {
         "name": "opt-outs-add",
         "kind": "http",
