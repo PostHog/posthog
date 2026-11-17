@@ -5,17 +5,13 @@ import { userLogic } from 'scenes/userLogic'
 import { initKeaTests } from '~/test/init'
 
 import { dataCatalogMetricsList } from './generated/api'
-import type { DataCatalogMetricApi } from './generated/api.schemas'
 import { METRICS_INTRO_SEEN_KEY, MetricsNotice, metricsIntroLogic } from './metricsIntroLogic'
 import { metricsLogic } from './metricsLogic'
+import { testMetrics } from './metricsTestFixtures'
 
 jest.mock('./generated/api', () => ({
     dataCatalogMetricsList: jest.fn(),
 }))
-
-function metrics(count: number): DataCatalogMetricApi[] {
-    return Array.from({ length: count }, (_, index) => ({ name: `metric_${index}` }) as DataCatalogMetricApi)
-}
 
 type Step = 'user not loaded' | 'seen earlier' | 'diagram shown' | 'strip shown' | 'server records seen' | 'dismissed'
 
@@ -66,7 +62,7 @@ describe('metricsIntroLogic', () => {
             logic.actions.reportIntroShown('empty_state')
         }
         if (metricCount !== null) {
-            metricsLogic.actions.loadMetricsSuccess(metrics(metricCount))
+            metricsLogic.actions.loadMetricsSuccess(testMetrics(metricCount))
         }
         if (steps.includes('strip shown')) {
             logic.actions.reportIntroShown('strip')

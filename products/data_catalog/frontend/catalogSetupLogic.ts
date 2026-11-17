@@ -4,6 +4,7 @@ import posthog from 'posthog-js'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { autoRunMaxPrompt } from 'scenes/max/maxPrompt'
+import { organizationLogic } from 'scenes/organizationLogic'
 import { projectLogic } from 'scenes/projectLogic'
 import { userLogic } from 'scenes/userLogic'
 
@@ -107,6 +108,13 @@ export interface catalogSetupLogicActions {
         options: string | undefined
         tab: SidePanelTab
     } // sidePanelStateLogic
+    updateOrganizationFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    } // organizationLogic
     updateHasSeenProductIntroFor: (
         productKey: string,
         value?: boolean | undefined
@@ -177,6 +185,8 @@ export const catalogSetupLogic = kea<catalogSetupLogicType>([
         actions: [
             sidePanelStateLogic,
             ['openSidePanel'],
+            organizationLogic,
+            ['updateOrganizationFailure'],
             userLogic,
             ['updateHasSeenProductIntroFor'],
             metricsLogic,
@@ -242,6 +252,11 @@ export const catalogSetupLogic = kea<catalogSetupLogicType>([
             } catch {
                 // Without storage, setup waits for another click after the reauthentication.
             }
+        },
+        updateOrganizationFailure: () => {
+            // The consent request failed, so `onApprove` never ran to use the stored click. Without this,
+            // consent granted later elsewhere would start setup on the next catalog visit, with no click.
+            takeSetupIntent()
         },
         resumeSetupIntent: () => {
             const intent = takeSetupIntent()

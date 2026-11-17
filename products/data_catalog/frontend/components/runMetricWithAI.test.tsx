@@ -20,9 +20,9 @@ jest.mock('~/layout/ai/aiConsentLogic', () => {
     }
 })
 
-// Admins and members see different consent text, so check for the popover itself.
+// Admins see the approve button, members see the access request button.
 function consentPopoverOpen(): boolean {
-    return document.querySelector('.Popover') !== null
+    return document.querySelector('[data-attr="ai-consent-approve"], [data-attr="ai-access-request"]') !== null
 }
 
 describe('RunMetricWithAIButton', () => {

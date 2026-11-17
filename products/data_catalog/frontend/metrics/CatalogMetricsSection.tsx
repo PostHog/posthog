@@ -48,6 +48,11 @@ function MetricsContent(): JSX.Element {
     if (allMetrics.length > 0) {
         return <CatalogMetricsTable />
     }
+    // The empty state reloads metrics on each window focus. Keeping it mounted through that reload
+    // stops a skeleton flash and a repeat impression event.
+    if (metricsLoadState === 'loaded') {
+        return <CatalogMetricsEmptyState />
+    }
     if (allMetricsLoading) {
         return <LoadingRows />
     }
@@ -59,9 +64,6 @@ function MetricsContent(): JSX.Element {
                 dataAttr="data-catalog-metrics-load-error"
             />
         )
-    }
-    if (metricsLoadState === 'loaded') {
-        return <CatalogMetricsEmptyState />
     }
     return <LoadingRows />
 }

@@ -1,16 +1,10 @@
-import { useActions, useValues } from 'kea'
-import { useEffect } from 'react'
-
 import { IconSparkles } from '@posthog/icons'
 
 import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
 import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
-import { urls } from 'scenes/urls'
 
-import { aiConsentLogic } from '~/layout/ai/aiConsentLogic'
-
-import { CatalogSetupSource, catalogSetupLogic } from '../catalogSetupLogic'
-import { useAIConsentGate } from './useAIConsentGate'
+import { CatalogSetupSource } from '../catalogSetupLogic'
+import { useSetupWithPostHogAIGate } from './useSetupWithPostHogAIGate'
 
 export function SetupWithPostHogAIButton({
     source,
@@ -19,20 +13,7 @@ export function SetupWithPostHogAIButton({
     source: CatalogSetupSource
     type?: LemonButtonProps['type']
 }): JSX.Element {
-    const { startSetupWithPostHogAI, rememberSetupIntent, resumeSetupIntent } = useActions(catalogSetupLogic)
-    const { dataProcessingAccepted } = useValues(aiConsentLogic)
-    const consentGate = useAIConsentGate(() => startSetupWithPostHogAI(source), {
-        onBeforeApprove: () => rememberSetupIntent(source),
-        pendingRedirectUrl: urls.dataCatalog('metrics'),
-    })
-
-    // Finishes a click that an SSO reauthentication interrupted, once consent is in place. While the
-    // popover is open, `onApprove` starts setup itself, so resuming then would start it twice.
-    useEffect(() => {
-        if (dataProcessingAccepted && !consentGate.consentOpen) {
-            resumeSetupIntent()
-        }
-    }, [dataProcessingAccepted, consentGate.consentOpen, resumeSetupIntent])
+    const consentGate = useSetupWithPostHogAIGate(source)
 
     return (
         // `ignoreDismissal` keeps the popover reachable after a previous dismissal, so a click without

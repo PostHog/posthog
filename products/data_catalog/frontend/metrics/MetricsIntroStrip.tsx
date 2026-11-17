@@ -33,19 +33,25 @@ export function MetricsIntroStrip(): JSX.Element {
                 <IconInfo />
             </ItemMedia>
             <ItemContent className="min-w-0">
-                <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
-                    <span className="font-medium">How metrics work:</span>
-                    <ol aria-label="How metrics work" className="m-0 contents list-none p-0">
-                        {INTRO_STEPS.map((step, index) => (
-                            <li key={step} className="flex items-center gap-2">
-                                {index > 0 && (
-                                    <IconArrowRight aria-hidden className="size-3 shrink-0 text-muted-foreground" />
-                                )}
-                                <span>{step}</span>
-                            </li>
-                        ))}
-                    </ol>
-                </div>
+                <ol
+                    aria-label="How metrics work"
+                    className="m-0 flex list-none flex-wrap items-center gap-x-2 gap-y-1 p-0 text-xs"
+                >
+                    {INTRO_STEPS.map((step, index) => (
+                        <li key={step} className="flex items-center gap-2">
+                            {/* The list's label repeats this for screen readers. It sits in the first item,
+                                so it wraps with the first step at narrow widths. */}
+                            {index === 0 ? (
+                                <span aria-hidden className="font-medium">
+                                    How metrics work:
+                                </span>
+                            ) : (
+                                <IconArrowRight aria-hidden className="size-3 shrink-0 text-muted-foreground" />
+                            )}
+                            <span>{step}</span>
+                        </li>
+                    ))}
+                </ol>
             </ItemContent>
             <ItemActions>
                 <Button

@@ -4,6 +4,7 @@ import posthog from 'posthog-js'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { organizationLogic } from 'scenes/organizationLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import type { PhaiViewMode } from '~/layout/ai/aiPanelIds'
@@ -17,16 +18,12 @@ import {
     catalogSetupLogic,
 } from './catalogSetupLogic'
 import { dataCatalogMetricsList } from './generated/api'
-import type { DataCatalogMetricApi } from './generated/api.schemas'
 import { metricsLogic } from './metricsLogic'
+import { testMetrics } from './metricsTestFixtures'
 
 jest.mock('./generated/api', () => ({
     dataCatalogMetricsList: jest.fn(),
 }))
-
-function metrics(count: number): DataCatalogMetricApi[] {
-    return Array.from({ length: count }, (_, index) => ({ name: `metric_${index}` }) as DataCatalogMetricApi)
-}
 
 describe('catalogSetupLogic', () => {
     beforeEach(() => {
@@ -62,7 +59,7 @@ describe('catalogSetupLogic', () => {
         const logic = catalogSetupLogic()
         logic.mount()
         if (metricCount !== null) {
-            metricsLogic.actions.loadMetricsSuccess(metrics(metricCount))
+            metricsLogic.actions.loadMetricsSuccess(testMetrics(metricCount))
         }
 
         expect(logic.values.showSetupBanner).toBe(expected)
@@ -96,7 +93,7 @@ describe('catalogSetupLogic', () => {
         window.dispatchEvent(new Event('focus'))
         expect(listCalls()).toBe(beforeFocus + 1)
 
-        metricsLogic.actions.loadMetricsSuccess(metrics(2))
+        metricsLogic.actions.loadMetricsSuccess(testMetrics(2))
         const afterArrival = listCalls()
         window.dispatchEvent(new Event('focus'))
         expect(listCalls()).toBe(afterArrival)
@@ -105,6 +102,7 @@ describe('catalogSetupLogic', () => {
     test.each([
         ['an SSO reauthentication interrupted the click', ['remember'], 1],
         ['the approval already started setup', ['remember', 'start'], 1],
+        ['the consent request failed, so a later approval elsewhere must not start setup', ['remember', 'fail'], 0],
         ['nothing was clicked', [], 0],
     ])('when %s, setup starts the right number of times', (_, steps, expectedStarts) => {
         const capture = jest.spyOn(posthog, 'capture')
@@ -112,6 +110,9 @@ describe('catalogSetupLogic', () => {
         logic.mount()
         if (steps.includes('remember')) {
             logic.actions.rememberSetupIntent('banner')
+        }
+        if (steps.includes('fail')) {
+            organizationLogic.actions.updateOrganizationFailure('Request failed')
         }
         if (steps.includes('start')) {
             logic.actions.startSetupWithPostHogAI('banner')

@@ -1,4 +1,4 @@
-import { Fragment, ReactNode } from 'react'
+import { ReactNode } from 'react'
 
 import { IconArrowRight } from '@posthog/icons'
 import { Badge, Card, CardDescription, CardHeader, CardTitle } from '@posthog/quill'
@@ -31,29 +31,31 @@ export function MetricsHowItWorksDiagram(): JSX.Element {
     return (
         <ol
             aria-label="How metrics work"
-            className="m-0 flex w-full list-none flex-col items-stretch gap-2 p-0 text-left @min-[48rem]/main-content:flex-row"
+            className="m-0 flex w-full list-none flex-col items-stretch gap-8 p-0 text-left @min-[48rem]/main-content:flex-row"
         >
             {STEPS.map(({ title, status, description }, index) => (
-                <Fragment key={title}>
+                <li key={title} className="relative min-w-0 flex-1">
+                    {/* Inside the step's own item, so a screen reader counts three steps, not five items. */}
                     {index > 0 && (
-                        <li aria-hidden className="flex shrink-0 items-center justify-center text-muted-foreground">
+                        <span
+                            aria-hidden
+                            className="absolute -top-6 left-1/2 flex -translate-x-1/2 text-muted-foreground @min-[48rem]/main-content:top-1/2 @min-[48rem]/main-content:-left-6 @min-[48rem]/main-content:translate-x-0 @min-[48rem]/main-content:-translate-y-1/2"
+                        >
                             <IconArrowRight className="size-4 rotate-90 @min-[48rem]/main-content:rotate-0" />
-                        </li>
+                        </span>
                     )}
-                    <li className="min-w-0 flex-1">
-                        <Card size="sm" className="h-full">
-                            <CardHeader>
-                                <CardTitle className="flex flex-wrap items-center gap-2">
-                                    <span>
-                                        {index + 1}. {title}
-                                    </span>
-                                    {status}
-                                </CardTitle>
-                                <CardDescription>{description}</CardDescription>
-                            </CardHeader>
-                        </Card>
-                    </li>
-                </Fragment>
+                    <Card size="sm" className="h-full">
+                        <CardHeader>
+                            <CardTitle className="flex flex-wrap items-center gap-2">
+                                <span>
+                                    {index + 1}. {title}
+                                </span>
+                                {status}
+                            </CardTitle>
+                            <CardDescription>{description}</CardDescription>
+                        </CardHeader>
+                    </Card>
+                </li>
             ))}
         </ol>
     )
