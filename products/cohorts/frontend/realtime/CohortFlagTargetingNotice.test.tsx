@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { Provider } from 'kea'
 import { expectLogic } from 'kea-test-utils'
 
@@ -78,6 +78,9 @@ describe('CohortFlagTargetingNotice', () => {
             planLimits: true,
         },
         { name: 'building', realtime: readiness('building'), turnOn: false, planLimits: false },
+        { name: 'rebuilding', realtime: readiness('rebuilding'), turnOn: false, planLimits: false },
+        { name: 'needs_attention', realtime: readiness('needs_attention'), turnOn: false, planLimits: false },
+        { name: 'daily', realtime: readiness('daily'), turnOn: false, planLimits: false },
     ])('offers only what a person can do for a cohort that is $name', async ({ realtime, turnOn, planLimits }) => {
         await renderNotice(realtime)
 
@@ -97,6 +100,22 @@ describe('CohortFlagTargetingNotice', () => {
         const container = await renderNotice(realtime)
 
         expect(container).toBeEmptyDOMElement()
+    })
+
+    it('turns realtime on from the row and then shows the cohort preparing', async () => {
+        useMocks({
+            post: {
+                '/api/projects/:team_id/cohorts/:id/realtime/': () => {
+                    served = readiness('building')
+                    return [200, cohort()]
+                },
+            },
+        })
+        await renderNotice(readiness('off'))
+
+        fireEvent.click(await screen.findByText('Turn on realtime'))
+
+        expect(await screen.findByText(/PostHog is preparing/)).toBeInTheDocument()
     })
 
     it('reads a cohort created after the shared model listed cohorts', async () => {

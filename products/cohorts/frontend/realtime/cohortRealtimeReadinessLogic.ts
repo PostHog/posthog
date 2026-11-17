@@ -185,7 +185,12 @@ export const cohortRealtimeReadinessLogic: LogicWrapper<cohortRealtimeReadinessL
         // the cohort on, or an edit made in the cohort's own tab. The manager runs this setup now, and again each time
         // the tab comes back. Only a cohort the flag can't target yet mounts this logic, so a ready cohort costs no
         // request.
-        afterMount(({ actions, cache }) => {
+        afterMount(({ actions, values, cache }) => {
+            // The first read can land in the gap where a healthy build reads as `needs_attention`, so a cohort the
+            // shared model shows as preparing starts with the grace period a build seen by this logic gets.
+            if (isBuildingHistory(values.cohort)) {
+                cache.readinessGracePolls = READINESS_GRACE_POLLS
+            }
             cache.disposables.add(() => {
                 actions.refreshReadiness()
                 return () => {}

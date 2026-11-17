@@ -52,6 +52,7 @@ export function CohortFlagTargetingNoticeRow({ cohortId }: { cohortId: number })
                             type="secondary"
                             size="xsmall"
                             loading={realtimeSwitchLoading}
+                            aria-label={`Turn on realtime for ${cohort.name}`}
                             onClick={() => {
                                 // pinned: analytics event name and properties, because insights that count clicks read them
                                 posthog.capture('cohort realtime turn on clicked', { location: 'flag_editor' })

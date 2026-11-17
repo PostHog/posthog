@@ -51,6 +51,16 @@ describe('cohortRealtimeReadinessLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
     }
 
+    // expectLogic waits on real timers, so on a fake clock the requests are answered by moving the clock instead.
+    async function mountLogicOnFakeClock(): Promise<void> {
+        jest.useFakeTimers()
+        cohortsModel.mount()
+        await jest.advanceTimersByTimeAsync(0)
+        logic = cohortRealtimeReadinessLogic({ cohortId: COHORT.id })
+        logic.mount()
+        await jest.advanceTimersByTimeAsync(0)
+    }
+
     beforeEach(() => {
         listed = readiness('off')
         served = readiness('off')
@@ -69,6 +79,7 @@ describe('cohortRealtimeReadinessLogic', () => {
 
     afterEach(() => {
         logic?.unmount()
+        jest.useRealTimers()
         jest.clearAllMocks()
         delete (document as any).hidden
     })
@@ -114,7 +125,7 @@ describe('cohortRealtimeReadinessLogic', () => {
 
         await expectLogic(logic, () => {
             logic.actions.turnOnRealtime()
-        }).toDispatchActions(['turnOnRealtimeSuccess'])
+        }).toDispatchActions(['turnOnRealtimeSuccess', 'refreshCurrentTeam'])
 
         expect(requestBody).toEqual({ enabled: true })
         expect(cohortsModel.values.cohortsById[COHORT.id]).toMatchObject({
@@ -122,6 +133,21 @@ describe('cohortRealtimeReadinessLogic', () => {
             realtime_enabled: true,
             realtime: readiness('building'),
         })
+    })
+
+    it('reloads the team when a turn-on is refused, because the plan limit it hit can come from newer usage', async () => {
+        useMocks({
+            post: {
+                '/api/projects/:team_id/cohorts/:id/realtime/': () => [400, { detail: 'Your plan allows 5 cohorts.' }],
+            },
+        })
+        await mountLogic()
+
+        await expectLogic(logic, () => {
+            logic.actions.turnOnRealtime()
+        }).toDispatchActions(['turnOnRealtimeFailure', 'refreshCurrentTeam'])
+
+        expect(cohortsModel.values.cohortsById[COHORT.id]?.realtime?.state).toBe('off')
     })
 
     it('drops a read that was in flight when realtime was turned on', async () => {
@@ -158,42 +184,53 @@ describe('cohortRealtimeReadinessLogic', () => {
         expect(cohortsModel.values.cohortsById[COHORT.id]?.realtime?.state).toBe('building')
     })
 
-    it('keeps reading a preparing cohort until it is ready, then stops and says so once', async () => {
-        served = readiness('building')
-        await mountLogic()
+    it('keeps reading a cohort it turned on until it is ready, then stops and says so once', async () => {
+        useMocks({
+            post: {
+                '/api/projects/:team_id/cohorts/:id/realtime/': {
+                    ...COHORT,
+                    realtime_enabled: true,
+                    realtime: readiness('building'),
+                },
+            },
+        })
+        await mountLogicOnFakeClock()
+        logic.actions.turnOnRealtime()
+        await jest.advanceTimersByTimeAsync(0)
+        const afterTurnOn = detailFetches
+
+        // The API sends no readiness when its lookup of queued builds fails.
+        served = null
+        await jest.advanceTimersByTimeAsync(REALTIME_POLL_INTERVAL_MS)
+        expect(detailFetches).toBe(afterTurnOn + 1)
+        expect(cohortsModel.values.cohortsById[COHORT.id]?.realtime?.state).toBe('building')
+
+        // The gap between the queued build and its run row reads as `needs_attention` for a build that is fine.
+        served = readiness('needs_attention')
+        await jest.advanceTimersByTimeAsync(REALTIME_POLL_INTERVAL_MS)
+        expect(detailFetches).toBe(afterTurnOn + 2)
+
+        served = readiness('ready')
+        await jest.advanceTimersByTimeAsync(REALTIME_POLL_INTERVAL_MS)
+        expect(detailFetches).toBe(afterTurnOn + 3)
+        expect(cohortsModel.values.cohortsById[COHORT.id]?.realtime?.state).toBe('ready')
+
+        await jest.advanceTimersByTimeAsync(REALTIME_POLL_INTERVAL_MS * 4)
+        expect(detailFetches).toBe(afterTurnOn + 3)
+        expect(lemonToast.success).toHaveBeenCalledTimes(1)
+        expect(lemonToast.success).toHaveBeenCalledWith(
+            "Cohort 'Viewed pricing this week' is ready. Feature flags can target it now."
+        )
+    })
+
+    it('keeps reading a cohort the shared model shows as preparing when the first read lands in the gap', async () => {
+        listed = readiness('building')
+        served = readiness('needs_attention')
+
+        await mountLogicOnFakeClock()
         const afterMount = detailFetches
+        await jest.advanceTimersByTimeAsync(REALTIME_POLL_INTERVAL_MS)
 
-        // The mount armed the poll on a real timer, and the mocked requests need real timers to answer. Clearing that
-        // timer before faking the clock keeps it from firing later, and arming again puts the loop on the fake clock.
-        logic.cache.disposables.dispose('readinessPoll')
-        jest.useFakeTimers()
-        try {
-            logic.actions.armReadinessPoll()
-
-            // The API sends no readiness when its lookup of queued builds fails.
-            served = null
-            await jest.advanceTimersByTimeAsync(REALTIME_POLL_INTERVAL_MS)
-            expect(detailFetches).toBe(afterMount + 1)
-            expect(cohortsModel.values.cohortsById[COHORT.id]?.realtime?.state).toBe('building')
-
-            // The gap between the queued build and its run row reads as `needs_attention` for a build that is fine.
-            served = readiness('needs_attention')
-            await jest.advanceTimersByTimeAsync(REALTIME_POLL_INTERVAL_MS)
-            expect(detailFetches).toBe(afterMount + 2)
-
-            served = readiness('ready')
-            await jest.advanceTimersByTimeAsync(REALTIME_POLL_INTERVAL_MS)
-            expect(detailFetches).toBe(afterMount + 3)
-            expect(cohortsModel.values.cohortsById[COHORT.id]?.realtime?.state).toBe('ready')
-
-            await jest.advanceTimersByTimeAsync(REALTIME_POLL_INTERVAL_MS * 4)
-            expect(detailFetches).toBe(afterMount + 3)
-            expect(lemonToast.success).toHaveBeenCalledTimes(1)
-            expect(lemonToast.success).toHaveBeenCalledWith(
-                "Cohort 'Viewed pricing this week' is ready. Feature flags can target it now."
-            )
-        } finally {
-            jest.useRealTimers()
-        }
+        expect(detailFetches).toBe(afterMount + 1)
     })
 })
