@@ -173,20 +173,107 @@ class TestCredentialRedaction:
             ]
         ]
 
+    @pytest.mark.parametrize(
+        ("endpoint", "page", "expected"),
+        [
+            (
+                # A scheduled search's webhook notification can carry the destination credentials in
+                # its `payload` override, below the top level.
+                "log_searches",
+                {
+                    "logSearches": [
+                        {
+                            "id": "ls1",
+                            "name": "errors",
+                            "schedule": {
+                                "scheduleType": "1Hour",
+                                "notification": {
+                                    "taskType": "WebhookSearchNotificationSyncDefinition",
+                                    "webhookId": "wh-1",
+                                    "payload": '{"token": "secret"}',
+                                },
+                            },
+                        }
+                    ]
+                },
+                {
+                    "id": "ls1",
+                    "name": "errors",
+                    "schedule": {
+                        "scheduleType": "1Hour",
+                        "notification": {"taskType": "WebhookSearchNotificationSyncDefinition", "webhookId": "wh-1"},
+                    },
+                },
+            ),
+            (
+                # The effective configuration YAML of a remotely managed collector can hold exporter
+                # credentials.
+                "ot_collectors",
+                {"data": [{"id": "ot-1", "name": "edge", "effectiveConfig": {"cfg-1": "ZXhwb3J0ZXJzOiB7fQ=="}}]},
+                {"id": "ot-1", "name": "edge"},
+            ),
+        ],
+    )
+    def test_drops_credential_bearing_fields(
+        self, endpoint: str, page: dict[str, Any], expected: dict[str, Any]
+    ) -> None:
+        result = _driver().run(endpoint, [_response(page)])
+
+        assert result.items == [[expected]]
+
 
 class TestTokenPagination:
-    def test_yields_pages_saves_token_after_yield_and_sends_it(self) -> None:
+    @pytest.mark.parametrize(
+        ("endpoint", "data_key", "token_key"),
+        [
+            ("users", "data", "next"),
+            # Saved log searches return their continuation token under `token`, not `next`.
+            ("log_searches", "logSearches", "token"),
+            ("metrics_searches", "metricsSearches", "next"),
+        ],
+    )
+    def test_yields_pages_saves_token_after_yield_and_sends_it(
+        self, endpoint: str, data_key: str, token_key: str
+    ) -> None:
         result = _driver().run(
-            "users",
+            endpoint,
             [
-                _response({"data": [{"id": "u1"}], "next": "tok-2"}),
-                _response({"data": [{"id": "u2"}], "next": None}),
+                _response({data_key: [{"id": "r1"}], token_key: "tok-2"}),
+                _response({data_key: [{"id": "r2"}], token_key: None}),
             ],
         )
 
-        assert result.items == [[{"id": "u1"}], [{"id": "u2"}]]
+        assert result.items == [[{"id": "r1"}], [{"id": "r2"}]]
         assert [s.token for s in result.saved_states] == ["tok-2"]
         assert result.params("token") == [None, "tok-2"]
+
+    def test_ot_collectors_page_with_a_post_body(self) -> None:
+        page_size = SUMO_LOGIC_ENDPOINTS["ot_collectors"].page_size
+
+        result = _driver().run(
+            "ot_collectors",
+            [
+                _response({"data": [{"id": "ot-1"}], "next": "tok-2"}),
+                _response({"data": [{"id": "ot-2"}]}),
+            ],
+        )
+
+        assert result.items == [[{"id": "ot-1"}], [{"id": "ot-2"}]]
+        assert [s.token for s in result.saved_states] == ["tok-2"]
+        assert [(r.method, r.path, r.query, r.json()) for r in result.requests] == [
+            ("POST", "/api/v1/otCollectors", {}, {"limit": page_size}),
+            ("POST", "/api/v1/otCollectors", {}, {"limit": page_size, "next": "tok-2"}),
+        ]
+
+    def test_ot_collectors_resume_from_saved_token(self) -> None:
+        result = _driver().run(
+            "ot_collectors",
+            [_response({"data": [{"id": "ot-9"}]})],
+            resume_state=SumoLogicResumeConfig(token="tok-9"),
+        )
+
+        assert result.requests[0].json()["next"] == "tok-9"
+        assert result.items == [[{"id": "ot-9"}]]
 
 
 class TestOffsetPagination:
