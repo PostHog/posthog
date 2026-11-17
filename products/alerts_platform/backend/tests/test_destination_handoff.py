@@ -7,6 +7,9 @@ import pytest
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import MagicMock, patch
 
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
+
 from parameterized import parameterized
 
 from posthog.models.scoping import team_scope
@@ -372,3 +375,29 @@ class TestDestinationHandoff(ClickhouseTestMixin, APIBaseTest):
 
         assert failed == [True]
         assert self._sends() == sorted([self._TRIGGER_NEW, self._RESOLVE_OLD], key=str)
+
+    def test_a_snapshot_reads_the_same_number_of_queries_however_many_alerts_fire(self) -> None:
+        self._receiver("pagerduty", "old", "infra")
+
+        def queries() -> int:
+            with CaptureQueriesContext(connection) as captured:
+                destination_handoff.snapshot(self.team.id, routes_only=True)
+            return len(captured.captured_queries)
+
+        one = queries()
+        for _ in range(2):
+            with team_scope(self.team.id):
+                configuration_id = platform_writes.create_configuration(
+                    team_id=self.team.id, source_kind=SourceKind.LOGS, edit=_edit(), created_by_id=self.user.id
+                ).id
+                PlatformAlertConfiguration.objects.filter(id=configuration_id).update(
+                    labels={"team": "infra"}, destinations_owner=PlatformAlertOwner.PLATFORM
+                )
+                PlatformAlert.objects.update_or_create(
+                    team=self.team,
+                    configuration_id=configuration_id,
+                    grouping_key="",
+                    defaults={"state": PlatformAlertState.FIRING, "firing_started_at": FIRING_STARTED},
+                )
+
+        assert queries() == one

@@ -39,10 +39,7 @@ from products.alerts_platform.backend.facade.contracts import (
 )
 from products.alerts_platform.backend.facade.enums import PlatformAlertOwner, PlatformAlertState
 from products.alerts_platform.backend.logic import alert_destinations, source_configs
-from products.alerts_platform.backend.logic.alert_destinations import (
-    INCIDENT_DESTINATION_TYPES,
-    enabled_alert_destinations,
-)
+from products.alerts_platform.backend.logic.alert_destinations import INCIDENT_DESTINATION_TYPES
 from products.alerts_platform.backend.logic.alert_routes import (
     routed_receivers_for_label_sets,
     routing_labels,
@@ -130,8 +127,16 @@ def snapshot(team_id: int, *, configuration_ids: Collection[UUID] | None = None,
     firing = _firing_groups(team_id, configuration_ids)
     if not firing:
         return Snapshot(team_id=team_id, routing=routing, watched=())
-    configurations = PlatformAlertConfiguration.objects.for_team(team_id).filter(
-        id__in=firing, owner=PlatformAlertOwner.PLATFORM
+    configurations = list(
+        PlatformAlertConfiguration.objects.for_team(team_id).filter(id__in=firing, owner=PlatformAlertOwner.PLATFORM)
+    )
+    endpoints = _endpoints_by_configuration(
+        team_id,
+        {
+            configuration.id: (configuration, {key: group.labels for key, group in firing[configuration.id].items()})
+            for configuration in configurations
+        },
+        routing=routing,
     )
     return Snapshot(
         team_id=team_id,
@@ -140,11 +145,7 @@ def snapshot(team_id: int, *, configuration_ids: Collection[UUID] | None = None,
             _Watched(
                 configuration_id=configuration.id,
                 firing={key: group.started_at for key, group in firing[configuration.id].items()},
-                endpoints=_endpoints(
-                    configuration,
-                    {key: group.labels for key, group in firing[configuration.id].items()},
-                    routing=routing,
-                ),
+                endpoints=endpoints[configuration.id],
             )
             for configuration in configurations
         ),
@@ -191,25 +192,36 @@ def hand_over_after_commit(before: Snapshot) -> None:
             id__in=now_firing, owner=PlatformAlertOwner.PLATFORM
         )
     }
-    budget = _InlineBudget()
+    # Only a firing that runs on through the edit. One the edit ended was closed by the edit.
+    running: dict[UUID, dict[str, _Group]] = {}
     for watched in before.watched:
-        configuration = configurations.get(watched.configuration_id)
-        if configuration is None:
+        if watched.configuration_id not in configurations:
             continue
-        # Only a firing that runs on through the edit. One the edit ended was closed by the edit.
         firing = {
             key: group
             for key, group in now_firing[watched.configuration_id].items()
             if watched.firing.get(key) == group.started_at
         }
         if firing:
-            _schedule(
-                configuration,
-                firing,
-                watched.endpoints,
-                _endpoints(configuration, {key: group.labels for key, group in firing.items()}, routing=before.routing),
-                budget,
-            )
+            running[watched.configuration_id] = firing
+    after = _endpoints_by_configuration(
+        before.team_id,
+        {
+            configuration_id: (configurations[configuration_id], {key: group.labels for key, group in firing.items()})
+            for configuration_id, firing in running.items()
+        },
+        routing=before.routing,
+    )
+    budget = _InlineBudget()
+    endpoints_before = {watched.configuration_id: watched.endpoints for watched in before.watched}
+    for configuration_id, still_firing in running.items():
+        _schedule(
+            configurations[configuration_id],
+            still_firing,
+            endpoints_before[configuration_id],
+            after[configuration_id],
+            budget,
+        )
 
 
 def _schedule(
@@ -364,37 +376,65 @@ def _send_for(endpoint: _Endpoint, grouping_key: str, started_at: datetime, *, g
 def _endpoints(
     configuration: PlatformAlertConfiguration, group_labels: Mapping[str, Mapping[str, str]], *, routing: bool
 ) -> dict[str, dict[str, _Endpoint]]:
-    """The incident managers each group's firing is sent to. Each hears every trigger and resolve,
-    whatever kinds it lists. The alert's own destinations hear every group, and a routed receiver
-    hears the groups whose labels, with the rule's on top, its routes match."""
-    own: dict[str, _Endpoint] = {}
-    if configuration.destinations_owner == PlatformAlertOwner.PLATFORM:
-        for destination in enabled_alert_destinations(team_id=configuration.team_id, configuration_id=configuration.id):
-            if destination.data.get("type") in INCIDENT_DESTINATION_TYPES:
-                own.setdefault(
-                    address(destination.data),
-                    _Endpoint(destination_id=str(destination.id), routed=False, data=destination.data),
-                )
-    keys = list(group_labels)
+    return _endpoints_by_configuration(
+        configuration.team_id, {configuration.id: (configuration, group_labels)}, routing=routing
+    )[configuration.id]
+
+
+def _endpoints_by_configuration(
+    team_id: int,
+    groups: Mapping[UUID, tuple[PlatformAlertConfiguration, Mapping[str, Mapping[str, str]]]],
+    *,
+    routing: bool,
+) -> dict[UUID, dict[str, dict[str, _Endpoint]]]:
+    """The incident managers each group's firing is sent to, by configuration and grouping key. Each
+    hears every trigger and resolve, whatever kinds it lists. An alert's own destinations hear every
+    group, and a routed receiver hears the groups whose labels, with the rule's on top, its routes match.
+
+    Reads the configurations' own destinations in one query and the team's routes once, however many
+    configurations an edit touches."""
+    own: dict[UUID, dict[str, _Endpoint]] = {configuration_id: {} for configuration_id in groups}
+    owning = [
+        configuration_id
+        for configuration_id, (configuration, _) in groups.items()
+        if configuration.destinations_owner == PlatformAlertOwner.PLATFORM
+    ]
+    if owning:
+        rows = (
+            AlertDestination.objects.for_team(team_id)
+            .filter(configuration_id__in=owning, enabled=True, type__in=INCIDENT_DESTINATION_TYPES)
+            .order_by("created_at", "id")
+            .values_list("id", "configuration_id", "config")
+        )
+        for destination_id, configuration_id, config in rows:
+            data = cast(AlertDestinationData, config)
+            own[configuration_id].setdefault(
+                address(data), _Endpoint(destination_id=str(destination_id), routed=False, data=data)
+            )
+    keys = [(configuration_id, key) for configuration_id, (_, group_labels) in groups.items() for key in group_labels]
     routed = (
         routed_receivers_for_label_sets(
-            team_id=configuration.team_id,
+            team_id=team_id,
             label_sets=[
-                routing_labels(group_labels=group_labels[key], rule_labels=configuration.labels or {}) for key in keys
+                routing_labels(
+                    group_labels=groups[configuration_id][1][key],
+                    rule_labels=groups[configuration_id][0].labels or {},
+                )
+                for configuration_id, key in keys
             ],
         )
         if routing and keys
         else [() for _ in keys]
     )
-    found: dict[str, dict[str, _Endpoint]] = {}
-    for key, receivers in zip(keys, routed):
-        endpoints = dict(own)
+    found: dict[UUID, dict[str, dict[str, _Endpoint]]] = {configuration_id: {} for configuration_id in groups}
+    for (configuration_id, key), receivers in zip(keys, routed):
+        endpoints = dict(own[configuration_id])
         for receiver in receivers:
             if receiver.data.get("type") in INCIDENT_DESTINATION_TYPES:
                 endpoints.setdefault(
                     address(receiver.data), _Endpoint(destination_id=str(receiver.id), routed=True, data=receiver.data)
                 )
-        found[key] = endpoints
+        found[configuration_id][key] = endpoints
     return found
 
 
