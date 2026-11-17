@@ -1,15 +1,14 @@
 import json
 from typing import Any
-from urllib.parse import urlencode
 from uuid import UUID
 
 from django import forms
 from django.conf import settings
 from django.core.paginator import Paginator
-from django.db.models import Count, QuerySet
+from django.db.models import Count, Q, QuerySet
 from django.http import HttpRequest
 
-from posthog.admin.console.oauth_application_panels import GROWTH, REVIEW_TOOL_PATH
+from posthog.admin.console.oauth_application_panels import GROWTH, provisioning_status, review_page_url
 from posthog.admin.console.panels import Tone
 from posthog.admin.console.records import RECORD_TYPES
 from posthog.admin.console.registry import console
@@ -29,13 +28,14 @@ from posthog.admin.console.tools import (
     Table,
 )
 from posthog.api.oauth.provisioning_review import review_workflow_id
+from posthog.models.oauth import OAuthApplication
 from posthog.models.oauth_provisioning_review import (
     CIMDProvisioningReview,
     ProvisioningReviewStage,
     ProvisioningReviewStatus,
 )
 
-REVIEWS_PER_PAGE = 50
+APPLICATIONS_PER_PAGE = 50
 REFRESH_SECONDS_WHILE_PENDING = 10
 STATUS_TONES = {
     ProvisioningReviewStatus.PENDING: Tone.INFO,
@@ -43,14 +43,38 @@ STATUS_TONES = {
     ProvisioningReviewStatus.REJECTED: Tone.DESTRUCTIVE,
     ProvisioningReviewStatus.NEEDS_HUMAN: Tone.WARNING,
 }
+REVIEW_COUNT_LABELS = {
+    ProvisioningReviewStatus.NEEDS_HUMAN: "Waiting for staff",
+    ProvisioningReviewStatus.PENDING: "Reviews running",
+    ProvisioningReviewStatus.ACCEPTED: "Accepted partners",
+    ProvisioningReviewStatus.REJECTED: "Rejected partners",
+}
 LOG_TONES = {"error": Tone.DESTRUCTIVE, "warning": Tone.WARNING}
+NO_REVIEW = "none"
 
 
-class ReviewFilterForm(forms.Form):
-    status = forms.ChoiceField(
-        required=False, choices=[("", "Any status"), *ProvisioningReviewStatus.choices], label="Status"
+class ApplicationFilterForm(forms.Form):
+    q = forms.CharField(required=False, label="Name or client ID")
+    kind = forms.ChoiceField(
+        required=False,
+        label="Kind",
+        choices=[
+            ("", "Any kind"),
+            ("cimd", "Registered with a metadata document"),
+            ("dcr", "Registered itself (DCR)"),
+            ("staff", "Created by staff"),
+        ],
     )
-    domain = forms.CharField(required=False, label="Domain", help_text="The registrable domain, like example.com.")
+    provisioning = forms.ChoiceField(
+        required=False,
+        label="Provisioning",
+        choices=[("", "Anything"), ("partner", "Any partner"), ("on", "On"), ("off", "Off"), ("blocked", "Blocked")],
+    )
+    review = forms.ChoiceField(
+        required=False,
+        label="Review",
+        choices=[("", "Any review"), *ProvisioningReviewStatus.choices, (NO_REVIEW, "No review")],
+    )
 
 
 def _when(value: Any) -> Cell:
@@ -62,41 +86,69 @@ def _status_cell(review: CIMDProvisioningReview) -> Cell:
     return Cell(text=status.label, tone=STATUS_TONES[status])
 
 
-def _review_url(review_id: object) -> str:
-    return f"{REVIEW_TOOL_PATH}?{urlencode({'review': str(review_id)})}"
+def _kind(app: OAuthApplication) -> str:
+    if app.is_cimd_client:
+        return "CIMD"
+    if app.is_dcr_client:
+        return "DCR"
+    return "Staff"
 
 
-def _review_row(review: CIMDProvisioningReview) -> Row:
-    app = review.application
+def _application_row(app: OAuthApplication) -> Row:
+    review = getattr(app, "provisioning_review", None)
+    status, tone = provisioning_status(app, review)
     return Row(
         cells=(
             Cell(text=app.name, href=RECORD_TYPES["oauth-application"].url(app), detail=app.client_id),
-            Cell(text=review.domain, mono=True),
-            _status_cell(review),
-            Cell(text=review.reason or "See the run log", href=_review_url(review.pk)),
-            _when(review.created_at),
-            _when(review.decided_at),
+            Cell(text=_kind(app)),
+            Cell(text=status, tone=tone, muted=tone is None),
+            _status_cell(review) if review is not None else Cell(text="-", muted=True),
+            Cell(text="Run log", href=review_page_url(review)) if review is not None else Cell(text="-", muted=True),
+            _when(app.created),
         )
     )
 
 
-def _filtered_reviews(form: ReviewFilterForm) -> QuerySet[CIMDProvisioningReview]:
-    reviews = CIMDProvisioningReview.objects.select_related("application").order_by("-created_at")
+KIND_FILTERS = {
+    "cimd": Q(is_cimd_client=True),
+    "dcr": Q(is_dcr_client=True),
+    "staff": Q(is_cimd_client=False, is_dcr_client=False),
+}
+PROVISIONING_FILTERS = {
+    "partner": Q(is_provisioning_partner=True),
+    "on": Q(is_provisioning_partner=True, _provisioning_config__active=True) & ~Q(_provisioning_config__disabled=True),
+    "off": Q(is_provisioning_partner=True)
+    & ~Q(_provisioning_config__active=True)
+    & ~Q(_provisioning_config__disabled=True),
+    "blocked": Q(_provisioning_config__disabled=True),
+}
+
+
+def _filtered_applications(form: ApplicationFilterForm) -> QuerySet[OAuthApplication]:
+    applications = OAuthApplication.objects.select_related("provisioning_review").order_by("-created")
     if not form.is_valid():
-        return reviews
-    if status := form.cleaned_data["status"]:
-        reviews = reviews.filter(status=status)
-    if domain := form.cleaned_data["domain"].strip().lower():
-        reviews = reviews.filter(domain=domain)
-    return reviews
+        return applications
+    if query := form.cleaned_data["q"].strip():
+        applications = applications.filter(Q(name__icontains=query) | Q(client_id__icontains=query))
+    if kind := form.cleaned_data["kind"]:
+        applications = applications.filter(KIND_FILTERS[kind])
+    if provisioning := form.cleaned_data["provisioning"]:
+        applications = applications.filter(PROVISIONING_FILTERS[provisioning])
+    if review := form.cleaned_data["review"]:
+        applications = (
+            applications.filter(provisioning_review__isnull=True)
+            if review == NO_REVIEW
+            else applications.filter(provisioning_review__status=review)
+        )
+    return applications
 
 
-def _status_counts() -> Stats:
+def _review_counts() -> Stats:
     counts = dict(CIMDProvisioningReview.objects.values_list("status").annotate(total=Count("id")))
     return Stats(
         items=tuple(
-            Stat(label=status.label, value=str(counts.get(status.value, 0)), tone=STATUS_TONES[status])
-            for status in ProvisioningReviewStatus
+            Stat(label=label, value=str(counts.get(status.value, 0)), tone=STATUS_TONES[status])
+            for status, label in REVIEW_COUNT_LABELS.items()
         )
     )
 
@@ -137,12 +189,12 @@ def _temporal_url(review: CIMDProvisioningReview) -> str:
 
 
 @console.register_tool
-class CIMDProvisioningReviewTool(ConsoleTool):
-    key = "cimd-provisioning-reviews"
-    title = "Provisioning partner reviews"
+class OAuthApplicationsTool(ConsoleTool):
+    key = "oauth-applications"
+    title = "OAuth applications"
     owner = GROWTH
     group = "Access"
-    description = "Reviews of apps that registered themselves as provisioning partners, with what each review found."
+    description = "Every OAuth application, with its provisioning partner status and the review of each partner that registered itself."
 
     def _review(self, request: HttpRequest) -> CIMDProvisioningReview | None:
         try:
@@ -205,9 +257,9 @@ class CIMDProvisioningReviewTool(ConsoleTool):
         )
 
     def _list_page(self, request: HttpRequest) -> Page:
-        form = ReviewFilterForm(request.GET or None)
-        reviews = _filtered_reviews(form)
-        page = Paginator(reviews, REVIEWS_PER_PAGE).get_page(request.GET.get("page"))
+        form = ApplicationFilterForm(request.GET or None)
+        applications = _filtered_applications(form)
+        page = Paginator(applications, APPLICATIONS_PER_PAGE).get_page(request.GET.get("page"))
         query = request.GET.copy()
 
         def page_url(number: int) -> str:
@@ -218,29 +270,30 @@ class CIMDProvisioningReviewTool(ConsoleTool):
             blocks=(
                 Notice(
                     text=(
-                        "Every app that registers itself as a provisioning partner is reviewed before it can create "
-                        "accounts. Jev judges the registration with research from the web. Reviews it cannot settle "
-                        "wait here for staff, who accept or block the partner on the app's page and can change that "
-                        "decision later."
+                        "Open an app to manage it. Every app that registers itself as a provisioning partner is "
+                        "reviewed before it can create accounts, and reviews the pipeline cannot settle wait for "
+                        "staff. Staff accept or block a partner on its page, and can change that decision later."
                     )
                 ),
-                _status_counts(),
+                _review_counts(),
                 Filters(
                     form=form,
-                    groups=(FieldGroup(title="Filter", field_names=("status", "domain"), inline=True),),
+                    groups=(
+                        FieldGroup(title="Filter", field_names=("q", "kind", "provisioning", "review"), inline=True),
+                    ),
                     submit_label="Filter",
                 ),
                 Table(
-                    columns=("App", "Domain", "Review", "Reason", "Opened", "Decided"),
-                    rows=tuple(_review_row(review) for review in page.object_list),
-                    empty_text="No reviews match.",
+                    columns=("App", "Kind", "Provisioning", "Review", "Evidence", "Created"),
+                    rows=tuple(_application_row(app) for app in page.object_list),
+                    empty_text="No OAuth applications match.",
                 ),
                 *(
                     (
                         Paging(
                             number=page.number,
                             num_pages=page.paginator.num_pages,
-                            summary=f"{page.paginator.count} reviews",
+                            summary=f"{page.paginator.count} applications",
                             previous_url=page_url(page.previous_page_number()) if page.has_previous() else None,
                             next_url=page_url(page.next_page_number()) if page.has_next() else None,
                         ),

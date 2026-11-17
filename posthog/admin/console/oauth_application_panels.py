@@ -22,7 +22,7 @@ from posthog.models.oauth_provisioning import (
 from posthog.models.oauth_provisioning_review import CIMDProvisioningReview, ProvisioningReviewStatus
 
 GROWTH = Owner(name="Growth", crest="growth")
-REVIEW_TOOL_PATH = "/admin/console/tools/cimd-provisioning-reviews/"
+OAUTH_APPLICATIONS_TOOL_PATH = "/admin/console/tools/oauth-applications/"
 # `active` and `disabled` are the decision, which staff change with Accept and Block, not with the other capabilities.
 DECISION_FLAGS = frozenset({"active", "disabled"})
 CAPABILITIES = tuple(name for name in PROVISIONING_CAPABILITIES if name not in DECISION_FLAGS)
@@ -39,7 +39,7 @@ SIGNING_REQUIRED_MESSAGE = (
 
 
 def review_page_url(review: CIMDProvisioningReview) -> str:
-    return f"{REVIEW_TOOL_PATH}?{urlencode({'review': str(review.pk)})}"
+    return f"{OAUTH_APPLICATIONS_TOOL_PATH}?{urlencode({'review': str(review.pk)})}"
 
 
 def breaks_provisioning_signature(before: OAuthApplication, after: OAuthApplication) -> bool:
@@ -73,17 +73,27 @@ def _authentication(app: OAuthApplication) -> str:
     return "Public client, PKCE only"
 
 
-def _provisioning_fact(app: OAuthApplication, review: CIMDProvisioningReview | None) -> Fact:
+def provisioning_status(app: OAuthApplication, review: CIMDProvisioningReview | None) -> tuple[str, Tone | None]:
+    """Whether the app can provision right now, in a few words, for the app page and the list of apps."""
     config = app.provisioning
     if config.disabled:
-        return Fact(label="Provisioning", value="Blocked. Registering again does not lift it.", tone=Tone.DESTRUCTIVE)
+        return "Blocked", Tone.DESTRUCTIVE
+    if not app.is_provisioning_partner:
+        return "Not a partner", None
     if config.active:
-        return Fact(label="Provisioning", value="On", tone=Tone.SUCCESS)
+        return "On", Tone.SUCCESS
     if review is not None and review.status == ProvisioningReviewStatus.PENDING:
-        return Fact(label="Provisioning", value="Off until the review finishes", tone=Tone.INFO)
+        return "Waiting for the review", Tone.INFO
     if review is not None and review.status == ProvisioningReviewStatus.NEEDS_HUMAN:
-        return Fact(label="Provisioning", value="Off until staff accept or block it", tone=Tone.WARNING)
-    return Fact(label="Provisioning", value="Off", tone=Tone.WARNING)
+        return "Waiting for staff", Tone.WARNING
+    return "Off", Tone.WARNING
+
+
+def _provisioning_fact(app: OAuthApplication, review: CIMDProvisioningReview | None) -> Fact:
+    status, tone = provisioning_status(app, review)
+    if app.provisioning.disabled:
+        status = "Blocked. Registering again does not lift it."
+    return Fact(label="Provisioning", value=status, tone=tone)
 
 
 def _rate_limit_endpoints() -> list[str]:

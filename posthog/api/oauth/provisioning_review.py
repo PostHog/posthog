@@ -38,7 +38,6 @@ REVIEW_DISPATCH_MAX_RETRIES = 8
 # A partner polls the registration endpoint while it waits, and every poll asks for the review to
 # be running. Inside this window that request costs no Temporal round trip.
 REVIEW_DISPATCH_DEDUP_SECONDS = 60
-OAUTH_APPLICATIONS_TOOL_PATH = "/admin/console/tools/oauth-applications/"
 # Retries append to the log, so it is capped to keep a review that failed for hours readable.
 MAX_RUN_LOG_ENTRIES = 200
 
