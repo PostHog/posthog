@@ -98,9 +98,6 @@ export class InsightPage {
     }
 
     async save(): Promise<void> {
-        const originalUrl = this.page.url()
-        const originalPathname = new URL(originalUrl).pathname
-
         // Wait for any in-progress query to finish — the save button uses aria-disabled while queries run
         await expect(this.saveButton).not.toHaveAttribute('aria-disabled', 'true', { timeout: 60000 })
 
@@ -115,6 +112,9 @@ export class InsightPage {
         // fetch before returning — left in flight, its response can land after a later
         // edit and clobber it (see waitForInsightLoad).
         const insightReloaded = this.waitForInsightLoad()
+        // Saving an insight opened from a dashboard returns to the dashboard and does not re-fetch the insight.
+        // In that case nothing awaits this wait, and the handler stops its timeout from failing the test.
+        insightReloaded.catch(() => {})
 
         await this.saveButton.click()
 
@@ -126,43 +126,26 @@ export class InsightPage {
             throw new Error(`Insight save failed with ${saveResponse.status()}${errorText ? `: ${errorText}` : ''}`)
         }
 
-        const successToast = this.page
-            .locator('[data-attr="success-toast"]')
-            .filter({ hasText: 'Insight saved' })
-            .first()
         const errorToast = this.page.locator('[data-attr="error-toast"]').first()
+        const leftInsightPage = (): boolean => !new URL(this.page.url()).pathname.includes('/insights/')
 
+        // The "Insight saved" toast shows before the app navigates to a dashboard, so it does not mark the end of a save.
         await expect(async () => {
-            const currentPathname = new URL(this.page.url()).pathname
-
             if (await errorToast.isVisible().catch(() => false)) {
                 const errorText = (await errorToast.textContent().catch(() => null))?.trim()
                 throw new Error(`Insight save showed an error toast${errorText ? `: ${errorText}` : ''}`)
             }
 
-            if (currentPathname !== originalPathname) {
+            if (leftInsightPage()) {
                 return
             }
 
-            if (await this.editButton.isVisible().catch(() => false)) {
-                return
-            }
-
-            await expect(successToast.or(this.editButton)).toBeVisible()
+            await expect(this.editButton).toBeVisible({ timeout: 1000 })
         }).toPass({ timeout: 30000 })
 
-        const savedPathname = new URL(this.page.url()).pathname
-        if (savedPathname === originalPathname) {
-            await expect(this.editButton).toBeVisible()
+        if (!leftInsightPage()) {
+            await insightReloaded
         }
-
-        // An insight opened from a dashboard returns to that dashboard on save, so the insight is not fetched again.
-        if (/\/dashboard\//.test(savedPathname)) {
-            insightReloaded.catch(() => undefined)
-            return
-        }
-
-        await insightReloaded
     }
 
     // Both navigating to an insight and entering edit mode trigger a re-fetch of the
