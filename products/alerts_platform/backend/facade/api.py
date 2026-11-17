@@ -806,10 +806,12 @@ def record_source_destination(
     hog_function_ids: Collection[UUID],
     hog_function_groups: Sequence[AlertDestinationGroup],
     enabled: bool = True,
+    keeps_legacy_webhook_body: bool = False,
 ) -> StoredAlertDestination | None:
     """Adds the `AlertDestination` row for a destination a source has just written as HogFunctions, in the
     caller's transaction. `hog_function_groups` are the alert's HogFunction destinations, from the source. Raises `AlertDestinationValidationError` when the alert already sends there.
-    None when the platform has no alert under `public_id`."""
+    None when the platform has no alert under `public_id`. With `keeps_legacy_webhook_body`, a webhook row
+    sends its source's legacy body whatever the team's webhook body flags say."""
     return alert_destinations.record_source_destination(
         team_id=team_id,
         public_id=public_id,
@@ -818,6 +820,7 @@ def record_source_destination(
         hog_function_ids=hog_function_ids,
         hog_function_groups=hog_function_groups,
         enabled=enabled,
+        keeps_legacy_webhook_body=keeps_legacy_webhook_body,
     )
 
 
@@ -903,6 +906,48 @@ def destination_types_by_configuration(
     return alert_destinations.destination_types_by_configuration(team_id=team_id, configuration_ids=configuration_ids)
 
 
+def lock_source_configuration(*, team_id: int, public_id: UUID) -> None:
+    """Locks the alert's platform copy in the caller's transaction, before its destinations change."""
+    alert_destinations.lock_source_configuration(team_id=team_id, public_id=public_id)
+
+
+def has_firing_instance(*, team_id: int, public_id: UUID) -> bool:
+    """Whether any instance of the alert is inside a firing, even when its last check errored."""
+    return alert_destinations.has_firing_instance(team_id=team_id, public_id=public_id)
+
+
+def take_source_destination_row(
+    *, team_id: int, public_id: UUID, destination_id: UUID
+) -> StoredAlertDestination | None:
+    """Deletes one of the alert's rows and returns what it held. None when another request took it first."""
+    return alert_destinations.take_source_destination_row(
+        team_id=team_id, public_id=public_id, destination_id=destination_id
+    )
+
+
+def restore_source_destination(
+    *,
+    team_id: int,
+    public_id: UUID,
+    data: AlertDestinationData,
+    event_kinds: Collection[AlertEventKind],
+    enabled: bool,
+    retired_hog_function_ids: Collection[UUID],
+    hog_function_groups: Sequence[AlertDestinationGroup],
+) -> StoredAlertDestination:
+    """Adds the row that sends a destination's standard message once the caller has retired its
+    HogFunctions. Raises `AlertDestinationValidationError` when the platform does not evaluate the alert."""
+    return alert_destinations.restore_source_destination(
+        team_id=team_id,
+        public_id=public_id,
+        data=data,
+        event_kinds=event_kinds,
+        enabled=enabled,
+        retired_hog_function_ids=retired_hog_function_ids,
+        hog_function_groups=hog_function_groups,
+    )
+
+
 def delete_rows_copying(*, team_id: int, hog_function_ids: Collection[UUID]) -> int:
     """Deletes the `AlertDestination` rows that copy any of these HogFunctions, and returns how many."""
     return alert_destinations.delete_rows_copying(team_id=team_id, hog_function_ids=hog_function_ids)
@@ -919,8 +964,9 @@ def redact_destination_data(data: AlertDestinationData) -> AlertDestinationData:
 
 
 def has_incident_destination(*, team_id: int, configuration_id: UUID) -> bool:
-    """Whether an enabled incident manager follows the alert: one of its own, when the platform owns
-    its destinations, or a receiver that one of the alert's routes sends to."""
+    """Whether an enabled incident manager may follow the alert: one of its own, when the platform owns
+    its destinations, or any enabled route of the team to an enabled incident receiver. The route check
+    ignores the alert's labels, so it is team-wide, and delivery decides per group."""
     return alert_destinations.has_incident_destination(
         team_id=team_id, configuration_id=configuration_id
     ) or alert_routes.routes_reach_incident_receiver(team_id=team_id)

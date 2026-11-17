@@ -14,7 +14,7 @@ from products.signals.backend.facade.trial import prepare_task_trial
 from ee.hogai.tool import MaxTool
 
 from .facade import api as tasks_facade
-from .facade.access import analytics_context_reader
+from .facade.access import analytics_context_reader, get_posthog_ai_access_decision
 from .logic.services.workflow_dispatch import WorkflowDispatchOptions, enqueue_or_start_workflow
 from .models import Task, TaskRun
 from .task_profiles import USER
@@ -165,6 +165,12 @@ Use this tool when the user wants to:
             admission_task = tasks.first()
             if admission_task is None:
                 return None
+            # This tool starts the run itself, so it applies the PostHog AI 2.0 gate that the run endpoint applies.
+            if (
+                admission_task.origin_product == Task.OriginProduct.POSTHOG_AI
+                and not get_posthog_ai_access_decision(self._user, self._team.organization).allowed
+            ):
+                return {"error": "task_unavailable"}
             trial_admission = prepare_task_trial(
                 team=self._team,
                 origin=admission_task.origin_product,
@@ -193,6 +199,8 @@ Use this tool when the user wants to:
                     task_run = task.create_run(_trial_admission=trial_admission)
                 except tasks_facade.TaskDoneError:
                     return {"error": "task_done"}
+                except tasks_facade.TaskRunAlreadyLiveError:
+                    return {"error": "run_in_progress"}
                 enqueue_or_start_workflow(
                     task_run,
                     start_workflow=lambda **kwargs: async_to_sync(execute_task_processing_workflow_async)(**kwargs),
@@ -216,6 +224,10 @@ Use this tool when the user wants to:
             return "Pi tasks cannot be run through the ACP task workflow.", result
         if result.get("error") == "task_done":
             return str(tasks_facade.TaskDoneError()), result
+        if result.get("error") == "run_in_progress":
+            return str(tasks_facade.TaskRunAlreadyLiveError()), result
+        if result.get("error") == "task_unavailable":
+            return "This task isn't available to you.", result
 
         return (
             f"Started execution of task '{result['title']}' ({result['slug']}).\n"

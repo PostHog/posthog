@@ -117,11 +117,11 @@ class DeliveryOutcome:
 
 
 class _WebhookTransports:
-    """The webhook transport for one evaluation, with the legacy body when the team keeps it.
+    """The webhook transport for one evaluation, with the legacy body when the team or the destination keeps it.
 
-    The flag is read once, and only when a webhook destination is about to be sent to. A failed read
-    is a failed delivery: a guess either way sends a body some receiver cannot parse, and a retry
-    costs only time.
+    The flag is read once, and only when a webhook destination that does not keep the legacy body
+    itself is about to be sent to. A failed read is a failed delivery: a guess either way sends a
+    body some receiver cannot parse, and a retry costs only time.
     """
 
     def __init__(self, team: Team, request: AlertDeliveryRequest, announced: EvaluationAnnouncement) -> None:
@@ -129,9 +129,16 @@ class _WebhookTransports:
         self._request = request
         self._announced = announced
         self._transport: WebhookTransport | None = None
+        self._legacy_transport: WebhookTransport | None = None
         self._failure: DeliveryError | None = None
 
-    def get(self) -> WebhookTransport:
+    def get(self, *, keeps_legacy_body: bool = False) -> WebhookTransport:
+        if keeps_legacy_body:
+            legacy_body = self._source_legacy_body()
+            if legacy_body is not None:
+                if self._legacy_transport is None:
+                    self._legacy_transport = WebhookTransport(legacy_body=legacy_body)
+                return self._legacy_transport
         # A failed read is kept too, so a flags outage costs one lookup per evaluation rather than
         # one per webhook, inside an activity whose time is shared by every destination.
         if self._failure is not None:
@@ -145,8 +152,7 @@ class _WebhookTransports:
         return self._transport
 
     def _legacy_body(self) -> Callable[[AlertMessage], dict[str, Any]] | None:
-        body = legacy_webhook.body_for(self._request.source)
-        if body is None:
+        if legacy_webhook.body_for(self._request.source) is None:
             return None
         try:
             keeps_legacy_body = legacy_webhook.keeps_legacy_webhook_body(self._team)
@@ -155,6 +161,12 @@ class _WebhookTransports:
         if keeps_legacy_body is None:
             raise DeliveryError("Could not read which webhook body this team receives.")
         if not keeps_legacy_body:
+            return None
+        return self._source_legacy_body()
+
+    def _source_legacy_body(self) -> Callable[[AlertMessage], dict[str, Any]] | None:
+        body = legacy_webhook.body_for(self._request.source)
+        if body is None:
             return None
         team_id = self._team.id
         alert_id = self._request.destination_alert_id
@@ -308,7 +320,11 @@ def deliver_evaluation(request: AlertDeliveryRequest) -> DeliveryOutcome:
                 )
                 continue
             try:
-                transport = webhook_transports.get() if transport_class is WebhookTransport else transport_class()
+                transport = (
+                    webhook_transports.get(keeps_legacy_body=subscribed_destination.keeps_legacy_webhook_body)
+                    if transport_class is WebhookTransport
+                    else transport_class()
+                )
             except DeliveryError as error:
                 # Fails before a send starts, where `deliver` counts its failures, so it is counted here.
                 for _ in transitions:
@@ -669,6 +685,7 @@ class _SubscribedDestination:
     data: AlertDestinationData
     # Whether the destination hears the events the source emits for its HogFunctions.
     receives_emitted_events: bool
+    keeps_legacy_webhook_body: bool = False
 
 
 @frozen
@@ -826,7 +843,12 @@ def _platform_subscribers(event_id: str, platform: _PlatformDestinations) -> lis
         return []
     incident = event_id in platform.incident_event_ids
     subscribers = [
-        _SubscribedDestination(id=str(destination.id), data=destination.data, receives_emitted_events=False)
+        _SubscribedDestination(
+            id=str(destination.id),
+            data=destination.data,
+            receives_emitted_events=False,
+            keeps_legacy_webhook_body=destination.keeps_legacy_webhook_body,
+        )
         for destination in platform.destinations
         if (destination.data["type"] in INCIDENT_DESTINATION_TYPES) == incident
         and (incident or kind.delivered_as in destination.event_kinds)

@@ -453,23 +453,24 @@ export function createRunner(
                 const down = await stopHealth()
                 const janitorResets = janitorResetsOf({ ...sampled, sampledFrom: sampler.sampledFrom })
                 const invariants = await judge.check(card.invariants, card.gates, { janitorResets })
+                const steps = stepsOf(card.drive)
                 const evidence = {
                     ...judge.evidence(),
                     ...sampled,
                     ...probed,
                     sampledFrom: sampler.sampledFrom,
                     drive: driveWindow,
+                    steps,
                     timeline: valves.timeline(),
                 }
                 const measurements = measure(card.measure, evidence)
-                const steps = stepsOf(card.drive)
                 const admissions = admissionsOf(
                     profile,
                     baselineOf({ ...evidence, drive: firstStepOf(driveWindow, steps) })
                 )
                 const bars = judgeBars(card.bars, {
                     ...evidence,
-                    steps,
+                    hostCpuCeiling: profile.host?.cpuCeiling,
                     writerCpu: await writerCpuFor(card.bars, driveWindow, signal),
                 })
                 const verdict = statusOf({

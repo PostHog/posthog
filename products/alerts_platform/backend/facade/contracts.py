@@ -1620,6 +1620,7 @@ class NewAlertDestination:
     event_kinds: tuple[AlertEventKind, ...]
     enabled: bool = True
     legacy_hog_function_ids: tuple[UUID, ...] = ()
+    keeps_legacy_webhook_body: bool = False
 
 
 @frozen
@@ -1633,6 +1634,7 @@ class StoredAlertDestination:
     enabled: bool
     consecutive_failures: int
     legacy_hog_function_ids: tuple[UUID, ...]
+    keeps_legacy_webhook_body: bool = False
 
 
 @frozen

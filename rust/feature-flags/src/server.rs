@@ -535,6 +535,14 @@ pub async fn serve_with_rate_limiter_clock<C>(
              Flags cache TTL is now managed by Django's HyperCache."
         );
     }
+    for var in ["ACCEPT_TEAM_SECRET_TOKENS", "LEGACY_TOKEN_MIRROR_SHADOW"] {
+        if std::env::var(var).is_ok() {
+            tracing::warn!(
+                "{var} is deprecated and ignored. \
+                 phs_ tokens authenticate only through project secret API keys."
+            );
+        }
+    }
 
     let service_mode = config.service_mode.clone();
 
