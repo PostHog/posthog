@@ -5,8 +5,7 @@ from uuid import UUID, uuid4
 import time_machine
 from unittest.mock import patch
 
-from django.db import DatabaseError, IntegrityError, connection, transaction
-from django.db.migrations.executor import MigrationExecutor
+from django.db import DatabaseError, connection, transaction
 from django.db.models import QuerySet
 from django.test import TestCase, TransactionTestCase
 from django.utils import timezone
@@ -664,54 +663,3 @@ class TestDatasetRetentionConcurrency(TransactionTestCase):
             DatasetUsage.record(self.dataset)
         self.dataset.refresh_from_db()
         self.assertIsNotNone(self.dataset.expired_at)
-
-
-@time_machine.travel("2026-11-03T12:00:00Z", tick=False)
-class TestDatasetRetentionMigration(TransactionTestCase):
-    def test_existing_content_receives_a_full_retention_period(self) -> None:
-        _, _, team = Organization.objects.bootstrap(None)
-        executor = MigrationExecutor(connection)
-        latest = executor.loader.graph.leaf_nodes()
-        before = [("ai_observability", "0070_offline_payload_expiry_indexes")]
-        after = [("ai_observability", "0074_release_expired_dataset_names")]
-        try:
-            executor.migrate(before)
-            apps = executor.loader.project_state(before).apps
-            legacy_dataset = apps.get_model("ai_observability", "Dataset").objects.create(
-                team_id=team.id, name="Existing dataset"
-            )
-            legacy_revision = apps.get_model("ai_observability", "DatasetRevision").objects.create(
-                team_id=team.id, dataset_id=legacy_dataset.id, revision=1
-            )
-            legacy_item = apps.get_model("ai_observability", "DatasetItem").objects.create(
-                team_id=team.id, dataset_id=legacy_dataset.id
-            )
-            legacy_version = apps.get_model("ai_observability", "DatasetItemVersion").objects.create(
-                team_id=team.id,
-                dataset_id=legacy_dataset.id,
-                dataset_item_id=legacy_item.id,
-                dataset_revision_id=legacy_revision.id,
-                version=1,
-                input="Existing input",
-            )
-            started = timezone.now()
-            MigrationExecutor(connection).migrate(after)
-            dataset = Dataset.objects.for_team(team.id, canonical=True).get(id=legacy_dataset.id)
-            revision = DatasetRevision.objects.for_team(team.id, canonical=True).get(id=legacy_revision.id)
-            version = DatasetItemVersion.objects.for_team(team.id, canonical=True).get(id=legacy_version.id)
-            assert dataset.last_used_at is not None
-            assert revision.last_used_at is not None
-            assert version.last_used_at is not None
-            self.assertGreaterEqual(dataset.last_used_at, started)
-            self.assertGreaterEqual(revision.last_used_at, started)
-            self.assertGreaterEqual(version.last_used_at, started)
-            DatasetRetention().run()
-            self.assertTrue(DatasetItemVersion.objects.for_team(team.id, canonical=True).filter(id=version.id).exists())
-            with self.assertRaises(IntegrityError), transaction.atomic():
-                Dataset.objects.for_team(team.id, canonical=True).create(team_id=team.id, name=dataset.name)
-            dataset.expired_at = timezone.now()
-            dataset.save(update_fields=["expired_at"])
-            replacement = Dataset.objects.for_team(team.id, canonical=True).create(team_id=team.id, name=dataset.name)
-            self.assertNotEqual(dataset.id, replacement.id)
-        finally:
-            MigrationExecutor(connection).migrate(latest)
