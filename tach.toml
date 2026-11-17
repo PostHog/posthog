@@ -1410,8 +1410,8 @@ from = [
 # permanent and turbo.json keeps them in the contract-check inputs — any change to them still
 # re-runs the Django suite (IsolationChainCheck enforces that).
 # posthog/test/repo_invariants/test_warehouse_sources_contract_inputs.py checks that every file
-# outside code reaches through the facade is a contract-check input; it does not limit this
-# expose list. All other core coupling goes through backend.facade.
+# under backend/temporal/ that outside code reaches through the facade is a contract-check input;
+# it does not limit this expose list. All other core coupling goes through backend.facade.
 [[interfaces]]
 expose = [
     "backend\\.models.*",

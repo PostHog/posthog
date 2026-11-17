@@ -503,7 +503,7 @@ def uncovered_permanent_modules(product_dir: Path, permanent_modules: frozenset[
 # HogQL direct-SQL adapters and system tables reach source internals through the facade's lazy
 # (PEP 562) re-exports. The exposed set stays watched via the turbo-input rule above, and
 # posthog/test/repo_invariants/test_warehouse_sources_contract_inputs.py checks that every file
-# outside code reaches through the facade is an input. Extending this set requires a
+# under backend/temporal/ that outside code reaches through the facade is an input. Extending this set requires a
 # devex-reviewed change here, which is the point.
 _QUALIFICATION_EXEMPT_PRODUCTS: frozenset[str] = frozenset({"products.warehouse_sources"})
 

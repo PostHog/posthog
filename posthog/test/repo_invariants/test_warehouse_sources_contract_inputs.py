@@ -17,10 +17,14 @@ from hogli_commands.product.isolation import unwatched_modules
 #
 # For each name an outside file uses from the facade, this guard follows the imports from the
 # facade module to the file that defines the name, including the lazy PEP 562 maps and re-exports
-# through other modules. Every file on that path must be an input. The files the defining file
-# imports need not be. Its input is the whole repo, so it lives here and runs on every backend PR,
-# not only when warehouse_sources changes. It fails on an import shape it cannot follow, so that a
-# hand-out never drops out of the check without a trace.
+# through other modules. Every file on that path under backend/temporal/ must be an input. The
+# files the defining file imports need not be. Its input is the whole repo, so it lives here and
+# runs on every backend PR, not only when warehouse_sources changes. It fails on an import shape it
+# cannot follow, so that a hand-out never drops out of the check without a trace.
+#
+# Files outside backend/temporal/ are not checked. The product lint's narrowed-inputs rule
+# (has_narrowed_turbo_inputs) accepts backend/temporal/ as a wiring location and rejects other
+# internal files as inputs, so those hand-outs stay unwatched until that rule changes.
 #
 # Registry lookups resolve vendors dynamically, so this guard cannot enumerate their
 # dependencies. MSSQL stays in the contract inputs because data_warehouse's SQL migration
@@ -36,6 +40,7 @@ PRODUCT_DIR = REPO_ROOT / "products" / "warehouse_sources"
 PRODUCT_PACKAGE = "products.warehouse_sources"
 BACKEND_PACKAGE = "products.warehouse_sources.backend"
 FACADE_PACKAGE = "products.warehouse_sources.backend.facade"
+CHECKED_DIR = "backend/temporal/"
 # Trees whose tests run outside the product's own job. The root conftest.py loads facade test helpers.
 OUTSIDE_PATHS = ("posthog", "ee", "common", "products", "conftest.py")
 # A longer chain of re-exports means an import cycle.
@@ -212,11 +217,13 @@ def test_outside_code_reaches_only_watched_files_through_the_facade() -> None:
         tree = ast.parse(file.read_text(), filename=str(file))
         for module, name in _used_facade_names(tree, file):
             for path in _files_on_path(module, name):
-                users[path.relative_to(PRODUCT_DIR).as_posix()].add(file.relative_to(REPO_ROOT).as_posix())
+                rel = path.relative_to(PRODUCT_DIR).as_posix()
+                if rel.startswith(CHECKED_DIR):
+                    users[rel].add(file.relative_to(REPO_ROOT).as_posix())
 
     unwatched = unwatched_modules(PRODUCT_DIR, users)
     assert not unwatched, (
-        "Outside code reaches files of warehouse_sources through the facade that the "
+        f"Outside code reaches files under {CHECKED_DIR} of warehouse_sources through the facade that the "
         "backend:contract-check inputs do not watch, so a change to those files would skip the "
         "outside tests that execute them. Add each file to the backend:contract-check inputs in "
         "products/warehouse_sources/turbo.json:\n"

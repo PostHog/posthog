@@ -12,7 +12,6 @@
                 "backend/integration_hooks.py",
                 "backend/models/**",
                 "backend/migrations/**",
-                "backend/admin/**",
                 "backend/tasks/**",
                 "backend/temporal/data_imports/naming_convention.py",
                 "backend/temporal/data_imports/pipelines/core/account_property_row_sink.py",
@@ -92,15 +91,7 @@
                 "backend/temporal/data_imports/person_property_update_consumer.py",
                 "backend/temporal/data_imports/pipelines/core/cdp_producer_rate.py",
                 "backend/temporal/data_imports/pipelines/pipeline_v3/load/__init__.py",
-                "backend/console.py",
-                "backend/billing.py",
-                "backend/file_uploads.py",
-                "backend/github_warehouse_repos.py",
-                "backend/logic/live_queries.py",
-                "backend/sync_alerts/destinations.py",
-                "backend/test/raw_source_credentials.py",
-                "backend/test/utils.py",
-                "backend/view_consumers.py"
+                "backend/console.py"
             ],
             "outputs": [],
             "cache": true
