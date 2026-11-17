@@ -545,8 +545,6 @@ def call_type_filters(call_types: Sequence[CallTypeRow], snippets: Mapping[str, 
         if len(chosen) == 1:
             return [{"key": "$ai_input", "value": chosen[0], "operator": "icontains", "type": "event"}]
         return [{"key": "$ai_input", "value": "|".join(chosen), "operator": "regex", "type": "event"}]
-        if len(snippets) == 1:
-            return [{"key": "$ai_input", "value": snippets[0], "operator": "icontains", "type": "event"}]
     key = CALL_TYPE_PROPERTIES.get(next(iter(sources))) if len(sources) == 1 else None
     if key is None:
         return None
