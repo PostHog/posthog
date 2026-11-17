@@ -14699,13 +14699,17 @@ snapshots:
     scenes-app-mcp-analytics--dashboard-with-menu-bar--light:
         hash: v1.k794b7964.19e311d5101d430a2dd5842c31219eb5f10df17b727dd0a16736b79e1d17d06c.75Q4dOrkEBIweZjNhtZaFwwzO80j4C23ppXbj6eBC8E
     scenes-app-mcp-analytics--intent-clustering--dark:
-        hash: v1.k794b7964.9549b853f80d754b9d6ccf17ab144d24218143200c90df7af687e184e7de5329.Er1_HM8avmrqmulj2hCLnkp98-HeuRvF5ed3j-_jS2A
+        hash: v1.k794b7964.441af9e94603375d03204418f8900bf274f08b2f773b069fe48c8dbe3db8f675.c8UMx3u9B-qDkSQL_wUk7Hx0SeLuEHotI2PIlyCem-0
     scenes-app-mcp-analytics--intent-clustering--light:
-        hash: v1.k794b7964.82fd6a9108a34ff8808b23b9c1e9255dcbe4f38562bb9e99333877dd303c08b2.qjDLxTHFZT3vcTHmPeG35-orU88GSS277RR2DdXxBdw
+        hash: v1.k794b7964.cd70e7d5f0021e41cc6bf7c6dbc07c0c024bd98e973a5e9ecdca15eebdbf0953.mewiUwNIM4c7SDtTE6tnVHCV5cW2rf6iqKJGosRRGYA
     scenes-app-mcp-analytics--intent-clustering-journey--dark:
-        hash: v1.k794b7964.dca69b2edf84d19bb67ce3e2cc1a216fe6a63e9a1a36d8edb233b1f8ca60fd47.DJ-_pBzuUihpltpNAimi3dx_FewI6FzyLNKdoMZAMH4
+        hash: v1.k794b7964.717c6f2bcf8cfa754a5c43af433b2247fb6d59b5c304344a0fca8d5b2bb2b07b.J-QvagqATBL4WrdEAQuRbnObrs2TcM1VPiuwx8lbDHU
     scenes-app-mcp-analytics--intent-clustering-journey--light:
-        hash: v1.k794b7964.ac0eec4da423308decb9fbbd3f220e099b0a0a54dec45784b68c3bea89e7ec4d.vT3XHi6hXU4CIW6_dGDW6ShwhxyN5i1G-w00_qLnx3k
+        hash: v1.k794b7964.d90030ba799d83d3775c9a86412112309b7096830efc8690292de2a05ee60a70.1RxFztpiB081fTOOgNyauNcv-Wy48wyQFW8emucJnWI
+    scenes-app-mcp-analytics--intent-clustering-redacted--dark:
+        hash: v1.k794b7964.52756e7463db9a4d383c1dff7aeb1507ac2bb5214754bb7b33dffba041c67d4d.8ZnzTRTo-acAlQHKcvavgAFJPG-WEY67GTkSiO5ykBY
+    scenes-app-mcp-analytics--intent-clustering-redacted--light:
+        hash: v1.k794b7964.42ee63b98ed2bbb19e1b080b141365a69471a0d34de2fc77053e5a7a16cb165f.csCxGjAPdh2RX1AOHZq9RBk9xxgi892x1N9Y5hL8wfg
     scenes-app-mcp-analytics--sessions--dark:
         hash: v1.k794b7964.544594e6599878da39060030946aa8fd32a3fa384bb8f1a6c5a346a1b8398cb7.i-Rxg-DQP5-uHnOCFm8Tg7lzw-O1Ok2Koshu8u1qQbM
     scenes-app-mcp-analytics--sessions--light:
