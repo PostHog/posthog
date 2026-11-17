@@ -125,7 +125,9 @@ describe('host-run-card.sh', () => {
         expect(existsSync(s3('host/started'))).toBe(true)
         expect(parseJSON(readFileSync(s3('host/done'), 'utf8'))).toMatchObject({ exitCode, uploaded })
         expect(existsSync(s3(`evidence/run/${RUNNER_RUN_ID}/result.json`))).toBe(uploaded)
-        expect(existsSync(s3('evidence/hogli.log'))).toBe(uploaded)
+        expect(existsSync(s3('evidence/hogli.log')) && readFileSync(s3('evidence/hogli.log'), 'utf8')).toBe(
+            uploaded && 'hogli up exited 1\n'
+        )
         expect(existsSync(s3('evidence/run/edge-ca'))).toBe(false)
     })
 

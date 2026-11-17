@@ -175,6 +175,7 @@ code=$?
 cat /opt/scenario/prepare.log
 [ "$code" = 0 ] || { echo "host-prepare.sh exited $code"; exit 1; }
 step "host-run-card.sh, stopped after $CARD_SECONDS s"
+rm -rf "/dry-run/bucket/runs/$RUN_ID/evidence" "/dry-run/bucket/runs/$RUN_ID/host/done"
 timeout --signal TERM --kill-after 60 "$CARD_SECONDS" bash nodejs/tests/scenarios/cloud/host-run-card.sh
 stopped=$?
 cat /opt/scenario/evidence/card.log
