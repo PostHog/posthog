@@ -18,19 +18,28 @@ describe('ContextDisplay', () => {
 
     afterEach(cleanup)
 
-    it.each([undefined, null, ''])('hides the mobile OS row when its name is %p', (osName) => {
+    it.each([
+        ...[undefined, null, ''].map((value) => ({
+            hiddenRow: 'Mobile operating system',
+            value,
+            properties: { $os: 'Mac OS X', $os_version: '10.15.7', $os_name: value },
+            shownValue: 'Mac OS X 10.15.7',
+        })),
+        ...[null, ''].map((value) => ({
+            hiddenRow: 'User agent',
+            value,
+            properties: { $user_agent: value, $current_url: 'https://example.com/orders' },
+            shownValue: 'https://example.com/orders',
+        })),
+    ])('hides the $hiddenRow row when its value is $value', ({ hiddenRow, properties, shownValue }) => {
         render(
             <Provider>
-                <ContextDisplay
-                    loading={false}
-                    properties={{ $os: 'Mac OS X', $os_version: '10.15.7', $os_name: osName }}
-                    additionalProperties={{}}
-                />
+                <ContextDisplay loading={false} properties={properties} additionalProperties={{}} />
             </Provider>
         )
 
-        expect(screen.queryByText('Mobile operating system')).not.toBeInTheDocument()
-        expect(screen.getByText('Mac OS X 10.15.7')).toBeInTheDocument()
+        expect(screen.queryByText(hiddenRow)).not.toBeInTheDocument()
+        expect(screen.getByText(shownValue)).toBeInTheDocument()
     })
 
     it.each([

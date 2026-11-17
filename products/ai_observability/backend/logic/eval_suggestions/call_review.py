@@ -225,13 +225,14 @@ class SampledCall:
     system: str
     conversation: str
     output: str
+    row: ReviewCallRow
 
 
 @frozen
 class RenderedCall:
     call_type: str
-    # The call's block as the review read it, after its call type's system prompt, which the review read once.
-    text: str
+    # The stored call, so a judge drafted for it can read it as the runtime evaluation will.
+    row: ReviewCallRow
 
 
 @frozen
@@ -383,6 +384,7 @@ def parse_call(row: ReviewCallRow) -> SampledCall | None:
         system=parts.system,
         conversation=parts.conversation,
         output=_content_text(output),
+        row=row,
     )
 
 
@@ -497,10 +499,7 @@ def render(
         call_types={ids[call_type.key]: call_type for call_type in call_types},
         trace_ids={key: frozenset(trace_ids) for key, trace_ids in traces.items()},
         calls={
-            number: RenderedCall(
-                call_type=call.call_type, text=f"{_system_section(systems.get(call.call_type, ''))}\n{block}"
-            )
-            for number, (call, block) in enumerate(zip(kept, blocks), start=1)
+            number: RenderedCall(call_type=call.call_type, row=call.row) for number, call in enumerate(kept, start=1)
         },
     )
 

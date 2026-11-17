@@ -33,7 +33,7 @@ from posthog.api.oauth.client_auth import extract_client_credentials, verify_cli
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthRefreshToken, ProvisioningSigning
 from posthog.models.user import User
 from posthog.models.utils import generate_random_oauth_access_token, generate_random_oauth_refresh_token
-from posthog.scopes import narrow_scopes_to_ceiling, scopes_within_ceiling
+from posthog.scopes.ceilings import narrow_scopes_to_ceiling, scopes_within_ceiling
 
 from ee.api.agentic_provisioning.analytics import capture_provisioning_event
 from ee.api.agentic_provisioning.constants import (

@@ -10,8 +10,8 @@ use thiserror::Error;
 pub use catalog::{FilterCatalog, Generation};
 pub use leaf_classifier::{classify_leaf, LeafClass, LeafDropReason};
 pub use loader::{
-    build_catalog_from_rows, load_realtime_cohorts, load_realtime_cohorts_for_teams, CohortRow,
-    REALTIME_COHORTS_SQL,
+    build_catalog_from_rows, load_realtime_cohort_teams, load_realtime_cohorts,
+    load_realtime_cohorts_for_teams, CohortRow, REALTIME_COHORTS_SQL,
 };
 pub use reverse_index::{BehavioralCandidates, LeafStateMeta, TeamFilters, TeamFiltersBuilder};
 pub use tree::{
