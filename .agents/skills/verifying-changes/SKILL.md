@@ -34,6 +34,7 @@ The stamp is keyed on the content of every tracked and untracked file, so any la
 The `commit-msg` hook compares the staged content with the stamp.
 `HOGLI_VERIFY_GATE` sets its mode: `observe` (the default) only reports a commit it would block, `enforce` blocks it, and `off` skips the check.
 To commit an unverified change under `enforce`, add an `Unverified: <reason>` line to the commit message.
+Start the reason with `docs`, `generated`, `config`, `trivial`, `wip`, `tooling` or `untestable`. Telemetry records only that word, or `other`.
 
 For layer 4, set `STORYBOOK_STORIES` to the directories or story files you need instead of editing the `stories` list in `main.ts`.
 `/working-with-storybook` covers starting Storybook, opening a story by URL, screenshots, and writing the story itself.

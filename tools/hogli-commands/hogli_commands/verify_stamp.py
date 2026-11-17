@@ -8,6 +8,8 @@ import shutil
 import hashlib
 import tempfile
 import subprocess
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
 from enum import StrEnum
@@ -25,6 +27,7 @@ GATE_BLOCK_EXIT_CODE = 3
 GATE_EVENT = "verify_gate_checked"
 GATE_TELEMETRY_WAIT_SECONDS = 0.5
 ESCAPE_TRAILER = re.compile(r"^Unverified:[ \t]*(\S.*)$", re.IGNORECASE | re.MULTILINE)
+ESCAPE_REASON_WORD = re.compile(r"[a-z-]+")
 NO_LAYER = "none"
 FAILED_OUTCOME = "failed"
 VERIFIED_OUTCOME = "verified"
@@ -46,6 +49,24 @@ class GateVerdict(StrEnum):
     ERROR = "error"
 
 
+class EscapeReason(StrEnum):
+    DOCS = "docs"
+    GENERATED = "generated"
+    CONFIG = "config"
+    TRIVIAL = "trivial"
+    WIP = "wip"
+    TOOLING = "tooling"
+    UNTESTABLE = "untestable"
+    OTHER = "other"
+
+
+@dataclass(frozen=True, kw_only=True, slots=True)
+class ContentSnapshot:
+    content_hash: str
+    head: str
+    blobs_changed_from_head: dict[str, str]
+
+
 @dataclass(frozen=True, kw_only=True, slots=True)
 class VerifyStamp:
     content_hash: str
@@ -56,6 +77,7 @@ class VerifyStamp:
     sufficient_layer: str
     layers: dict[str, str]
     checks: dict[str, str] = field(default_factory=dict)
+    blobs_changed_from_head: dict[str, str] = field(default_factory=dict)
 
 
 def _git_bytes(*args: str, env: dict[str, str] | None = None) -> bytes:
@@ -78,7 +100,13 @@ def staged_content_hash(env: dict[str, str] | None = None) -> str:
     return hashlib.sha256(_git_bytes("ls-files", "--stage", "-z", env=env)).hexdigest()
 
 
-def working_tree_content_hash() -> str:
+def blobs_changed_from(commit: str, env: dict[str, str] | None = None) -> dict[str, str]:
+    fields = _git_bytes("diff-index", "--cached", "--no-renames", "-z", commit, env=env).decode().split("\0")
+    return {path: status.split()[3] for status, path in zip(fields[0::2], fields[1::2]) if path}
+
+
+@contextmanager
+def _scratch_index_with_working_tree() -> Iterator[dict[str, str]]:
     real_objects = _git_path("objects")
     with tempfile.TemporaryDirectory() as scratch:
         scratch_index = Path(scratch) / "index"
@@ -92,12 +120,27 @@ def working_tree_content_hash() -> str:
             "GIT_ALTERNATE_OBJECT_DIRECTORIES": str(real_objects),
         }
         _git("add", "--all", env=env)
+        yield env
+
+
+def working_tree_content_hash() -> str:
+    with _scratch_index_with_working_tree() as env:
         return staged_content_hash(env)
 
 
-def snapshot_content_hash() -> str | None:
+def working_tree_snapshot() -> ContentSnapshot:
+    with _scratch_index_with_working_tree() as env:
+        head = _git("rev-parse", "HEAD")
+        return ContentSnapshot(
+            content_hash=staged_content_hash(env),
+            head=head,
+            blobs_changed_from_head=blobs_changed_from(head, env),
+        )
+
+
+def snapshot_working_tree() -> ContentSnapshot | None:
     try:
-        return working_tree_content_hash()
+        return working_tree_snapshot()
     except Exception as error:
         click.secho(
             f"  Could not hash the working tree, so no verification stamp will be recorded: {error}", fg="yellow"
@@ -107,30 +150,31 @@ def snapshot_content_hash() -> str | None:
 
 def write_stamp(
     *,
-    content_hash: str | None,
+    snapshot: ContentSnapshot | None,
     outcome: str,
     highest_layer: str,
     sufficient_layer: str,
     layers: dict[str, str],
     checks: dict[str, str],
 ) -> VerifyStamp | None:
-    if content_hash is None:
+    if snapshot is None:
         return None
     try:
-        if working_tree_content_hash() != content_hash:
+        if working_tree_content_hash() != snapshot.content_hash:
             click.secho(
                 "  Files changed while the checks ran. Run `hogli verify --changed` again before you commit.",
                 fg="yellow",
             )
         stamp = VerifyStamp(
-            content_hash=content_hash,
-            head=_git("rev-parse", "HEAD"),
+            content_hash=snapshot.content_hash,
+            head=snapshot.head,
             recorded_at=datetime.now(UTC).isoformat(),
             outcome=outcome,
             highest_layer=highest_layer,
             sufficient_layer=sufficient_layer,
             layers=layers,
             checks=checks,
+            blobs_changed_from_head=snapshot.blobs_changed_from_head,
         )
         stamp_path().write_text(json.dumps(asdict(stamp), indent=2) + "\n")
     except Exception as error:
@@ -159,10 +203,29 @@ def gate_mode() -> GateMode:
         return GateMode.OBSERVE
 
 
-def escape_reason(commit_message: str) -> str | None:
+def escape_reason(commit_message: str) -> EscapeReason | None:
     message_without_comments = "\n".join(line for line in commit_message.splitlines() if not line.startswith("#"))
     match = ESCAPE_TRAILER.search(message_without_comments)
-    return match.group(1).strip() if match else None
+    if not match:
+        return None
+    word = ESCAPE_REASON_WORD.match(match.group(1).lower())
+    try:
+        return EscapeReason(word.group(0) if word else EscapeReason.OTHER)
+    except ValueError:
+        return EscapeReason.OTHER
+
+
+def stale_file_count(stamp: VerifyStamp) -> int:
+    staged = blobs_changed_from(stamp.head)
+    stamped = stamp.blobs_changed_from_head
+    return sum(staged.get(path) != stamped.get(path) for path in staged.keys() | stamped.keys())
+
+
+def _stamp_age_seconds(stamp: VerifyStamp) -> int | None:
+    try:
+        return int((datetime.now(UTC) - datetime.fromisoformat(stamp.recorded_at)).total_seconds())
+    except ValueError:
+        return None
 
 
 def judge(stamp: VerifyStamp | None, staged_content: str, commit_message: str) -> GateVerdict:
@@ -190,7 +253,15 @@ VERDICT_EXPLANATIONS: dict[GateVerdict, str] = {
 PASSING_VERDICTS = frozenset({GateVerdict.VERIFIED, GateVerdict.ESCAPED})
 
 
-def _track_gate_check(mode: GateMode, verdict: GateVerdict, would_block: bool, stamp: VerifyStamp | None) -> None:
+def _track_gate_check(
+    *, mode: GateMode, verdict: GateVerdict, would_block: bool, stamp: VerifyStamp | None, escape: EscapeReason | None
+) -> None:
+    stale_files: int | None = None
+    try:
+        if stamp is not None and verdict in (GateVerdict.STALE, GateVerdict.ESCAPED):
+            stale_files = stale_file_count(stamp)
+    except Exception:
+        pass
     try:
         telemetry.track(
             GATE_EVENT,
@@ -199,6 +270,9 @@ def _track_gate_check(mode: GateMode, verdict: GateVerdict, would_block: bool, s
                 "verify_gate_mode": str(mode),
                 "verify_gate_verdict": str(verdict),
                 "verify_gate_would_block": would_block,
+                "verify_gate_escape_reason": str(escape) if escape else None,
+                "verify_stale_files": stale_files,
+                "verify_stamp_age_seconds": _stamp_age_seconds(stamp) if stamp else None,
                 "verify_highest_layer": stamp.highest_layer if stamp else NO_LAYER,
                 "verify_outcome": stamp.outcome if stamp else None,
             },
@@ -228,14 +302,17 @@ def verify_gate(commit_message_file: Path) -> None:
         verdict = GateVerdict.ESCAPED if escape_reason(commit_message) else GateVerdict.ERROR
         error_detail = f" ({error})"
     would_block = verdict not in PASSING_VERDICTS
-    _track_gate_check(mode, verdict, would_block, stamp)
+    _track_gate_check(
+        mode=mode, verdict=verdict, would_block=would_block, stamp=stamp, escape=escape_reason(commit_message)
+    )
     if verdict == GateVerdict.VERIFIED and stamp is not None:
         click.secho(f"hogli verify gate: verified, highest layer {stamp.highest_layer}.", dim=True, err=True)
         return
     if not would_block:
         return
     explanation = VERDICT_EXPLANATIONS[verdict] + error_detail
-    advice = "Run `hogli verify --changed`, or add an `Unverified: <reason>` line to the commit message."
+    reasons = ", ".join(reason for reason in EscapeReason if reason != EscapeReason.OTHER)
+    advice = f"Run `hogli verify --changed`, or add an `Unverified: <reason>` line to the commit message ({reasons})."
     if mode == GateMode.OBSERVE:
         click.secho(f"hogli verify gate: would block ({verdict}): {explanation}. {advice}", fg="yellow", err=True)
         return

@@ -3,6 +3,7 @@ from __future__ import annotations
 import subprocess
 from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 import pytest
 from unittest.mock import patch
@@ -18,7 +19,14 @@ from hogli_commands.verify_layers import (
     plan_verification,
     verify,
 )
-from hogli_commands.verify_stamp import read_stamp, stamp_path, verify_gate, working_tree_content_hash, write_stamp
+from hogli_commands.verify_stamp import (
+    read_stamp,
+    stamp_path,
+    verify_gate,
+    working_tree_content_hash,
+    working_tree_snapshot,
+    write_stamp,
+)
 
 
 @pytest.fixture
@@ -146,17 +154,63 @@ class TestVerifyCommand:
 
 class TestVerifyGate:
     @pytest.mark.parametrize(
-        "mode,stamp_outcome,highest_layer,edited_after_verify,message,exit_code,output",
+        "mode,stamp_outcome,highest_layer,edited_after_verify,message,exit_code,output,tracked",
         [
-            ("observe", "verified", "unit_test", False, "feat: x", 0, "verified, highest layer unit_test"),
-            ("observe", "verified", "unit_test", True, "feat: x", 0, "would block (stale)"),
-            ("enforce", "verified", "unit_test", True, "feat: x", 3, "blocked (stale)"),
-            ("enforce", "failed", "none", False, "feat: x", 3, "blocked (failed)"),
-            ("enforce", "failed", "static", False, "feat: x", 3, "blocked (failed)"),
-            ("enforce", "unverified", "static", False, "feat: x", 3, "blocked (unverified)"),
-            ("observe", "unverified", "static", False, "feat: x", 0, "would block (unverified)"),
-            ("enforce", "verified", "unit_test", True, "feat: x\n\nUnverified: generated file only", 0, ""),
-            ("off", "failed", "none", True, "feat: x", 0, ""),
+            (
+                "observe",
+                "verified",
+                "unit_test",
+                False,
+                "feat: x",
+                0,
+                "verified, highest layer unit_test",
+                ("verified", None, None),
+            ),
+            ("observe", "verified", "unit_test", True, "feat: x", 0, "would block (stale)", ("stale", None, 1)),
+            ("enforce", "verified", "unit_test", True, "feat: x", 3, "blocked (stale)", ("stale", None, 1)),
+            ("enforce", "failed", "none", False, "feat: x", 3, "blocked (failed)", ("failed", None, None)),
+            ("enforce", "failed", "static", False, "feat: x", 3, "blocked (failed)", ("failed", None, None)),
+            (
+                "enforce",
+                "unverified",
+                "static",
+                False,
+                "feat: x",
+                3,
+                "blocked (unverified)",
+                ("unverified", None, None),
+            ),
+            (
+                "observe",
+                "unverified",
+                "static",
+                False,
+                "feat: x",
+                0,
+                "would block (unverified)",
+                ("unverified", None, None),
+            ),
+            (
+                "enforce",
+                "verified",
+                "unit_test",
+                True,
+                "feat: x\n\nUnverified: generated file only",
+                0,
+                "",
+                ("escaped", "generated", 1),
+            ),
+            (
+                "enforce",
+                "verified",
+                "unit_test",
+                True,
+                "feat: x\n\nUnverified: ran it by hand",
+                0,
+                "",
+                ("escaped", "other", 1),
+            ),
+            ("off", "failed", "none", True, "feat: x", 0, "", None),
         ],
     )
     def test_gate_matches_the_committed_content_against_the_stamp(
@@ -171,11 +225,12 @@ class TestVerifyGate:
         message: str,
         exit_code: int,
         output: str,
+        tracked: tuple[str, str | None, int | None] | None,
     ) -> None:
         (repo / "team.py").write_text("a = 2\n")
         (repo / "new_module.py").write_text("b = 1\n")
         write_stamp(
-            content_hash=working_tree_content_hash(),
+            snapshot=working_tree_snapshot(),
             outcome=stamp_outcome,
             highest_layer=highest_layer,
             sufficient_layer="unit_test",
@@ -189,11 +244,17 @@ class TestVerifyGate:
         message_file = repo / "COMMIT_EDITMSG"
         message_file.write_text(message)
         monkeypatch.setenv("HOGLI_VERIFY_GATE", mode)
+        events: list[dict[str, Any]] = []
+        monkeypatch.setattr(verify_stamp.telemetry, "track", lambda _event, properties: events.append(properties))
 
         result = CliRunner().invoke(verify_gate, [str(message_file)])
 
         assert result.exit_code == exit_code
         assert output in result.output
+        assert [
+            (event["verify_gate_verdict"], event["verify_gate_escape_reason"], event["verify_stale_files"])
+            for event in events
+        ] == ([tracked] if tracked else [])
 
     @pytest.mark.parametrize(
         "mode,message,exit_code,output",
