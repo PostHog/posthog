@@ -137,7 +137,7 @@ export type ReplayFields = Record<string, number>
 export type SenderKind = 'email_sandbox'
 
 // `alsoMatches` lists other values that a stored record of the same request can hold.
-export type FingerprintWithPreviousShape = { current: string; previousShape: string; alsoMatches?: string[] }
+export type FingerprintWithPreviousShape = { current: string; previousShape: string; alsoMatches?: readonly string[] }
 
 export type Fingerprint = string | FingerprintWithPreviousShape
 
