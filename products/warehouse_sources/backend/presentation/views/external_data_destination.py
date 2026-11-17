@@ -1167,20 +1167,19 @@ class ExternalDataDestinationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
         # enough of them are failures of this destination or the window runs out.
         destinations_by_id: dict[str, ExternalDataDestination] = {}
         matched: list[tuple[ExternalDataJob, list[ExternalDataDestination]]] = []
-        offset = 0
+        page_query = jobs
         while len(matched) < DELIVERY_FAILURES_LIMIT:
-            page = list(jobs[offset : offset + DELIVERY_FAILURES_PAGE_SIZE])
+            page = list(page_query[:DELIVERY_FAILURES_PAGE_SIZE])
             if not page:
                 break
-            offset += len(page)
+            last = page[-1]
+            page_query = jobs.filter(Q(created_at__lt=last.created_at) | Q(created_at=last.created_at, id__lt=last.id))
             unseen_ids = {
                 str(linked_id) for job in page for linked_id in job.destination_ids
             } - destinations_by_id.keys()
             if unseen_ids:
-                for linked in (
-                    ExternalDataDestination.objects.for_team(self.team_id, canonical=True)
-                    .filter(id__in=unseen_ids)
-                    .select_related("integration")
+                for linked in ExternalDataDestination.objects.for_team(self.team_id, canonical=True).filter(
+                    id__in=unseen_ids
                 ):
                     destinations_by_id[str(linked.id)] = linked
 
