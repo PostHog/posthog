@@ -514,18 +514,37 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
         assert ("person_distinct_id_overrides" in clickhouse) == joins_overrides
         assert "FROM person " not in clickhouse
 
-    def test_asterisk_carries_the_corrected_person_and_no_second_person_column(self):
+    @parameterized.expand(
+        [
+            ("properties_on_events", PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS, True),
+            ("no_override", PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS, False),
+            ("disabled", PersonsOnEventsMode.DISABLED, True),
+        ]
+    )
+    def test_asterisk_carries_the_mode_person_and_no_second_person_column(
+        self, _name: str, persons_on_events_mode: PersonsOnEventsMode, reads_merge: bool
+    ):
         # Let the stored column into the expansion and it takes the slot `person_id` held, so the SQL
         # editor's default query shifts every later column and shows two person ids that disagree.
         merged_person_id = uuid.uuid4()
         self._override(merged_person_id, version=1)
+        create_person(team=self.team, uuid=str(merged_person_id), distinct_ids=["probe-distinct-id"])
+        flush_persons_and_events()
+        properties_on_events_columns = self._execute(
+            "*",
+            modifiers=HogQLQueryModifiers(
+                personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS
+            ),
+        ).columns
 
-        response = self._execute("*")
+        response = self._execute("*", modifiers=HogQLQueryModifiers(personsOnEventsMode=persons_on_events_mode))
         columns = response.columns or []
 
+        assert columns == properties_on_events_columns
         assert "flag_evaluation_person_id" not in columns
         assert "flag_evaluation_response" not in columns
-        assert response.results[0][columns.index("person_id")] == merged_person_id
+        expected_person_id = merged_person_id if reads_merge else self.person_id
+        assert response.results[0][columns.index("person_id")] == expected_person_id
         # The fields copied from events exist only so that filters resolve. They must not reach the expansion.
         assert not [column for column in columns if column.startswith(("$virt_", "elements_chain", "$session_id"))]
 
