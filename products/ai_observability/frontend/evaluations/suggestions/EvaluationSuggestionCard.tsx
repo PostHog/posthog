@@ -57,7 +57,7 @@ export function EvaluationSuggestionCard({ suggestion }: { suggestion: EvalSugge
                 <LemonTag type={needsFix ? 'warning' : 'muted'} size="small">
                     {kindLabel(suggestion)}
                 </LemonTag>
-                {!needsFix && (
+                {suggestion.kind !== 'fix_eval' && (
                     <LemonDropdown
                         overlay={<EvaluationSuggestionDetails suggestion={suggestion} />}
                         placement="bottom-end"

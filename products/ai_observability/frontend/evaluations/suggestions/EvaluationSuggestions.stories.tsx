@@ -112,6 +112,7 @@ const PROMPT_PROBLEM = suggestion({
     draft: {
         name: 'Replies promise a refund date',
         description: 'Whether a reply promises a refund date',
+        target: 'generation',
         prompt_name: 'support-reply',
     },
     measured_failure_rate: 26 / 30,

@@ -9,7 +9,7 @@ import re
 import math
 import hashlib
 from collections import Counter
-from collections.abc import Mapping, Sequence
+from collections.abc import Collection, Mapping, Sequence
 from dataclasses import asdict
 from typing import Any
 
@@ -636,12 +636,13 @@ def is_prompt_bug(card: ReviewCard) -> bool:
     return card.failed >= MIN_PROMPT_BUG_FAILURES and card.failed >= PROMPT_BUG_FAIL_SHARE * card.of
 
 
-def prompt_fix_proposal(card: ReviewCard) -> Proposal:
+def prompt_fix_proposal(card: ReviewCard, managed_prompts: Collection[str]) -> Proposal:
     """A card that asks the team to fix the prompt of the card's call types, with the review's examples. It keeps the
-    review card's dedupe key, so the check stays one card whichever kind a run gives it."""
+    review card's dedupe key, so the check stays one card whichever kind a run gives it. It names the prompt only
+    when the team manages one by that name, since the card links to it."""
     text = cards.prompt_fix_text(card)
     weekly_units = 7 * sum(c.calls for c in card.call_types)
-    prompts = [c.name for c in card.call_types if c.source == "prompt_name"]
+    prompts = [c.name for c in card.call_types if c.source == "prompt_name" and c.name in managed_prompts]
     return Proposal(
         kind=EvalSuggestionKind.FIX_PROMPT,
         template_key=REVIEW_TEMPLATE_KEY,
@@ -653,6 +654,8 @@ def prompt_fix_proposal(card: ReviewCard) -> Proposal:
         draft={
             "name": card.title[: Evaluation._meta.get_field("name").max_length],
             "description": card.checks,
+            # The card reports a rate over generations, as a judge on them would.
+            "target": "generation",
             **({"prompt_name": prompts[0]} if len(prompts) == 1 else {}),
         },
         filters=[],

@@ -295,7 +295,9 @@ def _reviewed_proposals(
         unscoped=len(proposals) - len(scoped),
         cost_usd=round(spent + calibrated.cost_usd, 4),
     )
-    return [*scoped, *(ranking.prompt_fix_proposal(card) for card in prompt_bugs)]
+    named = {c.name for card in prompt_bugs for c in card.call_types if c.source == "prompt_name"}
+    managed = coverage_stage.managed_prompt_names(team, named) if named else frozenset()
+    return [*scoped, *(ranking.prompt_fix_proposal(card, managed) for card in prompt_bugs)]
 
 
 def _prompt_snippets(

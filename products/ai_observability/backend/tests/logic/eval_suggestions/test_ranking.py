@@ -591,20 +591,22 @@ def test_a_reviewed_card_keeps_its_dedupe_key_when_a_later_review_rewords_it(
 
 @parameterized.expand(
     [
-        ("most_calls_break_the_rule", 21, 30, True),
-        ("a_minority_breaks_it", 20, 30, False),
-        ("too_few_calls_to_tell", 4, 4, False),
+        ("most_calls_break_the_rule", 21, 30, True, {"support-reply"}),
+        ("a_minority_breaks_it", 20, 30, False, {"support-reply"}),
+        ("too_few_calls_to_tell", 4, 4, False, {"support-reply"}),
+        # The prompt name comes from the events, and the team no longer manages a prompt by that name.
+        ("prompt_no_longer_managed", 21, 30, True, set()),
     ]
 )
 def test_a_card_whose_rule_most_calls_break_asks_for_a_prompt_fix(
-    _name: str, failed: int, of: int, prompt_bug: bool
+    _name: str, failed: int, of: int, prompt_bug: bool, managed: set[str]
 ) -> None:
     card = replace(_review_card([_call_type("prompt_name", "support-reply")]), failed=failed, of=of)
 
     assert ranking.is_prompt_bug(card) is prompt_bug
-    proposal = ranking.prompt_fix_proposal(card)
-    assert (proposal.kind, proposal.dedupe_key, proposal.draft["prompt_name"]) == (
+    proposal = ranking.prompt_fix_proposal(card, managed)
+    assert (proposal.kind, proposal.dedupe_key, proposal.draft.get("prompt_name")) == (
         "fix_prompt",
         ranking.review_dedupe_key(card),
-        "support-reply",
+        "support-reply" if managed else None,
     )
