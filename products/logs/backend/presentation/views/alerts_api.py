@@ -1842,7 +1842,6 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             row.id: row for row in rows.filter(id__in=[alert_id for _, alert_id, native in listed if not native])
         }
         native_ids = [alert_id for _, alert_id, native in listed if native]
-        # A copy whose logs row was deleted is shown from the copy alone, as an alert created without a row is.
         rowless_copy_ids = [
             alert_id
             for _, alert_id, native in listed
