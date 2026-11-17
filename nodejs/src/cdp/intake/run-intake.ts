@@ -80,9 +80,8 @@ export class RunIntake {
         return this.deps.intake?.modeOf(teamId) ?? 'off'
     }
 
-    // A keyed send's fingerprint is an unkeyed hash of its variables, so it stays off Kafka even when sealing is on.
-    keepsOffKafka(run: Pick<Run, 'invocation' | 'claim'>): boolean {
-        return carriesSecret(run.invocation) && (!this.deps.intake?.sealsSecrets || run.claim !== undefined)
+    keepsOffKafka(run: Pick<Run, 'invocation'>): boolean {
+        return carriesSecret(run.invocation) && !this.deps.intake?.sealsSecrets
     }
 
     // Async mode: the claim is left to the consumer. Never throws; a lookup that fails or runs late reads as absent.

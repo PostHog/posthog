@@ -3006,7 +3006,7 @@ describe('CDP API', () => {
 
             it.each([
                 ['sealing is off', false, false, 0],
-                ['the send is keyed, so its fingerprint would reach Kafka', true, true, 0],
+                ['sealing is on and the send is keyed', true, true, 1],
                 ['sealing is on and the send has no key', true, false, 1],
             ])('produces a sensitive send only when %s allows it', async (_name, sealing, keyed, produced) => {
                 api['config'].CDP_SEAL_TRANSACTIONAL_EMAIL_STATE = sealing
