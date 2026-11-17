@@ -33,6 +33,7 @@ export const CUPED_DEFAULT_SETTINGS_URL = urls.settings(
 )
 
 export interface HypothesisPanel {
+    name: string
     description: string | null | undefined
     isBayesian: boolean
     confidenceDisplay: string
@@ -66,6 +67,7 @@ export function useHypothesisPanel(): HypothesisPanel {
     const isLegacy = isLegacyExperiment(experiment)
 
     return {
+        name: experiment.name,
         description: experiment.description,
         isBayesian,
         confidenceDisplay: isBayesian

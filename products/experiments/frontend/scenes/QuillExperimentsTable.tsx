@@ -47,6 +47,7 @@ import {
     ExperimentStatus,
 } from '~/types'
 
+import { QuillTagsDialog } from 'products/experiments/frontend/components/QuillTagsDialog'
 import { CONCLUSION_DISPLAY_CONFIG } from 'products/experiments/frontend/constants'
 import {
     canArchiveExperiment,
@@ -54,6 +55,7 @@ import {
     confirmDeleteExperiment,
 } from 'products/experiments/frontend/experimentActions'
 import { getExperimentStatus } from 'products/experiments/frontend/experimentStatus'
+import { experimentsPartialUpdate } from 'products/experiments/frontend/generated/api'
 import {
     EXPERIMENTS_PER_PAGE,
     experimentsLogic,
@@ -77,7 +79,6 @@ import {
     startExperimentSurvey,
 } from './experimentsTable'
 import { QuillExperimentsListFilters } from './QuillExperimentsListFilters'
-import { QuillExperimentTagsDialog } from './QuillExperimentTagsDialog'
 
 type ExperimentsDataTable = DataTableProps<Experiment, unknown>
 type SortingState = NonNullable<ExperimentsDataTable['sorting']>
@@ -590,7 +591,7 @@ function QuillExperimentsTable({
     rowSelection: RowSelectionState
     setRowSelection: (rowSelection: RowSelectionState) => void
 }): JSX.Element {
-    const { experiments, experimentsLoading, filters, count } = useValues(experimentsLogic)
+    const { experiments, experimentsLoading, filters, count, currentProjectId } = useValues(experimentsLogic)
     const { loadExperiments, setExperimentsFilters } = useActions(experimentsLogic)
     const { currentOrganization } = useValues(organizationLogic)
     const hasMultipleProjects = (currentOrganization?.projects?.length ?? 0) > 1
@@ -645,10 +646,16 @@ function QuillExperimentsTable({
                     />
                 )}
             </Card>
-            <QuillExperimentTagsDialog
-                experiment={tagsExperiment}
+            <QuillTagsDialog
+                open={!!tagsExperiment}
+                name={tagsExperiment?.name ?? ''}
+                tags={tagsExperiment?.tags ?? []}
                 onClose={() => setTagsExperiment(null)}
-                onSaved={() => {
+                onSave={async (tags) => {
+                    if (typeof tagsExperiment?.id !== 'number') {
+                        return
+                    }
+                    await experimentsPartialUpdate(String(currentProjectId), tagsExperiment.id, { tags })
                     setTagsExperiment(null)
                     loadExperiments()
                 }}

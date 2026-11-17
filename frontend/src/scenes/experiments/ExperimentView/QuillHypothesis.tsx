@@ -1,6 +1,6 @@
-import { type ReactNode, useId } from 'react'
+import { type ReactNode, useId, useState } from 'react'
 
-import { IconPencil } from '@posthog/icons'
+import { IconPencil, IconPlus } from '@posthog/icons'
 import {
     Badge,
     Button,
@@ -19,9 +19,9 @@ import {
     Text,
 } from '@posthog/quill'
 
-import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 
+import { QuillTagsDialog } from 'products/experiments/frontend/components/QuillTagsDialog'
 import { SummarizeExperimentButton } from 'products/experiments/frontend/components/SummarizeExperimentButton'
 
 import {
@@ -85,6 +85,7 @@ function SettingRow({
 export function QuillHypothesis(): JSX.Element {
     const panel = useHypothesisPanel()
     const baselineId = useId()
+    const [tagsOpen, setTagsOpen] = useState(false)
     const completedWindowsId = useId()
     const { isBayesian, cupedEnabled, lockedReason, tags } = panel
 
@@ -215,19 +216,27 @@ export function QuillHypothesis(): JSX.Element {
                                 </Field>
                             </SettingRow>
                             <SettingRow label="Tags">
-                                {panel.canEditExperiment ? (
-                                    <ObjectTags
-                                        tags={tags}
-                                        onChange={panel.setTags}
-                                        saving={panel.saving}
-                                        data-attr="experiment-tags"
-                                    />
-                                ) : tags.length > 0 ? (
-                                    <ObjectTags tags={tags} staticOnly data-attr="experiment-tags" />
-                                ) : (
+                                {tags.length > 0 ? (
+                                    <span className="flex flex-wrap items-center gap-1">
+                                        {tags.map((tag) => (
+                                            <Badge key={tag}>{tag}</Badge>
+                                        ))}
+                                    </span>
+                                ) : panel.canEditExperiment ? null : (
                                     <Text size="xs" variant="muted" render={<span />}>
                                         None
                                     </Text>
+                                )}
+                                {panel.canEditExperiment && (
+                                    <Button
+                                        size="icon-xs"
+                                        aria-label={tags.length > 0 ? 'Manage tags' : 'Add tags'}
+                                        tooltip={tags.length > 0 ? 'Manage tags' : 'Add tags'}
+                                        onClick={() => setTagsOpen(true)}
+                                        data-attr="experiment-tags"
+                                    >
+                                        {tags.length > 0 ? <IconPencil /> : <IconPlus />}
+                                    </Button>
                                 )}
                             </SettingRow>
                         </div>
@@ -236,6 +245,16 @@ export function QuillHypothesis(): JSX.Element {
             </CardContent>
 
             <HypothesisModals />
+            <QuillTagsDialog
+                open={tagsOpen}
+                name={panel.name}
+                tags={tags}
+                onClose={() => setTagsOpen(false)}
+                onSave={(next) => {
+                    panel.setTags(next)
+                    setTagsOpen(false)
+                }}
+            />
         </Card>
     )
 }

@@ -1,4 +1,3 @@
-import { useValues } from 'kea'
 import { useEffect, useId, useState } from 'react'
 
 import {
@@ -16,40 +15,36 @@ import {
 import { TagsCombobox } from 'lib/components/Scenes/TagsCombobox'
 import { useTagPages } from 'lib/components/useTagPages'
 
-import { Experiment } from '~/types'
-
-import { experimentsPartialUpdate } from 'products/experiments/frontend/generated/api'
-import { experimentsLogic } from 'products/experiments/frontend/scenes/experimentsLogic'
-
-export function QuillExperimentTagsDialog({
-    experiment,
+/** The "Manage tags" dialog of the analytics list, for one experiment. The caller decides how the tags are saved. */
+export function QuillTagsDialog({
+    open,
+    name,
+    tags,
+    onSave,
     onClose,
-    onSaved,
 }: {
-    experiment: Experiment | null
+    open: boolean
+    name: string
+    tags: string[]
+    onSave: (tags: string[]) => Promise<void> | void
     onClose: () => void
-    onSaved: () => void
 }): JSX.Element {
-    const { currentProjectId } = useValues(experimentsLogic)
-    const [draftTags, setDraftTags] = useState<string[]>([])
+    const [draftTags, setDraftTags] = useState<string[]>(tags)
     const [saving, setSaving] = useState(false)
     const tagPages = useTagPages(useId())
 
     useEffect(() => {
-        setDraftTags(experiment?.tags ?? [])
-    }, [experiment])
+        if (open) {
+            setDraftTags(tags)
+        }
+    }, [open, tags])
 
-    const savedTags = experiment?.tags ?? []
-    const hasChanges = draftTags.length !== savedTags.length || draftTags.some((tag) => !savedTags.includes(tag))
+    const hasChanges = draftTags.length !== tags.length || draftTags.some((tag) => !tags.includes(tag))
 
     const save = async (): Promise<void> => {
-        if (!experiment || typeof experiment.id !== 'number') {
-            return
-        }
         setSaving(true)
         try {
-            await experimentsPartialUpdate(String(currentProjectId), experiment.id, { tags: draftTags })
-            onSaved()
+            await onSave(draftTags)
         } catch {
             toast.error({ title: "Couldn't save the tags. Try again." })
         } finally {
@@ -58,11 +53,11 @@ export function QuillExperimentTagsDialog({
     }
 
     return (
-        <Dialog open={!!experiment} onOpenChange={(open: boolean) => !open && !saving && onClose()}>
+        <Dialog open={open} onOpenChange={(next: boolean) => !next && !saving && onClose()}>
             <DialogContent data-attr="experiments-tags-dialog">
                 <DialogHeader>
                     <DialogTitle>Manage tags</DialogTitle>
-                    <DialogDescription>{experiment ? `Tags on "${experiment.name}".` : ''}</DialogDescription>
+                    <DialogDescription>{`Tags on "${name}".`}</DialogDescription>
                 </DialogHeader>
                 <DialogBody>
                     <TagsCombobox
