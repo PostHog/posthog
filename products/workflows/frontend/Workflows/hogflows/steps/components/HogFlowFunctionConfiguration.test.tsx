@@ -2,9 +2,8 @@ import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
 import '@testing-library/jest-dom'
 
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { BindLogic } from 'kea'
-import { expectLogic } from 'kea-test-utils'
 
 import { OrganizationMembershipLevel } from 'lib/constants'
 
@@ -249,9 +248,7 @@ describe('HogFlowFunctionConfiguration', () => {
                 effective_membership_level: level,
                 workflows_config: { ...MOCK_DEFAULT_TEAM.workflows_config, capture_workflows_engagement_events: false },
             })
-            const logic = workflowLogic(logicProps)
-            logic.mount()
-            await expectLogic(logic).toDispatchActions(['loadHogFunctionTemplatesByIdSuccess'])
+            workflowLogic(logicProps).mount()
             render(
                 <BindLogic logic={workflowLogic} props={logicProps}>
                     <HogFlowFunctionConfiguration templateId="template-email" inputs={{}} setInputs={() => {}} />
@@ -264,10 +261,8 @@ describe('HogFlowFunctionConfiguration', () => {
             await renderEmailStep(OrganizationMembershipLevel.Member)
 
             expect(engagementButton()).toHaveAttribute('aria-disabled', 'true')
-            await waitFor(() => {
-                fireEvent.click(engagementButton())
-                expect(screen.getByText('Ask a project admin to turn on engagement events.')).toBeInTheDocument()
-            })
+            fireEvent.click(engagementButton())
+            expect(await screen.findByText('Ask a project admin to turn on engagement events.')).toBeInTheDocument()
         })
 
         it('keeps the button enabled for a project admin', async () => {

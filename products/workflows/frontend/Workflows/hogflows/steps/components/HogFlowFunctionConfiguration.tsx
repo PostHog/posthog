@@ -1,17 +1,13 @@
-import { useActions, useValues } from 'kea'
+import { useValues } from 'kea'
 import posthog from 'posthog-js'
 import { useEffect } from 'react'
 
-import { IconCheck } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonCollapse, Link, Spinner } from '@posthog/lemon-ui'
+import { LemonCollapse, Spinner } from '@posthog/lemon-ui'
 
 import { CyclotronJobInputs } from 'lib/components/CyclotronJob/CyclotronJobInputs'
-import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
-import { TeamMembershipLevel } from 'lib/constants'
 import { templateToConfiguration } from 'scenes/hog-functions/configuration/hogFunctionConfigurationLogic'
 import { EmailFieldErrors } from 'scenes/hog-functions/email-templater/types'
 import { teamLogic } from 'scenes/teamLogic'
-import { urls } from 'scenes/urls'
 
 import { CyclotronJobInputType, CyclotronJobInvocationGlobals, HogFunctionMappingType } from '~/types'
 
@@ -20,6 +16,7 @@ import { hogFlowEditorTestLogic } from '../../panel/testing/hogFlowEditorTestLog
 import { isGithubEventTriggerConfig } from '../../registry/triggers/githubTriggerFilters'
 import { isSlackMessageTriggerConfig } from '../../registry/triggers/slackTriggerFilters'
 import { CustomerTaskWorkflowReferenceInput } from './CustomerTaskWorkflowReferenceInput'
+import { EmailEngagementEventsNotice } from './EmailEngagementEventsNotice'
 import { HogFlowFunctionMappings } from './HogFlowFunctionMappings'
 import { WorkflowAutoSaveIndicator } from './WorkflowAutoSaveIndicator'
 
@@ -216,17 +213,11 @@ export function HogFlowFunctionConfiguration({
     // The test panel loads a recent matching event; reuse it so autocomplete offers the property
     // names this workflow really carries. Already mounted by the surrounding step detail panel.
     const { sampleGlobals: realSampleGlobals } = useValues(hogFlowEditorTestLogic(logicProps))
-    const { currentTeam, currentTeamLoading } = useValues(teamLogic)
-    const { updateCurrentTeam } = useActions(teamLogic)
-    const engagementEventsRestrictedReason = useRestrictedArea({
-        scope: RestrictionScope.Project,
-        minimumAccessLevel: TeamMembershipLevel.Admin,
-    })
+    const { currentTeam } = useValues(teamLogic)
 
     const template = hogFunctionTemplatesById[templateId]
     const isEmailStep = templateId === 'template-email'
     const isPushStep = templateId === 'template-native-push'
-    const engagementEventsEnabled = !!currentTeam?.workflows_config?.capture_workflows_engagement_events
     useEffect(() => {
         // oxlint-disable-next-line exhaustive-deps
         if (template) {
@@ -338,67 +329,7 @@ export function HogFlowFunctionConfiguration({
                     ]}
                 />
             )}
-            {isEmailStep ? (
-                engagementEventsEnabled ? (
-                    <div className="flex items-center gap-1.5 mt-2 text-xs text-muted-alt">
-                        <IconCheck className="text-success text-base" />
-                        <span>Email engagement is being captured as PostHog events.</span>
-                        <Link
-                            to={urls.settings('environment-workflows', 'workflows-engagement-events')}
-                            target="_blank"
-                        >
-                            Manage in settings
-                        </Link>
-                    </div>
-                ) : (
-                    <LemonBanner type="info" hideIcon className="mt-2">
-                        <div className="flex flex-col gap-2">
-                            <span className="text-xs">
-                                Email engagement (sends, opens, clicks, bounces) is recorded as workflow metrics. You
-                                can also capture these as standard PostHog events for use in insights and funnels. They
-                                count toward your event usage and are billed like any other event.
-                            </span>
-                            <div className="flex items-center gap-2">
-                                <LemonButton
-                                    type="primary"
-                                    size="xsmall"
-                                    loading={currentTeamLoading}
-                                    disabledReason={
-                                        engagementEventsRestrictedReason &&
-                                        'Ask a project admin to turn on engagement events.'
-                                    }
-                                    onClick={() =>
-                                        updateCurrentTeam({
-                                            workflows_config: {
-                                                ...currentTeam?.workflows_config,
-                                                capture_workflows_engagement_events: true,
-                                            },
-                                        })
-                                    }
-                                >
-                                    Enable engagement events
-                                </LemonButton>
-                                <LemonButton
-                                    type="tertiary"
-                                    size="xsmall"
-                                    to={urls.settings('environment-workflows', 'workflows-engagement-events')}
-                                    targetBlank
-                                >
-                                    Manage in settings
-                                </LemonButton>
-                                <LemonButton
-                                    type="tertiary"
-                                    size="xsmall"
-                                    to="https://posthog.com/docs/workflows/engagement-events"
-                                    targetBlank
-                                >
-                                    Learn more
-                                </LemonButton>
-                            </div>
-                        </div>
-                    </LemonBanner>
-                )
-            ) : null}
+            {isEmailStep ? <EmailEngagementEventsNotice /> : null}
             <HogFlowFunctionMappings
                 useMapping={!isPushStep && (Array.isArray(mappings) || (template?.mapping_templates?.length ?? 0) > 0)}
                 inputs={inputs}
