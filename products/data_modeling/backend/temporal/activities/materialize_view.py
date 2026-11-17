@@ -7,6 +7,7 @@ import datetime as dt
 import contextlib
 import collections
 import dataclasses
+from collections.abc import Iterator
 
 from django.conf import settings
 from django.db import transaction
@@ -641,6 +642,19 @@ async def _write_empty_parquet_for_zero_rows(table_uri: str, schema: pa.Schema, 
     return file_uri
 
 
+@contextlib.contextmanager
+def _span_kept_out_of_context(name: str) -> Iterator[trace.Span]:
+    span = tracer.start_span(name)
+    try:
+        yield span
+    except Exception as error:
+        span.record_exception(error)
+        span.set_status(trace.Status(trace.StatusCode.ERROR, f"{type(error).__name__}: {error}"))
+        raise
+    finally:
+        span.end()
+
+
 async def hogql_table(
     query: str,
     team: Team,
@@ -848,7 +862,7 @@ async def hogql_table(
             nonlocal arrow_schema
             arrow_schema = schema
 
-        with tags_context(**context.read_tags()), tracer.start_span("materialize_view.clickhouse_stream"):
+        with tags_context(**context.read_tags()), _span_kept_out_of_context("materialize_view.clickhouse_stream"):
             async for batch in client.astream_query_as_arrow(
                 arrow_printed,
                 query_parameters=context.values,
