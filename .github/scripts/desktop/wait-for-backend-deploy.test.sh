@@ -94,7 +94,7 @@ assert_result() {
     set +e
     output=$(PATH="$fake_bin:$PATH" GH_FIXTURE_DIR="$fixtures" \
         REPOSITORY="PostHog/posthog" COMMIT_SHA="$c2" \
-        TIMEOUT_SECONDS=1 INTERVAL_SECONDS=1 "$waiter" 2>&1)
+        TIMEOUT_SECONDS="${CASE_TIMEOUT_SECONDS:-1}" INTERVAL_SECONDS=1 "$waiter" 2>&1)
     status=$?
     set -e
     if [ "$status" -ne "$expected_status" ] || ! grep -Fq "$needle" <<<"$output"; then
@@ -160,7 +160,9 @@ assert_result "a status page full of foreign statuses holds the release" "$workd
 # Final records never change, so a second poll does not read their statuses again.
 register_page "$workdir/cached" prod-us 1 "71:$c4:30:failure" "72:$c4:20:inactive,success" "73:$c1:10:success"
 register_page "$workdir/cached" prod-eu 1 "74:$c4:10:success"
-assert_result "a held release polls more than once" "$workdir/cached" 3 "prod-us: live ${c1:0:12}, contains: no"
+# The waiter's deadline is a whole second, so a 1 second timeout ends after one poll whenever that
+# poll crosses a second boundary. 3 seconds leaves room for a second poll after the 1 second sleep.
+CASE_TIMEOUT_SECONDS=3 assert_result "a held release polls more than once" "$workdir/cached" 3 "prod-us: live ${c1:0:12}, contains: no"
 for id in 71 72; do
     reads=$(grep -c "deployments_${id}_statuses" "$workdir/cached/calls")
     polls=$(grep -c "deployments_73_statuses" "$workdir/cached/calls")
