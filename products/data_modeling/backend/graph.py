@@ -82,10 +82,13 @@ class Graph:
 
 
 def node_lineage_counts(
-    team_id: int, node_ids: list[str], hidden_types: frozenset[str] = frozenset()
+    team_id: int,
+    node_ids: list[str],
+    hidden_types: frozenset[str] = frozenset(),
+    dag_id: UUID | str | None = None,
 ) -> dict[str, NodeLineageCounts]:
     """The upstream and downstream count of each node, from one load of the team's edges."""
-    graph = Graph(team_id=team_id, hidden_types=hidden_types)
+    graph = Graph(team_id=team_id, hidden_types=hidden_types, dag_id=dag_id)
     return {
         node_id: NodeLineageCounts(
             upstream=graph.get_upstream_count(node_id), downstream=graph.get_downstream_count(node_id)

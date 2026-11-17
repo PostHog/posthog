@@ -951,7 +951,9 @@ class NodeViewSet(
                 team_id=self.team_id, source_id__in=all_ids, target_id__in=all_ids
             )
         )
-        counts = node_lineage_counts(self.team_id, [str(n.id) for n in nodes], hidden_types=hidden_types)
+        counts = node_lineage_counts(
+            self.team_id, [str(n.id) for n in nodes], hidden_types=hidden_types, dag_id=node.dag_id
+        )
 
         return response.Response(
             LineageResponseSerializer(
