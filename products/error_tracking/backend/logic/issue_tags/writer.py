@@ -44,9 +44,8 @@ def set_issue_tag(
     after: dict[str, object] = {"key": key, "value": answer.value, "source": source}
 
     with transaction.atomic():
-        # A merge locks its issues before it writes their tags, so this writer locks the issue first too. Without
-        # this lock, a first answer inserts its tag row and then waits for the merge's issue lock, while the merge
-        # waits for that tag row, and Postgres aborts one of them as a deadlock.
+        # A merge locks its issues and then their tags. This writer takes its locks in the same order, because in the
+        # other order a first answer and a merge can each wait for a lock that the other holds, which is a deadlock.
         issue = (
             ErrorTrackingIssue.objects.select_for_update(no_key=True, of=("self",))
             .select_related("team")
@@ -80,7 +79,6 @@ def carry_issue_tags_on_merge(target: ErrorTrackingIssue, source_issue_ids: list
     tags = ErrorTrackingIssueTag.objects.for_team(team.parent_team_id or team.id, canonical=True)
     target_tags: dict[str, ErrorTrackingIssueTag] = {}
     carried: dict[str, ErrorTrackingIssueTag] = {}
-    # Lock the rows so that a correction committed during the merge cannot be carried from a stale read.
     for tag in tags.select_for_update().filter(issue_id__in=[target.id, *source_issue_ids]).order_by("issue_id", "key"):
         if tag.issue_id == target.id:
             target_tags[tag.key] = tag
@@ -105,8 +103,7 @@ def carry_issue_tags_on_merge(target: ErrorTrackingIssue, source_issue_ids: list
         else:
             before, updated_at = _replace_tag(tags, current, fields)
         after: dict[str, object] = {"key": key, "value": True, "source": label.source}
-        # strict=False defers the activity insert, and its internal event, until the merge commits, so neither
-        # runs while the merge holds its row locks.
+        # strict=False defers the activity insert and its internal event until the merge releases its row locks.
         _log_tag_change(target, user=None, was_impersonated=False, before=before, after=after, strict=False)
         _sync_tag_on_commit(target, key, True, updated_at)
 
