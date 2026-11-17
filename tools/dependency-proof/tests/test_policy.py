@@ -2,8 +2,8 @@ from datetime import UTC, datetime
 
 import pytest
 
-from dependency_proof import policy
-from dependency_proof.policy import DirectChange, Refused
+from dependency_proof.core import policy
+from dependency_proof.core.policy import DirectChange, Refused
 
 NOW = datetime(2026, 11, 9, tzinfo=UTC)
 

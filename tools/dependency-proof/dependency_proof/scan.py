@@ -392,8 +392,25 @@ def scanner_is_broken(findings: list[Finding]) -> bool:
     return bool(findings) and all(finding.label == NOT_SCANNED for finding in findings)
 
 
+@dataclass(frozen=True)
+class ReportRequest:
+    base: str
+    head: str
+    findings_path: str | None
+    sarif_path: str | None
+    summary_path: str | None
+
+
+@dataclass(frozen=True)
+class GateRequest:
+    base: str
+    head: str
+    output_path: str
+    summary_path: str | None
+
+
 def scan_additions(
-    base: str, head: str, fallback: Iterable[Package]
+    base: str, head: str, fallback: Iterable[Package], summary_path: str | None
 ) -> tuple[list[Finding], list[Package], dict[Package, Location]]:
     locations: dict[Package, Location] = {}
     lockfiles = changed_lockfiles(base, head)
@@ -407,37 +424,38 @@ def scan_additions(
     findings = scan_all(to_scan)
     report = summary(findings, skipped)
     sys.stdout.write(report)
-    if summary_path := os.environ.get("GITHUB_STEP_SUMMARY"):
+    if summary_path:
         with open(summary_path, "a") as handle:
             handle.write(report)
     return findings, skipped, locations
 
 
-def report() -> int:
-    base, head = os.environ.get("BASE_REF", "HEAD^1"), os.environ.get("HEAD_REF", "HEAD")
-    findings, skipped, locations = scan_additions(base, head, [Package(*package) for package in SCANNER_SELF_CHECK])
+def report(request: ReportRequest) -> int:
+    findings, skipped, locations = scan_additions(
+        request.base, request.head, [Package(*package) for package in SCANNER_SELF_CHECK], request.summary_path
+    )
     for finding in findings:
         if finding.label == BLOCKING_LABEL:
             sys.stdout.write(
                 f"::warning title=Dependency scan::{finding.package.ecosystem} {finding.package.spec} is {finding.label}\n"
             )
-    if findings_path := os.environ.get("FINDINGS_FILE"):
-        with open(findings_path, "w") as handle:
+    if request.findings_path:
+        with open(request.findings_path, "w") as handle:
             handle.write(findings_output(findings, skipped))
-    if sarif_path := os.environ.get("SARIF_FILE"):
-        with open(sarif_path, "w") as handle:
+    if request.sarif_path:
+        with open(request.sarif_path, "w") as handle:
             handle.write(sarif_output(findings, locations))
     return 1 if scanner_is_broken(findings) else 0
 
 
-def gate() -> int:
-    base, head = os.environ["MERGE_BASE"], os.environ["HEAD_SHA"]
+def gate(request: GateRequest) -> int:
+    base, head = request.base, request.head
     if not (COMMIT_SHA.fullmatch(base) and COMMIT_SHA.fullmatch(head)):
         raise SystemExit("the merge base or the head is not a commit id")
     git("fetch", "--no-tags", "--depth=1", "origin", base, head)
-    findings, skipped, _ = scan_additions(base, head, [])
+    findings, skipped, _ = scan_additions(base, head, [], request.summary_path)
     clean = is_clean(findings, skipped)
-    with open(os.environ["GITHUB_OUTPUT"], "a") as handle:
+    with open(request.output_path, "a") as handle:
         handle.write(f"clean={'true' if clean else 'false'}\n")
     # A scanner that fails on every package fails the job, so the outage shows instead of a neutral proof.
     return 1 if scanner_is_broken(findings) else 0
