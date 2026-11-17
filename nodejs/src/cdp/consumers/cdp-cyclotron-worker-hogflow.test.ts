@@ -631,6 +631,7 @@ describe('CdpCyclotronWorkerHogFlow', () => {
                         invocation: expect.objectContaining({
                             id: unreadableInvocation.id,
                             hogFlow: expect.objectContaining({ id: lateFlow.id }),
+                            state: expect.objectContaining({ sensitive: true }),
                         }),
                     }),
                 ])
