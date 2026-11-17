@@ -1,0 +1,18 @@
+#!/bin/sh
+[ -f "$(dirname "$0")/_/husky.sh" ] && . "$(dirname "$0")/_/husky.sh"
+
+[ "${HOGLI_VERIFY_GATE:-observe}" = "off" ] && exit 0
+[ -f "$(git rev-parse --git-path MERGE_HEAD 2>/dev/null)" ] && exit 0
+
+HOOK_DIR="$(cd "$(dirname "$0")" && pwd)"
+if [ -f "$HOOK_DIR/../bin/helpers/worktree-borrow.sh" ]; then
+    . "$HOOK_DIR/../bin/helpers/worktree-borrow.sh"
+    posthog_worktree_borrow
+fi
+
+command -v hogli > /dev/null 2>&1 || exit 0
+
+gate_exit_code=0
+HOGLI_GIT_HOOK=commit-msg hogli verify:gate "$1" || gate_exit_code=$?
+[ "$gate_exit_code" -eq 3 ] && exit 1
+exit 0
