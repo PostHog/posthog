@@ -39,6 +39,17 @@ export class AccountLoadError extends Error {
 
 export interface AccountAlreadyAddedOptions {
     privateSession?: boolean
+    selectAccount?: boolean
+}
+
+function accountAlreadyAddedMessage(email: string, privateSession: boolean, selectAccount: boolean): string {
+    if (privateSession) {
+        return `${email} is already on this phone. To add a different account, try again and sign in with it.`
+    }
+    if (selectAccount) {
+        return `${email} is already on this phone. To add a different account, try again and choose "Use a different account".`
+    }
+    return `${email} is already signed in on this device. To add another account, sign out of PostHog in your browser, then try again.`
 }
 
 /** The browser returned an account that is already on this device. */
@@ -48,18 +59,22 @@ export class AccountAlreadyAddedError extends Error {
     readonly host: string
     /** The sign-in ran in a private browser session, which starts signed out, so the person picked this account. */
     readonly privateSession: boolean
+    /** The sign-in asked the server for its account chooser (`prompt=select_account`), so trying again shows it. */
+    readonly selectAccount: boolean
 
-    constructor(key: string, email: string, host: string, { privateSession = false }: AccountAlreadyAddedOptions = {}) {
-        super(
-            privateSession
-                ? `${email} is already on this phone. To add a different account, try again and sign in with it.`
-                : `${email} is already signed in on this device. To add another account, sign out of PostHog in your browser, then try again.`
-        )
+    constructor(
+        key: string,
+        email: string,
+        host: string,
+        { privateSession = false, selectAccount = false }: AccountAlreadyAddedOptions = {}
+    ) {
+        super(accountAlreadyAddedMessage(email, privateSession, selectAccount))
         this.name = 'AccountAlreadyAddedError'
         this.key = key
         this.email = email
         this.host = host
         this.privateSession = privateSession
+        this.selectAccount = selectAccount
     }
 }
 

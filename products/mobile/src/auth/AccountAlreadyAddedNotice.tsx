@@ -27,6 +27,12 @@ function noticeContent(error: AccountAlreadyAddedError): NoticeContent {
             openBrowser: false,
         }
     }
+    if (error.selectAccount) {
+        return {
+            text: `Your browser is signed in to PostHog as ${error.email}, and that account is already on this phone. To add a different account, try again and choose "Use a different account".`,
+            openBrowser: false,
+        }
+    }
     return {
         text: `Your browser is still signed in to PostHog as ${error.email}, and that account is already on this phone. To add a different account, sign out of PostHog in the browser, then try again.`,
         openBrowser: true,
@@ -35,8 +41,9 @@ function noticeContent(error: AccountAlreadyAddedError): NoticeContent {
 
 /**
  * The browser signed in as an account this phone already has. A private browser session starts signed out, so there
- * the person picked that account and only needs to try again. The app cannot sign a shared browser out, because the
- * web app's logout takes a form post, so it opens PostHog where the user can sign out.
+ * the person picked that account and only needs to try again. When the sign-in asked for the server's account chooser,
+ * trying again shows it, and its "Use a different account" signs the browser out. Otherwise the app cannot sign a
+ * shared browser out, because the web app's logout takes a form post, so it opens PostHog where the user can sign out.
  */
 export function AccountAlreadyAddedNotice({ error, pending, onRetry }: AccountAlreadyAddedNoticeProps): ReactElement {
     const colors = useColors()

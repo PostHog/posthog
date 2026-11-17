@@ -7,12 +7,12 @@ from contextvars import ContextVar
 from datetime import datetime, timedelta
 from functools import wraps
 from typing import Any, TypedDict, cast
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, urlparse, urlunparse
 
 from django.conf import settings
 from django.core.exceptions import DisallowedRedirect
 from django.db import DatabaseError, OperationalError, transaction
-from django.http import HttpRequest, HttpResponse, JsonResponse
+from django.http import HttpRequest, HttpResponse, JsonResponse, QueryDict
 from django.shortcuts import render
 from django.utils import timezone
 from django.utils.decorators import method_decorator
@@ -45,6 +45,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from posthog.api import id_jag
+from posthog.api.oauth.account_selection import account_selection_continue_path, requests_account_selection
 from posthog.api.oauth.cimd import (
     CIMD_THROTTLE_CLASSES,
     CIMDFetchError,
@@ -1485,8 +1486,17 @@ def _pending_connection_for_request(request) -> PendingOAuthConnection | None:
     )
 
 
+def _login_next_for_authorize(request: HttpRequest) -> str | None:
+    # Signing in is how a signed-out person picks the account, so the login returns to the
+    # request without `select_account` and does not show the chooser after it.
+    if requests_account_selection(request.GET.get("prompt")):
+        return account_selection_continue_path(request.META.get("QUERY_STRING", ""))
+    return None
+
+
 def login_required_with_pending_connection(
     connection_for_request: Callable[[HttpRequest], PendingOAuthConnection | None],
+    login_next_for_request: Callable[[HttpRequest], str | None] | None = None,
 ):
     """`login_required` that also sets the pending-connection cookie on the login redirect,
     so the login, signup and verification screens can name the application."""
@@ -1501,6 +1511,12 @@ def login_required_with_pending_connection(
                 settings.LOGIN_URL
             )
             if is_login_redirect:
+                login_next = login_next_for_request(request) if login_next_for_request else None
+                if login_next is not None:
+                    login_url = urlparse(response.url)
+                    login_query = QueryDict(login_url.query, mutable=True)
+                    login_query["next"] = login_next
+                    response["Location"] = urlunparse(login_url._replace(query=login_query.urlencode(safe="/")))
                 connection = connection_for_request(request)
                 if connection is not None:
                     set_pending_oauth_connection_cookie(request, response, connection)
@@ -1668,7 +1684,9 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
             },
         )
 
-    @method_decorator(login_required_with_pending_connection(_pending_connection_for_request))
+    @method_decorator(
+        login_required_with_pending_connection(_pending_connection_for_request, _login_next_for_authorize)
+    )
     def get(self, request, *args, **kwargs):
         # Rate-limit new CIMD application creation by IP.
         if cimd_creation_throttled(request, self, request.query_params.get("client_id") or ""):
@@ -1709,6 +1727,12 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )
+
+        # Before `oauth_authorization_requested`: every way out of the chooser loads this request
+        # again without `select_account`, and that request captures the event once, for the
+        # account the person chose.
+        if requests_account_selection(request.query_params.get("prompt")):
+            return self._account_selection(request, application)
 
         requested_scope_tokens = translate_renamed_scopes((request.query_params.get("scope") or "").split())
         scope_was_truncated = is_truncated_scope_request(requested_scope_tokens)
@@ -1901,6 +1925,30 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
                 template_context["oauth_mcp_consent"] = oauth_mcp_consent
 
         return render_template("index.html", request, context=template_context)
+
+    def _account_selection(self, request, application: OAuthApplication) -> HttpResponse:
+        posthoganalytics.capture(
+            distinct_id=str(request.user.distinct_id),
+            event="oauth_account_selection_shown",
+            properties={**_oauth_app_event_properties(application), **(get_region_info() or {})},
+        )
+        template_context: dict[str, object] = {
+            "oauth_application": {
+                "name": application.name,
+                "client_id": application.client_id,
+                "is_verified": application.is_verified,
+                "logo_uri": application.logo_uri,
+            },
+            "oauth_account_selection": {
+                "continue_path": account_selection_continue_path(request.META.get("QUERY_STRING", "")),
+            },
+        }
+        response = render_template("index.html", request, context=template_context)
+        # "Use a different account" signs out and opens the login, which names the application from this cookie.
+        connection = _pending_connection_for_request(request)
+        if connection is not None:
+            set_pending_oauth_connection_cookie(request, response, connection)
+        return response
 
     def _ema_issuer_consent(
         self, request, application: OAuthApplication, impersonator_id: int | None

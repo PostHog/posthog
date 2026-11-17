@@ -216,6 +216,21 @@ export const EnterpriseManagedAuthSetup: Story = {
     parameters: authorizeParameters('ema_issuer:manage', ['ema_issuer:manage']),
 }
 
+const withAccountSelection: Decorator = function AccountSelectionDecorator(Story): JSX.Element {
+    useAppContextOverride(['oauth_account_selection'], (appContext) => {
+        appContext.oauth_account_selection = {
+            continue_path: '/oauth/authorize/?client_id=test-client-id&response_type=code&state=test-state',
+        }
+    })
+    return <Story />
+}
+
+export const AccountSelection: Story = {
+    decorators: [withContentSceneHeight, withAccountSelection, withOAuthApplication({ required_scopes: [] })],
+    render: () => <App />,
+    parameters: { ...authorizeParameters('openid email'), testOptions: { snapshotBrowsers: [] } },
+}
+
 export const NoOrganization: Story = {
     decorators: [
         withOAuthApplication({ required_scopes: [] }),

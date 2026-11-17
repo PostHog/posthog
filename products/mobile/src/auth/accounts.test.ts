@@ -17,6 +17,7 @@ import {
     refreshAccessToken,
     useAuthStore,
 } from './authStore'
+import { DISCOVERY_TIMEOUT_MS } from './oauth'
 import {
     getSessionTokens,
     onSessionTokensChanged,
@@ -31,15 +32,16 @@ jest.mock('@react-native-async-storage/async-storage', () =>
 jest.mock('expo/fetch', () => ({ fetch: jest.fn() }))
 const mockPromptOptions: unknown[] = []
 jest.mock('expo-auth-session', () => ({
-    AuthRequest: jest.fn().mockImplementation(() => ({
+    AuthRequest: jest.fn().mockImplementation((config: { prompt?: string }) => ({
         redirectUri: 'posthog://callback',
         codeVerifier: 'fake-verifier',
-        promptAsync: async (_discovery: unknown, options: unknown) => {
-            mockPromptOptions.push(options)
+        promptAsync: async (_discovery: unknown, options: object) => {
+            mockPromptOptions.push({ ...options, prompt: config.prompt })
             return { type: 'success', params: { code: 'fake-code' } }
         },
     })),
     makeRedirectUri: () => 'posthog://callback',
+    Prompt: { SelectAccount: 'select_account' },
 }))
 const mockSecureItems = new Map<string, string>()
 /** Items whose read throws, as a keychain does before the first unlock. */
@@ -100,6 +102,7 @@ const server = {
     heldRefresh: null as null | { reached: () => void; release: Promise<void> },
     holds: new Map<string, Hold>(),
     onRevoke: null as null | ((token: string) => Promise<void>),
+    discovery: null as null | (() => Response | Promise<Response>),
 }
 
 function json(status: number, body: unknown): Response {
@@ -150,6 +153,9 @@ async function answer(url: string, init: RequestInit | undefined): Promise<Respo
     })
     if (server.unreachable) {
         throw new TypeError('Network request failed')
+    }
+    if (pathname === '/.well-known/openid-configuration') {
+        return server.discovery ? server.discovery() : json(404, {})
     }
     if (pathname === '/oauth/token' && fields.grant_type === 'authorization_code') {
         return tokenResponse(issue(origin, server.browserUser))
@@ -304,6 +310,7 @@ describe('several accounts on one device', () => {
             unreachable: false,
             heldRefresh: null,
             onRevoke: null,
+            discovery: null,
             sent: [],
             replayed: [],
         })
@@ -410,6 +417,114 @@ describe('several accounts on one device', () => {
         await useAuthStore.getState().signIn(US, CLIENT, options)
 
         expect(mockPromptOptions).toEqual([{ preferEphemeralSession: ephemeral }])
+    })
+
+    // A host per case, because the app keeps each server's answer for the rest of the session.
+    test.each([
+        {
+            server: 'lists select_account',
+            host: 'https://chooser.example.com',
+            discovery: (): Response => json(200, { prompt_values_supported: ['select_account'] }),
+            prompt: 'select_account',
+        },
+        {
+            server: 'lists other values only',
+            host: 'https://consent-only.example.com',
+            discovery: (): Response => json(200, { prompt_values_supported: ['consent'] }),
+            prompt: undefined,
+        },
+        {
+            server: 'lists no prompt values',
+            host: 'https://older.example.com',
+            discovery: (): Response => json(200, { issuer: 'https://older.example.com' }),
+            prompt: undefined,
+        },
+        {
+            server: 'has no discovery document',
+            host: 'https://missing.example.com',
+            discovery: (): Response => json(404, {}),
+            prompt: undefined,
+        },
+        {
+            server: 'answers with a page that is not JSON',
+            host: 'https://html.example.com',
+            discovery: (): Response => new Response('<html></html>', { status: 200 }),
+            prompt: undefined,
+        },
+        {
+            server: 'cannot be reached',
+            host: 'https://offline.example.com',
+            discovery: (): Response => {
+                throw new TypeError('Network request failed')
+            },
+            prompt: undefined,
+        },
+    ])('adding an account when the server $server sends prompt $prompt', async ({ host, discovery, prompt }) => {
+        await signIn(EU, 'bob')
+        server.discovery = discovery
+        mockPromptOptions.length = 0
+        const analytics = recordAnalytics()
+
+        const ada = await signIn(host, 'ada')
+
+        expect(useAuthStore.getState().activeAccountKey).toBe(ada)
+        expect(mockPromptOptions).toEqual([{ preferEphemeralSession: true, prompt }])
+        const discoveryRequests = (globalThis.fetch as unknown as jest.Mock).mock.calls.filter(([url]) =>
+            String(url).endsWith('/.well-known/openid-configuration')
+        )
+        expect(discoveryRequests).toEqual([
+            [
+                `${host}/.well-known/openid-configuration`,
+                expect.objectContaining({ headers: { Accept: 'application/json' }, credentials: 'omit' }),
+            ],
+        ])
+        expect(analytics.filter((call) => call.startsWith('capture mobile_account_added'))).toEqual([
+            expect.stringContaining(`"select_account":${prompt !== undefined}`),
+        ])
+    })
+
+    test('adding an account opens the browser without the chooser when the server does not answer in time', async () => {
+        await signIn(EU, 'bob')
+        jest.useFakeTimers({ advanceTimers: true })
+        let asked: () => void = () => undefined
+        const reached = new Promise<void>((resolve) => {
+            asked = resolve
+        })
+        server.discovery = () => {
+            asked()
+            return new Promise<Response>(() => undefined)
+        }
+        mockPromptOptions.length = 0
+        server.browserUser = 'ada'
+
+        const adding = useAuthStore.getState().signIn('https://slow.example.com', CLIENT)
+        await reached
+        await jest.advanceTimersByTimeAsync(DISCOVERY_TIMEOUT_MS)
+        await adding
+
+        expect(mockPromptOptions).toEqual([{ preferEphemeralSession: true }])
+        expect(useAuthStore.getState().user).toMatchObject({ uuid: 'ada' })
+    })
+
+    test('keeps the answer of a server, and asks again after a check that got none', async () => {
+        const host = 'https://flaky.example.com'
+        await signIn(EU, 'bob')
+        server.discovery = () => {
+            throw new TypeError('Network request failed')
+        }
+        await signIn(host, 'ada')
+        server.discovery = () => json(200, { prompt_values_supported: ['select_account'] })
+        await signIn(host, 'carol')
+        server.discovery = () => json(200, {})
+        await signIn(host, 'dave')
+
+        expect((mockPromptOptions as { prompt?: string }[]).map(({ prompt }) => prompt)).toEqual([
+            undefined,
+            undefined,
+            'select_account',
+            'select_account',
+        ])
+        expect(server.sent.filter(({ url }) => url === `${host}/.well-known/openid-configuration`)).toHaveLength(2)
     })
 
     test('adding an account keeps the first one signed in, with its slot, metadata and refresh token', async () => {

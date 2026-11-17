@@ -386,6 +386,16 @@ The device approval page `/device` follows the same path. A visitor without a se
 - An account created while that cookie is present gets `onboarding_skipped_reason` set to `device_login` instead of `connector`. It skips onboarding and goes to `/welcome` the same way.
 - Approving or denying the device login clears the cookie.
 
+## Account chooser
+
+`/oauth/authorize/` authorizes the account the browser is signed in to. A client that wants the person to pick the account can send `prompt=select_account`. Both discovery documents list the value in `prompt_values_supported`, and a client should send it only when it finds it there.
+
+- A signed-in person sees a chooser before any consent, with **Continue with this account** and **Use a different account**. The second one signs out through the `/logout` form, and the login screen comes next.
+- Both choices, and the login of a signed-out visitor, load the same request without the `select_account` token. The server builds that path, keeps every other parameter as the client sent it, and keeps the other `prompt` values. So the chooser shows at most once in a flow.
+- The chooser comes after the request is validated, and it never issues a code. A request whose `prompt` also has `none` or `login` does not show it.
+- The chooser sets the pending-connection cookie, so the login screen after **Use a different account** names the application.
+- The server captures `oauth_account_selection_shown` with the usual client properties. The page captures `oauth_account_selection_chosen` with `choice` (`current_account` or `different_account`) and `client_name`. `oauth_authorization_requested` fires on the request after the chooser, once per flow.
+
 ## Endpoints
 
 - **Authorization**: `/oauth/authorize/`

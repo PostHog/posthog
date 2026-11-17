@@ -6,7 +6,7 @@ import { OverlayHost } from '@/ui/OverlayPortal'
 
 import { type AuthState, useAuthStore } from './authStore'
 import { SignInScreen } from './SignInScreen'
-import { AccountAlreadyAddedError } from './signInErrors'
+import { AccountAlreadyAddedError, type AccountAlreadyAddedOptions } from './signInErrors'
 
 jest.mock('react-native-worklets', () => jest.requireActual('react-native-worklets/src/mock'))
 jest.mock('react-native-reanimated', () => ({
@@ -76,29 +76,37 @@ describe('SignInScreen', () => {
         expect(mockRouter.back).toHaveBeenCalled()
     })
 
+    const PRIVATE_SESSION_TEXT =
+        'You signed in as maya@example.com, and that account is already on this phone. To add a different account, try again and sign in with it.'
     // On iOS, so a notice that reads the platform instead of the error fails the shared case.
-    test.each<[string, boolean, string, boolean]>([
+    test.each<[string, AccountAlreadyAddedOptions, string, boolean]>([
         [
             'a shared browser session',
-            false,
+            {},
             'Your browser is still signed in to PostHog as maya@example.com, and that account is already on this phone. To add a different account, sign out of PostHog in the browser, then try again.',
             true,
         ],
+        ['a private browser session', { privateSession: true }, PRIVATE_SESSION_TEXT, false],
         [
-            'a private browser session',
-            true,
-            'You signed in as maya@example.com, and that account is already on this phone. To add a different account, try again and sign in with it.',
+            'a sign-in that asked for the account chooser',
+            { selectAccount: true },
+            'Your browser is signed in to PostHog as maya@example.com, and that account is already on this phone. To add a different account, try again and choose "Use a different account".',
+            false,
+        ],
+        // The chooser never appears in a private session, which starts signed out.
+        [
+            'a private browser session that asked for the account chooser',
+            { privateSession: true, selectAccount: true },
+            PRIVATE_SESSION_TEXT,
             false,
         ],
     ])(
         'after %s, an account that is already on the phone gets the next steps that apply',
-        async (_name, privateSession, text, opensBrowser) => {
+        async (_name, options, text, opensBrowser) => {
             Platform.OS = 'ios'
             mockParams = { mode: 'add' }
             const signIn = jest.fn(async () => {
-                throw new AccountAlreadyAddedError(US_ACCOUNT.key, 'maya@example.com', US_ACCOUNT.host, {
-                    privateSession,
-                })
+                throw new AccountAlreadyAddedError(US_ACCOUNT.key, 'maya@example.com', US_ACCOUNT.host, options)
             })
             setAuth({ ...signedInAsUs, signIn })
             const openURL = jest.spyOn(Linking, 'openURL').mockResolvedValue(undefined)
