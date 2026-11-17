@@ -94,6 +94,11 @@ def list_import_providers() -> list[ImportProviderOption]:
     ]
 
 
+def import_provider_retains_credentials(provider: str) -> bool:
+    known = PROVIDERS.get(provider)
+    return known is not None and known.retains_credentials
+
+
 def start_provider_import(
     team_id: int, provider: str, steps: list[str], api_key: str | None, created_by_id: int | None
 ) -> ProviderImportRunState:

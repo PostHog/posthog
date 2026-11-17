@@ -13,6 +13,7 @@ from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.event_usage import report_user_action
 from posthog.exceptions import Conflict
+from posthog.permissions import OrganizationAdminWritePermissions
 
 from products.messaging.backend.facade.provider_imports import (
     IMPORT_PROVIDER_CHOICES,
@@ -22,6 +23,7 @@ from products.messaging.backend.facade.provider_imports import (
     ProviderImportRejected,
     ProviderImportUnavailable,
     get_provider_import_run,
+    import_provider_retains_credentials,
     list_import_providers,
     list_provider_import_runs,
     start_provider_import,
@@ -131,6 +133,9 @@ class ProviderImportViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             400: OpenApiResponse(
                 description="The provider or a step is unknown, or the API key is missing or rejected."
             ),
+            403: OpenApiResponse(
+                description="No project-wide workflow edit access, or the provider stores its API key and the caller isn't an organization admin."
+            ),
             409: OpenApiResponse(description="An import from this provider is running, or a different key is stored."),
             503: OpenApiResponse(description="The provider did not respond while checking the API key."),
         },
@@ -140,6 +145,13 @@ class ProviderImportViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         self._require_project_access("editor")
 
         data = request.validated_data
+        if import_provider_retains_credentials(data["provider"]) and not (
+            OrganizationAdminWritePermissions().has_permission(request, self)
+        ):
+            raise PermissionDenied(
+                "Only organization admins can start this import, because it stores the provider's API key as an integration."
+            )
+
         try:
             run = start_provider_import(
                 self.team_id, data["provider"], data["steps"], data.get("api_key"), request.user.id

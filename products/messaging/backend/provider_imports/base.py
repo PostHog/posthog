@@ -84,6 +84,7 @@ class ImportProvider(ABC):
     label: ClassVar[str]
     # The steps in the order they run. Each one is safe to run again over records it already imported.
     steps: ClassVar[tuple[ImportStepSpec, ...]]
+    retains_credentials: ClassVar[bool] = True
 
     @abstractmethod
     def check_credentials(self, team_id: int, api_key: str | None) -> ImportCredentials:
