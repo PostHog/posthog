@@ -1,4 +1,5 @@
 import re
+import copy
 import json
 import time
 import hashlib
@@ -79,6 +80,7 @@ from products.posthog_ai.backend.task_ownership import (
     detach_conversations_for_task_handoff,
     soft_delete_conversations_for_task,
 )
+from products.tasks.backend.activity_logging import log_sandbox_custom_image_update
 from products.tasks.backend.constants import (
     AGENT_OTEL_TELEMETRY_STATE_KEY,
     ANALYSIS_TARGET_IMAGE_ID_STATE_KEY,
@@ -2985,7 +2987,7 @@ def update_sandbox_environment(
     env_id: str | UUID, team_id: int, user_id: int, **fields
 ) -> contracts.SandboxEnvironmentDTO | None:
     """Partially update a visible environment. Returns ``None`` if not found/visible."""
-    env = _accessible_sandbox_envs(team_id, user_id).filter(pk=env_id).first()
+    env = _accessible_sandbox_envs(team_id, user_id).filter(pk=env_id, internal=False).first()
     if env is None:
         return None
     if "environment_variables" in fields:
@@ -3002,7 +3004,7 @@ def update_sandbox_environment(
 
 def delete_sandbox_environment(env_id: str | UUID, team_id: int, user_id: int) -> bool:
     """Delete a visible environment. Returns whether a row was deleted."""
-    env = _accessible_sandbox_envs(team_id, user_id).filter(pk=env_id).first()
+    env = _accessible_sandbox_envs(team_id, user_id).filter(pk=env_id, internal=False).first()
     if env is None:
         return False
     env.delete()
@@ -3195,6 +3197,9 @@ def build_sandbox_custom_image(
     )
     if not updated:
         raise ValueError("A build is already in progress for this image")
+    after = copy.copy(image)
+    after.spec = spec.model_dump()
+    log_sandbox_custom_image_update(image, after, user_id)
 
     observe_custom_image_build("started")
     execute_build_sandbox_image_workflow(str(image.id), team_id)
@@ -3224,7 +3229,8 @@ def update_sandbox_custom_image(
     if not updates:
         return get_sandbox_custom_image(image_id, team_id, user_id)
 
-    if _get_writable_custom_image(image_id, team_id, user_id) is None:
+    image = _get_writable_custom_image(image_id, team_id, user_id)
+    if image is None:
         return None
     updated = (
         _accessible_custom_images(team_id, user_id)
@@ -3233,6 +3239,10 @@ def update_sandbox_custom_image(
     )
     if not updated:
         return None
+    after = copy.copy(image)
+    for key, value in updates.items():
+        setattr(after, key, value)
+    log_sandbox_custom_image_update(image, after, user_id)
     # Re-read through get_sandbox_custom_image rather than _reload_image_dto: if a
     # concurrent delete removes the row between the update above and this read,
     # `.first()` returns None (→ 404) instead of .get() raising DoesNotExist (→ 500).
@@ -3354,6 +3364,7 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         "use_modal_vm_sandbox",
         # The image a run boots from; a PATCHed value would pick an image the task never asked for.
         "sandbox_template",
+        "custom_image_id",
         # Rollout stamps written once at dispatch by _capture_run_feature_flags or at run
         # creation; a PATCHable value would let a task controller bypass the org feature flags
         # (for telemetry, that means injecting the internal OTLP capture token into their

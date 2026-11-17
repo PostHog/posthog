@@ -34,6 +34,10 @@ rules:
     # Each line acknowledges a risky migration, so one added line lets that migration skip the check.
     - match: '/management/migration_analysis/*_acknowledged_migrations.txt'
       sensitive: true
+    - match:
+          - '/management/commands/rewrite_cohort_membership_queries.py'
+          - '/management/commands/test/test_rewrite_cohort_membership_queries.py'
+      owners: team-feature-flags
     - match: '/queries/'
       owners: team-analytics-platform
     - match: '/rbac/'
