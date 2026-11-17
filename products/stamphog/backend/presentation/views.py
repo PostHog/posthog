@@ -819,7 +819,13 @@ class RoutingRunViewSet(_StamphogTeamScopedViewSet, viewsets.GenericViewSet):
         parameters=[CodeReviewApprovalRoutingOwnersQuerySerializer],
         responses={200: RoutingOwnerCountSerializer(many=True)},
     )
-    @action(detail=False, methods=["GET"], url_path="owners", pagination_class=None, required_scopes=["stamphog:read"])
+    @action(
+        detail=False,
+        methods=["GET"],
+        url_path="owners",
+        pagination_class=None,
+        required_scopes=["code_review_approval:read"],
+    )
     def owners(self, request: Request, **kwargs) -> Response:
         query = CodeReviewApprovalRoutingOwnersQuerySerializer(data=request.query_params)
         query.is_valid(raise_exception=True)

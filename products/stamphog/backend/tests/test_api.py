@@ -1700,6 +1700,20 @@ class TestRoutingRunAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         assert [(row["owner"], row["pr_count"]) for row in response.json()] == expected
         assert {row["kind"] for row in response.json()} == {"team"}
 
+    def test_owners_accepts_a_key_with_the_read_scope(self) -> None:
+        key_value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="read-only",
+            user=self.user,
+            secure_value=hash_key_value(key_value),
+            scopes=["code_review_approval:read"],
+        )
+        self.client.logout()
+
+        response = self.client.get(f"{self.url}owners/", HTTP_AUTHORIZATION=f"Bearer {key_value}")
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+
     def test_runs_created_at_the_same_time_page_without_gaps(self) -> None:
         RoutingRun.objects.unscoped().filter(team_id=self.team.id).update(created_at=timezone.now())
 
