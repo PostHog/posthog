@@ -533,7 +533,7 @@ SQL
       type = "UInt64"
     }
     engine "distributed" {
-      cluster_name    = "posthog"
+      cluster_name    = "posthog_writable"
       remote_database = "posthog"
       remote_table    = "sharded_events_json_recent"
       sharding_key    = "sipHash64(distinct_id)"

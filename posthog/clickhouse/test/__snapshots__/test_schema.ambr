@@ -11179,7 +11179,7 @@
   
   
   
-  ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_events_json_recent', sipHash64(distinct_id))
+  ) ENGINE = Distributed('posthog_writable', 'posthog_test', 'sharded_events_json_recent', sipHash64(distinct_id))
   
   '''
 # ---
