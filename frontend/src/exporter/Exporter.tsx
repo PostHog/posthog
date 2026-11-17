@@ -8,6 +8,7 @@ import { Suspense, useEffect, useSyncExternalStore } from 'react'
 import { DashboardLoadingState } from '@posthog/products-dashboards/frontend/components/DashboardLoadingState/DashboardLoadingState'
 
 import { Logo } from 'lib/brand'
+import { imageSizeFromParams } from 'lib/components/ImageSize/imageSizeUtils'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { Link } from 'lib/lemon-ui/Link'
@@ -89,6 +90,10 @@ export function Exporter(props: ExportedData): JSX.Element {
         exportToken,
         ...exportOptions
     } = props
+    const linkSize =
+        type === ExportType.Scene || type === ExportType.Embed
+            ? imageSizeFromParams(new URLSearchParams(window.location.search))
+            : {}
     const { whitelabel, showInspector = false } = exportOptions
     const forcedTheme = useResolvedForcedTheme(exportOptions.theme)
 
@@ -141,6 +146,12 @@ export function Exporter(props: ExportedData): JSX.Element {
                     'Exporter--heatmap': type === ExportType.Heatmap,
                 })}
                 ref={elementRef}
+                style={{
+                    width: linkSize.width ?? undefined,
+                    height: linkSize.height ?? undefined,
+                    minHeight: linkSize.height != null ? 0 : undefined,
+                    overflow: linkSize.height != null ? 'auto' : undefined,
+                }}
             >
                 {dashboard ? (
                     type === ExportType.Scene ? (

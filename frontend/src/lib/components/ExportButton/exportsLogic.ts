@@ -273,6 +273,23 @@ export const exportsLogic = kea<exportsLogicType>([
 
     listeners(({ actions, values, cache }) => ({
         startExport: async ({ exportData }) => {
+            if (
+                exportData.export_format === ExporterFormat.PNG &&
+                exportData.export_context?.image_size === undefined &&
+                (exportData.insight ||
+                    exportData.insightShortId ||
+                    exportData.dashboard ||
+                    (exportData.export_context && 'source' in exportData.export_context))
+            ) {
+                const { openImageExportDialog } = await import('lib/components/ImageSize/openImageExportDialog')
+                openImageExportDialog((image_size) =>
+                    actions.startExport({
+                        ...exportData,
+                        export_context: { ...exportData.export_context, image_size },
+                    })
+                )
+                return
+            }
             // Fires for every dashboard export entry point (menu bar, dropdown, export button)
             // regardless of edit permission. Format is a property so PNG is filterable.
             if (exportData.dashboard && exportData.export_format) {

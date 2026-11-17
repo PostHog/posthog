@@ -44,6 +44,7 @@ from posthog.utils import str_to_bool
 
 from products.access_control.backend.facade.contracts import ObjectAccessRef
 from products.dashboards.backend.facade import api as dashboards_api
+from products.exports.backend.facade.image_size import ImageSizeSerializer
 from products.product_analytics.backend.facade.models import Insight
 from products.subscriptions.backend.facade import api, contracts
 from products.subscriptions.backend.facade.api import (
@@ -205,6 +206,10 @@ class AIPromptConfigSerializer(serializers.Serializer):
 class DeliveryConfigSerializer(serializers.Serializer):
     """Typed view over the Subscription.delivery_config JSON blob."""
 
+    image_size = ImageSizeSerializer(
+        required=False,
+        help_text="PNG size for each image in an insight or dashboard subscription. Omit for automatic sizing.",
+    )
     post_all_insights_in_main_message = serializers.BooleanField(
         required=False,
         default=False,

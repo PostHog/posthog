@@ -8,6 +8,8 @@ import { captureElementAsPng, copyElementImageToClipboard } from 'lib/utils/copy
 import { downloadFile } from 'lib/utils/dom'
 import { slugify } from 'lib/utils/strings'
 
+import type { ImageSizeApi } from 'products/subscriptions/frontend/generated/api.schemas'
+
 export interface CaptureImageTarget {
     /** CSS selector for the element to capture. */
     selector: string
@@ -29,7 +31,11 @@ export interface captureImageLogicActions {
     copyImage: (target: CaptureImageTarget) => {
         target: CaptureImageTarget
     }
-    downloadImage: (target: CaptureImageTarget) => {
+    downloadImage: (
+        target: CaptureImageTarget,
+        size?: ImageSizeApi
+    ) => {
+        size: ImageSizeApi | undefined
         target: CaptureImageTarget
     }
     setIsCapturing: (isCapturing: boolean) => {
@@ -79,7 +85,7 @@ export const captureImageLogic = kea<captureImageLogicType>([
     path(['lib', 'components', 'Scenes', 'InsightOrDashboard', 'captureImageLogic']),
     actions({
         copyImage: (target: CaptureImageTarget) => ({ target }),
-        downloadImage: (target: CaptureImageTarget) => ({ target }),
+        downloadImage: (target: CaptureImageTarget, size?: ImageSizeApi) => ({ target, size }),
         setIsCapturing: (isCapturing: boolean) => ({ isCapturing }),
     }),
     reducers({
@@ -118,7 +124,12 @@ export const captureImageLogic = kea<captureImageLogicType>([
             posthog.capture('copied element image', { outcome: result.outcome, selector: target.selector })
         },
 
-        downloadImage: async ({ target }) => {
+        downloadImage: async ({ target, size }) => {
+            if (size === undefined) {
+                const { openImageExportDialog } = await import('lib/components/ImageSize/openImageExportDialog')
+                openImageExportDialog((imageSize) => actions.downloadImage(target, imageSize))
+                return
+            }
             const element = findTarget(target.selector)
             if (!element) {
                 return
@@ -126,7 +137,9 @@ export const captureImageLogic = kea<captureImageLogicType>([
 
             actions.setIsCapturing(true)
             try {
-                const blob = await captureElementAsPng(element, target.excludeSelector)
+                const captured = await captureElementAsPng(element, target.excludeSelector)
+                const { resizeImageBlob } = await import('lib/components/ImageSize/resizeImageBlob')
+                const blob = await resizeImageBlob(captured, size)
                 downloadFile(toFile(target, blob))
                 lemonToast.success('Image downloaded', { button: editImageButton(target, blob) })
                 posthog.capture('downloaded element image', { selector: target.selector })

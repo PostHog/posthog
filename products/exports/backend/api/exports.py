@@ -44,6 +44,7 @@ from products.access_control.backend.presentation.access_control import (
 )
 from products.exports.backend.asset_access import can_user_view_exported_asset
 from products.exports.backend.facade.exporters import get_export_content_path, is_product_export
+from products.exports.backend.facade.image_size import ImageSizeSerializer
 from products.exports.backend.models.exported_asset import (
     ExportedAsset,
     get_content_response,
@@ -185,6 +186,13 @@ class ExportedAssetSerializer(UserAccessControlSerializerMixin, serializers.Mode
             raise ValidationError({"insight": ["This insight does not belong to your team."]})
 
         export_context = data.get("export_context") or {}
+        if "image_size" in export_context:
+            if data["export_format"] != ExportedAsset.ExportFormat.PNG:
+                raise ValidationError({"export_context": ["Image size is only supported for PNG exports."]})
+            size = ImageSizeSerializer(data=export_context["image_size"])
+            if not size.is_valid():
+                raise ValidationError({"export_context": {"image_size": size.errors}})
+            export_context["image_size"] = size.validated_data
         for internal_key in ("limit_context", "execution_mode", "kind"):
             if internal_key in export_context:
                 raise ValidationError({"export_context": [f"{internal_key} is not supported for exports."]})

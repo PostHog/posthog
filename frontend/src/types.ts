@@ -5906,7 +5906,9 @@ export type ExportContext = (
     | QueryExportContext
     | ReplayExportContext
     | HeatmapExportContext
+    | { image_size: import('products/subscriptions/frontend/generated/api.schemas').ImageSizeApi }
 ) & {
+    image_size?: import('products/subscriptions/frontend/generated/api.schemas').ImageSizeApi
     row_limit?: number // Some exports have different row limits, e.g. logs
     columns?: string[]
     variables_override?: Record<string, any>
