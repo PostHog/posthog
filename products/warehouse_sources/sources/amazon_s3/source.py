@@ -25,6 +25,7 @@ from products.warehouse_sources.sources.sdk import (
     parse_s3_url,
     secret_field,
     source_caption,
+    table_root_of_url,
     text_field,
     url_field,
 )
@@ -66,6 +67,10 @@ class AmazonS3Source(ObjectStorageSource[AmazonS3SourceConfig]):
             access_key_id=config.access_key_id.strip(),
             secret_access_key=config.secret_access_key.strip(),
         )
+
+    def table_root(self, config: AmazonS3SourceConfig) -> str:
+        # `object_store_config` looks up the region of a URL without one, and the root needs no region.
+        return table_root_of_url(parse_s3_url(config.url_pattern))
 
     def discovery_options(self, config: AmazonS3SourceConfig) -> DiscoveryOptions:
         return discovery_options_from(config)

@@ -110,6 +110,7 @@ class ExternalDataSourceViewSet(
         "destroy",
         "reload",
         "refresh_schemas",
+        "add_table",
         "bulk_update_schemas",
         "database_schema",
         "incremental_field_recommendations",
