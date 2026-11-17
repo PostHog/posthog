@@ -22,7 +22,7 @@ export function SignupPasswordField(): JSX.Element {
         passkeyError,
     } = useValues(signupLogic)
     const { setSignupPanelAuthValue, registerPasskey } = useActions(signupLogic)
-    const showCrackEstimate = !!featureFlags[FEATURE_FLAGS.SIGNUP_PASSWORD_CRACK_ESTIMATED]
+    const showCrackEstimate = featureFlags[FEATURE_FLAGS.SIGNUP_PASSWORD_CRACK_ESTIMATED] === 'test'
 
     return (
         <div className="flex flex-col gap-2 pt-4">

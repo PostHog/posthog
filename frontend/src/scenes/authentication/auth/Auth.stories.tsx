@@ -290,11 +290,14 @@ LoginCode.args = { step: 'Login code' }
 
 export const SignupCredentials: StoryFn<StoryArgs> = Template.bind({})
 SignupCredentials.args = { step: 'Signup credentials' }
+SignupCredentials.parameters = {
+    featureFlags: { [FEATURE_FLAGS.SIGNUP_PASSWORD_CRACK_ESTIMATED]: 'control' },
+}
 
 export const SignupCredentialsWithCrackEstimate: StoryFn<StoryArgs> = Template.bind({})
 SignupCredentialsWithCrackEstimate.args = { step: 'Signup credentials' }
 SignupCredentialsWithCrackEstimate.parameters = {
-    featureFlags: [FEATURE_FLAGS.SIGNUP_PASSWORD_CRACK_ESTIMATED],
+    featureFlags: { [FEATURE_FLAGS.SIGNUP_PASSWORD_CRACK_ESTIMATED]: 'test' },
 }
 
 export const SignupCredentialsEU: StoryFn<StoryArgs> = Template.bind({})
