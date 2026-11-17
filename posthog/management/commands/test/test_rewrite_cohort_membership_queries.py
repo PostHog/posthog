@@ -10,11 +10,9 @@ from parameterized import parameterized
 
 from posthog.models import Team
 from posthog.models.cohortmembership.query_rewrite import rewrite_query_nodes, rewrite_saved_rows
-from posthog.redis import get_client
 
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery, Edge
 from products.endpoints.backend.facade.models import Endpoint, EndpointVersion
-from products.notebooks.backend.collab_stream import STREAM_KEY_PATTERN
 from products.notebooks.backend.models import Notebook
 from products.product_analytics.backend.facade.models import Insight
 
@@ -89,8 +87,6 @@ class TestRewriteCohortMembershipQueriesCommand(BaseTest):
         status_query: Any = Insight.objects.get(pk=self.status_insight.pk).query
         other_team_query: Any = Insight.objects.get(pk=self.other_team_insight.pk).query
         endpoint_query: Any = EndpointVersion.objects.get(pk=self.endpoint_version.pk).query
-        stream_key = STREAM_KEY_PATTERN.format(team_id=self.team.pk, notebook_id=notebook.short_id)
-        last_stream_entry = get_client().xrevrange(stream_key, count=1)
         markdown_content: Any = Notebook.objects.get(pk=self.markdown_notebook.pk).content
         return {
             "insight": insight_query["source"]["query"],
@@ -103,7 +99,6 @@ class TestRewriteCohortMembershipQueriesCommand(BaseTest):
             "notebook_string_node": json.loads(string_node["attrs"]["query"])["source"]["query"],
             "notebook_version": notebook.version,
             "markdown_notebook": markdown_content["content"][0]["attrs"]["markdown"],
-            "notebook_stream_entry": last_stream_entry[0][0].decode() if last_stream_entry else None,
             "endpoint_version": endpoint_query["query"],
             "other_team_insight": other_team_query["source"]["query"],
         }
@@ -130,7 +125,6 @@ class TestRewriteCohortMembershipQueriesCommand(BaseTest):
             "notebook_string_node": REWRITTEN_FILTER if applied else MEMBERSHIP_FILTER,
             "notebook_version": 1 if applied else 0,
             "markdown_notebook": _markdown_with_query(REWRITTEN_FILTER if applied else MEMBERSHIP_FILTER),
-            "notebook_stream_entry": "1-1" if applied else None,
             "endpoint_version": REWRITTEN_FILTER if applied else MEMBERSHIP_FILTER,
             "other_team_insight": MEMBERSHIP_FILTER,
         }
