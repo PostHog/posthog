@@ -77,6 +77,7 @@ rules:
           - pattern-regex: '(?m)^[ \t]*posthog-rs[ \t]*=[ \t]*\{[^}\n]*\bversion[ \t]*=[ \t]*"(?:\*|>[^"<\n]*)"'
           - pattern-regex: '(?m)^[ \t]*posthog-rs[ \t]*=[ \t]*\{(?![^}\n]*\b(?:version|rev|tag|workspace|path)[ \t]*=)[^}\n]*\bgit[ \t]*='
           - pattern-regex: '(?m)^[ \t]*\[(?:[^\]\n]*\.)?(?:dev-|build-)?dependencies\.posthog-rs\][ \t]*(?:#[^\n]*)?$(?:(?!^[ \t]*\[)[\s\S])*?^[ \t]*version[ \t]*=[ \t]*"(?:\*|>[^"<\n]*)"'
+          - pattern-regex: '(?m)^[ \t]*\[(?:[^\]\n]*\.)?(?:dev-|build-)?dependencies\.posthog-rs\][ \t]*(?:#[^\n]*)?$(?!(?:(?!^[ \t]*\[)[\s\S])*?^[ \t]*(?:version|rev|tag|workspace|path)[ \t]*=)(?:(?!^[ \t]*\[)[\s\S])*?^[ \t]*git[ \t]*='
       metadata:
           category: best-practice
           subcategory:

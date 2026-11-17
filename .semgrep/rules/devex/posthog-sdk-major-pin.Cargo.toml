@@ -27,6 +27,16 @@ version = ">=0.30"
 [build-dependencies.posthog-rs] # SDK
 version = "*"
 
+# ruleid: posthog-sdk-major-pin-rust
+[target.'cfg(unix)'.dependencies.posthog-rs]
+git = "https://github.com/PostHog/posthog-rs"
+features = ["async-client"]
+
+# ok: posthog-sdk-major-pin-rust
+[dev-dependencies.posthog-rs]
+git = "https://github.com/PostHog/posthog-rs"
+rev = "abc123"
+
 # ok: posthog-sdk-major-pin-rust
 [workspace.dependencies.posthog-rs]
 version = "0.33.1"
