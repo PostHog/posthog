@@ -160,6 +160,7 @@ export type AnalyticsEvent =
     | 'mobile_browse_list_paged'
     | 'mobile_nav_pin_changed'
     | 'mobile_nav_tab_web_opened'
+    | 'mobile_nav_menu_opened'
     | 'mobile_edit_pins_opened'
     | 'mobile_edit_pins_closed'
     | 'mobile_pin_tile_sheet_opened'

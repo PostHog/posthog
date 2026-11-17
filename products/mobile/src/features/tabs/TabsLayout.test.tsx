@@ -498,6 +498,7 @@ describe.each(['ios', 'android'] as const)('TabsLayout (%s)', (platform) => {
         expect(useNavPinStore.getState().pins).toEqual(['errors'])
         expect(capture.mock.calls).toEqual([
             ['mobile_inbox_opened', { had_unread: false }],
+            ['mobile_nav_menu_opened', { tab: 'errors' }],
             ['mobile_nav_pin_changed', { pin: 'errors', pinned: false, source: 'list_menu', replaced: false }],
             ['mobile_nav_pin_changed', { pin: 'errors', pinned: true, source: 'undo', replaced: false }],
         ])

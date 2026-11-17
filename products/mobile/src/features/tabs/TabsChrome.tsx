@@ -37,6 +37,10 @@ export function TabsChrome(): ReactElement {
     // A list's tab has no menu of its own, so its pin toast draws from here, inside the tabs' overlay host.
     const toasts = useNavToasts()
 
+    const openMenu = (): void => {
+        track('mobile_nav_menu_opened', { tab })
+        setMenuOpen(true)
+    }
     const closeMenu = (): void => {
         if (signOut.pending) {
             return
@@ -83,14 +87,8 @@ export function TabsChrome(): ReactElement {
 
     return (
         <>
-            {nativeRail ? <NativeTabChrome slot={slot} onMore={() => setMenuOpen(true)} /> : null}
-            <TabsHeader
-                tab={tab}
-                slot={slot}
-                status={status}
-                nativeRail={nativeRail}
-                onMore={() => setMenuOpen(true)}
-            />
+            {nativeRail ? <NativeTabChrome slot={slot} onMore={openMenu} /> : null}
+            <TabsHeader tab={tab} slot={slot} status={status} nativeRail={nativeRail} onMore={openMenu} />
             <NavMenu
                 visible={menuOpen}
                 projectName={viewer.projectName}
