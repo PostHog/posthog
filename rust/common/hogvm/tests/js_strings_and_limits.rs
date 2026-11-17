@@ -116,3 +116,19 @@ fn a_native_result_that_reaches_a_cycle_or_deep_nesting_does_not_overflow_the_st
         failure.error
     );
 }
+
+// let n := {'__hx_ast': 'Not', 'expr': null}; n.expr := n; return toString(n)
+const CYCLIC_AST: &str = r#"["_H", 1, 32, "__hx_ast", 32, "Not", 32, "expr", 31, 42, 2, 36, 0, 32, "expr", 36, 0, 46, 36, 0, 2, "toString", 1, 38, 35]"#;
+const CYCLIC_AST_THROUGH_ARRAY: &str = r#"["_H", 1, 32, "__hx_ast", 32, "Not", 32, "expr", 31, 42, 2, 36, 0, 32, "expr", 36, 0, 43, 1, 46, 36, 0, 2, "toString", 1, 38, 35]"#;
+
+#[test]
+fn printing_a_sql_ast_that_holds_itself_ends() {
+    for bytecode in [CYCLIC_AST, CYCLIC_AST_THROUGH_ARRAY] {
+        let failure = sync_execute(&context(bytecode, json!({})), false).unwrap_err();
+        assert!(
+            matches!(failure.error, VmError::OutOfResource(_)),
+            "{:?}",
+            failure.error
+        );
+    }
+}

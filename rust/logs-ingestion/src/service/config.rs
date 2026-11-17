@@ -104,7 +104,6 @@ pub struct ConsumerLoopConfig {
     pub background_task_timeout: Duration,
 }
 
-/// What the logs server passes to `HogFunctionManagerService` and `LogsTransformerService`.
 #[derive(Debug, Clone)]
 pub struct TransformationsConfig {
     pub encryption_salt_keys: String,

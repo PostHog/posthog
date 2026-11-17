@@ -358,6 +358,11 @@ const HOG_TRANSFORM_CASES: HogTransformCase[] = [
     {
         hog: `${doubled(10)}\nprint(concat(substring(s, 1, 9999), '🚀 tail'))\nprint(substring(s, 1, 9990))\nprint(substring(s, 1, 9985))\nreturn record`,
     },
+    // A one-character secret makes the redacted line fourteen times as long before the cut.
+    {
+        hog: `${doubled(10)}\nprint(substring(s, 1, 2000), 'end')\nprint(substring(s, 1, 713))\nprint(substring(s, 1, 714))\nreturn record`,
+        sensitive: ['x'],
+    },
 ]
 
 async function buildHogTransformCases(): Promise<Case[]> {

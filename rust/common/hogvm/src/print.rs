@@ -223,7 +223,10 @@ fn format_literal(
             }
             // HogQL AST nodes (`{__hx_ast: …}`) render back to SQL, wrapped as `sql(…)`.
             if obj.contains_key("__hx_ast") {
-                return Ok(format!("sql({})", HogQLPrinter::new(heap).print_node(obj)?));
+                return Ok(format!(
+                    "sql({})",
+                    HogQLPrinter::new(heap, depth).print_node(obj)?
+                ));
             }
             let mut parts = Vec::with_capacity(obj.len());
             for (key, val) in obj.iter() {
@@ -381,15 +384,24 @@ struct HogQLPrinter<'a> {
     heap: &'a VmHeap,
     // Mirrors the reference's `stack.length`: a query that isn't the outermost node is parenthesised.
     depth: usize,
+    outer_depth: usize,
 }
 
 impl<'a> HogQLPrinter<'a> {
-    fn new(heap: &'a VmHeap) -> Self {
-        HogQLPrinter { heap, depth: 0 }
+    fn new(heap: &'a VmHeap, outer_depth: usize) -> Self {
+        HogQLPrinter {
+            heap,
+            depth: 0,
+            outer_depth,
+        }
     }
 
     // Entry point: an already-dereferenced AST object.
     fn print_node(&mut self, obj: &HogMap) -> Result<String, crate::VmError> {
+        // An AST node can hold itself, and this recursion has no `marked` set.
+        if self.outer_depth + self.depth >= PRINT_RECURSION_LIMIT {
+            return Err(crate::VmError::OutOfResource("sql print depth".to_string()));
+        }
         self.depth += 1;
         let result = self.dispatch(obj);
         self.depth -= 1;
@@ -402,7 +414,12 @@ impl<'a> HogQLPrinter<'a> {
         match node.deref(self.heap)? {
             HogLiteral::Null => Ok(String::new()),
             HogLiteral::Object(obj) if obj.contains_key("__hx_ast") => self.print_node(obj),
-            _ => print_hog_value(self.heap, node, &mut Vec::new(), 0),
+            _ => print_hog_value(
+                self.heap,
+                node,
+                &mut Vec::new(),
+                self.outer_depth + self.depth,
+            ),
         }
     }
 
@@ -731,7 +748,7 @@ impl<'a> HogQLPrinter<'a> {
                 self.heap,
                 &HogLiteral::clone(other).into(),
                 &mut Vec::new(),
-                0,
+                self.outer_depth + self.depth,
             )?),
         })
     }

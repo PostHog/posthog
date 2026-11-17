@@ -185,7 +185,8 @@ pub fn redact_string(value: &str, sensitive: &[String]) -> Option<String> {
     Some(out)
 }
 
-pub fn redact_sensitive_values(message: &str, sensitive: &[String]) -> String {
+/// `max_units` stops the output there, because a one-character secret makes it fourteen times the message.
+pub fn redact_sensitive_values(message: &str, sensitive: &[String], max_units: usize) -> String {
     if message.is_empty() || sensitive.is_empty() {
         return message.to_string();
     }
@@ -203,18 +204,21 @@ pub fn redact_sensitive_values(message: &str, sensitive: &[String]) -> String {
         return message.to_string();
     }
     variants.sort_by_key(|v| std::cmp::Reverse(utf16_len(v)));
-    let mut out = String::with_capacity(message.len());
+    let mut out = String::with_capacity(message.len().min(max_units));
+    let mut units = 0;
     let mut rest = message;
-    'outer: while !rest.is_empty() {
+    'outer: while !rest.is_empty() && units < max_units {
         for variant in &variants {
             if rest.starts_with(variant.as_str()) {
                 out.push_str(REDACTED);
+                units += REDACTED.len();
                 rest = &rest[variant.len()..];
                 continue 'outer;
             }
         }
         let c = rest.chars().next().unwrap();
         out.push(c);
+        units += c.len_utf16();
         rest = &rest[c.len_utf8()..];
     }
     out
@@ -229,7 +233,11 @@ pub fn sanitize_log_message(args: &[JsValue], sensitive: &[String]) -> String {
         })
         .collect::<Vec<_>>()
         .join(", ");
-    let message = redact_sensitive_values(&joined, sensitive);
+    let message = redact_sensitive_values(
+        &joined,
+        sensitive,
+        MAX_LOG_LENGTH + utf16_len(TRUNCATION_SUFFIX) + 2,
+    );
     // Node truncates once the text is within the suffix length of the cap.
     if MAX_LOG_LENGTH < utf16_len(&message) + utf16_len(TRUNCATION_SUFFIX) {
         let mut units = 0;
