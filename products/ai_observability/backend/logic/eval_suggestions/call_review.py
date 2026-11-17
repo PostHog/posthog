@@ -120,7 +120,7 @@ A code_check reads two strings: `output`, the text of the call's output without 
 - Strings take single quotes. Lists start at index 1. A missing object field reads as null.
 - Functions: length, trim, lower, substring(text, start, count), startsWith, splitByString(separator, text), match(text, pattern), isValidJSON, jsonParse, typeof, keys, has(list, value), toString. `text ilike '%word%'` matches without case.
 - match takes an RE2 pattern, which has no lookarounds. A string rejects unknown escapes such as \\d, so write [0-9].
-- jsonParse fails on text that is not JSON, so test isValidJSON first. A program that fails on a call counts as a wrong answer."""
+- jsonParse fails on text that is not JSON, so test isValidJSON first. A program that fails on a call's data counts as a wrong answer. One that returns anything but true or false, or multiplies (`*`), is dropped."""
 
 
 class _Pick(BaseModel):

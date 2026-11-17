@@ -29,8 +29,10 @@ from google.genai import (
 from pydantic import ValidationError
 from rest_framework import serializers
 
+from posthog.hogql import ast
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.parser import parse_program
+from posthog.hogql.visitor import TraversingVisitor
 
 from posthog.dataclasses import frozen
 from posthog.llm.gateway_client import (
@@ -422,6 +424,14 @@ class CodeCheck:
     errors: int
 
 
+class _Multiplication(TraversingVisitor):
+    found = False
+
+    def visit_arithmetic_operation(self, node: ast.ArithmeticOperation) -> None:
+        self.found = self.found or node.op == ast.ArithmeticOperationOp.Mult
+        super().visit_arithmetic_operation(node)
+
+
 class _TerminalHogError(Exception):
     """An error the evaluation runtime disables a Hog evaluation over, so a check that hits one is never published."""
 
@@ -450,15 +460,21 @@ def _code_verdict(bytecode: list[Any], row: ReviewCallRow) -> Verdict | None:
 
 def check_code(card: ReviewCard, rendering: Rendering, deadline: float | None) -> CodeCheck | None:
     """The card's code check run on every rendered call of its call types and compared with the review's labels, or
-    None when it does not compile, hits an error the runtime would disable it over, or could run past `deadline`, a
-    time.monotonic() value. An error on a call's data counts as the opposite of the label."""
+    None when it does not compile, multiplies, hits an error the runtime would disable it over, or could run past
+    `deadline`, a time.monotonic() value. An error on a call's data counts as the opposite of the label."""
     source = call_review.code_check_source(card.code_check)
     try:
         # compile_hog logs a syntax error as an error in our code. The parse catches the review's syntax errors first,
         # so they stay out of the error logs.
-        parse_program(source)
+        program = parse_program(source)
         bytecode = compile_ai_observability_hog(source, "destination")
     except (ExposedHogQLError, serializers.ValidationError):
+        return None
+    # The Python Hog VM builds a product before it checks the memory limit, so a repeated string or a huge integer
+    # could exhaust the worker. A check on a call's text has no use for multiplication.
+    multiplication = _Multiplication()
+    multiplication.visit(program)
+    if multiplication.found:
         return None
     keys = {call_type.key for call_type in card.call_types}
     verdicts: dict[int, Verdict | None] = {}

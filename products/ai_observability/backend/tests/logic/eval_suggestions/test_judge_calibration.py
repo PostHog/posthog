@@ -378,6 +378,7 @@ def test_a_request_that_could_end_past_the_deadline_never_starts() -> None:
             (5, 45),
         ),
         ("does_not_compile", "return match(output, 'Reply \\d')", None, None),
+        ("multiplies", "let pad := ' ' * 2\nreturn not match(output, '^Reply [0-4]$')", None, None),
         # A non-boolean result disables a saved Hog evaluation, so one such call rejects the check.
         (
             "returns_a_string_on_one_call",
