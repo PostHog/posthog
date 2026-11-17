@@ -26,6 +26,7 @@ where a ``$mcp_tools_list`` catalog was observed, how often agents discover the
 tool when it is advertised.
 """
 
+import re
 import math
 import asyncio
 import hashlib
@@ -349,16 +350,31 @@ LIMIT {max_rows}
 # ASCII whitespace that Python's str.strip() removes.
 _INTENT_WHITESPACE = " \t\n\r\x0b\x0c"
 
-# A session's first intent, normalized the way ``_normalize_intent`` normalizes
-# ``fetch_session_calls`` rows: clipped, trimmed, and skipping the summariser
-# placeholder. Recurrence is counted and excluded on this key, so spellings the
-# corpus would merge are also counted together against the threshold.
+# Automations embed a fresh run ID in every intent ("Scout run <uuid>"), so
+# without masking each run is its own text and never reaches the threshold.
+# UUIDs, long hex IDs and long digit runs become one placeholder. Alternation
+# order matters: both re2 and Python take the first branch that matches at a
+# position, so a UUID is masked whole before its hex groups could be.
+RECURRING_ID_PATTERN = (
+    r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}|[0-9a-fA-F]{16,}|[0-9]{6,}"
+)
+RECURRING_ID_PLACEHOLDER = "<id>"
+_RECURRING_ID_RE = re.compile(RECURRING_ID_PATTERN)
+
+# A session's first intent, normalized the way ``_recurring_key`` normalizes
+# ``fetch_session_calls`` rows: clipped, trimmed, skipping the summariser
+# placeholder, and with run IDs masked. Recurrence is counted and excluded on
+# this key, so texts that differ only by an ID count together against the threshold.
 _FIRST_INTENT_SQL = """
-argMinIf(
-    trim(left(coalesce(toString(properties.$mcp_intent), ''), {max_intent_len}), {intent_ws}),
-    timestamp,
-    trim(left(coalesce(toString(properties.$mcp_intent), ''), {max_intent_len}), {intent_ws})
-        NOT IN ('', {no_intent_fallback})
+replaceRegexpAll(
+    argMinIf(
+        trim(left(coalesce(toString(properties.$mcp_intent), ''), {max_intent_len}), {intent_ws}),
+        timestamp,
+        trim(left(coalesce(toString(properties.$mcp_intent), ''), {max_intent_len}), {intent_ws})
+            NOT IN ('', {no_intent_fallback})
+    ),
+    {id_pattern},
+    {id_placeholder}
 )
 """
 
@@ -409,6 +425,8 @@ def _first_intent_expr() -> ast.Expr:
             "max_intent_len": ast.Constant(value=MAX_INTENT_TEXT_LENGTH),
             "intent_ws": ast.Constant(value=_INTENT_WHITESPACE),
             "no_intent_fallback": ast.Constant(value=NO_INTENT_RECORDED_FALLBACK),
+            "id_pattern": ast.Constant(value=RECURRING_ID_PATTERN),
+            "id_placeholder": ast.Constant(value=RECURRING_ID_PLACEHOLDER),
         },
     )
 
@@ -496,13 +514,21 @@ def _normalize_intent(raw: str) -> str:
     return text[:MAX_INTENT_TEXT_LENGTH]
 
 
+def _recurring_key(raw: str) -> str:
+    """The text recurrence is counted on: ``_normalize_intent`` with run IDs masked, matching ``_FIRST_INTENT_SQL``."""
+    return _RECURRING_ID_RE.sub(RECURRING_ID_PLACEHOLDER, _normalize_intent(raw))
+
+
 def fetch_recurring_intents(
     team: Team,
     lookback_days: int = DEFAULT_LOOKBACK_DAYS,
     min_sessions: int = RECURRING_MIN_SESSIONS,
     limit: int = MAX_RECURRING_EXCLUSIONS,
 ) -> list[RecurringIntent]:
-    """Intent texts that open ``min_sessions`` or more sessions in the window, by session count desc."""
+    """Intent texts that open ``min_sessions`` or more sessions in the window, by session count desc.
+
+    Texts are returned with run IDs masked (``RECURRING_ID_PLACEHOLDER``), the same key exclusion matches on.
+    """
     query = parse_select(
         _RECURRING_INTENTS_SQL,
         placeholders={
@@ -518,7 +544,7 @@ def fetch_recurring_intents(
     # merge any rows that normalization collapses together.
     merged: dict[str, list[int]] = {}
     for row in _run_corpus_query(team, query):
-        text = _normalize_intent(row[0])
+        text = _recurring_key(row[0])
         if not text:
             continue
         totals = merged.setdefault(text, [0, 0, 0])
@@ -545,7 +571,7 @@ def exclude_recurring_sessions(rows: list[SessionCallRow], recurring_texts: Coll
     for session_id, _, raw_intent, _ in rows:
         if session_id in first_intent:
             continue
-        text = _normalize_intent(raw_intent)
+        text = _recurring_key(raw_intent)
         if text:
             first_intent[session_id] = text
     excluded = {sid for sid, text in first_intent.items() if text in recurring_texts}
