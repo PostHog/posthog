@@ -164,6 +164,8 @@ data_modeling.DataWarehouseSavedQuery posthog.api.search in-collection 1
 data_modeling.DataWarehouseSavedQuery posthog.hogql.database.database instance-many(all) 1
 data_modeling.DataWarehouseSavedQuery posthog.hogql.database.database instance-many(filter) 1
 data_modeling.DataWarehouseSavedQuery posthog.hogql.database.database instance-many(select_related) 1
+data_modeling.DataWarehouseSavedQuery posthog.tasks.email instance-many(annotate) 1
+data_modeling.DataWarehouseSavedQuery posthog.tasks.email instance-single 1
 data_modeling.DataWarehouseSavedQuery posthog.tasks.usage_report instance-many(annotate) 1
 data_modeling.DataWarehouseSavedQuery products.customer_analytics.backend.facade.api get_model 5
 data_modeling.DataWarehouseSavedQuery products.data_catalog.backend.logic.certifications instance-many(filter) 1
