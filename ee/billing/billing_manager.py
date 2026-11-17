@@ -802,9 +802,10 @@ class BillingManager:
             organization.customer_id = data["customer_id"]
             org_modified = True
 
-        # Billing's word on whether a partner pays decides the billing lock once customer_id is set.
-        if "paid_by_partner" in data:
-            record_partner_paid(organization.id, bool(data["paid_by_partner"]))
+        # Billing's word on whether a partner pays decides the billing lock once customer_id is set. A change
+        # counts as a modification, so the saved status stamp keeps an older status from reversing it.
+        if "paid_by_partner" in data and record_partner_paid(organization.id, bool(data["paid_by_partner"])):
+            org_modified = True
 
         should_update_org_billing_quotas = False
 

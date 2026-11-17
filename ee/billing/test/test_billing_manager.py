@@ -1115,6 +1115,24 @@ class TestBillingManager(BaseTest):
         self.organization.refresh_from_db()
         assert get_billing_lock_partner(self.organization) == partner
 
+    def test_update_org_details_orders_statuses_by_a_partner_flag_change_alone(self) -> None:
+        partner = self._provision_by_partner()
+        self.organization.customer_id = "cus_synced"
+        self.organization.save()
+        manager = BillingManager(license=None)
+        for computed_at, paid_by_partner in [("2026-08-02T10:00:00Z", False), ("2026-08-02T12:00:00Z", True)]:
+            status = self._billing_status(computed_at, 0)
+            status["customer"].update({"customer_id": "cus_synced", "paid_by_partner": paid_by_partner})
+            manager.update_org_details(self.organization, status)
+        # Newer than the first status, older than the flag change, and delayed past it.
+        delayed = self._billing_status("2026-08-02T11:00:00Z", 0)
+        delayed["customer"].update({"customer_id": "cus_synced", "paid_by_partner": False})
+
+        manager.update_org_details(self.organization, delayed)
+
+        self.organization.refresh_from_db()
+        assert get_billing_lock_partner(self.organization) == partner
+
     def _billing_status(
         self,
         computed_at: str | None,

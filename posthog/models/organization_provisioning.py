@@ -68,11 +68,15 @@ def get_billing_lock_partner(organization: "Organization") -> OAuthApplication |
     return row.application if row is not None else None
 
 
-def record_partner_paid(organization_id: uuid.UUID, paid_by_partner: bool) -> None:
-    """Billing sync calls this with billing's `paid_by_partner`. Billing sends every organization's status at
-    least daily, so a mark that is wrong, or that outlived the partner's payer link, corrects itself."""
+def record_partner_paid(organization_id: uuid.UUID, paid_by_partner: bool) -> bool:
+    """Billing sync calls this with billing's `paid_by_partner`. Billing's daily sync sends every organization it
+    hasn't saved for a day, so a mark that is wrong, or that outlived the partner's payer link, corrects itself.
+    Returns whether the mark changed."""
     rows = OrganizationProvisioning.objects.filter(organization_id=organization_id)
     if paid_by_partner:
-        rows.paid_by_partner().filter(partner_paid_since__isnull=True).update(partner_paid_since=timezone.now())
+        changed = (
+            rows.paid_by_partner().filter(partner_paid_since__isnull=True).update(partner_paid_since=timezone.now())
+        )
     else:
-        rows.filter(partner_paid_since__isnull=False).update(partner_paid_since=None)
+        changed = rows.filter(partner_paid_since__isnull=False).update(partner_paid_since=None)
+    return changed > 0
