@@ -308,6 +308,20 @@ describe('unlayerToEmailDocument', () => {
             sent: ['<h1 style="margin:0;font-size:22px;font-weight:400;line-height:140%"><h1>Big</h1></h1>'],
         },
         {
+            name: 'the browser margins of paragraphs, when its html never reset them',
+            block: content('text', { text: '<p>One</p><p>Two</p>', fontSize: '14px' }),
+            exported:
+                '<html><head><style>table, td { color: #000; }</style></head><body><div class="u-row-container"><table><tr><td style="overflow-wrap:break-word;word-break:break-word;padding:10px;"><div style="font-size: 14px;"><p>One</p><p>Two</p></div></td></tr></table></div></body></html>',
+            sent: ['padding:24px 10px 0px 10px', 'padding:14px 10px 24px 10px'],
+        },
+        {
+            name: 'no margins for text it sent without paragraphs, even when its html never reset them',
+            block: content('text', { text: '<p>One</p><p>Two</p>', fontSize: '14px' }),
+            exported:
+                '<html><head><style>table, td { color: #000; }</style></head><body><div class="u-row-container"><table><tr><td style="overflow-wrap:break-word;word-break:break-word;padding:10px;"><div style="font-size: 14px;"><div>One</div><div>Two</div></div></td></tr></table></div></body></html>',
+            sent: ['padding:10px 10px 0px 10px', 'padding:0px 10px 10px 10px'],
+        },
+        {
             name: "code in the email app's own monospace font",
             block: content('text', { text: '<p>Run <code>make</code></p>' }),
             exported: undefined,

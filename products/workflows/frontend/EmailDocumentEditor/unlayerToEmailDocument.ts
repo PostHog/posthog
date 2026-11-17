@@ -400,7 +400,7 @@ function lineHeightPercent(value: string | undefined, fontSize: number): number 
  * Turns the old editor's rich text into blocks, keeping each paragraph's own styling and the space between them.
  * If it uses anything the blocks can't hold, it stays as the markup it already is.
  */
-function richTextBlocks(html: string, style: EmailBlockStyle): JSONContent[] {
+function richTextBlocks(html: string, style: EmailBlockStyle, paragraphMargins = false): JSONContent[] {
     const body = new DOMParser().parseFromString(html, 'text/html').body
     let wrapper: HTMLElement | null = null
     for (const child of Array.from(body.childNodes)) {
@@ -447,7 +447,11 @@ function richTextBlocks(html: string, style: EmailBlockStyle): JSONContent[] {
               ? headingSize * baseSize
               : baseSize
         const isList = element.tagName === 'UL' || element.tagName === 'OL'
-        const defaultMargin = headingSize ? HEADING_MARGIN[element.tagName] * fontSize : isList ? fontSize : 0
+        const defaultMargin = headingSize
+            ? HEADING_MARGIN[element.tagName] * fontSize
+            : isList || (paragraphMargins && element.tagName === 'P')
+              ? fontSize
+              : 0
         const margin = cssSides(css, 'margin', fontSize)
         const inner = cssSides(css, 'padding', fontSize)
         const number = <T>(value: number, fallback: T): number | T => (value >= 0 ? value : fallback)
@@ -781,11 +785,15 @@ interface ConvertContext {
     exportedStyles: ExportedStyles
     /** This block's cell in the old editor's html, when it could be matched to the block. */
     exportedCell?: ExportedCell
+    /** The page doesn't reset paragraph margins, as some versions of the old editor's html don't. */
+    paragraphMargins: boolean
 }
 
 interface ExportedCell {
     first: string
     image?: string
+    /** Its text is in paragraphs, which keep the browser's margins unless the page resets them. */
+    paragraphs: boolean
 }
 
 const CONTENT_CELL =
@@ -814,7 +822,11 @@ function exportedContentCells(rowHtml: string | undefined, contentCount: number)
     }
     return matches.map((match, index) => {
         const cell = rowHtml.slice(match.index, matches[index + 1]?.index ?? rowHtml.length)
-        return { first: match[1] ?? '', image: /<img\b[^>]{0,4000}>/i.exec(withoutOutlookOnly(cell))?.[0] }
+        return {
+            first: match[1] ?? '',
+            image: /<img\b[^>]{0,4000}>/i.exec(withoutOutlookOnly(cell))?.[0],
+            paragraphs: /<p\b/i.test(cell),
+        }
     })
 }
 
@@ -978,7 +990,7 @@ function convertContentBlocksWithoutPhone(
     content: Record<string, any>,
     contentWidth: number,
     rowSidePadding: number,
-    { unsupported, hoverButtons, exportedStyles: styles, exportedCell }: ConvertContext
+    { unsupported, hoverButtons, exportedStyles: styles, exportedCell, paragraphMargins }: ConvertContext
 ): JSONContent[] {
     const values = content.values ?? {}
     if (
@@ -1001,7 +1013,8 @@ function convertContentBlocksWithoutPhone(
         case 'paragraph':
             return richTextBlocks(
                 richTextOf(values),
-                textStyleFrom(values, exportedTextDefaults(exportedCell?.first, { fontSize: 14, lineHeight: 140 }))
+                textStyleFrom(values, exportedTextDefaults(exportedCell?.first, { fontSize: 14, lineHeight: 140 })),
+                paragraphMargins && !!exportedCell?.paragraphs
             )
         case 'heading': {
             const level = Math.min(3, parseInt(String(values.headingType ?? 'h1').slice(1), 10) || 1)
@@ -1185,7 +1198,8 @@ function convertContentBlocksWithoutPhone(
                 // The block exports its content bare, so it takes the email app's size and line height.
                 return richTextBlocks(
                     String(values.unsubscribe_link_content ?? ''),
-                    textStyleFrom(values, { fontSize: 16, lineHeight: 115 })
+                    textStyleFrom(values, { fontSize: 16, lineHeight: 115 }),
+                    paragraphMargins && !!exportedCell?.paragraphs
                 )
             }
             unsupported.add(`the custom block ${String(content.slug ?? '')}`.trim())
@@ -1339,6 +1353,8 @@ export function unlayerToEmailDocument(
     const bodyValues = body.values ?? {}
     const rows: any[] = [...(body.headers ?? []), ...body.rows, ...(body.footers ?? [])]
     const exported = exportedRows(storedHtml)
+    const paragraphMargins =
+        !!exported && !/(^|[}\s,;])p\s{0,20}\{[^}]{0,200}?margin(?:-top)?\s{0,5}:\s{0,5}0/.test(exported.css)
     // The width the old editor's html actually used wins, as a design can disagree with it. A width in percent can't be
     // a fixed body width, and the old editor's export of it is broken anyway.
     const percentWidth = String(bodyValues.contentWidth ?? '')
@@ -1470,6 +1486,7 @@ export function unlayerToEmailDocument(
                     screens,
                     exportedStyles: styles,
                     exportedCell: exportedCells?.[contentIndex++],
+                    paragraphMargins,
                 })
             )
             const background = column.values?.backgroundColor
