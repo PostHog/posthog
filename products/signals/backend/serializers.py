@@ -1,3 +1,4 @@
+import re
 import json
 import uuid
 import dataclasses
@@ -171,6 +172,8 @@ from .tracker_issues import TRACKER_TARGET_REQUIRED_FIELDS, issue_reference, val
 logger = structlog.get_logger(__name__)
 
 DEFAULT_SESSION_ANALYSIS_SAMPLE_RATE = 0.1
+
+_REPOSITORY_NAME_RE = re.compile(r"^[^/\s]+/[^/\s]+$")
 
 
 @frozen
@@ -4589,6 +4592,8 @@ class SignalReportTaskActionSerializer(serializers.Serializer):
             "and stops without merging it. "
             "`resolve_conflicts` updates the report's open pull request from its base branch, resolves the "
             "conflicts, pushes, and stops without merging it or fixing unrelated CI. "
+            "`implement` starts the run the inbox's Implement button starts: it claims the report, implements "
+            "the fix, and opens a pull request that is attached to the report. "
             "`suggested_prompt` sends one of the prompts the report suggests."
         ),
     )
@@ -4628,9 +4633,27 @@ class SignalReportTaskActionRunRequestSerializer(serializers.Serializer):
             "replaces the "
             "action's fixed request and keeps its instructions and gates: pass it when you know something "
             "the report does not, such as a merge order, a failure that is already on the base branch, or "
-            "an expected conflict. Not accepted for `suggested_prompt`."
+            "an expected conflict. Optional for `implement`, where it is added to the prompt as extra "
+            "instructions. Not accepted for `suggested_prompt`."
         ),
     )
+    repository = serializers.CharField(
+        required=False,
+        min_length=1,
+        max_length=140,
+        help_text=(
+            "Only for `implement`: the repository to implement in, in 'owner/repo' format (case-insensitive). "
+            "It must be connected to the project, and it becomes the report's repo selection. Omit it to use "
+            "the report's own repository. A report whose repository cannot be resolved returns "
+            "`report_implementation_repository_unresolved`."
+        ),
+    )
+
+    def validate_repository(self, value: str) -> str:
+        value = value.strip().lower()
+        if not _REPOSITORY_NAME_RE.match(value):
+            raise serializers.ValidationError("Must be in 'owner/repo' format.")
+        return value
 
     def validate(self, attrs: dict) -> dict:
         action = attrs["action"]
@@ -4644,6 +4667,8 @@ class SignalReportTaskActionRunRequestSerializer(serializers.Serializer):
             )
         if action == ReportTaskActionKind.ASK and not attrs.get("message"):
             raise serializers.ValidationError({"message": "Give the message to send with `ask`."})
+        if attrs.get("repository") and action != ReportTaskActionKind.IMPLEMENT:
+            raise serializers.ValidationError({"repository": "Only accepted for `implement`."})
         return attrs
 
 
