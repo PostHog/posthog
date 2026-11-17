@@ -5144,7 +5144,9 @@ class TestDevboxClaudeCommands:
         assert deleted == (["CLAUDE_CODE_OAUTH_TOKEN"] if delete_secret else [])
         assert exec_args == [["ssh", "-t", "coder.devbox-foo", "bash -lc 'claude auth login'"]]
 
-    def test_login_refuses_another_users_box(self) -> None:
+    def test_login_refuses_another_users_box(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(devbox_cli, "is_own_default_target", lambda target: False)
+
         result = runner.invoke(cli, ["devbox:claude:login", "@alice"])
 
         assert result.exit_code != 0

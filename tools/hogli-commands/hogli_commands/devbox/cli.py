@@ -828,23 +828,26 @@ def _agent_public_keys(socket_path: str) -> set[str]:
     return {public_key_identity(line) for line in listed.stdout.splitlines() if line.strip()}
 
 
+_GH_TIMEOUT = 15
+
+
 def _gh(*args: str) -> subprocess.CompletedProcess[str] | None:
-    """Run `gh` as the engineer's stored login, or return ``None`` when `gh` is missing."""
+    """Run `gh` as the engineer's stored login, or return ``None`` when `gh` is missing or hangs."""
     try:
-        return subprocess.run(["gh", *args], capture_output=True, text=True, env=gh_env_without_app_tokens())
-    except OSError:
+        return subprocess.run(
+            ["gh", *args], capture_output=True, text=True, env=gh_env_without_app_tokens(), timeout=_GH_TIMEOUT
+        )
+    except (OSError, subprocess.TimeoutExpired):
         return None
 
 
 def _github_login() -> str | None:
-    """Return the GitHub login from an authenticated `gh`, or ask for it."""
+    """Return the GitHub login of the authenticated `gh`, which the signing-key lookup needs."""
     result = _gh("api", "user", "--jq", ".login")
-    if result is not None and result.returncode == 0 and result.stdout.strip():
-        return result.stdout.strip()
-    login = click.prompt(
-        "  GitHub username, to look up your signing keys (Enter to skip)", default="", show_default=False
-    )
-    return login.strip() or None
+    if result is None or result.returncode != 0 or not result.stdout.strip():
+        click.echo("  Couldn't look up your GitHub signing keys. Log in with `gh auth login` and run setup again.")
+        return None
+    return result.stdout.strip()
 
 
 def _github_signing_keys(login: str) -> list[dict[str, Any]]:
