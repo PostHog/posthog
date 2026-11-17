@@ -30,6 +30,7 @@ from products.signals.backend.quota import (
     self_driving_quota_gate,
 )
 from products.signals.backend.scout_harness.limits import (
+    SCOUT_TRIAL_METADATA_KEY,
     STALE_RUN_CUTOFF_S,
     TRIGGERED_BY_WORKFLOW,
     WORKFLOW_RUN_COOLDOWN_S,
@@ -168,7 +169,9 @@ def lane_has_live_run(lane_runs: QuerySet[SignalScoutRun]) -> bool:
 def scout_lane_runs(team_id: int, skill_name: str) -> QuerySet[SignalScoutRun]:
     """The runs of one `(canonical team, skill)` lane. Private trial runs are not part of the lane."""
     return (
-        SignalScoutRun.objects.for_team(team_id).filter(skill_name=skill_name).exclude(metadata__has_key="scout_trial")
+        SignalScoutRun.objects.for_team(team_id)
+        .filter(skill_name=skill_name)
+        .exclude(metadata__has_key=SCOUT_TRIAL_METADATA_KEY)
     )
 
 
