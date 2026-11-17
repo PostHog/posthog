@@ -2,6 +2,7 @@ import uuid
 from datetime import timedelta
 from typing import Any
 
+import time_machine
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
@@ -50,7 +51,8 @@ class TestStaticCohortReconciliation(BaseTest):
         fields = {"last_calculation": self.now - timedelta(days=7), "count": 0, **fields}
         cohort = Cohort.objects.create(team=self.team, name="static", is_static=True, **fields)
         uuids = [*person_uuids, *(uuid.uuid4() for _ in range(clickhouse_members))]
-        insert_static_cohort(uuids, cohort.pk, team_id=self.team.pk)
+        with time_machine.travel(self.now - timedelta(days=7), tick=False):
+            insert_static_cohort(uuids, cohort.pk, team_id=self.team.pk)
         return cohort
 
     def _dispatched(self) -> list[StaticCohortToReconcile]:
@@ -187,13 +189,25 @@ class TestStaticCohortReconciliation(BaseTest):
         Cohort.objects.filter(pk=cohort.pk).update(is_calculating=False)
         self.assertEqual(self._dispatched(), [target])
 
-    def test_repair_keeps_the_count_of_an_import_that_finished_during_the_copy(self) -> None:
+    @parameterized.expand(
+        [
+            ("finished", {"last_calculation_now": True}),
+            ("failed", {"errors_calculating": 1, "last_error_at_now": True}),
+        ]
+    )
+    def test_repair_keeps_the_count_of_an_import_that_ended_during_the_copy(
+        self, _name: str, import_end: dict[str, Any]
+    ) -> None:
         person = create_person(team=self.team, distinct_ids=["member"])
         cohort = self._static_cohort(person_uuids=(person.uuid,))
+        update = {
+            key.removesuffix("_now"): timezone.now() if key.endswith("_now") else value
+            for key, value in import_end.items()
+        }
 
         def copy_while_an_import_finishes(*args: Any, **kwargs: Any) -> None:
             insert_cohort_people_into_pg(*args, **kwargs)
-            Cohort.objects.filter(pk=cohort.pk).update(count=5, last_calculation=timezone.now())
+            Cohort.objects.filter(pk=cohort.pk).update(count=5, **update)
 
         with patch.object(
             static_reconciliation, "insert_cohort_people_into_pg", side_effect=copy_while_an_import_finishes
@@ -260,6 +274,42 @@ class TestStaticCohortReconciliation(BaseTest):
 
         cohort.refresh_from_db()
         self.assertEqual((count_cohort_members(self.team.pk, cohort.pk), cohort.count), (1, 1))
+
+    def test_a_member_removed_and_added_again_stays_added(self) -> None:
+        person, other = (create_person(team=self.team, distinct_ids=[f"member-{i}"]) for i in range(2))
+        cohort = self._static_cohort(person_uuids=(person.uuid, other.uuid))
+        self.addCleanup(get_client().delete, static_reconciliation._removed_members_key(cohort.pk))
+        cohort.remove_user_by_uuid(str(person.uuid), team_id=self.team.pk)
+        cohort.insert_users_list_by_uuid([str(person.uuid)], team_id=self.team.pk, save_state=False)
+        Cohort.objects.filter(pk=cohort.pk).update(count=0)
+
+        reconcile_static_cohort(StaticCohortToReconcile(team_id=self.team.pk, cohort_id=cohort.pk))
+
+        self.assertEqual(count_cohort_members(self.team.pk, cohort.pk), 2)
+
+    @parameterized.expand([("recent", timedelta(hours=1), 1), ("expired", timedelta(hours=25), 2)])
+    def test_a_retry_that_finds_the_cohort_complete_still_deletes_removed_members(
+        self, _name: str, removed_ago: timedelta, expected_members: int
+    ) -> None:
+        removed, kept = (create_person(team=self.team, distinct_ids=[f"member-{i}"]) for i in range(2))
+        cohort = self._static_cohort(person_uuids=(removed.uuid, kept.uuid))
+        self.addCleanup(get_client().delete, static_reconciliation._removed_members_key(cohort.pk))
+        # A copy brought the removed member back and the cleanup after it failed.
+        cohort.insert_users_list_by_uuid_into_pg_only([str(removed.uuid), str(kept.uuid)], team_id=self.team.pk)
+        Cohort.objects.filter(pk=cohort.pk).update(count=2, last_calculation=self.now - timedelta(days=7))
+        with time_machine.travel(self.now - removed_ago, tick=False):
+            static_reconciliation.record_static_cohort_member_removal(
+                cohort_id=cohort.pk, person_id=removed.id, person_uuid=str(removed.uuid)
+            )
+        # A later removal of someone else renews the key, so only the entry's own age can expire it.
+        with time_machine.travel(self.now - timedelta(hours=2), tick=False):
+            static_reconciliation.record_static_cohort_member_removal(
+                cohort_id=cohort.pk, person_id=999_999_999, person_uuid=str(uuid.uuid4())
+            )
+
+        reconcile_static_cohort(StaticCohortToReconcile(team_id=self.team.pk, cohort_id=cohort.pk))
+
+        self.assertEqual(count_cohort_members(self.team.pk, cohort.pk), expected_members)
 
     def test_a_failed_recount_does_not_park_the_cohort(self) -> None:
         person = create_person(team=self.team, distinct_ids=["member"])

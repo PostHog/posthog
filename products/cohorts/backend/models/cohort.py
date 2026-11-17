@@ -1269,7 +1269,9 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             from products.cohorts.backend.static_reconciliation import record_static_cohort_member_removal
 
             try:
-                record_static_cohort_member_removal(cohort_id=self.id, person_id=person.id)
+                record_static_cohort_member_removal(
+                    cohort_id=self.id, person_id=person.id, person_uuid=str(person.uuid)
+                )
             except Exception as record_err:
                 # A missing mark only reopens a rare race, so it must not fail the removal.
                 capture_exception(record_err, additional_properties={"cohort_id": self.id, "team_id": team_id})
