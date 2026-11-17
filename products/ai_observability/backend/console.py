@@ -1,5 +1,6 @@
+from dataclasses import replace
 from datetime import timedelta
-from typing import Any, cast
+from typing import cast
 from urllib.parse import quote, urlencode
 
 from django import forms
@@ -27,6 +28,7 @@ from posthog.admin.console.tools import (
     ToolOperation,
 )
 from posthog.admin.console.usage_reports_tool import ReportDateForm
+from posthog.dataclasses import frozen
 from posthog.models.user import User
 
 from products.ai_observability.backend.facade.admin import (
@@ -190,13 +192,26 @@ def label_suggestion(request: HttpRequest, form: forms.Form | None) -> HttpRespo
     return None
 
 
-def _query(filters: dict[str, Any], card: int) -> str:
-    params: dict[str, object] = {"days": filters["days"], "card": card}
-    if filters["team"] is not None:
-        params["team"] = filters["team"]
-    if filters["unlabeled"]:
-        params["unlabeled"] = "on"
-    return urlencode(params)
+@frozen
+class ReviewFilters:
+    team: int | None
+    days: int
+    unlabeled: bool
+
+    @classmethod
+    def read(cls, request: HttpRequest, form: ReviewFilterForm) -> "ReviewFilters":
+        cleaned = form.cleaned_data if form.is_valid() else {}
+        # The first visit shows the cards that still need a label.
+        unlabeled = bool(cleaned.get("unlabeled")) if request.GET else True
+        return cls(team=cleaned.get("team"), days=cleaned.get("days") or 30, unlabeled=unlabeled)
+
+    def query(self, **extra: object) -> str:
+        params: dict[str, object] = {"days": self.days}
+        if self.team is not None:
+            params["team"] = self.team
+        if self.unlabeled:
+            params["unlabeled"] = "on"
+        return urlencode({**params, **extra})
 
 
 def _position(request: HttpRequest, cards: list[ReviewCard]) -> int:
@@ -233,9 +248,17 @@ def _card_stats(card: ReviewCard) -> Stats:
     return Stats(items=tuple(items))
 
 
-def _labeled_table(filters: dict[str, Any]) -> Table:
-    cards = load_labeled_cards(since=timezone.now() - timedelta(days=filters["days"]), team_id=filters["team"])
-    every_card = {"days": filters["days"], **({"team": filters["team"]} if filters["team"] is not None else {})}
+def _verdict(verdict: str | None) -> Cell:
+    if verdict is None:
+        return Cell(text="-", muted=True)
+    tone = Tone.SUCCESS if verdict == EvalSuggestionReviewVerdict.GOOD else Tone.DESTRUCTIVE
+    return Cell(text=EvalSuggestionReviewVerdict(verdict).label, tone=tone)
+
+
+def _labeled_table(filters: ReviewFilters) -> Table:
+    cards = load_labeled_cards(since=timezone.now() - timedelta(days=filters.days), team_id=filters.team)
+    # A row opens its card among every card, since the card has a label.
+    every_card = replace(filters, unlabeled=False)
     return Table(
         title="Labeled cards",
         columns=("Labeled", "Card", "Label", "Note"),
@@ -248,15 +271,10 @@ def _labeled_table(filters: dict[str, Any]) -> Table:
                     ),
                     Cell(
                         text=card.headline,
-                        href=f"{REVIEW_TOOL_URL}?{urlencode({**every_card, 'suggestion': str(card.id)})}",
+                        href=f"{REVIEW_TOOL_URL}?{every_card.query(suggestion=str(card.id))}",
                         detail=f"team {card.team_id}",
                     ),
-                    Cell(
-                        text=EvalSuggestionReviewVerdict(card.review_verdict).label,
-                        tone=Tone.SUCCESS
-                        if card.review_verdict == EvalSuggestionReviewVerdict.GOOD
-                        else Tone.DESTRUCTIVE,
-                    ),
+                    _verdict(card.review_verdict),
                     Cell(text=card.review_note or "-", muted=not card.review_note),
                 )
             )
@@ -267,11 +285,11 @@ def _labeled_table(filters: dict[str, Any]) -> Table:
     )
 
 
-def _decision(card: ReviewCard, position: int, count: int, filters: dict[str, Any]) -> Decision:
+def _decision(card: ReviewCard, position: int, count: int, filters: ReviewFilters) -> Decision:
     completed = card.run_completed_at.strftime("%Y-%m-%d") if card.run_completed_at else "not finished"
     label = f" · labeled {card.review_verdict}" if card.review_verdict else ""
     # A labeled card leaves a list of unlabeled cards, so the next one moves into its place.
-    after_label = position if filters["unlabeled"] else position + 1
+    after_label = position if filters.unlabeled else position + 1
     return Decision(
         title=card.headline,
         text=f"{card.outcome}\n\n{card.reason}",
@@ -286,8 +304,8 @@ def _decision(card: ReviewCard, position: int, count: int, filters: dict[str, An
         note_field="note",
         note_label="What is right or wrong with it",
         note=card.review_note,
-        query=_query(filters, after_label),
-        skip_href=f"{REVIEW_TOOL_URL}?{_query(filters, position + 1)}" if position < count else None,
+        query=filters.query(card=after_label),
+        skip_href=f"{REVIEW_TOOL_URL}?{filters.query(card=position + 1)}" if position < count else None,
         skip_key="ArrowDown",
     )
 
@@ -301,18 +319,10 @@ class EvalSuggestionReviewTool(ConsoleTool):
     description = "Labels the eval suggestion cards the pipeline publishes, to tune which ones it shows."
 
     def page(self, request: HttpRequest) -> Page:
-        # The first visit shows the cards that still need a label.
         form = ReviewFilterForm(request.GET or None)
-        cleaned = form.cleaned_data if form.is_valid() else {}
-        filters = {
-            "team": cleaned.get("team"),
-            "days": cleaned.get("days") or 30,
-            "unlabeled": bool(cleaned.get("unlabeled")) if request.GET else True,
-        }
+        filters = ReviewFilters.read(request, form)
         cards = load_review_cards(
-            since=timezone.now() - timedelta(days=filters["days"]),
-            team_id=filters["team"],
-            unlabeled_only=filters["unlabeled"],
+            since=timezone.now() - timedelta(days=filters.days), team_id=filters.team, unlabeled_only=filters.unlabeled
         )
         blocks: list[Block] = [
             Notice(text=REVIEW_NOTICE),
