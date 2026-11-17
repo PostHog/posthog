@@ -1,6 +1,8 @@
 import { readFileSync } from 'node:fs'
 import type { Plugin } from 'vite'
 
+import { CHUNK_GRAPH_FILE } from '../bin/viteAppBuild.mjs'
+
 // The esbuild app build loads these extensions as text (the `loader` map in common/esbuilder/utils.mjs).
 const TEXT_FILE = /\.(sql|yaml|md)$/
 
@@ -35,9 +37,6 @@ export function zodEnLocaleOnlyPlugin(): Plugin {
     }
 }
 
-// Must match CHUNK_GRAPH_FILE in frontend/bin/viteAppBuild.mjs, which reads this file.
-export const CHUNK_GRAPH_FILE = 'vite-app-graph.json'
-
 export function chunkGraphPlugin(): Plugin {
     return {
         name: 'chunk-graph',
@@ -55,9 +54,6 @@ export function chunkGraphPlugin(): Plugin {
                               isDynamicEntry: output.isDynamicEntry,
                               facadeModuleId: output.facadeModuleId,
                               css: [...(output.viteMetadata?.importedCss ?? [])],
-                              modules: Object.fromEntries(
-                                  Object.entries(output.modules).map(([id, module]) => [id, module.renderedLength])
-                              ),
                           },
                       ]
                     : []

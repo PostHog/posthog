@@ -60,7 +60,7 @@ const GRAPH: Chunk[] = [
     }),
     lazy('chunk-dashboards.js', 'src/scenes/dashboard/Dashboards.tsx', {
         imports: ['chunk-shared.js', 'chunk-grid.js'],
-        exports: ['scene', 'Dashboards'],
+        exports: ['Dashboards', 'scene'],
     }),
     chunk('chunk-shared.js'),
     chunk('chunk-form.js'),
@@ -74,7 +74,7 @@ const PLACEHOLDER: Record<string, string> = Object.fromEntries(
     ])
 )
 
-function plan(code: Record<string, string> = {}): ReturnType<typeof planViteApp> {
+function plan(code: Record<string, string> = {}, sizes: Record<string, number> = {}): ReturnType<typeof planViteApp> {
     return planViteApp({
         graph: GRAPH,
         importMapUrls: Object.fromEntries(
@@ -84,7 +84,7 @@ function plan(code: Record<string, string> = {}): ReturnType<typeof planViteApp>
         frontendDir: FRONTEND,
         signedInModules: new Set(['src/scenes/dashboard/Dashboards', 'src/scenes/AuthenticatedShell']),
         readCode: (fileName: string) => code[fileName] ?? `// ${fileName}`,
-        fileSize: () => 1,
+        fileSize: (fileName: string) => sizes[fileName] ?? 1,
     })
 }
 
@@ -149,5 +149,17 @@ describe('planViteApp', () => {
         expect(manifest.eagerCss).toEqual(['static/vite/assets/index.css'])
         expect(manifest.preload.css).toEqual(['static/vite/assets/app.css'])
         expect(manifest.preload.authenticatedCss).toEqual(['static/vite/assets/shell.css'])
+    })
+
+    it('preloads each root first, and a chunk under it only when it is large', () => {
+        const url = (fileName: string, { finalNameOf }: ReturnType<typeof planViteApp>): string =>
+            `static/vite/${finalNameOf.get(fileName) ?? fileName}`
+        const roots = ['index-Vi-te001.js', 'chunk-app.js', 'chunk-boot.js']
+
+        const small = plan({}, { 'chunk-shared.js': 10 })
+        const large = plan({}, { 'chunk-shared.js': 200_000 })
+
+        expect(small.manifest.preload.js).toEqual(roots.map((fileName) => url(fileName, small)))
+        expect(large.manifest.preload.js).toEqual([...roots, 'chunk-shared.js'].map((fileName) => url(fileName, large)))
     })
 })

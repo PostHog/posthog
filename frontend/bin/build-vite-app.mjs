@@ -20,7 +20,14 @@ function finishBuild(frontendDir) {
     if (!fs.existsSync(graphPath)) {
         throw new Error(`vite app: ${graphPath} is missing. Run \`vite build --config vite.app.config.mts\` first.`)
     }
-    const read = (file) => JSON.parse(fs.readFileSync(path.join(outDir, file), 'utf8'))
+    const read = (file) => {
+        if (!fs.existsSync(path.join(outDir, file))) {
+            throw new Error(
+                `vite app: ${path.join(outDir, file)} is missing. Check the \`chunkImportMap\` option in vite.app.config.mts.`
+            )
+        }
+        return JSON.parse(fs.readFileSync(path.join(outDir, file), 'utf8'))
+    }
     // Vite deletes a chunk that held only CSS after the graph was recorded.
     const graph = read(CHUNK_GRAPH_FILE).filter((chunk) => fs.existsSync(path.join(outDir, chunk.fileName)))
 

@@ -21,7 +21,7 @@ import { LOGGED_OUT_SCENES, moduleKey, sceneModules } from './loggedOutScenes.mj
  * - Writes `vite-app-manifest.json`, which is all the backend reads.
  */
 
-// Must match `build.outDir` and `base` in vite.app.config.mts.
+// vite.app.config.mts builds its `build.outDir` and `base` from these two.
 export const VITE_APP_DIR = 'vite'
 // Manifest paths are relative to JS_URL, the same as in stable-chunks-manifest.json.
 export const URL_PREFIX = `static/${VITE_APP_DIR}/`

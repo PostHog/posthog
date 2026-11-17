@@ -2,12 +2,13 @@ import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { defineConfig, loadConfigFromFile, type Plugin, type PluginOption, type UserConfig } from 'vite'
 
+import { URL_PREFIX, VITE_APP_DIR } from './bin/viteAppBuild.mjs'
 import { chunkGraphPlugin, textFilesPlugin, zodEnLocaleOnlyPlugin } from './plugins/vite-app-build'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
-// Must match VITE_APP_DIR in bin/viteAppBuild.mjs and the manifest path in posthog/vite_app.py.
-const OUT_DIR = 'dist/vite'
+// posthog/vite_app.py reads the manifest from this directory.
+const OUT_DIR = `dist/${VITE_APP_DIR}`
 
 // These plugins of the dev server config write into dist/ and src/assets/ when they start, which a
 // production build must not do: dist/ also holds the esbuild build.
@@ -37,7 +38,7 @@ export default defineConfig(async (env): Promise<UserConfig> => {
 
     return {
         ...base,
-        base: '/static/vite/',
+        base: `/${URL_PREFIX}`,
         // Vite refuses an import of a file in its public directory, and app code imports from
         // frontend/public. The dev server avoids this with a copy in src/assets. The build reads
         // frontend/public as source instead.
