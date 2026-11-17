@@ -281,7 +281,7 @@ export class CdpHogflowSubscriptionMatcherConsumer<
     constructor(config: TConfig, deps: CdpConsumerBaseDeps) {
         super(config, deps)
         this.eventWakes = new BatchCoalescer(
-            (globals) => this.processBatch(globals, 'events'),
+            (globals, receivedAt) => this.processBatch(globals, 'events', receivedAt),
             config.CDP_HOGFLOW_SUBSCRIPTION_MATCHER_EVENTS_COALESCE_MS,
             config.CONSUMER_MAX_BACKGROUND_TASKS
         )
@@ -350,15 +350,18 @@ export class CdpHogflowSubscriptionMatcherConsumer<
         })
     }
 
+    // A held batch is judged against waits and goals as they stood when it arrived, so holding it past a
+    // deadline cannot cost its wake or conversion.
     public async processBatch(
         invocationGlobals: HogFunctionInvocationGlobals[],
-        source: WakeSource = 'events'
+        source: WakeSource = 'events',
+        receivedAt: Date = new Date()
     ): Promise<void> {
         if (!invocationGlobals.length) {
             return
         }
         try {
-            await this.wakeMatchingWorkflows(invocationGlobals, source)
+            await this.wakeMatchingWorkflows(invocationGlobals, source, receivedAt)
         } finally {
             // Flush any `conversion` metrics and `$workflows_conversion` events queued during matching.
             // Best-effort: a flush failure must not crash the batch (which would replay the event
@@ -380,7 +383,8 @@ export class CdpHogflowSubscriptionMatcherConsumer<
     @instrumented('cdpHogflowSubscriptionMatcher.wakeMatchingWorkflows')
     private async wakeMatchingWorkflows(
         invocationGlobals: HogFunctionInvocationGlobals[],
-        source: WakeSource = 'events'
+        source: WakeSource,
+        receivedAt: Date
     ): Promise<void> {
         const indexed = indexBatch(invocationGlobals)
         const { teamIds, distinctTeamIds, distinctIds, personTeamIds, personIds, byDistinctId, byPersonId } = indexed
@@ -428,7 +432,8 @@ export class CdpHogflowSubscriptionMatcherConsumer<
             const conversionsCounted = await this.claimConversionWatchers(
                 indexBatch(watcherGlobals),
                 filterGlobalsFor,
-                eventsOnly
+                eventsOnly,
+                receivedAt
             )
             counterHogflowMatcherConversionsCounted.inc(conversionsCounted)
         }
@@ -456,7 +461,8 @@ export class CdpHogflowSubscriptionMatcherConsumer<
             personTeamIds,
             personIds,
             Object.keys(hogflows),
-            source
+            source,
+            receivedAt
         )
         if (candidates.length === 0) {
             return
@@ -595,7 +601,8 @@ export class CdpHogflowSubscriptionMatcherConsumer<
         personTeamIds: number[],
         personIds: string[],
         functionIds: string[],
-        source: WakeSource
+        source: WakeSource,
+        receivedAt: Date
     ): Promise<ParkedCandidate[]> {
         // Two index-friendly branches with UNION (dedupes rows that match both keys).
         // A single OR across distinct_id and person_id often forces Postgres into a
@@ -619,17 +626,17 @@ export class CdpHogflowSubscriptionMatcherConsumer<
                 `SELECT id, team_id, function_id, parent_run_id, action_id, distinct_id, person_id
              FROM cyclotron_jobs
              WHERE status = 'available'
-               AND scheduled > NOW()
+               AND scheduled > $6
                AND function_id = ANY($5::uuid[])
                AND (team_id, distinct_id) IN (SELECT * FROM unnest($1::int[], $2::text[]))
              UNION
              SELECT id, team_id, function_id, parent_run_id, action_id, distinct_id, person_id
              FROM cyclotron_jobs
              WHERE status = 'available'
-               AND scheduled > NOW()
+               AND scheduled > $6
                AND function_id = ANY($5::uuid[])
                AND (team_id, person_id) IN (SELECT * FROM unnest($3::int[], $4::text[]))`,
-                [distinctTeamIds, distinctIds, personTeamIds, personIds, functionIds]
+                [distinctTeamIds, distinctIds, personTeamIds, personIds, functionIds, receivedAt]
             )
         } finally {
             stopTimer()
@@ -741,7 +748,8 @@ export class CdpHogflowSubscriptionMatcherConsumer<
     private async claimConversionWatchers(
         indexed: IndexedBatch,
         filterGlobalsFor: (globals: HogFunctionInvocationGlobals) => FilterGlobals,
-        eventsOnly: boolean
+        eventsOnly: boolean,
+        receivedAt: Date
     ): Promise<number> {
         const { distinctTeamIds, distinctIds, personTeamIds, personIds, byDistinctId, byPersonId } = indexed
 
@@ -751,14 +759,14 @@ export class CdpHogflowSubscriptionMatcherConsumer<
             found = await this.cyclotronPool.query(
                 `SELECT id, team_id, function_id, run_id, parent_run_id, distinct_id, person_id, flow_version, goal, created_at
                  FROM conversion_watchers
-                 WHERE expires_at > NOW()
+                 WHERE expires_at > $5
                    AND (team_id, distinct_id) IN (SELECT * FROM unnest($1::int[], $2::text[]))
                  UNION
                  SELECT id, team_id, function_id, run_id, parent_run_id, distinct_id, person_id, flow_version, goal, created_at
                  FROM conversion_watchers
-                 WHERE expires_at > NOW()
+                 WHERE expires_at > $5
                    AND (team_id, person_id) IN (SELECT * FROM unnest($3::int[], $4::text[]))`,
-                [distinctTeamIds, distinctIds, personTeamIds, personIds]
+                [distinctTeamIds, distinctIds, personTeamIds, personIds, receivedAt]
             )
         } finally {
             stopTimer()

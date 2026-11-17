@@ -239,7 +239,7 @@ class MatcherUnderTest extends CdpHogflowSubscriptionMatcherConsumer {
     }
 
     public async runWake(invocationGlobals: HogFunctionInvocationGlobals[], source?: string): Promise<void> {
-        await (this as any).wakeMatchingWorkflows(invocationGlobals, source)
+        await (this as any).wakeMatchingWorkflows(invocationGlobals, source ?? 'events', new Date())
     }
 
     // start() arms the watcher sweep and team-refresh intervals, and only stop() clears them. This
@@ -1525,10 +1525,10 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
 
                 const { backgroundTask } = await handleBatch([message])
                 await backgroundTask
-                expect(processBatch).toHaveBeenCalledWith(
+                expect(processBatch.mock.calls[0].slice(0, 2)).toEqual([
                     [expect.objectContaining({ project: expect.objectContaining({ id: 1 }) })],
-                    expect.any(String)
-                )
+                    expect.any(String),
+                ])
             }
         )
     })
@@ -1940,7 +1940,7 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
             const lookup = matcher.calls.find(
                 (c) => c.sql.includes('FROM conversion_watchers') && !c.sql.startsWith('DELETE')
             )
-            expect(lookup?.params ?? null).toEqual(expectedPairs)
+            expect(lookup?.params.slice(0, 4) ?? null).toEqual(expectedPairs)
         })
 
         it('counts a claimed watcher and emits the conversion event with its run id', async () => {
