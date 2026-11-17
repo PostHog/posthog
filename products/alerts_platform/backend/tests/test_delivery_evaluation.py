@@ -1,5 +1,5 @@
 import json
-import threading
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import ExitStack
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
@@ -1224,9 +1224,8 @@ class TestDestinationMoveDuringDelivery(NonAtomicBaseTest):
 
         def rows_then_convert(**kwargs: Any) -> Any:
             rows = enabled_alert_destinations(**kwargs)
-            converter = threading.Thread(target=convert)
-            converter.start()
-            converter.join()
+            with ThreadPoolExecutor(max_workers=1) as converter:
+                converter.submit(convert).result()
             return rows
 
         with ExitStack() as stack:
