@@ -48,6 +48,8 @@ This process is young. Change this section when the practice changes.
    When agents take the result as the answer and move on, the result is expected and needs no rule.
 2. **Decide the home of each fact** with the table above.
    Often the result is a description change or a response field, and no rule.
+   When a description changes, put the evidence in the pull request: the call that agents make first, and the call that they correct it to.
+   Use shares, not counts, because the repository is public.
 3. **Put the rule in the file of its product**, `rules/<product>.ts`, and name it `<product>-<case>`, such as `replay-empty-to-range`.
    A new product gets a new file, registered in `rules/index.ts`.
    Write the rules out, and share a helper only when it is obvious.
