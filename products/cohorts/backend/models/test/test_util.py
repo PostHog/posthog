@@ -670,6 +670,7 @@ class TestCohortUtils(BaseTest):
                 (uuid.uuid4(), u6, cohort.pk, self.team.id, t_marker, 1),
             ],
         )
+        Cohort.objects.filter(pk=cohort.pk).update(population_marker=t_marker)
 
         with patch("products.cohorts.backend.models.util.CH_PAGE_SIZE", 3):
             insert_cohort_people_into_pg(cohort, team_id=self.team.id, min_rows=3, replace_marker=t_marker)
@@ -1128,7 +1129,11 @@ class TestCohortUtils(BaseTest):
         [
             ("append", None, {}),
             # A replace prunes on what it reads back, so its insert must be a quorum write.
-            ("replace", datetime(2026, 11, 7, 12, 0, tzinfo=UTC), REPLACE_INSERT_QUORUM_SETTINGS),
+            (
+                "replace",
+                datetime(2026, 11, 7, 12, 0, tzinfo=UTC),
+                {**REPLACE_INSERT_QUORUM_SETTINGS, "insert_distributed_sync": 1},
+            ),
         ]
     )
     def test_insert_actors_into_cohort_by_query_uses_offline_workload_and_cohort_timeout_settings(

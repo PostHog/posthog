@@ -575,7 +575,7 @@ class TestCohort(BaseTest):
             last_replace_floor=floor,
         )
 
-        stale_cohort.insert_users_list_by_uuid([str(person.uuid)], team_id=self.team.pk, insert_in_clickhouse=True)
+        stale_cohort.insert_users_list_by_uuid([str(person.uuid)], team_id=self.team.pk)
 
         fresh_rows = sync_execute(
             "SELECT count() FROM person_static_cohort WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s AND person_id = %(person_id)s AND _timestamp >= %(floor)s",

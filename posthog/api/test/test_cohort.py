@@ -1051,12 +1051,12 @@ email@example.org
                         }
                     },
                 },
-                False,
+                True,
             ),
         ]
     )
     def test_stale_cohort_instance_patch_preserves_last_replace_fields(
-        self, _name: str, payload_fn: Callable[[], dict[str, Any]], expects_claim: bool
+        self, _name: str, payload_fn: Callable[[], dict[str, Any]], expects_calculating: bool
     ) -> None:
         cohort = Cohort.objects.create(team=self.team, name="static", is_static=True)
         stale_instance = Cohort.objects.get(pk=cohort.pk)
@@ -1082,7 +1082,7 @@ email@example.org
         cohort.refresh_from_db()
         self.assertEqual(cohort.last_replace_marker, finished_marker)
         self.assertEqual(cohort.last_replace_floor, finished_floor)
-        self.assertEqual(cohort.is_calculating, expects_claim)
+        self.assertEqual(cohort.is_calculating, expects_calculating)
 
     def test_dynamic_cohort_patch_still_writes_is_calculating(self) -> None:
         cohort = Cohort.objects.create(
@@ -6415,14 +6415,17 @@ email@example.org,
                 side_effect=RuntimeError("recount boom"),
             ),
             patch("posthog.api.cohort.capture_exception") as mock_capture,
-            self.assertRaisesRegex(RuntimeError, "insert boom"),
+            patch("posthog.exceptions.capture_exception") as mock_request_capture,
         ):
-            self.client.patch(
+            response = self.client.patch(
                 f"/api/projects/{self.team.id}/cohorts/{static_cohort.id}/add_persons_to_static_cohort",
                 {"person_ids": [str(p1.uuid)]},
                 format="json",
             )
 
+        assert response.status_code == 500
+        mock_request_capture.assert_called_once()
+        assert str(mock_request_capture.call_args.args[0]) == "insert boom"
         mock_capture.assert_called_once()
         assert str(mock_capture.call_args.args[0]) == "recount boom"
         assert not ActivityLog.objects.filter(
@@ -6442,13 +6445,17 @@ email@example.org,
                 "products.cohorts.backend.models.util.insert_cohort_members",
                 side_effect=RuntimeError("personhog down"),
             ),
-            self.assertRaisesRegex(RuntimeError, "personhog down"),
+            patch("posthog.exceptions.capture_exception") as mock_request_capture,
         ):
-            self.client.patch(
+            response = self.client.patch(
                 f"/api/projects/{self.team.id}/cohorts/{static_cohort.id}/add_persons_to_static_cohort",
                 {"person_ids": [str(p1.uuid)]},
                 format="json",
             )
+
+        assert response.status_code == 500
+        mock_request_capture.assert_called_once()
+        assert str(mock_request_capture.call_args.args[0]) == "personhog down"
 
         static_cohort.refresh_from_db()
         assert static_cohort.last_calculation is None

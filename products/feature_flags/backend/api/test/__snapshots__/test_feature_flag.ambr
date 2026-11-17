@@ -1168,10 +1168,12 @@
 # ---
 # name: TestFeatureFlag.test_creating_static_cohort.17
   '''
-  SELECT 1 AS "a"
+  SELECT "posthog_cohort"."pending_population_mode" AS "pending_population_mode",
+         "posthog_cohort"."last_replace_marker" AS "last_replace_marker",
+         "posthog_cohort"."last_replace_floor" AS "last_replace_floor"
   FROM "posthog_cohort"
-  WHERE ("posthog_cohort"."pending_population_mode" = 'replace'
-         AND "posthog_cohort"."id" = 99999)
+  WHERE "posthog_cohort"."id" = 99999
+  ORDER BY "posthog_cohort"."id" ASC
   LIMIT 1
   '''
 # ---

@@ -9,7 +9,7 @@ from posthog.test.base import APIBaseTest, flush_persons_and_events
 from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
-from django.db import InterfaceError, OperationalError
+from django.db import DEFAULT_DB_ALIAS, InterfaceError, OperationalError
 from django.test import SimpleTestCase, override_settings
 from django.utils import timezone
 
@@ -1873,10 +1873,12 @@ class TestCohortCalculationTasks(APIBaseTest):
                 side_effect=[OperationalError("db gone"), OperationalError("db still gone")],
             ) as mock_clear,
             patch("products.cohorts.backend.models.util.capture_exception") as mock_capture,
+            patch("products.cohorts.backend.models.util.connections") as mock_connections,
         ):
             insert_cohort_from_query(cohort.id, self.team.pk)
 
         self.assertEqual(mock_clear.call_count, 2)
+        mock_connections[DEFAULT_DB_ALIAS].close.assert_called_once()
         mock_capture.assert_called_once()
         history = CohortCalculationHistory.objects.get(cohort=cohort)
         self.assertIsNotNone(history.finished_at)
