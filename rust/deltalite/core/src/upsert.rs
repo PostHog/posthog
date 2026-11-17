@@ -833,6 +833,9 @@ async fn upsert_with_relax(
     opts: UpsertOptions,
     relax_cache: &mut RelaxCache,
 ) -> Result<(UpsertStats, DeltaTableState)> {
+    // Before the relax, so a refused batch never makes a metadata commit.
+    let table_schema = RecordBatchWriter::for_table(table)?.arrow_schema();
+    check_order_columns(&source_batches, &source_schema, &table_schema, &opts)?;
     let relax_started = Instant::now();
     let relax = columns_needing_relax(table, &source_batches, &source_schema, relax_cache).await?;
     if relax.is_empty() {
@@ -1033,7 +1036,6 @@ async fn upsert_inner(
         )));
     }
     let partition_col: Option<String> = partition_columns.first().cloned();
-    check_order_columns(&source_batches, &source_schema, &table_schema, &opts)?;
     if let (Some(tbl), Some(req)) = (&partition_col, &opts.partition_key) {
         if tbl != req {
             return Err(Error::Generic(format!(
@@ -1061,7 +1063,12 @@ async fn upsert_inner(
     let source_rows: usize = cast.iter().map(RecordBatch::num_rows).sum();
 
     // --- Source-size guard: fail at the front door, not as an OOM mid-rewrite. -------
-    let footprint = source_footprint(&cast, &table_schema, &opts.primary_keys)?;
+    let footprint = source_footprint(
+        &cast,
+        &table_schema,
+        &opts.primary_keys,
+        &opts.order_columns,
+    )?;
     check_source_size(&footprint, resolve_max_source_bytes(opts.max_source_bytes))?;
 
     let batches = Arc::new(cast);
@@ -1515,24 +1522,38 @@ fn source_footprint(
     batches: &[RecordBatch],
     table_schema: &SchemaRef,
     primary_keys: &[String],
+    order_columns: &[String],
 ) -> Result<SourceFootprint> {
     let source_bytes: usize = batches.iter().map(RecordBatch::get_array_memory_size).sum();
     let rows: usize = batches.iter().map(RecordBatch::num_rows).sum();
-    let mut pk_bytes = 0usize;
-    for pk in primary_keys {
-        let idx = table_schema.index_of(pk).map_err(|_| {
-            Error::SchemaMismatch(format!(
-                "primary key column '{pk}' not found in table schema"
-            ))
+    let column_bytes = |name: &String| -> Result<usize> {
+        let idx = table_schema.index_of(name).map_err(|_| {
+            Error::SchemaMismatch(format!("column '{name}' not found in table schema"))
         })?;
-        pk_bytes += batches
+        Ok(batches
             .iter()
             .map(|b| b.column(idx).get_array_memory_size())
-            .sum::<usize>();
+            .sum::<usize>())
+    };
+    let mut pk_bytes = 0usize;
+    for pk in primary_keys {
+        pk_bytes += column_bytes(pk)?;
+    }
+    let mut pk_set_bytes = estimate_pk_set_bytes(pk_bytes, rows);
+    // The order guard holds its own copy of every key with its order value.
+    if !order_columns.is_empty() {
+        let mut order_bytes = 0usize;
+        for column in order_columns {
+            order_bytes += column_bytes(column)?;
+        }
+        pk_set_bytes = pk_set_bytes.saturating_add(estimate_pk_set_bytes(
+            pk_bytes.saturating_add(order_bytes),
+            rows,
+        ));
     }
     Ok(SourceFootprint {
         source_bytes,
-        pk_set_bytes: estimate_pk_set_bytes(pk_bytes, rows),
+        pk_set_bytes,
     })
 }
 
@@ -2913,18 +2934,20 @@ async fn rewrite_partition(
         // large source produced one oversized file and an unbounded write buffer.
         // Flushing mid-source is order-safe: it closes the current file and opens
         // another, and every source row still lands after every survivor.
-        let mut selected = sel.select_batch(b)?;
-        if !skipped.is_empty() {
-            let keep: arrow_array::BooleanArray = (start..position)
-                .map(|p| Some(!skipped.contains(&p)))
-                .collect();
-            selected = filter_record_batch(&selected, &keep)?;
-        }
+        let selected = sel.select_batch(b)?;
         let slice_rows = source_slice_rows(&selected, opts.read_batch_size, max_row_group_bytes);
         let mut offset = 0usize;
         while offset < selected.num_rows() {
             let n = (selected.num_rows() - offset).min(slice_rows);
-            let slice = selected.slice(offset, n);
+            let mut slice = selected.slice(offset, n);
+            // Per slice, so dropping a guarded row copies one slice, not the batch.
+            let first = start + offset as u32;
+            if (first..first + n as u32).any(|p| skipped.contains(&p)) {
+                let keep: arrow_array::BooleanArray = (first..first + n as u32)
+                    .map(|p| Some(!skipped.contains(&p)))
+                    .collect();
+                slice = filter_record_batch(&slice, &keep)?;
+            }
             if let Some(keys) = output_keys.as_mut() {
                 keys.note_write(&pkset, &slice)?;
             }
@@ -3482,11 +3505,23 @@ mod tests {
             AField::new("v", DataType::Int64, false),
         ]));
         let b = part_batch(&["a", "b"]);
-        let fp = source_footprint(std::slice::from_ref(&b), &schema, &["v".to_string()]).unwrap();
+        let fp =
+            source_footprint(std::slice::from_ref(&b), &schema, &["v".to_string()], &[]).unwrap();
         assert_eq!(fp.source_bytes, b.get_array_memory_size());
         assert!(fp.pk_set_bytes >= b.column(1).get_array_memory_size());
+        let guarded = source_footprint(
+            std::slice::from_ref(&b),
+            &schema,
+            &["v".to_string()],
+            &["p".to_string()],
+        )
+        .unwrap();
+        assert!(
+            guarded.pk_set_bytes >= fp.pk_set_bytes * 2,
+            "the order guard's map is counted"
+        );
         // Unknown PK column errors.
-        assert!(source_footprint(&[b], &schema, &["nope".to_string()]).is_err());
+        assert!(source_footprint(&[b], &schema, &["nope".to_string()], &[]).is_err());
     }
 
     // ---- partition file index --------------------------------------------------------

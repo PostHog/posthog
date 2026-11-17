@@ -688,9 +688,12 @@ def test_the_upsert_order_guard_keeps_the_newest_row_per_key(tmp_path, seed):
         assert got == want, f"call {call}"
 
 
-def test_the_upsert_order_guard_refuses_a_null_order_value(tmp_path):
+def test_the_upsert_order_guard_refuses_a_null_order_value_before_any_commit(tmp_path):
     uri = str(tmp_path / "main")
-    deltalake.DeltaTable.create(uri, schema=MAIN_SCHEMA)
+    strict = pa.schema([f.with_nullable(False) if f.name == "ts" else f for f in MAIN_SCHEMA])
+    deltalake.DeltaTable.create(uri, schema=strict)
     data = pa.Table.from_pylist([{"id": "a", "ts": None, "rank": 0, "arr": 1, "payload": "x"}], schema=MAIN_SCHEMA)
+    table = deltalite.DeltaLiteTable.open(uri)
     with pytest.raises(deltalite.DeltaLiteError, match="null"):
-        deltalite.DeltaLiteTable.open(uri).upsert(data, ["id"], order_column="ts")
+        table.upsert(data, ["id"], order_column="ts")
+    assert deltalake.DeltaTable(uri).version() == 0, "no nullability relax commit"

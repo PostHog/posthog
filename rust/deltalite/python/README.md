@@ -168,7 +168,7 @@ A source that keeps no row, such as a re-run of the same input, makes no commit 
 
 Two keyword arguments change rules 1, 2 and 4 for sources whose rows can arrive out of order, such as webhook events:
 
-- `dedupe_column` (default `None`) names a column that identifies one change, such as an event id. A row whose value the key already holds, in the table or earlier in the source, is dropped and counted in `rows_redelivered`. Of several source rows with one value, the one with the lowest order value, then the lowest tie-break value, is kept. Rule 1 no longer applies: rows with the same order value are separate versions. An existing version sorts before a source row with the same order value, and source rows sort by tie-break value. The column must be a table column and must not be null in the source.
+- `dedupe_column` (default `None`) names a column that identifies one change, such as an event id. A row whose value the key already holds, in the table or earlier in the source, is dropped and counted in `rows_redelivered`. Of several source rows with one value, the one with the lowest order value, then the lowest tie-break value, is kept. Rule 1 no longer applies: rows with the same order value are separate versions. An existing version sorts before a source row with the same order value, and source rows sort by tie-break value. The column must be a table column and must not be null in the source. A redelivery must carry the same `valid_from_column` value as the first delivery, as an event's own time does: the lookup reads only the versions around the source's `valid_from_column` values.
 - `late_rows="insert"` (default `"drop"`) inserts a row older than its key's open row into the past instead of counting it in `rows_backwards`. The version before it, `[a, b)`, becomes `[a, t)`, where `t` is the late row's `valid_from_column`, and the late row becomes `[t, b)`. A late row older than every version ends at the first version's `valid_from_column`. Later versions and the open row do not change. Without a `dedupe_column`, a row whose order value the key already holds counts in `rows_reread`.
 
 The chain rule decides everything else.
@@ -176,8 +176,9 @@ When two versions have the same `valid_from_column`, the earlier one in order en
 A version whose `valid_to_column` changes moves to the month partition of its new value, in the same commit.
 A re-run of the same input is a no-op: every row is a redelivery or a re-read.
 
-With either argument, the call also reads the month partitions from the month of a key's oldest source `valid_from_column` to the month of its open row's `valid_from_column`, for the keys that need them, pruned by key statistics as in the current partition.
+With either argument, the call also reads, for each key that needs them, the month partitions from the month of its oldest source `valid_from_column` to the month of its open row's `valid_from_column`, pruned by key statistics as in the current partition.
 That holds every closed version a late row or a redelivery can touch, because such a version ends at or after the source row's `valid_from_column`.
+Of those versions the call keeps only the ones that cover a source `valid_from_column` value, plus the first version after each value, so its memory does not grow with the key's history.
 It requires `valid_from_column` not to decrease as the order value grows, as when the first order column is the change time; a row that breaks this raises `DeltaLiteError` and nothing is written.
 A late row or a redelivery rewrites the month files that hold the versions it touches.
 

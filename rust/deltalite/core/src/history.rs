@@ -121,7 +121,8 @@ pub struct HistoryUpsertOptions {
     pub late_rows: LateRows,
     /// Column whose value identifies one change of a key, such as an event id. A source
     /// row whose value the key already holds is dropped as a redelivery. Must not be null
-    /// in the source.
+    /// in the source. A redelivery must carry the first delivery's `valid_from`, since
+    /// only versions around the source's `valid_from` values are read.
     pub dedupe_column: Option<String>,
     pub commit_metadata: Option<HashMap<String, Value>>,
     pub probe_concurrency: usize,
@@ -863,14 +864,14 @@ impl SourcePlan {
         d
     }
 
-    /// The month partitions whose closed versions can take part, and per key the oldest
-    /// source `valid_from`, below which a closed version cannot take part. `existing`
-    /// holds the open rows the current-partition probe found.
+    /// The month partitions whose closed versions can take part, and per key the sorted
+    /// source `valid_from` values the probe keeps versions for. `existing` holds the open
+    /// rows the current-partition probe found.
     fn closed_months(
         &self,
         existing: &[Existing],
         opts: &HistoryUpsertOptions,
-    ) -> Result<(Vec<String>, Vec<OldestValidFrom>)> {
+    ) -> Result<(Vec<String>, Vec<SourceTimes>)> {
         let mut open: Vec<Option<&Existing>> = vec![None; self.groups.len()];
         for e in existing.iter().filter(|e| e.valid_to.is_none()) {
             let slot = &mut open[e.group as usize];
@@ -878,7 +879,7 @@ impl SourcePlan {
                 *slot = Some(e);
             }
         }
-        let mut oldest: Vec<OldestValidFrom> = vec![None; self.groups.len()];
+        let mut times: Vec<SourceTimes> = vec![None; self.groups.len()];
         let mut bounds: Vec<&[u8]> = Vec::new();
         for (group, &(start, end)) in self.groups.iter().enumerate() {
             let Some(open) = open[group] else { continue };
@@ -893,18 +894,42 @@ impl SourcePlan {
             if !reaches_closed || min > open.valid_from.as_ref() {
                 continue;
             }
-            oldest[group] = Some(min.into());
+            let mut key_times: Vec<Box<[u8]>> = rows
+                .iter()
+                .map(|r| self.valid_from_bytes(*r).into())
+                .collect();
+            key_times.sort_unstable();
+            key_times.dedup();
+            times[group] = Some(key_times);
             bounds.extend([min, open.valid_from.as_ref()]);
         }
         if bounds.is_empty() {
-            return Ok((Vec::new(), oldest));
+            return Ok((Vec::new(), times));
         }
+        // Each key needs its own range; months between two keys' ranges are not read.
         let months = format_months(self.decode_times(bounds)?.as_ref())?;
-        let (Some(lo), Some(hi)) = (months.iter().flatten().min(), months.iter().flatten().max())
-        else {
-            return Ok((Vec::new(), oldest));
-        };
-        Ok((months_between(lo, hi)?, oldest))
+        let months: Vec<Option<&str>> = months.iter().collect();
+        let mut ranges: Vec<(&str, &str)> = months
+            .chunks(2)
+            .filter_map(|pair| match pair {
+                [Some(lo), Some(hi)] => Some((*lo, *hi)),
+                _ => None,
+            })
+            .collect();
+        ranges.sort_unstable();
+        let mut merged: Vec<(&str, &str)> = Vec::new();
+        for (lo, hi) in ranges {
+            match merged.last_mut() {
+                Some(last) if lo <= last.1 => last.1 = last.1.max(hi),
+                _ => merged.push((lo, hi)),
+            }
+        }
+        let mut out = Vec::new();
+        for (lo, hi) in merged {
+            out.extend(months_between(lo, hi)?);
+        }
+        out.dedup();
+        Ok((out, times))
     }
 
     /// Choose the kept rows of every key when closed versions take part: the open row
@@ -1044,9 +1069,9 @@ impl SourcePlan {
     }
 }
 
-/// Per key, the oldest source `valid_from`, as bytes; `None` when the key's closed
-/// versions do not take part.
-type OldestValidFrom = Option<Box<[u8]>>;
+/// Per key, its distinct source `valid_from` values, sorted, as bytes; `None` when the
+/// key's closed versions do not take part.
+type SourceTimes = Option<Vec<Box<[u8]>>>;
 
 /// Every `%Y-%m` month from `lo` to `hi`, both included.
 fn months_between(lo: &str, hi: &str) -> Result<Vec<String>> {
@@ -1312,7 +1337,27 @@ fn key_and_order_columns(
 struct FileProbe {
     file: TargetFile,
     seen: Vec<Existing>,
+    /// Index in `seen` of the lowest-order candidate per (key, source value), see
+    /// [`keep_closed`].
+    next_after: HashMap<(u32, u32), usize>,
     newer: bool,
+}
+
+/// Keep `e` in `seen` only if it has the lowest order value of the candidates in `slot`.
+fn keep_lowest(
+    seen: &mut Vec<Existing>,
+    slots: &mut HashMap<(u32, u32), usize>,
+    slot: (u32, u32),
+    e: Existing,
+) {
+    match slots.get(&slot) {
+        Some(&at) if seen[at].order <= e.order => {}
+        Some(&at) => seen[at] = e,
+        None => {
+            slots.insert(slot, seen.len());
+            seen.push(e);
+        }
+    }
 }
 
 /// The columns a probe reads and the versions it keeps.
@@ -1324,9 +1369,31 @@ struct ProbeSpec<'a> {
     key_count: usize,
     order_count: usize,
     closed: bool,
-    /// Per key, the oldest `valid_from` a closed version must end at or after to be kept;
-    /// `None` skips the key's closed versions. Unset keeps every version.
-    oldest: Option<&'a [OldestValidFrom]>,
+    /// Per key, the source `valid_from` values a closed version is kept for (see
+    /// [`keep_closed`]); `None` skips the key's closed versions. Unset keeps every version.
+    times: Option<&'a [SourceTimes]>,
+}
+
+/// Whether a closed version `[from, to]` takes part, given its key's sorted source
+/// `valid_from` values. One that covers a source value is kept: it can be the version
+/// before a late row, a redelivery, or a re-read. One that covers none is only kept as
+/// the candidate next version after the largest source value below `from`, and only the
+/// lowest order value among those candidates is the real one.
+enum KeepClosed {
+    Covers,
+    NextAfter(u32),
+    No,
+}
+
+fn keep_closed(times: &[Box<[u8]>], from: &[u8], to: &[u8]) -> KeepClosed {
+    let at = times.partition_point(|t| t.as_ref() < from);
+    if times.get(at).is_some_and(|t| t.as_ref() <= to) {
+        KeepClosed::Covers
+    } else if at > 0 {
+        KeepClosed::NextAfter(at as u32 - 1)
+    } else {
+        KeepClosed::No
+    }
 }
 
 impl<'a> ProbeSpec<'a> {
@@ -1334,7 +1401,7 @@ impl<'a> ProbeSpec<'a> {
         table_schema: &SchemaRef,
         cols: &Columns,
         opts: &HistoryUpsertOptions,
-        oldest: Option<&'a [OldestValidFrom]>,
+        times: Option<&'a [SourceTimes]>,
     ) -> Self {
         let field = |i: &usize| {
             let f = table_schema.field(*i);
@@ -1358,7 +1425,7 @@ impl<'a> ProbeSpec<'a> {
             key_count: cols.key_idx.len(),
             order_count: cols.order_idx.len(),
             closed,
-            oldest,
+            times,
         }
     }
 }
@@ -1387,6 +1454,7 @@ async fn probe_file(
     let mut probe = FileProbe {
         file: f,
         seen: Vec::new(),
+        next_after: HashMap::new(),
         newer: false,
     };
     let (kc, oc) = (spec.key_count, spec.order_count);
@@ -1424,15 +1492,22 @@ async fn probe_file(
                 valid_to: None,
                 dedupe: None,
             };
+            let mut next_after = None;
             if let Some((from, to, dedupe)) = &times {
                 if cols[kc + oc + 1].is_valid(i) {
                     e.valid_to = Some(to.row(i).as_ref().into());
                 }
-                if let Some(oldest) = spec.oldest {
-                    match (&oldest[group as usize], &e.valid_to) {
-                        (None, _) => continue,
-                        (Some(oldest), Some(to)) if to < oldest => continue,
-                        _ => {}
+                if let Some(source_times) = spec.times {
+                    let Some(source_times) = &source_times[group as usize] else {
+                        continue;
+                    };
+                    let Some(valid_to) = &e.valid_to else {
+                        continue;
+                    };
+                    match keep_closed(source_times, from.row(i).as_ref(), valid_to) {
+                        KeepClosed::Covers => {}
+                        KeepClosed::NextAfter(t) => next_after = Some((group, t)),
+                        KeepClosed::No => continue,
                     }
                 }
                 e.valid_from = from.row(i).as_ref().into();
@@ -1445,7 +1520,10 @@ async fn probe_file(
             } else {
                 probe.newer = probe.newer || plan.newest_order(group) > order.as_ref();
             }
-            probe.seen.push(e);
+            match next_after {
+                None => probe.seen.push(e),
+                Some(slot) => keep_lowest(&mut probe.seen, &mut probe.next_after, slot, e),
+            }
         }
         row_base += batch.num_rows() as u32;
         Ok(())
@@ -1504,8 +1582,19 @@ struct ProbedFile {
     groups: Vec<u32>,
 }
 
-/// Probe `files` of `partition` and add what they hold to `probed` and `existing`. Up to
-/// one reader wave of files that may be rewritten keeps its footer.
+/// What every probe of one call found.
+#[derive(Default)]
+struct Probed {
+    files: Vec<ProbedFile>,
+    existing: Vec<Existing>,
+    /// Index in `existing` of the lowest-order candidate per (key, source value).
+    next_after: HashMap<(u32, u32), usize>,
+    /// Files that kept their footer for the rewrite.
+    footers: usize,
+}
+
+/// Probe `files` of `partition` and add what they hold to `probed`. Up to one reader wave
+/// of files that may be rewritten keeps its footer, counted over the whole call.
 #[allow(clippy::too_many_arguments)]
 async fn probe_files(
     store: &Arc<dyn ObjectStore>,
@@ -1515,8 +1604,7 @@ async fn probe_files(
     spec: &ProbeSpec<'_>,
     opts: &HistoryUpsertOptions,
     budgets: &Budgets,
-    probed: &mut Vec<ProbedFile>,
-    existing: &mut Vec<Existing>,
+    probed: &mut Probed,
 ) -> Result<()> {
     let results = futures::stream::iter(files.into_iter().map(|f| {
         let store = store.clone();
@@ -1525,22 +1613,29 @@ async fn probe_files(
     .buffered(opts.probe_concurrency.max(1));
     futures::pin_mut!(results);
     let retained_footer_limit = opts.max_parallel_files.max(1);
-    let mut retained = 0usize;
     while let Some((mut probe, metadata)) = results.try_next().await? {
-        if probe.newer && retained < retained_footer_limit {
+        if probe.newer && probed.footers < retained_footer_limit {
             probe.file.metadata = Some(metadata);
-            retained += 1;
+            probed.footers += 1;
         }
-        let index = probed.len() as u32;
+        let index = probed.files.len() as u32;
+        let mut slot_of: HashMap<usize, (u32, u32)> = probe
+            .next_after
+            .into_iter()
+            .map(|(slot, at)| (at, slot))
+            .collect();
         let mut groups = Vec::with_capacity(probe.seen.len());
-        for mut e in probe.seen {
+        for (at, mut e) in probe.seen.into_iter().enumerate() {
             e.file = index;
             groups.push(e.group);
-            existing.push(e);
+            match slot_of.remove(&at) {
+                None => probed.existing.push(e),
+                Some(slot) => keep_lowest(&mut probed.existing, &mut probed.next_after, slot, e),
+            }
         }
         groups.sort_unstable();
         groups.dedup();
-        probed.push(ProbedFile {
+        probed.files.push(ProbedFile {
             file: probe.file,
             partition: partition.to_string(),
             groups,
@@ -1826,8 +1921,7 @@ async fn history_inner(
     let _partition_permit = opts.limits.acquire_partition().await?;
     let probe_started = Instant::now();
     stats.files_probed = candidates.len();
-    let mut probed: Vec<ProbedFile> = Vec::new();
-    let mut existing: Vec<Existing> = Vec::new();
+    let mut probed = Probed::default();
     let spec = ProbeSpec::new(&table_schema, &cols, opts, None);
     probe_files(
         &store,
@@ -1838,17 +1932,16 @@ async fn history_inner(
         opts,
         &budgets,
         &mut probed,
-        &mut existing,
     )
     .await?;
-    let current_files = probed.len();
+    let current_files = probed.files.len();
     if opts.reads_closed_versions() {
-        let (months, oldest) = plan.closed_months(&existing, opts)?;
+        let (months, times) = plan.closed_months(&probed.existing, opts)?;
         if !months.is_empty() {
             let values: Vec<&str> = months.iter().map(String::as_str).collect();
             let listed =
                 list_files_by_partition(table, Some(&opts.partition_column), &values).await?;
-            let spec = ProbeSpec::new(&table_schema, &cols, opts, Some(&oldest));
+            let spec = ProbeSpec::new(&table_schema, &cols, opts, Some(&times));
             for (month, files) in months.iter().zip(listed) {
                 let candidates: Vec<TargetFile> = files
                     .into_iter()
@@ -1864,13 +1957,17 @@ async fn history_inner(
                     opts,
                     &budgets,
                     &mut probed,
-                    &mut existing,
                 )
                 .await?;
             }
         }
     }
     stats.probe_ms = probe_started.elapsed().as_millis() as u64;
+    let Probed {
+        files: probed,
+        mut existing,
+        ..
+    } = probed;
 
     let (decision, pool) = if opts.reads_closed_versions() {
         let decision = plan.decide_with_closed(&existing, opts)?;
@@ -2208,6 +2305,23 @@ mod tests {
         .await
         .unwrap_err();
         assert!(matches!(err, Error::Unsupported(_)), "{err}");
+    }
+
+    #[test]
+    fn a_closed_version_is_kept_when_it_covers_a_source_time_or_may_follow_one() {
+        let times: Vec<Box<[u8]>> =
+            vec![Box::from([10u8].as_slice()), Box::from([20u8].as_slice())];
+        let keep = |from: u8, to: u8| match keep_closed(&times, &[from], &[to]) {
+            KeepClosed::Covers => "covers".to_string(),
+            KeepClosed::NextAfter(t) => format!("next after {t}"),
+            KeepClosed::No => "no".to_string(),
+        };
+        assert_eq!(keep(5, 10), "covers", "ends at a source time");
+        assert_eq!(keep(10, 10), "covers", "zero-length at a source time");
+        assert_eq!(keep(12, 20), "covers");
+        assert_eq!(keep(12, 15), "next after 0");
+        assert_eq!(keep(25, 30), "next after 1");
+        assert_eq!(keep(1, 5), "no", "ends before every source time");
     }
 
     #[tokio::test]

@@ -1247,3 +1247,54 @@ async fn a_late_row_needs_valid_from_to_grow_with_the_order_value() {
     );
     assert_eq!(read(&h).await, before);
 }
+
+#[tokio::test]
+async fn late_rows_years_apart_read_only_their_own_months() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut h = create(dir.path(), &["p"]).await;
+    for (v, day) in [(1, "10"), (3, "12")] {
+        let month = if v == 1 { "01" } else { "03" };
+        let rows: Vec<(Option<&str>, i64, String, &str, i64)> =
+            [("a", "2020"), ("b", "2023"), ("c", "2026")]
+                .into_iter()
+                .map(|(id, year)| {
+                    (
+                        Some(id),
+                        v,
+                        format!("{year}-{month}-{day}T00:00:00Z"),
+                        id,
+                        v,
+                    )
+                })
+                .collect();
+        let rows: Vec<Src> = rows
+            .iter()
+            .map(|r| (r.0, r.1, r.2.as_str(), r.3, r.4))
+            .collect();
+        apply_with(&mut h, &rows, opts()).await.unwrap();
+    }
+    let current_files = h
+        .files()
+        .unwrap()
+        .iter()
+        .filter(|f| f.partition_values["p"].as_deref() == Some("current"))
+        .count();
+
+    let stats = apply_with(
+        &mut h,
+        &[
+            (Some("a"), 2, "2020-02-10T00:00:00Z", "a2", 10),
+            (Some("c"), 2, "2026-02-10T00:00:00Z", "c2", 11),
+        ],
+        late(),
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(stats.rows_late, 2, "{stats:?}");
+    assert_eq!(
+        stats.files_probed,
+        current_files + 2,
+        "the 2020-03 and 2026-03 files, not b's 2023-03 file: {stats:?}"
+    );
+}
