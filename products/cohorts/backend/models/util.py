@@ -53,13 +53,14 @@ from posthog.models import Team
 from posthog.models.event.new_events_schema import events_read_settings, events_route_scope
 from posthog.models.person.sql import (
     DELETE_PERSON_FROM_STATIC_COHORT,
-    DELETE_STATIC_COHORT_ROWS_BEFORE_MARKER,
+    DELETE_STALE_STATIC_COHORT_ROWS,
     INSERT_COHORT_ALL_PEOPLE_FOR_REPLACE,
     INSERT_COHORT_ALL_PEOPLE_THROUGH_PERSON_ID,
     INSERT_PERSON_STATIC_COHORT,
     PERSON_STATIC_COHORT_TABLE,
     REPLACE_KEEPS_ROW,
     REPLACE_ROW_OFFSET,
+    replace_keeps_row_params,
 )
 from posthog.models.property import Property, PropertyGroup
 from posthog.models.property.parse import expand_cohort_properties, parse_property_group_data
@@ -1435,19 +1436,12 @@ def insert_actors_into_cohort_by_query(
     )
     # After a replace, the rows it removes can linger until its ClickHouse delete applies. An append must not
     # read them as membership, or it would skip inserting a person the delete then removes.
-    kept_filter = f" AND {REPLACE_KEEPS_ROW}" if replace_marker is None and cohort.last_replace_marker else ""
+    kept_marker = cohort.last_replace_marker if replace_marker is None else None
+    kept_filter = f" AND {REPLACE_KEEPS_ROW}" if kept_marker is not None else ""
     written = sync_execute(
         insert_sql.format(cohort_table=PERSON_STATIC_COHORT_TABLE, query=query, kept_filter=kept_filter),
         {
-            **(
-                {
-                    "marker": cohort.last_replace_marker,
-                    "floor": cohort.last_replace_floor or cohort.last_replace_marker,
-                    "replace_offset": REPLACE_ROW_OFFSET,
-                }
-                if kept_filter
-                else {}
-            ),
+            **(replace_keeps_row_params(kept_marker, cohort.last_replace_floor) if kept_marker is not None else {}),
             "cohort_id": cohort.pk,
             "_timestamp": replace_marker if replace_marker is not None else population_timestamp_now(),
             "team_id": team_id,
@@ -1516,9 +1510,11 @@ def insert_cohort_people_into_pg(
     `written_since` is a `_timestamp` from before that write. Only rows at or after it count, because a cohort's
     existing members can otherwise reach `min_rows` on a replica that has none of the new rows.
 
-    With ``replace_marker``, only rows at or after that ``_timestamp`` are read, with sequential
-    consistency, and each of them counts. The stored marker is checked before each page. A newer
-    replace attempt makes this raise ``PopulationSuperseded`` before it writes another page.
+    With ``replace_marker``, the copy reads with sequential consistency and copies the rows the replace
+    keeps (``REPLACE_KEEPS_ROW``): this attempt's rows at the marker, and members added at or after
+    ``replace_floor``. Only the rows at the marker count toward ``min_rows``. The stored marker is checked
+    before each page. A newer replace attempt makes this raise ``PopulationSuperseded`` before it writes
+    another page.
     """
 
     def _copy_once() -> tuple[int, bool]:
@@ -1548,6 +1544,9 @@ def insert_cohort_people_into_pg(
         time.sleep(wait_seconds)
 
 
+CH_PAGE_SIZE = 10_000
+
+
 def _copy_static_cohort_rows_to_pg(
     cohort: Cohort,
     *,
@@ -1565,8 +1564,6 @@ def _copy_static_cohort_rows_to_pg(
     from posthog.helpers.batch_iterators import CursorBatchIterator
 
     tag_queries(product=ProductKey.COHORTS, feature=Feature.COHORT)
-
-    CH_PAGE_SIZE = 10_000
     # A replace reads the rows it keeps. An append after a replace reads the rows that replace kept: the ones it
     # removes can linger until its ClickHouse delete applies, and copying them would put pruned members back.
     keep_marker = replace_marker if replace_marker is not None else cohort.last_replace_marker
@@ -1620,9 +1617,7 @@ def _copy_static_cohort_rows_to_pg(
                     "cursor": cursor,
                     "limit": batch_size,
                     "counted_since": counted_since,
-                    "marker": keep_marker,
-                    "floor": keep_floor,
-                    "replace_offset": REPLACE_ROW_OFFSET,
+                    **(replace_keeps_row_params(keep_marker, keep_floor) if keep_marker is not None else {}),
                 },
                 settings=read_settings,
                 # Pinned to the data cluster while keeping team_id so settings, query tags, and kill switches still apply.
@@ -1633,7 +1628,7 @@ def _copy_static_cohort_rows_to_pg(
         if not rows:
             exhausted = True
             return [], cursor
-        # Per person: whether any row is one to keep, and whether any kept row counts toward the gate.
+        # Per person: whether any row is one to keep, and whether any kept row counts toward the caller's min_rows.
         by_person: dict[str, tuple[bool, bool]] = {}
         for person_id, is_kept, is_counted in rows:
             key = str(person_id)
@@ -1829,8 +1824,7 @@ def clear_population_run_fields(
 
 # ── Static population replace: prune ─────────────────────────────────
 
-# One prune page costs one member page, one person lookup per 250 ids, one ClickHouse check and at most
-# one delete call, so it must stay under the delete RPC's cap. The benchmark tunes the size.
+# Members are listed from Postgres this many at a time.
 PRUNE_PAGE_SIZE = 5_000
 # The prune checks ClickHouse once per this many members, not once per page: each check reads the cohort's rows,
 # so checking every page made the prune's cost grow with the square of the cohort's size. 50,000 uuids is about
@@ -1838,9 +1832,9 @@ PRUNE_PAGE_SIZE = 5_000
 REPLACE_PRUNE_CHECK_BATCH = 50_000
 # Stale members are deleted in chunks of this many, under the delete RPC's cap of 10,000 ids.
 PRUNE_DELETE_CHUNK = 5_000
-# A workflow add is not a quorum write, so its ClickHouse row can reach a replica after the prune read
-# it. The prune waits this long before re-checking what it removed. The repo has observed sub-second
-# lag between replicas; tests and local dev run one node.
+# An add that read the cohort's mode before the replace claim landed writes a buffered row, not a quorum write,
+# so that row can reach a replica after the prune read it. The prune waits this long before re-checking what
+# it removed. The repo has observed sub-second lag between replicas; tests and local dev run one node.
 REPLACE_PRUNE_SETTLE_SECONDS = 0 if settings.TEST or settings.DEBUG else 1
 # The removed members waiting for that re-check. One wait then covers many pages, not one wait per page,
 # and memory stays bounded: 50,000 (id, uuid) pairs is a few megabytes.
@@ -1873,20 +1867,6 @@ def _cohort_member_id_pages(cohort_id: int, *, page_size: int, read_options: Any
         cursor = resp.next_cursor
 
 
-def _iter_cohort_member_id_pages(team_id: int, cohort_id: int, page_size: int) -> Iterator[list[int]]:
-    """Yield the cohort's Postgres member ids a page at a time, read from the primary.
-
-    The RPC has no team_id, so ownership is checked here, and a mismatch raises: the caller prunes.
-    """
-    from posthog.personhog_client import consistency_to_read_options
-
-    if not Cohort.objects.filter(id=cohort_id, team_id=team_id).exists():
-        raise CohortOwnershipMismatch(f"Cohort {cohort_id} does not belong to team {team_id}")
-    yield from _cohort_member_id_pages(
-        cohort_id, page_size=page_size, read_options=consistency_to_read_options("strong")
-    )
-
-
 def _uuids_present_at_marker(
     cohort_id: int, team_id: int, person_uuids: list[str], marker: datetime, floor: datetime | None = None
 ) -> set[str]:
@@ -1903,10 +1883,8 @@ def _uuids_present_at_marker(
                 {
                     "team_id": team_id,
                     "cohort_id": cohort_id,
-                    "marker": marker,
-                    "floor": floor or marker,
-                    "replace_offset": REPLACE_ROW_OFFSET,
                     "person_uuids": person_uuids,
+                    **replace_keeps_row_params(marker, floor),
                 },
                 settings=REPLACE_READ_SETTINGS,
                 workload=Workload.OFFLINE,
@@ -1947,9 +1925,15 @@ def _restore_members_whose_rows_arrived(
 
 
 def _member_id_batches(team_id: int, cohort_id: int) -> Iterator[list[int]]:
-    """Group the cohort's member pages into batches of about ``REPLACE_PRUNE_CHECK_BATCH`` ids."""
+    """Group the cohort's primary-read member pages into batches of about ``REPLACE_PRUNE_CHECK_BATCH`` ids."""
+    from posthog.personhog_client import consistency_to_read_options
+
+    if not Cohort.objects.filter(id=cohort_id, team_id=team_id).exists():
+        raise CohortOwnershipMismatch(f"Cohort {cohort_id} does not belong to team {team_id}")
     batch: list[int] = []
-    for page in _iter_cohort_member_id_pages(team_id, cohort_id, PRUNE_PAGE_SIZE):
+    for page in _cohort_member_id_pages(
+        cohort_id, page_size=PRUNE_PAGE_SIZE, read_options=consistency_to_read_options("strong")
+    ):
         batch.extend(page)
         if len(batch) >= REPLACE_PRUNE_CHECK_BATCH:
             yield batch
@@ -1968,7 +1952,8 @@ def prune_members_absent_from_replace(
     checked in batches of ``REPLACE_PRUNE_CHECK_BATCH`` and deleted in chunks of ``PRUNE_DELETE_CHUNK``.
 
     The removed members are checked again once the settle time has passed since the last delete, and
-    any whose row has arrived since are restored: a workflow add isn't a quorum write, so its row can
+    any whose row has arrived since are restored: an add that read the cohort's mode before the replace
+    claim landed isn't a quorum write, so its row can
     reach the replica after the prune read it. The re-check runs once per settle batch, not once per
     page. It only ever restores people this prune removed, so it can't bring back a member a manual
     remove deleted while that remove's ClickHouse mutation is still pending.
@@ -2017,7 +2002,7 @@ def _static_cohort_delete_settings() -> dict[str, str]:
     return {"mutations_sync": "0", "lightweight_deletes_sync": "0"}
 
 
-def prune_static_cohort_rows_before_marker(
+def prune_stale_static_cohort_rows(
     cohort_id: int, *, team_id: int, marker: datetime, floor: datetime | None = None
 ) -> None:
     """Delete the cohort's ClickHouse rows the replace doesn't keep, in one mutation: rows from before the
@@ -2029,7 +2014,7 @@ def prune_static_cohort_rows_before_marker(
         product=ProductKey.COHORTS,
         cohort_id=cohort_id,
         team_id=team_id,
-        name="prune_static_cohort_rows_before_marker",
+        name="prune_stale_static_cohort_rows",
         feature=Feature.COHORT,
         query_type="static_cohort_replace_prune",
     )
@@ -2037,13 +2022,11 @@ def prune_static_cohort_rows_before_marker(
     # right to delete can't be checked here.
     with _static_cohort_data_route():
         sync_execute(
-            DELETE_STATIC_COHORT_ROWS_BEFORE_MARKER,
+            DELETE_STALE_STATIC_COHORT_ROWS,
             {
                 "team_id": team_id,
                 "cohort_id": cohort_id,
-                "marker": marker,
-                "floor": floor or marker,
-                "replace_offset": REPLACE_ROW_OFFSET,
+                **replace_keeps_row_params(marker, floor),
             },
             settings=_static_cohort_delete_settings(),
             workload=Workload.OFFLINE,

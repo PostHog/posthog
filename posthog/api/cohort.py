@@ -1983,13 +1983,9 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
         # Resolved from whichever context shape the caller provided, so the check can't be skipped.
         return _team_from_serializer_context(self.context)
 
-    def _is_static_cohort_replace_enabled(self) -> bool:
-        team = _team_from_serializer_context(self.context)
-        if team is None:
-            return False
-
+    def _team_flag_enabled(self, team: Team, flag_key: str) -> bool:
         return feature_enabled_or_false(
-            "static-cohort-replace-on-recalc",
+            flag_key,
             str(team.uuid),
             groups={"organization": str(team.organization_id), "project": str(team.id)},
             group_properties={
@@ -1998,6 +1994,10 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
             },
             send_feature_flag_events=False,
         )
+
+    def _is_static_cohort_replace_enabled(self) -> bool:
+        team = _team_from_serializer_context(self.context)
+        return team is not None and self._team_flag_enabled(team, "static-cohort-replace-on-recalc")
 
     def _validate_population_mode(self, attrs: dict) -> None:
         if "population_mode" not in attrs or attrs["population_mode"] is None:
@@ -2036,16 +2036,7 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
         if team is None or user is None or not getattr(user, "is_authenticated", False):
             return
         # Gate on the same flag the enforcement in Database.create_for uses.
-        if not feature_enabled_or_false(
-            "hogql-warehouse-access-control",
-            str(team.uuid),
-            groups={"organization": str(team.organization_id), "project": str(team.id)},
-            group_properties={
-                "organization": {"id": str(team.organization_id)},
-                "project": {"id": str(team.id)},
-            },
-            send_feature_flag_events=False,
-        ):
+        if not self._team_flag_enabled(team, "hogql-warehouse-access-control"):
             return
 
         # Check what survives the save, not just the fields in the payload.

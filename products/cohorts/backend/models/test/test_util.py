@@ -76,7 +76,7 @@ from products.cohorts.backend.models.util import (
     parse_error_code,
     print_cohort_hogql_query,
     prune_members_absent_from_replace,
-    prune_static_cohort_rows_before_marker,
+    prune_stale_static_cohort_rows,
     run_cohort_query,
     simplified_cohort_filter_properties,
     sort_cohorts_topologically,
@@ -643,6 +643,42 @@ class TestCohortUtils(BaseTest):
         self.assertEqual(mock_copy.call_count, 2)
         self.assertEqual([c.args[0] for c in mock_sleep.call_args_list], [STATIC_COHORT_READ_BACK_WAITS_SECONDS[0]])
 
+    def test_copy_to_postgres_handles_member_spanning_pages_and_all_filtered_page(self):
+        # Members split across a ClickHouse page boundary must be held back until the next page so their
+        # rows are grouped once, and a full page where every row is filtered out must advance the cursor.
+        cohort = _create_cohort(team=self.team, name="test_cohort", groups=[], is_static=True)
+        # Keep deterministic ascending UUIDs so page boundaries match the ClickHouse ORDER BY person_id order.
+        u1, u2, u3, u4, u5, u6 = [uuid.UUID(int=i) for i in range(1, 7)]
+        persons = [
+            _create_person(team_id=self.team.id, distinct_ids=[f"p-{i}"], uuid=u)
+            for i, u in enumerate((u1, u2, u3, u4, u5, u6), 1)
+        ]
+        flush_persons_and_events()
+        t_old = datetime(2026, 1, 1, tzinfo=UTC)
+        t_marker = datetime(2026, 2, 1, tzinfo=UTC)
+        sync_execute(
+            f"INSERT INTO {PERSON_STATIC_COHORT_TABLE} (id, person_id, cohort_id, team_id, _timestamp, _offset) VALUES",
+            [
+                # Full first page filtered out on replace (pre-floor rows for u1, u2, u3).
+                (uuid.uuid4(), u1, cohort.pk, self.team.id, t_old, 0),
+                (uuid.uuid4(), u2, cohort.pk, self.team.id, t_old, 0),
+                (uuid.uuid4(), u3, cohort.pk, self.team.id, t_old, 0),
+                # Kept row u4, then u5 split across pages 2 and 3 (first row at page 2 tail, second on page 3).
+                (uuid.uuid4(), u4, cohort.pk, self.team.id, t_marker, 1),
+                (uuid.uuid4(), u5, cohort.pk, self.team.id, t_marker, 1),
+                (uuid.uuid4(), u5, cohort.pk, self.team.id, t_old, 0),
+                (uuid.uuid4(), u6, cohort.pk, self.team.id, t_marker, 1),
+            ],
+        )
+
+        with patch("products.cohorts.backend.models.util.CH_PAGE_SIZE", 3):
+            insert_cohort_people_into_pg(cohort, team_id=self.team.id, min_rows=3, replace_marker=t_marker)
+
+        self.assertEqual(
+            set(list_cohort_member_ids(team_id=self.team.id, cohort_id=cohort.pk)),
+            {persons[3].id, persons[4].id, persons[5].id},
+        )
+
     def test_copy_to_postgres_does_not_count_existing_members_as_the_rows_it_wrote(self):
         cohort = _create_cohort(team=self.team, name="test_cohort", groups=[], is_static=True)
         existing = _create_person(team_id=self.team.id, distinct_ids=["existing"], uuid=uuid.uuid4())
@@ -1187,7 +1223,7 @@ class TestCohortUtils(BaseTest):
                 ) as delete_calls,
             ):
                 removed = prune_members_absent_from_replace(cohort, team_id=self.team.pk, marker=marker)
-            prune_static_cohort_rows_before_marker(cohort.pk, team_id=self.team.pk, marker=marker)
+            prune_stale_static_cohort_rows(cohort.pk, team_id=self.team.pk, marker=marker)
 
         # Both stale members are checked in one batch and removed in one delete call, never one per member,
         # though they were listed on separate pages. And a delete chunk must stay within what that call accepts.
@@ -1216,7 +1252,7 @@ class TestCohortUtils(BaseTest):
         marker = datetime(2026, 11, 7, 12, 0, tzinfo=UTC)
         Cohort.objects.filter(pk=cohort.pk).update(population_marker=marker)
 
-        # A workflow add's row lagged on the replica the prune read, then replicated before the re-check.
+        # An add that read the cohort's mode before the replace claim landed lagged on the replica the prune read, then replicated before the re-check.
         events: list[str] = []
         presence = iter([set(), {str(late.uuid)}])
 

@@ -1300,7 +1300,7 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         table: str,
     ) -> set[str]:
         """Return the subset of person_uuids that already exist in the CH static cohort table."""
-        from posthog.models.person.sql import REPLACE_KEEPS_ROW, REPLACE_ROW_OFFSET
+        from posthog.models.person.sql import REPLACE_KEEPS_ROW, replace_keeps_row_params
 
         if not person_uuids:
             return set()
@@ -1315,9 +1315,11 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
                 "team_id": team_id,
                 "cohort_id": self.pk,
                 "person_uuids": person_uuids,
-                "marker": self.last_replace_marker,
-                "floor": self.last_replace_floor or self.last_replace_marker,
-                "replace_offset": REPLACE_ROW_OFFSET,
+                **(
+                    replace_keeps_row_params(self.last_replace_marker, self.last_replace_floor)
+                    if self.last_replace_marker is not None
+                    else {}
+                ),
             },
         )
         return {str(row[0]) for row in rows}

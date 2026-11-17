@@ -1,3 +1,6 @@
+from datetime import datetime
+from typing import Any
+
 from django.conf import settings
 
 from posthog.clickhouse.base_sql import COPY_ROWS_BETWEEN_TEAMS_BASE_SQL
@@ -503,11 +506,11 @@ def PERSON_DISTINCT_ID_OVERRIDES_WS_MV_SQL(target_table=PERSON_DISTINCT_ID_OVERR
 #
 
 PERSON_STATIC_COHORT_TABLE = "person_static_cohort"
-# person_static_cohort isn't fed from Kafka, so its _offset carries no Kafka offset: every writer leaves it at 0,
-# except a static cohort replace's own query insert, which writes REPLACE_ROW_OFFSET. That tells a replace's rows,
-# stamped at their attempt's marker, apart from members added since the request, which a replace keeps even when an
-# add and a marker share a second. 0 is the safe value: a row with any other _offset is kept as an add. No other
-# writer may set a non-zero _offset on this table.
+# person_static_cohort isn't fed from Kafka, so its _offset carries no Kafka offset: every other writer
+# leaves it at 0, and a static cohort replace's own query insert writes REPLACE_ROW_OFFSET. That tells a replace's
+# rows, stamped at their attempt's marker, apart from members added since the request, which a replace keeps even
+# when an add and a marker share a second. REPLACE_KEEPS_ROW treats any _offset other than REPLACE_ROW_OFFSET as an
+# add.
 REPLACE_ROW_OFFSET = 1
 PERSON_STATIC_COHORT_BASE_SQL = """
 CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
@@ -549,14 +552,20 @@ INSERT_PERSON_STATIC_COHORT = (
 )
 
 DELETE_PERSON_FROM_STATIC_COHORT = f"DELETE FROM {PERSON_STATIC_COHORT_TABLE} WHERE person_id = %(person_id)s AND cohort_id = %(cohort_id)s AND team_id = %(team_id)s"
-# A replace's prune: one mutation removes every row older than the run's marker.
 # A replace keeps this attempt's rows and the members added since the request, and only those.
 REPLACE_KEEPS_ROW = (
     "((_offset = %(replace_offset)s AND _timestamp = %(marker)s)"
     " OR (_offset != %(replace_offset)s AND _timestamp >= %(floor)s))"
 )
+
+
+def replace_keeps_row_params(marker: datetime, floor: datetime | None = None) -> dict[str, Any]:
+    """Query parameters shared by every ``REPLACE_KEEPS_ROW`` reader and its corresponding prune."""
+    return {"marker": marker, "floor": floor or marker, "replace_offset": REPLACE_ROW_OFFSET}
+
+
 # Everything a replace doesn't keep: rows from before the request, and the rows its own earlier attempts wrote.
-DELETE_STATIC_COHORT_ROWS_BEFORE_MARKER = (
+DELETE_STALE_STATIC_COHORT_ROWS = (
     f"DELETE FROM {PERSON_STATIC_COHORT_TABLE} WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s"
     " AND (_timestamp < %(floor)s OR (_offset = %(replace_offset)s AND _timestamp < %(marker)s))"
 )

@@ -69,7 +69,7 @@ from products.cohorts.backend.models.util import (
     insert_cohort_query_actors_into_ch,
     insert_static_cohort,
     list_cohort_member_ids,
-    prune_static_cohort_rows_before_marker,
+    prune_stale_static_cohort_rows,
 )
 
 # The catalog drops a leaf with no bytecode, and `_calculate_realtime_support` grants
@@ -2181,6 +2181,37 @@ class TestCohortCalculationTasks(APIBaseTest):
             ),
         )
 
+    def test_resync_stopped_when_replace_claims_cohort_between_read_and_lock(self) -> None:
+        # A concurrent PATCH claim arriving after the task starts must fence out an append_only resync before it
+        # writes members or opens a history row.
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="static cohort",
+            is_static=True,
+            query=PERSONS_HOGQL_QUERY,
+        )
+
+        def claim_replace_concurrently(*args: Any, **kwargs: Any) -> None:
+            Cohort.objects.filter(pk=cohort.pk).update(
+                is_calculating=True,
+                pending_population_mode=CohortPopulationMode.REPLACE,
+                population_claimed_at=timezone.now().replace(microsecond=0),
+            )
+
+        with (
+            patch("posthog.tasks.calculate_cohort._tag_population_queries", side_effect=claim_replace_concurrently),
+            patch(QUERY_CH_INSERT_PATH) as mock_insert_ch,
+        ):
+            insert_cohort_from_query(cohort.id, self.team.pk, append_only=True)
+
+        mock_insert_ch.assert_not_called()
+        cohort.refresh_from_db()
+        self.assertEqual(
+            (cohort.is_calculating, cohort.pending_population_mode, cohort.errors_calculating),
+            (True, CohortPopulationMode.REPLACE, 0),
+        )
+        self.assertFalse(CohortCalculationHistory.objects.filter(cohort=cohort).exists())
+
     @parameterized.expand(
         [
             ("replace_running", True),
@@ -2331,7 +2362,7 @@ class TestCohortCalculationTasks(APIBaseTest):
         with (
             time_machine.travel(start, tick=False) as clock,
             # The delete hasn't applied yet.
-            patch("products.cohorts.backend.models.util.prune_static_cohort_rows_before_marker"),
+            patch("products.cohorts.backend.models.util.prune_stale_static_cohort_rows"),
         ):
             cohort.insert_users_list_by_uuid([str(p.uuid), str(s.uuid)], team_id=self.team.pk)
             clock.shift(10)
@@ -2364,7 +2395,7 @@ class TestCohortCalculationTasks(APIBaseTest):
             cohort.insert_users_list_by_uuid([str(s.uuid)], team_id=self.team.pk, save_state=False)
 
         # Now the replace's delete applies. p and s were added again after it, so ClickHouse keeps them.
-        prune_static_cohort_rows_before_marker(
+        prune_stale_static_cohort_rows(
             cohort.pk, team_id=self.team.pk, marker=cohort.last_replace_marker, floor=cohort.last_replace_floor
         )
         rows = sync_execute(
@@ -2691,15 +2722,31 @@ class TestCohortCalculationTasks(APIBaseTest):
     @parameterized.expand(
         [
             # The previous calculation finished two days ago, which says nothing about the current run.
-            ("replace_claimed_just_now", CohortPopulationMode.REPLACE, relativedelta(seconds=30), None, False),
-            ("append_claimed_just_now", CohortPopulationMode.APPEND, relativedelta(seconds=30), None, False),
+            ("replace_claimed_just_now", CohortPopulationMode.REPLACE, relativedelta(seconds=30), None, False, False),
+            ("append_claimed_just_now", CohortPopulationMode.APPEND, relativedelta(seconds=30), None, False, False),
             # A claim from before the request time was recorded, whose attempt is running.
-            ("attempt_running_for_90_minutes", CohortPopulationMode.REPLACE, None, relativedelta(minutes=90), False),
+            (
+                "attempt_running_for_90_minutes",
+                CohortPopulationMode.REPLACE,
+                None,
+                relativedelta(minutes=90),
+                False,
+                False,
+            ),
+            (
+                "attempt_recently_finished_without_claim",
+                CohortPopulationMode.REPLACE,
+                None,
+                relativedelta(minutes=30),
+                True,
+                True,
+            ),
             (
                 "attempt_killed_past_the_soft_limit",
                 CohortPopulationMode.REPLACE,
                 relativedelta(hours=6),
                 relativedelta(hours=5),
+                False,
                 True,
             ),
         ]
@@ -2711,6 +2758,7 @@ class TestCohortCalculationTasks(APIBaseTest):
         mode: str,
         claim_age: relativedelta | None,
         attempt_age: relativedelta | None,
+        attempt_finished: bool,
         expect_reset: bool,
         mock_insert_cohort_from_query: MagicMock,
     ) -> None:
@@ -2728,7 +2776,11 @@ class TestCohortCalculationTasks(APIBaseTest):
         )
         if attempt_age is not None:
             CohortCalculationHistory.objects.create(
-                team=self.team, cohort=cohort, filters={}, started_at=now - attempt_age
+                team=self.team,
+                cohort=cohort,
+                filters={},
+                started_at=now - attempt_age,
+                finished_at=now - relativedelta(minutes=10) if attempt_finished else None,
             )
 
         reset_stuck_cohorts()

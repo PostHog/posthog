@@ -997,8 +997,10 @@ email@example.org
     def test_static_cohort_patch_population_mode_replace_wires_claim_and_task(self) -> None:
         cohort = Cohort.objects.create(team=self.team, name="static", is_static=True)
         url = f"/api/projects/{self.team.id}/cohorts/{cohort.pk}"
+        claimed_at = datetime(2026, 11, 7, 12, 0, 10, tzinfo=UTC)
 
         with (
+            time_machine.travel(claimed_at, tick=False),
             patch(
                 "posthog.api.cohort.feature_enabled_or_false",
                 side_effect=lambda flag, *args, **kwargs: flag == "static-cohort-replace-on-recalc",
@@ -1019,6 +1021,7 @@ email@example.org
         self.assertTrue(cohort.is_calculating)
         self.assertEqual(cohort.pending_population_mode, CohortPopulationMode.REPLACE)
         self.assertIsNone(cohort.population_marker)
+        self.assertEqual(cohort.population_claimed_at, claimed_at)
         mock_delay.assert_called_once_with(cohort.pk, self.team.id)
 
     @parameterized.expand(

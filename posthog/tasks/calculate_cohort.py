@@ -1002,7 +1002,7 @@ def _replace_static_members(
         PopulationEmptyResult,
         insert_cohort_people_into_pg,
         prune_members_absent_from_replace,
-        prune_static_cohort_rows_before_marker,
+        prune_stale_static_cohort_rows,
         require_current_population_marker,
     )
 
@@ -1021,7 +1021,7 @@ def _replace_static_members(
     # never leaves it short of a member the query matches. Both prunes can be replayed by a retry.
     removed = prune_members_absent_from_replace(cohort, team_id=team_id, marker=marker, floor=floor)
     require_current_population_marker(cohort.pk, marker)
-    prune_static_cohort_rows_before_marker(cohort.pk, team_id=team_id, marker=marker, floor=floor)
+    prune_stale_static_cohort_rows(cohort.pk, team_id=team_id, marker=marker, floor=floor)
     require_current_population_marker(cohort.pk, marker)
     logger.info(f"{log_prefix}_replace_pruned", cohort_id=cohort.pk, team_id=team_id, removed=removed)
 
