@@ -281,6 +281,9 @@ test.describe('Message preferences page', () => {
                 await read.opened
                 await expect(allMarketing).not.toBeChecked()
                 await recipientPage.clock.runFor(10_000)
+                await expect(
+                    recipientPage.getByText("Couldn't confirm your preferences.", { exact: false })
+                ).toBeVisible()
                 await expect(status('$all')).toHaveText('Subscribed')
                 await expect(allMarketing).toBeChecked()
                 await expect(eventInvites).toBeEnabled()
