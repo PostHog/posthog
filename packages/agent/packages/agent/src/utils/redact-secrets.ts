@@ -156,14 +156,33 @@ function partialPrefixLength(text: string): number {
   return 0;
 }
 
+function heldLength(context: string, text: string): number {
+  const gitlabHeld = gitlabPartialPrefixLength(text);
+  const seenByRules = text.slice(0, text.length - gitlabHeld);
+  return Math.max(
+    loopbackPrefixLength(text),
+    gitlabHeld + partialPrefixLength(seenByRules),
+    gitlabHeld + fixedLengthHoldLength(context, seenByRules),
+  );
+}
+
+function redactTokens(context: string, text: string): string {
+  return (context + text)
+    .replace(TOKEN, (match, offset: number) =>
+      offset < context.length ? match : REDACTED + trailingDots(match),
+    )
+    .slice(context.length);
+}
+
 export function redactSecrets(value: string): string;
 export function redactSecrets(value: string | undefined): string | undefined;
 export function redactSecrets(value: unknown): unknown;
 export function redactSecrets(value: unknown): unknown {
   if (typeof value === "string") {
-    return redactGitlabSecrets(value)
-      .replace(TOKEN, (match) => REDACTED + trailingDots(match))
-      .replace(LOOPBACK_PROXY_TOKEN, `$1${REDACTED}`);
+    return redactTokens("", redactGitlabSecrets(value)).replace(
+      LOOPBACK_PROXY_TOKEN,
+      `$1${REDACTED}`,
+    );
   }
   if (Array.isArray(value)) return value.map(redactSecrets);
   if (value instanceof Error)
@@ -274,7 +293,11 @@ export class SecretEventRedactor {
     const chunk = isTextChunk(event);
     const kind = chunk ? event.notification.params.update.sessionUpdate : null;
     if (!chunk || kind !== this.chunkKind) {
-      if (this.pending) events.push(this.pending);
+      if (this.pending) {
+        // Text held for a GitLab credential has not been through the token rules.
+        const held = this.pending.notification.params.update.content.text;
+        events.push(withText(this.pending, redactTokens(this.context, held)));
+      }
       this.pending = null;
       this.active = null;
       this.context = "";
@@ -340,14 +363,7 @@ export class SecretEventRedactor {
       redactSecrets(withText(event, "")) as TextEvent,
       text,
     );
-    const held = this.active
-      ? heldDots
-      : Math.max(
-          partialPrefixLength(text),
-          fixedLengthHoldLength(context, text),
-          loopbackPrefixLength(text),
-          gitlabPartialPrefixLength(text),
-        );
+    const held = this.active ? heldDots : heldLength(context, text);
     this.heldDots = this.active ? heldDots : 0;
     if (held > 0) {
       if (previous) {

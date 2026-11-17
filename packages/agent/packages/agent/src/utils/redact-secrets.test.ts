@@ -294,20 +294,39 @@ describe("redactSecrets", () => {
     },
   );
 
-  it.each(["AKIA", "ASIA"])(
-    "redacts a %s key id split over three chunks",
-    (prefix) => {
-      const text = `id ${prefix}${"B2".repeat(8)} end`;
-      for (let first = 1; first < text.length; first++) {
-        for (let second = first + 1; second < text.length; second++) {
-          expect(
-            streamText([
-              text.slice(0, first),
-              text.slice(first, second),
-              text.slice(second),
-            ]),
-          ).toBe("id [REDACTED] end");
+  it.each([
+    ["an AKIA key id", "", `id AKIA${awsKeyBody} end`, "id [REDACTED] end"],
+    ["an ASIA key id", "", `id ASIA${awsKeyBody} end`, "id [REDACTED] end"],
+    [
+      "a key id that ends like the GitLab credential starts",
+      `2${"a".repeat(63)}`,
+      `id ASIA${awsKeyBody}`,
+      "id [REDACTED]",
+    ],
+    [
+      "a token prefix that ends like the GitLab credential starts",
+      `_${"a".repeat(19)}`,
+      `id ghp_${SAMPLE_BODY} end`,
+      "id [REDACTED] end",
+    ],
+  ])(
+    "redacts %s split over three chunks",
+    (_label, gitlabToken, text, expected) => {
+      vi.stubEnv("GITLAB_TOKEN", gitlabToken);
+      try {
+        for (let first = 1; first < text.length; first++) {
+          for (let second = first + 1; second < text.length; second++) {
+            expect(
+              streamText([
+                text.slice(0, first),
+                text.slice(first, second),
+                text.slice(second),
+              ]),
+            ).toBe(expected);
+          }
         }
+      } finally {
+        vi.unstubAllEnvs();
       }
     },
   );
