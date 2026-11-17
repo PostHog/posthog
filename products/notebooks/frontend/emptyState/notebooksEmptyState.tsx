@@ -8,6 +8,7 @@ import { urls } from 'scenes/urls'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
+import { InvestigationSetupAction } from '../Investigations/InvestigationSetupAction'
 import { NotebooksPreview } from './NotebooksPreview'
 import { notebooksSetupLogic } from './notebooksSetupLogic'
 
@@ -38,6 +39,7 @@ export const notebooksEmptyState: SceneProductEmptyState = {
             },
         },
         docsUrl: 'https://posthog.com/docs/notebooks',
+        SetupActions: InvestigationSetupAction,
         previewLabel: 'A notebook, once written',
         Preview: NotebooksPreview,
     },

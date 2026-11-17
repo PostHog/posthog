@@ -74,6 +74,7 @@ import { preflightLogic } from 'lib/logic/preflightLogic'
 import { uuid } from 'lib/utils/dom'
 
 import 'products/notebooks/frontend/NotebookNodeGeneratedWidget/NotebookNodeGeneratedWidget'
+import { NotebookInvestigation } from 'products/notebooks/frontend/Investigations/NotebookInvestigation'
 import { notebookExportLogic } from 'products/notebooks/frontend/notebookExportLogic'
 import { NotebookGeneratedWidgetRunButton } from 'products/notebooks/frontend/NotebookNodeGeneratedWidget/NotebookGeneratedWidgetRunButton'
 
@@ -352,6 +353,21 @@ export const MARKDOWN_NODE_DEFINITIONS: {
 ]
 
 export const NOTEBOOK_MARKDOWN_REGISTRY: NotebookComponentRegistry = createMarkdownNotebookRegistry([
+    {
+        tagName: 'Investigation',
+        label: 'Investigation',
+        category: 'PostHog',
+        description: 'Investigate a question with evidence, hypotheses, and saved comparisons',
+        ViewComponent: NotebookInvestigation,
+        EditComponent: NotebookInvestigation,
+        exclusiveEditPanel: true,
+        hideModeActions: true,
+        persistNodeId: true,
+        insertCommand: {
+            aliases: ['analysis', 'hypothesis', 'baseline'],
+            description: 'Track evidence, test explanations, and compare runs',
+        },
+    },
     ...MARKDOWN_NODE_DEFINITIONS.map((definition) => {
         const nodeType = MARKDOWN_TAG_TO_NOTEBOOK_NODE_TYPE[definition.tagName]
         const options = getMarkdownNodeOptions(definition.tagName)

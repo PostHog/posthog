@@ -19,6 +19,7 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { notebooksEmptyState } from 'products/notebooks/frontend/emptyState/notebooksEmptyState'
+import { NewInvestigationButton } from 'products/notebooks/frontend/Investigations/NewInvestigationButton'
 import { ReusableWidgetCatalog } from 'products/notebooks/frontend/ReusableWidgetCatalog/ReusableWidgetCatalog'
 
 import { NotebooksTable } from './NotebooksTable/NotebooksTable'
@@ -47,34 +48,37 @@ export function NotebooksScene(): JSX.Element {
                         resourceType={AccessControlResourceType.Notebook}
                         minAccessLevel={AccessControlLevel.Editor}
                     >
-                        <Shortcut
-                            name="NewNotebook"
-                            keybind={[keyBinds.new]}
-                            intent="New notebook"
-                            interaction="click"
-                            scope={Scene.Notebooks}
-                        >
-                            {todayRailNav ? (
-                                <Button
-                                    data-attr="new-notebook"
-                                    render={<LinkPrimitive to={urls.notebook('new')} />}
-                                    variant="primary"
-                                    tooltip="New notebook"
-                                >
-                                    New notebook
-                                </Button>
-                            ) : (
-                                <LemonButton
-                                    size="small"
-                                    data-attr="new-notebook"
-                                    to={urls.notebook('new')}
-                                    type="primary"
-                                    tooltip="New notebook"
-                                >
-                                    New notebook
-                                </LemonButton>
-                            )}
-                        </Shortcut>
+                        <div className="flex flex-wrap items-center gap-2">
+                            <NewInvestigationButton />
+                            <Shortcut
+                                name="NewNotebook"
+                                keybind={[keyBinds.new]}
+                                intent="New notebook"
+                                interaction="click"
+                                scope={Scene.Notebooks}
+                            >
+                                {todayRailNav ? (
+                                    <Button
+                                        data-attr="new-notebook"
+                                        render={<LinkPrimitive to={urls.notebook('new')} />}
+                                        variant="primary"
+                                        tooltip="New notebook"
+                                    >
+                                        New notebook
+                                    </Button>
+                                ) : (
+                                    <LemonButton
+                                        size="small"
+                                        data-attr="new-notebook"
+                                        to={urls.notebook('new')}
+                                        type="primary"
+                                        tooltip="New notebook"
+                                    >
+                                        New notebook
+                                    </LemonButton>
+                                )}
+                            </Shortcut>
+                        </div>
                     </AccessControlAction>
                 }
             />
