@@ -102,7 +102,6 @@
                         } else {
                             topic.removeAttribute('aria-describedby')
                         }
-                        showSavedStatus(topic)
                     })
                 }
 
@@ -132,7 +131,8 @@
                 async function savePreferences(changedToggle) {
                     saveInFlight = true
                     form.setAttribute('aria-busy', 'true')
-                    updateStatusLabel(changedToggle, 'Saving…', 'text-amber-600')
+                    const saving = changedToggle === allMarketingToggle ? [changedToggle, ...topicToggles] : [changedToggle]
+                    saving.forEach((toggle) => updateStatusLabel(toggle, 'Saving…', 'text-amber-600'))
 
                     const formData = new FormData()
                     formData.append('token', document.querySelector('input[name="token"]').value)

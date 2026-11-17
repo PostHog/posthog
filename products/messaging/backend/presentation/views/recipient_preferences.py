@@ -215,7 +215,7 @@ def preferences_page(request: HttpRequest, token: str) -> HttpResponse:
         "all_marketing": {
             "id": ALL_MESSAGE_PREFERENCE_CATEGORY_ID,
             "name": "All marketing communications",
-            "description": "Turning this off stops every marketing email, including the topics above.",
+            "description": "Turning this off stops every marketing email.",
             "status": all_marketing_status,
         },
         "all_marketing_opted_out": all_marketing_status == PreferenceStatus.OPTED_OUT,
