@@ -44,6 +44,7 @@ pub enum AiRejection {
     MissingEventPart,
     FirstPartNotEvent(String),
     DuplicateEventPart,
+    DuplicatePropertiesPart,
     UnknownField(String),
 
     // Event part
@@ -94,6 +95,7 @@ impl AiRejection {
                 format!("First part must be 'event', got '{field_name}'")
             }
             Self::DuplicateEventPart => "Duplicate 'event' part found".to_string(),
+            Self::DuplicatePropertiesPart => "Duplicate 'event.properties' part found".to_string(),
             Self::UnknownField(field_name) => format!(
                 "Unknown multipart field: '{field_name}'. Expected 'event' or 'event.properties'"
             ),
@@ -150,6 +152,7 @@ impl AiRejection {
             Self::MissingEventPart
             | Self::FirstPartNotEvent(_)
             | Self::DuplicateEventPart
+            | Self::DuplicatePropertiesPart
             | Self::UnknownField(_)
             | Self::EventPartNotUtf8
             | Self::EventPartNotJson
@@ -217,6 +220,10 @@ pub(crate) fn all_variants_with_messages() -> Vec<(AiRejection, &'static str)> {
             (
                 AiRejection::DuplicateEventPart,
                 "Duplicate 'event' part found",
+            ),
+            (
+                AiRejection::DuplicatePropertiesPart,
+                "Duplicate 'event.properties' part found",
             ),
             (
                 AiRejection::UnknownField("nope".to_string()),
@@ -383,7 +390,7 @@ mod tests {
         );
         assert_eq!(
             listed.len(),
-            29,
+            30,
             "variant count changed — add the new variant to all_variants_with_messages \
              and update this expected count"
         );

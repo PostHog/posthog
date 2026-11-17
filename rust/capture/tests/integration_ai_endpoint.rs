@@ -1170,6 +1170,116 @@ async fn ai_batch_events_over_960kb_follow_the_token_cap(
     assert_eq!(response.status(), expected);
 }
 
+fn properties_part_bytes(kind: &str) -> Vec<u8> {
+    let large_value = "x".repeat(961 * 1024);
+    match kind {
+        "valid_small" => serde_json::to_vec(&json!({"$ai_model": "test"})).unwrap(),
+        "invalid_small" => b"[0,0,0".to_vec(),
+        "valid_oversize" => {
+            serde_json::to_vec(&json!({"$ai_model": "test", "large_field": large_value})).unwrap()
+        }
+        // An unterminated array: rejecting it by size rather than as malformed
+        // JSON shows the size check runs before the part is parsed.
+        "truncated_oversize_array" => {
+            let mut bytes = b"[".to_vec();
+            bytes.extend("0,".repeat(1024 * 1024).as_bytes());
+            bytes
+        }
+        other => panic!("unknown properties kind: {other}"),
+    }
+}
+
+#[rstest::rstest]
+#[case::valid_small("valid_small", StatusCode::OK, None)]
+#[case::invalid_small(
+    "invalid_small",
+    StatusCode::BAD_REQUEST,
+    Some("Properties part must be valid JSON")
+)]
+#[case::valid_oversize(
+    "valid_oversize",
+    StatusCode::PAYLOAD_TOO_LARGE,
+    Some("Combined event and properties size")
+)]
+#[case::truncated_oversize_array(
+    "truncated_oversize_array",
+    StatusCode::PAYLOAD_TOO_LARGE,
+    Some("Combined event and properties size")
+)]
+#[tokio::test]
+async fn test_properties_part_size_checked_before_parse(
+    #[case] kind: &str,
+    #[case] expected_status: StatusCode,
+    #[case] expected_message: Option<&str>,
+) {
+    let test_client = TestClient::new(setup_ai_test_router());
+
+    let event_data = json!({
+        "uuid": uuid::Uuid::now_v7().to_string(),
+        "event": "$ai_generation",
+        "distinct_id": "test_user"
+    });
+    let form = Form::new()
+        .part(
+            "event",
+            Part::bytes(serde_json::to_vec(&event_data).unwrap())
+                .mime_str("application/json")
+                .unwrap(),
+        )
+        .part(
+            "event.properties",
+            Part::bytes(properties_part_bytes(kind))
+                .mime_str("application/json")
+                .unwrap(),
+        );
+
+    let response = send_multipart_request(&test_client, form, Some("phc_test_token")).await;
+    assert_eq!(response.status(), expected_status);
+    let body = response.text().await;
+    if let Some(message) = expected_message {
+        assert!(body.contains(message), "unexpected body: {body}");
+    }
+}
+
+#[tokio::test]
+async fn test_duplicate_properties_part_returns_400() {
+    let test_client = TestClient::new(setup_ai_test_router());
+
+    let event_data = json!({
+        "uuid": uuid::Uuid::now_v7().to_string(),
+        "event": "$ai_generation",
+        "distinct_id": "test_user"
+    });
+    let properties = serde_json::to_vec(&json!({"$ai_model": "test"})).unwrap();
+    let form = Form::new()
+        .part(
+            "event",
+            Part::bytes(serde_json::to_vec(&event_data).unwrap())
+                .mime_str("application/json")
+                .unwrap(),
+        )
+        .part(
+            "event.properties",
+            Part::bytes(properties.clone())
+                .mime_str("application/json")
+                .unwrap(),
+        )
+        .part(
+            "event.properties",
+            Part::bytes(properties)
+                .mime_str("application/json")
+                .unwrap(),
+        );
+
+    let response = send_multipart_request(&test_client, form, Some("phc_test_token")).await;
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    let body = response.text().await;
+    assert!(
+        body.contains("Duplicate 'event.properties' part found"),
+        "unexpected body: {body}"
+    );
+}
+
 #[tokio::test]
 async fn test_request_body_exceeds_110_percent_limit_returns_413() {
     let router = setup_ai_test_router();

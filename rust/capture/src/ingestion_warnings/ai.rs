@@ -63,6 +63,7 @@ pub fn warning_for_ai_rejection(rejection: &AiRejection) -> Option<WarningType> 
         | AiRejection::MissingEventPart
         | AiRejection::FirstPartNotEvent(_)
         | AiRejection::DuplicateEventPart
+        | AiRejection::DuplicatePropertiesPart
         | AiRejection::UnknownField(_)
         | AiRejection::EventPartNotUtf8
         | AiRejection::EventPartNotJson
