@@ -441,16 +441,20 @@ class FakePersonHogClient:
         count = sum(1 for (cid, _) in self._cohort_members if cid in cohort_ids_set)
         return cohort_pb2.CountCohortMembersResponse(count=count)
 
+    def _remove_cohort_member(self, cohort_id: int, person_id: int) -> bool:
+        key = (cohort_id, person_id)
+        if key not in self._cohort_members:
+            return False
+        del self._cohort_members[key]
+        memberships = self._cohort_memberships.get(person_id, [])
+        self._cohort_memberships[person_id] = [m for m in memberships if m.cohort_id != cohort_id]
+        return True
+
     def delete_cohort_member(
         self, request: cohort_pb2.DeleteCohortMemberRequest, timeout: float | None = None
     ) -> cohort_pb2.DeleteCohortMemberResponse:
         self.calls.append(_Call("delete_cohort_member", request))
-        key = (request.cohort_id, request.person_id)
-        deleted = key in self._cohort_members
-        if deleted:
-            del self._cohort_members[key]
-            memberships = self._cohort_memberships.get(request.person_id, [])
-            self._cohort_memberships[request.person_id] = [m for m in memberships if m.cohort_id != request.cohort_id]
+        deleted = self._remove_cohort_member(request.cohort_id, request.person_id)
         return cohort_pb2.DeleteCohortMemberResponse(deleted=deleted)
 
     def delete_cohort_members_bulk(
@@ -479,14 +483,7 @@ class FakePersonHogClient:
                 grpc.StatusCode.INVALID_ARGUMENT,
                 f"Maximum {DELETE_COHORT_MEMBERS_BY_PERSON_IDS_MAX} person IDs per request",
             )
-        deleted = 0
-        for pid in set(request.person_ids):
-            key = (request.cohort_id, pid)
-            if key in self._cohort_members:
-                del self._cohort_members[key]
-                memberships = self._cohort_memberships.get(pid, [])
-                self._cohort_memberships[pid] = [m for m in memberships if m.cohort_id != request.cohort_id]
-                deleted += 1
+        deleted = sum(1 for pid in request.person_ids if self._remove_cohort_member(request.cohort_id, pid))
         return cohort_pb2.DeleteCohortMembersByPersonIdsResponse(deleted_count=deleted)
 
     def insert_cohort_members(

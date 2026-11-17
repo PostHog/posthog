@@ -229,6 +229,11 @@ class TestFakePersonHogClientCohorts:
         assert set(remaining.person_ids) == expected_remaining
         other = self.client.list_cohort_member_ids(cohort_pb2.ListCohortMemberIdsRequest(cohort_id=6))
         assert set(other.person_ids) == {10, 11, 12}
+        memberships = self.client.check_cohort_membership(
+            cohort_pb2.CheckCohortMembershipRequest(person_id=10, cohort_ids=[5, 6])
+        )
+        expected_memberships = {5, 6} if 10 in expected_remaining else {6}
+        assert {m.cohort_id for m in memberships.memberships} == expected_memberships
 
     def test_delete_cohort_members_by_person_ids_rejects_more_than_the_service_accepts(self):
         # The service refuses the request, so a fake that accepted it would pass tests production fails.
