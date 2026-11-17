@@ -118,7 +118,9 @@ class FunnelQueryBuilder:
             # Filter by experiment date range: jobs can cover broader time ranges
             # than the experiment for cache reusability, so we must filter on read.
             # Upper bound includes conversion window since funnel step events can
-            # occur after experiment end.
+            # occur after experiment end. The lower bound rolls back by the CUPED
+            # lookback, which the build stores too; step_0 above keeps the experiment
+            # start, so a pre-start exposure never anchors a funnel.
             conversion_window_seconds = self._b._get_conversion_window_seconds()
             if conversion_window_seconds > 0:
                 upper_bound = f"{{metric_events_date_to}} + toIntervalSecond({conversion_window_seconds})"
@@ -135,7 +137,7 @@ class FunnelQueryBuilder:
                         FROM experiment_metric_events_preaggregated AS t
                         WHERE t.job_id IN {{metric_events_job_ids}}
                             AND t.team_id = {{metric_events_team_id}}
-                            AND t.timestamp >= {{metric_events_date_from}}
+                            AND t.timestamp >= {{metric_events_scan_from}}
                             AND t.timestamp <= {upper_bound}
                     )
             """
@@ -241,6 +243,9 @@ class FunnelQueryBuilder:
             placeholders["metric_events_team_id"] = ast.Constant(value=self._b.team.id)
             placeholders["metric_events_date_from"] = self._b.date_range_query.date_from_as_hogql()
             placeholders["metric_events_date_to"] = self._b.date_range_query.date_to_as_hogql()
+            placeholders["metric_events_scan_from"] = self._b._extend_date_from_for_funnel_cuped(
+                self._b.date_range_query.date_from_as_hogql()
+            )
 
         query = parse_select(
             f"""
@@ -555,7 +560,13 @@ class FunnelQueryBuilder:
             "test_accounts_filter": self._b._exposure_query_builder().build_test_accounts_filter(),
             "variant_property": self._b._build_variant_property(),
             "variants": ast.Constant(value=list(self._b.variants)),
-            "experiment_date_from": self._b.date_range_query.date_from_as_hogql(),
+            # With CUPED the build starts lookback_days earlier, so the stored rows also cover the
+            # pre-exposure covariate window. The rolled-back date is part of the job hash, so a CUPED
+            # metric builds its own jobs. Exposures before the start are stored too, but the read
+            # re-applies the experiment start to step_0, so they never anchor a funnel.
+            "experiment_date_from": self._b._extend_date_from_for_funnel_cuped(
+                self._b.date_range_query.date_from_as_hogql()
+            ),
             "experiment_date_to": self._b.date_range_query.date_to_as_hogql(),
             "conversion_window_seconds": ast.Constant(value=conversion_window_seconds),
             "funnel_steps_filter": funnel_steps_to_filter(self._b.team, self._b.metric.series),

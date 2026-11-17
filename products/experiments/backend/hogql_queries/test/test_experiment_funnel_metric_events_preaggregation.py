@@ -139,6 +139,66 @@ class TestExperimentFunnelMetricEventsPreaggregation(ExperimentQueryRunnerBaseTe
 
         return direct_result, precomputed_result
 
+    def test_cuped_funnel_reads_covariate_from_precomputed_metric_events(self):
+        feature_flag = self.create_feature_flag(key="funnel-metric-events-cuped")
+        experiment = self.create_experiment(
+            feature_flag=feature_flag,
+            start_date=datetime(2024, 1, 10),
+            end_date=datetime(2024, 1, 20),
+        )
+        experiment.stats_config = {"method": "frequentist", "cuped": {"enabled": True, "lookback_days": 7}}
+        metric = ExperimentFunnelMetric(series=[EventsNode(event="purchase")])
+        experiment.metrics = [metric.model_dump(mode="json")]
+        experiment.save()
+
+        # Two users per variant bought before the experiment start (the binary covariate), and
+        # every other user converts after exposure. Only a build that also covers the lookback
+        # window can serve the covariate from the precomputed table.
+        for variant in ("control", "test"):
+            for i in range(4):
+                distinct_id = f"{variant}_{i}"
+                _create_person(distinct_ids=[distinct_id], team_id=self.team.pk)
+                if i < 2:
+                    _create_event(
+                        team=self.team,
+                        event="purchase",
+                        distinct_id=distinct_id,
+                        timestamp=datetime(2024, 1, 6, 12, 0, tzinfo=UTC),
+                    )
+                self._create_exposure_event(
+                    distinct_id, feature_flag, variant, datetime(2024, 1, 11, 12, 0, tzinfo=UTC)
+                )
+                if i % 2 == 0:
+                    _create_event(
+                        team=self.team,
+                        event="purchase",
+                        distinct_id=distinct_id,
+                        timestamp=datetime(2024, 1, 12, 12, 0, tzinfo=UTC),
+                    )
+
+        self._disable_precomputation()
+        direct_result = cast(ExperimentQueryResponse, self._build_runner(experiment, metric).calculate())
+
+        self._enable_precomputation()
+        precomputed_runner = self._build_runner(experiment, metric)
+        precomputed_result = cast(ExperimentQueryResponse, precomputed_runner.calculate())
+        assert precomputed_runner._metric_events_precomputed is True
+        assert precomputed_runner.metric_events_path == "precomputed"
+
+        assert direct_result.baseline is not None and direct_result.variant_results is not None
+        assert precomputed_result.baseline is not None and precomputed_result.variant_results is not None
+        assert direct_result.baseline.covariate_sum == 2
+        for direct, precomputed in zip(
+            [direct_result.baseline, *direct_result.variant_results],
+            [precomputed_result.baseline, *precomputed_result.variant_results],
+        ):
+            assert precomputed.key == direct.key
+            assert precomputed.number_of_samples == direct.number_of_samples
+            assert precomputed.sum == direct.sum
+            assert precomputed.covariate_sum == direct.covariate_sum
+            assert precomputed.covariate_sum_squares == direct.covariate_sum_squares
+            assert precomputed.covariate_sum_product == direct.covariate_sum_product
+
     @patch("products.analytics_platform.backend.lazy_computation.lazy_computation_executor.sync_execute")
     def test_metric_events_precomputation_hash_ignores_moving_experiment_end(self, mock_sync_execute):
         feature_flag = self.create_feature_flag(key="stable-metric-events-hash")
