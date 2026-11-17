@@ -10,6 +10,8 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 
+import { EmailJourneyPrototype } from './emailJourneyPrototype/EmailJourneyPrototype'
+import { useEmailJourneyPrototype } from './emailJourneyPrototype/useEmailJourneyPrototype'
 import { TransactionalEmailActivity } from './TransactionalEmailActivity'
 import { TransactionalEmailDeliveryProgress } from './TransactionalEmailDeliveryProgress'
 import { TransactionalEmailDetails } from './TransactionalEmailDetails'
@@ -32,6 +34,11 @@ export function TransactionalEmailLogEntryScene(): JSX.Element {
     // The scene binds the logic to the message ID in the URL.
     const { email, emailLoading, emailFailed, emailPageUrl } = useValues(transactionalEmailLogEntryLogic)
     const { loadEmail } = useActions(transactionalEmailLogEntryLogic)
+    // PROTOTYPE (ticket #385): ?variant= renders invented data in a PROTOTYPE=1 build.
+    const prototype = useEmailJourneyPrototype()
+    if (prototype.variant) {
+        return <EmailJourneyPrototype />
+    }
 
     if (!showTransactional) {
         return <NotFound object="page" />

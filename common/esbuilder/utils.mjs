@@ -314,6 +314,8 @@ export const commonConfig = {
     define: {
         global: 'globalThis',
         'process.env.NODE_ENV': isDev ? '"development"' : '"production"',
+        // PROTOTYPE (ticket #385): gates the prototype switcher to builds started with PROTOTYPE=1.
+        'process.env.PROTOTYPE': JSON.stringify(process.env.PROTOTYPE ?? ''),
     },
     loader: {
         '.bin': 'file',

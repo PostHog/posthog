@@ -8,6 +8,8 @@ import { pngHoggie } from 'lib/brand/hoggies'
 import { TZLabel } from 'lib/components/TZLabel'
 import { urls } from 'scenes/urls'
 
+import { PrototypePersonEmails } from 'products/workflows/frontend/Transactional/log/emailJourneyPrototype/PrototypePersonEmails'
+import { useEmailJourneyPrototype } from 'products/workflows/frontend/Transactional/log/emailJourneyPrototype/useEmailJourneyPrototype'
 import { EmailViewerModal } from 'products/workflows/frontend/Workflows/EmailViewerModal'
 import { MessageAsset } from 'products/workflows/frontend/Workflows/messageAssetsApi'
 
@@ -36,6 +38,11 @@ export function PersonEmailsTab({ teamId, personId }: PersonEmailsTabProps): JSX
     const logic = personEmailsLogic({ teamId, personId })
     const { emails, emailsLoading } = useValues(logic)
     const [selected, setSelected] = useState<MessageAsset | null>(null)
+    // PROTOTYPE (ticket #385): ?variant= shows invented rows that open the send detail page.
+    const prototype = useEmailJourneyPrototype()
+    if (prototype.variant) {
+        return <PrototypePersonEmails />
+    }
 
     return (
         <>
