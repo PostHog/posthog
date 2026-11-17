@@ -70,7 +70,6 @@ from .event_ingestion_restriction_config import EventIngestionRestrictionConfig
 from .global_rate_limit_threshold_config import GlobalRateLimitThresholdConfig
 from .uploaded_media import UploadedMedia
 from .user import User, UserManager
-from .user_analytics_deletion import UserAnalyticsDeletion
 from .user_group import UserGroup, UserGroupMembership
 from .user_integration import GitHubInstallRequest, UserIntegration
 from .user_push_token import UserPushToken
@@ -182,7 +181,6 @@ __all__ = [
     "UserFacetSettings",
     "WebauthnCredential",
     "UserManager",
-    "UserAnalyticsDeletion",
     "UserGroup",
     "UserGroupMembership",
     "GitHubInstallRequest",

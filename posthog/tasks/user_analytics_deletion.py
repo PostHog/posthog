@@ -1,20 +1,13 @@
-from datetime import timedelta
 from urllib.parse import urlsplit
 
 from django.conf import settings
 from django.core.exceptions import ImproperlyConfigured
-from django.db import transaction
-from django.utils import timezone
 
 import requests
-import structlog
 from celery import shared_task
 
 from posthog.celery_queues import CeleryQueue
-from posthog.models.user_analytics_deletion import UserAnalyticsDeletion
 from posthog.scoping_audit import skip_team_scope_audit
-
-logger = structlog.get_logger(__name__)
 
 
 class UserAnalyticsDeletionFailed(Exception):
@@ -88,34 +81,22 @@ def _request_deletion(url: str, distinct_ids: list[str], *, keep_person: bool) -
         raise UserAnalyticsDeletionFailed("incomplete_deletion")
 
 
-@shared_task(ignore_result=True, queue=CeleryQueue.LONG_RUNNING.value)
+@shared_task(
+    ignore_result=True,
+    queue=CeleryQueue.LONG_RUNNING.value,
+    autoretry_for=(UserAnalyticsDeletionFailed, ImproperlyConfigured),
+    retry_backoff=60,
+    retry_backoff_max=3600,
+    max_retries=24,
+    acks_late=True,
+    reject_on_worker_lost=True,
+)
 @skip_team_scope_audit
-def process_user_analytics_deletions() -> None:
+def delete_user_analytics(distinct_id: str) -> None:
     if not settings.CLOUD_DEPLOYMENT:
         return
-    if not UserAnalyticsDeletion.objects.filter(next_attempt_at__lte=timezone.now()).exists():
-        return
     url = _deletion_url()
-    retry_at = timezone.now() + timedelta(hours=1)
-    with transaction.atomic():
-        pending = list(
-            UserAnalyticsDeletion.objects.select_for_update(skip_locked=True)
-            .filter(next_attempt_at__lte=timezone.now())
-            .order_by("next_attempt_at", "id")[:100]
-        )
-        ids = [item.pk for item in pending]
-        # A worker crash leaves the durable requests eligible for the next sweep after the lease expires.
-        UserAnalyticsDeletion.objects.filter(pk__in=ids).update(next_attempt_at=retry_at)
-    if not pending:
-        return
-    try:
-        distinct_ids = [item.distinct_id for item in pending]
-        # Queue dependent data first: removing the profile can make a retry unable to resolve its events.
-        _request_deletion(url, distinct_ids, keep_person=True)
-        # Include recordings again so the async API worker queues them before deleting its profile.
-        _request_deletion(url, distinct_ids, keep_person=False)
-    except UserAnalyticsDeletionFailed as error:
-        logger.exception("user_analytics_deletion.failed", reason=str(error), request_count=len(pending))
-        raise
-    UserAnalyticsDeletion.objects.filter(pk__in=ids, next_attempt_at=retry_at).delete()
-    logger.info("user_analytics_deletion.accepted", request_count=len(pending))
+    # The sync API removes profiles before queueing events, so preserve identity resolution first.
+    _request_deletion(url, [distinct_id], keep_person=True)
+    # Async workers can run out of order; this worker must queue replays before removing the profile too.
+    _request_deletion(url, [distinct_id], keep_person=False)

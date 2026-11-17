@@ -43,7 +43,6 @@ from posthog.models.organization_ip_restrictions import OrganizationIPRestrictio
 from posthog.models.organization_provisioning import OrganizationProvisioning
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
-from posthog.models.user_analytics_deletion import UserAnalyticsDeletion
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.models.webauthn_credential import WebauthnCredential
 from posthog.temporal.tests.delete_teams.inline import execute_deletion_workflows_inline
@@ -2294,9 +2293,10 @@ class TestUserAPI(APIBaseTest):
         response = self.client.delete(f"/api/users/@me/")
         assert response.status_code == status.HTTP_409_CONFLICT
 
-    @override_settings(CLOUD_DEPLOYMENT="US")
+    @override_settings(CLOUD_DEPLOYMENT="US", CELERY_TASK_ALWAYS_EAGER=False)
+    @patch("kombu.Producer.publish")
     @patch("posthoganalytics.capture")
-    def test_can_delete_user_with_no_organization_memberships(self, mock_capture):
+    def test_can_delete_user_with_no_organization_memberships(self, mock_capture, publish):
         user = self._create_user("noactiveorgmemberships@posthog.com", password="test")
 
         self.client.force_login(user)
@@ -2309,12 +2309,21 @@ class TestUserAPI(APIBaseTest):
 
         assert not OrganizationMembership.objects.filter(user=user).exists()
 
-        response = self.client.delete(f"/api/users/@me/")
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.delete(f"/api/users/@me/")
+            assert not any(
+                call.kwargs["headers"]["task"].endswith("delete_user_analytics") for call in publish.call_args_list
+            )
         assert response.status_code == status.HTTP_204_NO_CONTENT
         assert not User.objects.filter(uuid=user.uuid).exists()
 
-        deletion = UserAnalyticsDeletion.objects.get(distinct_id=user.distinct_id)
-        assert deletion.next_attempt_at > timezone.now()
+        messages = [
+            call for call in publish.call_args_list if call.kwargs["headers"]["task"].endswith("delete_user_analytics")
+        ]
+        assert len(messages) == 1
+        assert messages[0].args[0][0] == (user.distinct_id,)
+        eta = datetime.datetime.fromisoformat(messages[0].kwargs["headers"]["eta"])
+        assert eta - timezone.now() > timedelta(minutes=59)
 
         mock_capture.assert_called_once_with(
             distinct_id=user.distinct_id,

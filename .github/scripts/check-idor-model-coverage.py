@@ -333,7 +333,6 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         # --- Instance-level config ---
         "CIMDProvisioningReview",  # one row per self-registered OAuth partner app, read only by staff
         "DeletionRunLog",  # one row per deletion Dagster run, across all teams
-        "UserAnalyticsDeletion",  # account cleanup requests for the installation's configured analytics project
         "AsyncMigration",
         "AsyncMigrationError",
         "InstanceSetting",
