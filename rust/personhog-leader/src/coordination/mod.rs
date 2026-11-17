@@ -116,8 +116,8 @@ pub struct LeaderHandoffHandler {
     captures: ChangelogCaptures,
     changelog: LiveChangelog,
     fill: Option<FillConfig>,
-    /// Each partition's fill, stopped before the partition's cache is dropped.
-    fills: Arc<DashMap<u32, tokio::task::JoinHandle<()>>>,
+    /// Each partition's fill, stopped when the partition is released.
+    fills: Arc<DashMap<u32, tokio::task::AbortHandle>>,
     /// One fill at a time, so fills never crowd out serving.
     fill_slot: Arc<tokio::sync::Semaphore>,
 }
@@ -170,10 +170,9 @@ impl LeaderHandoffHandler {
         source: personhog_coordination::changelog::WarmSource,
         upper: i64,
     ) {
-        let Some(fill) = self.fill else {
+        let (Some(fill), Some(cache)) = (self.fill, self.cache.serving_cache(partition)) else {
             return;
         };
-        let cache = Arc::clone(&self.cache);
         let pools = Arc::clone(&self.pools);
         let warming = self.warming.clone();
         let slot = Arc::clone(&self.fill_slot);
@@ -181,9 +180,9 @@ impl LeaderHandoffHandler {
             let Ok(_permit) = slot.acquire().await else {
                 return;
             };
-            run_fill(&warming, &fill, &pools, &cache, partition, &source, upper).await;
+            run_fill(&warming, &fill, &pools, &cache, &source, upper).await;
         });
-        self.fills.insert(partition, task);
+        self.fills.insert(partition, task.abort_handle());
     }
 
     /// The capture, else the live config: a preconnect runs before the capture.
@@ -453,10 +452,8 @@ impl HandoffHandler for LeaderHandoffHandler {
     // growing SHUTDOWN_FENCE_BOUND.
     async fn release_partition(&self, partition: u32) -> Result<()> {
         info!(partition, "releasing partition");
-        // Local, and bounded by one chunk's inserts: no fill may outlive its cache.
         if let Some((_, fill)) = self.fills.remove(&partition) {
             fill.abort();
-            fill.await.ok();
         }
         self.fenced.release(partition);
         self.inflight.unfence(partition);

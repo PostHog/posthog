@@ -178,14 +178,12 @@ impl PersonCache {
         });
     }
 
-    pub(super) fn stop_tracking_puts(&self) {
+    pub fn stop_tracking_puts(&self) {
         *self.put_keys.lock().unwrap_or_else(PoisonError::into_inner) = None;
     }
 
     /// Insert unless the key was put since tracking began; a put records its key first.
-    pub(super) fn fill(&self, key: PersonCacheKey, person: CachedPerson) -> FillOutcome {
-        let is_deleted = person.is_deleted;
-        let stored = StoredPerson::new(person, &self.codec);
+    pub fn fill(&self, key: PersonCacheKey, person: CachedPerson) -> FillOutcome {
         let mut put_keys = self.put_keys.lock().unwrap_or_else(PoisonError::into_inner);
         let Some(tracking) = put_keys.as_mut() else {
             return FillOutcome::NotTracking;
@@ -197,15 +195,16 @@ impl PersonCache {
             *put_keys = None;
             return FillOutcome::NotTracking;
         }
-        if is_deleted {
+        if person.is_deleted {
             return FillOutcome::Skipped;
         }
-        self.inner.insert(key, stored);
+        self.inner
+            .insert(key, StoredPerson::new(person, &self.codec));
         FillOutcome::Inserted
     }
 
     /// Whether the resident weight is below `fraction` of the capacity.
-    pub(super) fn has_room(&self, fraction: f64) -> bool {
+    pub fn has_room(&self, fraction: f64) -> bool {
         (self.inner.usage() as f64) < self.capacity_bytes as f64 * fraction
     }
 

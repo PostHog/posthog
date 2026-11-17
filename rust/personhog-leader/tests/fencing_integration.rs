@@ -1653,7 +1653,10 @@ async fn every_warm_of_a_partition_gets_a_fill_and_tracking_ends_with_it() {
             team_id: 1,
             person_id: 999,
         };
-        cache.fill(0, probe, common::test_cached_person()) == Some(FillOutcome::NotTracking)
+        let outcome = cache
+            .serving_cache(0)
+            .map(|serving| serving.fill(probe, common::test_cached_person()));
+        outcome == Some(FillOutcome::NotTracking)
     };
 
     handler.warm_partition(0).await.expect("warm");
@@ -1691,9 +1694,10 @@ async fn a_warm_tracks_no_puts_when_no_fill_is_configured() {
         team_id: 1,
         person_id: 999,
     };
+    let serving = cache.serving_cache(0).expect("the partition is serving");
     assert_eq!(
-        cache.fill(0, key, common::test_cached_person()),
-        Some(FillOutcome::NotTracking)
+        serving.fill(key, common::test_cached_person()),
+        FillOutcome::NotTracking
     );
 }
 

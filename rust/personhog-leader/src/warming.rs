@@ -19,7 +19,8 @@ use personhog_coordination::types::ClusterEndpoint;
 use personhog_proto::personhog::types::v1::Person;
 
 use crate::cache::{
-    CachedPerson, DirtyIndex, DirtyMark, FillOutcome, PartitionedCache, PersonCacheKey, Stream,
+    CachedPerson, DirtyIndex, DirtyMark, FillOutcome, PartitionedCache, PersonCache,
+    PersonCacheKey, Stream,
 };
 
 /// Retry policy for transient warming-metadata failures.
@@ -615,7 +616,7 @@ async fn warm_source(
     Ok((consumed, start_offset))
 }
 
-/// Deliver every record in `[start, end)`, oldest first; `end` must exist in the log.
+/// Deliver every record in `[start, end)`, oldest first; `end` must not pass the log's end.
 #[allow(clippy::too_many_arguments)]
 async fn consume_range(
     cfg: &WarmingConfig,
@@ -866,7 +867,7 @@ pub enum FillEnd {
     /// Reached the lookback bound or the start of the log.
     Bound,
     Budget,
-    /// The partition was released, or its put tracking was stopped.
+    /// Put tracking passed its bound.
     Stopped,
 }
 
@@ -924,13 +925,11 @@ pub async fn lookback_offset(
 }
 
 /// Refill a serving partition's cache from `[lower, upper)`, newest first, marking nothing.
-#[allow(clippy::too_many_arguments)]
 pub async fn fill_source(
     cfg: &WarmingConfig,
     fill: &FillConfig,
     pools: &WarmClientPools,
-    cache: &PartitionedCache,
-    partition: u32,
+    cache: &PersonCache,
     source: &WarmSource,
     lower: i64,
     upper: i64,
@@ -948,13 +947,12 @@ pub async fn fill_source(
     let mut chunk_end = upper;
     let mut span = fill.chunk_offsets;
     while chunk_end > lower {
-        if let Some(end) = fill_ended(cache, partition, fill) {
-            stats.end = end;
+        if !cache.has_room(fill.room_fraction) {
+            stats.end = FillEnd::Budget;
             break;
         }
         let chunk_start = lower.max(chunk_end - span);
         let mut latest: HashMap<PersonCacheKey, CachedPerson> = HashMap::new();
-        let mut records = 0u64;
         let mut buffered = 0usize;
         let consumer = pools.warming.checkout()?;
         consume_range(
@@ -962,11 +960,11 @@ pub async fn fill_source(
             &consumer,
             &source.topic,
             partition_i32,
-            partition,
+            source.partition,
             chunk_start,
             chunk_end,
             |_offset, cached| {
-                records += 1;
+                stats.records += 1;
                 if buffered > fill.chunk_max_bytes {
                     return;
                 }
@@ -989,33 +987,25 @@ pub async fn fill_source(
             continue;
         }
 
-        stats.records += records;
         for (key, person) in latest {
-            if let Some(end) = fill_ended(cache, partition, fill) {
-                stats.end = end;
+            if !cache.has_room(fill.room_fraction) {
+                stats.end = FillEnd::Budget;
                 return Ok(stats);
             }
-            match cache.fill(partition, key, person) {
-                Some(FillOutcome::Inserted) => stats.inserted += 1,
-                Some(FillOutcome::Skipped) => {}
-                Some(FillOutcome::NotTracking) | None => {
+            match cache.fill(key, person) {
+                FillOutcome::Inserted => stats.inserted += 1,
+                FillOutcome::Skipped => {}
+                FillOutcome::NotTracking => {
                     stats.end = FillEnd::Stopped;
                     return Ok(stats);
                 }
             }
+            // Encoding a chunk is CPU work; requests on this worker must not wait for all of it.
+            tokio::task::yield_now().await;
         }
         chunk_end = chunk_start;
     }
     Ok(stats)
-}
-
-/// Why the fill may not insert any more, if it may not.
-fn fill_ended(cache: &PartitionedCache, partition: u32, fill: &FillConfig) -> Option<FillEnd> {
-    match cache.fill_has_room(partition, fill.room_fraction) {
-        Some(true) => None,
-        Some(false) => Some(FillEnd::Budget),
-        None => Some(FillEnd::Stopped),
-    }
 }
 
 /// Run one partition's fill and record how it ended. `upper` is where its warm started.
@@ -1023,19 +1013,19 @@ pub async fn run_fill(
     cfg: &WarmingConfig,
     fill: &FillConfig,
     pools: &WarmClientPools,
-    cache: &PartitionedCache,
-    partition: u32,
+    cache: &PersonCache,
     source: &WarmSource,
     upper: i64,
 ) {
+    let partition = source.partition;
     let started = Instant::now();
     let since_ms = chrono::Utc::now().timestamp_millis() - fill.lookback.as_millis() as i64;
     let filled = async {
         let lower = lookback_offset(cfg, pools, source, since_ms, upper).await?;
-        fill_source(cfg, fill, pools, cache, partition, source, lower, upper).await
+        fill_source(cfg, fill, pools, cache, source, lower, upper).await
     }
     .await;
-    cache.end_fill(partition);
+    cache.stop_tracking_puts();
     let (records, inserted, end) = match filled {
         Ok(stats) => (stats.records, stats.inserted, stats.end.label()),
         Err(e) => {
