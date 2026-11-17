@@ -411,6 +411,7 @@ class TestOIDCAuthentication(APILicensedTest):
         self.assertFalse(IdentityProviderEmailVerification.objects.filter(user=self.user).exists())
 
     @parameterized.expand([("verified", True), ("unverified", False), ("missing", None)])
+    @pytest.mark.disable_mock_code_based_verifier
     def test_oidc_jit_provisioning_creates_user_on_verified_domain(
         self, _name: str, email_verified: bool | None
     ) -> None:
@@ -419,11 +420,13 @@ class TestOIDCAuthentication(APILicensedTest):
         self.client.logout()
         user_count = User.objects.count()
 
-        response = self._complete_oidc_login(
-            "newmember@example.com", sub="new-user", name="New Member", email_verified=email_verified
-        )
+        with enable_code_sending() as mock_send:
+            response = self._complete_oidc_login(
+                "newmember@example.com", sub="new-user", name="New Member", email_verified=email_verified
+            )
 
         self.assertEqual(response.status_code, 302)
+        self.assertIn("code_verification_pending=1", response["Location"])
         self.assertEqual(User.objects.count(), user_count + 1)
         user = cast(User, User.objects.get(email="newmember@example.com"))
         self.assertEqual(user.first_name, "New Member")
@@ -433,9 +436,25 @@ class TestOIDCAuthentication(APILicensedTest):
             cast(OrganizationMembership, user.organization_memberships.get()).level,
             OrganizationMembership.Level.MEMBER,
         )
+        self.assertFalse(user.is_email_verified)
+        self.assertNotIn("_auth_user_id", self.client.session)
+        self.assertFalse(UserSocialAuth.objects.filter(user=user, provider="oidc").exists())
+
+        response = self.client.post("/api/login/code-based-verification/", {"code": mock_send.call_args.args[1]})
+        self.assertEqual(response.status_code, 200)
+        user.refresh_from_db()
+        self.assertTrue(user.is_email_verified)
         self.assertEqual(self.client.session["_auth_user_id"], str(user.pk))
         social_auth = UserSocialAuth.objects.get(user=user, provider="oidc")
         self.assertEqual(social_auth.uid, f"{self.config.oidc_issuer_url}:new-user")
+
+        self.client.logout()
+        with enable_code_sending() as mock_send:
+            self._complete_oidc_login(
+                "newmember@example.com", sub="new-user", name="New Member", email_verified=email_verified
+            )
+        mock_send.assert_not_called()
+        self.assertEqual(self.client.session["_auth_user_id"], str(user.pk))
 
     @parameterized.expand([("verified", True), ("unverified", False), ("missing", None)])
     def test_oidc_jit_provisioning_disabled_does_not_provision_user(
@@ -1794,6 +1813,7 @@ class TestEESAMLAuthenticationAPI(APILicensedTest):
         self.assertEqual(response.status_code, status.HTTP_302_FOUND)
         self.assertEqual(response.headers["Location"], "/settings/organization/authentication")
 
+    @pytest.mark.disable_mock_code_based_verifier
     @time_machine.travel("2021-08-25T23:37:55.345Z", tick=False)
     def test_saml_jit_provisioning_and_assertion_with_different_attribute_names(self):
         """
@@ -1817,18 +1837,18 @@ class TestEESAMLAuthenticationAPI(APILicensedTest):
 
         user_count = User.objects.count()
 
-        response = self.client.post(
-            "/complete/saml/",
-            {
-                "SAMLResponse": saml_response,
-                "RelayState": str(self.organization_domain.id),
-            },
-            format="multipart",
-            follow=True,
-        )
+        with enable_code_sending() as mock_send:
+            response = self.client.post(
+                "/complete/saml/",
+                {
+                    "SAMLResponse": saml_response,
+                    "RelayState": str(self.organization_domain.id),
+                },
+                format="multipart",
+            )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)  # because `follow=True`
-        self.assertRedirects(response, "/")  # redirect to the home page
+        self.assertEqual(response.status_code, 302)
+        self.assertIn("code_verification_pending=1", response["Location"])
 
         # User is created
         self.assertEqual(User.objects.count(), user_count + 1)
@@ -1843,8 +1863,15 @@ class TestEESAMLAuthenticationAPI(APILicensedTest):
             OrganizationMembership.Level.MEMBER,
         )
 
-        _session = self.client.session
-        self.assertEqual(_session.get("_auth_user_id"), str(user.pk))
+        self.assertFalse(user.is_email_verified)
+        self.assertNotIn("_auth_user_id", self.client.session)
+        self.assertFalse(UserSocialAuth.objects.filter(user=user, provider="saml").exists())
+
+        response = self.client.post("/api/login/code-based-verification/", {"code": mock_send.call_args.args[1]})
+        self.assertEqual(response.status_code, 200)
+        user.refresh_from_db()
+        self.assertTrue(user.is_email_verified)
+        self.assertEqual(self.client.session["_auth_user_id"], str(user.pk))
 
     @time_machine.travel("2021-08-25T23:37:55.345Z", tick=False)
     def test_saml_jit_provisioning_with_case_insensitive_domain(self):

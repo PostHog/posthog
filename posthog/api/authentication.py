@@ -1742,7 +1742,7 @@ def social_require_idp_email_verification(
     Runs before `associate_user`, so an unproven identity is never linked to the account, and a
     response from a pipeline step makes `do_complete` return it instead of starting a session.
     """
-    if user is None or not uid or backend.name not in IDP_SSO_BACKENDS:
+    if backend.name not in IDP_SSO_BACKENDS:
         return None
     if _sso_reauth_request(strategy):
         # A step-up re-auth continues a signed-in session, so it is not a new identity.
@@ -1750,8 +1750,8 @@ def social_require_idp_email_verification(
 
     identity = _identity_provider_identity(backend, details, response)
     email = ((details or {}).get("email") or "").strip().lower()
-    if identity is None or not email:
-        return None
+    if user is None or not uid or identity is None or not email:
+        return redirect(sso_failure_redirect_url(strategy.request, "improperly_configured_sso"))
 
     if IdentityProviderEmailVerification.objects.filter(
         provider=identity.provider, issuer=identity.issuer, subject=identity.subject, email=email

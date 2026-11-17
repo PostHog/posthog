@@ -1177,7 +1177,10 @@ def process_social_domain_jit_provisioning_signup(
 
                     try:
                         user = strategy.create_user(
-                            email=email, first_name=full_name, password=None, is_email_verified=True
+                            email=email,
+                            first_name=full_name,
+                            password=None,
+                            is_email_verified=backend.name not in IDP_SSO_BACKENDS,
                         )
                         assert isinstance(user, User)  # type hinting
                         invite.use(user, prevalidated=True)
@@ -1195,7 +1198,7 @@ def process_social_domain_jit_provisioning_signup(
                         email=email,
                         password=None,
                         first_name=full_name,
-                        is_email_verified=True,
+                        is_email_verified=backend.name not in IDP_SSO_BACKENDS,
                     )
                     logger.info(
                         f"process_social_domain_jit_provisioning_join_complete",
