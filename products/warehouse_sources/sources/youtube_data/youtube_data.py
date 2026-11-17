@@ -90,6 +90,8 @@ def fetch_channel(api_key: str, channel_id: str, team_id: int, api_version: str)
     endpoint = cast(Endpoint, resource["endpoint"])
     endpoint["params"] = {"part": "contentDetails", "id": channel_id}
     endpoint["paginator"] = "single_page"
+    # channels.list omits "items" entirely when no channel matches the id.
+    endpoint["data_selector_required"] = False
     config: RESTAPIConfig = {"client": client_config(api_key, api_version), "resources": [resource]}
     for page in rest_api_resource(config, team_id, "youtube_data_channel_probe", None):
         if page:

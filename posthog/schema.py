@@ -6803,11 +6803,11 @@ class HogQLQueryModifiers(BaseModel):
         default=None,
         description=(
             "Read events from the native JSON events table (`true`) or the legacy"
-            " events table (`false`). When unset, a staff person's"
-            " `ph_new_events_schema` cookie applies, then the project's listing in the"
-            " `CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS` instance setting, then the"
-            " `CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA` instance setting. This is an"
-            " internal rollout switch, and the project settings API ignores it."
+            " events table (`false`). When unset, a staff person's tab switch or"
+            " `ph_new_events_schema` cookie applies, then the project. A project reads"
+            " the native table once PostHog has moved it there. Before that, it can opt"
+            " in early by storing `true` here in its project settings. A stored `false`"
+            " is ignored."
         ),
     )
     usePreaggregatedIntermediateResults: bool | None = None
@@ -37082,7 +37082,7 @@ class ErrorTrackingQuery(BaseModel):
     useQueryV2: bool | None = None
     useQueryV3: bool | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
-    volumeResolution: int
+    volumeResolution: conint(ge=0, le=200)
     withAggregations: bool | None = None
     withFirstEvent: bool | None = None
     withLastEvent: bool | None = None

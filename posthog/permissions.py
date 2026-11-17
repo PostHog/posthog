@@ -39,13 +39,9 @@ from posthog.models import Organization, OrganizationDomain, OrganizationMembers
 from posthog.models.oauth import OAuthAccessToken
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.organization_caching import get_cached_organization_membership
-from posthog.scopes import (
-    INTERNAL_API_SCOPE_OBJECTS,
-    MCP_BUILT_IN_AGENT_SCOPE,
-    APIScopeObjectOrNotSupported,
-    scopes_covered_by_legacy_fallback,
-    scopes_not_covered,
-)
+from posthog.scopes.catalog import MCP_BUILT_IN_AGENT_SCOPE, APIScopeObjectOrNotSupported
+from posthog.scopes.checks import scopes_covered_by_legacy_fallback, scopes_not_covered
+from posthog.scopes.exposure import INTERNAL_API_SCOPE_OBJECTS
 from posthog.session.reauth import sensitive_action_reference, step_up_required
 from posthog.utils import get_can_create_org
 

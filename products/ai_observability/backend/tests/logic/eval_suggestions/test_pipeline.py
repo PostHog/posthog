@@ -186,7 +186,7 @@ def _support_traffic(team: Team, end: datetime) -> None:
                 "$ai_prompt_name": "support-reply",
                 "$ai_input": [
                     {"role": "system", "content": SUPPORT_PROMPT},
-                    {"role": "user", "content": "Where is my refund?"},
+                    {"role": "user", "content": f"Where is my refund for order {index}?"},
                 ],
                 "$ai_output_choices": [{"role": "assistant", "content": "Your refund arrives by Friday."}],
             },
@@ -210,13 +210,20 @@ def _calibration_record(*, caught: int, false_alarms: int, kept: bool) -> dict[s
     return {"status": "ok", "model": "gpt-5-mini", "cards": [{"title": REVIEW_TITLE, **counts, "kept": kept}]}
 
 
-def _judge_replies(judge_fails: set[int]) -> Callable[..., MagicMock]:
+def _judge_replies(judge_fails: set[int], review: MagicMock) -> Callable[..., MagicMock]:
+    """The judge fails the calls numbered `judge_fails` in the review. It reads the call as the runtime judge does, so
+    it finds the review's number through the call's trace."""
+
     def reply(**kwargs: Any) -> MagicMock:
-        number = re.search(r'<call number="(\d+)"', kwargs["messages"][-1]["content"])
-        assert number is not None
-        verdict = "fail" if int(number.group(1)) in judge_fails else "pass"
+        review_prompt = review.messages.create.call_args_list[1].kwargs["messages"][0]["content"]
+        numbers = {
+            trace: int(n) for n, trace in re.findall(r'<call number="(\d+)" type="T\d+" trace="([^"]+)"', review_prompt)
+        }
+        order = re.search(r"order (\d+)\?", kwargs["messages"][-1]["content"])
+        assert order is not None
+        verdict = "fail" if numbers[f"support-{order.group(1)}"] in judge_fails else "pass"
         return MagicMock(
-            choices=[MagicMock(message=MagicMock(content=json.dumps({"reasoning": "r", "verdict": verdict})))],
+            choices=[MagicMock(message=MagicMock(content=json.dumps({"reasoning": "r", "outcome": verdict})))],
             usage=MagicMock(prompt_tokens=1000, completion_tokens=50),
         )
 
@@ -333,7 +340,7 @@ class TestPipeline(ClickhouseTestMixin, APIBaseTest):
             _json_reply({"product": "a shop", "themes": [], "cards": [card]}),
         ]
         judge = MagicMock(spec=openai.OpenAI)
-        judge.chat.completions.create.side_effect = _judge_replies(judge_fails)
+        judge.chat.completions.create.side_effect = _judge_replies(judge_fails, client)
 
         with (
             patch.object(pipeline.call_review, "build_client", return_value=client),
@@ -343,6 +350,8 @@ class TestPipeline(ClickhouseTestMixin, APIBaseTest):
                 "MAX_OUTPUT_TOKENS",
                 max_output_tokens or pipeline.judge_calibration.MAX_OUTPUT_TOKENS,
             ),
+            patch.object(runs, "is_enabled_for_organization", return_value=False),
+            patch.object(runs, "report_team_action") as report,
         ):
             suggestions = _run_stages(
                 self.team,
@@ -356,6 +365,20 @@ class TestPipeline(ClickhouseTestMixin, APIBaseTest):
         assert run.stages["drafting"]["status"] == "ok"
         assert run.stages["drafting"]["calibration"] == record
         assert run.cost_usd > 0
+        kept = int(record["status"] == "ok" and record["cards"][0]["kept"])
+        [(_team, event, properties)] = [c.args for c in report.call_args_list]
+        assert event == runs.RUN_FINISHED_EVENT
+        assert {
+            k: properties[k] for k in ("trigger", "status", "shadow", "calls_reviewed", "review_cards_drafted")
+        } == {
+            "trigger": "manual",
+            "status": "completed",
+            "shadow": True,
+            "calls_reviewed": 30,
+            "review_cards_drafted": 1,
+        }
+        assert (properties["review_cards_kept"], properties["cards_published"]) == (kept, len(suggestions))
+        assert properties["cost_usd"] == run.cost_usd
         reviewed = [s for s in suggestions if s.template_key == "review"]
         if not (record["status"] == "ok" and record["cards"][0]["kept"]):
             assert reviewed == []
@@ -409,9 +432,11 @@ class TestRunRetries(ClickhouseTestMixin, APIBaseTest):
     ) -> None:
         dead_judge = _dead_judge(self.team)
         run = create_run(self.team, "scheduled")
-        _run_stages(self.team, run)
+        with patch.object(runs, "report_team_action") as report:
+            _run_stages(self.team, run)
+            late_attempt(run)
 
-        late_attempt(run)
+        assert report.call_count == 1
 
         run.refresh_from_db()
         assert run.status == EvalSuggestionRunStatus.COMPLETED
@@ -426,14 +451,21 @@ class TestRunRetries(ClickhouseTestMixin, APIBaseTest):
         _run_stages(self.team, first)
         second = create_run(self.team, "scheduled")
 
-        if next_run_fails:
-            with patch.object(pipeline, "fetch_profile", side_effect=RuntimeError("ClickHouse timed out")):
-                with pytest.raises(RuntimeError):
-                    measure_stage(self.team.pk, str(second.id), settings=SuggestionSettings())
-            # The workflow fails the run once the stage used up its attempts.
-            fail_run(self.team.pk, str(second.id), "RuntimeError: ClickHouse timed out")
-        else:
-            _run_stages(self.team, second)
+        with patch.object(runs, "report_team_action") as report:
+            if next_run_fails:
+                with patch.object(pipeline, "fetch_profile", side_effect=RuntimeError("ClickHouse timed out")):
+                    with pytest.raises(RuntimeError):
+                        measure_stage(self.team.pk, str(second.id), settings=SuggestionSettings())
+                # The workflow fails the run once the stage used up its attempts, and may fail it again on a retry.
+                fail_run(self.team.pk, str(second.id), "RuntimeError: ClickHouse timed out")
+                fail_run(self.team.pk, str(second.id), "RuntimeError: ClickHouse timed out")
+            else:
+                _run_stages(self.team, second)
+
+        [(_team, _event, properties)] = [c.args for c in report.call_args_list]
+        assert (properties["status"], properties["error_type"]) == (
+            ("failed", "RuntimeError") if next_run_fails else ("completed", "")
+        )
 
         statuses = dict(EvalSuggestion.objects.for_team(self.team.pk).values_list("run_id", "status"))
         second.refresh_from_db()

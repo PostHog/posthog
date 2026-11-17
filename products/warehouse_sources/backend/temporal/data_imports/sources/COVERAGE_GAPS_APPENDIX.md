@@ -13038,14 +13038,14 @@ Note: Spec is Vantage's own OpenAPI at api.vantage.sh/v2/swagger.json (v2.0.0); 
 
 ## Vapi — gaps
 
-Today (10): `assistants`, `calls`, `campaigns`, `chats`, `files`, `phone_numbers`, `sessions`, `simulation_runs`, `squads`, `tools`
+Today (13): `assistants`, `calls`, `campaigns`, `chats`, `eval_runs`, `evals`, `files`, `phone_numbers`, `scorecards`, `sessions`, `simulation_runs`, `squads`, `tools`
 
 Diffed against: <https://api.vapi.ai/api-json>
 
-- [ ] `GET /observability/scorecard` — call quality scorecards — the analytical object for judging agent performance (high)
-- [ ] `GET /eval/run` — evaluation run results per assistant; the regression signal for voice agents (high)
-- [ ] `GET /eval` — eval definitions, the lookup that resolves eval ids on runs (medium)
-- [ ] `GET /call/{id}/call-logs` — per-call turn/system log lines for the calls we already sync (medium)
+- [x] `GET /observability/scorecard` — call quality scorecards — the analytical object for judging agent performance (high)
+- [x] `GET /eval/run` — evaluation run results per assistant; the regression signal for voice agents (high)
+- [x] `GET /eval` — eval definitions, the lookup that resolves eval ids on runs (medium)
+- [ ] `GET /call/{id}/call-logs` — per-call turn/system log lines for the calls we already sync (medium); skipped, it is a file download (a 302 to a short-lived presigned log file URL, no JSON schema), not a list endpoint, and it would take one request per call with no changed-since filter
 - [ ] `POST /analytics` — Vapi's aggregate analytics query API (minutes, spend, call outcomes) — the headline metrics surface (medium)
 - [ ] `GET /structured-output` — lookup for the extraction schemas whose extracted values appear on call records (low)
 - [x] `GET /eval/simulation/run` — simulation run results for assistants and squads, with pass/fail item counts (medium)
@@ -13094,16 +13094,16 @@ Note: Parsed the live OpenAPI specification and checked all GET operations, incl
 
 ## Veracode — **thin**
 
-Today (4): `applications`, `findings`, `sandboxes`, `sca_findings`
+Today (8): `applications`, `categories`, `cwes`, `findings`, `sandboxes`, `sca_findings`, `scans`, `summary_report`
 
 Diffed against: <https://api.swaggerhub.com/apis/Veracode?limit=100>
 
-- [ ] `GET /appsec/v2/applications/{app_guid}/summary_report` — Veracode's headline per-application result: policy compliance status, security score and flaw counts by severity (high)
-- [ ] `GET /appsec/v1/cwes` — lookup table resolving the CWE id carried on every findings row we already sync (high)
-- [ ] `GET /appsec/v1/categories` — lookup table resolving the finding category id on findings we already sync (high)
+- [x] `GET /appsec/v2/applications/{app_guid}/summary_report` — Veracode's headline per-application result: policy compliance status, security score and flaw counts by severity (high)
+- [x] `GET /appsec/v1/cwes` — lookup table resolving the CWE id carried on every findings row we already sync (high)
+- [x] `GET /appsec/v1/categories` — lookup table resolving the finding category id on findings we already sync (high)
 - [ ] `GET /appsec/v1/policies` — lookup resolving the policy GUID/name attached to each application we sync (high)
 - [ ] `GET /v2/teams (Identity API)` — lookup resolving the team GUIDs on applications, enabling per-team risk rollups (high)
-- [ ] `POST /appsec/v1/analytics/report + GET /appsec/v1/analytics/report/{id} (report_type SCANS)` — org-wide scan history — there is no scan/build table at all today, only findings (high)
+- [x] `POST /appsec/v1/analytics/report + GET /appsec/v1/analytics/report/{id} (report_type SCANS)` — org-wide scan history — there is no scan/build table at all today, only findings (high) — built on the v2 `POST /analytics/scans/report` endpoint, because Veracode deprecated `report_type` on the v1 endpoint
 - [ ] `POST /appsec/v1/analytics/report (report_type FINDINGS)` — bulk org-wide findings export without per-application fan-out, the vendor's designated warehouse path (medium)
 - [ ] `GET /v2/business_units (Identity API)` — lookup resolving business unit on applications for org-level breakdowns (medium)
 - [ ] `GET /v2/users (Identity API)` — lookup resolving user ids on annotations, mitigations and application owners (medium)
@@ -13148,10 +13148,10 @@ Today (10): `bare_metals`, `billing_history`, `block_storage`, `instances`, `inv
 
 Diffed against: <https://raw.githubusercontent.com/vultr/api-postman-collection/master/postman/schemas/schema.json>
 
-- [ ] `GET /v2/billing/invoices/{invoice-id}/items` — invoice line items — the per-resource cost breakdown behind the invoices we already sync (high)
-- [ ] `GET /v2/plans and /v2/plans-metal` — lookup resolving the plan id on every instance and bare metal, giving vCPU/RAM/price per row (high)
-- [ ] `GET /v2/regions` — lookup resolving the region code carried on instances, blocks, snapshots and load balancers (high)
-- [ ] `GET /v2/instances/{instance-id}/bandwidth` — daily in/out bandwidth per instance, the main usage time series for cost attribution (high)
+- [x] `GET /v2/billing/invoices/{invoice-id}/items` — invoice line items — the per-resource cost breakdown behind the invoices we already sync (high)
+- [x] `GET /v2/plans and /v2/plans-metal` — lookup resolving the plan id on every instance and bare metal, giving vCPU/RAM/price per row (high)
+- [x] `GET /v2/regions` — lookup resolving the region code carried on instances, blocks, snapshots and load balancers (high)
+- [x] `GET /v2/instances/{instance-id}/bandwidth` — daily in/out bandwidth per instance, the main usage time series for cost attribution (high)
 - [ ] `GET /v2/bare-metals/{baremetal-id}/bandwidth` — same daily usage time series for bare metal servers (medium)
 - [ ] `GET /v2/account` — account balance, pending charges and last payment — the headline billing figures (medium)
 - [ ] `GET /v2/os` — lookup resolving os_id on instances, bare metals and snapshots (medium)
@@ -13448,13 +13448,13 @@ Today (9): `content_citations`, `content_keywords`, `performance_answers`, `perf
 
 Diffed against: <https://docs.writesonic.com/reference/content_citations_v2_geo_presence_business_export_content_citations_get>
 
-- [ ] `GET /v2/geo/presence/business/export/actionable/content-optimize/issues` — per-page content optimization issues, the actionable half of the GEO product (high)
-- [ ] `GET /v2/geo/presence/business/export/actionable/content-optimize/pages` — page-level optimization scores that the issues and recommendations hang off (high)
-- [ ] `GET /v2/geo/presence/business/export/actionable/content-optimize/recommendations` — recommended fixes per page, joins to pages and issues (medium)
-- [ ] `GET /v2/geo/presence/business/export/actionable/content-optimize/issues-summary` — issue counts by type, the rollup dimension for reporting (medium)
+- [x] `GET /v2/geo/presence/business/export/actionable/content-optimize/issues` — per-page content optimization issues, the actionable half of the GEO product (high)
+- [x] `GET /v2/geo/presence/business/export/actionable/content-optimize/pages` — page-level optimization scores that the issues and recommendations hang off (high)
+- [x] `GET /v2/geo/presence/business/export/actionable/content-optimize/recommendations` — recommended fixes per page, joins to pages and issues (medium)
+- [x] `GET /v2/geo/presence/business/export/actionable/content-optimize/issues-summary` — issue counts by type, the rollup dimension for reporting (medium)
 - [ ] `GET /v2/geo/presence/business/export/actionable/content-optimize/scanned-urls` — crawl inventory that resolves which URLs the issue rows refer to (medium)
 - [ ] `GET /v2/seo-auditor/business/export/issues/get-issues` — SEO auditor issue export, a separate product surface with no coverage at all (medium)
-- [ ] `GET /v2/geo/presence/business/export/actionable/content-optimize/recommendations/all` — account-wide recommendation list rather than per-page (low)
+- [x] `GET /v2/geo/presence/business/export/actionable/content-optimize/recommendations/all` — account-wide recommendation list rather than per-page (low)
 
 Note: The GEO presence export family (citations, keywords, performance answers/prompts/summary, and the config lookups platforms/prompts/topics/websites) is fully covered. Everything else in the Writesonic docs is POST content-generation (article writer, ad copy, social captions) which has no queryable resource semantics and is correctly excluded.
 
@@ -13630,12 +13630,12 @@ Today (12): `calls`, `contacts`, `deals`, `leads`, `notes`, `orders`, `pipelines
 
 Diffed against: <https://developer.zendesk.com/api-reference/sales-crm/resources/introduction/>
 
-- [ ] `associated_contacts (GET /v2/deals/{deal_id}/associated_contacts)` — the deal-to-contact junction table; without it you cannot attribute deals to the contacts involved (high)
-- [ ] `line_items (GET /v2/orders/{order_id}/line_items)` — per-order product lines with quantity, price and discount - the revenue detail behind orders we already sync (high)
-- [ ] `loss_reasons` — lookup table resolving the loss_reason_id already present on deals; required for any win/loss analysis (high)
-- [ ] `deal_sources` — lookup table resolving deals.source_id; unlocks pipeline-by-source attribution (high)
-- [ ] `lead_sources` — lookup table resolving leads.source_id; unlocks lead-source attribution (high)
-- [ ] `lead_conversions` — the lead-to-contact/deal transition record - the only way to build a conversion funnel across the objects we already sync (high)
+- [x] `associated_contacts (GET /v2/deals/{deal_id}/associated_contacts)` — the deal-to-contact junction table; without it you cannot attribute deals to the contacts involved (high)
+- [x] `line_items (GET /v2/orders/{order_id}/line_items)` — per-order product lines with quantity, price and discount - the revenue detail behind orders we already sync (high)
+- [x] `loss_reasons` — lookup table resolving the loss_reason_id already present on deals; required for any win/loss analysis (high)
+- [x] `deal_sources` — lookup table resolving deals.source_id; unlocks pipeline-by-source attribution (high)
+- [x] `lead_sources` — lookup table resolving leads.source_id; unlocks lead-source attribution (high)
+- [x] `lead_conversions` — the lead-to-contact/deal transition record - the only way to build a conversion funnel across the objects we already sync (high)
 - [ ] `custom_fields` — field-definition lookup that names and types the custom_fields blobs on contacts, deals and leads (medium)
 - [ ] `deal_unqualified_reasons` — lookup resolving the unqualified_reason_id on deals (medium)
 - [ ] `lead_unqualified_reasons` — lookup resolving the unqualified_reason_id on leads (medium)
@@ -13657,14 +13657,14 @@ Note: Coverage of the /api/sunshine surface is essentially complete: object_type
 
 ## Zenduty — gaps
 
-Today (12): `account_members`, `escalation_policies`, `incidents`, `maintenance_windows`, `postmortems`, `roles`, `schedules`, `services`, `slas`, `tags`, `team_members`, `teams`
+Today (16): `account_members`, `escalation_policies`, `incident_alerts`, `incident_responders`, `incidents`, `maintenance_windows`, `oncall`, `postmortems`, `priorities`, `roles`, `schedules`, `services`, `slas`, `tags`, `team_members`, `teams`
 
 Diffed against: <https://apidocs.zenduty.com/openapi.json>
 
-- [ ] `incidents/{incident_number}/alerts/` — the raw alerts that rolled up into each incident - core noise/alert-volume analysis (high)
-- [ ] `account/teams/{team_id}/oncall/ (v2)` — resolved on-call shifts per team; the headline output of schedules and escalation policies we already sync (high)
-- [ ] `incidents/{incident_number}/responders/ (v2)` — who was engaged on each incident - the membership table for responder load and MTTA analysis (high)
-- [ ] `account/teams/{team_id}/priority/` — lookup table resolving the priority ID carried on incidents (high)
+- [x] `incidents/{incident_number}/alerts/` — the raw alerts that rolled up into each incident - core noise/alert-volume analysis (high) → `incident_alerts` (full refresh, fan-out over `incidents`, off by default)
+- [x] `account/teams/{team_id}/oncall/ (v2)` — resolved on-call shifts per team; the headline output of schedules and escalation policies we already sync (high) → `oncall` (full refresh, fan-out over `teams`; current on-call per escalation policy rule, not shift history)
+- [x] `incidents/{incident_number}/responders/ (v2)` — who was engaged on each incident - the membership table for responder load and MTTA analysis (high) → `incident_responders` (full refresh, fan-out over `incidents`, off by default)
+- [x] `account/teams/{team_id}/priority/` — lookup table resolving the priority ID carried on incidents (high) → `priorities` (full refresh, fan-out over `teams`)
 - [ ] `incidents/{incident_number}/note/` — incident timeline notes, the qualitative record alongside postmortems we already sync (medium)
 - [ ] `incidents/{incident_number}/tags/` — incident-to-tag junction; we sync team tags but not which incidents carry them (medium)
 - [ ] `account/teams/{team_id}/schedules/{schedule_id}/overrides/` — schedule overrides explain why actual on-call differed from the rotation (medium)
@@ -13679,10 +13679,10 @@ Today (3): `properties`, `survey_groups`, `surveys`
 
 Diffed against: <https://docs.zenloop.com/reference>
 
-- [ ] `answers (GET, per survey)` — the actual NPS/CSAT responses with score, comment and recipient properties - the product's core dataset and currently absent entirely (high)
-- [ ] `survey summary (Get Summary of Survey)` — the vendor's headline NPS score and promoter/passive/detractor breakdown per survey (high)
-- [ ] `answers for survey group (Get Answers for Survey Group)` — rolled-up answers across a survey group, matching the survey_groups table we already sync (medium)
-- [ ] `survey group summary (Get Summary of Survey Groups)` — group-level NPS aggregate, the comparison dimension for group reporting (medium)
+- [x] `answers (GET, per survey)` — the actual NPS/CSAT responses with score, comment and recipient properties - the product's core dataset and currently absent entirely (high) → `survey_answers` (full refresh, fan-out over `surveys`)
+- [x] `survey summary (Get Summary of Survey)` — the vendor's headline NPS score and promoter/passive/detractor breakdown per survey (high) → `survey_summaries` (full refresh, fan-out over `surveys`)
+- [x] `answers for survey group (Get Answers for Survey Group)` — rolled-up answers across a survey group, matching the survey_groups table we already sync (medium) → `survey_group_answers` (full refresh, fan-out over `survey_groups`)
+- [x] `survey group summary (Get Summary of Survey Groups)` — group-level NPS aggregate, the comparison dimension for group reporting (medium) → `survey_group_summaries` (full refresh, fan-out over `survey_groups`)
 - [ ] `roles (Get roles)` — lookup for user role assignments (low)
 
 Note: docs.zenloop.com is a ReadMe.io site that aggressively rate-limits and 404s the deep-link URLs recorded in the payload (get-properties, get-survey-groups). The /reference index still serves the embedded page manifest, which lists every endpoint with its HTTP method - that is what I diffed against. Only 8 GET endpoints exist in the whole API; PostHog syncs 3 of them, and the missing `answers` endpoint is the one that carries all the response data, so this connector is effectively metadata-only today.
