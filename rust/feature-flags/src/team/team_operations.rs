@@ -103,7 +103,6 @@ impl Team {
 
         Ok(row)
     }
-
 }
 
 #[cfg(test)]

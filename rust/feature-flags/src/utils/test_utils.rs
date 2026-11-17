@@ -2011,11 +2011,13 @@ impl TestContext {
     ) -> Result<(), Error> {
         let secure_value = crate::api::auth::hash_token_value(raw_key);
         let mut conn = self.non_persons_writer.get_connection().await?;
-        sqlx::query("DELETE FROM posthog_projectsecretapikey WHERE team_id = $1 AND secure_value = $2")
-            .bind(team_id)
-            .bind(&secure_value)
-            .execute(&mut *conn)
-            .await?;
+        sqlx::query(
+            "DELETE FROM posthog_projectsecretapikey WHERE team_id = $1 AND secure_value = $2",
+        )
+        .bind(team_id)
+        .bind(&secure_value)
+        .execute(&mut *conn)
+        .await?;
         Ok(())
     }
 
