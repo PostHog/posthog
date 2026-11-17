@@ -10,8 +10,12 @@ from parameterized import parameterized
 from posthog.hogql.compiler.bytecode import create_bytecode
 from posthog.hogql.parser import parse_program
 
-from posthog.models import Team
+from posthog.constants import AvailableFeature
+from posthog.models import Team, User
 
+from products.access_control.backend.facade.api import upsert_property_access_control
+from products.access_control.backend.facade.contracts import PropertyAccessLevel, UpsertPropertyAccessControlInput
+from products.error_tracking.backend.facade import api as issue_facade
 from products.error_tracking.backend.logic import team_flags
 from products.error_tracking.backend.logic.issue_tags import registry, runner
 from products.error_tracking.backend.logic.issue_tags.correction import UnknownIssueTagError, correct_issue_tag
@@ -106,15 +110,35 @@ class TestIssueTagRules(BaseTest):
 
         assert not ErrorTrackingIssueTag.objects.for_team(other_team.id).filter(issue=other_issue).exists()
         code_keys = [definition.key for definition in registry.ISSUE_TAG_DEFINITIONS]
-        assert [definition.key for definition in enabled_issue_tag_definitions(self.team.id)] == [
+        assert [definition.key for definition in enabled_issue_tag_definitions(self.team.id, self.user)] == [
             *code_keys,
             self.big_order.key,
             self.unhandled.key,
         ]
-        assert [definition.key for definition in enabled_issue_tag_definitions(other_team.id)] == code_keys
+        assert [definition.key for definition in enabled_issue_tag_definitions(other_team.id, self.user)] == code_keys
         with self.assertRaises(UnknownIssueTagError):
             correct_issue_tag(
                 other_team.id, other_issue.id, self.big_order.key, applied=True, user=self.user, was_impersonated=False
+            )
+
+    def test_hides_a_rule_label_from_a_member_who_may_not_read_its_property(self) -> None:
+        issue = ErrorTrackingIssue.objects.create(team=self.team)
+        run_issue_taggers(self.team.id, issue.id, lambda team: BIG_UNHANDLED_ORDER)
+        other = User.objects.create_and_join(self.organization, "other@example.com", "password")
+        self._restrict_revenue_for_the_member()
+        code_keys = {definition.key for definition in registry.ISSUE_TAG_DEFINITIONS}
+
+        def visible(user: User) -> tuple[set[str], set[str]]:
+            tags = issue_facade.get_issue(issue.id, self.team.id, with_tags_for=user).tags or []
+            listed = issue_facade.list_issue_tag_definitions(self.team.id, user)
+            return {tag.key for tag in tags}, {definition.key for definition in listed} - code_keys
+
+        assert visible(self.user) == ({self.unhandled.key}, {self.unhandled.key})
+        both = {self.big_order.key, self.unhandled.key}
+        assert visible(other) == (both, both)
+        with self.assertRaises(UnknownIssueTagError):
+            correct_issue_tag(
+                self.team.id, issue.id, self.big_order.key, applied=False, user=self.user, was_impersonated=False
             )
 
     @parameterized.expand(
@@ -173,7 +197,7 @@ class TestIssueTagRules(BaseTest):
 
         broken.refresh_from_db()
         applied = ErrorTrackingIssueTag.objects.for_team(self.team.id).filter(issue=issue).values_list("key", flat=True)
-        listed = {definition.key for definition in enabled_issue_tag_definitions(self.team.id)}
+        listed = {definition.key for definition in enabled_issue_tag_definitions(self.team.id, self.user)}
         assert result == (TaggerRun(source=Source.RULE),)
         assert ((broken.disabled_data or {}).get("message"), set(applied), broken.key in listed) == (
             disabled_message,
@@ -186,11 +210,26 @@ class TestIssueTagRules(BaseTest):
         load_event_properties = MagicMock(return_value=BIG_UNHANDLED_ORDER)
 
         with patch.object(team_flags, "feature_enabled_or_false", return_value=False), self.assertNumQueries(0):
-            definitions = enabled_issue_tag_definitions(self.team.id)
+            definitions = enabled_issue_tag_definitions(self.team.id, self.user)
             result = run_issue_taggers(self.team.id, issue.id, load_event_properties)
 
         assert (definitions, result) == ((), IssueTaggingSkipReason.DISABLED)
         load_event_properties.assert_not_called()
+
+    def _restrict_revenue_for_the_member(self) -> None:
+        self.organization.available_product_features = [
+            {"name": AvailableFeature.PROPERTY_ACCESS_CONTROL, "key": AvailableFeature.PROPERTY_ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        upsert_property_access_control(
+            team_id=self.team.id,
+            created_by_id=self.user.id,
+            input=UpsertPropertyAccessControlInput(
+                property_definition_id=str(PropertyDefinition.objects.get(team=self.team, name="revenue").id),
+                access_level=PropertyAccessLevel.NONE,
+                organization_member_id=self.organization_membership.id,
+            ),
+        )
 
     def _rule(
         self,

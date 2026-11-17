@@ -415,7 +415,9 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
                 return JsonResponse({"issue_id": resolved_id}, status=status.HTTP_308_PERMANENT_REDIRECT)
 
         try:
-            issue = facade_api.get_issue(issue_id=issue_id, team_id=self.team.id, with_tags=True)
+            issue = facade_api.get_issue(
+                issue_id=issue_id, team_id=self.team.id, with_tags_for=cast(User, request.user)
+            )
         except IssueNotFoundError:
             raise NotFound("Issue not found")
 
@@ -466,7 +468,7 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
     @extend_schema(responses={200: ErrorTrackingIssueTagDefinitionsResponseSerializer})
     @action(methods=["GET"], detail=False)
     def tag_definitions(self, request: request.Request, **kwargs: object) -> Response:
-        definitions = facade_api.list_issue_tag_definitions(self.team.id)
+        definitions = facade_api.list_issue_tag_definitions(self.team.id, cast(User, request.user))
         return Response(ErrorTrackingIssueTagDefinitionsResponseSerializer({"results": definitions}).data)
 
     @validated_request(

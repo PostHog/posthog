@@ -26,7 +26,7 @@ def correct_issue_tag(
     if not issue_tags_enabled(team_id):
         raise IssueTagsDisabledError
     try:
-        definition = get_issue_tag_definition(team_id, key)
+        definition = get_issue_tag_definition(team_id, key, user)
     except ValueError:
         raise UnknownIssueTagError(key)
 
