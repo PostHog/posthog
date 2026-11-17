@@ -131,7 +131,8 @@ export const isContentAutopilotEnabled = (featureFlags: FeatureFlagsSet): boolea
     !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_CONTENT_AUTOPILOT]
 
 // pinned: the AI visibility filters' URL search params, links people share depend on them
-export const AI_VISIBILITY_URL_PARAMS = ['days', 'engine', 'topic', 'branded'] as const
+// 'days' is the window param of links from before the date range. Listing it drops it when the filters rewrite the URL.
+export const AI_VISIBILITY_URL_PARAMS = ['date_from', 'date_to', 'days', 'engine', 'topic', 'branded'] as const
 
 export type DeviceType = 'Desktop' | 'Mobile'
 

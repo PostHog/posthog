@@ -2517,8 +2517,13 @@
                     "csv": false
                 },
                 {
-                    "param": "days",
-                    "key": "days",
+                    "param": "date_from",
+                    "key": "date_from",
+                    "csv": false
+                },
+                {
+                    "param": "date_to",
+                    "key": "date_to",
                     "csv": false
                 },
                 {
@@ -2575,8 +2580,13 @@
                     "csv": false
                 },
                 {
-                    "param": "days",
-                    "key": "days",
+                    "param": "date_from",
+                    "key": "date_from",
+                    "csv": false
+                },
+                {
+                    "param": "date_to",
+                    "key": "date_to",
                     "csv": false
                 },
                 {
@@ -2807,8 +2817,13 @@
                     "csv": false
                 },
                 {
-                    "param": "days",
-                    "key": "days",
+                    "param": "date_from",
+                    "key": "date_from",
+                    "csv": false
+                },
+                {
+                    "param": "date_to",
+                    "key": "date_to",
                     "csv": false
                 },
                 {
@@ -3002,8 +3017,13 @@
                     "csv": false
                 },
                 {
-                    "param": "days",
-                    "key": "days",
+                    "param": "date_from",
+                    "key": "date_from",
+                    "csv": false
+                },
+                {
+                    "param": "date_to",
+                    "key": "date_to",
                     "csv": false
                 },
                 {
@@ -3082,8 +3102,13 @@
                     "csv": false
                 },
                 {
-                    "param": "days",
-                    "key": "days",
+                    "param": "date_from",
+                    "key": "date_from",
+                    "csv": false
+                },
+                {
+                    "param": "date_to",
+                    "key": "date_to",
                     "csv": false
                 },
                 {
@@ -3135,8 +3160,13 @@
                     "csv": false
                 },
                 {
-                    "param": "days",
-                    "key": "days",
+                    "param": "date_from",
+                    "key": "date_from",
+                    "csv": false
+                },
+                {
+                    "param": "date_to",
+                    "key": "date_to",
                     "csv": false
                 },
                 {

@@ -64,11 +64,13 @@ export interface contentAutopilotKeywordsLogicActions {
         brandedSegment: import('products/web_analytics/frontend/generated/api.schemas').BrandedSegmentEnumApi
         tab: import('./aiVisibilityFilters').AiVisibilityFilterTab
     } // contentAutopilotFiltersLogic
-    setDays: (
-        days: 7 | 14 | 30 | 90,
+    setDates: (
+        dateFrom: string,
+        dateTo: string | null,
         tab: import('./aiVisibilityFilters').AiVisibilityFilterTab
     ) => {
-        days: 7 | 14 | 30 | 90
+        dateFrom: string
+        dateTo: string | null
         tab: import('./aiVisibilityFilters').AiVisibilityFilterTab
     } // contentAutopilotFiltersLogic
     setEngine: (
@@ -196,7 +198,7 @@ export const contentAutopilotKeywordsLogic = kea<contentAutopilotKeywordsLogicTy
         values: [teamLogic, ['currentTeamIdStrict'], contentAutopilotFiltersLogic, ['filters']],
         actions: [
             contentAutopilotFiltersLogic,
-            ['setDays', 'setEngine', 'setTopic', 'setBrandedSegment', 'applyUrlFilters'],
+            ['setDates', 'setEngine', 'setTopic', 'setBrandedSegment', 'applyUrlFilters'],
         ],
     })),
     actions({
@@ -392,7 +394,7 @@ export const contentAutopilotKeywordsLogic = kea<contentAutopilotKeywordsLogicTy
                 })
                 actions.loadModifiers()
             },
-            setDays: () => reloadReports(),
+            setDates: () => reloadReports(),
             setEngine: () => reloadReports(),
             setTopic: () => reloadReports(),
             setBrandedSegment: () => reloadReports(),

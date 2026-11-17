@@ -1,5 +1,6 @@
 import { AI_LAB_SHADES, type AiLab, MAIN_LAB_SHADE } from 'lib/components/BrandMark/aiLabShades'
 import type { BrandMarkName } from 'lib/components/BrandMark/brandMarks'
+import { dayjs } from 'lib/dayjs'
 import { pluralize } from 'lib/utils/strings'
 import { parseWebAnalyticsURL } from 'scenes/web-analytics/common'
 
@@ -216,18 +217,32 @@ export const segmentPrompts = (segment: BrandedSegmentEnumApi): string => SEGMEN
 export const brandedAnswersNote = (segment: BrandedSegmentEnumApi, answers: number): string =>
     `From ${pluralize(answers, 'answer')} to ${SEGMENT_PROMPTS[segment]}.`
 
-/** The heading over a tab's numbers, such as "Last 30 days, Claude, topic Pricing". */
+interface ReportWindow {
+    /** First and last day of a report's window, as the API returns them: "2026-11-01". */
+    window_from: string
+    window_to: string
+}
+
+const windowDay = (day: string): string => dayjs(day).format('MMM D')
+
+/** A report's window as it reads in a sentence, such as "from Oct 18 to Nov 17" or "on Nov 17". */
+export const windowRange = ({ window_from, window_to }: ReportWindow): string =>
+    window_from === window_to
+        ? `on ${windowDay(window_to)}`
+        : `from ${windowDay(window_from)} to ${windowDay(window_to)}`
+
+/** The heading over a tab's numbers, such as "Oct 18 to Nov 17, Claude, topic Pricing". */
 export const filtersHeading = ({
-    days,
+    window_from,
+    window_to,
     engine,
     topic,
-}: {
-    days: number
+}: ReportWindow & {
     engine?: string | null
     topic?: string | null
 }): string =>
     [
-        `Last ${days} days`,
+        window_from === window_to ? windowDay(window_to) : `${windowDay(window_from)} to ${windowDay(window_to)}`,
         engine ? engineLabel(engine) : 'all engines',
         ...(topic === null || topic === undefined ? [] : [topic ? `topic ${topic}` : 'prompts with no topic']),
     ].join(', ')

@@ -33,11 +33,13 @@ export interface contentAutopilotRankingsLogicActions {
         brandedSegment: import('products/web_analytics/frontend/generated/api.schemas').BrandedSegmentEnumApi
         tab: import('./aiVisibilityFilters').AiVisibilityFilterTab
     } // contentAutopilotFiltersLogic
-    setDays: (
-        days: 7 | 14 | 30 | 90,
+    setDates: (
+        dateFrom: string,
+        dateTo: string | null,
         tab: import('./aiVisibilityFilters').AiVisibilityFilterTab
     ) => {
-        days: 7 | 14 | 30 | 90
+        dateFrom: string
+        dateTo: string | null
         tab: import('./aiVisibilityFilters').AiVisibilityFilterTab
     } // contentAutopilotFiltersLogic
     setEngine: (
@@ -97,7 +99,7 @@ export const contentAutopilotRankingsLogic = kea<contentAutopilotRankingsLogicTy
         values: [teamLogic, ['currentTeamIdStrict'], contentAutopilotFiltersLogic, ['filters']],
         actions: [
             contentAutopilotFiltersLogic,
-            ['setDays', 'setEngine', 'setTopic', 'setBrandedSegment', 'applyUrlFilters'],
+            ['setDates', 'setEngine', 'setTopic', 'setBrandedSegment', 'applyUrlFilters'],
         ],
     })),
     actions({
@@ -141,7 +143,7 @@ export const contentAutopilotRankingsLogic = kea<contentAutopilotRankingsLogicTy
         ],
     }),
     listeners(({ actions }) => ({
-        setDays: () => actions.loadRankings(),
+        setDates: () => actions.loadRankings(),
         setEngine: () => actions.loadRankings(),
         setTopic: () => actions.loadRankings(),
         setBrandedSegment: () => actions.loadRankings(),
