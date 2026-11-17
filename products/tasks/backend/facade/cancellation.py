@@ -54,6 +54,28 @@ def _signal_complete_task(
         return "delivery_unknown"
 
 
+def _record_cancel_marker(run_id: UUID, marker: dict[str, Any]) -> bool:
+    fenced_before = False
+
+    def record(state: dict[str, Any]) -> None:
+        nonlocal fenced_before
+        fenced_before = bool(state.get("cancel_requested_at"))
+        state.update(marker)
+
+    TaskRun.mutate_state_atomic(run_id, record)
+    return not fenced_before
+
+
+def _withdraw_cancel_marker(run_id: UUID, marker: dict[str, Any]) -> dict[str, Any]:
+    def withdraw(state: dict[str, Any]) -> None:
+        if state.get("cancel_requested_at") != marker["cancel_requested_at"]:
+            return
+        for key in marker:
+            state.pop(key, None)
+
+    return TaskRun.mutate_state_atomic(run_id, withdraw)
+
+
 def _interrupt_agent_turn(run: TaskRun, user_id: int | None, distinct_id: str | None) -> None:
     auth_token: str | None = None
     if user_id is not None and distinct_id:
@@ -156,6 +178,7 @@ def cancel_task_run(
     }
     if requested_by_user_id is not None:
         marker["cancel_requested_by_user_id"] = requested_by_user_id
+    owns_marker = False
     try:
         if only_if_awaiting_first_message:
             with transaction.atomic():
@@ -166,12 +189,13 @@ def cancel_task_run(
                     and not (run.state or {}).get("warm_activation_started")
                 )
                 if can_release:
+                    owns_marker = not (run.state or {}).get("cancel_requested_at")
                     run.state = {**(run.state or {}), **marker}
                     run.save(update_fields=["state", "updated_at"])
             if not can_release:
                 return "already_activated", tasks_api._task_run_detail_to_dto(run)
         else:
-            TaskRun.update_state_atomic(run.id, updates=marker)
+            owns_marker = _record_cancel_marker(run.id, marker)
     except Exception:
         logger.warning("Failed to record cancel request marker for task run %s", run.id, exc_info=True)
         if only_if_awaiting_first_message:
@@ -202,9 +226,9 @@ def cancel_task_run(
     _interrupt_agent_turn(run, requested_by_user_id, requested_by_distinct_id)
 
     signal_outcome = _signal_complete_task(run, TaskRun.Status.CANCELLED, error_message)
-    if signal_outcome == "not_sent":
+    if signal_outcome == "not_sent" and owns_marker:
         try:
-            run.state = TaskRun.update_state_atomic(run.id, remove_keys=list(marker))
+            run.state = _withdraw_cancel_marker(run.id, marker)
         except Exception:
             logger.warning("Failed to withdraw cancel request marker for task run %s", run.id, exc_info=True)
     if signal_outcome in ("not_sent", "delivery_unknown"):

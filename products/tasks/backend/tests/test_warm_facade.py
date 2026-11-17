@@ -2014,7 +2014,13 @@ class TestWarmRunRelease(APIBaseTest):
         assert response.status_code == status.HTTP_202_ACCEPTED, response.content
         deliver.assert_not_called()
 
-    def test_release_with_unknown_signal_delivery_keeps_the_run_fenced(self) -> None:
+    @parameterized.expand(
+        [
+            ("signal_response_is_lost", []),
+            ("connect_fails_on_the_retry", [RuntimeError("connection refused")]),
+        ]
+    )
+    def test_release_with_unknown_signal_delivery_keeps_the_run_fenced(self, _name, retry_connect_errors) -> None:
         run = self._run(awaiting=True)
         lost_response = AsyncMock(side_effect=RPCError("deadline exceeded", RPCStatusCode.DEADLINE_EXCEEDED, b""))
         with (
@@ -2023,6 +2029,9 @@ class TestWarmRunRelease(APIBaseTest):
         ):
             connect.return_value.get_workflow_handle.return_value.signal = lost_response
             response = self._release(run)
+            for connect_error in retry_connect_errors:
+                connect.side_effect = connect_error
+                response = self._release(run)
 
         assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE, response.content
         with (

@@ -13114,11 +13114,18 @@ class TestTaskRunCancelAPI(BaseTaskAPITest):
 
     @parameterized.expand(
         [
-            ("connect_fails", RuntimeError("connection refused"), None, False),
+            ("connect_fails", [(RuntimeError("connection refused"), None)], False),
             (
                 "signal_response_is_lost",
-                None,
-                RPCError("deadline exceeded", RPCStatusCode.DEADLINE_EXCEEDED, b""),
+                [(None, RPCError("deadline exceeded", RPCStatusCode.DEADLINE_EXCEEDED, b""))],
+                True,
+            ),
+            (
+                "connect_fails_on_the_retry_of_a_lost_signal_response",
+                [
+                    (None, RPCError("deadline exceeded", RPCStatusCode.DEADLINE_EXCEEDED, b"")),
+                    (RuntimeError("connection refused"), None),
+                ],
                 True,
             ),
         ]
@@ -13127,16 +13134,17 @@ class TestTaskRunCancelAPI(BaseTaskAPITest):
     @patch("products.tasks.backend.facade.api.send_cancel")
     @patch("products.tasks.backend.facade.cancellation.sync_connect")
     def test_cancel_returns_503_when_temporal_unavailable(
-        self, _name, connect_error, signal_error, keeps_marker, mock_connect, _mock_send_cancel, _mock_token
+        self, _name, attempts, keeps_marker, mock_connect, _mock_send_cancel, _mock_token
     ):
-        mock_connect.side_effect = connect_error
-        mock_connect.return_value.get_workflow_handle.return_value.signal = AsyncMock(side_effect=signal_error)
         task = self.create_task()
         run = self._create_run(task)
 
-        response = self.client.post(self._cancel_url(task, run), {}, format="json")
+        for connect_error, signal_error in attempts:
+            mock_connect.side_effect = connect_error
+            mock_connect.return_value.get_workflow_handle.return_value.signal = AsyncMock(side_effect=signal_error)
+            response = self.client.post(self._cancel_url(task, run), {}, format="json")
+            self.assertEqual(response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
 
-        self.assertEqual(response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
         run.refresh_from_db()
         self.assertEqual(run.status, TaskRun.Status.IN_PROGRESS)
         self.assertEqual("cancel_requested_at" in run.state, keeps_marker)
