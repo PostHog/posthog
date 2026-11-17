@@ -29,11 +29,8 @@ from posthog.session_recordings.queries.session_recording_list_from_query import
 from posthog.utils import get_safe_cache, safe_cache_set
 
 from products.replay_vision.backend.billing import ESTIMATE_MONTH_DAYS
-from products.replay_vision.backend.models.replay_scanner import ReplayScanner, SamplingMode, ScannerType
-from products.replay_vision.backend.queries.scanner_candidate_query import (
-    eligibility_predicates,
-    surfacing_score_predicate,
-)
+from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerType
+from products.replay_vision.backend.queries.scanner_candidate_query import eligibility_predicates
 
 # The estimate always projects to a calendar month.
 ESTIMATE_WINDOW_DAYS = ESTIMATE_MONTH_DAYS
@@ -133,7 +130,6 @@ def has_recent_matching_recording(
     team: Team,
     query: RecordingsQuery,
     user: User | None,
-    sampling_mode: SamplingMode | str = SamplingMode.COMPREHENSIVE,
     budget: EstimateBudget = PREVIEW_ESTIMATE_BUDGET,
 ) -> bool:
     """Whether the sweep would observe at least one recording that matches `query` in the estimate's window.
@@ -165,8 +161,6 @@ def has_recent_matching_recording(
     windowed.offset = None
     windowed.after = None
     extra_having = eligibility_predicates()
-    if (surfacing := surfacing_score_predicate(sampling_mode)) is not None:
-        extra_having.append(surfacing)
     tag_queries(team_id=team.id, product=Product.REPLAY_VISION, feature=Feature.QUERY)
     listing = SessionRecordingListFromQuery(
         team=team,
@@ -202,7 +196,6 @@ def estimate_scanner_session_volume(
     team: Team,
     query: RecordingsQuery,
     user: User | None = None,
-    sampling_mode: SamplingMode | str = SamplingMode.COMPREHENSIVE,
     ch_user: ClickHouseUser = ClickHouseUser.APP,
     budget: EstimateBudget = BATCH_ESTIMATE_BUDGET,
 ) -> ScannerVolumeEstimate:
@@ -225,7 +218,7 @@ def estimate_scanner_session_volume(
     sample_factor = None if unsampled else _ESTIMATE_EVENTS_SAMPLE_FACTOR
     scan_window_days = budget.window_days(unsampled=unsampled)
 
-    filter_key = _filter_cache_key(team, query, sampling_mode, scan_window_days)
+    filter_key = _filter_cache_key(team, query, scan_window_days)
     result_key = f"{filter_key}:result:{user.pk if user is not None else '-'}"
     if budget.result_cache_seconds and isinstance(cached := get_safe_cache(result_key), dict):
         try:
@@ -236,7 +229,6 @@ def estimate_scanner_session_volume(
         team=team,
         query=query,
         user=user,
-        sampling_mode=sampling_mode,
         ch_user=ch_user,
         budget=budget,
         sample_factor=sample_factor,
@@ -254,7 +246,6 @@ def _estimate_scanner_session_volume(
     team: Team,
     query: RecordingsQuery,
     user: User | None,
-    sampling_mode: SamplingMode | str,
     ch_user: ClickHouseUser,
     budget: EstimateBudget,
     sample_factor: float | None,
@@ -275,7 +266,6 @@ def _estimate_scanner_session_volume(
         team=team,
         query=windowed,
         user=user,
-        sampling_mode=sampling_mode,
         sample_factor=sample_factor,
         scan_window_days=scan_window_days,
         now=now,
@@ -307,7 +297,6 @@ def _estimate_scanner_session_volume(
         team=team,
         query=windowed,
         user=user,
-        sampling_mode=sampling_mode,
         sample_factor=None,
         scan_window_days=scan_window_days,
         now=now,
@@ -349,7 +338,6 @@ def _plan_estimate_query(
     team: Team,
     query: RecordingsQuery,
     user: User | None,
-    sampling_mode: SamplingMode | str,
     sample_factor: float | None,
     scan_window_days: int,
     now: dt.datetime,
@@ -357,8 +345,6 @@ def _plan_estimate_query(
 ) -> _EstimateQueryPlan:
     # Count only sessions the sweep would actually observe, so the forecast matches the eligible set the candidate query selects.
     extra_having = eligibility_predicates()
-    if (surfacing := surfacing_score_predicate(sampling_mode)) is not None:
-        extra_having.append(surfacing)
     # Without a principal the experiment_exposure access check would raise, so drop the filter and
     # count the broader eligible set: an over-count is the safe direction for a budget forecast.
     # Callers that have a principal keep the filter and get the real, narrowed count.
@@ -476,7 +462,6 @@ def refresh_scanner_estimate(
             query=scanner.targeted_recordings_query(),
             # The refresher has no request; the creator is the same principal the sweep scans as.
             user=scanner.created_by,
-            sampling_mode=scanner.sampling_mode,
             budget=budget,
             ch_user=ch_user,
         )
@@ -500,7 +485,6 @@ def refresh_scanner_estimate(
         pk=scanner.pk,
         query=scanner.query,
         sampling_rate=scanner.sampling_rate,
-        sampling_mode=scanner.sampling_mode,
         **guard_fields,
     ).update(estimated_monthly_observations=projection, estimated_at=estimated_at)
     if updated:
@@ -542,12 +526,10 @@ def is_experiment_linkage_unresolved(scanner: ReplayScanner, error: Exception) -
     return False
 
 
-def _filter_cache_key(
-    team: Team, query: RecordingsQuery, sampling_mode: SamplingMode | str, scan_window_days: int
-) -> str:
+def _filter_cache_key(team: Team, query: RecordingsQuery, scan_window_days: int) -> str:
     # The window's dates are dropped because they move with the clock, while the filter they bound does not.
     filter_json = query.model_dump_json(exclude={"date_from", "date_to"}, exclude_none=True)
-    payload = json.dumps([filter_json, str(sampling_mode), scan_window_days])
+    payload = json.dumps([filter_json, scan_window_days])
     return f"replay-vision-estimate:{team.pk}:{hashlib.sha256(payload.encode()).hexdigest()}"
 
 

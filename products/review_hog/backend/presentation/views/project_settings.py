@@ -37,9 +37,9 @@ from products.review_hog.backend.facade.enums import (
 from products.review_hog.backend.presentation.views.repositories import (
     UUID_PATH_PATTERN,
     AutomaticReviewDecisionSerializer,
+    CodeReviewSettingsErrorSerializer,
     EffectiveTeamStrictManagementPermission,
     ReviewHogProjectViewSetMixin,
-    ReviewHogSettingsErrorSerializer,
     ReviewInstallationSerializer,
     ReviewProjectRefSerializer,
     ReviewRepositoryPersonRequestSerializer,
@@ -227,7 +227,7 @@ class ReviewProjectSettingsViewSet(ReviewHogProjectViewSetMixin, viewsets.Generi
     and every change goes to the activity log.
     """
 
-    scope_object = "review_hog"
+    scope_object = "code_review"
     permission_classes = [PostHogFeatureFlagPermission, EffectiveTeamStrictManagementPermission]
     posthog_feature_flag = "review-hog"
     serializer_class = ReviewProjectSettingsSerializer
@@ -285,7 +285,7 @@ class ReviewProjectSettingsViewSet(ReviewHogProjectViewSetMixin, viewsets.Generi
         summary="Add a person to a project rule list",
         description="Add a project member to the project rule's 'listed' or 'excepted' list. Project admins only.",
     )
-    @action(detail=False, methods=["POST"], url_path="project_settings/people", required_scopes=["review_hog:write"])
+    @action(detail=False, methods=["POST"], url_path="project_settings/people", required_scopes=["code_review:write"])
     def add_project_person(self, request: Request, **kwargs: Any) -> Response:
         serializer = ReviewRepositoryPersonRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -304,7 +304,7 @@ class ReviewProjectSettingsViewSet(ReviewHogProjectViewSetMixin, viewsets.Generi
     @extend_schema(
         responses={
             200: OpenApiResponse(response=ReviewProjectSettingsSerializer, description="The person was removed."),
-            404: OpenApiResponse(response=ReviewHogSettingsErrorSerializer, description="No such list entry."),
+            404: OpenApiResponse(response=CodeReviewSettingsErrorSerializer, description="No such list entry."),
         },
         summary="Remove a person from a project rule list",
         description="Remove one entry from the project rule's 'listed' or 'excepted' list. Project admins only.",
@@ -313,7 +313,7 @@ class ReviewProjectSettingsViewSet(ReviewHogProjectViewSetMixin, viewsets.Generi
         detail=False,
         methods=["DELETE"],
         url_path=rf"project_settings/people/(?P<person_id>{UUID_PATH_PATTERN})",
-        required_scopes=["review_hog:write"],
+        required_scopes=["code_review:write"],
     )
     def remove_project_person(self, request: Request, person_id: UUID, **kwargs: Any) -> Response:
         if not remove_review_repository_person(self.effective_team_id, self.acting_user_id, None, person_id):
@@ -325,7 +325,7 @@ class ReviewProjectSettingsViewSet(ReviewHogProjectViewSetMixin, viewsets.Generi
         responses={
             200: OpenApiResponse(response=ReviewRepositoryOverviewSerializer),
             400: OpenApiResponse(
-                response=ReviewHogSettingsErrorSerializer, description="The installation is not connected here."
+                response=CodeReviewSettingsErrorSerializer, description="The installation is not connected here."
             ),
         },
         summary="List the repositories of a GitHub installation with their review settings",

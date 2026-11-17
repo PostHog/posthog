@@ -203,7 +203,7 @@ export interface SendEmailApi {
      */
     template_key?: string
     /**
-     * Distinct ID of the recipient's person. The email's engagement events (sent, delivered, opened, clicked, bounced) and the send itself are recorded against that person. Defaults to the recipient's email address. The template can't read the person's properties, so pass everything it needs in `message_data`.
+     * Distinct ID the email's engagement events (sent, delivered, opened, clicked, bounced) are captured under. Defaults to the recipient's email address. The events join the person who has this ID, or start a new person when nobody has it. No events are captured when the project's engagement events setting is off, or when `tracking` or `capture_engagement` turns engagement off for a send with `template_key`. The template can't read the person's properties, so pass everything it needs in `message_data`.
      * @maxLength 400
      * @nullable
      */
@@ -470,11 +470,13 @@ export interface WebhookUrlApi {
 
 /**
  * * `customerio` - Customer.io
+ * * `resend` - Resend
  */
 export type ImportProviderKeyEnumApi = (typeof ImportProviderKeyEnumApi)[keyof typeof ImportProviderKeyEnumApi]
 
 export const ImportProviderKeyEnumApi = {
     Customerio: 'customerio',
+    Resend: 'resend',
 } as const
 
 /**
@@ -507,6 +509,49 @@ export const ImportStepStatusEnumApi = {
     Failed: 'failed',
 } as const
 
+export interface ImportStepCountApi {
+    /** What the step counted, for example `complained`. */
+    key: string
+    /** Display text for the count, including what it means for sends. */
+    label: string
+    /** The count so far. */
+    value: number
+}
+
+/**
+ * * `created` - Created
+ * * `skipped` - Left as it is
+ * * `failed` - Failed
+ * * `listed` - Listed
+ */
+export type ImportItemStatusEnumApi = (typeof ImportItemStatusEnumApi)[keyof typeof ImportItemStatusEnumApi]
+
+export const ImportItemStatusEnumApi = {
+    Created: 'created',
+    Skipped: 'skipped',
+    Failed: 'failed',
+    Listed: 'listed',
+} as const
+
+export interface ImportStepItemApi {
+    /** The object's name, for example a template name or a domain. */
+    label: string
+    /** `created` when the step made it, `skipped` when it already existed and stayed as it was, `failed` when it could not be made, `listed` when the step only reports it.
+     *
+     * * `created` - Created
+     * * `skipped` - Left as it is
+     * * `failed` - Failed
+     * * `listed` - Listed */
+    status: ImportItemStatusEnumApi
+    /**
+     * Where to open the object in PostHog, as an app path.
+     * @nullable
+     */
+    url: string | null
+    /** What to review, or what did not carry over exactly. */
+    notes: string[]
+}
+
 export interface ImportStepProgressApi {
     /** Step key, for example `suppressions`. */
     key: string
@@ -530,6 +575,14 @@ export interface ImportStepProgressApi {
      * @nullable
      */
     last_error: string | null
+    /** A breakdown of what the step did. Only counts above zero appear. */
+    counts: ImportStepCountApi[]
+    /** The objects the step handled, with anything to review. */
+    items: ImportStepItemApi[]
+    /** How many more warnings there were than `warnings` holds. */
+    warnings_omitted: number
+    /** How many more objects there were than `items` holds. */
+    items_omitted: number
 }
 
 export interface ProviderImportRunApi {
@@ -537,7 +590,8 @@ export interface ProviderImportRunApi {
     id: string
     /** The provider the run imports from.
      *
-     * * `customerio` - Customer.io */
+     * * `customerio` - Customer.io
+     * * `resend` - Resend */
     provider: ImportProviderKeyEnumApi
     /** `queued` until the first step starts, `running`, then `completed` when every step completed or `failed` when any step failed.
      *
@@ -565,7 +619,8 @@ export interface ProviderImportRunApi {
 export interface StartProviderImportApi {
     /** The provider to import from.
      *
-     * * `customerio` - Customer.io */
+     * * `customerio` - Customer.io
+     * * `resend` - Resend */
     provider: ImportProviderKeyEnumApi
     /**
      * Keys of the steps to run, from the `providers` endpoint. They run in the provider's order, whatever order you send.
@@ -573,7 +628,10 @@ export interface StartProviderImportApi {
      * @items.maxLength 64
      */
     steps: string[]
-    /** The provider's API key. For Customer.io, an App API key. Leave it out to reuse the stored key. */
+    /**
+     * The provider's API key. For Customer.io, an App API key: leave it out to reuse the stored key. For Resend, a full access key: PostHog deletes it when the run ends, so send it every time.
+     * @maxLength 512
+     */
     api_key?: string
 }
 
@@ -589,12 +647,28 @@ export interface ImportStepOptionApi {
 export interface ImportProviderOptionApi {
     /** Provider key to send when starting an import.
      *
-     * * `customerio` - Customer.io */
+     * * `customerio` - Customer.io
+     * * `resend` - Resend */
     key: ImportProviderKeyEnumApi
     /** Display name of the provider. */
     label: string
     /** What the provider can import, in the order the steps run. */
     steps: ImportStepOptionApi[]
+    /** Whether PostHog stores the API key for later imports. When false, PostHog deletes the key when the run ends, so each import needs it again. */
+    retains_credentials: boolean
+    /** Display name of the API key this provider asks for. */
+    api_key_label: string
+    /** What kind of key to create, and how PostHog handles it. */
+    api_key_help: string
+    /**
+     * The page in the provider's app where the person can create the key.
+     * @nullable
+     */
+    api_key_url: string | null
+    /** What the import can't bring over. Empty when there is nothing to say. */
+    not_imported: string
+    /** What the person does once the import has finished, in order. */
+    next_steps: string[]
 }
 
 /**
@@ -1178,7 +1252,7 @@ export type SendTransactionalEmailApiMessageData = { [key: string]: unknown }
 
 export interface TransactionalEmailIdentifiersApi {
     /**
-     * Distinct ID of the recipient's person. The email's engagement events (sent, delivered, opened, clicked, bounced) and the send itself are recorded against that person. Defaults to the recipient's email address. The template can't read the person's properties, so pass everything it needs in `message_data`.
+     * Distinct ID the email's engagement events (sent, delivered, opened, clicked, bounced) are captured under. Defaults to the recipient's email address. The events join the person who has this ID, or start a new person when nobody has it. No events are captured when the project's engagement events setting is off, or when `tracking` or `capture_engagement` turns engagement off for a send with `template_key`. The template can't read the person's properties, so pass everything it needs in `message_data`.
      * @maxLength 400
      * @nullable
      */
@@ -1486,6 +1560,34 @@ export interface TransactionalEmailActivityApi {
     sessions: TransactionalEmailActivitySessionApi[]
 }
 
+export interface TransactionalEmailConversionsApi {
+    /** Sends in this group that named a person, newest 10,000 at most. */
+    sends: number
+    /** Of those, sends whose person did the event within window_days of the click, or of the send when nobody clicked. */
+    converted: number
+}
+
+export interface TransactionalEmailImpactApi {
+    /** Sends that left PostHog, including those that bounced. */
+    sent: number
+    /** Sends the recipient's mail server accepted. */
+    delivered: number
+    /** Sends opened at least once. */
+    opened: number
+    /** Sends with at least one tracked link click. */
+    clicked: number
+    /** Delivered sends nobody clicked. */
+    not_clicked: number
+    /** Sends that went out with open and click tracking off, as sensitive emails do, counted by when they were sent rather than queued. They can't record an open or a click. */
+    untracked: number
+    /** How many days after the click or the send the event counts. */
+    window_days: number
+    /** Clicked sends and how many converted. Null without an event. */
+    after_click: TransactionalEmailConversionsApi | null
+    /** Delivered sends nobody clicked and how many converted. Null without an event. */
+    without_click: TransactionalEmailConversionsApi | null
+}
+
 export interface TransactionalEmailResultsApi {
     /** People the email was sent to in the date range. */
     recipients: number
@@ -1705,6 +1807,25 @@ export const TransactionalEmailLogListStatus = {
     Bounced: 'bounced',
     Complained: 'complained',
 } as const
+
+export type TransactionalEmailLogImpactRetrieveParams = {
+    /**
+     * Only sends queued at or after this time. Defaults to 7 days ago. The log keeps sends for 30 days.
+     */
+    date_from?: string
+    /**
+     * Only sends queued before this time. Defaults to now.
+     */
+    date_to?: string
+    /**
+     * The event that counts as a conversion, such as `signed_up`. Leave it out for the funnel alone.
+     */
+    event?: string
+    /**
+     * The workflow behind the transactional email.
+     */
+    workflow_id: string
+}
 
 export type TransactionalEmailLogResultsRetrieveParams = {
     /**
