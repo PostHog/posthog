@@ -8,11 +8,18 @@ export type RecipientGetArgs = {
     identifier: string
 }
 
-const toKey = (args: RecipientGetArgs): string => `${args.teamId}:${args.identifier}`
+// Email providers and importers keep whatever capitalization they saw, so an email opt-out matches any
+// capitalization of the address. Phone numbers and push distinct_ids keep exact matching.
+const isEmailIdentifier = (identifier: string): boolean => identifier.includes('@')
+
+const normalizeIdentifier = (identifier: string): string =>
+    isEmailIdentifier(identifier) ? identifier.toLowerCase() : identifier
+
+const toKey = (args: RecipientGetArgs): string => `${args.teamId}:${normalizeIdentifier(args.identifier)}`
 
 const fromKey = (key: string): RecipientGetArgs => {
-    const [teamId, identifier] = key.split(':', 2)
-    return { teamId: Number(teamId), identifier }
+    const separator = key.indexOf(':')
+    return { teamId: Number(key.slice(0, separator)), identifier: key.slice(separator + 1) }
 }
 
 export type PreferenceStatus = 'OPTED_IN' | 'OPTED_OUT' | 'NO_PREFERENCE'
@@ -32,6 +39,11 @@ type MessageRecipientPreferenceRow = {
     updated_at: string
     deleted: boolean
 }
+
+const PREFERENCE_STATUS_RANK: Record<PreferenceStatus, number> = { NO_PREFERENCE: 0, OPTED_IN: 1, OPTED_OUT: 2 }
+
+const toPreferenceStatus = (status: string): PreferenceStatus =>
+    Object.hasOwn(PREFERENCE_STATUS_RANK, status) ? (status as PreferenceStatus) : 'NO_PREFERENCE'
 
 export type RecipientManagerRecipient = {
     id: string
@@ -131,11 +143,13 @@ export class RecipientsManagerService {
 
         // Build the WHERE clause for multiple team_id, identifier pairs
         const conditions = recipientArgs
-            .map((_, index) => {
+            .map((recipient, index) => {
                 const teamIdParam = index * 2 + 1
                 const identifierParam = index * 2 + 2
-                // NOTE: We have a unique index on (team_id, identifier) so this should be efficient
-                return `(team_id = $${teamIdParam} AND identifier = $${identifierParam})`
+                // Emails use the (team_id, lower(identifier)) index, everything else the unique (team_id, identifier) one
+                return isEmailIdentifier(recipient.identifier)
+                    ? `(team_id = $${teamIdParam} AND lower(identifier) = lower($${identifierParam}))`
+                    : `(team_id = $${teamIdParam} AND identifier = $${identifierParam})`
             })
             .join(' OR ')
 
@@ -168,14 +182,21 @@ export class RecipientsManagerService {
         for (const row of recipientRows) {
             const key = toKey({ teamId: row.team_id, identifier: row.identifier })
 
-            // Convert raw preferences object to typed preferences
             const typedPreferences: Record<string, PreferenceStatus> = {}
             for (const [categoryId, status] of Object.entries(row.preferences)) {
-                if (['OPTED_IN', 'OPTED_OUT', 'NO_PREFERENCE'].includes(status)) {
-                    typedPreferences[categoryId] = status as PreferenceStatus
-                } else {
-                    typedPreferences[categoryId] = 'NO_PREFERENCE'
+                typedPreferences[categoryId] = toPreferenceStatus(status)
+            }
+
+            // Several spellings of one email address can each have a row. An opt-out in any of them wins.
+            const existing = result[key]
+            if (existing) {
+                for (const [categoryId, status] of Object.entries(typedPreferences)) {
+                    const current = existing.preferences[categoryId] ?? 'NO_PREFERENCE'
+                    if (PREFERENCE_STATUS_RANK[status] > PREFERENCE_STATUS_RANK[current]) {
+                        existing.preferences[categoryId] = status
+                    }
                 }
+                continue
             }
 
             result[key] = {
