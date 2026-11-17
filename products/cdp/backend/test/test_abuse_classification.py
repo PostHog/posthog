@@ -190,6 +190,7 @@ class TestAbuseClassification(BaseTest):
             "would_block": would_block,
             "state_truncated": False,
             "model": "jevk5-0.2",
+            "input_tokens": 512,
             "admin_url": absolute_uri(f"/admin/cdp/hogfunction/{hog_function.id}/change/"),
         }
         assert SECRET_VALUE not in json.dumps(event, default=str)

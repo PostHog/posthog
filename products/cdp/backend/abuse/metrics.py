@@ -16,6 +16,11 @@ LATENCY = Histogram(
     "Time for Jev to answer one classification",
     buckets=(0.1, 0.25, 0.5, 1.0, 2.0, 5.0, 10.0, 30.0),
 )
+INPUT_TOKENS = Counter(
+    "cdp_abuse_classification_input_tokens_total",
+    "Jev input tokens spent on shadow abuse classifications",
+    labelnames=["function_type"],
+)
 ERRORS = Counter(
     "cdp_abuse_classification_errors_total",
     "Shadow abuse classifications that ended without a verdict",

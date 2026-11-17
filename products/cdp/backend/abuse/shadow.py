@@ -173,6 +173,7 @@ def report(hog_function: HogFunction, scored: ScoredHogFunction) -> None:
     metrics.CLASSIFICATIONS.labels(function_type, verdict.label, "ok").inc()
     metrics.RISK_SCORE.labels(function_type).observe(verdict.risk_score)
     metrics.LATENCY.observe(verdict.latency_ms / 1000)
+    metrics.INPUT_TOKENS.labels(function_type).inc(verdict.input_tokens)
     _capture(
         hog_function,
         scored,
@@ -184,6 +185,7 @@ def report(hog_function: HogFunction, scored: ScoredHogFunction) -> None:
             "state_truncated": verdict.state_truncated,
             "model": verdict.model,
             "latency_ms": verdict.latency_ms,
+            "input_tokens": verdict.input_tokens,
         },
     )
     # Only a delivered verdict is remembered, so a failed classification or capture runs again on the next save.

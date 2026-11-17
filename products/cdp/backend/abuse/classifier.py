@@ -114,6 +114,7 @@ class AbuseVerdict:
     state_truncated: bool
     model: str
     latency_ms: float
+    input_tokens: int
 
     @property
     def label(self) -> str:
@@ -261,6 +262,7 @@ def classify(
         state_truncated=truncated,
         model=result.model,
         latency_ms=latency_ms,
+        input_tokens=result.input_tokens,
     )
 
 
