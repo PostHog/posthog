@@ -726,7 +726,7 @@ export class EmailService {
         let teamBudgetCharged = false
 
         try {
-            const decision = await this.decideSend(invocation, params, storedIntegration, isTest, addLog)
+            const decision = await this.decideSend(invocation, params, storedIntegration, addLog)
             if (decision.kind === 'skip') {
                 return this.applySkip(result, invocation, isTest, addLog, decision)
             }
@@ -1089,7 +1089,6 @@ export class EmailService {
         invocation: CyclotronJobInvocationHogFunction,
         params: CyclotronInvocationQueueParametersEmailType,
         integration: IntegrationType | null,
-        isTest: boolean,
         addLog: ReturnType<typeof createAddLogFunction>
     ): Promise<EmailSendDecision> {
         let from: EmailSender | undefined

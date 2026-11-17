@@ -2889,7 +2889,11 @@ describe('EmailService', () => {
             ['a missing recipient', recipientMissing, 'warn', true],
             [
                 'a suppressed recipient',
-                () => service['emailSuppressionService'].recordHardBounces(team.id, ['test@example.com']),
+                () =>
+                    new EmailSuppressionService(hub.postgres, emailSuppressionConfigFromEnv()).recordHardBounces(
+                        team.id,
+                        ['test@example.com']
+                    ),
                 'info',
                 false,
             ],
