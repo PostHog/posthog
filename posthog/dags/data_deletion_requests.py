@@ -1750,7 +1750,7 @@ def delete_property_removal_shard(
         log("count-originals", count_sql)
         source = dict(client.execute(count_sql, predicate.params, settings=_LONG_QUERY_SETTINGS))
         originals = sum(source.values())
-        # The previous-version scan reads every staged file, and only a delete that has not started uses it.
+        # The previous-version scan reads every staged file. Only a delete that has not started uses it.
         previous_version = (
             0
             if _DELETE_STARTED in steps
@@ -2579,8 +2579,8 @@ def data_deletion_request_pickup_sensor(context: dagster.SensorEvaluationContext
     # Only one deletion job runs at a time, so automatic requests (such as conversations ticket
     # purges) can build a long queue. Staff-created requests skip that queue. created_by_staff is
     # NULL on requests that no person submitted, so nulls sort with the non-staff requests.
-    # A property removal waits while another one on its team is unfinished. Its load would refuse it, and
-    # a refused run consumes the run key, so the sensor leaves it for a later tick.
+    # A property removal waits while another one on its team is unfinished. Its load would refuse it. A
+    # refused run consumes the run key, so the sensor leaves it for a later tick.
     waiting = Exists(unfinished_property_removals().filter(team_id=OuterRef("team_id")).exclude(pk=OuterRef("pk")))
     next_request = (
         DataDeletionRequest.objects.filter(status=RequestStatus.APPROVED)

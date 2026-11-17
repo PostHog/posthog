@@ -454,7 +454,7 @@ def verify(request: HttpRequest, obj: Model, form: forms.Form | None) -> HttpRes
     revision = obj.criteria_updated_at
     prior_status = obj.status
     if _property_removal_run_unfinished(obj):
-        # The count reads only the table, and the run may hold rows only in its staged files.
+        # The count reads only the table. The run may hold rows only in its staged files.
         messages.error(request, "This property removal's run started. Retry it so that its run completes it.")
         return HttpResponse(status=409)
     try:
@@ -469,7 +469,7 @@ def verify(request: HttpRequest, obj: Model, form: forms.Form | None) -> HttpRes
             f"{obj.get_status_display().lower()}. Verify again after the next scheduled deletion.",
         )
         return None
-    # A property removal's run can start during the count, so the update checks for one again.
+    # A property removal's run can start during the count. The update checks for one again.
     promoted = (
         DataDeletionRequest.objects.filter(pk=obj.pk, **_criteria_lookup(revision))
         .exclude(status=RequestStatus.COMPLETED)
