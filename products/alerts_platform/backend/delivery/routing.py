@@ -182,8 +182,10 @@ def _deliver_to(
         transport_class = _TRANSPORTS.get(receiver.data.get("type"))
         if transport_class is None:
             continue
-        try:
-            for heard, action in _sends(receiver, transitions, request):
+        # Each send fails on its own, so a refused trigger cannot cost another group its resolve.
+        delivered = True
+        for heard, action in _sends(receiver, transitions, request):
+            try:
                 deliver(
                     transport=transport_class(),
                     thread_store=thread_store,
@@ -197,22 +199,24 @@ def _deliver_to(
                     source_alert_url=request.source_alert_url,
                     project=project,
                 )
-        except ThreadBusy as error:
-            busy.append(str(error))
-        except DeliveryError as error:
-            failures.append(str(error))
-            retryable = retryable or not isinstance(error, DestinationMisconfigured)
-        except Exception as error:
-            # Named by class only, because an exception's text can carry a credential URL.
-            failures.append(type(error).__name__)
-            retryable = True
-        else:
-            sent += 1
+            except ThreadBusy as error:
+                busy.append(str(error))
+                delivered = False
+            except DeliveryError as error:
+                failures.append(str(error))
+                retryable = retryable or not isinstance(error, DestinationMisconfigured)
+                delivered = False
+            except Exception as error:
+                # Named by class only, because an exception's text can carry a credential URL.
+                failures.append(type(error).__name__)
+                retryable = True
+                delivered = False
+        sent += delivered
     # A held thread wins over a failure, as in `deliver_evaluation`: the workflow waits it out and
     # reruns every receiver, which retries the failed ones too.
     if busy:
         raise ThreadBusy("; ".join([*busy, *failures]))
     if failures:
         failed = DeliveryError if retryable else RefusedEverywhere
-        raise failed(f"{len(failures)} receiver(s) failed: " + "; ".join(failures))
+        raise failed(f"{len(failures)} send(s) failed: " + "; ".join(failures))
     return sent
