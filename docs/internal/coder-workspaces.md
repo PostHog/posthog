@@ -212,6 +212,28 @@ hogli devbox:secret:rm NAME                        # delete a secret
 
 Common secrets include `CLAUDE_CODE_OAUTH_TOKEN` and `GH_TOKEN`.
 
+## Lending 1Password secrets to a box
+
+For keys a box needs only for a while, such as `OPENAI_API_KEY` and `ANTHROPIC_API_KEY` for evals, lend them from 1Password instead of storing Coder user secrets.
+List the 1Password references, never the values, in `~/.config/posthog/devbox-secrets.env` on your laptop:
+
+```bash
+OPENAI_API_KEY=op://<vault>/<item>/<field>
+ANTHROPIC_API_KEY=op://<vault>/<item>/<field>
+```
+
+```bash
+hogli devbox:secrets:push      # one 1Password unlock; the box keeps them for 12h (--hours to change)
+hogli devbox:secrets:status    # names and time left, never values
+hogli devbox:secrets:clear     # remove them now
+```
+
+The box keeps them in memory only (`/dev/shm`, readable by your user alone), so they go when the box stops or the time runs out.
+They are not in the environment. On the box, run a command that needs them with `devbox-secrets run -- <command>`, the way `op run` works locally.
+The push adds a note to the box's `~/.claude/CLAUDE.md` so agents there know to do the same.
+Anything running as you on the box can read them while they're lent, so lend keys with spending limits.
+`devbox:share` refuses while secrets are lent.
+
 ## Auth model
 
 - Laptop to workspace access uses `coder ssh` and `coder config-ssh` (configured automatically during setup)

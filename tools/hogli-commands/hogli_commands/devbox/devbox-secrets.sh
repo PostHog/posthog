@@ -10,7 +10,7 @@
 
 set -euo pipefail
 
-DIR="/dev/shm/devbox-secrets-$(id -u)"
+DIR="${DEVBOX_SECRETS_DIR:-/dev/shm/devbox-secrets-$(id -u)}"
 ENV_FILE="$DIR/env"
 EXPIRES_FILE="$DIR/expires"
 CLAUDE_MD="$HOME/.claude/CLAUDE.md"

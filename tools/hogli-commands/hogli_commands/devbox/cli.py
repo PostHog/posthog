@@ -1832,6 +1832,21 @@ def _warn_about_claude_login_before_sharing(name: str, workspace: dict[str, Any]
     click.echo("Logged out of Claude Code on the box.")
 
 
+def _refuse_to_share_lent_secrets(name: str) -> None:
+    """Fail while the box holds secrets from `devbox:secrets:push`, which a sharee could read."""
+    _skip_startup_wait()
+    try:
+        result = run_in_workspace(name, ["bash", "-lc", "devbox-secrets status"], timeout=_CLAUDE_AUTH_TIMEOUT)
+    except subprocess.TimeoutExpired:
+        _fail("Couldn't check the devbox for lent secrets, because it didn't answer. Run the command again.")
+    # 127: the box never got devbox-secrets, so nothing was lent to it.
+    if result.returncode == 127 or result.stdout.startswith("No secrets"):
+        return
+    if result.stdout.startswith("Lent:"):
+        _fail("The devbox holds secrets lent with `hogli devbox:secrets:push`. Run `hogli devbox:secrets:clear` first.")
+    _fail("Couldn't check the devbox for lent secrets. Run the command again.")
+
+
 def _logout_claude_before_destroy(name: str) -> None:
     """Run `claude auth logout` before destroy deletes the disk.
 
@@ -1885,6 +1900,8 @@ def devbox_share(
         raise click.UsageError("Specify at least one --user. Run 'hogli devbox:users' to find usernames.")
 
     _warn_about_claude_login_before_sharing(name, ws, keep_login=keep_claude_login)
+    if get_workspace_status(ws) == "running":
+        _refuse_to_share_lent_secrets(name)
     share_workspace(name, list(users), role)
     click.echo(f"Shared '{name}' with {', '.join(users)} (role: {role}).")
 
