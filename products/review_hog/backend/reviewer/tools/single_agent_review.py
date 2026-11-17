@@ -876,6 +876,29 @@ async def dedupe_flash_findings(
     kept_lens = [issue for issue in lens if issue.id not in removed_ids]
     kept_devex = [issue for issue in devex if issue.id not in removed_ids and not lost_devex]
     group_levels = _raise_survivors([*kept_main, *kept_lens, *kept_devex], [removal.duplicate for removal in held])
+    # A devex finding that repeats a main or lens finding the cap or budget then drops would leave the PR with
+    # neither, so it goes back into the devex lane.
+    shared_ids = {issue.id for issue in [*main, *lens]}
+    posted_ids = {
+        issue.id
+        for issue in compose_flash_findings(
+            kept_main,
+            kept_lens,
+            lens_part_count=lens_part_count,
+            group_levels=group_levels,
+            budget_left=budget_left,
+            first_review=first_review,
+        ).kept
+    }
+    unposted_anchor = [
+        removal
+        for removal in held
+        if removal.duplicate.issue.source_perspective == DEVEX_LENS.source
+        and removal.duplicate.duplicate_of in shared_ids
+        and removal.duplicate.duplicate_of not in posted_ids
+    ]
+    held = [removal for removal in held if removal not in unposted_anchor]
+    kept_devex = [*kept_devex, *(removal.duplicate.issue for removal in unposted_anchor)]
     composed = compose_flash_findings(
         kept_main,
         kept_lens,

@@ -418,6 +418,7 @@ class TestDedupeFlashFindings:
         prior_findings: list[ReviewIssueFinding] | None = None,
         changed_since: ChangedSinceReview | None = None,
         changed_code_only: bool = False,
+        budget_left: int | None = None,
     ) -> FlashSelection:
         with patch(f"{_DEDUP_MODULE}.run_oneshot_openai_review", mock_llm):
             return await dedupe_flash_findings(
@@ -426,6 +427,7 @@ class TestDedupeFlashFindings:
                 issues=issues,
                 pr_metadata=pr_metadata,
                 prior_findings=[(finding, None) for finding in prior_findings or []],
+                budget_left=budget_left,
                 branch="feat",
                 repository="o/r",
                 lens_part_count=1,
@@ -457,10 +459,11 @@ class TestDedupeFlashFindings:
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
-        "llm_duplicate,expected",
+        "llm_duplicate,budget_left,expected",
         [
             pytest.param(
                 ("2003-1-1", "2000-1-1"),
+                None,
                 [
                     ("2000-1-1", IssuePriority.CONSIDER),
                     ("2002-1-1", IssuePriority.SHOULD_FIX),
@@ -470,6 +473,7 @@ class TestDedupeFlashFindings:
             ),
             pytest.param(
                 ("2002-1-1", "2003-1-1"),
+                None,
                 [
                     ("2000-1-1", IssuePriority.CONSIDER),
                     ("2002-1-1", IssuePriority.SHOULD_FIX),
@@ -480,6 +484,7 @@ class TestDedupeFlashFindings:
             ),
             pytest.param(
                 ("2003-1-1", "2003-1-2"),
+                None,
                 [
                     ("2000-1-1", IssuePriority.CONSIDER),
                     ("2002-1-1", IssuePriority.SHOULD_FIX),
@@ -487,10 +492,24 @@ class TestDedupeFlashFindings:
                 ],
                 id="devex_p1_still_raises_a_devex_p3",
             ),
+            pytest.param(
+                ("2003-1-1", "2000-1-1"),
+                1,
+                [
+                    ("2002-1-1", IssuePriority.SHOULD_FIX),
+                    ("2003-1-1", IssuePriority.MUST_FIX),
+                    ("2003-1-2", IssuePriority.CONSIDER),
+                ],
+                id="devex_p1_posts_when_the_budget_drops_its_main_anchor",
+            ),
         ],
     )
     async def test_a_devex_finding_can_lose_to_any_session_and_changes_nothing_else(
-        self, pr_metadata: PRMetadata, llm_duplicate: tuple[str, str], expected: list[tuple[str, IssuePriority]]
+        self,
+        pr_metadata: PRMetadata,
+        llm_duplicate: tuple[str, str],
+        budget_left: int | None,
+        expected: list[tuple[str, IssuePriority]],
     ) -> None:
         # A main finding raised to must-fix by a devex duplicate leaves the cap, and a lens finding that drops
         # into a devex one moves into the devex lane, so either way a routed turn posts a different set.
@@ -501,7 +520,7 @@ class TestDedupeFlashFindings:
             _issue("2003-1-2", IssuePriority.CONSIDER, DEVEX_LENS.source),
         ]
 
-        kept = (await self._dedupe(pr_metadata, issues, _flash_dedup(llm_duplicate))).kept
+        kept = (await self._dedupe(pr_metadata, issues, _flash_dedup(llm_duplicate), budget_left=budget_left)).kept
 
         assert sorted((issue.id, issue.priority) for issue in kept) == sorted(expected)
 

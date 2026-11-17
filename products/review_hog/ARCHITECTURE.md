@@ -323,6 +323,7 @@ sessions, all on the PR's arm set (below) and all returning `SingleAgentReview`:
   Its failure, timeout and duration report on their own (`flash_devex_*`), outside the lens counts, the slowest session and the arm fallbacks.
   Its diff holds only the owned files.
   Its findings dedup in a third call with the main and lens findings as anchors, so they can lose to any other finding but never take its place, and a devex duplicate raises only a devex survivor.
+  A devex finding whose main or lens anchor the cap or budget drops posts in the devex lane instead.
   When that call fails, the turn posts no devex finding, because the positional fallback ignores the anchors. The main and lens dedup do not retry for it.
   They post in their own lane of `DEVEX_LENS_MAX_FINDINGS`, outside the turn cap and the pull request's finding budget, so a routed turn posts the same other findings as an unrouted one.
   A lane drop is stored as `cap` and counted as `devex_lane` on the completed event.
