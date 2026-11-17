@@ -37,6 +37,7 @@ from products.mcp_analytics.backend.models import (
 from products.mcp_analytics.backend.tests.test_intent_assignments_table import _insert_assignment
 
 PROVIDER_PACKAGE = "products.mcp_analytics.backend"
+WRITERS_MODULE = f"{PROVIDER_PACKAGE}.intent_erasure_writers"
 
 
 def _provider_module(module: str, function: str, implementation: Callable[..., None]) -> types.ModuleType:
@@ -56,6 +57,18 @@ class TestMCPIntentErasure(ClickhouseTestMixin, APIBaseTest):
         team_ids = (self.team.pk, self.sibling.pk, self.other.pk)
         self._delete_assignments(*team_ids)
         self.addCleanup(self._delete_assignments, *team_ids)
+        self.drain_error: Exception | None = None
+
+        def drained(*, erasure: IntentErasure, cluster: object) -> None:
+            if self.drain_error is not None:
+                raise self.drain_error
+
+        self.enterContext(
+            patch.dict(
+                sys.modules,
+                {WRITERS_MODULE: _provider_module("intent_erasure_writers", "assert_writers_drained", drained)},
+            )
+        )
 
     def _prepare(self, token: UUID, *, team: Team | None = None, scope: str = "original") -> IntentErasure:
         return prepare_intent_erasure(
@@ -92,9 +105,7 @@ class TestMCPIntentErasure(ClickhouseTestMixin, APIBaseTest):
             calls.append("rollups")
 
         return {
-            f"{PROVIDER_PACKAGE}.intent_erasure_writers": _provider_module(
-                "intent_erasure_writers", "assert_writers_drained", drained
-            ),
+            WRITERS_MODULE: _provider_module("intent_erasure_writers", "assert_writers_drained", drained),
             f"{PROVIDER_PACKAGE}.intent_erasure_storage": _provider_module(
                 "intent_erasure_storage", "purge_intent_storage", purge_storage
             ),
@@ -136,6 +147,15 @@ class TestMCPIntentErasure(ClickhouseTestMixin, APIBaseTest):
         with team_scope(self.team.pk):
             assert MCPIntentErasure.objects.get(team=self.team).completed_at is None
 
+    def test_missing_writer_drain_proof_keeps_an_empty_project_frozen(self) -> None:
+        with (
+            patch.dict(sys.modules, {WRITERS_MODULE: None}),
+            self.assertRaisesMessage(IntentErasurePending, "drain cannot be proved"),
+        ):
+            self._prepare(uuid4())
+        with self.assertRaises(IntentWritesFrozen), admit_writer(self.sibling):
+            self.fail("reopened writers without proof that in-flight writers finished")
+
     def test_stale_fill_is_rejected_after_an_erasure_froze_and_reopened_the_project(self) -> None:
         stale = snapshot_barrier(self.sibling)
         erasure = self._prepare(uuid4())
@@ -148,8 +168,10 @@ class TestMCPIntentErasure(ClickhouseTestMixin, APIBaseTest):
     def test_retry_keeps_source_proof_required_when_copies_disappear_after_failed_drain(self) -> None:
         token = uuid4()
         _insert_assignment(self.team.pk, "a" * 64, "topic")
+        self.drain_error = IntentErasurePending("writers still running")
         with self.assertRaises(IntentErasurePending):
             self._prepare(token)
+        self.drain_error = None
         self._delete_assignments(self.team.pk)
         erasure = self._prepare(token)
         assert erasure.verify_sources
@@ -158,6 +180,7 @@ class TestMCPIntentErasure(ClickhouseTestMixin, APIBaseTest):
     def test_changed_request_scope_cannot_take_over_a_failed_erasure(self) -> None:
         token = uuid4()
         _insert_assignment(self.team.pk, "a" * 64, "topic")
+        self.drain_error = IntentErasurePending("writers still running")
         with self.assertRaises(IntentErasurePending):
             self._prepare(token)
         with self.assertRaisesMessage(IntentInvalidationConflict, "scope changed"):
@@ -180,8 +203,9 @@ class TestMCPIntentErasure(ClickhouseTestMixin, APIBaseTest):
                 MCPIntentEmbeddingCache.objects.create(
                     team=self.team, content_hash="a" * 64, model="example", embedding=b"example"
                 )
-        with self.assertRaises(IntentErasurePending):
-            self._prepare(uuid4())
+        erasure = self._prepare(uuid4())
+        with self.assertRaisesMessage(IntentErasurePending, "derived intent data exists"):
+            complete_intent_erasure(erasure=erasure, cluster=self.cluster)
         with self.assertRaises(IntentWritesFrozen), admit_writer(self.sibling):
             self.fail("a legacy intent store was treated as an empty project")
 
