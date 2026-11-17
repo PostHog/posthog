@@ -2,6 +2,8 @@ import { DateTime } from 'luxon'
 import { Summary } from 'prom-client'
 import { gunzip, gzip } from 'zlib'
 
+import { escapeString } from '@posthog/hogvm'
+
 import { parseJSON } from '~/common/utils/json-parse'
 import { sanitizeForUTF8 } from '~/common/utils/strings'
 import { UUIDT, castTimestampOrNow, clickHouseTimestampToDateTime } from '~/common/utils/utils'
@@ -442,8 +444,14 @@ export const redactSensitiveValues = (message: string, sensitiveValues?: string[
         // Logged objects are JSON-encoded, which escapes quotes, backslashes and newlines, so a secret
         // such as a PEM private key no longer matches its raw form inside the message.
         variants.add(JSON.stringify(sensitiveValue).slice(1, -1))
-        // A thrown Hog error prints its message with each `'` escaped as `\'`.
-        variants.add(sensitiveValue.replaceAll("'", "\\'"))
+        // Hog prints a string inside a list or dict with its own escaping, which an interpolated
+        // response body carries into a message. A thrown Hog error then prints its message with
+        // each `'` escaped as `\'`.
+        const hogPrinted = escapeString(sensitiveValue).slice(1, -1)
+        for (const form of [sensitiveValue, hogPrinted]) {
+            variants.add(form)
+            variants.add(form.replaceAll("'", "\\'"))
+        }
     })
     if (!variants.size) {
         return message

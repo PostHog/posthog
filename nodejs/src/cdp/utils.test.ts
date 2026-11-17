@@ -221,6 +221,18 @@ describe('Utils', () => {
             ['a quoted value in an object', [{ key: 'say "hi"' }], ['say "hi"'], '{"key":"***REDACTED***"}'],
             ['a thrown error with an apostrophe', ["Error('it\\'s')"], ["it's"], "Error('***REDACTED***')"],
             [
+                'a printed dict with a backslash and an apostrophe',
+                ["{'key': 'a\\\\\\'b'}"],
+                ["a\\'b"],
+                "{'key': '***REDACTED***'}",
+            ],
+            [
+                'a thrown error with a printed dict',
+                ["Error('{\\'key\\': \\'it\\\\'s\\'}')"],
+                ["it's"],
+                "Error('{\\'key\\': \\'***REDACTED***\\'}')",
+            ],
+            [
                 'repeated values that occur inside the marker',
                 [{ key: '*' }],
                 ['*', '*', '*', '*', '*', '*', '*', '*', 'R'],
