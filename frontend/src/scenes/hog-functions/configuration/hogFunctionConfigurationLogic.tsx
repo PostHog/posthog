@@ -1389,6 +1389,12 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                 }
             },
             submit: async (data) => {
+                // The editor shows a pending PostHog AI suggestion that is not in `data` yet.
+                if (values.inputsDiff) {
+                    lemonToast.error('Accept or reject the suggested inputs first')
+                    return
+                }
+
                 // Check HOG code size immediately before submission
                 if (data.hog) {
                     const hogSize = new Blob([data.hog]).size

@@ -267,14 +267,15 @@ def _input_values_for_prompt(current_inputs: dict, inputs_schema: list) -> dict:
 
 
 def _changed_input_values(proposed_values: dict, current_inputs_schema: list, new_inputs_schema: list) -> dict:
-    current_schemas = {schema.get("key"): schema for schema in current_inputs_schema if isinstance(schema, dict)}
+    # A suggestion can also retype an input, so a key the current schema locks stays locked
+    # even when the suggested schema would make it editable.
+    current_keys = {schema.get("key") for schema in current_inputs_schema if isinstance(schema, dict)}
+    locked_keys = current_keys - _editable_input_schemas(current_inputs_schema).keys()
     editable_schemas = _editable_input_schemas(new_inputs_schema)
     return {
         key: value
         for key, value in proposed_values.items()
-        if key in editable_schemas
-        and not current_schemas.get(key, {}).get("secret")
-        and _fits_input(value, editable_schemas[key])
+        if key in editable_schemas and key not in locked_keys and _fits_input(value, editable_schemas[key])
     }
 
 

@@ -245,6 +245,20 @@ describe('hogFunctionConfigurationLogic', () => {
             expect(logic.values.newInputValues).toBeNull()
         })
 
+        it('does not save while a PostHog AI suggestion is pending', async () => {
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadTemplate', 'loadTemplateSuccess'])
+            logic.actions.setConfigurationValue('inputs.url', { value: 'https://posthog.com' })
+            logic.actions.setOldInputs(HOG_TEMPLATE.inputs_schema ?? [])
+            logic.actions.setNewInputs(HOG_TEMPLATE.inputs_schema ?? [])
+
+            await expectLogic(logic, () => {
+                logic.actions.submitConfiguration()
+            }).toDispatchActions(['submitConfigurationSuccess'])
+
+            expect(mockApi.create).not.toHaveBeenCalled()
+        })
+
         it('keeps a pending suggested value when the schema is edited during the suggestion', async () => {
             logic.mount()
             await expectLogic(logic).toDispatchActions(['loadTemplate', 'loadTemplateSuccess'])
