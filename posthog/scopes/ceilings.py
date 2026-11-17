@@ -2,7 +2,7 @@
 
 from collections.abc import Iterable, Sequence
 
-from . import checks, exposure, oauth
+from . import catalog, checks, exposure, oauth
 
 
 def filter_to_unprivileged_scopes(scopes: Iterable[object]) -> list[str]:
@@ -15,14 +15,9 @@ def filter_to_unprivileged_scopes(scopes: Iterable[object]) -> list[str]:
     on a user-consented token. Non-string entries are dropped too, so raw partner JSON is safe
     to pass straight in.
     """
-    seen: set[str] = set()
-    result: list[str] = []
-    for token in scopes:
-        if not isinstance(token, str) or token not in exposure.UNPRIVILEGED_SCOPES or token in seen:
-            continue
-        seen.add(token)
-        result.append(token)
-    return result
+    # Translated first, so metadata that still declares a renamed scope keeps it.
+    declared = catalog.translate_renamed_scopes(token for token in scopes if isinstance(token, str))
+    return [token for token in declared if token in exposure.UNPRIVILEGED_SCOPES]
 
 
 def filter_self_registered_ceiling(scopes: Iterable[object]) -> list[str]:
@@ -276,7 +271,7 @@ def narrow_scopes_to_ceiling(original: Iterable[str], app_scopes: Iterable[str])
     drop scopes that were valid when issued but fall outside a since-tightened
     ceiling, rather than refreshing the broader set forever.
 
-    - Empty `app_scopes` (no cap) is a no-op: returns `original` as a list.
+    - Empty `app_scopes` (no cap) returns `original` as a list, with renamed scopes translated.
     - A `*` token is left untouched (narrowing it would strip all resource
       access; `*` retirement is handled separately).
     - Otherwise returns the sorted intersection with the ceiling plus any
@@ -290,7 +285,7 @@ def narrow_scopes_to_ceiling(original: Iterable[str], app_scopes: Iterable[str])
     rejected again. It narrows to the empty list instead, leaving one stable
     token whose resource calls 403 by scope.
     """
-    original_list = list(original)
+    original_list = catalog.translate_renamed_scopes(original)
     ceiling = resolve_ceiling(app_scopes)
     if ceiling is None:
         return original_list
