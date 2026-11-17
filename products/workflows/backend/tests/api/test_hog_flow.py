@@ -2876,6 +2876,14 @@ class TestHogFlowAPI(APIBaseTest):
             ("group_with_unknown_logic", {"properties": {"type": "XOR", "values": []}}),
             ("group_values_not_a_list", {"properties": {"type": "OR", "values": "bogus"}}),
             ("group_leaf_not_a_dict", {"properties": {"type": "OR", "values": ["bogus"]}}),
+            (
+                "filter_directly_in_the_outer_group",
+                {"properties": {"type": "OR", "values": [{"key": "plan", "value": "pro", "type": "person"}]}},
+            ),
+            (
+                "group_nested_three_levels_deep",
+                {"properties": {"type": "OR", "values": [{"type": "AND", "values": [{"type": "OR", "values": []}]}]}},
+            ),
         ]
     )
     @patch("products.workflows.backend.presentation.views.hog_flow.feature_enabled_or_false", return_value=True)

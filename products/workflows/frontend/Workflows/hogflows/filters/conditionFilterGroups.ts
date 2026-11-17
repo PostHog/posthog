@@ -1,48 +1,31 @@
-import { AnyPropertyFilter, FilterLogicalOperator, PropertyGroupFilter } from '~/types'
+import { AnyPropertyFilter, FilterLogicalOperator } from '~/types'
 
 export type ConditionFilterGroup = { type: FilterLogicalOperator; values: AnyPropertyFilter[] }
 
-/** A branch condition as the editor shows it: groups of filters joined by one outer AND or OR. */
+/** A branch condition as the editor shows it and the API stores a grouped one: groups of filters joined by AND or OR. */
 export type ConditionFilterGroups = { type: FilterLogicalOperator; values: ConditionFilterGroup[] }
 
-export function isPropertyGroup(value: unknown): value is PropertyGroupFilter {
+export function isConditionFilterGroups(value: unknown): value is ConditionFilterGroups {
     return (
         typeof value === 'object' &&
         value !== null &&
-        Array.isArray((value as PropertyGroupFilter).values) &&
-        Object.values(FilterLogicalOperator).includes((value as PropertyGroupFilter).type)
+        Array.isArray((value as ConditionFilterGroups).values) &&
+        Object.values(FilterLogicalOperator).includes((value as ConditionFilterGroups).type)
     )
 }
 
-/**
- * Reads a condition's stored `filters.properties`. A flat list is one AND group. Returns null when groups
- * nest deeper than the editor shows, because saving from the editor would then drop the inner groups.
- */
-export function toConditionFilterGroups(properties: unknown): ConditionFilterGroups | null {
-    if (properties == null || Array.isArray(properties)) {
-        return {
-            type: FilterLogicalOperator.And,
-            values: [{ type: FilterLogicalOperator.And, values: (properties as AnyPropertyFilter[] | null) ?? [] }],
-        }
+/** Reads a condition's stored `filters.properties`. A flat list, or no filters, is one AND group. */
+export function toConditionFilterGroups(
+    properties: AnyPropertyFilter[] | ConditionFilterGroups | null | undefined
+): ConditionFilterGroups {
+    if (isConditionFilterGroups(properties)) {
+        return properties
     }
-    if (!isPropertyGroup(properties)) {
-        return null
-    }
-    const groups: ConditionFilterGroup[] = []
-    for (const value of properties.values) {
-        if (!isPropertyGroup(value)) {
-            groups.push({ type: FilterLogicalOperator.And, values: [value as AnyPropertyFilter] })
-        } else if (value.values.some(isPropertyGroup)) {
-            return null
-        } else {
-            groups.push({ type: value.type, values: value.values as AnyPropertyFilter[] })
-        }
-    }
-    return { type: properties.type, values: groups }
+    return { type: FilterLogicalOperator.And, values: [{ type: FilterLogicalOperator.And, values: properties ?? [] }] }
 }
 
 /** One AND group is stored as a flat list, the shape every condition had before groups existed. */
-export function fromConditionFilterGroups(groups: ConditionFilterGroups): AnyPropertyFilter[] | PropertyGroupFilter {
+export function fromConditionFilterGroups(groups: ConditionFilterGroups): AnyPropertyFilter[] | ConditionFilterGroups {
     if (groups.values.length === 1 && groups.values[0].type === FilterLogicalOperator.And) {
         return groups.values[0].values
     }

@@ -36,8 +36,7 @@ describe('conditionFilterGroups', () => {
     ])('saves $case back unchanged when nothing is edited', ({ stored }) => {
         const groups = toConditionFilterGroups(stored)
 
-        expect(groups).not.toBeNull()
-        expect(fromConditionFilterGroups(groups!)).toEqual(stored)
+        expect(fromConditionFilterGroups(groups)).toEqual(stored)
     })
 
     it('saves one AND group as a flat list, so a condition without groups keeps its stored shape', () => {
@@ -49,26 +48,5 @@ describe('conditionFilterGroups', () => {
 
     it('treats a missing list as one empty group', () => {
         expect(toConditionFilterGroups(undefined)).toEqual({ type: And, values: [{ type: And, values: [] }] })
-    })
-
-    it('wraps a filter that sits directly in the outer group into a group of its own', () => {
-        expect(
-            toConditionFilterGroups({ type: Or, values: [{ type: And, values: [planPro, countryUs] }, inCohort] })
-        ).toEqual({
-            type: Or,
-            values: [
-                { type: And, values: [planPro, countryUs] },
-                { type: And, values: [inCohort] },
-            ],
-        })
-    })
-
-    it('refuses groups nested deeper than the editor shows, so editing cannot drop them', () => {
-        expect(
-            toConditionFilterGroups({
-                type: Or,
-                values: [{ type: And, values: [planPro, { type: Or, values: [countryUs, inCohort] }] }],
-            })
-        ).toBeNull()
     })
 })

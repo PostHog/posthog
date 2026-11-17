@@ -1,5 +1,5 @@
 import { IconPlusSmall, IconTrash } from '@posthog/icons'
-import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
+import { LemonButton } from '@posthog/lemon-ui'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 
@@ -11,7 +11,7 @@ import {
     ConditionFilterGroup,
     ConditionFilterGroups,
     fromConditionFilterGroups,
-    isPropertyGroup,
+    isConditionFilterGroups,
     toConditionFilterGroups,
 } from './conditionFilterGroups'
 import { HogFlowPropertyFilters } from './HogFlowFilters'
@@ -33,21 +33,13 @@ export function HogFlowConditionFilters({
 
     // A condition saved with groups keeps the group editor when the flag is off, because the flat
     // editor cannot show a group and saving from it would lose the condition.
-    if (!filterGroupsEnabled && !isPropertyGroup(properties)) {
+    if (!filterGroupsEnabled && !isConditionFilterGroups(properties)) {
         return (
             <HogFlowPropertyFilters filtersKey={filtersKey} includeCohorts filters={filters} setFilters={setFilters} />
         )
     }
 
     const groups = toConditionFilterGroups(properties)
-    if (!groups) {
-        return (
-            <LemonBanner type="info">
-                This condition has filter groups inside other filter groups, which the editor can't show. Change it
-                through the API.
-            </LemonBanner>
-        )
-    }
 
     const setGroups = (next: ConditionFilterGroups): void => {
         setFilters({ ...filters, properties: fromConditionFilterGroups(next) } as HogFlowAction['filters'])
