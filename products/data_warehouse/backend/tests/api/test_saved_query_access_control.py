@@ -206,14 +206,23 @@ class TestDataWarehouseSavedQueryAccessControl(WarehouseAccessControlTestMixin):
 
     @parameterized.expand(
         [
-            ("allowed", "editor", "This name already refers to the model my_view. Choose a different name."),
+            ("allowed", "my_view", "models.my_view", "editor", "This name already refers to the model my_view."),
             # Refused all the same, but without confirming a model the caller cannot read.
-            ("denied", "none", "A table or view with this name already exists. Choose a different name."),
+            ("denied", "my_view", "models.my_view", "none", "A table or view with this name already exists."),
+            (
+                "bare_name_allowed",
+                "models.my_view",
+                "my_view",
+                "editor",
+                "This name already refers to the model models.my_view.",
+            ),
+            ("bare_name_denied", "models.my_view", "my_view", "none", "A table or view with this name already exists."),
         ]
     )
-    def test_a_models_name_is_refused_while_an_authored_model_answers_to_it(
-        self, _case: str, object_access: str, detail: str
+    def test_a_name_is_refused_while_an_authored_model_answers_to_it(
+        self, _case: str, stored_name: str, new_name: str, object_access: str, detail: str
     ) -> None:
+        DataWarehouseSavedQuery.objects.filter(pk=self.saved_query.pk).update(name=stored_name)
         self._create_access_control(self.editor_user, access_level="editor")
         self._create_access_control(
             self.editor_user,
@@ -229,13 +238,13 @@ class TestDataWarehouseSavedQueryAccessControl(WarehouseAccessControlTestMixin):
         ):
             response = self.client.post(
                 self._list_url(),
-                data={"name": "models.my_view", "query": {"kind": "HogQLQuery", "query": "select 2"}},
+                data={"name": new_name, "query": {"kind": "HogQLQuery", "query": "select 2"}},
                 content_type="application/json",
             )
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.content)
-        self.assertEqual(response.json()["detail"], detail)
-        self.assertFalse(DataWarehouseSavedQuery.objects.filter(team=self.team, name="models.my_view").exists())
+        self.assertEqual(response.json()["detail"], f"{detail} Choose a different name.")
+        self.assertFalse(DataWarehouseSavedQuery.objects.filter(team=self.team, name=new_name).exists())
 
     def test_resource_level_row_on_child_alone_has_no_effect(self):
         # Contract: warehouse_view inherits from warehouse_objects, so resource-level rows

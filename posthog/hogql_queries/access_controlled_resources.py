@@ -145,17 +145,21 @@ class _WarehouseCatalog:
 
     def get_views(self, names: set[str]) -> list[tuple[str, object]]:
         # Deferred to break the query_runner -> this module -> hogql import cycle.
-        from posthog.hogql.database.database import models_namespace_chain  # noqa: PLC0415
+        from posthog.hogql.database.database import models_alias_chain  # noqa: PLC0415
 
         from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery  # noqa: PLC0415
 
         unknown_names = names - self.looked_up_names
         if unknown_names:
-            # An authored model is also queryable as `models.<stored name>` (see the schema build in
-            # database.py), so load the stored names of those reads in the same query. Without them the
-            # alias matches no row, the query carries no warehouse scope, and a user denied the model is
-            # served an allowed user's cached rows on a hit, together with whatever the definition reads.
-            stored_names = {name: name.removeprefix("models.") for name in unknown_names if name.startswith("models.")}
+            # An authored model is also queryable as `models.x` when stored as `x`, and as `x` when stored as
+            # `models.x` (see the schema build in database.py), so load the stored names of those reads in the
+            # same query. Without them the alias matches no row, the query carries no warehouse scope, and a
+            # user denied the model is served an allowed user's cached rows on a hit, together with whatever
+            # the definition reads.
+            stored_names = {
+                name: name.removeprefix("models.") if name.startswith("models.") else f"models.{name}"
+                for name in unknown_names
+            }
             rows = {
                 name: (_SavedViewRow(name=name, origin=origin, managed_viewset_id=managed_viewset_id), query)
                 for name, query, origin, managed_viewset_id in DataWarehouseSavedQuery.objects.filter(
@@ -171,7 +175,7 @@ class _WarehouseCatalog:
                     # rows that get one, so the eligibility rule has a single definition.
                     stored_name = stored_names.get(name)
                     candidate = rows.get(stored_name) if stored_name else None
-                    if candidate is not None and models_namespace_chain(candidate[0]) == name.split("."):
+                    if candidate is not None and models_alias_chain(candidate[0]) == name.split("."):
                         found = candidate
                 if found is not None:
                     self.view_queries[name] = found[1]

@@ -330,22 +330,30 @@ class TestSyncSavedQueryToDag(BaseTest):
 
     @parameterized.expand(
         [
-            ("view", "upstream_view", False),
-            ("view_under_models_root", "models.upstream_view", False),
-            ("matview", "upstream_view", True),
-            ("matview_under_models_root", "models.upstream_view", True),
+            ("view", "upstream_view", "upstream_view", False),
+            ("view_under_models_root", "upstream_view", "models.upstream_view", False),
+            ("matview", "upstream_view", "upstream_view", True),
+            ("matview_under_models_root", "upstream_view", "models.upstream_view", True),
+            ("stored_under_models_read_bare", "models.upstream_view", "upstream_view", False),
+            ("stored_under_models_matview_read_bare", "models.upstream_view", "upstream_view", True),
         ]
     )
-    def test_sync_creates_edge_to_other_saved_query(self, _name: str, reference: str, materialized: bool):
+    def test_sync_creates_edge_to_other_saved_query(
+        self, _name: str, upstream_name: str, reference: str, materialized: bool
+    ):
         upstream_query = DataWarehouseSavedQuery.objects.create(
-            name="upstream_view",
+            name=upstream_name,
             team=self.team,
             query={"query": "SELECT event FROM events", "kind": "HogQLQuery"},
             columns={"event": "String"},
         )
         if materialized:
             upstream_query.table = DataWarehouseTable.objects.create(
-                team=self.team, name="upstream_view", format="Parquet", columns={"event": "String"}
+                team=self.team,
+                name=upstream_name,
+                format="Parquet",
+                columns={"event": "String"},
+                created_via=DataWarehouseTable.CreatedVia.MATERIALIZED_VIEW,
             )
             upstream_query.is_materialized = True
             upstream_query.save(update_fields=["table", "is_materialized"])

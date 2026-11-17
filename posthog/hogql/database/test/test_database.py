@@ -3879,24 +3879,26 @@ class TestDatabase(BaseTest, QueryMatchingTest):
 
     @parameterized.expand(
         [
-            ("events", "events", "events"),
-            ("events_as_chain", "events", ["posthog", "events"]),
-            ("qualified_events", "posthog.events", "events"),
-            ("qualified_events_as_chain", "posthog.events", ["posthog", "events"]),
-            ("model_by_stored_name", "report", "report"),
-            ("model_by_models_name", "report", "models.report"),
-            ("model_join_on_models_name_by_stored_name", "models.report", "report"),
+            ("events", "report", "events", "events"),
+            ("events_as_chain", "report", "events", ["posthog", "events"]),
+            ("qualified_events", "report", "posthog.events", "events"),
+            ("qualified_events_as_chain", "report", "posthog.events", ["posthog", "events"]),
+            ("model_by_stored_name", "report", "report", "report"),
+            ("model_by_models_name", "report", "report", "models.report"),
+            ("model_join_on_models_name_by_stored_name", "report", "models.report", "report"),
+            ("model_under_models_join_on_bare_name", "models.report", "report", "models.report"),
+            ("model_under_models_by_bare_name", "models.report", "models.report", "report"),
         ]
     )
     def test_deferred_foreign_keys_wire_for_a_table_reached_through_a_data_warehouse_join(
-        self, _name: str, join_source_table_name: str, source_table: str | list[str]
+        self, _name: str, model_name: str, join_source_table_name: str, source_table: str | list[str]
     ) -> None:
         self._postgres_warehouse_source_with_foreign_key(
             foreign_keys=[{"column": "team_id", "target_table": "posthog_team", "target_column": "id"}]
         )
         DataWarehouseSavedQuery.objects.create(
             team=self.team,
-            name="report",
+            name=model_name,
             query={"query": "SELECT event FROM events"},
             columns={"event": "String"},
         )

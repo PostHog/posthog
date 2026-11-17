@@ -326,6 +326,18 @@ class TestQueriedAccessControlledResources(BaseTest):
                 "select * from models.revenue",
                 {"warehouse_view", "warehouse_table", "external_data_source"},
             ),
+            (
+                "model stored under the models root read by its bare name",
+                {"models.notebook_view": "select * from system.notebooks"},
+                "select * from notebook_view",
+                {"warehouse_view", "warehouse_table", "external_data_source", "notebook"},
+            ),
+            (
+                "stored bare name wins over the bare slot",
+                {"models.revenue": "select * from system.notebooks", "revenue": "select 1 as a"},
+                "select * from revenue",
+                {"warehouse_view", "warehouse_table", "external_data_source"},
+            ),
         ]
     )
     def test_view_definitions_are_walked(self, _name, views, sql, expected):

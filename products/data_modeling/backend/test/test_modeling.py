@@ -177,18 +177,24 @@ class TestQualifyModelReferences(BaseTest):
             ("wrapper", None),
             ("shared", None),
             ("ep_view", DataWarehouseSavedQuery.Origin.ENDPOINT),
+            ("models.costs", None),
+            ("models.marts.fees", DataWarehouseSavedQuery.Origin.DATA_WAREHOUSE),
+            ("models.held", None),
         ]:
             body = "select * from revenue" if name == "wrapper" else "select 1 as id"
             DataWarehouseSavedQuery.objects.create(team=self.team, name=name, origin=origin, query={"query": body})
         credential = DataWarehouseCredential.objects.create(access_key="key", access_secret="secret", team=self.team)
-        DataWarehouseTable.objects.create(
-            name="shared",
-            format="Parquet",
-            team=self.team,
-            credential=credential,
-            url_pattern="https://bucket.s3/data/*",
-            columns={"id": {"hogql": "StringDatabaseField", "clickhouse": "Nullable(String)", "schema_valid": True}},
-        )
+        for table_name in ("shared", "held"):
+            DataWarehouseTable.objects.create(
+                name=table_name,
+                format="Parquet",
+                team=self.team,
+                credential=credential,
+                url_pattern="https://bucket.s3/data/*",
+                columns={
+                    "id": {"hogql": "StringDatabaseField", "clickhouse": "Nullable(String)", "schema_valid": True}
+                },
+            )
 
     @parameterized.expand(
         [
@@ -209,7 +215,14 @@ class TestQualifyModelReferences(BaseTest):
             ),
             ("view_body_untouched", "select * from wrapper", "select * from models.wrapper AS wrapper"),
             ("cte", "with revenue as (select 1 as id) select * from revenue", None),
+            ("stored_under_models", "select * from costs", "select * from models.costs AS costs"),
+            (
+                "stored_under_models_dotted",
+                "select * from marts.fees",
+                "select * from models.marts.fees AS marts__fees",
+            ),
             ("warehouse_table_holds_the_name", "select * from shared", None),
+            ("warehouse_table_holds_a_stored_models_name", "select * from held", None),
             ("endpoint_view", "select * from ep_view", None),
             ("unparseable", "select * from revenue where", None),
         ]
