@@ -44,6 +44,7 @@ from products.ai_observability.backend.hog import compile_ai_observability_hog
 from products.ai_observability.backend.llm import DEFAULT_MODEL_BY_PROVIDER
 from products.ai_observability.backend.llm.providers.gemini import GeminiConfig
 from products.ai_observability.backend.logic.evaluations.hog_runtime import (
+    HOG_EVAL_TIMEOUT,
     build_hog_event_global,
     execute_hog_eval_bytecode,
 )
@@ -417,12 +418,17 @@ class CodeCheck:
     # The code's fails on every rendered call of the card's call types, out of the calls it passed or failed.
     failed: int
     of: int
-    # Calls the code raised an error on. Each one counts against the code in `calibration`.
+    # Calls whose data the code could not handle. Each one counts against the code in `calibration`.
     errors: int
 
 
+class _TerminalHogError(Exception):
+    """An error the evaluation runtime disables a Hog evaluation over, so a check that hits one is never published."""
+
+
 def _code_verdict(bytecode: list[Any], row: ReviewCallRow) -> Verdict | None:
-    """The code's verdict on one stored call, with the globals a generation evaluation gets, or None on an error."""
+    """The code's verdict on one stored call, with the globals a generation evaluation gets, or None when this call's
+    data defeated the code. Raises _TerminalHogError on any other error."""
     properties = {"$ai_input": _parsed(row.input), "$ai_output_choices": _parsed(row.output)}
     event = build_hog_event_global("$ai_generation", properties, event_uuid=row.event_uuid, timestamp=None)
     globals_dict = {
@@ -434,7 +440,9 @@ def _code_verdict(bytecode: list[Any], row: ReviewCallRow) -> Verdict | None:
     }
     result = execute_hog_eval_bytecode(bytecode, globals_dict, allows_na=True)
     if result["error"]:
-        return None
+        if result.get("user_input_error"):
+            return None
+        raise _TerminalHogError(result["error"])
     if result.get("applicable") is False:
         return "na"
     return "pass" if result["verdict"] else "fail"
@@ -442,8 +450,8 @@ def _code_verdict(bytecode: list[Any], row: ReviewCallRow) -> Verdict | None:
 
 def check_code(card: ReviewCard, rendering: Rendering, deadline: float | None) -> CodeCheck | None:
     """The card's code check run on every rendered call of its call types and compared with the review's labels, or
-    None when it does not compile or `deadline`, a time.monotonic() value, passes first. An error on a labelled call
-    counts as the opposite of the label."""
+    None when it does not compile, hits an error the runtime would disable it over, or could run past `deadline`, a
+    time.monotonic() value. An error on a call's data counts as the opposite of the label."""
     source = call_review.code_check_source(card.code_check)
     try:
         # compile_hog logs a syntax error as an error in our code. The parse catches the review's syntax errors first,
@@ -455,11 +463,15 @@ def check_code(card: ReviewCard, rendering: Rendering, deadline: float | None) -
     keys = {call_type.key for call_type in card.call_types}
     verdicts: dict[int, Verdict | None] = {}
     for number, call in rendering.calls.items():
-        # Each call can run up to the Hog time limit, so a program that loops would outlast the stage.
-        if deadline is not None and time.monotonic() >= deadline:
+        if call.call_type not in keys:
+            continue
+        # Each call can run up to the Hog time limit, so one that starts later could eat into the judge fallback.
+        if deadline is not None and time.monotonic() + HOG_EVAL_TIMEOUT.total_seconds() > deadline:
             return None
-        if call.call_type in keys:
+        try:
             verdicts[number] = _code_verdict(bytecode, call.row)
+        except _TerminalHogError:
+            return None
     numbers = sorted(card.labels)
     labelled: list[Verdict | None] = [
         verdicts.get(number) or ("pass" if card.labels[number] == "fail" else "fail") for number in numbers

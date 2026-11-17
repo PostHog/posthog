@@ -378,6 +378,13 @@ def test_a_request_that_could_end_past_the_deadline_never_starts() -> None:
             (5, 45),
         ),
         ("does_not_compile", "return match(output, 'Reply \\d')", None, None),
+        # A non-boolean result disables a saved Hog evaluation, so one such call rejects the check.
+        (
+            "returns_a_string_on_one_call",
+            "if (output == 'Reply 49') {\n  return 'unsure'\n}\nreturn not match(output, '^Reply [0-4]$')",
+            None,
+            None,
+        ),
     ]
 )
 def test_a_code_check_is_kept_only_when_it_gives_the_review_labels(
@@ -393,3 +400,10 @@ def test_a_code_check_is_kept_only_when_it_gives_the_review_labels(
     assert code is not None
     assert judge_calibration.keeps(card, code.calibration) is kept
     assert (code.failed, code.of) == counts
+
+
+def test_a_code_check_never_starts_a_call_that_could_run_past_the_deadline() -> None:
+    card, rendering = _card_and_rendering()
+    card = replace(card, code_check="return true")
+
+    assert judge_calibration.check_code(card, rendering, deadline=time.monotonic() + 5) is None

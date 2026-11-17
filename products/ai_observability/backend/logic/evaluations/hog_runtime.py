@@ -151,6 +151,7 @@ def build_hog_event_global(
 # The VM keeps printed lines outside its memory accounting, so a print in a loop could fill a worker's memory
 # within the time limit. Output past this many characters is dropped.
 MAX_HOG_OUTPUT_CHARS = 64_000
+HOG_EVAL_TIMEOUT = timedelta(seconds=10)
 
 
 class _BoundedOutput(list[str]):
@@ -192,7 +193,7 @@ def execute_hog_eval_bytecode(
             bytecode,
             globals=globals_dict,
             stdout=output,
-            timeout=timedelta(seconds=10),
+            timeout=HOG_EVAL_TIMEOUT,
             team=None,
         )
     except HogVMRuntimeExceededException:

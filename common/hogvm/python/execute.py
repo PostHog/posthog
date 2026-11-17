@@ -187,6 +187,14 @@ def execute_bytecode(
         if mem_used > memory_limit:
             raise HogVMMemoryExceededException(memory_limit=memory_limit, attempted_memory=mem_used)
 
+    def check_repeat_memory(a: Any, b: Any) -> None:
+        # Python repeats a string or list times an int, and builds the result before push_stack can check its size.
+        for sequence, count in ((a, b), (b, a)):
+            if isinstance(sequence, str | list | tuple) and isinstance(count, int) and count > 1:
+                attempted_memory = mem_used + calculate_cost(sequence) * count
+                if attempted_memory > memory_limit:
+                    raise HogVMMemoryExceededException(memory_limit=memory_limit, attempted_memory=attempted_memory)
+
     def check_timeout():
         if time.monotonic() - start_time > timeout.total_seconds() and not debug:
             raise HogVMRuntimeExceededException(timeout_seconds=timeout.total_seconds(), ops_performed=ops)
@@ -284,7 +292,9 @@ def execute_bytecode(
             case Operation.DIVIDE:
                 push_stack(pop_stack() / pop_stack())
             case Operation.MULTIPLY:
-                push_stack(pop_stack() * pop_stack())
+                factor, other = pop_stack(), pop_stack()
+                check_repeat_memory(factor, other)
+                push_stack(factor * other)
             case Operation.MOD:
                 push_stack(pop_stack() % pop_stack())
             case Operation.EQ:
