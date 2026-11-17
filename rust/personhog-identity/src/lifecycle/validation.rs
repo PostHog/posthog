@@ -94,9 +94,10 @@ pub fn is_distinct_id_illegal(id: &str) -> bool {
 }
 
 /// Above i32::MAX the storage layer's `as i32` narrowing would wrap into
-/// another tenant's rows.
+/// another tenant's rows. Team 0 is a real team: a self-hosted or dev
+/// instance's own analytics team can have id 0.
 pub fn is_team_id_valid(team_id: i64) -> bool {
-    team_id > 0 && team_id <= i32::MAX as i64
+    (0..=i32::MAX as i64).contains(&team_id)
 }
 
 // tonic Status is a large Err variant; boxing here would diverge from the
@@ -107,7 +108,7 @@ pub fn validate_delete_persons(request: &DeletePersonsRequest) -> Result<Uuid, S
     if !is_team_id_valid(request.team_id) {
         return Err(rejected(
             "team_id",
-            "team_id must be a positive 32-bit integer",
+            "team_id must be a non-negative 32-bit integer",
         ));
     }
     if request.person_ids.is_empty() {
@@ -175,7 +176,7 @@ pub fn validate_merge_persons(
     request: &MergePersonsRequest,
 ) -> Result<(Uuid, i64), MergeRejection> {
     if !is_team_id_valid(request.team_id) {
-        return Err(rejected("team_id", "team_id must be a positive 32-bit integer").into());
+        return Err(rejected("team_id", "team_id must be a non-negative 32-bit integer").into());
     }
     if is_distinct_id_oversized(&request.target_distinct_id) {
         return Err(MergeRejection::unmergeable(

@@ -60,9 +60,9 @@ async fn delete_status(request: DeletePersonsRequest) -> Code {
 async fn invalid_requests_are_rejected_before_the_saga() {
     let cases: Vec<(&str, DeletePersonsRequest)> = vec![
         (
-            "zero team_id",
+            "negative team_id",
             DeletePersonsRequest {
-                team_id: 0,
+                team_id: -1,
                 ..valid_request()
             },
         ),

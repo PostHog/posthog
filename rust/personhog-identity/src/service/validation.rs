@@ -41,7 +41,7 @@ pub fn validate_team_id(team_id: i64) -> Result<(), Status> {
     if !is_team_id_valid(team_id) {
         return Err(rejected(
             "team_id",
-            "team_id must be a positive 32-bit integer",
+            "team_id must be a non-negative 32-bit integer",
         ));
     }
     Ok(())
@@ -66,7 +66,7 @@ pub fn validate_entry(
     if !is_team_id_valid(entry.team_id) {
         return Err(rejected(
             "team_id",
-            "team_id must be a positive 32-bit integer",
+            "team_id must be a non-negative 32-bit integer",
         ));
     }
     validate_distinct_id(limits, &entry.distinct_id)?;
@@ -134,12 +134,12 @@ mod tests {
             max_distinct_id_length: 400,
             max_extra_distinct_ids: 5000,
         };
-        for ok in [1, i32::MAX as i64] {
+        for ok in [0, 1, i32::MAX as i64] {
             assert!(validate_entry(&limits, &entry(ok)).is_ok(), "{ok}");
         }
         // 2^32 + 1 wraps to team 1 under `as i32`; the rest are the
         // boundary and sign cases around the valid range.
-        for bad in [0, -1, i32::MAX as i64 + 1, (1 << 32) + 1, i64::MAX] {
+        for bad in [-1, i32::MAX as i64 + 1, (1 << 32) + 1, i64::MAX] {
             assert!(validate_entry(&limits, &entry(bad)).is_err(), "{bad}");
         }
     }

@@ -935,7 +935,7 @@ fn assert_writeable(p: &CachedPerson) -> Result<(), String> {
     if Uuid::parse_str(&p.uuid).is_err() {
         return Err("uuid does not parse as a UUID".to_string());
     }
-    if p.team_id <= 0 || p.team_id > i32::MAX as i64 {
+    if p.team_id < 0 || p.team_id > i32::MAX as i64 {
         return Err(format!(
             "team_id {} is outside the column's integer range",
             p.team_id
@@ -2053,6 +2053,13 @@ mod tests {
             last_seen_at: Some(YEAR_ONE_MS),
         };
         assert_eq!(assert_writeable(&person), Ok(()));
+        assert_eq!(
+            assert_writeable(&CachedPerson {
+                team_id: 0,
+                ..person.clone()
+            }),
+            Ok(())
+        );
         assert!(
             Utc.timestamp_millis_opt(YEAR_ONE_MS).single().is_some(),
             "the writer converts with the same call, so year 1 binds"

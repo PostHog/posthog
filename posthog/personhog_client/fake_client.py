@@ -832,8 +832,8 @@ class FakePersonHogClient:
     @staticmethod
     def _validate_lifecycle_delete(request: lifecycle_pb2.DeletePersonsRequest) -> None:
         """Mirror the identity server's request validation (rust/personhog-identity, validation.rs)."""
-        if not 0 < request.team_id <= _MAX_TEAM_ID:
-            reason = "team_id must be a positive 32-bit integer"
+        if not 0 <= request.team_id <= _MAX_TEAM_ID:
+            reason = "team_id must be a non-negative 32-bit integer"
         elif not request.person_ids:
             reason = "person_ids must not be empty"
         elif len(request.person_ids) > LIFECYCLE_DELETE_MAX_PERSON_IDS:
