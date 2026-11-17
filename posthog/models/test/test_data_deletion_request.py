@@ -375,34 +375,9 @@ def materialized_browser():
 
 
 @pytest.fixture
-def materialized_nullable_os():
-    with materialized("events", "$os", is_nullable=True):
-        yield
-
-
-@pytest.fixture
 def materialized_plan():
     with materialized("events", "$plan"):
         yield
-
-
-@pytest.fixture
-def dmat_slot_for_plan(team):
-    from posthog.models import MaterializedColumnSlot, MaterializedColumnSlotState
-
-    from products.event_definitions.backend.models import PropertyDefinition
-    from products.event_definitions.backend.models.property_definition import PropertyType
-
-    prop_def = PropertyDefinition.objects.create(
-        team=team,
-        project_id=team.project_id,
-        name="plan",
-        property_type=PropertyType.String,
-        type=PropertyDefinition.Type.EVENT,
-    )
-    MaterializedColumnSlot.objects.create(
-        team=team, property_definition=prop_def, slot_index=0, state=MaterializedColumnSlotState.READY
-    )
 
 
 def _flag_call_request(team: Team, hogql_predicate: str) -> DataDeletionRequest:
@@ -443,27 +418,6 @@ def test_compile_hogql_predicate_against_flag_evaluations_reads_its_own_columns(
         ("properties.`$feature/beta` = 'true'", "property-group map"),
         # Events reads a non-$ person property from person_properties_map_custom.
         ("person.properties.email = 'a@example.com'", "person_properties_map_custom"),
-        # mat_$browser reads a stored "" as NULL, and the raw JSON read on flag_evaluations reads it as "".
-        ("properties.$browser = ''", "materialized column mat_$browser"),
-        ("properties.$browser IS NULL", "materialized column mat_$browser"),
-        # A missing $browser reads as '' from the column and as NULL from raw JSON, so NOT IN differs on it.
-        ("properties.$browser NOT IN ('Chrome')", "materialized column mat_$browser"),
-        ("NOT (properties.$browser = 'Chrome')", "materialized column mat_$browser"),
-        ("NOT properties.$browser IN ('Chrome')", "materialized column mat_$browser"),
-        ("properties.$browser = 'null'", "materialized column mat_$browser"),
-        ("properties.$browser = 'a\"b'", "materialized column mat_$browser"),
-        ("properties.$browser = 'Chrome' AND properties.$browser IS NULL", "materialized column mat_$browser"),
-        ("properties.$browser = 'Chrome' OR properties.$browser IS NULL", "materialized column mat_$browser"),
-        (
-            "(properties.$browser = 'Chrome' AND properties.$browser = 'Firefox') OR properties.$browser IS NULL",
-            "materialized column mat_$browser",
-        ),
-        # A nullable column decodes JSON escapes, so even an exact match can differ from the raw JSON read.
-        ("properties.$os = 'Mac OS X'", "materialized column mat_$os"),
-        # The built-in $group_0 column scrubs the same way, with no mat_ prefix.
-        ("properties.$group_0 IS NULL", "materialized column $group_0"),
-        # A team's READY dynamic slot makes events read dmat_string_0, which the column registry does not list.
-        ("properties.plan IS NULL", "materialized column dmat_string_0"),
     ],
     ids=[
         "person_id",
@@ -472,30 +426,9 @@ def test_compile_hogql_predicate_against_flag_evaluations_reads_its_own_columns(
         "custom_property",
         "feature_flag_property",
         "custom_person_property",
-        "materialized_property_equals_empty_string",
-        "materialized_property_is_null",
-        "materialized_property_not_in",
-        "materialized_property_negated_equals",
-        "materialized_property_negated_in",
-        "materialized_property_equals_null_string",
-        "materialized_property_equals_escaped_quote",
-        "materialized_property_exact_match_and_is_null",
-        "materialized_property_exact_match_or_is_null",
-        "materialized_property_exact_matches_nested_or_is_null",
-        "nullable_materialized_property_equals",
-        "builtin_group_column_is_null",
-        "dynamic_slot_is_null",
     ],
 )
-def test_uncopied_rows_predicate_refuses_what_flag_evaluations_rows_cannot_answer(
-    team, request, predicate, error_match
-):
-    if "$browser" in predicate:
-        request.getfixturevalue("materialized_browser")
-    if "$os" in predicate:
-        request.getfixturevalue("materialized_nullable_os")
-    if predicate == "properties.plan IS NULL":
-        request.getfixturevalue("dmat_slot_for_plan")
+def test_uncopied_rows_predicate_refuses_what_flag_evaluations_rows_cannot_answer(team, predicate, error_match):
     uncopied = uncopied_rows_predicate(_flag_call_request(team, predicate), FLAG_EVALUATIONS)
 
     assert uncopied.compiled is None
