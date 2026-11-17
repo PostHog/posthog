@@ -15,6 +15,7 @@ import { ExperimentHealthDebug } from 'products/experiments/frontend/health/debu
 import { ExperimentHealthTab } from 'products/experiments/frontend/health/ExperimentHealthTab'
 import { healthIssues } from 'products/experiments/frontend/health/healthPanelFindings'
 import { useHealthFindingReporting } from 'products/experiments/frontend/health/useHealthFindingReporting'
+import { ClassicLegacyExperimentView } from 'products/experiments/frontend/legacy/ClassicLegacyExperimentView'
 import { LegacyExperimentView } from 'products/experiments/frontend/legacy/LegacyExperimentView'
 import { ExperimentMetricModal } from 'products/experiments/frontend/modals/ExperimentMetricModal/ExperimentMetricModal'
 import { experimentMetricModalLogic } from 'products/experiments/frontend/modals/ExperimentMetricModal/experimentMetricModalLogic'
@@ -169,7 +170,7 @@ export function ExperimentView(): JSX.Element {
 
     // Branch to legacy view for legacy experiments
     if (!experimentLoading && isLegacyExperiment(experiment)) {
-        return <LegacyExperimentView />
+        return resultsRedesign ? <LegacyExperimentView /> : <ClassicLegacyExperimentView />
     }
 
     const healthIssueCount = healthIssues(healthFindings).length
