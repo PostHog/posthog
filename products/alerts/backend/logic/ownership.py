@@ -89,11 +89,13 @@ def _validate_owner(alert: AlertConfiguration, actor: User, owner: User) -> None
         raise AlertWriteRefused(
             "You need access to this insight to change its alert's owner.", status_code=403
         ) from error
-    try:
-        assert_creator_can_run(owner, alert.team, alert.insight)
-    except (CreatorLeftOrganizationError, UserAccessControlError) as error:
-        subject = "you don't" if owner.pk == actor.pk else "the new owner doesn't"
-        raise AlertWriteRefused(f"Can't take ownership: {subject} have access to this insight.") from error
+    if owner.pk != actor.pk:
+        try:
+            assert_creator_can_run(owner, alert.team, alert.insight)
+        except (CreatorLeftOrganizationError, UserAccessControlError) as error:
+            raise AlertWriteRefused(
+                "Can't take ownership: the new owner doesn't have access to this insight."
+            ) from error
     if is_llm_detector_config(alert.detector_config):
         if access_error := llm_detector_access_error(
             distinct_id=str(owner.distinct_id), organization=alert.team.organization
