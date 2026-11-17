@@ -12,7 +12,7 @@ import { Pressable44 } from '@/ui/Pressable44'
 import { createStyles, useColors } from '@/ui/theme'
 import { type } from '@/ui/tokens'
 
-import { LiveCard, LiveCardNote, NOT_LOADED_TEXT } from './LiveCard'
+import { LiveCard, LiveCardLoading, LiveCardNote } from './LiveCard'
 import { agoText } from './liveFormat'
 
 const HIGHLIGHT_MS = 1500
@@ -37,7 +37,7 @@ export function LiveEventsCard({ events, onOpen, screenActive, audience = 'web' 
     }, [events])
     let body: ReactElement
     if (!events) {
-        body = <LiveCardNote text={NOT_LOADED_TEXT} testID="live-events-not-loaded" />
+        body = <LiveCardLoading testID="live-events-loading" />
     } else if (events.length === 0) {
         body = <LiveCardNote text="Waiting for events…" testID="live-events-empty" />
     } else {

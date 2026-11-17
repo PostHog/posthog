@@ -1,5 +1,6 @@
 import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { router } from 'kea-router'
 import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
@@ -46,6 +47,7 @@ export interface platformAlertDestinationsLogicValues {
     slackIntegrations: IntegrationType[] | undefined // integrationsLogic
     currentTeamId: number | null // teamLogic
     addDisabledReason: string | undefined
+    changingMessageDestinationIds: Set<string>
     deletingDestinationIds: Set<string>
     destinationErrors: string[]
     destinations: AlertDestinationEntry[]
@@ -91,6 +93,9 @@ export interface platformAlertDestinationsLogicActions {
     createPendingDestinations: (alertId: string) => {
         alertId: string
     }
+    customizeDestination: (destination: AlertDestinationEntry) => {
+        destination: AlertDestinationEntry
+    }
     deleteDestination: (destination: AlertDestinationEntry) => {
         destination: AlertDestinationEntry
     }
@@ -114,6 +119,16 @@ export interface platformAlertDestinationsLogicActions {
     }
     removePendingDestination: (index: number) => {
         index: number
+    }
+    resetDestinationMessage: (destination: AlertDestinationEntry) => {
+        destination: AlertDestinationEntry
+    }
+    setChangingMessageDestinationId: (
+        id: string,
+        changing: boolean
+    ) => {
+        changing: boolean
+        id: string
     }
     setDeletingDestinationId: (
         id: string,
@@ -215,6 +230,9 @@ export const platformAlertDestinationsLogic = kea<platformAlertDestinationsLogic
         setSavingDestinations: (saving: boolean) => ({ saving }),
         setDestinationErrors: (errors: string[]) => ({ errors }),
         destinationsChanged: true,
+        customizeDestination: (destination: AlertDestinationEntry) => ({ destination }),
+        resetDestinationMessage: (destination: AlertDestinationEntry) => ({ destination }),
+        setChangingMessageDestinationId: (id: string, changing: boolean) => ({ id, changing }),
     }),
 
     loaders(({ props, values }) => ({
@@ -267,6 +285,13 @@ export const platformAlertDestinationsLogic = kea<platformAlertDestinationsLogic
             {
                 setDeletingDestinationId: (state, { id, deleting }) =>
                     deleting ? new Set([...state, id]) : new Set([...state].filter((x) => x !== id)),
+            },
+        ],
+        changingMessageDestinationIds: [
+            new Set<string>(),
+            {
+                setChangingMessageDestinationId: (state, { id, changing }) =>
+                    changing ? new Set([...state, id]) : new Set([...state].filter((x) => x !== id)),
             },
         ],
         selectedSlackIntegrationId: [
@@ -454,6 +479,44 @@ export const platformAlertDestinationsLogic = kea<platformAlertDestinationsLogic
                 lemonToast.error('Could not remove the destination. Try again.')
             } finally {
                 actions.setDeletingDestinationId(destination.id, false)
+            }
+        },
+        customizeDestination: async ({ destination }) => {
+            const { customize, messageEditorUrl } = destinationsApi(props)
+            if (!props.alertId || !customize) {
+                return
+            }
+            actions.setChangingMessageDestinationId(destination.id, true)
+            // A person who moved on while the request ran keeps the page they went to.
+            const startedOn = router.values.location.pathname
+            try {
+                const hogFunctionIds = await customize(String(values.currentTeamId), props.alertId, destination)
+                actions.loadDestinations()
+                if (messageEditorUrl && hogFunctionIds.length && router.values.location.pathname === startedOn) {
+                    router.actions.push(messageEditorUrl(props.alertId, hogFunctionIds))
+                }
+            } catch (error) {
+                const detail = (error as ApiError | undefined)?.detail
+                lemonToast.error(`Could not customize the destination. ${detail ?? 'Try again.'}`)
+            } finally {
+                actions.setChangingMessageDestinationId(destination.id, false)
+            }
+        },
+        resetDestinationMessage: async ({ destination }) => {
+            const { reset } = destinationsApi(props)
+            if (!props.alertId || !reset) {
+                return
+            }
+            actions.setChangingMessageDestinationId(destination.id, true)
+            try {
+                await reset(String(values.currentTeamId), props.alertId, destination)
+                lemonToast.success('This destination sends the standard message again.')
+                actions.loadDestinations()
+            } catch (error) {
+                const detail = (error as ApiError | undefined)?.detail
+                lemonToast.error(`Could not reset the message. ${detail ?? 'Try again.'}`)
+            } finally {
+                actions.setChangingMessageDestinationId(destination.id, false)
             }
         },
         loadIntegrationsSuccess: () => {

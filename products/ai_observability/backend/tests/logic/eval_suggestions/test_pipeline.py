@@ -186,7 +186,7 @@ def _support_traffic(team: Team, end: datetime) -> None:
                 "$ai_prompt_name": "support-reply",
                 "$ai_input": [
                     {"role": "system", "content": SUPPORT_PROMPT},
-                    {"role": "user", "content": "Where is my refund?"},
+                    {"role": "user", "content": f"Where is my refund for order {index}?"},
                 ],
                 "$ai_output_choices": [{"role": "assistant", "content": "Your refund arrives by Friday."}],
             },
@@ -210,13 +210,20 @@ def _calibration_record(*, caught: int, false_alarms: int, kept: bool) -> dict[s
     return {"status": "ok", "model": "gpt-5-mini", "cards": [{"title": REVIEW_TITLE, **counts, "kept": kept}]}
 
 
-def _judge_replies(judge_fails: set[int]) -> Callable[..., MagicMock]:
+def _judge_replies(judge_fails: set[int], review: MagicMock) -> Callable[..., MagicMock]:
+    """The judge fails the calls numbered `judge_fails` in the review. It reads the call as the runtime judge does, so
+    it finds the review's number through the call's trace."""
+
     def reply(**kwargs: Any) -> MagicMock:
-        number = re.search(r'<call number="(\d+)"', kwargs["messages"][-1]["content"])
-        assert number is not None
-        verdict = "fail" if int(number.group(1)) in judge_fails else "pass"
+        review_prompt = review.messages.create.call_args_list[1].kwargs["messages"][0]["content"]
+        numbers = {
+            trace: int(n) for n, trace in re.findall(r'<call number="(\d+)" type="T\d+" trace="([^"]+)"', review_prompt)
+        }
+        order = re.search(r"order (\d+)\?", kwargs["messages"][-1]["content"])
+        assert order is not None
+        verdict = "fail" if numbers[f"support-{order.group(1)}"] in judge_fails else "pass"
         return MagicMock(
-            choices=[MagicMock(message=MagicMock(content=json.dumps({"reasoning": "r", "verdict": verdict})))],
+            choices=[MagicMock(message=MagicMock(content=json.dumps({"reasoning": "r", "outcome": verdict})))],
             usage=MagicMock(prompt_tokens=1000, completion_tokens=50),
         )
 
@@ -333,7 +340,7 @@ class TestPipeline(ClickhouseTestMixin, APIBaseTest):
             _json_reply({"product": "a shop", "themes": [], "cards": [card]}),
         ]
         judge = MagicMock(spec=openai.OpenAI)
-        judge.chat.completions.create.side_effect = _judge_replies(judge_fails)
+        judge.chat.completions.create.side_effect = _judge_replies(judge_fails, client)
 
         with (
             patch.object(pipeline.call_review, "build_client", return_value=client),

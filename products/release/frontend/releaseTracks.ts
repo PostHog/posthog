@@ -210,11 +210,32 @@ export function surveyStatus(survey: RelatedSurvey): 'Archived' | 'Complete' | '
     return survey.archived ? 'Archived' : survey.endDate ? 'Complete' : survey.startDate ? 'Running' : 'Draft'
 }
 
+function groupEvents<K>(events: ReleaseEvent[], keyOf: (event: ReleaseEvent) => K | undefined): Map<K, ReleaseEvent[]> {
+    const groups = new Map<K, ReleaseEvent[]>()
+    for (const event of events) {
+        const key = keyOf(event)
+        if (key === undefined) {
+            continue
+        }
+        const group = groups.get(key)
+        if (group) {
+            group.push(event)
+        } else {
+            groups.set(key, [event])
+        }
+    }
+    return groups
+}
+
 export function buildTrack(
     row: ReleaseRow,
     stepsByFlag: Map<number, RolloutStep[]>,
     related: TrackRelated = NO_RELATED
 ): Track {
+    const scheduledByFlag = groupEvents(row.events, (event) =>
+        event.kind === 'schedule' && event.upcoming ? event.flagId : undefined
+    )
+    const sendsByHref = groupEvents(row.events, (event) => (event.kind === 'broadcast' ? event.href : undefined))
     const lanes: Lane[] = []
     for (const flag of row.flags) {
         lanes.push({
@@ -224,9 +245,7 @@ export function buildTrack(
             status: flag.active ? 'Live' : 'Off',
             live: !!flag.active,
             steps: stepsByFlag.get(flag.id) ?? NO_STEPS,
-            events: row.events.filter(
-                (event) => event.kind === 'schedule' && event.upcoming && event.flagId === flag.id
-            ),
+            events: scheduledByFlag.get(flag.id) ?? [],
             span: {
                 key: `flag-span-${flag.id}`,
                 kind: 'flag',
@@ -271,9 +290,7 @@ export function buildTrack(
             title: broadcast.name || 'Untitled broadcast',
             status: broadcast.status,
             live: broadcast.status === 'active',
-            events: row.events.filter(
-                (event) => event.kind === 'broadcast' && event.href === urls.broadcast(broadcast.id)
-            ),
+            events: sendsByHref.get(urls.broadcast(broadcast.id)) ?? [],
             href: urls.broadcast(broadcast.id),
         })
     }

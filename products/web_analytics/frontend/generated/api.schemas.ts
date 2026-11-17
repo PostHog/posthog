@@ -144,6 +144,19 @@ export interface PatchedAEOBrandUpdateRequestApi {
     aliases?: string[]
 }
 
+export interface AEOCompetitorCandidateApi {
+    /** Brand id. Confirm the brand as a competitor or ignore it with aeo_brands_partial_update. */
+    brand_id: string
+    /** Brand name. Starts as a guess from the domain until someone edits it. */
+    name: string
+    /** Registrable domain of the brand. */
+    domain: string
+    /** Answers to non-branded prompts whose text has the brand's name or one of its other names as a whole word. */
+    answers_naming: number
+    /** Answers to non-branded prompts that cite a page on the brand's domain or one of its subdomains. */
+    answers_citing: number
+}
+
 /**
  * * `web_search` - Web search
  * * `no_search` - No search
@@ -548,7 +561,20 @@ export interface PatchedAEOPromptUpdateRequestApi {
     archived?: boolean | null
 }
 
+export interface AEOBrandSentimentSentenceApi {
+    /** Offset of the sentence's first character in 'answer_text', counted in Unicode code points. */
+    start: number
+    /** Offset just past the sentence's last character, counted in Unicode code points. */
+    end: number
+    /** Sentiment of this sentence: 'positive', 'neutral' or 'negative'. */
+    label: string
+    /** Classifier confidence (0-1) in 'label'. */
+    score: number
+}
+
 export interface AEOPromptCheckApi {
+    /** The sentences of 'answer_text' that name the brand, each with its own sentiment, in answer order. 'brand_sentiment' is their average. Empty when 'brand_sentiment' is null, and on checks scored before sentences were stored. */
+    brand_sentiment_sentences: AEOBrandSentimentSentenceApi[]
     /** Check id. */
     id: string
     /** Groups the checks of one daily run across prompts and engines. */
@@ -798,6 +824,8 @@ export interface AEOPromptImportResultApi {
 }
 
 export interface AEOPromptCitationApi {
+    /** The sentences of 'answer_text' that name the brand, each with its own sentiment, in answer order. 'brand_sentiment' is their average. Empty when 'brand_sentiment' is null, and on checks scored before sentences were stored. */
+    brand_sentiment_sentences: AEOBrandSentimentSentenceApi[]
     /** Check id. */
     id: string
     /** Groups the checks of one daily run across prompts and engines. */
@@ -3142,6 +3170,15 @@ export const AeoBrandsListStatus = {
     Confirmed: 'confirmed',
     Ignored: 'ignored',
 } as const
+
+export type AeoBrandsCompetitorCandidatesParams = {
+    /**
+     * How many candidates to return, at most 100.
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number
+}
 
 export type AeoKeywordsModifiersParams = {
     /**

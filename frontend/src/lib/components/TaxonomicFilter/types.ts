@@ -26,6 +26,8 @@ import { DataWarehouseTableForInsight } from 'products/data_warehouse/frontend/t
 
 export interface SimpleOption {
     name: string
+    /** The group whose `getValue` and `getName` read this option, when it is not the group that lists it. */
+    group?: TaxonomicFilterGroupType
     propertyFilterType?: PropertyFilterType
     /** When the search query matched a value rather than a key, this is set to 'value'. Otherwise 'key' or omitted. */
     matchedOn?: 'key' | 'value'

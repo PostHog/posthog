@@ -1,5 +1,6 @@
 import { HogFlow } from '~/cdp/schema/hogflow'
 import {
+    HogFlowPersonLookup,
     hogFlowPersonLookup,
     loadHogFlowPerson,
     resolvesByRepointedPerson,
@@ -44,13 +45,12 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
 
     @instrumented('cdpConsumer.handleEachBatch.loadHogFlows')
     protected async loadHogFlows(invocations: CyclotronJobInvocation[]): Promise<LoadHogFlowsResult> {
-        const loadedInvocations: CyclotronJobInvocationHogFlow[] = []
         const failedInvocations: CyclotronJobInvocation[] = []
         const canceledResults: CyclotronJobInvocationResult[] = []
         const hogFlows = await this.hogFlowsFor(invocations.filter((item) => !item.cancelRequestedAt))
 
-        await Promise.all(
-            invocations.map(async (item) => {
+        const loadedOrSkipped = await Promise.all(
+            invocations.map(async (item): Promise<CyclotronJobInvocationHogFlow | undefined> => {
                 // Checked before the team/flow lookups so a cancel-requested run terminates even
                 // when its flow or team has since been deleted. The flow lookup here is
                 // best-effort and only sets the terminal row's function_kind: a null flow
@@ -149,11 +149,8 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
                 }
 
                 if (personLookup) {
-                    loaded.refreshPerson = async () => {
-                        const fresh = await loadHogFlowPerson(this.personsManager, hogFlow, {
-                            ...personLookup,
-                            forceFresh: true,
-                        })
+                    const reloadPerson = async (lookup: HogFlowPersonLookup) => {
+                        const fresh = await loadHogFlowPerson(this.personsManager, hogFlow, lookup)
                         return {
                             person: fresh,
                             filterGlobals: convertToHogFunctionFilterGlobal({
@@ -164,14 +161,21 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
                             }),
                         }
                     }
+                    loaded.refreshPerson = () => reloadPerson({ ...personLookup, forceFresh: true })
+                    // The templates of an api-triggered flow never see person properties.
+                    if (this.personsManager.hasConsistentReads && hogFlow.trigger?.type !== 'api') {
+                        loaded.loadPersonProperties = (keys) =>
+                            reloadPerson({ ...personLookup, forceFresh: false, requiredProperties: keys })
+                    }
                 }
 
-                loadedInvocations.push(loaded)
+                return loaded
             })
         )
 
         await this.cyclotronJobQueue.dequeueInvocations(failedInvocations)
 
+        const loadedInvocations = loadedOrSkipped.filter((item) => item !== undefined)
         return { loadedInvocations, canceledResults }
     }
 }
