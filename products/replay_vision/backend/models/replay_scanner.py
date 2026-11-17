@@ -65,12 +65,6 @@ class ScannerType(models.TextChoices):
     EXPERIMENT = "experiment", "Experiment"
 
 
-class SamplingMode(models.TextChoices):
-    FOCUSED = "focused", "Focused"
-    BALANCED = "balanced", "Balanced"
-    COMPREHENSIVE = "comprehensive", "Comprehensive"
-
-
 class ScannerProvider(models.TextChoices):
     GOOGLE = "google", "Google"
 
@@ -199,13 +193,6 @@ class ReplayScanner(Taggable, ModelActivityMixin, UUIDModel):
         default=1.0,
         validators=[MinValueValidator(0.0), MaxValueValidator(1.0)],
         help_text="0..1 random downsample applied after the query matches.",
-    )
-    sampling_mode = models.CharField(
-        max_length=20,
-        choices=SamplingMode.choices,
-        default=SamplingMode.COMPREHENSIVE,
-        db_default=SamplingMode.COMPREHENSIVE,
-        help_text="Deprecated and ignored: every scanner scans as comprehensive. Only `retire_scanner_sampling_modes` reads or writes it.",
     )
 
     provider = models.CharField(max_length=32, choices=ScannerProvider.choices, default=ScannerProvider.GOOGLE)
