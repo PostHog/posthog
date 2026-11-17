@@ -1,5 +1,6 @@
 import { Message } from 'node-rdkafka'
 import { Pool } from 'pg'
+import { register } from 'prom-client'
 
 import { HOG_INVOCATION_RESULTS_OUTPUT } from '~/common/outputs'
 import { IngestionOutput } from '~/common/outputs/ingestion-output'
@@ -225,6 +226,25 @@ describe('insertIntakeBatch', () => {
         await insertIntakeBatch([run.message], services, OPTIONS)
 
         expect(await storedJobs([run.id])).toHaveLength(jobs)
+    })
+
+    it('records how long an async run waited before its first claim, and nothing for a redelivery or a shadow copy', async () => {
+        const claimDelay = async (): Promise<{ count: number; sum: number }> => {
+            const { values } = await register.getSingleMetric('cdp_intake_claim_delay_ms')!.get()
+            const of = (name: string): number =>
+                values.find((v) => v.metricName === name && v.labels.kind === 'transactional-email')?.value ?? 0
+            return { count: of('cdp_intake_claim_delay_ms_count'), sum: of('cdp_intake_claim_delay_ms_sum') }
+        }
+        const before = await claimDelay()
+        const run = send({ producedAt: Date.now() - 2_000 })
+
+        await insertIntakeBatch([run.message], services, OPTIONS)
+        await insertIntakeBatch([run.message], services, OPTIONS)
+        await insertIntakeBatch([send({ shadow: true, producedAt: Date.now() - 2_000 }).message], services, OPTIONS)
+
+        const after = await claimDelay()
+        expect(after.count - before.count).toBe(1)
+        expect(after.sum - before.sum).toBeGreaterThanOrEqual(2_000)
     })
 
     it('leaves the first request untouched when its key comes back with a different request', async () => {

@@ -43,8 +43,8 @@ const claimErrorsCounter = new Counter({
 
 const claimDelayMs = new Histogram({
     name: 'cdp_intake_claim_delay_ms',
-    help: 'Time from the route producing an intake run to its claim committing, by kind and whether the run was a shadow copy.',
-    labelNames: ['kind', 'mode'] as const,
+    help: 'Time from the route producing an async intake run to its first claim committing, by kind.',
+    labelNames: ['kind'] as const,
     buckets: [50, 100, 250, 500, 1_000, 2_500, 5_000, 10_000, 30_000, 60_000, 300_000],
 })
 
@@ -195,12 +195,9 @@ async function claimRuns(runs: IntakeRun[], services: IntakeBatchServices, optio
     const claimedAt = Date.now()
     runs.forEach((run, i) => {
         claimsCounter.labels({ kind: options.kind, outcome: outcomes[i] }).inc()
-        // An async run counts only on its first insert. A shadow copy is always replayed, so a redelivered one counts again.
-        const firstClaim = run.message.shadow ? outcomes[i] === 'replayed' : outcomes[i] === 'created'
-        if (firstClaim && run.producedAt !== undefined) {
-            claimDelayMs
-                .labels({ kind: options.kind, mode: run.message.shadow ? 'shadow' : 'async' })
-                .observe(claimedAt - run.producedAt)
+        // Only an async run's first insert counts: a shadow copy never waits a caller, and a redelivery is not a new wait.
+        if (!run.message.shadow && outcomes[i] === 'created' && run.producedAt !== undefined) {
+            claimDelayMs.labels({ kind: options.kind }).observe(claimedAt - run.producedAt)
         }
         if (outcomes[i] === 'created') {
             services.invocationResults.queuePreparedRow(runningRows[i])
