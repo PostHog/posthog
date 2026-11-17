@@ -10,6 +10,7 @@ import { initKeaTests } from '~/test/init'
 
 import {
     warehouseSuggestionsAcceptCreate,
+    warehouseSuggestionsDismissCreate,
     warehouseSuggestionsList,
     warehouseSuggestionsStatusRetrieve,
 } from './generated/api'
@@ -29,6 +30,7 @@ jest.mock('./generated/api', () => ({
 const mockList = jest.mocked(warehouseSuggestionsList)
 const mockStatus = jest.mocked(warehouseSuggestionsStatusRetrieve)
 const mockAccept = jest.mocked(warehouseSuggestionsAcceptCreate)
+const mockDismiss = jest.mocked(warehouseSuggestionsDismissCreate)
 
 const STATUS: WarehouseSuggestionStatusApi = {
     enabled: true,
@@ -124,6 +126,19 @@ describe('warehouseSuggestionsSectionLogic', () => {
         )
     })
 
+    it('counts each assignee option over the other filters and leaves the filter menu inactive', () => {
+        logic.actions.setFilters({ assignee: 'me', search: 'o' })
+
+        expect(logic.values.assigneeCounts).toEqual({ anyone: 2, me: 0, unassigned: 2 })
+        expect(logic.values.filtersActive).toBe(false)
+    })
+
+    it('counts no suggestion as assigned to me while the current user is unknown', () => {
+        userLogic.actions.loadUserSuccess(null)
+
+        expect(logic.values.assigneeCounts.me).toEqual(0)
+    })
+
     it.each<[string, Parameters<typeof logic.actions.setAcceptChoices>[0], Record<string, unknown>]>([
         ['each view keeps its suggested interval', {}, { refresh_interval_seconds: 86400 }],
         [
@@ -152,6 +167,26 @@ describe('warehouseSuggestionsSectionLogic', () => {
             [DEPRECATE_VIEW.id, { keep_materialized: true }],
         ])
         expect(lemonToast.success).toHaveBeenCalledWith('Approved 3 suggestions.')
+    })
+
+    it('bulk dismiss sends the reason and note for every row as one bulk decision', async () => {
+        mockDismiss.mockImplementation(async (_project, id) => ({
+            ...ALL.find((item) => item.id === id)!,
+            status: 'dismissed',
+        }))
+        logic.actions.setSelected([MATERIALIZE.id, CERTIFY.id], true)
+        logic.actions.openBulkDismiss()
+        logic.actions.setDismissReason('already_handled')
+        logic.actions.setDismissNote('Covered by our dbt models')
+
+        logic.actions.confirmBulkDismiss()
+        await expectLogic(logic).toDispatchActions(['setBulkActionRunning', 'setBulkActionRunning'])
+
+        const body = { reason: 'already_handled', note: 'Covered by our dbt models' }
+        expect(mockDismiss.mock.calls.map(([, id, sent, params]) => [id, sent, params])).toEqual([
+            [MATERIALIZE.id, body, { surface: undefined, bulk: true }],
+            [CERTIFY.id, body, { surface: undefined, bulk: true }],
+        ])
     })
 
     it('reserves every queued row before the first request returns and skips a row already being saved', async () => {

@@ -1,5 +1,6 @@
 import { HogFlow } from '~/cdp/schema/hogflow'
 import {
+    HogFlowPersonLookup,
     hogFlowPersonLookup,
     loadHogFlowPerson,
     resolvesByRepointedPerson,
@@ -33,7 +34,9 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
     ): Promise<CyclotronJobInvocationResult[]> {
         const { loadedInvocations, canceledResults } = await this.loadHogFlows(invocations)
         const executed = await Promise.all(loadedInvocations.map((item) => this.hogFlowExecutor.execute(item)))
-        return [...canceledResults, ...executed]
+        const results = [...canceledResults, ...executed]
+        results.forEach(countPendingTrigger)
+        return results
     }
 
     protected async hogFlowsFor(invocations: CyclotronJobInvocation[]): Promise<Record<HogFlow['id'], HogFlow | null>> {
@@ -42,13 +45,12 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
 
     @instrumented('cdpConsumer.handleEachBatch.loadHogFlows')
     protected async loadHogFlows(invocations: CyclotronJobInvocation[]): Promise<LoadHogFlowsResult> {
-        const loadedInvocations: CyclotronJobInvocationHogFlow[] = []
         const failedInvocations: CyclotronJobInvocation[] = []
         const canceledResults: CyclotronJobInvocationResult[] = []
         const hogFlows = await this.hogFlowsFor(invocations.filter((item) => !item.cancelRequestedAt))
 
-        await Promise.all(
-            invocations.map(async (item) => {
+        const loadedOrSkipped = await Promise.all(
+            invocations.map(async (item): Promise<CyclotronJobInvocationHogFlow | undefined> => {
                 // Checked before the team/flow lookups so a cancel-requested run terminates even
                 // when its flow or team has since been deleted. The flow lookup here is
                 // best-effort and only sets the terminal row's function_kind: a null flow
@@ -147,11 +149,8 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
                 }
 
                 if (personLookup) {
-                    loaded.refreshPerson = async () => {
-                        const fresh = await loadHogFlowPerson(this.personsManager, hogFlow, {
-                            ...personLookup,
-                            forceFresh: true,
-                        })
+                    const reloadPerson = async (lookup: HogFlowPersonLookup) => {
+                        const fresh = await loadHogFlowPerson(this.personsManager, hogFlow, lookup)
                         return {
                             person: fresh,
                             filterGlobals: convertToHogFunctionFilterGlobal({
@@ -162,14 +161,42 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
                             }),
                         }
                     }
+                    loaded.refreshPerson = () => reloadPerson({ ...personLookup, forceFresh: true })
+                    // The templates of an api-triggered flow never see person properties.
+                    if (this.personsManager.hasConsistentReads && hogFlow.trigger?.type !== 'api') {
+                        loaded.loadPersonProperties = (keys) =>
+                            reloadPerson({ ...personLookup, forceFresh: false, requiredProperties: keys })
+                    }
                 }
 
-                loadedInvocations.push(loaded)
+                return loaded
             })
         )
 
         await this.cyclotronJobQueue.dequeueInvocations(failedInvocations)
 
+        const loadedInvocations = loadedOrSkipped.filter((item) => item !== undefined)
         return { loadedInvocations, canceledResults }
     }
+}
+
+// The transactional email API and the intake consumer queue runs that skip the trigger pipeline, so the worker counts
+// them as triggered when it first runs them.
+// The flag is cleared on the state that the job queue persists, so a throttled or rate-limited reschedule of the
+// same job does not count it again. A canceled run counts too, because the API accepted it.
+export function countPendingTrigger(result: CyclotronJobInvocationResult): void {
+    const state = result.invocation.state as CyclotronJobInvocationHogFlow['state'] | null | undefined
+    if (!state?.triggerMetricPending) {
+        return
+    }
+    delete state.triggerMetricPending
+    result.metrics.push({
+        team_id: result.invocation.teamId,
+        app_source_id: result.invocation.functionId,
+        metric_kind: 'other',
+        metric_name: 'triggered',
+        count: 1,
+        // A send can wait past the hour it was queued, and `conversion_by_start` files the run under that hour.
+        timestamp: result.invocation.queueCreatedAt,
+    })
 }

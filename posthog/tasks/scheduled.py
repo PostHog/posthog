@@ -81,7 +81,8 @@ from posthog.tasks.wizard_blocklist import revoke_blocklisted_gateway_credential
 from posthog.utils import get_crontab, get_instance_region
 
 from products.account_audits.backend.facade.tasks import reconcile_account_audits
-from products.aeo.backend.facade.tasks import run_aeo_citation_checks_task
+from products.aeo.backend.facade.tasks import run_aeo_citation_checks_task, score_aeo_sentiment_backlog_task
+from products.ai_gateway.backend.facade.tasks import sweep_ineligible_dev_token_owners
 from products.ai_observability.backend.facade.tasks import expire_datasets, expire_offline_evaluation_payloads
 from products.ai_training.backend.facade.api import privacy_enabled
 from products.ai_training.backend.facade.tasks import process_ai_training_privacy_requests
@@ -302,6 +303,12 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
     )
     add_periodic_task_with_expiry(
         sender, crontab(minute="*"), reconcile_account_audits.s(), name="reconcile-account-audits"
+    )
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="*/15"),
+        sweep_ineligible_dev_token_owners.s(),
+        name="ai-gateway-revoke-ineligible-dev-tokens",
     )
     if privacy_enabled():
         sender.add_periodic_task(30.0, process_ai_training_privacy_requests.s(), name="process-ai-training-privacy")
@@ -1438,4 +1445,12 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         # Under the dispatch interval, so a backed-up queue drops the stale dispatch
         # instead of the next one finding it still queued.
         expires_seconds=50 * 60,
+    )
+    # A pass still scoring absorbs the next dispatch, so passes never overlap.
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="*/10"),
+        score_aeo_sentiment_backlog_task.s(),
+        name="AEO sentiment backlog",
+        expires_seconds=9 * 60,
     )

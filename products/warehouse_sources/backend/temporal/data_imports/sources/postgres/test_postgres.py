@@ -2909,6 +2909,14 @@ class TestIsConnectionDroppedError:
                 'connection failed: connection to server at "203.0.113.5", port 5432 failed: '
                 "FATAL:  failed to connect to upstream 10.0.0.2:5432"
             ),
+            # A Neon-style proxy refuses a connect because the branch's compute endpoint has no
+            # primary assigned yet — a brief failover/promotion window, not a permanent
+            # customer-facing restriction. Transient; the reconnect must catch it rather than
+            # letting it escape and fail the whole sync.
+            psycopg.OperationalError(
+                'connection failed: connection to server at "203.0.113.5", port 5432 failed: '
+                "FATAL:  no primary available for branch ep-cool-branch-12345678"
+            ),
         ],
     )
     def test_connection_dropped_errors_are_detected(self, error):
@@ -5682,8 +5690,8 @@ class TestValidateCredentialsErrorMapping:
             (
                 'connection failed: connection to server at "1.2.3.4", port 5432 failed: '
                 "server does not support SSL, but SSL was required",
-                "SSL/TLS connection is required but your database does not support it. "
-                "Please enable SSL/TLS on your PostgreSQL server.",
+                "Your database doesn't support encrypted connections, but your certificate settings need one. "
+                "Enable SSL/TLS on your database, or clear this source's certificate settings.",
             ),
             (
                 "consuming input failed: SSL connection has been closed unexpectedly",
@@ -8950,20 +8958,34 @@ class TestGetPrimaryKeys:
             result = _get_primary_keys(cast(Any, dj_cursor), "public", "test_partitioned_inconsistent_pk", logger)
             assert result is None
 
-    def test_reraises_connection_drop_during_child_partition_fallback(self):
+    @parameterized.expand(
+        [
+            (
+                "connection_drop",
+                psycopg.OperationalError("the connection is lost"),
+                "the connection is lost",
+            ),
+            (
+                "recovery_conflict",
+                psycopg.errors.SerializationFailure("canceling statement due to conflict with recovery"),
+                "conflict with recovery",
+            ),
+        ]
+    )
+    def test_reraises_transient_error_during_child_partition_fallback(self, _name, error, match):
         logger = structlog.get_logger()
         cursor = MagicMock()
         # Primary PK query returns no rows, so the child-partition fallback runs.
         cursor.fetchall.return_value = []
-        # The fallback query then hits a transient connection drop. It must propagate to the setup
-        # retry loop (stays retryable), not be swallowed as "no primary key" + captured as noise.
-        cursor.execute.side_effect = [None, psycopg.OperationalError("the connection is lost")]
+        # The fallback query then hits a transient error. It must propagate to the setup retry
+        # loop (stays retryable), not be swallowed as "no primary key" + captured as noise.
+        cursor.execute.side_effect = [None, error]
         module = "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres"
         with (
             patch(f"{module}._explain_query"),
             patch(f"{module}.capture_exception") as mock_capture,
         ):
-            with pytest.raises(psycopg.OperationalError, match="the connection is lost"):
+            with pytest.raises(type(error), match=match):
                 _get_primary_keys(cast(Any, cursor), "public", "events", logger)
         mock_capture.assert_not_called()
 

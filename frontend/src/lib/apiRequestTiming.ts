@@ -1,3 +1,4 @@
+import { requestIdFromHeaders } from 'lib/api-error'
 import { isUUIDLike } from 'lib/utils/guards'
 
 export interface ApiRequestTiming {
@@ -181,9 +182,9 @@ export class ApiRequestTimingRecorder {
 
     private recordResponseMetadata(response: { status?: number; headers?: Headers; url?: string }): void {
         this.timing.http_status = response.status
-        const requestId = response.headers?.get('X-Request-ID')
-        if (requestId && isUUIDLike(requestId)) {
-            this.timing.http_request_id = requestId.toLowerCase()
+        const requestId = requestIdFromHeaders(response.headers)
+        if (requestId) {
+            this.timing.http_request_id = requestId
         } else {
             delete this.timing.http_request_id
         }
