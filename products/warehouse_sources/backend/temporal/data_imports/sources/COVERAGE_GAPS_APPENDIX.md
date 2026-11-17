@@ -13448,13 +13448,13 @@ Today (9): `content_citations`, `content_keywords`, `performance_answers`, `perf
 
 Diffed against: <https://docs.writesonic.com/reference/content_citations_v2_geo_presence_business_export_content_citations_get>
 
-- [ ] `GET /v2/geo/presence/business/export/actionable/content-optimize/issues` — per-page content optimization issues, the actionable half of the GEO product (high)
-- [ ] `GET /v2/geo/presence/business/export/actionable/content-optimize/pages` — page-level optimization scores that the issues and recommendations hang off (high)
-- [ ] `GET /v2/geo/presence/business/export/actionable/content-optimize/recommendations` — recommended fixes per page, joins to pages and issues (medium)
-- [ ] `GET /v2/geo/presence/business/export/actionable/content-optimize/issues-summary` — issue counts by type, the rollup dimension for reporting (medium)
+- [x] `GET /v2/geo/presence/business/export/actionable/content-optimize/issues` — per-page content optimization issues, the actionable half of the GEO product (high)
+- [x] `GET /v2/geo/presence/business/export/actionable/content-optimize/pages` — page-level optimization scores that the issues and recommendations hang off (high)
+- [x] `GET /v2/geo/presence/business/export/actionable/content-optimize/recommendations` — recommended fixes per page, joins to pages and issues (medium)
+- [x] `GET /v2/geo/presence/business/export/actionable/content-optimize/issues-summary` — issue counts by type, the rollup dimension for reporting (medium)
 - [ ] `GET /v2/geo/presence/business/export/actionable/content-optimize/scanned-urls` — crawl inventory that resolves which URLs the issue rows refer to (medium)
 - [ ] `GET /v2/seo-auditor/business/export/issues/get-issues` — SEO auditor issue export, a separate product surface with no coverage at all (medium)
-- [ ] `GET /v2/geo/presence/business/export/actionable/content-optimize/recommendations/all` — account-wide recommendation list rather than per-page (low)
+- [x] `GET /v2/geo/presence/business/export/actionable/content-optimize/recommendations/all` — account-wide recommendation list rather than per-page (low)
 
 Note: The GEO presence export family (citations, keywords, performance answers/prompts/summary, and the config lookups platforms/prompts/topics/websites) is fully covered. Everything else in the Writesonic docs is POST content-generation (article writer, ad copy, social captions) which has no queryable resource semantics and is correctly excluded.
 
