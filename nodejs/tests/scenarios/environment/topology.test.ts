@@ -153,6 +153,14 @@ describe('topology', () => {
         expect(groups.map(({ group }) => group)).toEqual(names)
     })
 
+    it('stops reading groups when its signal aborts, instead of waiting for rpk', async () => {
+        const docker = path.join(dir, 'docker')
+        writeFileSync(docker, '#!/bin/sh\nexec sleep 30\n')
+        chmodSync(docker, 0o755)
+
+        await expect(kafkaGroups(docker, AbortSignal.timeout(100))).rejects.toThrow()
+    }, 2_000)
+
     it('fails the read when rpk fails, instead of reading its error as groups', async () => {
         await expect(
             kafkaGroups(fakeDocker(dir, { list: 'unable to dial: connection refused', describe: '', exitCode: 1 }))

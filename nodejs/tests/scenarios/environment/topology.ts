@@ -90,12 +90,12 @@ export function unionOf(...lists: ConsumerGroup[][]): ConsumerGroup[] {
 
 const GROUPS_PER_DESCRIBE = 20
 
-export async function kafkaGroups(docker: string): Promise<KafkaGroup[]> {
-    const names = groupNamesOf(await rpkOrThrow(docker, ['group', 'list']))
+export async function kafkaGroups(docker: string, signal?: AbortSignal): Promise<KafkaGroup[]> {
+    const names = groupNamesOf(await rpkOrThrow(docker, ['group', 'list'], signal))
     const groups: KafkaGroup[] = []
     for (let at = 0; at < names.length; at += GROUPS_PER_DESCRIBE) {
         const batch = names.slice(at, at + GROUPS_PER_DESCRIBE)
-        groups.push(...groupsOf(await rpkOrThrow(docker, ['group', 'describe', ...batch])))
+        groups.push(...groupsOf(await rpkOrThrow(docker, ['group', 'describe', ...batch], signal)))
     }
     return groups
 }

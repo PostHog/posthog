@@ -333,8 +333,10 @@ export function createRunner(
     ): Promise<{ wiring: Wiring; nodes: string[]; missing: string[] }> => {
         const deadline = Date.now() + topologyWithinMs
         let previousHash: string | undefined
+        let last: { wiring: Wiring; nodes: string[]; missing: string[] } | undefined
         for (;;) {
-            const read = await environment.wiring().then(
+            const bound = AbortSignal.any([signal, AbortSignal.timeout(Math.max(deadline - Date.now(), 0))])
+            const read = await environment.wiring(bound).then(
                 (wiring) => ({ wiring }),
                 (error: unknown) => ({ error })
             )
@@ -343,6 +345,9 @@ export function createRunner(
             }
             const late = Date.now() >= deadline
             if ('error' in read) {
+                if (late && last) {
+                    return last
+                }
                 if (late) {
                     throw read.error
                 }
@@ -352,8 +357,9 @@ export function createRunner(
                 const absent = absentGroupsOf(read.wiring, groups)
                 const complete = missing.length === 0 && absent.length === 0
                 const settled = complete && read.wiring.hash === previousHash
+                last = { wiring: read.wiring, nodes, missing }
                 if (settled || late) {
-                    return { wiring: read.wiring, nodes, missing }
+                    return last
                 }
                 previousHash = complete ? read.wiring.hash : undefined
             }

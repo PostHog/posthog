@@ -751,6 +751,7 @@ describe('runner through seed, drive and judge', () => {
     let wiringChurns = false
     let groupsJoinAtRead = 0
     let interruptAtWiringRead: { read: number; interrupt: AbortController } | undefined
+    let hangsFromWiringRead = Infinity
     const exitOfTheKill = (role: Role): RoleExit[] => [
         { role, replica: 0, at: new Date().toISOString(), code: null, signal: 'SIGKILL', byValve: true },
     ]
@@ -788,11 +789,16 @@ describe('runner through seed, drive and judge', () => {
         dependencyHealth: () => Promise.resolve({ healthy: true, down: [] }),
         exits: () => [...exits],
         groupLag: () => Promise.resolve(0),
-        wiring: () => {
+        wiring: (signal) => {
             const read = wiringReads++
-            if (interruptAtWiringRead?.read === read) {
-                interruptAtWiringRead.interrupt.abort()
+            const interrupt = interruptAtWiringRead?.read === read ? interruptAtWiringRead.interrupt : undefined
+            if (read >= hangsFromWiringRead) {
+                return new Promise((_, reject) => {
+                    signal.addEventListener('abort', () => reject(signal.reason))
+                    interrupt?.abort()
+                })
             }
+            interrupt?.abort()
             exits.push(...exitsAtWiringRead.splice(0))
             if (read < failedWiringReads) {
                 return Promise.reject(new Error('rpk group list timed out'))
@@ -906,6 +912,7 @@ describe('runner through seed, drive and judge', () => {
         wiringChurns = false
         groupsJoinAtRead = 0
         interruptAtWiringRead = undefined
+        hangsFromWiringRead = Infinity
         api = await startFakeProjectApi()
         cacheHome = mkdtempSync(path.join(os.tmpdir(), 'scenario-runner-'))
         env = {
@@ -1366,9 +1373,10 @@ describe('runner through seed, drive and judge', () => {
         }).toEqual({ status: 'passed', recordedPastTheFirstTwoReads: true })
     }, 30_000)
 
-    it('calls a run invalid before its drive when it is interrupted during the read that settles its topology', async () => {
+    it('calls a run invalid before its drive when it is interrupted during a topology read that never answers', async () => {
         const interrupt = new AbortController()
         interruptAtWiringRead = { read: 1, interrupt }
+        hangsFromWiringRead = 1
         const result = await run('all', [KILL_EMAIL_WORKER], undefined, {}, interrupt.signal)
 
         expect(result).toMatchObject({
@@ -1376,6 +1384,18 @@ describe('runner through seed, drive and judge', () => {
             statusReason: 'the run stopped: the run was interrupted while it read its topology',
             timeline: [],
         })
+    }, 30_000)
+
+    it('drives a run whose topology read still hangs at the deadline, and records the read before it', async () => {
+        wiringChurns = true
+        hangsFromWiringRead = 2
+
+        const result = await run('all')
+
+        expect({
+            status: result.status,
+            databases: (evidenceOf(result, 'topology.json') as Wiring).databases.map(({ database }) => database),
+        }).toEqual({ status: 'passed', databases: ['cyclotron-1'] })
     }, 30_000)
 
     it('calls a run invalid before its drive when a valve targets a node its topology lacks, and names the nodes found', async () => {
