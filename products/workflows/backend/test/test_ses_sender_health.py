@@ -7,8 +7,10 @@ from django.core import mail
 from django.db import OperationalError
 
 import posthoganalytics
+from botocore.exceptions import ClientError
 from parameterized import parameterized
 from rest_framework import status
+from structlog.testing import capture_logs
 
 from posthog.integrations import IntegrationManager, IntegrationPatch
 from posthog.models.instance_setting import override_instance_config
@@ -20,6 +22,7 @@ from products.notifications.backend.facade.testing import stored_notifications_f
 from products.workflows.backend.services.ses_sender_health import SES_SENDER_HEALTH_FLAG
 from products.workflows.backend.tasks.ses_sender_health import check_ses_sender_health
 from products.workflows.backend.test.email_domain_api_test_case import ALL_KINDS, DOMAIN, EmailDomainApiTestCase
+from products.workflows.backend.tests.fakes.faults import AwsFault
 
 OTHER_DOMAIN = "news.example.com"
 PENDING_DOMAIN = "pending.example.com"
@@ -258,3 +261,19 @@ class TestSesSenderHealth(EmailDomainApiTestCase):
         assert self.sending_stopped(sender)
         assert len(mail.outbox) == 1
         assert len(stored_notifications_for_team(self.team.id)) == 1
+
+    def test_reports_why_ses_refused_the_identity_list_and_still_fails_the_run(self) -> None:
+        self.world.faults.inject("sesv2.list_email_identities", AwsFault.ACCESS_DENIED)
+
+        with (
+            patch("posthoganalytics.api_key", "phc_test"),
+            patch("posthoganalytics.capture_exception", return_value="event-id") as error_tracking,
+            capture_logs() as logs,
+            self.assertRaises(ClientError),
+        ):
+            check_ses_sender_health()
+
+        [(reported_error,), reported] = error_tracking.call_args
+        assert reported_error.response["Error"]["Code"] == "AccessDenied"
+        assert reported["properties"]["error_code"] == "AccessDenied"
+        assert [log["error_code"] for log in logs if "error_code" in log] == ["AccessDenied"]
