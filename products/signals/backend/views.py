@@ -401,6 +401,8 @@ from products.signals.backend.throttles import (
     ReportSearchThrottle,
     ReportTaskActionRunBurstThrottle,
     ReportTaskActionRunSustainedThrottle,
+    SourceFilterPreviewBurstThrottle,
+    SourceFilterPreviewSustainedThrottle,
     UserReportCreateBurstThrottle,
 )
 from products.signals.backend.tracker_issues import tracker_issue_completion_lock
@@ -724,7 +726,7 @@ class SignalSourceConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         url_path="filter_preview",
         # The preview returns warehouse rows, so the caller needs the query read scope too.
         required_scopes=["inbox:read", "query:read"],
-        throttle_classes=[ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle],
+        throttle_classes=[SourceFilterPreviewBurstThrottle, SourceFilterPreviewSustainedThrottle],
     )
     def filter_preview(self, request: ValidatedRequest, **kwargs: Any) -> Response:
         try:

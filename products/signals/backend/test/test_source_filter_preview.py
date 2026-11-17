@@ -182,3 +182,15 @@ class TestSourceFilterPreview(ClickhouseTestMixin, APIBaseTest):
             )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
+    @patch("products.signals.backend.throttles.SourceFilterPreviewBurstThrottle.rate", new="1/minute")
+    def test_preview_throttles_session_requests(self, _rate_limit: object) -> None:
+        url = f"/api/projects/{self.team.id}/signals/source_configs/filter_preview/"
+        body = {"source_product": "linear", "source_type": "issue", "expression": ""}
+
+        first = self.client.post(url, body, format="json")
+        second = self.client.post(url, body, format="json")
+
+        assert first.status_code == status.HTTP_200_OK, first.json()
+        assert second.status_code == status.HTTP_429_TOO_MANY_REQUESTS
