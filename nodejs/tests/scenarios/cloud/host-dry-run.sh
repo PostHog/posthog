@@ -30,21 +30,21 @@ check_amd64_downloads() {
     cd "$dir"
     curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64-${AWS_CLI_VERSION}.zip" -o awscli.zip
     echo "${AWS_CLI_SHA256}  awscli.zip" | sha256sum --check --strict
-    unzip -l awscli.zip aws/install | grep -q aws/install
+    unzip -l awscli.zip aws/install | grep aws/install >/dev/null
     curl -fsSL "https://nodejs.org/dist/${node_version}/node-${node_version}-linux-x64.tar.xz" -o "node-${node_version}-linux-x64.tar.xz"
     curl -fsSL "https://nodejs.org/dist/${node_version}/SHASUMS256.txt" | grep " node-${node_version}-linux-x64.tar.xz\$" | sha256sum --check --strict
-    tar -tJf "node-${node_version}-linux-x64.tar.xz" | grep -q "^node-${node_version}-linux-x64/bin/node\$"
+    tar -tJf "node-${node_version}-linux-x64.tar.xz" | grep "^node-${node_version}-linux-x64/bin/node\$" >/dev/null
     curl -fsSL "https://registry.npmjs.org/pnpm/-/pnpm-${PNPM_VERSION}.tgz" -o pnpm.tgz
     echo "${PNPM_SHA256}  pnpm.tgz" | sha256sum --check --strict
-    tar -tzf pnpm.tgz | grep -q '^package/dist/pnpm.mjs$'
+    tar -tzf pnpm.tgz | grep '^package/dist/pnpm.mjs$' >/dev/null
     curl -fsSL "https://static.rust-lang.org/rustup/archive/${RUSTUP_VERSION}/x86_64-unknown-linux-gnu/rustup-init" -o rustup-init
     echo "${RUSTUP_INIT_SHA256}  rustup-init" | sha256sum --check --strict
     curl -fsSL "https://github.com/astral-sh/uv/releases/download/${UV_VERSION}/uv-x86_64-unknown-linux-gnu.tar.gz" -o uv-x86_64-unknown-linux-gnu.tar.gz
     curl -fsSL "https://github.com/astral-sh/uv/releases/download/${UV_VERSION}/uv-x86_64-unknown-linux-gnu.tar.gz.sha256" | sha256sum --check --strict
-    tar -tzf uv-x86_64-unknown-linux-gnu.tar.gz | grep -q '^uv-x86_64-unknown-linux-gnu/uv$'
+    tar -tzf uv-x86_64-unknown-linux-gnu.tar.gz | grep '^uv-x86_64-unknown-linux-gnu/uv$' >/dev/null
     curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz" -o go.tar.gz
     echo "${GO_SHA256}  go.tar.gz" | sha256sum --check --strict
-    tar -tzf go.tar.gz | grep -q '^go/bin/go$'
+    tar -tzf go.tar.gz | grep '^go/bin/go$' >/dev/null
     cd - >/dev/null
 }
 
