@@ -19,7 +19,7 @@ import {
 } from '../cyclotron-v2'
 import { encodeJob, encodeStateColumns, v2JobToInvocation } from '../cyclotron-v2/job-codec'
 import { IDEMPOTENCY_CLAIM_LOCK_TIMEOUT_MS } from '../cyclotron-v2/manager'
-import { CyclotronV2IdempotentClaim, CyclotronV2WorkerConfig } from '../cyclotron-v2/types'
+import { CyclotronV2IdempotencyKey, CyclotronV2IdempotentClaim, CyclotronV2WorkerConfig } from '../cyclotron-v2/types'
 import { IdempotentInvocation, IdempotentJobQueue } from './job-queue.interface'
 import { cdpJobSizeCompressedKb, cdpJobSizeKb, createInvocationSanitizer, observeConsumedBatch } from './shared'
 
@@ -101,6 +101,7 @@ export class CyclotronJobQueuePostgresV2 implements IdempotentJobQueue {
             | 'CDP_CYCLOTRON_INSERT_PARALLEL_BATCHES'
             | 'CDP_CYCLOTRON_STRIP_PERSON_FROM_STATE_TEAMS'
             | 'CDP_CYCLOTRON_BACKGROUND_DEPTH_CHECK'
+            | 'CDP_CYCLOTRON_RELEASE_WRITE_RETRY'
         > &
             Pick<CommonConfig, 'ENCRYPTION_SALT_KEYS'>
     ) {
@@ -151,6 +152,7 @@ export class CyclotronJobQueuePostgresV2 implements IdempotentJobQueue {
             pollDelayMaxMs: this.config.CDP_CYCLOTRON_BATCH_DELAY_MAX_MS,
             boundedPolls: this.config.CDP_CYCLOTRON_BOUNDED_POLLS,
             boundedFairDequeue: this.config.CDP_CYCLOTRON_BOUNDED_FAIR_DEQUEUE,
+            releaseWriteRetry: this.config.CDP_CYCLOTRON_RELEASE_WRITE_RETRY,
             includeEmptyBatches: true,
         })
 
@@ -317,12 +319,13 @@ export class CyclotronJobQueuePostgresV2 implements IdempotentJobQueue {
             invocations.map((invocation, i) => ({
                 job: invocationToV2JobInit(invocation),
                 fingerprint: entries[i].fingerprint,
+                reply: entries[i].reply,
             })),
             { lockTimeoutMs: IDEMPOTENCY_CLAIM_LOCK_TIMEOUT_MS }
         )
     }
 
-    public async findIdempotencyKey(id: string): Promise<{ fingerprint: string } | null> {
+    public async findIdempotencyKey(id: string): Promise<CyclotronV2IdempotencyKey | null> {
         if (!this.manager) {
             throw new Error('CyclotronV2Manager not initialized')
         }

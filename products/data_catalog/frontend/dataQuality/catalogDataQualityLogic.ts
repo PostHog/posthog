@@ -49,6 +49,11 @@ export interface catalogDataQualityLogicActions {
         checkIds: string[]
         target: import('products/data_quality/frontend/overview/dataQualityOverviewLogic').OverviewRunTarget
     } // dataQualityOverviewLogic
+    setFilters: (
+        filters: Partial<import('products/data_quality/frontend/overview/dataQualityOverviewLogic').OverviewFilters>
+    ) => {
+        filters: Partial<import('products/data_quality/frontend/overview/dataQualityOverviewLogic').OverviewFilters>
+    } // dataQualityOverviewLogic
     clearFilters: () => {
         value: true
     }
@@ -95,7 +100,7 @@ export const catalogDataQualityLogic = kea<catalogDataQualityLogicType>([
     path(['products', 'data_catalog', 'frontend', 'dataQuality', 'catalogDataQualityLogic']),
     connect(() => ({
         values: [catalogTablesLogic, ['rows', 'checkGroups', 'rowsLoaded', 'rowsError'], router, ['searchParams']],
-        actions: [dataQualityOverviewLogic, ['runChecks']],
+        actions: [dataQualityOverviewLogic, ['runChecks', 'setFilters']],
     })),
     actions({
         toggleTableExpanded: (rowKey: string) => ({ rowKey }),
@@ -117,6 +122,7 @@ export const catalogDataQualityLogic = kea<catalogDataQualityLogicType>([
             'all' as ChecksScope,
             {
                 setScope: (_, { scope }) => scope,
+                setFilters: (state, { filters }) => (filters.status === 'failing' ? 'failing' : state),
                 clearFilters: () => 'all',
             },
         ],

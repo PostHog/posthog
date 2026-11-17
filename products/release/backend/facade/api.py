@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import datetime
 from typing import TYPE_CHECKING, Any, TypeVar
 from uuid import UUID
 
@@ -29,6 +30,7 @@ if TYPE_CHECKING:
 
 ReleaseNotFoundError = contracts.ReleaseNotFoundError
 UnknownLinkedObjectsError = contracts.UnknownLinkedObjectsError
+InvalidMergeError = contracts.InvalidMergeError
 ImportFlag = contracts.ImportFlag
 
 
@@ -143,6 +145,48 @@ def list_page(team_id: int, page: PageRequest, lookups: LinkLookups) -> Page[con
     return releases.map(lambda obj: _to_dto(obj, hidden))
 
 
+CATALOG_SCAN_BATCH = 200
+
+
+class InvalidCatalogCursorError(Exception):
+    pass
+
+
+def _parse_cursor(cursor: str) -> tuple[datetime, UUID]:
+    created_at, _, release_id = cursor.partition("|")
+    try:
+        return datetime.fromisoformat(created_at), UUID(release_id)
+    except ValueError:
+        raise InvalidCatalogCursorError(cursor)
+
+
+def list_catalog_page(
+    team_id: int, flags: FlagVisibilityLookup, *, search: str, limit: int, cursor: str
+) -> tuple[list[contracts.CatalogReleaseDTO], str | None]:
+    releases = logic.list_catalog_releases(team_id, search, _parse_cursor(cursor) if cursor else None)
+    results: list[contracts.CatalogReleaseDTO] = []
+    position = 0
+    while True:
+        size = CATALOG_SCAN_BATCH if search else limit + 1
+        batch = list(releases[position : position + size])
+        position += len(batch)
+        hidden = flags(sorted({flag_id for obj in batch if obj.auto_named for flag_id in obj.feature_flag_ids})).hidden
+        for obj in batch:
+            restricted = obj.auto_named and bool(hidden & set(obj.feature_flag_ids))
+            if restricted and search:
+                continue
+            if len(results) == limit:
+                last = results[-1]
+                return results, f"{last.created_at.isoformat()}|{last.id}"
+            results.append(
+                contracts.CatalogReleaseDTO(
+                    id=obj.id, name=RESTRICTED_NAME if restricted else obj.name, created_at=obj.created_at
+                )
+            )
+        if len(batch) < size:
+            return results, None
+
+
 def create(input: contracts.CreateReleaseInput, lookups: LinkLookups) -> contracts.ReleaseDTO:
     checked = {
         field: _checked(field, noun, list(getattr(input, field)), [], getattr(lookups, noun))
@@ -168,6 +212,21 @@ def update(team_id: int, release_id: UUID, changes: dict[str, Any], lookups: Lin
                     field, noun, list(changes[field]), list(getattr(current, field)), getattr(lookups, noun)
                 )
     return _visible_dto(logic.update_release(team_id, release_id, changes), lookups)
+
+
+def merge(
+    team_id: int, target_id: UUID, source_ids: list[UUID], lookups: LinkLookups, name: str | None = None
+) -> contracts.ReleaseDTO:
+    sources = [release_id for release_id in dict.fromkeys(source_ids) if release_id != target_id]
+    if not sources:
+        raise contracts.InvalidMergeError("Pick at least one other release to merge into this one.")
+
+    def no_hidden_flags(releases: list[Release]) -> None:
+        flag_ids = sorted({flag_id for release in releases for flag_id in release.feature_flag_ids})
+        if flag_ids and lookups.flags(flag_ids).hidden:
+            raise contracts.InvalidMergeError("These releases link flags you cannot see, so they cannot be merged.")
+
+    return _visible_dto(logic.merge_releases(team_id, target_id, sources, name, no_hidden_flags), lookups)
 
 
 def import_all(team_id: int, load_flags: Callable[[], list[contracts.ImportFlag]]) -> int:

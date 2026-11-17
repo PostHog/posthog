@@ -57,9 +57,13 @@ import { Environment, RoleExit, defaultStateDir } from '../environment/environme
 import { Role, RoleSpec, consumerGroupsOf, roleSpecs, secretsOf } from '../environment/roles'
 import { RESIDENT_TEAMS_FROM, cyclotronUrlOf, scratchSchema, withPostgres } from '../environment/stack'
 import { JournalEntry } from '../judge/judge'
-import { ProviderEdge, TruthRecord, startProviderEdge } from '../provider-edge'
+import { main } from '../main'
+import { ProviderEdge, TruthRecord, WEBHOOK_HOST, startProviderEdge } from '../provider-edge'
 import { FakeProjectApi, startFakeProjectApi } from '../scorecard/fake-project-api'
+import { STORE_URL } from '../store/client'
+import { TestStore, UNREACHABLE_STORE, startTestStore, storeEnvOf } from '../store/test-store'
 import { RunResult, Runner, createRunner } from './runner'
+import { EXIT_CODE, exitCodeOf } from './status'
 
 jest.mock('~/common/utils/request', () => {
     const actual = jest.requireActual('~/common/utils/request')
@@ -71,6 +75,7 @@ const SMOKE = load(SMOKE_CARD)
 const PROCESS_DATABASE_URL = 'postgres://scenario:scenario@127.0.0.1:2/scenario'
 const PROFILE_DATABASE_URL = 'postgres://scenario:scenario@127.0.0.1:1/scenario'
 const NEVER_ABORTED = new AbortController().signal
+const { [STORE_URL]: _developerStore, ...processEnv } = process.env
 
 const withSettings = (settings: Record<string, string>): LoadedCard => ({
     ...SMOKE,
@@ -78,11 +83,17 @@ const withSettings = (settings: Record<string, string>): LoadedCard => ({
 })
 
 let processMetrics: { url: string; server: http.Server }
+let janitor: { scrapes: number; resetsAfterFirstScrape: number }
 
 beforeAll(async () => {
     const registry = new Registry()
     collectDefaultMetrics({ register: registry })
-    const server = http.createServer(async (_req, res) => res.end(await registry.metrics()))
+    const server = http.createServer(async (req, res) => {
+        const resets = req.url?.includes('role=cdp-cyclotron-v2-janitor')
+            ? [`cdp_cyclotron_v2_janitor_stalled ${janitor.scrapes++ === 0 ? 0 : janitor.resetsAfterFirstScrape}`]
+            : []
+        res.end([await registry.metrics(), ...resets].join('\n'))
+    })
     await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
     processMetrics = { url: `http://127.0.0.1:${(server.address() as AddressInfo).port}/_metrics`, server }
 })
@@ -135,7 +146,7 @@ describe('runner', () => {
         stateDir = path.join(cacheHome, 'posthog-scenarios')
         duringReset = () => undefined
         runner = createRunner(environment, {
-            ...process.env,
+            ...processEnv,
             XDG_CACHE_HOME: cacheHome,
             DATABASE_URL: PROCESS_DATABASE_URL,
             ...api.credentials,
@@ -221,7 +232,7 @@ describe('runner', () => {
             })
         )
         const onHost = createRunner(environment, {
-            ...process.env,
+            ...processEnv,
             XDG_CACHE_HOME: cacheHome,
             DATABASE_URL: PROCESS_DATABASE_URL,
             SCENARIO_RUN_MANIFEST: manifest,
@@ -252,12 +263,77 @@ describe('runner', () => {
             recorded: undefined,
             captured: undefined,
             scorecardError: undefined,
+            host: os.hostname(),
             event: api.captured[0].properties,
         })
         expect(parseJSON(readFileSync(path.join(result.evidenceDir, 'scorecard.json'), 'utf8'))).toEqual(onDisk)
         expect(readdirSync(result.evidenceDir).filter((file) => file.startsWith('scorecard'))).toEqual([
             'scorecard.json',
         ])
+    })
+
+    describe('reporting to the run store', () => {
+        let store: TestStore
+
+        const runnerWith = (storeEnv: NodeJS.ProcessEnv): Runner =>
+            createRunner(environment, {
+                ...processEnv,
+                XDG_CACHE_HOME: cacheHome,
+                DATABASE_URL: PROCESS_DATABASE_URL,
+                ...api.credentials,
+                ...storeEnv,
+            })
+
+        beforeAll(async () => {
+            store = await startTestStore('runner')
+        })
+
+        afterAll(() => store.close())
+
+        it('stores the scorecard it publishes, with its adapters and the host it ran on', async () => {
+            const result = await runnerWith(store.envOf(cacheHome)).run(
+                withSettings({ DATABASE_URL: PROFILE_DATABASE_URL }),
+                NEVER_ABORTED
+            )
+
+            expect(result).toMatchObject({ recorded: true, stored: true })
+            expect(await store.read(result.runId)).toMatchObject({
+                scorecard: api.captured[0].properties,
+                adapters: ['workflows'],
+                owners: [],
+                host: os.hostname(),
+            })
+        })
+
+        it('keeps its status when the run store is down, and publish --all stores the run later', async () => {
+            jest.spyOn(process.stdout, 'write').mockReturnValue(true)
+            const loaded = withSettings({ DATABASE_URL: PROFILE_DATABASE_URL })
+            const withoutStore = await runner.run(loaded, NEVER_ABORTED)
+            const result = await runnerWith(storeEnvOf(cacheHome, UNREACHABLE_STORE)).run(loaded, NEVER_ABORTED)
+
+            expect(result).toMatchObject({
+                recorded: true,
+                storeError: expect.stringMatching(/^the run store did not answer/),
+            })
+            expect(result.stored).toBeUndefined()
+            expect({ status: result.status, statusReason: result.statusReason, exitCode: exitCodeOf(result) }).toEqual({
+                status: withoutStore.status,
+                statusReason: withoutStore.statusReason,
+                exitCode: exitCodeOf(withoutStore),
+            })
+
+            const published = await main(['publish', '--all'], {
+                ...processEnv,
+                XDG_CACHE_HOME: cacheHome,
+                ...store.envOf(cacheHome),
+            })
+
+            expect(published).toBe(EXIT_CODE.passed)
+            expect(await store.read(result.runId)).toMatchObject({
+                scorecard: api.captured[1].properties,
+                host: os.hostname(),
+            })
+        })
     })
 
     it.each<[string, boolean, AbortSignal, RegExp]>([
@@ -375,7 +451,7 @@ describe('runner', () => {
                 proxied.port = String((server.address() as AddressInfo).port)
                 const bounded = createRunner(
                     environment,
-                    { ...process.env, XDG_CACHE_HOME: cacheHome, DATABASE_URL: PROCESS_DATABASE_URL },
+                    { ...processEnv, XDG_CACHE_HOME: cacheHome, DATABASE_URL: PROCESS_DATABASE_URL },
                     { seedWithinMs: 2000 }
                 )
 
@@ -673,7 +749,7 @@ describe('runner through seed, drive and judge', () => {
                 name: role,
                 replica,
                 url: roleUrl,
-                metricsUrl: `${processMetrics.url}?replica=${replica}`,
+                metricsUrl: `${processMetrics.url}?replica=${replica}&role=${role}`,
             })),
         actuate(action) {
             exits.push(...(action.kind === 'kill' ? killExits(action.role) : []))
@@ -768,7 +844,7 @@ describe('runner through seed, drive and judge', () => {
         api = await startFakeProjectApi()
         cacheHome = mkdtempSync(path.join(os.tmpdir(), 'scenario-runner-'))
         env = {
-            ...process.env,
+            ...processEnv,
             XDG_CACHE_HOME: cacheHome,
             DATABASE_URL: defaultConfig.DATABASE_URL,
             CYCLOTRON_NODE_DATABASE_URL: cyclotronUrl,
@@ -788,6 +864,7 @@ describe('runner through seed, drive and judge', () => {
         results = []
         exits = []
         killExits = exitOfTheKill
+        janitor = { scrapes: 0, resetsAfterFirstScrape: 0 }
         await withPostgres((client) => client.query('DELETE FROM cyclotron_jobs'), cyclotronUrl)
     })
 
@@ -929,6 +1006,7 @@ describe('runner through seed, drive and judge', () => {
                 recorded: undefined,
                 captured: undefined,
                 scorecardError: undefined,
+                host: os.hostname(),
                 event: api.captured[0]?.properties,
             })
             expect(api.captured.map(({ properties }) => properties)).toEqual([
@@ -945,6 +1023,36 @@ describe('runner through seed, drive and judge', () => {
         },
         30_000
     )
+    it.each([
+        ['passes a duplicate send the janitor reset accounts for', 1, true],
+        ['fails a duplicate send that no janitor reset accounts for', 0, false],
+    ])(
+        '%s',
+        async (_story, resets, passed) => {
+            janitor.resetsAfterFirstScrape = resets
+            let duplicated = false
+            jest.mocked(fetch).mockImplementation(async (url, options) => {
+                if (!duplicated && String(url).includes(WEBHOOK_HOST)) {
+                    duplicated = true
+                    await _fetch(url, options, throughTheEdge)
+                }
+                return _fetch(url, options, throughTheEdge)
+            })
+
+            const result = await run('all', [], 'event_webhook')
+
+            expect(result).toMatchObject({
+                status: passed ? 'passed' : 'failed',
+                janitorResets: resets,
+                invariants: expect.arrayContaining([
+                    expect.objectContaining({ name: 'duplicate_sends', passed, observed: 1, gate: 0 }),
+                ]),
+            })
+            expect(api.captured[0]?.properties).toMatchObject({ janitor_resets: resets, inv_duplicate_sends_gate: 0 })
+        },
+        30_000
+    )
+
     it('fails a run whose intake role refused every unit, rather than calling it invalid', async () => {
         const result = await createRunner(environmentOf('none'), env).run(
             shortSmoke([], 'transactional_email'),

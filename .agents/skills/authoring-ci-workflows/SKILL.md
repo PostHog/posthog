@@ -497,6 +497,7 @@ Crons are offset so the runs do not all fire at once, and the offsets live here 
 | `ci-dagster.yml`                    | 33     |
 | `ci-python.yml`                     | 43     |
 | `ci-mcp.yml`                        | 53     |
+| `ci-rust.yml`                       | 3      |
 | `ci-backend-update-test-timing.yml` | 17     |
 | `ci-storybook.yml`                  | 27     |
 
