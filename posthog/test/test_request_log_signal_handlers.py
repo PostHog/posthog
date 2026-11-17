@@ -1,11 +1,18 @@
-from typing import Any, cast
+from typing import Any
+
+from unittest.mock import patch
 
 from django.core.signals import got_request_exception
 from django.http import HttpRequest, HttpResponse
 from django.test import RequestFactory, SimpleTestCase
 
-from django_structlog.middlewares import RequestMiddleware
+import structlog
+from django_structlog.middlewares import (
+    RequestMiddleware,
+    request as request_middleware,
+)
 from parameterized import parameterized
+from structlog.testing import capture_logs
 
 from posthog.request_log_signal_handlers import redact_credential_query_params
 
@@ -33,10 +40,12 @@ class TestRequestLogSignalHandlers(SimpleTestCase):
         middleware = RequestMiddleware(view)
         request = RequestFactory().get("/api/projects/", {"personal_api_key": "phx_testvalue", "limit": "10"})
 
-        with self.assertLogs("django_structlog.middlewares.request", level="INFO") as logs:
+        with (
+            capture_logs() as event_dicts,
+            patch.object(request_middleware, "logger", structlog.get_logger(request_middleware.__name__)),
+        ):
             middleware(request)
 
-        event_dicts = [cast(dict[str, Any], record.msg) for record in logs.records]
         assert [(event_dict["event"], event_dict["request"]) for event_dict in event_dicts] == [
             ("request_started", "GET /api/projects/?personal_api_key=<redacted>&limit=10"),
             (final_event, "GET /api/projects/?personal_api_key=<redacted>&limit=10"),
