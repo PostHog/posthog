@@ -186,9 +186,12 @@ class TestDataWarehouseSavedQueryAccessControl(WarehouseAccessControlTestMixin):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json().get("user_access_level"), "viewer")
 
-    def test_upsert_create_respects_object_level_none(self):
+    @parameterized.expand([("stored_name", None), ("bare_name_of_a_qualified_model", "models.my_view")])
+    def test_upsert_create_respects_object_level_none(self, _case: str, stored_name: str | None):
         # Regression: POST with an existing query's name performs an UPSERT-update.
         # Object-level access controls must still apply even though get_object() isn't called.
+        if stored_name is not None:
+            DataWarehouseSavedQuery.objects.filter(pk=self.saved_query.pk).update(name=stored_name)
         self._create_access_control(self.editor_user, access_level="editor")  # resource-level editor
         self._create_access_control(
             self.editor_user, resource="warehouse_view", resource_id=str(self.saved_query.id), access_level="none"
@@ -196,7 +199,7 @@ class TestDataWarehouseSavedQueryAccessControl(WarehouseAccessControlTestMixin):
         self.client.force_login(self.editor_user)
         response = self.client.post(
             self._list_url(),
-            data={"name": self.saved_query.name, "query": {"kind": "HogQLQuery", "query": "select 2"}},
+            data={"name": "my_view", "query": {"kind": "HogQLQuery", "query": "select 2"}},
             content_type="application/json",
         )
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
@@ -209,14 +212,6 @@ class TestDataWarehouseSavedQueryAccessControl(WarehouseAccessControlTestMixin):
             ("allowed", "my_view", "models.my_view", "editor", "This name already refers to the model my_view."),
             # Refused all the same, but without confirming a model the caller cannot read.
             ("denied", "my_view", "models.my_view", "none", "A table or view with this name already exists."),
-            (
-                "bare_name_allowed",
-                "models.my_view",
-                "my_view",
-                "editor",
-                "This name already refers to the model models.my_view.",
-            ),
-            ("bare_name_denied", "models.my_view", "my_view", "none", "A table or view with this name already exists."),
         ]
     )
     def test_a_name_is_refused_while_an_authored_model_answers_to_it(

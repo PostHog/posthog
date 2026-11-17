@@ -530,7 +530,7 @@ export const WarehouseSavedQueriesCreateBody = /* @__PURE__ */ zod
             .string()
             .max(warehouseSavedQueriesCreateBodyNameMax)
             .describe(
-                'Unique name for the view. Used as the table name in HogQL queries and the node name in the data modeling Node.'
+                'Unique name for the view. Used as the table name in HogQL queries and the node name in the data modeling Node. A new or renamed view is stored under the `models.` root, so `revenue` is saved as `models.revenue`. Queries can still use the name without the root when no table holds it.'
             ),
         query: zod
             .object({
@@ -640,7 +640,7 @@ export const WarehouseSavedQueriesUpdateBody = /* @__PURE__ */ zod
             .string()
             .max(warehouseSavedQueriesUpdateBodyNameMax)
             .describe(
-                'Unique name for the view. Used as the table name in HogQL queries and the node name in the data modeling Node.'
+                'Unique name for the view. Used as the table name in HogQL queries and the node name in the data modeling Node. A new or renamed view is stored under the `models.` root, so `revenue` is saved as `models.revenue`. Queries can still use the name without the root when no table holds it.'
             ),
         query: zod
             .object({
@@ -751,7 +751,7 @@ export const WarehouseSavedQueriesPartialUpdateBody = /* @__PURE__ */ zod
             .max(warehouseSavedQueriesPartialUpdateBodyNameMax)
             .optional()
             .describe(
-                'Unique name for the view. Used as the table name in HogQL queries and the node name in the data modeling Node.'
+                'Unique name for the view. Used as the table name in HogQL queries and the node name in the data modeling Node. A new or renamed view is stored under the `models.` root, so `revenue` is saved as `models.revenue`. Queries can still use the name without the root when no table holds it.'
             ),
         query: zod
             .object({
@@ -879,7 +879,7 @@ export const WarehouseSavedQueriesCancelCreateBody = /* @__PURE__ */ zod
             .string()
             .max(warehouseSavedQueriesCancelCreateBodyNameMax)
             .describe(
-                'Unique name for the view. Used as the table name in HogQL queries and the node name in the data modeling Node.'
+                'Unique name for the view. Used as the table name in HogQL queries and the node name in the data modeling Node. A new or renamed view is stored under the `models.` root, so `revenue` is saved as `models.revenue`. Queries can still use the name without the root when no table holds it.'
             ),
         query: zod
             .object({
@@ -1044,7 +1044,7 @@ export const WarehouseSavedQueriesRevertMaterializationCreateBody = /* @__PURE__
             .string()
             .max(warehouseSavedQueriesRevertMaterializationCreateBodyNameMax)
             .describe(
-                'Unique name for the view. Used as the table name in HogQL queries and the node name in the data modeling Node.'
+                'Unique name for the view. Used as the table name in HogQL queries and the node name in the data modeling Node. A new or renamed view is stored under the `models.` root, so `revenue` is saved as `models.revenue`. Queries can still use the name without the root when no table holds it.'
             ),
         query: zod
             .object({

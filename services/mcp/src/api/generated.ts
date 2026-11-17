@@ -37559,7 +37559,7 @@ export namespace Schemas {
       /** @nullable */
       readonly deleted: boolean | null;
       /**
-         * Unique name for the view. Used as the table name in HogQL queries and the node name in the data modeling Node.
+         * Unique name for the view. Used as the table name in HogQL queries and the node name in the data modeling Node. A new or renamed view is stored under the `models.` root, so `revenue` is saved as `models.revenue`. Queries can still use the name without the root when no table holds it.
          * @maxLength 128
          */
       name: string;
@@ -89304,7 +89304,7 @@ export namespace Schemas {
       /** @nullable */
       readonly deleted?: boolean | null;
       /**
-         * Unique name for the view. Used as the table name in HogQL queries and the node name in the data modeling Node.
+         * Unique name for the view. Used as the table name in HogQL queries and the node name in the data modeling Node. A new or renamed view is stored under the `models.` root, so `revenue` is saved as `models.revenue`. Queries can still use the name without the root when no table holds it.
          * @maxLength 128
          */
       name?: string;

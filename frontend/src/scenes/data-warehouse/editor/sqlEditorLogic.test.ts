@@ -302,7 +302,8 @@ describe('sqlEditorLogic', () => {
                     {
                         id: 'created-view-id',
                         columns: [],
-                        name: 'Materialized view',
+                        // The server stores a model under the models root, not the typed name.
+                        name: 'models.Materialized view',
                         query: { kind: NodeKind.HogQLQuery, query: 'SELECT 1' },
                         is_materialized: false,
                         latest_history_id: null,
@@ -2822,7 +2823,7 @@ describe('sqlEditorLogic', () => {
                     {
                         id: 'created-view-id',
                         columns: [],
-                        name: 'Created view',
+                        name: 'models.Created view',
                         query: {
                             kind: NodeKind.HogQLQuery,
                             query: 'SELECT 1',
@@ -2851,12 +2852,12 @@ describe('sqlEditorLogic', () => {
                     editingView: partial({
                         id: 'created-view-id',
                         columns: [],
-                        name: 'Created view',
+                        name: 'models.Created view',
                     }),
                 })
 
             expect(editorRootLogic.values.titleSectionProps).toMatchObject({
-                name: 'Created view',
+                name: 'models.Created view',
             })
             await new Promise((resolve) => setTimeout(resolve, 0))
 
@@ -3993,7 +3994,7 @@ describe('sqlEditorLogic', () => {
                 toasts: [
                     {
                         type: 'success',
-                        message: 'Materialized view successfully created and materialized',
+                        message: 'models.Materialized view successfully created and materialized',
                         button: 'Go to view',
                     },
                 ],
@@ -4002,7 +4003,9 @@ describe('sqlEditorLogic', () => {
                 name: 'does not materialize when materializeAfterSave is false',
                 materialize: false,
                 materializeResponse: [200, {}],
-                toasts: [{ type: 'success', message: 'Materialized view successfully created', button: 'Go to view' }],
+                toasts: [
+                    { type: 'success', message: 'models.Materialized view successfully created', button: 'Go to view' },
+                ],
             },
             {
                 name: 'warns that the created view is not materialized when the materialization fails',
@@ -4011,7 +4014,7 @@ describe('sqlEditorLogic', () => {
                 toasts: [
                     {
                         type: 'warning',
-                        message: 'Materialized view was created but not materialized. Pick 1 week instead.',
+                        message: 'models.Materialized view was created but not materialized. Pick 1 week instead.',
                         button: 'Go to view',
                     },
                 ],

@@ -70,7 +70,7 @@ class TestSavedQueryWriteFields(APIBaseTest):
     def test_create_does_not_upsert_a_deleted_view(self) -> None:
         view = DataWarehouseSavedQuery.objects.create(
             team=self.team,
-            name="event_view",
+            name="models.event_view",
             query={"kind": "HogQLQuery", "query": "select event from events LIMIT 7"},
             deleted=True,
         )

@@ -21,6 +21,8 @@ from rest_framework.test import APIRequestFactory
 from temporalio.client import WorkflowExecutionStatus
 from temporalio.service import RPCError, RPCStatusCode
 
+from posthog.hogql.database.database import Database
+from posthog.hogql.database.models import SavedQuery
 from posthog.hogql.errors import ExposedHogQLError
 
 from posthog.constants import AvailableFeature
@@ -154,8 +156,14 @@ class TestSavedQuery(APIBaseTest):
         self.assertTrue(other_team_response.json()["detail"].endswith("- object does not exist."))
         self.assertTrue(missing_folder_response.json()["detail"].endswith("- object does not exist."))
 
-    @parameterized.expand([("bare", "event_view"), ("namespaced", "models.event_view")])
-    def test_create(self, _case: str, name: str):
+    @parameterized.expand(
+        [
+            ("bare", "event_view", "models.event_view"),
+            ("nested", "marts.event_view", "models.marts.event_view"),
+            ("namespaced", "models.event_view", "models.event_view"),
+        ]
+    )
+    def test_create(self, _case: str, name: str, stored_name: str):
         response = self.client.post(
             f"/api/environments/{self.team.id}/warehouse_saved_queries/",
             {
@@ -168,7 +176,12 @@ class TestSavedQuery(APIBaseTest):
         )
         self.assertEqual(response.status_code, 201, response.content)
         saved_query = response.json()
-        self.assertEqual(saved_query["name"], name)
+        self.assertEqual(saved_query["name"], stored_name)
+        self.assertEqual(DataWarehouseSavedQuery.objects.get(id=saved_query["id"]).name, stored_name)
+        # The name the author typed keeps reaching the model it now names.
+        resolved = Database.create_for(team=self.team).get_table(name)
+        assert isinstance(resolved, SavedQuery)
+        self.assertEqual(resolved.id, saved_query["id"])
         self.assertEqual(
             saved_query["columns"],
             [
@@ -207,7 +220,7 @@ class TestSavedQuery(APIBaseTest):
 
         assert response.status_code in (200, 201), response.content
         assert response.json()["query"]["query"] == "select revenue.id from models.revenue AS revenue -- keep me"
-        stored = DataWarehouseSavedQuery.objects.get(team=self.team, name="child")
+        stored = DataWarehouseSavedQuery.objects.get(team=self.team, name="models.child")
         assert stored.query["query"] == "select revenue.id from models.revenue AS revenue -- keep me"
 
     def test_create_raw_managed_trino_view(self) -> None:
@@ -246,7 +259,7 @@ class TestSavedQuery(APIBaseTest):
                 listed = self.client.get(f"/api/environments/{self.team.id}/warehouse_saved_queries/").json()
             rows = {row["name"]: row for row in listed["results"]}
             self.assertEqual(
-                {key: rows["hub_occupancy"]["engine"][key] for key in ("target", "dialect")},
+                {key: rows["models.hub_occupancy"]["engine"][key] for key in ("target", "dialect")},
                 {"target": "managed_trino", "dialect": "raw"}
                 if flag_enabled
                 else {"target": "clickhouse", "dialect": "hogql"},
@@ -570,7 +583,7 @@ class TestSavedQuery(APIBaseTest):
             format="json",
         )
         self.assertEqual(response.status_code, 200, response.content)
-        self.assertEqual(DataWarehouseSavedQuery.objects.get(id=saved_query["id"]).name, "event_view_renamed")
+        self.assertEqual(DataWarehouseSavedQuery.objects.get(id=saved_query["id"]).name, "models.event_view_renamed")
 
     def test_create_and_update_resolve_allowed_materialization_system_tables(self) -> None:
         create_response = self.client.post(
@@ -612,19 +625,28 @@ class TestSavedQuery(APIBaseTest):
         )
         self.assertEqual(update_response.status_code, 200, update_response.content)
 
+    @parameterized.expand([("created_through_the_api", None), ("legacy_bare_name", "event_view")])
     @patch("products.data_warehouse.backend.presentation.views.saved_query.editing.report_user_action")
-    def test_upsert(self, mock_report_user_action: mock.Mock) -> None:
-        response = self.client.post(
-            f"/api/environments/{self.team.id}/warehouse_saved_queries/",
-            {
-                "name": "event_view",
-                "query": {
-                    "kind": "HogQLQuery",
-                    "query": "select event as event from events LIMIT 100",
+    def test_upsert(self, _case: str, legacy_name: str | None, mock_report_user_action: mock.Mock) -> None:
+        if legacy_name is None:
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/warehouse_saved_queries/",
+                {
+                    "name": "event_view",
+                    "query": {
+                        "kind": "HogQLQuery",
+                        "query": "select event as event from events LIMIT 100",
+                    },
                 },
-            },
-        )
-        self.assertEqual(response.status_code, 201)
+            )
+            self.assertEqual(response.status_code, 201)
+        else:
+            DataWarehouseSavedQuery.objects.create(
+                team=self.team,
+                name=legacy_name,
+                query={"kind": "HogQLQuery", "query": "select event as event from events LIMIT 100"},
+            )
+        [existing] = DataWarehouseSavedQuery.objects.filter(team=self.team)
         mock_report_user_action.reset_mock()
 
         response = self.client.post(
@@ -641,6 +663,9 @@ class TestSavedQuery(APIBaseTest):
         self.assertEqual(response.status_code, 200)
         mock_report_user_action.assert_called_once()
         self.assertEqual(mock_report_user_action.call_args.args[1], "view updated")
+        self.assertEqual(response.json()["id"], str(existing.id))
+        self.assertEqual(list(DataWarehouseSavedQuery.objects.filter(team=self.team)), [existing])
+        self.assertEqual(response.json()["name"], existing.name)
 
     def test_materialize_view(self):
         response = self.client.post(
@@ -808,7 +833,7 @@ class TestSavedQuery(APIBaseTest):
             )
             assert response.status_code == 201
             saved_query = response.json()
-            assert saved_query["name"] == "event_view"
+            assert saved_query["name"] == "models.event_view"
             assert saved_query["columns"] == [
                 {
                     "key": "event",
@@ -1572,7 +1597,7 @@ class TestSavedQuery(APIBaseTest):
         blocked = {option["cadence"]: option for option in bounds["options"] if not option["allowed"]}
         self.assertEqual(sorted(blocked), ["12hour", "24hour", "30day", "7day"])
         self.assertEqual(blocked["24hour"]["blocked_by"], "consumer")
-        self.assertEqual(blocked["24hour"]["blocker"]["name"], "consumer_view")
+        self.assertEqual(blocked["24hour"]["blocker"]["name"], "models.consumer_view")
         self.assertEqual(bounds["ceiling"], {"label": "6 hours", "blocker": blocked["24hour"]["blocker"]})
         self.assertIsNone(bounds["floor"])
 
@@ -1592,9 +1617,9 @@ class TestSavedQuery(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("materialized_with_a_slower_target", NodeType.MAT_VIEW, timedelta(days=1), ["upstream_view"]),
+            ("materialized_with_a_slower_target", NodeType.MAT_VIEW, timedelta(days=1), ["models.upstream_view"]),
             # with no target it would not run at all until this view drags it along
-            ("materialized_without_a_target", NodeType.MAT_VIEW, None, ["upstream_view"]),
+            ("materialized_without_a_target", NodeType.MAT_VIEW, None, ["models.upstream_view"]),
             # an ephemeral view never runs, so nothing about it speeds up
             ("ephemeral", NodeType.VIEW, timedelta(days=1), []),
             # a pinned view keeps its own cadence whatever its consumers ask for
@@ -1618,7 +1643,7 @@ class TestSavedQuery(APIBaseTest):
             apply_saved_query_frequency_target(
                 DataWarehouseSavedQuery.objects.get(id=upstream["id"]), None, pinned=True, keep_target=True
             )
-        consumer_id = DataWarehouseSavedQuery.objects.get(team=self.team, name="consumer_view").id
+        consumer_id = DataWarehouseSavedQuery.objects.get(team=self.team, name="models.consumer_view").id
 
         options = {option["cadence"]: option for option in self._read_frequency_bounds(str(consumer_id))["options"]}
 
@@ -1787,7 +1812,7 @@ class TestSavedQuery(APIBaseTest):
 
         self.assertEqual(saved_query_1_response.status_code, 200, saved_query_1_response.content)
         view_1 = saved_query_1_response.json()
-        self.assertEqual(view_1["name"], new_name)
+        self.assertEqual(view_1["name"], f"models.{new_name}")
         self.assertGreater(view_1["updated_at"], initial_updated_at)
         self.assertEqual(
             view_1["columns"],
@@ -2158,7 +2183,7 @@ class TestSavedQuery(APIBaseTest):
 
             self.assertEqual(response.status_code, 200, response.content)
             updated_query = response.json()
-            self.assertEqual(updated_query["name"], "updated_event_view")
+            self.assertEqual(updated_query["name"], "models.updated_event_view")
 
             # Verify get_columns was not called
             mock_get_columns.assert_not_called()
@@ -2225,7 +2250,7 @@ class TestSavedQuery(APIBaseTest):
             )
 
         self.assertEqual(response.status_code, 200, response.content)
-        downstream = DataWarehouseSavedQuery.objects.get(team=self.team, name="downstream_view")
+        downstream = DataWarehouseSavedQuery.objects.get(team=self.team, name="models.downstream_view")
         assert downstream.column_order == expected_downstream_columns
         assert delay.called == refreshes
 
@@ -2298,7 +2323,7 @@ class TestSavedQuery(APIBaseTest):
         self.assertEqual(refused.status_code, 400, refused.content)
         self.assertEqual(refused.json()["code"], BREAKING_COLUMN_CHANGE_CODE)
         self.assertEqual(refused.json()["extra"]["removed_columns"], ["removed_value"])
-        self.assertEqual(refused.json()["extra"]["affected_views"], ["downstream_view"])
+        self.assertEqual(refused.json()["extra"]["affected_views"], ["models.downstream_view"])
         self.assertEqual(refused.json()["extra"]["affected_view_count"], 1)
         self.assertFalse(refused.json()["extra"]["has_hidden_affected_views"])
         self.assertEqual(DataWarehouseSavedQuery.objects.get(pk=upstream["id"]).query, upstream["query"])
@@ -2449,7 +2474,7 @@ class TestSavedQuery(APIBaseTest):
         self.assertEqual(response.status_code, 404, response.content)
         saved_query_row = DataWarehouseSavedQuery.objects.get(id=saved_query["id"])
         self.assertTrue(saved_query_row.deleted)
-        self.assertEqual(saved_query_row.name, "event_view")
+        self.assertEqual(saved_query_row.name, "models.event_view")
 
     def test_create_with_activity_log(self):
         response = self.client.post(
@@ -2464,7 +2489,7 @@ class TestSavedQuery(APIBaseTest):
         )
         self.assertEqual(response.status_code, 201, response.content)
         saved_query = response.json()
-        self.assertEqual(saved_query["name"], "event_view")
+        self.assertEqual(saved_query["name"], "models.event_view")
         self.assertEqual(saved_query["query"]["kind"], "HogQLQuery")
         self.assertEqual(saved_query["query"]["query"], "select event as event from events LIMIT 100")
 
@@ -2645,21 +2670,51 @@ class TestSavedQuery(APIBaseTest):
     @parameterized.expand(
         [
             (
-                "endpoint",
+                "endpoint_into_the_namespace",
                 DataWarehouseSavedQuery.Origin.ENDPOINT,
+                "revenue",
+                "models.revenue",
                 400,
                 "The models namespace is reserved for data models. Choose a different name.",
             ),
-            ("authored", DataWarehouseSavedQuery.Origin.DATA_WAREHOUSE, 200, None),
-            ("authored_out_of_the_namespace", DataWarehouseSavedQuery.Origin.DATA_WAREHOUSE, 200, None),
+            ("endpoint_bare", DataWarehouseSavedQuery.Origin.ENDPOINT, "revenue", "revenue2", 200, "revenue2"),
+            (
+                "authored_into_the_namespace",
+                DataWarehouseSavedQuery.Origin.DATA_WAREHOUSE,
+                "revenue",
+                "models.revenue",
+                200,
+                "models.revenue",
+            ),
+            (
+                "authored_bare",
+                DataWarehouseSavedQuery.Origin.DATA_WAREHOUSE,
+                "revenue",
+                "revenue2",
+                200,
+                "models.revenue2",
+            ),
+            (
+                "authored_to_its_own_bare_name",
+                DataWarehouseSavedQuery.Origin.DATA_WAREHOUSE,
+                "models.revenue",
+                "revenue",
+                200,
+                "models.revenue",
+            ),
+            (
+                "legacy_to_its_own_name",
+                DataWarehouseSavedQuery.Origin.DATA_WAREHOUSE,
+                "revenue",
+                "revenue",
+                200,
+                "revenue",
+            ),
         ]
     )
-    def test_rename_into_models_namespace(
-        self, case: str, origin: str, expected_status: int, expected_detail: str | None
+    def test_rename_qualifies_authored_models(
+        self, _case: str, origin: str, old_name: str, new_name: str, expected_status: int, expected: str
     ) -> None:
-        old_name, new_name = (
-            ("models.revenue", "revenue") if case.endswith("out_of_the_namespace") else ("revenue", "models.revenue")
-        )
         saved_query = DataWarehouseSavedQuery.objects.create(
             team=self.team,
             name="revenue",
@@ -2674,7 +2729,31 @@ class TestSavedQuery(APIBaseTest):
         )
 
         self.assertEqual(response.status_code, expected_status, response.content)
-        self.assertEqual(response.json().get("detail"), expected_detail)
+        if expected_status == 400:
+            self.assertEqual(response.json()["detail"], expected)
+        else:
+            self.assertEqual(response.json()["name"], expected)
+            saved_query.refresh_from_db()
+            self.assertEqual(saved_query.name, expected)
+
+    @parameterized.expand(
+        [
+            ("fits_once_qualified", "a" * 121, 201),
+            ("too_long_once_qualified", "a" * 122, 400),
+            ("already_qualified", "models." + "a" * 121, 201),
+        ]
+    )
+    def test_create_limits_the_name_length_including_the_models_root(
+        self, _case: str, name: str, expected_status: int
+    ) -> None:
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/",
+            {"name": name, "query": {"kind": "HogQLQuery", "query": "select event as event from events LIMIT 100"}},
+        )
+
+        self.assertEqual(response.status_code, expected_status, response.content)
+        if expected_status == 400:
+            self.assertEqual(response.json()["detail"], "Ensure this field has no more than 121 characters.")
 
     def test_delete_saved_query_with_managed_viewset_fails(self):
         """Test that deleting a saved query with managed viewset fails with correct error message"""
@@ -4088,7 +4167,7 @@ class TestSavedQueryDescription(APIBaseTest):
         self._create(name="described_view", description="Listed description.")
         results = self.client.get(self._base()).json()["results"]
         described = {v["name"]: v.get("description") for v in results}
-        assert described["described_view"] == "Listed description."
+        assert described["models.described_view"] == "Listed description."
 
 
 class TestSavedQueryStateComesFromTheServingRun(APIBaseTest):

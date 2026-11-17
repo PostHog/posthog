@@ -19,7 +19,7 @@ class TestView(APIBaseTest):
         )
         self.assertEqual(response.status_code, 201, response.content)
         view = response.json()
-        self.assertEqual(view["name"], "event_view")
+        self.assertEqual(view["name"], "models.event_view")
         self.assertEqual(
             view["columns"],
             [
@@ -75,7 +75,7 @@ class TestView(APIBaseTest):
 
         self.assertEqual(view_1_response.status_code, 200, view_1_response.content)
         view_1 = view_1_response.json()
-        self.assertEqual(view_1["name"], "event_view")
+        self.assertEqual(view_1["name"], "models.event_view")
         self.assertEqual(
             view_1["columns"],
             [

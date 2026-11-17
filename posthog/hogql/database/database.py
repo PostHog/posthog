@@ -354,7 +354,7 @@ def is_reserved_models_name(name: str) -> bool:
     return name == "models" or name.startswith("models.")
 
 
-def _is_authored_model(saved_query: Any) -> bool:
+def is_authored_model(saved_query: Any) -> bool:
     # `origin` is nullable on old rows, so authored means "not machine-made" rather than an exact origin match.
     origin = getattr(saved_query, "origin", None)
     if origin in (DataWarehouseSavedQueryOrigin.ENDPOINT, DataWarehouseSavedQueryOrigin.MANAGED_VIEWSET):
@@ -362,10 +362,15 @@ def _is_authored_model(saved_query: Any) -> bool:
     return getattr(saved_query, "managed_viewset_id", None) is None
 
 
+def qualify_model_name(name: str) -> str:
+    """The name a new or renamed authored model is stored under: `models.<name>`, unless it already starts there."""
+    return name if is_reserved_models_name(name) else f"models.{name}"
+
+
 def models_namespace_chain(saved_query: Any) -> list[str] | None:
     """The `models.` path an authored saved query also resolves under, or None when it gets only its stored name."""
     name: str = saved_query.name
-    if not _is_authored_model(saved_query) or is_reserved_models_name(name) or is_reserved_system_name(name):
+    if not is_authored_model(saved_query) or is_reserved_models_name(name) or is_reserved_system_name(name):
         return None
     return ["models", *name.split(".")]
 
@@ -373,7 +378,7 @@ def models_namespace_chain(saved_query: Any) -> list[str] | None:
 def models_bare_chain(saved_query: Any) -> list[str] | None:
     """The bare path an authored model stored as `models.x` also resolves under, or None when it gets only its stored name."""
     name: str = saved_query.name
-    if not _is_authored_model(saved_query) or not name.startswith("models."):
+    if not is_authored_model(saved_query) or not name.startswith("models."):
         return None
     bare_name = name.removeprefix("models.")
     if is_reserved_models_name(bare_name) or is_reserved_system_name(bare_name):
@@ -1287,6 +1292,9 @@ class Database(BaseModel):
             else:
                 if qualified_node.table is not None and not qualified_node.hidden:
                     return [qualified_name]
+        # A model's bare alias gives way to anything that holds the name, so point at the name it is stored under.
+        if (model_name := qualify_model_name(name)) in candidates:
+            return [model_name]
         prefix, dot, _ = name.rpartition(".")
         if dot:
             schema = prefix.casefold()
