@@ -45,6 +45,7 @@ from products.mcp_analytics.backend.custom_harnesses import custom_harness_rules
 from products.mcp_analytics.backend.facade import contracts, enums
 from products.mcp_analytics.backend.facade.contracts import CustomHarnessRule
 from products.mcp_analytics.backend.hogql_queries.base import missing_capability_report_expr, shared_filter_exprs
+from products.mcp_analytics.backend.intent_erasure_writers import registered_intent_writer
 from products.mcp_analytics.backend.models import MCPAnalyticsSubmission, MCPIntentClusterSnapshot, MCPSession
 
 # How long a snapshot may sit in COMPUTING before we assume the run died and
@@ -569,17 +570,20 @@ def generate_session_intent(team: Team, session_id: str, date_from: datetime | N
     ``date_from`` bounds the event scan; the UI passes the session's start (the same bound
     ``list_mcp_tool_calls`` uses) so any listed session stays summarisable.
     """
-    existing = MCPSession.objects.filter(team=team, session_id=session_id).values_list("intent", flat=True).first()
-    if existing:
-        return existing
+    with registered_intent_writer(
+        team, purpose="session_intent", no_write_errors=(contracts.IntentGenerationUnavailable,)
+    ):
+        existing = MCPSession.objects.filter(team=team, session_id=session_id).values_list("intent", flat=True).first()
+        if existing:
+            return existing
 
-    intents = intent_generation.fetch_session_intents(team, session_id, date_from=date_from)
-    if not intents:
-        return intent_generation.NO_INTENT_MESSAGE
+        intents = intent_generation.fetch_session_intents(team, session_id, date_from=date_from)
+        if not intents:
+            return intent_generation.NO_INTENT_MESSAGE
 
-    summary = intent_generation.summarize_intents(intents, team)
-    MCPSession.objects.update_or_create(team=team, session_id=session_id, defaults={"intent": summary})
-    return summary
+        summary = intent_generation.summarize_intents(intents, team)
+        MCPSession.objects.update_or_create(team=team, session_id=session_id, defaults={"intent": summary})
+        return summary
 
 
 INTENT_DIGEST_CACHE_TTL = 60 * 60
@@ -629,28 +633,33 @@ def generate_intent_digest(team: Team) -> contracts.IntentDigest:
     A project with no recorded intents returns a null digest without an LLM call. Raises
     ``contracts.IntentGenerationUnavailable`` if the LLM is unreachable.
     """
-    intents = intent_generation.fetch_recent_project_intents(team)
-    if not intents:
-        return contracts.IntentDigest(digest=None, intent_count=0)
+    with registered_intent_writer(
+        team, purpose="intent_digest", no_write_errors=(contracts.IntentGenerationUnavailable,)
+    ):
+        intents = intent_generation.fetch_recent_project_intents(team)
+        if not intents:
+            return contracts.IntentDigest(digest=None, intent_count=0)
 
-    corpus_hash = hashlib.sha256("\x00".join(f"{intent}\x01{tool}" for intent, tool in intents).encode()).hexdigest()
-    corpus_key = generate_cache_key(team.pk, f"mcp_intent_digest_v3/{corpus_hash}")
-    recent_key = generate_cache_key(team.pk, "mcp_intent_digest_v3/recent")
-    for key in (corpus_key, recent_key):
-        cached = _cached_digest(cache.get(key))
-        if cached is not None:
-            return cached
+        corpus_hash = hashlib.sha256(
+            "\x00".join(f"{intent}\x01{tool}" for intent, tool in intents).encode()
+        ).hexdigest()
+        corpus_key = generate_cache_key(team.pk, f"mcp_intent_digest_v3/{corpus_hash}")
+        recent_key = generate_cache_key(team.pk, "mcp_intent_digest_v3/recent")
+        for key in (corpus_key, recent_key):
+            cached = _cached_digest(cache.get(key))
+            if cached is not None:
+                return cached
 
-    parsed = intent_generation.summarize_project_intents(intents, team)
-    themes = intent_generation.resolve_themes(parsed, intents)
-    payload = {
-        "summary": parsed.summary,
-        "intent_count": len(intents),
-        "themes": [dataclasses.asdict(theme) for theme in themes],
-    }
-    cache.set(corpus_key, payload, INTENT_DIGEST_CACHE_TTL)
-    cache.set(recent_key, payload, INTENT_DIGEST_MIN_REGENERATE_SECONDS)
-    return contracts.IntentDigest(digest=parsed.summary, intent_count=len(intents), themes=themes)
+        parsed = intent_generation.summarize_project_intents(intents, team)
+        themes = intent_generation.resolve_themes(parsed, intents)
+        payload = {
+            "summary": parsed.summary,
+            "intent_count": len(intents),
+            "themes": [dataclasses.asdict(theme) for theme in themes],
+        }
+        cache.set(corpus_key, payload, INTENT_DIGEST_CACHE_TTL)
+        cache.set(recent_key, payload, INTENT_DIGEST_MIN_REGENERATE_SECONDS)
+        return contracts.IntentDigest(digest=parsed.summary, intent_count=len(intents), themes=themes)
 
 
 # The activity queries read `properties.*`, which decompresses the properties column for

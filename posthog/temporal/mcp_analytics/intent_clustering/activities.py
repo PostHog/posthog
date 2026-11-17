@@ -40,6 +40,7 @@ from posthog.temporal.mcp_analytics.intent_clustering.models import (
 )
 
 from products.mcp_analytics.backend import intent_clustering
+from products.mcp_analytics.backend.facade import api as mcp_analytics_api
 from products.mcp_analytics.backend.models import MCPIntentClusterSnapshot
 
 logger = structlog.get_logger(__name__)
@@ -106,164 +107,165 @@ async def compute_intent_clusters_activity(inputs: IntentClusteringWorkflowInput
     with team_scope(canonical_team_id, canonical=True):
         async with Heartbeater():
             team, user = await _resolve_team_and_user(inputs.team_id, inputs.user_id)
-            snapshot = await _mark_computing(team, user)
+            async with mcp_analytics_api.registered_intent_writer_async(team, purpose="legacy_snapshot"):
+                snapshot = await _mark_computing(team, user)
 
-            try:
-                # Recurring texts (scout and cron runs) get their own ranked list and
-                # stay out of the semantic corpus, where their volume would otherwise
-                # fill the top clusters. Sampling skips their sessions, so they don't
-                # take corpus budget from human sessions either.
-                recurring = await database_sync_to_async(intent_clustering.fetch_recurring_intents)(
-                    team, lookback_days=inputs.lookback_days
-                )
-                recurring_texts = {r.intent_text for r in recurring}
-
-                # Stratified sampling: bucket intent-bearing sessions per tool
-                # so every tool keeps a floor, instead of a uniform sample that
-                # erases low/mid-volume tools (logs/tracing/metrics). The
-                # uniform sample still fills the rest of the corpus budget, and
-                # carries it alone when the per-tool buckets can't be fetched,
-                # so a capture or schema gap never blocks a run.
                 try:
-                    tools_by_session = await database_sync_to_async(intent_clustering.fetch_tools_by_session)(
+                    # Recurring texts (scout and cron runs) get their own ranked list and
+                    # stay out of the semantic corpus, where their volume would otherwise
+                    # fill the top clusters. Sampling skips their sessions, so they don't
+                    # take corpus budget from human sessions either.
+                    recurring = await database_sync_to_async(intent_clustering.fetch_recurring_intents)(
+                        team, lookback_days=inputs.lookback_days
+                    )
+                    recurring_texts = {r.intent_text for r in recurring}
+
+                    # Stratified sampling: bucket intent-bearing sessions per tool
+                    # so every tool keeps a floor, instead of a uniform sample that
+                    # erases low/mid-volume tools (logs/tracing/metrics). The
+                    # uniform sample still fills the rest of the corpus budget, and
+                    # carries it alone when the per-tool buckets can't be fetched,
+                    # so a capture or schema gap never blocks a run.
+                    try:
+                        tools_by_session = await database_sync_to_async(intent_clustering.fetch_tools_by_session)(
+                            team,
+                            lookback_days=inputs.lookback_days,
+                            max_sessions_per_tool=intent_clustering.MIN_SESSIONS_PER_TOOL,
+                            recurring_texts=recurring_texts,
+                        )
+                    except Exception:
+                        logger.warning(
+                            "mcpa.intent_clustering.tool_buckets_unavailable_falling_back_to_uniform",
+                            team_id=inputs.team_id,
+                        )
+                        tools_by_session = {}
+
+                    uniform_sample = await database_sync_to_async(intent_clustering.sample_corpus_sessions)(
                         team,
                         lookback_days=inputs.lookback_days,
-                        max_sessions_per_tool=intent_clustering.MIN_SESSIONS_PER_TOOL,
+                        max_sessions=intent_clustering.MAX_CORPUS_SESSIONS,
                         recurring_texts=recurring_texts,
                     )
-                except Exception:
-                    logger.warning(
-                        "mcpa.intent_clustering.tool_buckets_unavailable_falling_back_to_uniform",
-                        team_id=inputs.team_id,
+                    session_ids = intent_clustering.select_corpus_sessions(
+                        tools_by_session,
+                        uniform_sample,
+                        min_sessions_per_tool=intent_clustering.MIN_SESSIONS_PER_TOOL,
+                        max_total_sessions=intent_clustering.MAX_CORPUS_SESSIONS,
                     )
-                    tools_by_session = {}
 
-                uniform_sample = await database_sync_to_async(intent_clustering.sample_corpus_sessions)(
-                    team,
-                    lookback_days=inputs.lookback_days,
-                    max_sessions=intent_clustering.MAX_CORPUS_SESSIONS,
-                    recurring_texts=recurring_texts,
-                )
-                session_ids = intent_clustering.select_corpus_sessions(
-                    tools_by_session,
-                    uniform_sample,
-                    min_sessions_per_tool=intent_clustering.MIN_SESSIONS_PER_TOOL,
-                    max_total_sessions=intent_clustering.MAX_CORPUS_SESSIONS,
-                )
-
-                call_rows = await database_sync_to_async(intent_clustering.fetch_session_calls)(
-                    team, session_ids, lookback_days=inputs.lookback_days
-                )
-                # Backstop for whitespace the SQL trim doesn't cover.
-                call_rows = intent_clustering.exclude_recurring_sessions(call_rows, recurring_texts)
-                # Cap dominant tools so they can't occupy the whole intent corpus.
-                cap_result = intent_clustering.cap_per_tool_call_volume(
-                    call_rows, max_calls_per_tool=intent_clustering.MAX_CALLS_PER_TOOL
-                )
-                call_rows = cap_result.kept_rows
-                if cap_result.per_tool_report:
-                    logger.info(
-                        "mcpa.intent_clustering.capped_overrepresented_tools",
-                        team_id=inputs.team_id,
-                        per_tool=cap_result.per_tool_report,
+                    call_rows = await database_sync_to_async(intent_clustering.fetch_session_calls)(
+                        team, session_ids, lookback_days=inputs.lookback_days
                     )
-                records, calls_by_session, corpus_stats = intent_clustering.build_call_corpus(
-                    call_rows, top_n=inputs.top_n
-                )
-                # Fetched before the empty-corpus return so that path can still report
-                # what the window held: "0% of calls carried an intent" is actionable,
-                # an all-null snapshot is indistinguishable from having no traffic.
-                window_stats = await database_sync_to_async(intent_clustering.fetch_window_stats)(
-                    team, lookback_days=inputs.lookback_days
-                )
-                activity.heartbeat("fetched corpus")
+                    # Backstop for whitespace the SQL trim doesn't cover.
+                    call_rows = intent_clustering.exclude_recurring_sessions(call_rows, recurring_texts)
+                    # Cap dominant tools so they can't occupy the whole intent corpus.
+                    cap_result = intent_clustering.cap_per_tool_call_volume(
+                        call_rows, max_calls_per_tool=intent_clustering.MAX_CALLS_PER_TOOL
+                    )
+                    call_rows = cap_result.kept_rows
+                    if cap_result.per_tool_report:
+                        logger.info(
+                            "mcpa.intent_clustering.capped_overrepresented_tools",
+                            team_id=inputs.team_id,
+                            per_tool=cap_result.per_tool_report,
+                        )
+                    records, calls_by_session, corpus_stats = intent_clustering.build_call_corpus(
+                        call_rows, top_n=inputs.top_n
+                    )
+                    # Fetched before the empty-corpus return so that path can still report
+                    # what the window held: "0% of calls carried an intent" is actionable,
+                    # an all-null snapshot is indistinguishable from having no traffic.
+                    window_stats = await database_sync_to_async(intent_clustering.fetch_window_stats)(
+                        team, lookback_days=inputs.lookback_days
+                    )
+                    activity.heartbeat("fetched corpus")
 
-                if not records:
-                    await database_sync_to_async(_save_empty_blob)(snapshot, corpus_stats, window_stats, recurring)
+                    if not records:
+                        await database_sync_to_async(_save_empty_blob)(snapshot, corpus_stats, window_stats, recurring)
+                        logger.info(
+                            "mcpa.intent_clustering.no_intents_found",
+                            team_id=inputs.team_id,
+                            workflow_id=activity.info().workflow_id,
+                        )
+                        return IntentClusteringResult(
+                            team_id=inputs.team_id, n_intents=0, n_clusters=0, computed_at=timezone.now().isoformat()
+                        )
+
+                    embeddings, valid_indices = await intent_clustering.embed_texts_async(
+                        team, [r.intent_text for r in records]
+                    )
+                    if len(valid_indices) == 0:
+                        raise RuntimeError("All embedding requests failed")
+                    activity.heartbeat("embedded")
+
+                    aligned_records = [records[i] for i in valid_indices]
+                    # sklearn AgglomerativeClustering builds an O(n²) distance matrix
+                    # in pure-Python/numpy — offload so the asyncio loop stays
+                    # responsive to heartbeats and other activities on this worker.
+                    labels = await asyncio.to_thread(intent_clustering.cluster_embeddings, embeddings)
+                    activity.heartbeat("clustered")
+
+                    # Corpus sessions, not sampled ones: the row cap can drop whole
+                    # sessions after their ids were sampled, and those contribute no calls
+                    # to any discovery numerator.
+                    advertised_by_session = await database_sync_to_async(intent_clustering.fetch_advertised_tools)(
+                        team, list(calls_by_session), lookback_days=inputs.lookback_days
+                    )
+                    # Bound the description aggregation and embedding fan-out to the tools
+                    # that can appear in the snapshot; see top_corpus_tools for why.
+                    tool_descriptions = await database_sync_to_async(intent_clustering.fetch_tool_descriptions)(
+                        team, intent_clustering.top_corpus_tools(aligned_records), lookback_days=inputs.lookback_days
+                    )
+                    described = sorted(tool_descriptions.items())
+                    description_matrix, described_valid = await intent_clustering.embed_texts_async(
+                        team,
+                        [text for _, text in described],
+                        prefix=intent_clustering.DESCRIPTION_EMBEDDING_PREFIX,
+                    )
+                    description_embeddings = {
+                        described[original_index][0]: description_matrix[row]
+                        for row, original_index in enumerate(described_valid)
+                    }
+                    activity.heartbeat("context")
+
+                    # Same blocking-loop concern as cluster_embeddings — pure-numpy
+                    # aggregation over the labelled corpus.
+                    clusters_blob = await asyncio.to_thread(
+                        intent_clustering.build_snapshot,
+                        aligned_records,
+                        labels,
+                        embeddings,
+                        calls_by_session=calls_by_session,
+                        advertised_by_session=advertised_by_session,
+                        tool_descriptions=tool_descriptions,
+                        description_embeddings=description_embeddings,
+                        corpus_stats=corpus_stats,
+                        window_stats=window_stats,
+                        recurring=recurring,
+                    )
+                    await _persist_clusters(snapshot, clusters_blob)
+
+                    n_clusters = len(clusters_blob.get("clusters", []))
+                    record_intents_analyzed(len(aligned_records))
+                    record_clusters_generated(n_clusters)
                     logger.info(
-                        "mcpa.intent_clustering.no_intents_found",
+                        "mcpa.intent_clustering.computed",
                         team_id=inputs.team_id,
+                        n_intents=len(aligned_records),
+                        n_clusters=n_clusters,
                         workflow_id=activity.info().workflow_id,
                     )
                     return IntentClusteringResult(
-                        team_id=inputs.team_id, n_intents=0, n_clusters=0, computed_at=timezone.now().isoformat()
+                        team_id=inputs.team_id,
+                        n_intents=len(aligned_records),
+                        n_clusters=n_clusters,
+                        computed_at=timezone.now().isoformat(),
                     )
 
-                embeddings, valid_indices = await intent_clustering.embed_texts_async(
-                    team, [r.intent_text for r in records]
-                )
-                if len(valid_indices) == 0:
-                    raise RuntimeError("All embedding requests failed")
-                activity.heartbeat("embedded")
-
-                aligned_records = [records[i] for i in valid_indices]
-                # sklearn AgglomerativeClustering builds an O(n²) distance matrix
-                # in pure-Python/numpy — offload so the asyncio loop stays
-                # responsive to heartbeats and other activities on this worker.
-                labels = await asyncio.to_thread(intent_clustering.cluster_embeddings, embeddings)
-                activity.heartbeat("clustered")
-
-                # Corpus sessions, not sampled ones: the row cap can drop whole
-                # sessions after their ids were sampled, and those contribute no calls
-                # to any discovery numerator.
-                advertised_by_session = await database_sync_to_async(intent_clustering.fetch_advertised_tools)(
-                    team, list(calls_by_session), lookback_days=inputs.lookback_days
-                )
-                # Bound the description aggregation and embedding fan-out to the tools
-                # that can appear in the snapshot; see top_corpus_tools for why.
-                tool_descriptions = await database_sync_to_async(intent_clustering.fetch_tool_descriptions)(
-                    team, intent_clustering.top_corpus_tools(aligned_records), lookback_days=inputs.lookback_days
-                )
-                described = sorted(tool_descriptions.items())
-                description_matrix, described_valid = await intent_clustering.embed_texts_async(
-                    team,
-                    [text for _, text in described],
-                    prefix=intent_clustering.DESCRIPTION_EMBEDDING_PREFIX,
-                )
-                description_embeddings = {
-                    described[original_index][0]: description_matrix[row]
-                    for row, original_index in enumerate(described_valid)
-                }
-                activity.heartbeat("context")
-
-                # Same blocking-loop concern as cluster_embeddings — pure-numpy
-                # aggregation over the labelled corpus.
-                clusters_blob = await asyncio.to_thread(
-                    intent_clustering.build_snapshot,
-                    aligned_records,
-                    labels,
-                    embeddings,
-                    calls_by_session=calls_by_session,
-                    advertised_by_session=advertised_by_session,
-                    tool_descriptions=tool_descriptions,
-                    description_embeddings=description_embeddings,
-                    corpus_stats=corpus_stats,
-                    window_stats=window_stats,
-                    recurring=recurring,
-                )
-                await _persist_clusters(snapshot, clusters_blob)
-
-                n_clusters = len(clusters_blob.get("clusters", []))
-                record_intents_analyzed(len(aligned_records))
-                record_clusters_generated(n_clusters)
-                logger.info(
-                    "mcpa.intent_clustering.computed",
-                    team_id=inputs.team_id,
-                    n_intents=len(aligned_records),
-                    n_clusters=n_clusters,
-                    workflow_id=activity.info().workflow_id,
-                )
-                return IntentClusteringResult(
-                    team_id=inputs.team_id,
-                    n_intents=len(aligned_records),
-                    n_clusters=n_clusters,
-                    computed_at=timezone.now().isoformat(),
-                )
-
-            except Exception as exc:
-                logger.exception("mcpa.intent_clustering.failed", team_id=inputs.team_id, error=str(exc))
-                await _mark_error(snapshot, str(exc))
-                raise
+                except Exception as exc:
+                    logger.exception("mcpa.intent_clustering.failed", team_id=inputs.team_id, error=str(exc))
+                    await _mark_error(snapshot, str(exc))
+                    raise
 
 
 def _save_empty_blob(
