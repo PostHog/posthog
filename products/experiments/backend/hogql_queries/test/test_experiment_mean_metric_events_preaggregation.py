@@ -219,6 +219,30 @@ class TestExperimentMeanMetricEventsPreaggregation(ExperimentQueryRunnerBaseTest
             assert runner._metric_events_ineligibility_reason() == skip_reason
             assert runner._metric_events_precompute_applicable() is (skip_reason is None)
 
+    @patch("products.experiments.backend.hogql_queries.metric_events_precompute.ensure_precomputed")
+    def test_cuped_build_counts_lookback_in_calendar_days_of_project_timezone(self, mock_ensure_precomputed):
+        self.team.timezone = "America/New_York"
+        self.team.save()
+        feature_flag = self.create_feature_flag(key="mean-metric-events-cuped-dst")
+        # The experiment starts the day after the 2024 fall-back, so seven calendar days earlier in
+        # New York is 169 hours earlier in UTC. The write query subtracts calendar days too, and a
+        # build that started an hour later would never store the first hour the read asks for.
+        experiment = self.create_experiment(
+            feature_flag=feature_flag,
+            start_date=datetime(2024, 11, 4, 0, 30),
+            end_date=datetime(2024, 11, 20),
+        )
+        experiment.stats_config = {"method": "frequentist", "cuped": {"enabled": True, "lookback_days": 7}}
+        experiment.save()
+        metric = ExperimentMeanMetric(source=EventsNode(event="purchase"))
+
+        runner = self._build_runner(experiment, metric)
+        runner._ensure_metric_events_precomputed(runner._query_builder())
+
+        assert mock_ensure_precomputed.call_args.kwargs["time_range_start"] == datetime(
+            2024, 10, 27, 23, 30, tzinfo=UTC
+        )
+
     @patch("products.analytics_platform.backend.lazy_computation.lazy_computation_executor.sync_execute")
     def test_mean_metric_events_precomputation_hash_ignores_moving_experiment_end(self, mock_sync_execute):
         feature_flag = self.create_feature_flag(key="stable-mean-metric-events-hash")

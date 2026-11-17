@@ -6,7 +6,7 @@ The per-source build query and read CTE live in metric_source_precompute; this m
 decides when they apply and runs the builds.
 """
 
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Optional
 
 import posthoganalytics
@@ -113,10 +113,13 @@ class MetricEventsPrecompute:
             raise ValidationError("Experiment must have a start date for lazy computation")
 
         date_from = self.experiment.start_date
-        # The write query rolls its lower bound back the same way, so the jobs also cover the
-        # CUPED pre-exposure window. The builder's config decides, because it also builds the read.
+        # The write query rolls its lower bound back with toIntervalDay, which counts calendar days in
+        # the project timezone. Count them the same way here, or across a DST change the first job
+        # starts an hour after the write's lower bound and that hour is never stored.
+        # The builder's config decides, because it also builds the read.
         if builder.cuped_config.enabled:
-            date_from = date_from - timedelta(days=builder.cuped_config.lookback_days)
+            local_start = date_from.astimezone(self.team.timezone_info)
+            date_from = (local_start - timedelta(days=builder.cuped_config.lookback_days)).astimezone(UTC)
         date_to = experiment_window_end(self.experiment, self.as_of)
 
         # Extend the time range past the experiment end, because metric events can occur after
