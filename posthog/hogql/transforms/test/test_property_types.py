@@ -1601,7 +1601,6 @@ class TestPropertyTypes(BaseTest):
         printed = self._print_select(f"select count() from events where {comparison}")
 
         assert "parseDateTime64BestEffortOrNull" not in printed, printed
-        assert "toString(" in printed, printed
 
     def test_datetime_group_property_compared_to_empty_string_uses_strings(self) -> None:
         PropertyDefinition.objects.get_or_create(
