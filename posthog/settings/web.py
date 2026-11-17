@@ -11,7 +11,7 @@ from whitenoise.compress import Compressor
 
 from posthog.openapi.enum_names import ChoicesEnumNameOverrides
 from posthog.run_mode import derive_run_mode
-from posthog.scopes import get_scope_descriptions
+from posthog.scopes.exposure import get_scope_descriptions
 from posthog.settings.base_variables import BASE_DIR, CLOUD_DEPLOYMENT, DEBUG, TEST
 from posthog.settings.utils import generate_rsa_private_key_pem, get_from_env, get_list, str_to_bool
 from posthog.utils_cors import CORS_ALLOWED_TRACING_HEADERS
@@ -740,7 +740,7 @@ SPECTACULAR_SETTINGS = {
             # Authentication classes declare their activity log credential type as a CredentialType
             # literal, so no Choices class carries the set. The list is derived from that literal.
             "ActivityLogCredentialTypeEnum": "posthog.models.activity_logging.utils.CREDENTIAL_TYPE_CHOICES",
-            # Every grantable scope object, from posthog/scopes.py. The frontend's APIScopeObject type
+            # Every grantable scope object, from posthog/scopes/exposure.py. The frontend's APIScopeObject type
             # derives from this enum, so the object list is never copied by hand.
             "ScopeObjectEnum": "products.access_control.backend.facade.enums.SCOPE_OBJECT_CHOICES",
             "AIEventPropertyEnum": "products.access_control.backend.facade.enums.AI_EVENT_PROPERTY_CHOICES",
@@ -1344,6 +1344,7 @@ OAUTH2_PROVIDER = {
     "ACCESS_TOKEN_GENERATOR": "posthog.models.utils.generate_random_oauth_access_token",
     "REFRESH_TOKEN_GENERATOR": "posthog.models.utils.generate_random_oauth_refresh_token",
     "OAUTH2_VALIDATOR_CLASS": "posthog.api.oauth.views.OAuthValidator",
+    "OAUTH2_BACKEND_CLASS": "posthog.api.oauth.oauthlib_core.CanonicalScopeOAuthLibCore",
     "ACCESS_TOKEN_EXPIRE_SECONDS": 60 * 60,  # 1 hour
     "ROTATE_REFRESH_TOKEN": True,  # Rotate the refresh token whenever a new access token is issued
     "REFRESH_TOKEN_REUSE_PROTECTION": True,
@@ -1495,11 +1496,15 @@ DESKTOP_GATEWAY_MINTS_PER_HOUR = get_from_env("DESKTOP_GATEWAY_MINTS_PER_HOUR", 
 DEV_GATEWAY_URL = get_from_env("DEV_GATEWAY_URL", "")
 DEV_GATEWAY_MINT_KEY = get_from_env("DEV_GATEWAY_MINT_KEY", "")
 DEV_GATEWAY_TEAM_ID = get_from_env("DEV_GATEWAY_TEAM_ID", 0, type_cast=int)
+# Defaults for a mint that names no cap or lifetime, such as an older hogli.
 DEV_GATEWAY_TOKEN_CAP_USD = get_from_env("DEV_GATEWAY_TOKEN_CAP_USD", "25")
 DEV_GATEWAY_TOKEN_TTL_SECONDS = get_from_env("DEV_GATEWAY_TOKEN_TTL_SECONDS", 8 * 60 * 60, type_cast=int)
-# Caps minted in the trailing 24 hours count against this until revoked, then only what the token
-# spent. The limit is approximate, because cost that settles after a revoke is not counted.
-DEV_GATEWAY_DAILY_CAP_USD = get_from_env("DEV_GATEWAY_DAILY_CAP_USD", "50")
+# Upper bounds on what staff can pick per token. The gateway refuses a TTL past 7 days.
+DEV_GATEWAY_TOKEN_MAX_CAP_USD = get_from_env("DEV_GATEWAY_TOKEN_MAX_CAP_USD", "1000")
+DEV_GATEWAY_TOKEN_MAX_TTL_SECONDS = get_from_env("DEV_GATEWAY_TOKEN_MAX_TTL_SECONDS", 7 * 24 * 60 * 60, type_cast=int)
+# Counts the cap of each token minted in the last 24 hours or not yet expired, or what it spent once revoked.
+# Approximate: cost that settles after a revoke is not counted.
+DEV_GATEWAY_DAILY_CAP_USD = get_from_env("DEV_GATEWAY_DAILY_CAP_USD", "1000")
 DEV_GATEWAY_MINTS_PER_HOUR = get_from_env("DEV_GATEWAY_MINTS_PER_HOUR", 20, type_cast=int)
 
 # Users who joined PostHog at or after this ISO 8601 instant cannot use Desktop while the

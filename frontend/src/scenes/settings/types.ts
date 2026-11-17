@@ -287,6 +287,7 @@ export type SettingId =
     | 'profile-picture'
     | 'project-delete'
     | 'project-events-retention'
+    | 'project-events-table'
     | 'project-move'
     | 'realtime-notifications'
     | 'replay'

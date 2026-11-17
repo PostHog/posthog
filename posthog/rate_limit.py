@@ -720,6 +720,22 @@ class _UserBucketRateThrottle(PersonalApiKeyOrUserRateThrottle):
         return self.cache_format % {"scope": self.scope, "ident": ident}
 
 
+def exhausted_throttle_wait(throttle: PersonalApiKeyRateThrottle, request: "Request", view: "APIView") -> float | None:
+    if throttle.num_requests is None or throttle.duration is None:
+        return None
+    throttle.key = throttle.get_cache_key(request, view)
+    throttle.now = throttle.timer()
+    try:
+        cached_history = throttle.cache.get(throttle.key, [])
+    except Exception as e:
+        capture_exception(e)
+        return None
+    throttle.history = [hit for hit in cached_history if hit > throttle.now - throttle.duration]
+    if len(throttle.history) < throttle.num_requests:
+        return None
+    return throttle.wait()
+
+
 # The heatmap page pre-flight makes one outbound fetch of a caller-supplied page per uncached probe,
 # holding a web worker for as long as that page takes to answer, so its budget is about worker
 # occupancy rather than about protecting our own datastores. A legitimate caller needs one probe per
@@ -733,6 +749,21 @@ class HeatmapPreflightBurstRateThrottle(_TeamBucketRateThrottle):
 class HeatmapPreflightSustainedRateThrottle(_TeamBucketRateThrottle):
     scope = "heatmap_preflight_sustained"
     rate = "300/hour"
+
+
+class DataQualityRunBurstRateThrottle(_UserBucketRateThrottle):
+    scope = "data_quality_run_burst"
+    rate = "20/minute"
+
+
+class DataQualityRunSustainedRateThrottle(_UserBucketRateThrottle):
+    scope = "data_quality_run_sustained"
+    rate = "60/hour"
+
+
+class DataQualityRunProjectRateThrottle(_TeamBucketRateThrottle):
+    scope = "data_quality_run_project"
+    rate = "180/hour"
 
 
 # The llms.txt fetch pulls a caller-supplied file of up to 1 MB from an arbitrary host, holding a web

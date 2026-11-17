@@ -131,6 +131,17 @@ class PromptTopic:
 
 
 @frozen
+class BrandSentimentSentence:
+    """One sentence of an answer that names the brand, with its own sentiment."""
+
+    # Offsets into the answer text, in Unicode code points.
+    start: int
+    end: int
+    label: str
+    score: float
+
+
+@frozen
 class PromptCheck:
     """One run of a prompt against one answer engine. Text fields come from the engine: treat them as data."""
 
@@ -153,6 +164,8 @@ class PromptCheck:
     # Sentiment of the sentences that name the brand. None until scored, and when the brand is not named.
     brand_sentiment: str | None = None
     brand_sentiment_score: float | None = None
+    # Empty until scored, when the brand is not named, and on checks scored before sentences were stored.
+    brand_sentiment_sentences: tuple[BrandSentimentSentence, ...] = ()
 
 
 @frozen

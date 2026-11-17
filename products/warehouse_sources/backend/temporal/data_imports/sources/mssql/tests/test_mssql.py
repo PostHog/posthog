@@ -1005,6 +1005,12 @@ class TestRetryOnTransientConnectionError:
             20047, b"DB-Lib error message 20047, severity 9:\nDBPROCESS is dead or not enabled\n"
         )
 
+    def _not_connected(self) -> pymssql.OperationalError:
+        # pymssql wraps the InterfaceError `assert_connected` raises mid-connect (e.g. starting the
+        # implicit transaction) as an OperationalError with this prefix — same DBPROCESS-death class
+        # as `_dbprocess_dead`, surfaced through a different internal code path.
+        return pymssql.OperationalError("Cannot start transaction: Not connected to any MS SQL server")
+
     def test_does_not_retry_non_transient(self, mocker):
         sleep = mocker.patch("products.warehouse_sources.backend.temporal.data_imports.sources.mssql.mssql.time.sleep")
         operation = MagicMock(side_effect=pymssql.OperationalError("Login failed for user 'reporting'."))
@@ -1014,9 +1020,10 @@ class TestRetryOnTransientConnectionError:
         assert operation.call_count == 1
         sleep.assert_not_called()
 
-    def test_gives_up_after_max_attempts(self, mocker):
+    @pytest.mark.parametrize("error_factory_name", ["_dbprocess_dead", "_not_connected"])
+    def test_gives_up_after_max_attempts(self, mocker, error_factory_name):
         mocker.patch("products.warehouse_sources.backend.temporal.data_imports.sources.mssql.mssql.time.sleep")
-        operation = MagicMock(side_effect=self._dbprocess_dead())
+        operation = MagicMock(side_effect=getattr(self, error_factory_name)())
 
         with pytest.raises(pymssql.OperationalError):
             retry_on_transient_connection_error(operation, max_attempts=3)
@@ -1045,7 +1052,17 @@ class TestGetSchemasDeadline:
 
 
 class TestGetSchemasRetriesTransientDrop:
-    def test_get_schemas_retries_then_recovers(self, mocker):
+    @pytest.mark.parametrize(
+        "transient_error",
+        [
+            pymssql.OperationalError(
+                20047, b"DB-Lib error message 20047, severity 9:\nDBPROCESS is dead or not enabled\n"
+            ),
+            pymssql.OperationalError("Cannot start transaction: Not connected to any MS SQL server"),
+        ],
+        ids=["dbprocess_dead", "not_connected"],
+    )
+    def test_get_schemas_retries_then_recovers(self, mocker, transient_error):
         # A transient DBPROCESS death mid-discovery must retry the whole connect-and-discover cycle
         # in-process instead of failing the activity on the first blip.
         mocker.patch("products.warehouse_sources.backend.temporal.data_imports.sources.mssql.mssql.time.sleep")
@@ -1058,12 +1075,7 @@ class TestGetSchemasRetriesTransientDrop:
         get_columns = mocker.patch.object(
             MSSQLImplementation,
             "get_columns",
-            side_effect=[
-                pymssql.OperationalError(
-                    20047, b"DB-Lib error message 20047, severity 9:\nDBPROCESS is dead or not enabled\n"
-                ),
-                {},
-            ],
+            side_effect=[transient_error, {}],
         )
 
         schemas = MSSQLSource().get_schemas(_make_config(), team_id=1)
