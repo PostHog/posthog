@@ -146,6 +146,7 @@ class CohortErrorCode(StrEnum):
     FLAG_EVALUATION_FAILED = "flag_evaluation_failed"
     EMPTY_REPLACE = "empty_replace"
     POPULATION_CLAIM_INCOMPLETE = "population_claim_incomplete"
+    REPLACE_DISABLED = "replace_disabled"
     UNKNOWN = "unknown"
 
 
@@ -168,6 +169,7 @@ ERROR_CODE_MESSAGES: dict[str, str] = {
     CohortErrorCode.FLAG_EVALUATION_FAILED: "We couldn't evaluate the feature flag for some people, so this cohort may be missing people who match it. Create a new cohort from the flag to try again.",
     CohortErrorCode.EMPTY_REPLACE: "The replace was stopped because the query matched no persons, so the cohort kept its existing members. Check the query for a typo, such as a misspelled property name.",
     CohortErrorCode.POPULATION_CLAIM_INCOMPLETE: "The replace could not start because its request timestamp is missing. Run the replace again.",
+    CohortErrorCode.REPLACE_DISABLED: "The replace was stopped because this option is turned off. The cohort kept its existing members. Try again when the option is available.",
     CohortErrorCode.UNKNOWN: UNEXPECTED_ERROR_MESSAGE,
 }
 
@@ -223,6 +225,8 @@ def parse_error_code(e: Exception) -> CohortErrorCode:
             return CohortErrorCode.EMPTY_REPLACE
         case PopulationClaimIncomplete():
             return CohortErrorCode.POPULATION_CLAIM_INCOMPLETE
+        case ReplaceDisabled():
+            return CohortErrorCode.REPLACE_DISABLED
 
     code_name = (getattr(e, "code_name", None) or "").lower()
     if code_name in _CLICKHOUSE_ERROR_MAPPING:
@@ -1717,6 +1721,29 @@ class PopulationEmptyResult(Exception):
 
 class PopulationClaimIncomplete(Exception):
     """A replace run has no ``population_claimed_at``, so computing the floor could prune concurrent adds."""
+
+
+class ReplaceDisabled(Exception):
+    """The static cohort replace feature flag was turned off before the replace changed membership."""
+
+
+def is_static_cohort_replace_enabled(team: Team) -> bool:
+    """Whether static cohort replace is enabled for ``team``; fails closed on flag-lookup errors."""
+    from posthog.ph_client import get_feature_flag_or_none
+
+    return (
+        get_feature_flag_or_none(
+            "static-cohort-replace-on-recalc",
+            str(team.uuid),
+            groups={"organization": str(team.organization_id), "project": str(team.id)},
+            group_properties={
+                "organization": {"id": str(team.organization_id)},
+                "project": {"id": str(team.id)},
+            },
+            send_feature_flag_events=False,
+        )
+        is True
+    )
 
 
 def population_timestamp_now() -> datetime:

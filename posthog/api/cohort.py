@@ -147,6 +147,7 @@ from products.cohorts.backend.models.util import (
     cohort_filters_have_values,
     get_all_cohort_dependencies,
     get_friendly_error_message,
+    is_static_cohort_replace_enabled,
     legacy_groups_to_filters,
     population_timestamp_now,
     validate_actors_query_for_cohort,
@@ -1997,7 +1998,7 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
 
     def _is_static_cohort_replace_enabled(self) -> bool:
         team = _team_from_serializer_context(self.context)
-        return team is not None and self._team_flag_enabled(team, "static-cohort-replace-on-recalc")
+        return team is not None and is_static_cohort_replace_enabled(team)
 
     def _validate_population_mode(self, attrs: dict) -> None:
         if "population_mode" not in attrs or attrs["population_mode"] is None:

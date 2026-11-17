@@ -983,7 +983,7 @@ email@example.org
         cohort = Cohort.objects.create(team=self.team, name="static", is_static=True)
         url = f"/api/projects/{self.team.id}/cohorts/{cohort.pk}"
 
-        with patch("posthog.api.cohort.feature_enabled_or_false", return_value=False):
+        with patch("posthog.api.cohort.is_static_cohort_replace_enabled", return_value=False):
             response = self.client.patch(
                 url,
                 data={
@@ -1004,10 +1004,7 @@ email@example.org
 
         with (
             time_machine.travel(claimed_at, tick=False),
-            patch(
-                "posthog.api.cohort.feature_enabled_or_false",
-                side_effect=lambda flag, *args, **kwargs: flag == "static-cohort-replace-on-recalc",
-            ),
+            patch("posthog.api.cohort.is_static_cohort_replace_enabled", return_value=True),
             patch("posthog.tasks.calculate_cohort.insert_cohort_from_query.delay") as mock_delay,
         ):
             response = self.client.patch(
@@ -10019,12 +10016,7 @@ class TestCohortPopulationModeValidation(SimpleTestCase):
         expected_error: str,
     ) -> None:
         context = self._make_context(request=request)
-        with patch(
-            "posthog.api.cohort.feature_enabled_or_false",
-            side_effect=lambda flag, *args, **kwargs: (
-                flag_enabled if flag == "static-cohort-replace-on-recalc" else False
-            ),
-        ):
+        with patch("posthog.api.cohort.is_static_cohort_replace_enabled", return_value=flag_enabled):
             serializer = CohortSerializer(instance=instance, data=payload, context=context, partial=True)
             assert not serializer.is_valid()
             assert expected_error in serializer.errors["population_mode"]
@@ -10044,10 +10036,7 @@ class TestCohortPopulationModeValidation(SimpleTestCase):
     def test_population_mode_invalid_choice_rejected(self) -> None:
         cohort = Cohort(id=1, is_static=True)
         context = self._make_context()
-        with patch(
-            "posthog.api.cohort.feature_enabled_or_false",
-            side_effect=lambda flag, *args, **kwargs: flag == "static-cohort-replace-on-recalc",
-        ):
+        with patch("posthog.api.cohort.is_static_cohort_replace_enabled", return_value=True):
             serializer = CohortSerializer(
                 instance=cohort,
                 data={"population_mode": "invalid_mode", "query": {"kind": "HogQLQuery", "query": "select 1"}},
@@ -10061,10 +10050,7 @@ class TestCohortPopulationModeValidation(SimpleTestCase):
     def test_population_mode_valid_choices(self, _name: str, mode: str) -> None:
         cohort = Cohort(id=1, is_static=True)
         context = self._make_context()
-        with patch(
-            "posthog.api.cohort.feature_enabled_or_false",
-            side_effect=lambda flag, *args, **kwargs: flag == "static-cohort-replace-on-recalc",
-        ):
+        with patch("posthog.api.cohort.is_static_cohort_replace_enabled", return_value=True):
             serializer = CohortSerializer(
                 instance=cohort,
                 data={"population_mode": mode, "query": {"kind": "HogQLQuery", "query": "select 1"}},

@@ -1010,6 +1010,12 @@ def calculate_cohort_test_factory(event_factory: Callable, person_factory: Calla
 
 
 class TestCohortCalculationTasks(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        flag_patcher = patch("posthog.tasks.calculate_cohort.is_static_cohort_replace_enabled", return_value=True)
+        self.addCleanup(flag_patcher.stop)
+        self.mock_replace_flag = flag_patcher.start()
+
     def _backfillable_cohort(self) -> Cohort:
         return Cohort.objects.create(
             team=self.team,
@@ -2180,6 +2186,233 @@ class TestCohortCalculationTasks(APIBaseTest):
                 get_friendly_error_message(CohortErrorCode.POPULATION_CLAIM_INCOMPLETE, will_retry=False),
             ),
         )
+
+    def test_query_replace_stopped_at_entry_when_flag_is_off(self) -> None:
+        self.mock_replace_flag.return_value = False
+        member = create_person(team=self.team, distinct_ids=["member"], uuid=uuid4())
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="static replace",
+            is_static=True,
+            query=PERSONS_HOGQL_QUERY,
+        )
+        cohort.insert_users_list_by_uuid([str(member.uuid)], team_id=self.team.pk)
+        Cohort.objects.filter(pk=cohort.pk).update(
+            is_calculating=True,
+            pending_population_mode=CohortPopulationMode.REPLACE,
+            population_claimed_at=timezone.now().replace(microsecond=0),
+        )
+
+        with (
+            patch("products.cohorts.backend.models.util.mint_population_marker") as mock_mint,
+            patch(QUERY_CH_INSERT_PATH) as mock_insert_ch,
+            patch(PG_SYNC_PATH) as mock_sync,
+            patch("posthog.tasks.calculate_cohort.capture_exception") as mock_capture,
+        ):
+            insert_cohort_from_query(cohort.id, self.team.pk)
+
+        mock_mint.assert_not_called()
+        mock_insert_ch.assert_not_called()
+        mock_sync.assert_not_called()
+        mock_capture.assert_not_called()
+        cohort.refresh_from_db()
+        history = CohortCalculationHistory.objects.filter(cohort=cohort).latest("started_at")
+        self.assertEqual(list_cohort_member_ids(team_id=self.team.pk, cohort_id=cohort.pk), [member.id])
+        self.assertEqual(
+            (
+                cohort.is_calculating,
+                cohort.pending_population_mode,
+                cohort.population_marker,
+                cohort.population_claimed_at,
+                cohort.errors_calculating,
+                history.error_code,
+                history.error,
+            ),
+            (
+                False,
+                None,
+                None,
+                None,
+                1,
+                CohortErrorCode.REPLACE_DISABLED,
+                get_friendly_error_message(CohortErrorCode.REPLACE_DISABLED, will_retry=False),
+            ),
+        )
+
+    def test_query_replace_flag_lookup_error_fails_closed(self) -> None:
+        from products.cohorts.backend.models.util import is_static_cohort_replace_enabled
+
+        member = create_person(team=self.team, distinct_ids=["member"], uuid=uuid4())
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="static replace",
+            is_static=True,
+            query=PERSONS_HOGQL_QUERY,
+        )
+        cohort.insert_users_list_by_uuid([str(member.uuid)], team_id=self.team.pk)
+        Cohort.objects.filter(pk=cohort.pk).update(
+            is_calculating=True,
+            pending_population_mode=CohortPopulationMode.REPLACE,
+            population_claimed_at=timezone.now().replace(microsecond=0),
+        )
+
+        with (
+            patch(
+                "posthog.tasks.calculate_cohort.is_static_cohort_replace_enabled",
+                new=is_static_cohort_replace_enabled,
+            ),
+            patch("posthoganalytics.get_feature_flag", side_effect=RuntimeError("flag service down")),
+            patch(QUERY_CH_INSERT_PATH) as mock_insert_ch,
+        ):
+            insert_cohort_from_query(cohort.id, self.team.pk)
+
+        mock_insert_ch.assert_not_called()
+        cohort.refresh_from_db()
+        history = CohortCalculationHistory.objects.filter(cohort=cohort).latest("started_at")
+        self.assertEqual(list_cohort_member_ids(team_id=self.team.pk, cohort_id=cohort.pk), [member.id])
+        self.assertEqual(
+            (cohort.is_calculating, cohort.pending_population_mode, history.error_code),
+            (False, None, CohortErrorCode.REPLACE_DISABLED),
+        )
+
+    def test_query_replace_stopped_before_copy_when_flag_turns_off_during_clickhouse_insert(self) -> None:
+        self.mock_replace_flag.side_effect = [True, False]
+        member = create_person(team=self.team, distinct_ids=["member"], uuid=uuid4())
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="static replace",
+            is_static=True,
+            query=PERSONS_HOGQL_QUERY,
+        )
+        cohort.insert_users_list_by_uuid([str(member.uuid)], team_id=self.team.pk)
+        Cohort.objects.filter(pk=cohort.pk).update(
+            is_calculating=True,
+            pending_population_mode=CohortPopulationMode.REPLACE,
+            population_claimed_at=timezone.now().replace(microsecond=0),
+        )
+
+        with (
+            patch(QUERY_CH_INSERT_PATH, return_value=1) as mock_insert_ch,
+            patch(PG_SYNC_PATH) as mock_sync,
+            patch("products.cohorts.backend.models.util.prune_members_absent_from_replace") as mock_pg_prune,
+        ):
+            insert_cohort_from_query(cohort.id, self.team.pk)
+
+        mock_insert_ch.assert_called_once()
+        mock_sync.assert_not_called()
+        mock_pg_prune.assert_not_called()
+        cohort.refresh_from_db()
+        history = CohortCalculationHistory.objects.filter(cohort=cohort).latest("started_at")
+        self.assertEqual(list_cohort_member_ids(team_id=self.team.pk, cohort_id=cohort.pk), [member.id])
+        self.assertEqual(
+            (cohort.is_calculating, cohort.pending_population_mode, history.error_code),
+            (False, None, CohortErrorCode.REPLACE_DISABLED),
+        )
+
+    def test_query_replace_marker_retry_converges_when_flag_is_turned_off(self) -> None:
+        run = uuid4().hex[:8]
+        stale = create_person(
+            team=self.team, distinct_ids=[f"{run}-stale"], properties={"tag": f"{run}-old"}, uuid=uuid4()
+        )
+        kept = create_person(
+            team=self.team, distinct_ids=[f"{run}-kept"], properties={"tag": f"{run}-keep"}, uuid=uuid4()
+        )
+        flush_persons_and_events()
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="static replace",
+            is_static=True,
+            query={"kind": "HogQLQuery", "query": f"SELECT id FROM persons WHERE properties.tag = '{run}-keep'"},
+        )
+        start = timezone.now().replace(microsecond=0)
+
+        with time_machine.travel(start, tick=False) as clock:
+            cohort.insert_users_list_by_uuid([str(stale.uuid)], team_id=self.team.pk)
+            clock.shift(10)
+            Cohort.objects.filter(pk=cohort.pk).update(
+                is_calculating=True,
+                pending_population_mode=CohortPopulationMode.REPLACE,
+                population_claimed_at=timezone.now().replace(microsecond=0),
+            )
+            clock.shift(10)
+            insert_cohort_from_query.push_request(retries=0, called_directly=False, is_eager=True)
+            try:
+                with (
+                    patch(PG_SYNC_PATH, side_effect=ClickHouseAtCapacity("transient")),
+                    self.assertRaises(Retry) as scheduled,
+                ):
+                    insert_cohort_from_query.run(cohort.id, self.team.pk)
+                self.assertIn("replace_marker", scheduled.exception.sig.kwargs)
+
+                # Turn off the kill switch before the marker-carrying retry runs.
+                self.mock_replace_flag.return_value = False
+                clock.shift(10)
+                insert_cohort_from_query.run(cohort.id, self.team.pk, **scheduled.exception.sig.kwargs)
+            finally:
+                insert_cohort_from_query.pop_request()
+
+        cohort.refresh_from_db()
+        self.assertFalse(cohort.is_calculating)
+        self.assertIsNone(cohort.pending_population_mode)
+        self.assertEqual(list_cohort_member_ids(team_id=self.team.pk, cohort_id=cohort.pk), [kept.id])
+
+    def test_sweep_redispatched_replace_stopped_when_flag_is_off(self) -> None:
+        now = timezone.now().replace(microsecond=0)
+        member = create_person(team=self.team, distinct_ids=["member"], uuid=uuid4())
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="stuck replace",
+            is_static=True,
+            is_calculating=True,
+            query=PERSONS_HOGQL_QUERY,
+            pending_population_mode=CohortPopulationMode.REPLACE,
+            population_marker=now - relativedelta(hours=2),
+            population_claimed_at=now - relativedelta(hours=6),
+        )
+        cohort.insert_users_list_by_uuid([str(member.uuid)], team_id=self.team.pk, save_state=False)
+        Cohort.objects.filter(pk=cohort.pk).update(created_at=now - relativedelta(hours=6))
+
+        with patch("posthog.tasks.calculate_cohort.insert_cohort_from_query.delay") as mock_delay:
+            reset_stuck_cohorts()
+            mock_delay.assert_called_once_with(cohort.pk, self.team.pk)
+
+        self.mock_replace_flag.return_value = False
+        with patch(QUERY_CH_INSERT_PATH) as mock_insert_ch:
+            insert_cohort_from_query(cohort.id, self.team.pk)
+
+        mock_insert_ch.assert_not_called()
+        cohort.refresh_from_db()
+        history = CohortCalculationHistory.objects.filter(cohort=cohort).latest("started_at")
+        self.assertEqual(list_cohort_member_ids(team_id=self.team.pk, cohort_id=cohort.pk), [member.id])
+        self.assertEqual(
+            (cohort.is_calculating, cohort.pending_population_mode, history.error_code),
+            (False, None, CohortErrorCode.REPLACE_DISABLED),
+        )
+
+    def test_query_append_still_runs_when_replace_flag_is_off(self) -> None:
+        self.mock_replace_flag.return_value = False
+        run = uuid4().hex[:8]
+        existing = create_person(
+            team=self.team, distinct_ids=[f"{run}-existing"], properties={"tag": f"{run}-old"}, uuid=uuid4()
+        )
+        new = create_person(team=self.team, distinct_ids=[f"{run}-new"], properties={"tag": f"{run}-new"}, uuid=uuid4())
+        flush_persons_and_events()
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="static append",
+            is_static=True,
+            is_calculating=True,
+            pending_population_mode=CohortPopulationMode.APPEND,
+            query={"kind": "HogQLQuery", "query": f"SELECT id FROM persons WHERE properties.tag = '{run}-new'"},
+        )
+        cohort.insert_users_list_by_uuid([str(existing.uuid)], team_id=self.team.pk, save_state=False)
+
+        insert_cohort_from_query(cohort.id, self.team.pk)
+
+        cohort.refresh_from_db()
+        self.assertFalse(cohort.is_calculating)
+        self.assertIsNone(cohort.pending_population_mode)
+        self.assertEqual(set(list_cohort_member_ids(team_id=self.team.pk, cohort_id=cohort.pk)), {existing.id, new.id})
 
     def test_resync_stopped_when_replace_claims_cohort_between_read_and_lock(self) -> None:
         # A concurrent PATCH claim arriving after the task starts must fence out an append_only resync before it

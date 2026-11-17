@@ -61,6 +61,7 @@ from products.cohorts.backend.models.util import (
     CohortErrorCode,
     PopulationClaimIncomplete,
     PopulationMarkerClockSkew,
+    ReplaceDisabled,
     StaticCohortReadBackIncomplete,
     close_open_population_attempts,
     count_cohort_members,
@@ -68,6 +69,7 @@ from products.cohorts.backend.models.util import (
     get_all_cohort_dependents,
     get_clickhouse_query_stats,
     get_friendly_error_message,
+    is_static_cohort_replace_enabled,
     parse_error_code,
     save_recovery_bookkeeping,
     sort_cohorts_topologically,
@@ -998,7 +1000,15 @@ def _replace_floor(cohort: Cohort, marker: datetime) -> datetime:
 
 
 def _replace_static_members(
-    cohort: Cohort, *, team_id: int, marker: datetime, floor: datetime, rows_written: int, log_prefix: str
+    cohort: Cohort,
+    *,
+    team: Team,
+    team_id: int,
+    marker: datetime,
+    floor: datetime,
+    rows_written: int,
+    check_replace_enabled: bool,
+    log_prefix: str,
 ) -> None:
     """Sync a replace's new members into Postgres, then prune the members it no longer matches.
 
@@ -1012,6 +1022,11 @@ def _replace_static_members(
         prune_stale_static_cohort_rows,
         require_current_population_marker,
     )
+
+    # Check again once ClickHouse finishes when this execution minted the marker, so flipping the kill switch
+    # stops a slow query before any Postgres write or prune. Marker-carrying retries finish converging.
+    if check_replace_enabled and not is_static_cohort_replace_enabled(team):
+        raise ReplaceDisabled(f"Static cohort replace is disabled for team {team_id}")
 
     # A replace never empties a cohort. A query that matches nobody is far likelier to be a mistake, such as a
     # misspelled property, than a request to drop every member, and the flags and surveys built on the cohort
@@ -1133,8 +1148,11 @@ def _populate_static_cohort(
         if marker is not None:
             require_current_population_marker(cohort_id, marker)
 
+        # Stop fresh runs, failed-insert retries, and sweep redispatches if the replace flag is off.
+        # Marker-carrying retries keep going so a partially pruned cohort converges cleanly.
+        replace_disabled = replacing and replace_marker is None and not is_static_cohort_replace_enabled(team)
         claim_incomplete = replacing and cohort.population_claimed_at is None
-        if replacing and marker is None and not claim_incomplete:
+        if replacing and marker is None and not replace_disabled and not claim_incomplete:
             # Every insert attempt gets a fresh marker, so rows a lost acknowledgement left at an older
             # one fall below this run's prune instead of being re-inserted under the same marker.
             ch_insert_done = False
@@ -1156,6 +1174,8 @@ def _populate_static_cohort(
             mode=claimed_mode,
         )
 
+        if replace_disabled:
+            raise ReplaceDisabled(f"Static cohort replace is disabled for team {team_id}")
         if claim_incomplete:
             raise PopulationClaimIncomplete(f"Cohort {cohort.pk} is queued for a replace without population_claimed_at")
 
@@ -1184,7 +1204,14 @@ def _populate_static_cohort(
         if marker is not None:
             floor = _replace_floor(cohort, marker)
             _replace_static_members(
-                cohort, team_id=team_id, marker=marker, floor=floor, rows_written=rows_written, log_prefix=log_prefix
+                cohort,
+                team=team,
+                team_id=team_id,
+                marker=marker,
+                floor=floor,
+                rows_written=rows_written,
+                check_replace_enabled=replace_marker is None,
+                log_prefix=log_prefix,
             )
             finished_replace = (marker, floor)
         else:
@@ -1218,9 +1245,9 @@ def _populate_static_cohort(
             team_id=team_id,
             error=str(err),
         )
-        # ExposedHogQLError is a user validation failure, and an empty replace is a refused run, not a system fault,
-        # so neither goes to error tracking.
-        if not isinstance(err, (ExposedHogQLError, PopulationEmptyResult)):
+        # ExposedHogQLError is a user validation failure, and empty/disabled replaces are expected stops rather
+        # than system faults, so none of them go to error tracking.
+        if not isinstance(err, (ExposedHogQLError, PopulationEmptyResult, ReplaceDisabled)):
             capture_exception()
     except BaseException as err:
         # A run the worker cut short (shutdown, revoke) failed; it must not be saved as a success.
