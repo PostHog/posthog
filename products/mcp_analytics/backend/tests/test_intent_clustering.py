@@ -481,6 +481,21 @@ class TestExcludeRecurringSessions:
 
         assert [row[0] for row in kept] == ["human-1", "human-1"]
 
+    @parameterized.expand(
+        [
+            ("uuid", "Scout run 01a1c368-41f8-7279-a942-9fe728cef1b9", "Scout run <id>"),
+            ("long_hex", "replay abcdef0123456789abcd done", "replay <id> done"),
+            ("long_digits", "ticket 1234567 triage", "ticket <id> triage"),
+            ("short_numbers_kept", "top 10 events in 2025", "top 10 events in 2025"),
+        ]
+    )
+    def test_run_ids_are_masked_before_matching(self, _name: str, intent: str, recurring_text: str) -> None:
+        rows = [("run-1", "execute_sql", intent, False), ("human-1", "execute_sql", "why did signups drop", False)]
+
+        kept = exclude_recurring_sessions(rows, {recurring_text})
+
+        assert [row[0] for row in kept] == ["human-1"]
+
 
 class TestBuildCallCorpus:
     def test_attributes_tool_counts_to_the_calls_own_intent(self) -> None:
@@ -1184,10 +1199,14 @@ class TestCorpusQueries(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin, B
         self._seed_tool_call("human-1", "execute_sql", intent="nightly scout", timestamp=base + timedelta(minutes=1))
         self._seed_tool_call("human-2", "execute_sql", intent="twice only", timestamp=base)
         self._seed_tool_call("human-3", "execute_sql", intent="twice only", timestamp=base)
+        # Per-run texts that differ only by a run ID count as one recurring text.
+        for i in range(4):
+            self._seed_tool_call(f"run-{i}", "execute_sql", intent=f"Scout run {uuid.uuid4()}", timestamp=base)
         flush_persons_and_events()
 
         assert fetch_recurring_intents(self.team) == [
-            RecurringIntent(intent_text="nightly scout", session_count=3, call_count=6, error_count=1)
+            RecurringIntent(intent_text="Scout run <id>", session_count=4, call_count=4, error_count=0),
+            RecurringIntent(intent_text="nightly scout", session_count=3, call_count=6, error_count=1),
         ]
 
     def test_sampling_skips_sessions_that_open_with_a_recurring_text(self) -> None:
@@ -1196,10 +1215,12 @@ class TestCorpusQueries(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin, B
         self._seed_tool_call("scout-1", "execute_sql", intent=" nightly scout", timestamp=base + timedelta(minutes=1))
         self._seed_tool_call("human-1", "execute_sql", intent="why did signups drop", timestamp=base)
         self._seed_tool_call("human-1", "execute_sql", intent="nightly scout", timestamp=base + timedelta(minutes=1))
+        self._seed_tool_call("run-1", "execute_sql", intent=f"Scout run {uuid.uuid4()}", timestamp=base)
         flush_persons_and_events()
 
-        assert sample_corpus_sessions(self.team, recurring_texts={"nightly scout"}) == ["human-1"]
-        assert intent_clustering.fetch_tools_by_session(self.team, recurring_texts={"nightly scout"}) == {
+        recurring = {"nightly scout", "Scout run <id>"}
+        assert sample_corpus_sessions(self.team, recurring_texts=recurring) == ["human-1"]
+        assert intent_clustering.fetch_tools_by_session(self.team, recurring_texts=recurring) == {
             "execute_sql": {"human-1"}
         }
 
