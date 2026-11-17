@@ -2,6 +2,7 @@ import re
 import json
 import uuid
 from collections.abc import Callable
+from dataclasses import replace
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -22,9 +23,14 @@ from posthog.models.ai_events.test_util import bulk_create_ai_events
 from posthog.models.team import Team
 
 from products.ai_observability.backend.logic.eval_suggestions import call_review, pipeline, runs
+from products.ai_observability.backend.logic.eval_suggestions.call_review import REVIEW_TEMPLATE_KEY
 from products.ai_observability.backend.logic.eval_suggestions.call_review_queries import CallTypeRow
 from products.ai_observability.backend.logic.eval_suggestions.config import SuggestionSettings
-from products.ai_observability.backend.logic.eval_suggestions.coverage import Coverage, ExistingEval
+from products.ai_observability.backend.logic.eval_suggestions.coverage import (
+    Coverage,
+    ExistingEval,
+    earlier_review_cards,
+)
 from products.ai_observability.backend.logic.eval_suggestions.measure import SampleRef
 from products.ai_observability.backend.logic.eval_suggestions.pipeline import (
     dedupe,
@@ -587,6 +593,26 @@ class TestRunRecords(BaseTest):
         )
 
         assert publish(run, [_candidate("check:unrecovered_errors", [])], {}) == []
+
+    def test_the_review_reads_the_latest_card_of_each_earlier_check(self) -> None:
+        def reviewed(key: str, name: str) -> Proposal:
+            return replace(
+                _candidate(key, [], "Is it right?"),
+                template_key=REVIEW_TEMPLATE_KEY,
+                draft={"name": name, "description": f"Whether {name} holds"},
+            )
+
+        first = create_run(self.team, "scheduled")
+        publish(first, [reviewed("review:a", "dates"), reviewed("review:b", "tone"), CHECK], {})
+        EvalSuggestion.objects.for_team(self.team.pk).filter(dedupe_key="review:b").update(
+            status=EvalSuggestionStatus.DISMISSED, decided_at=timezone.now()
+        )
+        publish(create_run(self.team, "scheduled"), [reviewed("review:a", "refund dates")], {})
+
+        assert [(card.dedupe_key, card.status, card.title) for card in earlier_review_cards(self.team)] == [
+            ("review:a", "proposed", "refund dates"),
+            ("review:b", "dismissed", "tone"),
+        ]
 
     def test_a_card_accepted_while_the_run_works_is_not_published_again(self) -> None:
         run = create_run(self.team, "scheduled")

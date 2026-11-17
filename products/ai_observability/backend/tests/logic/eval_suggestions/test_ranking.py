@@ -536,13 +536,14 @@ def test_a_snippet_is_chosen_only_when_its_matches_are_its_call_type(
 
 @parameterized.expand(
     [
-        ("same_check_reworded", "support-reply", "Whether the reply promises a refund date.", True),
-        ("another_check", "support-reply", "Checks whether a reply answers in the user's language", False),
-        ("another_call_type", "refund-reply", "Checks whether a reply promises a refund date", False),
+        ("same_check_reworded", "support-reply", "Whether the reply promises a refund date.", False, True),
+        ("another_check", "support-reply", "Checks whether a reply answers in the user's language", False, False),
+        ("another_call_type", "refund-reply", "Checks whether a reply promises a refund date", False, False),
+        ("named_as_the_earlier_card", "support-reply", "Whether customers hear when the money comes back", True, True),
     ]
 )
 def test_a_reviewed_card_keeps_its_dedupe_key_when_a_later_review_rewords_it(
-    _name: str, prompt_name: str, checks: str, same_key: bool
+    _name: str, prompt_name: str, checks: str, named_earlier: bool, same_key: bool
 ) -> None:
     first = _review_card([_call_type("prompt_name", "support-reply")])
     later = replace(
@@ -551,6 +552,7 @@ def test_a_reviewed_card_keeps_its_dedupe_key_when_a_later_review_rewords_it(
         checks=checks,
         call_types=[_call_type("prompt_name", prompt_name)],
         judge_prompt="Is the customer told when the refund arrives?",
+        earlier_key=ranking.review_dedupe_key(first) if named_earlier else "",
     )
 
     assert (ranking.review_dedupe_key(first) == ranking.review_dedupe_key(later)) is same_key

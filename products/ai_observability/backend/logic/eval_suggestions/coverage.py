@@ -30,6 +30,7 @@ from products.ai_observability.backend.models.eval_suggestions import EvalSugges
 from products.ai_observability.backend.models.evaluations import Evaluation
 
 from . import catalog
+from .call_review import REVIEW_TEMPLATE_KEY, EarlierCard
 
 DEAD_LOOKBACK = timedelta(days=30)
 MAX_SILENT_EVALUATIONS = 10
@@ -470,6 +471,26 @@ def dismissed_dedupe_keys(team: Team) -> frozenset[str]:
         .filter(status=EvalSuggestionStatus.DISMISSED, decided_at__gte=timezone.now() - DISMISSAL_MEMORY)
         .values_list("dedupe_key", flat=True)
     )
+
+
+def earlier_review_cards(team: Team) -> list[EarlierCard]:
+    """The latest card of each check the call review suggested within DISMISSAL_MEMORY, newest first."""
+    rows = (
+        EvalSuggestion.objects.for_team(team.pk)
+        .filter(template_key=REVIEW_TEMPLATE_KEY, created_at__gte=timezone.now() - DISMISSAL_MEMORY)
+        .order_by("dedupe_key", "-created_at")
+        .distinct("dedupe_key")
+        .values_list("dedupe_key", "status", "draft", "created_at")
+    )
+    return [
+        EarlierCard(
+            dedupe_key=dedupe_key,
+            status=status,
+            title=str(draft.get("name", "")),
+            checks=str(draft.get("description", "")),
+        )
+        for dedupe_key, status, draft, _ in sorted(rows, key=lambda row: row[3], reverse=True)
+    ]
 
 
 def fetch_coverage(team: Team, window_start: datetime, window_end: datetime) -> Coverage:

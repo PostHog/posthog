@@ -287,7 +287,11 @@ def test_a_judge_is_calibrated_on_the_prompts_the_accepted_evaluation_sends() ->
 def test_a_judge_request_reads_any_stored_call(_name: str, input: str, output: str, tools: str, expected: str) -> None:
     row = ReviewCallRow(event_uuid="e1", trace_id="t1", call_type=SUPPORT.key, input=input, output=output, tools=tools)
     rendering = call_review.Rendering(
-        text="", call_types={}, trace_ids={}, calls={1: call_review.RenderedCall(call_type=SUPPORT.key, row=row)}
+        text="",
+        call_types={},
+        trace_ids={},
+        calls={1: call_review.RenderedCall(call_type=SUPPORT.key, row=row)},
+        earlier_cards={},
     )
 
     request = judge_calibration.judge_request(

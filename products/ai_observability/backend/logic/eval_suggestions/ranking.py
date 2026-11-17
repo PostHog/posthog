@@ -25,7 +25,7 @@ from products.ai_observability.backend.models.evaluations import Evaluation
 
 from . import cards, catalog
 from .adapters import AdaptedCheck
-from .call_review import ReviewCard
+from .call_review import REVIEW_TEMPLATE_KEY, ReviewCard
 from .call_review_queries import CALL_TYPE_INPUT_CHARS, CallTypeRow, SnippetMatches
 from .coverage import EvalFix, fix_dedupe_key
 from .judge_calibration import Calibration
@@ -68,7 +68,6 @@ FIX_SEVERITY = 1.0
 # A reviewed card names a failure the review model saw several times against a rule in the team's own prompt, which
 # makes it worth more than a judge picked from the catalog.
 REVIEW_SEVERITY = 1.0
-REVIEW_TEMPLATE_KEY = "review"
 # The property that names each kind of call type on a live generation. A call type named by its input has none.
 CALL_TYPE_PROPERTIES = {"prompt_name": "$ai_prompt_name", "span_name": "$ai_span_name"}
 # Plain text that a generation's input holds as is and that the condition matcher's string of the input keeps. The
@@ -563,9 +562,11 @@ def call_type_filters(call_types: Sequence[CallTypeRow], snippets: Mapping[str, 
 
 
 def review_dedupe_key(card: ReviewCard) -> str:
-    """The card's call types and the words of what its judge checks. A later review of the same failure writes a
-    new title and judge prompt, so neither is in the key, and the check's case, punctuation, word order and filler
-    words are left out too. A check reworded beyond that gets a new key."""
+    """The key of the earlier card the review said this one repeats, else the card's call types and the words of
+    what its judge checks. The check's case, punctuation, word order and filler words are left out, so a review
+    that does not name the earlier card still matches a check reworded only that far."""
+    if card.earlier_key:
+        return card.earlier_key
     keys = ",".join(sorted(c.key for c in card.call_types))
     words = sorted(set(re.findall(r"\w+", card.checks.lower())) - FILLER_WORDS)
     return bounded_key(f"review:{keys}:{' '.join(words)}")

@@ -251,7 +251,7 @@ def _reviewed_proposals(
     if len(calls) < call_review.MIN_CARD_FAILURES:
         stages.set("drafting", "skipped", detail="too few calls with a text answer", cost_usd=round(spent, 4))
         return []
-    rendering = call_review.render(triage.picked, calls, review_calls)
+    rendering = call_review.render(triage.picked, calls, review_calls, coverage_stage.earlier_review_cards(team))
     request = call_review.review_request(rendering)
     # A review that starts too late to finish would be paid for and then lost with the timed-out attempt.
     if _time_left(deadline) < call_review.max_seconds(request.timeout):
