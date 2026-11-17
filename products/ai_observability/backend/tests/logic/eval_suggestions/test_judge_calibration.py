@@ -364,3 +364,32 @@ def test_a_request_that_could_end_past_the_deadline_never_starts() -> None:
 
     assert calls == [None]
     client.messages.create.assert_not_called()
+
+
+@parameterized.expand(
+    [
+        ("gives_the_review_labels", "return not match(output, '^Reply [0-4]$')", True, (5, 50)),
+        # Five of the review's passes are not JSON, so jsonParse raises on them, and each error counts against the code.
+        (
+            "raises_on_some_passes",
+            "if (match(output, '^Reply [0-4]$')) {\n  return false\n}\n"
+            "if (match(output, '^Reply [5-9]$')) {\n  return jsonParse(output).ok\n}\nreturn true",
+            False,
+            (5, 45),
+        ),
+        ("does_not_compile", "return match(output, 'Reply \\d')", None, None),
+    ]
+)
+def test_a_code_check_is_kept_only_when_it_gives_the_review_labels(
+    _name: str, code_check: str, kept: bool | None, counts: tuple[int, int] | None
+) -> None:
+    card, rendering = _card_and_rendering()
+
+    code = judge_calibration.check_code(replace(card, code_check=code_check), rendering, deadline=None)
+
+    if kept is None:
+        assert code is None
+        return
+    assert code is not None
+    assert judge_calibration.keeps(card, code.calibration) is kept
+    assert (code.failed, code.of) == counts

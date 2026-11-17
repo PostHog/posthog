@@ -112,7 +112,15 @@ Each card is an LLM judge that will grade single calls of its call types:
 - same_as: the id (E1, E2, ...) of the earlier card that checks the same failure mode on the same call type, or an empty string when none does.
 - labels: every call of those call types, by the number on its <call> tag, with the answer the judge should give it: fail, pass, or na when the question does not apply.
 - examples: 2 failing calls, by the trace id on their <call> tag, each with one line that says exactly what went wrong.
-- judge_prompt: the full prompt for the grader, which reads one call and answers pass, fail or N/A. Ask one yes/no question. Say exactly what counts as a pass, what counts as a fail, and when the question does not apply. End with 2 or 3 short examples you invent. Never copy text from the calls into it."""
+- judge_prompt: the full prompt for the grader, which reads one call and answers pass, fail or N/A. Ask one yes/no question. Say exactly what counts as a pass, what counts as a fail, and when the question does not apply. End with 2 or 3 short examples you invent. Never copy text from the calls into it.
+- code_check: a Hog program that decides the card, when code can decide it from the call's output text alone: its format, its structure, content it must or must not hold, or its length. Otherwise an empty string. A code check runs for free, so the team gets it instead of the judge when it gives your labels.
+
+A code_check reads two strings: `output`, the text of the call's output without the "assistant:" label the sample shows, and `input`, the call's input as text. It returns true when the call passes and false when it fails. Hog basics:
+- `let x := 1` declares a variable and `x := 2` changes it. `if (a and not b) { ... } else { ... }`, `for (let i, item in items) { ... }`, `return false`.
+- Strings take single quotes. Lists start at index 1. A missing object field reads as null.
+- Functions: length, trim, lower, substring(text, start, count), startsWith, splitByString(separator, text), match(text, pattern), isValidJSON, jsonParse, typeof, keys, has(list, value), toString. `text ilike '%word%'` matches without case.
+- match takes an RE2 pattern, which has no lookarounds. A string rejects unknown escapes such as \\d, so write [0-9].
+- jsonParse fails on text that is not JSON, so test isValidJSON first. A program that fails on a call counts as a wrong answer."""
 
 
 class _Pick(BaseModel):
@@ -143,6 +151,7 @@ class _Card(BaseModel):
     labels: list[_Label]
     examples: list[_Example] = Field(min_length=1)
     judge_prompt: str = Field(min_length=1)
+    code_check: str = ""
 
 
 # Structured outputs need `additionalProperties: false` on every object and take no array length limits, so
@@ -217,8 +226,19 @@ _REVIEW_SCHEMA: dict[str, Any] = {
                         },
                     },
                     "judge_prompt": {"type": "string"},
+                    "code_check": {"type": "string"},
                 },
-                "required": ["title", "checks", "why", "call_types", "same_as", "labels", "examples", "judge_prompt"],
+                "required": [
+                    "title",
+                    "checks",
+                    "why",
+                    "call_types",
+                    "same_as",
+                    "labels",
+                    "examples",
+                    "judge_prompt",
+                    "code_check",
+                ],
                 "additionalProperties": False,
             },
         },
@@ -294,6 +314,7 @@ class ReviewCard:
     judge_prompt: str
     # The dedupe key of the earlier card that checks the same failure mode, so a reworded card keeps its identity.
     earlier_key: str = ""
+    code_check: str = ""
 
 
 @frozen
@@ -715,9 +736,22 @@ def parse_cards(answer: dict[str, Any] | None, rendering: Rendering) -> list[Rev
                 examples=examples[:EXAMPLES_PER_CARD],
                 judge_prompt=card.judge_prompt.strip(),
                 earlier_key=earlier_key,
+                code_check=card.code_check.strip(),
             )
         )
     return cards[:MAX_CARDS]
+
+
+def code_check_source(code_check: str) -> str:
+    """The Hog source of a generation evaluation that runs the review's code check. The review writes it against the
+    text of the output and the input. A generation evaluation's own `output` and `input` globals hold the stored JSON
+    instead, such as an assistant message list, so the source passes the event's text projections as parameters with
+    those names. The body is not indented, because indenting would change a string that spans lines."""
+    return (
+        "// Reads the text of the generation's output and input.\n"
+        f"fun review_check(output, input) {{\n{code_check}\n}}\n"
+        "return review_check(evaluation_events[1].output_text, evaluation_events[1].input_text)"
+    )
 
 
 def _max_call_cost_usd(request: ModelRequest) -> float:

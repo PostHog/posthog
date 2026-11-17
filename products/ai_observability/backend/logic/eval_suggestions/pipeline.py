@@ -267,10 +267,22 @@ def _reviewed_proposals(
     spent += review_call.cost_usd
     # A rule broken in most calls needs a prompt change, so its card skips the judge and its calibration cost.
     prompt_bugs = [card for card in cards if ranking.is_prompt_bug(card)]
-    calibrated = _calibrate(
-        team, run, [card for card in cards if card not in prompt_bugs], rendering, judge_model, budget, deadline
+    # The code stops in time for the judge calibration that a card falls back to.
+    code_deadline = None if deadline is None else deadline - call_review.max_seconds(judge_calibration.TIMEOUT_SECONDS)
+    checked = [
+        (card, judge_calibration.check_code(card, rendering, code_deadline))
+        for card in cards
+        if card.code_check and card not in prompt_bugs
+    ]
+    coded = [
+        (card, code) for card, code in checked if code is not None and judge_calibration.keeps(card, code.calibration)
+    ]
+    coded_cards = [card for card, _ in coded]
+    judged = [card for card in cards if card not in prompt_bugs and card not in coded_cards]
+    calibrated = _calibrate(team, run, judged, rendering, judge_model, budget, deadline)
+    snippets = _prompt_snippets(
+        team, day, per_mille, call_types, [*coded_cards, *(card for card, _ in calibrated.kept)], deadline
     )
-    snippets = _prompt_snippets(team, day, per_mille, call_types, [card for card, _ in calibrated.kept], deadline)
     proposals = [
         ranking.review_proposal(
             judge_calibration.measured(card, calibration),
@@ -280,7 +292,7 @@ def _reviewed_proposals(
             calibration=calibration,
         )
         for card, calibration in calibrated.kept
-    ]
+    ] + [ranking.review_code_proposal(card, handoff.profile, snippets=snippets, code=code) for card, code in coded]
     scoped = [proposal for proposal in proposals if proposal is not None]
     stages.set(
         "drafting",
@@ -291,6 +303,16 @@ def _reviewed_proposals(
         cards=len(cards),
         calibration=calibrated.record,
         prompt_bugs=len(prompt_bugs),
+        code_checks=len(coded),
+        code_calibration=[
+            {
+                "title": card.title,
+                "compiles": code is not None,
+                **({**asdict(code.calibration), "errors": code.errors} if code is not None else {}),
+                "kept": card in coded_cards,
+            }
+            for card, code in checked
+        ],
         # Kept cards whose generations no filter selects, which the run leaves out.
         unscoped=len(proposals) - len(scoped),
         cost_usd=round(spent + calibrated.cost_usd, 4),

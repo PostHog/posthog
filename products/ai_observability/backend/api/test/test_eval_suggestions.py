@@ -23,6 +23,7 @@ from products.access_control.backend.facade.contracts import PropertyAccessLevel
 from products.access_control.backend.models.access_control import AccessControl
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
 from products.ai_observability.backend.backfill_candidates import BackfillScope
+from products.ai_observability.backend.logic.eval_suggestions import call_review
 from products.ai_observability.backend.logic.eval_suggestions.eligibility import TemporalUnreachable
 from products.ai_observability.backend.models.eval_suggestions import (
     EvalSuggestion,
@@ -49,6 +50,15 @@ CHECK_DRAFT = {
     "output_type": "boolean",
     "output_config": {"allows_na": True},
     "target": "trace",
+}
+REVIEW_CHECK_DRAFT = {
+    "name": "Replies promise refund dates",
+    "description": "Checks whether a reply promises a refund date",
+    "evaluation_type": "hog",
+    "evaluation_config": {"source": call_review.code_check_source("return not (output ilike '%by friday%')")},
+    "output_type": "boolean",
+    "output_config": {"allows_na": True},
+    "target": "generation",
 }
 JUDGE_DRAFT = {
     "name": "Security findings marked P0 or P1",
@@ -134,6 +144,7 @@ class TestEvalSuggestionsApi(APIBaseTest):
     @parameterized.expand(
         [
             ("code_check", EvalSuggestionKind.NEW_HOG, CHECK_DRAFT, 500),
+            ("reviewed_code_check", EvalSuggestionKind.NEW_HOG, REVIEW_CHECK_DRAFT, 500),
             ("judge", EvalSuggestionKind.NEW_LLM_JUDGE, JUDGE_DRAFT, 50),
         ]
     )
@@ -159,7 +170,7 @@ class TestEvalSuggestionsApi(APIBaseTest):
         assert second.json()["backfill_id"] == first.json()["backfill_id"]
         assert first.json()["backfill_units"] == cap - 3
         evaluation = Evaluation.objects.get(team=self.team)
-        assert evaluation.enabled and evaluation.name == draft["name"]
+        assert evaluation.enabled and evaluation.name == draft["name"] and evaluation.target == draft["target"]
         assert evaluation.conditions[0]["rollout_percentage"] == 40
         assert evaluation.conditions[0]["properties"] == suggestion.filters
 
