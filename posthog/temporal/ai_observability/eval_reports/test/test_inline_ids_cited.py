@@ -5,8 +5,8 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
-from products.ai_observability.backend.logic.evaluations.hog_runtime import execute_hog_eval_bytecode
-from products.cdp.backend.validation import compile_hog
+from products.ai_observability.backend.facade.evaluation_runtime import execute_hog_eval_bytecode
+from products.ai_observability.backend.hog import compile_ai_observability_hog
 
 GENERATION_ID = "10000000-0000-4000-8000-000000000001"
 JOB_ID = "20000000-0000-4000-8000-000000000002"
@@ -140,7 +140,7 @@ class TestInlineIdsCited(SimpleTestCase):
     def test_scores_only_delivered_sections(
         self, _name: str, steps: list[Step], expected: bool | None, protocol: str
     ) -> None:
-        bytecode = compile_hog(SOURCE_PATH.read_text(), "destination")
+        bytecode = compile_ai_observability_hog(SOURCE_PATH.read_text(), "destination")
         result = execute_hog_eval_bytecode(
             bytecode, {"evaluation_events": report_events(steps, protocol)}, allows_na=True
         )
