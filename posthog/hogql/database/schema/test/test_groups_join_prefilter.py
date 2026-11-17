@@ -117,6 +117,12 @@ class TestGroupsJoinPrefilter(APIBaseTest):
                 1,
             ),
             ("lazy_join_below_or", "SELECT group_0.properties FROM events WHERE {bound} OR {group_0}", 0),
+            (
+                "subquery_with_its_own_group_join",
+                "SELECT e.group_0.properties FROM events AS e "
+                "WHERE e.{bound} AND e.event IN (SELECT s.group_0.properties.name FROM events AS s)",
+                1,
+            ),
             ("only_lazy_join_terms", "SELECT group_0.properties FROM events WHERE {group_0} AND {person}", 0),
         ]
     )
@@ -139,6 +145,24 @@ class TestGroupsJoinPrefilter(APIBaseTest):
         )
         self.assertEqual(sql.count("globalIn(key,"), 1)
         self.assertEqual(sql.count("rand()"), 1)
+
+    def test_group_type_named_like_the_table_is_not_a_qualifier_under_an_alias(self):
+        create_group_type_mapping(
+            team=self.team,
+            project=self.team.project,
+            group_type="events",
+            group_type_index=2,
+            created_at=datetime(2020, 1, 1, tzinfo=UTC),
+        )
+        invalidate_group_types_cache(self.team.project_id)
+        self.context = HogQLContext(
+            team=self.team, database=Database.create_for(team=self.team), enable_select_queries=True
+        )
+        sql = self._print(
+            "SELECT e.group_0.properties FROM events AS e "
+            "WHERE e.timestamp > toDateTime('2026-01-01') AND events.properties.industry = 'tech'"
+        )
+        self.assertEqual(sql.count("globalIn(key,"), 2)
 
     def test_skips_filter_when_outer_where_lacks_timestamp(self):
         # No timestamp reference → the optimization would push a key subquery that scans every

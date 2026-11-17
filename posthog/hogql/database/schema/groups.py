@@ -21,6 +21,7 @@ from posthog.hogql.database.models import (
 from posthog.hogql.database.schema.groups_revenue_analytics import GroupsRevenueAnalyticsTable
 from posthog.hogql.database.schema.util.where_clause_extractor import (
     contains_nondeterministic_function,
+    contains_subquery,
     top_level_conjuncts,
 )
 from posthog.hogql.errors import ResolutionError
@@ -249,6 +250,8 @@ def _outer_prefilter(
     outer query keeps. A term below an OR is not a top-level term, because dropping it would lose rows.
     A term that calls a function such as `rand()` is left out too. The key subquery evaluates its copy on a
     separate read, so the copy would select other rows than the outer query keeps.
+    A term that holds a subquery is left out as well. That subquery already has its lazy joins and its WITH
+    bindings resolved, and a copy of it does not resolve a second time.
 
     We only return the part when:
 
@@ -288,13 +291,16 @@ def _outer_prefilter(
         return None
 
     guarded_aliases = _guarded_aliases(context, list(source_chain))
+    # Only a name that the FROM puts in scope qualifies a field. Under `FROM events AS e`, `events.x` reads a
+    # field named `events`, which a group type of that name defines.
+    qualifiers = [[select_from.alias]] if select_from.alias else [list(source_chain), [source_chain[-1]]]
     reusable = [
         conjunct
         for conjunct in top_level_conjuncts(where)
         if not contains_nondeterministic_function(conjunct)
+        and not contains_subquery(conjunct)
         and not any(
-            _chain_hits_guarded_alias(chain, guarded_aliases, source_chain, alias)
-            for chain in find_field_chains(conjunct)
+            _chain_hits_guarded_alias(chain, guarded_aliases, qualifiers) for chain in find_field_chains(conjunct)
         )
     ]
     if not reusable:
@@ -307,11 +313,11 @@ def _outer_prefilter(
     return clone_expr(prefilter), ast.JoinExpr(table=ast.Field(chain=list(table.chain)), alias=select_from.alias)
 
 
-def _chain_hits_guarded_alias(chain: list, guarded: frozenset[str], source_chain: tuple[str, ...], alias: str) -> bool:
+def _chain_hits_guarded_alias(chain: list, guarded: frozenset[str], qualifiers: list[list[str]]) -> bool:
     # Condition #1 guarantees the outer FROM's qualifier is the source table, so a leading qualifier is
     # transparent: `events.organization.x` names the same lazy join as `organization.x`. Peel it before matching,
-    # or the qualified form slips past the guard. The qualifier is the full chain, its last part, or the FROM alias.
-    for qualifier in (list(source_chain), [source_chain[-1]], [alias]):
+    # or the qualified form slips past the guard.
+    for qualifier in qualifiers:
         if len(chain) > len(qualifier) and chain[: len(qualifier)] == qualifier:
             chain = chain[len(qualifier) :]
             break
@@ -347,13 +353,6 @@ class _ForeignFieldFinder(TraversingVisitor):
     def visit_field(self, node: ast.Field):
         if not _resolves_on(node.type, self.table_type):
             self.found = True
-
-    # A nested query resolves its fields against its own FROM. The key subquery copies that FROM too.
-    def visit_select_query(self, node: ast.SelectQuery):
-        pass
-
-    def visit_select_set_query(self, node: ast.SelectSetQuery):
-        pass
 
 
 def _resolves_on(field_type: ast.Type | None, table_type: ast.Type) -> bool:
