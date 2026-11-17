@@ -1,10 +1,12 @@
 import { Message } from 'node-rdkafka'
+import { Counter } from 'prom-client'
 
 import { KafkaConsumerInterface, RdKafkaConsumerConfig, createKafkaConsumer } from '~/common/kafka/consumer'
 import { instrumentFn } from '~/common/tracing/tracing-utils'
+import { logger } from '~/common/utils/logger'
 
 import { HealthCheckResult, PluginsServerConfig } from '../../types'
-import { insertIntakeBatch } from '../intake/intake-batch'
+import { IntakeBatchServices, insertIntakeBatch } from '../intake/intake-batch'
 import { RunKind } from '../intake/message'
 import { CDP_INTAKE_DLQ_OUTPUT } from '../outputs/outputs'
 import { CyclotronV2Manager } from '../services/cyclotron-v2'
@@ -15,6 +17,19 @@ import { CdpConsumerBase, CdpConsumerBaseDeps } from './cdp-base.consumer'
 // bounds each attempt too, because the retry checks its time only after an attempt fails.
 const CLAIM_RETRY = { initialDelayMs: 250, maxElapsedMs: 20_000 }
 const ATTEMPT_TIMEOUT_MS = 5_000
+
+// A record that still fails while draining holds the drain on it instead of being parked on the topic it came from again.
+const DRAIN_RETRY_MS = { initial: 1_000, max: 30_000 }
+const drainStallsCounter = new Counter({
+    name: 'cdp_intake_dlq_drain_stalls_total',
+    help: 'Drain attempts on the intake dead-letter topic that failed and will retry the same records.',
+    labelNames: ['kind'] as const,
+})
+
+const STALL_ON_FAILURE: IntakeBatchServices['deadLetters'] = {
+    recordMessageFailure: () => false,
+    produceForBatch: () => Promise.resolve(),
+}
 
 const TOPICS: Record<
     RunKind,
@@ -34,6 +49,9 @@ const TOPICS: Record<
 export class CdpIntakeConsumer extends CdpConsumerBase {
     protected name = 'CdpIntakeConsumer'
     private kafkaConsumer: KafkaConsumerInterface
+    private drainConsumer?: KafkaConsumerInterface
+    private groupId: string
+    private stopping = false
     private cyclotron: CyclotronV2Manager
     private deadLetters: CdpDeadLetterService
 
@@ -45,11 +63,19 @@ export class CdpIntakeConsumer extends CdpConsumerBase {
         super(config, deps)
         const { topicKey, groupId } = TOPICS[kind]
         this.name = `CdpIntakeConsumer(${kind})`
+        this.groupId = groupId
         // Set rather than inherited from KAFKA_CONSUMER_AUTO_OFFSET_RESET, because a new group on `latest` would skip
         // every accepted run produced before its first assignment.
         this.kafkaConsumer = createKafkaConsumer({ groupId, topic: config[topicKey] }, {
             'auto.offset.reset': 'earliest',
         } as RdKafkaConsumerConfig)
+        if (config.CDP_INTAKE_DLQ_DRAIN) {
+            // A held drain stops polling while it retries, so its group must not evict it for being slow.
+            this.drainConsumer = createKafkaConsumer(
+                { groupId: `${groupId}-dlq-drain`, topic: config.CDP_INTAKE_DLQ_TOPIC },
+                { 'auto.offset.reset': 'earliest', 'max.poll.interval.ms': 86_400_000 } as RdKafkaConsumerConfig
+            )
+        }
         if (!config.CYCLOTRON_NODE_DATABASE_URL) {
             throw new Error('CdpIntakeConsumer needs CYCLOTRON_NODE_DATABASE_URL to insert jobs')
         }
@@ -68,17 +94,26 @@ export class CdpIntakeConsumer extends CdpConsumerBase {
         })
     }
 
-    public async processBatch(messages: Message[]): Promise<void> {
+    public async processBatch(
+        messages: Message[],
+        deadLetters: IntakeBatchServices['deadLetters'] = this.deadLetters
+    ): Promise<void> {
         await insertIntakeBatch(
             messages,
             {
                 cyclotron: this.cyclotron,
-                deadLetters: this.deadLetters,
+                deadLetters,
                 invocationResults: this.invocationResultsService.invocationResultsRowsService,
                 emailStatus: this.invocationResultsService.emailStatusService,
             },
             { kind: this.kind, claimRetry: CLAIM_RETRY }
         )
+    }
+
+    // Both intake consumers park on one topic, so each drains only the records its own group parked.
+    public async drainBatch(messages: Message[]): Promise<void> {
+        const own = messages.filter((message) => headerOf(message, 'dlq_consumer_group') === this.groupId)
+        await this.processBatch(own, STALL_ON_FAILURE)
     }
 
     public override async start(): Promise<void> {
@@ -92,10 +127,38 @@ export class CdpIntakeConsumer extends CdpConsumerBase {
                 return { backgroundTask: Promise.resolve() }
             })
         })
+        await this.drainConsumer?.connect(async (messages) => {
+            return await instrumentFn(`cdpIntakeConsumer.${this.kind}.handleEachDrainBatch`, async () => {
+                await this.drainUntilDone(messages)
+                return { backgroundTask: Promise.resolve() }
+            })
+        })
+    }
+
+    // A throw from a batch handler stops the whole process, so a failing drain retries here and the intake topic keeps flowing.
+    private async drainUntilDone(messages: Message[]): Promise<void> {
+        for (let delayMs = DRAIN_RETRY_MS.initial; ; delayMs = Math.min(delayMs * 2, DRAIN_RETRY_MS.max)) {
+            try {
+                return await this.drainBatch(messages)
+            } catch (error) {
+                if (this.stopping) {
+                    throw error
+                }
+                drainStallsCounter.labels({ kind: this.kind }).inc()
+                logger.error('[CdpIntake] A dead letter still fails, so the drain holds and retries it', {
+                    kind: this.kind,
+                    delayMs,
+                    error: error instanceof Error ? error.message : String(error),
+                })
+                await new Promise((resolve) => setTimeout(resolve, delayMs))
+            }
+        }
     }
 
     public override async stop(): Promise<void> {
+        this.stopping = true
         await this.kafkaConsumer.disconnect()
+        await this.drainConsumer?.disconnect()
         await this.cyclotron.disconnect()
         await super.stop()
     }
@@ -103,4 +166,14 @@ export class CdpIntakeConsumer extends CdpConsumerBase {
     public isHealthy(): HealthCheckResult {
         return this.kafkaConsumer.isHealthy()
     }
+}
+
+function headerOf(message: Message, key: string): string | undefined {
+    for (const header of message.headers ?? []) {
+        const value = header[key]
+        if (value !== undefined) {
+            return value.toString()
+        }
+    }
+    return undefined
 }

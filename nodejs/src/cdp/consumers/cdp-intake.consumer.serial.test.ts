@@ -1,6 +1,7 @@
 import '~/tests/helpers/mocks/consumer.mock'
 import { mockProducerObserver } from '~/tests/helpers/mocks/producer.mock'
 
+import { Message } from 'node-rdkafka'
 import { Pool } from 'pg'
 
 import { createKafkaMessage } from '~/cdp/_tests/fixtures'
@@ -72,5 +73,27 @@ describe('CdpIntakeConsumer', () => {
                 }),
             }),
         ])
+    })
+
+    it('drains only its own dead letters once fixed, and stalls rather than parks a record that still fails', async () => {
+        const dlq = (value: Buffer, group: string, offset: number): Message => ({
+            ...createKafkaMessage(parseJSON(value.toString()), { offset, topic: KAFKA_CDP_INTAKE_DLQ }),
+            headers: [{ dlq_consumer_group: group }],
+        })
+        const [own, other] = [new UUIDT().toString(), new UUIDT().toString()]
+
+        await consumer.drainBatch([
+            dlq(sendMessage(own), 'cdp-intake-transactional-email-consumer', 1),
+            dlq(sendMessage(other), 'cdp-intake-workflow-webhook-consumer', 2),
+        ])
+
+        const jobs = await pool.query('SELECT id FROM cyclotron_jobs WHERE id = ANY($1)', [[own, other]])
+        expect(jobs.rows).toEqual([{ id: own }])
+
+        const stillInvalid = Buffer.from(JSON.stringify({ v: 1, kind: 'transactional-email' }))
+        await expect(
+            consumer.drainBatch([dlq(stillInvalid, 'cdp-intake-transactional-email-consumer', 3)])
+        ).rejects.toThrow('schema_invalid')
+        expect(mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_CDP_INTAKE_DLQ)).toEqual([])
     })
 })
