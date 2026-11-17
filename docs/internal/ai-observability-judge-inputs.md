@@ -338,6 +338,10 @@ Backfilled results use the original generation's timestamp.
 Removing a numeric or categorical evaluation's passing rule stops new report generation and scheduled delivery.
 Existing reports remain accessible through the Reports tab and the report list, detail, and history API endpoints.
 
+The report citation check in `posthog/temporal/ai_observability/eval_reports/inline_ids_cited.hog` scores accepted sections against successful citations.
+It checks IDs inspected by the report tools or cited successfully; unrelated payload UUIDs do not require citations.
+Saved evaluations do not load this file automatically. Apply approved source through the evaluation editor.
+
 The report agent's `list_all_eval_results` and `sample_eval_results` tools cap each response at 30,000 characters.
 Large results reduce the number of examples returned; each returned example keeps its complete category list.
 The tools indicate when examples are omitted, and aggregate counts and pass rates still cover the full period.
