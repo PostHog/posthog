@@ -30,7 +30,6 @@ export function ReportCheckRow({
     onSuggestMetric: () => void
     suggestionDisabledReason?: string | null
 }): JSX.Element {
-    const hasPostHogAiAccess = useFeatureFlag('PHAI_SANDBOX_MODE')
     const monitoringEnabled = useFeatureFlag('SIGNALS_REPORT_MONITORING')
     const { check, reportStatus, detail, cancelled, cancellable } = row
     const timeline = monitoringTimeline(row, observations, Date.now())
@@ -103,7 +102,7 @@ export function ReportCheckRow({
             )}
             {cancellable && (
                 <div className="flex flex-wrap justify-end gap-1">
-                    {monitoringEnabled && hasPostHogAiAccess && (
+                    {monitoringEnabled && (
                         <LemonButton
                             type="tertiary"
                             size="xsmall"
