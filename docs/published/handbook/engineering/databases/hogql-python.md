@@ -305,6 +305,9 @@ In practice, you should avoid both and access `person.properties.$browser`, whic
 A `FieldTraverser` can use `..` to reach its parent table, followed by the target field.
 The resolver raises a `QueryError` if there is no parent or if the chain ends at `..`.
 
+Custom properties on `posthog.ai_events` use their event property definitions for Boolean, numeric, and DateTime conversions, as `events` does.
+Properties backed by native AI columns keep their schema types even when property detection reports another type.
+
 On the native JSON events table, HogQL compares non-empty string constants directly with declared String paths and casts Dynamic paths to Nullable(String) for properties with String or unknown definition types.
 This keeps equality and membership predicates visible to the JSON skip index without failing on mixed scalar types.
 An equality or inequality between a Boolean constant and a String or untyped property compares with the string `'true'` or `'false'`, because ClickHouse cannot compare text with a Boolean.
