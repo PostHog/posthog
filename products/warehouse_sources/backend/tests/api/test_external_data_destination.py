@@ -2248,7 +2248,7 @@ class TestDeliveryFailures(DestinationAPITestBase):
         for destination in (self.destination, twin):
             assert [row["error"] for row in self._failures(destination)] == ["login rejected the value ***"]
 
-    def test_hides_the_error_when_the_integration_secrets_cannot_be_read(self) -> None:
+    def test_hides_the_error_when_the_credentials_service_cannot_read_the_secrets(self) -> None:
         self._failed_job("Prod: login rejected the value secret-pass")
         other = self._failed_job("Prod: boom")
         ExternalDataJob.objects.filter(id=other.id).update(created_at=timezone.now() - timedelta(minutes=1))
@@ -2261,6 +2261,41 @@ class TestDeliveryFailures(DestinationAPITestBase):
 
         assert [row["error"] for row in results] == [UNREADABLE_CREDENTIALS_ERROR, UNREADABLE_CREDENTIALS_ERROR]
         assert all("secret-pass" not in json.dumps(row) for row in results)
+
+    @parameterized.expand(
+        [
+            ("top_level_secret", {"password": "gAAAAAnot-a-readable-token"}),
+            ("nested_secret", {"auth": {"password": "gAAAAAnot-a-readable-token"}}),
+            ("one_of_several_secrets", {"password": "readable", "token": "gAAAAAnot-a-readable-token"}),
+        ]
+    )
+    def test_hides_the_error_when_a_stored_secret_is_still_ciphertext(self, _name: str, sensitive_config: dict) -> None:
+        integration = self.destination.integration
+        assert integration is not None
+        integration.sensitive_config = sensitive_config
+        integration.save(update_fields=["sensitive_config"])
+        self._failed_job("Prod: login rejected the value secret-pass")
+
+        results = self._failures()
+
+        assert [row["error"] for row in results] == [UNREADABLE_CREDENTIALS_ERROR]
+        assert "secret-pass" not in json.dumps(results)
+
+    def test_still_masks_a_readable_destination_next_to_an_unreadable_one(self) -> None:
+        other_integration = self.other_destination.integration
+        assert other_integration is not None
+        other_integration.sensitive_config = {"password": "gAAAAAnot-a-readable-token"}
+        other_integration.save(update_fields=["sensitive_config"])
+        integration = self.destination.integration
+        assert integration is not None
+        integration.sensitive_config = {"password": "prod-secret"}
+        integration.save(update_fields=["sensitive_config"])
+        self._failed_job(
+            "Prod: login rejected the value prod-secret",
+            destination_ids=[str(self.destination.id), str(self.other_destination.id)],
+        )
+
+        assert [row["error"] for row in self._failures()] == ["login rejected the value ***"]
 
     def test_finds_failures_older_than_a_page_of_other_failed_runs(self) -> None:
         now = timezone.now()

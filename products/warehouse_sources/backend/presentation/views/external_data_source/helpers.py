@@ -14,6 +14,7 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
+from posthog.integrations.secret_reads import UndecryptedIntegrationSecretError, looks_encrypted
 
 from products.data_warehouse.backend.facade.api import (
     DirectQueryEngine,
@@ -512,11 +513,16 @@ def get_integration_error_redaction_values(integration: IntegrationRecord | None
 
     Every value in `sensitive_config` is a secret, so each one is masked whatever its length. In `config`,
     only keys named like a secret are, and short values there are left alone like a source's.
+
+    Raises `UndecryptedIntegrationSecretError` when a secret cannot be read, so it cannot be masked.
     """
     if integration is None:
         return frozenset()
     sensitive: set[str] = set()
     _collect_string_leaves(integration.sensitive_config, sensitive)
+    # The Django backend gives back a secret that no key can decrypt as its ciphertext, without raising.
+    if any(looks_encrypted(value) for value in sensitive):
+        raise UndecryptedIntegrationSecretError()
     named_like_secret: set[str] = set()
     _collect_secret_values(integration.config, set(), named_like_secret)
     return frozenset(value for value in sensitive if value) | frozenset(
