@@ -2929,6 +2929,7 @@ describe('CDP API', () => {
 
             afterEach(() => {
                 api['config'].CDP_INTAKE_KAFKA_ASYNC_TEAMS = ''
+                api['config'].CDP_SEAL_TRANSACTIONAL_EMAIL_STATE = false
             })
 
             it('answers on the broker ack and leaves the insert and its rows to the consumer', async () => {
@@ -3004,20 +3005,15 @@ describe('CDP API', () => {
             })
 
             it.each([
-                ['sealing is off', false, {}, 0],
-                [
-                    'the send is keyed, so its fingerprint would reach Kafka',
-                    true,
-                    { idempotency_key: 'key-sensitive' },
-                    0,
-                ],
-                ['sealing is on and the send has no key', true, {}, 1],
+                ['sealing is off', false, false, 0],
+                ['the send is keyed, so its fingerprint would reach Kafka', true, true, 0],
+                ['sealing is on and the send has no key', true, false, 1],
             ])('produces a sensitive send only when %s allows it', async (_name, sealing, keyed, produced) => {
                 api['config'].CDP_SEAL_TRANSACTIONAL_EMAIL_STATE = sealing
 
                 const res = await sendAccepted(hogFlow.id, {
                     ...body,
-                    ...keyed,
+                    ...(keyed ? { idempotency_key: `key-${new UUIDT().toString()}` } : {}),
                     send: { ...codeSend, sensitive: true },
                 })
 
