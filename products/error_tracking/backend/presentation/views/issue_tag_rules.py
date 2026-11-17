@@ -68,7 +68,8 @@ class ErrorTrackingIssueTagRuleSerializer(serializers.Serializer):
     key = serializers.CharField(
         read_only=True,
         help_text="Tag key that issues store for this rule's label. Use it to filter issues by the label, "
-        "or to apply or remove the label on one issue.",
+        "or to apply or remove the label on one issue. It changes when an edit changes which properties the "
+        "filters read.",
     )
     label = serializers.CharField(max_length=128, help_text=LABEL_HELP_TEXT)  # type: ignore[assignment]
     description = serializers.CharField(allow_blank=True, help_text=DESCRIPTION_HELP_TEXT)
@@ -120,7 +121,8 @@ class ErrorTrackingIssueTagRuleUpdateRequestSerializer(serializers.Serializer):
     filters = ErrorTrackingIssueTagRuleFiltersField(
         required=False,
         help_text="Replacement event property filters, with at least one filter. Omit to keep the existing filters. "
-        "New filters apply only to issues created after the update, and existing labels stay.",
+        "New filters apply only to issues created after the update. Existing labels stay when the new filters read "
+        "the same properties. When they read different properties, the rule gets a new key and loses its labels.",
     )
 
 

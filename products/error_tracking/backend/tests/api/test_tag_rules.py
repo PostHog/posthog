@@ -35,6 +35,7 @@ BIG_ORDER = _event_filter("revenue", 10, operator="gt")
 # No filter type, which the compiler reads as an event property.
 UNTYPED_PRO_PLAN = {"type": "AND", "values": [{"type": "AND", "values": [{"key": "plan", "value": ["pro"]}]}]}
 CHECKOUT_PAGE = _event_filter("$pathname", ["/checkout"])
+ENTERPRISE_OR_PRO_PLAN = _event_filter("plan", ["enterprise", "pro"])
 DISABLED = {"message": "Rule timed out"}
 
 
@@ -108,9 +109,10 @@ class TestIssueTagRuleAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("label", {"label": "Big customer"}, "Big customer", 1, DISABLED, []),
-            ("same_filters", {"filters": ENTERPRISE_PLAN}, "Enterprise", 1, None, []),
-            ("new_filters", {"filters": CHECKOUT_PAGE}, "Enterprise", 2, None, [2]),
+            ("label", {"label": "Big customer"}, "Big customer", 1, DISABLED, True, []),
+            ("same_filters", {"filters": ENTERPRISE_PLAN}, "Enterprise", 1, None, True, []),
+            ("same_property", {"filters": ENTERPRISE_OR_PRO_PLAN}, "Enterprise", 2, None, True, []),
+            ("new_property", {"filters": CHECKOUT_PAGE}, "Enterprise", 2, None, False, [2]),
         ]
     )
     def test_only_a_filter_edit_restarts_the_rule(
@@ -120,6 +122,7 @@ class TestIssueTagRuleAPI(APIBaseTest):
         label: str,
         version: int,
         disabled_data: dict[str, Any] | None,
+        keeps_key_and_labels: bool,
         checkout_tag_versions: list[int],
     ) -> None:
         rule = self._create()
@@ -130,13 +133,21 @@ class TestIssueTagRuleAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_204_NO_CONTENT, response.json()
         updated = self.client.get(self._url(rule["id"])).json()
-        assert (updated["key"], updated["label"], updated["version"], updated["disabled_data"]) == (
-            rule["key"],
+        assert (updated["key"] == rule["key"], updated["label"], updated["version"], updated["disabled_data"]) == (
+            keeps_key_and_labels,
             label,
             version,
             disabled_data,
         )
-        assert ErrorTrackingIssueTag.objects.for_team(self.team.id).filter(id=tag.id).exists()
+        assert ErrorTrackingIssueTag.objects.for_team(self.team.id).filter(id=tag.id).exists() == keeps_key_and_labels
+        # The issue list filters and shows only the keys in the team's tag definitions, so a key left out matches nothing.
+        definitions = self.client.get(f"/api/projects/{self.team.id}/error_tracking/issues/tag_definitions/").json()
+        defined_keys = {definition["key"] for definition in definitions["results"]}
+        active = disabled_data is None
+        assert (rule["key"] in defined_keys, updated["key"] in defined_keys) == (
+            keeps_key_and_labels and active,
+            active,
+        )
         checkout = ErrorTrackingIssue.objects.create(team=self.team)
         run_issue_taggers(self.team.id, checkout.id, lambda team: {"$pathname": "/checkout"})
         checkout_tags = ErrorTrackingIssueTag.objects.for_team(self.team.id).filter(issue=checkout)

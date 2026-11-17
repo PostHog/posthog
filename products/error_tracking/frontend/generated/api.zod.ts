@@ -1749,7 +1749,7 @@ export const ErrorTrackingTagRulesUpdateBody = /* @__PURE__ */ zod.object({
         })
         .optional()
         .describe(
-            'Replacement event property filters, with at least one filter. Omit to keep the existing filters. New filters apply only to issues created after the update, and existing labels stay.'
+            'Replacement event property filters, with at least one filter. Omit to keep the existing filters. New filters apply only to issues created after the update. Existing labels stay when the new filters read the same properties. When they read different properties, the rule gets a new key and loses its labels.'
         ),
 })
 
@@ -1912,7 +1912,7 @@ export const ErrorTrackingTagRulesPartialUpdateBody = /* @__PURE__ */ zod.object
         })
         .optional()
         .describe(
-            'Replacement event property filters, with at least one filter. Omit to keep the existing filters. New filters apply only to issues created after the update, and existing labels stay.'
+            'Replacement event property filters, with at least one filter. Omit to keep the existing filters. New filters apply only to issues created after the update. Existing labels stay when the new filters read the same properties. When they read different properties, the rule gets a new key and loses its labels.'
         ),
 })
 

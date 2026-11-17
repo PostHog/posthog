@@ -95,7 +95,9 @@ def update_issue_tag_rule(
     """Apply the given fields. Return None when the team has no such rule that `user` can see.
 
     A change to the filters starts a new version. Answers from the old version stay, because an edit does not
-    re-answer the issues that already exist.
+    re-answer the issues that already exist. An edit that changes which properties the filters read gives the rule a
+    new key instead, and deletes the old key's tags, as a rule delete does. Label visibility checks only the current
+    filters, so an old label could show a member which issues matched a property they may not read.
     """
     require_issue_tags(team_id)
     parsed_id = _parse_rule_id(rule_id)
@@ -112,6 +114,9 @@ def update_issue_tag_rule(
             normalized, rule.bytecode = _normalize_and_compile(team_id, filters)
             if normalized != rule.filters:
                 rule.version += 1
+            if _read_properties(normalized) != _read_properties(rule.filters):
+                ErrorTrackingIssueTag.objects.for_team(team_id).filter(key=rule.key).delete()
+                rule.key = ErrorTrackingIssueTagRule._meta.get_field("key").get_default()
             rule.filters = normalized
             rule.disabled_data = None
             if not visibility.shows(rule):
@@ -179,6 +184,18 @@ def _normalize_and_compile(team_id: int, filters: dict) -> tuple[dict, list[Any]
             f"A tag rule's bytecode cannot exceed {MAX_SEVERITY_RULE_BYTECODE_OPS} operations."
         )
     return normalized, bytecode
+
+
+def _read_properties(filters: object) -> set[tuple[str, str]]:
+    """The (filter type, property key) pairs that a filter group reads."""
+    if isinstance(filters, list):
+        return set().union(*(_read_properties(value) for value in filters))
+    if not isinstance(filters, dict):
+        return set()
+    if "values" in filters:
+        return _read_properties(filters["values"])
+    key = filters.get("key")
+    return {(filters.get("type", "event"), key)} if isinstance(key, str) else set()
 
 
 def _normalized_group(group: PropertyGroupFilterValue) -> dict:

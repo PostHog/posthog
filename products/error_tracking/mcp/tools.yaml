@@ -590,13 +590,15 @@ tools:
             - error_tracking:write
         annotations:
             readOnly: false
-            destructive: false
+            destructive: true
             idempotent: true
         title: Update error tracking tag rule
         description: >
             Update a tag rule by ID. Include `label`, `description`, `filters`, or a combination. Omitted fields keep
             their existing values. A new label shows at once on every issue that has the rule's label. New filters apply
-            only to issues created after the update, and the issues that already have the label keep it.
+            only to issues created after the update. When the new filters read the same event properties, issues that
+            already have the label keep it. When they read different properties, the rule gets a new `key` and loses its
+            existing labels, so list the rules again to get the new key.
         feature_flag: error-tracking-issue-tags
     query-error-tracking-issue:
         operation: error_tracking_query_issue_create

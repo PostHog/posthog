@@ -2764,7 +2764,7 @@ export type ErrorTrackingIssueTagRuleApiDisabledData = {
 export interface ErrorTrackingIssueTagRuleApi {
     /** Unique identifier of the tag rule. */
     readonly id: string
-    /** Tag key that issues store for this rule's label. Use it to filter issues by the label, or to apply or remove the label on one issue. */
+    /** Tag key that issues store for this rule's label. Use it to filter issues by the label, or to apply or remove the label on one issue. It changes when an edit changes which properties the filters read. */
     readonly key: string
     /**
      * Label applied to each new issue whose first event matches the filters.
@@ -2817,7 +2817,7 @@ export interface ErrorTrackingIssueTagRuleUpdateRequestApi {
     label?: string
     /** Replacement description. Omit to keep the existing description. */
     description?: string
-    /** Replacement event property filters, with at least one filter. Omit to keep the existing filters. New filters apply only to issues created after the update, and existing labels stay. */
+    /** Replacement event property filters, with at least one filter. Omit to keep the existing filters. New filters apply only to issues created after the update. Existing labels stay when the new filters read the same properties. When they read different properties, the rule gets a new key and loses its labels. */
     filters?: ErrorTrackingIssueTagRuleFiltersApi
 }
 
@@ -2829,7 +2829,7 @@ export interface PatchedErrorTrackingIssueTagRuleUpdateRequestApi {
     label?: string
     /** Replacement description. Omit to keep the existing description. */
     description?: string
-    /** Replacement event property filters, with at least one filter. Omit to keep the existing filters. New filters apply only to issues created after the update, and existing labels stay. */
+    /** Replacement event property filters, with at least one filter. Omit to keep the existing filters. New filters apply only to issues created after the update. Existing labels stay when the new filters read the same properties. When they read different properties, the rule gets a new key and loses its labels. */
     filters?: ErrorTrackingIssueTagRuleFiltersApi
 }
 
