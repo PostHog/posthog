@@ -25,17 +25,17 @@ API keys, webhooks, send history and stats stay with the old provider. Contacts 
 ## Steps
 
 1. **Confirm the project.** Read it with `project-get`, tell the user its name and id, and ask whether the data belongs there. If not, switch with `switch-project`.
-2. **Get a key.** Resend has no read-only keys, so the import needs a full access key. PostHog reads everything with it on its own, so don't read templates, automations or contacts through Resend's MCP yourself.
-   - **With the Resend MCP connected**, create a temporary key yourself, so the user never handles one: `create-api-key` with `permission: full_access` and a name such as "PostHog import (temporary)". Keep its id for clean-up.
+2. **Check for a running import.** `provider-imports-list`. A new start while one is active returns 409, so report on that run instead, before creating any key.
+3. **Get a key.** Resend has no read-only keys, so the import needs a full access key. PostHog reads everything with it on its own, so don't read templates, automations or contacts through Resend's MCP yourself.
+   - **With the Resend MCP connected**, offer to create a temporary key yourself, so the user never handles one. Once they agree, `create-api-key` with `permission: full_access` and a name such as "PostHog import (temporary)". Keep its id for clean-up, and tell the user the key's name so they can delete it in Resend if this session ends before the import finishes.
    - **Without it**, ask the user to create one at https://resend.com/api-keys, just for this import, or to run the import themselves in the app under Workflows, Opt-outs, Import from another tool.
    - Tell the user PostHog only reads from their account and forgets the key when the run ends. Treat the key as a secret: don't repeat it, log it or write it to a file.
-3. **Check for a running import.** `provider-imports-list`. A new start while one is active returns 409, so report on that run instead.
 4. **Choose the steps.** Take them all unless the user says otherwise. Automations also need `cohort:write` on a PostHog key with limited scopes. On a refusal that names it, drop `automations` or ask the user for that scope. `topic_opt_outs` reads contacts one at a time, about 7,000 an hour. On a very large list, say so and offer to skip it. A run stops after 24 hours, about 150,000 contacts into that step. The next import from Resend continues from where it stopped, but only with the same key, so the user keeps the key until every step has finished.
 5. **Start.** `provider-imports-create` with `provider`, `steps` and `api_key`.
 6. **Follow it.** Poll `provider-imports-get` every minute or so. A `running` step with a `last_error` is retrying by itself, so don't start again. Report each step's `counts`.
 7. **Handle failure.** `status: failed` means the key is gone too. Read `last_error`: a rejected key needs a new key, anything else can run again. Importing again adds what's missing and doesn't duplicate anything.
 8. **Report the notes.** Go through `items` with the user: each template and workflow with its link and notes. A link is a path in the PostHog app, so put the project's PostHog URL in front of it. Say plainly how many spam complaints imported, because PostHog still sends them transactional email while Resend doesn't.
-9. **Delete the key in Resend.** PostHog forgets the key but doesn't delete it in Resend. Once every step has finished, remove a key you created with `remove-api-key` and its id, and only that key. If a step failed and the user wants to import again, keep the key until that import ends, since an import continues a failed step only with the same key. A key the user created, they delete themselves.
+9. **Delete the key in Resend.** PostHog forgets the key but doesn't delete it in Resend. Once every step has finished, remove a key you created with `remove-api-key` and its id, and only that key. If the session stops early, such as when the user ends it or starting the import fails, remove the key then. If a step failed and the user wants to import again, keep the key until that import ends, since an import continues a failed step only with the same key. A key the user created, they delete themselves.
 10. **Walk through the switch.** See below.
 
 ## Importing again never undoes a change
