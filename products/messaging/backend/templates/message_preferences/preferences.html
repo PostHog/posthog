@@ -163,14 +163,13 @@
                         if (changedToggle.hasAttribute('data-topic')) {
                             changedToggle.dataset.savedStatus = changedToggle.checked ? 'OPTED_IN' : 'OPTED_OUT'
                         }
-                        showSavedStatus(changedToggle)
                         showToast('Preferences updated successfully', false)
                     } catch (error) {
                         changedToggle.checked = !changedToggle.checked
                         showTopicsForAllMarketing()
-                        showSavedStatus(changedToggle)
                         showToast(error.message || 'Failed to update preferences', true)
                     } finally {
+                        toggles.forEach(showSavedStatus)
                         saveInFlight = false
                         form.removeAttribute('aria-busy')
                     }
