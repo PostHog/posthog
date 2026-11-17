@@ -133,8 +133,10 @@ def _validate_owner(alert: AlertConfiguration, actor: User, owner: User) -> None
         subject = "you don't" if owner.pk == actor.pk else "the new owner doesn't"
         raise AlertWriteRefused(f"Can't take ownership: {subject} have access to this insight.") from error
     if is_llm_detector_config(alert.detector_config):
-        if error := llm_detector_access_error(distinct_id=str(owner.distinct_id), organization=alert.team.organization):
-            raise AlertWriteRefused(error)
+        if access_error := llm_detector_access_error(
+            distinct_id=str(owner.distinct_id), organization=alert.team.organization
+        ):
+            raise AlertWriteRefused(access_error)
     if alert.insight.deleted:
         raise AlertWriteRefused({"insight": ["This insight was deleted. Pick another insight."]})
     _validate_query_access(alert, actor, owner)
@@ -284,14 +286,14 @@ def take_alert_ownership(
             raise AlertWriteRefused({error.field_name: str(error)}) from error
         except (PlatformCannotOwn, PlatformAlertCreateRefused) as error:
             raise AlertWriteRefused(str(error)) from error
-        if error := AlertConfiguration.update_limit_error(
+        if limit_error := AlertConfiguration.update_limit_error(
             team_id=team_id,
             organization=updated.team.organization,
             calculation_interval=updated.calculation_interval,
             enabled=True,
             existing=previous,
         ):
-            raise AlertWriteRefused({"calculation_interval": [error]})
+            raise AlertWriteRefused({"calculation_interval": [limit_error]})
         if not updated.has_no_insight_row:
             updated.report_updated(actor, analytics_props=analytics_props)
         _record_transfer(updated, actor, owner, previous_owner, was_impersonated)

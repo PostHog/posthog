@@ -305,7 +305,9 @@ class TestAlertTakeOwnership(APIBaseTest):
             if not edited and ("FOR UPDATE" in sql or "FOR NO KEY UPDATE" in sql):
                 edited = True
                 if changed == "alert":
-                    AlertConfiguration.objects.filter(pk=alert.pk).update(config={**alert.config, "series_index": 999})
+                    AlertConfiguration.objects.filter(pk=alert.pk).update(
+                        config={**(alert.config or {}), "series_index": 999}
+                    )
                 else:
                     type(alert.insight).objects.filter(pk=alert.insight_id).update(query=None, filters={})
             return execute(sql, params, many, context)
