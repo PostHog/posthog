@@ -153,7 +153,7 @@ export const HogFunctionTestEditor = ({
 }
 
 export function HogFunctionTest(): JSX.Element {
-    const { logicProps, canLoadSampleGlobals, hogFunction, template, configuration } =
+    const { logicProps, canLoadSampleGlobals, hogFunction, template, configuration, inputsDiff } =
         useValues(hogFunctionConfigurationLogic)
     const isDataWarehouse = configuration?.filters?.source === 'data-warehouse-table'
     const {
@@ -338,6 +338,9 @@ export function HogFunctionTest(): JSX.Element {
                                         data-attr="test-hog-function"
                                         onClick={submitTestInvocation}
                                         loading={isTestInvocationSubmitting}
+                                        disabledReason={
+                                            inputsDiff ? 'Accept or reject the suggested inputs first' : undefined
+                                        }
                                     >
                                         Test function
                                     </LemonButton>

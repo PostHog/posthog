@@ -28,13 +28,23 @@ describe('hogFunctionInputsSuggestion', () => {
         })
     })
 
-    it('holds the current value of an input whose type the suggestion changes', () => {
-        const retypedSchema: CyclotronJobInputSchemaType[] = [{ key: 'blocks', type: 'string', label: 'Blocks' }]
+    it('holds the current value of every input whose type the suggestion changes', () => {
+        const currentSchema: CyclotronJobInputSchemaType[] = [
+            ...SLACK_SCHEMA,
+            { key: 'footer', type: 'string', label: 'Footer' },
+        ]
+        const retypedSchema: CyclotronJobInputSchemaType[] = [
+            { key: 'blocks', type: 'string', label: 'Blocks' },
+            { key: 'footer', type: 'json', label: 'Footer' },
+        ]
         const currentInputs = { blocks: { value: [{ type: 'section' }] } }
 
         expect(
-            hogFunctionInputsSuggestion({ inputs_schema: retypedSchema, inputs: {} }, currentInputs, SLACK_SCHEMA)
-        ).toEqual({ inputsSchema: retypedSchema, inputValues: currentInputs })
+            hogFunctionInputsSuggestion({ inputs_schema: retypedSchema, inputs: {} }, currentInputs, currentSchema)
+        ).toEqual({
+            inputsSchema: retypedSchema,
+            inputValues: { blocks: { value: [{ type: 'section' }] }, footer: { value: null } },
+        })
     })
 })
 

@@ -67,9 +67,7 @@ export function hogFunctionInputsSuggestion(
         inputsSchema: inputs_schema,
         inputValues: {
             ...Object.fromEntries(
-                retypedInputs
-                    .filter((schema) => currentInputs[schema.key])
-                    .map((schema) => [schema.key, currentInputs[schema.key]])
+                retypedInputs.map((schema) => [schema.key, currentInputs[schema.key] ?? { value: null }])
             ),
             ...Object.fromEntries(
                 Object.entries(inputs).map(([key, value]) => [key, { ...currentInputs[key], value }])

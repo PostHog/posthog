@@ -274,8 +274,14 @@ def _changed_input_values(proposed_values: dict, current_inputs_schema: list, ne
         for key, value in proposed_values.items()
         if key in editable_schemas
         and not current_schemas.get(key, {}).get("secret")
-        and isinstance(value, EDITABLE_INPUT_VALUE_TYPES[editable_schemas[key]["type"]])
+        and _fits_input(value, editable_schemas[key])
     }
+
+
+def _fits_input(value: object, schema: dict) -> bool:
+    if value is None:
+        return not schema.get("required")
+    return isinstance(value, EDITABLE_INPUT_VALUE_TYPES[schema["type"]])
 
 
 class CreateHogFunctionInputsTool(MaxTool):

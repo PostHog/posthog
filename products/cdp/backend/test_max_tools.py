@@ -14,6 +14,8 @@ SLACK_INPUTS_SCHEMA = [
     {"key": "slack_workspace", "type": "integration", "label": "Slack workspace", "secret": False},
     {"key": "blocks", "type": "json", "label": "Blocks", "secret": False},
     {"key": "channel_name", "type": "string", "label": "Channel name", "secret": False},
+    {"key": "footer", "type": "string", "label": "Footer", "secret": False, "required": False},
+    {"key": "title", "type": "string", "label": "Title", "secret": False, "required": True},
     {"key": "signing_secret", "type": "string", "label": "Signing secret", "secret": True},
 ]
 
@@ -54,6 +56,8 @@ class TestCreateHogFunctionInputsTool:
                     "signing_secret": "model-secret-value",
                     "slack_workspace": 7,
                     "channel_name": ["not", "a", "string"],
+                    "footer": None,
+                    "title": None,
                     "not_in_schema": "dropped",
                 }
             )
@@ -63,7 +67,10 @@ class TestCreateHogFunctionInputsTool:
         assert "Old text" in prompt
         assert "schema-secret-value" not in prompt
         assert "entry-secret-value" not in prompt
-        assert artifact == {"inputs_schema": SLACK_INPUTS_SCHEMA, "inputs": {"blocks": NEW_SLACK_BLOCKS}}
+        assert artifact == {
+            "inputs_schema": SLACK_INPUTS_SCHEMA,
+            "inputs": {"blocks": NEW_SLACK_BLOCKS, "footer": None},
+        }
 
     def test_returns_schema_list_when_editor_sends_no_input_values(self):
         _, content, artifact = _run_inputs_tool(
