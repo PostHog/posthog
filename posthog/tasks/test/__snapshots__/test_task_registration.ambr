@@ -2,6 +2,7 @@
 # name: TestAllTasksRegistered.test_all_posthog_tasks_registered_snapshot
   list([
     'posthog.api.oauth.cimd.refresh_cimd_metadata_task',
+    'posthog.api.oauth.provisioning_review.send_partner_review_email',
     'posthog.api.oauth.provisioning_review.start_review_workflow_task',
     'posthog.approvals.tasks.expire_old_change_requests',
     'posthog.approvals.tasks.validate_pending_change_requests',
