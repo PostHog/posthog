@@ -151,6 +151,28 @@ export function captureSupportWidgetLoadFailed({
     })
 }
 
+export type AiSupportTicketAttribution = Pick<
+    SupportFormFields,
+    'ai_conversation_id' | 'ai_trace_id' | 'ai_feedback_rating'
+>
+
+// AI observability queries this event and its property names, so do not rename them
+export function captureAiSupportTicket(
+    { ai_conversation_id, ai_trace_id, ai_feedback_rating }: AiSupportTicketAttribution,
+    ticketId: string | number
+): void {
+    if (!ai_conversation_id) {
+        return
+    }
+    posthog.capture('posthog_ai_support_ticket_created', {
+        $ai_conversation_id: ai_conversation_id,
+        $ai_session_id: ai_conversation_id,
+        $ai_trace_id: ai_trace_id ?? null,
+        $ai_support_ticket_id: String(ticketId),
+        ...(ai_feedback_rating ? { $ai_feedback_rating: ai_feedback_rating } : {}),
+    })
+}
+
 // Returns true when the message exceeds the cap the widget endpoint enforces, so callers can bail
 // before the network. Callers report it: the customer pressed send and has no ticket. The toast
 // offers the email fallback like the other send-failure paths, because a customer stuck at the cap
@@ -530,24 +552,6 @@ export const supportLogic = kea<supportLogicType>([
             // Trimmed before validating and sending: restore-by-email matches the stored trait
             // exactly, so stray whitespace would make the ticket unrecoverable
             const email = formValues.email.trim()
-            const { ai_conversation_id, ai_trace_id, ai_feedback_rating } = formValues
-
-            // Attribute PostHog AI (/ticket, feedback) handovers to the conversation. The ticket id
-            // only exists once the send resolves — capturing from here means it fires no matter which
-            // caller triggered the submit, instead of relying on a component effect that races the
-            // async conversations round-trip and silently drops the event.
-            const captureAiSupportTicket = (ticketId: string | number): void => {
-                if (!ai_conversation_id) {
-                    return
-                }
-                posthog.capture('posthog_ai_support_ticket_created', {
-                    $ai_conversation_id: ai_conversation_id,
-                    $ai_session_id: ai_conversation_id,
-                    $ai_trace_id: ai_trace_id ?? null,
-                    $ai_support_ticket_id: String(ticketId),
-                    ...(ai_feedback_rating ? { $ai_feedback_rating: ai_feedback_rating } : {}),
-                })
-            }
 
             // Conversations is the only channel, so every failure has to be reported rather than
             // rerouted. `reason` splits "the widget never loaded" (usually permanent for that browser)
@@ -609,7 +613,10 @@ export const supportLogic = kea<supportLogicType>([
                 // No support_ticket capture here: the backend fires $conversation_ticket_created for
                 // every new ticket, so a client-side event would double-count
                 actions.setLastSubmittedTicketId(response.ticket_id)
-                captureAiSupportTicket(response.ticket_id)
+                // The ticket id only exists once the send resolves. Capturing here makes the event fire
+                // no matter which caller triggered the submit, instead of relying on a component effect
+                // that races the async conversations round-trip and silently drops the event.
+                captureAiSupportTicket(formValues, response.ticket_id)
                 lemonToast.success(
                     values.sidePanelAvailable
                         ? 'Got the message! You can view replies from our support engineers in the support panel.'

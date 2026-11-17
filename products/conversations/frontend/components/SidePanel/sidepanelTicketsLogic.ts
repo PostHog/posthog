@@ -16,8 +16,10 @@ import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
 import {
+    type AiSupportTicketAttribution,
     appendExceptionToMessage,
     appendTicketContext,
+    captureAiSupportTicket,
     captureSupportTicketBlocked,
     captureSupportWidgetLoadFailed,
     SUPPORT_WIDGET_UNAVAILABLE_MESSAGE,
@@ -122,6 +124,7 @@ export interface sidepanelTicketsLogicValues {
     messages: ChatMessage[]
     messagesLoading: boolean
     myTicketsUrl: string
+    newTicketAiAttribution: AiSupportTicketAttribution | null
     newTicketContext: string | null
     newTicketDraft: JSONContent | null
     newTicketDraftRevision: number
@@ -215,6 +218,9 @@ export interface sidepanelTicketsLogicActions {
     }
     setMessagesLoading: (loading: boolean) => {
         loading: boolean
+    }
+    setNewTicketAiAttribution: (attribution: AiSupportTicketAttribution | null) => {
+        attribution: AiSupportTicketAttribution | null
     }
     setNewTicketContext: (context: string | null) => {
         context: string | null
@@ -331,6 +337,7 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
         setCurrentTicket: (ticket: ConversationTicket) => ({ ticket }),
         setNewTicketDraft: (content: JSONContent | null) => ({ content }),
         setNewTicketContext: (context: string | null) => ({ context }),
+        setNewTicketAiAttribution: (attribution: AiSupportTicketAttribution | null) => ({ attribution }),
         startTicketFromSupportForm: true,
         openPendingTicket: true,
         sendMessage: (content: string, onSuccess: () => void) => ({ content, onSuccess }),
@@ -416,6 +423,15 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
             null as string | null,
             {
                 setNewTicketContext: (_, { context }) => context,
+                setView: (state, { view }) => (view === 'new' ? state : null),
+            },
+        ],
+        // Cleared with the draft. Otherwise a later blank "New ticket" keeps the PostHog AI
+        // conversation's attribution, and that ticket counts as an AI handover.
+        newTicketAiAttribution: [
+            null as AiSupportTicketAttribution | null,
+            {
+                setNewTicketAiAttribution: (_, { attribution }) => attribution,
                 setView: (state, { view }) => (view === 'new' ? state : null),
             },
         ],
@@ -741,6 +757,7 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
                 return
             }
             const content = values.view === 'new' ? appendTicketContext(typed, values.newTicketContext) : typed
+            const aiAttribution = values.view === 'new' ? values.newTicketAiAttribution : null
             // Bailing quietly here left the button un-loaded and the typed message sitting in the box
             // with no explanation, which is the worst version of this now conversations is the only channel
             if (!posthog.conversations) {
@@ -769,6 +786,9 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
 
                 const response = await posthog.conversations.sendMessage(content, {}, forceNewTicket)
                 if (response) {
+                    if (aiAttribution) {
+                        captureAiSupportTicket(aiAttribution, response.ticket_id)
+                    }
                     // If we just created a new ticket, set it as current and switch to chat view
                     if (values.view === 'new') {
                         actions.setCurrentTicket({
@@ -911,6 +931,15 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
                 )
             }
             actions.setNewTicketContext(request?.ticket_context || null)
+            actions.setNewTicketAiAttribution(
+                request?.ai_conversation_id
+                    ? {
+                          ai_conversation_id: request.ai_conversation_id,
+                          ai_trace_id: request.ai_trace_id,
+                          ai_feedback_rating: request.ai_feedback_rating,
+                      }
+                    : null
+            )
             actions.setView('new')
             // Consume the support-form intent fully (or supportRouterLogic keeps treating the form as
             // open and ignores future URL-driven opens), and reset so a stale message can't resurface
