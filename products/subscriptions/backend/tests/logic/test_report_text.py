@@ -59,6 +59,64 @@ def _visual(text: str) -> ReportText:
 
 
 @pytest.mark.parametrize(
+    ("lines", "expected"),
+    [
+        (["First line", "Second line"], "First line\nSecond line"),
+        (["First line\n", "Second line\n"], "First line\nSecond line\n"),
+        (["First line", "\n", "Second line"], "First line\n\nSecond line"),
+        (["First line", "", "Second line"], "First line\n\nSecond line"),
+        (["First line", "\\n", "\\n", "Second line"], "First line\n\n\nSecond line"),
+        (["First line\n\\n\nSecond line \\n"], "First line\n\nSecond line \\n"),
+    ],
+    ids=["per_line", "existing_newlines", "spacer", "empty_line", "literal_spacers", "literal_spacer_inside_a_part"],
+)
+def test_custom_layout_preserves_lines(lines: list[str], expected: str) -> None:
+    document = ReportDocument(topic=None, sections=[], custom_layout=[_visual(line) for line in lines])
+
+    assert document.render() == expected
+
+
+def test_custom_layout_keeps_the_template_formatting() -> None:
+    document = ReportDocument.model_validate(
+        {
+            "topic": None,
+            "sections": [],
+            "custom_layout": [
+                {
+                    "items": [
+                        {"kind": "text", "text": "**"},
+                        {"kind": "name", "text": "Daily jobs"},
+                        {"kind": "text", "text": ": "},
+                        {"kind": "value", "text": "7"},
+                        {"kind": "text", "text": "**"},
+                    ]
+                },
+                {"items": [{"kind": "text", "text": "Errors: "}, {"kind": "value", "text": "2"}]},
+                {
+                    "items": [
+                        {"kind": "text", "text": "Change since "},
+                        {"kind": "time", "text": "Monday"},
+                        {"kind": "text", "text": ": "},
+                        {"kind": "change", "text": "3", "direction": "increase"},
+                    ]
+                },
+                {
+                    "items": [
+                        {"kind": "text", "text": "*"},
+                        {"kind": "name", "text": "Signups"},
+                        {"kind": "text", "text": "*"},
+                        {"kind": "text", "text": "rose to"},
+                        {"kind": "value", "text": "~158"},
+                    ]
+                },
+            ],
+        }
+    )
+
+    assert document.render() == "**Daily jobs: 7**\nErrors: 2\nChange since Monday: ▲ 3\n*Signups* rose to ~158"
+
+
+@pytest.mark.parametrize(
     ("visuals", "table_rows"),
     [
         (["| Alert type | Orgs |", "| --- | --- |", "| Trends threshold | 503 |", "| Logs threshold | 51 |"], [3]),

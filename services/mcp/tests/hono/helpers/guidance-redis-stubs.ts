@@ -84,11 +84,9 @@ export function makeGuidanceRedis(failing = false): GuidanceRedisStub {
             }
             const matched = incr(matchedKey!)
             if (mode === 'mirror') {
-                if (canFire === '1') {
-                    incr(shownKey!)
-                }
+                const taken = canFire === '1' && incr(shownKey!) > Number(maxPerSession)
                 refresh(keys, ttl)
-                return guard(0)
+                return guard(taken ? 3 : 0)
             }
             if (canFire !== '1' || matched < Number(threshold)) {
                 refresh(keys, ttl)

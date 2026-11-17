@@ -4,7 +4,7 @@ import copy
 import json
 import uuid
 from collections.abc import Callable, Iterable
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any, Literal, Optional, cast
 
 from django.db.models.signals import post_delete, post_save, pre_delete
@@ -33,6 +33,7 @@ from posthog.event_usage import groups
 from posthog.helpers.encrypted_fields import EncryptedJSONStringField
 from posthog.integrations import IntegrationManager
 from posthog.integrations.lifecycle import sdk_runs_hooks
+from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.github_integration_base import INSTALLATION_UNAVAILABLE_SINCE_CONFIG_KEY
 from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED, Integration
 from posthog.models.scoping.manager import EnvironmentScopedManager
@@ -80,6 +81,7 @@ from products.tasks.backend.logic.stream.redis_stream import publish_task_run_st
 from products.tasks.backend.metrics import (
     observe_task_run_created,
     observe_task_run_dispatch_callback,
+    observe_task_run_refused_beside_live_run,
     observe_task_run_started_beside_live_run,
     observe_task_run_terminal,
 )
@@ -101,6 +103,21 @@ def execute_after_commit(callback: Callable[[], object]) -> None:
         callback()
     else:
         transaction.on_commit(callback)
+
+
+LIVE_RUN_STALE_AFTER = timedelta(hours=24)
+
+
+def fail_stale_live_runs(run_ids: list[uuid.UUID], stale_before: datetime) -> None:
+    from products.tasks.backend.facade.api import claim_and_fail_stale_run  # noqa: PLC0415 -- the facade imports models
+
+    for run_id in run_ids:
+        claim_and_fail_stale_run(
+            run_id,
+            "This run stopped responding, so a new run replaced it.",
+            error_type="stale_live_run",
+            not_updated_since=stale_before,
+        )
 
 
 def log_run_started_beside_live_run(task_run: "TaskRun", live_run_ids: list[uuid.UUID]) -> None:
@@ -228,6 +245,11 @@ class TaskOwnershipChangedError(RuntimeError):
 
 class InvalidTaskOriginError(ValueError):
     pass
+
+
+class TaskRunAlreadyLiveError(ValueError):
+    def __init__(self) -> None:
+        super().__init__("This task already has a run in progress. Wait for it to finish or cancel it first.")
 
 
 class Channel(TeamScopedRootMixin):
@@ -1053,21 +1075,46 @@ class Task(Taggable, DeletedMetaFields, models.Model):
             state["initial_permission_mode"] = permission_mode
         state["ai_defaults_source"] = resolved.source
 
-    def live_cloud_run_ids(self, exclude_run_id: uuid.UUID) -> list[uuid.UUID]:
-        live_runs = (
-            self.runs.filter(
-                team_id=self.team_id,
-                environment=TaskRun.Environment.CLOUD,
-                status__in=[TaskRun.Status.QUEUED, TaskRun.Status.IN_PROGRESS],
-            )
-            .exclude(id=exclude_run_id)
-            .values_list("id", "state")
+    def _cloud_run_ids_holding_the_task(
+        self, runs: models.QuerySet["TaskRun"], exclude_run_id: uuid.UUID | None
+    ) -> list[uuid.UUID]:
+        unfinished = runs.filter(
+            team_id=self.team_id,
+            environment=TaskRun.Environment.CLOUD,
+            status__in=[TaskRun.Status.QUEUED, TaskRun.Status.IN_PROGRESS],
         )
+        if exclude_run_id is not None:
+            unfinished = unfinished.exclude(id=exclude_run_id)
         return [
             run_id
-            for run_id, state in live_runs
-            if not (state or {}).get("await_user_message") and not (state or {}).get("cancel_requested_at")
+            for run_id, state in unfinished.values_list("id", "state")
+            if not (state or {}).get("cancel_requested_at")
+            and (not (state or {}).get("await_user_message") or (state or {}).get("warm_activation_started"))
         ]
+
+    def live_cloud_run_ids(self, exclude_run_id: uuid.UUID | None = None) -> list[uuid.UUID]:
+        return self._cloud_run_ids_holding_the_task(
+            self.runs.filter(updated_at__gte=django_timezone.now() - LIVE_RUN_STALE_AFTER), exclude_run_id
+        )
+
+    def refuse_run_beside_live_run(self, *, source: str, exclude_run_id: uuid.UUID | None = None) -> None:
+        live_run_ids = self.live_cloud_run_ids(exclude_run_id)
+        if live_run_ids:
+            observe_task_run_refused_beside_live_run(profile=self.profile or "none", source=source)
+            logger.info(
+                "task_run_refused_beside_live_run",
+                task_id=str(self.id),
+                team_id=self.team_id,
+                live_run_ids=[str(run_id) for run_id in live_run_ids],
+                source=source,
+            )
+            raise TaskRunAlreadyLiveError()
+        stale_before = django_timezone.now() - LIVE_RUN_STALE_AFTER
+        stale_run_ids = self._cloud_run_ids_holding_the_task(
+            self.runs.filter(updated_at__lt=stale_before), exclude_run_id
+        )
+        if stale_run_ids:
+            execute_after_commit(lambda: fail_stale_live_runs(stale_run_ids, stale_before))
 
     def observe_run_started_beside_live_runs(self, task_run: "TaskRun") -> None:
         live_run_ids = self.live_cloud_run_ids(exclude_run_id=task_run.id)
@@ -1155,6 +1202,8 @@ class Task(Taggable, DeletedMetaFields, models.Model):
                 raise InvalidTaskOriginError(
                     "This task uses an unsupported origin. Start it locally or create a new task to run it in the cloud."
                 )
+            if effective_environment == TaskRun.Environment.CLOUD and scheduled_at is None:
+                task.refuse_run_beside_live_run(source="create_run")
 
             state: dict = {} if task.runtime == Task.Runtime.PI else {"mode": mode}
             if extra_state:
@@ -1297,9 +1346,6 @@ class Task(Taggable, DeletedMetaFields, models.Model):
                 state=state,
                 branch=branch,
             )
-            if effective_environment == TaskRun.Environment.CLOUD and scheduled_at is None:
-                task.observe_run_started_beside_live_runs(task_run)
-
             if (
                 task.origin_product == Task.OriginProduct.SIGNAL_REPORT
                 and effective_environment == TaskRun.Environment.CLOUD
@@ -3958,6 +4004,10 @@ class AgentEgressRegistration(models.Model):
     relay_key_sha256 = models.CharField(max_length=43)
     lease_expires_at = models.DateTimeField()
     revoked = models.BooleanField(default=False)
+    created_at = models.DateTimeField(null=True)
+    revoked_at = models.DateTimeField(null=True)
+    revoked_by = models.CharField(max_length=64, null=True)
+    revocation_reason = models.CharField(max_length=64, null=True)
 
     objects = EnvironmentScopedManager()
 
@@ -4450,8 +4500,10 @@ class SandboxSnapshot(UUIDModel):
         super().delete(*args, **kwargs)
 
 
-class SandboxEnvironment(UUIDModel):
+class SandboxEnvironment(ModelActivityMixin, UUIDModel):
     """Configuration for sandbox execution environments including network access and secrets."""
+
+    activity_logging_on_delete = True
 
     class NetworkAccessLevel(models.TextChoices):
         TRUSTED = "trusted", "Trusted"
@@ -4580,8 +4632,10 @@ class SandboxEnvironment(UUIDModel):
         )
 
 
-class SandboxCustomImage(TeamScopedRootMixin):
+class SandboxCustomImage(ModelActivityMixin, TeamScopedRootMixin):
     """User-defined custom base image for cloud task sandboxes, layered on the VM sandbox base."""
+
+    activity_logging_on_delete = True
 
     class Status(models.TextChoices):
         DRAFT = "draft", "Draft"
@@ -4661,6 +4715,14 @@ class SandboxCustomImage(TeamScopedRootMixin):
     @property
     def is_ready(self) -> bool:
         return self.status == self.Status.READY and bool(self.modal_image_name)
+
+    @property
+    def has_usable_build(self) -> bool:
+        return bool(self.modal_image_name) and self.status in (
+            self.Status.READY,
+            self.Status.SCANNING,
+            self.Status.BUILDING,
+        )
 
     def is_accessible_to_user(self, user_id: int | None) -> bool:
         if not self.private:

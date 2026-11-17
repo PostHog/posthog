@@ -40,7 +40,7 @@ Users can gain access through:
 - `ee/models/rbac/access_control.py` - Database model
 - `ee/api/rbac/access_control.py` - API endpoints and ViewSet mixin
 - `posthog/permissions.py` - Permission classes
-- `posthog/scopes.py` - Resource type definitions
+- `posthog/scopes/catalog.py` - Resource type definitions
 
 ### Main Classes
 
@@ -54,7 +54,7 @@ Users can gain access through:
 ### 1. Add Resource to Scopes
 
 ```python
-# posthog/scopes.py
+# posthog/scopes/catalog.py
 ACCESS_CONTROL_RESOURCES = [
     "feature_flag",
     "dashboard",
@@ -374,7 +374,7 @@ RESOURCE_INHERITANCE_MAP = {
 
 ### Backend
 
-1. Add resource to `ACCESS_CONTROL_RESOURCES` in `posthog/scopes.py`
+1. Add resource to `ACCESS_CONTROL_RESOURCES` in `posthog/scopes/catalog.py`
 2. Add `AccessControlViewSetMixin` to your ViewSet
 3. Set `scope_object` attribute on ViewSet
 4. Add `AccessControlPermission` to permission classes
