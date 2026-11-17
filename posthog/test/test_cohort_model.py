@@ -532,14 +532,20 @@ class TestCohort(BaseTest):
         assert {str(row[0]) for row in ch_rows} == {str(p.uuid) for p in persons}
         assert cohort.is_calculating is False
 
-    @parameterized.expand([("no_replace_in_flight", None, 1), ("replace_in_flight", "replace", 2)])
+    @parameterized.expand(
+        [
+            ("no_replace_in_flight", None, True, 1),
+            ("replace_in_flight", "replace", True, 2),
+            ("replace_waiting_after_sweep_reset", "replace", False, 2),
+        ]
+    )
     def test_insert_users_by_list_rewrites_an_existing_member_only_during_a_replace(
-        self, _name: str, pending_mode: str | None, expected_rows: int
+        self, _name: str, pending_mode: str | None, is_calculating: bool, expected_rows: int
     ):
         person = create_person(team=self.team, distinct_ids=["readded"], uuid=uuid.uuid4())
         cohort = Cohort.objects.create(team=self.team, groups=[], is_static=True)
         cohort.insert_users_by_list(["readded"])
-        Cohort.objects.filter(pk=cohort.pk).update(is_calculating=True, pending_population_mode=pending_mode)
+        Cohort.objects.filter(pk=cohort.pk).update(is_calculating=is_calculating, pending_population_mode=pending_mode)
 
         # A replace removes members without a row at its marker, so the re-add needs a fresh row.
         cohort.insert_users_by_list(["readded"])

@@ -897,6 +897,9 @@ email@example.org
         csv = SimpleUploadedFile("example.csv", b"distinct_id\n123\n", content_type="application/csv")
 
         first = self.client.patch(url, data={"query": query})
+        cohort.refresh_from_db()
+        claimed_at = cohort.population_claimed_at
+        self.assertIsNotNone(claimed_at)
         marker = datetime(2026, 11, 7, 12, 0, tzinfo=UTC)
         Cohort.objects.filter(pk=cohort.pk).update(population_marker=marker)
         with patch.object(CohortViewSet, "get_object", return_value=stale_for_rename):
@@ -919,8 +922,8 @@ email@example.org
         mock_csv_delay.assert_not_called()
         cohort.refresh_from_db()
         self.assertEqual(
-            (cohort.name, cohort.pending_population_mode, cohort.population_marker),
-            ("renamed", CohortPopulationMode.APPEND, marker),
+            (cohort.name, cohort.pending_population_mode, cohort.population_marker, cohort.population_claimed_at),
+            ("renamed", CohortPopulationMode.APPEND, marker, claimed_at),
         )
 
     @parameterized.expand(
@@ -6425,6 +6428,34 @@ email@example.org,
 
         mock_capture.assert_called_once()
         assert str(mock_capture.call_args.args[0]) == "recount boom"
+        assert not ActivityLog.objects.filter(
+            team_id=self.team.pk,
+            scope="Cohort",
+            item_id=str(static_cohort.id),
+            activity="persons_added_manually",
+        ).exists()
+
+    def test_add_persons_to_static_cohort_fails_when_personhog_insert_raises(self):
+        static_cohort = Cohort.objects.create(team=self.team, name="Test Static Cohort", is_static=True)
+        p1 = _create_person(team_id=self.team.pk, distinct_ids=["p1"])
+        flush_persons_and_events()
+
+        with (
+            patch(
+                "products.cohorts.backend.models.util.insert_cohort_members",
+                side_effect=RuntimeError("personhog down"),
+            ),
+            self.assertRaisesRegex(RuntimeError, "personhog down"),
+        ):
+            self.client.patch(
+                f"/api/projects/{self.team.id}/cohorts/{static_cohort.id}/add_persons_to_static_cohort",
+                {"person_ids": [str(p1.uuid)]},
+                format="json",
+            )
+
+        static_cohort.refresh_from_db()
+        assert static_cohort.last_calculation is None
+        assert not static_cohort.is_calculating
         assert not ActivityLog.objects.filter(
             team_id=self.team.pk,
             scope="Cohort",

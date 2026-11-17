@@ -54,6 +54,8 @@ from products.cohorts.backend.models.cohort import (
 from products.cohorts.backend.models.util import (
     CLICKHOUSE_QUORUM_LOCKED_CODE,
     CLICKHOUSE_REPLICA_NOT_IN_QUORUM_CODE,
+    CLICKHOUSE_TOO_FEW_LIVE_REPLICAS_CODE,
+    CLICKHOUSE_UNKNOWN_STATUS_OF_INSERT_CODE,
     COHORT_STATS_COLLECTION_DELAY_SECONDS,
     REPLACE_FLOOR_CLOCK_MARGIN,
     CohortErrorCode,
@@ -123,7 +125,12 @@ STATIC_POPULATION_TRANSIENT_ERRORS = (
 # UNKNOWN_STATUS_OF_INSERT. Retrying each is safe even when the insert's outcome is unknown: the retry
 # mints a newer marker, and the prune removes every row an older attempt left behind.
 REPLACE_QUORUM_RETRYABLE_CLICKHOUSE_CODES = frozenset(
-    {285, CLICKHOUSE_QUORUM_LOCKED_CODE, CLICKHOUSE_REPLICA_NOT_IN_QUORUM_CODE, 319}
+    {
+        CLICKHOUSE_TOO_FEW_LIVE_REPLICAS_CODE,
+        CLICKHOUSE_QUORUM_LOCKED_CODE,
+        CLICKHOUSE_REPLICA_NOT_IN_QUORUM_CODE,
+        CLICKHOUSE_UNKNOWN_STATUS_OF_INSERT_CODE,
+    }
 )
 
 COHORT_RECALCULATIONS_BACKLOG_GAUGE = Gauge(

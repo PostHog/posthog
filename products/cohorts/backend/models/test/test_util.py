@@ -1426,6 +1426,26 @@ class TestCohortUtils(BaseTest):
         self.assertEqual(mock_exec.call_count, 2)
         self.assertEqual([c.args[0] for c in mock_sleep.call_args_list], [STATIC_COHORT_READ_BACK_WAITS_SECONDS[0]])
 
+    def test_mint_population_marker_waits_past_stored_marker_ahead_of_clickhouse_rows(self):
+        now = datetime(2026, 11, 7, 12, 0, 10, tzinfo=UTC)
+        stored = now + timedelta(seconds=2)
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="replace",
+            is_static=True,
+            pending_population_mode=CohortPopulationMode.REPLACE,
+            population_marker=stored,
+        )
+
+        with (
+            time_machine.travel(now, tick=False) as clock,
+            patch("products.cohorts.backend.models.util.time.sleep", side_effect=clock.shift) as mock_sleep,
+        ):
+            marker = mint_population_marker(cohort, team_id=self.team.pk)
+
+        mock_sleep.assert_called_once_with(3.0)
+        self.assertEqual(marker, stored + timedelta(seconds=1))
+
     def test_a_superseded_replace_copies_and_prunes_nothing(self):
         member = create_person(team=self.team, distinct_ids=["member"], uuid=uuid4())
         flush_persons_and_events()

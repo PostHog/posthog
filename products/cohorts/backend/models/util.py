@@ -91,8 +91,12 @@ TEMP_PRECALCULATED_MARKER = parser.parse("2021-06-07T15:00:00+00:00")
 # Cohort query timeout settings
 COHORT_QUERY_TIMEOUT_SECONDS = 1200  # Max execution time for ClickHouse cohort calculation queries
 STATIC_COHORT_READ_BACK_WAITS_SECONDS = (0.25, 0.5, 1, 2, 4, 8)
+# TOO_FEW_LIVE_REPLICAS: fewer replicas are alive than the quorum insert requires.
+CLICKHOUSE_TOO_FEW_LIVE_REPLICAS_CODE = 285
 # REPLICA_IS_NOT_IN_QUORUM: a sequentially consistent read reached a replica without the latest quorum part.
 CLICKHOUSE_REPLICA_NOT_IN_QUORUM_CODE = 289
+# UNKNOWN_STATUS_OF_INSERT: the client timed out waiting for quorum insert confirmation, so the write may still commit.
+CLICKHOUSE_UNKNOWN_STATUS_OF_INSERT_CODE = 319
 
 _T = TypeVar("_T")
 
@@ -1588,13 +1592,12 @@ def _copy_static_cohort_rows_to_pg(
     any_counted_resolved = False
 
     # Pages are read in the sort key's order with a plain LIMIT, and both the keep rule and the grouping by person
-    # happen here, not in ClickHouse. A GROUP BY made every page read from its cursor to the end of the cohort, and
-    # so did filtering rows: a replace leaves the older rows in their own part, and a part whose rows are all
-    # filtered out is scanned to its end before the in-order read can merge it. Either way the copy's reads grew
-    # with the square of the cohort's size. Unfiltered, every part's read stops at the limit. A full page holds back
-    # its last person, whose rows may continue on the next page, and the next page starts at that person.
+    # happen here, not in ClickHouse. A GROUP BY reads from its cursor to the end of the cohort on every page, and
+    # filtering rows does the same when older rows sit in their own part whose rows are all filtered out, forcing an
+    # in-order scan to the end before merging. Either way the copy's reads grow with the square of the cohort's
+    # size. Unfiltered, every part's read stops at the limit. A full page holds back its last person, whose rows
+    # may continue on the next page, and the next page starts at that person.
     def fetch_batch(cursor: str, batch_size: int) -> tuple[list[str], str]:
-        nonlocal new_rows_read, exhausted
         while not exhausted:
             persons, cursor = _read_page(cursor, batch_size)
             if persons:
@@ -1827,7 +1830,7 @@ def clear_population_run_fields(
 # Members are listed from Postgres this many at a time.
 PRUNE_PAGE_SIZE = 5_000
 # The prune checks ClickHouse once per this many members, not once per page: each check reads the cohort's rows,
-# so checking every page made the prune's cost grow with the square of the cohort's size. 50,000 uuids is about
+# so checking every page makes the prune's cost grow with the square of the cohort's size. 50,000 uuids is about
 # 2 MB of query text, inside the client's 8 MB limit.
 REPLACE_PRUNE_CHECK_BATCH = 50_000
 # Stale members are deleted in chunks of this many, under the delete RPC's cap of 10,000 ids.

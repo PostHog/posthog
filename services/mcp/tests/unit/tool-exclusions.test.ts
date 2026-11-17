@@ -13,7 +13,7 @@ describe('collectToolExclusions', () => {
         ['an empty and a non-empty list', {}, { exclude_params: ['groups'] }],
         ['two different lists', { exclude_params: ['groups'] }, { exclude_params: ['groups', 'count'] }],
     ])('refuses tools on one operation with %s', (_name, first, second) => {
-        // The operation has one schema, so a mismatch would let the tool read last decide it for both.
+        // The operation has one schema, so a mismatch lets a tool without a list lose the other tool's excluded params.
         expect(() =>
             collectToolExclusions({ 'tool-a': tool(first), 'tool-b': tool(second) }, 'cohorts/tools.yaml')
         ).toThrow('tool-a and tool-b both use cohorts_partial_update with different exclude_params')

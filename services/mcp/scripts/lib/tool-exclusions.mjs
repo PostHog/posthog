@@ -3,7 +3,7 @@
  *
  * exclude_params are removed from the operation's schema before Orval runs, and every tool on that operation
  * shares the schema. So every enabled tool on one operation must declare the same list, an empty one included:
- * otherwise whichever tool is read last would decide the schema for all of them. Tools with their own
+ * otherwise a tool without a list loses the other tool's excluded params. Tools with their own
  * input_schema don't use the operation's schema, so their lists aren't compared.
  *
  * @param {Record<string, any> | undefined} tools the definition's `tools` map
