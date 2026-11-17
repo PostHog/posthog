@@ -461,7 +461,8 @@ def _send_rendered_via_workflows(
             status_code=sdk_err.status_code,
             attr=sdk_err.field,
         )
-        if not pinned and _workflows_queued_nothing(err) and not _workflows_undeliverable(err):
+        # An address only Workflows refuses, such as one with an international domain, can still go out over SMTP.
+        if not pinned and _workflows_queued_nothing(err):
             _pin_op(caches["email_workflows_pins"].delete, pin_key)
             EMAIL_SEND_COUNTER.labels(outcome="failed", transport="http").inc()
             logger.warning("email_workflows_fallback_to_smtp", template_name=template_name, code=err.code)

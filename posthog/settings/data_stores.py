@@ -819,6 +819,8 @@ CACHES["ingress_dedup"] = {
 CACHES["email_workflows_pins"] = {
     **CACHES["default"],
     "LOCATION": REDIS_URL,
+    # Every Cloud SMTP send reads a pin, so a stalled Redis must fail it fast rather than hang the email worker.
+    "OPTIONS": {**CACHES["default"]["OPTIONS"], "SOCKET_CONNECT_TIMEOUT": 1, "SOCKET_TIMEOUT": 1},
 }
 
 CACHES["task_artifact_preview"] = {

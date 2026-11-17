@@ -797,7 +797,7 @@ class TestEmail(BaseTest):
             ("throttled", (429, {"code": "throttled"}), "smtp"),
             ("email_from_code_off", (404, {"code": "not_found"}), "smtp"),
             ("recipient_suppressed", (422, {"code": "recipient_suppressed"}), "drop"),
-            ("invalid_recipient", (400, {"code": "invalid_input", "attr": "to"}), "drop"),
+            ("address_workflows_refuses", (400, {"code": "invalid_input", "attr": "to"}), "smtp"),
             ("key_queued_another_email", (422, {"code": "idempotency_key_reused"}), "retry"),
             ("delivery_unavailable", (503, {"code": "delivery_unavailable"}), "retry"),
             ("in_flight", (409, {"code": "idempotency_key_in_flight"}), "retry"),
