@@ -1,9 +1,12 @@
 import { describe, expect, expectTypeOf, it } from "vitest";
+import type { z } from "zod";
 import type {
   Task,
   TaskRun,
   TaskRunArtifact,
   TaskRunStatus,
+  taskResponseSchema,
+  taskRunResponseSchema,
 } from "./domain-types";
 import {
   type CloudPermissionOption,
@@ -32,6 +35,11 @@ describe("cloud task contract exports", () => {
     expectTypeOf<RootTaskRun>().toEqualTypeOf<TaskRun>();
     expectTypeOf<RootTaskRunArtifact>().toEqualTypeOf<TaskRunArtifact>();
     expectTypeOf<RootTaskRunStatus>().toEqualTypeOf<TaskRunStatus>();
+  });
+
+  it("keeps the response schemas no stricter than the task types", () => {
+    expectTypeOf<Task>().toExtend<z.infer<typeof taskResponseSchema>>();
+    expectTypeOf<TaskRun>().toExtend<z.infer<typeof taskRunResponseSchema>>();
   });
 
   it("exports cloud permission and update payload contracts from the root", () => {

@@ -125,7 +125,10 @@ export {
   type TaskRunStateField,
   type TaskRunStatus,
   TERMINAL_STATUSES,
+  taskResponseSchema,
+  taskRunResponseSchema,
   taskRunStateSchema,
+  taskSessionStorageAccessResponseSchema,
 } from "./domain-types";
 export * from "./enrichment";
 export {

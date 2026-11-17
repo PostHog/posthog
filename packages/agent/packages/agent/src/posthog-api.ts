@@ -7,8 +7,12 @@ import {
   PostHogHttpClient,
   type StoredLogEntry,
   type TaskRunUpdate,
+  taskResponseSchema,
+  taskRunResponseSchema,
   taskRunStateSchema,
+  taskSessionStorageAccessResponseSchema,
 } from "@posthog/agent-contracts";
+import type { z } from "zod";
 import packageJson from "../package.json" with { type: "json" };
 import {
   type ContextSelectionResponse,
@@ -97,6 +101,22 @@ export class PostHogAPIClient {
     return this.http.request<T>(endpoint, options);
   }
 
+  private async validatedRequest<T>(
+    endpoint: string,
+    schema: z.ZodType,
+    options: RequestInit = {},
+  ): Promise<T> {
+    const response = await this.apiRequest<T>(endpoint, options);
+    const result = schema.safeParse(response);
+    if (!result.success) {
+      const fields = result.error.issues
+        .map((issue) => `${issue.path.join(".") || "(root)"}: ${issue.message}`)
+        .join("; ");
+      throw new Error(`Unexpected response from ${endpoint}: ${fields}`);
+    }
+    return response;
+  }
+
   private performRequestWithRetry(
     endpoint: string,
     options: RequestInit = {},
@@ -162,7 +182,10 @@ export class PostHogAPIClient {
 
   async getTask(taskId: string): Promise<Task> {
     const teamId = this.getTeamId();
-    return this.apiRequest<Task>(`/api/projects/${teamId}/tasks/${taskId}/`);
+    return this.validatedRequest<Task>(
+      `/api/projects/${teamId}/tasks/${taskId}/`,
+      taskResponseSchema,
+    );
   }
 
   async getMcpRuntimeConfiguration(
@@ -247,8 +270,9 @@ export class PostHogAPIClient {
     signal?: AbortSignal,
   ): Promise<TaskRun> {
     const teamId = this.getTeamId();
-    const taskRun = await this.apiRequest<TaskRun>(
+    const taskRun = await this.validatedRequest<TaskRun>(
       `/api/projects/${teamId}/tasks/${taskId}/runs/${runId}/`,
+      taskRunResponseSchema,
       { signal },
     );
     return { ...taskRun, state: taskRunStateSchema.parse(taskRun.state) };
@@ -282,8 +306,9 @@ export class PostHogAPIClient {
     runId: string,
   ): Promise<TaskSessionStorageAccess> {
     const teamId = this.getTeamId();
-    return this.apiRequest<TaskSessionStorageAccess>(
+    return this.validatedRequest<TaskSessionStorageAccess>(
       `/api/projects/${teamId}/tasks/${taskId}/runs/${runId}/task_session/`,
+      taskSessionStorageAccessResponseSchema,
     );
   }
 

@@ -89,7 +89,11 @@ export function createPostHogHandlers(options: PostHogHandlersOptions = {}) {
     http.get(
       `${baseUrl}/api/projects/:projectId/tasks/:taskId/runs/:runId/`,
       () => {
-        const taskRun = getTaskRun?.() ?? { log_url: "" };
+        const taskRun = getTaskRun?.() ?? {
+          id: "test-run-id",
+          task: "test-task-id",
+          log_url: "",
+        };
         return HttpResponse.json(taskRun);
       },
     ),

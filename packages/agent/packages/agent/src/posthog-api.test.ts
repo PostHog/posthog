@@ -40,7 +40,7 @@ describe("PostHogAPIClient", () => {
     });
     mockFetch.mockResolvedValueOnce({
       ok: true,
-      json: vi.fn().mockResolvedValue({ id: "run-1", state }),
+      json: vi.fn().mockResolvedValue({ id: "run-1", task: "task-1", state }),
     });
 
     const run = await client.getTaskRun("task-1", "run-1");
@@ -544,4 +544,125 @@ describe("PostHogAPIClient", () => {
       });
     },
   );
+
+  describe("response validation", () => {
+    const taskBody = {
+      id: "task-1",
+      description: "Fix the bug",
+      origin_product: "user_created",
+    };
+    const runBody = { id: "run-1", task: "task-1" };
+    const sessionBody = { download_url: null, content_sha256: null };
+
+    const calls = {
+      task: (client: PostHogAPIClient) => client.getTask("task-1"),
+      run: (client: PostHogAPIClient) => client.getTaskRun("task-1", "run-1"),
+      session: (client: PostHogAPIClient) =>
+        client.getTaskSession("task-1", "run-1"),
+    };
+
+    function respondWith(body: unknown): PostHogAPIClient {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: vi.fn().mockResolvedValue(body),
+      });
+      return new PostHogAPIClient({
+        apiUrl: "https://app.posthog.com",
+        getApiKey: vi.fn().mockResolvedValue("token"),
+        projectId: 7,
+      });
+    }
+
+    it.each([
+      ["task", taskBody],
+      ["task", { ...taskBody, repository: null, created_by: null }],
+      [
+        "task",
+        {
+          ...taskBody,
+          repositories: ["posthog/posthog"],
+          created_by: { id: 3, email: "dev@example.com" },
+          unknown_field: { nested: true },
+        },
+      ],
+      ["run", runBody],
+      ["run", { ...runBody, log_url: null, output: null, artifacts: null }],
+      [
+        "run",
+        {
+          ...runBody,
+          output: { pr_url: "https://github.com/posthog/posthog/pull/1" },
+          artifacts: [{ name: "plan.md", type: "plan" }],
+          unknown_field: 1,
+        },
+      ],
+      ["session", sessionBody],
+      [
+        "session",
+        {
+          id: "s-1",
+          download_url: "https://storage.example/s",
+          content_sha256: "abc",
+          extra: 1,
+        },
+      ],
+    ] as const)("accepts a valid %s response", async (name, body) => {
+      const client = respondWith(body);
+
+      await expect(calls[name](client)).resolves.toMatchObject(body);
+    });
+
+    it.each([
+      ["task", { ...taskBody, id: undefined }, "/tasks/task-1/", "id"],
+      [
+        "task",
+        { ...taskBody, description: 5 },
+        "/tasks/task-1/",
+        "description",
+      ],
+      [
+        "task",
+        { ...taskBody, origin_product: undefined },
+        "/tasks/task-1/",
+        "origin_product",
+      ],
+      [
+        "task",
+        { ...taskBody, repositories: "posthog/posthog" },
+        "/tasks/task-1/",
+        "repositories",
+      ],
+      [
+        "task",
+        { ...taskBody, created_by: { id: "3" } },
+        "/tasks/task-1/",
+        "created_by.id",
+      ],
+      ["run", { ...runBody, id: undefined }, "/runs/run-1/", "id"],
+      ["run", { ...runBody, task: undefined }, "/runs/run-1/", "task"],
+      ["run", { ...runBody, output: "done" }, "/runs/run-1/", "output"],
+      ["run", { ...runBody, artifacts: {} }, "/runs/run-1/", "artifacts"],
+      [
+        "session",
+        { content_sha256: null },
+        "/runs/run-1/task_session/",
+        "download_url",
+      ],
+      [
+        "session",
+        { download_url: null },
+        "/runs/run-1/task_session/",
+        "content_sha256",
+      ],
+    ] as const)(
+      "rejects a %s response that is missing or mistypes a field",
+      async (name, body, endpoint, field) => {
+        const client = respondWith(body);
+
+        await expect(calls[name](client)).rejects.toThrow(
+          new RegExp(`Unexpected response from .*${endpoint}.*${field}`),
+        );
+      },
+    );
+  });
 });

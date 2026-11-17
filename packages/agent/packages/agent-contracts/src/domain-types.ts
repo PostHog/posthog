@@ -500,6 +500,35 @@ export interface TaskRun {
   completed_at: string | null;
 }
 
+export const taskResponseSchema = z.object({
+  id: z.string(),
+  description: z.string().nullish(),
+  origin_product: z.string(),
+  title: z.string().optional(),
+  repository: z.string().nullish(),
+  repositories: z.array(z.string()).optional(),
+  signal_report: z.string().nullish(),
+  json_schema: z.record(z.string(), z.unknown()).nullish(),
+  internal: z.boolean().optional(),
+  origin_key: z.string().nullish(),
+  client_provenance: z.string().nullish(),
+  channel: z.string().nullish(),
+  created_by: z.object({ id: z.number() }).nullish(),
+});
+
+export const taskRunResponseSchema = z.object({
+  id: z.string(),
+  task: z.string(),
+  log_url: z.string().nullish(),
+  output: z.record(z.string(), z.unknown()).nullish(),
+  artifacts: z.array(z.unknown()).nullish(),
+});
+
+export const taskSessionStorageAccessResponseSchema = z.object({
+  download_url: z.string().nullable(),
+  content_sha256: z.string().nullable(),
+});
+
 export type NetworkAccessLevel = "trusted" | "full" | "custom";
 
 export interface SandboxEnvironment {

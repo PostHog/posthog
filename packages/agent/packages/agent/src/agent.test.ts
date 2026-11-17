@@ -241,6 +241,7 @@ describe("Agent", () => {
     fetchMock.mockResolvedValueOnce({
       ok: true,
       json: vi.fn().mockResolvedValue({
+        id: "task-1",
         origin_product: "posthog_code",
         repositories: ["org/repo"],
       }),
