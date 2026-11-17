@@ -123,15 +123,15 @@ export interface editorSceneLogicValues {
     sidePanelContext: SidePanelSceneContext
     titleSectionProps:
         | {
-              description: string
-              forceBackTo: LinkBreadcrumb
+              description?: undefined
+              forceBackTo: Breadcrumb
               name: string
               resourceType: {
                   type: string
               }
           }
         | {
-              description?: undefined
+              description: string
               forceBackTo: LinkBreadcrumb
               name: string
               resourceType: {
@@ -227,15 +227,15 @@ export interface editorSceneLogicMeta {
             editorUrl: string
         ) =>
             | {
-                  description: string
-                  forceBackTo: LinkBreadcrumb
+                  description?: undefined
+                  forceBackTo: Breadcrumb
                   name: string
                   resourceType: {
                       type: string
                   }
               }
             | {
-                  description?: undefined
+                  description: string
                   forceBackTo: LinkBreadcrumb
                   name: string
                   resourceType: {
