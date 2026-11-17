@@ -1,8 +1,9 @@
 from functools import cached_property
 from typing import TYPE_CHECKING, Optional, cast
+from uuid import UUID
 
 from django.db import IntegrityError, transaction
-from django.db.models import Prefetch, QuerySet
+from django.db.models import Prefetch, QuerySet, prefetch_related_objects
 
 from django_otp.plugins.otp_totp.models import TOTPDevice
 from drf_spectacular.utils import extend_schema, extend_schema_field
@@ -32,7 +33,7 @@ else:
     _MixinBase = object
 
 
-def role_memberships_prefetch() -> Prefetch:
+def role_memberships_prefetch(organization_id: UUID) -> Prefetch:
     """Prefetch role members with the relations the member serializer reads, so listing roles
     doesn't fire a per-member social-auth/2FA query.
     """
@@ -45,7 +46,7 @@ def role_memberships_prefetch() -> Prefetch:
                 "organization_member",
                 queryset=OrganizationMembership.objects.with_effective_level()
                 .select_related("user")
-                .prefetch_related(organization_access_role_memberships_prefetch()),
+                .prefetch_related(organization_access_role_memberships_prefetch(organization_id)),
             ),
             Prefetch(
                 "organization_member__user__totpdevice_set",
@@ -148,6 +149,7 @@ class RoleSerializer(serializers.ModelSerializer):
     )
     def get_members(self, role: Role):
         # role.roles are the memberships; reuse RoleViewSet's prefetch instead of re-querying per role.
+        prefetch_related_objects([role], role_memberships_prefetch(role.organization_id))
         memberships = list(role.roles.all())
         visible_membership_ids = self.context.get("visible_membership_ids")
         if visible_membership_ids is not None:
@@ -183,7 +185,7 @@ class RoleSerializer(serializers.ModelSerializer):
 class RoleViewSet(RestrictedMemberVisibilityMixin, TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "organization"
     serializer_class = RoleSerializer
-    queryset = Role.objects.select_related("created_by").prefetch_related(role_memberships_prefetch())
+    queryset = Role.objects.select_related("created_by")
     permission_classes = [OrganizationAdminWritePermissions, TimeSensitiveActionPermission]
 
     def get_serializer_context(self) -> dict:
@@ -193,6 +195,7 @@ class RoleViewSet(RestrictedMemberVisibilityMixin, TeamAndOrgViewSetMixin, views
         return context
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
+        queryset = queryset.prefetch_related(role_memberships_prefetch(self.organization.id))
         return strict_fetch(queryset) if self.action == "list" else queryset
 
     @transaction.atomic
@@ -221,14 +224,10 @@ class RoleMembershipSerializer(serializers.ModelSerializer):
         user_uuid = validated_data.pop("user_uuid")
 
         try:
-            # nosemgrep: idor-lookup-without-org (organization filter on next line)
             role = Role.objects.select_for_update(no_key=True).get(
                 id=self.context["role_id"], organization_id=self.context["organization_id"]
             )
         except Role.DoesNotExist:
-            raise serializers.ValidationError("Role does not exist.")
-
-        if role.organization_id != self.context["organization_id"]:
             raise serializers.ValidationError("Role does not exist.")
 
         if role.organization_access_level is not None:
@@ -262,26 +261,23 @@ class RoleMembershipViewSet(
     scope_object = "organization"
     permission_classes = [OrganizationAdminWritePermissions, TimeSensitiveActionPermission]
     serializer_class = RoleMembershipSerializer
-    queryset = (
-        RoleMembership.objects.valid_for_authorization()
-        .select_related("role", "user")
-        .prefetch_related(
+    queryset = RoleMembership.objects.valid_for_authorization().select_related("role", "user")
+    filter_rewrite_rules = {"organization_id": "role__organization_id"}
+
+    def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
+        queryset = queryset.prefetch_related(
             Prefetch(
                 "organization_member",
                 queryset=OrganizationMembership.objects.with_effective_level()
                 .select_related("user")
                 .prefetch_related(
-                    organization_access_role_memberships_prefetch(),
+                    organization_access_role_memberships_prefetch(self.organization.id),
                     Prefetch("user__totpdevice_set", queryset=TOTPDevice.objects.filter(confirmed=True)),
                     "user__social_auth",
                     Prefetch("user__webauthn_credentials", queryset=WebauthnCredential.objects.filter(verified=True)),
                 ),
             )
         )
-    )
-    filter_rewrite_rules = {"organization_id": "role__organization_id"}
-
-    def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         # Legacy rows predating the organization_member FK have it NULL and can't be
         # visibility-checked, so this filter hides them from restricted members rather than leaking.
         if self.visible_membership_ids is not None:

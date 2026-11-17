@@ -5,6 +5,7 @@ from posthog.api.scim.auth import generate_scim_token
 from posthog.api.scim.views import MAX_ITEMS_PER_PAGE
 from posthog.constants import AvailableFeature
 from posthog.models import Organization, OrganizationMembership, User
+from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.identity_provider_config import IdentityProviderConfig
 from posthog.models.linked_identity_provider_config import LinkedIdentityProviderConfig
 from posthog.models.organization_domain import OrganizationDomain
@@ -236,6 +237,14 @@ class TestSCIMUsersAPI(APILicensedTest):
             assert membership.effective_level == (grant or OrganizationMembership.Level.MEMBER)
             assert RoleMembership.objects.get(user=user, role=role).organization_member_id == membership.id
             assert UserAccessControl(user, self.team).get_user_access_level(self.team) == ("admin" if grant else "none")
+
+        if grant:
+            log = ActivityLog.objects.filter(scope="Role", item_id=role.id, activity="updated").latest("created_at")
+            assert log.detail is not None
+            assert log.user_id is None
+            assert log.credential_type == "scim"
+            assert log.credential_id == str(self.config.id)
+            assert any(c["field"] == "members" and c["after"] == user.id for c in log.detail["changes"])
 
         self.client.credentials()
         self.client.force_login(user)

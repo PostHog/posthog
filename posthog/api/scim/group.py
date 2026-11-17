@@ -22,6 +22,7 @@ class PostHogSCIMGroup(SCIMGroup):
     SCIM Groups are mapped to PostHog Roles for organization-level permissions.
     """
 
+    obj: Role
     resource_type = "Group"
 
     # Attribute map for SCIM PATCH operation path parsing
@@ -214,7 +215,7 @@ class PostHogSCIMGroup(SCIMGroup):
                 pk=self.obj.pk, organization=self._config.organization
             )
             if attr_name == "displayName":
-                self.obj.name = value
+                self.obj.name = cast(str, value)
                 self.obj.save(update_fields=["name"])
 
             elif attr_name == "members":
@@ -239,7 +240,7 @@ class PostHogSCIMGroup(SCIMGroup):
             )
             if attr_name == "displayName":
                 # Add operation for displayName acts like replace
-                self.obj.name = value
+                self.obj.name = cast(str, value)
                 self.obj.save(update_fields=["name"])
 
             elif attr_name == "members":

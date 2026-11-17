@@ -1,4 +1,5 @@
 from typing import Any, cast
+from uuid import UUID
 
 from django.db.models import F, Model, Prefetch, QuerySet, TextChoices
 from django.shortcuts import get_object_or_404
@@ -36,6 +37,7 @@ from posthog.helpers.trigram_search import (
 )
 from posthog.helpers.verified_domain_enforcement import verified_domain_email_q
 from posthog.models import OrganizationMembership
+from posthog.models.organization import OrganizationMembershipQuerySet
 from posthog.models.user import User
 from posthog.models.webauthn_credential import WebauthnCredential
 from posthog.organization_offboarding import OrganizationOffboarding
@@ -62,10 +64,10 @@ ALLOWED_ORDERINGS: dict[str, tuple[str, str]] = {
 DEFAULT_ORDERING = "-joined_at"
 
 
-def organization_access_role_memberships_prefetch() -> Prefetch:
+def organization_access_role_memberships_prefetch(organization_id: UUID) -> Prefetch:
     return Prefetch(
         "user__role_memberships",
-        queryset=RoleMembership.objects.select_related("role"),
+        queryset=RoleMembership.objects.filter(role__organization_id=organization_id).select_related("role"),
         to_attr="organization_access_role_memberships",
     )
 
@@ -78,11 +80,9 @@ def organization_members_base_queryset() -> QuerySet:
     stay in one place.
     """
     return (
-        OrganizationMembership.objects.with_effective_level()
-        .exclude(user__email__endswith=INTERNAL_BOT_EMAIL_SUFFIX)
+        OrganizationMembership.objects.exclude(user__email__endswith=INTERNAL_BOT_EMAIL_SUFFIX)
         .filter(user__is_active=True)
         .select_related("user")
-        .prefetch_related(organization_access_role_memberships_prefetch())
     )
 
 
@@ -264,7 +264,8 @@ class OrganizationMemberViewSet(
     serializer_class = OrganizationMemberSerializer
     permission_classes = [OrganizationMemberObjectPermissions, TimeSensitiveActionPermission]
     queryset = (
-        organization_members_base_queryset()
+        cast(OrganizationMembershipQuerySet, organization_members_base_queryset())
+        .with_effective_level()
         .prefetch_related(
             Prefetch(
                 "user__totpdevice_set",
@@ -315,6 +316,7 @@ class OrganizationMemberViewSet(
 
     def safely_get_queryset(self, queryset) -> QuerySet:
         organization = self.organization
+        queryset = queryset.prefetch_related(organization_access_role_memberships_prefetch(organization.id))
         if not organization.members_can_see_org_members:
             requesting_membership = OrganizationMembership.objects.filter(
                 organization=organization, user_id=cast(User, self.request.user).id

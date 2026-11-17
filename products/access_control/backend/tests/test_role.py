@@ -8,7 +8,7 @@ from unittest.mock import patch
 
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, connection, connections, transaction
-from django.test import SimpleTestCase, TestCase
+from django.test import SimpleTestCase, TestCase, override_settings
 from django.test.utils import CaptureQueriesContext
 
 from parameterized import parameterized
@@ -243,7 +243,8 @@ class TestRoleAPI(APILicensedTest):
         self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(res.json()["code"], "unique")
 
-    def test_listing_roles_does_not_scale_queries_with_member_count(self):
+    @parameterized.expand([("roles",), ("members",)])
+    def test_listing_roles_does_not_scale_queries_with_member_count(self, endpoint: str):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
         role = Role.objects.create(name="Engineering", organization=self.organization, organization_access_level=8)
@@ -255,20 +256,22 @@ class TestRoleAPI(APILicensedTest):
                 RoleMembership.objects.create(role=role, user=user, organization_member=membership)
 
         def members_for_role(response) -> list:
+            if endpoint == "members":
+                return [r for r in response.json()["results"] if r["role_grants"]]
             return next(r["members"] for r in response.json()["results"] if r["id"] == str(role.id))
 
         # Warm up per-process caches (instance settings etc.) so they don't skew the counts below.
-        self.client.get("/api/organizations/@current/roles")
+        self.client.get(f"/api/organizations/@current/{endpoint}")
 
         add_members(2)
         with CaptureQueriesContext(connection) as few_members:
-            res = self.client.get("/api/organizations/@current/roles")
+            res = self.client.get(f"/api/organizations/@current/{endpoint}")
         self.assertEqual(res.status_code, status.HTTP_200_OK)
         self.assertEqual(len(members_for_role(res)), 2)
 
         add_members(4)
         with CaptureQueriesContext(connection) as more_members:
-            res = self.client.get("/api/organizations/@current/roles")
+            res = self.client.get(f"/api/organizations/@current/{endpoint}")
         self.assertEqual(res.status_code, status.HTTP_200_OK)
         self.assertEqual(len(members_for_role(res)), 6)
 
@@ -385,6 +388,7 @@ class TestOrganizationRoleGrantAPI(APILicensedTest):
             log = ActivityLog.objects.filter(scope="Role", item_id=self.role.id, activity="updated").latest(
                 "created_at"
             )
+            assert log.detail is not None
             assert log.user_id == self.user.id
             assert any(c["field"] == "organization_access_level" and c["after"] == 8 for c in log.detail["changes"])
 
@@ -492,6 +496,26 @@ class TestOrganizationRoleGrantAPI(APILicensedTest):
         assert response.json()["level"] == 1
         assert response.json()["effective_level"] == expected
 
+    @parameterized.expand([("role",), ("membership",)])
+    @override_settings(ACTIVITY_LOG_TRANSACTION_MANAGEMENT=True)
+    def test_rolled_back_deletion_does_not_write_audit(self, target: str) -> None:
+        self.role.organization_access_level = 8
+        self.role.save()
+        membership = RoleMembership.objects.create(role=self.role, user=self.member)
+        before = ActivityLog.objects.filter(scope="Role", item_id=self.role.id).count()
+        with self.captureOnCommitCallbacks(execute=True):
+            try:
+                with transaction.atomic():
+                    if target == "role":
+                        Role.objects.filter(pk=self.role.pk).delete()
+                    else:
+                        RoleMembership.objects.filter(pk=membership.pk).delete()
+                    raise ValueError("Roll back the deletion")
+            except ValueError:
+                pass
+        assert RoleMembership.objects.filter(pk=membership.pk).exists()
+        assert ActivityLog.objects.filter(scope="Role", item_id=self.role.id).count() == before
+
     def test_member_response_distinguishes_direct_access_and_grants(self) -> None:
         self.role.organization_access_level = 8
         self.role.save()
@@ -499,6 +523,11 @@ class TestOrganizationRoleGrantAPI(APILicensedTest):
         role_membership = RoleMembership.objects.create(
             role=self.role, user=self.member, organization_member=membership
         )
+        other_org = Organization.objects.create(name="Other organization")
+        other_role = Role.objects.create(
+            organization=other_org, name="Other administrators", organization_access_level=8
+        )
+        RoleMembership.objects.create(role=other_role, user=self.member)
         response = self.client.get(f"/api/organizations/{self.organization.id}/members", {"email": self.member.email})
         assert response.status_code == 200
         assert response.json()["results"][0]["level"] == OrganizationMembership.Level.MEMBER
@@ -511,7 +540,7 @@ class TestOrganizationRoleGrantAPI(APILicensedTest):
         assert response.json()["results"][0]["effective_level"] == OrganizationMembership.Level.MEMBER
         assert response.json()["results"][0]["role_grants"] == []
         activities = ActivityLog.objects.filter(scope="Role", item_id=self.role.id, activity="updated")
-        member_changes = [c for log in activities for c in log.detail["changes"] if c["field"] == "members"]
+        member_changes = [c for log in activities for c in (log.detail or {})["changes"] if c["field"] == "members"]
         assert {c["action"] for c in member_changes} == {"created", "deleted"}
 
 

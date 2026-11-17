@@ -356,6 +356,8 @@ Explicit logging at a bulk-write site should read its before-values from the wri
 Role organization-access mappings log creation, changes, and deletion under `Role`.
 Adding or removing members of an Admin-granting role records the affected user IDs, including SCIM membership changes.
 SCIM credentials remain attributed as automated actors.
+Role and role-membership queryset `update()` and `bulk_create()` are maintenance interfaces that invalidate access caches but bypass per-row audit signals.
+Their callers must log explicitly; interactive configuration and SCIM writes use audited saves and deletes.
 
 Organization IP restriction configuration logs initial creation and changes to the allowlist and enabled state under `OrganizationIPRestrictions`, with the request actor.
 
