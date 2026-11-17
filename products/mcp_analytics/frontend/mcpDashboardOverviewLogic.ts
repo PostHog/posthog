@@ -168,6 +168,7 @@ export interface BucketRow {
     tool_calls: number
     errors: number
     p95: number
+    users: number
 }
 
 export interface KPIMetric {
@@ -184,6 +185,7 @@ export interface KPIData {
     toolCalls: KPIMetric
     errorRatePct: KPIMetric
     p95LatencyMs: KPIMetric
+    users: KPIMetric
 }
 
 // Window-level figures that can't be summed from per-bucket rows: distinct users and a percentile.
@@ -278,6 +280,7 @@ const EMPTY_KPIS: KPIData = {
     toolCalls: { ...EMPTY_METRIC, goodDirection: 'up' },
     errorRatePct: { ...EMPTY_METRIC, goodDirection: 'down' },
     p95LatencyMs: { ...EMPTY_METRIC, goodDirection: 'down' },
+    users: { ...EMPTY_METRIC, goodDirection: 'up' },
 }
 
 export function deltaPct(current: number, previous: number): number | null {
@@ -315,11 +318,32 @@ function parseRows(rawRows: unknown[][]): BucketRow[] {
         tool_calls: Number(r[2] ?? 0),
         errors: Number(r[3] ?? 0),
         p95: Number(r[4] ?? 0),
+        users: Number(r[5] ?? 0),
     }))
 }
 
 // With a handful of calls, one failure or one slow call decides the rank, so ranking needs a minimum sample.
+// The toolRows query applies the same minimum (MIN_CALLS_TO_RANK_TOOLS in dashboard_query.py) before it ranks.
 export const MIN_CALLS_TO_RANK_TOOLS = 20
+
+// Rows are [tool, total_calls, errors, error_rate_pct, p95_duration_ms, ranking], calls ranking first. A tool can
+// top several rankings, so the first row per tool wins, which keeps the busiest tool first for the first-look banner.
+export function toolRowsFromRankings(rows: unknown[][]): ToolRow[] {
+    const byTool = new Map<string, ToolRow>()
+    for (const r of rows) {
+        const tool = String(r[0] ?? '')
+        if (!byTool.has(tool)) {
+            byTool.set(tool, {
+                tool,
+                total_calls: Number(r[1] ?? 0),
+                errors: Number(r[2] ?? 0),
+                error_rate_pct: Number(r[3] ?? 0),
+                p95_duration_ms: Number(r[4] ?? 0),
+            })
+        }
+    }
+    return [...byTool.values()]
+}
 
 export function rankToolsByErrorRate(rows: ToolRow[]): ToolRow[] {
     return rows
@@ -390,12 +414,19 @@ export function buildKPIs(rows: BucketRow[], currentStartBucket: string): KPIDat
             sparklineLabels,
             goodDirection: 'down',
         },
-        // The headline value comes from PeriodTotals; a period p95 can't be built from bucket p95s.
+        // The headline values come from PeriodTotals: a period p95 can't be built from bucket p95s,
+        // and summing per-bucket distinct users counts a returning user once per bucket.
         p95LatencyMs: {
             ...EMPTY_METRIC,
             sparkline: current.map((r) => r.p95),
             sparklineLabels,
             goodDirection: 'down',
+        },
+        users: {
+            ...EMPTY_METRIC,
+            sparkline: current.map((r) => r.users),
+            sparklineLabels,
+            goodDirection: 'up',
         },
     }
 }
@@ -676,13 +707,7 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
         toolRows: [
             (s) => [s.sections],
             (sections: SectionResults): ToolRow[] =>
-                sectionRows<unknown[]>(sections, MCPDashboardSection.ToolRows).map((r) => ({
-                    tool: String(r[0] ?? ''),
-                    total_calls: Number(r[1] ?? 0),
-                    errors: Number(r[2] ?? 0),
-                    error_rate_pct: Number(r[3] ?? 0),
-                    p95_duration_ms: Number(r[4] ?? 0),
-                })),
+                toolRowsFromRankings(sectionRows<unknown[]>(sections, MCPDashboardSection.ToolRows)),
         ],
         sessionRows: [
             (s) => [s.sections],
@@ -756,6 +781,12 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
                     ...periodTotals.p95LatencyMs,
                     sparkline: kpis.p95LatencyMs.sparkline,
                     sparklineLabels: kpis.p95LatencyMs.sparklineLabels,
+                },
+                users: {
+                    ...kpis.users,
+                    ...periodTotals.users,
+                    sparkline: kpis.users.sparkline,
+                    sparklineLabels: kpis.users.sparklineLabels,
                 },
             }),
         ],

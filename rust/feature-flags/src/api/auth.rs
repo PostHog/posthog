@@ -1,14 +1,10 @@
 use crate::{
-    api::errors::FlagError, database::get_connection_with_metrics,
-    metrics::consts::LEGACY_TOKEN_MIRROR_SHADOW_COUNTER, router::State as AppState,
+    api::errors::FlagError, database::get_connection_with_metrics, router::State as AppState,
     team::team_models::Team,
 };
 use axum::http::HeaderMap;
 use common_database::PostgresReader;
-use metrics::counter;
 use serde::{Deserialize, Serialize};
-use std::time::Duration;
-use tokio::sync::Semaphore;
 use tracing::{debug, warn};
 
 /// Token prefix constants
@@ -26,15 +22,6 @@ const SCOPE_FEATURE_FLAG_WRITE: &str = "feature_flag:write";
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type")]
 pub enum TokenAuthData {
-    #[serde(rename = "secret")]
-    Secret {
-        team_id: i32,
-        /// The team's public API token, used to look up team metadata from
-        /// HyperCache when `?token=` is omitted. `#[serde(default)]` ensures
-        /// backwards compatibility with cached entries that predate this field.
-        #[serde(default)]
-        api_token: Option<String>,
-    },
     #[serde(rename = "personal")]
     Personal {
         user_id: i32,
@@ -65,23 +52,12 @@ pub enum TokenAuthData {
     },
 }
 
-/// A validated `phs_` bearer token. `project_secret_key_id` is set only when the token was a
-/// project secret API key; the team-level secret token has no key row to stamp usage on.
+/// A validated `phs_` bearer token — always a project secret API key (#66179).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SecretTokenAuth {
     pub team_id: i32,
     pub api_token: Option<String>,
-    pub project_secret_key_id: Option<String>,
-}
-
-impl SecretTokenAuth {
-    pub fn method_label(&self) -> &'static str {
-        if self.project_secret_key_id.is_some() {
-            "project_secret_api_key"
-        } else {
-            "secret_api_key"
-        }
-    }
+    pub project_secret_key_id: String,
 }
 
 /// Extracts bearer token from Authorization header
@@ -140,39 +116,16 @@ pub async fn validate_secret_api_token(
 ) -> Result<SecretTokenAuth, FlagError> {
     let token_hash = hash_token_value(token);
     let pg_reader: PostgresReader = state.database_pools.non_persons_reader.clone();
-    let token_owned = token.to_string();
     let hash_for_loader = token_hash.clone();
-    let accept_team_secret_tokens = *state.config.accept_team_secret_tokens;
-    // The shadow only informs the flip, so it has nothing to compare once legacy is off.
-    let mirror_shadow = accept_team_secret_tokens && *state.config.legacy_token_mirror_shadow;
 
     let result = state
         .auth_token_cache
         .get_or_load(&token_hash, |_key| {
-            load_token_from_pg(
-                pg_reader,
-                &token_owned,
-                &hash_for_loader,
-                accept_team_secret_tokens,
-                mirror_shadow,
-            )
+            load_token_from_pg(pg_reader, &hash_for_loader)
         })
         .await?;
 
     match result.value {
-        Some(TokenAuthData::Secret {
-            team_id, api_token, ..
-        }) => {
-            debug!(
-                team_id = team_id,
-                "Secret API token validated (no token param)"
-            );
-            Ok(SecretTokenAuth {
-                team_id,
-                api_token,
-                project_secret_key_id: None,
-            })
-        }
         Some(TokenAuthData::ProjectSecret {
             team_id,
             api_token,
@@ -186,65 +139,39 @@ pub async fn validate_secret_api_token(
             Ok(SecretTokenAuth {
                 team_id,
                 api_token,
-                project_secret_key_id: Some(key_id),
+                project_secret_key_id: key_id,
             })
         }
         _ => Err(FlagError::SecretApiTokenInvalid),
     }
 }
 
-/// Load token auth data from PostgreSQL: posthog_team secret tokens first when
-/// `accept_team_secret_tokens` is true (see `Config::accept_team_secret_tokens`), then
-/// ProjectSecretAPIKeys.
-///
-/// Extracted from `validate_secret_api_token_for_team` for testability.
+/// Load token auth data from PostgreSQL: ProjectSecretAPIKeys only. A migrated legacy
+/// team token matches its backfilled mirror row by hash (#66179).
 async fn load_token_from_pg(
     pg_reader: PostgresReader,
-    plaintext_token: &str,
     hashed_token: &str,
-    accept_team_secret_tokens: bool,
-    mirror_shadow: bool,
 ) -> Result<Option<TokenAuthData>, FlagError> {
     use sqlx::Row;
 
-    if accept_team_secret_tokens {
-        // Try Team.secret_api_token / secret_api_token_backup first.
-        // Only fall through to PSAK on RowNotFound; propagate transient DB errors immediately
-        // to avoid doubling DB work during outages.
-        match Team::from_pg_by_secret_token(pg_reader.clone(), plaintext_token).await {
-            Ok(team) => {
-                if mirror_shadow {
-                    drop(spawn_mirror_shadow_check(
-                        pg_reader.clone(),
-                        hashed_token.to_string(),
-                        team.id,
-                    ));
-                }
-                return Ok(Some(TokenAuthData::Secret {
-                    team_id: team.id,
-                    api_token: Some(team.api_token),
-                }));
-            }
-            Err(FlagError::RowNotFound) => { /* token not in posthog_team, try PSAK below */ }
-            Err(e) => return Err(e),
-        }
-    }
-
-    // Try ProjectSecretAPIKey (JOIN with posthog_team to get api_token for HyperCache lookups)
+    // JOIN with posthog_team to get api_token for HyperCache lookups
     let mut conn =
         get_connection_with_metrics(&pg_reader, "non_persons_reader", "fetch_project_secret_key")
             .await?;
-    let query = format!(
-        r#"
+    let query = r#"
         SELECT k.id, k.team_id, k.scopes, t.api_token
         FROM posthog_projectsecretapikey k
         JOIN posthog_team t ON t.id = k.team_id
         WHERE k.secure_value = $1
-          AND {PSAK_FLAG_SCOPE_FILTER}
-    "#
-    );
+          AND (
+              k.scopes IS NULL
+              OR '*' = ANY(k.scopes)
+              OR 'feature_flag:read' = ANY(k.scopes)
+              OR 'feature_flag:write' = ANY(k.scopes)
+          )
+    "#;
 
-    match sqlx::query(&query)
+    match sqlx::query(query)
         .bind(hashed_token)
         .fetch_optional(&mut *conn)
         .await
@@ -263,150 +190,8 @@ async fn load_token_from_pg(
             }))
         }
         None => {
-            warn!(
-                checked_posthog_team = accept_team_secret_tokens,
-                "phs_ token not found in project secret API key table"
-            );
+            warn!("phs_ token not found in project secret API key table");
             Ok(None)
-        }
-    }
-}
-
-/// Shared by the real PSAK lookup and the mirror shadow query so the predicates cannot
-/// drift. The key table must be aliased as `k`.
-const PSAK_FLAG_SCOPE_FILTER: &str = "(
-              k.scopes IS NULL
-              OR '*' = ANY(k.scopes)
-              OR 'feature_flag:read' = ANY(k.scopes)
-              OR 'feature_flag:write' = ANY(k.scopes)
-          )";
-
-// One in-flight check per pod: the definitions fleet's non_persons_reader pool is tiny,
-// and when Redis degrades the loader runs per request. The flip gate reads the rates of
-// missing and team_mismatch results, so skipping excess checks (counted as "skipped")
-// loses nothing.
-static MIRROR_SHADOW_PERMITS: Semaphore = Semaphore::const_new(1);
-
-// Bounds only the query, not the pool checkout (acquire_timeout covers that):
-// statement_timeout cannot unblock a client whose socket stopped responding.
-const MIRROR_SHADOW_TIMEOUT: Duration = Duration::from_secs(5);
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum MirrorShadowResult {
-    Match,
-    Missing,
-    TeamMismatch,
-    Revoked,
-    Error,
-    Timeout,
-}
-
-impl MirrorShadowResult {
-    const fn as_label(self) -> &'static str {
-        match self {
-            Self::Match => "match",
-            Self::Missing => "missing",
-            Self::TeamMismatch => "team_mismatch",
-            Self::Revoked => "revoked",
-            Self::Error => "error",
-            Self::Timeout => "timeout",
-        }
-    }
-}
-
-/// Transitional (#66179): after a successful legacy-token auth, check in the background
-/// that the PSAK lookup replacing the legacy branch post-flip resolves this token to the
-/// same team. Fire-and-forget: it never delays or fails the auth path, and while the
-/// auth cache is healthy it only runs on cache misses, so the extra query is bounded by
-/// unique active tokens per cache TTL, not by request volume. Returns the task handle
-/// (None when skipped) so tests can await the classification.
-fn spawn_mirror_shadow_check(
-    pg_reader: PostgresReader,
-    hashed_token: String,
-    team_id: i32,
-) -> Option<tokio::task::JoinHandle<MirrorShadowResult>> {
-    let Ok(permit) = MIRROR_SHADOW_PERMITS.try_acquire() else {
-        counter!(LEGACY_TOKEN_MIRROR_SHADOW_COUNTER, "result" => "skipped").increment(1);
-        return None;
-    };
-    Some(tokio::spawn(async move {
-        let _permit = permit;
-        let result = mirror_shadow_result(pg_reader, &hashed_token, team_id).await;
-        match result {
-            MirrorShadowResult::Match => {}
-            // Quiet: leak revocation deleted the mirror row on purpose; do not backfill.
-            MirrorShadowResult::Revoked => {}
-            // Already logged with the error at the query site.
-            MirrorShadowResult::Error | MirrorShadowResult::Timeout => {}
-            MirrorShadowResult::Missing => warn!(
-                team_id = team_id,
-                "Legacy token has no usable PSAK mirror row"
-            ),
-            MirrorShadowResult::TeamMismatch => warn!(
-                team_id = team_id,
-                "Legacy token's PSAK mirror row belongs to another team"
-            ),
-        }
-        counter!(LEGACY_TOKEN_MIRROR_SHADOW_COUNTER, "result" => result.as_label()).increment(1);
-        result
-    }))
-}
-
-/// Classify a legacy token's PSAK mirror state. Uses the same scope filter as the real
-/// PSAK lookup in `load_token_from_pg`, so `Match` means the post-flip lookup would
-/// authenticate this token hash for this team.
-async fn mirror_shadow_result(
-    pg_reader: PostgresReader,
-    hashed_token: &str,
-    team_id: i32,
-) -> MirrorShadowResult {
-    let mut conn = match get_connection_with_metrics(
-        &pg_reader,
-        "non_persons_reader",
-        "legacy_token_mirror_shadow",
-    )
-    .await
-    {
-        Ok(conn) => conn,
-        Err(e) => {
-            warn!(team_id = team_id, error = %e, "Legacy token mirror shadow could not get a connection");
-            return MirrorShadowResult::Error;
-        }
-    };
-    let query = format!(
-        r#"
-        SELECT
-            (SELECT k.team_id FROM posthog_projectsecretapikey k
-              WHERE k.secure_value = $1 AND {PSAK_FLAG_SCOPE_FILTER}) AS team_id,
-            EXISTS (
-                SELECT 1 FROM posthog_revokedteamsecrettoken WHERE secure_value = $1
-            ) AS revoked
-    "#
-    );
-    match tokio::time::timeout(
-        MIRROR_SHADOW_TIMEOUT,
-        sqlx::query_as::<_, (Option<i32>, bool)>(&query)
-            .bind(hashed_token)
-            .fetch_one(&mut *conn),
-    )
-    .await
-    {
-        Ok(Ok((Some(row_team_id), _))) if row_team_id == team_id => MirrorShadowResult::Match,
-        Ok(Ok((Some(_), _))) => MirrorShadowResult::TeamMismatch,
-        Ok(Ok((None, true))) => MirrorShadowResult::Revoked,
-        Ok(Ok((None, false))) => MirrorShadowResult::Missing,
-        Ok(Err(e)) => {
-            warn!(team_id = team_id, error = %e, "Legacy token mirror shadow query failed");
-            MirrorShadowResult::Error
-        }
-        Err(_) => {
-            // Return-to-pool pings with no deadline; closing frees the slot instead.
-            conn.close_on_drop();
-            warn!(
-                team_id = team_id,
-                "Legacy token mirror shadow query timed out"
-            );
-            MirrorShadowResult::Timeout
         }
     }
 }
@@ -643,126 +428,6 @@ pub async fn validate_personal_api_key_with_scopes_for_team(
 mod tests {
     use super::*;
 
-    /// The mirror shadow check (#66179) must classify a legacy token's PSAK mirror
-    /// state the way the post-flip lookup would resolve it: same team with usable
-    /// scopes is a match, a row for another team is the cross-team case, and no row
-    /// (or a row without flag scopes) means the token dies at the flip. A leak-revoked
-    /// hash is its own class: it must not read as a backfill candidate.
-    #[rstest::rstest]
-    #[case::mirror_row_same_team("same_team", MirrorShadowResult::Match)]
-    #[case::mirror_row_other_team("other_team", MirrorShadowResult::TeamMismatch)]
-    #[case::mirror_row_without_flag_scopes("wrong_scopes", MirrorShadowResult::Missing)]
-    #[case::no_mirror_row("none", MirrorShadowResult::Missing)]
-    #[case::leak_revoked("revoked", MirrorShadowResult::Revoked)]
-    #[tokio::test]
-    async fn test_mirror_shadow_result_classification(
-        #[case] row: &str,
-        #[case] expected: MirrorShadowResult,
-    ) {
-        use crate::utils::test_utils::TestContext;
-
-        let context = TestContext::new(None).await;
-        let (team, secret_token, _) = context
-            .create_team_with_secret_token(None, None, None)
-            .await
-            .unwrap();
-        match row {
-            "same_team" => {
-                context
-                    .create_project_secret_api_key_with_value(
-                        team.id,
-                        "Migrated legacy secret API key",
-                        Some(vec!["feature_flag:read", "support_ticket:read"]),
-                        &secret_token,
-                    )
-                    .await
-                    .unwrap();
-            }
-            "other_team" => {
-                let other_team = context.insert_new_team(None).await.unwrap();
-                context
-                    .create_project_secret_api_key_with_value(
-                        other_team.id,
-                        "Migrated legacy secret API key",
-                        Some(vec!["feature_flag:read"]),
-                        &secret_token,
-                    )
-                    .await
-                    .unwrap();
-            }
-            "wrong_scopes" => {
-                context
-                    .create_project_secret_api_key_with_value(
-                        team.id,
-                        "Migrated legacy secret API key",
-                        Some(vec!["support_ticket:read"]),
-                        &secret_token,
-                    )
-                    .await
-                    .unwrap();
-            }
-            "none" => {}
-            "revoked" => {
-                context
-                    .create_revoked_team_secret_token(team.id, &secret_token)
-                    .await
-                    .unwrap();
-            }
-            _ => unreachable!(),
-        }
-
-        let hashed = hash_token_value(&secret_token);
-        let result =
-            mirror_shadow_result(context.non_persons_reader.clone(), &hashed, team.id).await;
-        assert_eq!(result, expected);
-    }
-
-    /// Guards the wiring, not the classification: if a refactor stopped the spawned
-    /// shadow from running (or from reaching the classifier), the flip gate would read
-    /// green by absence of data. The single global permit may be held by a concurrent
-    /// test, so acquiring retries briefly.
-    #[tokio::test]
-    async fn test_spawn_mirror_shadow_check_classifies_in_background() {
-        use crate::utils::test_utils::TestContext;
-
-        let context = TestContext::new(None).await;
-        let (team, secret_token, _) = context
-            .create_team_with_secret_token(None, None, None)
-            .await
-            .unwrap();
-        let hashed = hash_token_value(&secret_token);
-
-        let spawn_with_retry = |hashed: String, team_id: i32| {
-            let pg_reader = context.non_persons_reader.clone();
-            async move {
-                for _ in 0..100 {
-                    if let Some(handle) =
-                        spawn_mirror_shadow_check(pg_reader.clone(), hashed.clone(), team_id)
-                    {
-                        return handle;
-                    }
-                    tokio::time::sleep(Duration::from_millis(20)).await;
-                }
-                panic!("no mirror shadow permit became available");
-            }
-        };
-
-        let handle = spawn_with_retry(hashed.clone(), team.id).await;
-        assert_eq!(handle.await.unwrap(), MirrorShadowResult::Missing);
-
-        context
-            .create_project_secret_api_key_with_value(
-                team.id,
-                "Migrated legacy secret API key",
-                Some(vec!["feature_flag:read"]),
-                &secret_token,
-            )
-            .await
-            .unwrap();
-        let handle = spawn_with_retry(hashed, team.id).await;
-        assert_eq!(handle.await.unwrap(), MirrorShadowResult::Match);
-    }
-
     #[test]
     fn test_extract_team_secret_token_from_header() {
         use axum::http::HeaderMap;
@@ -843,41 +508,6 @@ mod tests {
         let empty_headers = HeaderMap::new();
         let result = extract_bearer_token(&empty_headers);
         assert_eq!(result, None);
-    }
-
-    #[test]
-    fn test_token_auth_data_serialization_secret() {
-        let data = TokenAuthData::Secret {
-            team_id: 42,
-            api_token: Some("phc_test123".to_string()),
-        };
-        let json = serde_json::to_string(&data).unwrap();
-        assert!(json.contains("\"type\":\"secret\""));
-        assert!(json.contains("\"team_id\":42"));
-        assert!(json.contains("\"api_token\":\"phc_test123\""));
-
-        let parsed: TokenAuthData = serde_json::from_str(&json).unwrap();
-        match parsed {
-            TokenAuthData::Secret { team_id, api_token } => {
-                assert_eq!(team_id, 42);
-                assert_eq!(api_token, Some("phc_test123".to_string()));
-            }
-            _ => panic!("Expected Secret variant"),
-        }
-    }
-
-    #[test]
-    fn test_token_auth_data_deserializes_old_secret_without_api_token() {
-        // Old cached entries don't have api_token — serde(default) should give None
-        let json = r#"{"type":"secret","team_id":42}"#;
-        let parsed: TokenAuthData = serde_json::from_str(json).unwrap();
-        match parsed {
-            TokenAuthData::Secret { team_id, api_token } => {
-                assert_eq!(team_id, 42);
-                assert_eq!(api_token, None);
-            }
-            _ => panic!("Expected Secret variant"),
-        }
     }
 
     #[test]
@@ -1202,24 +832,6 @@ mod tests {
     }
 
     #[test]
-    fn test_validate_personal_key_metadata_rejects_secret_variant() {
-        let team = Team {
-            id: 1,
-            organization_id: Some(
-                uuid::Uuid::parse_str("550e8400-e29b-41d4-a716-446655440000").unwrap(),
-            ),
-            ..Default::default()
-        };
-
-        let data = TokenAuthData::Secret {
-            team_id: 1,
-            api_token: None,
-        };
-
-        assert!(validate_personal_key_metadata(&data, &team).is_err());
-    }
-
-    #[test]
     fn test_validate_personal_key_metadata_rejects_project_secret_variant() {
         let team = Team {
             id: 1,
@@ -1368,38 +980,21 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_load_token_from_pg_propagates_db_errors_instead_of_falling_through() {
+    async fn test_load_token_from_pg_propagates_db_errors() {
         use async_trait::async_trait;
         use common_database::{Client, CustomDatabaseError, PoolStats};
         use sqlx::pool::PoolConnection;
         use sqlx::Postgres;
-        use std::sync::atomic::{AtomicUsize, Ordering};
         use std::sync::Arc;
 
-        /// A mock database client that always fails with a connection error
-        /// and tracks how many times get_connection was called.
-        struct FailingClient {
-            call_count: AtomicUsize,
-        }
-
-        impl FailingClient {
-            fn new() -> Self {
-                Self {
-                    call_count: AtomicUsize::new(0),
-                }
-            }
-
-            fn calls(&self) -> usize {
-                self.call_count.load(Ordering::SeqCst)
-            }
-        }
+        /// A mock database client that always fails with a connection error.
+        struct FailingClient;
 
         #[async_trait]
         impl Client for FailingClient {
             async fn get_connection(
                 &self,
             ) -> Result<PoolConnection<Postgres>, CustomDatabaseError> {
-                self.call_count.fetch_add(1, Ordering::SeqCst);
                 Err(CustomDatabaseError::Other(sqlx::Error::PoolClosed))
             }
 
@@ -1408,27 +1003,15 @@ mod tests {
             }
         }
 
-        let client = Arc::new(FailingClient::new());
-        let pg_reader: common_database::PostgresReader = client.clone();
+        let pg_reader: common_database::PostgresReader = Arc::new(FailingClient);
 
-        let result =
-            load_token_from_pg(pg_reader, "phs_test_token", "sha256$fake", true, false).await;
+        let result = load_token_from_pg(pg_reader, "sha256$fake").await;
 
-        // The first query (Team::from_pg_by_secret_token) should fail with DatabaseUnavailable.
-        // The function should propagate that error immediately, NOT fall through to the
-        // ProjectSecretAPIKey query. If it falls through, get_connection would be called
-        // a second time for the PSAK query.
-        assert!(result.is_err(), "Expected error to be propagated");
+        // Ok(None) here would turn a DB outage into 401s for valid tokens instead of a 503.
         assert!(
             matches!(result, Err(FlagError::DatabaseUnavailable)),
             "Expected DatabaseUnavailable, got: {:?}",
             result
-        );
-        assert_eq!(
-            client.calls(),
-            1,
-            "get_connection should be called exactly once — the DB error from the \
-             Team secret token lookup should be propagated, not swallowed"
         );
     }
 }

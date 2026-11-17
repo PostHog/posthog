@@ -430,7 +430,7 @@ class TestScheduledRecalculationLogic(BaseTest):
         runner = MagicMock()
         runner.run.return_value = response
         with patch(
-            "products.experiments.backend.hogql_queries.experiment_exposures_query_runner.ExperimentExposuresQueryRunner",
+            "products.experiments.backend.temporal.scheduled_recalculation_logic.ExperimentExposuresQueryRunner",
             return_value=runner,
         ):
             assert count_total_exposures(experiment) == 75
@@ -440,7 +440,7 @@ class TestScheduledRecalculationLogic(BaseTest):
         runner = MagicMock()
         runner.run.return_value = SimpleNamespace(total_exposures=None)
         with patch(
-            "products.experiments.backend.hogql_queries.experiment_exposures_query_runner.ExperimentExposuresQueryRunner",
+            "products.experiments.backend.temporal.scheduled_recalculation_logic.ExperimentExposuresQueryRunner",
             return_value=runner,
         ):
             assert count_total_exposures(experiment) == 0
@@ -453,7 +453,7 @@ class TestScheduledRecalculationLogic(BaseTest):
         runner = MagicMock()
         runner.run.return_value = SimpleNamespace(total_exposures={"control": 10, "test": 10})
         with patch(
-            "products.experiments.backend.hogql_queries.experiment_exposures_query_runner.ExperimentExposuresQueryRunner",
+            "products.experiments.backend.temporal.scheduled_recalculation_logic.ExperimentExposuresQueryRunner",
             return_value=runner,
         ) as runner_class:
             assert count_total_exposures(experiment) == 20

@@ -8,6 +8,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from django.conf import settings
 from django.test import override_settings
 
+import duckdb
+import pyarrow as pa
 import deltalake
 import temporalio.worker
 import temporalio.converter
@@ -35,6 +37,7 @@ from products.managed_warehouse.backend.temporal.ducklake_copy_data_imports_work
     prepare_data_imports_ducklake_metadata_activity,
     verify_data_imports_ducklake_copy_activity,
 )
+from products.managed_warehouse.backend.temporal.ducklake_declared_columns import DeclaredColumn
 from products.warehouse_sources.backend.facade.models import (
     DataWarehouseCredential,
     DataWarehouseTable,
@@ -102,6 +105,7 @@ async def test_data_imports_ducklake_copy_inputs_round_trip_serialization():
 @pytest.fixture(autouse=True)
 def _trino_engine_off(monkeypatch):
     monkeypatch.setattr(ducklake_module, "data_imports_through_trino", lambda organization_id: False)
+    monkeypatch.setattr(ducklake_module, "data_imports_register_in_hoglake", lambda organization_id: False)
 
 
 @pytest.mark.asyncio
@@ -220,6 +224,11 @@ async def test_prepare_data_imports_ducklake_metadata_activity_basic(ateam, monk
     assert metadata.ducklake_schema_name == f"posthog_data_imports_team_{ateam.id}"
     assert metadata.ducklake_table_name == "postgres_customers"
     assert metadata.source_partition_column == "created_at"
+    assert {column.name: column.clickhouse_type for column in metadata.declared_columns} == {
+        "id": "Int64",
+        "created_at": "DateTime64",
+        "name": "Nullable(String)",
+    }
 
 
 @pytest.mark.asyncio
@@ -578,6 +587,10 @@ def test_copy_data_imports_to_ducklake_activity_via_duckgres(monkeypatch):
         ducklake_schema_name="posthog_data_imports_team_1",
         ducklake_table_name="postgres_customers_abc12345",
         staging_uri="s3://test-bucket/__posthog_staging/team_1/customers",
+        declared_columns=[
+            DeclaredColumn(name="closed_at", clickhouse_type="Nullable(Int64)"),
+            DeclaredColumn(name="growth%", clickhouse_type="Nullable(Float64)"),
+        ],
     )
     inputs = DuckLakeCopyDataImportsActivityInputs(team_id=1, job_id="job-123", model=metadata)
 
@@ -608,8 +621,62 @@ def test_copy_data_imports_to_ducklake_activity_via_duckgres(monkeypatch):
     first_delta_idx = next(i for i, call in enumerate(execute_calls) if "delta_scan" in str(call))
     assert secret_idx < first_delta_idx
     # Verify staging URI used, not source URI
-    table_call = next(call for call in execute_calls if "delta_scan" in str(call))
+    table_call = next(call for call in execute_calls if "CREATE OR REPLACE TABLE" in str(call))
     assert "s3://test-bucket/__posthog_staging/team_1/customers" in str(table_call)
+    # psycopg reads `%` in the statement text as a placeholder, so a `%` in a column name is doubled.
+    assert 'CAST(NULL AS BIGINT) AS "closed_at", CAST(NULL AS DOUBLE) AS "growth%%" FROM delta_scan(%s)' in str(
+        table_call
+    )
+
+
+def test_copy_from_delta_adds_declared_columns_and_passes_schema_verification(tmp_path):
+    source_uri = str(tmp_path / "delta")
+    deltalake.write_deltalake(source_uri, pa.table({"id": pa.array([1, 2], pa.int64()), "name": pa.array(["a", "b"])}))
+    metadata = DuckLakeCopyDataImportsMetadata(
+        model_label="postgres_customers",
+        source_schema_id="schema-123",
+        source_schema_name="customers",
+        source_normalized_name="customers",
+        source_table_uri=source_uri,
+        ducklake_schema_name="posthog_data_imports_team_1",
+        ducklake_table_name="postgres_customers",
+        declared_columns=[
+            # The Delta type wins for a column that the Delta table has.
+            DeclaredColumn(name="name", clickhouse_type="Int64"),
+            DeclaredColumn(name="closed_at", clickhouse_type="Nullable(Decimal(10, 2))"),
+            DeclaredColumn(name="growth%", clickhouse_type="Nullable(Float64)"),
+        ],
+    )
+    inputs = DuckLakeCopyDataImportsActivityInputs(team_id=1, job_id="job-123", model=metadata)
+    table = "ducklake.posthog_data_imports_team_1.postgres_customers"
+    with duckdb.connect() as conn:
+        for extension in ("delta", "ducklake"):
+            conn.execute(f"INSTALL {extension}")
+            conn.execute(f"LOAD {extension}")
+        conn.execute(f"ATTACH 'ducklake:{tmp_path / 'catalog.ducklake'}' AS ducklake (DATA_PATH '{tmp_path / 'data'}')")
+        conn.execute("CREATE SCHEMA ducklake.posthog_data_imports_team_1")
+
+        conn.execute(
+            ducklake_module._create_table_from_delta_statement(
+                conn, table, source_uri, metadata.declared_columns, parameter_placeholder="?"
+            ),
+            [source_uri],
+        )
+        verification = ducklake_module._run_data_imports_schema_verification(
+            conn, table, inputs, parameter_placeholder="?"
+        )
+        columns = conn.execute(f"SELECT column_name, column_type FROM (DESCRIBE {table})").fetchall()
+        rows = conn.execute(f"SELECT * FROM {table} ORDER BY id").fetchall()
+
+    assert columns == [
+        ("id", "BIGINT"),
+        ("name", "VARCHAR"),
+        ("closed_at", "DECIMAL(10,2)"),
+        ("growth%", "DOUBLE"),
+    ]
+    assert rows == [(1, "a", None, None), (2, "b", None, None)]
+    assert verification is not None
+    assert (verification.passed, verification.error) == (True, None)
 
 
 def test_verify_data_imports_ducklake_copy_activity_returns_empty_when_no_queries(monkeypatch):
@@ -1695,20 +1762,21 @@ def test_stage_gives_up_after_rebuild_wait_budget(monkeypatch):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("engine", ["data_imports_through_trino", "data_imports_register_in_hoglake"])
 @pytest.mark.parametrize("bootstrap", [True, False])
-async def test_ducklake_copy_data_imports_gate_refuses_trino_organizations(monkeypatch, bootstrap):
+async def test_ducklake_copy_data_imports_gate_refuses_organizations_without_duckgres(monkeypatch, bootstrap, engine):
     team = MagicMock(organization_id="org", uuid="team-uuid")
     monkeypatch.setattr(ducklake_module.Team.objects, "only", lambda *fields: MagicMock(get=lambda id: team))
     monkeypatch.setattr(ducklake_module, "data_imports_ducklake_copy_enabled", lambda *args, **kwargs: True)
     monkeypatch.setattr(
         "products.managed_warehouse.backend.facade.access.internal_loading_enabled", lambda organization_id: True
     )
-    trino_on = MagicMock(return_value=True)
-    monkeypatch.setattr(ducklake_module, "data_imports_through_trino", trino_on)
+    engine_on = MagicMock(return_value=True)
+    monkeypatch.setattr(ducklake_module, engine, engine_on)
 
     result = await ducklake_copy_data_imports_gate_activity(
         DuckLakeCopyWorkflowGateInputs(team_id=1, internal_bootstrap=bootstrap)
     )
 
     assert result is False
-    trino_on.assert_called_once_with("org")
+    engine_on.assert_called_once_with("org")
