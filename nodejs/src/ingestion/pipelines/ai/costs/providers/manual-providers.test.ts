@@ -145,4 +145,33 @@ describe('manualCosts', () => {
             expect(result.properties.$ai_output_cost_usd).toBeCloseTo(0.016, 8)
         })
     })
+
+    describe('GPT Image 2 pricing through ingestion', () => {
+        it.each(['gpt-image-2', 'openai/gpt-image-2', 'gpt-image-2-2026-04-21'])(
+            'prices %s text input, image input and image output at their own rates',
+            (model) => {
+                const result = processCost(
+                    createAIEvent({
+                        $ai_provider: 'openai',
+                        $ai_model: model,
+                        $ai_input_tokens: 250,
+                        $ai_image_input_tokens: 200,
+                        $ai_output_tokens: 1000,
+                        $ai_image_output_tokens: 1000,
+                    })
+                )
+
+                expect(result.properties.$ai_cost_model_source).toBe('manual')
+                expect(result.properties.$ai_input_cost_usd).toBeCloseTo(50 * 0.000005 + 200 * 0.000008, 8)
+                expect(result.properties.$ai_output_cost_usd).toBeCloseTo(1000 * 0.00003, 8)
+                expect(result.properties.$ai_total_cost_usd).toBeCloseTo(0.00185 + 0.03, 8)
+            }
+        )
+
+        it('prices output at the image rate without a modality breakdown', () => {
+            const result = processCost(createAIEvent({ $ai_model: 'gpt-image-2', $ai_output_tokens: 1000 }))
+
+            expect(result.properties.$ai_output_cost_usd).toBeCloseTo(0.03, 8)
+        })
+    })
 })
