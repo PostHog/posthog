@@ -357,7 +357,6 @@
 1 products/warehouse_sources/sources/travis_ci/travis_ci.py
 1 products/warehouse_sources/sources/trigger_dev/settings.py
 1 products/warehouse_sources/sources/trigger_dev/trigger_dev.py
-1 products/warehouse_sources/sources/twelve_data/twelve_data.py
 1 products/warehouse_sources/sources/twelve_labs/twelve_labs.py
 1 products/warehouse_sources/sources/uk_companies_house/uk_companies_house.py
 1 products/warehouse_sources/sources/unleash/settings.py
