@@ -20,6 +20,12 @@ from posthog.models.oauth import (
     normalize_cimd_url,
 )
 from posthog.permissions import OrganizationAdminWritePermissions, TimeSensitiveActionPermission
+from posthog.utils import get_instance_region
+
+VERIFICATION_TOKENS_LIVE_IN_US_MESSAGE = (
+    "Create verification tokens from an organization in PostHog US (us.posthog.com). A metadata document carries one "
+    "token for every region."
+)
 
 
 class CIMDVerificationTokenSerializer(serializers.ModelSerializer):
@@ -221,6 +227,9 @@ class CIMDVerificationTokenViewSet(
     )
     @sensitive_variables("plaintext", "output")
     def create(self, request, *args: Any, **kwargs: Any) -> Response:
+        if get_instance_region() == "EU":
+            # One metadata document serves both regions and carries one token, so every token comes from PostHog US.
+            raise serializers.ValidationError(VERIFICATION_TOKENS_LIVE_IN_US_MESSAGE)
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         token, plaintext = create_cimd_verification_token(
