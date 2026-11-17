@@ -127,14 +127,46 @@ describe('GuidanceEngine', () => {
         ])
     })
 
-    it('caps a client that opens a new session for every call under the caller', async () => {
-        const engine = new GuidanceEngine(makeGuidanceRedis(), [{ ...rule, threshold: 1 }])
-        const outcomes = []
-        for (const id of ['sess-1', 'sess-2', 'sess-3']) {
-            const state = makeState({ requestContext: { ...makeState().requestContext, mcpSessionId: id } })
-            outcomes.push(...(await run(engine, state, [replayQuery])))
-        }
-        expect(outcomes).toEqual(['test-rule:shown', undefined, undefined])
+    describe('a client on legacy sessions', () => {
+        const firstMatchRule: GuidanceRule = { ...rule, threshold: 1 }
+        const onSession = (id: string): ResolvedState =>
+            makeState({ requestContext: { ...makeState().requestContext, mcpSessionId: id } })
+
+        it('caps a client that opens a new session for every call under the caller', async () => {
+            const engine = new GuidanceEngine(makeGuidanceRedis(), [firstMatchRule])
+            const outcomes = []
+            for (const id of ['sess-1', 'sess-2', 'sess-3']) {
+                outcomes.push(...(await run(engine, onSession(id), [replayQuery])))
+            }
+            expect(outcomes).toEqual(['test-rule:shown', undefined, undefined])
+        })
+
+        it('shows one notice when the first calls on a new session run concurrently', async () => {
+            const engine = new GuidanceEngine(makeGuidanceRedis(), [firstMatchRule])
+            const notices = await Promise.all([
+                engine.evaluate(onSession('sess-1'), replayQuery),
+                engine.evaluate(onSession('sess-1'), replayQuery),
+            ])
+            expect(notices.filter((notice) => notice?.outcome === 'shown')).toHaveLength(1)
+        })
+
+        it('keeps the session cap for a session active longer than a day', async () => {
+            const redis = makeGuidanceRedis()
+            const engine = new GuidanceEngine(redis, [firstMatchRule])
+            const outcomes = await run(engine, onSession('sess-1'), [replayQuery])
+            for (let hour = 0; hour < 26; hour++) {
+                redis.advance(60 * 60)
+                outcomes.push(...(await run(engine, onSession('sess-1'), [replayQuery])))
+            }
+            expect(outcomes.filter(Boolean)).toEqual(['test-rule:shown'])
+        })
+
+        it('shows nothing when the session check fails', async () => {
+            const redis = makeGuidanceRedis()
+            const engine = new GuidanceEngine(redis, [firstMatchRule])
+            vi.spyOn(redis, 'set').mockRejectedValueOnce(new Error('redis down'))
+            await expect(engine.evaluate(onSession('sess-1'), replayQuery)).resolves.toBeUndefined()
+        })
     })
 
     describe('a client that sends no handle', () => {
