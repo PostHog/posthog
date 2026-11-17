@@ -47,6 +47,7 @@ THREAD_LOCK_PREFIX = "cimd_review_slack_thread"
 THREAD_LOCK_SECONDS = 60
 THREAD_RETRY_SECONDS = 5
 THREAD_MAX_RETRIES = 5
+THREAD_POSTED_SECONDS = 60 * 60 * 24
 WORKSPACE_CACHE_SECONDS = 60 * 60
 
 STATUS_HEADINGS = {
@@ -148,9 +149,10 @@ def sync_review_slack_thread(
     if not slack_thread_configured():
         return
     lock_key = f"{THREAD_LOCK_PREFIX}:{review_id}"
-    # One task per review talks to Slack at a time, so two first decisions can't post two threads.
+    # One task per review talks to Slack at a time, so two first decisions can't post two threads. The
+    # backoff outlasts the lock's lease, so a lock a dead worker left behind can't use up every retry.
     if not cache.add(lock_key, True, THREAD_LOCK_SECONDS):
-        raise self.retry(countdown=THREAD_RETRY_SECONDS)
+        raise self.retry(countdown=THREAD_RETRY_SECONDS * 2**self.request.retries)
     try:
         _sync_review_slack_thread(review_id, status=status, previous_status=previous_status, reason=reason)
     except Exception as error:
@@ -167,11 +169,17 @@ def _sync_review_slack_thread(review_id: str, *, status: str, previous_status: s
     text, blocks = render_review_message(review)
 
     if not review.slack_message_ts:
-        response = client.chat_postMessage(
-            channel=settings.PROVISIONING_REVIEW_SLACK_CHANNEL, text=text, blocks=blocks, unfurl_links=False
-        )
+        # A retry after a post that Slack accepted but the database never recorded reuses that post.
+        posted_key = f"{THREAD_LOCK_PREFIX}:posted:{review.pk}"
+        posted = cache.get(posted_key)
+        if posted is None:
+            response = client.chat_postMessage(
+                channel=settings.PROVISIONING_REVIEW_SLACK_CHANNEL, text=text, blocks=blocks, unfurl_links=False
+            )
+            posted = (response["channel"], response["ts"])
+            cache.set(posted_key, posted, THREAD_POSTED_SECONDS)
         CIMDProvisioningReview.objects.filter(pk=review.pk).update(
-            slack_channel_id=response["channel"], slack_message_ts=response["ts"]
+            slack_channel_id=posted[0], slack_message_ts=posted[1]
         )
         return
 

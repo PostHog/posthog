@@ -22,6 +22,7 @@ from posthog.api.oauth.provisioning_review_slack import (
     THREAD_LOCK_PREFIX,
     THREAD_RETRY_SECONDS,
     _retry_countdown,
+    _sync_review_slack_thread,
     block_partner_from_slack,
     interaction_ownership,
     sync_review_slack_thread,
@@ -111,6 +112,26 @@ class TestProvisioningReviewSlack(APIBaseTest):
         reply = client.chat_postMessage.call_args.kwargs
         assert reply["thread_ts"] == "1700000000.000100"
         assert reply["text"] == "Needs staff review → Rejected: Staff: Malicious usage"
+
+    def test_a_retry_reuses_a_post_the_database_missed(self, _send_email) -> None:
+        client = _slack_client()
+
+        with patch("posthog.api.oauth.provisioning_review_slack.SlackWebClient", return_value=client):
+            with patch("django.db.models.query.QuerySet.update", side_effect=RuntimeError("database unavailable")):
+                with self.assertRaises(RuntimeError):
+                    _sync_review_slack_thread(
+                        str(self.review.pk),
+                        status=ProvisioningReviewStatus.NEEDS_HUMAN,
+                        previous_status=None,
+                        reason="",
+                    )
+            _sync_review_slack_thread(
+                str(self.review.pk), status=ProvisioningReviewStatus.NEEDS_HUMAN, previous_status=None, reason=""
+            )
+
+        client.chat_postMessage.assert_called_once()
+        self.review.refresh_from_db()
+        assert self.review.slack_message_ts == "1700000000.000100"
 
     def test_a_held_thread_lock_defers_the_post(self, _send_email) -> None:
         client = _slack_client()
