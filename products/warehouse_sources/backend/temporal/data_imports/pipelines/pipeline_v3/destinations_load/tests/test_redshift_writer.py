@@ -1,7 +1,8 @@
-from typing import Any
+from typing import Any, cast
 
 import pytest
 
+from products.batch_exports.backend.facade.destinations.postgres import PostgreSQLClient
 from products.warehouse_sources.backend.temporal.data_imports.destinations.contracts import DestinationRunContext
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.destinations_load.writers.redshift import (
     RedshiftDestinationWriter,
@@ -90,7 +91,7 @@ class TestDropBatchIndexColumn:
         writer = RedshiftDestinationWriter(_ctx())
         client = _FakeClient(columns=["id", BATCH_INDEX_COLUMN])
 
-        await writer._drop_batch_index_column(client, "staging")
+        await writer._drop_batch_index_column(cast(PostgreSQLClient, client), "staging")
 
         statement = client.cursor.statements[-1]
         assert "DROP COLUMN" in statement
@@ -104,6 +105,6 @@ class TestDropBatchIndexColumn:
         writer = RedshiftDestinationWriter(_ctx())
         client = _FakeClient(columns=["id"])
 
-        await writer._drop_batch_index_column(client, "staging")
+        await writer._drop_batch_index_column(cast(PostgreSQLClient, client), "staging")
 
         assert client.cursor.statements == []
