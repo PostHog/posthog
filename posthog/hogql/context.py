@@ -181,6 +181,10 @@ class HogQLContext:
     # Backend-only switch for transforms/flag_calls_from_flag_evaluations.py. The data-deletion path sets it False, so a
     # flag-call subquery in a deletion predicate keeps reading `events` whatever the organization's mode.
     rewrite_flag_calls_to_flag_evaluations: bool = True
+    # Backend-only opt-in for a query whose events scans read every event, flag calls among them, without naming
+    # `$feature_flag_called`. When the query's flag calls are only in flag_evaluations, each such scan that the union
+    # can read reads the union. The scans that the union cannot read keep reading events.
+    events_scans_read_flag_calls: bool = False
     # Per-query event property definitions that transform loads. The transform runs once for the query and once for
     # each saved view the query inlines, so this loads each property's definition once per query.
     flag_call_property_metadata: Optional["FlagCallPropertyMetadata"] = field(default=None, compare=False, repr=False)
@@ -248,6 +252,17 @@ class HogQLContext:
         if database is None or not database.flag_calls_union_enabled:
             return False
         return database.flag_calls_union_opted_in or self.flag_calls_only_in_flag_evaluations()
+
+    def reads_union_for_every_events_scan(self) -> bool:
+        """Whether each `events` scan that the union can read reads it, whether or not its query names
+        `$feature_flag_called`. Only a query whose flag calls are only in flag_evaluations does. On the other modes
+        events still holds every flag call, so the union would only add a second table read."""
+        return (
+            self.events_scans_read_flag_calls
+            and self.flag_calls_only_in_flag_evaluations()
+            and self.database is not None
+            and self.database.flag_calls_union_enabled
+        )
 
     def _reads_native_events_with_flag_evaluations(self) -> bool:
         database = self.database

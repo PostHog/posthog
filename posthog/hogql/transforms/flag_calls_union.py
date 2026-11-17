@@ -137,6 +137,8 @@ class UnionRename:
     renamed: bool
     # Why the union cannot read each other scan that names `$feature_flag_called` with other events.
     refusals: tuple[UnionRefusal, ...]
+    # A scan that HogQLContext.events_scans_read_flag_calls renamed reads events when the union cannot read it.
+    renamed_scan_naming_flag_calls: bool = False
     # The (start, end) of each `$feature_flag_called` literal that a renamed scan compares with its `event`.
     literal_spans: frozenset[tuple[int, int]] = frozenset()
 
@@ -158,7 +160,10 @@ def read_flag_calls_with_union(
         # a restricted property reads as missing. Each flag call since the cutoff would then come from both tables.
         return UnionRename(renamed=False, refusals=())
     return rename_flag_call_scans_to_union(
-        node, flag_key_compares_as_string, only_in_flag_evaluations=only_in_flag_evaluations
+        node,
+        flag_key_compares_as_string,
+        only_in_flag_evaluations=only_in_flag_evaluations,
+        every_scan=context.events_scans_read_flag_calls and only_in_flag_evaluations,
     )
 
 
@@ -326,6 +331,7 @@ def rename_flag_call_scans_to_union(
     flag_key_compares_as_string: Callable[[], bool],
     *,
     only_in_flag_evaluations: bool,
+    every_scan: bool = False,
 ) -> UnionRename:
     """Point each `events` scan that the union can read, and whose query names `$feature_flag_called`, at the union.
 
@@ -347,11 +353,17 @@ def rename_flag_call_scans_to_union(
 
     A refusal does not decide the query on mode 2. `swap_scans_found_by_type` can still move the refused scan to
     flag_evaluations, as it does for a scan of only flag calls joined after another table.
+
+    With `every_scan`, a scan qualifies without rule 1. Such a scan that the union cannot read stays on events without
+    a refusal.
     """
-    renamer = _UnionRenamer(flag_key_compares_as_string, only_in_flag_evaluations)
+    renamer = _UnionRenamer(flag_key_compares_as_string, only_in_flag_evaluations, every_scan=every_scan)
     renamer.visit(node)
     return UnionRename(
-        renamed=renamer.renamed, refusals=tuple(renamer.refusals), literal_spans=frozenset(renamer.literal_spans)
+        renamed=renamer.renamed,
+        renamed_scan_naming_flag_calls=renamer.renamed_scan_naming_flag_calls,
+        refusals=tuple(renamer.refusals),
+        literal_spans=frozenset(renamer.literal_spans),
     )
 
 
@@ -524,6 +536,7 @@ def _union_refusal(node: ast.SelectQuery, scan: EventsScan, position: int) -> st
 class _FlagCallScan:
     position: int
     scan: EventsScan
+    names_flag_calls: bool
     literals: list[ast.Constant]
     with_values: list["_WithValue"]
 
@@ -539,9 +552,10 @@ def _flag_call_scans(
     ctes: Mapping[str, ast.CTE],
     aliases: "_Aliases",
     with_values: "_WithValues",
+    every_scan: bool,
 ) -> list[_FlagCallScan]:
-    """Each `events` scan in the FROM chain of `node` whose query names `$feature_flag_called`, with its position and
-    the literals that name it."""
+    """Each `events` scan in the FROM chain of `node` whose query names `$feature_flag_called`, or each `events` scan
+    with `every_scan`, with its position and the literals that name it."""
     scans: list[_FlagCallScan] = []
     join = node.select_from
     position = 0
@@ -563,14 +577,14 @@ def _flag_call_scans(
                     flag_key_compares_as_string=flag_key_compares_as_string,
                 )
             )
-            if (
-                scan is not None
-                and (finder := _flag_call_finder(node, scan, aliases, ctes, with_values)).names_flag_calls
+            if scan is not None and (
+                (finder := _flag_call_finder(node, scan, aliases, ctes, with_values)).names_flag_calls or every_scan
             ):
                 scans.append(
                     _FlagCallScan(
                         position=position,
                         scan=scan,
+                        names_flag_calls=finder.names_flag_calls,
                         literals=finder.literals,
                         with_values=list(finder.with_values_read.values()),
                     )
@@ -1031,12 +1045,15 @@ class _UnionRenamer(ScanVisitor):
         only_in_flag_evaluations: bool,
         *,
         rename_flag_only_scans: bool = False,
+        every_scan: bool = False,
     ) -> None:
         super().__init__()
         self.flag_key_compares_as_string = flag_key_compares_as_string
         self.only_in_flag_evaluations = only_in_flag_evaluations
         self.rename_flag_only_scans = rename_flag_only_scans
+        self.every_scan = every_scan
         self.renamed = False
+        self.renamed_scan_naming_flag_calls = False
         self.refusals: list[UnionRefusal] = []
         self.with_values = _WithValues()
         self.literal_spans: set[tuple[int, int]] = set()
@@ -1064,14 +1081,18 @@ class _UnionRenamer(ScanVisitor):
     def visit_scan_query(self, node: ast.SelectQuery) -> None:
         aliases = _Aliases(node)
         # Only the first scan can be renamed, and it comes first, so each refusal reads the query as written.
-        for found in _flag_call_scans(node, self.flag_key_compares_as_string, self.ctes, aliases, self.with_values):
+        for found in _flag_call_scans(
+            node, self.flag_key_compares_as_string, self.ctes, aliases, self.with_values, self.every_scan
+        ):
             position, scan, literals = found.position, found.scan, found.literals
             if position == 0 and self._left_to_the_swap(node, scan, aliases):
                 continue
             refusal = _union_refusal(node, scan, position)
-            if refusal is not None and found.unchecked:
-                refusal = "it compares `event` with more values than the flag-call check reads"
             if refusal is not None:
+                if not found.names_flag_calls:
+                    continue
+                if found.unchecked:
+                    refusal = "it compares `event` with more values than the flag-call check reads"
                 self.refusals.append(UnionRefusal(join=scan.join, reason=refusal))
             else:
                 point_scan_at(node, scan, list(EVENTS_WITH_FLAG_CALLS_CHAIN))
@@ -1080,6 +1101,7 @@ class _UnionRenamer(ScanVisitor):
                 if scan.join.sample is not None and scan.join.sample.samples_all_rows():
                     scan.join.sample = None
                 self.renamed = True
+                self.renamed_scan_naming_flag_calls |= found.names_flag_calls
                 self._add_spans(literals)
                 for with_value in found.with_values:
                     if id(with_value) not in self.spanned_with_values:

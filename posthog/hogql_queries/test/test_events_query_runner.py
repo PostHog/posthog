@@ -75,6 +75,25 @@ PERSON_EMAIL_MATCHER = PropertyGroupFilterValue(
     values=[PersonPropertyFilter(key="email", value=FLAG_EVALUATIONS_EMAIL, operator=PropertyOperator.EXACT)],
 )
 FLAG_EVALUATIONS_PERSONS_JOIN = re.compile(r"\bAS\s+flag_evaluations__person\s+ON\b")
+EventRow = tuple[str, str | None, str]
+EVERY_EVENT_WITH_FLAG_EVALUATIONS: list[EventRow] = [
+    ("$pageview", None, FLAG_EVALUATIONS_DISTINCT_ID),
+    ("$pageview", None, "other-user"),
+    ("$feature_flag_called", "other-flag", "other-user"),
+    ("$feature_flag_called", FLAG_EVALUATIONS_FLAG_KEY, FLAG_EVALUATIONS_DISTINCT_ID),
+    ("$pageview", None, FLAG_EVALUATIONS_DISTINCT_ID),
+]
+FLAG_EVALUATIONS_USER_EVENTS: list[EventRow] = [
+    ("$pageview", None, FLAG_EVALUATIONS_DISTINCT_ID),
+    ("$feature_flag_called", FLAG_EVALUATIONS_FLAG_KEY, FLAG_EVALUATIONS_DISTINCT_ID),
+    ("$pageview", None, FLAG_EVALUATIONS_DISTINCT_ID),
+]
+EVERY_EVENT_FROM_EVENTS: list[EventRow] = [
+    ("$pageview", None, FLAG_EVALUATIONS_DISTINCT_ID),
+    ("$pageview", None, "other-user"),
+    ("$feature_flag_called", EVENTS_FLAG_KEY, FLAG_EVALUATIONS_DISTINCT_ID),
+    ("$pageview", None, FLAG_EVALUATIONS_DISTINCT_ID),
+]
 
 
 class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
@@ -1463,12 +1482,6 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 EVENTS_FLAG_KEY,
                 True,
             ),
-            (
-                "flag_evaluations_only_without_an_event_filter",
-                FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
-                {},
-                EVENTS_FLAG_KEY,
-            ),
             # A filter that mixes flag calls with other events reads the union, which takes new flag calls from
             # flag_evaluations.
             (
@@ -1529,6 +1542,213 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             FLAG_EVALUATIONS_FLAG_KEY if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA else EVENTS_FLAG_KEY
         )
         assert [row[0] for row in from_events.results] == [forced_flag_key]
+
+    def _create_events_and_flag_calls_for_two_people(self) -> None:
+        def at(seconds: int) -> str:
+            return (FLAG_CALL_TIMESTAMP + timedelta(seconds=seconds)).isoformat()
+
+        group = {"$group_0": FLAG_EVALUATIONS_GROUP_KEY}
+        other_group = {"$group_0": "other-org"}
+        self._create_events(
+            data=[
+                (FLAG_EVALUATIONS_DISTINCT_ID, at(-60), group),
+                ("other-user", at(30), other_group),
+                (FLAG_EVALUATIONS_DISTINCT_ID, at(40), group),
+            ]
+        )
+        _create_event(
+            team=self.team,
+            event="$feature_flag_called",
+            distinct_id=FLAG_EVALUATIONS_DISTINCT_ID,
+            timestamp=at(-10),
+            properties={"$feature_flag": EVENTS_FLAG_KEY, **group},
+        )
+        flush_persons_and_events()
+        person = get_person_by_distinct_id(self.team.pk, FLAG_EVALUATIONS_DISTINCT_ID)
+        other = get_person_by_distinct_id(self.team.pk, "other-user")
+        self._insert_flag_evaluation(
+            FLAG_EVALUATIONS_DISTINCT_ID,
+            person.uuid,
+            properties={"$feature_flag": FLAG_EVALUATIONS_FLAG_KEY, **group},
+        )
+        self._insert_flag_evaluation(
+            "other-user",
+            other.uuid,
+            timestamp=FLAG_CALL_TIMESTAMP + timedelta(seconds=20),
+            properties={"$feature_flag": "other-flag", **other_group},
+        )
+
+    @parameterized.expand(
+        [
+            (
+                "activity_default_view",
+                FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
+                {},
+                EVERY_EVENT_WITH_FLAG_EVALUATIONS,
+            ),
+            (
+                "person_event_list",
+                FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
+                {"personId": FLAG_EVALUATIONS_DISTINCT_ID},
+                FLAG_EVALUATIONS_USER_EVENTS,
+            ),
+            (
+                "group_event_list",
+                FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
+                {
+                    "fixedProperties": [
+                        EventPropertyFilter(
+                            key="$group_0", value=FLAG_EVALUATIONS_GROUP_KEY, operator=PropertyOperator.EXACT
+                        )
+                    ]
+                },
+                FLAG_EVALUATIONS_USER_EVENTS,
+            ),
+            (
+                "read_flag_evaluations_mode",
+                FlagEvaluationsMode.READ_FLAG_EVALUATIONS,
+                {},
+                EVERY_EVENT_FROM_EVENTS,
+            ),
+            (
+                "flag_evaluations_only_with_a_subquery_the_union_cannot_read",
+                FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
+                {
+                    "where": [
+                        "distinct_id IN (SELECT pdi.distinct_id FROM person_distinct_ids pdi"
+                        " INNER JOIN events e ON e.distinct_id = pdi.distinct_id)"
+                    ]
+                },
+                EVERY_EVENT_WITH_FLAG_EVALUATIONS,
+            ),
+            (
+                "flag_evaluations_only_with_a_column_the_union_cannot_read",
+                FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
+                {"select": ["*", "goe_0.properties.industry", "timestamp"]},
+                EVERY_EVENT_FROM_EVENTS,
+            ),
+        ]
+    )
+    def test_list_without_an_event_filter_merges_flag_calls_by_timestamp(
+        self,
+        _name: str,
+        mode: FlagEvaluationsMode,
+        query_fields: dict[str, Any],
+        expected: list[EventRow],
+    ):
+        # The native JSON events table holds no flag calls, so it reads them from flag_evaluations on every mode.
+        if mode != FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY and settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+            expected = EVERY_EVENT_WITH_FLAG_EVALUATIONS
+        self._set_flag_evaluations_mode(mode)
+        self._create_events_and_flag_calls_for_two_people()
+        if "personId" in query_fields:
+            person = get_person_by_distinct_id(self.team.pk, query_fields["personId"])
+            query_fields = {**query_fields, "personId": str(person.uuid)}
+        query_fields = {
+            "select": [
+                "*",
+                "event",
+                "person_display_name -- Person",
+                "coalesce(properties.$current_url, properties.$screen_name) -- Url / Screen",
+                "properties.$lib",
+                "timestamp",
+            ],
+            **query_fields,
+        }
+
+        with time_machine.travel("2020-01-11T12:01:00Z", tick=False):
+            response = EventsQueryRunner(
+                query=EventsQuery(kind="EventsQuery", after="-24h", **query_fields), team=self.team
+            ).run()
+
+        assert isinstance(response, CachedEventsQueryResponse)
+        rows = [
+            (row[0]["event"], row[0]["properties"].get("$feature_flag"), row[0]["distinct_id"])
+            for row in response.results
+        ]
+        assert rows == expected
+
+    def test_list_without_an_event_filter_joins_persons_to_flag_calls_on_flag_evaluations_only(self):
+        self._set_flag_evaluations_mode(FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY)
+        self.team.test_account_filters = [
+            {"key": "name", "type": "person", "value": "other-user", "operator": "is_not"}
+        ]
+        self.team.save()
+        self._create_events_and_flag_calls_for_two_people()
+        person = get_person_by_distinct_id(self.team.pk, FLAG_EVALUATIONS_DISTINCT_ID)
+
+        with time_machine.travel("2020-01-11T12:01:00Z", tick=False):
+            query = EventsQuery(
+                kind="EventsQuery",
+                select=["*", "person_display_name -- Person", "timestamp"],
+                after="-24h",
+                filterTestAccounts=True,
+                modifiers=HogQLQueryModifiers(
+                    personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED
+                ),
+            )
+            response = EventsQueryRunner(query=query, team=self.team).run()
+
+        assert isinstance(response, CachedEventsQueryResponse)
+        rows = [
+            (row[0]["event"], row[0]["properties"].get("$feature_flag"), row[0]["distinct_id"])
+            for row in response.results
+        ]
+        assert rows == FLAG_EVALUATIONS_USER_EVENTS
+        assert response.results[1][1] == {
+            "display_name": FLAG_EVALUATIONS_DISTINCT_ID,
+            "id": str(person.uuid),
+            "distinct_id": FLAG_EVALUATIONS_DISTINCT_ID,
+        }
+
+    def test_list_without_an_event_filter_pages_across_events_and_flag_evaluations(self):
+        self._set_flag_evaluations_mode(FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY)
+        self._create_events_and_flag_calls_for_two_people()
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id=FLAG_EVALUATIONS_DISTINCT_ID,
+            timestamp=FLAG_CALL_TIMESTAMP.isoformat(),
+        )
+        flush_persons_and_events()
+
+        def run(limit: int, cursor: str | None = None) -> CachedEventsQueryResponse:
+            runner = EventsQueryRunner(
+                query=EventsQuery(kind="EventsQuery", select=["*", "timestamp"], after="-24h", limit=limit),
+                team=self.team,
+            )
+            if cursor:
+                runner.apply_pagination_cursor(cursor)
+            response = runner.run()
+            assert isinstance(response, CachedEventsQueryResponse)
+            return response
+
+        with time_machine.travel("2020-01-11T12:01:00Z", tick=False):
+            everything = [row[0]["uuid"] for row in run(limit=100).results]
+            paged: list[str] = []
+            cursor = None
+            for _ in range(len(everything)):
+                page = run(limit=2, cursor=cursor)
+                paged.extend(row[0]["uuid"] for row in page.results)
+                cursor = page.nextCursor
+                if cursor is None:
+                    break
+
+        assert len(everything) == 6
+        assert paged == everything
+
+    def test_moving_to_flag_evaluations_only_skips_a_list_cached_from_events(self):
+        self._set_flag_evaluations_mode(FlagEvaluationsMode.READ_FLAG_EVALUATIONS)
+        self._create_flag_calls_in_both_tables()
+        query = EventsQuery(kind="EventsQuery", select=["properties.$feature_flag"], after="-30d")
+
+        with time_machine.travel("2020-01-11T12:01:00Z", tick=False):
+            EventsQueryRunner(query=query, team=self.team).run()
+            self._set_flag_evaluations_mode(FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY)
+            response = EventsQueryRunner(query=query, team=self.team).run()
+
+        assert isinstance(response, CachedEventsQueryResponse)
+        assert [row[0] for row in response.results] == [FLAG_EVALUATIONS_FLAG_KEY]
 
     @parameterized.expand(
         [

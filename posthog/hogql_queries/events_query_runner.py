@@ -1,5 +1,6 @@
 import re
 from collections.abc import Iterable
+from dataclasses import replace
 from datetime import datetime, timedelta
 from functools import cached_property
 from itertools import batched
@@ -61,7 +62,11 @@ from posthog.utils import relative_date_parse
 from products.actions.backend.facade.api import get_action
 from products.actions.backend.facade.contracts import ActionNotFound, ActionStep
 from products.event_definitions.backend.models import PropertyDefinition
-from products.feature_flags.backend.facade.flags import reads_flag_calls_from_flag_evaluations
+from products.feature_flags.backend.facade.flags import (
+    flag_calls_only_in_flag_evaluations,
+    is_flag_calls_union_disabled,
+    reads_flag_calls_from_flag_evaluations,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -93,6 +98,7 @@ class EventsListTable:
     # The list starts no earlier than the UTC start of the day this many days back.
     retention_days: int | None
     cache_key_variant: str
+    events_scans_read_flag_calls: bool = False
 
     def join_expr(self) -> ast.JoinExpr:
         return ast.JoinExpr(table=ast.Field(chain=[*self.chain]), alias=self.alias)
@@ -126,6 +132,12 @@ FLAG_EVALUATIONS_LIST_TABLE = EventsListTable(
     # The TTL is longer than the retention, so the table holds that day in full.
     retention_days=FLAG_EVALUATIONS_RETENTION_DAYS,
     cache_key_variant="_flag_evaluations",
+)
+
+# On mode 2 events holds no new flag calls, so a list of every event reads them through the union. The union's
+# flag_evaluations branch has no retention bound of its own. A bound here would also cut off the list's other events.
+EVENTS_WITH_FLAG_CALLS_LIST_TABLE = replace(
+    EVENTS_LIST_TABLE, cache_key_variant="_with_flag_calls", events_scans_read_flag_calls=True
 )
 
 STORED_PERSON_PROPERTIES_MODES = frozenset(
@@ -448,11 +460,21 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
     def _list_table(self) -> EventsListTable:
         if self.query.source is not None or self.query.actionId or self.query.actionSteps:
             return EVENTS_LIST_TABLE
-        if set(self._event_names()) != {FLAG_EVALUATIONS_SOURCE_EVENT}:
+        event_names = set(self._event_names())
+        if not event_names:
+            return self._every_event_list_table()
+        if event_names != {FLAG_EVALUATIONS_SOURCE_EVENT}:
             return EVENTS_LIST_TABLE
         if not reads_flag_calls_from_flag_evaluations(self.team, self.modifiers):
             return EVENTS_LIST_TABLE
         return FLAG_EVALUATIONS_LIST_TABLE
+
+    def _every_event_list_table(self) -> EventsListTable:
+        if is_flag_calls_union_disabled() or not flag_calls_only_in_flag_evaluations(
+            self.team, modifiers=self.modifiers
+        ):
+            return EVENTS_LIST_TABLE
+        return EVENTS_WITH_FLAG_CALLS_LIST_TABLE
 
     def get_cache_key_variant(self) -> str:
         return super().get_cache_key_variant() + self._list_table.cache_key_variant
@@ -490,6 +512,7 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
     def _query_context(self, table: EventsListTable) -> HogQLContext:
         context = self.build_hogql_context()
         assert context.database is not None
+        context.events_scans_read_flag_calls = table.events_scans_read_flag_calls
         if self._adds_persons_join(table):
             join_persons_to_flag_evaluations(context.database)
         return context

@@ -247,7 +247,7 @@ def swap_flag_calls(
     if database is None:
         return FlagCallSwap(source=node, resolved=resolve(node))
     node = _flag_called_lists_as_arrays(node)
-    if names_flag_called_event(node):
+    if context.reads_union_for_every_events_scan() or names_flag_called_event(node):
         swap = _resolve_with_swaps(node, context, resolve, database, scope)
     else:
         swap = FlagCallSwap(
@@ -345,11 +345,11 @@ def _resolve_with_swaps(
             if swapper.swapped:
                 context.flag_calls_read.add("flag_evaluations")
             return FlagCallSwap(source=rewritten, resolved=swapped)
-    if only_in_flag_evaluations:
+    if only_in_flag_evaluations and (swapper.swapped or union.renamed_scan_naming_flag_calls):
         # events gets no new flag calls, so the original query would return only calls from before the move.
         raise flag_calls_only_in_flag_evaluations_error(reason, scope)
     logger.info("flag_calls_swap_declined", team_id=context.team_id, reason=reason)
-    return FlagCallSwap(source=node, resolved=original)
+    return FlagCallSwap(source=node, resolved=_without_unreadable_inline_cohort_scans(original, context, scope))
 
 
 def _without_unreadable_inline_cohort_scans(
