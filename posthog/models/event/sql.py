@@ -809,7 +809,11 @@ SETTINGS ttl_only_drop_parts = 1
 def WRITABLE_EVENTS_JSON_RECENT_TABLE_SQL() -> str:
     return _events_json_recent_table_sql(
         WRITABLE_EVENTS_JSON_RECENT_TABLE,
-        Distributed(data_table=SHARDED_EVENTS_JSON_RECENT_TABLE, sharding_key="sipHash64(distinct_id)"),
+        Distributed(
+            data_table=SHARDED_EVENTS_JSON_RECENT_TABLE,
+            sharding_key="sipHash64(distinct_id)",
+            cluster=settings.CLICKHOUSE_WRITABLE_CLUSTER,
+        ),
     )
 
 

@@ -305,7 +305,7 @@ CREATE TABLE posthog.writable_events_json_recent (
   total_event_size UInt32,
   captured_at DateTime64(6, 'UTC') DEFAULT now(),
   _partition UInt64
-) ENGINE = Distributed('posthog', 'posthog', 'sharded_events_json_recent', sipHash64(distinct_id));
+) ENGINE = Distributed('posthog_writable', 'posthog', 'sharded_events_json_recent', sipHash64(distinct_id));
 CREATE TABLE posthog.writable_logs34 (
   time_bucket DateTime MATERIALIZED toStartOfDay(timestamp),
   original_expiry_timestamp DateTime64(6),
