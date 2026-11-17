@@ -123,6 +123,10 @@ def check_postgres_destination(integration: IntegrationRecord, config: dict[str,
                 port=authority.port,
                 sslmode=tls.ssl_mode,
                 sslrootcert=ssl_root_cert,
+                # Web pods run with an unreadable HOME, so libpq's default ~/.postgresql client cert
+                # lookup fails with "Permission denied" before the TLS handshake starts.
+                sslcert=MISSING_CERT_PATH,
+                sslkey=MISSING_CERT_PATH,
                 connect_timeout=CONNECT_TIMEOUT_SECONDS,
                 options=f"-c statement_timeout={STATEMENT_TIMEOUT_MILLISECONDS}",
                 autocommit=True,
