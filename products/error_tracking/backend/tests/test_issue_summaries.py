@@ -431,7 +431,8 @@ class TestIssueSummaryGeneration(BaseTest):
         skips_before = REGISTRY.get_sample_value("error_tracking_issue_summary_total", counter_labels) or 0
 
         slots.acquire()
-        assert generate_issue_created_summary_activity(self._issue_created_inputs()) == "rate_limited"
+        with self.assertNumQueries(0):
+            assert generate_issue_created_summary_activity(self._issue_created_inputs()) == "rate_limited"
         assert self.llm_calls == 0
         capture.assert_called_once()
         assert capture.call_args.kwargs["event"] == issue_summaries.ISSUE_SUMMARY_TASK_EVENT

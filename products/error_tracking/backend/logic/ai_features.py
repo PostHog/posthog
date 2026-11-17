@@ -1,6 +1,7 @@
 """Whether an error tracking AI feature may run for a team now.
 
-The checks run cheapest first. A team outside the feature's flag costs one flag evaluation and no database read.
+Check the flag with `ai_feature_flag_enabled` first. It reads no database, so a team outside the flag costs nothing
+more. `ai_feature_blocked` then reads Postgres and Redis.
 """
 
 from enum import StrEnum
@@ -16,7 +17,6 @@ logger = structlog.get_logger(__name__)
 
 
 class AIFeatureBlock(StrEnum):
-    DISABLED = "disabled"
     SETTING_OFF = "setting_off"
     AI_NOT_APPROVED = "ai_not_approved"
     OUT_OF_CREDITS = "out_of_credits"
@@ -28,10 +28,12 @@ class AIFeature:
     settings_field: str
 
 
+def ai_feature_flag_enabled(feature: AIFeature, team_id: int) -> bool:
+    return team_flag_enabled(feature.flag, team_id)
+
+
 def ai_feature_blocked(feature: AIFeature, team_id: int) -> AIFeatureBlock | None:
-    """The reason the feature may not run for the team now, or None when it may."""
-    if not team_flag_enabled(feature.flag, team_id):
-        return AIFeatureBlock.DISABLED
+    """The reason the feature may not run now for a team whose flag is on, or None when it may."""
     enabled = (
         ErrorTrackingSettings.objects.filter(team_id=team_id, **{feature.settings_field: True})
         .values_list("team__organization__is_ai_data_processing_approved", "team__api_token")

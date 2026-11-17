@@ -43,7 +43,12 @@ from products.access_control.backend.facade.api import (
 from products.access_control.backend.facade.contracts import UserNotOrganizationMemberError
 from products.error_tracking.backend.facade.contracts import IssueSummaryStatus, IssueSummaryUnavailableReason
 from products.error_tracking.backend.facade.query_utils import as_record, extract_release, to_number, truncate_text
-from products.error_tracking.backend.logic.ai_features import AIFeature, AIFeatureBlock, ai_feature_blocked
+from products.error_tracking.backend.logic.ai_features import (
+    AIFeature,
+    AIFeatureBlock,
+    ai_feature_blocked,
+    ai_feature_flag_enabled,
+)
 from products.error_tracking.backend.logic.issue_summary_config import (
     ISSUE_SUMMARY_FLAG,
     ISSUE_SUMMARY_LLM_TIMEOUT_SECONDS,
@@ -66,7 +71,6 @@ from products.error_tracking.backend.logic.severity_inference import (
     mechanism_handled,
     page_without_query,
 )
-from products.error_tracking.backend.logic.team_flags import team_flag_enabled
 from products.error_tracking.backend.models import (
     ErrorTrackingIssue,
     ErrorTrackingIssueFingerprintV2,
@@ -202,7 +206,7 @@ class WorkflowEventUnavailable(Exception):
 
 
 def issue_summaries_enabled(team_id: int) -> bool:
-    return team_flag_enabled(ISSUE_SUMMARY_FLAG, team_id)
+    return ai_feature_flag_enabled(ISSUE_SUMMARIES, team_id)
 
 
 def summary_sources_readable(team_id: int, user: User) -> bool:
@@ -245,7 +249,8 @@ def read_issue_summary(team_id: int, issue_id: UUID | str, user: User) -> IssueS
 
 
 def gate_generation(team_id: int, issue_id: UUID | str, trigger: IssueSummaryTrigger) -> IssueSummaryOutcome | None:
-    """None when the AI features gate lets generation start, else the recorded outcome that stops it."""
+    """For a team whose flag is on: None when the AI features gate lets generation start, else the recorded outcome
+    that stops it."""
     if (blocked := ai_feature_blocked(ISSUE_SUMMARIES, team_id)) is None:
         return None
     outcome = _gate_outcome(blocked)
@@ -255,8 +260,6 @@ def gate_generation(team_id: int, issue_id: UUID | str, trigger: IssueSummaryTri
 
 def _gate_outcome(blocked: AIFeatureBlock) -> IssueSummaryOutcome:
     match blocked:
-        case AIFeatureBlock.DISABLED:
-            return IssueSummaryOutcome.DISABLED
         case AIFeatureBlock.SETTING_OFF:
             return IssueSummaryOutcome.SETTING_OFF
         case AIFeatureBlock.AI_NOT_APPROVED:
@@ -315,11 +318,9 @@ def record_outcome(
 ) -> None:
     """Count the outcome and report it as an event.
 
-    A team outside the flag is not counted. A team that has not turned summaries on is counted but sends no event,
-    because most teams in the flag have not, and each of their new issues would send one.
+    A team that has not turned summaries on is counted but sends no event, because most teams in the flag have not,
+    and each of their new issues would send one.
     """
-    if outcome == IssueSummaryOutcome.DISABLED:
-        return
     ISSUE_SUMMARY_OUTCOMES.labels(outcome=outcome.value, trigger=trigger.value).inc()
     if outcome != IssueSummaryOutcome.SETTING_OFF:
         _report_task(
