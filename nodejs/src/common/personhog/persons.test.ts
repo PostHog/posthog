@@ -15,6 +15,7 @@ import {
     PersonHogPersonOperations,
     PersonhogFencedError,
     PersonhogPersonNotFoundError,
+    PersonhogPropertiesDepthError,
     PersonhogPropertiesSizeError,
     PersonhogUnprocessablePersonError,
 } from './persons'
@@ -318,6 +319,14 @@ describe('PersonHogPersonOperations', () => {
             expect(sizeError).toBeInstanceOf(PersonhogPropertiesSizeError)
             expect(sizeError.teamId).toBe(7)
             expect(sizeError.personId).toBe('42')
+
+            const { ops: tooDeepOps } = createOperations({
+                updatePersonProperties: () => {
+                    throw new ConnectError('set_properties exceeds the nesting limit', Code.InvalidArgument)
+                },
+            })
+            const depthError = await tooDeepOps.updatePersonProperties(foldedUpdate).catch((e) => e)
+            expect(depthError).toBeInstanceOf(PersonhogPropertiesDepthError)
 
             // Codes without a domain meaning pass through untouched for the
             // caller's generic retry handling.

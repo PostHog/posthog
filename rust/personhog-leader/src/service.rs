@@ -968,6 +968,25 @@ fn cached_person_into_proto(p: CachedPerson) -> Person {
 
 /// Parse a JSON-map wire field (empty bytes mean an empty map), refusing
 /// anything that is not a JSON object.
+/// The ingestion client drops an update refused for its nesting, keyed on
+/// this message, so a wording change here must change there too.
+// See `partition_from_metadata` for why `result_large_err` is allowed.
+#[allow(clippy::result_large_err)]
+fn parse_update_properties(bytes: &[u8], field: &str) -> Result<serde_json::Value, Status> {
+    if bytes.is_empty() {
+        return Ok(serde_json::Value::Object(serde_json::Map::new()));
+    }
+    serde_json::from_slice(bytes).map_err(|e| {
+        if e.to_string().contains("recursion limit") {
+            counter!("personhog_leader_updates_total", "outcome" => "rejected_too_deep")
+                .increment(1);
+            Status::invalid_argument(format!("{field} exceeds the nesting limit"))
+        } else {
+            Status::invalid_argument(format!("invalid {field} JSON: {e}"))
+        }
+    })
+}
+
 // See `partition_from_metadata` for why `result_large_err` is allowed.
 #[allow(clippy::result_large_err)]
 fn parse_json_object_field(bytes: &[u8], field: &str) -> Result<serde_json::Value, Status> {
@@ -1154,21 +1173,9 @@ impl PersonHogLeader for PersonHogLeaderService {
         };
 
         // Parse JSON before acquiring the per-key lock to minimize lock hold time
-        let set_properties: serde_json::Value = if req.set_properties.is_empty() {
-            serde_json::Value::Object(serde_json::Map::new())
-        } else {
-            serde_json::from_slice(&req.set_properties).map_err(|e| {
-                Status::invalid_argument(format!("invalid set_properties JSON: {e}"))
-            })?
-        };
-
-        let set_once_properties: serde_json::Value = if req.set_once_properties.is_empty() {
-            serde_json::Value::Object(serde_json::Map::new())
-        } else {
-            serde_json::from_slice(&req.set_once_properties).map_err(|e| {
-                Status::invalid_argument(format!("invalid set_once_properties JSON: {e}"))
-            })?
-        };
+        let set_properties = parse_update_properties(&req.set_properties, "set_properties")?;
+        let set_once_properties =
+            parse_update_properties(&req.set_once_properties, "set_once_properties")?;
 
         // Sanitize the request values before diffing so no-op detection
         // compares in sanitized space: cached state holds the sanitized
@@ -2012,6 +2019,17 @@ mod tests {
     /// A client's zero `DateTime` serialises as year 1, and persons created
     /// from such events before personhog carry it as `created_at`.
     const YEAR_ONE_MS: i64 = -62_135_596_800_000;
+
+    #[test]
+    fn an_update_nested_past_the_parser_limit_is_refused_as_too_deep() {
+        let nested = format!("{{\"a\":{}1{}}}", "[".repeat(200), "]".repeat(200));
+        let refused = parse_update_properties(nested.as_bytes(), "set_properties").unwrap_err();
+        assert_eq!(refused.code(), Code::InvalidArgument);
+        assert_eq!(
+            refused.message(),
+            "set_properties exceeds the nesting limit"
+        );
+    }
 
     #[test]
     fn writeable_accepts_what_the_writer_binds_and_refuses_the_rest() {

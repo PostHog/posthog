@@ -44,6 +44,18 @@ export class PersonhogPropertiesSizeError extends Error {
     }
 }
 
+/** The leader refused an update whose properties nest past its limit; no retry can succeed. */
+export class PersonhogPropertiesDepthError extends Error {
+    constructor(
+        message: string,
+        public readonly teamId: number,
+        public readonly personId: string
+    ) {
+        super(message)
+        this.name = 'PersonhogPropertiesDepthError'
+    }
+}
+
 /** The leader cannot parse the person's stored row, and a retry reads the same row. */
 export class PersonhogUnprocessablePersonError extends Error {
     readonly isRetriable = false
@@ -295,6 +307,9 @@ export class PersonHogPersonOperations {
                 }
                 if (error.code === Code.InvalidArgument && error.rawMessage.includes('size limit')) {
                     throw new PersonhogPropertiesSizeError(error.rawMessage, update.teamId, update.personId)
+                }
+                if (error.code === Code.InvalidArgument && error.rawMessage.includes('nesting limit')) {
+                    throw new PersonhogPropertiesDepthError(error.rawMessage, update.teamId, update.personId)
                 }
                 // Keyed on the metadata rather than the status code: the
                 // leader answers FAILED_PRECONDITION while the router hands
