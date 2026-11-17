@@ -17,7 +17,64 @@
 use std::collections::HashSet;
 use std::sync::LazyLock;
 
+use serde::Deserialize;
 use serde_json::Value;
+
+/// The deepest nesting [`parse_json_value`] accepts. Postgres and
+/// `JSON.parse` store and read documents deeper than serde_json's built-in
+/// 128, so rows written by the Node pipeline can exceed that. Every pass
+/// over a parsed document recurses once per level, and
+/// `a_document_at_the_depth_cap_fits_a_worker_stack` holds this bound to
+/// what a 2 MiB thread stack can carry.
+pub const MAX_JSON_DEPTH: usize = 1024;
+
+/// The deepest object or array nesting in `bytes`, counted without recursion.
+fn json_nesting_depth(bytes: &[u8]) -> usize {
+    let mut depth = 0usize;
+    let mut deepest = 0usize;
+    let mut in_string = false;
+    let mut escaped = false;
+    for &byte in bytes {
+        if in_string {
+            if escaped {
+                escaped = false;
+            } else if byte == b'\\' {
+                escaped = true;
+            } else if byte == b'"' {
+                in_string = false;
+            }
+            continue;
+        }
+        match byte {
+            b'"' => in_string = true,
+            b'{' | b'[' => {
+                depth += 1;
+                deepest = deepest.max(depth);
+            }
+            b'}' | b']' => depth = depth.saturating_sub(1),
+            _ => {}
+        }
+    }
+    deepest
+}
+
+/// Parses a JSON document nested up to [`MAX_JSON_DEPTH`] levels. The
+/// ordinary parse runs first, so only a document it refuses pays for the
+/// depth count and the second parse.
+pub fn parse_json_value(bytes: &[u8]) -> serde_json::Result<Value> {
+    let refused = match serde_json::from_slice(bytes) {
+        Ok(value) => return Ok(value),
+        Err(e) => e,
+    };
+    if json_nesting_depth(bytes) > MAX_JSON_DEPTH {
+        return Err(refused);
+    }
+    let mut deserializer = serde_json::Deserializer::from_slice(bytes);
+    deserializer.disable_recursion_limit();
+    let value = Value::deserialize(&mut deserializer)?;
+    deserializer.end()?;
+    Ok(value)
+}
 
 /// Properties that must never be trimmed, matching the Node.js ingestion
 /// pipeline's `ALL_PROTECTED_PROPERTIES` in `person-property-utils.ts`.
@@ -572,6 +629,73 @@ pub fn trim_properties_with_candidates(
 mod tests {
     use super::*;
     use serde_json::json;
+
+    /// `{"a":[{"a":[ ... 1 ... ]}]}` with `depth` containers.
+    fn nested(depth: usize) -> String {
+        let mut text = String::new();
+        for level in 0..depth {
+            text.push_str(if level % 2 == 0 { "{\"a\":" } else { "[" });
+        }
+        text.push('1');
+        for level in (0..depth).rev() {
+            text.push_str(if level % 2 == 0 { "}" } else { "]" });
+        }
+        text
+    }
+
+    #[test]
+    fn a_document_past_the_builtin_limit_parses_up_to_the_depth_cap() {
+        for (depth, parses) in [
+            (127, true),
+            (128, true),
+            (MAX_JSON_DEPTH, true),
+            (MAX_JSON_DEPTH + 1, false),
+        ] {
+            assert_eq!(
+                parse_json_value(nested(depth).as_bytes()).is_ok(),
+                parses,
+                "depth {depth}"
+            );
+        }
+    }
+
+    #[test]
+    fn brackets_inside_strings_do_not_count_as_nesting() {
+        let text = r#"{"a":"[[[{{{ \" ]]] \\","b":[{"c":"}"}]}"#;
+        assert_eq!(json_nesting_depth(text.as_bytes()), 3);
+    }
+
+    #[test]
+    fn a_malformed_document_is_still_refused() {
+        assert!(parse_json_value(br#"{"a":1} trailing"#).is_err());
+        assert!(parse_json_value(format!("{}1", "[".repeat(200)).as_bytes()).is_err());
+    }
+
+    #[test]
+    fn a_document_at_the_depth_cap_fits_a_worker_stack() {
+        let text = format!(
+            r#"{{"custom":{},"email":"user@example.com"}}"#,
+            nested(MAX_JSON_DEPTH - 1)
+        );
+        // Tokio's default worker stack.
+        std::thread::Builder::new()
+            .stack_size(2 * 1024 * 1024)
+            .spawn(move || {
+                let mut value = parse_json_value(text.as_bytes()).unwrap();
+                sanitize_for_jsonb(&mut value);
+                let size = jsonb_column_size(&value);
+                let copy = value.clone();
+                assert!(copy == value);
+                assert!(!serde_json::to_vec(&value).unwrap().is_empty());
+                assert!(matches!(
+                    trim_properties_to_fit_size(&value, size - 1),
+                    TrimResult::Trimmed(_)
+                ));
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+    }
 
     #[test]
     fn trim_of_many_small_keys_is_not_quadratic() {

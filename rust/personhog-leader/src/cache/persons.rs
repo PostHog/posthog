@@ -53,7 +53,7 @@ impl CachedPerson {
         if self.properties.is_empty() {
             return Ok(serde_json::Value::Object(serde_json::Map::new()));
         }
-        serde_json::from_slice(&self.properties)
+        personhog_common::properties::parse_json_value(&self.properties)
     }
 
     /// Identity creates and revives a person with no properties, and the

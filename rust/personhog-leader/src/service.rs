@@ -38,8 +38,8 @@ use crate::pg::{load_person_from_pg, LoadError, PgFallback};
 use crate::recovery::ChangelogRecovery;
 use crate::warnings::{SizeViolationWarning, WarningsProducer};
 use personhog_common::properties::{
-    can_trim_property, jsonb_column_size, sanitize_for_jsonb, trim_properties_to_fit_size,
-    trim_properties_with_candidates, SanitizeStats, TrimResult,
+    can_trim_property, jsonb_column_size, parse_json_value, sanitize_for_jsonb,
+    trim_properties_to_fit_size, trim_properties_with_candidates, SanitizeStats, TrimResult,
 };
 
 mod lifecycle;
@@ -975,7 +975,7 @@ fn parse_json_object_field(bytes: &[u8], field: &str) -> Result<serde_json::Valu
     if bytes.is_empty() {
         return Ok(serde_json::Value::Object(serde_json::Map::new()));
     }
-    let value: serde_json::Value = serde_json::from_slice(bytes)
+    let value: serde_json::Value = parse_json_value(bytes)
         .map_err(|e| Status::invalid_argument(format!("invalid {field} JSON: {e}")))?;
     if !value.is_object() {
         return Err(Status::invalid_argument(format!(
@@ -1158,7 +1158,7 @@ impl PersonHogLeader for PersonHogLeaderService {
         let set_properties: serde_json::Value = if req.set_properties.is_empty() {
             serde_json::Value::Object(serde_json::Map::new())
         } else {
-            serde_json::from_slice(&req.set_properties).map_err(|e| {
+            parse_json_value(&req.set_properties).map_err(|e| {
                 Status::invalid_argument(format!("invalid set_properties JSON: {e}"))
             })?
         };
@@ -1166,7 +1166,7 @@ impl PersonHogLeader for PersonHogLeaderService {
         let set_once_properties: serde_json::Value = if req.set_once_properties.is_empty() {
             serde_json::Value::Object(serde_json::Map::new())
         } else {
-            serde_json::from_slice(&req.set_once_properties).map_err(|e| {
+            parse_json_value(&req.set_once_properties).map_err(|e| {
                 Status::invalid_argument(format!("invalid set_once_properties JSON: {e}"))
             })?
         };

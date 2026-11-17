@@ -16,7 +16,7 @@ http-body = { workspace = true }
 http-body-util = { workspace = true }
 metrics = { workspace = true }
 serde = { workspace = true }
-serde_json = { workspace = true }
+serde_json = { workspace = true, features = ["unbounded_depth"] }
 pin-project = "1.1"
 sqlx = { workspace = true }
 tokio = { workspace = true }

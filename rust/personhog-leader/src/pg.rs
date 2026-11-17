@@ -1,7 +1,7 @@
 use std::time::Instant;
 
 use metrics::{counter, histogram};
-use personhog_common::properties::rewrite_out_of_range_numbers;
+use personhog_common::properties::{parse_json_value, rewrite_out_of_range_numbers};
 use personhog_common::query_tag;
 use sqlx::pool::PoolConnection;
 use sqlx::postgres::PgPool;
@@ -88,14 +88,14 @@ fn parse_stored_properties(
     team_id: i32,
     id: i64,
 ) -> Result<serde_json::Value, LoadError> {
-    match serde_json::from_str(properties_text) {
+    match parse_json_value(properties_text.as_bytes()) {
         Ok(value) => Ok(value),
         // Out-of-range numerics from other writers: rewrite to what
         // JSON.parse would read (rounding, clamping beyond f64) instead
         // of leaving the person permanently unloadable. Admission's
         // sanitizer persists the healed form on the next write-through.
         Err(strict_err) => {
-            match serde_json::from_str(&rewrite_out_of_range_numbers(properties_text)) {
+            match parse_json_value(rewrite_out_of_range_numbers(properties_text).as_bytes()) {
                 Ok(value) => {
                     counter!("personhog_leader_pg_properties_rewritten_total").increment(1);
                     tracing::warn!(
@@ -200,8 +200,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn properties_nested_past_the_parser_limit_are_unprocessable() {
-        let nested = format!("{{\"a\":{}1{}}}", "[".repeat(200), "]".repeat(200));
+    fn properties_nested_past_the_depth_cap_are_unprocessable() {
+        let levels = personhog_common::properties::MAX_JSON_DEPTH + 1;
+        let nested = format!("{{\"a\":{}1{}}}", "[".repeat(levels), "]".repeat(levels));
         assert!(matches!(
             parse_stored_properties(&nested, 1, 1),
             Err(LoadError::UnprocessableProperties(_))
