@@ -32,15 +32,17 @@ PULL_REQUEST_NUMBER = re.compile(r"[1-9][0-9]*")
 PAGE_SIZE = 100
 PROVER_FILES = (
     ".github/actions/setup-uv/action.yml",
-    ".github/scripts/dependency_proof/__init__.py",
-    ".github/scripts/dependency_proof/__main__.py",
-    ".github/scripts/dependency_proof/policy.py",
-    ".github/scripts/dependency_proof/prove.py",
-    ".github/scripts/dependency_scan.py",
-    ".github/scripts/dependency_scan.py.lock",
     ".github/workflows/dependency-proof-trigger.yml",
     ".github/workflows/dependency-proof.yml",
     ".nvmrc",
+    "tools/dependency-proof/dependency_proof/__init__.py",
+    "tools/dependency-proof/dependency_proof/__main__.py",
+    "tools/dependency-proof/dependency_proof/cli.py",
+    "tools/dependency-proof/dependency_proof/policy.py",
+    "tools/dependency-proof/dependency_proof/prove.py",
+    "tools/dependency-proof/dependency_proof/scan.py",
+    "tools/dependency-proof/pyproject.toml",
+    "tools/dependency-proof/uv.lock",
 )
 # Every file pnpm reads to write a lockfile without installing.
 REPLAY_FILES = (MANIFEST, LOCKFILE, WORKSPACE_FILE, ".npmrc", "*.patch")

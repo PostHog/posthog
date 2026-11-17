@@ -1,16 +1,9 @@
 import sys
 import json
-import importlib.util
-from pathlib import Path
 
 import pytest
 
-SCRIPT = Path(__file__).with_name("dependency_scan.py")
-spec = importlib.util.spec_from_file_location("dependency_scan", SCRIPT)
-scanner = importlib.util.module_from_spec(spec)
-assert spec.loader is not None
-sys.modules[spec.name] = scanner
-spec.loader.exec_module(scanner)
+from dependency_proof import scan as scanner
 
 PNPM_BASE = """lockfileVersion: '9.0'
 

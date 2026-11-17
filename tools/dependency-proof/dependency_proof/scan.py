@@ -1,7 +1,5 @@
-# /// script
-# requires-python = "==3.12.*"
-# dependencies = ["guarddog==3.2.0", "pyyaml==6.0.3"]
-# ///
+"""Scan the packages a change adds to a lockfile with GuardDog."""
+
 from __future__ import annotations
 
 import os
@@ -30,7 +28,7 @@ CLEAN_LABEL = "no_risks_detected"
 NOT_SCANNED = "not_scanned"
 # The labels a gate passes. A label GuardDog adds in a later version is refused until it is listed here.
 PASSING_LABELS = (CLEAN_LABEL, "low", "suspicious")
-SCANNER_PATH = ".github/scripts/dependency_scan.py"
+SCANNER_PATH = "tools/dependency-proof/dependency_proof/scan.py"
 
 NPM_NAME = re.compile(r"(@[A-Za-z0-9][A-Za-z0-9._~-]*/)?[A-Za-z0-9][A-Za-z0-9._~-]*")
 PLAIN_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
@@ -443,9 +441,3 @@ def gate() -> int:
         handle.write(f"clean={'true' if clean else 'false'}\n")
     # A scanner that fails on every package fails the job, so the outage shows instead of a neutral proof.
     return 1 if scanner_is_broken(findings) else 0
-
-
-MODES = {"report": report, "gate": gate}
-
-if __name__ == "__main__":
-    sys.exit(MODES[sys.argv[1] if len(sys.argv) > 1 else "report"]())

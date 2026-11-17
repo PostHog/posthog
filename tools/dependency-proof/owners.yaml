@@ -1,0 +1,4 @@
+version: 1
+owners: team-devex
+# The dependency proof decides which bot updates stamphog may approve on its own.
+sensitive: true

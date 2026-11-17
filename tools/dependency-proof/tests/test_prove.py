@@ -22,7 +22,7 @@ REPOSITORY = "PostHog/posthog"
 HEAD, MERGE_BASE, WORKFLOW_SHA = "a" * 40, "b" * 40, "c" * 40
 NOW = datetime(2026, 11, 9, 12, tzinfo=UTC)
 WORKSPACE = b"packages:\n    - '.'\nminimumReleaseAge: 10080\nminimumReleaseAgeExclude:\n    - posthog-js\n    - '@posthog/*'\n    - left-pad@1.3.0\nallowBuilds:\n    esbuild: true\n"
-PROVER = ".github/scripts/dependency_proof/prove.py"
+PROVER = "tools/dependency-proof/dependency_proof/prove.py"
 REPLAY_FLAGS = ["--lockfile-only", "--recursive", "--ignore-scripts", "--ignore-pnpmfile"]
 
 
@@ -224,14 +224,16 @@ def test_an_eligible_update_is_attested_after_a_frozen_replay_of_renovates_comma
         files,
         {
             ".github/actions/setup-uv/action.yml": None,
-            ".github/scripts/dependency_proof/__init__.py": None,
-            ".github/scripts/dependency_proof/__main__.py": None,
-            ".github/scripts/dependency_scan.py": None,
-            ".github/scripts/dependency_scan.py.lock": None,
-            ".github/scripts/dependency_proof/policy.py": None,
-            PROVER: _fake_blob_sha(b"the prover"),
             ".github/workflows/dependency-proof-trigger.yml": None,
             ".github/workflows/dependency-proof.yml": None,
+            "tools/dependency-proof/dependency_proof/__init__.py": None,
+            "tools/dependency-proof/dependency_proof/__main__.py": None,
+            "tools/dependency-proof/dependency_proof/cli.py": None,
+            "tools/dependency-proof/dependency_proof/policy.py": None,
+            PROVER: _fake_blob_sha(b"the prover"),
+            "tools/dependency-proof/dependency_proof/scan.py": None,
+            "tools/dependency-proof/pyproject.toml": None,
+            "tools/dependency-proof/uv.lock": None,
             ".npmrc": None,
             ".nvmrc": None,
             ".pnpmfile.cjs": None,
