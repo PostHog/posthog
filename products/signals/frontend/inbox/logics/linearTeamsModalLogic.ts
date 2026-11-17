@@ -198,7 +198,13 @@ export const linearTeamsModalLogic: LogicWrapper<linearTeamsModalLogicType> = ke
         },
     })),
     selectors({
-        linearIntegration: [(s) => [s.linearIntegrations, s.dataWarehouseSources], syncedLinearIntegration],
+        linearIntegration: [
+            (s) => [s.linearIntegrations, s.dataWarehouseSources],
+            (
+                linearIntegrations: IntegrationType[],
+                dataWarehouseSources: PaginatedResponse<ExternalDataSource> | null
+            ): IntegrationType | null => syncedLinearIntegration(linearIntegrations, dataWarehouseSources),
+        ],
         // A null list means the first load has not landed, which is not the same as no connection.
         // Reading the list rather than the loading flag keeps a later reload from blanking the picker.
         integrationsUnknown: [
