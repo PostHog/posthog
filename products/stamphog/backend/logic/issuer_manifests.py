@@ -7,6 +7,7 @@ after it removes the PR head's copy.
 """
 
 import re
+from typing import TypeGuard
 
 import yaml
 
@@ -16,7 +17,7 @@ import yaml
 _GLOB_CHARACTERS_RE = re.compile(r"[*?\[\]{}\\]")
 
 
-def _is_plain_file_path(path: object) -> bool:
+def _is_plain_file_path(path: object) -> TypeGuard[str]:
     if not isinstance(path, str) or not path or path.endswith("/") or _GLOB_CHARACTERS_RE.search(path):
         return False
     return all(segment not in ("", ".", "..") for segment in path.split("/"))
