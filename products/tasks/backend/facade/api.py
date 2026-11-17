@@ -4478,8 +4478,7 @@ def append_imported_task_run_log(
     append the same lines: the append only happens while ``expected_state`` still matches the
     run's state, and returns False when another writer moved it on first. ``batch_id`` names
     this batch in the log, so a retry after the append succeeded but the state write failed
-    skips the append instead of writing the lines twice. Imported transcripts are user chat
-    history, so the log is never tagged for expiry, and there is no workflow to heartbeat.
+    skips the append instead of writing the lines twice. There is no workflow to heartbeat.
     ``completed_at`` follows the source so the run reads as current as the conversation it copies.
     """
     with transaction.atomic():
@@ -4487,7 +4486,7 @@ def append_imported_task_run_log(
         state = run.state or {}
         if any(state.get(key) != value for key, value in expected_state.items()):
             return False
-        run.append_log(entries, ttl_days=None, batch_id=batch_id)
+        run.append_log(entries, batch_id=batch_id)
         run.state = {**state, **state_updates}
         run.completed_at = completed_at
         run.save(update_fields=["state", "completed_at"])

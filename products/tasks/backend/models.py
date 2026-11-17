@@ -3348,24 +3348,15 @@ class TaskRun(models.Model):
         update = params.get("update", {}) if isinstance(params, dict) else {}
         return update.get("sessionUpdate") == "agent_message_chunk" if isinstance(update, dict) else False
 
-    # Default S3 retention for a freshly-created run log. Live runs auto-expire after a month;
-    # callers that must preserve a log indefinitely pass `ttl_days=None` so it is never tagged for
-    # expiry — user history must not silently vanish after 30 days.
-    DEFAULT_LOG_TTL_DAYS = 30
-
     def append_log(
         self,
         entries: list[dict],
         *,
-        ttl_days: int | None = DEFAULT_LOG_TTL_DAYS,
         lock_attempts: int = 3,
         batch_id: str | None = None,
     ):
         """Append log entries to S3 storage.
 
-        `ttl_days` tags a newly-created log file for expiry; pass `None` to write a log that is
-        never auto-expired. The tag is only applied on
-        first write — re-tagging an existing log would not change a TTL already in flight.
         `lock_attempts` is how often to wait for the per-log append lock before raising
         TaskRunLogAppendUnserialized; a caller that retries the append itself passes 1.
         """
@@ -3373,26 +3364,9 @@ class TaskRun(models.Model):
         if not entries:
             return
 
-        is_new_file = append_jsonl_object(self.log_url, entries, lock_attempts=lock_attempts, batch_id=batch_id)
+        append_jsonl_object(self.log_url, entries, lock_attempts=lock_attempts, batch_id=batch_id)
 
         self._mirror_logs_to_posthog_logs(entries)
-
-        if is_new_file and ttl_days is not None:
-            try:
-                object_storage.tag(
-                    self.log_url,
-                    {
-                        "ttl_days": str(ttl_days),
-                        "team_id": str(self.team_id),
-                    },
-                )
-            except Exception as e:
-                logger.warning(
-                    "task_run.failed_to_tag_logs",
-                    task_run_id=str(self.id),
-                    log_url=self.log_url,
-                    error=str(e),
-                )
 
     @property
     def has_pending_followup_messages(self) -> bool:
