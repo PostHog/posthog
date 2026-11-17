@@ -1,0 +1,7 @@
+{
+    "name": "getting-ready",
+    "version": "0.1.0",
+    "description": "Copy the PostHog repo into a fresh worktree, boot the dev stack, log a browser in, and report when agents can browse and screenshot it",
+    "author": { "name": "PostHog" },
+    "keywords": ["posthog", "dev-stack", "worktree", "playwright", "screenshots"]
+}

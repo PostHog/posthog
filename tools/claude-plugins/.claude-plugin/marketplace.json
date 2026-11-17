@@ -1,0 +1,12 @@
+{
+    "name": "posthog-dev",
+    "owner": { "name": "PostHog" },
+    "description": "Claude Code plugins for working on the PostHog monorepo",
+    "plugins": [
+        {
+            "name": "getting-ready",
+            "source": "./getting-ready",
+            "description": "Say \"get ready\": copy the PostHog repo into a fresh worktree, boot the dev stack, log a browser in, and report when agents can browse and screenshot it"
+        }
+    ]
+}
