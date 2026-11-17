@@ -405,7 +405,7 @@ const workflowsGlobalStats = (): ToolBase<
                 before: params.before,
             },
         })
-        return await withPostHogUrl(context, result, '/workflows')
+        return await withPostHogUrl(context, result, '/workflows', { project: true })
     },
 })
 
@@ -518,7 +518,7 @@ const workflowsList = (): ToolBase<
                     updated_at: params.updated_at,
                 },
             })
-            return await withPostHogUrl(context, result, '/workflows')
+            return await withPostHogUrl(context, result, '/workflows', { project: true })
         },
     })
 
@@ -539,7 +539,7 @@ const workflowsListBatchJobs = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_flows/${encodeURIComponent(String(params.id))}/batch_jobs/`,
         })
-        return await withPostHogUrl(context, result, '/workflows')
+        return await withPostHogUrl(context, result, '/workflows', { project: true })
     },
 })
 
@@ -571,7 +571,7 @@ const workflowsListInvocations = (): ToolBase<
                 status: params.status,
             },
         })
-        return await withPostHogUrl(context, result, '/workflows')
+        return await withPostHogUrl(context, result, '/workflows', { project: true })
     },
 })
 
@@ -598,7 +598,7 @@ const workflowsListProposals = (): ToolBase<
                 status: params.status,
             },
         })
-        return await withPostHogUrl(context, result, '/workflows')
+        return await withPostHogUrl(context, result, '/workflows', { project: true })
     },
 })
 
@@ -624,7 +624,7 @@ const workflowsListRevisions = (): ToolBase<
                 offset: params.offset,
             },
         })
-        return await withPostHogUrl(context, result, '/workflows')
+        return await withPostHogUrl(context, result, '/workflows', { project: true })
     },
 })
 
@@ -650,7 +650,7 @@ const workflowsListVersions = (): ToolBase<
                 offset: params.offset,
             },
         })
-        return await withPostHogUrl(context, result, '/workflows')
+        return await withPostHogUrl(context, result, '/workflows', { project: true })
     },
 })
 

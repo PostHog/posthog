@@ -200,7 +200,7 @@ const batchExportsList = (): ToolBase<
                 ])
             ),
         } as typeof result
-        return await withPostHogUrl(context, filtered, '/data-management/destinations')
+        return await withPostHogUrl(context, filtered, '/data-management/destinations', { project: true })
     },
 })
 

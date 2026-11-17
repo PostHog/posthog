@@ -1925,7 +1925,7 @@ describe('generateToolCode with a text projection', () => {
         )
 
         expect(result.code).toContain('withTextProjection(await withPostHogUrl(context, {')
-        expect(result.code).toContain("}, '/things'), ['id', 'status', '_posthogUrl'])")
+        expect(result.code).toContain("}, '/things', { project: true }), ['id', 'status', '_posthogUrl'])")
         expect(result.toolUtilsValueImports).toEqual(new Set(['withTextProjection']))
     })
 })
@@ -1950,6 +1950,27 @@ describe('path parameter encoding', () => {
 
         expect(result.code).toContain('${encodeURIComponent(String(projectId))}')
         expect(result.code).not.toMatch(/\$\{projectId\}/)
+    })
+
+    it('does not name a project on a list from an organization endpoint', () => {
+        const resolved = makeResolved({
+            path: '/api/organizations/{organization_id}/members/',
+            operation: {
+                operationId: 'members_list',
+                parameters: [{ name: 'organization_id', in: 'path', required: true, schema: { type: 'string' } }],
+            },
+        })
+        const result = generateToolCode(
+            'org-members-list',
+            { operation: 'members_list', enabled: true, list: true },
+            resolved,
+            defaultCategory,
+            makeSpec(),
+            new Set<string>(),
+            stubGetQuerySchema
+        )
+        expect(result.code).toContain('withPostHogUrl(')
+        expect(result.code).not.toContain('project: true')
     })
 
     it('wraps organization_id with encodeURIComponent in generated paths', () => {

@@ -83,7 +83,7 @@ const messageCategoriesList = (): ToolBase<
                 offset: params.offset,
             },
         })
-        return await withPostHogUrl(context, result, '/workflows')
+        return await withPostHogUrl(context, result, '/workflows', { project: true })
     },
 })
 
@@ -265,7 +265,7 @@ const providerImportsList = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/messaging_provider_imports/`,
         })
-        return await withPostHogUrl(context, result, '/workflows')
+        return await withPostHogUrl(context, result, '/workflows', { project: true })
     },
 })
 
@@ -408,7 +408,7 @@ const suppressionsList = (): ToolBase<
                 search: params.search,
             },
         })
-        return await withPostHogUrl(context, result, '/workflows')
+        return await withPostHogUrl(context, result, '/workflows', { project: true })
     },
 })
 

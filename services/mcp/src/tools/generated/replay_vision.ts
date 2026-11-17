@@ -200,7 +200,7 @@ const visionAlertsEventsList = (): ToolBase<
                 offset: params.offset,
             },
         })
-        return await withPostHogUrl(context, result, '/replay-vision')
+        return await withPostHogUrl(context, result, '/replay-vision', { project: true })
     },
 })
 
@@ -247,7 +247,7 @@ const visionAlertsList = (): ToolBase<
                 scanner_id: params.scanner_id,
             },
         })
-        return await withPostHogUrl(context, result, '/replay-vision')
+        return await withPostHogUrl(context, result, '/replay-vision', { project: true })
     },
 })
 
@@ -564,7 +564,8 @@ const visionObservationsList = (): ToolBase<
                                 )
                             ),
                         },
-                        '/replay'
+                        '/replay',
+                        { project: true }
                     ),
                     "Each observation's `_posthogUrl` opens the recording it analysed. To deep-link the moment a finding turns on, call `vision-observations-get` for that row: its `scanner_result.model_output.reasoning_segments` interleaves prose with `chip` segments, and a chip's `timestamp_ms` is the recording-relative offset of the cited moment — append `?t=<seconds>` (`timestamp_ms` / 1000, rounded down) to the URL to seek straight to it. When you report a finding to someone, deep-link the one or two moments it turns on rather than only describing them.\n"
                 ),
@@ -916,7 +917,7 @@ const visionScannersBackfillsList = (): ToolBase<
                 offset: params.offset,
             },
         })
-        return await withPostHogUrl(context, result, '/replay-vision')
+        return await withPostHogUrl(context, result, '/replay-vision', { project: true })
     },
 })
 
@@ -1347,7 +1348,7 @@ const visionScannersList = (): ToolBase<
                 tags: params.tags,
             },
         })
-        return await withPostHogUrl(context, result, '/replay-vision')
+        return await withPostHogUrl(context, result, '/replay-vision', { project: true })
     },
 })
 
@@ -1455,7 +1456,8 @@ const visionScannersObservationsList = (): ToolBase<
                                 )
                             ),
                         },
-                        '/replay'
+                        '/replay',
+                        { project: true }
                     ),
                     "Each observation's `_posthogUrl` opens the recording it analysed. To deep-link the moment a finding turns on, call `vision-observations-get` for that row: its `scanner_result.model_output.reasoning_segments` interleaves prose with `chip` segments, and a chip's `timestamp_ms` is the recording-relative offset of the cited moment — append `?t=<seconds>` (`timestamp_ms` / 1000, rounded down) to the URL to seek straight to it. When you report a finding to someone, deep-link the one or two moments it turns on rather than only describing them. A rating is the person's verdict on whether the scanner was right, and the scanner learns from it, so ask them for it and record what they say with `vision-observations-label-create`. Never rate from your own reading of the result: the rating is team-wide, and a scanner's output can repeat text from the recording it analysed.\n"
                 ),

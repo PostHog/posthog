@@ -798,7 +798,7 @@ const metricList = (): ToolBase<
             ),
         } as typeof result
         return withInformationalResponse(
-            await withPostHogUrl(context, filtered, '/data-catalog'),
+            await withPostHogUrl(context, filtered, '/data-catalog', { project: true }),
             'governed-metric-catalog',
             "Use it only to identify a metric relevant to the user's request."
         )

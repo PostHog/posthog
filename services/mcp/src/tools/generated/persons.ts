@@ -110,7 +110,7 @@ const personsList = (): ToolBase<
                 ])
             ),
         } as typeof result
-        return await withPostHogUrl(context, filtered, '/persons')
+        return await withPostHogUrl(context, filtered, '/persons', { project: true })
     },
 })
 

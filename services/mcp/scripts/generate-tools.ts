@@ -1055,7 +1055,14 @@ function buildExpandableFieldsExtension(config: ToolConfig): string {
 // Response enrichment templates
 // ------------------------------------------------------------------
 
-function buildEnrichment(config: ToolConfig, category: CategoryConfig, resultVar = 'result'): string {
+function buildEnrichment(
+    config: ToolConfig,
+    category: CategoryConfig,
+    resultVar = 'result',
+    projectScoped = false
+): string {
+    // Only a list from a project endpoint names its project: an organization-level list is not scoped to one.
+    const projectOption = projectScoped ? ', { project: true }' : ''
     const baseUrl = config.url_prefix ?? category.url_prefix
     // agent_note wraps the final returned expression so the note rides the same object the
     // agent reads — point-of-use guidance without growing the tool description.
@@ -1095,13 +1102,13 @@ function buildEnrichment(config: ToolConfig, category: CategoryConfig, resultVar
             `await withPostHogUrl(context, {`,
             `            ...${resultVar},`,
             `            results: await Promise.all((${resultVar}.results ?? []).map((item) => withPostHogUrl(context, item, \`${baseUrl}${joiner}${prefix}\${item.${field}}${suffix}\`))),`,
-            `        }, '${baseUrl}')`,
+            `        }, '${baseUrl}'${projectOption})`,
         ].join('\n')
         return `        return ${wrapped(enriched)}\n`
     }
 
     if (config.list) {
-        return `        return ${wrapped(`await withPostHogUrl(context, ${resultVar}, '${baseUrl}')`)}\n`
+        return `        return ${wrapped(`await withPostHogUrl(context, ${resultVar}, '${baseUrl}'${projectOption})`)}\n`
     }
 
     if (config.enrich_url) {
@@ -1434,7 +1441,7 @@ function generateToolCode(
 
     // Response enrichment — adds _posthogUrl for "View in PostHog" links
     const enrichmentVar = responseFilter.code ? 'filtered' : 'result'
-    handlerBody += buildEnrichment(config, category, enrichmentVar)
+    handlerBody += buildEnrichment(config, category, enrichmentVar, needsProjectId)
 
     // Compute the result type for the ToolBase generic parameter
     let resultType: string
@@ -1834,7 +1841,7 @@ function generateCustomSchemaToolCode(
     handlerBody += responseFilter.code
 
     const enrichmentVar = responseFilter.code ? 'filtered' : 'result'
-    handlerBody += buildEnrichment(config, category, enrichmentVar)
+    handlerBody += buildEnrichment(config, category, enrichmentVar, needsProjectId)
 
     let baseSchemaExpr = config.input_schema as string
     const toolInputsImports: string[] = config.input_schema ? [config.input_schema] : []

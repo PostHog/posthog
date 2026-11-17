@@ -128,7 +128,8 @@ const cohortsList = (): ToolBase<ReturnType<typeof CohortsListSchema>, WithPostH
                         (filtered.results ?? []).map((item) => withPostHogUrl(context, item, `/cohorts/${item.id}`))
                     ),
                 },
-                '/cohorts'
+                '/cohorts',
+                { project: true }
             )
         },
     })

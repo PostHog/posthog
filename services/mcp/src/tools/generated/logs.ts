@@ -268,7 +268,7 @@ const logsAlertsEventsList = (): ToolBase<
                 ])
             ),
         } as typeof result
-        return await withPostHogUrl(context, filtered, '/logs')
+        return await withPostHogUrl(context, filtered, '/logs', { project: true })
     },
 })
 
@@ -315,7 +315,7 @@ const logsAlertsList = (): ToolBase<
                 ])
             ),
         } as typeof result
-        return await withPostHogUrl(context, filtered, '/logs')
+        return await withPostHogUrl(context, filtered, '/logs', { project: true })
     },
 })
 

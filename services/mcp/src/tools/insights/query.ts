@@ -124,7 +124,8 @@ export const queryHandler: ToolBase<typeof schema, Result>['handler'] = async (c
                 ? { [POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]: queryResult.data.formatted_results }
                 : {}),
         },
-        path
+        path,
+        { project: true }
     )
 }
 

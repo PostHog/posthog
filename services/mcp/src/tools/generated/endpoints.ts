@@ -122,7 +122,7 @@ const endpointLogs = (): ToolBase<ReturnType<typeof EndpointLogsSchema>, unknown
                 search: params.search,
             },
         })
-        return await withPostHogUrl(context, result, '/endpoints')
+        return await withPostHogUrl(context, result, '/endpoints', { project: true })
     },
 })
 
@@ -308,7 +308,8 @@ const endpointVersions = (): ToolBase<
                     (result.results ?? []).map((item) => withPostHogUrl(context, item, `/endpoints/${item.name}`))
                 ),
             },
-            '/endpoints'
+            '/endpoints',
+            { project: true }
         )
     },
 })
@@ -344,7 +345,8 @@ const endpointsGetAll = (): ToolBase<
                     (result.results ?? []).map((item) => withPostHogUrl(context, item, `/endpoints/${item.name}`))
                 ),
             },
-            '/endpoints'
+            '/endpoints',
+            { project: true }
         )
     },
 })

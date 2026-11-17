@@ -347,7 +347,8 @@ const alertsList = (): ToolBase<ReturnType<typeof AlertsListSchema>, WithPostHog
                     )
                 ),
             },
-            '/alerts'
+            '/alerts',
+            { project: true }
         )
     },
 })

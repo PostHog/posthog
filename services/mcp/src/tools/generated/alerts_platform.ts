@@ -89,7 +89,7 @@ const platformAlertsList = (): ToolBase<
                 ])
             ),
         } as typeof result
-        return await withPostHogUrl(context, filtered, '/data-management/sources')
+        return await withPostHogUrl(context, filtered, '/data-management/sources', { project: true })
     },
 })
 

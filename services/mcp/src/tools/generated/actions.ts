@@ -173,7 +173,8 @@ const actionsGetAll = (): ToolBase<
                         )
                     ),
                 },
-                '/data-management/actions'
+                '/data-management/actions',
+                { project: true }
             )
         },
     })

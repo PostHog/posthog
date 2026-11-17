@@ -229,7 +229,7 @@ const warehouseSuggestionsList = (): ToolBase<
                 ])
             ),
         } as typeof result
-        return await withPostHogUrl(context, filtered, '/models')
+        return await withPostHogUrl(context, filtered, '/models', { project: true })
     },
 })
 

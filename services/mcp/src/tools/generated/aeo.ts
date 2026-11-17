@@ -82,7 +82,7 @@ const aeoBrandsList = (): ToolBase<
                 status: params.status,
             },
         })
-        return await withPostHogUrl(context, result, '/web/ai-visibility')
+        return await withPostHogUrl(context, result, '/web/ai-visibility', { project: true })
     },
 })
 
@@ -396,7 +396,7 @@ const aeoPromptsChecksList = (): ToolBase<
                 version: params.version,
             },
         })
-        return await withPostHogUrl(context, result, '/web/ai-visibility')
+        return await withPostHogUrl(context, result, '/web/ai-visibility', { project: true })
     },
 })
 
@@ -428,7 +428,7 @@ const aeoPromptsCitationsList = (): ToolBase<
                 url: params.url,
             },
         })
-        return await withPostHogUrl(context, result, '/web/ai-visibility')
+        return await withPostHogUrl(context, result, '/web/ai-visibility', { project: true })
     },
 })
 
@@ -531,7 +531,8 @@ const aeoPromptsList = (): ToolBase<
                     )
                 ),
             },
-            '/web/ai-visibility'
+            '/web/ai-visibility',
+            { project: true }
         )
     },
 })

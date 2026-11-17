@@ -234,7 +234,7 @@ const cdpFunctionsList = (): ToolBase<
                 ])
             ),
         } as typeof result
-        return await withPostHogUrl(context, filtered, '/pipeline')
+        return await withPostHogUrl(context, filtered, '/pipeline', { project: true })
     },
 })
 
@@ -260,7 +260,7 @@ const cdpFunctionsListRevisions = (): ToolBase<
                 offset: params.offset,
             },
         })
-        return await withPostHogUrl(context, result, '/pipeline')
+        return await withPostHogUrl(context, result, '/pipeline', { project: true })
     },
 })
 

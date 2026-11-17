@@ -264,7 +264,7 @@ const integrationsList = (): ToolBase<
                 ])
             ),
         } as typeof result
-        return await withPostHogUrl(context, filtered, '/settings/environment-integrations')
+        return await withPostHogUrl(context, filtered, '/settings/environment-integrations', { project: true })
     },
 })
 

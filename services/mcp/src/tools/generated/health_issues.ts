@@ -49,7 +49,7 @@ const healthIssuesList = (): ToolBase<
                 status: params.status,
             },
         })
-        return await withPostHogUrl(context, result, '/health')
+        return await withPostHogUrl(context, result, '/health', { project: true })
     },
 })
 

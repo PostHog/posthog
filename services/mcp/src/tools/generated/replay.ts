@@ -247,7 +247,7 @@ const sessionRecordingPlaylistsList = (): ToolBase<
                 short_id: params.short_id,
             },
         })
-        return await withPostHogUrl(context, result, '/replay')
+        return await withPostHogUrl(context, result, '/replay', { project: true })
     },
 })
 

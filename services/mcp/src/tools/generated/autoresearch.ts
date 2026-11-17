@@ -126,7 +126,7 @@ const autoresearchList = (): ToolBase<
                 ])
             ),
         } as typeof result
-        return await withPostHogUrl(context, filtered, '/autoresearch')
+        return await withPostHogUrl(context, filtered, '/autoresearch', { project: true })
     },
 })
 
@@ -202,7 +202,7 @@ const autoresearchModelsList = (): ToolBase<
                 ])
             ),
         } as typeof result
-        return await withPostHogUrl(context, filtered, '/autoresearch')
+        return await withPostHogUrl(context, filtered, '/autoresearch', { project: true })
     },
 })
 
@@ -429,7 +429,7 @@ const autoresearchRunsList = (): ToolBase<
                 ])
             ),
         } as typeof result
-        return await withPostHogUrl(context, filtered, '/autoresearch')
+        return await withPostHogUrl(context, filtered, '/autoresearch', { project: true })
     },
 })
 
@@ -526,7 +526,7 @@ const autoresearchSuggestionsList = (): ToolBase<
                 ])
             ),
         } as typeof result
-        return await withPostHogUrl(context, filtered, '/autoresearch')
+        return await withPostHogUrl(context, filtered, '/autoresearch', { project: true })
     },
 })
 
@@ -930,7 +930,7 @@ const autoresearchTrainingRunsList = (): ToolBase<
                 ])
             ),
         } as typeof result
-        return await withPostHogUrl(context, filtered, '/autoresearch')
+        return await withPostHogUrl(context, filtered, '/autoresearch', { project: true })
     },
 })
 

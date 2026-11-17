@@ -66,7 +66,7 @@ const fieldNotesList = (): ToolBase<
                 ])
             ),
         } as typeof result
-        return await withPostHogUrl(context, filtered, '/')
+        return await withPostHogUrl(context, filtered, '/', { project: true })
     },
 })
 

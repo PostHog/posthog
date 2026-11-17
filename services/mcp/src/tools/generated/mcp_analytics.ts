@@ -107,7 +107,7 @@ const mcpAnalyticsSessionsList = (): ToolBase<
                 search: params.search,
             },
         })
-        return await withPostHogUrl(context, result, '/mcp-analytics')
+        return await withPostHogUrl(context, result, '/mcp-analytics', { project: true })
     },
 })
 
@@ -139,7 +139,7 @@ const mcpAnalyticsSessionsToolCalls = (): ToolBase<
                 properties: params.properties,
             },
         })
-        return await withPostHogUrl(context, result, '/mcp-analytics')
+        return await withPostHogUrl(context, result, '/mcp-analytics', { project: true })
     },
 })
 

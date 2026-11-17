@@ -206,7 +206,8 @@ const streamlitAppsList = (): ToolBase<
                     )
                 ),
             },
-            '/streamlit-apps'
+            '/streamlit-apps',
+            { project: true }
         )
     },
 })
@@ -370,7 +371,7 @@ const streamlitAppsVersions = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/streamlit_apps/${encodeURIComponent(String(params.short_id))}/versions/`,
         })
-        return await withPostHogUrl(context, result, '/streamlit-apps')
+        return await withPostHogUrl(context, result, '/streamlit-apps', { project: true })
     },
 })
 

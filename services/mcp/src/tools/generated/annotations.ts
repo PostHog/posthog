@@ -128,7 +128,7 @@ const annotationsList = (): ToolBase<
                 ])
             ),
         } as typeof result
-        return await withPostHogUrl(context, filtered, '/data-management/annotations')
+        return await withPostHogUrl(context, filtered, '/data-management/annotations', { project: true })
     },
 })
 

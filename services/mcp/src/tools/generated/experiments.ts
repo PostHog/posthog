@@ -696,7 +696,7 @@ const experimentHoldoutsList = (): ToolBase<
                 pickResponseFields(item, ['id', 'name', 'description', 'filters', 'created_at', 'updated_at'])
             ),
         } as typeof result
-        return await withPostHogUrl(context, filtered, '/experiments')
+        return await withPostHogUrl(context, filtered, '/experiments', { project: true })
     },
 })
 
@@ -878,7 +878,8 @@ const experimentList = (): ToolBase<
                             )
                         ),
                     },
-                    '/experiments'
+                    '/experiments',
+                    { project: true }
                 )
             }
         ),
@@ -1228,7 +1229,7 @@ const experimentSavedMetricsList = (): ToolBase<
                 pickResponseFields(item, ['id', 'name', 'description', 'query', 'created_at', 'updated_at', 'tags'])
             ),
         } as typeof result
-        return await withPostHogUrl(context, filtered, '/experiments')
+        return await withPostHogUrl(context, filtered, '/experiments', { project: true })
     },
 })
 

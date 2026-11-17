@@ -79,7 +79,7 @@ const heatmapsList = (): ToolBase<
                 viewport_width_min: params.viewport_width_min,
             },
         })
-        return await withPostHogUrl(context, result, '/web')
+        return await withPostHogUrl(context, result, '/web', { project: true })
     },
 })
 
@@ -171,7 +171,7 @@ const heatmapsSavedList = (): ToolBase<
                 type: params.type,
             },
         })
-        return await withPostHogUrl(context, result, '/web')
+        return await withPostHogUrl(context, result, '/web', { project: true })
     },
 })
 
@@ -308,7 +308,7 @@ const webAnalyticsBotRulesList = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/web_analytics_bot_rules/`,
         })
-        return await withPostHogUrl(context, result, '/web')
+        return await withPostHogUrl(context, result, '/web', { project: true })
     },
 })
 

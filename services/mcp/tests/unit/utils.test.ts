@@ -543,15 +543,15 @@ describe('utils', () => {
         })
 
         it.each([
-            ['a raw array', [{ id: 1 }], { id: '42', name: 'Shop' }],
-            ['a list envelope', { results: [], count: 0 }, { id: '42', name: 'Shop' }],
-            ['one row of a list', { id: 1 }, undefined],
-        ])('names the project on %s', async (_label, input, expected) => {
+            ['a project list as a raw array', [{ id: 1 }], { project: true }, { id: '42', name: 'Shop' }],
+            ['a project list envelope', { results: [], count: 0 }, { project: true }, { id: '42', name: 'Shop' }],
+            ['a list that did not ask for it', { results: [] }, undefined, undefined],
+        ])('names the project only on %s', async (_label, input, options, expected) => {
             const named = {
                 ...context,
                 stateManager: { getProjectId: async () => 42, getCachedOrFetchProject: async () => ({ name: 'Shop' }) },
             } as unknown as Context
-            expect((await withPostHogUrl(named, input, '/x'))._project).toEqual(expected)
+            expect((await withPostHogUrl(named, input, '/x', options))._project).toEqual(expected)
         })
 
         it('does not corrupt the array into numeric-keyed object fields', async () => {

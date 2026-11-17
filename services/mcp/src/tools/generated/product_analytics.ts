@@ -718,7 +718,7 @@ const insightsActivityRetrieve = (): ToolBase<
                 ])
             ),
         } as typeof result
-        return await withPostHogUrl(context, filtered, '/insights')
+        return await withPostHogUrl(context, filtered, '/insights', { project: true })
     },
 })
 
@@ -754,7 +754,7 @@ const insightsAllActivityRetrieve = (): ToolBase<
                 ])
             ),
         } as typeof result
-        return await withPostHogUrl(context, filtered, '/insights')
+        return await withPostHogUrl(context, filtered, '/insights', { project: true })
     },
 })
 
@@ -830,7 +830,8 @@ const insightsList = (): ToolBase<
                     (filtered.results ?? []).map((item) => withPostHogUrl(context, item, `/insights/${item.short_id}`))
                 ),
             },
-            '/insights'
+            '/insights',
+            { project: true }
         )
     },
 })
@@ -888,7 +889,8 @@ const insightsTrendingRetrieve = (): ToolBase<
                     (filtered.results ?? []).map((item) => withPostHogUrl(context, item, `/insights/${item.short_id}`))
                 ),
             },
-            '/insights'
+            '/insights',
+            { project: true }
         )
     },
 })

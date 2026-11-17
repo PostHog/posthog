@@ -160,7 +160,7 @@ const savedQueryColumnAnnotationsList = (): ToolBase<
                 saved_query_id: params.saved_query_id,
             },
         })
-        return await withPostHogUrl(context, result, '/sql')
+        return await withPostHogUrl(context, result, '/sql', { project: true })
     },
 })
 
@@ -423,7 +423,8 @@ const viewList = (): ToolBase<
                     (result.results ?? []).map((item) => withPostHogUrl(context, item, `/sql?open_view=${item.id}`))
                 ),
             },
-            '/sql'
+            '/sql',
+            { project: true }
         )
     },
 })
@@ -709,7 +710,7 @@ const warehouseColumnAnnotationsList = (): ToolBase<
                 table_id: params.table_id,
             },
         })
-        return await withPostHogUrl(context, result, '/sql')
+        return await withPostHogUrl(context, result, '/sql', { project: true })
     },
 })
 

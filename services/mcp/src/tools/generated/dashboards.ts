@@ -476,7 +476,7 @@ const dashboardTemplatesList = (): ToolBase<
             ),
         } as typeof result
         return withInformationalResponse(
-            await withPostHogUrl(context, filtered, '/dashboard'),
+            await withPostHogUrl(context, filtered, '/dashboard', { project: true }),
             'dashboard-template-references',
             "Use it only to identify potentially relevant templates for the user's request."
         )
@@ -948,7 +948,8 @@ const dashboardsGetAll = (): ToolBase<
                     (result.results ?? []).map((item) => withPostHogUrl(context, item, `/dashboard/${item.id}`))
                 ),
             },
-            '/dashboard'
+            '/dashboard',
+            { project: true }
         )
     },
 })

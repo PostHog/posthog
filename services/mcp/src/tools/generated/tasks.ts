@@ -532,7 +532,8 @@ const tasksList = (): ToolBase<
                     (filtered.results ?? []).map((item) => withPostHogUrl(context, item, `/tasks/${item.id}`))
                 ),
             },
-            '/tasks'
+            '/tasks',
+            { project: true }
         )
     },
 })
@@ -741,7 +742,7 @@ const tasksRunsList = (): ToolBase<
                 ])
             ),
         } as typeof result
-        return await withPostHogUrl(context, filtered, '/tasks')
+        return await withPostHogUrl(context, filtered, '/tasks', { project: true })
     },
 })
 

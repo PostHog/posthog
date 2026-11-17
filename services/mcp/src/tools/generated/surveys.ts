@@ -425,7 +425,8 @@ const surveysGetAll = (): ToolBase<
                         (result.results ?? []).map((item) => withPostHogUrl(context, item, `/surveys/${item.id}`))
                     ),
                 },
-                '/surveys'
+                '/surveys',
+                { project: true }
             )
         },
     })

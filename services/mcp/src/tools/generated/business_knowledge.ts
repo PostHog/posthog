@@ -135,7 +135,7 @@ const businessKnowledgeLibrariesList = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/business_knowledge/libraries/`,
         })
-        return await withPostHogUrl(context, result, '/business-knowledge')
+        return await withPostHogUrl(context, result, '/business-knowledge', { project: true })
     },
 })
 
@@ -317,7 +317,8 @@ const businessKnowledgeSourcesList = (): ToolBase<
                     )
                 ),
             },
-            '/business-knowledge'
+            '/business-knowledge',
+            { project: true }
         )
     },
 })

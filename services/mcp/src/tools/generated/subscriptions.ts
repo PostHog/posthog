@@ -149,7 +149,7 @@ const subscriptionsDeliveriesList = (): ToolBase<
                 ])
             ),
         } as typeof result
-        return await withPostHogUrl(context, filtered, '/subscriptions')
+        return await withPostHogUrl(context, filtered, '/subscriptions', { project: true })
     },
 })
 
@@ -222,7 +222,8 @@ const subscriptionsList = (): ToolBase<
                     (filtered.results ?? []).map((item) => withPostHogUrl(context, item, `/subscriptions/${item.id}`))
                 ),
             },
-            '/subscriptions'
+            '/subscriptions',
+            { project: true }
         )
     },
 })
@@ -352,7 +353,7 @@ const subscriptionsSummariesList = (): ToolBase<
                 insight: params.insight,
             },
         })
-        return await withPostHogUrl(context, result, '/subscriptions')
+        return await withPostHogUrl(context, result, '/subscriptions', { project: true })
     },
 })
 

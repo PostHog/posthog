@@ -322,7 +322,8 @@ const featureFlagGetAll = (): ToolBase<
                     (filtered.results ?? []).map((item) => withPostHogUrl(context, item, `/feature-flags/${item.id}`))
                 ),
             },
-            '/feature-flags'
+            '/feature-flags',
+            { project: true }
         )
     },
 })
@@ -914,7 +915,7 @@ const featureFlagsMyFlagsRetrieve = (): ToolBase<
                     groups: params.groups,
                 },
             })
-            return await withPostHogUrl(context, result, '/feature-flags')
+            return await withPostHogUrl(context, result, '/feature-flags', { project: true })
         }
     ),
 })
@@ -1134,7 +1135,7 @@ const scheduledChangesList = (): ToolBase<
                 record_ids: params.record_ids,
             },
         })
-        return await withPostHogUrl(context, result, '/feature-flags')
+        return await withPostHogUrl(context, result, '/feature-flags', { project: true })
     },
 })
 

@@ -772,7 +772,7 @@ const errorTrackingSymbolSetsList = (): ToolBase<
                 ])
             ),
         } as typeof result
-        return await withPostHogUrl(context, filtered, '/error-tracking')
+        return await withPostHogUrl(context, filtered, '/error-tracking', { project: true })
     },
 })
 
@@ -1008,7 +1008,8 @@ const queryErrorTrackingIssuesList = (): ToolBase<
                             )
                         ),
                     },
-                    '/error-tracking'
+                    '/error-tracking',
+                    { project: true }
                 ),
                 [
                     'id',

@@ -93,7 +93,7 @@ const earlyAccessFeatureList = (): ToolBase<
                 search: params.search,
             },
         })
-        return await withPostHogUrl(context, result, '/early_access_features')
+        return await withPostHogUrl(context, result, '/early_access_features', { project: true })
     },
 })
 

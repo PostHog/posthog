@@ -98,7 +98,7 @@ const engineeringAnalyticsFlakyTests = (): ToolBase<
                 test: params.test,
             },
         })
-        return await withPostHogUrl(context, result, '/engineering-analytics')
+        return await withPostHogUrl(context, result, '/engineering-analytics', { project: true })
     },
 })
 
@@ -172,7 +172,7 @@ const engineeringAnalyticsSources = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/engineering_analytics/sources/`,
         })
-        return await withPostHogUrl(context, result, '/engineering-analytics')
+        return await withPostHogUrl(context, result, '/engineering-analytics', { project: true })
     },
 })
 
@@ -202,7 +202,7 @@ const engineeringAnalyticsTeamCiHealth = (): ToolBase<
                 source_id: params.source_id,
             },
         })
-        return await withPostHogUrl(context, result, '/engineering-analytics')
+        return await withPostHogUrl(context, result, '/engineering-analytics', { project: true })
     },
 })
 
@@ -230,7 +230,7 @@ const engineeringAnalyticsWorkflowJobs = (): ToolBase<
                 source_id: params.source_id,
             },
         })
-        return await withPostHogUrl(context, result, '/engineering-analytics')
+        return await withPostHogUrl(context, result, '/engineering-analytics', { project: true })
     },
 })
 
@@ -264,7 +264,7 @@ const engineeringAnalyticsWorkflowRunnerCosts = (): ToolBase<
                 workflow_name: params.workflow_name,
             },
         })
-        return await withPostHogUrl(context, result, '/engineering-analytics')
+        return await withPostHogUrl(context, result, '/engineering-analytics', { project: true })
     },
 })
 
@@ -319,7 +319,7 @@ const pullRequests = (): ToolBase<ReturnType<typeof PullRequestsSchema>, WithPos
                 state: params.state,
             },
         })
-        return await withPostHogUrl(context, result, '/engineering-analytics')
+        return await withPostHogUrl(context, result, '/engineering-analytics', { project: true })
     },
 })
 
@@ -356,7 +356,7 @@ const workflowHealth = (): ToolBase<
                 workflow_name: params.workflow_name,
             },
         })
-        return await withPostHogUrl(context, result, '/engineering-analytics/workflows')
+        return await withPostHogUrl(context, result, '/engineering-analytics/workflows', { project: true })
     },
 })
 

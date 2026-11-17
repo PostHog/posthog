@@ -94,7 +94,7 @@ const dataWarehouseStoredCredentialsList = (): ToolBase<
                 source_type: params.source_type,
             },
         })
-        return await withPostHogUrl(context, result, '/data-management/sources')
+        return await withPostHogUrl(context, result, '/data-management/sources', { project: true })
     },
 })
 
@@ -261,7 +261,7 @@ const externalDataSchemasList = (): ToolBase<
                 omitResponseFields(item, ['table.columns', 'available_columns'])
             ),
         } as typeof result
-        return await withPostHogUrl(context, filtered, '/data-management/sources')
+        return await withPostHogUrl(context, filtered, '/data-management/sources', { project: true })
     },
 })
 
@@ -544,7 +544,7 @@ const externalDataSourcesConnectionsList = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_sources/connections/`,
         })
-        return await withPostHogUrl(context, result, '/data-management/sources')
+        return await withPostHogUrl(context, result, '/data-management/sources', { project: true })
     },
 })
 
@@ -880,7 +880,7 @@ const externalDataSourcesList = (): ToolBase<
                 search: params.search,
             },
         })
-        return await withPostHogUrl(context, result, '/data-management/sources')
+        return await withPostHogUrl(context, result, '/data-management/sources', { project: true })
     },
 })
 
@@ -1452,7 +1452,7 @@ const warehouseMigrationItemsList = (): ToolBase<
                 ])
             ),
         } as typeof result
-        return await withPostHogUrl(context, filtered, '/data-management/sources')
+        return await withPostHogUrl(context, filtered, '/data-management/sources', { project: true })
     },
 })
 

@@ -29,27 +29,27 @@ export async function resultProject(context: Context): Promise<ResultProject> {
     }
 }
 
-function isListResult(result: unknown): boolean {
-    return typeof result === 'object' && result !== null && Array.isArray((result as { results?: unknown }).results)
-}
-
-/** Adds _posthogUrl to a result. Wraps raw arrays in `{ results, _posthogUrl }` (see type above). */
-export async function withPostHogUrl<T>(context: Context, result: T, path: string): Promise<WithPostHogUrl<T>> {
+/**
+ * Adds _posthogUrl to a result. Wraps raw arrays in `{ results, _posthogUrl }` (see type above).
+ * Pass `project: true` only for a list that comes from a project endpoint, so the result names that project.
+ */
+export async function withPostHogUrl<T>(
+    context: Context,
+    result: T,
+    path: string,
+    options?: { project?: boolean }
+): Promise<WithPostHogUrl<T>> {
     const projectId = await context.stateManager.getProjectId()
 
     const baseUrl = context.api.getProjectBaseUrl(projectId)
     const fullUrl = `${baseUrl}${path}`
 
+    const project = options?.project ? await resultProject(context) : {}
+
     if (Array.isArray(result)) {
-        return {
-            results: result,
-            _posthogUrl: fullUrl,
-            ...(await resultProject(context)),
-        } as unknown as WithPostHogUrl<T>
+        return { results: result, _posthogUrl: fullUrl, ...project } as unknown as WithPostHogUrl<T>
     }
 
-    // A row of a list also passes through here, so only the list itself names its project.
-    const project = isListResult(result) ? await resultProject(context) : {}
     return { ...result, _posthogUrl: fullUrl, ...project } as WithPostHogUrl<T>
 }
 

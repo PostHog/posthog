@@ -129,7 +129,8 @@ const workflowsListEmailTemplates = (): ToolBase<
                     )
                 ),
             },
-            '/workflows/library/templates'
+            '/workflows/library/templates',
+            { project: true }
         )
     },
 })
