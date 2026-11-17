@@ -2,7 +2,7 @@ import asyncio
 from datetime import timedelta
 
 from django.conf import settings
-from django.db import connections, transaction
+from django.db import transaction
 
 import structlog
 from temporalio.common import WorkflowIDConflictPolicy, WorkflowIDReusePolicy
@@ -17,12 +17,6 @@ from posthog.temporal.entitlement_reactions.workflow import RESYNC_SIGNAL, Entit
 
 logger = structlog.get_logger(__name__)
 HANDOFF_TIMEOUT_SECONDS = 5
-COMPLETION_TIMEOUT_SECONDS = 240
-
-
-def billing_receive_batch_size(max_messages: int) -> int:
-    # Serial completion waits must not consume another prefetched receipt's visibility lease.
-    return 1 if get_entitlement_reactor_registry().reactors else max_messages
 
 
 def entitlement_reactions_enabled(organization_id: str, *, fail_on_error: bool = True) -> bool:
@@ -43,51 +37,45 @@ def entitlement_reactions_enabled(organization_id: str, *, fail_on_error: bool =
         return False
 
 
-async def start_entitlement_reactions(organization_id: str, *, wait_for_completion: bool = False) -> None:
-    async with asyncio.timeout(COMPLETION_TIMEOUT_SECONDS):
-        async with asyncio.timeout(HANDOFF_TIMEOUT_SECONDS):
-            client = await async_connect()
-            handle = await client.start_workflow(
-                EntitlementReactionsWorkflow.run,
-                EntitlementReactionsInputs(organization_id=organization_id),
-                id=f"entitlement-reactions-{organization_id}",
-                task_queue=settings.BILLING_TASK_QUEUE,
-                id_conflict_policy=WorkflowIDConflictPolicy.USE_EXISTING,
-                id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
-                start_signal=RESYNC_SIGNAL,
-                execution_timeout=timedelta(hours=1),
-            )
-        if wait_for_completion:
-            # Cancelling this RPC wait does not cancel the durable workflow.
-            result = await handle.result()
-            if result.failed_reactor_keys:
-                raise RuntimeError(f"Entitlement reactors failed: {', '.join(result.failed_reactor_keys)}")
+async def start_entitlement_reactions(organization_id: str) -> None:
+    async with asyncio.timeout(HANDOFF_TIMEOUT_SECONDS):
+        client = await async_connect()
+        await client.start_workflow(
+            EntitlementReactionsWorkflow.run,
+            EntitlementReactionsInputs(organization_id=organization_id),
+            id=f"entitlement-reactions-{organization_id}",
+            task_queue=settings.BILLING_TASK_QUEUE,
+            id_conflict_policy=WorkflowIDConflictPolicy.USE_EXISTING,
+            id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
+            start_signal=RESYNC_SIGNAL,
+            execution_timeout=timedelta(hours=1),
+        )
 
 
-def _dispatch(organization_id: str, current: Entitlements, *, wait_for_completion: bool, enabled: bool | None) -> None:
+def _dispatch(
+    organization_id: str, current: Entitlements, *, watched_value_changed: bool, enabled: bool | None
+) -> None:
     registry = get_entitlement_reactor_registry()
     if not registry.reactors or not (entitlement_reactions_enabled(organization_id) if enabled is None else enabled):
         return
-    if get_behind_reactor_keys(organization_id, current, registry=registry):
-        asyncio.run(start_entitlement_reactions(organization_id, wait_for_completion=wait_for_completion))
+    if watched_value_changed or get_behind_reactor_keys(organization_id, current, registry=registry):
+        asyncio.run(start_entitlement_reactions(organization_id))
 
 
 def dispatch_entitlement_reactions(
-    organization_id: str, current: Entitlements, *, wait_for_completion: bool = False, enabled: bool | None = None
+    organization_id: str,
+    current: Entitlements,
+    *,
+    watched_value_changed: bool = False,
+    enabled: bool | None = None,
 ) -> None:
-    """Dispatch committed source; strict callers must return only after required work completes."""
+    """Hand off after the default-database commit, best effort; the repair schedule retries a failed handoff."""
     if not get_entitlement_reactor_registry().reactors:
-        return
-    if wait_for_completion:
-        if connections["default"].in_atomic_block:
-            # An on_commit callback would acknowledge SQS before this transaction commits.
-            raise RuntimeError("Cannot wait for entitlement reactions inside a transaction")
-        _dispatch(organization_id, current, wait_for_completion=True, enabled=enabled)
         return
 
     def best_effort() -> None:
         try:
-            _dispatch(organization_id, current, wait_for_completion=False, enabled=enabled)
+            _dispatch(organization_id, current, watched_value_changed=watched_value_changed, enabled=enabled)
         except Exception:
             logger.warning("entitlement_reactions_dispatch_failed", organization_id=organization_id, exc_info=True)
 

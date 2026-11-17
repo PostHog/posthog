@@ -785,12 +785,7 @@ class BillingManager:
         return cast(list[dict[str, Any]], res.json().get("products", []))
 
     def update_org_details(
-        self,
-        organization: Organization,
-        billing_status: BillingStatus,
-        *,
-        timeout: tuple[float, float] | None = None,
-        wait_for_entitlements: bool = False,
+        self, organization: Organization, billing_status: BillingStatus, *, timeout: tuple[float, float] | None = None
     ) -> Organization:
         """
         Ensure the relevant organization details are up-to-date locally
@@ -802,25 +797,14 @@ class BillingManager:
                 organization_id=str(organization.id),
                 computed_at=computed_at.isoformat(),
             )
-            if wait_for_entitlements and organization.available_product_features:
-                use_entitlement_reactions = entitlement_reactions_enabled(
-                    str(organization.id), fail_on_error=wait_for_entitlements
-                )
-                dispatch_entitlement_reactions(
-                    str(organization.id),
-                    Entitlements.from_features(organization.available_product_features),
-                    wait_for_completion=True,
-                    enabled=use_entitlement_reactions,
-                )
             return organization
 
         org_modified = False
 
         data = billing_status["customer"]
         available_product_features = data.get("available_product_features", None)
-        # Resolve the gate before persisting source so a failed strict lookup can retry the inline transition.
         use_entitlement_reactions = bool(available_product_features) and entitlement_reactions_enabled(
-            str(organization.id), fail_on_error=wait_for_entitlements
+            str(organization.id), fail_on_error=False
         )
 
         if data.get("customer_id") and organization.customer_id != data["customer_id"]:
@@ -982,7 +966,7 @@ class BillingManager:
             dispatch_entitlement_reactions(
                 str(organization.id),
                 Entitlements.from_features(available_product_features),
-                wait_for_completion=wait_for_entitlements,
+                watched_value_changed=bool(checkpoints),
                 enabled=use_entitlement_reactions,
             )
 
