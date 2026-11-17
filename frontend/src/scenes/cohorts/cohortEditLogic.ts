@@ -79,10 +79,14 @@ import { cohortsRealtimeCreate, cohortsUsedInRetrieve } from 'products/cohorts/f
 import type {
     CohortApi,
     CohortRealtimeReadinessApi,
-    CohortRealtimeStateEnumApi,
     CohortUsedInResponseApi,
 } from 'products/cohorts/frontend/generated/api.schemas'
 import type { CohortRealtimeSwitchAction } from 'products/cohorts/frontend/realtime/CohortRealtimeStatus'
+import {
+    READINESS_GRACE_POLLS,
+    REALTIME_POLL_INTERVAL_MS,
+    isBuildingHistory,
+} from 'products/cohorts/frontend/realtime/realtimeReadiness'
 import { personsLogic } from 'products/persons/frontend/logics/personsLogic'
 
 import type { CohortTypeEnumApi } from '../../../../products/cohorts/frontend/generated/api.schemas'
@@ -99,22 +103,7 @@ export type CohortEditTab = 'overview' | 'history'
 
 const isCohortEditTab = (value: unknown): value is CohortEditTab => value === 'overview' || value === 'history'
 
-// While history is being built, flags can't target the cohort yet, so the scene keeps asking. The
-// build takes tens of minutes, so this is slow polling, unlike the 1s loop the daily calculation uses.
-export const REALTIME_POLL_INTERVAL_MS = 15_000
-
 const PAYLOAD_TOO_LARGE_STATUS = 413
-const BUILDING_STATES: CohortRealtimeStateEnumApi[] = ['building', 'rebuilding']
-
-const isBuildingHistory = (cohort: CohortType): boolean =>
-    !!cohort.realtime && BUILDING_STATES.includes(cohort.realtime.state)
-
-// A queued build and a running one are recorded in two places that do not overlap: a Redis key
-// that expires exactly when the run-creation task fires, and the run row that task writes after sizing it. A
-// poll landing between the two reads `needs_attention` for a build that is fine, so a cohort seen
-// building keeps being checked for about three minutes. Long enough to cross that gap, and bounded, so
-// a cohort nothing is preparing is not polled for as long as its page stays open.
-const READINESS_GRACE_POLLS = 12
 
 const checkIsPendingCalculation = (cohort: CohortType): boolean =>
     cohort.pending_version != null &&
