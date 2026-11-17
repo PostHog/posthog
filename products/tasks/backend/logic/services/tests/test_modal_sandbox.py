@@ -9,12 +9,16 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.conf import settings
 from django.test import override_settings
 
-from modal import Probe
+from modal import (
+    Client as ModalClient,
+    Probe,
+    Sandbox as ModalSandboxHandle,
+)
 from modal.exception import (
     ConnectionError as ModalConnectionError,
     InvalidError as ModalInvalidError,
@@ -494,6 +498,13 @@ class TestAttachLocalPackageMounts:
 
 
 class TestModalSandboxAgentServer:
+    def test_probe_sandbox_cannot_start_agent_server(self, mock_sandbox: Any) -> None:
+        mock_sandbox.config = SandboxConfig(
+            name="probe", template=SandboxTemplate.SLIM_BASE, vm_runtime=True, agent_egress_probe=True
+        )
+        with pytest.raises(RuntimeError, match="cannot launch an agent server"):
+            mock_sandbox.start_agent_server(repository=None, task_id="task", run_id="run")
+
     @pytest.fixture
     def mock_sandbox(self) -> Any:
         mock_modal_sandbox = MagicMock()
@@ -1638,15 +1649,26 @@ class TestModalSandboxAgentServerStartupHelpers:
             (0, api_pb2.GenericResult.GENERIC_STATUS_IDLE_TIMEOUT, "idle_timeout"),
         ],
     )
-    def test_exit_status_reads_modal_generic_status(self, poll_result, status, expected):
+    def test_exit_status_reads_modal_generic_status(
+        self,
+        poll_result: int | Exception | None,
+        status: "api_pb2.GenericResult.GenericStatus.ValueType",
+        expected: str,
+    ) -> None:
         sandbox = self._make_sandbox()
-        if isinstance(poll_result, Exception):
-            sandbox._sandbox.poll.side_effect = poll_result
-        else:
-            sandbox._sandbox.poll.return_value = poll_result
-        sandbox._sandbox._result.status = status
+        response = api_pb2.SandboxWaitResponse(result=api_pb2.GenericResult(status=status))
+        with patch("modal.sandbox._sandbox.SandboxImplV2.lookup_by_id", new_callable=AsyncMock, return_value=response):
+            sandbox._sandbox = ModalSandboxHandle.from_id(
+                "sb-01AAAAAAAAAAAAAAAAAAAAAAAA",
+                client=ModalClient("https://example.com", api_pb2.CLIENT_TYPE_CLIENT, None),
+            )
+        with patch.object(sandbox._sandbox, "poll") as poll:
+            if isinstance(poll_result, Exception):
+                poll.side_effect = poll_result
+            else:
+                poll.return_value = poll_result
 
-        assert sandbox.exit_status() == expected
+            assert sandbox.exit_status() == expected
 
     def test_free_agent_server_port_terminates_existing_process(self):
         sandbox = self._make_sandbox()
@@ -1906,12 +1928,50 @@ class TestModalSandboxCreateAllowlist:
 
         assert mock_create.call_args.kwargs["outbound_domain_allowlist"] == []
 
-    def test_create_sets_vm_runtime_experimental_option(self):
-        config = SandboxConfig(name="t", vm_runtime=True)
+    @pytest.mark.parametrize("probe", [False, True])
+    def test_create_sets_vm_runtime_experimental_option(self, probe: bool) -> None:
+        config = SandboxConfig(name="t", vm_runtime=True, template=SandboxTemplate.SLIM_BASE, agent_egress_probe=probe)
 
         mock_create = self._create_with_config(config)
 
-        assert mock_create.call_args.kwargs["experimental_options"] == {"vm_runtime": True}
+        expected = {"vm_runtime": True, "vm_sidecar_memory_reserve_mib": 1024} if probe else {"vm_runtime": True}
+        assert mock_create.call_args.kwargs["experimental_options"] == expected
+        if probe:
+            assert mock_create.call_args.kwargs["outbound_cidr_allowlist"] == []
+            assert "secrets" not in mock_create.call_args.kwargs
+        else:
+            assert "outbound_cidr_allowlist" not in mock_create.call_args.kwargs
+
+    @pytest.mark.parametrize(
+        "override",
+        [
+            {"vm_runtime": False},
+            {"template": SandboxTemplate.DEFAULT_BASE},
+            {"environment_variables": {"GH_TOKEN": "synthetic"}},
+            {"snapshot_external_id": "im-example"},
+            {"resume_snapshot_external_id": "im-example"},
+            {"base_image_reference": "example.com/image:latest"},
+            {"custom_image_name": "custom"},
+            {"outbound_domain_allowlist": []},
+            {"block_network": True},
+            {"memory_gb": 1},
+            {"burstable_resources": True},
+        ],
+    )
+    def test_probe_rejects_incompatible_configuration(self, override: dict[str, Any]) -> None:
+        values = {
+            "name": "probe",
+            "template": SandboxTemplate.SLIM_BASE,
+            "vm_runtime": True,
+            "agent_egress_probe": True,
+        }
+        with pytest.raises(ValueError, match="fresh, credential-free development VM"):
+            SandboxConfig(**(values | override))
+
+    @override_settings(DEBUG=False, TEST=False)
+    def test_probe_rejects_production_launch(self) -> None:
+        with pytest.raises(ValueError, match="fresh, credential-free development VM"):
+            SandboxConfig(name="probe", template=SandboxTemplate.SLIM_BASE, vm_runtime=True, agent_egress_probe=True)
 
     def test_create_attaches_an_exec_readiness_probe_and_waits_on_it(self):
         # Modal raises on wait_until_ready when no probe was attached, so the two must stay paired.
