@@ -28,7 +28,7 @@ from products.experiments.backend.metric_calculation.config import (
 from products.experiments.backend.metric_calculation.results import MetricResultStore
 from products.experiments.backend.metric_validation import event_last_seen, metric_nodes
 from products.experiments.backend.models.experiment import Experiment, ExperimentMetricResult
-from products.experiments.backend.recalculation import get_latest_recalculation
+from products.experiments.backend.recalculation.runs import get_latest_recalculation
 from products.experiments.backend.temporal.models import RECALCULATION_WINDOW_TOO_LONG_ERROR_TYPE
 
 # The calculation doesn't apply the reader's warehouse access, so the names that HogQL suggests in its message can name

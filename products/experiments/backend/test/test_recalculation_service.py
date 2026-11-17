@@ -29,19 +29,20 @@ from products.experiments.backend.models.experiment import (
     ExperimentSavedMetric,
     ExperimentToSavedMetric,
 )
-from products.experiments.backend.recalculation import (
+from products.experiments.backend.recalculation.admission import (
     RECALCULATION_AGE_LIMIT_FEATURE_FLAG,
     RECALCULATION_WINDOW_TOO_LONG_MESSAGE,
     RecalculationRateLimited,
-    build_timeseries_cold_start_payload,
     exceeds_recalculation_age_limit,
-    get_active_recalculation,
-    get_latest_recalculation,
-    get_live_query_progress,
-    get_recalculation_by_id,
-    get_run_results,
     request_recalculation,
     request_recalculation_without_age_limit,
+)
+from products.experiments.backend.recalculation.payloads import build_timeseries_cold_start_payload, get_run_results
+from products.experiments.backend.recalculation.query_progress import get_live_query_progress
+from products.experiments.backend.recalculation.runs import (
+    get_active_recalculation,
+    get_latest_recalculation,
+    get_recalculation_by_id,
 )
 from products.experiments.backend.test.utils import patch_calculation_key_version
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
@@ -62,7 +63,6 @@ def _calculation_key(experiment: Experiment, metric_uuid: str) -> str:
     return calculation_config.calculation_key()
 
 
-_RECALCULATION_MODULE = "products.experiments.backend.recalculation"
 _DISPATCH_MODULE = "products.experiments.backend.temporal.recalculation.dispatch"
 
 
@@ -329,9 +329,9 @@ class TestRecalculationService(BaseTest):
             patch(
                 "products.experiments.backend.organization_flags.feature_enabled_or_false", side_effect=evaluate_flag
             ),
-            patch("products.experiments.backend.recalculation.posthoganalytics.capture") as mock_capture,
+            patch("products.experiments.backend.recalculation.admission.posthoganalytics.capture") as mock_capture,
             patch(f"{_DISPATCH_MODULE}._describe_recalculation_workflow", new=_describe(_workflow_not_found())),
-            patch("products.experiments.backend.recalculation.cancel_superseded_workflows") as mock_cancel,
+            patch("products.experiments.backend.recalculation.admission.cancel_superseded_workflows") as mock_cancel,
             self.captureOnCommitCallbacks(execute=True),
         ):
             over_limit = exceeds_recalculation_age_limit(exp)
@@ -421,7 +421,7 @@ class TestRecalculationService(BaseTest):
                 f"{_DISPATCH_MODULE}._describe_recalculation_workflow", new=_describe(describe_outcome)
             ) as mock_describe,
             patch(f"{_DISPATCH_MODULE}.capture_exception") as mock_capture_exception,
-            patch("products.experiments.backend.recalculation.cancel_superseded_workflows") as mock_cancel,
+            patch("products.experiments.backend.recalculation.admission.cancel_superseded_workflows") as mock_cancel,
             self.captureOnCommitCallbacks(execute=True),
         ):
             result = request_recalculation(exp, self.user, "manual")
@@ -860,7 +860,7 @@ class TestLiveQueryProgress(BaseTest):
     def test_returns_none_without_querying_clickhouse_when_not_in_progress(self, status: str):
         recalc = self._recalc(status)
         with team_scope(self.team.id, canonical=True):
-            with patch("products.experiments.backend.recalculation.sync_execute") as mock_execute:
+            with patch("products.experiments.backend.recalculation.query_progress.sync_execute") as mock_execute:
                 assert get_live_query_progress(recalc) is None
         mock_execute.assert_not_called()
 
@@ -869,7 +869,7 @@ class TestLiveQueryProgress(BaseTest):
         # is the fail-closed backstop against a caller passing a row from a different team than the request scope.
         recalc = self._recalc("in_progress")
         with team_scope(self.team.id + 1, canonical=True):
-            with patch("products.experiments.backend.recalculation.sync_execute") as mock_execute:
+            with patch("products.experiments.backend.recalculation.query_progress.sync_execute") as mock_execute:
                 assert get_live_query_progress(recalc) is None
         mock_execute.assert_not_called()
 
@@ -877,7 +877,7 @@ class TestLiveQueryProgress(BaseTest):
         recalc = self._recalc("in_progress")
         with team_scope(self.team.id, canonical=True):
             with patch(
-                "products.experiments.backend.recalculation.sync_execute",
+                "products.experiments.backend.recalculation.query_progress.sync_execute",
                 return_value=[(1_284_512, 9_800_000)],
             ):
                 progress = get_live_query_progress(recalc)
@@ -892,7 +892,7 @@ class TestLiveQueryProgress(BaseTest):
         recalc = self._recalc("in_progress")
         with team_scope(self.team.id, canonical=True):
             with patch(
-                "products.experiments.backend.recalculation.sync_execute",
+                "products.experiments.backend.recalculation.query_progress.sync_execute",
                 return_value=[(0, 0)],
             ):
                 progress = get_live_query_progress(recalc)
@@ -907,7 +907,7 @@ class TestLiveQueryProgress(BaseTest):
         recalc = self._recalc("in_progress")
         with team_scope(self.team.id, canonical=True):
             with patch(
-                "products.experiments.backend.recalculation.sync_execute",
+                "products.experiments.backend.recalculation.query_progress.sync_execute",
                 side_effect=Exception("clusterAllReplicas unavailable"),
             ):
                 assert get_live_query_progress(recalc) is None

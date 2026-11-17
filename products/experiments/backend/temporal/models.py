@@ -79,7 +79,7 @@ METRIC_CALC_ACTIVITY_TIMEOUT_SECONDS = 300
 
 # Total budget for one metric across all its attempts and retry delays, queue wait included (the calc
 # activity's schedule_to_close_timeout). It keeps the IN_PROGRESS phase (this budget, the failure backstop and
-# the finish step) below the staleness TTL in recalculation.py, so a slow but healthy run is never treated as
+# the finish step) below the staleness TTL in recalculation/runs.py, so a slow but healthy run is never treated as
 # stale. The budget ends a metric before MAX_METRIC_ATTEMPTS when its attempts are slow. Only a calc on the
 # workflow's own queue gets it. A calc on the activity or precompute queue waits for a slot with no total budget,
 # so its run can outlast the staleness TTL.

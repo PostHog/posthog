@@ -20,7 +20,7 @@ from products.experiments.backend.models.experiment import (
     ExperimentMetricResult,
     ExperimentMetricsRecalculation,
 )
-from products.experiments.backend.recalculation import request_recalculation
+from products.experiments.backend.recalculation.admission import request_recalculation
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 
@@ -82,7 +82,7 @@ def test_superseded_result_cannot_overwrite_a_replacement_during_commit(
             connections.close_all()
 
     with (
-        patch("products.experiments.backend.recalculation.cancel_superseded_workflows"),
+        patch("products.experiments.backend.recalculation.admission.cancel_superseded_workflows"),
         ThreadPoolExecutor(max_workers=1) as executor,
     ):
         with transaction.atomic():

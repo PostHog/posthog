@@ -92,7 +92,7 @@ async def _describe_recalculation_workflow(recalculation_id: str) -> WorkflowExe
 
 
 def workflow_may_still_run(recalculation_id: str) -> bool:
-    """Whether the workflow of an active row past _STALE_RECALC_THRESHOLD can still finish it.
+    """Whether the workflow of an active row past STALE_RECALC_THRESHOLD can still finish it.
 
     A calc that waits on the activity or precompute queue has no time budget, so age alone does not prove that a
     run is dead. Only a closed or missing workflow does. An unknown state keeps the row, because failing it would

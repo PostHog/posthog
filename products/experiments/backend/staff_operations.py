@@ -35,11 +35,9 @@ from products.experiments.backend.models.experiment import (
     ExperimentMetricsRecalculation,
     ExperimentSavedMetric,
 )
-from products.experiments.backend.recalculation import (
-    _derive_counters,
-    get_latest_recalculation,
-    request_recalculation_without_age_limit,
-)
+from products.experiments.backend.recalculation.admission import request_recalculation_without_age_limit
+from products.experiments.backend.recalculation.payloads import derive_counters
+from products.experiments.backend.recalculation.runs import get_latest_recalculation
 from products.experiments.backend.temporal.recalculation.dispatch import (
     cancel_recalculation_workflow,
     metrics_recalculation_workflow_id,
@@ -240,7 +238,9 @@ def _to_staff_recalculation(recalc: ExperimentMetricsRecalculation, *, with_resu
     failures: list[StaffRecalculationFailure] = []
     if with_results:
         results = _run_result_statuses(recalc)
-        completed_metrics, failed_metrics = _derive_counters(recalc, results=results)
+        counters = derive_counters(recalc, results=results)
+        completed_metrics = counters.completed_metrics
+        failed_metrics = counters.failed_metrics
         failures = _resolve_failures(recalc, results)
     return StaffRecalculation(
         id=str(recalc.id),
