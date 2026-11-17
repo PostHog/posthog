@@ -23,7 +23,7 @@ from products.data_warehouse.backend.direct_snowflake import (
 )
 from products.warehouse_sources.backend.facade.models import (
     ExternalDataSource,
-    get_live_schemas_with_tables,
+    get_undeleted_schemas_with_tables,
     persist_schema_metadata,
     snowflake_column_to_dwh_column,
     snowflake_columns_to_dwh_columns,
@@ -189,7 +189,7 @@ def reconcile_snowflake_schemas(
     source_schema_names = [s.name for s in source_schemas]
     default_catalog = get_default_snowflake_catalog(source)
     default_schema = get_default_snowflake_schema(source)
-    schema_models = {s.name: s for s in get_live_schemas_with_tables(source.id, team_id)}
+    schema_models = {s.name: s for s in get_undeleted_schemas_with_tables(source.id, team_id)}
 
     schema_models_by_location: dict[SnowflakeSourceLocation, ExternalDataSchema] = {}
     for schema_model in schema_models.values():

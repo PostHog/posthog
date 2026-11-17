@@ -25,7 +25,7 @@ from products.data_warehouse.backend.direct_mysql import (
 )
 from products.warehouse_sources.backend.facade.models import (
     ExternalDataSource,
-    get_live_schemas_with_tables,
+    get_undeleted_schemas_with_tables,
     mysql_column_to_dwh_column,
     mysql_columns_to_dwh_columns,
     persist_schema_metadata,
@@ -140,7 +140,7 @@ def reconcile_mysql_schemas(
     is_direct = source.is_direct_query
     source_schema_names = [s.name for s in source_schemas]
     default_schema = get_default_mysql_schema(source)
-    schema_models = {s.name: s for s in get_live_schemas_with_tables(source.id, team_id)}
+    schema_models = {s.name: s for s in get_undeleted_schemas_with_tables(source.id, team_id)}
 
     # Location-indexed fallback so unqualified legacy rows still resolve to their qualified
     # discovered counterparts on every refresh.

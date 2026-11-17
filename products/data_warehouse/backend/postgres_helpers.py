@@ -24,7 +24,7 @@ from products.data_warehouse.backend.direct_postgres import (
 )
 from products.warehouse_sources.backend.facade.models import (
     ExternalDataSource,
-    get_live_schemas_with_tables,
+    get_undeleted_schemas_with_tables,
     persist_schema_metadata,
     postgres_column_to_dwh_column,
     postgres_columns_to_dwh_columns,
@@ -170,7 +170,7 @@ def reconcile_postgres_schemas(
     is_direct = source.is_direct_query
     source_schema_names = [s.name for s in source_schemas]
     default_schema = SourceInputsStore.load_settings(source).get("schema")
-    schema_models = {s.name: s for s in get_live_schemas_with_tables(source.id, team_id)}
+    schema_models = {s.name: s for s in get_undeleted_schemas_with_tables(source.id, team_id)}
 
     # Location-indexed fallback so unqualified legacy rows still resolve to their qualified
     # discovered counterparts on every refresh.

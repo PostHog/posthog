@@ -2450,7 +2450,7 @@ class DirectSchemaReconciliation:
     stale_schemas: list[ExternalDataSchema]
 
 
-def get_live_schemas_with_tables(source_id: str | uuid.UUID, team_id: int) -> list[ExternalDataSchema]:
+def get_undeleted_schemas_with_tables(source_id: str | uuid.UUID, team_id: int) -> list[ExternalDataSchema]:
     """A source's schemas that are not deleted, with their linked table loaded in the same query."""
     return list(
         ExternalDataSchema.objects.filter(team_id=team_id, source_id=source_id, deleted=False).select_related("table")
