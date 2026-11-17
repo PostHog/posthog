@@ -3140,6 +3140,7 @@ class TestOAuthAccessTokenAuthentication(APIBaseTest):
             user_id=self.user.pk,
             team_id=self.team.pk,
             access_method="oauth",
+            oauth_application_id=self.oauth_app.id,
         )
 
     def test_authenticate_header_returns_correct_value(self):
@@ -3249,6 +3250,7 @@ class TestOAuthAccessTokenAuthentication(APIBaseTest):
                 user_id=self.user.pk,
                 team_id=self.user.current_team_id,
                 access_method="oauth",
+                oauth_application_id=self.oauth_app.id,
             )
 
     def test_authenticate_without_pha_prefix_returns_none(self):

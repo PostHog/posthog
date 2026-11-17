@@ -95,7 +95,17 @@ def _record(request: HttpRequest, *, scope: CurrentAliasScope, route: str, statu
     if not distinct_id:
         return
     api_key_mask = get_query_tag_value("api_key_mask")
-    dedupe_parts = (distinct_id, scope.value, route, method, access_method, token_in_query, api_key_mask)
+    oauth_application_id = get_query_tag_value("oauth_application_id")
+    dedupe_parts = (
+        distinct_id,
+        scope.value,
+        route,
+        method,
+        access_method,
+        token_in_query,
+        api_key_mask,
+        oauth_application_id,
+    )
     dedupe_key = "current_alias_use:" + hashlib.sha256(repr(dedupe_parts).encode()).hexdigest()
     if not dedupe_cache.add(dedupe_key, True, timeout=ATTRIBUTION_DEDUPE_SECONDS):
         return
@@ -126,6 +136,7 @@ def _record(request: HttpRequest, *, scope: CurrentAliasScope, route: str, statu
             "token_in_query": token_in_query,
             "api_key_mask": api_key_mask,
             "api_key_label": get_query_tag_value("api_key_label"),
+            "oauth_application_id": str(oauth_application_id) if oauth_application_id else None,
             "origin": sanitize_header_value(request.headers.get("Origin")),
             "team_id": team_id,
         },

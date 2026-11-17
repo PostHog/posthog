@@ -428,6 +428,7 @@ class QueryTags(BaseModel):
     access_method: Optional[AccessMethod] = None
     api_key_mask: Optional[str] = None
     api_key_label: Optional[str] = None
+    oauth_application_id: Optional[uuid.UUID] = None
     org_id: Optional[uuid.UUID] = None
     product: Optional[Product | ProductKey] = None
 
@@ -753,6 +754,7 @@ def tag_authentication(
     user_id: int | None = None,
     api_key_mask: str | None = None,
     api_key_label: str | None = None,
+    oauth_application_id: uuid.UUID | None = None,
 ) -> None:
     """Single funnel for authenticator query tagging — add new auth tags here, not in each authenticator."""
     tag_queries(
@@ -761,6 +763,7 @@ def tag_authentication(
         access_method=access_method,
         api_key_mask=api_key_mask,
         api_key_label=api_key_label,
+        oauth_application_id=oauth_application_id,
     )
 
 
