@@ -170,6 +170,7 @@ class TestSdkVersionsFromRollup(ClickhouseTestMixin, BaseTest):
         call_in_flag_evaluations: bool,
         use_json_events: bool,
     ) -> None:
+        self.enterContext(override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=use_json_events))
         OrganizationFeatureFlagsConfig.objects.update_or_create(
             organization=self.organization, defaults={"flag_evaluations_mode": mode}
         )
@@ -187,8 +188,7 @@ class TestSdkVersionsFromRollup(ClickhouseTestMixin, BaseTest):
         if call_in_flag_evaluations:
             _create_flag_evaluations(self.team.id, "beta", timestamp=now, properties=sdk)
 
-        with override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=use_json_events):
-            result = get_sdk_versions_for_team(self.team.id)
+        result = get_sdk_versions_for_team(self.team.id)
 
         assert result is not None
         assert {

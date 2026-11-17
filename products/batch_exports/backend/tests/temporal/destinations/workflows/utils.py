@@ -129,8 +129,8 @@ async def assert_clickhouse_records_were_handled(
 
     for record in handled_records + expected_records:
         for column in ("properties", "person_properties"):
-            if record.get(column):
-                record[column] = json.loads(record[column])
+            if record.get(column) is not None:
+                record[column] = json.loads(record[column] or "{}")
 
     assert produced_column_names == expected_column_names, (
         f"Expected column names to be '{expected_column_names}', got '{produced_column_names}'"
