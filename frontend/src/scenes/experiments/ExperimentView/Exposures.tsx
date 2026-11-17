@@ -4,14 +4,17 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { IconCheckCircle, IconCorrelationAnalysis, IconInfo, IconPencil, IconWarning } from '@posthog/icons'
 import { LemonButton, LemonTable, LemonTag, Spinner, Tooltip } from '@posthog/lemon-ui'
 import {
+    DefaultTooltip,
     LineChart,
     type LineChartConfig,
     TimeSeriesLineChart,
     type TimeSeriesLineChartConfig,
+    type TooltipContext,
 } from '@posthog/quill-charts'
 
 import { useChartConfig, useChartTheme } from 'lib/charts/hooks'
-import { humanFriendlyLargeNumber, humanFriendlyNumber } from 'lib/utils/numbers'
+import { dayjs } from 'lib/dayjs'
+import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { ExperimentExposureQueryResponse } from '~/queries/schema/schema-general'
@@ -96,6 +99,21 @@ interface ExposuresChartProps {
     exposures: ExperimentExposureQueryResponse
 }
 
+function ExposuresTooltip({ context }: { context: TooltipContext }): JSX.Element {
+    const total = context.seriesData.reduce((sum, { value }) => sum + value, 0)
+    return (
+        <DefaultTooltip
+            {...context}
+            labelFormatter={(label) => dayjs(label).format('ddd, MMM D, YYYY')}
+            valueFormatter={(value) =>
+                total > 0
+                    ? `${humanFriendlyNumber(value)} (${((value / total) * 100).toFixed(1)}%)`
+                    : humanFriendlyNumber(value)
+            }
+        />
+    )
+}
+
 function ExposuresChart({ exposures }: ExposuresChartProps): JSX.Element {
     const { timezone } = useValues(teamLogic)
     const theme = useChartTheme()
@@ -107,7 +125,13 @@ function ExposuresChart({ exposures }: ExposuresChartProps): JSX.Element {
 
     return (
         <div className="relative h-[200px] flex flex-col">
-            <TimeSeriesLineChart series={series} labels={labels} theme={theme} config={config} />
+            <TimeSeriesLineChart
+                series={series}
+                labels={labels}
+                theme={theme}
+                config={config}
+                tooltip={(context) => <ExposuresTooltip context={context} />}
+            />
         </div>
     )
 }
@@ -170,18 +194,20 @@ export function Exposures(): JSX.Element {
                         <IconInfo className="text-secondary text-base" />
                     </Tooltip>
                 </span>
-                {!isExperimentDraft && !exposuresLoading && (
-                    <span>
-                        {totalExposures > 100000
-                            ? humanFriendlyLargeNumber(totalExposures)
-                            : humanFriendlyNumber(totalExposures)}
-                    </span>
-                )}
                 {experiment.holdout && (
                     <Tooltip title="Users held out of this experiment and not included in analysis.">
                         <LemonTag type="option">{experiment.holdout.name}</LemonTag>
                     </Tooltip>
                 )}
+                <LemonButton
+                    type="tertiary"
+                    size="xsmall"
+                    className="ml-auto"
+                    tooltip={getExposureCriteriaLabel(exposureCriteria, resolvedExposureEvent)}
+                    onClick={() => openExposureCriteriaModal(exposureCriteria)}
+                >
+                    Exposure criteria
+                </LemonButton>
             </div>
             <div className="space-y-4">
                 {/* Chart Section */}
@@ -231,25 +257,8 @@ export function Exposures(): JSX.Element {
                     <ExposuresChart exposures={exposures} />
                 )}
 
-                {/* Exposure Criteria Section */}
-                <div className="mb-4">
-                    <h3 className="card-secondary">Exposure criteria</h3>
-                    <div className="flex items-center gap-2">
-                        <div className="text-sm font-semibold">
-                            {getExposureCriteriaLabel(exposureCriteria, resolvedExposureEvent)}
-                        </div>
-                        <LemonButton
-                            icon={<IconPencil fontSize="12" />}
-                            size="xsmall"
-                            className="flex items-center gap-2"
-                            type="secondary"
-                            onClick={() => openExposureCriteriaModal(exposureCriteria)}
-                        />
-                    </div>
-                </div>
                 {(exposures?.timeseries?.length ?? 0) > 0 && (
                     <div>
-                        <h3 className="card-secondary">Total exposures</h3>
                         <LemonTable
                             rowClassName={(series) => (series.isExcluded || series.isHoldout ? 'opacity-60' : '')}
                             dataSource={[
