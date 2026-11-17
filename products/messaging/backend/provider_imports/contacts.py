@@ -95,7 +95,10 @@ class ContactCollector:
             row = self._rows[address.lower()] = {"email": address}
             self._bytes += _row_bytes(row)
         elif address != row["email"]:
-            self._spellings.setdefault(address.lower(), {row["email"]}).add(address)
+            spellings = self._spellings.setdefault(address.lower(), {row["email"]})
+            if address not in spellings:
+                spellings.add(address)
+                self._bytes += len(address.encode())
         self._bytes += _add_properties(row, properties)
         if self._bytes > MAX_CONTACT_BYTES:
             raise ImportTooLarge(TOO_MANY_CONTACTS_MESSAGE)
@@ -106,13 +109,9 @@ class ContactCollector:
         return tuple(self._rows.values())
 
     @property
-    def other_spellings(self) -> dict[str, tuple[str, ...]]:
-        """Each spelling of an address the provider spelled more than one way, with its other spellings."""
-        return {
-            spelling: tuple(sorted(spellings - {spelling}))
-            for spellings in self._spellings.values()
-            for spelling in spellings
-        }
+    def other_spellings(self) -> tuple[str, ...]:
+        """Every spelling of each address the provider spelled more than one way."""
+        return tuple(sorted(spelling for spellings in self._spellings.values() for spelling in spellings))
 
 
 def _add_properties(row: dict[str, str], properties: Mapping[str, Any]) -> int:
@@ -149,7 +148,7 @@ def save_contact_lists(
     context: ImportContext,
     everyone: ContactList,
     lists: Iterable[ContactList],
-    other_spellings: Mapping[str, Iterable[str]] | None = None,
+    other_spellings: Iterable[str] = (),
 ) -> SavedPage:
     """Import `everyone` as people, then fill a cohort for each of `lists`, whose contacts are all in `everyone`.
 
@@ -162,7 +161,7 @@ def save_contact_lists(
     # A send matches an opt-out by exact address, and the person may spell it differently from the provider.
     carry_opt_outs(
         context.team_id,
-        [*(row["email"] for row in everyone.rows), *(other_spellings or {}), *result.person_emails],
+        [*(row["email"] for row in everyone.rows), *other_spellings, *result.person_emails],
         context.created_by_id,
     )
     notes = _notes(everyone, result)

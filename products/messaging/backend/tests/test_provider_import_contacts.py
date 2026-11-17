@@ -28,10 +28,7 @@ class TestContactCollector(SimpleTestCase):
 
         assert merged is row
         assert row is not None and row["plan"] == "pro"
-        assert collector.other_spellings == {
-            "ada@example.com": ("ADA@example.com",),
-            "ADA@example.com": ("ada@example.com",),
-        }
+        assert collector.other_spellings == ("ADA@example.com", "ada@example.com")
         assert len(json.dumps(row).encode()) <= MAX_PEOPLE_IMPORT_ROW_BYTES
 
     def test_too_much_contact_data_stops_the_step_for_good(self) -> None:
@@ -40,3 +37,11 @@ class TestContactCollector(SimpleTestCase):
         with patch.object(contacts, "MAX_CONTACT_BYTES", 10_000), self.assertRaises(ImportTooLarge):
             for i in range(100):
                 collector.add(f"person{i}@example.com", {"bio": "z" * 500})
+
+    def test_spellings_of_one_address_count_toward_the_limit(self) -> None:
+        collector = ContactCollector()
+        spellings = ("".join(c.upper() if (n >> i) & 1 else c for i, c in enumerate("abcdefghij")) for n in range(1024))
+
+        with patch.object(contacts, "MAX_CONTACT_BYTES", 5_000), self.assertRaises(ImportTooLarge):
+            for local in spellings:
+                collector.add(f"{local}@example.com", {})
