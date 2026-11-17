@@ -9,7 +9,6 @@ import structlog
 
 from posthog.dataclasses import frozen
 
-from products.error_tracking.backend.logic.issue_summary_config import ISSUE_SUMMARY_FLAG
 from products.error_tracking.backend.logic.team_flags import team_flag_enabled
 from products.error_tracking.backend.models import ErrorTrackingSettings
 
@@ -27,9 +26,6 @@ class AIFeatureBlock(StrEnum):
 class AIFeature:
     flag: str
     settings_field: str
-
-
-ISSUE_SUMMARIES = AIFeature(flag=ISSUE_SUMMARY_FLAG, settings_field="ai_issue_summaries_enabled")
 
 
 def ai_feature_blocked(feature: AIFeature, team_id: int) -> AIFeatureBlock | None:

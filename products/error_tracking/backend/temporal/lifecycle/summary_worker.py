@@ -42,7 +42,7 @@ def generate_summary_on_worker(
     from products.error_tracking.backend.logic.issue_summaries import (  # noqa: PLC0415
         IssueSummaryOutcome,
         gate_generation,
-        report_worker_busy,
+        record_outcome,
     )
 
     # Checked outside the generator, which reports every attempt as an event, and before a slot is taken, so a
@@ -52,7 +52,7 @@ def generate_summary_on_worker(
     # Skip instead of wait, because a waiting activity still holds its slot. The issue then gets no summary.
     if not ISSUE_SUMMARY_WORKER_SLOTS.acquire(blocking=False):
         logger.warning("error_tracking_issue_summary_worker_busy", team_id=team_id, issue_id=issue_id, trigger=trigger)
-        report_worker_busy(team_id, issue_id, trigger)
+        record_outcome(team_id, issue_id, trigger, IssueSummaryOutcome.RATE_LIMITED)
         return IssueSummaryOutcome.RATE_LIMITED
     try:
         return generate().outcome
