@@ -1,3 +1,5 @@
+import { MOCK_SECOND_BASIC_USER } from 'lib/api.mock'
+
 import type { Meta, StoryObj } from '@storybook/react'
 import { useActions } from 'kea'
 import { HttpResponse } from 'msw'
@@ -363,6 +365,7 @@ export const ReportClaimedByTeammate: Story = {
 }
 
 const NOTES_REPORT_ID = reportTabReports[0].id
+const NOTES_ROLE_ID = '0190f3a1-7d2e-7c41-9a3b-5e6f7a8b9c0d'
 
 // The active note is still listed; the retired one is gone from the list, so its entry reads inactive.
 const reportNotesMocks = mswDecorator({
@@ -384,6 +387,10 @@ const reportNotesMocks = mswDecorator({
         '/api/projects/:id/signals/scout/configs/': () => [
             200,
             [{ id: 'config-checkout', skill_name: 'signals-scout-checkout', display_name: 'Checkout watcher' }],
+        ],
+        '/api/organizations/:organization_id/roles/': () => [
+            200,
+            { results: [{ id: NOTES_ROLE_ID, name: 'Checkout team', members: [] }], count: 1 },
         ],
     },
 })
@@ -414,7 +421,9 @@ const noteArtefacts: SignalReportArtefact[] = [
     {
         id: 'artefact-note',
         type: 'note',
-        content: { note: 'Support confirmed two more customers hit this on Monday.' },
+        content: {
+            note: `Support confirmed two more customers hit this on Monday. @member:${MOCK_SECOND_BASIC_USER.id} @role:${NOTES_ROLE_ID} can you take a look?`,
+        },
         created_at: '2026-06-08T09:00:00Z',
         created_by: NOTE_AUTHOR,
         actor_kind: 'user',
@@ -431,6 +440,9 @@ const noteArtefacts: SignalReportArtefact[] = [
 
 // The notes under the report body. The agent's note stays out of the list, and the retired note reads inactive.
 export const ReportNotes: Story = {
+    parameters: {
+        featureFlags: { ...meta.parameters?.featureFlags, [FEATURE_FLAGS.SIGNALS_REPORT_NOTE_MENTIONS]: true },
+    },
     decorators: [
         reportNotesMocks,
         mswDecorator({

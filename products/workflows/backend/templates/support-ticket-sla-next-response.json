@@ -1,0 +1,451 @@
+{
+    "id": "01a1352a-0c41-0000-c7a0-1d5e93b8f4e2",
+    "name": "Ticket SLA: set next response time when the customer replies",
+    "description": "When a customer replies on a ticket, set how soon your team should reply next. The deadline depends on the customer's plan. If the ticket already has a sooner deadline, or one that has passed, that one is kept, so more messages from the customer never push a deadline back. Working hours are Monday to Friday, 9:00-17:00 UTC: change them in each Set SLA step. Works with the Ticket SLA first response, follow-up, pause and reopened templates.",
+    "scope": "global",
+    "tags": ["support", "support SLAs"],
+    "version": 1,
+    "created_at": "2026-10-13T00:00:00Z",
+    "created_by": null,
+    "updated_at": "2026-10-13T00:00:00Z",
+    "trigger": {
+        "type": "event",
+        "filters": {
+            "source": "events",
+            "events": [
+                {
+                    "id": "$conversation_message_received",
+                    "name": "$conversation_message_received",
+                    "type": "events",
+                    "order": 0
+                }
+            ],
+            "filter_test_accounts": false
+        }
+    },
+    "trigger_masking": {
+        "hash": "{event.properties.ticket_id}",
+        "ttl": 60,
+        "threshold": null
+    },
+    "conversion": null,
+    "exit_condition": "exit_only_at_end",
+    "edges": [
+        {
+            "from": "trigger_node",
+            "to": "get_ticket",
+            "type": "continue"
+        },
+        {
+            "from": "get_ticket",
+            "to": "is_new",
+            "type": "continue"
+        },
+        {
+            "from": "is_new",
+            "to": "exit_node",
+            "type": "branch",
+            "index": 0
+        },
+        {
+            "from": "is_new",
+            "to": "is_breached",
+            "type": "continue"
+        },
+        {
+            "from": "is_breached",
+            "to": "exit_node",
+            "type": "branch",
+            "index": 0
+        },
+        {
+            "from": "is_breached",
+            "to": "tier",
+            "type": "continue"
+        },
+        {
+            "from": "tier",
+            "to": "sla_tier_1",
+            "type": "branch",
+            "index": 0
+        },
+        {
+            "from": "tier",
+            "to": "sla_tier_2",
+            "type": "branch",
+            "index": 1
+        },
+        {
+            "from": "tier",
+            "to": "sla_default",
+            "type": "continue"
+        },
+        {
+            "from": "sla_tier_1",
+            "to": "check_new_deadline",
+            "type": "continue"
+        },
+        {
+            "from": "sla_tier_2",
+            "to": "check_new_deadline",
+            "type": "continue"
+        },
+        {
+            "from": "sla_default",
+            "to": "check_new_deadline",
+            "type": "continue"
+        },
+        {
+            "from": "check_new_deadline",
+            "to": "was_sooner",
+            "type": "continue"
+        },
+        {
+            "from": "was_sooner",
+            "to": "restore_deadline",
+            "type": "branch",
+            "index": 0
+        },
+        {
+            "from": "was_sooner",
+            "to": "exit_node",
+            "type": "continue"
+        },
+        {
+            "from": "restore_deadline",
+            "to": "exit_node",
+            "type": "continue"
+        }
+    ],
+    "actions": [
+        {
+            "id": "trigger_node",
+            "name": "Customer replies",
+            "description": "Runs when a customer sends a message on a ticket. Starts at most once per ticket per minute, so quick follow-up messages don't overlap.",
+            "type": "trigger",
+            "on_error": null,
+            "filters": null,
+            "config": {
+                "type": "event",
+                "filters": {
+                    "source": "events",
+                    "events": [
+                        {
+                            "id": "$conversation_message_received",
+                            "name": "$conversation_message_received",
+                            "type": "events",
+                            "order": 0
+                        }
+                    ],
+                    "filter_test_accounts": false
+                }
+            },
+            "output_variable": null
+        },
+        {
+            "id": "get_ticket",
+            "name": "Get ticket",
+            "description": "Load the ticket's current status and deadline.",
+            "type": "function",
+            "on_error": "abort",
+            "filters": null,
+            "config": {
+                "template_id": "template-posthog-get-ticket",
+                "inputs": {
+                    "ticket_id": {
+                        "value": "{event.properties.ticket_id}",
+                        "templating": "hog"
+                    }
+                }
+            },
+            "output_variable": {
+                "key": "ticket"
+            }
+        },
+        {
+            "id": "is_new",
+            "name": "Still waiting for a first reply?",
+            "description": "New tickets already have a first response SLA, so leave it alone.",
+            "type": "conditional_branch",
+            "on_error": null,
+            "filters": null,
+            "config": {
+                "conditions": [
+                    {
+                        "name": "Ticket is new",
+                        "filters": {
+                            "source": "events",
+                            "properties": [
+                                {
+                                    "key": "variables.ticket.status = 'new'",
+                                    "type": "hogql",
+                                    "value": null
+                                }
+                            ]
+                        }
+                    }
+                ]
+            },
+            "output_variable": null
+        },
+        {
+            "id": "is_breached",
+            "name": "Deadline already passed?",
+            "description": "If the current deadline has already passed, keep it, so the breach stays visible.",
+            "type": "conditional_branch",
+            "on_error": null,
+            "filters": null,
+            "config": {
+                "conditions": [
+                    {
+                        "name": "Deadline passed",
+                        "filters": {
+                            "source": "events",
+                            "properties": [
+                                {
+                                    "key": "variables.ticket.sla is not null and toDateTime(variables.ticket.sla) <= now()",
+                                    "type": "hogql",
+                                    "value": null
+                                }
+                            ]
+                        }
+                    }
+                ]
+            },
+            "output_variable": null
+        },
+        {
+            "id": "tier",
+            "name": "Which plan is the customer on?",
+            "description": "Example tiers using the person property 'plan'. Change the property and values to match your plans, or pick a group property to tier by company. Tickets that match no tier get the default SLA.",
+            "type": "conditional_branch",
+            "on_error": null,
+            "filters": null,
+            "config": {
+                "conditions": [
+                    {
+                        "name": "Enterprise",
+                        "filters": {
+                            "source": "events",
+                            "properties": [
+                                {
+                                    "key": "plan",
+                                    "type": "person",
+                                    "value": ["enterprise"],
+                                    "operator": "exact"
+                                }
+                            ]
+                        }
+                    },
+                    {
+                        "name": "Pro",
+                        "filters": {
+                            "source": "events",
+                            "properties": [
+                                {
+                                    "key": "plan",
+                                    "type": "person",
+                                    "value": ["pro"],
+                                    "operator": "exact"
+                                }
+                            ]
+                        }
+                    }
+                ]
+            },
+            "output_variable": null
+        },
+        {
+            "id": "sla_tier_1",
+            "name": "Set SLA: 4 working hours",
+            "description": "Enterprise: next reply due within 4 working hours. Set your working hours and timezone here.",
+            "type": "function",
+            "on_error": null,
+            "filters": null,
+            "config": {
+                "template_id": "template-posthog-update-ticket",
+                "inputs": {
+                    "ticket_id": {
+                        "value": "{event.properties.ticket_id}",
+                        "templating": "hog"
+                    },
+                    "sla_amount": {
+                        "value": "4",
+                        "templating": "hog"
+                    },
+                    "sla_unit": {
+                        "value": "hour",
+                        "templating": "hog"
+                    },
+                    "sla_business_hours": {
+                        "value": {
+                            "days": ["monday", "tuesday", "wednesday", "thursday", "friday"],
+                            "time": ["09:00", "17:00"],
+                            "timezone": "UTC"
+                        },
+                        "templating": "hog"
+                    }
+                }
+            },
+            "output_variable": null
+        },
+        {
+            "id": "sla_tier_2",
+            "name": "Set SLA: 1 working day",
+            "description": "Pro: next reply due within 8 working hours (1 working day at 9:00-17:00). Set your working hours and timezone here.",
+            "type": "function",
+            "on_error": null,
+            "filters": null,
+            "config": {
+                "template_id": "template-posthog-update-ticket",
+                "inputs": {
+                    "ticket_id": {
+                        "value": "{event.properties.ticket_id}",
+                        "templating": "hog"
+                    },
+                    "sla_amount": {
+                        "value": "8",
+                        "templating": "hog"
+                    },
+                    "sla_unit": {
+                        "value": "hour",
+                        "templating": "hog"
+                    },
+                    "sla_business_hours": {
+                        "value": {
+                            "days": ["monday", "tuesday", "wednesday", "thursday", "friday"],
+                            "time": ["09:00", "17:00"],
+                            "timezone": "UTC"
+                        },
+                        "templating": "hog"
+                    }
+                }
+            },
+            "output_variable": null
+        },
+        {
+            "id": "sla_default",
+            "name": "Set SLA: 2 working days",
+            "description": "Everyone else: next reply due within 16 working hours (2 working days at 9:00-17:00). Set your working hours and timezone here.",
+            "type": "function",
+            "on_error": null,
+            "filters": null,
+            "config": {
+                "template_id": "template-posthog-update-ticket",
+                "inputs": {
+                    "ticket_id": {
+                        "value": "{event.properties.ticket_id}",
+                        "templating": "hog"
+                    },
+                    "sla_amount": {
+                        "value": "16",
+                        "templating": "hog"
+                    },
+                    "sla_unit": {
+                        "value": "hour",
+                        "templating": "hog"
+                    },
+                    "sla_business_hours": {
+                        "value": {
+                            "days": ["monday", "tuesday", "wednesday", "thursday", "friday"],
+                            "time": ["09:00", "17:00"],
+                            "timezone": "UTC"
+                        },
+                        "templating": "hog"
+                    }
+                }
+            },
+            "output_variable": null
+        },
+        {
+            "id": "check_new_deadline",
+            "name": "Check the new deadline",
+            "description": "Loads the deadline that was just set, to compare it with the one the ticket had before.",
+            "type": "function",
+            "on_error": "abort",
+            "filters": null,
+            "config": {
+                "template_id": "template-posthog-get-ticket",
+                "inputs": {
+                    "ticket_id": {
+                        "value": "{event.properties.ticket_id}",
+                        "templating": "hog"
+                    }
+                }
+            },
+            "output_variable": [
+                {
+                    "key": "new_deadline",
+                    "result_path": "sla"
+                }
+            ]
+        },
+        {
+            "id": "was_sooner",
+            "name": "Was the earlier deadline sooner?",
+            "description": "Keeps whichever deadline is sooner, so a follow-up deadline is only replaced if the new reply deadline is sooner.",
+            "type": "conditional_branch",
+            "on_error": null,
+            "filters": null,
+            "config": {
+                "conditions": [
+                    {
+                        "name": "Earlier deadline was sooner",
+                        "filters": {
+                            "source": "events",
+                            "properties": [
+                                {
+                                    "key": "variables.ticket.sla is not null and toDateTime(variables.ticket.sla) < toDateTime(variables.new_deadline)",
+                                    "type": "hogql",
+                                    "value": null
+                                }
+                            ]
+                        }
+                    }
+                ]
+            },
+            "output_variable": null
+        },
+        {
+            "id": "restore_deadline",
+            "name": "Put the earlier deadline back",
+            "description": "Sets the deadline back to the earlier one, as minutes from now, so the customer's first unanswered message still counts.",
+            "type": "function",
+            "on_error": null,
+            "filters": null,
+            "config": {
+                "template_id": "template-posthog-update-ticket",
+                "inputs": {
+                    "ticket_id": {
+                        "value": "{event.properties.ticket_id}",
+                        "templating": "hog"
+                    },
+                    "sla_amount": {
+                        "value": "{dateDiff('second', now(), toDateTime(variables.ticket.sla)) / 60}",
+                        "templating": "hog"
+                    },
+                    "sla_unit": {
+                        "value": "minute",
+                        "templating": "hog"
+                    }
+                }
+            },
+            "output_variable": null
+        },
+        {
+            "id": "exit_node",
+            "name": "Exit",
+            "description": "",
+            "type": "exit",
+            "on_error": null,
+            "filters": null,
+            "config": {
+                "reason": "Done"
+            },
+            "output_variable": null
+        }
+    ],
+    "abort_action": null,
+    "variables": [],
+    "billable_action_types": ["function"]
+}
