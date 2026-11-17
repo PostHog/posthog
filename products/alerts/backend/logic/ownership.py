@@ -258,10 +258,10 @@ def take_alert_ownership(
     snapshot = OwnershipSnapshot.of(alert)
     if expected_insight is not None:
         with upgrade_insight(alert.insight), upgrade_insight(expected_insight):
-            if (
-                alert.insight_id != expected_insight.pk
-                or alert.insight.query != expected_insight.query
-                or alert.insight.filters != expected_insight.filters
+            if (alert.insight_id, alert.insight.query, alert.insight.filters) != (
+                expected_insight.pk,
+                expected_insight.query,
+                expected_insight.filters,
             ):
                 raise AlertWriteRefused("The alert or insight changed. Retry the ownership transfer.", status_code=409)
     _validate_owner(alert, actor, owner)
