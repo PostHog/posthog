@@ -1400,7 +1400,7 @@ class TestLogsAlertAPI(APIBaseTest):
 
         assert kept.status_code == status.HTTP_200_OK, kept.json()
         assert sorted(kept.json()["hog_function_ids"]) == sorted(hog_function_ids)
-        assert self._read_destinations(created["id"])[0]["id"] is None
+        assert [destination["id"] for destination in self._read_destinations(created["id"])] == [copied["id"]]
 
         reset = self.client.post(
             f"{self._destinations_url(created['id'])}reset/", {"hog_function_ids": hog_function_ids}, format="json"
@@ -1408,7 +1408,8 @@ class TestLogsAlertAPI(APIBaseTest):
 
         assert reset.status_code == status.HTTP_200_OK, reset.json()
         (row_only,) = self._read_destinations(created["id"])
-        assert (row_only["id"], row_only["hog_function_ids"]) == (reset.json()["id"], [])
+        assert (row_only["id"], row_only["hog_function_ids"]) == (copied["id"], [])
+        assert reset.json()["id"] == copied["id"]
 
         customized = self.client.post(
             f"{self._destinations_url(created['id'])}customize/", {"destination_id": row_only["id"]}, format="json"
@@ -1417,7 +1418,7 @@ class TestLogsAlertAPI(APIBaseTest):
         assert customized.status_code == status.HTTP_200_OK, customized.json()
         (listed,) = self._read_destinations(created["id"])
         assert (listed["id"], sorted(listed["hog_function_ids"])) == (
-            None,
+            copied["id"],
             sorted(customized.json()["hog_function_ids"]),
         )
         assert listed["webhook_url"] == "https://example.com"

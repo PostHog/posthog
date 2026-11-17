@@ -913,11 +913,11 @@ def has_firing_instance(*, team_id: int, public_id: UUID) -> bool:
     return alert_destinations.has_firing_instance(team_id=team_id, public_id=public_id)
 
 
-def take_source_destination_row(
+def lock_source_destination_row(
     *, team_id: int, public_id: UUID, destination_id: UUID
 ) -> StoredAlertDestination | None:
-    """Deletes one of the alert's rows and returns what it held. None when another request took it first."""
-    return alert_destinations.take_source_destination_row(
+    """One of the alert's rows, locked in the caller's transaction. None when it is gone or not the alert's."""
+    return alert_destinations.lock_source_destination_row(
         team_id=team_id, public_id=public_id, destination_id=destination_id
     )
 
@@ -932,8 +932,9 @@ def restore_source_destination(
     retired_hog_function_ids: Collection[UUID],
     hog_function_groups: Sequence[AlertDestinationGroup],
 ) -> StoredAlertDestination:
-    """Adds the row that sends a destination's standard message once the caller has retired its
-    HogFunctions. Raises `AlertDestinationValidationError` when the platform does not evaluate the alert."""
+    """Makes the destination's row send its standard message once the caller has retired its HogFunctions,
+    keeping the row's id, or adds a row when it has none. Raises `AlertDestinationValidationError` when the
+    platform does not evaluate the alert."""
     return alert_destinations.restore_source_destination(
         team_id=team_id,
         public_id=public_id,

@@ -304,10 +304,14 @@ def _refuse_duplicates(
     configuration_id: UUID,
     destinations: Sequence[NewAlertDestination],
     hog_function_groups: Sequence[AlertDestinationGroup],
+    except_id: UUID | None = None,
 ) -> None:
-    """A second destination with the same address would send every message twice."""
+    """A second destination with the same address would send every message twice. `except_id` is the
+    row being rewritten, which does not count as a second one."""
     seen = [
-        _receiver(stored.data) for stored in list_alert_destinations(team_id=team_id, configuration_id=configuration_id)
+        _receiver(stored.data)
+        for stored in list_alert_destinations(team_id=team_id, configuration_id=configuration_id)
+        if stored.id != except_id
     ]
     groups = [group for group in hog_function_groups if group.hog_function_ids]
     for destination in destinations:
@@ -479,24 +483,18 @@ def has_firing_instance(*, team_id: int, public_id: UUID) -> bool:
     )
 
 
-def take_source_destination_row(
+def lock_source_destination_row(
     *, team_id: int, public_id: UUID, destination_id: UUID
 ) -> StoredAlertDestination | None:
-    """Deletes one of the alert's rows and returns what it held, so its HogFunctions can send in its place.
-    Locked first, so of two concurrent takes only one gets the row; None for the other, and for an id
-    that is not the alert's."""
-    with transaction.atomic():
-        row = (
-            AlertDestination.objects.for_team(team_id)
-            .select_for_update()
-            .filter(id=destination_id, configuration__in=_configurations_by_public_id(team_id, public_id))
-            .first()
-        )
-        if row is None:
-            return None
-        taken = _stored(row)
-        row.delete()
-    return taken
+    """One of the alert's rows, locked until the caller's transaction ends, so a delete waits for the
+    HogFunctions the caller links to it. None for an id that is not the alert's."""
+    row = (
+        AlertDestination.objects.for_team(team_id)
+        .select_for_update()
+        .filter(id=destination_id, configuration__in=_configurations_by_public_id(team_id, public_id))
+        .first()
+    )
+    return _stored(row) if row is not None else None
 
 
 def restore_source_destination(
@@ -509,12 +507,13 @@ def restore_source_destination(
     retired_hog_function_ids: Collection[UUID],
     hog_function_groups: Sequence[AlertDestinationGroup],
 ) -> StoredAlertDestination:
-    """Adds the row that sends the standard message for a destination whose HogFunctions the caller has
-    just retired, in the caller's transaction.
+    """Makes the row that copied a destination's HogFunctions, which the caller has just retired, send the
+    standard message instead, in the caller's transaction. A destination with no such row gets a new one.
 
-    The row copies none of them: a HogFunction saved as deleted later deletes every row that copies it.
-    Rows that copied them go, because this row replaces them. Refused unless the platform evaluates the
-    alert, since only the platform sends rows."""
+    The row keeps its id, which Terraform and the pages hold, and from now on copies none of the
+    HogFunctions: a HogFunction saved as deleted later deletes every row that copies it. Any other row
+    that copied them goes, because one row stands for the destination. Refused unless the platform
+    evaluates the alert, since only the platform sends rows."""
     configuration_id = (
         _configurations_by_public_id(team_id, public_id)
         .filter(owner=PlatformAlertOwner.PLATFORM)
@@ -525,15 +524,37 @@ def restore_source_destination(
         raise AlertDestinationValidationError(
             "PostHog alerts doesn't check this alert yet, so it can't send the standard message.", field="type"
         )
-    delete_rows_copying(team_id=team_id, hog_function_ids=retired_hog_function_ids)
     retired = set(retired_hog_function_ids)
-    (created,) = create_alert_destinations(
-        team_id=team_id,
-        configuration_id=configuration_id,
-        destinations=(NewAlertDestination(data=_own_fields(data), event_kinds=tuple(event_kinds), enabled=enabled),),
-        hog_function_groups=[group for group in hog_function_groups if retired.isdisjoint(group.hog_function_ids)],
+    others = [group for group in hog_function_groups if retired.isdisjoint(group.hog_function_ids)]
+    restored = NewAlertDestination(data=_own_fields(data), event_kinds=tuple(event_kinds), enabled=enabled)
+    kept = (
+        AlertDestination.objects.for_team(team_id)
+        .filter(configuration_id=configuration_id, legacy_hog_function_ids__overlap=list(retired))
+        .select_for_update()
+        .order_by("created_at", "id")
+        .first()
     )
-    return created
+    if kept is None:
+        delete_rows_copying(team_id=team_id, hog_function_ids=retired)
+        (created,) = create_alert_destinations(
+            team_id=team_id, configuration_id=configuration_id, destinations=(restored,), hog_function_groups=others
+        )
+        return created
+    AlertDestination.objects.for_team(team_id).filter(legacy_hog_function_ids__overlap=list(retired)).exclude(
+        id=kept.id
+    ).delete()
+    _validate(restored)
+    _refuse_duplicates(team_id, configuration_id, (restored,), others, except_id=kept.id)
+    kept.type = restored.data["type"]
+    kept.config = dict(restored.data)
+    kept.event_kinds = [kind.value for kind in restored.event_kinds]
+    kept.enabled = restored.enabled
+    kept.legacy_hog_function_ids = []
+    kept.keeps_legacy_webhook_body = False
+    kept.consecutive_failures = 0
+    kept.disabled_reason = None
+    kept.save()
+    return _stored(kept)
 
 
 def delete_rows_copying(*, team_id: int, hog_function_ids: Collection[UUID]) -> int:
